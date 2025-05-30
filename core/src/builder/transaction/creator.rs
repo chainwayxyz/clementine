@@ -2,7 +2,7 @@ use super::input::UtxoVout;
 use super::operator_assert::{
     create_latest_blockhash_timeout_txhandler, create_latest_blockhash_txhandler,
 };
-use super::{remove_txhandler_from_map, DepositData, KickoffData, RoundTxInput};
+use super::{remove_txhandler_from_map, RoundTxInput};
 use crate::actor::Actor;
 use crate::bitvm_client::ClementineBitVMPublicKeys;
 use crate::builder;
@@ -10,10 +10,11 @@ use crate::builder::script::WinternitzCommit;
 use crate::builder::transaction::{
     create_assert_timeout_txhandlers, create_challenge_timeout_txhandler, create_kickoff_txhandler,
     create_mini_asserts, create_round_txhandler, create_unspent_kickoff_txhandlers, AssertScripts,
-    OperatorData, TransactionType, TxHandler,
+    TransactionType, TxHandler,
 };
 use crate::config::protocol::ProtocolParamset;
 use crate::database::Database;
+use crate::deposit::{DepositData, KickoffData, OperatorData};
 use crate::errors::{BridgeError, TxError};
 use crate::operator::PublicHash;
 use bitcoin::hashes::Hash;
@@ -337,7 +338,7 @@ pub struct ContractContext {
 
 impl ContractContext {
     /// Contains all necessary context for creating txhandlers for a specific operator and collateral chain
-    pub fn new_context_for_rounds(
+    pub fn new_context_for_round(
         operator_xonly_pk: XOnlyPublicKey,
         round_idx: u32,
         paramset: &'static ProtocolParamset,
@@ -353,7 +354,7 @@ impl ContractContext {
     }
 
     /// Contains all necessary context for creating txhandlers for a specific operator, kickoff utxo, and a deposit
-    pub fn new_context_for_kickoffs(
+    pub fn new_context_for_kickoff(
         kickoff_data: KickoffData,
         deposit_data: DepositData,
         paramset: &'static ProtocolParamset,
@@ -854,11 +855,10 @@ mod tests {
     use crate::actor::Actor;
     use crate::bitvm_client::ClementineBitVMPublicKeys;
     use crate::builder::transaction::sign::get_kickoff_utxos_to_sign;
-    use crate::builder::transaction::{
-        DepositInfo, KickoffData, TransactionType, TxHandlerBuilder,
-    };
+    use crate::builder::transaction::{TransactionType, TxHandlerBuilder};
     use crate::citrea::mock::MockCitreaClient;
     use crate::config::BridgeConfig;
+    use crate::deposit::{DepositInfo, KickoffData};
     use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
     use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
     use crate::rpc::clementine::{SignedTxsWithType, TransactionRequest};

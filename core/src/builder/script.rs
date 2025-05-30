@@ -21,6 +21,7 @@
 
 use crate::actor::WinternitzDerivationPath;
 use crate::config::protocol::ProtocolParamset;
+use crate::deposit::SecurityCouncil;
 use crate::EVMAddress;
 use bitcoin::hashes::Hash;
 use bitcoin::opcodes::OP_TRUE;
@@ -34,8 +35,6 @@ use bitvm::signatures::winternitz::{Parameters, PublicKey, SecretKey};
 use eyre::{Context, Result};
 use std::any::Any;
 use std::fmt::Debug;
-
-use super::transaction::SecurityCouncil;
 
 #[derive(Debug, Copy, Clone, serde::Serialize, serde::Deserialize)]
 pub enum SpendPath {

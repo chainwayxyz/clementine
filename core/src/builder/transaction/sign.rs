@@ -1,5 +1,5 @@
 use super::challenge::create_watchtower_challenge_txhandler;
-use super::{ContractContext, KickoffData, TxHandlerCache};
+use super::{ContractContext, TxHandlerCache};
 use crate::actor::{Actor, TweakCache, WinternitzDerivationPath};
 use crate::bitvm_client::ClementineBitVMPublicKeys;
 use crate::builder;
@@ -9,6 +9,7 @@ use crate::citrea::CitreaClientT;
 use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
 use crate::database::Database;
+use crate::deposit::KickoffData;
 use crate::errors::{BridgeError, TxError};
 use crate::operator::Operator;
 use crate::tx_sender::RbfSigningInfo;
@@ -85,7 +86,7 @@ pub async fn create_and_sign_txs(
         ))?
         .1;
 
-    let context = ContractContext::new_context_for_kickoffs(
+    let context = ContractContext::new_context_for_kickoff(
         transaction_data.kickoff_data,
         deposit_data.clone(),
         config.protocol_paramset(),
@@ -250,7 +251,7 @@ where
         round_idx: u32,
         operator_xonly_pk: XOnlyPublicKey,
     ) -> Result<Vec<(TransactionType, Transaction)>, BridgeError> {
-        let context = ContractContext::new_context_for_rounds(
+        let context = ContractContext::new_context_for_round(
             operator_xonly_pk,
             round_idx,
             self.config.protocol_paramset(),

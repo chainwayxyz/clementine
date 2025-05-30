@@ -1,20 +1,34 @@
 //! # Sighash Builder
 //!
-//! Sighash builder provides useful functions for building related SigHashes.
-//! Sighash is the message that is signed by the private key of the signer. It is used to signal
-//! under which conditions the input is signed. For more, see:
-//! <https://developer.bitcoin.org/devguide/transactions.html?highlight=sighash#signature-hash-types>
+//! This module provides functions and types for constructing signature hashes (sighashes) for the transactions in the Clementine bridge protocol.
+//! Sighash is the message that is signed by the private key of the signer.
+//!
+//! The module supports generating sighash streams for both N-of-N (verifier) and operator signatures, as well as utilities for signature identification and protocol-specific signature requirements.
+//! As the number of transactions can reach around 100_000 depending on number of entities in the protocol, we generate the sighashes in a stream to avoid memory issues.
+//!
+//! ## Responsibilities
+//!
+//! - Calculate the number of required signatures for various protocol roles and transaction types.
+//! - Generate sighash streams for all protocol-required signatures for a deposit, for both verifiers and operators.
+//! - Provide types for tracking signature requirements and spend paths.
+//!
+//! ## Key Types for Signatures
+//!
+//! - [`PartialSignatureInfo`] - Identifies a signature by operator, round, and kickoff index.
+//! - [`SignatureInfo`] - Uniquely identifies a signature, including spend path of the signature.
+//! - [`TapTweakData`] - Describes the spend path (key or script) and any required tweak data.
+//!
+//! For more on sighash types, see: <https://developer.bitcoin.org/devguide/transactions.html?highlight=sighash#signature-hash-types>
 
-use super::transaction::DepositData;
 use crate::bitvm_client;
 use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::sign::get_kickoff_utxos_to_sign;
 use crate::builder::transaction::{
-    create_txhandlers, ContractContext, KickoffData, ReimburseDbCache, TransactionType,
-    TxHandlerCache,
+    create_txhandlers, ContractContext, ReimburseDbCache, TransactionType, TxHandlerCache,
 };
 use crate::config::BridgeConfig;
 use crate::database::Database;
+use crate::deposit::{DepositData, KickoffData};
 use crate::errors::BridgeError;
 use crate::rpc::clementine::tagged_signature::SignatureId;
 use crate::rpc::clementine::NormalSignatureKind;
@@ -25,6 +39,12 @@ use futures_core::stream::Stream;
 
 impl BridgeConfig {
     /// Returns the number of required signatures for N-of-N signing session.
+    ///
+    /// # Arguments
+    /// * `deposit_data` - The deposit data for which to calculate required signatures.
+    ///
+    /// # Returns
+    /// The number of required N-of-N signatures for the deposit.
     pub fn get_num_required_nofn_sigs(&self, deposit_data: &DepositData) -> usize {
         deposit_data.get_num_operators()
             * self.protocol_paramset().num_round_txs
@@ -32,36 +52,67 @@ impl BridgeConfig {
             * self.get_num_required_nofn_sigs_per_kickoff(deposit_data)
     }
 
-    // WIP: For now, this is equal to the number of sighashes we yield in create_operator_sighash_stream.
-    // This will change as we implement the system design.
+    /// Returns the number of required operator signatures for a deposit.
+    ///
+    /// # Arguments
+    /// * `deposit_data` - The deposit data for which to calculate required signatures.
+    ///
+    /// # Returns
+    /// The number of required operator signatures for the deposit.
     pub fn get_num_required_operator_sigs(&self, deposit_data: &DepositData) -> usize {
         self.protocol_paramset().num_round_txs
             * self.protocol_paramset().num_signed_kickoffs
             * self.get_num_required_operator_sigs_per_kickoff(deposit_data)
     }
 
+    /// Returns the number of required N-of-N signatures per kickoff for a deposit.
+    ///
+    /// # Arguments
+    /// * `deposit_data` - The deposit data for which to calculate required signatures per kickoff.
+    ///
+    /// # Returns
+    /// The number of required N-of-N signatures per kickoff.
     pub fn get_num_required_nofn_sigs_per_kickoff(&self, deposit_data: &DepositData) -> usize {
         7 + 4 * deposit_data.get_num_verifiers()
             + bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs() * 2
     }
 
+    /// Returns the number of required operator signatures per kickoff for a deposit.
+    ///
+    /// # Arguments
+    /// * `deposit_data` - The deposit data for which to calculate required signatures per kickoff.
+    ///
+    /// # Returns
+    /// The number of required operator signatures per kickoff.
     pub fn get_num_required_operator_sigs_per_kickoff(&self, deposit_data: &DepositData) -> usize {
         4 + bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs()
             + deposit_data.get_num_verifiers()
     }
 
-    /// Returns the total number of winternitz pks used in kickoff utxos for blockhash commits
+    /// Returns the total number of Winternitz public keys used in kickoff UTXOs for blockhash commits.
+    ///
+    /// # Returns
+    /// The number of Winternitz public keys required for all rounds and kickoffs.
     pub fn get_num_kickoff_winternitz_pks(&self) -> usize {
         self.protocol_paramset().num_kickoffs_per_round
-            * (self.protocol_paramset().num_round_txs + 1)
+            * (self.protocol_paramset().num_round_txs + 1) // we need num_round_txs + 1 because we need one extra round tx to generate the reimburse connectors of the actual last round
     }
 
-    /// Returns the total number of unspent kickoff signatures needed from each operator
+    /// Returns the total number of unspent kickoff signatures needed from each operator.
+    ///
+    /// # Returns
+    /// The number of unspent kickoff signatures required for all rounds from one operator.
     pub fn get_num_unspent_kickoff_sigs(&self) -> usize {
         self.protocol_paramset().num_round_txs * self.protocol_paramset().num_kickoffs_per_round * 2
     }
 
-    /// Returns the number of challenge ack hashes needed for a single operator for each round
+    /// Returns the number of challenge ack hashes needed for a single operator for each round.
+    ///
+    /// # Arguments
+    /// * `deposit_data` - The deposit data for which to calculate required challenge ack hashes.
+    ///
+    /// # Returns
+    /// The number of challenge ack hashes required for the deposit.
     pub fn get_num_challenge_ack_hashes(&self, deposit_data: &DepositData) -> usize {
         deposit_data.get_num_watchtowers()
     }
@@ -72,6 +123,7 @@ impl BridgeConfig {
     // }
 }
 
+/// Identifies a signature by operator, round, and kickoff index.
 #[derive(Copy, Clone, Debug)]
 pub struct PartialSignatureInfo {
     pub operator_idx: usize,
@@ -81,7 +133,7 @@ pub struct PartialSignatureInfo {
 
 /// Contains information about the spend path that is needed to sign the utxo.
 /// If it is KeyPath, it also includes the merkle root hash of the scripts as
-/// the hash is needed to tweak the key before signing. For ScriptPath nothing is needed.
+/// the root hash is needed to tweak the key before signing. For ScriptPath nothing is needed.
 #[derive(Copy, Clone, Debug)]
 pub enum TapTweakData {
     KeyPath(Option<TapNodeHash>),
@@ -89,6 +141,12 @@ pub enum TapTweakData {
     Unknown,
 }
 
+/// Contains information to uniquely identify a single signature in the deposit.
+/// operator_idx, round_idx, and kickoff_utxo_idx uniquely identify a kickoff.
+/// signature_id uniquely identifies a signature in that specific kickoff.
+/// tweak_data contains information about the spend path that is needed to sign the utxo.
+/// kickoff_txid is the txid of the kickoff tx the signature belongs to. This is not actually needed for the signature, it is only used to
+/// pass the kickoff txid to the caller of the sighash streams in this module.
 #[derive(Copy, Clone, Debug)]
 pub struct SignatureInfo {
     pub operator_idx: usize,
@@ -111,6 +169,7 @@ impl PartialSignatureInfo {
             kickoff_utxo_idx,
         }
     }
+    /// Completes the partial info with a signature id and spend path data.
     pub fn complete(&self, signature_id: SignatureId, spend_data: TapTweakData) -> SignatureInfo {
         SignatureInfo {
             operator_idx: self.operator_idx,
@@ -121,6 +180,7 @@ impl PartialSignatureInfo {
             kickoff_txid: None,
         }
     }
+    /// Completes the partial info with a kickoff txid (for yielding kickoff txid in sighash streams).
     pub fn complete_with_kickoff_txid(&self, kickoff_txid: bitcoin::Txid) -> SignatureInfo {
         SignatureInfo {
             operator_idx: self.operator_idx,
@@ -133,21 +193,21 @@ impl PartialSignatureInfo {
     }
 }
 
-/// Refer to bridge design diagram to see which NofN signatures are needed (the ones marked with blue arrows).
-/// These sighashes are needed in order to create the message to be signed later for MuSig2 of NofN.
-/// yield_kickoff_txid is used to yield the kickoff txid
-/// Kickoff txid yield has an empty sighash and a signature info with the kickoff txid
-/// For a given deposit tx, for each operator and round tx, generates the sighash stream for:
-/// - challenge_tx,
-/// - start_happy_reimburse_tx,
-/// - happy_reimburse_tx,
-/// - watchtower_challenge_kickoff_tx,
-/// - kickoff_timeout_tx,
-/// - for each watchtower, operator_challenge_NACK_tx (for 2 inputs),
-/// - assert_end_tx,
-/// - disprove_timeout_tx (for 2 inputs),
-/// - already_disproved_tx,
-/// - reimburse_tx.
+/// Generates the sighash stream for all N-of-N (verifier) signatures required for a deposit. See [clementine whitepaper](https://citrea.xyz/clementine_whitepaper.pdf) for details on the transactions.
+///
+/// For a given deposit, for each operator and round, generates the sighash stream for all protocol-required transactions.
+/// If `yield_kickoff_txid` is true, yields the kickoff txid as a special entry.
+///
+/// # Arguments
+/// * `db` - Database handle.
+/// * `config` - Bridge configuration.
+/// * `deposit_data` - Deposit data for which to generate sighashes.
+/// * `deposit_blockhash` - Block hash of the deposit.
+/// * `yield_kickoff_txid` - Whether to yield the kickoff txid as a special entry.
+///
+/// # Returns
+///
+/// An async stream of ([`TapSighash`], [`SignatureInfo`]) pairs, or [`BridgeError`] on failure.
 pub fn create_nofn_sighash_stream(
     db: Database,
     config: BridgeConfig,
@@ -186,7 +246,7 @@ pub fn create_nofn_sighash_stream(
                 for &kickoff_idx in &utxo_idxs {
                     let partial = PartialSignatureInfo::new(operator_idx, round_idx, kickoff_idx);
 
-                    let context = ContractContext::new_context_for_kickoffs(
+                    let context = ContractContext::new_context_for_kickoff(
                         KickoffData {
                             operator_xonly_pk: *op_xonly_pk,
                             round_idx: round_idx as u32,
@@ -239,13 +299,23 @@ pub fn create_nofn_sighash_stream(
         }
     }
 }
-/// These operator sighashes are needed so that each operator can share the signatures with each verifier, so that
-/// verifiers have the ability to burn the burn connector of operators.
-/// WIP: Update if the design changes.
-/// This function generates Kickoff Timeout TX, Already Disproved TX,
-/// and Disprove TX for each sequential_collateral_tx and kickoff_utxo. It yields the sighashes for these tx's for the input that has operators burn connector.
-/// Possible future optimization: Each verifier already generates some of these TX's in create_operator_sighash_stream()
-/// It is possible to for verifiers somehow return the required sighashes for operator signatures there too. But operators only needs to use sighashes included in this function.
+
+/// Generates the sighash stream for all operator signatures required for a deposit. These signatures required by the operators are
+/// the signatures needed to burn the collateral of the operators, only able to be burned if the operator is malicious.
+/// See [clementine whitepaper](https://citrea.xyz/clementine_whitepaper.pdf) for details on the transactions.
+///
+/// # Arguments
+/// * `db` - Database handle.
+/// * `operator_xonly_pk` - X-only public key of the operator.
+/// * `config` - Bridge configuration.
+/// * `deposit_data` - Deposit data for which to generate sighashes.
+/// * `deposit_blockhash` - Block hash of the deposit.
+///
+/// # Returns
+///
+/// An async stream of (sighash, [`SignatureInfo`]) pairs, or [`BridgeError`] on failure.
+// Possible future optimization: Each verifier already generates some of these TX's in create_nofn_sighash_stream()
+// It is possible to for verifiers somehow return the required sighashes for operator signatures there too. But operators only needs to use sighashes included in this function.
 pub fn create_operator_sighash_stream(
     db: Database,
     operator_xonly_pk: XOnlyPublicKey,
@@ -279,7 +349,7 @@ pub fn create_operator_sighash_stream(
             for &kickoff_idx in &utxo_idxs {
                 let partial = PartialSignatureInfo::new(operator_idx, round_idx, kickoff_idx);
 
-                let context = ContractContext::new_context_for_kickoffs(
+                let context = ContractContext::new_context_for_kickoff(
                     KickoffData {
                         operator_xonly_pk,
                         round_idx: round_idx as u32,

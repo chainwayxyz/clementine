@@ -13,14 +13,14 @@ use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::builder::transaction::{
     create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler,
-    create_round_txhandlers, create_txhandlers, ContractContext, DepositData, KickoffData,
-    KickoffWinternitzKeys, OperatorData, ReimburseDbCache, TransactionType, TxHandler,
-    TxHandlerCache,
+    create_round_txhandlers, create_txhandlers, ContractContext, KickoffWinternitzKeys,
+    ReimburseDbCache, TransactionType, TxHandler, TxHandlerCache,
 };
 use crate::citrea::CitreaClientT;
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::database::DatabaseTransaction;
+use crate::deposit::{DepositData, KickoffData, OperatorData};
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::header_chain_prover::HeaderChainProver;
@@ -627,7 +627,7 @@ where
         let mut winternitz_pubkeys =
             Vec::with_capacity(self.config.get_num_kickoff_winternitz_pks());
 
-        // we need num_round_txs + 1 because the last round includes reimburse generators of previous round
+        // we need num_round_txs + 1 because we need one extra round tx to generate the reimburse connectors of the actual last round
         for round_idx in 0..self.config.protocol_paramset().num_round_txs + 1 {
             for kickoff_idx in 0..self.config.protocol_paramset().num_kickoffs_per_round {
                 let path = WinternitzDerivationPath::Kickoff(
@@ -1042,7 +1042,7 @@ where
         _payout_blockhash: Witness,
         latest_blockhash: Witness,
     ) -> Result<(), BridgeError> {
-        let context = ContractContext::new_context_for_kickoffs(
+        let context = ContractContext::new_context_for_kickoff(
             kickoff_data,
             deposit_data.clone(),
             self.config.protocol_paramset(),

@@ -8,8 +8,8 @@ use super::script::{
     BaseDepositScript, CheckSig, Multisig, ReplacementDepositScript, SpendableScript,
     TimelockScript,
 };
-use super::transaction::SecurityCouncil;
 use crate::bitvm_client::SECP;
+use crate::deposit::SecurityCouncil;
 use crate::errors::BridgeError;
 use crate::{bitvm_client, EVMAddress};
 use bitcoin::address::NetworkUnchecked;
