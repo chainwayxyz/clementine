@@ -4,9 +4,9 @@
 //! module must be fed with new blocks via the database. Later, it can check if
 //! proving should be triggered by verifying if the batch size is sufficient.
 
+use crate::builder::block_cache::BlockCache;
 use crate::database::DatabaseTransaction;
 use crate::errors::ResultExt;
-use crate::states::block_cache::BlockCache;
 use crate::{
     config::BridgeConfig,
     database::Database,

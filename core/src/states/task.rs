@@ -1,6 +1,6 @@
 use crate::{
-    bitcoin_syncer::BitcoinSyncerEvent,
-    database::Database,
+    bitcoin_syncer::{BitcoinSyncerEvent, BlockHandler, FinalizedBlockFetcherTask},
+    database::{Database, DatabaseTransaction},
     task::{BufferedErrors, IntoTask, WithDelay},
 };
 use eyre::Context as _;
@@ -22,6 +22,38 @@ const POLL_DELAY: Duration = if cfg!(test) {
 } else {
     Duration::from_secs(1)
 };
+
+/// Block handler that sends events to a PostgreSQL message queue
+#[derive(Debug, Clone)]
+pub struct QueueBlockHandler {
+    queue: PGMQueueExt,
+    queue_name: String,
+}
+
+#[async_trait]
+impl BlockHandler for QueueBlockHandler {
+    async fn handle_new_block(
+        &mut self,
+        dbtx: DatabaseTransaction<'_, '_>,
+        block_id: u32,
+        block: bitcoin::Block,
+        height: u32,
+    ) -> Result<(), BridgeError> {
+        let event = SystemEvent::NewBlock {
+            block_id,
+            block,
+            height,
+        };
+
+        self.queue
+            .send_with_cxn(&self.queue_name, &event, &mut **dbtx)
+            .await
+            .map_err(|e| {
+                BridgeError::Error(format!("Error sending new block event to queue: {:?}", e))
+            })?;
+        Ok(())
+    }
+}
 
 /// A task that fetches new blocks from Bitcoin and adds them to the state management queue
 #[derive(Debug)]
@@ -46,113 +78,28 @@ impl<T: Owner + std::fmt::Debug + 'static> BlockFetcherTask<T> {
         next_height: u32,
         db: Database,
         paramset: &'static ProtocolParamset,
-    ) -> Result<Self, BridgeError> {
+    ) -> Result<FinalizedBlockFetcherTask<QueueBlockHandler>, BridgeError> {
         let queue = PGMQueueExt::new_with_pool(db.get_pool()).await;
         let queue_name = StateManager::<T>::queue_name();
 
         tracing::info!(
             "Creating block fetcher task for owner type {} starting from height {}",
-            T::OWNER_TYPE,
+            T::ENTITY_NAME,
             next_height
         );
 
-        Ok(Self {
-            db,
+        let handler = QueueBlockHandler {
             queue,
+            queue_name: queue_name.clone(),
+        };
+
+        Ok(crate::bitcoin_syncer::FinalizedBlockFetcherTask::new(
+            db,
             queue_name,
-            next_height,
             paramset,
-            _phantom: std::marker::PhantomData,
-        })
-    }
-}
-
-#[async_trait]
-impl<T: Owner + std::fmt::Debug + 'static> Task for BlockFetcherTask<T> {
-    type Output = bool;
-
-    async fn run_once(&mut self) -> Result<Self::Output, BridgeError> {
-        let mut dbtx = self.db.begin_transaction().await?;
-
-        // Poll for the next bitcoin syncer event
-        let Some(event) = self
-            .db
-            .fetch_next_bitcoin_syncer_evt(&mut dbtx, &self.queue_name)
-            .await?
-        else {
-            // No event found, we can safely commit the transaction and return
-            dbtx.commit().await?;
-            return Ok(false);
-        };
-
-        // Process the event
-        let did_find_new_block = match event {
-            BitcoinSyncerEvent::NewBlock(block_id) => {
-                let current_tip_height = self
-                    .db
-                    .get_block_info_from_id(Some(&mut dbtx), block_id)
-                    .await?
-                    .ok_or(BridgeError::Error(
-                        "Block not found in BlockFetcherTask".to_string(),
-                    ))?
-                    .1;
-                let mut new_tip = false;
-
-                // Update states to catch up to finalized chain
-                while current_tip_height >= self.paramset.finality_depth
-                    && self.next_height <= current_tip_height - self.paramset.finality_depth
-                {
-                    new_tip = true;
-
-                    let block = self
-                        .db
-                        .get_full_block(Some(&mut dbtx), self.next_height)
-                        .await?
-                        .ok_or(BridgeError::Error(format!(
-                            "Block at height {} not found in BlockFetcherTask, current tip height is {}",
-                            self.next_height, current_tip_height
-                        )))?;
-
-                    let new_block_id = self
-                        .db
-                        .get_canonical_block_id_from_height(Some(&mut dbtx), self.next_height)
-                        .await?;
-
-                    if new_block_id.is_none() {
-                        tracing::error!("Block at height {} not found in BlockFetcherTask, current tip height is {}", self.next_height, current_tip_height);
-                        return Err(BridgeError::Error(format!(
-                            "Block at height {} not found in BlockFetcherTask, current tip height is {}",
-                            self.next_height, current_tip_height
-                        )));
-                    }
-
-                    let event = SystemEvent::NewBlock {
-                        block_id: new_block_id.expect("it must be some"),
-                        block,
-                        height: self.next_height,
-                    };
-
-                    self.queue
-                        .send_with_cxn(&self.queue_name, &event, &mut *dbtx)
-                        .await
-                        .map_err(|e| {
-                            BridgeError::Error(format!(
-                                "Error sending new block event to queue: {:?}",
-                                e
-                            ))
-                        })?;
-
-                    self.next_height += 1;
-                }
-
-                new_tip
-            }
-            BitcoinSyncerEvent::ReorgedBlock(_) => false,
-        };
-
-        dbtx.commit().await?;
-        // Return whether we found new blocks
-        Ok(did_find_new_block)
+            next_height,
+            handler,
+        ))
     }
 }
 
@@ -221,7 +168,9 @@ impl<T: Owner + std::fmt::Debug + 'static> IntoTask for StateManager<T> {
 }
 
 impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
-    pub async fn block_fetcher_task(&self) -> Result<WithDelay<BlockFetcherTask<T>>, BridgeError> {
+    pub async fn block_fetcher_task(
+        &self,
+    ) -> Result<WithDelay<impl Task<Output = bool> + std::fmt::Debug>, BridgeError> {
         Ok(
             BlockFetcherTask::<T>::new(self.next_height_to_process, self.db.clone(), self.paramset)
                 .await?
@@ -243,6 +192,7 @@ mod tests {
         database::DatabaseTransaction,
         states::{block_cache, context::DutyResult, Duty},
         test::common::create_test_config_with_thread_name,
+        utils::NamedEntity,
     };
 
     use super::*;
@@ -250,10 +200,12 @@ mod tests {
     #[derive(Clone, Debug)]
     struct MockHandler;
 
+    impl NamedEntity for MockHandler {
+        const ENTITY_NAME: &'static str = "MockHandler";
+    }
+
     #[async_trait]
     impl Owner for MockHandler {
-        const OWNER_TYPE: &'static str = "MockHandler";
-
         async fn handle_duty(&self, _: Duty) -> Result<DutyResult, BridgeError> {
             Ok(DutyResult::Handled)
         }

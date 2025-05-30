@@ -15,7 +15,8 @@ use eyre::Context;
 
 use crate::builder::{self};
 
-use super::{log_error_for_tx, RbfSigningInfo, Result, SendTxError, TxMetadata, TxSender};
+use super::{log_error_for_tx, Result, SendTxError, TxMetadata, TxSender};
+use crate::utils::RbfSigningInfo;
 
 impl TxSender {
     /// Calculates the appropriate fee rate for a Replace-By-Fee (RBF) transaction.
@@ -837,7 +838,7 @@ mod tests {
     use crate::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind};
     use crate::task::{IntoTask, TaskExt};
     use crate::test::common::*;
-    use crate::tx_sender::FeePayingType;
+    use crate::utils::FeePayingType;
     use bitcoin::hashes::Hash;
     use bitcoin::transaction::Version;
     use bitcoin::TxOut;

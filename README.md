@@ -138,8 +138,8 @@ Clementine is designed to be run multiple times for every actor that an entity
 requires. An actor's server can be started using its corresponding argument:
 
 ```sh
-# Build the binary
-cargo build --release
+# Build the binary (with optional automation)
+cargo build --release [--features automation]
 
 # Run binary with configuration file
 ./target/release/clementine-core verifier --config /path/to/config.toml
@@ -246,7 +246,7 @@ export TEST_CONFIG=/path/to/configuration.toml
 To run all tests:
 
 ```sh
-cargo test
+cargo test --all-features
 ```
 
 ## Security Considerations

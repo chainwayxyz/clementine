@@ -601,6 +601,11 @@ message CreateEmergencyStopTxRequest {
   bool add_anchor = 2;
 }
 
+message SendMoveTxRequest {
+  RawSignedTx raw_tx = 1;
+  Outpoint deposit_outpoint = 2;
+}
+
 service ClementineAggregator {
   rpc GetNofnAggregatedXonlyPk(Empty) returns (NofnResponse) {}
 
@@ -622,7 +627,7 @@ service ClementineAggregator {
   // tx.
   //
   // Used by the clementine-backend service to initiate a deposit
-  rpc NewDeposit(Deposit) returns (Txid) {}
+  rpc NewDeposit(Deposit) returns (RawSignedTx) {}
 
   // Call's withdraw on all operators
   // Used by the clementine-backend service to initiate a withdrawal
@@ -635,6 +640,7 @@ service ClementineAggregator {
   // Send a pre-signed tx to the network
   rpc InternalSendTx(SendTxRequest) returns (Empty) {}
 
+  rpc SendMoveToVaultTx(SendMoveTxRequest) returns (Txid) {}
 
   // Creates an emergency stop tx that won't be broadcasted.
   // Tx will have around 3 sats/vbyte fee.

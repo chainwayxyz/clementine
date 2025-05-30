@@ -4,6 +4,9 @@ version = "0.3.0"
 edition = "2021"
 rust-version = "1.85.0"
 
+[features]
+automation = []
+
 [build-dependencies]
 tonic-build = "0.12"
 vergen-git2 = { workspace = true }

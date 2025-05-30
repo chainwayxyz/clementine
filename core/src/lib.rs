@@ -4,6 +4,7 @@
 //! Clementine Core provides core functionalities for Clementine to operate.
 
 #![allow(clippy::too_many_arguments)]
+#![allow(warnings)]
 
 use bitcoin::{OutPoint, Txid};
 use serde::{Deserialize, Serialize};
@@ -25,8 +26,10 @@ pub mod musig2;
 pub mod operator;
 pub mod rpc;
 pub mod servers;
+#[cfg(feature = "automation")]
 pub mod states;
 pub mod task;
+#[cfg(feature = "automation")]
 pub mod tx_sender;
 pub mod utils;
 pub mod verifier;

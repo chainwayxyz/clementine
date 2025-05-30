@@ -4,11 +4,12 @@ use std::collections::BTreeMap;
 
 use bitcoin::{OutPoint, Transaction, Txid};
 
-use super::{ActivatedWithOutpoint, ActivatedWithTxid, FeePayingType, RbfSigningInfo, TxMetadata};
+use super::{ActivatedWithOutpoint, ActivatedWithTxid};
 use crate::builder::transaction::input::UtxoVout;
 use crate::errors::ResultExt;
 use crate::rpc;
 use crate::rpc::clementine::XonlyPublicKey;
+use crate::utils::{FeePayingType, RbfSigningInfo, TxMetadata};
 use crate::{
     builder::transaction::TransactionType,
     config::BridgeConfig,

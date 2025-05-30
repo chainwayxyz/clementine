@@ -13,15 +13,18 @@ use crate::database::Database;
 use crate::extended_rpc::ExtendedRpc;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
+use crate::rpc::clementine::SendMoveTxRequest;
 use crate::rpc::clementine::{
     Deposit, Empty, FinalizedPayoutParams, SignedTxsWithType, TransactionRequest,
 };
 use crate::test::common::*;
-use crate::tx_sender::{RbfSigningInfo, TxSenderClient};
+use crate::tx_sender::TxSenderClient;
+use crate::utils::RbfSigningInfo;
 use crate::EVMAddress;
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::PublicKey;
-use bitcoin::{OutPoint, Txid, XOnlyPublicKey};
+use bitcoin::{OutPoint, Transaction, Txid, XOnlyPublicKey};
+use bitcoincore_rpc::RpcApi;
 use eyre::{Context, Result};
 use tonic::Request;
 
@@ -93,7 +96,7 @@ async fn base_setup(
     tracing::info!("Deposit transaction mined: {}", deposit_outpoint);
 
     let deposit_info = DepositInfo {
-        deposit_outpoint,
+        deposit_outpoint: deposit_outpoint.clone(),
         deposit_type: DepositType::BaseDeposit(BaseDepositData {
             evm_address,
             recovery_taproot_address: recovery_taproot_address.as_unchecked().to_owned(),
@@ -103,13 +106,20 @@ async fn base_setup(
     let dep_params: Deposit = deposit_info.clone().into();
 
     tracing::info!("Creating move transaction");
-    let move_tx_response = aggregator.new_deposit(dep_params).await?.into_inner();
-    ensure_tx_onchain(
-        rpc,
-        Txid::from_byte_array(move_tx_response.txid.clone().try_into().unwrap()),
-    )
-    .await?;
-    tracing::info!("Move transaction sent: {:x?}", move_tx_response.txid);
+    let raw_move_tx = aggregator.new_deposit(dep_params).await?.into_inner();
+
+    let move_txid: Txid = aggregator
+        .send_move_to_vault_tx(Request::new(SendMoveTxRequest {
+            raw_tx: Some(raw_move_tx),
+            deposit_outpoint: Some(deposit_outpoint.into()),
+        }))
+        .await?
+        .into_inner()
+        .try_into()
+        .unwrap();
+
+    ensure_tx_onchain(rpc, move_txid).await?;
+    tracing::info!("Move transaction sent: {:x?}", move_txid);
     let op0_xonly_pk = Actor::new(
         config
             .test_params
@@ -196,7 +206,7 @@ pub async fn run_operator_end_round(
     tracing::info!("Deposit transaction mined: {}", deposit_outpoint);
 
     let deposit_info = DepositInfo {
-        deposit_outpoint,
+        deposit_outpoint: deposit_outpoint.clone(),
         deposit_type: DepositType::BaseDeposit(BaseDepositData {
             evm_address,
             recovery_taproot_address: recovery_taproot_address.as_unchecked().to_owned(),
@@ -206,10 +216,16 @@ pub async fn run_operator_end_round(
     let dep_params: Deposit = deposit_info.into();
 
     tracing::info!("Creating move transaction");
-    let move_tx_response = aggregator.new_deposit(dep_params).await?.into_inner();
-
-    let move_txid: bitcoin::Txid =
-        bitcoin::Txid::from_byte_array(move_tx_response.txid.try_into().unwrap());
+    let raw_move_tx = aggregator.new_deposit(dep_params).await?.into_inner();
+    let move_txid = aggregator
+        .send_move_to_vault_tx(SendMoveTxRequest {
+            deposit_outpoint: Some(deposit_outpoint.into()),
+            raw_tx: Some(raw_move_tx),
+        })
+        .await?
+        .into_inner()
+        .try_into()
+        .unwrap();
 
     tracing::info!(
         "Move transaction sent, waiting for on-chain confirmation: {:x?}",
@@ -522,7 +538,7 @@ pub async fn run_simple_assert_flow(config: &mut BridgeConfig, rpc: ExtendedRpc)
     tracing::info!("Sending challenge transaction");
     send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Challenge).await?;
 
-    // Directly create and send assert transactions
+    // Directly create and send assert transactions directly
     tracing::info!("Creating and sending assert transactions directly");
 
     // Get deposit data and kickoff ID for assert creation

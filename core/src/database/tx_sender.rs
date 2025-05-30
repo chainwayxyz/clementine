@@ -6,9 +6,8 @@ use super::{wrapper::TxidDB, Database, DatabaseTransaction};
 use crate::{
     errors::BridgeError,
     execute_query_with_tx,
-    tx_sender::{
-        ActivatedWithOutpoint, ActivatedWithTxid, FeePayingType, RbfSigningInfo, TxMetadata,
-    },
+    tx_sender::{ActivatedWithOutpoint, ActivatedWithTxid},
+    utils::{FeePayingType, RbfSigningInfo, TxMetadata},
 };
 use bitcoin::{
     consensus::{deserialize, serialize},
