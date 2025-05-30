@@ -55,7 +55,7 @@ use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 
 pub type SecretPreimage = [u8; 20];
-pub type PublicHash = [u8; 20]; // TODO: Make sure these are 20 bytes and maybe do this a struct?
+pub type PublicHash = [u8; 20];
 
 pub struct OperatorServer<C: CitreaClientT> {
     pub operator: Operator<C>,

@@ -94,7 +94,6 @@ where
         )
         .await?;
 
-        // TODO: Removing index causes to remove the index from the tx_sender handle as well
         let tx_sender = TxSender::new(
             verifier.signer.clone(),
             rpc.clone(),
@@ -188,8 +187,7 @@ where
             sessions: HashMap::new(),
         };
 
-        // TODO: Removing index causes to remove the index from the tx_sender handle as well
-        let tx_sender = TxSenderClient::new(db.clone(), "verifier_".to_string());
+        let tx_sender = TxSenderClient::new(db.clone(), "verifier".to_string());
 
         let header_chain_prover = if std::env::var("ENABLE_HEADER_CHAIN_PROVER").is_ok() {
             Some(HeaderChainProver::new(&config, rpc.clone()).await?)
@@ -414,7 +412,10 @@ where
         &self,
         num_nonces: u32,
     ) -> Result<(u32, Vec<MusigPubNonce>), BridgeError> {
-        let (sec_nonces, pub_nonces): (Vec<MusigSecNonce>, Vec<MusigPubNonce>) = (0..num_nonces)
+        let (mut sec_nonces, mut pub_nonces): (Vec<MusigSecNonce>, Vec<MusigPubNonce>) =
+            (vec![], vec![]);
+
+        for result in (0..num_nonces)
             .map(|_| {
                 // nonce pair needs keypair and a rng
                 let (sec_nonce, pub_nonce) = musig2::nonce_pair(
@@ -423,9 +424,12 @@ where
                 )?;
                 Ok((sec_nonce, pub_nonce))
             })
-            .collect::<Result<Vec<(MusigSecNonce, MusigPubNonce)>, BridgeError>>()?
             .into_iter()
-            .unzip(); // TODO: fix extra copies
+        {
+            let (sec_nonce, pub_nonce) = result?;
+            sec_nonces.push(sec_nonce);
+            pub_nonces.push(pub_nonce);
+        }
 
         let session = NonceSession { nonces: sec_nonces };
 
@@ -859,7 +863,6 @@ where
             )
             .await?;
         // Deposit is not actually finalized here, its only finalized after the aggregator gets all the partial sigs and checks the aggregated sig
-        // TODO: It can create problems if the deposit fails at the end by some verifier not sending movetx partial sig, but we still added sigs to db
         for (operator_idx, (operator_xonly_pk, operator_sigs)) in operator_xonly_pks
             .into_iter()
             .zip(verified_sigs.into_iter())

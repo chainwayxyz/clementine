@@ -182,7 +182,6 @@ pub async fn set_initial_block_info_if_not_exists(
         return Ok(());
     }
 
-    // TODO: save blocks starting from start_height in config paramset
     let current_height = u32::try_from(
         rpc.client
             .get_block_count()

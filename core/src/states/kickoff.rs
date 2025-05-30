@@ -56,11 +56,6 @@ pub enum KickoffEvent {
 
 #[serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-// TODO: add and save operator challenge acks
-// all timelocks
-// delete used matchers
-// apply only first match
-
 pub struct KickoffStateMachine<T: Owner> {
     #[serde_as(as = "Vec<(_, _)>")]
     pub(crate) matchers: HashMap<Matcher, KickoffEvent>,
@@ -95,7 +90,6 @@ impl<T: Owner> BlockMatcher for KickoffStateMachine<T> {
 }
 
 impl<T: Owner> KickoffStateMachine<T> {
-    // TODO: num_operators and num_watchtowers in deposit_data in the future
     pub fn new(
         kickoff_data: KickoffData,
         kickoff_height: u32,
@@ -455,8 +449,6 @@ impl<T: Owner> KickoffStateMachine<T> {
         let kickoff_txid = *kickoff_txhandler.get_txid();
         let num_asserts = crate::bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs();
         for assert_idx in 0..num_asserts {
-            // TODO: use dedicated functions or smth else, not hardcoded here.
-            // It will be easier when we have data of operators/watchtowers that participated in the deposit in DepositData
             let mini_assert_vout = UtxoVout::Assert(assert_idx).get_vout();
             let assert_timeout_txhandler = remove_txhandler_from_map(
                 &mut txhandlers,
@@ -496,8 +488,6 @@ impl<T: Owner> KickoffStateMachine<T> {
         );
         // add watchtower challenges and challenge acks
         for watchtower_idx in 0..self.deposit_data.get_num_watchtowers() {
-            // TODO: use dedicated functions or smth else, not hardcoded here.
-            // It will be easier when we have data of operators/watchtowers that participated in the deposit in DepositData
             let watchtower_challenge_vout =
                 UtxoVout::WatchtowerChallenge(watchtower_idx).get_vout();
             let watchtower_timeout_txhandler = remove_txhandler_from_map(

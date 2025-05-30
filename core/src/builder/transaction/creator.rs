@@ -334,7 +334,6 @@ pub struct ContractContext {
     kickoff_idx: Option<u32>,
     deposit_data: Option<DepositData>,
     signer: Option<Actor>,
-    // TODO: why different winternitz_secret_key???
 }
 
 impl ContractContext {

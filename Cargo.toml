@@ -128,6 +128,3 @@ secp256k1 = { git = "https://github.com/jlest01/rust-secp256k1", rev = "1cc7410d
 lto = true
 strip = true
 codegen-units = 1
-# TODO: Abort on panic can be enabled to save binary space. But needs a proper
-# error management infrastructure to not lose crash report.
-# panic = "abort"

@@ -583,18 +583,6 @@ impl From<TransactionType> for GrpcTransactionId {
     }
 }
 
-/// Creates a P2WSH output that anyone can spend. TODO: We will not need this in the future.
-pub fn anyone_can_spend_txout() -> TxOut {
-    let script = Builder::new().push_opcode(OP_PUSHNUM_1).into_script();
-    let script_pubkey = script.to_p2wsh();
-    let value = script_pubkey.minimal_non_dust();
-
-    TxOut {
-        script_pubkey,
-        value,
-    }
-}
-
 /// Creates a P2A output for CPFP.
 pub fn anchor_output() -> TxOut {
     TxOut {

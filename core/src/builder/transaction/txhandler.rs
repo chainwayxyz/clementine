@@ -453,7 +453,7 @@ impl TxHandlerBuilder {
             version: self.version,
             lock_time: self.lock_time,
             input: self.txins.iter().map(|s| s.to_txin()).collect(),
-            output: self.txouts.iter().map(|s| s.txout().clone()).collect(), // TODO: Get rid of .clone()
+            output: self.txouts.iter().map(|s| s.txout().clone()).collect(),
         };
         let txid = tx.compute_txid();
 

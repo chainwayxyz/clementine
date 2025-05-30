@@ -60,8 +60,6 @@ pub type InscriptionTxs = (OutPoint, Txid);
 pub struct EVMAddress(#[serde(with = "hex::serde")] pub [u8; 20]);
 
 impl_try_from_vec_u8!(EVMAddress, 20);
-/// Type alias for withdrawal payment, HashType is taproot script hash
-// pub type WithdrawalPayment = (Txid, HashType);
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct UTXO {

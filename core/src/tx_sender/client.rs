@@ -275,7 +275,7 @@ impl TxSenderClient {
                     rbf_info,
                     &[OutPoint {
                         txid: kickoff_txid,
-                        vout: 1, // TODO: Make this a function of smth
+                        vout: UtxoVout::KickoffFinalizer.get_vout(),
                     }],
                     &[],
                     &[],
