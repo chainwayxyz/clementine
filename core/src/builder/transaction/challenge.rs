@@ -141,7 +141,7 @@ pub fn create_watchtower_challenge_timeout_txhandler(
     )
 }
 
-/// Creates a [`TxHandler`] for the `operator_challenge_NACK_tx`.
+/// Creates a [`TxHandler`] for the `OperatorChallengeNack` transaction.
 ///
 /// This transaction is used to force an operator to reveal a preimage for a watchtower challenge. If a watchtower sends a watchtower challenge,
 /// but the operator does not reveal the preimage by sending an OperatorChallengeAck, after a specified number of time (defined in paramset),
