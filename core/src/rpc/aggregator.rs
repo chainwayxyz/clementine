@@ -784,7 +784,8 @@ impl Aggregator {
         add_anchor: bool,
     ) -> Result<bitcoin::Transaction, BridgeError> {
         let stop_txs = self.db.get_emergency_stop_txs(None, move_txids).await?;
-        let combined_stop_tx = combine_emergency_stop_txhandler(stop_txs, add_anchor);
+        let combined_stop_tx =
+            combine_emergency_stop_txhandler(stop_txs, add_anchor, self.config.protocol_paramset());
 
         Ok(combined_stop_tx)
     }
