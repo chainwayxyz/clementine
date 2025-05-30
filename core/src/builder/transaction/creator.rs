@@ -539,9 +539,7 @@ pub async fn create_txhandlers(
     let watchtower_challenge_start_idx = (FIRST_FIVE_OUTPUTS + NUMBER_OF_ASSERT_TXS) as u16;
     let secp = Secp256k1::verification_only();
 
-    let nofn_key: XOnlyPublicKey = deposit_data
-        .get_nofn_xonly_pk()
-        .wrap_err("nofn xonly_pk not set")?;
+    let nofn_key: XOnlyPublicKey = deposit_data.get_nofn_xonly_pk()?;
 
     let watchtower_xonly_pk = deposit_data.get_watchtowers();
     let watchtower_pubkeys = watchtower_xonly_pk
