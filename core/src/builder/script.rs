@@ -101,6 +101,10 @@ pub fn extract_winternitz_commits_with_sigs(
     if paramset.winternitz_log_d != 4 {
         return Err(eyre::eyre!("Only winternitz_log_d = 4 is supported"));
     }
+    // Structure: [commit][signature_sequence][element]
+    // - commit: one signed message
+    // - signature_sequence: alternating signature elements and signed characters, ending with a checksum
+    // - element: raw bytes of either a signature part, signed character, or checksum
     let mut commits_with_sig: Vec<Vec<Vec<u8>>> = Vec::new();
     let mut cur_witness_iter = witness.into_iter().skip(1);
 
