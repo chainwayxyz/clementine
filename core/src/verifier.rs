@@ -1,5 +1,5 @@
 use crate::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
-use crate::bitcoin_syncer::BitcoinSyncer;
+use crate::bitcoin_syncer::{BitcoinSyncer, BlockHandler, FinalizedBlockFetcherTask};
 use crate::bitvm_client::ClementineBitVMPublicKeys;
 use crate::builder::address::{create_taproot_address, taproot_builder_with_scripts};
 use crate::builder::block_cache;
@@ -25,7 +25,7 @@ use crate::extended_rpc::ExtendedRpc;
 use crate::header_chain_prover::{HeaderChainProver, HeaderChainProverError};
 use crate::rpc::clementine::{NormalSignatureKind, OperatorKeys, TaggedSignature};
 use crate::task::manager::BackgroundTaskManager;
-use crate::task::IntoTask;
+use crate::task::{IntoTask, TaskExt};
 #[cfg(feature = "automation")]
 use crate::tx_sender::{TxSender, TxSenderClient};
 use crate::utils::NamedEntity;
@@ -50,6 +50,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
+use tonic::async_trait;
 
 #[derive(Debug)]
 pub struct NonceSession {
@@ -119,6 +120,19 @@ where
                 background_tasks.loop_and_monitor(state_manager.block_fetcher_task().await?);
                 background_tasks.loop_and_monitor(state_manager.into_task());
             }
+        }
+        #[cfg(not(feature = "automation"))]
+        {
+            background_tasks.loop_and_monitor(
+                FinalizedBlockFetcherTask::new(
+                    db.clone(),
+                    "verifier".to_string(),
+                    config.protocol_paramset(),
+                    config.protocol_paramset().start_height,
+                    verifier.clone(),
+                )
+                .with_delay(Duration::from_secs(1)),
+            );
         }
 
         let syncer = BitcoinSyncer::new(db, rpc, config.protocol_paramset()).await?;
@@ -1585,6 +1599,88 @@ where
         dbtx.commit().await?;
         Ok(())
     }
+
+    async fn handle_finalized_block(
+        &self,
+        mut dbtx: DatabaseTransaction<'_, '_>,
+        block_id: u32,
+        block_height: u32,
+        block_cache: Arc<block_cache::BlockCache>,
+        light_client_proof_wait_interval_secs: Option<u32>,
+    ) -> Result<(), BridgeError> {
+        tracing::info!(
+            "Verifier Handling finalized block height: {:?} and block cache height: {:?}",
+            block_height,
+            block_cache.block_height
+        );
+
+        // before a certain number of blocks, citrea doesn't produce proofs (defined in citrea config)
+        let max_attempts = light_client_proof_wait_interval_secs.unwrap_or(TEN_MINUTES_IN_SECS);
+        let timeout = Duration::from_secs(max_attempts as u64);
+
+        let l2_range_result = self
+            .citrea_client
+            .get_citrea_l2_height_range(block_height.into(), timeout)
+            .await;
+        if let Err(e) = l2_range_result {
+            tracing::error!("Error getting citrea l2 height range: {:?}", e);
+            return Err(e);
+        }
+
+        let (l2_height_start, l2_height_end) =
+            l2_range_result.expect("Failed to get citrea l2 height range");
+
+        tracing::info!(
+            "l2_height_start: {:?}, l2_height_end: {:?}, collecting deposits and withdrawals",
+            l2_height_start,
+            l2_height_end
+        );
+        self.update_citrea_deposit_and_withdrawals(
+            &mut dbtx,
+            l2_height_start,
+            l2_height_end,
+            block_height,
+        )
+        .await?;
+
+        tracing::info!("Getting payout txids for block height: {:?}", block_height);
+        self.update_finalized_payouts(&mut dbtx, block_id, &block_cache)
+            .await?;
+
+        if let Some(header_chain_prover) = &self.header_chain_prover {
+            header_chain_prover
+                .save_unproven_block_cache(Some(&mut dbtx), &block_cache)
+                .await?;
+            header_chain_prover.prove_if_ready().await?;
+        }
+
+        Ok(())
+    }
+}
+
+// This implementation is only relevant for non-automation mode, where the verifier is run as a standalone process
+#[cfg(not(feature = "automation"))]
+#[async_trait]
+impl<C> BlockHandler for Verifier<C>
+where
+    C: CitreaClientT,
+{
+    async fn handle_new_block(
+        &mut self,
+        dbtx: DatabaseTransaction<'_, '_>,
+        block_id: u32,
+        block: bitcoin::Block,
+        height: u32,
+    ) -> Result<(), BridgeError> {
+        self.handle_finalized_block(
+            dbtx,
+            block_id,
+            height,
+            Arc::new(block_cache::BlockCache::from_block(&block, height)),
+            None,
+        )
+        .await
+    }
 }
 
 impl<C> NamedEntity for Verifier<C>
@@ -1735,53 +1831,14 @@ mod states {
             block_cache: Arc<block_cache::BlockCache>,
             light_client_proof_wait_interval_secs: Option<u32>,
         ) -> Result<(), BridgeError> {
-            tracing::info!(
-                "Verifier Handling finalized block height: {:?} and block cache height: {:?}",
+            self.handle_finalized_block(
+                dbtx,
+                block_id,
                 block_height,
-                block_cache.block_height
-            );
-
-            // before a certain number of blocks, citrea doesn't produce proofs (defined in citrea config)
-            let max_attempts = light_client_proof_wait_interval_secs.unwrap_or(TEN_MINUTES_IN_SECS);
-            let timeout = Duration::from_secs(max_attempts as u64);
-
-            let l2_range_result = self
-                .citrea_client
-                .get_citrea_l2_height_range(block_height.into(), timeout)
-                .await;
-            if let Err(e) = l2_range_result {
-                tracing::error!("Error getting citrea l2 height range: {:?}", e);
-                return Err(e);
-            }
-
-            let (l2_height_start, l2_height_end) =
-                l2_range_result.expect("Failed to get citrea l2 height range");
-
-            tracing::info!(
-                "l2_height_start: {:?}, l2_height_end: {:?}, collecting deposits and withdrawals",
-                l2_height_start,
-                l2_height_end
-            );
-            self.update_citrea_deposit_and_withdrawals(
-                &mut dbtx,
-                l2_height_start,
-                l2_height_end,
-                block_height,
+                block_cache,
+                light_client_proof_wait_interval_secs,
             )
-            .await?;
-
-            tracing::info!("Getting payout txids for block height: {:?}", block_height);
-            self.update_finalized_payouts(&mut dbtx, block_id, &block_cache)
-                .await?;
-
-            if let Some(header_chain_prover) = &self.header_chain_prover {
-                header_chain_prover
-                    .save_unproven_block_cache(Some(&mut dbtx), &block_cache)
-                    .await?;
-                header_chain_prover.prove_if_ready().await?;
-            }
-
-            Ok(())
+            .await
         }
     }
 }

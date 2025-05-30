@@ -20,6 +20,12 @@ impl BlockCache {
         }
     }
 
+    pub fn from_block(block: &Block, block_height: u32) -> Self {
+        let mut block_cache = Self::new();
+        block_cache.update_with_block(block, block_height);
+        block_cache
+    }
+
     pub fn update_with_block(&mut self, block: &Block, block_height: u32) {
         self.block_height = block_height;
         for (idx, tx) in block.txdata.iter().enumerate() {
