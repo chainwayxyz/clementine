@@ -2012,8 +2012,8 @@ where
                     #[cfg(test)]
                     {
                         if self.config.test_params.disrupt_payout_tx_block_hash_commit {
-                            assert_eq!(
-                                challenged, true,
+                            assert!(
+                                challenged,
                                 "Disrupt payout tx block hash commit should result in a challenge"
                             );
                         }
