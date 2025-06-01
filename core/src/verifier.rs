@@ -1853,6 +1853,22 @@ where
                     payout_blockhash_new.push(element);
                 }
 
+                tracing::info!("Verifier checking additional disprove witness");
+                tracing::info!(
+                    "Additional disprove script: {:?}",
+                    additional_disprove_script
+                );
+                tracing::info!(
+                    "G16 public input signature: {:?}",
+                    g16_public_input_signature
+                );
+                tracing::info!("Payout blockhash new: {:?}", payout_blockhash_new);
+                tracing::info!("Latest blockhash new: {:?}", latest_blockhash_new);
+                tracing::info!(
+                    "Challenge sending watchtowers signature: {:?}",
+                    challenge_sending_watchtowers_signature
+                );
+                tracing::info!("Operator acknowledgements: {:?}", operator_acks_vec,);
                 let additional_disprove_witness = validate_assertions_for_additional_script(
                     additional_disprove_script.clone(),
                     g16_public_input_signature.clone(),

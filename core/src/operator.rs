@@ -12,7 +12,7 @@ use crate::builder::sighash::{create_operator_sighash_stream, PartialSignatureIn
 use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::builder::transaction::{
-    challenge, create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler,
+    create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler,
     create_round_txhandlers, create_txhandlers, ContractContext, DepositData, KickoffData,
     KickoffWinternitzKeys, OperatorData, ReimburseDbCache, TransactionType, TxHandler,
     TxHandlerCache,
@@ -1282,6 +1282,9 @@ where
         let public_input_scalar = ark_bn254::Fr::from_be_bytes_mod_order(&g16_output);
 
         #[cfg(test)]
+        let mut public_inputs = public_inputs;
+
+        #[cfg(test)]
         {
             if self
                 .config
@@ -1289,10 +1292,17 @@ where
                 .disrupt_challenge_sending_watchtowers_commit
             {
                 tracing::info!("Disrupting challenge sending watchtowers commit in send_asserts");
-                let mut public_inputs = public_inputs;
                 public_inputs.challenge_sending_watchtowers[0] ^= 0x01;
+                tracing::info!(
+                    "Disrupted challenge sending watchtowers commit: {:?}",
+                    public_inputs.challenge_sending_watchtowers
+                );
             }
         }
+        tracing::info!(
+            "Challenge sending watchtowers commit: {:?}",
+            public_inputs.challenge_sending_watchtowers
+        );
 
         let asserts = if cfg!(test) && is_dev_mode() {
             generate_assertions(
