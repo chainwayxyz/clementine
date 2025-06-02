@@ -423,7 +423,13 @@ where
                     &self.signer.keypair,
                     &mut bitcoin::secp256k1::rand::thread_rng(),
                 )?;
-                Ok((sec_nonce, pub_nonce))
+                Ok::<
+                    (
+                        secp256k1::musig::MusigSecNonce,
+                        secp256k1::musig::MusigPubNonce,
+                    ),
+                    BridgeError,
+                >((sec_nonce, pub_nonce))
             })
             .into_iter()
         {

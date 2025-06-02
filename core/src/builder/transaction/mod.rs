@@ -24,7 +24,7 @@ use crate::rpc::clementine::{
 use crate::EVMAddress;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
-use bitcoin::opcodes::all::{OP_PUSHNUM_1, OP_RETURN};
+use bitcoin::opcodes::all::OP_RETURN;
 use bitcoin::script::Builder;
 use bitcoin::secp256k1::PublicKey;
 use bitcoin::transaction::Version;
