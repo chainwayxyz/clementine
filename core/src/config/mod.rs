@@ -29,6 +29,10 @@ pub struct TestParams {
     pub should_run_state_manager: bool,
     pub all_verifiers_secret_keys: Vec<SecretKey>,
     pub all_operators_secret_keys: Vec<SecretKey>,
+    pub disrupt_latest_block_hash_commit: bool,
+    pub disrupt_payout_tx_block_hash_commit: bool,
+    pub disrupt_challenge_sending_watchtowers_commit: bool,
+    pub operator_forgot_watchtower_challenge: bool,
 }
 
 impl Default for TestParams {
@@ -63,6 +67,10 @@ impl Default for TestParams {
                 )
                 .expect("known valid input"),
             ],
+            disrupt_latest_block_hash_commit: false,
+            disrupt_payout_tx_block_hash_commit: false,
+            disrupt_challenge_sending_watchtowers_commit: false,
+            operator_forgot_watchtower_challenge: false,
         }
     }
 }

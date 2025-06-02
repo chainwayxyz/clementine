@@ -304,3 +304,15 @@ where
         })
     }
 }
+
+pub trait Last20Bytes {
+    fn last_20_bytes(self) -> [u8; 20];
+}
+
+impl Last20Bytes for [u8; 32] {
+    fn last_20_bytes(self) -> [u8; 20] {
+        let mut result = [0u8; 20];
+        result.copy_from_slice(&self[12..32]);
+        result
+    }
+}

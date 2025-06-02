@@ -392,7 +392,7 @@ mod tests {
         );
         env::set_var(
             "BRIDGE_CIRCUIT_METHOD_ID_CONSTANT",
-            "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "a1e07be0a14f059dd3b0c67b80ad9472c59840bcb9252d9ee1a2f1c0e1f01071",
         );
     }
 
@@ -429,7 +429,7 @@ mod tests {
         env::set_var("HEADER_CHAIN_PROOF_BATCH_SIZE", "100");
         env::set_var(
             "BRIDGE_CIRCUIT_METHOD_ID_CONSTANT",
-            "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "a1e07be0a14f059dd3b0c67b80ad9472c59840bcb9252d9ee1a2f1c0e1f01071",
         );
         env::set_var("BRIDGE_NONSTANDARD", "false");
     }
