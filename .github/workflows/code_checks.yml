@@ -74,4 +74,3 @@ jobs:
 
       - name: Run script
         run: scripts/check_for_todos.sh
-        continue-on-error: true # TODO: This should be removed later

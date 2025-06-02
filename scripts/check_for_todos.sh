@@ -2,7 +2,7 @@
 #
 # This script checks for TODO keywords in code.
 
-directories=(core circuits risc0-guests)
+directories=(core bridge-circuit-host circuits-lib risc0-circuits)
 is_found=0
 
 for directory in ${directories[@]}
