@@ -47,6 +47,9 @@ use tonic::transport::Channel;
 pub enum TestVariant {
     HealthyState,
     CorruptedLatestBlockHash,
+    CorruptedPayoutTxBlockHash,
+    CorruptedChallengeSendingWatchtowers,
+    OperatorForgotWatchtowerChallenge,
 }
 
 struct AdditionalDisproveTest {
@@ -487,7 +490,222 @@ impl AdditionalDisproveTest {
         let batch_prover = batch_prover.unwrap();
 
         let mut config = create_test_config_with_thread_name().await;
-        config.test_params.disrupt_block_hash_commit = true;
+        config.test_params.disrupt_latest_block_hash_commit = true;
+
+        citrea::update_config_with_citrea_e2e_values(
+            &mut config,
+            da,
+            sequencer,
+            Some((
+                lc_prover.config.rollup.rpc.bind_host.as_str(),
+                lc_prover.config.rollup.rpc.bind_port,
+            )),
+        );
+
+        let (kickoff_tx, rpc, _verifiers, _operators, _aggregator, _cleanup) = self
+            .common_test_setup(config, lc_prover, batch_prover, da, sequencer)
+            .await?;
+
+        tracing::info!("Common test setup completed");
+
+        let kickoff_txid = kickoff_tx.compute_txid();
+
+        let disprove_outpoint = OutPoint {
+            txid: kickoff_txid,
+            vout: UtxoVout::Disprove.get_vout(),
+        };
+
+        tracing::info!(
+            "Disprove outpoint: {:?}, txid: {:?}",
+            disprove_outpoint,
+            kickoff_txid
+        );
+
+        let disprove_txid = get_txid_where_utxo_is_spent_while_waiting_for_light_client_sync(
+            &rpc,
+            lc_prover,
+            disprove_outpoint,
+        )
+        .await
+        .unwrap();
+
+        tracing::info!("Disprove txid: {:?}", disprove_txid);
+
+        let round_txid = kickoff_tx.input[0].previous_output.txid;
+
+        let burn_connector = OutPoint {
+            txid: round_txid,
+            vout: UtxoVout::BurnConnector.get_vout(),
+        };
+
+        let disprove_tx = rpc.client.get_raw_transaction(&disprove_txid, None).await?;
+
+        assert!(
+            disprove_tx.input[1].previous_output == burn_connector,
+            "Disprove tx input does not match burn connector outpoint"
+        );
+
+        tracing::info!("Disprove transaction is onchain");
+        Ok(())
+    }
+
+    async fn disrupted_payout_tx_block_hash_commit(&self, f: &mut TestFramework) -> Result<()> {
+        tracing::info!("Starting Citrea");
+        let (sequencer, _full_node, lc_prover, batch_prover, da) =
+            citrea::start_citrea(Self::sequencer_config(), f)
+                .await
+                .unwrap();
+
+        let lc_prover = lc_prover.unwrap();
+        let batch_prover = batch_prover.unwrap();
+
+        let mut config = create_test_config_with_thread_name().await;
+        config.test_params.disrupt_payout_tx_block_hash_commit = true;
+
+        citrea::update_config_with_citrea_e2e_values(
+            &mut config,
+            da,
+            sequencer,
+            Some((
+                lc_prover.config.rollup.rpc.bind_host.as_str(),
+                lc_prover.config.rollup.rpc.bind_port,
+            )),
+        );
+
+        let (kickoff_tx, rpc, _verifiers, _operators, _aggregator, _cleanup) = self
+            .common_test_setup(config, lc_prover, batch_prover, da, sequencer)
+            .await?;
+
+        tracing::info!("Common test setup completed");
+
+        let kickoff_txid = kickoff_tx.compute_txid();
+
+        let disprove_outpoint = OutPoint {
+            txid: kickoff_txid,
+            vout: UtxoVout::Disprove.get_vout(),
+        };
+
+        tracing::info!(
+            "Disprove outpoint: {:?}, txid: {:?}",
+            disprove_outpoint,
+            kickoff_txid
+        );
+
+        let txid = get_txid_where_utxo_is_spent_while_waiting_for_light_client_sync(
+            &rpc,
+            lc_prover,
+            disprove_outpoint,
+        )
+        .await
+        .unwrap();
+
+        tracing::info!("Disprove txid: {:?}", txid);
+
+        let round_txid = kickoff_tx.input[0].previous_output.txid;
+
+        let burn_connector = OutPoint {
+            txid: round_txid,
+            vout: UtxoVout::BurnConnector.get_vout(),
+        };
+
+        let disprove_tx = rpc.client.get_raw_transaction(&txid, None).await?;
+
+        assert!(
+            disprove_tx.input[1].previous_output == burn_connector,
+            "Disprove tx input does not match burn connector outpoint"
+        );
+
+        tracing::info!("Disprove transaction is onchain");
+        Ok(())
+    }
+
+    async fn disrupted_challenge_sending_watchtowers_commit(
+        &self,
+        f: &mut TestFramework,
+    ) -> Result<()> {
+        tracing::info!("Starting Citrea");
+        let (sequencer, _full_node, lc_prover, batch_prover, da) =
+            citrea::start_citrea(Self::sequencer_config(), f)
+                .await
+                .unwrap();
+
+        let lc_prover = lc_prover.unwrap();
+        let batch_prover = batch_prover.unwrap();
+
+        let mut config = create_test_config_with_thread_name().await;
+        config
+            .test_params
+            .disrupt_challenge_sending_watchtowers_commit = true;
+
+        citrea::update_config_with_citrea_e2e_values(
+            &mut config,
+            da,
+            sequencer,
+            Some((
+                lc_prover.config.rollup.rpc.bind_host.as_str(),
+                lc_prover.config.rollup.rpc.bind_port,
+            )),
+        );
+
+        let (kickoff_tx, rpc, _verifiers, _operators, _aggregator, _cleanup) = self
+            .common_test_setup(config, lc_prover, batch_prover, da, sequencer)
+            .await?;
+
+        tracing::info!("Common test setup completed");
+
+        let kickoff_txid = kickoff_tx.compute_txid();
+
+        let disprove_outpoint = OutPoint {
+            txid: kickoff_txid,
+            vout: UtxoVout::Disprove.get_vout(),
+        };
+
+        tracing::info!(
+            "Disprove outpoint: {:?}, txid: {:?}",
+            disprove_outpoint,
+            kickoff_txid
+        );
+
+        let txid = get_txid_where_utxo_is_spent_while_waiting_for_light_client_sync(
+            &rpc,
+            lc_prover,
+            disprove_outpoint,
+        )
+        .await
+        .unwrap();
+
+        tracing::info!("Disprove txid: {:?}", txid);
+
+        let round_txid = kickoff_tx.input[0].previous_output.txid;
+
+        let burn_connector = OutPoint {
+            txid: round_txid,
+            vout: UtxoVout::BurnConnector.get_vout(),
+        };
+
+        let disprove_tx = rpc.client.get_raw_transaction(&txid, None).await?;
+
+        assert!(
+            disprove_tx.input[1].previous_output == burn_connector,
+            "Disprove tx input does not match burn connector outpoint"
+        );
+
+        tracing::info!("Disprove transaction is onchain");
+        Ok(())
+    }
+
+    async fn operator_forgot_watchtower_challenge(&self, f: &mut TestFramework) -> Result<()> {
+        tracing::info!("Starting Citrea");
+        let (sequencer, _full_node, lc_prover, batch_prover, da) =
+            citrea::start_citrea(Self::sequencer_config(), f)
+                .await
+                .unwrap();
+
+        let lc_prover = lc_prover.unwrap();
+        let batch_prover = batch_prover.unwrap();
+
+        let mut config = create_test_config_with_thread_name().await;
+        config.test_params.operator_forgot_watchtower_challenge = true;
 
         citrea::update_config_with_citrea_e2e_values(
             &mut config,
@@ -673,6 +891,19 @@ impl TestCase for AdditionalDisproveTest {
                 tracing::info!("Running disrupted latest block hash commit test");
                 self.disrupted_latest_block_hash_commit(f).await?;
             }
+            TestVariant::CorruptedPayoutTxBlockHash => {
+                tracing::info!("Running disrupted payout tx block hash commit test");
+                self.disrupted_payout_tx_block_hash_commit(f).await?;
+            }
+            TestVariant::CorruptedChallengeSendingWatchtowers => {
+                tracing::info!("Running disrupted challenge sending watchtowers commit test");
+                self.disrupted_challenge_sending_watchtowers_commit(f)
+                    .await?;
+            }
+            TestVariant::OperatorForgotWatchtowerChallenge => {
+                tracing::info!("Running operator forgot watchtower challenge test");
+                self.operator_forgot_watchtower_challenge(f).await?;
+            }
         }
 
         Ok(())
@@ -683,7 +914,7 @@ impl TestCase for AdditionalDisproveTest {
 ///
 /// # Arrange
 /// * Sets up full Citrea infrastructure including sequencer, batch prover, light client prover, and DA node.
-/// * Sets `disrupt_block_hash_commit = true` to simulate a corrupted block hash during commitment.
+/// * Sets `disrupt_latest_block_hash_commit = true` to simulate a corrupted block hash during commitment.
 ///
 /// # Act
 /// * Performs deposit and withdrawal operations between Bitcoin and Citrea.
@@ -694,6 +925,7 @@ impl TestCase for AdditionalDisproveTest {
 /// * Confirms that a disprove transaction is created on Bitcoin.
 /// * Validates that the disprove transaction consumes the correct input (the burn connector outpoint).
 #[tokio::test]
+#[ignore = "This test is too slow, run seperately"]
 async fn additional_disprove_script_test_disrupted_latest_block_hash() -> Result<()> {
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
@@ -720,6 +952,7 @@ async fn additional_disprove_script_test_disrupted_latest_block_hash() -> Result
 /// * Confirms that a disprove timeout transaction is created and included on Bitcoin.
 /// * Verifies that the transaction correctly spends the `KickoffFinalizer` output.
 #[tokio::test]
+#[ignore = "This test is too slow, run seperately"]
 async fn additional_disprove_script_test_healthy() -> Result<()> {
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
@@ -727,6 +960,87 @@ async fn additional_disprove_script_test_healthy() -> Result<()> {
     );
     let additional_disprove_test = AdditionalDisproveTest {
         variant: TestVariant::HealthyState,
+    };
+    TestCaseRunner::new(additional_disprove_test).run().await
+}
+
+/// Tests the disprove mechanism when the payout transaction's block hash commitment is intentionally corrupted.
+///
+/// # Arrange
+/// * Sets up full Citrea infrastructure including sequencer, batch prover, light client prover, and DA node.
+/// * Sets `disrupt_payout_tx_block_hash_commit = true` to simulate a corrupted block hash for the payout transaction during commitment.
+///
+/// # Act
+/// * Performs deposit and withdrawal operations between Bitcoin and Citrea.
+/// * Processes payout and kickoff transactions.
+/// * Waits for the disprove transaction to be triggered due to the corrupted payout transaction block hash in the commitment.
+///
+/// # Assert
+/// * Confirms that a disprove transaction is created on Bitcoin.
+/// * Validates that the disprove transaction consumes the correct input (the burn connector outpoint).
+#[tokio::test]
+#[ignore = "This test is too slow, run seperately"]
+async fn additional_disprove_script_test_disrupted_payout_tx_block_hash() -> Result<()> {
+    std::env::set_var(
+        "CITREA_DOCKER_IMAGE",
+        "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
+    );
+    let additional_disprove_test = AdditionalDisproveTest {
+        variant: TestVariant::CorruptedPayoutTxBlockHash,
+    };
+    TestCaseRunner::new(additional_disprove_test).run().await
+}
+
+/// Tests the disprove mechanism when the commitment for challenges sent by watchtowers is intentionally corrupted.
+///
+/// # Arrange
+/// * Sets up full Citrea infrastructure including sequencer, batch prover, light client prover, and DA node.
+/// * Sets `disrupt_challenge_sending_watchtowers_commit = true` to simulate a corrupted commitment related to watchtower challenges.
+///
+/// # Act
+/// * Performs deposit and withdrawal operations between Bitcoin and Citrea.
+/// * Processes payout and kickoff transactions.
+/// * Waits for the disprove transaction to be triggered due to the corrupted watchtower challenge commitment.
+///
+/// # Assert
+/// * Confirms that a disprove transaction is created on Bitcoin.
+/// * Validates that the disprove transaction consumes the correct input (the burn connector outpoint).
+#[tokio::test]
+#[ignore = "This test is too slow, run seperately"]
+async fn additional_disprove_script_test_disrupt_chal_sending_wts() -> Result<()> {
+    std::env::set_var(
+        "CITREA_DOCKER_IMAGE",
+        "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
+    );
+    let additional_disprove_test = AdditionalDisproveTest {
+        variant: TestVariant::CorruptedChallengeSendingWatchtowers,
+    };
+    TestCaseRunner::new(additional_disprove_test).run().await
+}
+
+/// Tests the disprove mechanism when an operator "forgets" to include a watchtower challenge.
+///
+/// # Arrange
+/// * Sets up full Citrea infrastructure including sequencer, batch prover, light client prover, and DA node.
+/// * Sets `operator_forgot_watchtower_challenge = true` to simulate a scenario where an operator fails to send a necessary watchtower challenge.
+///
+/// # Act
+/// * Performs deposit and withdrawal operations between Bitcoin and Citrea.
+/// * Processes payout and kickoff transactions.
+/// * Waits for the disprove transaction to be triggered due to the operator's failure to include a watchtower challenge.
+///
+/// # Assert
+/// * Confirms that a disprove transaction is created on Bitcoin.
+/// * Validates that the disprove transaction consumes the correct input (the burn connector outpoint).
+#[tokio::test]
+#[ignore = "This test is too slow, run seperately"]
+async fn additional_disprove_script_test_operator_forgot_wt_challenge() -> Result<()> {
+    std::env::set_var(
+        "CITREA_DOCKER_IMAGE",
+        "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
+    );
+    let additional_disprove_test = AdditionalDisproveTest {
+        variant: TestVariant::OperatorForgotWatchtowerChallenge,
     };
     TestCaseRunner::new(additional_disprove_test).run().await
 }
