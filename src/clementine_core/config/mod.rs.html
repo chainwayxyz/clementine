@@ -342,7 +342,9 @@
 <a href="#341" id="341">341</a>
 <a href="#342" id="342">342</a>
 <a href="#343" id="343">343</a>
-<a href="#344" id="344">344</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Configuration Options
+<a href="#344" id="344">344</a>
+<a href="#345" id="345">345</a>
+<a href="#346" id="346">346</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Configuration Options
 //!
 //! This module defines configuration options.
 //!
@@ -373,6 +375,7 @@
     <span class="kw">pub </span>should_run_state_manager: bool,
     <span class="kw">pub </span>all_verifiers_secret_keys: Vec&lt;SecretKey&gt;,
     <span class="kw">pub </span>all_operators_secret_keys: Vec&lt;SecretKey&gt;,
+    <span class="kw">pub </span>disrupt_block_hash_commit: bool,
 }
 
 <span class="kw">impl </span>Default <span class="kw">for </span>TestParams {
@@ -407,6 +410,7 @@
                 )
                 .expect(<span class="string">"known valid input"</span>),
             ],
+            disrupt_block_hash_commit: <span class="bool-val">false</span>,
         }
     }
 }

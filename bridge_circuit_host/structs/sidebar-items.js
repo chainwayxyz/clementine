@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["BridgeCircuitHostParamsError"],"struct":["BridgeCircuitBitvmInputs","BridgeCircuitHostParams","SuccinctBridgeCircuitPublicInputs","WatchtowerContext"]};
+window.SIDEBAR_ITEMS = {"enum":["BridgeCircuitHostParamsError"],"fn":["get_all_pubkeys"],"struct":["BridgeCircuitBitvmInputs","BridgeCircuitHostParams","SuccinctBridgeCircuitPublicInputs","WatchtowerContext"]};

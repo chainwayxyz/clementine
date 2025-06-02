@@ -500,7 +500,15 @@
 <a href="#499" id="499">499</a>
 <a href="#500" id="500">500</a>
 <a href="#501" id="501">501</a>
-<a href="#502" id="502">502</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::docker::{stark_to_snark, stark_to_succinct_dev_mode};
+<a href="#502" id="502">502</a>
+<a href="#503" id="503">503</a>
+<a href="#504" id="504">504</a>
+<a href="#505" id="505">505</a>
+<a href="#506" id="506">506</a>
+<a href="#507" id="507">507</a>
+<a href="#508" id="508">508</a>
+<a href="#509" id="509">509</a>
+<a href="#510" id="510">510</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::docker::{stark_to_bitvm2_g16, stark_to_bitvm2_g16_dev_mode};
 <span class="kw">use </span><span class="kw">crate</span>::structs::{
     BridgeCircuitBitvmInputs, BridgeCircuitHostParams, SuccinctBridgeCircuitPublicInputs,
 };
@@ -574,6 +582,7 @@
     [u8; <span class="number">31</span>],
     BridgeCircuitBitvmInputs,
 ) {
+    <span class="macro">tracing::info!</span>(<span class="string">"Starting bridge circuit proof generation"</span>);
     <span class="kw">let </span>bridge_circuit_input = bridge_circuit_host_params
         .clone()
         .into_bridge_circuit_input();
@@ -582,6 +591,7 @@
         borsh::to_vec(<span class="kw-2">&amp;</span>bridge_circuit_input.hcp).expect(<span class="string">"Could not serialize header chain output"</span>);
 
     <span class="kw">if </span>bridge_circuit_input.lcp.lc_journal != bridge_circuit_host_params.lcp_receipt.journal.bytes {
+        <span class="macro">tracing::error!</span>(<span class="string">"Light client proof output mismatch"</span>);
         <span class="macro">panic!</span>(<span class="string">"Light client proof output mismatch"</span>);
     }
 
@@ -594,6 +604,7 @@
     </span><span class="kw">if </span>header_chain_proof_output_serialized
         != bridge_circuit_host_params.headerchain_receipt.journal.bytes
     {
+        <span class="macro">tracing::error!</span>(<span class="string">"Header chain proof output mismatch"</span>);
         <span class="macro">panic!</span>(<span class="string">"Header chain proof output mismatch"</span>);
     }
 
@@ -611,6 +622,7 @@
         .verify(header_chain_method_id)
         .is_err()
     {
+        <span class="macro">tracing::error!</span>(<span class="string">"Header chain receipt verification failed"</span>);
         <span class="macro">panic!</span>(<span class="string">"Header chain receipt verification failed"</span>);
     }
 
@@ -622,6 +634,7 @@
             .block_hashes_mmr
             .clone(),
     ) {
+        <span class="macro">tracing::error!</span>(<span class="string">"SPV verification failed"</span>);
         <span class="macro">panic!</span>(<span class="string">"SPV verification failed"</span>);
     }
 
@@ -657,9 +670,9 @@
     <span class="kw">let </span>combined_method_id_constant =
         calculate_succinct_output_prefix(bridge_circuit_method_id.as_bytes());
     <span class="kw">let </span>(g16_proof, g16_output) = <span class="kw">if </span>is_dev_mode() {
-        stark_to_succinct_dev_mode(succinct_receipt, <span class="kw-2">&amp;</span>succinct_receipt_journal)
+        stark_to_bitvm2_g16_dev_mode(succinct_receipt, <span class="kw-2">&amp;</span>succinct_receipt_journal)
     } <span class="kw">else </span>{
-        stark_to_snark(
+        stark_to_bitvm2_g16(
             succinct_receipt.inner.succinct().unwrap().clone(),
             <span class="kw-2">&amp;</span>succinct_receipt_journal,
         )
@@ -671,6 +684,9 @@
     <span class="kw">let </span>risc0_g16_256 = risc0_g16_seal_vec[<span class="number">0</span>..<span class="number">256</span>].try_into().unwrap();
     <span class="kw">let </span>circuit_g16_proof = CircuitGroth16Proof::from_seal(risc0_g16_256);
     <span class="kw">let </span>ark_groth16_proof: ark_groth16::Proof&lt;Bn254&gt; = circuit_g16_proof.into();
+
+    <span class="kw">let </span>deposit_constant = public_inputs.deposit_constant.<span class="number">0</span>;
+    <span class="macro">tracing::debug!</span>(<span class="string">"Deposit constant - circuit: {:?}"</span>, deposit_constant);
 
     (
         ark_groth16_proof,

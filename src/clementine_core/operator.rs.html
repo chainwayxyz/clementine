@@ -1588,7 +1588,18 @@
 <a href="#1587" id="1587">1587</a>
 <a href="#1588" id="1588">1588</a>
 <a href="#1589" id="1589">1589</a>
-<a href="#1590" id="1590">1590</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_ff::PrimeField;
+<a href="#1590" id="1590">1590</a>
+<a href="#1591" id="1591">1591</a>
+<a href="#1592" id="1592">1592</a>
+<a href="#1593" id="1593">1593</a>
+<a href="#1594" id="1594">1594</a>
+<a href="#1595" id="1595">1595</a>
+<a href="#1596" id="1596">1596</a>
+<a href="#1597" id="1597">1597</a>
+<a href="#1598" id="1598">1598</a>
+<a href="#1599" id="1599">1599</a>
+<a href="#1600" id="1600">1600</a>
+<a href="#1601" id="1601">1601</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_ff::PrimeField;
 <span class="kw">use </span>circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
 <span class="kw">use </span>risc0_zkvm::is_dev_mode;
 <span class="kw">use </span>std::collections::{BTreeMap, HashMap};
@@ -2765,6 +2776,17 @@
                 current_height,
             )
             .<span class="kw">await</span><span class="question-mark">?</span>;
+
+        <span class="attr">#[cfg(test)]
+        </span><span class="kw">let </span><span class="kw-2">mut </span>latest_blockhash = latest_blockhash;
+
+        <span class="attr">#[cfg(test)]
+        </span>{
+            <span class="kw">if </span><span class="self">self</span>.config.test_params.disrupt_block_hash_commit {
+                <span class="macro">tracing::info!</span>(<span class="string">"Correcting latest blockhash for testing purposes"</span>,);
+                latest_blockhash[<span class="number">19</span>] ^= <span class="number">0x01</span>;
+            }
+        }
 
         <span class="comment">// find out which blockhash is latest_blockhash (only last 20 bytes is commited to Witness)
         </span><span class="kw">let </span>latest_blockhash_index = block_hashes

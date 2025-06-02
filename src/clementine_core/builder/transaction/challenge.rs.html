@@ -263,7 +263,8 @@
 <a href="#262" id="262">262</a>
 <a href="#263" id="263">263</a>
 <a href="#264" id="264">264</a>
-<a href="#265" id="265">265</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::builder;
+<a href="#265" id="265">265</a>
+<a href="#266" id="266">266</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::builder;
 <span class="kw">use </span><span class="kw">crate</span>::builder::script::SpendPath;
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::output::UnspentTxOut;
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::txhandler::{TxHandler, DEFAULT_SEQUENCE};
@@ -461,6 +462,7 @@
     round_txhandler: <span class="kw-2">&amp;</span>TxHandler,
 ) -&gt; <span class="prelude-ty">Result</span>&lt;TxHandler, BridgeError&gt; {
     <span class="prelude-val">Ok</span>(TxHandlerBuilder::new(TransactionType::Disprove)
+        .with_version(Version::TWO)
         .add_input(
             NormalSignatureKind::NoSignature,
             kickoff_txhandler.get_spendable_output(UtxoVout::Disprove)<span class="question-mark">?</span>,

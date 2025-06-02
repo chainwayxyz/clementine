@@ -895,13 +895,18 @@
 <a href="#894" id="894">894</a>
 <a href="#895" id="895">895</a>
 <a href="#896" id="896">896</a>
-<a href="#897" id="897">897</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Transaction Builder
+<a href="#897" id="897">897</a>
+<a href="#898" id="898">898</a>
+<a href="#899" id="899">899</a>
+<a href="#900" id="900">900</a>
+<a href="#901" id="901">901</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Transaction Builder
 //!
 //! Transaction builder provides useful functions for building typical Bitcoin
 //! transactions.
 
 </span><span class="kw">use </span><span class="kw">super</span>::script::{BaseDepositScript, CheckSig, Multisig, SpendableScript, TimelockScript};
 <span class="kw">use </span><span class="kw">super</span>::script::{ReplacementDepositScript, SpendPath};
+<span class="kw">use </span><span class="kw">crate</span>::builder::script::OtherSpendable;
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::challenge::<span class="kw-2">*</span>;
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::input::SpendableTxIn;
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::operator_assert::<span class="kw-2">*</span>;
@@ -946,7 +951,7 @@
 <span class="kw">pub use </span>operator_reimburse::{create_optimistic_payout_txhandler, create_payout_txhandler};
 <span class="kw">pub use </span>txhandler::Unsigned;
 
-<span class="kw">mod </span>challenge;
+<span class="kw">pub mod </span>challenge;
 <span class="kw">mod </span>creator;
 <span class="kw">pub mod </span>deposit_signature_owner;
 <span class="kw">pub mod </span>input;
@@ -1660,7 +1665,7 @@
     <span class="kw">let </span>builder = TaprootBuilder::new()
         .add_leaf(<span class="number">1</span>, operator_timeout_script.to_script_buf())
         .expect(<span class="string">"empty taptree will accept a script node"</span>)
-        .add_leaf(<span class="number">2</span>, additional_script)
+        .add_leaf(<span class="number">2</span>, additional_script.clone())
         .expect(<span class="string">"taptree with one node will accept a node at depth 2"</span>)
         .add_hidden_node(<span class="number">2</span>, TapNodeHash::from_byte_array(<span class="kw-2">*</span>disprove_root_hash))
         .expect(<span class="string">"taptree with two nodes will accept a node at depth 2"</span>);
@@ -1681,7 +1686,10 @@
             value: amount,
             script_pubkey: address.script_pubkey(),
         },
-        <span class="macro">vec!</span>[operator_timeout_script.clone()],
+        <span class="macro">vec!</span>[
+            operator_timeout_script.clone(),
+            Arc::new(OtherSpendable::new(additional_script)),
+        ],
         <span class="prelude-val">Some</span>(taproot_spend_info),
     )
 }

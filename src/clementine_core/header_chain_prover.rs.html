@@ -1223,7 +1223,18 @@
 <a href="#1222" id="1222">1222</a>
 <a href="#1223" id="1223">1223</a>
 <a href="#1224" id="1224">1224</a>
-<a href="#1225" id="1225">1225</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Header Chain Prover
+<a href="#1225" id="1225">1225</a>
+<a href="#1226" id="1226">1226</a>
+<a href="#1227" id="1227">1227</a>
+<a href="#1228" id="1228">1228</a>
+<a href="#1229" id="1229">1229</a>
+<a href="#1230" id="1230">1230</a>
+<a href="#1231" id="1231">1231</a>
+<a href="#1232" id="1232">1232</a>
+<a href="#1233" id="1233">1233</a>
+<a href="#1234" id="1234">1234</a>
+<a href="#1235" id="1235">1235</a>
+<a href="#1236" id="1236">1236</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Header Chain Prover
 //!
 //! This module contains utilities for proving Bitcoin block headers. This
 //! module must be fed with new blocks via the database. Later, it can check if
@@ -1241,6 +1252,7 @@
 <span class="kw">use </span>bitcoin::block::Header;
 <span class="kw">use </span>bitcoin::{hashes::Hash, BlockHash, Network};
 <span class="kw">use </span>bitcoincore_rpc::RpcApi;
+<span class="kw">use </span>bridge_circuit_host::docker::dev_stark_to_risc0_g16;
 <span class="kw">use </span>circuits_lib::bridge_circuit::structs::{WorkOnlyCircuitInput, WorkOnlyCircuitOutput};
 <span class="kw">use </span>circuits_lib::header_chain::mmr_guest::MMRGuest;
 <span class="kw">use </span>circuits_lib::header_chain::{
@@ -1249,6 +1261,7 @@
 };
 <span class="kw">use </span>eyre::{eyre, Context, OptionExt};
 <span class="kw">use </span>lazy_static::lazy_static;
+<span class="kw">use </span>risc0_zkvm::is_dev_mode;
 <span class="kw">use </span>risc0_zkvm::{compute_image_id, ExecutorEnv, ProverOpts, Receipt};
 <span class="kw">use </span>std::{
     fs::File,
@@ -1604,10 +1617,19 @@
         };
 
         <span class="macro">tracing::warn!</span>(<span class="string">"Starting proving HCP work only proof"</span>);
-        <span class="kw">let </span>receipt = prover
-            .prove_with_opts(env, elf, <span class="kw-2">&amp;</span>ProverOpts::groth16())
-            .map_err(|e| <span class="macro">eyre::eyre!</span>(e))<span class="question-mark">?
-            </span>.receipt;
+        <span class="kw">let </span>receipt = <span class="kw">if </span>!is_dev_mode() {
+            prover
+                .prove_with_opts(env, elf, <span class="kw-2">&amp;</span>ProverOpts::groth16())
+                .map_err(|e| <span class="macro">eyre::eyre!</span>(e))<span class="question-mark">?
+                </span>.receipt
+        } <span class="kw">else </span>{
+            <span class="kw">let </span>stark_receipt = prover
+                .prove_with_opts(env, elf, <span class="kw-2">&amp;</span>ProverOpts::succinct())
+                .map_err(|e| <span class="macro">eyre::eyre!</span>(e))<span class="question-mark">?
+                </span>.receipt;
+            <span class="kw">let </span>journal = stark_receipt.journal.bytes.clone();
+            dev_stark_to_risc0_g16(stark_receipt, <span class="kw-2">&amp;</span>journal)
+        };
         <span class="macro">tracing::warn!</span>(<span class="string">"HCP work only proof proof generated"</span>);
         <span class="kw">let </span>work_output: WorkOnlyCircuitOutput = borsh::from_slice(<span class="kw-2">&amp;</span>receipt.journal.bytes)
             .wrap_err(HeaderChainProverError::ProverDeSerializationError)<span class="question-mark">?</span>;
