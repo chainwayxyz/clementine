@@ -7,7 +7,6 @@ use crate::actor::Actor;
 use crate::bitvm_client::ClementineBitVMPublicKeys;
 use crate::builder;
 use crate::builder::script::{SpendableScript, TimelockScript, WinternitzCommit};
-use crate::builder::script::{SpendableScript, TimelockScript, WinternitzCommit};
 use crate::builder::transaction::{
     create_assert_timeout_txhandlers, create_challenge_timeout_txhandler, create_kickoff_txhandler,
     create_mini_asserts, create_round_txhandler, create_unspent_kickoff_txhandlers, AssertScripts,
@@ -537,21 +536,17 @@ pub async fn create_txhandlers(
         .to_byte_array();
 
     let vout = kickoff_data.kickoff_idx + 1; // TODO: Extract directly from round tx - not safe
-    let vout = kickoff_data.kickoff_idx + 1; // TODO: Extract directly from round tx - not safe
     let watchtower_challenge_start_idx = (FIRST_FIVE_OUTPUTS + NUMBER_OF_ASSERT_TXS) as u16;
     let secp = Secp256k1::verification_only();
+
+    let nofn_key: XOnlyPublicKey = deposit_data.get_nofn_xonly_pk()?;
 
     let watchtower_xonly_pk = deposit_data.get_watchtowers();
     let watchtower_pubkeys = watchtower_xonly_pk
         .iter()
         .map(|xonly_pk| {
             let nofn_2week = Arc::new(TimelockScript::new(
-                Some(
-                    deposit_data
-                        .clone()
-                        .get_nofn_xonly_pk()
-                        .expect("nofn key must exist"),
-                ),
+                Some(nofn_key),
                 paramset.watchtower_challenge_timeout_timelock,
             ));
 
