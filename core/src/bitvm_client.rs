@@ -433,6 +433,10 @@ impl ClementineBitVMPublicKeys {
         challenge_sending_watchtowers: &[u8; 20],
     ) -> Vec<Vec<Vec<u8>>> {
         let mut commit_data = Vec::new();
+        tracing::info!(
+            "Getting assert commit data, challenge_sending_watchtowers: {:?}",
+            challenge_sending_watchtowers
+        );
         // TODO: this might be wrong, add clementine specific ones too
         commit_data.push(vec![
             challenge_sending_watchtowers.to_vec(),
