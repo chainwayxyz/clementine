@@ -521,7 +521,7 @@ impl AdditionalDisproveTest {
             kickoff_txid
         );
 
-        let txid = get_txid_where_utxo_is_spent_while_waiting_for_light_client_sync(
+        let disprove_txid = get_txid_where_utxo_is_spent_while_waiting_for_light_client_sync(
             &rpc,
             lc_prover,
             disprove_outpoint,
@@ -529,7 +529,7 @@ impl AdditionalDisproveTest {
         .await
         .unwrap();
 
-        tracing::info!("Disprove txid: {:?}", txid);
+        tracing::info!("Disprove txid: {:?}", disprove_txid);
 
         let round_txid = kickoff_tx.input[0].previous_output.txid;
 
@@ -538,7 +538,7 @@ impl AdditionalDisproveTest {
             vout: UtxoVout::BurnConnector.get_vout(),
         };
 
-        let disprove_tx = rpc.client.get_raw_transaction(&txid, None).await?;
+        let disprove_tx = rpc.client.get_raw_transaction(&disprove_txid, None).await?;
 
         assert!(
             disprove_tx.input[1].previous_output == burn_connector,

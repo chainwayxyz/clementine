@@ -31,6 +31,7 @@ use crate::task::payout_checker::{PayoutCheckerTask, PAYOUT_CHECKER_POLL_DELAY};
 use crate::task::{IntoTask, TaskExt};
 use crate::tx_sender::TxSenderClient;
 use crate::tx_sender::{ActivatedWithOutpoint, ActivatedWithTxid, FeePayingType, TxMetadata};
+use crate::utils::Last20Bytes;
 use crate::{builder, UTXO};
 use bitcoin::consensus::deserialize;
 use bitcoin::hashes::Hash;
@@ -771,9 +772,7 @@ where
             kickoff_data,
         };
 
-        let payout_tx_blockhash: [u8; 20] = payout_tx_blockhash.as_byte_array()[12..]
-            .try_into()
-            .expect("length statically known");
+        let payout_tx_blockhash: [u8; 20] = payout_tx_blockhash.as_byte_array().last_20_bytes();
 
         #[cfg(test)]
         let mut payout_tx_blockhash = payout_tx_blockhash;
