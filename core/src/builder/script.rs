@@ -91,6 +91,41 @@ pub fn extract_winternitz_commits(
     Ok(commits)
 }
 
+/// Extracts the committed data from the witness.
+/// Note: The function is hardcoded for winternitz_log_d = 4 currently, will not work for others.
+pub fn extract_winternitz_commits_with_sigs(
+    witness: Witness,
+    wt_derive_paths: &[WinternitzDerivationPath],
+    paramset: &'static ProtocolParamset,
+) -> Result<Vec<Vec<Vec<u8>>>> {
+    if paramset.winternitz_log_d != 4 {
+        return Err(eyre::eyre!("Only winternitz_log_d = 4 is supported"));
+    }
+    // Structure: [commit][signature_sequence][element]
+    // - commit: one signed message
+    // - signature_sequence: alternating signature elements and signed characters, ending with a checksum
+    // - element: raw bytes of either a signature part, signed character, or checksum
+    let mut commits_with_sig: Vec<Vec<Vec<u8>>> = Vec::new();
+    let mut cur_witness_iter = witness.into_iter().skip(1);
+
+    for wt_path in wt_derive_paths.iter().rev() {
+        let wt_params = wt_path.get_params();
+        let message_digits =
+            (wt_params.message_byte_len() * 8).div_ceil(paramset.winternitz_log_d) as usize;
+        let checksum_digits = wt_params.total_digit_len() as usize - message_digits;
+
+        let elements: Vec<Vec<u8>> = cur_witness_iter
+            .by_ref()
+            .take((message_digits + checksum_digits) * 2)
+            .map(|x| x.to_vec())
+            .collect();
+
+        commits_with_sig.push(elements);
+    }
+
+    Ok(commits_with_sig)
+}
+
 /// A trait that marks all script types. Each script has a `generate_script_inputs` (eg. [`WinternitzCommit::generate_script_inputs`]) function that
 /// generates the witness for the script using various arguments. A `dyn SpendableScript` is cast into a concrete [`ScriptKind`] to
 /// generate a witness, the trait object can be used to generate the script_buf.
