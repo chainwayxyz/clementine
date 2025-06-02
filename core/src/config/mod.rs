@@ -29,6 +29,7 @@ pub struct TestParams {
     pub should_run_state_manager: bool,
     pub all_verifiers_secret_keys: Vec<SecretKey>,
     pub all_operators_secret_keys: Vec<SecretKey>,
+    pub disrupt_block_hash_commit: bool,
 }
 
 impl Default for TestParams {
@@ -63,6 +64,7 @@ impl Default for TestParams {
                 )
                 .expect("known valid input"),
             ],
+            disrupt_block_hash_commit: false,
         }
     }
 }
