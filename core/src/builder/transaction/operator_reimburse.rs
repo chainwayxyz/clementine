@@ -1,3 +1,14 @@
+//! # Operator Reimburse Transactions
+//!
+//! This module contains the logic for creating operator reimbursement and payout-related transactions in the protocol.
+//! These transactions handle the flow of funds for operator compensation, challenge handling, and user withdrawals.
+//!
+//! The main responsibilities include:
+//! - Constructing the kickoff transaction, which sets up all outputs needed for subsequent protocol steps (challenge, reimbursement, asserts, etc.).
+//! - Creating transactions for operator reimbursement in case of honest behavior.
+//! - Handling payout transactions for user withdrawals, including both standard (with BitVM) and optimistic payout flows.
+//!
+
 use super::create_move_to_vault_txhandler;
 use super::input::SpendableTxIn;
 use super::input::UtxoVout;
@@ -32,14 +43,47 @@ pub enum AssertScripts<'a> {
     AssertSpendableScript(Vec<Arc<dyn SpendableScript>>),
 }
 
-/// Creates a [`TxHandler`] for the `kickoff_tx`. This transaction will be sent by the operator
+/// Creates a [`TxHandler`] for the `kickoff_tx`.
+///
+/// This transaction is sent by the operator to initialize protocol state for a round, when operator fronted a peg-out and wants reimbursement. It sets up all outputs needed for subsequent protocol steps (challenge, reimbursement, asserts, etc.).
+///
+/// # Inputs
+/// 1. RoundTx: Kickoff utxo (for the given kickoff index)
+///
+/// # Outputs
+/// 1. Operator challenge output (for challenge or no-challenge path)
+/// 2. Kickoff finalizer connector
+/// 3. Reimburse connector (to be used in reimburse transaction)
+/// 4. Disprove output (Taproot, for BitVM disprove path)
+/// 5. Latest blockhash output (for latest blockhash assertion using winternitz signatures)
+/// 6. Multiple assert outputs (for BitVM assertions, currently 33)
+/// 7. For each watchtower 2 outputs:
+///     - Watchtower challenge output
+///     - Operator challenge ack/nack output
+/// 8. OP_RETURN output (with move-to-vault txid and operator xonly pubkey)
+/// 9. Anchor output for CPFP
+///
+/// # Arguments
+/// * `kickoff_data` - Data to identify the kickoff.
+/// * `round_txhandler` - The round transaction handler providing the input.
+/// * `move_txhandler` - The move-to-vault transaction handler.
+/// * `deposit_data` - Mutable reference to deposit data.
+/// * `operator_xonly_pk` - The operator's x-only public key.
+/// * `assert_scripts` - Actual assertion scripts or tapnode hashes (for fater creation of assert utxos) for BitVM assertion.
+/// * `disprove_root_hash` - Root hash for BitVM disprove scripts.
+/// * `additional_disprove_script` - Additional disprove script bytes (for additional disprove script specific to Clementine).
+/// * `latest_blockhash_script` - Actual script or tapnode hash for latest blockhash assertion.
+/// * `operator_unlock_hashes` - Unlock hashes for operator preimage reveals for OperatorChallengeAck transactions.
+/// * `paramset` - Protocol parameter set.
+///
+/// # Returns
+/// A [`TxHandler`] for the kickoff transaction, or a [`BridgeError`] if construction fails.
 pub fn create_kickoff_txhandler(
     kickoff_data: KickoffData,
     round_txhandler: &TxHandler,
     move_txhandler: &TxHandler,
     deposit_data: &mut DepositData,
     operator_xonly_pk: XOnlyPublicKey,
-    // either actual SpendableScripts or scriptpubkeys from db
     assert_scripts: AssertScripts,
     disprove_root_hash: &[u8; 32],
     additional_disprove_script: Vec<u8>,
@@ -222,6 +266,23 @@ pub fn create_kickoff_txhandler(
         .finalize())
 }
 
+/// Creates a [`TxHandler`] for the `kickoff_not_finalized_tx`.
+///
+/// This transaction if an operator sends ReadyToReimburse transaction while not all kickoffs of the round are finalized, burning their collateral.
+///
+/// # Inputs
+/// 1. KickoffTx: KickoffFinalizer utxo
+/// 2. ReadyToReimburseTx: BurnConnector utxo
+///
+/// # Outputs
+/// 1. Anchor output for CPFP
+///
+/// # Arguments
+/// * `kickoff_txhandler` - The kickoff transaction handler providing the input.
+/// * `ready_to_reimburse_txhandler` - The ready-to-reimburse transaction handler providing the input.
+///
+/// # Returns
+/// A [`TxHandler`] for the kickoff not finalized transaction, or a [`BridgeError`] if construction fails.
 pub fn create_kickoff_not_finalized_txhandler(
     kickoff_txhandler: &TxHandler,
     ready_to_reimburse_txhandler: &TxHandler,
@@ -246,8 +307,29 @@ pub fn create_kickoff_not_finalized_txhandler(
         .finalize())
 }
 
-/// Creates a [`TxHandler`] for the `reimburse_tx`. This transaction will be sent by the operator
-/// in case of a challenge, to reimburse the operator for their honest behavior.
+/// Creates a [`TxHandler`] for the `reimburse_tx`.
+///
+/// This transaction is sent by the operator if no challenge was sent, or a challenge was sent but no disprove was sent, to reimburse the operator for their payout.
+///
+/// # Inputs
+/// 1. MoveToVaultTx: Utxo containing the deposit
+/// 2. KickoffTx: Reimburse connector utxo in the kickoff
+/// 3. RoundTx: Reimburse connector utxo in the round (for the given kickoff index)
+///
+/// # Outputs
+/// 1. Reimbursement output to the operator
+/// 2. Anchor output for CPFP
+///
+/// # Arguments
+/// * `move_txhandler` - The move-to-vault transaction handler for the deposit.
+/// * `round_txhandler` - The round transaction handler for the round.
+/// * `kickoff_txhandler` - The kickoff transaction handler for the kickoff.
+/// * `kickoff_idx` - The kickoff index of the operator's kickoff.
+/// * `paramset` - Protocol parameter set.
+/// * `operator_reimbursement_address` - The address to reimburse the operator.
+///
+/// # Returns
+/// A [`TxHandler`] for the reimburse transaction, or a [`BridgeError`] if construction fails.
 pub fn create_reimburse_txhandler(
     move_txhandler: &TxHandler,
     round_txhandler: &TxHandler,
@@ -292,8 +374,26 @@ pub fn create_reimburse_txhandler(
         .finalize())
 }
 
-/// Creates a [`TxHandler`] for the `payout_tx`. This transaction will be sent by the operator
-/// for withdrawals.
+/// Creates a [`TxHandler`] for the `payout_tx`.
+///
+/// This transaction is sent by the operator to front a peg-out, after which operator will send a kickoff transaction to get reimbursed.
+///
+/// # Inputs
+/// 1. UTXO: User's withdrawal input (committed in Citrea side, with the signature given to operators off-chain)
+///
+/// # Outputs
+/// 1. User payout output
+/// 2. OP_RETURN output (with operators x-only pubkey that fronts the peg-out)
+///
+/// # Arguments
+/// * `input_utxo` - The input UTXO for the payout, committed in Citrea side, with the signature given to operators off-chain.
+/// * `output_txout` - The output TxOut for the user payout.
+/// * `operator_xonly_pk` - The operator's x-only public key that fronts the peg-out.
+/// * `user_sig` - The user's signature for the payout, given to operators off-chain.
+/// * `network` - The Bitcoin network.
+///
+/// # Returns
+/// A [`TxHandler`] for the payout transaction, or a [`BridgeError`] if construction fails.
 pub fn create_payout_txhandler(
     input_utxo: UTXO,
     output_txout: TxOut,
@@ -325,7 +425,27 @@ pub fn create_payout_txhandler(
     txhandler.promote()
 }
 
-/// Creates a [`TxHandler`] for the `optimistic_payout_tx`. This transaction will be signed by all verifiers that participated in the corresponding deposit to directly payout without any kickoff.
+/// Creates a [`TxHandler`] for the `optimistic_payout_tx`.
+///
+/// This transaction is signed by all verifiers that participated in the corresponding deposit give the deposited funds directly to the user withdrawing from Citrea. This way no kickoff/BitVM process is needed.
+///
+/// # Inputs
+/// 1. UTXO: User's withdrawal input (committed in Citrea side, with the signature given to operators off-chain)
+/// 2. MoveToVaultTx: Utxo containing the deposit
+///
+/// # Outputs
+/// 1. User payout output (to the user withdrawing from Citrea)
+/// 2. Anchor output for CPFP
+///
+/// # Arguments
+/// * `deposit_data` - Mutable reference to deposit data.
+/// * `input_utxo` - The input UTXO for the payout, committed in Citrea side, with the signature given to operators off-chain.
+/// * `output_txout` - The output TxOut for the user payout.
+/// * `user_sig` - The user's signature for the payout, given to operators off-chain.
+/// * `paramset` - Protocol parameter set.
+///
+/// # Returns
+/// A [`TxHandler`] for the optimistic payout transaction, or a [`BridgeError`] if construction fails.
 pub fn create_optimistic_payout_txhandler(
     deposit_data: &mut DepositData,
     input_utxo: UTXO,

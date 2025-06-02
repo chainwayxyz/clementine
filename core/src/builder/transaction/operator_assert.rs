@@ -1,3 +1,5 @@
+//! This module contains the creation of BitVM operator assertion transactions and timeout transactions related to assertions.
+
 use self::output::UnspentTxOut;
 use super::input::UtxoVout;
 use crate::builder;
@@ -8,8 +10,23 @@ use crate::errors::BridgeError;
 use crate::rpc::clementine::NormalSignatureKind;
 use bitcoin::Sequence;
 
-/// Creates a [`TxHandler`] for the `disprove_timeout_tx`. This transaction will be sent by the operator
-/// to be able to send `reimburse_tx` later.
+/// Creates a [`TxHandler`] for the `disprove_timeout_tx`.
+///
+/// This transaction is sent by the operator to enable sending a `reimburse_tx` later, if operator's asserted proof did not get disproved.
+///
+/// # Inputs
+/// 1. KickoffTx: Disprove utxo
+/// 2. KickoffTx: KickoffFinalizer utxo
+///
+/// # Outputs
+/// 1. Anchor output for CPFP
+///
+/// # Arguments
+/// * `kickoff_txhandler` - The kickoff transaction handler providing the input.
+/// * `paramset` - Protocol parameter set.
+///
+/// # Returns
+/// A [`TxHandler`] for the disprove timeout transaction, or a [`BridgeError`] if construction fails.
 pub fn create_disprove_timeout_txhandler(
     kickoff_txhandler: &TxHandler,
     paramset: &'static ProtocolParamset,
@@ -32,6 +49,25 @@ pub fn create_disprove_timeout_txhandler(
         .finalize())
 }
 
+/// Creates a [`TxHandler`] for the `latest_blockhash_timeout_tx`.
+///
+/// This transaction is sent by the verifiers if the latest blockhash is not provided in time by operator.
+///
+/// # Inputs
+/// 1. KickoffTx: LatestBlockhash utxo
+/// 2. KickoffTx: KickoffFinalizer utxo
+/// 3. RoundTx: BurnConnector utxo
+///
+/// # Outputs
+/// 1. Anchor output for CPFP
+///
+/// # Arguments
+/// * `kickoff_txhandler` - The kickoff transaction handler providing the input.
+/// * `round_txhandler` - The round transaction handler providing an additional input.
+/// * `paramset` - Protocol parameter set.
+///
+/// # Returns
+/// A [`TxHandler`] for the latest blockhash timeout transaction, or a [`BridgeError`] if construction fails.
 pub fn create_latest_blockhash_timeout_txhandler(
     kickoff_txhandler: &TxHandler,
     round_txhandler: &TxHandler,
@@ -63,6 +99,23 @@ pub fn create_latest_blockhash_timeout_txhandler(
     )
 }
 
+/// Creates a vector of [`TxHandler`] for `mini_assert` transactions.
+///
+/// These transactions are used to commit BitVM assertions of operator's proof that it paid the payout corresponding to the deposit.
+///
+/// # Inputs
+/// 1. KickoffTx: Assert utxo (per mini assert)
+///
+/// # Outputs
+/// 1. Anchor output for CPFP
+/// 2. Dummy OP_RETURN output (to pad the size of the transaction, as it is too small otherwise)
+///
+/// # Arguments
+/// * `kickoff_txhandler` - The kickoff transaction handler providing the input.
+/// * `num_asserts` - Number of mini assert transactions to create.
+///
+/// # Returns
+/// A vector of [`TxHandler`] for mini assert transactions, or a [`BridgeError`] if construction fails.
 pub fn create_mini_asserts(
     kickoff_txhandler: &TxHandler,
     num_asserts: usize,
@@ -88,6 +141,23 @@ pub fn create_mini_asserts(
     Ok(txhandlers)
 }
 
+/// Creates a [`TxHandler`] for the `latest_blockhash_tx`.
+///
+/// This transaction is used by operator to commit the latest blockhash of the bitcoin chain. This latest blockhash will be used later
+/// in the operator's bridge proof. Mainly used to reduce the time operator can spend building a private fork.
+///
+/// # Inputs
+/// 1. KickoffTx: LatestBlockhash utxo
+///
+/// # Outputs
+/// 1. Anchor output for CPFP
+/// 2. Dummy OP_RETURN output (to pad the size of the transaction, as it is too small otherwise)
+///
+/// # Arguments
+/// * `kickoff_txhandler` - The kickoff transaction handler providing the input.
+///
+/// # Returns
+/// A [`TxHandler`] for the latest blockhash transaction, or a [`BridgeError`] if construction fails.
 pub fn create_latest_blockhash_txhandler(
     kickoff_txhandler: &TxHandler,
 ) -> Result<TxHandler<Unsigned>, BridgeError> {

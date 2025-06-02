@@ -1,3 +1,7 @@
+//! # Transaction Signing Utilities
+//!
+//! This module provides logic signing the transactions used in the Clementine bridge.
+
 use super::challenge::create_watchtower_challenge_txhandler;
 use super::{ContractContext, TxHandlerCache};
 use crate::actor::{Actor, TweakCache, WinternitzDerivationPath};
@@ -20,19 +24,28 @@ use rand_chacha::rand_core::SeedableRng;
 use rand_chacha::ChaCha12Rng;
 use secp256k1::rand::seq::SliceRandom;
 
+/// Data to identify the deposit and kickoff.
 #[derive(Debug, Clone)]
 pub struct TransactionRequestData {
     pub deposit_outpoint: OutPoint,
     pub kickoff_data: KickoffData,
 }
 
-/// Deterministically generates a set of kickoff indices for an operator to sign.
+/// Deterministically (given same seed) generates a set of kickoff indices for an operator to sign, using the operator's public key, deposit block hash, and deposit outpoint as the seed.
 ///
 /// This function creates a deterministic seed from the operator's public key, deposit block hash,
 /// and deposit outpoint, then uses it to select a subset of kickoff indices.
+/// deposit_blockhash is also included in the seed to ensure the randomness of the selected kickoff indices, otherwise deposit_outpoint
+/// can be selected in a way to create hash collisions by the user depositing.
 ///
-/// Returns a vector of indices that the operator should sign, with the count determined
-/// by the protocol parameter `num_signed_kickoffs`.
+/// # Arguments
+/// * `paramset` - Protocol parameter set.
+/// * `op_xonly_pk` - Operator's x-only public key.
+/// * `deposit_blockhash` - Block hash of the block containing the deposit.
+/// * `deposit_outpoint` - Outpoint of the deposit.
+///
+/// # Returns
+/// A vector of indices that the operator should sign, with the count determined by the protocol parameter `num_signed_kickoffs`.
 pub fn get_kickoff_utxos_to_sign(
     paramset: &'static ProtocolParamset,
     op_xonly_pk: XOnlyPublicKey,
@@ -68,6 +81,7 @@ pub fn get_kickoff_utxos_to_sign(
 /// This function should not be used for transaction types that require special handling:
 /// - MiniAsserts
 /// - WatchtowerChallenge
+/// - LatestBlockhash
 /// - Disprove
 ///
 /// These transaction types have their own specialized signing flows.
@@ -180,7 +194,17 @@ impl<C> Verifier<C>
 where
     C: CitreaClientT,
 {
-    /// Creates and signs the watchtower challenge
+    /// Creates and signs the watchtower challenge with the given commit data.
+    ///
+    /// # Arguments
+    /// * `transaction_data` - Data to identify the deposit and kickoff.
+    /// * `commit_data` - Commit data for the watchtower challenge.
+    ///
+    /// # Returns
+    /// A tuple of:
+    ///     1. TransactionType: WatchtowerChallenge
+    ///     2. Transaction: Signed watchtower challenge transaction
+    ///     3. RbfSigningInfo: Rbf signing info for the watchtower challenge (for re-signing the transaction after a rbf input is added to the tx)
     pub async fn create_watchtower_challenge(
         &self,
         transaction_data: TransactionRequestData,
@@ -244,8 +268,17 @@ where
         ))
     }
 
-    /// Creates and signs all the unspent kickoff connector (using the previously saved signatures from operator)
-    /// transactions for a single round of an operator
+    /// Creates and signs all the unspent kickoff connector (using the previously saved signatures from operator during setup)
+    ///  transactions for a single round of an operator.
+    ///
+    /// # Arguments
+    /// * `round_idx` - Index of the round.
+    /// * `operator_xonly_pk` - Operator's x-only public key.
+    ///
+    /// # Returns
+    /// A vector of tuples:
+    ///     1. TransactionType: UnspentKickoff(idx) for idx'th kickoff in the round
+    ///     2. Transaction: Signed unspent kickoff connector transaction
     pub async fn create_and_sign_unspent_kickoff_connector_txs(
         &self,
         round_idx: u32,
@@ -317,6 +350,16 @@ impl<C> Operator<C>
 where
     C: CitreaClientT,
 {
+    /// Creates and signs all the assert commitment transactions for a single kickoff of an operator.
+    ///
+    /// # Arguments
+    /// * `assert_data` - Data to identify the deposit and kickoff.
+    /// * `commit_data` - BitVM assertions for the kickoff, for each assert tx.
+    ///
+    /// # Returns
+    /// A vector of tuples:
+    ///     1. TransactionType: MiniAssert(idx) for idx'th assert commitment
+    ///     2. Transaction: Signed assert commitment transaction
     pub async fn create_assert_commitment_txs(
         &self,
         assert_data: TransactionRequestData,
@@ -386,6 +429,16 @@ where
             .collect())
     }
 
+    /// Creates and signs the latest blockhash transaction for a single kickoff of an operator.
+    ///
+    /// # Arguments
+    /// * `assert_data` - Data to identify the deposit and kickoff.
+    /// * `block_hash` - Block hash to commit using winternitz signatures.
+    ///
+    /// # Returns
+    /// A tuple of:
+    ///     1. TransactionType: LatestBlockhash
+    ///     2. Transaction: Signed latest blockhash transaction
     pub async fn create_latest_blockhash_tx(
         &self,
         assert_data: TransactionRequestData,
