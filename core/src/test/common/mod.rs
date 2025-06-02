@@ -32,6 +32,7 @@ use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
 use crate::rpc::clementine::{Deposit, Empty};
 use crate::rpc::clementine::{NormalSignatureKind, TaggedSignature};
+use crate::test::common::tx_utils::wait_for_fee_payer_utxos_to_be_in_mempool;
 use crate::tx_sender::FeePayingType;
 use crate::EVMAddress;
 use bitcoin::hashes::Hash;
@@ -523,8 +524,13 @@ pub async fn run_replacement_deposit(
         .await
         .unwrap();
     db_commit.commit().await?;
-    // sleep 3 seconds so that tx_sender can send the fee_payer_tx to the mempool
-    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+
+    wait_for_fee_payer_utxos_to_be_in_mempool(
+        &rpc,
+        tx_sender_db.clone(),
+        replacement_deposit_tx.compute_txid(),
+    )
+    .await?;
 
     let replacement_deposit_txid = get_txid_where_utxo_is_spent(
         &rpc,
