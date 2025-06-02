@@ -489,21 +489,28 @@ impl ClementineBitVMPublicKeys {
         WinternitzDerivationPath::BitvmAssert(20 * 2, 2, 0, deposit_outpoint, paramset)
     }
 
+    pub fn mini_assert_derivations_0(
+        deposit_outpoint: bitcoin::OutPoint,
+        paramset: &'static ProtocolParamset,
+    ) -> Vec<WinternitzDerivationPath> {
+        vec![
+            Self::get_challenge_sending_watchtowers_derivation(deposit_outpoint, paramset),
+            WinternitzDerivationPath::BitvmAssert(32 * 2, 3, 0, deposit_outpoint, paramset),
+            WinternitzDerivationPath::BitvmAssert(32 * 2, 4, 12, deposit_outpoint, paramset),
+            WinternitzDerivationPath::BitvmAssert(32 * 2, 4, 13, deposit_outpoint, paramset),
+            WinternitzDerivationPath::BitvmAssert(16 * 2, 5, 360, deposit_outpoint, paramset),
+            WinternitzDerivationPath::BitvmAssert(16 * 2, 5, 361, deposit_outpoint, paramset),
+            WinternitzDerivationPath::BitvmAssert(16 * 2, 5, 362, deposit_outpoint, paramset),
+        ]
+    }
+
     pub fn get_assert_derivations(
         mini_assert_idx: usize,
         deposit_outpoint: bitcoin::OutPoint,
         paramset: &'static ProtocolParamset,
     ) -> Vec<WinternitzDerivationPath> {
         if mini_assert_idx == 0 {
-            vec![
-                Self::get_challenge_sending_watchtowers_derivation(deposit_outpoint, paramset),
-                WinternitzDerivationPath::BitvmAssert(32 * 2, 3, 0, deposit_outpoint, paramset),
-                WinternitzDerivationPath::BitvmAssert(32 * 2, 4, 12, deposit_outpoint, paramset),
-                WinternitzDerivationPath::BitvmAssert(32 * 2, 4, 13, deposit_outpoint, paramset),
-                WinternitzDerivationPath::BitvmAssert(16 * 2, 5, 360, deposit_outpoint, paramset),
-                WinternitzDerivationPath::BitvmAssert(16 * 2, 5, 361, deposit_outpoint, paramset),
-                WinternitzDerivationPath::BitvmAssert(16 * 2, 5, 362, deposit_outpoint, paramset),
-            ]
+            Self::mini_assert_derivations_0(deposit_outpoint, paramset)
         } else if (1..=2).contains(&mini_assert_idx) {
             // for 1, we will have 6 derivations index starting from 0 to 5
             // for 2, we will have 6 derivations index starting from 6 to 11

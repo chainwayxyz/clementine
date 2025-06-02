@@ -141,11 +141,6 @@ pub struct BridgeConfig {
     /// Aggregator's client cert should be equal to the this certificate.
     pub aggregator_cert_path: PathBuf,
 
-    /// All Secret keys. Just for testing purposes.
-    pub all_verifiers_secret_keys: Option<Vec<SecretKey>>,
-    /// All Secret keys. Just for testing purposes.
-    pub all_operators_secret_keys: Option<Vec<SecretKey>>,
-
     #[cfg(test)]
     #[serde(skip)]
     pub test_params: TestParams,
@@ -230,35 +225,6 @@ impl Default for BridgeConfig {
                 pks: vec![*UNSPENDABLE_XONLY_PUBKEY],
                 threshold: 1,
             },
-
-            all_verifiers_secret_keys: Some(vec![
-                SecretKey::from_str(
-                    "1111111111111111111111111111111111111111111111111111111111111111",
-                )
-                .expect("known valid input"),
-                SecretKey::from_str(
-                    "2222222222222222222222222222222222222222222222222222222222222222",
-                )
-                .expect("known valid input"),
-                SecretKey::from_str(
-                    "3333333333333333333333333333333333333333333333333333333333333333",
-                )
-                .expect("known valid input"),
-                SecretKey::from_str(
-                    "4444444444444444444444444444444444444444444444444444444444444444",
-                )
-                .expect("known valid input"),
-            ]),
-            all_operators_secret_keys: Some(vec![
-                SecretKey::from_str(
-                    "1111111111111111111111111111111111111111111111111111111111111111",
-                )
-                .expect("known valid input"),
-                SecretKey::from_str(
-                    "2222222222222222222222222222222222222222222222222222222222222222",
-                )
-                .expect("known valid input"),
-            ]),
 
             winternitz_secret_key: Some(
                 SecretKey::from_str(
