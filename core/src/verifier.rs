@@ -343,6 +343,7 @@ where
         Ok(true)
     }
 
+    /// Checks if the deposit has already been signed by the verifier, by checking if the movetx is already in chain.
     async fn is_deposit_signed(&self, deposit_data: &mut DepositData) -> Result<bool, BridgeError> {
         let move_txid =
             create_move_to_vault_txhandler(deposit_data, self.config.protocol_paramset())?
