@@ -173,7 +173,6 @@ pub async fn ensure_tx_onchain(rpc: &ExtendedRpc, tx: Txid) -> Result<(), eyre::
                 return Ok(true);
             }
 
-            // TODO: use confirm_fee_payer_utxos here
             // Mine more blocks and wait longer between checks - wait for fee payer tx to be sent to mempool
             rpc.mine_blocks(1).await?;
             // mine after tx is sent to mempool - with a timeout

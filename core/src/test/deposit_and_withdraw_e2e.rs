@@ -110,11 +110,6 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
                 .unwrap();
 
         let mut config = create_test_config_with_thread_name().await;
-        let db = Database::new(&BridgeConfig {
-            db_name: config.db_name.clone() + "0",
-            ..config.clone()
-        })
-        .await?;
 
         let lc_prover = lc_prover.unwrap();
         let batch_prover = batch_prover.unwrap();
@@ -160,6 +155,11 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             rpc.client.get_block_count().await?
         );
 
+        let db = Database::new(&BridgeConfig {
+            db_name: config.db_name.clone() + "0",
+            ..config.clone()
+        })
+        .await?;
         confirm_fee_payer_utxos(&rpc, db, move_txid).await.unwrap();
         mine_once_after_in_mempool(&rpc, move_txid, Some("Move tx"), None)
             .await
