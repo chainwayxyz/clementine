@@ -1,9 +1,12 @@
 //! # Common Utilities for Tests
 //!
-//! This module provides all the common utilities needed for setting up unit and
-//! integration tests.
+//! This module provides all the common utilities needed in unit and integration
+//! tests, including:
 //!
-//!
+//! - Setting up databases, servers
+//! - Creating test configurations
+//! - Making common operetions like deposits
+//! - Communicating with Citrea
 
 use crate::actor::Actor;
 use crate::bitvm_client::SECP;

@@ -110,6 +110,12 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
                 .unwrap();
 
         let mut config = create_test_config_with_thread_name().await;
+        let db = Database::new(&BridgeConfig {
+            db_name: config.db_name.clone() + "0",
+            ..config.clone()
+        })
+        .await?;
+
         let lc_prover = lc_prover.unwrap();
         let batch_prover = batch_prover.unwrap();
 
@@ -154,10 +160,13 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             rpc.client.get_block_count().await?
         );
 
-        // Wait for TXs to be on-chain (CPFP etc.).
+        confirm_fee_payer_utxos(&rpc, db, move_txid).await.unwrap();
+        mine_once_after_in_mempool(&rpc, move_txid, Some("Move tx"), None)
+            .await
+            .unwrap();
+
         rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-
         for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
             sequencer.client.send_publish_batch_request().await.unwrap();
         }
@@ -237,10 +246,8 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 
         let block_height = rpc.client.get_block_count().await.unwrap();
 
-        // Wait for TXs to be on-chain (CPFP etc.).
         rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-
         for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
             sequencer.client.send_publish_batch_request().await.unwrap();
         }
@@ -430,7 +437,6 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             vout: UtxoVout::ReimburseInKickoff.get_vout(),
         };
 
-        // Wait for the kickoff tx to be onchain
         confirm_fee_payer_utxos(&rpc, db.clone(), kickoff_txid)
             .await
             .unwrap();
@@ -819,7 +825,6 @@ async fn mock_citrea_run_truthful() {
         vout: UtxoVout::ReimburseInKickoff.get_vout(),
     };
 
-    // Wait for the kickoff tx to be onchain
     confirm_fee_payer_utxos(&rpc, db.clone(), kickoff_txid)
         .await
         .unwrap();
@@ -1189,7 +1194,6 @@ async fn mock_citrea_run_malicious() {
 
     tracing::info!("Kickoff txid: {:?}", kickoff_txid);
 
-    // Wait for the kickoff tx to be onchain
     confirm_fee_payer_utxos(&rpc, db.clone(), kickoff_txid)
         .await
         .unwrap();
@@ -1462,7 +1466,6 @@ async fn mock_citrea_run_malicious_after_exit() {
         .try_into()
         .unwrap();
 
-    // Wait for the kickoff tx to be onchain
     confirm_fee_payer_utxos(&rpc, db.clone(), kickoff_txid)
         .await
         .unwrap();
