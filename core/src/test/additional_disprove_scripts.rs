@@ -964,6 +964,20 @@ async fn additional_disprove_script_test_healthy() -> Result<()> {
     TestCaseRunner::new(additional_disprove_test).run().await
 }
 
+/// Tests the disprove mechanism when the payout transaction's block hash commitment is intentionally corrupted.
+///
+/// # Arrange
+/// * Sets up full Citrea infrastructure including sequencer, batch prover, light client prover, and DA node.
+/// * Sets `disrupt_payout_tx_block_hash_commit = true` to simulate a corrupted block hash for the payout transaction during commitment.
+///
+/// # Act
+/// * Performs deposit and withdrawal operations between Bitcoin and Citrea.
+/// * Processes payout and kickoff transactions.
+/// * Waits for the disprove transaction to be triggered due to the corrupted payout transaction block hash in the commitment.
+///
+/// # Assert
+/// * Confirms that a disprove transaction is created on Bitcoin.
+/// * Validates that the disprove transaction consumes the correct input (the burn connector outpoint).
 #[tokio::test]
 #[ignore = "This test is too slow, run seperately"]
 async fn additional_disprove_script_test_disrupted_payout_tx_block_hash() -> Result<()> {
@@ -977,6 +991,20 @@ async fn additional_disprove_script_test_disrupted_payout_tx_block_hash() -> Res
     TestCaseRunner::new(additional_disprove_test).run().await
 }
 
+/// Tests the disprove mechanism when the commitment for challenges sent by watchtowers is intentionally corrupted.
+///
+/// # Arrange
+/// * Sets up full Citrea infrastructure including sequencer, batch prover, light client prover, and DA node.
+/// * Sets `disrupt_challenge_sending_watchtowers_commit = true` to simulate a corrupted commitment related to watchtower challenges.
+///
+/// # Act
+/// * Performs deposit and withdrawal operations between Bitcoin and Citrea.
+/// * Processes payout and kickoff transactions.
+/// * Waits for the disprove transaction to be triggered due to the corrupted watchtower challenge commitment.
+///
+/// # Assert
+/// * Confirms that a disprove transaction is created on Bitcoin.
+/// * Validates that the disprove transaction consumes the correct input (the burn connector outpoint).
 #[tokio::test]
 #[ignore = "This test is too slow, run seperately"]
 async fn additional_disprove_script_test_disrupt_chal_sending_wts() -> Result<()> {
@@ -990,6 +1018,20 @@ async fn additional_disprove_script_test_disrupt_chal_sending_wts() -> Result<()
     TestCaseRunner::new(additional_disprove_test).run().await
 }
 
+/// Tests the disprove mechanism when an operator "forgets" to include a watchtower challenge.
+///
+/// # Arrange
+/// * Sets up full Citrea infrastructure including sequencer, batch prover, light client prover, and DA node.
+/// * Sets `operator_forgot_watchtower_challenge = true` to simulate a scenario where an operator fails to send a necessary watchtower challenge.
+///
+/// # Act
+/// * Performs deposit and withdrawal operations between Bitcoin and Citrea.
+/// * Processes payout and kickoff transactions.
+/// * Waits for the disprove transaction to be triggered due to the operator's failure to include a watchtower challenge.
+///
+/// # Assert
+/// * Confirms that a disprove transaction is created on Bitcoin.
+/// * Validates that the disprove transaction consumes the correct input (the burn connector outpoint).
 #[tokio::test]
 #[ignore = "This test is too slow, run seperately"]
 async fn additional_disprove_script_test_operator_forgot_wt_challenge() -> Result<()> {
