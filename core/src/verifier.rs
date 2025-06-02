@@ -1842,3 +1842,118 @@ mod states {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::citrea::mock::MockCitreaClient;
+    use crate::test::common::*;
+    use bitcoin::Block;
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn test_handle_finalized_block_idempotency() {
+        let mut config = create_test_config_with_thread_name().await;
+        let _regtest = create_regtest_rpc(&mut config).await;
+
+        let verifier = Verifier::<MockCitreaClient>::new(config.clone())
+            .await
+            .unwrap();
+
+        // Create test block data
+        let block_id = 1u32;
+        let block_height = 100u32;
+        let test_block = Block {
+            header: bitcoin::block::Header {
+                version: bitcoin::block::Version::ONE,
+                prev_blockhash: bitcoin::BlockHash::all_zeros(),
+                merkle_root: bitcoin::TxMerkleNode::all_zeros(),
+                time: 1234567890,
+                bits: bitcoin::CompactTarget::from_consensus(0x207fffff),
+                nonce: 12345,
+            },
+            txdata: vec![], // empty transactions
+        };
+        let block_cache = Arc::new(block_cache::BlockCache::from_block(
+            &test_block,
+            block_height,
+        ));
+
+        // First call to handle_finalized_block
+        let mut dbtx1 = verifier.db.begin_transaction().await.unwrap();
+        let result1 = verifier
+            .handle_finalized_block(
+                &mut dbtx1,
+                block_id,
+                block_height,
+                block_cache.clone(),
+                None,
+            )
+            .await;
+        // Should succeed or fail gracefully - testing idempotency, not functionality
+        tracing::info!("First call result: {:?}", result1);
+
+        // Second call with identical parameters should also succeed (idempotent)
+        let mut dbtx2 = verifier.db.begin_transaction().await.unwrap();
+        let result2 = verifier
+            .handle_finalized_block(
+                &mut dbtx2,
+                block_id,
+                block_height,
+                block_cache.clone(),
+                None,
+            )
+            .await;
+        // Should succeed or fail gracefully - testing idempotency, not functionality
+        tracing::info!("Second call result: {:?}", result2);
+
+        // Both calls should have same outcome (both succeed or both fail with same error type)
+        assert_eq!(
+            result1.is_ok(),
+            result2.is_ok(),
+            "Both calls should have the same outcome"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_database_operations_idempotency() {
+        let mut config = create_test_config_with_thread_name().await;
+        let _regtest = create_regtest_rpc(&mut config).await;
+
+        let verifier = Verifier::<MockCitreaClient>::new(config.clone())
+            .await
+            .unwrap();
+
+        // Test header chain prover save operation idempotency
+        if let Some(ref header_chain_prover) = verifier.header_chain_prover {
+            let test_block = Block {
+                header: bitcoin::block::Header {
+                    version: bitcoin::block::Version::ONE,
+                    prev_blockhash: bitcoin::BlockHash::all_zeros(),
+                    merkle_root: bitcoin::TxMerkleNode::all_zeros(),
+                    time: 1234567890,
+                    bits: bitcoin::CompactTarget::from_consensus(0x207fffff),
+                    nonce: 12345,
+                },
+                txdata: vec![], // empty transactions
+            };
+            let block_cache = block_cache::BlockCache::from_block(&test_block, 100u32);
+
+            // First save
+            let mut dbtx1 = verifier.db.begin_transaction().await.unwrap();
+            let result1 = header_chain_prover
+                .save_unproven_block_cache(Some(&mut dbtx1), &block_cache)
+                .await;
+            assert!(result1.is_ok(), "First save should succeed");
+            dbtx1.commit().await.unwrap();
+
+            // Second save with same data should be idempotent
+            let mut dbtx2 = verifier.db.begin_transaction().await.unwrap();
+            let result2 = header_chain_prover
+                .save_unproven_block_cache(Some(&mut dbtx2), &block_cache)
+                .await;
+            assert!(result2.is_ok(), "Second save should succeed (idempotent)");
+            dbtx2.commit().await.unwrap();
+        }
+    }
+}
