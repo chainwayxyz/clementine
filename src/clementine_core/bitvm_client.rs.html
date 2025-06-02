@@ -678,7 +678,11 @@
 <a href="#677" id="677">677</a>
 <a href="#678" id="678">678</a>
 <a href="#679" id="679">679</a>
-<a href="#680" id="680">680</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::WinternitzDerivationPath;
+<a href="#680" id="680">680</a>
+<a href="#681" id="681">681</a>
+<a href="#682" id="682">682</a>
+<a href="#683" id="683">683</a>
+<a href="#684" id="684">684</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::WinternitzDerivationPath;
 <span class="kw">use </span><span class="kw">crate</span>::builder::address::taproot_builder_with_scripts;
 <span class="kw">use </span><span class="kw">crate</span>::builder::script::{SpendableScript, WinternitzCommit};
 
@@ -1113,6 +1117,10 @@
         challenge_sending_watchtowers: <span class="kw-2">&amp;</span>[u8; <span class="number">20</span>],
     ) -&gt; Vec&lt;Vec&lt;Vec&lt;u8&gt;&gt;&gt; {
         <span class="kw">let </span><span class="kw-2">mut </span>commit_data = Vec::new();
+        <span class="macro">tracing::info!</span>(
+            <span class="string">"Getting assert commit data, challenge_sending_watchtowers: {:?}"</span>,
+            challenge_sending_watchtowers
+        );
         <span class="comment">// TODO: this might be wrong, add clementine specific ones too
         </span>commit_data.push(<span class="macro">vec!</span>[
             challenge_sending_watchtowers.to_vec(),

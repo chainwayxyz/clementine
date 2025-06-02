@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["get_vergen_response","initialize_logger","monitor_task_with_panic"],"struct":["AddMethodMiddleware","AddMethodMiddlewareLayer"]};
+window.SIDEBAR_ITEMS = {"fn":["get_vergen_response","initialize_logger","monitor_task_with_panic"],"struct":["AddMethodMiddleware","AddMethodMiddlewareLayer"],"trait":["Last20Bytes"]};

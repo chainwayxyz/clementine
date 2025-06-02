@@ -619,7 +619,12 @@
 <a href="#618" id="618">618</a>
 <a href="#619" id="619">619</a>
 <a href="#620" id="620">620</a>
-<a href="#621" id="621">621</a></pre></div><pre class="rust"><code><span class="kw">use </span>std::collections::{HashMap, HashSet};
+<a href="#621" id="621">621</a>
+<a href="#622" id="622">622</a>
+<a href="#623" id="623">623</a>
+<a href="#624" id="624">624</a>
+<a href="#625" id="625">625</a>
+<a href="#626" id="626">626</a></pre></div><pre class="rust"><code><span class="kw">use </span>std::collections::{HashMap, HashSet};
 
 <span class="kw">use </span>bitcoin::{OutPoint, Transaction, Witness};
 <span class="kw">use </span>eyre::Context;
@@ -1079,6 +1084,11 @@
             <span class="comment">// TODO: use dedicated functions or smth else, not hardcoded here.
             // It will be easier when we have data of operators/watchtowers that participated in the deposit in DepositData
             </span><span class="kw">let </span>mini_assert_vout = UtxoVout::Assert(assert_idx).get_vout();
+            <span class="macro">tracing::info!</span>(
+                <span class="string">"Adding matcher for assert {} with vout {}"</span>,
+                assert_idx,
+                mini_assert_vout
+            );
             <span class="kw">let </span>assert_timeout_txhandler = remove_txhandler_from_map(
                 <span class="kw-2">&amp;mut </span>txhandlers,
                 TransactionType::AssertTimeout(assert_idx),

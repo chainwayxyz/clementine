@@ -344,7 +344,13 @@
 <a href="#343" id="343">343</a>
 <a href="#344" id="344">344</a>
 <a href="#345" id="345">345</a>
-<a href="#346" id="346">346</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Configuration Options
+<a href="#346" id="346">346</a>
+<a href="#347" id="347">347</a>
+<a href="#348" id="348">348</a>
+<a href="#349" id="349">349</a>
+<a href="#350" id="350">350</a>
+<a href="#351" id="351">351</a>
+<a href="#352" id="352">352</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Configuration Options
 //!
 //! This module defines configuration options.
 //!
@@ -375,7 +381,10 @@
     <span class="kw">pub </span>should_run_state_manager: bool,
     <span class="kw">pub </span>all_verifiers_secret_keys: Vec&lt;SecretKey&gt;,
     <span class="kw">pub </span>all_operators_secret_keys: Vec&lt;SecretKey&gt;,
-    <span class="kw">pub </span>disrupt_block_hash_commit: bool,
+    <span class="kw">pub </span>disrupt_latest_block_hash_commit: bool,
+    <span class="kw">pub </span>disrupt_payout_tx_block_hash_commit: bool,
+    <span class="kw">pub </span>disrupt_challenge_sending_watchtowers_commit: bool,
+    <span class="kw">pub </span>operator_forgot_watchtower_challenge: bool,
 }
 
 <span class="kw">impl </span>Default <span class="kw">for </span>TestParams {
@@ -410,7 +419,10 @@
                 )
                 .expect(<span class="string">"known valid input"</span>),
             ],
-            disrupt_block_hash_commit: <span class="bool-val">false</span>,
+            disrupt_latest_block_hash_commit: <span class="bool-val">false</span>,
+            disrupt_payout_tx_block_hash_commit: <span class="bool-val">false</span>,
+            disrupt_challenge_sending_watchtowers_commit: <span class="bool-val">false</span>,
+            operator_forgot_watchtower_challenge: <span class="bool-val">false</span>,
         }
     }
 }
