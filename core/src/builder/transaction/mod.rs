@@ -31,6 +31,7 @@
 
 use super::script::{CheckSig, Multisig, SpendableScript};
 use super::script::{ReplacementDepositScript, SpendPath};
+use crate::builder::script::OtherSpendable;
 use crate::builder::transaction::challenge::*;
 use crate::builder::transaction::input::SpendableTxIn;
 use crate::builder::transaction::operator_assert::*;
@@ -69,7 +70,7 @@ pub use operator_collateral::{
 pub use operator_reimburse::{create_optimistic_payout_txhandler, create_payout_txhandler};
 pub use txhandler::Unsigned;
 
-mod challenge;
+pub mod challenge;
 mod creator;
 pub mod deposit_signature_owner;
 pub mod input;
@@ -560,7 +561,7 @@ pub fn create_disprove_taproot_output(
     let builder = TaprootBuilder::new()
         .add_leaf(1, operator_timeout_script.to_script_buf())
         .expect("empty taptree will accept a script node")
-        .add_leaf(2, additional_script)
+        .add_leaf(2, additional_script.clone())
         .expect("taptree with one node will accept a node at depth 2")
         .add_hidden_node(2, TapNodeHash::from_byte_array(*disprove_root_hash))
         .expect("taptree with two nodes will accept a node at depth 2");
@@ -581,7 +582,10 @@ pub fn create_disprove_taproot_output(
             value: amount,
             script_pubkey: address.script_pubkey(),
         },
-        vec![operator_timeout_script.clone()],
+        vec![
+            operator_timeout_script.clone(),
+            Arc::new(OtherSpendable::new(additional_script)),
+        ],
         Some(taproot_spend_info),
     )
 }

@@ -294,6 +294,7 @@ pub fn create_disprove_txhandler(
     round_txhandler: &TxHandler,
 ) -> Result<TxHandler, BridgeError> {
     Ok(TxHandlerBuilder::new(TransactionType::Disprove)
+        .with_version(Version::TWO)
         .add_input(
             NormalSignatureKind::NoSignature,
             kickoff_txhandler.get_spendable_output(UtxoVout::Disprove)?,
