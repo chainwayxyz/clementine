@@ -430,7 +430,7 @@ where
 
         #[cfg(test)]
         {
-            if self.config.test_params.disrupt_block_hash_commit {
+            if self.config.test_params.disrupt_latest_block_hash_commit {
                 tracing::info!("Disrupting block hash commitment for testing purposes");
                 tracing::info!("Original block hash: {:?}", block_hash);
                 block_hash[31] ^= 0x01;
