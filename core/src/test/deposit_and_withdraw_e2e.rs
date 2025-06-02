@@ -155,16 +155,6 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             rpc.client.get_block_count().await?
         );
 
-        let db = Database::new(&BridgeConfig {
-            db_name: config.db_name.clone() + "0",
-            ..config.clone()
-        })
-        .await?;
-        confirm_fee_payer_utxos(&rpc, db, move_txid).await.unwrap();
-        mine_once_after_in_mempool(&rpc, move_txid, Some("Move tx"), None)
-            .await
-            .unwrap();
-
         rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
         for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
