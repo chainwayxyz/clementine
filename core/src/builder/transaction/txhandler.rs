@@ -381,7 +381,6 @@ impl TxHandler<Unsigned> {
 
 #[derive(Debug, Clone)]
 pub struct TxHandlerBuilder {
-    /// TODO: Document
     transaction_type: TransactionType,
     version: Version,
     lock_time: absolute::LockTime,
