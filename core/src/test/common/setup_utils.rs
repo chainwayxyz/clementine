@@ -136,10 +136,8 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
     ];
 
     if config.protocol_paramset().bridge_nonstandard {
+        // allow 0 sat outputs in regtest
         args.push("-dustrelayfee=0".to_string());
-        args.push("-minrelaytxfee=0".to_string());
-        args.push("-mintxfee=0".to_string());
-        args.push("-blockmintxfee=0".to_string());
     }
 
     // Create log file in temp directory

@@ -61,9 +61,6 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
                 "-fallbackfee=0.000001",
                 "-rpcallowip=0.0.0.0/0",
                 "-dustrelayfee=0",
-                "-minrelaytxfee=0",
-                "-mintxfee=0",
-                "-blockmintxfee=0",
             ],
             ..Default::default()
         }
