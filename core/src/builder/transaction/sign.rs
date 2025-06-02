@@ -424,8 +424,25 @@ where
 
         // get last 20 bytes of block_hash
         let block_hash = block_hash.to_byte_array();
+
+        #[cfg(test)]
+        let mut block_hash = block_hash;
+
+        #[cfg(test)]
+        {
+            if self.config.test_params.disrupt_block_hash_commit {
+                tracing::info!("Disrupting block hash commitment for testing purposes");
+                tracing::info!("Original block hash: {:?}", block_hash);
+                block_hash[31] ^= 0x01;
+            }
+        }
+
         let block_hash_last_20 = block_hash[block_hash.len() - 20..].to_vec();
 
+        tracing::info!(
+            "Creating latest blockhash tx with block hash: {:?}",
+            block_hash_last_20
+        );
         self.signer.tx_sign_winternitz(
             &mut latest_blockhash_txhandler,
             &[(
@@ -438,6 +455,12 @@ where
         )?;
 
         let latest_blockhash_txhandler = latest_blockhash_txhandler.promote()?;
+
+        // log the block hash witness
+        tracing::info!(
+            "Latest blockhash tx created with block hash witness: {:?}",
+            latest_blockhash_txhandler.get_cached_tx().input
+        );
 
         Ok((
             latest_blockhash_txhandler.get_transaction_type(),
