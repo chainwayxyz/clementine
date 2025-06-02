@@ -343,6 +343,20 @@ where
         Ok(true)
     }
 
+    async fn is_deposit_signed(&self, deposit_data: &mut DepositData) -> Result<bool, BridgeError> {
+        let move_txid =
+            create_move_to_vault_txhandler(deposit_data, self.config.protocol_paramset())?
+                .get_cached_tx()
+                .compute_txid();
+
+        // if movetx is already in chain, do not sign it again to prevent DOS
+        // TODO: DOS can still happen if aggregators spams the same deposits in a short time period.
+        if self.rpc.get_blockhash_of_tx(&move_txid).await.is_ok() {
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
     pub async fn set_operator(
         &self,
         collateral_funding_outpoint: OutPoint,
@@ -455,21 +469,16 @@ where
             return Err(BridgeError::InvalidDeposit);
         }
 
-        let move_txid =
-            create_move_to_vault_txhandler(&mut deposit_data, self.config.protocol_paramset())?
-                .get_cached_tx()
-                .compute_txid();
-
-        // if movetx is already in chain, do not sign it again to prevent DOS
-        // TODO: DOS can still happen if aggregators spams the same deposits in a short time period.
-        if self.rpc.get_blockhash_of_tx(&move_txid).await.is_ok() {
-            return Err(BridgeError::DepositAlreadySigned(move_txid));
+        if self.is_deposit_signed(&mut deposit_data).await? {
+            return Err(BridgeError::DepositAlreadySigned(
+                deposit_data.get_deposit_outpoint().txid,
+            ));
         }
 
         // set deposit data to db before starting to sign, ensures that if the deposit data already exists in db, it matches the one
         // given by the aggregator currently. We do not want to sign 2 differnet deposits for same deposit_outpoint
         self.db
-            .set_deposit_data(None, deposit_data.clone(), move_txid)
+            .set_deposit_data(None, &mut deposit_data, self.config.protocol_paramset())
             .await?;
 
         let verifier = self.clone();
@@ -573,6 +582,12 @@ where
 
         if !self.is_deposit_valid(deposit_data).await? {
             return Err(BridgeError::InvalidDeposit);
+        }
+
+        if self.is_deposit_signed(deposit_data).await? {
+            return Err(BridgeError::DepositAlreadySigned(
+                deposit_data.get_deposit_outpoint().txid,
+            ));
         }
 
         let mut tweak_cache = TweakCache::default();
@@ -1021,10 +1036,14 @@ where
 
     pub async fn set_operator_keys(
         &self,
-        deposit_data: DepositData,
+        mut deposit_data: DepositData,
         keys: OperatorKeys,
         operator_xonly_pk: XOnlyPublicKey,
     ) -> Result<(), BridgeError> {
+        self.db
+            .set_deposit_data(None, &mut deposit_data, self.config.protocol_paramset())
+            .await?;
+
         let hashes: Vec<[u8; 20]> = keys
             .challenge_ack_digests
             .into_iter()
