@@ -182,7 +182,155 @@ jobs:
           shared-key: "release-build"
 
       - name: Run tests
-        run: cargo test additional_disprove_script_test_healthy --release  -- --nocapture
+        run: cargo test additional_disprove_script_test_healthy --release  -- --ignored
+
+  bridge_additional_disprove_test_1:
+    name: Test additional disprove script disrupted payout tx blockhash path with release build
+    runs-on: ubicloud-standard-30
+    needs: release_build
+
+    services:
+      postgres:
+        image: postgres:latest
+        env:
+          POSTGRES_DB: clementine
+          POSTGRES_USER: clementine
+          POSTGRES_PASSWORD: clementine
+          POSTGRES_INITDB_ARGS: "-c shared_buffers=8GB -c max_connections=1000"
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/install-risc0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: ./.github/actions/build-prerequisites
+      - uses: ./.github/actions/test-prerequisites
+
+      - name: Restore cached build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "release-build"
+
+      - name: Run tests
+        run: cargo test additional_disprove_script_test_disrupted_payout_tx_block_hash --release  -- --ignored
+
+  bridge_additional_disprove_test_2:
+    name: Test additional disprove script disrupted challenge sending watchtowers path with release build
+    runs-on: ubicloud-standard-30
+    needs: release_build
+
+    services:
+      postgres:
+        image: postgres:latest
+        env:
+          POSTGRES_DB: clementine
+          POSTGRES_USER: clementine
+          POSTGRES_PASSWORD: clementine
+          POSTGRES_INITDB_ARGS: "-c shared_buffers=8GB -c max_connections=1000"
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/install-risc0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: ./.github/actions/build-prerequisites
+      - uses: ./.github/actions/test-prerequisites
+
+      - name: Restore cached build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "release-build"
+
+      - name: Run tests
+        run: cargo test additional_disprove_script_test_disrupt_chal_sending_wts --release  -- --ignored
+
+  bridge_additional_disprove_test_3:
+    name: Test additional disprove script operator forgot watchtower challenge path with release build
+    runs-on: ubicloud-standard-30
+    needs: release_build
+
+    services:
+      postgres:
+        image: postgres:latest
+        env:
+          POSTGRES_DB: clementine
+          POSTGRES_USER: clementine
+          POSTGRES_PASSWORD: clementine
+          POSTGRES_INITDB_ARGS: "-c shared_buffers=8GB -c max_connections=1000"
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/install-risc0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: ./.github/actions/build-prerequisites
+      - uses: ./.github/actions/test-prerequisites
+
+      - name: Restore cached build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "release-build"
+
+      - name: Run tests
+        run: cargo test additional_disprove_script_test_operator_forgot_wt_challenge --release  -- --ignored
+
+  bridge_additional_disprove_test_4:
+    name: Test additional disprove script disrupted latest blockhash path with release build
+    runs-on: ubicloud-standard-30
+    needs: release_build
+
+    services:
+      postgres:
+        image: postgres:latest
+        env:
+          POSTGRES_DB: clementine
+          POSTGRES_USER: clementine
+          POSTGRES_PASSWORD: clementine
+          POSTGRES_INITDB_ARGS: "-c shared_buffers=8GB -c max_connections=1000"
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/install-risc0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: ./.github/actions/build-prerequisites
+      - uses: ./.github/actions/test-prerequisites
+
+      - name: Restore cached build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "release-build"
+
+      - name: Run tests
+        run: cargo test additional_disprove_script_test_disrupted_latest_block_hash --release  -- --ignored
 
   coverage:
     name: Coverage checks with Codecov
