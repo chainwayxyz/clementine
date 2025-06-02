@@ -1176,6 +1176,17 @@ where
             )
             .await?;
 
+        #[cfg(test)]
+        let mut latest_blockhash = latest_blockhash;
+
+        #[cfg(test)]
+        {
+            if self.config.test_params.disrupt_block_hash_commit {
+                tracing::info!("Correcting latest blockhash for testing purposes",);
+                latest_blockhash[19] ^= 0x01;
+            }
+        }
+
         // find out which blockhash is latest_blockhash (only last 20 bytes is commited to Witness)
         let latest_blockhash_index = block_hashes
             .iter()

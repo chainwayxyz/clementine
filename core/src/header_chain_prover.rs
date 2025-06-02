@@ -16,6 +16,7 @@ use crate::{
 use bitcoin::block::Header;
 use bitcoin::{hashes::Hash, BlockHash, Network};
 use bitcoincore_rpc::RpcApi;
+use bridge_circuit_host::docker::dev_stark_to_risc0_g16;
 use circuits_lib::bridge_circuit::structs::{WorkOnlyCircuitInput, WorkOnlyCircuitOutput};
 use circuits_lib::header_chain::mmr_guest::MMRGuest;
 use circuits_lib::header_chain::{
@@ -24,6 +25,7 @@ use circuits_lib::header_chain::{
 };
 use eyre::{eyre, Context, OptionExt};
 use lazy_static::lazy_static;
+use risc0_zkvm::is_dev_mode;
 use risc0_zkvm::{compute_image_id, ExecutorEnv, ProverOpts, Receipt};
 use std::{
     fs::File,
@@ -379,10 +381,19 @@ impl HeaderChainProver {
         };
 
         tracing::warn!("Starting proving HCP work only proof");
-        let receipt = prover
-            .prove_with_opts(env, elf, &ProverOpts::groth16())
-            .map_err(|e| eyre::eyre!(e))?
-            .receipt;
+        let receipt = if !is_dev_mode() {
+            prover
+                .prove_with_opts(env, elf, &ProverOpts::groth16())
+                .map_err(|e| eyre::eyre!(e))?
+                .receipt
+        } else {
+            let stark_receipt = prover
+                .prove_with_opts(env, elf, &ProverOpts::succinct())
+                .map_err(|e| eyre::eyre!(e))?
+                .receipt;
+            let journal = stark_receipt.journal.bytes.clone();
+            dev_stark_to_risc0_g16(stark_receipt, &journal)
+        };
         tracing::warn!("HCP work only proof proof generated");
         let work_output: WorkOnlyCircuitOutput = borsh::from_slice(&receipt.journal.bytes)
             .wrap_err(HeaderChainProverError::ProverDeSerializationError)?;
