@@ -458,6 +458,11 @@ impl<T: Owner> KickoffStateMachine<T> {
             // TODO: use dedicated functions or smth else, not hardcoded here.
             // It will be easier when we have data of operators/watchtowers that participated in the deposit in DepositData
             let mini_assert_vout = UtxoVout::Assert(assert_idx).get_vout();
+            tracing::info!(
+                "Adding matcher for assert {} with vout {}",
+                assert_idx,
+                mini_assert_vout
+            );
             let assert_timeout_txhandler = remove_txhandler_from_map(
                 &mut txhandlers,
                 TransactionType::AssertTimeout(assert_idx),
