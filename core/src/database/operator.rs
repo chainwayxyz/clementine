@@ -161,7 +161,7 @@ impl Database {
 
     /// Sets the unspent kickoff sigs received from operators during initial setup.
     /// Sigs of each round are stored together in the same row.
-    /// On conflict, do not update the existing sigs. Although techically, as long as kickoff winternitz keys
+    /// On conflict, do not update the existing sigs. Although technically, as long as kickoff winternitz keys
     /// and operator data(collateral funding outpoint and reimburse address) are not changed, the sigs are still valid
     /// even if they are changed.
     pub async fn set_unspent_kickoff_sigs(
