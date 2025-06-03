@@ -176,7 +176,7 @@ pub fn create_nofn_sighash_stream(
             let mut txhandler_cache = TxHandlerCache::new();
 
             // For each sequential_collateral_tx, we have multiple kickoff_utxos as the connectors.
-            for round_idx in 0..paramset.num_round_txs {
+            for round_idx in 1..=paramset.num_round_txs {
                 // For each kickoff_utxo, it connnects to a kickoff_tx that results in
                 // either start_happy_reimburse_tx
                 // or challenge_tx, which forces the operator to initiate BitVM sequence
@@ -275,7 +275,7 @@ pub fn create_operator_sighash_stream(
         let operator_idx = deposit_data.get_operator_index(operator_xonly_pk)?;
 
         // For each round_tx, we have multiple kickoff_utxos as the connectors.
-        for round_idx in 0..paramset.num_round_txs {
+        for round_idx in 1..=paramset.num_round_txs {
             for &kickoff_idx in &utxo_idxs {
                 let partial = PartialSignatureInfo::new(operator_idx, round_idx, kickoff_idx);
 

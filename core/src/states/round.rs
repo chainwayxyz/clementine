@@ -155,13 +155,13 @@ impl<T: Owner> RoundStateMachine<T> {
                     self.matchers = HashMap::new();
                     self.matchers.insert(
                         matcher::Matcher::SpentUtxo(self.operator_data.collateral_funding_outpoint),
-                        RoundEvent::RoundSent { round_idx: 0 },
+                        RoundEvent::RoundSent { round_idx: 1 },
                     );
 
                     // To determine if operator exited the protocol, we check if collateral was not spent in the first round tx.
                     let contract_context = ContractContext::new_context_for_rounds(
                         self.operator_data.xonly_pk,
-                        0,
+                        1,
                         context.paramset,
                     );
                     let round_txhandlers = context
@@ -303,50 +303,59 @@ impl<T: Owner> RoundStateMachine<T> {
             .capture_error(async |context| {
                 {
                     self.matchers = HashMap::new();
-                    let contract_context = ContractContext::new_context_for_rounds(
-                        self.operator_data.xonly_pk,
-                        *round_idx,
-                        context.paramset,
-                    );
-                    let mut txhandlers = context
-                        .owner
-                        .create_txhandlers(TransactionType::Round, contract_context)
-                        .await?;
-                    let round_txhandler = txhandlers
-                        .remove(&TransactionType::Round)
-                        .ok_or(TxError::TxHandlerNotFound(TransactionType::Round))?;
-                    let ready_to_reimburse_txhandler = txhandlers
-                        .remove(&TransactionType::ReadyToReimburse)
-                        .ok_or(TxError::TxHandlerNotFound(
-                            TransactionType::ReadyToReimburse,
-                        ))?;
-                    self.matchers.insert(
-                        matcher::Matcher::SentTx(*ready_to_reimburse_txhandler.get_txid()),
-                        RoundEvent::ReadyToReimburseSent {
-                            round_idx: *round_idx,
-                        },
-                    );
-                    // To determine if operator exited the protocol, we check if collateral was not spent in ready to reimburse tx.
-                    self.matchers.insert(
-                        matcher::Matcher::SpentUtxoButNotTxid(
-                            OutPoint::new(*round_txhandler.get_txid(), 0),
-                            *ready_to_reimburse_txhandler.get_txid(),
-                        ),
-                        RoundEvent::OperatorExit,
-                    );
-                    for idx in 0..context.paramset.num_kickoffs_per_round {
-                        let outpoint = *round_txhandler
-                            .get_spendable_output(UtxoVout::Kickoff(idx))?
-                            .get_prev_outpoint();
+                    // On last round, do not care about anything, last round has index num_round_txs + 1 and is there only for reimbur
+                    // nothing is signed with them
+                    if *round_idx == context.paramset.num_round_txs as u32 + 1 {
+                        Ok::<(), BridgeError>(())
+                    } else {
+                        let contract_context = ContractContext::new_context_for_rounds(
+                            self.operator_data.xonly_pk,
+                            *round_idx,
+                            context.paramset,
+                        );
+                        let mut txhandlers = context
+                            .owner
+                            .create_txhandlers(TransactionType::Round, contract_context)
+                            .await?;
+                        let round_txhandler = txhandlers
+                            .remove(&TransactionType::Round)
+                            .ok_or(TxError::TxHandlerNotFound(TransactionType::Round))?;
+                        let ready_to_reimburse_txhandler = txhandlers
+                            .remove(&TransactionType::ReadyToReimburse)
+                            .ok_or(TxError::TxHandlerNotFound(
+                                TransactionType::ReadyToReimburse,
+                            ))?;
                         self.matchers.insert(
-                            matcher::Matcher::SpentUtxo(outpoint),
-                            RoundEvent::KickoffUtxoUsed {
-                                kickoff_idx: idx,
-                                kickoff_outpoint: outpoint,
+                            matcher::Matcher::SentTx(*ready_to_reimburse_txhandler.get_txid()),
+                            RoundEvent::ReadyToReimburseSent {
+                                round_idx: *round_idx,
                             },
                         );
+                        // To determine if operator exited the protocol, we check if collateral was not spent in ready to reimburse tx.
+                        self.matchers.insert(
+                            matcher::Matcher::SpentUtxoButNotTxid(
+                                OutPoint::new(
+                                    *round_txhandler.get_txid(),
+                                    UtxoVout::CollateralInRound.get_vout(),
+                                ),
+                                *ready_to_reimburse_txhandler.get_txid(),
+                            ),
+                            RoundEvent::OperatorExit,
+                        );
+                        for idx in 0..context.paramset.num_kickoffs_per_round {
+                            let outpoint = *round_txhandler
+                                .get_spendable_output(UtxoVout::Kickoff(idx))?
+                                .get_prev_outpoint();
+                            self.matchers.insert(
+                                matcher::Matcher::SpentUtxo(outpoint),
+                                RoundEvent::KickoffUtxoUsed {
+                                    kickoff_idx: idx,
+                                    kickoff_outpoint: outpoint,
+                                },
+                            );
+                        }
+                        Ok::<(), BridgeError>(())
                     }
-                    Ok::<(), BridgeError>(())
                 }
                 .wrap_err(self.round_meta("on_round_tx_entry"))
             })
@@ -422,7 +431,10 @@ impl<T: Owner> RoundStateMachine<T> {
                     // To determine if operator exited the protocol, we check if collateral was not spent in the next round tx.
                     self.matchers.insert(
                         matcher::Matcher::SpentUtxoButNotTxid(
-                            OutPoint::new(*current_ready_to_reimburse_txid, 0),
+                            OutPoint::new(
+                                *current_ready_to_reimburse_txid,
+                                UtxoVout::CollateralInReadyToReimburse.get_vout(),
+                            ),
                             *next_round_txid,
                         ),
                         RoundEvent::OperatorExit,

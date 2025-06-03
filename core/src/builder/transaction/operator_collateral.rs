@@ -171,7 +171,7 @@ pub fn create_assert_timeout_txhandlers(
     Ok(txhandlers)
 }
 
-/// Creates the nth (0-indexed) `round_txhandler` and `reimburse_generator_txhandler` pair
+/// Creates the nth (1-indexed) `round_txhandler` and `reimburse_generator_txhandler` pair
 /// for a specific operator.
 pub fn create_round_nth_txhandler(
     operator_xonly_pk: XOnlyPublicKey,
@@ -181,21 +181,27 @@ pub fn create_round_nth_txhandler(
     pubkeys: &KickoffWinternitzKeys,
     paramset: &'static ProtocolParamset,
 ) -> Result<(TxHandler, TxHandler), BridgeError> {
+    // 0th round is the collateral, there are no keys for the 0th round
+    // Additionally there are no keys after num_rounds + 1, +1 is because we need additional round to generate
+    // reimbursement connectors of previous round
+    if index == 0 || index > paramset.num_round_txs + 1 {
+        return Err(TxError::InvalidRoundIndex(index).into());
+    }
     let mut round_txhandler = create_round_txhandler(
         operator_xonly_pk,
         RoundTxInput::Collateral(input_outpoint, input_amount),
-        pubkeys.get_keys_for_round(0),
+        pubkeys.get_keys_for_round(1)?,
         paramset,
     )?;
     let mut ready_to_reimburse_txhandler =
         create_ready_to_reimburse_txhandler(&round_txhandler, operator_xonly_pk, paramset)?;
-    for idx in 1..=index {
+    for idx in 2..=index {
         round_txhandler = create_round_txhandler(
             operator_xonly_pk,
             RoundTxInput::Prevout(Box::new(
                 ready_to_reimburse_txhandler.get_spendable_output(UtxoVout::BurnConnector)?,
             )),
-            pubkeys.get_keys_for_round(idx),
+            pubkeys.get_keys_for_round(idx)?,
             paramset,
         )?;
         ready_to_reimburse_txhandler =

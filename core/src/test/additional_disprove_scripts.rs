@@ -370,7 +370,7 @@ impl AdditionalDisproveTest {
             kickoff_id: Some(
                 KickoffData {
                     operator_xonly_pk: op0_xonly_pk,
-                    round_idx: 0,
+                    round_idx: 1,
                     kickoff_idx: kickoff_idx as u32,
                 }
                 .into(),

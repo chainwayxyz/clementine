@@ -98,6 +98,10 @@ pub enum TxError {
     IncorrectWatchtowerChallengeDataLength,
     #[error("Latest blockhash script must be a single script")]
     LatestBlockhashScriptNumber,
+    #[error("Round index out of bounds: {0}")]
+    InvalidRoundIndex(usize),
+    #[error("Index overflow")]
+    IndexOverflow,
 
     #[error(transparent)]
     Other(#[from] eyre::Report),

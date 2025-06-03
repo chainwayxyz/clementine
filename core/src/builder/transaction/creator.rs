@@ -45,16 +45,19 @@ fn get_txhandler(
 pub struct KickoffWinternitzKeys {
     pub keys: Vec<bitvm::signatures::winternitz::PublicKey>,
     num_kickoffs_per_round: usize,
+    num_rounds: usize,
 }
 
 impl KickoffWinternitzKeys {
     pub fn new(
         keys: Vec<bitvm::signatures::winternitz::PublicKey>,
         num_kickoffs_per_round: usize,
+        num_rounds: usize,
     ) -> Self {
         Self {
             keys,
             num_kickoffs_per_round,
+            num_rounds,
         }
     }
 
@@ -62,9 +65,22 @@ impl KickoffWinternitzKeys {
     pub fn get_keys_for_round(
         &self,
         round_idx: usize,
-    ) -> &[bitvm::signatures::winternitz::PublicKey] {
-        &self.keys
-            [round_idx * self.num_kickoffs_per_round..(round_idx + 1) * self.num_kickoffs_per_round]
+    ) -> Result<&[bitvm::signatures::winternitz::PublicKey], TxError> {
+        // 0th round is the collateral, there are no keys for the 0th round
+        // Additionally there are no keys after num_rounds + 1, +1 is because we need additional round to generate
+        // reimbursement connectors of previous round
+        if round_idx == 0 || round_idx > self.num_rounds + 1 {
+            return Err(TxError::InvalidRoundIndex(round_idx));
+        }
+        let start_idx = round_idx
+            .checked_sub(1)
+            .ok_or(TxError::IndexOverflow)?
+            .checked_mul(self.num_kickoffs_per_round)
+            .ok_or(TxError::IndexOverflow)?;
+        let end_idx = start_idx
+            .checked_add(self.num_kickoffs_per_round)
+            .ok_or(TxError::IndexOverflow)?;
+        Ok(&self.keys[start_idx..end_idx])
     }
 }
 
@@ -200,6 +216,7 @@ impl ReimburseDbCache {
                         .await
                         .wrap_err("Failed to get kickoff winternitz keys from database")?,
                     self.paramset.num_kickoffs_per_round,
+                    self.paramset.num_round_txs,
                 ));
                 Ok(self
                     .kickoff_winternitz_keys
@@ -500,7 +517,7 @@ pub async fn create_txhandlers(
             get_txhandler(&txhandlers, TransactionType::ReadyToReimburse)?
                 .get_spendable_output(UtxoVout::BurnConnector)?,
         )),
-        kickoff_winternitz_keys.get_keys_for_round(round_idx as usize + 1),
+        kickoff_winternitz_keys.get_keys_for_round(round_idx as usize + 1)?,
         paramset,
     )?;
 
@@ -578,8 +595,10 @@ pub async fn create_txhandlers(
         deposit_data.get_deposit_outpoint(),
     );
 
-    let payout_tx_blockhash_pk = kickoff_winternitz_keys.get_keys_for_round(round_idx as usize)
-        [kickoff_data.kickoff_idx as usize]
+    let payout_tx_blockhash_pk = kickoff_winternitz_keys
+        .get_keys_for_round(round_idx as usize)?
+        .get(kickoff_data.kickoff_idx as usize)
+        .ok_or(TxError::IndexOverflow)?
         .clone();
 
     let additional_disprove_script = db_cache
@@ -831,7 +850,7 @@ pub fn create_round_txhandlers(
                     prev_ready_to_reimburse_txhandler
                         .get_spendable_output(UtxoVout::BurnConnector)?,
                 )),
-                kickoff_winternitz_keys.get_keys_for_round(round_idx),
+                kickoff_winternitz_keys.get_keys_for_round(round_idx)?,
                 paramset,
             )?;
 
@@ -982,7 +1001,7 @@ mod tests {
                 let tx = tx.clone();
                 let operator_xonly_pk = operator_xonly_pks[operator_idx];
                 async move {
-                    for round_idx in 0..paramset.num_round_txs {
+                    for round_idx in 1..=paramset.num_round_txs {
                         for &kickoff_idx in &utxo_idxs[operator_idx] {
                             let kickoff_data = KickoffData {
                                 operator_xonly_pk,
@@ -1067,7 +1086,7 @@ mod tests {
                 let operator_xonly_pks = operator_xonly_pks.clone();
                 async move {
                     for (operator_idx, utxo_idx) in utxo_idxs.iter().enumerate() {
-                        for round_idx in 0..paramset.num_round_txs {
+                        for round_idx in 1..=paramset.num_round_txs {
                             for &kickoff_idx in utxo_idx {
                                 let kickoff_data = KickoffData {
                                     operator_xonly_pk: operator_xonly_pks[operator_idx],

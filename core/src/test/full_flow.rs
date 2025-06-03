@@ -132,7 +132,7 @@ async fn base_setup(
         kickoff_id: Some(
             KickoffData {
                 operator_xonly_pk: op0_xonly_pk,
-                round_idx: 0,
+                round_idx: 1,
                 kickoff_idx,
             }
             .into(),
@@ -298,12 +298,12 @@ pub async fn run_happy_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
             kickoff_id: Some(
                 KickoffData {
                     operator_xonly_pk: op0_xonly_pk,
-                    round_idx: 1,
+                    round_idx: 2,
                     kickoff_idx: 0,
                 }
                 .into(),
             ),
-            ..base_tx_req.clone()
+            ..base_tx_req
         })
         .await?
         .into_inner();
@@ -337,8 +337,8 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
         mut operators,
         mut verifiers,
         tx_senders,
-        deposit_info,
-        kickoff_idx,
+        _deposit_info,
+        _kickoff_idx,
         base_tx_req,
         all_txs,
         _cleanup,
@@ -358,8 +358,6 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
     // Send Challenge Transaction
     tracing::info!("Sending challenge transaction");
     send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Challenge).await?;
-
-    let deposit_outpoint = deposit_info.deposit_outpoint;
 
     // Send Watchtower Challenge Transactions
     for (verifier_idx, verifier) in verifiers.iter_mut().enumerate() {
@@ -412,17 +410,7 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
 
     // Send Assert Transactions
     let assert_txs = operators[0]
-        .internal_create_assert_commitment_txs(TransactionRequest {
-            deposit_outpoint: Some(deposit_outpoint.into()),
-            kickoff_id: Some(
-                KickoffData {
-                    operator_xonly_pk: op0_xonly_pk,
-                    round_idx: 0,
-                    kickoff_idx,
-                }
-                .into(),
-            ),
-        })
+        .internal_create_assert_commitment_txs(base_tx_req.clone())
         .await?
         .into_inner();
     for (assert_idx, tx) in assert_txs.signed_txs.iter().enumerate() {
@@ -459,12 +447,12 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
             kickoff_id: Some(
                 KickoffData {
                     operator_xonly_pk: op0_xonly_pk,
-                    round_idx: 1,
+                    round_idx: 2,
                     kickoff_idx: 0,
                 }
                 .into(),
             ),
-            ..base_tx_req.clone()
+            ..base_tx_req
         })
         .await?
         .into_inner();
@@ -501,12 +489,12 @@ pub async fn run_simple_assert_flow(config: &mut BridgeConfig, rpc: ExtendedRpc)
         mut operators,
         _watchtowers,
         tx_senders,
-        deposit_info,
-        kickoff_idx,
-        _base_tx_req,
+        _deposit_info,
+        _kickoff_idx,
+        base_tx_req,
         all_txs,
         _cleanup,
-        op0_xonly_pk,
+        _op0_xonly_pk,
     ) = base_setup(config, &rpc).await?;
 
     let tx_sender = tx_senders[0].clone();
@@ -526,22 +514,10 @@ pub async fn run_simple_assert_flow(config: &mut BridgeConfig, rpc: ExtendedRpc)
     tracing::info!("Creating and sending assert transactions directly");
 
     // Get deposit data and kickoff ID for assert creation
-    let kickoff_data = KickoffData {
-        operator_xonly_pk: op0_xonly_pk,
-        round_idx: 0,
-        kickoff_idx,
-    };
-
     rpc.mine_blocks(8 * BLOCKS_PER_HOUR as u64).await?;
-
-    let deposit_outpoint = deposit_info.deposit_outpoint;
-
     // Create assert transactions for operator 0
     let assert_txs = operators[0]
-        .internal_create_assert_commitment_txs(TransactionRequest {
-            kickoff_id: Some(kickoff_data.into()),
-            deposit_outpoint: Some(deposit_outpoint.into()),
-        })
+        .internal_create_assert_commitment_txs(base_tx_req)
         .await?
         .into_inner();
 
@@ -811,12 +787,12 @@ pub async fn run_challenge_with_state_machine(
         mut operators,
         _verifiers,
         tx_senders,
-        deposit_info,
-        kickoff_idx,
-        _base_tx_req,
+        _deposit_info,
+        _kickoff_idx,
+        base_tx_req,
         all_txs,
         _cleanup,
-        op0_xonly_pk,
+        _op0_xonly_pk,
     ) = base_setup(config, &rpc).await?;
 
     let tx_sender = tx_senders[0].clone();
@@ -832,7 +808,6 @@ pub async fn run_challenge_with_state_machine(
     // Send Challenge Transaction
     send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Challenge).await?;
 
-    let deposit_outpoint = deposit_info.deposit_outpoint;
     let kickoff_tx = get_tx_from_signed_txs_with_type(&all_txs, TxType::Kickoff)?;
     let kickoff_txid = kickoff_tx.compute_txid();
 
@@ -880,18 +855,10 @@ pub async fn run_challenge_with_state_machine(
 
     // check if operator asserts are sent by state machine
     // Get deposit data and kickoff ID for assert creation
-    let kickoff_data = KickoffData {
-        operator_xonly_pk: op0_xonly_pk,
-        round_idx: 0,
-        kickoff_idx,
-    };
 
     // Create assert transactions for operator 0
     let assert_txs = operators[0]
-        .internal_create_assert_commitment_txs(TransactionRequest {
-            kickoff_id: Some(kickoff_data.into()),
-            deposit_outpoint: Some(deposit_outpoint.into()),
-        })
+        .internal_create_assert_commitment_txs(base_tx_req)
         .await?
         .into_inner();
 

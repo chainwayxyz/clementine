@@ -446,7 +446,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             kickoff_id: Some(
                 KickoffData {
                     operator_xonly_pk: op0_xonly_pk,
-                    round_idx: 0,
+                    round_idx: 1,
                     kickoff_idx: kickoff_idx as u32,
                 }
                 .into(),
@@ -1393,7 +1393,7 @@ async fn mock_citrea_run_malicious_after_exit() {
         .internal_create_signed_txs(TransactionRequest {
             deposit_outpoint: Some(deposit_info.deposit_outpoint.into()),
             kickoff_id: Some(KickoffId {
-                round_idx: 0,
+                round_idx: 1,
                 operator_xonly_pk: verifier_pks[0].x_only_public_key().0.serialize().to_vec(),
                 kickoff_idx: 0,
             }),

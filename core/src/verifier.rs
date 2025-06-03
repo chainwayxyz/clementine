@@ -10,6 +10,7 @@ use crate::builder::sighash::{
     create_nofn_sighash_stream, create_operator_sighash_stream, PartialSignatureInfo, SignatureInfo,
 };
 use crate::builder::transaction::deposit_signature_owner::EntityType;
+use crate::builder::transaction::input::UtxoVout;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::builder::transaction::{
     create_emergency_stop_txhandler, create_move_to_vault_txhandler,
@@ -48,7 +49,6 @@ use bitvm::clementine::additional_disprove::{
 use bitvm::signatures::winternitz;
 use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
 use circuits_lib::bridge_circuit::{deposit_constant, parse_op_return_data};
-use circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
 use eyre::{Context, ContextCompat, OptionExt, Result};
 #[cfg(test)]
 use risc0_zkvm::is_dev_mode;
@@ -229,7 +229,7 @@ where
             reimburse_addr: wallet_reimburse_address.clone(),
         };
         let mut cur_sig_index = 0;
-        for round_idx in 0..self.config.protocol_paramset().num_round_txs {
+        for round_idx in 1..=self.config.protocol_paramset().num_round_txs {
             let txhandlers = create_round_txhandlers(
                 self.config.protocol_paramset(),
                 round_idx,
@@ -354,6 +354,7 @@ where
         let kickoff_wpks = KickoffWinternitzKeys::new(
             operator_winternitz_public_keys,
             self.config.protocol_paramset().num_kickoffs_per_round,
+            self.config.protocol_paramset().num_round_txs,
         );
         let tagged_sigs = self.verify_unspent_kickoff_sigs(
             collateral_funding_outpoint,
@@ -390,7 +391,8 @@ where
             .map(|chunk| chunk.to_vec())
             .collect();
 
-        for (round_idx, sigs) in tagged_sigs_per_round.into_iter().enumerate() {
+        for (round_idx_0, sigs) in tagged_sigs_per_round.into_iter().enumerate() {
+            let round_idx = round_idx_0 + 1; // rounds start from 1
             self.db
                 .set_unspent_kickoff_sigs(Some(&mut dbtx), operator_xonly_pk, round_idx, sigs)
                 .await?;
@@ -598,12 +600,12 @@ where
                     );
                     num_kickoffs_per_round
                 ];
-                num_round_txs
+                num_round_txs + 1
             ];
             num_operators
         ];
 
-        let mut kickoff_txids = vec![vec![vec![]; num_round_txs]; num_operators];
+        let mut kickoff_txids = vec![vec![vec![]; num_round_txs + 1]; num_operators];
 
         // ------ N-of-N SIGNATURES VERIFICATION ------
 
@@ -865,13 +867,14 @@ where
             .zip(verified_sigs.into_iter())
             .enumerate()
         {
-            for (round_idx, mut op_round_sigs) in operator_sigs.into_iter().enumerate() {
+            // skip round 0, which is the collateral round, during iteration
+            for (round_idx, mut op_round_sigs) in operator_sigs.into_iter().enumerate().skip(1) {
                 if kickoff_txids[operator_idx][round_idx].len()
                     != self.config.protocol_paramset().num_signed_kickoffs
                 {
                     return Err(eyre::eyre!(
                         "Number of signed kickoff utxos for operator: {}, round: {} is wrong. Expected: {}, got: {}",
-                            operator_xonly_pk, round_idx, self.config.protocol_paramset().num_signed_kickoffs, kickoff_txids[operator_idx][round_idx].len()
+                                operator_xonly_pk, round_idx, self.config.protocol_paramset().num_signed_kickoffs, kickoff_txids[operator_idx][round_idx].len()
                     ).into());
                 }
                 for (kickoff_txid, kickoff_idx) in &kickoff_txids[operator_idx][round_idx] {
@@ -879,7 +882,7 @@ where
                         return Err(eyre::eyre!(
                             "Kickoff txid not found for {}, {}, {}",
                             operator_xonly_pk,
-                            round_idx,
+                            round_idx, // rounds start from 1
                             kickoff_idx
                         )
                         .into());
@@ -888,7 +891,7 @@ where
                     tracing::trace!(
                         "Setting deposit signatures for {:?}, {:?}, {:?} {:?}",
                         operator_xonly_pk,
-                        round_idx,
+                        round_idx, // rounds start from 1
                         kickoff_idx,
                         kickoff_txid
                     );
@@ -898,7 +901,7 @@ where
                             Some(&mut dbtx),
                             deposit_data.get_deposit_outpoint(),
                             operator_xonly_pk,
-                            round_idx,
+                            round_idx, // rounds start from 1
                             *kickoff_idx,
                             kickoff_txid.expect("Kickoff txid must be Some"),
                             std::mem::take(&mut op_round_sigs[*kickoff_idx]),
@@ -1612,7 +1615,9 @@ where
 
         let vout = kickoff_data.kickoff_idx + 1;
 
-        let watchtower_challenge_start_idx = (FIRST_FIVE_OUTPUTS + NUMBER_OF_ASSERT_TXS) as u16;
+        let watchtower_challenge_start_idx =
+            u16::try_from(UtxoVout::WatchtowerChallenge(0).get_vout())
+                .wrap_err("Watchtower challenge start index overflow")?;
 
         let secp = Secp256k1::verification_only();
 
@@ -1657,7 +1662,9 @@ where
             .clone();
 
         let payout_tx_blockhash_pk = kickoff_winternitz_keys
-            .get_keys_for_round(kickoff_data.round_idx as usize)[kickoff_data.kickoff_idx as usize]
+            .get_keys_for_round(kickoff_data.round_idx as usize)?
+            .get(kickoff_data.kickoff_idx as usize)
+            .ok_or(TxError::IndexOverflow)?
             .clone();
 
         let replaceable_additional_disprove_script = reimburse_db_cache
