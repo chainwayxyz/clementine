@@ -1,6 +1,7 @@
 # Clementine 🍊
 
-Clementine is Citrea's BitVM based trust-minimized two-way peg program.
+Clementine is Citrea's BitVM based trust-minimized two-way peg program. You can
+check Clementine whitepaper at [citrea.xyz/clementine_whitepaper.pdf](https://citrea.xyz/clementine_whitepaper.pdf).
 
 The repository includes:
 
@@ -12,6 +13,19 @@ The repository includes:
 > Clementine is still a work in progress. It has not been audited and should not
 > be used in production under any circumstances. It also requires a full BitVM
 > implementation to be run fully on-chain.
+
+## Documentation
+
+Code documentation can be viewed at
+[chainwayxyz.github.io/clementine/clementine_core](https://chainwayxyz.github.io/clementine/clementine_core/).
+It can also be generated locally:
+
+```bash
+cargo doc --no-deps
+```
+
+Documentation will be available at `target/doc/clementine_core/index.html` after
+that.
 
 ## Instructions
 
@@ -63,7 +77,7 @@ Clementine supports two primary configuration methods:
 
 Running the binary as a verifier, aggregator, operator or watchtower requires a
 configuration file. An example configuration file is located at
-[`core/tests/data/test_config.toml`](core/tests/data/test_config.toml) and can
+[`core/src/test/data/bridge_config.toml`](core/src/test/data/bridge_config.toml) and can
 be taken as reference. Please copy that configuration file to another location
 and modify fields to your local configuration.
 
@@ -110,7 +124,8 @@ Before running the servers, you need to generate certificates. A script is provi
 ```
 
 This will create certificates in the following structure:
-```
+
+```text
 certs/
 ├── ca/
 │   ├── ca.key     # CA private key
@@ -248,6 +263,14 @@ To run all tests:
 ```sh
 cargo test
 ```
+
+#### Helper Scripts
+
+There are handful amount of scripts in [scripts](scripts) directory. Most of
+them are for testing but still can be used for setting up the environment. They
+can change quite frequently. So, please check for useful ones.
+
+Each script should have a name and comment inside that explain its purpose.
 
 ## Security Considerations
 

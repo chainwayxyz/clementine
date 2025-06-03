@@ -926,7 +926,7 @@ impl TestCase for AdditionalDisproveTest {
 /// * Confirms that a disprove transaction is created on Bitcoin.
 /// * Validates that the disprove transaction consumes the correct input (the burn connector outpoint).
 #[tokio::test]
-#[ignore = "This test is too slow, run seperately"]
+#[ignore = "This test is too slow, run separately"]
 async fn additional_disprove_script_test_disrupted_latest_block_hash() -> Result<()> {
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
@@ -953,7 +953,7 @@ async fn additional_disprove_script_test_disrupted_latest_block_hash() -> Result
 /// * Confirms that a disprove timeout transaction is created and included on Bitcoin.
 /// * Verifies that the transaction correctly spends the `KickoffFinalizer` output.
 #[tokio::test]
-#[ignore = "This test is too slow, run seperately"]
+#[ignore = "This test is too slow, run separately"]
 async fn additional_disprove_script_test_healthy() -> Result<()> {
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
@@ -980,7 +980,7 @@ async fn additional_disprove_script_test_healthy() -> Result<()> {
 /// * Confirms that a disprove transaction is created on Bitcoin.
 /// * Validates that the disprove transaction consumes the correct input (the burn connector outpoint).
 #[tokio::test]
-#[ignore = "This test is too slow, run seperately"]
+#[ignore = "This test is too slow, run separately"]
 async fn additional_disprove_script_test_disrupted_payout_tx_block_hash() -> Result<()> {
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
@@ -1007,7 +1007,7 @@ async fn additional_disprove_script_test_disrupted_payout_tx_block_hash() -> Res
 /// * Confirms that a disprove transaction is created on Bitcoin.
 /// * Validates that the disprove transaction consumes the correct input (the burn connector outpoint).
 #[tokio::test]
-#[ignore = "This test is too slow, run seperately"]
+#[ignore = "This test is too slow, run separately"]
 async fn additional_disprove_script_test_disrupt_chal_sending_wts() -> Result<()> {
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
@@ -1034,7 +1034,7 @@ async fn additional_disprove_script_test_disrupt_chal_sending_wts() -> Result<()
 /// * Confirms that a disprove transaction is created on Bitcoin.
 /// * Validates that the disprove transaction consumes the correct input (the burn connector outpoint).
 #[tokio::test]
-#[ignore = "This test is too slow, run seperately"]
+#[ignore = "This test is too slow, run separately"]
 async fn additional_disprove_script_test_operator_forgot_wt_challenge() -> Result<()> {
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",

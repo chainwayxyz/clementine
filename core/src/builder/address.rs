@@ -70,7 +70,7 @@ pub fn taproot_builder_with_scripts(scripts: &[ScriptBuf]) -> TaprootBuilder {
 ///
 /// # Panics
 ///
-/// Will panic if some of the operations have invalid paramaters.
+/// Will panic if some of the operations have invalid parameters.
 pub fn create_taproot_address(
     scripts: &[ScriptBuf],
     internal_key: Option<XOnlyPublicKey>,

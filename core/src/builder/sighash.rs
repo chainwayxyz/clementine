@@ -237,7 +237,7 @@ pub fn create_nofn_sighash_stream(
 
             // For each sequential_collateral_tx, we have multiple kickoff_utxos as the connectors.
             for round_idx in 0..paramset.num_round_txs {
-                // For each kickoff_utxo, it connnects to a kickoff_tx that results in
+                // For each kickoff_utxo, it connects to a kickoff_tx that results in
                 // either start_happy_reimburse_tx
                 // or challenge_tx, which forces the operator to initiate BitVM sequence
                 // (assert_begin_tx -> assert_end_tx -> either disprove_timeout_tx or already_disproven_tx).
