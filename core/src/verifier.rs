@@ -1454,7 +1454,7 @@ where
                 new_move_txid
             );
             self.db
-                .set_replacement_deposit_move_txid(Some(dbtx), old_move_txid, new_move_txid)
+                .set_replacement_deposit_move_txid(dbtx, old_move_txid, new_move_txid)
                 .await?;
         }
 
