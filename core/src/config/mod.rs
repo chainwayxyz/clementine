@@ -151,7 +151,7 @@ pub struct BridgeConfig {
     /// certificate in other entities.
     ///
     /// Aggregator needs this to call other entities, other entities need this
-    /// to call their own interanl endpoints.
+    /// to call their own internal endpoints.
     pub client_cert_path: PathBuf,
     /// Path to the client key file.
     pub client_key_path: PathBuf,
@@ -308,7 +308,7 @@ mod tests {
 
         // Read first example test file use for this test.
         let base_path = env!("CARGO_MANIFEST_DIR");
-        let config_path = format!("{}/tests/data/test_config.toml", base_path);
+        let config_path = format!("{}/src/test/data/bridge_config.toml", base_path);
         let content = fs::read_to_string(config_path).unwrap();
         let mut file = File::create(file_name).unwrap();
         file.write_all(content.as_bytes()).unwrap();
@@ -340,7 +340,7 @@ mod tests {
 
     #[test]
     fn test_test_config_parseable() {
-        let content = include_str!("../../tests/data/test_config.toml");
+        let content = include_str!("../test/data/bridge_config.toml");
         BridgeConfig::try_parse_from(content.to_string()).unwrap();
     }
 

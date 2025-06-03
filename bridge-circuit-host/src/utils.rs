@@ -127,7 +127,7 @@ pub fn get_ark_verifying_key() -> ark_groth16::VerifyingKey<Bn254> {
 }
 
 /// This is the risc0 dev mode Verifying Key of the STARK-to-BitVM2 Groth16 proof Circom circuit.
-/// The circuit doesnt verify the succint proof.
+/// The circuit doesn't verify the succinct proof.
 pub fn get_ark_verifying_key_dev_mode_bridge() -> ark_groth16::VerifyingKey<Bn254> {
     let alpha_g1 = G1Affine::new(
         Fq::from_str(

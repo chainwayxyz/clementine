@@ -144,7 +144,7 @@ pub enum BridgeError {
     InvalidChallengeAckHashes,
     #[error("Invalid operator index")]
     InvalidOperatorIndex,
-    #[error("Invalid protocal paramset")]
+    #[error("Invalid protocol paramset")]
     InvalidProtocolParamset,
     #[error("Deposit already signed and move txid {0} is in chain")]
     DepositAlreadySigned(Txid),

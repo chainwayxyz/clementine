@@ -83,7 +83,7 @@ impl CitreaClientT for MockCitreaClient {
         })
     }
     /// Connects a database with the given URL which is stored in
-    /// `citrea_rpc_url`. Other paramaters are dumped.
+    /// `citrea_rpc_url`. Other parameters are dumped.
     async fn new(
         citrea_rpc_url: String,
         _light_client_prover_url: String,
