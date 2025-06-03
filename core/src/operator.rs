@@ -1313,9 +1313,7 @@ where
                 || self.config.test_params.disrupt_payout_tx_block_hash_commit
                 || self.config.test_params.operator_forgot_watchtower_challenge
             {
-                use crate::utils::DUMMY_BITVM_ASSERTS;
-
-                let mut temp_asserts = DUMMY_BITVM_ASSERTS;
+                let mut temp_asserts = ([[0u8; 32]; 1], [[0u8; 32]; 14], [[0u8; 16]; 363]);
 
                 let bytes_digitwise_reversed_g16_output: [u8; 31] = g16_output
                     .iter()

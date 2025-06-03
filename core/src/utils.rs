@@ -1,6 +1,5 @@
 use crate::errors::BridgeError;
 use crate::rpc::clementine::VergenResponse;
-use bitvm::chunk::api::Assertions;
 use http::HeaderValue;
 use std::fmt::Debug;
 use std::pin::Pin;
@@ -316,47 +315,4 @@ impl Last20Bytes for [u8; 32] {
         result.copy_from_slice(&self[12..32]);
         result
     }
-}
-
-const RAW_ASSERT_BYTES: &[u8; 6288] = include_bytes!("../bitvm_dummy_asserts.bin");
-
-pub const DUMMY_BITVM_ASSERTS: Assertions = parse_assertions(*RAW_ASSERT_BYTES);
-
-const fn parse_assertions(bytes: [u8; 6288]) -> Assertions {
-    let mut part1 = [[0u8; 32]; 1];
-    let mut part2 = [[0u8; 32]; 14];
-    let mut part3 = [[0u8; 16]; 363];
-
-    let mut i = 0;
-    let mut j = 0;
-
-    while j < 32 {
-        part1[0][j] = bytes[i];
-        i += 1;
-        j += 1;
-    }
-
-    let mut k = 0;
-    while k < 14 {
-        let mut l = 0;
-        while l < 32 {
-            part2[k][l] = bytes[i];
-            i += 1;
-            l += 1;
-        }
-        k += 1;
-    }
-
-    let mut m = 0;
-    while m < 363 {
-        let mut n = 0;
-        while n < 16 {
-            part3[m][n] = bytes[i];
-            i += 1;
-            n += 1;
-        }
-        m += 1;
-    }
-
-    (part1, part2, part3)
 }
