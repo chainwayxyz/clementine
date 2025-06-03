@@ -1198,7 +1198,7 @@ where
             }
         }
 
-        // find out which blockhash is latest_blockhash (only last 20 bytes is commited to Witness)
+        // find out which blockhash is latest_blockhash (only last 20 bytes is committed to Witness)
         let latest_blockhash_index = block_hashes
             .iter()
             .position(|(block_hash, _)| {

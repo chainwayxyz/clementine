@@ -345,7 +345,7 @@ mod tests {
         F: FnOnce(PathBuf) -> T,
     {
         let temp_dir = tempfile::tempdir().unwrap();
-        let file_path = temp_dir.path().join("test_config.toml");
+        let file_path = temp_dir.path().join("bridge_config.toml");
 
         let mut file = File::create(&file_path).unwrap();
         file.write_all(content.as_bytes()).unwrap();
@@ -489,7 +489,7 @@ mod tests {
     }
 
     // Basic minimum toml config content
-    const MINIMAL_CONFIG_CONTENT: &str = include_str!("../tests/data/test_config.toml");
+    const MINIMAL_CONFIG_CONTENT: &str = include_str!("test/data/bridge_config.toml");
 
     #[test]
     #[serial_test::serial]
@@ -498,7 +498,7 @@ mod tests {
             with_temp_config_file(MINIMAL_CONFIG_CONTENT, |config_path| {
                 // Create a temp protocol paramset file
                 with_temp_config_file(
-                    include_str!("./config/protocol_paramset.toml"),
+                    include_str!("./test/data/protocol_paramset.toml"),
                     |protocol_path| {
                         let args = vec![
                             "clementine-core",

@@ -21,7 +21,7 @@ use tracing_subscriber::{fmt, EnvFilter, Registry};
 /// # Returns
 ///
 /// Returns `Err` if `tracing` can't be initialized. Multiple subscription error
-/// is emmitted and will return `Ok(())`.
+/// is emitted and will return `Ok(())`.
 pub fn initialize_logger(level: Option<LevelFilter>) -> Result<(), BridgeError> {
     // Configure JSON formatting with additional fields
     let json_layer = fmt::layer::<Registry>()
