@@ -273,7 +273,7 @@ impl SuccinctBridgeCircuitPublicInputs {
             .unwrap();
 
         let deposit_constant = host_deposit_constant(&bridge_circuit_input);
-        let watchtower_challenge_set = verify_watchtower_challenges(&bridge_circuit_input);
+        let watchtower_challenge_set = verify_watchtower_challenges(bridge_circuit_input.clone());
 
         Self {
             bridge_circuit_input,
