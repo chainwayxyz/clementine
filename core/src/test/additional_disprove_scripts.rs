@@ -354,11 +354,6 @@ impl AdditionalDisproveTest {
             .await?
             .expect("Payout must be handled");
 
-        // wait 3 seconds so fee payer txs are sent to mempool
-        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-        // mine 1 block to make sure the fee payer txs are in the next block
-        rpc.mine_blocks(1).await.unwrap();
-
         // Wait for the kickoff tx to be onchain
         let kickoff_block_height =
             mine_once_after_in_mempool(&rpc, kickoff_txid, Some("Kickoff tx"), Some(300)).await?;
