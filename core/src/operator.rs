@@ -780,7 +780,7 @@ where
             self.config.clone(),
             transaction_data,
             Some(
-                payout_tx_blockhash.as_byte_array()[12..] // TODO: Make a helper function for this
+                payout_tx_blockhash.as_byte_array()[12..]
                     .try_into()
                     .expect("length statically known"),
             ),

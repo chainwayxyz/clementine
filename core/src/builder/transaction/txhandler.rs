@@ -61,7 +61,7 @@ impl<T: State> TxHandler<T> {
             txout.txout().clone(),
             txout.scripts().clone(),
             txout.spendinfo().clone(),
-        )) // TODO: Can we get rid of clones?
+        ))
     }
 
     pub fn get_merkle_root_of_txin(&self, idx: usize) -> Result<Option<TapNodeHash>, BridgeError> {
@@ -445,7 +445,6 @@ impl TxHandlerBuilder {
         self
     }
 
-    /// TODO: output likely fallible
     pub fn finalize(self) -> TxHandler<Unsigned> {
         // construct cached Transaction
         let tx = Transaction {
