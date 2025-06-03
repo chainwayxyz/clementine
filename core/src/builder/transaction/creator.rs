@@ -24,6 +24,7 @@ use super::operator_assert::{
 use super::{remove_txhandler_from_map, RoundTxInput};
 use crate::actor::Actor;
 use crate::bitvm_client::ClementineBitVMPublicKeys;
+use crate::builder;
 use crate::builder::script::{SpendableScript, TimelockScript, WinternitzCommit};
 use crate::builder::transaction::{
     create_assert_timeout_txhandlers, create_challenge_timeout_txhandler, create_kickoff_txhandler,
@@ -35,7 +36,6 @@ use crate::database::Database;
 use crate::deposit::{DepositData, KickoffData, OperatorData};
 use crate::errors::{BridgeError, TxError};
 use crate::operator::PublicHash;
-use crate::{builder, EVMAddress};
 use bitcoin::hashes::Hash;
 use bitcoin::key::Secp256k1;
 use bitcoin::taproot::TaprootBuilder;
@@ -752,7 +752,6 @@ pub async fn create_txhandlers(
     let challenge_txhandler = builder::transaction::create_challenge_txhandler(
         get_txhandler(&txhandlers, TransactionType::Kickoff)?,
         &operator_data.reimburse_addr,
-        EVMAddress([0u8; 20]), // TODO: add challenger evm address
         paramset,
     )?;
     txhandlers.insert(
