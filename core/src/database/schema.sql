@@ -346,7 +346,7 @@ DROP TRIGGER IF EXISTS trigger_update_activate_outpoints_seen_block_id ON tx_sen
 CREATE TRIGGER trigger_update_activate_outpoints_seen_block_id
 AFTER
 INSERT ON tx_sender_activate_try_to_send_outpoints FOR EACH ROW EXECUTE FUNCTION update_activate_outpoints_seen_block_id();
--------- ROUND MANAGMENT FOR OPERATOR --------
+-------- ROUND MANAGEMENT FOR OPERATOR --------
 create table if not exists used_kickoff_connectors (
     round_idx int not null,
     kickoff_connector_idx int not null,

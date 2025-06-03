@@ -31,6 +31,7 @@ use crate::task::payout_checker::{PayoutCheckerTask, PAYOUT_CHECKER_POLL_DELAY};
 use crate::task::{IntoTask, TaskExt};
 use crate::tx_sender::TxSenderClient;
 use crate::tx_sender::{ActivatedWithOutpoint, ActivatedWithTxid, FeePayingType, TxMetadata};
+use crate::utils::Last20Bytes;
 use crate::{builder, UTXO};
 use bitcoin::consensus::deserialize;
 use bitcoin::hashes::Hash;
@@ -774,16 +775,25 @@ where
             kickoff_data,
         };
 
+        let payout_tx_blockhash: [u8; 20] = payout_tx_blockhash.as_byte_array().last_20_bytes();
+
+        #[cfg(test)]
+        let mut payout_tx_blockhash = payout_tx_blockhash;
+
+        #[cfg(test)]
+        {
+            if self.config.test_params.disrupt_payout_tx_block_hash_commit {
+                tracing::info!("Disrupting latest blockhash for testing purposes",);
+                payout_tx_blockhash[19] ^= 0x01;
+            }
+        }
+
         let signed_txs = create_and_sign_txs(
             self.db.clone(),
             &self.signer,
             self.config.clone(),
             transaction_data,
-            Some(
-                payout_tx_blockhash.as_byte_array()[12..]
-                    .try_into()
-                    .expect("length statically known"),
-            ),
+            Some(payout_tx_blockhash),
         )
         .await?;
 
@@ -1184,13 +1194,13 @@ where
 
         #[cfg(test)]
         {
-            if self.config.test_params.disrupt_block_hash_commit {
+            if self.config.test_params.disrupt_latest_block_hash_commit {
                 tracing::info!("Correcting latest blockhash for testing purposes",);
                 latest_blockhash[19] ^= 0x01;
             }
         }
 
-        // find out which blockhash is latest_blockhash (only last 20 bytes is commited to Witness)
+        // find out which blockhash is latest_blockhash (only last 20 bytes is committed to Witness)
         let latest_blockhash_index = block_hashes
             .iter()
             .position(|(block_hash, _)| {
@@ -1230,6 +1240,14 @@ where
             });
         }
 
+        #[cfg(test)]
+        {
+            if self.config.test_params.operator_forgot_watchtower_challenge {
+                tracing::info!("Disrupting watchtower challenges in send_asserts");
+                wt_contexts.pop();
+            }
+        }
+
         let watchtower_challenge_connector_start_idx =
             (FIRST_FIVE_OUTPUTS + NUMBER_OF_ASSERT_TXS) as u16;
 
@@ -1264,6 +1282,29 @@ where
             prove_bridge_circuit(bridge_circuit_host_params, bridge_circuit_elf);
         tracing::info!("Proved bridge circuit in send_asserts");
         let public_input_scalar = ark_bn254::Fr::from_be_bytes_mod_order(&g16_output);
+
+        #[cfg(test)]
+        let mut public_inputs = public_inputs;
+
+        #[cfg(test)]
+        {
+            if self
+                .config
+                .test_params
+                .disrupt_challenge_sending_watchtowers_commit
+            {
+                tracing::info!("Disrupting challenge sending watchtowers commit in send_asserts");
+                public_inputs.challenge_sending_watchtowers[0] ^= 0x01;
+                tracing::info!(
+                    "Disrupted challenge sending watchtowers commit: {:?}",
+                    public_inputs.challenge_sending_watchtowers
+                );
+            }
+        }
+        tracing::info!(
+            "Challenge sending watchtowers commit: {:?}",
+            public_inputs.challenge_sending_watchtowers
+        );
 
         let asserts = if cfg!(test) && is_dev_mode() {
             generate_assertions(

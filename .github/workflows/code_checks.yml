@@ -64,3 +64,22 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build documentation
         run: cargo doc --no-deps
+
+  codespell:
+    name: Check spelling
+    runs-on: ubicloud-standard-2
+    if: github.event.pull_request.draft == false
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install codespell
+        run: pip install codespell
+
+      - name: Run codespell
+        run: |
+          codespell --skip="*.lock,./target" -I="codespell_ignore.txt"

@@ -450,6 +450,11 @@ impl<T: Owner> KickoffStateMachine<T> {
         let num_asserts = crate::bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs();
         for assert_idx in 0..num_asserts {
             let mini_assert_vout = UtxoVout::Assert(assert_idx).get_vout();
+            tracing::info!(
+                "Adding matcher for assert {} with vout {}",
+                assert_idx,
+                mini_assert_vout
+            );
             let assert_timeout_txhandler = remove_txhandler_from_map(
                 &mut txhandlers,
                 TransactionType::AssertTimeout(assert_idx),

@@ -390,7 +390,7 @@ async fn signature_distributor(
 }
 
 /// Creates a stream of nonces from verifiers.
-/// This will automatically get's the first response from the verifiers.
+/// This will automatically get the first response from the verifiers.
 ///
 /// # Returns
 ///

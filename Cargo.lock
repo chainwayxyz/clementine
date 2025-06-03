@@ -2094,6 +2094,7 @@ dependencies = [
  "jsonrpsee",
  "lazy_static",
  "log",
+ "once_cell",
  "pgmq",
  "prost",
  "rand_chacha 0.3.1",
