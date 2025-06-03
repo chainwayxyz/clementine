@@ -4,6 +4,7 @@ use crate::structs::{
 };
 use crate::utils::calculate_succinct_output_prefix;
 use ark_bn254::Bn254;
+use ark_serialize::CanonicalSerialize;
 use bitcoin::Transaction;
 use borsh;
 use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
@@ -174,6 +175,13 @@ pub fn prove_bridge_circuit(
     let risc0_g16_256 = risc0_g16_seal_vec[0..256].try_into().unwrap();
     let circuit_g16_proof = CircuitGroth16Proof::from_seal(risc0_g16_256);
     let ark_groth16_proof: ark_groth16::Proof<Bn254> = circuit_g16_proof.into();
+    tracing::info!("Proof: {:?}", g16_proof);
+    let mut writer = Vec::new();
+    ark_groth16_proof
+        .serialize_uncompressed(&mut writer)
+        .unwrap();
+    tracing::info!("Proof bytes: {:?}", writer);
+    tracing::info!("Proof output: {:?}", g16_output);
 
     let deposit_constant = public_inputs.deposit_constant.0;
     tracing::debug!("Deposit constant - circuit: {:?}", deposit_constant);

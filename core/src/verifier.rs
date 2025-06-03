@@ -1821,6 +1821,10 @@ where
         let disprove_tx = disprove_txhandler.get_cached_tx().clone();
 
         tracing::debug!("Disprove txid: {:?}", disprove_tx.compute_txid());
+        tracing::warn!(
+            "Disprove tx witness for operator disprove connector: {:?}",
+            disprove_tx.input[0].witness
+        );
 
         tracing::info!(
             "Disprove tx created for verifier {:?} with kickoff_data: {:?}, deposit_data: {:?}",
