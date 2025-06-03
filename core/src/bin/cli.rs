@@ -1,9 +1,9 @@
 //! This module defines a command line interface for the RPC client.
 
-use std::path::PathBuf;
 use std::str::FromStr;
+use std::path::PathBuf;
 
-use bitcoin::{hashes::Hash, Block, Txid};
+use bitcoin::{hashes::Hash, Block, ScriptBuf, Txid};
 use clap::{Parser, Subcommand};
 use clementine_core::{
     builder::transaction::SecurityCouncil,
@@ -116,6 +116,36 @@ enum AggregatorCommands {
         evm_address: Option<String>,
         #[arg(long)]
         recovery_taproot_address: Option<String>,
+    },
+    /// Get move transaction for deposit without sending it
+    GetMoveTransaction {
+        #[arg(long)]
+        deposit_outpoint_txid: String,
+        #[arg(long)]
+        deposit_outpoint_vout: u32,
+        #[arg(long)]
+        evm_address: Option<String>,
+        #[arg(long)]
+        recovery_taproot_address: Option<String>,
+    },
+    /// Send move transaction using CPFP package
+    SendMoveTransactionCPFP {
+        #[arg(long)]
+        deposit_outpoint_txid: String,
+        #[arg(long)]
+        deposit_outpoint_vout: u32,
+        #[arg(long)]
+        evm_address: Option<String>,
+        #[arg(long)]
+        recovery_taproot_address: Option<String>,
+        #[arg(long)]
+        fee_rate: Option<f64>, // sat/vB
+        #[arg(long)]
+        bitcoin_rpc_url: String,
+        #[arg(long)]
+        bitcoin_rpc_user: String,
+        #[arg(long)]
+        bitcoin_rpc_password: String,
     },
     NewReplacementDeposit {
         #[arg(long)]
@@ -353,6 +383,49 @@ fn create_minimal_config() -> BridgeConfig {
     }
 }
 
+// Helper function to create move transaction from deposit parameters
+async fn create_move_transaction(
+    aggregator: &mut ClementineAggregatorClient<tonic::transport::Channel>,
+    deposit_outpoint_txid: String,
+    deposit_outpoint_vout: u32,
+    evm_address: Option<String>,
+    recovery_taproot_address: Option<String>,
+) -> Result<clementine_core::rpc::clementine::RawSignedTx, Box<dyn std::error::Error>> {
+    let evm_address = match evm_address {
+        Some(address) => EVMAddress(
+            hex::decode(address)?
+                .try_into()
+                .map_err(|_| "Invalid EVM address length")?,
+        ),
+        None => EVMAddress([1; 20]),
+    };
+
+    let recovery_taproot_address = match recovery_taproot_address {
+        Some(address) => bitcoin::Address::from_str(&address)?,
+        None => bitcoin::Address::from_str(
+            "tb1p9k6y4my6vacczcyc4ph2m5q96hnxt5qlrqd9484qd9cwgrasc54qw56tuh",
+        )?,
+    };
+
+    let mut deposit_outpoint_txid = hex::decode(deposit_outpoint_txid)?;
+    deposit_outpoint_txid.reverse();
+
+    let deposit = aggregator
+        .new_deposit(Deposit {
+            deposit_outpoint: Some(Outpoint {
+                txid: deposit_outpoint_txid,
+                vout: deposit_outpoint_vout,
+            }),
+            deposit_data: Some(DepositData::BaseDeposit(BaseDeposit {
+                evm_address: evm_address.0.to_vec(),
+                recovery_taproot_address: recovery_taproot_address.assume_checked().to_string(),
+            })),
+        })
+        .await?;
+
+    Ok(deposit.into_inner())
+}
+
 async fn handle_operator_call(url: String, command: OperatorCommands) {
     let config = create_minimal_config();
     let mut operator =
@@ -565,6 +638,199 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             );
             println!("Move txid: {}", txid);
         }
+        AggregatorCommands::GetMoveTransaction {
+            deposit_outpoint_txid,
+            deposit_outpoint_vout,
+            evm_address,
+            recovery_taproot_address,
+        } => {
+            let raw_tx = create_move_transaction(
+                &mut aggregator,
+                deposit_outpoint_txid,
+                deposit_outpoint_vout,
+                evm_address,
+                recovery_taproot_address,
+            )
+            .await
+            .expect("Failed to create move transaction");
+
+            let raw_tx_hex = hex::encode(&raw_tx.raw_tx);
+
+            println!("Move transaction created successfully");
+            println!("Raw transaction: {}", raw_tx_hex);
+            println!();
+            println!("Manual Bitcoin RPC commands:");
+            println!("# Decode and verify the transaction:");
+            println!("bitcoin-cli -regtest -rpcport=18443 -rpcuser=admin -rpcpassword=admin decoderawtransaction {}", raw_tx_hex);
+            println!();
+            println!("# Broadcast the transaction:");
+            println!("bitcoin-cli -regtest -rpcport=18443 -rpcuser=admin -rpcpassword=admin sendrawtransaction {}", raw_tx_hex);
+            println!();
+            println!("# Mine a block to confirm:");
+            println!(
+                "bitcoin-cli -regtest -rpcport=18443 -rpcuser=admin -rpcpassword=admin -generate 1"
+            );
+        }
+        AggregatorCommands::SendMoveTransactionCPFP {
+            deposit_outpoint_txid,
+            deposit_outpoint_vout,
+            evm_address,
+            recovery_taproot_address,
+            fee_rate,
+            bitcoin_rpc_url,
+            bitcoin_rpc_user,
+            bitcoin_rpc_password,
+        } => {
+            let raw_tx = create_move_transaction(
+                &mut aggregator,
+                deposit_outpoint_txid,
+                deposit_outpoint_vout,
+                evm_address,
+                recovery_taproot_address,
+            )
+            .await
+            .expect("Failed to create move transaction");
+
+            let move_tx_hex = hex::encode(&raw_tx.raw_tx);
+            let move_tx: bitcoin::Transaction = bitcoin::consensus::deserialize(&raw_tx.raw_tx)
+                .expect("Failed to deserialize move transaction");
+
+            println!("Move transaction created: {}", move_tx.compute_txid());
+            println!("Raw transaction: {}", move_tx_hex);
+
+            // Find P2A anchor output (script: 51024e73)
+            let p2a_vout = move_tx
+                .output
+                .iter()
+                .position(|output| {
+                    output.script_pubkey == ScriptBuf::from_hex("51024e73").expect("valid script")
+                })
+                .expect("P2A anchor output not found in move transaction");
+
+            println!("Found P2A anchor output at vout: {}", p2a_vout);
+
+            // Connect to Bitcoin RPC
+            use bitcoincore_rpc::{Auth, Client, RpcApi};
+            let rpc = Client::new(
+                &bitcoin_rpc_url,
+                Auth::UserPass(bitcoin_rpc_user, bitcoin_rpc_password),
+            )
+            .await
+            .expect("Failed to connect to Bitcoin RPC");
+
+            let temp_address = rpc
+                .get_new_address(None, None)
+                .await
+                .expect("Failed to get new address");
+
+            let fee_rate_sat_vb = fee_rate.unwrap_or(10.0) as u64;
+
+            // Calculate package fee requirements
+            let parent_weight = move_tx.weight();
+            let estimated_child_weight = bitcoin::Weight::from_wu(500);
+            let total_weight = parent_weight + estimated_child_weight;
+            let required_fee_sats =
+                (total_weight.to_wu() as f64 * fee_rate_sat_vb as f64 / 4.0) as u64;
+            let required_fee = bitcoin::Amount::from_sat(required_fee_sats);
+
+            println!(
+                "Parent weight: {}, estimated total: {}, required fee: {} sats",
+                parent_weight,
+                total_weight,
+                required_fee.to_sat()
+            );
+
+            // Generate blocks to ensure fresh UTXOs for fees
+            println!("Generating blocks to create fresh UTXOs for CPFP");
+            let blocks_generated = rpc
+                .generate_to_address(1, &temp_address.clone().assume_checked())
+                .await
+                .expect("Failed to generate blocks");
+            println!("Generated {} block(s)", blocks_generated.len());
+
+            let unspent = rpc
+                .list_unspent(None, None, None, None, None)
+                .await
+                .expect("Failed to list unspent outputs");
+
+            if unspent.is_empty() {
+                println!("No unspent outputs available for fee payment");
+                return;
+            }
+
+            let fee_payer_utxo = unspent.last().expect("Checked unspent is not empty");
+            println!(
+                "Using UTXO {} for fees: {}",
+                fee_payer_utxo.txid, fee_payer_utxo.amount
+            );
+
+            // Create child transaction
+            use bitcoin::{transaction::Version, OutPoint, Sequence, TxIn, TxOut};
+
+            let child_input = TxIn {
+                previous_output: OutPoint {
+                    txid: move_tx.compute_txid(),
+                    vout: p2a_vout as u32,
+                },
+                script_sig: bitcoin::ScriptBuf::new(),
+                sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+                witness: bitcoin::Witness::new(),
+            };
+
+            let fee_payer_input = TxIn {
+                previous_output: OutPoint {
+                    txid: fee_payer_utxo.txid,
+                    vout: fee_payer_utxo.vout,
+                },
+                script_sig: bitcoin::ScriptBuf::new(),
+                sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+                witness: bitcoin::Witness::new(),
+            };
+
+            let total_input_value = bitcoin::Amount::from_sat(240) + fee_payer_utxo.amount;
+            let change_amount = total_input_value
+                .checked_sub(required_fee)
+                .expect("Insufficient funds for required fee");
+
+            let child_output = TxOut {
+                value: change_amount,
+                script_pubkey: temp_address.assume_checked().script_pubkey(),
+            };
+
+            let child_tx = bitcoin::Transaction {
+                version: Version::TWO,
+                lock_time: bitcoin::absolute::LockTime::ZERO,
+                input: vec![child_input, fee_payer_input],
+                output: vec![child_output],
+            };
+
+            println!("Child transaction created: {}", child_tx.compute_txid());
+
+            // Submit CPFP package
+            let package = vec![&move_tx, &child_tx];
+            println!("Submitting CPFP package");
+
+            match rpc
+                .submit_package(&package, Some(bitcoin::Amount::ZERO), None)
+                .await
+            {
+                Ok(result) => {
+                    println!("CPFP package submitted successfully");
+                    println!("Package result: {:?}", result);
+                    println!("Move transaction TXID: {}", move_tx.compute_txid());
+                    println!("Child transaction TXID: {}", child_tx.compute_txid());
+                }
+                Err(e) => {
+                    println!("Failed to submit CPFP package: {}", e);
+                    println!("Manual submission options:");
+                    println!("Parent tx: {}", move_tx_hex);
+                    println!(
+                        "Child tx: {}",
+                        hex::encode(bitcoin::consensus::serialize(&child_tx))
+                    );
+                }
+            }
+        }
         AggregatorCommands::GetNofnAggregatedKey => {
             let response = aggregator
                 .get_nofn_aggregated_xonly_pk(Request::new(Empty {}))
@@ -705,7 +971,7 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             //     .expect("Failed to encode input")
             //     .into_iter()
             //     .flatten()
-            //     .collect();
+            //     .collect::<Vec<u8>>();
 
             // let vin = [vec![tx.input.len() as u8], vin].concat();
 
@@ -913,6 +1179,21 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
+
+    if !std::path::Path::new("certs/ca/ca.pem").exists() {
+        if PathBuf::from(
+            std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is not set"),
+        )
+        .canonicalize()
+        .expect("Failed to canonicalize path")
+            != std::env::current_dir().expect("Failed to get current directory")
+        {
+            println!("Error: CA certificates not found in expected path, please run this command from the `core` directory. Current directory: {}", std::env::current_dir().expect("Failed to get current directory").to_str().expect("Failed to get current directory as string"));
+        } else {
+            println!("Error: CA certificates not found in expected path, please generate them before running the CLI");
+        }
+        return;
+    }
 
     match cli.command {
         Commands::Operator { command } => {
