@@ -151,7 +151,7 @@ pub struct BridgeConfig {
     /// certificate in other entities.
     ///
     /// Aggregator needs this to call other entities, other entities need this
-    /// to call their own interanl endpoints.
+    /// to call their own internal endpoints.
     pub client_cert_path: PathBuf,
     /// Path to the client key file.
     pub client_key_path: PathBuf,

@@ -123,7 +123,7 @@ pub struct StorageProof {
     pub storage_proof_utxo: String,         // This will be an Outpoint
     pub storage_proof_vout: String,         // This is the vout of the txid
     pub storage_proof_deposit_txid: String, // This is the index of the withdrawal
-    pub index: u32,                         // For now this is 18, for a specifix withdrawal
+    pub index: u32,                         // For now this is 18, for a specific withdrawal
 }
 
 // #[derive(Clone, Debug, BorshDeserialize, BorshSerialize)]
@@ -185,7 +185,7 @@ impl WatchtowerInput {
     /// * `watchtower_tx` - The watchtower challenge transaction that includes an input
     ///   referencing the `kickoff_tx`.
     /// * `prevout_txs` - An optional slice of transactions, each of which should include
-    ///   at least one output that is later spent as an input in `watchtower_tx`. ( Txs shoul be in the same order as the inputs in the watchtower tx )
+    ///   at least one output that is later spent as an input in `watchtower_tx`. ( Txs should be in the same order as the inputs in the watchtower tx )
     ///
     /// # Note
     ///
