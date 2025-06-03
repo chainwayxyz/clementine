@@ -1887,12 +1887,12 @@ where
                 payout_blockhash,
                 latest_blockhash,
             } => {
-                let context = ContractContext::new_context_for_kickoffs(
+                let context = ContractContext::new_context_with_signer(
                     kickoff_data,
                     deposit_data.clone(),
                     self.config.protocol_paramset(),
+                    self.signer.clone()
                 );
-
                 let mut db_cache = ReimburseDbCache::from_context(self.db.clone(), &context);
 
                 let txhandlers = create_txhandlers(

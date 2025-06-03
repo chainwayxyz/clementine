@@ -768,7 +768,7 @@ pub fn create_disprove_taproot_output(
         additional_script.clone(),
     ];
 
-    let builder = match disprove_path {
+    let builder = match disprove_path.clone() {
         DisprovePath::Scripts(extra_scripts) => {
             scripts.extend(extra_scripts);
             taproot_builder_with_scripts(&scripts)
@@ -785,6 +785,14 @@ pub fn create_disprove_taproot_output(
     let taproot_spend_info = builder
         .finalize(&SECP, *UNSPENDABLE_XONLY_PUBKEY)
         .expect("valid taptree");
+
+    let disprove_path = if let DisprovePath::Scripts(_) = disprove_path {
+        "script"
+    } else {
+        "hidden_node"
+    };
+    // taproot root hash 
+    tracing::info!("Taproot Merkle Root: {:?}, Type: {disprove_path} ", taproot_spend_info.merkle_root());
 
     let address = Address::p2tr(
         &SECP,

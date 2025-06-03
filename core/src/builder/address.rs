@@ -41,10 +41,7 @@ pub fn taproot_builder_with_scripts(scripts: &[ScriptBuf]) -> TaprootBuilder {
 
     (0..num_scripts).fold(builder, |acc, i| {
         let is_node_in_last_minus_one_depth = (i >= num_nodes_in_final_depth) as u8;
-
-        let depth = deepest_layer_depth - is_node_in_last_minus_one_depth;
-        println!("Adding script {} at depth {}", i, depth);
-
+        
         acc.add_leaf(
             deepest_layer_depth - is_node_in_last_minus_one_depth,
             scripts[i].clone(),

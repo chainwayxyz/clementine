@@ -354,6 +354,8 @@ impl AdditionalDisproveTest {
             .await?
             .expect("Payout must be handled");
 
+        tracing::info!("Kickoff txid: {:?}", kickoff_txid);
+
         // wait 3 seconds so fee payer txs are sent to mempool
         tokio::time::sleep(std::time::Duration::from_secs(3)).await;
         // mine 1 block to make sure the fee payer txs are in the next block
