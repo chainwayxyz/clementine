@@ -123,6 +123,7 @@ pub struct DepositData {
 
 impl PartialEq for DepositData {
     fn eq(&self, other: &Self) -> bool {
+        // nofn_xonly_pk only depends on verifiers pk's so it can be ignored as verifiers are already compared
         // for security council, order of keys matter as it will change the m of n multisig script,
         // thus change the scriptpubkey of move to vault tx
         self.security_council == other.security_council

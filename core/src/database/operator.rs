@@ -432,12 +432,14 @@ impl Database {
         )
         .bind(OutPointDB(deposit_data.get_deposit_outpoint()));
 
-        let existing: (i32, DepositParamsDB, TxidDB) =
-            execute_query_with_tx!(self.connection, tx, existing_query, fetch_one)?;
+        let (existing_deposit_id, existing_deposit_params, existing_move_txid): (
+            i32,
+            DepositParamsDB,
+            TxidDB,
+        ) = execute_query_with_tx!(self.connection, tx, existing_query, fetch_one)?;
 
-        let existing_deposit_data: DepositData = existing
-            .1
-             .0
+        let existing_deposit_data: DepositData = existing_deposit_params
+            .0
             .try_into()
             .map_err(|e| eyre::eyre!("Invalid deposit params {e}"))?;
 
@@ -452,11 +454,11 @@ impl Database {
             ));
         }
 
-        if existing.2 .0 != move_to_vault_txid {
+        if existing_move_txid.0 != move_to_vault_txid {
             // This should never happen, only a sanity check
             tracing::error!(
                 "Move to vault txid mismatch in set_deposit_data: Existing {:?}, New {:?}",
-                existing.2 .0,
+                existing_move_txid.0,
                 move_to_vault_txid
             );
             return Err(BridgeError::DepositDataMismatch(
@@ -465,7 +467,7 @@ impl Database {
         }
 
         // If data matches, return the existing deposit_id
-        Ok(u32::try_from(existing.0).wrap_err("Failed to convert deposit id to u32")?)
+        Ok(u32::try_from(existing_deposit_id).wrap_err("Failed to convert deposit id to u32")?)
     }
 
     pub async fn get_deposit_data_with_move_tx(
