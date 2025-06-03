@@ -490,8 +490,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 return Err(eyre::eyre!(format!(
                     "Multiple errors occurred during state processing: {:?}",
                     all_errors
-                ))
-                .into());
+                )));
             }
 
             // Append the newly generated state machines into the changed machines list

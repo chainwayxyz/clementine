@@ -383,7 +383,13 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
                 Ok(withdrawal_response) => {
                     tracing::info!("Withdrawal response: {:?}", withdrawal_response);
                     break Txid::from_byte_array(
-                        withdrawal_response.into_inner().txid.try_into().unwrap(),
+                        withdrawal_response
+                            .into_inner()
+                            .txid
+                            .unwrap()
+                            .txid
+                            .try_into()
+                            .unwrap(),
                     );
                 }
                 Err(e) => {
@@ -736,7 +742,13 @@ async fn mock_citrea_run_truthful() {
                 Ok(withdrawal_response) => {
                     tracing::info!("Withdrawal response: {:?}", withdrawal_response);
                     let payout_txid = Some(Txid::from_byte_array(
-                        withdrawal_response.into_inner().txid.try_into().unwrap(),
+                        withdrawal_response
+                            .into_inner()
+                            .txid
+                            .unwrap()
+                            .txid
+                            .try_into()
+                            .unwrap(),
                     ));
                     Ok(Some(payout_txid))
                 }

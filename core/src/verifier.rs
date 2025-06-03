@@ -416,23 +416,20 @@ where
         let (mut sec_nonces, mut pub_nonces): (Vec<MusigSecNonce>, Vec<MusigPubNonce>) =
             (vec![], vec![]);
 
-        for result in (0..num_nonces)
-            .map(|_| {
-                // nonce pair needs keypair and a rng
-                let (sec_nonce, pub_nonce) = musig2::nonce_pair(
-                    &self.signer.keypair,
-                    &mut bitcoin::secp256k1::rand::thread_rng(),
-                )?;
-                Ok::<
-                    (
-                        secp256k1::musig::MusigSecNonce,
-                        secp256k1::musig::MusigPubNonce,
-                    ),
-                    BridgeError,
-                >((sec_nonce, pub_nonce))
-            })
-            .into_iter()
-        {
+        for result in (0..num_nonces).map(|_| {
+            // nonce pair needs keypair and a rng
+            let (sec_nonce, pub_nonce) = musig2::nonce_pair(
+                &self.signer.keypair,
+                &mut bitcoin::secp256k1::rand::thread_rng(),
+            )?;
+            Ok::<
+                (
+                    secp256k1::musig::MusigSecNonce,
+                    secp256k1::musig::MusigPubNonce,
+                ),
+                BridgeError,
+            >((sec_nonce, pub_nonce))
+        }) {
             let (sec_nonce, pub_nonce) = result?;
             sec_nonces.push(sec_nonce);
             pub_nonces.push(pub_nonce);

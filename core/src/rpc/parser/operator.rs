@@ -11,8 +11,8 @@ use crate::{
     },
 };
 use bitcoin::{
-    address::NetworkUnchecked, hashes::Hash, secp256k1::schnorr::Signature, Address, Amount,
-    OutPoint, ScriptBuf, XOnlyPublicKey,
+    address::NetworkUnchecked, secp256k1::schnorr::Signature, Address, Amount, OutPoint, ScriptBuf,
+    XOnlyPublicKey,
 };
 use bitvm::signatures::winternitz;
 use std::str::FromStr;
@@ -25,11 +25,7 @@ where
     fn from(operator: Operator<C>) -> Self {
         let operator_config = OperatorConfig {
             collateral_funding_outpoint: Some(Outpoint {
-                txid: operator
-                    .collateral_funding_outpoint
-                    .txid
-                    .to_byte_array()
-                    .to_vec(),
+                txid: Some(operator.collateral_funding_outpoint.txid.into()),
                 vout: operator.collateral_funding_outpoint.vout,
             }),
             xonly_pk: operator.signer.xonly_public_key.to_string(),

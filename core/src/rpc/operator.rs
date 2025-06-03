@@ -138,7 +138,7 @@ where
             .await?;
 
         Ok(Response::new(WithdrawResponse {
-            txid: withdrawal_txid.as_raw_hash().to_byte_array().to_vec(),
+            txid: Some(withdrawal_txid.into()),
         }))
     }
 
