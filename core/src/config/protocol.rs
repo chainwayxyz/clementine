@@ -91,7 +91,7 @@ pub struct ProtocolParamset {
     /// Total number of bytes of a watchtower challenge.
     pub watchtower_challenge_bytes: usize,
     /// Winternitz derivation log_d (shared for all WOTS commitments)
-    /// Currently used in statics and thus cannot be different from [`WINTERNITZ_LOG_D`].
+    /// Currently used in statistics and thus cannot be different from [`WINTERNITZ_LOG_D`].
     pub winternitz_log_d: u32,
     /// Number of blocks after which user can take deposit back if deposit request fails.
     pub user_takes_after: u16,
