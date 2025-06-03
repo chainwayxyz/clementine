@@ -945,7 +945,7 @@
         </span>F: FnOnce(PathBuf) -&gt; T,
     {
         <span class="kw">let </span>temp_dir = tempfile::tempdir().unwrap();
-        <span class="kw">let </span>file_path = temp_dir.path().join(<span class="string">"test_config.toml"</span>);
+        <span class="kw">let </span>file_path = temp_dir.path().join(<span class="string">"bridge_config.toml"</span>);
 
         <span class="kw">let </span><span class="kw-2">mut </span>file = File::create(<span class="kw-2">&amp;</span>file_path).unwrap();
         file.write_all(content.as_bytes()).unwrap();
@@ -1088,7 +1088,7 @@
     }
 
     <span class="comment">// Basic minimum toml config content
-    </span><span class="kw">const </span>MINIMAL_CONFIG_CONTENT: <span class="kw-2">&amp;</span>str = <span class="macro">include_str!</span>(<span class="string">"../tests/data/test_config.toml"</span>);
+    </span><span class="kw">const </span>MINIMAL_CONFIG_CONTENT: <span class="kw-2">&amp;</span>str = <span class="macro">include_str!</span>(<span class="string">"test/data/bridge_config.toml"</span>);
 
     <span class="attr">#[test]
     #[serial_test::serial]
@@ -1097,7 +1097,7 @@
             with_temp_config_file(MINIMAL_CONFIG_CONTENT, |config_path| {
                 <span class="comment">// Create a temp protocol paramset file
                 </span>with_temp_config_file(
-                    <span class="macro">include_str!</span>(<span class="string">"./config/protocol_paramset.toml"</span>),
+                    <span class="macro">include_str!</span>(<span class="string">"./test/data/protocol_paramset.toml"</span>),
                     |protocol_path| {
                         <span class="kw">let </span>args = <span class="macro">vec!</span>[
                             <span class="string">"clementine-core"</span>,

@@ -888,12 +888,7 @@
 <a href="#887" id="887">887</a>
 <a href="#888" id="888">888</a>
 <a href="#889" id="889">889</a>
-<a href="#890" id="890">890</a>
-<a href="#891" id="891">891</a>
-<a href="#892" id="892">892</a>
-<a href="#893" id="893">893</a>
-<a href="#894" id="894">894</a>
-<a href="#895" id="895">895</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Header Chain Prover Related Database Operations
+<a href="#890" id="890">890</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Header Chain Prover Related Database Operations
 //!
 //! This module includes database functions which are mainly used by the header
 //! chain prover.
@@ -1325,8 +1320,7 @@
                 .unwrap(),
             height
         );
-        <span class="kw">let </span>receipt =
-            Receipt::try_from_slice(<span class="macro">include_bytes!</span>(<span class="string">"../../tests/data/first_1.bin"</span>)).unwrap();
+        <span class="kw">let </span>receipt = Receipt::try_from_slice(<span class="macro">include_bytes!</span>(<span class="string">"../test/data/first_1.bin"</span>)).unwrap();
         db.set_block_proof(<span class="prelude-val">None</span>, block_hash, receipt).<span class="kw">await</span>.unwrap();
         <span class="kw">let </span>latest_proven_block = db
             .get_latest_proven_block_info(<span class="prelude-val">None</span>)
@@ -1390,8 +1384,7 @@
         <span class="macro">assert!</span>(read_receipt.is_none());
 
         <span class="comment">// Update it with a proof.
-        </span><span class="kw">let </span>receipt =
-            Receipt::try_from_slice(<span class="macro">include_bytes!</span>(<span class="string">"../../tests/data/first_1.bin"</span>)).unwrap();
+        </span><span class="kw">let </span>receipt = Receipt::try_from_slice(<span class="macro">include_bytes!</span>(<span class="string">"../test/data/first_1.bin"</span>)).unwrap();
         db.set_block_proof(<span class="prelude-val">None</span>, block_hash, receipt.clone())
             .<span class="kw">await
             </span>.unwrap();
@@ -1461,8 +1454,7 @@
         db.save_unproven_finalized_block(<span class="prelude-val">None</span>, block_hash1, block.header, height1)
             .<span class="kw">await
             </span>.unwrap();
-        <span class="kw">let </span>receipt =
-            Receipt::try_from_slice(<span class="macro">include_bytes!</span>(<span class="string">"../../tests/data/first_1.bin"</span>)).unwrap();
+        <span class="kw">let </span>receipt = Receipt::try_from_slice(<span class="macro">include_bytes!</span>(<span class="string">"../test/data/first_1.bin"</span>)).unwrap();
         db.set_block_proof(<span class="prelude-val">None</span>, block_hash1, receipt.clone())
             .<span class="kw">await
             </span>.unwrap();
@@ -1616,8 +1608,7 @@
         db.save_unproven_finalized_block(<span class="prelude-val">None</span>, block_hash1, block.header, height)
             .<span class="kw">await
             </span>.unwrap();
-        <span class="kw">let </span>receipt =
-            Receipt::try_from_slice(<span class="macro">include_bytes!</span>(<span class="string">"../../tests/data/first_1.bin"</span>)).unwrap();
+        <span class="kw">let </span>receipt = Receipt::try_from_slice(<span class="macro">include_bytes!</span>(<span class="string">"../test/data/first_1.bin"</span>)).unwrap();
         db.set_block_proof(<span class="prelude-val">None</span>, block_hash1, receipt.clone())
             .<span class="kw">await
             </span>.unwrap();
@@ -1724,8 +1715,7 @@
     </span><span class="kw">async fn </span>get_latest_proven_block_info() {
         <span class="kw">let </span>config = create_test_config_with_thread_name().<span class="kw">await</span>;
         <span class="kw">let </span>db = Database::new(<span class="kw-2">&amp;</span>config).<span class="kw">await</span>.unwrap();
-        <span class="kw">let </span>proof =
-            Receipt::try_from_slice(<span class="macro">include_bytes!</span>(<span class="string">"../../tests/data/first_1.bin"</span>)).unwrap();
+        <span class="kw">let </span>proof = Receipt::try_from_slice(<span class="macro">include_bytes!</span>(<span class="string">"../test/data/first_1.bin"</span>)).unwrap();
 
         <span class="macro">assert!</span>(db
             .get_latest_proven_block_info(<span class="prelude-val">None</span>)

@@ -325,7 +325,7 @@
     ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
         <span class="kw">let </span>database = Database::new(config).<span class="kw">await</span><span class="question-mark">?</span>;
 
-        sqlx::raw_sql(<span class="macro">include_str!</span>(<span class="string">"../../../scripts/schema.sql"</span>))
+        sqlx::raw_sql(<span class="macro">include_str!</span>(<span class="string">"schema.sql"</span>))
             .execute(<span class="kw-2">&amp;</span>database.connection)
             .<span class="kw">await</span><span class="question-mark">?</span>;
         <span class="kw">if </span>is_verifier {
@@ -334,7 +334,7 @@
 
             <span class="comment">// Only execute PGMQ setup if it doesn't exist
             </span><span class="kw">if </span>!is_pgmq_installed {
-                sqlx::raw_sql(<span class="macro">include_str!</span>(<span class="string">"../../../scripts/pgmq.sql"</span>))
+                sqlx::raw_sql(<span class="macro">include_str!</span>(<span class="string">"pgmq.sql"</span>))
                     .execute(<span class="kw-2">&amp;</span>database.connection)
                     .<span class="kw">await</span><span class="question-mark">?</span>;
             }

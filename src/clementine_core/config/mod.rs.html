@@ -660,7 +660,7 @@
 
         <span class="comment">// Read first example test file use for this test.
         </span><span class="kw">let </span>base_path = <span class="macro">env!</span>(<span class="string">"CARGO_MANIFEST_DIR"</span>);
-        <span class="kw">let </span>config_path = <span class="macro">format!</span>(<span class="string">"{}/tests/data/test_config.toml"</span>, base_path);
+        <span class="kw">let </span>config_path = <span class="macro">format!</span>(<span class="string">"{}/src/test/data/bridge_config.toml"</span>, base_path);
         <span class="kw">let </span>content = fs::read_to_string(config_path).unwrap();
         <span class="kw">let </span><span class="kw-2">mut </span>file = File::create(file_name).unwrap();
         file.write_all(content.as_bytes()).unwrap();
@@ -692,7 +692,7 @@
 
     <span class="attr">#[test]
     </span><span class="kw">fn </span>test_test_config_parseable() {
-        <span class="kw">let </span>content = <span class="macro">include_str!</span>(<span class="string">"../../tests/data/test_config.toml"</span>);
+        <span class="kw">let </span>content = <span class="macro">include_str!</span>(<span class="string">"../test/data/bridge_config.toml"</span>);
         BridgeConfig::try_parse_from(content.to_string()).unwrap();
     }
 
