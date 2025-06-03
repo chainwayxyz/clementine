@@ -157,7 +157,7 @@ impl<T: State> TxHandler<T> {
             .txins
             .iter()
             .map(|s| s.get_spendable().get_prevout())
-            .collect(); // TODO: Maybe there is a better way to do this
+            .collect();
         let mut sighash_cache: SighashCache<&bitcoin::Transaction> =
             SighashCache::new(&self.cached_tx);
         let prevouts = match sighash_type {
@@ -192,7 +192,6 @@ impl<T: State> TxHandler<T> {
             .ok_or(TxError::ScriptNotFound(spend_script_idx))?
             .to_script_buf();
 
-        // TODO: remove copy here
         self.calculate_script_spend_sighash(txin_index, &script, sighash_type)
     }
 
@@ -206,7 +205,7 @@ impl<T: State> TxHandler<T> {
             .txins
             .iter()
             .map(|s| s.get_spendable().get_prevout())
-            .collect(); // TODO: Maybe there is a better way to do this
+            .collect();
         let mut sighash_cache: SighashCache<&bitcoin::Transaction> =
             SighashCache::new(&self.cached_tx);
 
