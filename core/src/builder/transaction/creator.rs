@@ -766,7 +766,7 @@ pub async fn create_txhandlers(
 
     if let TransactionType::WatchtowerChallenge(_) = transaction_type {
         return Err(BridgeError::Error(
-            "Cant directly create a watchtower challenge in create_txhandlers as it needs commit data".to_string(),
+            "Can't directly create a watchtower challenge in create_txhandlers as it needs commit data".to_string(),
         ));
     }
 
@@ -1247,7 +1247,7 @@ mod tests {
         assert!(txhandlers.contains_key(&TransactionType::Round));
         assert!(txhandlers.contains_key(&TransactionType::ReadyToReimburse));
         assert!(cache.store_for_next_kickoff(&mut txhandlers).is_ok());
-        // prev ready to reimburse still none as we didnt go to next round
+        // prev ready to reimburse still none as we didn't go to next round
         assert!(cache.prev_ready_to_reimburse.is_none());
 
         // should delete saved txs and store prev ready to reimburse, but it should keep movetovault

@@ -1380,7 +1380,7 @@ where
 
         dbtx.commit().await?;
         tracing::info!(
-            "Commited watchtower challenge, commit data: {:?}",
+            "Committed watchtower challenge, commit data: {:?}",
             commit_data
         );
 
