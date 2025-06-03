@@ -113,7 +113,7 @@ fn calc_tweaked_keypair(
             &TapTweakHash::from_key_and_tweak(keypair.x_only_public_key().0, merkle_root)
                 .to_scalar(),
         )
-        .map_err(|e| BridgeError::Error(format!("Failed to add tweak to keypair: {}", e)))
+        .map_err(|e| eyre::eyre!(format!("Failed to add tweak to keypair: {}", e)).into())
 }
 
 fn calc_tweaked_xonly_pk(
@@ -125,7 +125,7 @@ fn calc_tweaked_xonly_pk(
             &SECP,
             &TapTweakHash::from_key_and_tweak(pubkey, merkle_root).to_scalar(),
         )
-        .map_err(|e| BridgeError::Error(format!("Failed to add tweak to xonly_pk: {}", e)))?
+        .map_err(|e| eyre::eyre!(format!("Failed to add tweak to xonly_pk: {}", e)))?
         .0)
 }
 
@@ -181,10 +181,10 @@ pub fn verify_schnorr(
             None => calc_tweaked_xonly_pk(pubkey, merkle_root)?,
         },
         TapTweakData::ScriptPath => pubkey,
-        TapTweakData::Unknown => return Err(BridgeError::Error("Spend Path Unknown".to_string())),
+        TapTweakData::Unknown => return Err(eyre::eyre!("Spend Path Unknown".to_string()).into()),
     };
     SECP.verify_schnorr(signature, sighash, &pubkey)
-        .map_err(|_| BridgeError::Error("Failed to verify Schnorr signature".to_string()))
+        .map_err(|_| eyre::eyre!("Failed to verify Schnorr signature".to_string()).into())
 }
 
 #[derive(Debug, Clone)]
@@ -255,7 +255,7 @@ impl Actor {
                 self.sign_with_tweak(sighash, merkle_root, tweak_cache)
             }
             TapTweakData::ScriptPath => Ok(self.sign(sighash)),
-            TapTweakData::Unknown => Err(BridgeError::Error("Spend Data Unknown".to_string())),
+            TapTweakData::Unknown => Err(eyre::eyre!("Spend Data Unknown".to_string()).into()),
         }
     }
 

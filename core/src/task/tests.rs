@@ -53,7 +53,7 @@ impl Task for CounterTask {
 
     async fn run_once(&mut self) -> Result<Self::Output, BridgeError> {
         if self.should_error && self.one_time_fix_at != Some(*self.counter.lock().await) {
-            return Err(BridgeError::Error("Task error".to_string()));
+            return Err(eyre::eyre!("Task error".to_string()).into());
         }
 
         if self.current_work < self.work_to_do {

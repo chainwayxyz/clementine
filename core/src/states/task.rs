@@ -92,7 +92,7 @@ impl<T: Owner + std::fmt::Debug + 'static> Task for BlockFetcherTask<T> {
                     .db
                     .get_block_info_from_id(Some(&mut dbtx), block_id)
                     .await?
-                    .ok_or(BridgeError::Error(
+                    .ok_or(eyre::eyre!(
                         "Block not found in BlockFetcherTask".to_string(),
                     ))?
                     .1;
@@ -108,7 +108,7 @@ impl<T: Owner + std::fmt::Debug + 'static> Task for BlockFetcherTask<T> {
                         .db
                         .get_full_block(Some(&mut dbtx), self.next_height)
                         .await?
-                        .ok_or(BridgeError::Error(format!(
+                        .ok_or(eyre::eyre!(format!(
                             "Block at height {} not found in BlockFetcherTask, current tip height is {}",
                             self.next_height, current_tip_height
                         )))?;
@@ -120,10 +120,10 @@ impl<T: Owner + std::fmt::Debug + 'static> Task for BlockFetcherTask<T> {
 
                     if new_block_id.is_none() {
                         tracing::error!("Block at height {} not found in BlockFetcherTask, current tip height is {}", self.next_height, current_tip_height);
-                        return Err(BridgeError::Error(format!(
+                        return Err(eyre::eyre!(format!(
                             "Block at height {} not found in BlockFetcherTask, current tip height is {}",
                             self.next_height, current_tip_height
-                        )));
+                        )).into());
                     }
 
                     let event = SystemEvent::NewBlock {
@@ -136,10 +136,7 @@ impl<T: Owner + std::fmt::Debug + 'static> Task for BlockFetcherTask<T> {
                         .send_with_cxn(&self.queue_name, &event, &mut *dbtx)
                         .await
                         .map_err(|e| {
-                            BridgeError::Error(format!(
-                                "Error sending new block event to queue: {:?}",
-                                e
-                            ))
+                            eyre::eyre!(format!("Error sending new block event to queue: {:?}", e))
                         })?;
 
                     self.next_height += 1;

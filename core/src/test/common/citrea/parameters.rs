@@ -101,7 +101,7 @@ fn get_transaction_details_for_citrea(
             param
                 .witness
                 .consensus_encode(&mut raw)
-                .map_err(|e| BridgeError::Error(format!("Can't encode param: {}", e)))?;
+                .map_err(|e| eyre::eyre!(format!("Can't encode param: {}", e)))?;
 
             Ok::<Vec<u8>, BridgeError>(raw)
         })

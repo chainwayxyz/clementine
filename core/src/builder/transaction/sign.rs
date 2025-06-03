@@ -273,7 +273,7 @@ where
             .db
             .get_unspent_kickoff_sigs(None, operator_xonly_pk, round_idx as usize)
             .await?
-            .ok_or(BridgeError::Error(format!(
+            .ok_or(eyre::eyre!(format!(
                 "No unspent kickoff signatures found for operator {:?} and round {}",
                 operator_xonly_pk, round_idx
             )))?;

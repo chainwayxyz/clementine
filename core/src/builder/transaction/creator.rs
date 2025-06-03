@@ -745,9 +745,9 @@ pub async fn create_txhandlers(
     }
 
     if let TransactionType::WatchtowerChallenge(_) = transaction_type {
-        return Err(BridgeError::Error(
+        return Err(eyre::eyre!(
             "Cant directly create a watchtower challenge in create_txhandlers as it needs commit data".to_string(),
-        ));
+        ).into());
     }
 
     let assert_timeouts = create_assert_timeout_txhandlers(

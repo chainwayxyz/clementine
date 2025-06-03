@@ -97,10 +97,11 @@ impl Database {
         let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
         if result.is_none() {
-            return Err(BridgeError::Error(format!(
+            return Err(eyre::eyre!(format!(
                 "No withdrawal found with move_to_vault_txid: {}",
                 old_move_txid
-            )));
+            ))
+            .into());
         }
 
         Ok(())
@@ -156,7 +157,7 @@ impl Database {
                     vout: u32::try_from(vout)
                         .wrap_err("Failed to convert withdrawal utxo vout to u32")?,
                 }),
-                _ => Err(BridgeError::Error("Unexpected null value".to_string())),
+                _ => Err(eyre::eyre!("Unexpected null value".to_string()).into()),
             })
             .transpose()
     }

@@ -81,13 +81,7 @@ pub use crate::builder::transaction::TxError;
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum BridgeError {
-    // TODO: migrate
-    #[error("Uncategorized error: {0}")]
-    Error(String),
-
-    // Module-level errors
-    // Header chain prover errors
-    #[error("Prover returned an error: {0}")]
+    #[error("Header chain prover returned an error: {0}")]
     Prover(#[from] HeaderChainProverError),
     #[error("Failed to build transactions: {0}")]
     Transaction(#[from] TxError),

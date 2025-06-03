@@ -640,11 +640,12 @@ where
         }
 
         if winternitz_pubkeys.len() != self.config.get_num_kickoff_winternitz_pks() {
-            return Err(BridgeError::Error(format!(
+            return Err(eyre::eyre!(format!(
                 "Expected {} number of kickoff winternitz pubkeys, but got {}",
                 self.config.get_num_kickoff_winternitz_pks(),
                 winternitz_pubkeys.len()
-            )));
+            ))
+            .into());
         }
 
         Ok(winternitz_pubkeys)
@@ -700,11 +701,12 @@ where
             }
         }
         if sigs.len() != self.config.get_num_unspent_kickoff_sigs() {
-            return Err(BridgeError::Error(format!(
+            return Err(eyre::eyre!(format!(
                 "Expected {} number of unspent kickoff sigs, but got {}",
                 self.config.get_num_unspent_kickoff_sigs(),
                 sigs.len()
-            )));
+            ))
+            .into());
         }
         Ok(sigs)
     }
@@ -726,11 +728,12 @@ where
         }
 
         if hashes.len() != self.config.get_num_challenge_ack_hashes(deposit_data) {
-            return Err(BridgeError::Error(format!(
+            return Err(eyre::eyre!(format!(
                 "Expected {} number of challenge ack hashes, but got {}",
                 self.config.get_num_challenge_ack_hashes(deposit_data),
                 hashes.len()
-            )));
+            ))
+            .into());
         }
 
         Ok(hashes)
@@ -825,7 +828,7 @@ where
                     None
                 }
             })
-            .ok_or(BridgeError::Error(
+            .ok_or(eyre::eyre!(
                 "Couldn't find kickoff tx in signed_txs".to_string(),
             ))?;
 

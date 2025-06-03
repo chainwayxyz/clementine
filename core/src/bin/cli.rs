@@ -706,7 +706,7 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             //         let mut raw = Vec::new();
             //         param
             //             .consensus_encode(&mut raw)
-            //             .map_err(|e| BridgeError::Error(format!("Can't encode param: {}", e)))?;
+            //             .map_err(|e| eyre::eyre!(format!("Can't encode param: {}", e)))?;
 
             //         Ok::<Vec<u8>, BridgeError>(raw)
             //     })
@@ -723,7 +723,7 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             //         .map(|param| {
             //             let mut raw = Vec::new();
             //             param.witness.consensus_encode(&mut raw).map_err(|e| {
-            //                 BridgeError::Error(format!("Can't encode param: {}", e))
+            //                 eyre::eyre!(format!("Can't encode param: {}", e))
             //             })?;
 
             //             Ok::<Vec<u8>, BridgeError>(raw)
