@@ -343,21 +343,6 @@ where
         Ok(true)
     }
 
-    /// Checks if the deposit has already been signed by the verifier, by checking if the movetx is already in chain.
-    async fn is_deposit_signed(&self, deposit_data: &mut DepositData) -> Result<bool, BridgeError> {
-        let move_txid =
-            create_move_to_vault_txhandler(deposit_data, self.config.protocol_paramset())?
-                .get_cached_tx()
-                .compute_txid();
-
-        // if movetx is already in chain, do not sign it again to prevent DOS
-        // TODO: DOS can still happen if aggregators spams the same deposits in a short time period.
-        if self.rpc.get_blockhash_of_tx(&move_txid).await.is_ok() {
-            return Ok(true);
-        }
-        Ok(false)
-    }
-
     pub async fn set_operator(
         &self,
         collateral_funding_outpoint: OutPoint,
@@ -470,12 +455,6 @@ where
             return Err(BridgeError::InvalidDeposit);
         }
 
-        if self.is_deposit_signed(&mut deposit_data).await? {
-            return Err(BridgeError::DepositAlreadySigned(
-                deposit_data.get_deposit_outpoint().txid,
-            ));
-        }
-
         // set deposit data to db before starting to sign, ensures that if the deposit data already exists in db, it matches the one
         // given by the aggregator currently. We do not want to sign 2 differnet deposits for same deposit_outpoint
         self.db
@@ -583,12 +562,6 @@ where
 
         if !self.is_deposit_valid(deposit_data).await? {
             return Err(BridgeError::InvalidDeposit);
-        }
-
-        if self.is_deposit_signed(deposit_data).await? {
-            return Err(BridgeError::DepositAlreadySigned(
-                deposit_data.get_deposit_outpoint().txid,
-            ));
         }
 
         let mut tweak_cache = TweakCache::default();

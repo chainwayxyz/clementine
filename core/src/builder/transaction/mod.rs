@@ -123,15 +123,12 @@ pub struct DepositData {
 
 impl PartialEq for DepositData {
     fn eq(&self, other: &Self) -> bool {
-        // check if security council is the same, sort pks so that order doesnt matter
-        // for security council, order of keys matter as it will change the m of n script, thus change the scriptpubkey of
-        // move to vault tx
-        if self.security_council != other.security_council {
-            return false;
-        }
-        // for watchtowers/verifiers/operators, order doesn't matter, we compare sorted lists
-        // get functions already return sorted lists
-        self.deposit.deposit_outpoint == other.deposit.deposit_outpoint
+        // for security council, order of keys matter as it will change the m of n multisig script,
+        // thus change the scriptpubkey of move to vault tx
+        self.security_council == other.security_council
+            && self.deposit.deposit_outpoint == other.deposit.deposit_outpoint
+            // for watchtowers/verifiers/operators, order doesn't matter, we compare sorted lists
+            // get() functions already return sorted lists
             && self.get_operators() == other.get_operators()
             && self.get_verifiers() == other.get_verifiers()
             && self.get_watchtowers() == other.get_watchtowers()
