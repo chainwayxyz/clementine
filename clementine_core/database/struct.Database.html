@@ -227,7 +227,7 @@ previous deposits. This function should give an error if an operator changed its
     signatures: <a class="struct" href="https://doc.rust-lang.org/1.85.1/alloc/vec/struct.Vec.html" title="struct alloc::vec::Vec">Vec</a>&lt;<a class="struct" href="../rpc/clementine/struct.TaggedSignature.html" title="struct clementine_core::rpc::clementine::TaggedSignature">TaggedSignature</a>&gt;,
 ) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.85.1/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.85.1/std/primitive.unit.html">()</a>, <a class="enum" href="../errors/enum.BridgeError.html" title="enum clementine_core::errors::BridgeError">BridgeError</a>&gt;</h4></section></summary><div class="docblock"><p>Sets the unspent kickoff sigs received from operators during initial setup.
 Sigs of each round are stored together in the same row.
-On conflict, do not update the existing sigs. Although techically, as long as kickoff winternitz keys
+On conflict, do not update the existing sigs. Although technically, as long as kickoff winternitz keys
 and operator data(collateral funding outpoint and reimburse address) are not changed, the sigs are still valid
 even if they are changed.</p>
 </div></details><details class="toggle method-toggle" open><summary><section id="method.get_unspent_kickoff_sigs" class="method"><a class="src rightside" href="../../src/clementine_core/database/operator.rs.html#184-202">Source</a><h4 class="code-header">pub async fn <a href="#method.get_unspent_kickoff_sigs" class="fn">get_unspent_kickoff_sigs</a>(

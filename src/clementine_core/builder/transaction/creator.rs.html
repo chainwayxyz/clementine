@@ -2016,7 +2016,7 @@
 
     <span class="kw">if let </span>TransactionType::WatchtowerChallenge(<span class="kw">_</span>) = transaction_type {
         <span class="kw">return </span><span class="prelude-val">Err</span>(BridgeError::Error(
-            <span class="string">"Cant directly create a watchtower challenge in create_txhandlers as it needs commit data"</span>.to_string(),
+            <span class="string">"Can't directly create a watchtower challenge in create_txhandlers as it needs commit data"</span>.to_string(),
         ));
     }
 
@@ -2497,7 +2497,7 @@
         <span class="macro">assert!</span>(txhandlers.contains_key(<span class="kw-2">&amp;</span>TransactionType::Round));
         <span class="macro">assert!</span>(txhandlers.contains_key(<span class="kw-2">&amp;</span>TransactionType::ReadyToReimburse));
         <span class="macro">assert!</span>(cache.store_for_next_kickoff(<span class="kw-2">&amp;mut </span>txhandlers).is_ok());
-        <span class="comment">// prev ready to reimburse still none as we didnt go to next round
+        <span class="comment">// prev ready to reimburse still none as we didn't go to next round
         </span><span class="macro">assert!</span>(cache.prev_ready_to_reimburse.is_none());
 
         <span class="comment">// should delete saved txs and store prev ready to reimburse, but it should keep movetovault

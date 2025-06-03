@@ -339,7 +339,7 @@
 /// # Returns
 ///
 /// Returns `Err` if `tracing` can't be initialized. Multiple subscription error
-/// is emmitted and will return `Ok(())`.
+/// is emitted and will return `Ok(())`.
 </span><span class="kw">pub fn </span>initialize_logger(level: <span class="prelude-ty">Option</span>&lt;LevelFilter&gt;) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
     <span class="comment">// Configure JSON formatting with additional fields
     </span><span class="kw">let </span>json_layer = fmt::layer::&lt;Registry&gt;()

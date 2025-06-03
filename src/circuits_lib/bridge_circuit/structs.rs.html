@@ -626,7 +626,7 @@
     <span class="kw">pub </span>storage_proof_utxo: String,         <span class="comment">// This will be an Outpoint
     </span><span class="kw">pub </span>storage_proof_vout: String,         <span class="comment">// This is the vout of the txid
     </span><span class="kw">pub </span>storage_proof_deposit_txid: String, <span class="comment">// This is the index of the withdrawal
-    </span><span class="kw">pub </span>index: u32,                         <span class="comment">// For now this is 18, for a specifix withdrawal
+    </span><span class="kw">pub </span>index: u32,                         <span class="comment">// For now this is 18, for a specific withdrawal
 </span>}
 
 <span class="comment">// #[derive(Clone, Debug, BorshDeserialize, BorshSerialize)]
@@ -688,7 +688,7 @@
     /// * `watchtower_tx` - The watchtower challenge transaction that includes an input
     ///   referencing the `kickoff_tx`.
     /// * `prevout_txs` - An optional slice of transactions, each of which should include
-    ///   at least one output that is later spent as an input in `watchtower_tx`. ( Txs shoul be in the same order as the inputs in the watchtower tx )
+    ///   at least one output that is later spent as an input in `watchtower_tx`. ( Txs should be in the same order as the inputs in the watchtower tx )
     ///
     /// # Note
     ///
