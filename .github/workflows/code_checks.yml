@@ -93,4 +93,4 @@ jobs:
 
       - name: Run codespell
         run: |
-          codespell --skip="*.lock,./target"
+          codespell --skip="*.lock,./target" -I="codespell_ignore.txt"
