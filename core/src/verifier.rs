@@ -1896,7 +1896,7 @@ where
                 let mut db_cache = ReimburseDbCache::from_context(self.db.clone(), &context);
 
                 let txhandlers = create_txhandlers(
-                    TransactionType::AllNeededForDeposit,
+                    TransactionType::Disprove,
                     context,
                     &mut TxHandlerCache::new(),
                     &mut db_cache,

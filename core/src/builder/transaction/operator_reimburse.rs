@@ -4,6 +4,7 @@ use super::input::UtxoVout;
 use super::op_return_txout;
 use super::txhandler::DEFAULT_SEQUENCE;
 use super::DepositData;
+use super::HiddenNode;
 use super::KickoffData;
 use super::Signed;
 use super::TransactionType;
@@ -33,6 +34,12 @@ pub enum AssertScripts<'a> {
     AssertSpendableScript(Vec<Arc<dyn SpendableScript>>),
 }
 
+#[derive(Debug, Clone)]
+pub enum DisprovePath<'a> {
+    Scripts(Vec<ScriptBuf>),
+    HiddenNode(HiddenNode<'a>),
+}
+
 /// Creates a [`TxHandler`] for the `kickoff_tx`. This transaction will be sent by the operator
 pub fn create_kickoff_txhandler(
     kickoff_data: KickoffData,
@@ -42,7 +49,7 @@ pub fn create_kickoff_txhandler(
     operator_xonly_pk: XOnlyPublicKey,
     // either actual SpendableScripts or scriptpubkeys from db
     assert_scripts: AssertScripts,
-    disprove_root_hash: &[u8; 32],
+    disprove_path: DisprovePath,
     additional_disprove_script: Vec<u8>,
     latest_blockhash_script: AssertScripts,
     operator_unlock_hashes: &[[u8; 20]],
@@ -103,7 +110,7 @@ pub fn create_kickoff_txhandler(
     builder = builder.add_output(super::create_disprove_taproot_output(
         operator_5week,
         additional_disprove_script.clone(),
-        disprove_root_hash,
+        disprove_path,
         MIN_TAPROOT_AMOUNT,
         paramset.network,
     ));

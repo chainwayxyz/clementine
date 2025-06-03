@@ -5,6 +5,7 @@
 
 use super::script::{BaseDepositScript, CheckSig, Multisig, SpendableScript, TimelockScript};
 use super::script::{ReplacementDepositScript, SpendPath};
+use crate::builder::address::taproot_builder_with_scripts;
 use crate::builder::script::OtherSpendable;
 use crate::builder::transaction::challenge::*;
 use crate::builder::transaction::input::SpendableTxIn;
@@ -754,24 +755,36 @@ pub fn create_replacement_deposit_txhandler(
 pub fn create_disprove_taproot_output(
     operator_timeout_script: Arc<dyn SpendableScript>,
     additional_script: ScriptBuf,
-    disprove_root_hash: HiddenNode,
+    disprove_path: DisprovePath, // <--- use the enum here
     amount: Amount,
     network: bitcoin::Network,
 ) -> UnspentTxOut {
     use crate::bitvm_client::{SECP, UNSPENDABLE_XONLY_PUBKEY};
     use bitcoin::taproot::{TapNodeHash, TaprootBuilder};
 
-    let builder = TaprootBuilder::new()
-        .add_leaf(1, operator_timeout_script.to_script_buf())
-        .expect("empty taptree will accept a script node")
-        .add_leaf(2, additional_script.clone())
-        .expect("taptree with one node will accept a node at depth 2")
-        .add_hidden_node(2, TapNodeHash::from_byte_array(*disprove_root_hash))
-        .expect("taptree with two nodes will accept a node at depth 2");
+    // Always include these scripts as leaves
+    let mut scripts: Vec<ScriptBuf> = vec![
+        operator_timeout_script.to_script_buf(),
+        additional_script.clone(),
+    ];
+
+    let builder = match disprove_path {
+        DisprovePath::Scripts(extra_scripts) => {
+            scripts.extend(extra_scripts);
+            taproot_builder_with_scripts(&scripts)
+        }
+        DisprovePath::HiddenNode(root_hash) => TaprootBuilder::new()
+            .add_leaf(1, operator_timeout_script.to_script_buf())
+            .expect("empty taptree will accept a script node")
+            .add_leaf(2, additional_script.clone())
+            .expect("taptree with one node will accept a node at depth 2")
+            .add_hidden_node(2, TapNodeHash::from_byte_array(*root_hash))
+            .expect("taptree with two nodes will accept a node at depth 2"),
+    };
 
     let taproot_spend_info = builder
         .finalize(&SECP, *UNSPENDABLE_XONLY_PUBKEY)
-        .expect("cannot fail since it is a valid taptree");
+        .expect("valid taptree");
 
     let address = Address::p2tr(
         &SECP,
@@ -780,15 +793,17 @@ pub fn create_disprove_taproot_output(
         network,
     );
 
+    let spendable_scripts: Vec<Arc<dyn SpendableScript>> = scripts
+        .into_iter()
+        .map(|script| Arc::new(OtherSpendable::new(script)) as Arc<dyn SpendableScript>)
+        .collect();
+
     UnspentTxOut::new(
         TxOut {
             value: amount,
             script_pubkey: address.script_pubkey(),
         },
-        vec![
-            operator_timeout_script.clone(),
-            Arc::new(OtherSpendable::new(additional_script)),
-        ],
+        spendable_scripts,
         Some(taproot_spend_info),
     )
 }
