@@ -96,17 +96,18 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
     guest.verify(input.hcp.method_id, &input.hcp);
 
     let (max_total_work, challenge_sending_watchtowers) =
-        total_work_and_watchtower_flags(input.clone(), &work_only_image_id);
+        total_work_and_watchtower_flags(&input, &work_only_image_id);
 
     // Why is that 32 bytes in the first place?
-    let hcp_total_work = input.hcp.chain_state.total_work;
-    let total_work: TotalWork = hcp_total_work[16..32].try_into().expect("Cannot fail");
+    let total_work: TotalWork = input.hcp.chain_state.total_work[16..32]
+        .try_into()
+        .expect("Cannot fail");
 
     // If total work is less than the max total work of watchtowers, panic
     if total_work < max_total_work {
         panic!(
             "Invalid total work: Total Work {:?} - Max Total Work: {:?}",
-            hcp_total_work, max_total_work
+            input.hcp.chain_state.total_work, max_total_work
         );
     }
 
@@ -242,7 +243,7 @@ fn convert_to_groth16_and_verify(
 /// # Notes
 /// Invalid or malformed challenge data (e.g., decoding errors, invalid signatures)
 /// will be skipped gracefully without causing the function to panic.
-pub fn verify_watchtower_challenges(circuit_input: BridgeCircuitInput) -> WatchtowerChallengeSet {
+pub fn verify_watchtower_challenges(circuit_input: &BridgeCircuitInput) -> WatchtowerChallengeSet {
     let mut challenge_sending_watchtowers: [u8; 20] = [0u8; 20];
     let mut watchtower_challenges_outputs: Vec<[TxOut; 3]> = vec![];
 
@@ -252,11 +253,11 @@ pub fn verify_watchtower_challenges(circuit_input: BridgeCircuitInput) -> Watcht
         panic!("Invalid number of watchtower challenge transactions");
     }
 
-    for watchtower_input in circuit_input.watchtower_inputs.into_iter() {
+    for watchtower_input in circuit_input.watchtower_inputs.iter() {
         let inner_txouts: Vec<TxOut> = watchtower_input
             .watchtower_challenge_utxos
-            .into_iter()
-            .map(|utxo| utxo.0)
+            .iter()
+            .map(|utxo| utxo.0.clone()) // TODO: Get rid of this clone if possible
             .collect::<Vec<TxOut>>();
 
         let prevouts = Prevouts::All(&inner_txouts);
@@ -435,10 +436,9 @@ pub fn verify_watchtower_challenges(circuit_input: BridgeCircuitInput) -> Watcht
 ///     - Third must be an OP_RETURN containing the rest of the proof and the total work value.
 /// - The function sorts valid commitments by total work and verifies the highest one using a Groth16 verifier.
 pub fn total_work_and_watchtower_flags(
-    circuit_input: BridgeCircuitInput,
+    circuit_input: &BridgeCircuitInput,
     work_only_image_id: &[u8; 32],
 ) -> (TotalWork, ChallengeSendingWatchtowers) {
-    let circuit_input_genesis_state_hash = circuit_input.hcp.genesis_state_hash;
     let watchtower_challenge_set = verify_watchtower_challenges(circuit_input);
 
     let mut valid_watchtower_challenge_commitments: Vec<WatchTowerChallengeTxCommitment> = vec![];
@@ -492,7 +492,7 @@ pub fn total_work_and_watchtower_flags(
             &commitment.compressed_g16_proof,
             commitment.total_work,
             work_only_image_id,
-            circuit_input_genesis_state_hash,
+            circuit_input.hcp.genesis_state_hash,
         ) {
             total_work = commitment.total_work;
             break;
@@ -712,7 +712,7 @@ mod tests {
         let (input, _) = total_work_and_watchtower_flags_setup();
 
         let (total_work, challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(input.clone(), &WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(&input, &WORK_ONLY_IMAGE_ID);
 
         let expected_challenge_sending_watchtowers =
             [64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
@@ -741,7 +741,7 @@ mod tests {
         input.watchtower_inputs[0].watchtower_challenge_witness = CircuitWitness(new_witness);
 
         let (total_work, challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(input.clone(), &WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(&input, &WORK_ONLY_IMAGE_ID);
 
         assert_eq!(*total_work, [0u8; 16], "Total work is not correct");
         assert_eq!(
@@ -772,7 +772,7 @@ mod tests {
         });
 
         let (total_work, challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(input.clone(), &WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(&input, &WORK_ONLY_IMAGE_ID);
 
         assert_eq!(*total_work, [0u8; 16], "Total work is not correct");
         assert_eq!(
@@ -798,7 +798,7 @@ mod tests {
         input.watchtower_inputs[0].watchtower_challenge_input_idx = 0;
 
         let (_total_work, _challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(input.clone(), &WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(&input, &WORK_ONLY_IMAGE_ID);
     }
 
     #[test]
@@ -813,7 +813,7 @@ mod tests {
         input.watchtower_inputs[0].watchtower_challenge_witness = CircuitWitness(invalid_witness);
 
         let (_total_work, _challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(input.clone(), &WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(&input, &WORK_ONLY_IMAGE_ID);
     }
 
     #[test]
@@ -826,7 +826,7 @@ mod tests {
         input.all_tweaked_watchtower_pubkeys[watch_tower_idx] = [0u8; 32];
 
         let (_total_work, _challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(input.clone(), &WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(&input, &WORK_ONLY_IMAGE_ID);
     }
 
     #[test]
@@ -838,7 +838,7 @@ mod tests {
         input.watchtower_inputs[0].watchtower_challenge_input_idx = 160;
 
         let (_total_work, _challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(input.clone(), &WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(&input, &WORK_ONLY_IMAGE_ID);
     }
 
     #[test]
@@ -850,7 +850,7 @@ mod tests {
         input.watchtower_inputs[0].watchtower_challenge_input_idx = 10;
 
         let (_total_work, _challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(input.clone(), &WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(&input, &WORK_ONLY_IMAGE_ID);
     }
 
     #[test]
@@ -864,7 +864,7 @@ mod tests {
         input.watchtower_inputs[0].watchtower_challenge_witness = CircuitWitness(invalid_witness);
 
         let (_total_work, _challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(input.clone(), &WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(&input, &WORK_ONLY_IMAGE_ID);
     }
 
     #[test]
@@ -878,7 +878,7 @@ mod tests {
         input.watchtower_inputs[0].watchtower_challenge_witness = CircuitWitness(invalid_witness);
 
         let (_total_work, _challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(input.clone(), &WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(&input, &WORK_ONLY_IMAGE_ID);
     }
 
     #[test]
@@ -892,7 +892,7 @@ mod tests {
         input.watchtower_inputs[0].watchtower_challenge_witness = CircuitWitness(invalid_witness);
 
         let (_total_work, _challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(input.clone(), &WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(&input, &WORK_ONLY_IMAGE_ID);
     }
 
     #[test]
