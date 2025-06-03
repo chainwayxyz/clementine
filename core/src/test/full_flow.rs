@@ -111,7 +111,12 @@ async fn base_setup(
     .await?;
     tracing::info!("Move transaction sent: {:x?}", move_tx_response.txid);
     let op0_xonly_pk = Actor::new(
-        config.all_operators_secret_keys.clone().unwrap()[0],
+        config
+            .test_params
+            .all_operators_secret_keys
+            .first()
+            .cloned()
+            .unwrap(),
         config.winternitz_secret_key,
         config.protocol_paramset().network,
     )
@@ -909,7 +914,7 @@ pub async fn run_challenge_with_state_machine(
     Ok(())
 }
 
-// Operator successfully sends challenge timeout for one deposit, but doesnt
+// Operator successfully sends challenge timeout for one deposit, but doesn't
 // spend its remaining kickoffs, state machine should automatically send any
 // unspent kickoff connector tx to burn operators collateral
 pub async fn run_unspent_kickoffs_with_state_machine(
@@ -935,7 +940,7 @@ pub async fn run_unspent_kickoffs_with_state_machine(
     send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Round).await?;
 
     // TODO: I wanted to test when operator at least sends one truthful kickoff but I couldn't as
-    // is_kickoff_malicious auto returns true, so state manager sends a challenge transaction immadiately
+    // is_kickoff_malicious auto returns true, so state manager sends a challenge transaction immediately
     // -> kickoff finalizer cannot be spent with challenge timeout -> collateral can be burned with "kickoff not finalized tx"
     // instead of unspent kickoff connector tx
 

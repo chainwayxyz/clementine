@@ -27,12 +27,50 @@ pub mod protocol;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TestParams {
     pub should_run_state_manager: bool,
+    pub all_verifiers_secret_keys: Vec<SecretKey>,
+    pub all_operators_secret_keys: Vec<SecretKey>,
+    pub disrupt_latest_block_hash_commit: bool,
+    pub disrupt_payout_tx_block_hash_commit: bool,
+    pub disrupt_challenge_sending_watchtowers_commit: bool,
+    pub operator_forgot_watchtower_challenge: bool,
 }
 
 impl Default for TestParams {
     fn default() -> Self {
         Self {
             should_run_state_manager: true,
+            all_verifiers_secret_keys: vec![
+                SecretKey::from_str(
+                    "1111111111111111111111111111111111111111111111111111111111111111",
+                )
+                .expect("known valid input"),
+                SecretKey::from_str(
+                    "2222222222222222222222222222222222222222222222222222222222222222",
+                )
+                .expect("known valid input"),
+                SecretKey::from_str(
+                    "3333333333333333333333333333333333333333333333333333333333333333",
+                )
+                .expect("known valid input"),
+                SecretKey::from_str(
+                    "4444444444444444444444444444444444444444444444444444444444444444",
+                )
+                .expect("known valid input"),
+            ],
+            all_operators_secret_keys: vec![
+                SecretKey::from_str(
+                    "1111111111111111111111111111111111111111111111111111111111111111",
+                )
+                .expect("known valid input"),
+                SecretKey::from_str(
+                    "2222222222222222222222222222222222222222222222222222222222222222",
+                )
+                .expect("known valid input"),
+            ],
+            disrupt_latest_block_hash_commit: false,
+            disrupt_payout_tx_block_hash_commit: false,
+            disrupt_challenge_sending_watchtowers_commit: false,
+            operator_forgot_watchtower_challenge: false,
         }
     }
 }
@@ -113,7 +151,7 @@ pub struct BridgeConfig {
     /// certificate in other entities.
     ///
     /// Aggregator needs this to call other entities, other entities need this
-    /// to call their own interanl endpoints.
+    /// to call their own internal endpoints.
     pub client_cert_path: PathBuf,
     /// Path to the client key file.
     pub client_key_path: PathBuf,
@@ -132,11 +170,6 @@ pub struct BridgeConfig {
     ///
     /// Aggregator's client cert should be equal to the this certificate.
     pub aggregator_cert_path: PathBuf,
-
-    /// All Secret keys. Just for testing purposes.
-    pub all_verifiers_secret_keys: Option<Vec<SecretKey>>,
-    /// All Secret keys. Just for testing purposes.
-    pub all_operators_secret_keys: Option<Vec<SecretKey>>,
 
     #[cfg(test)]
     #[serde(skip)]
@@ -223,35 +256,6 @@ impl Default for BridgeConfig {
                 threshold: 1,
             },
 
-            all_verifiers_secret_keys: Some(vec![
-                SecretKey::from_str(
-                    "1111111111111111111111111111111111111111111111111111111111111111",
-                )
-                .expect("known valid input"),
-                SecretKey::from_str(
-                    "2222222222222222222222222222222222222222222222222222222222222222",
-                )
-                .expect("known valid input"),
-                SecretKey::from_str(
-                    "3333333333333333333333333333333333333333333333333333333333333333",
-                )
-                .expect("known valid input"),
-                SecretKey::from_str(
-                    "4444444444444444444444444444444444444444444444444444444444444444",
-                )
-                .expect("known valid input"),
-            ]),
-            all_operators_secret_keys: Some(vec![
-                SecretKey::from_str(
-                    "1111111111111111111111111111111111111111111111111111111111111111",
-                )
-                .expect("known valid input"),
-                SecretKey::from_str(
-                    "2222222222222222222222222222222222222222222222222222222222222222",
-                )
-                .expect("known valid input"),
-            ]),
-
             winternitz_secret_key: Some(
                 SecretKey::from_str(
                     "2222222222222222222222222222222222222222222222222222222222222222",
@@ -304,7 +308,7 @@ mod tests {
 
         // Read first example test file use for this test.
         let base_path = env!("CARGO_MANIFEST_DIR");
-        let config_path = format!("{}/tests/data/test_config.toml", base_path);
+        let config_path = format!("{}/src/test/data/bridge_config.toml", base_path);
         let content = fs::read_to_string(config_path).unwrap();
         let mut file = File::create(file_name).unwrap();
         file.write_all(content.as_bytes()).unwrap();
@@ -336,7 +340,7 @@ mod tests {
 
     #[test]
     fn test_test_config_parseable() {
-        let content = include_str!("../../tests/data/test_config.toml");
+        let content = include_str!("../test/data/bridge_config.toml");
         BridgeConfig::try_parse_from(content.to_string()).unwrap();
     }
 

@@ -7,7 +7,7 @@ use crate::extended_rpc::ExtendedRpc;
 use crate::rpc::clementine::SignedTxsWithType;
 use crate::tx_sender::{FeePayingType, RbfSigningInfo, TxMetadata, TxSenderClient};
 use bitcoin::consensus::{self};
-use bitcoin::{OutPoint, Transaction, Txid};
+use bitcoin::{block, OutPoint, Transaction, Txid};
 use bitcoincore_rpc::RpcApi;
 use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
 use citrea_e2e::config::LightClientProverConfig;
@@ -54,6 +54,39 @@ pub async fn ensure_outpoint_spent_while_waiting_for_light_client_sync(
         .await?;
 
     Ok(())
+}
+
+pub async fn get_txid_where_utxo_is_spent_while_waiting_for_light_client_sync(
+    rpc: &ExtendedRpc,
+    lc_prover: &Node<LightClientProverConfig>,
+    utxo: OutPoint,
+) -> Result<Txid, eyre::Error> {
+    ensure_outpoint_spent_while_waiting_for_light_client_sync(rpc, lc_prover, utxo).await?;
+    let remaining_block_count = 30;
+    // look for the txid in the last 30 blocks
+    for i in 0..remaining_block_count {
+        let current_height = rpc.client.get_block_count().await?;
+        if current_height < i {
+            bail!(
+                "Not enough blocks mined to look for the utxo in the last {} blocks",
+                remaining_block_count
+            );
+        }
+        let hash = rpc.client.get_block_hash(current_height - i).await?;
+        let block: block::Block = rpc.client.get_block(&hash).await?;
+        if let Some(tx) = block
+            .txdata
+            .iter()
+            .find(|txid| txid.input.iter().any(|input| input.previous_output == utxo))
+        {
+            return Ok(tx.compute_txid());
+        }
+    }
+    bail!(
+        "utxo {:?} not found in the last {} blocks",
+        utxo,
+        remaining_block_count
+    );
 }
 
 // Polls until a tx that spends the outpoint is in the mempool, without mining any blocks

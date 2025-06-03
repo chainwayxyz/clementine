@@ -430,8 +430,7 @@ mod tests {
                 .unwrap(),
             height
         );
-        let receipt =
-            Receipt::try_from_slice(include_bytes!("../../tests/data/first_1.bin")).unwrap();
+        let receipt = Receipt::try_from_slice(include_bytes!("../test/data/first_1.bin")).unwrap();
         db.set_block_proof(None, block_hash, receipt).await.unwrap();
         let latest_proven_block = db
             .get_latest_proven_block_info(None)
@@ -495,8 +494,7 @@ mod tests {
         assert!(read_receipt.is_none());
 
         // Update it with a proof.
-        let receipt =
-            Receipt::try_from_slice(include_bytes!("../../tests/data/first_1.bin")).unwrap();
+        let receipt = Receipt::try_from_slice(include_bytes!("../test/data/first_1.bin")).unwrap();
         db.set_block_proof(None, block_hash, receipt.clone())
             .await
             .unwrap();
@@ -566,8 +564,7 @@ mod tests {
         db.save_unproven_finalized_block(None, block_hash1, block.header, height1)
             .await
             .unwrap();
-        let receipt =
-            Receipt::try_from_slice(include_bytes!("../../tests/data/first_1.bin")).unwrap();
+        let receipt = Receipt::try_from_slice(include_bytes!("../test/data/first_1.bin")).unwrap();
         db.set_block_proof(None, block_hash1, receipt.clone())
             .await
             .unwrap();
@@ -721,8 +718,7 @@ mod tests {
         db.save_unproven_finalized_block(None, block_hash1, block.header, height)
             .await
             .unwrap();
-        let receipt =
-            Receipt::try_from_slice(include_bytes!("../../tests/data/first_1.bin")).unwrap();
+        let receipt = Receipt::try_from_slice(include_bytes!("../test/data/first_1.bin")).unwrap();
         db.set_block_proof(None, block_hash1, receipt.clone())
             .await
             .unwrap();
@@ -829,8 +825,7 @@ mod tests {
     async fn get_latest_proven_block_info() {
         let config = create_test_config_with_thread_name().await;
         let db = Database::new(&config).await.unwrap();
-        let proof =
-            Receipt::try_from_slice(include_bytes!("../../tests/data/first_1.bin")).unwrap();
+        let proof = Receipt::try_from_slice(include_bytes!("../test/data/first_1.bin")).unwrap();
 
         assert!(db
             .get_latest_proven_block_info(None)

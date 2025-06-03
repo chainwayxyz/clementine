@@ -63,7 +63,7 @@ Clementine supports two primary configuration methods:
 
 Running the binary as a verifier, aggregator, operator or watchtower requires a
 configuration file. An example configuration file is located at
-[`core/tests/data/test_config.toml`](core/tests/data/test_config.toml) and can
+[`core/src/test/data/bridge_config.toml`](core/src/test/data/bridge_config.toml) and can
 be taken as reference. Please copy that configuration file to another location
 and modify fields to your local configuration.
 
@@ -110,7 +110,8 @@ Before running the servers, you need to generate certificates. A script is provi
 ```
 
 This will create certificates in the following structure:
-```
+
+```text
 certs/
 ├── ca/
 │   ├── ca.key     # CA private key
@@ -248,6 +249,14 @@ To run all tests:
 ```sh
 cargo test
 ```
+
+#### Helper Scripts
+
+There are handful amount of scripts in [scripts](scripts) directory. Most of
+them are for testing but still can be used for setting up the environment. They
+can change quite frequently. So, please check for useful ones.
+
+Each script should have a name and comment inside that explain its purpose.
 
 ## Security Considerations
 

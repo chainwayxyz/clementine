@@ -46,7 +46,7 @@ citrea_chain_id = 5655
 bridge_contract_address = "3100000000000000000000000000000000000002"
 
 # Header chain prover's assumption to start with.
-header_chain_proof_path = "../core/tests/data/first_1.bin"
+header_chain_proof_path = "../core/src/test/data/first_1.bin"
 
 verifier_endpoints = [
     "http://127.0.0.1:17001",
@@ -68,18 +68,5 @@ client_cert_path = "certs/client/client.pem"
 client_key_path = "certs/client/client.key"
 aggregator_cert_path = "certs/aggregator/aggregator.pem"
 client_verification = true
-
-# # Testing only fields.
-# all_verifiers_secret_keys = [
-#     "1111111111111111111111111111111111111111111111111111111111111111",
-#     "2222222222222222222222222222222222222222222222222222222222222222",
-#     "3333333333333333333333333333333333333333333333333333333333333333",
-#     "4444444444444444444444444444444444444444444444444444444444444444",
-# ]
-# all_operators_secret_keys = [
-#     "5555555555555555555555555555555555555555555555555555555555555555",
-#     "6666666666666666666666666666666666666666666666666666666666666666",
-# ]
-
 
 # socket_path = "/"
