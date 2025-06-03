@@ -24,7 +24,7 @@ use tracing_subscriber::{fmt, EnvFilter, Registry};
 /// # Returns
 ///
 /// Returns `Err` if `tracing` can't be initialized. Multiple subscription error
-/// is emmitted and will return `Ok(())`.
+/// is emitted and will return `Ok(())`.
 pub fn initialize_logger(level: Option<LevelFilter>) -> Result<(), BridgeError> {
     // Configure JSON formatting with additional fields
     let json_layer = fmt::layer::<Registry>()
@@ -375,4 +375,15 @@ pub enum FeePayingType {
 pub struct RbfSigningInfo {
     pub vout: u32,
     pub tweak_merkle_root: Option<TapNodeHash>,
+}
+pub trait Last20Bytes {
+    fn last_20_bytes(self) -> [u8; 20];
+}
+
+impl Last20Bytes for [u8; 32] {
+    fn last_20_bytes(self) -> [u8; 20] {
+        let mut result = [0u8; 20];
+        result.copy_from_slice(&self[12..32]);
+        result
+    }
 }

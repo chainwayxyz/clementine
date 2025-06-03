@@ -39,7 +39,7 @@ if [ -z "$BRIDGE_CONTRACT_ADDRESS" ]; then
     export BRIDGE_CONTRACT_ADDRESS="3100000000000000000000000000000000000002"
 fi
 if [ -z "$HEADER_CHAIN_PROOF_PATH" ]; then
-    export HEADER_CHAIN_PROOF_PATH="../core/tests/data/first_1.bin"
+    export HEADER_CHAIN_PROOF_PATH="../core/src/test/data/first_1.bin"
 fi
 if [ -z "$VERIFIER_ENDPOINTS" ]; then
     export VERIFIER_ENDPOINTS="http://127.0.0.1:17001,http://127.0.0.1:17002,http://127.0.0.1:17003,http://127.0.0.1:17004"

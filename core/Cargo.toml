@@ -61,6 +61,7 @@ bridge-circuit-host = { path = "../bridge-circuit-host" }
 bincode = { workspace = true }
 ark-ff = { workspace = true }
 rustls-pki-types = { workspace = true }
+once_cell = { workspace = true }
 
 [dev-dependencies]
 serial_test = { workspace = true }

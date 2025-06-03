@@ -109,7 +109,7 @@ impl Database {
     ) -> Result<(), BridgeError> {
         let database = Database::new(config).await?;
 
-        sqlx::raw_sql(include_str!("../../../scripts/schema.sql"))
+        sqlx::raw_sql(include_str!("schema.sql"))
             .execute(&database.connection)
             .await?;
         if is_verifier {
@@ -118,7 +118,7 @@ impl Database {
 
             // Only execute PGMQ setup if it doesn't exist
             if !is_pgmq_installed {
-                sqlx::raw_sql(include_str!("../../../scripts/pgmq.sql"))
+                sqlx::raw_sql(include_str!("pgmq.sql"))
                     .execute(&database.connection)
                     .await?;
             }

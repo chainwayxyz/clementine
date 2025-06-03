@@ -144,7 +144,7 @@ pub enum BridgeError {
     InvalidChallengeAckHashes,
     #[error("Invalid operator index")]
     InvalidOperatorIndex,
-    #[error("Invalid protocal paramset")]
+    #[error("Invalid protocol paramset")]
     InvalidProtocolParamset,
 
     // External crate error wrappers
