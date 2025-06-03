@@ -456,7 +456,7 @@ where
         }
 
         // set deposit data to db before starting to sign, ensures that if the deposit data already exists in db, it matches the one
-        // given by the aggregator currently. We do not want to sign 2 differnet deposits for same deposit_outpoint
+        // given by the aggregator currently. We do not want to sign 2 different deposits for same deposit_outpoint
         self.db
             .set_deposit_data(None, &mut deposit_data, self.config.protocol_paramset())
             .await?;
