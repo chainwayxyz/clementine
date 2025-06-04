@@ -17,10 +17,10 @@
 <a href="#16" id="16">16</a>
 <a href="#17" id="17">17</a></pre></div><pre class="rust"><code><span class="kw">use </span>bitcoin::{Address, Amount, ScriptBuf};
 
-<span class="doccomment">/// The amount of the P2A anchor output.
-</span><span class="kw">pub const </span>ANCHOR_AMOUNT: Amount = Amount::from_sat(<span class="number">240</span>); <span class="comment">// TODO: This will change to 0 in the future after Bitcoin v0.29.0
+<span class="doccomment">/// The amount of the non-ephemeral P2A anchor output.
+</span><span class="kw">pub const </span>NON_EPHEMERAL_ANCHOR_AMOUNT: Amount = Amount::from_sat(<span class="number">240</span>);
 
-</span><span class="doccomment">/// The minimum possible amount that a UTXO can have when created into a Taproot address.
+<span class="doccomment">/// The minimum possible amount that a UTXO can have when created into a Taproot address.
 </span><span class="kw">pub const </span>MIN_TAPROOT_AMOUNT: Amount = Amount::from_sat(<span class="number">330</span>); <span class="comment">// TODO: Maybe this could be 294, check
 
 </span><span class="kw">pub const </span>TEN_MINUTES_IN_SECS: u32 = <span class="number">600</span>;

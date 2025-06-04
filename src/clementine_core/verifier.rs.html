@@ -2056,7 +2056,13 @@
 <a href="#2055" id="2055">2055</a>
 <a href="#2056" id="2056">2056</a>
 <a href="#2057" id="2057">2057</a>
-<a href="#2058" id="2058">2058</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
+<a href="#2058" id="2058">2058</a>
+<a href="#2059" id="2059">2059</a>
+<a href="#2060" id="2060">2060</a>
+<a href="#2061" id="2061">2061</a>
+<a href="#2062" id="2062">2062</a>
+<a href="#2063" id="2063">2063</a>
+<a href="#2064" id="2064">2064</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
 <span class="kw">use </span><span class="kw">crate</span>::bitcoin_syncer::BitcoinSyncer;
 <span class="kw">use </span><span class="kw">crate</span>::bitvm_client::ClementineBitVMPublicKeys;
 <span class="kw">use </span><span class="kw">crate</span>::builder::address::{create_taproot_address, taproot_builder_with_scripts};
@@ -2078,7 +2084,7 @@
 <span class="kw">use </span><span class="kw">crate</span>::citrea::CitreaClientT;
 <span class="kw">use </span><span class="kw">crate</span>::config::protocol::ProtocolParamset;
 <span class="kw">use </span><span class="kw">crate</span>::config::BridgeConfig;
-<span class="kw">use </span><span class="kw">crate</span>::constants::{ANCHOR_AMOUNT, TEN_MINUTES_IN_SECS};
+<span class="kw">use </span><span class="kw">crate</span>::constants::{NON_EPHEMERAL_ANCHOR_AMOUNT, TEN_MINUTES_IN_SECS};
 <span class="kw">use </span><span class="kw">crate</span>::database::{Database, DatabaseTransaction};
 <span class="kw">use </span><span class="kw">crate</span>::deposit::{DepositData, KickoffData, OperatorData};
 <span class="kw">use </span><span class="kw">crate</span>::errors::{BridgeError, TxError};
@@ -2159,7 +2165,7 @@
             rpc.clone(),
             verifier.db.clone(),
             <span class="string">"verifier_"</span>.to_string(),
-            config.protocol_paramset().network,
+            config.protocol_paramset(),
         );
 
         background_tasks.loop_and_monitor(tx_sender.into_task());
@@ -2989,11 +2995,17 @@
         <span class="kw">if </span>move_txid.is_none() {
             <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(<span class="string">"Deposit not found for id: {}"</span>, deposit_id).into());
         }
-        <span class="kw">if </span>output_amount &gt; <span class="self">self</span>.config.protocol_paramset().bridge_amount - ANCHOR_AMOUNT {
+
+        <span class="comment">// amount in move_tx is exactly the bridge amount
+        </span><span class="kw">if </span>output_amount
+            &gt; <span class="self">self</span>.config.protocol_paramset().bridge_amount - NON_EPHEMERAL_ANCHOR_AMOUNT
+        {
             <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(
                 <span class="string">"Output amount is greater than the bridge amount: {} &gt; {}"</span>,
                 output_amount,
-                <span class="self">self</span>.config.protocol_paramset().bridge_amount - ANCHOR_AMOUNT
+                <span class="self">self</span>.config.protocol_paramset().bridge_amount
+                    - <span class="self">self</span>.config.protocol_paramset().anchor_amount()
+                    - NON_EPHEMERAL_ANCHOR_AMOUNT
             )
             .into());
         }

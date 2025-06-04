@@ -399,7 +399,8 @@
 <a href="#398" id="398">398</a>
 <a href="#399" id="399">399</a>
 <a href="#400" id="400">400</a>
-<a href="#401" id="401">401</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Challenge Transaction Logic
+<a href="#401" id="401">401</a>
+<a href="#402" id="402">402</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Challenge Transaction Logic
 //!
 //! This module provides functions for constructing and challenge related transactions in the protocol.
 //! The transactions are: Challenge, ChallengeTimeout, OperatorChallengeNack, OperatorChallengeAck, Disprove.
@@ -552,7 +553,7 @@
                 Sequence::from_height(paramset.watchtower_challenge_timeout_timelock),
             )
             .add_output(UnspentTxOut::from_partial(
-                builder::transaction::anchor_output(),
+                builder::transaction::anchor_output(paramset.anchor_amount()),
             ))
             .finalize(),
     )
@@ -620,7 +621,7 @@
                 DEFAULT_SEQUENCE,
             )
             .add_output(UnspentTxOut::from_partial(
-                builder::transaction::anchor_output(),
+                builder::transaction::anchor_output(paramset.anchor_amount()),
             ))
             .finalize(),
     )
@@ -649,7 +650,7 @@
 </span><span class="kw">pub fn </span>create_operator_challenge_ack_txhandler(
     kickoff_txhandler: <span class="kw-2">&amp;</span>TxHandler,
     watchtower_idx: usize,
-    _paramset: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>ProtocolParamset,
+    paramset: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>ProtocolParamset,
 ) -&gt; <span class="prelude-ty">Result</span>&lt;TxHandler, BridgeError&gt; {
     <span class="prelude-val">Ok</span>(
         TxHandlerBuilder::new(TransactionType::OperatorChallengeAck(watchtower_idx))
@@ -662,7 +663,7 @@
                 DEFAULT_SEQUENCE,
             )
             .add_output(UnspentTxOut::from_partial(
-                builder::transaction::anchor_output(),
+                builder::transaction::anchor_output(paramset.anchor_amount()),
             ))
             .add_output(UnspentTxOut::from_partial(op_return_txout(<span class="string">b"PADDING"</span>)))
             .finalize(),
@@ -693,6 +694,7 @@
 </span><span class="kw">pub fn </span>create_disprove_txhandler(
     kickoff_txhandler: <span class="kw-2">&amp;</span>TxHandler,
     round_txhandler: <span class="kw-2">&amp;</span>TxHandler,
+    paramset: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>ProtocolParamset,
 ) -&gt; <span class="prelude-ty">Result</span>&lt;TxHandler, BridgeError&gt; {
     <span class="prelude-val">Ok</span>(TxHandlerBuilder::new(TransactionType::Disprove)
         .with_version(Version::TWO)
@@ -709,7 +711,7 @@
             DEFAULT_SEQUENCE,
         )
         .add_output(UnspentTxOut::from_partial(
-            builder::transaction::anchor_output(),
+            builder::transaction::anchor_output(paramset.anchor_amount()),
         ))
         .finalize())
 }
@@ -719,7 +721,7 @@
 /// This transaction is used to reimburse an operator for a valid challenge, intended to cover their costs for sending asserts transactions,
 /// and potentially cover their opportunity cost as their reimbursements are delayed due to the challenge. This cost of a challenge is also
 /// used to disincentivize sending challenges for kickoffs that are correct. In case the challenge is correct and operator is proved to be
-/// malicious, the challenge cost will be reimbursed using the operator's collateral thats locked in Citrea.
+/// malicious, the challenge cost will be reimbursed using the operator's collateral that's locked in Citrea.
 ///
 /// # Inputs
 /// 1. KickoffTx: Challenge utxo
@@ -796,7 +798,7 @@
             DEFAULT_SEQUENCE,
         )
         .add_output(UnspentTxOut::from_partial(
-            builder::transaction::anchor_output(),
+            builder::transaction::anchor_output(paramset.anchor_amount()),
         ))
         .finalize())
 }

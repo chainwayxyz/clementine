@@ -173,7 +173,15 @@
 <a href="#172" id="172">172</a>
 <a href="#173" id="173">173</a>
 <a href="#174" id="174">174</a>
-<a href="#175" id="175">175</a></pre></div><pre class="rust"><code><span class="doccomment">//! This module contains the creation of BitVM operator assertion transactions and timeout transactions related to assertions.
+<a href="#175" id="175">175</a>
+<a href="#176" id="176">176</a>
+<a href="#177" id="177">177</a>
+<a href="#178" id="178">178</a>
+<a href="#179" id="179">179</a>
+<a href="#180" id="180">180</a>
+<a href="#181" id="181">181</a>
+<a href="#182" id="182">182</a>
+<a href="#183" id="183">183</a></pre></div><pre class="rust"><code><span class="doccomment">//! This module contains the creation of BitVM operator assertion transactions and timeout transactions related to assertions.
 
 </span><span class="kw">use </span><span class="self">self</span>::output::UnspentTxOut;
 <span class="kw">use </span><span class="kw">super</span>::input::UtxoVout;
@@ -220,7 +228,9 @@
             SpendPath::ScriptSpend(<span class="number">0</span>),
             DEFAULT_SEQUENCE,
         )
-        .add_output(UnspentTxOut::from_partial(anchor_output()))
+        .add_output(UnspentTxOut::from_partial(anchor_output(
+            paramset.anchor_amount(),
+        )))
         .finalize())
 }
 
@@ -269,7 +279,9 @@
                 SpendPath::KeySpend,
                 DEFAULT_SEQUENCE,
             )
-            .add_output(UnspentTxOut::from_partial(anchor_output()))
+            .add_output(UnspentTxOut::from_partial(anchor_output(
+                paramset.anchor_amount(),
+            )))
             .finalize(),
     )
 }
@@ -294,6 +306,7 @@
 </span><span class="kw">pub fn </span>create_mini_asserts(
     kickoff_txhandler: <span class="kw-2">&amp;</span>TxHandler,
     num_asserts: usize,
+    paramset: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>ProtocolParamset,
 ) -&gt; <span class="prelude-ty">Result</span>&lt;Vec&lt;TxHandler&gt;, BridgeError&gt; {
     <span class="kw">let </span><span class="kw-2">mut </span>txhandlers = Vec::new();
     <span class="kw">for </span>idx <span class="kw">in </span><span class="number">0</span>..num_asserts {
@@ -307,7 +320,7 @@
                     DEFAULT_SEQUENCE,
                 )
                 .add_output(UnspentTxOut::from_partial(
-                    builder::transaction::anchor_output(),
+                    builder::transaction::anchor_output(paramset.anchor_amount()),
                 ))
                 .add_output(UnspentTxOut::from_partial(op_return_txout(<span class="string">b""</span>)))
                 .finalize(),
@@ -335,6 +348,7 @@
 /// A [`TxHandler`] for the latest blockhash transaction, or a [`BridgeError`] if construction fails.
 </span><span class="kw">pub fn </span>create_latest_blockhash_txhandler(
     kickoff_txhandler: <span class="kw-2">&amp;</span>TxHandler,
+    paramset: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>ProtocolParamset,
 ) -&gt; <span class="prelude-ty">Result</span>&lt;TxHandler&lt;Unsigned&gt;, BridgeError&gt; {
     <span class="prelude-val">Ok</span>(TxHandlerBuilder::new(TransactionType::LatestBlockhash)
         .with_version(Version::non_standard(<span class="number">3</span>))
@@ -344,7 +358,9 @@
             SpendPath::ScriptSpend(<span class="number">1</span>),
             DEFAULT_SEQUENCE,
         )
-        .add_output(UnspentTxOut::from_partial(anchor_output()))
+        .add_output(UnspentTxOut::from_partial(anchor_output(
+            paramset.anchor_amount(),
+        )))
         .add_output(UnspentTxOut::from_partial(op_return_txout(<span class="string">b""</span>)))
         .finalize())
 }

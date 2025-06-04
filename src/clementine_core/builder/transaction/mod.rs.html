@@ -710,7 +710,26 @@
 <a href="#709" id="709">709</a>
 <a href="#710" id="710">710</a>
 <a href="#711" id="711">711</a>
-<a href="#712" id="712">712</a></pre></div><pre class="rust"><code><span class="doccomment">//! # builder::transaction
+<a href="#712" id="712">712</a>
+<a href="#713" id="713">713</a>
+<a href="#714" id="714">714</a>
+<a href="#715" id="715">715</a>
+<a href="#716" id="716">716</a>
+<a href="#717" id="717">717</a>
+<a href="#718" id="718">718</a>
+<a href="#719" id="719">719</a>
+<a href="#720" id="720">720</a>
+<a href="#721" id="721">721</a>
+<a href="#722" id="722">722</a>
+<a href="#723" id="723">723</a>
+<a href="#724" id="724">724</a>
+<a href="#725" id="725">725</a>
+<a href="#726" id="726">726</a>
+<a href="#727" id="727">727</a>
+<a href="#728" id="728">728</a>
+<a href="#729" id="729">729</a>
+<a href="#730" id="730">730</a>
+<a href="#731" id="731">731</a></pre></div><pre class="rust"><code><span class="doccomment">//! # builder::transaction
 //!
 //!
 //! This module provides the core logic for constructing, handling, and signing the various Bitcoin transactions
@@ -751,7 +770,7 @@
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::operator_reimburse::<span class="kw-2">*</span>;
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::output::UnspentTxOut;
 <span class="kw">use </span><span class="kw">crate</span>::config::protocol::ProtocolParamset;
-<span class="kw">use </span><span class="kw">crate</span>::constants::ANCHOR_AMOUNT;
+<span class="kw">use </span><span class="kw">crate</span>::constants::NON_EPHEMERAL_ANCHOR_AMOUNT;
 <span class="kw">use </span><span class="kw">crate</span>::deposit::{DepositData, SecurityCouncil};
 <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
 <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::grpc_transaction_id;
@@ -763,7 +782,9 @@
 <span class="kw">use </span>bitcoin::opcodes::all::OP_RETURN;
 <span class="kw">use </span>bitcoin::script::Builder;
 <span class="kw">use </span>bitcoin::transaction::Version;
-<span class="kw">use </span>bitcoin::{Address, Amount, ScriptBuf, Transaction, TxIn, TxOut, Txid, XOnlyPublicKey};
+<span class="kw">use </span>bitcoin::{
+    Address, Amount, OutPoint, ScriptBuf, Transaction, TxIn, TxOut, Txid, XOnlyPublicKey,
+};
 <span class="kw">use </span>hex;
 <span class="kw">use </span>input::UtxoVout;
 <span class="kw">use </span>serde::{Deserialize, Serialize};
@@ -1037,9 +1058,18 @@
 /// # Returns
 ///
 /// A [`TxOut`] with a statically defined script and value, used as an anchor output in protocol transactions. The TxOut is spendable by anyone.
-</span><span class="kw">pub fn </span>anchor_output() -&gt; TxOut {
+</span><span class="kw">pub fn </span>anchor_output(amount: Amount) -&gt; TxOut {
     TxOut {
-        value: ANCHOR_AMOUNT,
+        value: amount,
+        script_pubkey: ScriptBuf::from_hex(<span class="string">"51024e73"</span>).expect(<span class="string">"statically valid script"</span>),
+    }
+}
+
+<span class="doccomment">/// A non-ephemeral anchor output. It is used in tx's that should have a non-ephemeral anchor.
+/// Because ephemeral anchors force the tx to have 0 fee.
+</span><span class="kw">pub fn </span>non_ephemeral_anchor_output() -&gt; TxOut {
+    TxOut {
+        value: NON_EPHEMERAL_ANCHOR_AMOUNT,
         script_pubkey: ScriptBuf::from_hex(<span class="string">"51024e73"</span>).expect(<span class="string">"statically valid script"</span>),
     }
 }
@@ -1109,12 +1139,15 @@
             DEFAULT_SEQUENCE,
         )
         .add_output(UnspentTxOut::from_scripts(
-            paramset.bridge_amount - ANCHOR_AMOUNT,
+            paramset.bridge_amount,
             <span class="macro">vec!</span>[nofn_script, security_council_script],
             <span class="prelude-val">None</span>,
             paramset.network,
         ))
-        .add_output(UnspentTxOut::from_partial(anchor_output()))
+        <span class="comment">// always use 0 sat anchor for move_tx, this will keep the amount in move to vault tx exactly the bridge amount
+        </span>.add_output(UnspentTxOut::from_partial(anchor_output(Amount::from_sat(
+            <span class="number">0</span>,
+        ))))
         .finalize())
 }
 
@@ -1149,7 +1182,7 @@
             DEFAULT_SEQUENCE,
         )
         .add_output(UnspentTxOut::from_scripts(
-            paramset.bridge_amount - ANCHOR_AMOUNT - EACH_EMERGENCY_STOP_VBYTES * <span class="number">3</span>,
+            paramset.bridge_amount - paramset.anchor_amount() - EACH_EMERGENCY_STOP_VBYTES * <span class="number">3</span>,
             <span class="macro">vec!</span>[Arc::new(Multisig::from_security_council(security_council))],
             <span class="prelude-val">None</span>,
             paramset.network,
@@ -1176,6 +1209,7 @@
 </span><span class="kw">pub fn </span>combine_emergency_stop_txhandler(
     txs: Vec&lt;(Txid, Transaction)&gt;,
     add_anchor: bool,
+    paramset: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>ProtocolParamset,
 ) -&gt; Transaction {
     <span class="kw">let </span>(inputs, <span class="kw-2">mut </span>outputs): (Vec&lt;TxIn&gt;, Vec&lt;TxOut&gt;) = txs
         .into_iter()
@@ -1183,7 +1217,7 @@
         .unzip();
 
     <span class="kw">if </span>add_anchor {
-        outputs.push(anchor_output());
+        outputs.push(anchor_output(paramset.anchor_amount()));
     }
 
     Transaction {
@@ -1194,36 +1228,36 @@
     }
 }
 
-<span class="doccomment">/// Creates a [`TxHandlerBuilder`] for the `replacement_deposit_tx`.
+<span class="doccomment">/// Creates a [`TxHandler`] for the `replacement_deposit_tx`.
 ///
 /// This transaction replaces a previous deposit with a new deposit.
+/// In the its script, it commits the old move_to_vault txid that it replaces.
 ///
 /// # Arguments
 ///
-/// * `old_move_txid` - The transaction ID of the previous deposit's move-to-vault transaction.
-/// * `nofn_xonly_pk` - The N-of-N x-only public key of the new deposit.
-/// * `paramset` - Protocol parameter set.
-/// * `security_council` - Security council data of the new deposit.
+/// * `old_move_txid` - The txid of the old move_to_vault transaction that is being replaced.
+/// * `input_outpoint` - The outpoint of the input to the replacement deposit tx that holds bridge amount.
+/// * `nofn_xonly_pk` - The N-of-N XOnlyPublicKey for the deposit.
+/// * `paramset` - The protocol paramset.
+/// * `security_council` - The security council.
 ///
 /// # Returns
 ///
-/// A [`TxHandlerBuilder`] for the replacement deposit transaction, or a [`BridgeError`] if construction fails.
+/// A [`TxHandler`] for the replacement deposit transaction, or a [`BridgeError`] if construction fails.
 </span><span class="kw">pub fn </span>create_replacement_deposit_txhandler(
     old_move_txid: Txid,
+    input_outpoint: OutPoint,
     nofn_xonly_pk: XOnlyPublicKey,
     paramset: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>ProtocolParamset,
     security_council: SecurityCouncil,
-) -&gt; <span class="prelude-ty">Result</span>&lt;TxHandlerBuilder, BridgeError&gt; {
+) -&gt; <span class="prelude-ty">Result</span>&lt;TxHandler, BridgeError&gt; {
     <span class="prelude-val">Ok</span>(TxHandlerBuilder::new(TransactionType::ReplacementDeposit)
         .with_version(Version::non_standard(<span class="number">3</span>))
         .add_input(
             NormalSignatureKind::NoSignature,
             SpendableTxIn::from_scripts(
-                bitcoin::OutPoint {
-                    txid: old_move_txid,
-                    vout: <span class="number">0</span>,
-                },
-                paramset.bridge_amount - ANCHOR_AMOUNT,
+                input_outpoint,
+                paramset.bridge_amount,
                 <span class="macro">vec!</span>[
                     Arc::new(CheckSig::new(nofn_xonly_pk)),
                     Arc::new(Multisig::from_security_council(security_council.clone())),
@@ -1243,7 +1277,11 @@
             <span class="prelude-val">None</span>,
             paramset.network,
         ))
-        .add_output(UnspentTxOut::from_partial(anchor_output())))
+        <span class="comment">// always use 0 sat anchor for replacement deposit tx, this will keep the amount in replacement deposit tx exactly the bridge amount
+        </span>.add_output(UnspentTxOut::from_partial(anchor_output(Amount::from_sat(
+            <span class="number">0</span>,
+        ))))
+        .finalize())
 }
 
 <span class="doccomment">/// Creates a Taproot output for a disprove path, combining a script, an additional disprove script, and a hidden node containing the BitVM disprove scripts.

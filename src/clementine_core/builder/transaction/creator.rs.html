@@ -1364,7 +1364,10 @@
 <a href="#1363" id="1363">1363</a>
 <a href="#1364" id="1364">1364</a>
 <a href="#1365" id="1365">1365</a>
-<a href="#1366" id="1366">1366</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Transaction Handler Creation Logic
+<a href="#1366" id="1366">1366</a>
+<a href="#1367" id="1367">1367</a>
+<a href="#1368" id="1368">1368</a>
+<a href="#1369" id="1369">1369</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Transaction Handler Creation Logic
 //!
 //! This module provides the logic for constructing, caching, and managing transaction handlers (`TxHandler`) for all transaction types in the Clementine bridge.
 //!
@@ -2082,13 +2085,14 @@
         )<span class="question-mark">?</span>;
 
         <span class="comment">// Create and insert mini_asserts into return Vec
-        </span><span class="kw">let </span>mini_asserts = create_mini_asserts(<span class="kw-2">&amp;</span>kickoff_txhandler, num_asserts)<span class="question-mark">?</span>;
+        </span><span class="kw">let </span>mini_asserts = create_mini_asserts(<span class="kw-2">&amp;</span>kickoff_txhandler, num_asserts, paramset)<span class="question-mark">?</span>;
 
         <span class="kw">for </span>mini_assert <span class="kw">in </span>mini_asserts.into_iter() {
             txhandlers.insert(mini_assert.get_transaction_type(), mini_assert);
         }
 
-        <span class="kw">let </span>latest_blockhash_txhandler = create_latest_blockhash_txhandler(<span class="kw-2">&amp;</span>kickoff_txhandler)<span class="question-mark">?</span>;
+        <span class="kw">let </span>latest_blockhash_txhandler =
+            create_latest_blockhash_txhandler(<span class="kw-2">&amp;</span>kickoff_txhandler, paramset)<span class="question-mark">?</span>;
         txhandlers.insert(
             latest_blockhash_txhandler.get_transaction_type(),
             latest_blockhash_txhandler,
@@ -2140,6 +2144,7 @@
         builder::transaction::create_kickoff_not_finalized_txhandler(
             get_txhandler(<span class="kw-2">&amp;</span>txhandlers, TransactionType::Kickoff)<span class="question-mark">?</span>,
             get_txhandler(<span class="kw-2">&amp;</span>txhandlers, TransactionType::ReadyToReimburse)<span class="question-mark">?</span>,
+            paramset,
         )<span class="question-mark">?</span>;
     txhandlers.insert(
         kickoff_not_finalized_txhandler.get_transaction_type(),
@@ -2244,6 +2249,7 @@
             <span class="kw">let </span>disprove_txhandler = builder::transaction::create_disprove_txhandler(
                 get_txhandler(<span class="kw-2">&amp;</span>txhandlers, TransactionType::Kickoff)<span class="question-mark">?</span>,
                 get_txhandler(<span class="kw-2">&amp;</span>txhandlers, TransactionType::Round)<span class="question-mark">?</span>,
+                paramset,
             )<span class="question-mark">?</span>;
             txhandlers.insert(
                 disprove_txhandler.get_transaction_type(),

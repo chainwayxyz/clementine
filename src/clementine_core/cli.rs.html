@@ -598,7 +598,8 @@
 <a href="#597" id="597">597</a>
 <a href="#598" id="598">598</a>
 <a href="#599" id="599">599</a>
-<a href="#600" id="600">600</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Command Line Interface
+<a href="#600" id="600">600</a>
+<a href="#601" id="601">601</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Command Line Interface
 //!
 //! This module defines command line interface for server binaries. `Clap` is used
 //! for easy generation of help messages and handling arguments.
@@ -1031,6 +1032,7 @@
             <span class="string">"BRIDGE_CIRCUIT_METHOD_ID_CONSTANT"</span>,
             <span class="string">"a1e07be0a14f059dd3b0c67b80ad9472c59840bcb9252d9ee1a2f1c0e1f01071"</span>,
         );
+        env::set_var(<span class="string">"BRIDGE_NONSTANDARD"</span>, <span class="string">"false"</span>);
     }
 
     <span class="comment">// Helper to clean up all environment variables

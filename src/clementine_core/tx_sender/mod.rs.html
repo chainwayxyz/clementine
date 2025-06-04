@@ -741,7 +741,11 @@
 <a href="#740" id="740">740</a>
 <a href="#741" id="741">741</a>
 <a href="#742" id="742">742</a>
-<a href="#743" id="743">743</a></pre></div><pre class="rust"><code><span class="kw">use </span>bitcoin::taproot::TaprootSpendInfo;
+<a href="#743" id="743">743</a>
+<a href="#744" id="744">744</a>
+<a href="#745" id="745">745</a>
+<a href="#746" id="746">746</a>
+<a href="#747" id="747">747</a></pre></div><pre class="rust"><code><span class="kw">use </span>bitcoin::taproot::TaprootSpendInfo;
 <span class="kw">use </span>bitcoin::TapNodeHash;
 <span class="kw">use </span>bitcoin::XOnlyPublicKey;
 <span class="kw">use </span>eyre::OptionExt;
@@ -750,6 +754,7 @@
 <span class="kw">use </span>bitcoincore_rpc::{json::EstimateMode, RpcApi};
 <span class="kw">use </span>serde::{Deserialize, Serialize};
 
+<span class="kw">use </span><span class="kw">crate</span>::config::protocol::ProtocolParamset;
 <span class="kw">use </span><span class="kw">crate</span>::errors::ResultExt;
 <span class="kw">use crate</span>::{
     actor::Actor,
@@ -799,8 +804,8 @@
     <span class="kw">pub </span>signer: Actor,
     <span class="kw">pub </span>rpc: ExtendedRpc,
     <span class="kw">pub </span>db: Database,
-    <span class="kw">pub </span>network: bitcoin::Network,
     <span class="kw">pub </span>btc_syncer_consumer_id: String,
+    paramset: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>ProtocolParamset,
     cached_spendinfo: TaprootSpendInfo,
 }
 
@@ -894,20 +899,20 @@
         rpc: ExtendedRpc,
         db: Database,
         btc_syncer_consumer_id: String,
-        network: bitcoin::Network,
+        paramset: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>ProtocolParamset,
     ) -&gt; <span class="self">Self </span>{
         <span class="self">Self </span>{
             cached_spendinfo: builder::address::create_taproot_address(
                 <span class="kw-2">&amp;</span>[],
                 <span class="prelude-val">Some</span>(signer.xonly_public_key),
-                network,
+                paramset.network,
             )
             .<span class="number">1</span>,
             signer,
             rpc,
             db,
             btc_syncer_consumer_id,
-            network,
+            paramset,
         }
     }
 
@@ -932,7 +937,7 @@
             <span class="prelude-val">Ok</span>(fee_rate) =&gt; <span class="kw">match </span>fee_rate.fee_rate {
                 <span class="prelude-val">Some</span>(fee_rate) =&gt; <span class="prelude-val">Ok</span>(FeeRate::from_sat_per_kwu(fee_rate.to_sat())),
                 <span class="prelude-val">None </span>=&gt; {
-                    <span class="kw">if </span><span class="self">self</span>.network == bitcoin::Network::Regtest {
+                    <span class="kw">if </span><span class="self">self</span>.paramset.network == bitcoin::Network::Regtest {
                         <span class="macro">tracing::debug!</span>(<span class="string">"Using fee rate of 1 sat/vb (Regtest mode)"</span>);
                         <span class="kw">return </span><span class="prelude-val">Ok</span>(FeeRate::from_sat_per_vb_unchecked(<span class="number">1</span>));
                     }
@@ -1011,8 +1016,8 @@
     }
 
     <span class="kw">fn </span>is_p2a_anchor(<span class="kw-2">&amp;</span><span class="self">self</span>, output: <span class="kw-2">&amp;</span>TxOut) -&gt; bool {
-        output.value == builder::transaction::anchor_output().value
-            &amp;&amp; output.script_pubkey == builder::transaction::anchor_output().script_pubkey
+        output.script_pubkey
+            == builder::transaction::anchor_output(<span class="self">self</span>.paramset.anchor_amount()).script_pubkey
     }
 
     <span class="kw">fn </span>find_p2a_vout(<span class="kw-2">&amp;</span><span class="self">self</span>, tx: <span class="kw-2">&amp;</span>Transaction) -&gt; <span class="prelude-ty">Result</span>&lt;usize&gt; {
@@ -1144,7 +1149,7 @@
     <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::input::SpendableTxIn;
     <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::output::UnspentTxOut;
     <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE};
-    <span class="kw">use </span><span class="kw">crate</span>::constants::MIN_TAPROOT_AMOUNT;
+    <span class="kw">use </span><span class="kw">crate</span>::constants::{MIN_TAPROOT_AMOUNT, NON_EPHEMERAL_ANCHOR_AMOUNT};
     <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
     <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::tagged_signature::SignatureId;
     <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind};
@@ -1189,7 +1194,7 @@
             rpc.clone(),
             db.clone(),
             <span class="string">"tx_sender"</span>.into(),
-            network,
+            config.protocol_paramset(),
         );
 
         (
@@ -1278,13 +1283,11 @@
                 DEFAULT_SEQUENCE,
             )
             .add_output(UnspentTxOut::from_partial(TxOut {
-                value: amount
-                    - builder::transaction::anchor_output().value
-                    - MIN_TAPROOT_AMOUNT * <span class="number">3</span>, <span class="comment">// buffer so that rbf works without adding inputs
+                value: amount - NON_EPHEMERAL_ANCHOR_AMOUNT - MIN_TAPROOT_AMOUNT * <span class="number">3</span>, <span class="comment">// buffer so that rbf works without adding inputs
                 </span>script_pubkey: address.script_pubkey(), <span class="comment">// In practice, should be the wallet address, not the signer address
             </span>}))
             .add_output(UnspentTxOut::from_partial(
-                builder::transaction::anchor_output(),
+                builder::transaction::non_ephemeral_anchor_output(),
             ))
             .finalize();
 
@@ -1398,7 +1401,7 @@
             rpc.clone(),
             db,
             <span class="string">"tx_sender"</span>.into(),
-            config.protocol_paramset().network,
+            config.protocol_paramset(),
         );
 
         <span class="kw">let </span>scripts: Vec&lt;Arc&lt;<span class="kw">dyn </span>SpendableScript&gt;&gt; =
@@ -1447,9 +1450,14 @@
             .unwrap();
 
         rpc.mine_blocks(<span class="number">1</span>).<span class="kw">await</span>.unwrap();
+        <span class="kw">let </span>mempool_info = rpc.client.get_mempool_info().<span class="kw">await</span>.unwrap();
+        <span class="macro">tracing::info!</span>(<span class="string">"Mempool info: {:?}"</span>, mempool_info);
 
         <span class="kw">let </span>will_fail_tx = will_fail_handler.get_cached_tx();
-        <span class="macro">assert!</span>(rpc.client.send_raw_transaction(will_fail_tx).<span class="kw">await</span>.is_err());
+
+        <span class="kw">if </span>mempool_info.mempool_min_fee.to_sat() &gt; <span class="number">0 </span>{
+            <span class="macro">assert!</span>(rpc.client.send_raw_transaction(will_fail_tx).<span class="kw">await</span>.is_err());
+        }
 
         <span class="comment">// Calculate and send with fee.
         </span><span class="kw">let </span>fee_rate = tx_sender._get_fee_rate().<span class="kw">await</span>.unwrap();

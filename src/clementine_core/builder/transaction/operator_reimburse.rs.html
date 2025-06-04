@@ -482,8 +482,7 @@
 <a href="#481" id="481">481</a>
 <a href="#482" id="482">482</a>
 <a href="#483" id="483">483</a>
-<a href="#484" id="484">484</a>
-<a href="#485" id="485">485</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Operator Reimburse Transactions
+<a href="#484" id="484">484</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Operator Reimburse Transactions
 //!
 //! This module contains the logic for creating operator reimbursement and payout-related transactions in the protocol.
 //! These transactions handle the flow of funds for operator compensation, challenge handling, and user withdrawals.
@@ -507,8 +506,6 @@
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::output::UnspentTxOut;
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::txhandler::{TxHandler, TxHandlerBuilder};
 <span class="kw">use </span><span class="kw">crate</span>::config::protocol::ProtocolParamset;
-<span class="kw">use </span><span class="kw">crate</span>::constants::ANCHOR_AMOUNT;
-<span class="kw">use </span><span class="kw">crate</span>::constants::MIN_TAPROOT_AMOUNT;
 <span class="kw">use </span><span class="kw">crate</span>::deposit::{DepositData, KickoffData};
 <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
 <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::NormalSignatureKind;
@@ -554,7 +551,7 @@
 /// * `move_txhandler` - The move-to-vault transaction handler.
 /// * `deposit_data` - Mutable reference to deposit data.
 /// * `operator_xonly_pk` - The operator's x-only public key.
-/// * `assert_scripts` - Actual assertion scripts or tapnode hashes (for fater creation of assert utxos) for BitVM assertion.
+/// * `assert_scripts` - Actual assertion scripts or tapnode hashes (for faster creation of assert utxos) for BitVM assertion.
 /// * `disprove_root_hash` - Root hash for BitVM disprove scripts.
 /// * `additional_disprove_script` - Additional disprove script bytes (for additional disprove script specific to Clementine).
 /// * `latest_blockhash_script` - Actual script or tapnode hash for latest blockhash assertion.
@@ -598,21 +595,21 @@
     builder = builder
         <span class="comment">// goes to challenge tx or no challenge tx
         </span>.add_output(UnspentTxOut::from_scripts(
-            MIN_TAPROOT_AMOUNT,
+            paramset.default_utxo_amount(),
             <span class="macro">vec!</span>[operator_script, operator_1week],
             <span class="prelude-val">None</span>,
             paramset.network,
         ))
         <span class="comment">// kickoff finalizer connector
         </span>.add_output(UnspentTxOut::from_scripts(
-            MIN_TAPROOT_AMOUNT,
+            paramset.default_utxo_amount(),
             <span class="macro">vec!</span>[nofn_script.clone()],
             <span class="prelude-val">None</span>,
             paramset.network,
         ))
         <span class="comment">// UTXO to reimburse tx
         </span>.add_output(UnspentTxOut::from_scripts(
-            MIN_TAPROOT_AMOUNT,
+            paramset.default_utxo_amount(),
             <span class="macro">vec!</span>[nofn_script.clone()],
             <span class="prelude-val">None</span>,
             paramset.network,
@@ -632,7 +629,7 @@
         operator_5week,
         additional_disprove_script.clone(),
         disprove_root_hash,
-        MIN_TAPROOT_AMOUNT,
+        paramset.default_utxo_amount(),
         paramset.network,
     ));
 
@@ -651,7 +648,7 @@
             </span>builder = builder.add_output(<span class="kw">super</span>::create_taproot_output_with_hidden_node(
                 nofn_latest_blockhash,
                 <span class="kw-2">&amp;</span>latest_blockhash_root_hash,
-                MIN_TAPROOT_AMOUNT,
+                paramset.default_utxo_amount(),
                 paramset.network,
             ));
         }
@@ -661,7 +658,7 @@
             }
             <span class="kw">let </span>latest_blockhash_script = latest_blockhash_script[<span class="number">0</span>].clone();
             builder = builder.add_output(UnspentTxOut::from_scripts(
-                MIN_TAPROOT_AMOUNT,
+                paramset.default_utxo_amount(),
                 <span class="macro">vec!</span>[nofn_latest_blockhash, latest_blockhash_script],
                 <span class="prelude-val">None</span>,
                 paramset.network,
@@ -682,7 +679,7 @@
                 </span>builder = builder.add_output(<span class="kw">super</span>::create_taproot_output_with_hidden_node(
                     nofn_4week.clone(),
                     script_hash,
-                    MIN_TAPROOT_AMOUNT,
+                    paramset.default_utxo_amount(),
                     paramset.network,
                 ));
             }
@@ -690,7 +687,7 @@
         AssertScripts::AssertSpendableScript(assert_scripts) =&gt; {
             <span class="kw">for </span>script <span class="kw">in </span>assert_scripts {
                 builder = builder.add_output(UnspentTxOut::from_scripts(
-                    MIN_TAPROOT_AMOUNT,
+                    paramset.default_utxo_amount(),
                     <span class="macro">vec!</span>[nofn_4week.clone(), script],
                     <span class="prelude-val">None</span>,
                     paramset.network,
@@ -708,7 +705,7 @@
         ));
         <span class="comment">// UTXO for watchtower challenge or watchtower challenge timeouts
         </span>builder = builder.add_output(UnspentTxOut::from_scripts(
-            MIN_TAPROOT_AMOUNT * <span class="number">2 </span>+ ANCHOR_AMOUNT, <span class="comment">// watchtower challenge has 2 taproot outputs, 1 op_return and 1 anchor
+            paramset.default_utxo_amount() * <span class="number">2 </span>+ paramset.anchor_amount(), <span class="comment">// watchtower challenge has 2 taproot outputs, 1 op_return and 1 anchor
             </span><span class="macro">vec!</span>[nofn_2week.clone()],
             <span class="prelude-val">Some</span>(<span class="kw-2">*</span>watchtower_xonly_pk), <span class="comment">// key path as watchtowers xonly pk
             </span>paramset.network,
@@ -724,7 +721,7 @@
             operator_unlock_hashes[watchtower_idx],
         ));
         builder = builder.add_output(UnspentTxOut::from_scripts(
-            MIN_TAPROOT_AMOUNT,
+            paramset.default_utxo_amount(),
             <span class="macro">vec!</span>[
                 nofn_3week.clone(),
                 nofn_2week.clone(),
@@ -746,7 +743,7 @@
     <span class="prelude-val">Ok</span>(builder
         .add_output(UnspentTxOut::from_partial(op_return_txout))
         .add_output(UnspentTxOut::from_partial(
-            builder::transaction::anchor_output(),
+            builder::transaction::anchor_output(paramset.anchor_amount()),
         ))
         .finalize())
 }
@@ -771,6 +768,7 @@
 </span><span class="kw">pub fn </span>create_kickoff_not_finalized_txhandler(
     kickoff_txhandler: <span class="kw-2">&amp;</span>TxHandler,
     ready_to_reimburse_txhandler: <span class="kw-2">&amp;</span>TxHandler,
+    paramset: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>ProtocolParamset,
 ) -&gt; <span class="prelude-ty">Result</span>&lt;TxHandler, BridgeError&gt; {
     <span class="prelude-val">Ok</span>(TxHandlerBuilder::new(TransactionType::KickoffNotFinalized)
         .with_version(Version::non_standard(<span class="number">3</span>))
@@ -787,7 +785,7 @@
             DEFAULT_SEQUENCE,
         )
         .add_output(UnspentTxOut::from_partial(
-            builder::transaction::anchor_output(),
+            builder::transaction::anchor_output(paramset.anchor_amount()),
         ))
         .finalize())
 }
@@ -854,7 +852,7 @@
             script_pubkey: operator_reimbursement_address.script_pubkey(),
         }))
         .add_output(UnspentTxOut::from_partial(
-            builder::transaction::anchor_output(),
+            builder::transaction::anchor_output(paramset.anchor_amount()),
         ))
         .finalize())
 }
@@ -962,7 +960,7 @@
         )
         .add_output(output_txout)
         .add_output(UnspentTxOut::from_partial(
-            builder::transaction::anchor_output(),
+            builder::transaction::non_ephemeral_anchor_output(),
         ))
         .finalize();
     txhandler.set_p2tr_key_spend_witness(<span class="kw-2">&amp;</span>user_sig_wrapped, <span class="number">0</span>)<span class="question-mark">?</span>;

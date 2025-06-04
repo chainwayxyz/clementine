@@ -1861,7 +1861,8 @@
 <a href="#1860" id="1860">1860</a>
 <a href="#1861" id="1861">1861</a>
 <a href="#1862" id="1862">1862</a>
-<a href="#1863" id="1863">1863</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::{
+<a href="#1863" id="1863">1863</a>
+<a href="#1864" id="1864">1864</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::{
     clementine_aggregator_server::ClementineAggregator, verifier_deposit_finalize_params,
     DepositParams, Empty, VerifierDepositFinalizeParams,
 };
@@ -2647,7 +2648,8 @@
         add_anchor: bool,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;bitcoin::Transaction, BridgeError&gt; {
         <span class="kw">let </span>stop_txs = <span class="self">self</span>.db.get_emergency_stop_txs(<span class="prelude-val">None</span>, move_txids).<span class="kw">await</span><span class="question-mark">?</span>;
-        <span class="kw">let </span>combined_stop_tx = combine_emergency_stop_txhandler(stop_txs, add_anchor);
+        <span class="kw">let </span>combined_stop_tx =
+            combine_emergency_stop_txhandler(stop_txs, add_anchor, <span class="self">self</span>.config.protocol_paramset());
 
         <span class="prelude-val">Ok</span>(combined_stop_tx)
     }

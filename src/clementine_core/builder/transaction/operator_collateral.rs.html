@@ -374,7 +374,12 @@
 <a href="#373" id="373">373</a>
 <a href="#374" id="374">374</a>
 <a href="#375" id="375">375</a>
-<a href="#376" id="376">376</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Collaterals
+<a href="#376" id="376">376</a>
+<a href="#377" id="377">377</a>
+<a href="#378" id="378">378</a>
+<a href="#379" id="379">379</a>
+<a href="#380" id="380">380</a>
+<a href="#381" id="381">381</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Collaterals
 //!
 //! This module contains the logic for creating the `round_tx`, `ready_to_reimburse_tx`,
 //! and `unspent_kickoff_tx` transactions. These transactions are used to control the sequence of transactions
@@ -478,9 +483,9 @@
 
     builder = builder.add_output(UnspentTxOut::from_scripts(
         input_amount
-            - (paramset.kickoff_amount + MIN_TAPROOT_AMOUNT)
+            - (paramset.kickoff_amount + paramset.default_utxo_amount())
                 * (paramset.num_kickoffs_per_round <span class="kw">as </span>u64)
-            - ANCHOR_AMOUNT,
+            - paramset.anchor_amount(),
         <span class="macro">vec!</span>[],
         <span class="prelude-val">Some</span>(operator_xonly_pk),
         paramset.network,
@@ -503,7 +508,7 @@
     <span class="comment">// Create reimburse utxos
     </span><span class="kw">for _ in </span><span class="number">0</span>..paramset.num_kickoffs_per_round {
         builder = builder.add_output(UnspentTxOut::from_scripts(
-            MIN_TAPROOT_AMOUNT,
+            paramset.default_utxo_amount(),
             <span class="macro">vec!</span>[],
             <span class="prelude-val">Some</span>(operator_xonly_pk),
             paramset.network,
@@ -511,7 +516,7 @@
     }
     <span class="prelude-val">Ok</span>(builder
         .add_output(UnspentTxOut::from_partial(
-            builder::transaction::anchor_output(),
+            builder::transaction::anchor_output(paramset.anchor_amount()),
         ))
         .finalize())
 }
@@ -566,7 +571,7 @@
                     DEFAULT_SEQUENCE,
                 )
                 .add_output(UnspentTxOut::from_partial(
-                    builder::transaction::anchor_output(),
+                    builder::transaction::anchor_output(paramset.anchor_amount()),
                 ))
                 .finalize(),
         );
@@ -650,13 +655,13 @@
             DEFAULT_SEQUENCE,
         )
         .add_output(UnspentTxOut::from_scripts(
-            prev_value - ANCHOR_AMOUNT,
+            prev_value - paramset.anchor_amount(),
             <span class="macro">vec!</span>[],
             <span class="prelude-val">Some</span>(operator_xonly_pk),
             paramset.network,
         ))
         .add_output(UnspentTxOut::from_partial(
-            builder::transaction::anchor_output(),
+            builder::transaction::anchor_output(paramset.anchor_amount()),
         ))
         .finalize())
 }
@@ -701,7 +706,7 @@
                     Sequence::from_height(<span class="number">1</span>),
                 )
                 .add_output(UnspentTxOut::from_partial(
-                    builder::transaction::anchor_output(),
+                    builder::transaction::anchor_output(paramset.anchor_amount()),
                 ))
                 .finalize(),
         );
@@ -729,6 +734,7 @@
     round_txhandler: <span class="kw-2">&amp;</span>TxHandler,
     unused_kickoff_connectors_indices: <span class="kw-2">&amp;</span>[usize],
     change_address: <span class="kw-2">&amp;</span>Address,
+    paramset: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>ProtocolParamset,
 ) -&gt; <span class="prelude-ty">Result</span>&lt;TxHandler, BridgeError&gt; {
     <span class="kw">let </span><span class="kw-2">mut </span>tx_handler_builder =
         TxHandlerBuilder::new(TransactionType::BurnUnusedKickoffConnectors)
@@ -741,12 +747,16 @@
             Sequence::from_height(<span class="number">1</span>),
         );
     }
-    tx_handler_builder = tx_handler_builder.add_output(UnspentTxOut::from_partial(TxOut {
-        value: MIN_TAPROOT_AMOUNT,
-        script_pubkey: change_address.script_pubkey(),
-    }));
+    <span class="kw">if </span>!paramset.bridge_nonstandard {
+        <span class="comment">// if we use standard tx's, kickoff utxo's will hold some sats so we can return the change to the change address
+        // but if we use nonstandard tx's with 0 sat values then the change is 0 anyway, no need to add an output
+        </span>tx_handler_builder = tx_handler_builder.add_output(UnspentTxOut::from_partial(TxOut {
+            value: MIN_TAPROOT_AMOUNT,
+            script_pubkey: change_address.script_pubkey(),
+        }));
+    }
     tx_handler_builder = tx_handler_builder.add_output(UnspentTxOut::from_partial(
-        builder::transaction::anchor_output(),
+        builder::transaction::anchor_output(paramset.anchor_amount()),
     ));
     <span class="prelude-val">Ok</span>(tx_handler_builder.finalize())
 }

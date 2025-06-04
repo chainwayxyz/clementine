@@ -1537,8 +1537,8 @@
                         ));
                     }
                 }
-                <span class="kw">let </span>address =
-                    Address::from_script(<span class="kw-2">&amp;</span>out.script_pubkey, <span class="self">self</span>.network).map_err(|e| <span class="macro">eyre!</span>(e));
+                <span class="kw">let </span>address = Address::from_script(<span class="kw-2">&amp;</span>out.script_pubkey, <span class="self">self</span>.paramset.network)
+                    .map_err(|e| <span class="macro">eyre!</span>(e));
                 <span class="kw">match </span>address {
                     <span class="prelude-val">Ok</span>(address) =&gt; <span class="prelude-val">Some</span>(WalletCreateFundedPsbtOutput::Spendable(
                         address.to_string(),
