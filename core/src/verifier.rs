@@ -14,15 +14,16 @@ use crate::builder::transaction::input::UtxoVout;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::builder::transaction::{
     create_emergency_stop_txhandler, create_move_to_vault_txhandler,
-    create_optimistic_payout_txhandler, create_txhandlers, ContractContext, DepositData,
-    KickoffData, OperatorData, ReimburseDbCache, TransactionType, TxHandler, TxHandlerCache,
+    create_optimistic_payout_txhandler, create_txhandlers, ContractContext, ReimburseDbCache,
+    TransactionType, TxHandler, TxHandlerCache,
 };
 use crate::builder::transaction::{create_round_txhandlers, KickoffWinternitzKeys};
 use crate::citrea::CitreaClientT;
 use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
-use crate::constants::{ANCHOR_AMOUNT, TEN_MINUTES_IN_SECS};
+use crate::constants::{NON_EPHEMERAL_ANCHOR_AMOUNT, TEN_MINUTES_IN_SECS};
 use crate::database::{Database, DatabaseTransaction};
+use crate::deposit::{DepositData, KickoffData, OperatorData};
 use crate::errors::{BridgeError, TxError};
 use crate::extended_rpc::ExtendedRpc;
 use crate::header_chain_prover::{HeaderChainProver, HeaderChainProverError};
@@ -100,7 +101,7 @@ where
             rpc.clone(),
             verifier.db.clone(),
             "verifier_".to_string(),
-            config.protocol_paramset().network,
+            config.protocol_paramset(),
         );
 
         background_tasks.loop_and_monitor(tx_sender.into_task());
@@ -933,11 +934,17 @@ where
         if move_txid.is_none() {
             return Err(eyre::eyre!("Deposit not found for id: {}", deposit_id).into());
         }
-        if output_amount > self.config.protocol_paramset().bridge_amount - ANCHOR_AMOUNT {
+
+        // amount in move_tx is exactly the bridge amount
+        if output_amount
+            > self.config.protocol_paramset().bridge_amount - NON_EPHEMERAL_ANCHOR_AMOUNT
+        {
             return Err(eyre::eyre!(
                 "Output amount is greater than the bridge amount: {} > {}",
                 output_amount,
-                self.config.protocol_paramset().bridge_amount - ANCHOR_AMOUNT
+                self.config.protocol_paramset().bridge_amount
+                    - self.config.protocol_paramset().anchor_amount()
+                    - NON_EPHEMERAL_ANCHOR_AMOUNT
             )
             .into());
         }
@@ -1457,7 +1464,7 @@ where
                 new_move_txid
             );
             self.db
-                .set_replacement_deposit_move_txid(Some(dbtx), old_move_txid, new_move_txid)
+                .set_replacement_deposit_move_txid(dbtx, old_move_txid, new_move_txid)
                 .await?;
         }
 
@@ -1894,7 +1901,7 @@ where
                 payout_blockhash,
                 latest_blockhash,
             } => {
-                let context = ContractContext::new_context_for_kickoffs(
+                let context = ContractContext::new_context_for_kickoff(
                     kickoff_data,
                     deposit_data.clone(),
                     self.config.protocol_paramset(),

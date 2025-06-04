@@ -1,8 +1,9 @@
 use statig::prelude::*;
 use std::collections::{HashMap, HashSet};
 
+use crate::deposit::OperatorData;
 use crate::{
-    builder::transaction::{input::UtxoVout, ContractContext, OperatorData, TransactionType},
+    builder::transaction::{input::UtxoVout, ContractContext, TransactionType},
     errors::{BridgeError, TxError},
 };
 use bitcoin::OutPoint;
@@ -159,7 +160,7 @@ impl<T: Owner> RoundStateMachine<T> {
                     );
 
                     // To determine if operator exited the protocol, we check if collateral was not spent in the first round tx.
-                    let contract_context = ContractContext::new_context_for_rounds(
+                    let contract_context = ContractContext::new_context_for_round(
                         self.operator_data.xonly_pk,
                         1,
                         context.paramset,
@@ -394,7 +395,7 @@ impl<T: Owner> RoundStateMachine<T> {
                 {
                     self.matchers = HashMap::new();
                     // get next rounds Round tx
-                    let next_round_context = ContractContext::new_context_for_rounds(
+                    let next_round_context = ContractContext::new_context_for_round(
                         self.operator_data.xonly_pk,
                         *round_idx + 1,
                         context.paramset,
@@ -413,7 +414,7 @@ impl<T: Owner> RoundStateMachine<T> {
                             round_idx: *round_idx + 1,
                         },
                     );
-                    let current_round_context = ContractContext::new_context_for_rounds(
+                    let current_round_context = ContractContext::new_context_for_round(
                         self.operator_data.xonly_pk,
                         *round_idx,
                         context.paramset,

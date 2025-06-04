@@ -9,7 +9,7 @@ use super::{
     },
     Database, DatabaseTransaction,
 };
-use crate::builder::transaction::{DepositData, KickoffData, OperatorData};
+use crate::deposit::{DepositData, KickoffData, OperatorData};
 use crate::{
     errors::BridgeError,
     execute_query_with_tx,
@@ -501,8 +501,9 @@ impl Database {
             }
         }
         // On conflict, the previous signatures are already valid. Signatures only depend on deposit_outpoint (which depends on nofn pk) and
-        // operator_xonly_pk (which includes collateral outpoint, reimbursement addr (these should be unchanged)). We add on conflict so it
-        // doesn't fail if the signatures are already set.
+        // operator_xonly_pk (also depends on nofn_pk, as each operator is also a verifier and nofn_pk depends on verifiers pk)
+        // Additionally operator collateral outpoint and reimbursement addr should be unchanged which we ensure in relevant db fns.
+        // We add on conflict clause so it doesn't fail if the signatures are already set.
         // Why do we need to do this? If deposit fails somehow just at the end because movetx
         // signature fails to be collected, we might need to do a deposit again. Technically we can only collect movetx signature, not
         // do the full deposit.
@@ -835,20 +836,19 @@ impl Database {
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-
     use crate::bitvm_client::{SECP, UNSPENDABLE_XONLY_PUBKEY};
-    use crate::citrea::mock::MockCitreaClient;
     use crate::operator::Operator;
     use crate::rpc::clementine::{
         DepositSignatures, NormalSignatureKind, NumberedSignatureKind, TaggedSignature,
     };
+    use crate::test::common::citrea::MockCitreaClient;
     use crate::UTXO;
     use crate::{database::Database, test::common::*};
     use bitcoin::hashes::Hash;
     use bitcoin::key::constants::SCHNORR_SIGNATURE_SIZE;
     use bitcoin::key::Keypair;
     use bitcoin::{Address, Amount, OutPoint, ScriptBuf, TxOut, Txid, XOnlyPublicKey};
+    use std::str::FromStr;
 
     #[tokio::test]
     async fn test_set_get_operator() {

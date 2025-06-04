@@ -13,14 +13,14 @@ use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::builder::transaction::{
     create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler,
-    create_round_txhandlers, create_txhandlers, ContractContext, DepositData, KickoffData,
-    KickoffWinternitzKeys, OperatorData, ReimburseDbCache, TransactionType, TxHandler,
-    TxHandlerCache,
+    create_round_txhandlers, create_txhandlers, ContractContext, KickoffWinternitzKeys,
+    ReimburseDbCache, TransactionType, TxHandler, TxHandlerCache,
 };
 use crate::citrea::CitreaClientT;
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::database::DatabaseTransaction;
+use crate::deposit::{DepositData, KickoffData, OperatorData};
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::header_chain_prover::HeaderChainProver;
@@ -999,6 +999,7 @@ where
                 &current_round_txhandler,
                 &unspent_kickoff_connector_indices,
                 &self.signer.address,
+                self.config.protocol_paramset(),
             )?;
 
         // sign burn unused kickoff connectors tx
@@ -1093,7 +1094,7 @@ where
         _payout_blockhash: Witness,
         latest_blockhash: Witness,
     ) -> Result<(), BridgeError> {
-        let context = ContractContext::new_context_for_kickoffs(
+        let context = ContractContext::new_context_for_kickoff(
             kickoff_data,
             deposit_data.clone(),
             self.config.protocol_paramset(),
@@ -1562,8 +1563,8 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::citrea::mock::MockCitreaClient;
     use crate::operator::Operator;
+    use crate::test::common::citrea::MockCitreaClient;
     use crate::test::common::*;
     use bitcoin::hashes::Hash;
     use bitcoin::{OutPoint, Txid};

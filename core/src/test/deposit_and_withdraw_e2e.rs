@@ -5,17 +5,15 @@ use crate::builder::address::create_taproot_address;
 use crate::builder::script::SpendPath;
 use crate::builder::transaction::input::{SpendableTxIn, UtxoVout};
 use crate::builder::transaction::output::UnspentTxOut;
-use crate::builder::transaction::{
-    KickoffData, TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE,
-};
-use crate::citrea::mock::MockCitreaClient;
+use crate::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE};
 use crate::citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER};
 use crate::database::Database;
+use crate::deposit::KickoffData;
 use crate::rpc::clementine::{
     FeeType, FinalizedPayoutParams, KickoffId, NormalSignatureKind, RawSignedTx, SendTxRequest,
     TransactionRequest, WithdrawParams,
 };
-use crate::test::common::citrea::{get_citrea_safe_withdraw_params, SECRET_KEYS};
+use crate::test::common::citrea::{get_citrea_safe_withdraw_params, MockCitreaClient, SECRET_KEYS};
 use crate::test::common::tx_utils::{
     create_tx_sender, ensure_outpoint_spent,
     ensure_outpoint_spent_while_waiting_for_light_client_sync, ensure_tx_onchain,
@@ -61,6 +59,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
                 "-txindex=1",
                 "-fallbackfee=0.000001",
                 "-rpcallowip=0.0.0.0/0",
+                "-dustrelayfee=0",
             ],
             ..Default::default()
         }
@@ -135,7 +134,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         let block_count = da.get_block_count().await?;
         tracing::debug!("Block count before deposit: {:?}", block_count);
 
-        tracing::debug!(
+        tracing::info!(
             "Deposit starting at block height: {:?}",
             rpc.client.get_block_count().await?
         );
@@ -149,7 +148,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             _deposit_blockhash,
             verifiers_public_keys,
         ) = run_single_deposit::<CitreaClient>(&mut config, rpc.clone(), None).await?;
-        tracing::debug!(
+        tracing::info!(
             "Deposit ending block_height: {:?}",
             rpc.client.get_block_count().await?
         );
@@ -549,7 +548,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             .collect::<Vec<Txid>>();
         for (idx, txid) in operator_assert_txids.into_iter().enumerate() {
             assert!(
-                rpc.is_txid_in_chain(&txid).await.unwrap(),
+                rpc.is_tx_on_chain(&txid).await.unwrap(),
                 "Mini assert {} was not found in the chain",
                 idx
             );
