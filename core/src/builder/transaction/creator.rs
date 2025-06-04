@@ -374,11 +374,11 @@ impl ContractContext {
     /// Contains all necessary context for creating txhandlers for a specific operator, kickoff utxo, and a deposit
     /// Additionally holds signer of an actor that can generate the actual winternitz public keys.
     pub fn new_context_with_signer(
-    kickoff_data: KickoffData,
-    deposit_data: DepositData,
-    paramset: &'static ProtocolParamset,
-    signer: Actor,
-) -> Self {
+        kickoff_data: KickoffData,
+        deposit_data: DepositData,
+        paramset: &'static ProtocolParamset,
+        signer: Actor,
+    ) -> Self {
         Self {
             operator_xonly_pk: kickoff_data.operator_xonly_pk,
             round_idx: kickoff_data.round_idx,
@@ -801,7 +801,7 @@ pub async fn create_txhandlers(
 
     match transaction_type {
         TransactionType::AllNeededForDeposit | TransactionType::Disprove => {
-           let disprove_txhandler = builder::transaction::create_disprove_txhandler(
+            let disprove_txhandler = builder::transaction::create_disprove_txhandler(
                 get_txhandler(&txhandlers, TransactionType::Kickoff)?,
                 get_txhandler(&txhandlers, TransactionType::Round)?,
             )?;

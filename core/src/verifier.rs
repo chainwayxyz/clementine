@@ -1891,7 +1891,7 @@ where
                     kickoff_data,
                     deposit_data.clone(),
                     self.config.protocol_paramset(),
-                    self.signer.clone()
+                    self.signer.clone(),
                 );
                 let mut db_cache = ReimburseDbCache::from_context(self.db.clone(), &context);
 

@@ -5,7 +5,7 @@
 
 use super::script::{BaseDepositScript, CheckSig, Multisig, SpendableScript, TimelockScript};
 use super::script::{ReplacementDepositScript, SpendPath};
-use crate::builder::address::taproot_builder_with_scripts;
+use crate::builder::address::taproot_leaf_depths;
 use crate::builder::script::OtherSpendable;
 use crate::builder::transaction::challenge::*;
 use crate::builder::transaction::input::SpendableTxIn;
@@ -762,16 +762,26 @@ pub fn create_disprove_taproot_output(
     use crate::bitvm_client::{SECP, UNSPENDABLE_XONLY_PUBKEY};
     use bitcoin::taproot::{TapNodeHash, TaprootBuilder};
 
-    // Always include these scripts as leaves
-    let mut scripts: Vec<ScriptBuf> = vec![
-        operator_timeout_script.to_script_buf(),
-        additional_script.clone(),
-    ];
+    let mut scripts: Vec<ScriptBuf> = vec![additional_script.clone()];
 
     let builder = match disprove_path.clone() {
         DisprovePath::Scripts(extra_scripts) => {
+            let mut builder = TaprootBuilder::new();
+
+            builder = builder
+                .add_leaf(1, operator_timeout_script.to_script_buf())
+                .expect("add operator timeout script")
+                .add_leaf(2, additional_script.clone())
+                .expect("add additional script");
+
+            for (depth, script) in taproot_leaf_depths(&extra_scripts) {
+                let main_tree_depth = 2 + depth;
+                builder = builder
+                    .add_leaf(main_tree_depth, script)
+                    .expect("add inlined disprove script");
+            }
             scripts.extend(extra_scripts);
-            taproot_builder_with_scripts(&scripts)
+            builder
         }
         DisprovePath::HiddenNode(root_hash) => TaprootBuilder::new()
             .add_leaf(1, operator_timeout_script.to_script_buf())
@@ -791,8 +801,6 @@ pub fn create_disprove_taproot_output(
     } else {
         "hidden_node"
     };
-    // taproot root hash 
-    tracing::info!("Taproot Merkle Root: {:?}, Type: {disprove_path} ", taproot_spend_info.merkle_root());
 
     let address = Address::p2tr(
         &SECP,
@@ -801,10 +809,13 @@ pub fn create_disprove_taproot_output(
         network,
     );
 
-    let spendable_scripts: Vec<Arc<dyn SpendableScript>> = scripts
+    let mut spendable_scripts: Vec<Arc<dyn SpendableScript>> = vec![operator_timeout_script];
+    let other_spendable_scripts: Vec<Arc<dyn SpendableScript>> = scripts
         .into_iter()
         .map(|script| Arc::new(OtherSpendable::new(script)) as Arc<dyn SpendableScript>)
         .collect();
+
+    spendable_scripts.extend(other_spendable_scripts);
 
     UnspentTxOut::new(
         TxOut {

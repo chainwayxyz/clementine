@@ -41,13 +41,36 @@ pub fn taproot_builder_with_scripts(scripts: &[ScriptBuf]) -> TaprootBuilder {
 
     (0..num_scripts).fold(builder, |acc, i| {
         let is_node_in_last_minus_one_depth = (i >= num_nodes_in_final_depth) as u8;
-        
+
         acc.add_leaf(
             deepest_layer_depth - is_node_in_last_minus_one_depth,
             scripts[i].clone(),
         )
         .expect("algorithm tested to be correct")
     })
+}
+
+pub fn taproot_leaf_depths(scripts: &[ScriptBuf]) -> Vec<(u8, ScriptBuf)> {
+    let num_scripts = scripts.len();
+
+    match num_scripts {
+        0 => return vec![],
+        1 => return vec![(0, scripts[0].clone())],
+        _ => {}
+    }
+
+    let deepest_layer_depth: u8 = ((num_scripts - 1).ilog2() + 1) as u8;
+
+    let num_empty_nodes_in_final_depth = 2_usize.pow(deepest_layer_depth.into()) - num_scripts;
+    let num_nodes_in_final_depth = num_scripts - num_empty_nodes_in_final_depth;
+
+    (0..num_scripts)
+        .map(|i| {
+            let is_node_in_last_minus_one_depth = (i >= num_nodes_in_final_depth) as u8;
+            let depth = deepest_layer_depth - is_node_in_last_minus_one_depth;
+            (depth, scripts[i].clone())
+        })
+        .collect()
 }
 
 /// Creates a taproot address with either key path spend or script spend path
