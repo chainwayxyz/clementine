@@ -21,6 +21,7 @@ use bitcoin::Txid;
 use bitcoincore_rpc::Auth;
 use bitcoincore_rpc::Client;
 use bitcoincore_rpc::RpcApi;
+use eyre::eyre;
 use eyre::Context;
 use eyre::OptionExt;
 use std::str::FromStr;
@@ -253,7 +254,15 @@ impl ExtendedRpc {
             .await
             .wrap_err("Failed to get transaction")?;
 
-        let current_output = tx.output[outpoint.vout as usize].clone();
+        let current_output = tx
+            .output
+            .get(outpoint.vout as usize)
+            .ok_or(eyre!(
+                "No output at index {} for txid {}",
+                outpoint.vout,
+                outpoint.txid
+            ))?
+            .to_owned();
 
         let expected_output = TxOut {
             script_pubkey: address.clone(),
@@ -365,7 +374,15 @@ impl ExtendedRpc {
             .get_raw_transaction(&outpoint.txid, None)
             .await
             .wrap_err("Failed to get transaction")?;
-        let txout = tx.output[outpoint.vout as usize].clone();
+        let txout = tx
+            .output
+            .get(outpoint.vout as usize)
+            .ok_or(eyre!(
+                "No output at index {} for txid {}",
+                outpoint.vout,
+                outpoint.txid
+            ))?
+            .to_owned();
 
         Ok(txout)
     }
