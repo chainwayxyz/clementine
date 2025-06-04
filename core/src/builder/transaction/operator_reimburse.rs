@@ -69,7 +69,7 @@ pub enum AssertScripts<'a> {
 /// * `move_txhandler` - The move-to-vault transaction handler.
 /// * `deposit_data` - Mutable reference to deposit data.
 /// * `operator_xonly_pk` - The operator's x-only public key.
-/// * `assert_scripts` - Actual assertion scripts or tapnode hashes (for fater creation of assert utxos) for BitVM assertion.
+/// * `assert_scripts` - Actual assertion scripts or tapnode hashes (for faster creation of assert utxos) for BitVM assertion.
 /// * `disprove_root_hash` - Root hash for BitVM disprove scripts.
 /// * `additional_disprove_script` - Additional disprove script bytes (for additional disprove script specific to Clementine).
 /// * `latest_blockhash_script` - Actual script or tapnode hash for latest blockhash assertion.
