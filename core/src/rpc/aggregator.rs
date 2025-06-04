@@ -9,10 +9,11 @@ use super::clementine::{
 use crate::builder::sighash::SignatureInfo;
 use crate::builder::transaction::{
     combine_emergency_stop_txhandler, create_emergency_stop_txhandler,
-    create_move_to_vault_txhandler, create_optimistic_payout_txhandler, Actors, DepositData,
-    DepositInfo, Signed, TransactionType, TxHandler,
+    create_move_to_vault_txhandler, create_optimistic_payout_txhandler, Signed, TransactionType,
+    TxHandler,
 };
 use crate::config::BridgeConfig;
+use crate::deposit::{Actors, DepositData, DepositInfo};
 use crate::errors::ResultExt;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
@@ -577,8 +578,7 @@ impl Aggregator {
         movetx_agg_nonce: MusigAggNonce,
         deposit_params: DepositParams,
     ) -> Result<TxHandler<Signed>, Status> {
-        let mut deposit_data: crate::builder::transaction::DepositData =
-            deposit_params.try_into()?;
+        let mut deposit_data: DepositData = deposit_params.try_into()?;
         let musig_partial_sigs = parser::verifier::parse_partial_sigs(partial_sigs)?;
 
         // create move tx and calculate sighash
@@ -646,7 +646,7 @@ impl Aggregator {
         emergency_stop_agg_nonce: MusigAggNonce,
         deposit_params: DepositParams,
     ) -> Result<(), BridgeError> {
-        let mut deposit_data: crate::builder::transaction::DepositData = deposit_params
+        let mut deposit_data: DepositData = deposit_params
             .try_into()
             .wrap_err("Failed to convert deposit params to deposit data")?;
         let musig_partial_sigs = parser::verifier::parse_partial_sigs(emergency_stop_sigs)
@@ -784,7 +784,8 @@ impl Aggregator {
         add_anchor: bool,
     ) -> Result<bitcoin::Transaction, BridgeError> {
         let stop_txs = self.db.get_emergency_stop_txs(None, move_txids).await?;
-        let combined_stop_tx = combine_emergency_stop_txhandler(stop_txs, add_anchor);
+        let combined_stop_tx =
+            combine_emergency_stop_txhandler(stop_txs, add_anchor, self.config.protocol_paramset());
 
         Ok(combined_stop_tx)
     }
@@ -1211,8 +1212,7 @@ impl ClementineAggregator for Aggregator {
                 })?;
         }
 
-        let deposit_data: crate::builder::transaction::DepositData =
-            deposit_params.clone().try_into()?;
+        let deposit_data: DepositData = deposit_params.clone().try_into()?;
 
         let deposit_blockhash = self
             .rpc
@@ -1444,8 +1444,8 @@ impl ClementineAggregator for Aggregator {
 #[cfg(test)]
 mod tests {
     use crate::actor::Actor;
-    use crate::builder::transaction::{BaseDepositData, DepositInfo, DepositType};
     use crate::citrea::mock::MockCitreaClient;
+    use crate::deposit::{BaseDepositData, DepositInfo, DepositType};
     use crate::musig2::AggregateFromPublicKeys;
     use crate::rpc::clementine::{self};
     use crate::test::common::*;

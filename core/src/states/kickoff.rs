@@ -7,9 +7,9 @@ use statig::prelude::*;
 
 use crate::{
     builder::transaction::{
-        input::UtxoVout, remove_txhandler_from_map, ContractContext, DepositData, KickoffData,
-        TransactionType,
+        input::UtxoVout, remove_txhandler_from_map, ContractContext, TransactionType,
     },
+    deposit::{DepositData, KickoffData},
     errors::BridgeError,
 };
 
@@ -439,7 +439,7 @@ impl<T: Owner> KickoffStateMachine<T> {
         &mut self,
         context: &mut StateContext<T>,
     ) -> Result<(), BridgeError> {
-        let contract_context = ContractContext::new_context_for_kickoffs(
+        let contract_context = ContractContext::new_context_for_kickoff(
             self.kickoff_data,
             self.deposit_data.clone(),
             context.paramset,

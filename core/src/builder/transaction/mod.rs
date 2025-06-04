@@ -1,9 +1,35 @@
-//! # Transaction Builder
+//! # builder::transaction
 //!
-//! Transaction builder provides useful functions for building typical Bitcoin
-//! transactions.
+//!
+//! This module provides the core logic for constructing, handling, and signing the various Bitcoin transactions
+//! required by the Clementine bridge protocol. It defines the creation, and validation of
+//! transaction flows involving operators, verifiers, watchtowers, and the security council, aimed to make it
+//! easy to create transactions and sign them properly.
+//!
+//! ## Overview
+//!
+//! The transaction builder is responsible for:
+//! - Defining all transaction types and their flows in the protocol (see [`TransactionType`]).
+//! - Building and signing transactions for deposit, withdrawal, challenge, reimbursement, and related operations.
+//! - Storing transaction inputs/outputs, scripts, and Taproot spend information.
+//! - Providing utilities to speed up transaction creating during a deposit using caching tx and db data.
+//!
+//! ## Main Components
+//!
+//! - [`mod.rs`] - The main entry point, re-exporting key types and functions. Defines some helper functions for creating taproot outputs.
+//! - [`creator.rs`] - Contains the functions to create multiple TxHandler's for a deposit and related structs for caching. In particular, it contains the functions to create TxHandler's for all transactions generated during a deposit from a single kickoff.
+//! - [`operator_collateral.rs`] - Handles the creation of operator-specific collateral-related transactions, such as round, ready-to-reimburse, and unspent kickoff transactions.
+//! - [`operator_reimburse.rs`] - Implements the creation of reimbursement and payout transactions, including logic for operator compensation and optimistic payouts.
+//! - [`operator_assert.rs`] - Provides functions for creating BitVM assertion and timeout transactions.
+//! - [`challenge.rs`] - Handles the creation of challenge, disprove, and watchtower challenge transactions, supporting protocol dispute resolution and fraud proofs.
+//! - [`sign.rs`] - Contains logic for signing transactions using data in the [`TxHandler`].
+//! - [`txhandler.rs`] - Defines the [`TxHandler`] abstraction, which wraps a transaction and its metadata, and provides methods for signing, finalizing, and extracting transaction data.
+//! - [`input.rs`] - Defines types and utilities for transaction inputs used in the [`TxHandler`].
+//! - [`output.rs`] - Defines types and utilities for transaction outputs used in the [`TxHandler`].
+//! - [`deposit_signature_owner.rs`] - Maps which TxIn signatures are signed by which protocol entities, additionally supporting different Sighash types.
+//!
 
-use super::script::{BaseDepositScript, CheckSig, Multisig, SpendableScript, TimelockScript};
+use super::script::{CheckSig, Multisig, SpendableScript};
 use super::script::{ReplacementDepositScript, SpendPath};
 use crate::builder::script::OtherSpendable;
 use crate::builder::transaction::challenge::*;
@@ -13,25 +39,21 @@ use crate::builder::transaction::operator_collateral::*;
 use crate::builder::transaction::operator_reimburse::*;
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::config::protocol::ProtocolParamset;
-use crate::constants::ANCHOR_AMOUNT;
+use crate::constants::NON_EPHEMERAL_ANCHOR_AMOUNT;
+use crate::deposit::{DepositData, SecurityCouncil};
 use crate::errors::BridgeError;
-use crate::musig2::AggregateFromPublicKeys;
 use crate::rpc::clementine::grpc_transaction_id;
 use crate::rpc::clementine::GrpcTransactionId;
 use crate::rpc::clementine::{
     NormalSignatureKind, NormalTransactionId, NumberedTransactionId, NumberedTransactionType,
 };
-use crate::EVMAddress;
-use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
-use bitcoin::opcodes::all::{OP_PUSHNUM_1, OP_RETURN};
+use bitcoin::opcodes::all::OP_RETURN;
 use bitcoin::script::Builder;
-use bitcoin::secp256k1::PublicKey;
 use bitcoin::transaction::Version;
 use bitcoin::{
     Address, Amount, OutPoint, ScriptBuf, Transaction, TxIn, TxOut, Txid, XOnlyPublicKey,
 };
-use eyre::Context;
 use hex;
 use input::UtxoVout;
 use serde::{Deserialize, Serialize};
@@ -103,306 +125,7 @@ pub enum TxError {
     Other(#[from] eyre::Report),
 }
 
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, Ord, PartialOrd,
-)]
-pub struct KickoffData {
-    pub operator_xonly_pk: XOnlyPublicKey,
-    pub round_idx: u32,
-    pub kickoff_idx: u32,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Eq)]
-pub struct DepositData {
-    /// Cached nofn xonly public key used for deposit.
-    pub nofn_xonly_pk: Option<XOnlyPublicKey>,
-    pub deposit: DepositInfo,
-    pub actors: Actors,
-    pub security_council: SecurityCouncil,
-}
-
-impl PartialEq for DepositData {
-    fn eq(&self, other: &Self) -> bool {
-        // nofn_xonly_pk only depends on verifiers pk's so it can be ignored as verifiers are already compared
-        // for security council, order of keys matter as it will change the m of n multisig script,
-        // thus change the scriptpubkey of move to vault tx
-        self.security_council == other.security_council
-            && self.deposit.deposit_outpoint == other.deposit.deposit_outpoint
-            // for watchtowers/verifiers/operators, order doesn't matter, we compare sorted lists
-            // get() functions already return sorted lists
-            && self.get_operators() == other.get_operators()
-            && self.get_verifiers() == other.get_verifiers()
-            && self.get_watchtowers() == other.get_watchtowers()
-            && self.deposit.deposit_type == other.deposit.deposit_type
-    }
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
-pub struct DepositInfo {
-    pub deposit_outpoint: OutPoint,
-    pub deposit_type: DepositType,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
-pub enum DepositType {
-    BaseDeposit(BaseDepositData),
-    ReplacementDeposit(ReplacementDepositData),
-}
-
-impl DepositData {
-    pub fn get_deposit_outpoint(&self) -> OutPoint {
-        self.deposit.deposit_outpoint
-    }
-    pub fn get_nofn_xonly_pk(&mut self) -> Result<XOnlyPublicKey, BridgeError> {
-        if let Some(pk) = self.nofn_xonly_pk {
-            return Ok(pk);
-        }
-        let verifiers = self.get_verifiers();
-        let nofn_xonly_pk = bitcoin::XOnlyPublicKey::from_musig2_pks(verifiers, None)?;
-        self.nofn_xonly_pk = Some(nofn_xonly_pk);
-        Ok(nofn_xonly_pk)
-    }
-    pub fn get_num_verifiers(&self) -> usize {
-        self.actors.verifiers.len()
-    }
-    pub fn get_num_watchtowers(&self) -> usize {
-        self.get_num_verifiers() + self.actors.watchtowers.len()
-    }
-    pub fn get_verifier_index(&self, public_key: &PublicKey) -> Result<usize, eyre::Report> {
-        self.get_verifiers()
-            .iter()
-            .position(|pk| pk == public_key)
-            .ok_or_else(|| eyre::eyre!("Verifier with public key {} not found", public_key))
-    }
-    pub fn get_watchtower_index(&self, xonly_pk: &XOnlyPublicKey) -> Result<usize, eyre::Report> {
-        self.get_watchtowers()
-            .iter()
-            .position(|pk| pk == xonly_pk)
-            .ok_or_else(|| eyre::eyre!("Watchtower with xonly key {} not found", xonly_pk))
-    }
-    pub fn get_operator_index(&self, xonly_pk: XOnlyPublicKey) -> Result<usize, eyre::Report> {
-        self.get_operators()
-            .iter()
-            .position(|pk| pk == &xonly_pk)
-            .ok_or_else(|| eyre::eyre!("Operator with xonly key {} not found", xonly_pk))
-    }
-    /// Returns sorted verifiers, they are sorted so that their order is deterministic.
-    pub fn get_verifiers(&self) -> Vec<PublicKey> {
-        let mut verifiers = self.actors.verifiers.clone();
-        verifiers.sort();
-        verifiers
-    }
-    /// Returns sorted watchtowers, they are sorted so that their order is deterministic.
-    pub fn get_watchtowers(&self) -> Vec<XOnlyPublicKey> {
-        let mut watchtowers = self
-            .actors
-            .verifiers
-            .iter()
-            .map(|pk| pk.x_only_public_key().0)
-            .collect::<Vec<_>>();
-        watchtowers.extend(self.actors.watchtowers.iter());
-        watchtowers.sort();
-        watchtowers
-    }
-    pub fn get_operators(&self) -> Vec<XOnlyPublicKey> {
-        let mut operators = self.actors.operators.clone();
-        operators.sort();
-        operators
-    }
-    pub fn get_num_operators(&self) -> usize {
-        self.actors.operators.len()
-    }
-    /// Returns the scripts for the deposit.
-    pub fn get_deposit_scripts(
-        &mut self,
-        paramset: &'static ProtocolParamset,
-    ) -> Result<Vec<Arc<dyn SpendableScript>>, BridgeError> {
-        let nofn_xonly_pk = self.get_nofn_xonly_pk()?;
-
-        match &mut self.deposit.deposit_type {
-            DepositType::BaseDeposit(original_deposit_data) => {
-                let deposit_script = Arc::new(BaseDepositScript::new(
-                    nofn_xonly_pk,
-                    original_deposit_data.evm_address,
-                ));
-
-                let recovery_script_pubkey = original_deposit_data
-                    .recovery_taproot_address
-                    .clone()
-                    .assume_checked()
-                    .script_pubkey();
-
-                let recovery_extracted_xonly_pk =
-                    XOnlyPublicKey::from_slice(&recovery_script_pubkey.as_bytes()[2..34])
-                        .wrap_err(
-                            "Failed to extract xonly public key from recovery script pubkey",
-                        )?;
-
-                let script_timelock = Arc::new(TimelockScript::new(
-                    Some(recovery_extracted_xonly_pk),
-                    paramset.user_takes_after,
-                ));
-
-                Ok(vec![deposit_script, script_timelock])
-            }
-            DepositType::ReplacementDeposit(replacement_deposit_data) => {
-                let deposit_script: Arc<dyn SpendableScript> =
-                    Arc::new(ReplacementDepositScript::new(
-                        nofn_xonly_pk,
-                        replacement_deposit_data.old_move_txid,
-                    ));
-                let security_council_script: Arc<dyn SpendableScript> = Arc::new(
-                    Multisig::from_security_council(self.security_council.clone()),
-                );
-
-                Ok(vec![deposit_script, security_council_script])
-            }
-        }
-    }
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
-pub struct Actors {
-    /// Public keys of verifiers that will participate in the deposit.
-    pub verifiers: Vec<PublicKey>,
-    /// X-only public keys of watchtowers that will participate in the deposit.
-    /// NOTE: verifiers are automatically considered watchtowers. This field is only for additional watchtowers.
-    pub watchtowers: Vec<XOnlyPublicKey>,
-    /// X-only public keys of operators that will participate in the deposit.
-    pub operators: Vec<XOnlyPublicKey>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SecurityCouncil {
-    pub pks: Vec<XOnlyPublicKey>,
-    pub threshold: u32,
-}
-
-impl std::str::FromStr for SecurityCouncil {
-    type Err = eyre::Report;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut parts = s.split(':');
-        let threshold_str = parts
-            .next()
-            .ok_or_else(|| eyre::eyre!("Missing threshold"))?;
-        let pks_str = parts
-            .next()
-            .ok_or_else(|| eyre::eyre!("Missing public keys"))?;
-
-        if parts.next().is_some() {
-            return Err(eyre::eyre!("Too many parts in security council string"));
-        }
-
-        let threshold = threshold_str
-            .parse::<u32>()
-            .map_err(|e| eyre::eyre!("Invalid threshold: {}", e))?;
-
-        let pks: Result<Vec<XOnlyPublicKey>, _> = pks_str
-            .split(',')
-            .map(|pk_str| {
-                let bytes = hex::decode(pk_str)
-                    .map_err(|e| eyre::eyre!("Invalid hex in public key: {}", e))?;
-                XOnlyPublicKey::from_slice(&bytes)
-                    .map_err(|e| eyre::eyre!("Invalid public key: {}", e))
-            })
-            .collect();
-
-        let pks = pks?;
-
-        if pks.is_empty() {
-            return Err(eyre::eyre!("No public keys provided"));
-        }
-
-        if threshold > pks.len() as u32 {
-            return Err(eyre::eyre!(
-                "Threshold cannot be greater than number of public keys"
-            ));
-        }
-
-        Ok(SecurityCouncil { pks, threshold })
-    }
-}
-
-impl serde::Serialize for SecurityCouncil {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_str(&self.to_string())
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for SecurityCouncil {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        s.parse().map_err(serde::de::Error::custom)
-    }
-}
-
-impl std::fmt::Display for SecurityCouncil {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}:", self.threshold)?;
-        let pks_str = self
-            .pks
-            .iter()
-            .map(|pk| hex::encode(pk.serialize()))
-            .collect::<Vec<_>>()
-            .join(",");
-        write!(f, "{}", pks_str)
-    }
-}
-
-/// Type to uniquely identify a deposit.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
-pub struct BaseDepositData {
-    /// User's EVM address.
-    pub evm_address: EVMAddress,
-    /// User's recovery taproot address.
-    pub recovery_taproot_address: bitcoin::Address<NetworkUnchecked>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct ReplacementDepositData {
-    /// old move_to_vault txid that was replaced
-    pub old_move_txid: Txid,
-}
-
-#[derive(Debug, Clone, serde::Serialize, PartialEq, Eq)]
-pub struct OperatorData {
-    pub xonly_pk: XOnlyPublicKey,
-    pub reimburse_addr: Address,
-    pub collateral_funding_outpoint: OutPoint,
-}
-
-// TODO: remove this impl, this is done to avoid checking the address, instead
-// we should be checking address against a paramset
-impl<'de> serde::Deserialize<'de> for OperatorData {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        #[derive(serde::Deserialize)]
-        struct OperatorDataHelper {
-            xonly_pk: XOnlyPublicKey,
-            reimburse_addr: Address<NetworkUnchecked>,
-            collateral_funding_outpoint: OutPoint,
-        }
-
-        let helper = OperatorDataHelper::deserialize(deserializer)?;
-
-        Ok(OperatorData {
-            xonly_pk: helper.xonly_pk,
-            reimburse_addr: helper.reimburse_addr.assume_checked(),
-            collateral_funding_outpoint: helper.collateral_funding_outpoint,
-        })
-    }
-}
-
-/// Types of all transactions that can be created. Some transactions have an (usize) to as they are created
+/// Types of all transactions that can be created. Some transactions have an (usize) as they are created
 /// multiple times per kickoff.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Ord, PartialOrd, Serialize, Deserialize)]
 pub enum TransactionType {
@@ -599,27 +322,40 @@ impl From<TransactionType> for GrpcTransactionId {
     }
 }
 
-/// Creates a P2WSH output that anyone can spend. TODO: We will not need this in the future.
-pub fn anyone_can_spend_txout() -> TxOut {
-    let script = Builder::new().push_opcode(OP_PUSHNUM_1).into_script();
-    let script_pubkey = script.to_p2wsh();
-    let value = script_pubkey.minimal_non_dust();
-
+/// Creates a P2A (anchor) output for Child Pays For Parent (CPFP) fee bumping.
+///
+/// # Returns
+///
+/// A [`TxOut`] with a statically defined script and value, used as an anchor output in protocol transactions. The TxOut is spendable by anyone.
+pub fn anchor_output(amount: Amount) -> TxOut {
     TxOut {
-        script_pubkey,
-        value,
-    }
-}
-
-/// Creates a P2A output for CPFP.
-pub fn anchor_output() -> TxOut {
-    TxOut {
-        value: ANCHOR_AMOUNT,
+        value: amount,
         script_pubkey: ScriptBuf::from_hex("51024e73").expect("statically valid script"),
     }
 }
 
-/// Creates a OP_RETURN output.
+/// A non-ephemeral anchor output. It is used in tx's that should have a non-ephemeral anchor.
+/// Because ephemeral anchors force the tx to have 0 fee.
+pub fn non_ephemeral_anchor_output() -> TxOut {
+    TxOut {
+        value: NON_EPHEMERAL_ANCHOR_AMOUNT,
+        script_pubkey: ScriptBuf::from_hex("51024e73").expect("statically valid script"),
+    }
+}
+
+/// Creates an OP_RETURN output with the given data slice.
+///
+/// # Arguments
+///
+/// * `slice` - The data to embed in the OP_RETURN output.
+///
+/// # Returns
+///
+/// A [`TxOut`] with an OP_RETURN script containing the provided data.
+///
+/// # Warning
+///
+/// Does not check if the data is valid for an OP_RETURN script. Data must be at most 80 bytes.
 pub fn op_return_txout<S: AsRef<bitcoin::script::PushBytes>>(slice: S) -> TxOut {
     let script = Builder::new()
         .push_opcode(OP_RETURN)
@@ -632,9 +368,18 @@ pub fn op_return_txout<S: AsRef<bitcoin::script::PushBytes>>(slice: S) -> TxOut 
     }
 }
 
-/// Creates a [`TxHandler`] for the `move_to_vault_tx`. This transaction will move
-/// the funds to a NofN address from the deposit intent address, after all the signature
-/// collection operations are done.
+/// Creates a [`TxHandler`] for the `move_to_vault_tx`.
+///
+/// This transaction moves funds to a N-of-N address from the deposit address created by the user that deposits into Citrea after all signature collection operations are done for the deposit.
+///
+/// # Arguments
+///
+/// * `deposit_data` - Mutable reference to the deposit data for the transaction.
+/// * `paramset` - Protocol parameter set.
+///
+/// # Returns
+///
+/// A [`TxHandler`] for the move-to-vault transaction, or a [`BridgeError`] if construction fails.
 pub fn create_move_to_vault_txhandler(
     deposit_data: &mut DepositData,
     paramset: &'static ProtocolParamset,
@@ -663,18 +408,32 @@ pub fn create_move_to_vault_txhandler(
             DEFAULT_SEQUENCE,
         )
         .add_output(UnspentTxOut::from_scripts(
-            paramset.bridge_amount - ANCHOR_AMOUNT,
+            paramset.bridge_amount,
             vec![nofn_script, security_council_script],
             None,
             paramset.network,
         ))
-        .add_output(UnspentTxOut::from_partial(anchor_output()))
+        // always use 0 sat anchor for move_tx, this will keep the amount in move to vault tx exactly the bridge amount
+        .add_output(UnspentTxOut::from_partial(anchor_output(Amount::from_sat(
+            0,
+        ))))
         .finalize())
 }
 
-/// Creates a [`TxHandlerBuilder`] for the `emergency_stop_tx`. This transaction will move
-/// the funds to a the address controlled by the security council from the move to vault txout
-/// This transaction will be used to stop malicious activities if there is a security issue.
+/// Creates a [`TxHandler`] for the `emergency_stop_tx`.
+///
+/// This transaction moves funds to the address controlled by the security council from the move-to-vault txout.
+/// Used to stop the deposit in case of a security issue. The moved funds will eventually be redeposited using the replacement deposit tx.
+///
+/// # Arguments
+///
+/// * `deposit_data` - Mutable reference to the deposit data for the transaction.
+/// * `move_to_vault_txhandler` - Reference to the move-to-vault transaction handler.
+/// * `paramset` - Protocol parameter set.
+///
+/// # Returns
+///
+/// A [`TxHandler`] for the emergency stop transaction, or a [`BridgeError`] if construction fails.
 pub fn create_emergency_stop_txhandler(
     deposit_data: &mut DepositData,
     move_to_vault_txhandler: &TxHandler,
@@ -692,7 +451,7 @@ pub fn create_emergency_stop_txhandler(
             DEFAULT_SEQUENCE,
         )
         .add_output(UnspentTxOut::from_scripts(
-            paramset.bridge_amount - ANCHOR_AMOUNT - EACH_EMERGENCY_STOP_VBYTES * 3,
+            paramset.bridge_amount - paramset.anchor_amount() - EACH_EMERGENCY_STOP_VBYTES * 3,
             vec![Arc::new(Multisig::from_security_council(security_council))],
             None,
             paramset.network,
@@ -702,12 +461,24 @@ pub fn create_emergency_stop_txhandler(
     Ok(builder)
 }
 
-/// We assume that the vector of (Txid, Transaction) includes input-output pairs which are signed
-/// using Sighash Single | AnyoneCanPay. This function will combine the inputs and outputs of the
-/// transactions into a single transaction. Beware, this may be dangerous, as there are no checks.
+/// Combines multiple emergency stop transactions into a single transaction.
+///
+/// # Arguments
+///
+/// * `txs` - A vector of (Txid, Transaction) pairs, each representing a signed emergency stop transaction using Sighash Single | AnyoneCanPay.
+/// * `add_anchor` - If true, an anchor output will be appended to the outputs.
+///
+/// # Returns
+///
+/// A new [`Transaction`] that merges all inputs and outputs from the provided transactions, optionally adding an anchor output.
+///
+/// # Warning
+///
+/// This function does not perform any safety checks and assumes all inputs/outputs are valid and compatible.
 pub fn combine_emergency_stop_txhandler(
     txs: Vec<(Txid, Transaction)>,
     add_anchor: bool,
+    paramset: &'static ProtocolParamset,
 ) -> Transaction {
     let (inputs, mut outputs): (Vec<TxIn>, Vec<TxOut>) = txs
         .into_iter()
@@ -715,7 +486,7 @@ pub fn combine_emergency_stop_txhandler(
         .unzip();
 
     if add_anchor {
-        outputs.push(anchor_output());
+        outputs.push(anchor_output(paramset.anchor_amount()));
     }
 
     Transaction {
@@ -726,25 +497,36 @@ pub fn combine_emergency_stop_txhandler(
     }
 }
 
-/// Creates a [`TxHandlerBuilder`] for the `move_to_vault_tx`. This transaction will move
-/// the funds to a NofN address from the deposit intent address, after all the signature
-/// collection operations are done.
+/// Creates a [`TxHandler`] for the `replacement_deposit_tx`.
+///
+/// This transaction replaces a previous deposit with a new deposit.
+/// In the its script, it commits the old move_to_vault txid that it replaces.
+///
+/// # Arguments
+///
+/// * `old_move_txid` - The txid of the old move_to_vault transaction that is being replaced.
+/// * `input_outpoint` - The outpoint of the input to the replacement deposit tx that holds bridge amount.
+/// * `nofn_xonly_pk` - The N-of-N XOnlyPublicKey for the deposit.
+/// * `paramset` - The protocol paramset.
+/// * `security_council` - The security council.
+///
+/// # Returns
+///
+/// A [`TxHandler`] for the replacement deposit transaction, or a [`BridgeError`] if construction fails.
 pub fn create_replacement_deposit_txhandler(
     old_move_txid: Txid,
+    input_outpoint: OutPoint,
     nofn_xonly_pk: XOnlyPublicKey,
     paramset: &'static ProtocolParamset,
     security_council: SecurityCouncil,
-) -> Result<TxHandlerBuilder, BridgeError> {
+) -> Result<TxHandler, BridgeError> {
     Ok(TxHandlerBuilder::new(TransactionType::ReplacementDeposit)
         .with_version(Version::non_standard(3))
         .add_input(
             NormalSignatureKind::NoSignature,
             SpendableTxIn::from_scripts(
-                bitcoin::OutPoint {
-                    txid: old_move_txid,
-                    vout: 0,
-                },
-                paramset.bridge_amount - ANCHOR_AMOUNT,
+                input_outpoint,
+                paramset.bridge_amount,
                 vec![
                     Arc::new(CheckSig::new(nofn_xonly_pk)),
                     Arc::new(Multisig::from_security_council(security_council.clone())),
@@ -764,9 +546,27 @@ pub fn create_replacement_deposit_txhandler(
             None,
             paramset.network,
         ))
-        .add_output(UnspentTxOut::from_partial(anchor_output())))
+        // always use 0 sat anchor for replacement deposit tx, this will keep the amount in replacement deposit tx exactly the bridge amount
+        .add_output(UnspentTxOut::from_partial(anchor_output(Amount::from_sat(
+            0,
+        ))))
+        .finalize())
 }
 
+/// Creates a Taproot output for a disprove path, combining a script, an additional disprove script, and a hidden node containing the BitVM disprove scripts.
+///
+/// # Arguments
+///
+/// * `operator_timeout_script` - The operator timeout script.
+/// * `additional_script` - An additional script to include in the Taproot tree. This single additional script is generated by Clementine bridge
+///     in addition to the disprove scripts coming from BitVM side.
+/// * `disprove_root_hash` - The root hash for the hidden script merkle tree node. The scripts included in the root hash are the BitVM disprove scripts.
+/// * `amount` - The output amount.
+/// * `network` - The Bitcoin network.
+///
+/// # Returns
+///
+/// An [`UnspentTxOut`] representing the Taproot TxOut.
 pub fn create_disprove_taproot_output(
     operator_timeout_script: Arc<dyn SpendableScript>,
     additional_script: ScriptBuf,
@@ -809,7 +609,21 @@ pub fn create_disprove_taproot_output(
     )
 }
 
-/// Helper function to create a taproot output that combines a script and a root hash
+/// Helper function to create a Taproot output that combines a single script and a root hash containing any number of scripts.
+/// The main use case for this function is to speed up the tx creating during a deposit. We don't need to create and combine all the
+/// scripts in the taproot repeatedly, but cache and combine the common scripts for each kickoff tx to a root hash, and add an additional script
+/// that depends on the specific operator or nofn_pk that is signing the deposit.
+///
+/// # Arguments
+///
+/// * `script` - The one additional script to include in the merkle tree.
+/// * `hidden_node` - The root hash for the merkle tree node. The node can contain any number of scripts.
+/// * `amount` - The output amount.
+/// * `network` - The Bitcoin network.
+///
+/// # Returns
+///
+/// An [`UnspentTxOut`] representing the Taproot TxOut.
 pub fn create_taproot_output_with_hidden_node(
     script: Arc<dyn SpendableScript>,
     hidden_node: HiddenNode,

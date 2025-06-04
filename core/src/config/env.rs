@@ -1,7 +1,7 @@
 //! # Environment Variable Support For [`BridgeConfig`]
 
 use super::BridgeConfig;
-use crate::{builder::transaction::SecurityCouncil, errors::BridgeError};
+use crate::{deposit::SecurityCouncil, errors::BridgeError};
 use bitcoin::{address::NetworkUnchecked, secp256k1::SecretKey, Amount};
 use std::{path::PathBuf, str::FromStr};
 
@@ -378,6 +378,10 @@ mod tests {
         std::env::set_var(
             "BRIDGE_CIRCUIT_METHOD_ID_CONSTANT",
             hex::encode(default_config.bridge_circuit_method_id_constant),
+        );
+        std::env::set_var(
+            "BRIDGE_NONSTANDARD",
+            default_config.bridge_nonstandard.to_string(),
         );
 
         assert_eq!(ProtocolParamset::from_env().unwrap(), default_config);

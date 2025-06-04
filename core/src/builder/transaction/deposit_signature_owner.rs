@@ -1,9 +1,20 @@
+//! # Deposit Signature Ownership Mapping
+//!
+//! This module provides types and logic for mapping transaction signature requirements to protocol entities in the Clementine bridge.
+//! It is used to determine which entity (operator, verifier, N-of-N, etc.) is responsible for providing a signature for a given transaction input,
+//! and what sighash type is required for that signature. Additionally it encodes when this signature is given to other entities.
+//!
+
 use crate::errors::BridgeError;
 use crate::rpc::clementine::tagged_signature::SignatureId;
 use crate::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind};
 use bitcoin::TapSighashType;
 use eyre::Context;
 
+/// Enumerates the protocol entities that may own a required signature for a transaction input.
+/// Additionally it encodes when this signature is given to other entities. For example signatures with OperatorDeposit are operator's
+/// signatures that are shared with verifiers during a new deposit, while OperatorSetup is operator's signature that is given to the
+/// verifiers when Operator is  being newly setup and added to verifiers databases.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EntityType {
     OperatorDeposit,
@@ -12,22 +23,30 @@ pub enum EntityType {
     OperatorSetup,
 }
 
-/// Entity whose signature is needed to unlock the input utxo
+/// Describes the ownership and sighash type for a required signature.
+///
+/// - `NotOwned`: No signature required or not owned by any protocol entity.
+/// - `OperatorSharedDeposit`: Operator's signature required for deposit, with the given sighash type.
+/// - `NofnSharedDeposit`: N-of-N signature required for deposit, with the given sighash type.
+/// - `Own`: Signature required for the entity running the program, with the given sighash type.
+/// - `OperatorSharedSetup`: Operator's signature required during aggregator setup, with the given sighash type.
 #[derive(Debug, Clone, Copy)]
 pub enum DepositSigKeyOwner {
     NotOwned,
-    /// this type is for operator's signatures that need to be saved during deposit
+    /// Operator's signature required for deposit (shared with verifiers), with the given sighash type.
     OperatorSharedDeposit(TapSighashType),
+    /// N-of-N signature required for deposit, with the given sighash type.
     NofnSharedDeposit(TapSighashType),
-    /// this type is for signatures that is needed for the entity themselves to spend the utxo
-    /// So verifiers do not need this signature info, thus it is not saved to DB.
+    /// Signature required for the entity itself, with the given sighash type.
+    /// Verifiers do not need this signature info, thus it is not saved to DB.
     /// Added to help define different sighash types for operator's own signatures.
     Own(TapSighashType),
-    /// For operator signatures that are needed to be saved during aggregator setups
+    /// Operator's signature required during first setup, with the given sighash type.
     OperatorSharedSetup(TapSighashType),
 }
 
 impl DepositSigKeyOwner {
+    /// Returns the sighash type for this signature owner, if any.
     pub fn sighash_type(&self) -> Option<TapSighashType> {
         match self {
             DepositSigKeyOwner::NotOwned => None,
@@ -40,6 +59,11 @@ impl DepositSigKeyOwner {
 }
 
 impl SignatureId {
+    /// Maps a [`SignatureId`] to its required signature owner and sighash type.
+    ///
+    /// # Returns
+    ///
+    /// A [`DepositSigKeyOwner`] describing the required signature owner and sighash type for this signature ID, or a [`BridgeError`] if the mapping fails.
     pub fn get_deposit_sig_owner(&self) -> Result<DepositSigKeyOwner, BridgeError> {
         use DepositSigKeyOwner::*;
         use TapSighashType::{

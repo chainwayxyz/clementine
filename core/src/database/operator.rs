@@ -10,10 +10,9 @@ use super::{
     Database, DatabaseTransaction,
 };
 use crate::{
-    builder::transaction::{
-        create_move_to_vault_txhandler, DepositData, KickoffData, OperatorData,
-    },
+    builder::transaction::create_move_to_vault_txhandler,
     config::protocol::ProtocolParamset,
+    deposit::{DepositData, KickoffData, OperatorData},
 };
 use crate::{
     errors::BridgeError,
@@ -557,8 +556,9 @@ impl Database {
             }
         }
         // On conflict, the previous signatures are already valid. Signatures only depend on deposit_outpoint (which depends on nofn pk) and
-        // operator_xonly_pk (which includes collateral outpoint, reimbursement addr (these should be unchanged)). We add on conflict so it
-        // doesn't fail if the signatures are already set.
+        // operator_xonly_pk (also depends on nofn_pk, as each operator is also a verifier and nofn_pk depends on verifiers pk)
+        // Additionally operator collateral outpoint and reimbursement addr should be unchanged which we ensure in relevant db fns.
+        // We add on conflict clause so it doesn't fail if the signatures are already set.
         // Why do we need to do this? If deposit fails somehow just at the end because movetx
         // signature fails to be collected, we might need to do a deposit again. Technically we can only collect movetx signature, not
         // do the full deposit.
