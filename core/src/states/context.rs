@@ -1,7 +1,6 @@
-use crate::builder::transaction::DepositData;
-use crate::builder::transaction::KickoffData;
 use crate::config::protocol::ProtocolParamset;
 use crate::database::DatabaseTransaction;
+use crate::deposit::{DepositData, KickoffData};
 
 use bitcoin::BlockHash;
 use bitcoin::Transaction;

@@ -1,3 +1,9 @@
+//! # Transaction Input Types and Utilities
+//!
+//! This module defines types and utilities for representing and handling transaction inputs used in [`TxHandler`].
+//! It provides abstractions for spendable inputs, input errors, correctness checks, supporting Taproot and script path spends.
+//!
+
 use crate::bitvm_client;
 use crate::builder::script::SpendableScript;
 use crate::builder::sighash::TapTweakData;
@@ -14,17 +20,19 @@ use thiserror::Error;
 pub type BlockHeight = u16;
 
 #[derive(Debug, Clone)]
+/// Represents a spendable transaction input, including previous output, scripts, and Taproot spend info.
 pub struct SpendableTxIn {
     /// The reference to the previous output that is being used as an input.
     previous_outpoint: OutPoint,
     prevout: TxOut, // locking script (taproot => op_1 op_pushbytes_32 tweaked pk)
-
-    /// TODO: refactor later, decide on what's needed and what's redundant
+    /// Scripts associated with this input (for script path spends).
     scripts: Vec<Arc<dyn SpendableScript>>,
+    /// Optional Taproot spend info for this input.
     spendinfo: Option<TaprootSpendInfo>,
 }
 
 #[derive(Clone, Debug, Error, PartialEq)]
+/// Error type for spendable input construction and validation.
 pub enum SpendableTxInError {
     #[error(
         "The taproot spend info contains an incomplete merkle proof map. Some scripts are missing."
@@ -39,7 +47,8 @@ pub enum SpendableTxInError {
 }
 
 #[derive(Debug, Clone, Copy)]
-/// The vouts of specific utxos in the deposit contract
+/// Enumerates protocol-specific UTXO output indices for transaction construction.
+/// Used to identify the vout of specific UTXOs in protocol transactions.
 pub enum UtxoVout {
     /// The vout of the assert utxo in KickoffTx
     Assert(usize),
@@ -68,6 +77,7 @@ pub enum UtxoVout {
 }
 
 impl UtxoVout {
+    /// Returns the vout index for this UTXO in the corresponding transaction.
     pub fn get_vout(self) -> u32 {
         match self {
             UtxoVout::Assert(idx) => idx as u32 + 5,
@@ -95,19 +105,34 @@ impl UtxoVout {
 }
 
 impl SpendableTxIn {
+    /// Returns a reference to the previous output (TxOut) for this input.
     pub fn get_prevout(&self) -> &TxOut {
         &self.prevout
     }
 
+    /// Returns a reference to the previous outpoint (OutPoint) for this input.
     pub fn get_prev_outpoint(&self) -> &OutPoint {
         &self.previous_outpoint
     }
 
-    #[inline(always)]
+    /// Creates a new [`SpendableTxIn`] with only a previous output and TxOut (no scripts or spend info).
     pub fn new_partial(previous_output: OutPoint, prevout: TxOut) -> SpendableTxIn {
         Self::new(previous_output, prevout, vec![], None)
     }
 
+    /// Constructs a [`SpendableTxIn`] from scripts, value, and the internal key. Giving None for the internal key will create the tx
+    /// with an unspendable internal key.
+    ///
+    /// # Arguments
+    /// * `previous_output` - The outpoint being spent.
+    /// * `value` - The value of the previous output.
+    /// * `scripts` - Scripts for script path spends.
+    /// * `key_path` - The internal key for key path spends.
+    /// * `network` - Bitcoin network.
+    ///
+    /// # Returns
+    ///
+    /// A new [`SpendableTxIn`] with the specified parameters.
     pub fn from_scripts(
         previous_output: OutPoint,
         value: Amount,
@@ -131,6 +156,7 @@ impl SpendableTxIn {
         )
     }
 
+    /// Creates a new [`SpendableTxIn`] from all fields.
     #[inline(always)]
     pub fn new(
         previous_output: OutPoint,
@@ -146,19 +172,24 @@ impl SpendableTxIn {
         Self::from_unchecked(previous_output, prevout, scripts, spendinfo)
     }
 
+    /// Returns a reference to the scripts for this input.
     pub fn get_scripts(&self) -> &Vec<Arc<dyn SpendableScript>> {
         &self.scripts
     }
 
+    /// Returns a reference to the Taproot spend info for this input, if any.
     pub fn get_spend_info(&self) -> &Option<TaprootSpendInfo> {
         &self.spendinfo
     }
+
+    /// Sets the Taproot spend info for this input.
     pub fn set_spend_info(&mut self, spendinfo: Option<TaprootSpendInfo>) {
         self.spendinfo = spendinfo;
         #[cfg(debug_assertions)]
         self.check().expect("spendinfo is invalid in debug mode");
     }
 
+    /// Checks the validity of the spendable input, ensuring script pubkey and merkle proof map are correct.
     fn check(&self) -> Result<(), SpendableTxInError> {
         use SpendableTxInError::*;
         let Some(spendinfo) = self.spendinfo.as_ref() else {
@@ -187,6 +218,7 @@ impl SpendableTxIn {
         Ok(())
     }
 
+    /// Creates a [`SpendableTxIn`] with validation if the given input is valid (used in debug mode for testing).
     fn from_checked(
         previous_output: OutPoint,
         prevout: TxOut,
@@ -198,6 +230,7 @@ impl SpendableTxIn {
         Ok(this)
     }
 
+    /// Creates a [`SpendableTxIn`] without validation (used in release mode).
     fn from_unchecked(
         previous_outpoint: OutPoint,
         prevout: TxOut,
@@ -215,6 +248,7 @@ impl SpendableTxIn {
 
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
+/// Represents a fully specified transaction input, including sequence, witness, spend path, and signature ID.
 pub struct SpentTxIn {
     spendable: SpendableTxIn,
     /// The sequence number, which suggests to miners which of two
@@ -227,11 +261,14 @@ pub struct SpentTxIn {
     ///
     /// Has to be Some(_) when the transaction is signed.
     witness: Option<Witness>,
+    /// Spend path for this input (key or script path).
     spend_path: SpendPath,
+    /// Signature ID for this input, which signature in the protocol this input needs.
     input_id: SignatureId,
 }
 
 impl SpentTxIn {
+    /// Constructs a [`SpentTxIn`] from a spendable input and associated metadata.
     pub fn from_spendable(
         input_id: SignatureId,
         spendable: SpendableTxIn,
@@ -248,14 +285,17 @@ impl SpentTxIn {
         }
     }
 
+    /// Returns a reference to the underlying [`SpendableTxIn`].
     pub fn get_spendable(&self) -> &SpendableTxIn {
         &self.spendable
     }
 
+    /// Returns the spend path for this input.
     pub fn get_spend_path(&self) -> SpendPath {
         self.spend_path
     }
 
+    /// Returns the Taproot tweak data for this input, based on the spend path and spend info.
     pub fn get_tweak_data(&self) -> TapTweakData {
         match self.spend_path {
             SpendPath::ScriptSpend(_) => TapTweakData::ScriptPath,
@@ -270,14 +310,17 @@ impl SpentTxIn {
         }
     }
 
+    /// Returns a reference to the witness data for this input, if any.
     pub fn get_witness(&self) -> &Option<Witness> {
         &self.witness
     }
 
+    /// Returns the signature ID for this input.
     pub fn get_signature_id(&self) -> SignatureId {
         self.input_id
     }
 
+    /// Sets the witness data for this input.
     pub fn set_witness(&mut self, witness: Witness) {
         self.witness = Some(witness);
     }
@@ -290,6 +333,7 @@ impl SpentTxIn {
     //     self.sequence = sequence;
     // }
 
+    /// Converts this [`SpentTxIn`] into a Bitcoin [`TxIn`] for inclusion in a Bitcoin transaction.
     pub fn to_txin(&self) -> TxIn {
         TxIn {
             previous_output: self.spendable.previous_outpoint,

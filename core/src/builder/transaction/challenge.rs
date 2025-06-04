@@ -1,3 +1,8 @@
+//! # Challenge Transaction Logic
+//!
+//! This module provides functions for constructing and challenge related transactions in the protocol.
+//! The transactions are: Challenge, ChallengeTimeout, OperatorChallengeNack, OperatorChallengeAck, Disprove.
+
 use crate::builder;
 use crate::builder::script::SpendPath;
 use crate::builder::transaction::output::UnspentTxOut;
@@ -12,10 +17,30 @@ use bitcoin::{Sequence, TxOut, WitnessVersion};
 
 use self::input::UtxoVout;
 
-/// Creates a [`TxHandler`] for the `watchtower_challenge_tx`. This transaction
-/// is sent by the watchtowers to reveal their Groth16 proofs with their public
-/// inputs for the longest chain proof. The data is encoded as 32 byte script pubkeys
-/// of taproot utxos, and a single at max 80 byte OP_RETURN utxo.
+/// Creates a [`TxHandler`] for the `watchtower_challenge_tx`.
+///
+/// This transaction is sent by a watchtower to submit a challenge proof (e.g., a Groth16 proof with public inputs).
+/// The proof data is encoded as a series of Taproot outputs and a final OP_RETURN output.
+/// Currently a watchtower challenge is in total 144 bytes, 32 + 32 + 80 bytes.
+///
+/// # Inputs
+/// 1. KickoffTx: WatchtowerChallenge utxo (for the given watchtower)
+///
+/// # Outputs
+/// 1. First output, first 32 bytes of challenge data encoded directly in scriptpubkey.
+/// 2. Second output, next 32 bytes of challenge data encoded directly in scriptpubkey.
+/// 3. OP_RETURN output, containing the last 80 bytes of challenge data.
+///
+/// # Arguments
+///
+/// * `kickoff_txhandler` - The kickoff transaction handler the watchtower challenge belongs to.
+/// * `watchtower_idx` - The index of the watchtower in the deposit submitting the challenge.
+/// * `commit_data` - The challenge proof data to be included in the transaction.
+/// * `paramset` - Protocol parameter set.
+///
+/// # Returns
+///
+/// A [`TxHandler`] for the watchtower challenge transaction, or a [`BridgeError`] if construction fails.
 pub fn create_watchtower_challenge_txhandler(
     kickoff_txhandler: &TxHandler,
     watchtower_idx: usize,
@@ -75,9 +100,28 @@ pub fn create_watchtower_challenge_txhandler(
     Ok(builder.finalize())
 }
 
-/// Creates the watchtower challenge timeout txhandler.
-/// This tx needs to be sent by operators when a watchtower doesn't send a challenge,
-/// otherwise operator will be forced to reveal their preimage.
+/// Creates a [`TxHandler`] for the `watchtower_challenge_timeout_tx`.
+///
+/// This transaction is sent by an operator if a watchtower does not submit a challenge in time, allowing the operator to claim a timeout.
+/// This way, operators do not need to reveal their preimage, and do not need to use the watchtowers longest chain proof in their
+/// bridge proof.
+///
+/// # Inputs
+/// 1. KickoffTx: WatchtowerChallenge utxo (for the given watchtower)
+/// 2. KickoffTx: WatchtowerChallengeAck utxo (for the given watchtower)
+///
+/// # Outputs
+/// 1. Anchor output for CPFP
+///
+/// # Arguments
+///
+/// * `kickoff_txhandler` - The kickoff transaction handler the watchtower challenge timeout belongs to.
+/// * `watchtower_idx` - The index of the watchtower in the deposit submitting the challenge.
+/// * `paramset` - Protocol parameter set.
+///
+/// # Returns
+///
+/// A [`TxHandler`] for the watchtower challenge timeout transaction, or a [`BridgeError`] if construction fails.
 pub fn create_watchtower_challenge_timeout_txhandler(
     kickoff_txhandler: &TxHandler,
     watchtower_idx: usize,
@@ -113,10 +157,30 @@ pub fn create_watchtower_challenge_timeout_txhandler(
     )
 }
 
-/// Creates a [`TxHandler`] for the `operator_challenge_NACK_tx`. This transaction will force
-/// the operator to reveal the preimage for the corresponding watchtower since if they do not
-/// reveal the preimage, the NofN will be able to spend the output after 0.5 week, which will
-/// prevent the operator from sending `assert_begin_tx`.
+/// Creates a [`TxHandler`] for the `OperatorChallengeNack` transaction.
+///
+/// This transaction is used to force an operator to reveal a preimage for a watchtower challenge. If a watchtower sends a watchtower challenge,
+/// but the operator does not reveal the preimage by sending an OperatorChallengeAck, after a specified number of time (defined in paramset),
+/// the N-of-N can spend the output, burning the operator's collateral.
+///
+/// # Inputs
+/// 1. KickoffTx: WatchtowerChallengeAck utxo (for the given watchtower)
+/// 2. KickoffTx: KickoffFinalizer utxo
+/// 3. RoundTx: BurnConnector utxo
+///
+/// # Outputs
+/// 1. Anchor output for CPFP
+///
+/// # Arguments
+///
+/// * `kickoff_txhandler` - The kickoff transaction handler the operator challenge nack belongs to.
+/// * `watchtower_idx` - The index of the watchtower in the deposit corresponding to the watchtower challenge related to the operator challenge nack.
+/// * `round_txhandler` - The round transaction handler for the current round the kickoff belongs to.
+/// * `paramset` - Protocol parameter set.
+///
+/// # Returns
+///
+/// A [`TxHandler`] for the operator challenge NACK transaction, or a [`BridgeError`] if construction fails.
 pub fn create_operator_challenge_nack_txhandler(
     kickoff_txhandler: &TxHandler,
     watchtower_idx: usize,
@@ -161,10 +225,26 @@ pub fn create_operator_challenge_nack_txhandler(
     )
 }
 
-/// Creates a [`TxHandler`] for the `operator_challenge_ACK_tx`. This transaction will is used so that
-/// the operator can acknowledge the challenge and reveal the preimage for the corresponding watchtower.
-/// If the operator does not reveal the preimage, the NofN will be able to spend the output after 0.5 week using
-/// `operator_challenge_NACK_tx`.
+/// Creates a [`TxHandler`] for the OperatorChallengeAck transaction.
+///
+/// This transaction is used by an operator to acknowledge a watchtower challenge and reveal the required preimage, if a watchtower challenge is sent.
+///
+/// # Inputs
+/// 1. KickoffTx: WatchtowerChallengeAck utxo (for the given watchtower)
+///
+/// # Outputs
+/// 1. Anchor output for CPFP
+/// 2. Dummy OP_RETURN output (to pad the size of the transaction, as it is too small otherwise)
+///
+/// # Arguments
+///
+/// * `kickoff_txhandler` - The kickoff transaction handler the operator challenge ack belongs to.
+/// * `watchtower_idx` - The index of the watchtower that sent the challenge.
+/// * `paramset` - Protocol parameter set.
+///
+/// # Returns
+///
+/// A [`TxHandler`] for the operator challenge ACK transaction, or a [`BridgeError`] if construction fails.
 pub fn create_operator_challenge_ack_txhandler(
     kickoff_txhandler: &TxHandler,
     watchtower_idx: usize,
@@ -188,9 +268,27 @@ pub fn create_operator_challenge_ack_txhandler(
     )
 }
 
-/// Creates a [`TxHandler`] for the `disprove_tx`. This transaction will be sent by NofN, meaning
-/// that the operator was malicious. This transaction burns the operator's burn connector, kicking the
-/// operator out of the system.
+/// Creates a [`TxHandler`] for the `disprove_tx`.
+///
+/// This transaction is sent by N-of-N to penalize a malicious operator by burning their collateral (burn connector).
+/// This is done either with the additional disprove script created by BitVM, in case the public inputs of the bridge proof the operator
+/// sent are not correct/do not match previous data, or if the Groth16 verification of the proof is incorrect using BitVM disprove scripts.
+///
+/// # Inputs
+/// 1. KickoffTx: Disprove utxo
+/// 2. RoundTx: BurnConnector utxo
+///
+/// # Outputs
+/// 1. Anchor output for CPFP
+///
+/// # Arguments
+///
+/// * `kickoff_txhandler` - The kickoff transaction handler the disprove belongs to.
+/// * `round_txhandler` - The round transaction handler to the current round the kickoff belongs to.
+///
+/// # Returns
+///
+/// A [`TxHandler`] for the disprove transaction, or a [`BridgeError`] if construction fails.
 pub fn create_disprove_txhandler(
     kickoff_txhandler: &TxHandler,
     round_txhandler: &TxHandler,
@@ -216,9 +314,30 @@ pub fn create_disprove_txhandler(
         .finalize())
 }
 
-/// Creates a [`TxHandler`] for the `challenge`. This transaction is for covering
-/// the operators' cost for a challenge to prevent people from maliciously
-/// challenging them and causing them to lose money.
+/// Creates a [`TxHandler`] for the `challenge` transaction.
+///
+/// This transaction is used to reimburse an operator for a valid challenge, intended to cover their costs for sending asserts transactions,
+/// and potentially cover their opportunity cost as their reimbursements are delayed due to the challenge. This cost of a challenge is also
+/// used to disincentivize sending challenges for kickoffs that are correct. In case the challenge is correct and operator is proved to be
+/// malicious, the challenge cost will be reimbursed using the operator's collateral thats locked in Citrea.
+///
+/// # Inputs
+/// 1. KickoffTx: Challenge utxo
+///
+/// # Outputs
+/// 1. Operator reimbursement output
+/// 2. OP_RETURN output (containing EVM address of the challenger, for reimbursement if the challenge is correct)
+///
+/// # Arguments
+///
+/// * `kickoff_txhandler` - The kickoff transaction handler that the challenge belongs to.
+/// * `operator_reimbursement_address` - The address to reimburse the operator to cover their costs.
+/// * `challenger_evm_address` - The EVM address of the challenger, for reimbursement if the challenge is correct.
+/// * `paramset` - Protocol parameter set.
+///
+/// # Returns
+///
+/// A [`TxHandler`] for the challenge transaction, or a [`BridgeError`] if construction fails.
 pub fn create_challenge_txhandler(
     kickoff_txhandler: &TxHandler,
     operator_reimbursement_address: &bitcoin::Address,
@@ -236,12 +355,28 @@ pub fn create_challenge_txhandler(
             value: paramset.operator_challenge_amount,
             script_pubkey: operator_reimbursement_address.script_pubkey(),
         }))
-        .add_output(UnspentTxOut::from_partial(op_return_txout(b"TODO")))
         .finalize())
 }
 
-/// Creates a [`TxHandler`] for the `no challenge`. This transaction used when no one sends a
-/// challenge tx, so that operator can spend kickoff finalizer to finalize the kickoff.
+/// Creates a [`TxHandler`] for the `challenge_timeout` transaction.
+///
+/// This transaction is used to finalize a kickoff if no challenge is submitted in time, allowing the operator to proceed faster to the next round, thus getting their reimbursement, as the next round will generate the reimbursement connectors of the current round.
+///
+/// # Inputs
+/// 1. KickoffTx: Challenge utxo
+/// 2. KickoffTx: KickoffFinalizer utxo
+///
+/// # Outputs
+/// 1. Anchor output for CPFP
+///
+/// # Arguments
+///
+/// * `kickoff_txhandler` - The kickoff transaction handler the challenge timeout belongs to.
+/// * `paramset` - Protocol parameter set.
+///
+/// # Returns
+///
+/// A [`TxHandler`] for the challenge timeout transaction, or a [`BridgeError`] if construction fails.
 pub fn create_challenge_timeout_txhandler(
     kickoff_txhandler: &TxHandler,
     paramset: &'static ProtocolParamset,

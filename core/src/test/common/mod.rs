@@ -9,13 +9,13 @@ use crate::bitvm_client::SECP;
 use crate::builder::address::create_taproot_address;
 use crate::builder::script::{CheckSig, Multisig, SpendableScript};
 use crate::builder::transaction::input::UtxoVout;
-use crate::builder::transaction::{
-    create_replacement_deposit_txhandler, BaseDepositData, DepositInfo, DepositType,
-    ReplacementDepositData, SecurityCouncil, TxHandler,
-};
+use crate::builder::transaction::{create_replacement_deposit_txhandler, TxHandler};
 use crate::citrea::mock::MockCitreaClient;
 use crate::citrea::CitreaClientT;
 use crate::config::BridgeConfig;
+use crate::deposit::{
+    BaseDepositData, DepositInfo, DepositType, ReplacementDepositData, SecurityCouncil,
+};
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::{
