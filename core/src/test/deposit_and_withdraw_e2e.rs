@@ -59,6 +59,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
                 "-txindex=1",
                 "-fallbackfee=0.000001",
                 "-rpcallowip=0.0.0.0/0",
+                "-dustrelayfee=0",
             ],
             ..Default::default()
         }
@@ -133,7 +134,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         let block_count = da.get_block_count().await?;
         tracing::debug!("Block count before deposit: {:?}", block_count);
 
-        tracing::debug!(
+        tracing::info!(
             "Deposit starting at block height: {:?}",
             rpc.client.get_block_count().await?
         );
@@ -147,7 +148,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             _deposit_blockhash,
             verifiers_public_keys,
         ) = run_single_deposit::<CitreaClient>(&mut config, rpc.clone(), None).await?;
-        tracing::debug!(
+        tracing::info!(
             "Deposit ending block_height: {:?}",
             rpc.client.get_block_count().await?
         );
