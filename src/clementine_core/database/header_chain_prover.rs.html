@@ -942,7 +942,7 @@
             </span><span class="kw">let </span><span class="kw-2">mut </span>block_infos = Vec::with_capacity((batch_end - batch_start + <span class="number">1</span>) <span class="kw">as </span>usize);
             <span class="kw">for </span>height <span class="kw">in </span>batch_start..=batch_end {
                 <span class="kw">let </span>(block_hash, block_header) =
-                    rpc.get_block_header_by_height(height <span class="kw">as </span>u64).<span class="kw">await</span><span class="question-mark">?</span>;
+                    rpc.get_block_info_by_height(height <span class="kw">as </span>u64).<span class="kw">await</span><span class="question-mark">?</span>;
                 block_infos.push((block_hash, block_header, height));
             }
 
