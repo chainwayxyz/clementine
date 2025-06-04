@@ -5,8 +5,8 @@ use pgmq::PGMQueueExt;
 use statig::awaitable::IntoStateMachineExt;
 
 use crate::{
-    builder::transaction::{DepositData, KickoffData, OperatorData},
     database::{Database, DatabaseTransaction},
+    deposit::{DepositData, KickoffData, OperatorData},
     errors::BridgeError,
 };
 

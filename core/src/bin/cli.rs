@@ -6,8 +6,8 @@ use std::str::FromStr;
 use bitcoin::{hashes::Hash, Block, Txid};
 use clap::{Parser, Subcommand};
 use clementine_core::{
-    builder::transaction::SecurityCouncil,
     config::BridgeConfig,
+    deposit::SecurityCouncil,
     errors::BridgeError,
     rpc::clementine::{
         self, clementine_aggregator_client::ClementineAggregatorClient,

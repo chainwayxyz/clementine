@@ -4,7 +4,7 @@ use super::clementine::{
 };
 use super::error;
 use crate::builder::transaction::sign::TransactionRequestData;
-use crate::builder::transaction::{
+use crate::deposit::{
     Actors, BaseDepositData, DepositData, DepositInfo, DepositType, ReplacementDepositData,
     SecurityCouncil,
 };
@@ -499,7 +499,7 @@ pub fn parse_transaction_request(
     })
 }
 
-impl TryFrom<clementine::KickoffId> for crate::builder::transaction::KickoffData {
+impl TryFrom<clementine::KickoffId> for crate::deposit::KickoffData {
     type Error = Status;
 
     fn try_from(value: clementine::KickoffId) -> Result<Self, Self::Error> {
@@ -508,7 +508,7 @@ impl TryFrom<clementine::KickoffId> for crate::builder::transaction::KickoffData
                 Status::invalid_argument(format!("Failed to parse operator_xonly_pk: {}", e))
             })?;
 
-        Ok(crate::builder::transaction::KickoffData {
+        Ok(crate::deposit::KickoffData {
             operator_xonly_pk,
             round_idx: value.round_idx,
             kickoff_idx: value.kickoff_idx,
@@ -516,8 +516,8 @@ impl TryFrom<clementine::KickoffId> for crate::builder::transaction::KickoffData
     }
 }
 
-impl From<crate::builder::transaction::KickoffData> for clementine::KickoffId {
-    fn from(value: crate::builder::transaction::KickoffData) -> Self {
+impl From<crate::deposit::KickoffData> for clementine::KickoffId {
+    fn from(value: crate::deposit::KickoffData) -> Self {
         clementine::KickoffId {
             operator_xonly_pk: value.operator_xonly_pk.serialize().to_vec(),
             round_idx: value.round_idx,

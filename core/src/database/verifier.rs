@@ -2,6 +2,8 @@
 //!
 //! This module includes database functions which are mainly used by a verifier.
 
+use std::ops::DerefMut;
+
 use super::{
     wrapper::{BlockHashDB, TxidDB, XOnlyPublicKeyDB},
     Database, DatabaseTransaction,
@@ -81,10 +83,22 @@ impl Database {
 
     pub async fn set_replacement_deposit_move_txid(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: DatabaseTransaction<'_, '_>,
         old_move_txid: Txid,
         new_move_txid: Txid,
     ) -> Result<(), BridgeError> {
+        // check if new move txid is already in the database
+        let query = sqlx::query_as::<_, (i32,)>(
+            "SELECT COUNT(*) FROM withdrawals WHERE move_to_vault_txid = $1",
+        )
+        .bind(TxidDB(new_move_txid))
+        .fetch_one(tx.deref_mut())
+        .await?;
+
+        if query.0 > 0 {
+            return Ok(());
+        }
+
         let query = sqlx::query(
             "UPDATE withdrawals
              SET move_to_vault_txid = $2
@@ -92,18 +106,13 @@ impl Database {
              RETURNING idx",
         )
         .bind(TxidDB(old_move_txid))
-        .bind(TxidDB(new_move_txid));
+        .bind(TxidDB(new_move_txid))
+        .fetch_optional(tx.deref_mut())
+        .await?;
 
-        let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
-
-        if result.is_none() {
-            return Err(eyre::eyre!(format!(
-                "No withdrawal found with move_to_vault_txid: {}",
-                old_move_txid
-            ))
-            .into());
+        if query.is_none() {
+            return Err(eyre::eyre!("Old move txid not found: {}", old_move_txid).into());
         }
-
         Ok(())
     }
 
