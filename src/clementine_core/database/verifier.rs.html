@@ -483,11 +483,23 @@
 <a href="#482" id="482">482</a>
 <a href="#483" id="483">483</a>
 <a href="#484" id="484">484</a>
-<a href="#485" id="485">485</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Verifier Related Database Operations
+<a href="#485" id="485">485</a>
+<a href="#486" id="486">486</a>
+<a href="#487" id="487">487</a>
+<a href="#488" id="488">488</a>
+<a href="#489" id="489">489</a>
+<a href="#490" id="490">490</a>
+<a href="#491" id="491">491</a>
+<a href="#492" id="492">492</a>
+<a href="#493" id="493">493</a>
+<a href="#494" id="494">494</a>
+<a href="#495" id="495">495</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Verifier Related Database Operations
 //!
 //! This module includes database functions which are mainly used by a verifier.
 
-</span><span class="kw">use super</span>::{
+</span><span class="kw">use </span>std::ops::DerefMut;
+
+<span class="kw">use super</span>::{
     wrapper::{BlockHashDB, TxidDB, XOnlyPublicKeyDB},
     Database, DatabaseTransaction,
 };
@@ -566,10 +578,22 @@
 
     <span class="kw">pub async fn </span>set_replacement_deposit_move_txid(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
-        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+        tx: DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;,
         old_move_txid: Txid,
         new_move_txid: Txid,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
+        <span class="comment">// check if new move txid is already in the database
+        </span><span class="kw">let </span>query = sqlx::query_as::&lt;<span class="kw">_</span>, (i32,)&gt;(
+            <span class="string">"SELECT COUNT(*) FROM withdrawals WHERE move_to_vault_txid = $1"</span>,
+        )
+        .bind(TxidDB(new_move_txid))
+        .fetch_one(tx.deref_mut())
+        .<span class="kw">await</span><span class="question-mark">?</span>;
+
+        <span class="kw">if </span>query.<span class="number">0 </span>&gt; <span class="number">0 </span>{
+            <span class="kw">return </span><span class="prelude-val">Ok</span>(());
+        }
+
         <span class="kw">let </span>query = sqlx::query(
             <span class="string">"UPDATE withdrawals
              SET move_to_vault_txid = $2
@@ -577,17 +601,13 @@
              RETURNING idx"</span>,
         )
         .bind(TxidDB(old_move_txid))
-        .bind(TxidDB(new_move_txid));
+        .bind(TxidDB(new_move_txid))
+        .fetch_optional(tx.deref_mut())
+        .<span class="kw">await</span><span class="question-mark">?</span>;
 
-        <span class="kw">let </span>result = <span class="macro">execute_query_with_tx!</span>(<span class="self">self</span>.connection, tx, query, fetch_optional)<span class="question-mark">?</span>;
-
-        <span class="kw">if </span>result.is_none() {
-            <span class="kw">return </span><span class="prelude-val">Err</span>(BridgeError::Error(<span class="macro">format!</span>(
-                <span class="string">"No withdrawal found with move_to_vault_txid: {}"</span>,
-                old_move_txid
-            )));
+        <span class="kw">if </span>query.is_none() {
+            <span class="kw">return </span><span class="prelude-val">Err</span>(BridgeError::Error(<span class="string">"Old move txid not found"</span>.to_string()));
         }
-
         <span class="prelude-val">Ok</span>(())
     }
 

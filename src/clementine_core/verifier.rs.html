@@ -3525,7 +3525,7 @@
                 new_move_txid
             );
             <span class="self">self</span>.db
-                .set_replacement_deposit_move_txid(<span class="prelude-val">Some</span>(dbtx), old_move_txid, new_move_txid)
+                .set_replacement_deposit_move_txid(dbtx, old_move_txid, new_move_txid)
                 .<span class="kw">await</span><span class="question-mark">?</span>;
         }
 
