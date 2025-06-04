@@ -862,7 +862,7 @@ pub async fn run_challenge_with_state_machine(
     tracing::info!("Checking if watchtower challenge timeouts were not sent");
     // check if watchtower challenge timeouts were not sent
     for txid in watchtower_challenge_timeout_txids {
-        assert!(!rpc.is_txid_in_chain(&txid).await?);
+        assert!(!rpc.is_tx_on_chain(&txid).await?);
     }
 
     let latest_blockhash_outpoint = OutPoint {
@@ -875,7 +875,7 @@ pub async fn run_challenge_with_state_machine(
     // check if latest blockhash timeout was not sent
     let latest_blockhash_timeout_txid =
         get_tx_from_signed_txs_with_type(&all_txs, TxType::LatestBlockhashTimeout)?.compute_txid();
-    assert!(!rpc.is_txid_in_chain(&latest_blockhash_timeout_txid).await?);
+    assert!(!rpc.is_tx_on_chain(&latest_blockhash_timeout_txid).await?);
 
     // check if operator asserts are sent by state machine
     // Get deposit data and kickoff ID for assert creation
