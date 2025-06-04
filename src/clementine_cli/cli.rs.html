@@ -914,8 +914,8 @@
 <span class="kw">use </span>bitcoin::{hashes::Hash, Block, Txid};
 <span class="kw">use </span>clap::{Parser, Subcommand};
 <span class="kw">use </span>clementine_core::{
-    builder::transaction::SecurityCouncil,
     config::BridgeConfig,
+    deposit::SecurityCouncil,
     errors::BridgeError,
     rpc::clementine::{
         <span class="self">self</span>, clementine_aggregator_client::ClementineAggregatorClient,

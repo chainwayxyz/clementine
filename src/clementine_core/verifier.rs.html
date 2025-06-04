@@ -2055,7 +2055,8 @@
 <a href="#2054" id="2054">2054</a>
 <a href="#2055" id="2055">2055</a>
 <a href="#2056" id="2056">2056</a>
-<a href="#2057" id="2057">2057</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
+<a href="#2057" id="2057">2057</a>
+<a href="#2058" id="2058">2058</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
 <span class="kw">use </span><span class="kw">crate</span>::bitcoin_syncer::BitcoinSyncer;
 <span class="kw">use </span><span class="kw">crate</span>::bitvm_client::ClementineBitVMPublicKeys;
 <span class="kw">use </span><span class="kw">crate</span>::builder::address::{create_taproot_address, taproot_builder_with_scripts};
@@ -2070,8 +2071,8 @@
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::{
     create_emergency_stop_txhandler, create_move_to_vault_txhandler,
-    create_optimistic_payout_txhandler, create_txhandlers, ContractContext, DepositData,
-    KickoffData, OperatorData, ReimburseDbCache, TransactionType, TxHandler, TxHandlerCache,
+    create_optimistic_payout_txhandler, create_txhandlers, ContractContext, ReimburseDbCache,
+    TransactionType, TxHandler, TxHandlerCache,
 };
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::{create_round_txhandlers, KickoffWinternitzKeys};
 <span class="kw">use </span><span class="kw">crate</span>::citrea::CitreaClientT;
@@ -2079,6 +2080,7 @@
 <span class="kw">use </span><span class="kw">crate</span>::config::BridgeConfig;
 <span class="kw">use </span><span class="kw">crate</span>::constants::{ANCHOR_AMOUNT, TEN_MINUTES_IN_SECS};
 <span class="kw">use </span><span class="kw">crate</span>::database::{Database, DatabaseTransaction};
+<span class="kw">use </span><span class="kw">crate</span>::deposit::{DepositData, KickoffData, OperatorData};
 <span class="kw">use </span><span class="kw">crate</span>::errors::{BridgeError, TxError};
 <span class="kw">use </span><span class="kw">crate</span>::extended_rpc::ExtendedRpc;
 <span class="kw">use </span><span class="kw">crate</span>::header_chain_prover::{HeaderChainProver, HeaderChainProverError};
@@ -3944,7 +3946,7 @@
                 payout_blockhash,
                 latest_blockhash,
             } =&gt; {
-                <span class="kw">let </span>context = ContractContext::new_context_for_kickoffs(
+                <span class="kw">let </span>context = ContractContext::new_context_for_kickoff(
                     kickoff_data,
                     deposit_data.clone(),
                     <span class="self">self</span>.config.protocol_paramset(),

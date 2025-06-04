@@ -409,7 +409,11 @@
 <a href="#408" id="408">408</a>
 <a href="#409" id="409">409</a>
 <a href="#410" id="410">410</a>
-<a href="#411" id="411">411</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::Result;
+<a href="#411" id="411">411</a>
+<a href="#412" id="412">412</a>
+<a href="#413" id="413">413</a>
+<a href="#414" id="414">414</a>
+<a href="#415" id="415">415</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::Result;
 <span class="kw">use </span>bitcoin::hashes::Hash;
 <span class="kw">use </span>std::collections::BTreeMap;
 
@@ -630,7 +634,6 @@
             | TransactionType::UnspentKickoff(<span class="kw">_</span>)
             | TransactionType::Payout
             | TransactionType::MoveToVault
-            | TransactionType::AssertTimeout(<span class="kw">_</span>)
             | TransactionType::Disprove
             | TransactionType::BurnUnusedKickoffConnectors
             | TransactionType::KickoffNotFinalized
@@ -638,7 +641,10 @@
             | TransactionType::LatestBlockhashTimeout
             | TransactionType::LatestBlockhash
             | TransactionType::EmergencyStop
-            | TransactionType::OptimisticPayout =&gt; {
+            | TransactionType::OptimisticPayout
+            | TransactionType::ReadyToReimburse
+            | TransactionType::ReplacementDeposit
+            | TransactionType::AssertTimeout(<span class="kw">_</span>) =&gt; {
                 <span class="comment">// no_dependency and cpfp
                 </span><span class="self">self</span>.insert_try_to_send(
                     dbtx,
@@ -667,8 +673,11 @@
                 )
                 .<span class="kw">await
             </span>}
-            TransactionType::WatchtowerChallengeTimeout(_watchtower_idx) =&gt; {
-                <span class="kw">let </span>kickoff_txid = related_txs
+            TransactionType::WatchtowerChallengeTimeout(<span class="kw">_</span>) =&gt; {
+                <span class="comment">// do not send watchtowet timeout if kickoff is already finalized
+                // which is done by adding kickoff finalizer utxo to cancel_outpoints
+                // this is not needed for any timeouts that spend the kickoff finalizer utxo like AssertTimeout
+                </span><span class="kw">let </span>kickoff_txid = related_txs
                     .iter()
                     .find_map(|(tx_type, tx)| {
                         <span class="kw">if let </span>TransactionType::Kickoff = tx_type {
@@ -686,8 +695,8 @@
                     rbf_info,
                     <span class="kw-2">&amp;</span>[OutPoint {
                         txid: kickoff_txid,
-                        vout: <span class="number">1</span>, <span class="comment">// TODO: Make this a function of smth
-                    </span>}],
+                        vout: UtxoVout::KickoffFinalizer.get_vout(),
+                    }],
                     <span class="kw-2">&amp;</span>[],
                     <span class="kw-2">&amp;</span>[],
                     <span class="kw-2">&amp;</span>[],
@@ -715,7 +724,8 @@
                     <span class="kw-2">&amp;</span>[],
                     <span class="kw-2">&amp;</span>[],
                     <span class="kw-2">&amp;</span>[ActivatedWithOutpoint {
-                        outpoint: OutPoint {
+                        <span class="comment">// only send OperatorChallengeAck if corresponding watchtower challenge is sent
+                        </span>outpoint: OutPoint {
                             txid: kickoff_txid,
                             vout: UtxoVout::WatchtowerChallenge(watchtower_idx).get_vout(),
                         },
@@ -727,9 +737,7 @@
             TransactionType::AllNeededForDeposit | TransactionType::YieldKickoffTxid =&gt; {
                 <span class="macro">unreachable!</span>()
             }
-            TransactionType::ReadyToReimburse
-            | TransactionType::BaseDeposit
-            | TransactionType::ReplacementDeposit =&gt; <span class="macro">unimplemented!</span>(),
+            TransactionType::BaseDeposit =&gt; <span class="macro">unimplemented!</span>(),
         }
     }
 

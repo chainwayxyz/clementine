@@ -633,9 +633,9 @@
 
 <span class="kw">use crate</span>::{
     builder::transaction::{
-        input::UtxoVout, remove_txhandler_from_map, ContractContext, DepositData, KickoffData,
-        TransactionType,
+        input::UtxoVout, remove_txhandler_from_map, ContractContext, TransactionType,
     },
+    deposit::{DepositData, KickoffData},
     errors::BridgeError,
 };
 
@@ -1065,7 +1065,7 @@
         <span class="kw-2">&amp;mut </span><span class="self">self</span>,
         context: <span class="kw-2">&amp;mut </span>StateContext&lt;T&gt;,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
-        <span class="kw">let </span>contract_context = ContractContext::new_context_for_kickoffs(
+        <span class="kw">let </span>contract_context = ContractContext::new_context_for_kickoff(
             <span class="self">self</span>.kickoff_data,
             <span class="self">self</span>.deposit_data.clone(),
             context.paramset,

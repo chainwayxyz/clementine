@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["DepositType"],"struct":["Actors","BaseDepositData","DepositData","DepositInfo","KickoffData","OperatorData","ReplacementDepositData","SecurityCouncil"]};

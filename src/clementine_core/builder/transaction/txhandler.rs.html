@@ -496,7 +496,128 @@
 <a href="#495" id="495">495</a>
 <a href="#496" id="496">496</a>
 <a href="#497" id="497">497</a>
-<a href="#498" id="498">498</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::input::{SpendableTxIn, SpentTxIn, UtxoVout};
+<a href="#498" id="498">498</a>
+<a href="#499" id="499">499</a>
+<a href="#500" id="500">500</a>
+<a href="#501" id="501">501</a>
+<a href="#502" id="502">502</a>
+<a href="#503" id="503">503</a>
+<a href="#504" id="504">504</a>
+<a href="#505" id="505">505</a>
+<a href="#506" id="506">506</a>
+<a href="#507" id="507">507</a>
+<a href="#508" id="508">508</a>
+<a href="#509" id="509">509</a>
+<a href="#510" id="510">510</a>
+<a href="#511" id="511">511</a>
+<a href="#512" id="512">512</a>
+<a href="#513" id="513">513</a>
+<a href="#514" id="514">514</a>
+<a href="#515" id="515">515</a>
+<a href="#516" id="516">516</a>
+<a href="#517" id="517">517</a>
+<a href="#518" id="518">518</a>
+<a href="#519" id="519">519</a>
+<a href="#520" id="520">520</a>
+<a href="#521" id="521">521</a>
+<a href="#522" id="522">522</a>
+<a href="#523" id="523">523</a>
+<a href="#524" id="524">524</a>
+<a href="#525" id="525">525</a>
+<a href="#526" id="526">526</a>
+<a href="#527" id="527">527</a>
+<a href="#528" id="528">528</a>
+<a href="#529" id="529">529</a>
+<a href="#530" id="530">530</a>
+<a href="#531" id="531">531</a>
+<a href="#532" id="532">532</a>
+<a href="#533" id="533">533</a>
+<a href="#534" id="534">534</a>
+<a href="#535" id="535">535</a>
+<a href="#536" id="536">536</a>
+<a href="#537" id="537">537</a>
+<a href="#538" id="538">538</a>
+<a href="#539" id="539">539</a>
+<a href="#540" id="540">540</a>
+<a href="#541" id="541">541</a>
+<a href="#542" id="542">542</a>
+<a href="#543" id="543">543</a>
+<a href="#544" id="544">544</a>
+<a href="#545" id="545">545</a>
+<a href="#546" id="546">546</a>
+<a href="#547" id="547">547</a>
+<a href="#548" id="548">548</a>
+<a href="#549" id="549">549</a>
+<a href="#550" id="550">550</a>
+<a href="#551" id="551">551</a>
+<a href="#552" id="552">552</a>
+<a href="#553" id="553">553</a>
+<a href="#554" id="554">554</a>
+<a href="#555" id="555">555</a>
+<a href="#556" id="556">556</a>
+<a href="#557" id="557">557</a>
+<a href="#558" id="558">558</a>
+<a href="#559" id="559">559</a>
+<a href="#560" id="560">560</a>
+<a href="#561" id="561">561</a>
+<a href="#562" id="562">562</a>
+<a href="#563" id="563">563</a>
+<a href="#564" id="564">564</a>
+<a href="#565" id="565">565</a>
+<a href="#566" id="566">566</a>
+<a href="#567" id="567">567</a>
+<a href="#568" id="568">568</a>
+<a href="#569" id="569">569</a>
+<a href="#570" id="570">570</a>
+<a href="#571" id="571">571</a>
+<a href="#572" id="572">572</a>
+<a href="#573" id="573">573</a>
+<a href="#574" id="574">574</a>
+<a href="#575" id="575">575</a>
+<a href="#576" id="576">576</a>
+<a href="#577" id="577">577</a>
+<a href="#578" id="578">578</a>
+<a href="#579" id="579">579</a>
+<a href="#580" id="580">580</a>
+<a href="#581" id="581">581</a>
+<a href="#582" id="582">582</a>
+<a href="#583" id="583">583</a>
+<a href="#584" id="584">584</a>
+<a href="#585" id="585">585</a>
+<a href="#586" id="586">586</a>
+<a href="#587" id="587">587</a>
+<a href="#588" id="588">588</a>
+<a href="#589" id="589">589</a>
+<a href="#590" id="590">590</a>
+<a href="#591" id="591">591</a>
+<a href="#592" id="592">592</a>
+<a href="#593" id="593">593</a>
+<a href="#594" id="594">594</a>
+<a href="#595" id="595">595</a>
+<a href="#596" id="596">596</a>
+<a href="#597" id="597">597</a>
+<a href="#598" id="598">598</a>
+<a href="#599" id="599">599</a>
+<a href="#600" id="600">600</a>
+<a href="#601" id="601">601</a>
+<a href="#602" id="602">602</a>
+<a href="#603" id="603">603</a>
+<a href="#604" id="604">604</a>
+<a href="#605" id="605">605</a>
+<a href="#606" id="606">606</a>
+<a href="#607" id="607">607</a>
+<a href="#608" id="608">608</a>
+<a href="#609" id="609">609</a>
+<a href="#610" id="610">610</a>
+<a href="#611" id="611">611</a>
+<a href="#612" id="612">612</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Transaction Handler Module
+//!
+//! This module defines the [`TxHandler`] abstraction, which wraps a protocol transaction and its metadata.
+//! Metadata includes taproot scripts and protocol specific data to enable signing of the transactions.
+//! [`TxHandlerBuilder`] is used to create [`TxHandler`]s.
+//!
+
+</span><span class="kw">use </span><span class="kw">super</span>::input::{SpendableTxIn, SpentTxIn, UtxoVout};
 <span class="kw">use </span><span class="kw">super</span>::output::UnspentTxOut;
 <span class="kw">use </span><span class="kw">crate</span>::builder::script::SpendPath;
 <span class="kw">use </span><span class="kw">crate</span>::builder::sighash::{PartialSignatureInfo, SignatureInfo};
@@ -517,6 +638,7 @@
 <span class="kw">pub const </span>DEFAULT_SEQUENCE: Sequence = Sequence::ENABLE_RBF_NO_LOCKTIME;
 
 <span class="attr">#[derive(Debug, Clone)]
+</span><span class="doccomment">/// Handler for protocol transactions, wrapping inputs, outputs, and cached transaction data.
 </span><span class="kw">pub struct </span>TxHandler&lt;T: State = Unsigned&gt; {
     transaction_type: TransactionType,
     txins: Vec&lt;SpentTxIn&gt;,
@@ -534,8 +656,10 @@
 <span class="comment">// #[derive(Debug, Clone)]
 // pub struct PartialInputs;
 </span><span class="attr">#[derive(Debug, Clone)]
+</span><span class="doccomment">/// Marker type for signed transactions.
 </span><span class="kw">pub struct </span>Signed;
 <span class="attr">#[derive(Debug, Clone)]
+</span><span class="doccomment">/// Marker type for unsigned transactions.
 </span><span class="kw">pub struct </span>Unsigned;
 
 <span class="comment">// impl State for PartialInputs {}
@@ -545,7 +669,14 @@
     Box&lt;<span class="kw">dyn </span>FnOnce(TapSighashType) -&gt; <span class="prelude-ty">Result</span>&lt;TapSighash, BridgeError&gt; + <span class="lifetime">'a</span>&gt;;
 
 <span class="kw">impl</span>&lt;T: State&gt; TxHandler&lt;T&gt; {
-    <span class="kw">pub fn </span>get_spendable_output(<span class="kw-2">&amp;</span><span class="self">self</span>, vout: UtxoVout) -&gt; <span class="prelude-ty">Result</span>&lt;SpendableTxIn, BridgeError&gt; {
+    <span class="doccomment">/// Returns a spendable input for the specified output index in this transaction.
+    ///
+    /// # Arguments
+    /// * `vout` - The protocol-specific output index.
+    ///
+    /// # Returns
+    /// A [`SpendableTxIn`] for the specified output, or a [`BridgeError`] if not found.
+    </span><span class="kw">pub fn </span>get_spendable_output(<span class="kw-2">&amp;</span><span class="self">self</span>, vout: UtxoVout) -&gt; <span class="prelude-ty">Result</span>&lt;SpendableTxIn, BridgeError&gt; {
         <span class="kw">let </span>idx = vout.get_vout();
         <span class="kw">let </span>txout = <span class="self">self
             </span>.txouts
@@ -562,7 +693,14 @@
         )) <span class="comment">// TODO: Can we get rid of clones?
     </span>}
 
-    <span class="kw">pub fn </span>get_merkle_root_of_txin(<span class="kw-2">&amp;</span><span class="self">self</span>, idx: usize) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;TapNodeHash&gt;, BridgeError&gt; {
+    <span class="doccomment">/// Returns the Taproot merkle root of the specified input, if available.
+    ///
+    /// # Arguments
+    /// * `idx` - The input index.
+    ///
+    /// # Returns
+    /// The Taproot merkle root, or a [`BridgeError`] if not found.
+    </span><span class="kw">pub fn </span>get_merkle_root_of_txin(<span class="kw-2">&amp;</span><span class="self">self</span>, idx: usize) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;TapNodeHash&gt;, BridgeError&gt; {
         <span class="kw">let </span>txin = <span class="self">self
             </span>.txins
             .get(idx)
@@ -578,25 +716,42 @@
         <span class="prelude-val">Ok</span>(merkle_root)
     }
 
-    <span class="kw">pub fn </span>get_signature_id(<span class="kw-2">&amp;</span><span class="self">self</span>, idx: usize) -&gt; <span class="prelude-ty">Result</span>&lt;SignatureId, BridgeError&gt; {
+    <span class="doccomment">/// Returns the signature ID for the specified input.
+    ///
+    /// # Arguments
+    /// * `idx` - The input index.
+    ///
+    /// # Returns
+    /// The signature ID, or a [`BridgeError`] if not found.
+    </span><span class="kw">pub fn </span>get_signature_id(<span class="kw-2">&amp;</span><span class="self">self</span>, idx: usize) -&gt; <span class="prelude-ty">Result</span>&lt;SignatureId, BridgeError&gt; {
         <span class="kw">let </span>txin = <span class="self">self</span>.txins.get(idx).ok_or(TxError::TxInputNotFound)<span class="question-mark">?</span>;
         <span class="prelude-val">Ok</span>(txin.get_signature_id())
     }
 
-    <span class="kw">pub fn </span>get_transaction_type(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; TransactionType {
+    <span class="doccomment">/// Returns the protocol transaction type for this handler.
+    </span><span class="kw">pub fn </span>get_transaction_type(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; TransactionType {
         <span class="self">self</span>.transaction_type
     }
 
-    <span class="kw">pub fn </span>get_cached_tx(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="kw-2">&amp;</span>Transaction {
+    <span class="doccomment">/// Returns a reference to the cached Bitcoin transaction.
+    </span><span class="kw">pub fn </span>get_cached_tx(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="kw-2">&amp;</span>Transaction {
         <span class="kw-2">&amp;</span><span class="self">self</span>.cached_tx
     }
 
-    <span class="kw">pub fn </span>get_txid(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="kw-2">&amp;</span>Txid {
+    <span class="doccomment">/// Returns a reference to the cached transaction ID.
+    </span><span class="kw">pub fn </span>get_txid(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="kw-2">&amp;</span>Txid {
         <span class="comment">// Not sure if this should be public
         </span><span class="kw-2">&amp;</span><span class="self">self</span>.cached_txid
     }
 
-    <span class="kw">fn </span>get_sighash_calculator(
+    <span class="doccomment">/// Returns a lambda function that calculates the sighash for the specified input, given the sighash type.
+    ///
+    /// # Arguments
+    /// * `idx` - The input index.
+    ///
+    /// # Returns
+    /// A lambda function that calculates the sighash for the specified input, given the sighash type.
+    </span><span class="kw">fn </span>get_sighash_calculator(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         idx: usize,
     ) -&gt; <span class="kw">impl </span>FnOnce(TapSighashType) -&gt; <span class="prelude-ty">Result</span>&lt;TapSighash, BridgeError&gt; + <span class="lifetime">'_ </span>{
@@ -615,7 +770,7 @@
     ///
     /// This function will skip all transaction inputs that already have a witness.
     ///
-    /// # Parameters
+    /// # Arguments
     /// * `signer` - A function that returns an optional witness for transaction inputs or returns an error
     ///   if the signing fails. The function takes the input idx, input object, and a sighash calculator closure.
     ///
@@ -646,7 +801,15 @@
         <span class="prelude-val">Ok</span>(())
     }
 
-    <span class="kw">pub fn </span>calculate_pubkey_spend_sighash(
+    <span class="doccomment">/// Calculates the Taproot sighash for a key spend input for the given input and sighash type.
+    ///
+    /// # Arguments
+    /// * `txin_index` - The input index.
+    /// * `sighash_type` - The Taproot sighash type.
+    ///
+    /// # Returns
+    /// The calculated Taproot sighash, or a [`BridgeError`] if calculation fails.
+    </span><span class="kw">pub fn </span>calculate_pubkey_spend_sighash(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         txin_index: usize,
         sighash_type: TapSighashType,
@@ -674,7 +837,16 @@
         <span class="prelude-val">Ok</span>(sig_hash)
     }
 
-    <span class="kw">pub fn </span>calculate_script_spend_sighash_indexed(
+    <span class="doccomment">/// Calculates the Taproot sighash for a script spend input by script index.
+    ///
+    /// # Arguments
+    /// * `txin_index` - The input index.
+    /// * `spend_script_idx` - The script index in the input's script list.
+    /// * `sighash_type` - The Taproot sighash type.
+    ///
+    /// # Returns
+    /// The calculated Taproot sighash, or a [`BridgeError`] if calculation fails.
+    </span><span class="kw">pub fn </span>calculate_script_spend_sighash_indexed(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         txin_index: usize,
         spend_script_idx: usize,
@@ -694,7 +866,16 @@
         </span><span class="self">self</span>.calculate_script_spend_sighash(txin_index, <span class="kw-2">&amp;</span>script, sighash_type)
     }
 
-    <span class="kw">pub fn </span>calculate_script_spend_sighash(
+    <span class="doccomment">/// Calculates the Taproot sighash for a script spend input by script.
+    ///
+    /// # Arguments
+    /// * `txin_index` - The input index.
+    /// * `spend_script` - The script being spent.
+    /// * `sighash_type` - The Taproot sighash type.
+    ///
+    /// # Returns
+    /// The calculated Taproot sighash, or a [`BridgeError`] if calculation fails.
+    </span><span class="kw">pub fn </span>calculate_script_spend_sighash(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         txin_index: usize,
         spend_script: <span class="kw-2">&amp;</span>Script,
@@ -724,7 +905,15 @@
         <span class="prelude-val">Ok</span>(sig_hash)
     }
 
-    <span class="kw">pub fn </span>calculate_sighash_txin(
+    <span class="doccomment">/// Calculates the sighash for the specified input, based on its spend path stored inside [`SpentTxIn`].
+    ///
+    /// # Arguments
+    /// * `txin_index` - The input index.
+    /// * `sighash_type` - The Taproot sighash type.
+    ///
+    /// # Returns
+    /// The calculated Taproot sighash, or a [`BridgeError`] if calculation fails.
+    </span><span class="kw">pub fn </span>calculate_sighash_txin(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         txin_index: usize,
         sighash_type: TapSighashType,
@@ -738,7 +927,15 @@
         }
     }
 
-    <span class="kw">pub fn </span>calculate_shared_txins_sighash(
+    <span class="doccomment">/// Calculates sighashes for all shared inputs for a given entity type.
+    ///
+    /// # Arguments
+    /// * `needed_entity` - The entity type (operator, verifier, etc.).
+    /// * `partial_signature_info` - Partial signature info for the entity.
+    ///
+    /// # Returns
+    /// A vector of (sighash, signature info) pairs, or a [`BridgeError`] if calculation fails.
+    </span><span class="kw">pub fn </span>calculate_shared_txins_sighash(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         needed_entity: EntityType,
         partial_signature_info: PartialSignatureInfo,
@@ -773,13 +970,15 @@
     }
 
     <span class="attr">#[cfg(test)]
+    </span><span class="doccomment">/// Returns the previous output (TxOut) for the specified input
     </span><span class="kw">pub fn </span>get_input_txout(<span class="kw-2">&amp;</span><span class="self">self</span>, input_idx: usize) -&gt; <span class="kw-2">&amp;</span>TxOut {
         <span class="self">self</span>.txins[input_idx].get_spendable().get_prevout()
     }
 }
 
 <span class="kw">impl </span>TxHandler&lt;Signed&gt; {
-    <span class="kw">pub fn </span>encode_tx(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; RawSignedTx {
+    <span class="doccomment">/// Encodes the signed transaction as a raw byte vector.
+    </span><span class="kw">pub fn </span>encode_tx(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; RawSignedTx {
         RawSignedTx {
             raw_tx: bitcoin::consensus::encode::serialize(<span class="self">self</span>.get_cached_tx()),
         }
@@ -787,7 +986,11 @@
 }
 
 <span class="kw">impl </span>TxHandler&lt;Unsigned&gt; {
-    <span class="kw">pub fn </span>promote(<span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span>&lt;TxHandler&lt;Signed&gt;, BridgeError&gt; {
+    <span class="doccomment">/// Promotes an unsigned handler to a signed handler, checking that all witnesses are present.
+    ///
+    /// # Returns
+    /// A [`TxHandler&lt;Signed&gt;`] if all witnesses are present, or a [`BridgeError`] if not.
+    </span><span class="kw">pub fn </span>promote(<span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span>&lt;TxHandler&lt;Signed&gt;, BridgeError&gt; {
         <span class="kw">if </span><span class="self">self</span>.txins.iter().any(|s| s.get_witness().is_none()) {
             <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(<span class="string">"Missing witness data"</span>).into());
         }
@@ -802,14 +1005,15 @@
         })
     }
 
-    <span class="doccomment">/// Constructs the witness for a script path spend of a transaction input.
+    <span class="doccomment">/// Sets the witness for a script path spend input.
     ///
     /// # Arguments
+    /// * `script_inputs` - The inputs to the tapscript.
+    /// * `txin_index` - The input index.
+    /// * `script_index` - The script index in the input's script list.
     ///
-    /// - `tx`: The transaction to add the witness to.
-    /// - `script_inputs`: The inputs to the tapscript
-    /// - `txin_index`: The index of the transaction input to add the witness to.
-    /// - `script_index`: The script index in the input UTXO's Taproot script tree. This is used to get the control block and script contents of the script being spent.
+    /// # Returns
+    /// Ok(()) if successful, or a [`BridgeError`] if not.
     </span><span class="kw">pub fn </span>set_p2tr_script_spend_witness&lt;T: AsRef&lt;[u8]&gt;&gt;(
         <span class="kw-2">&amp;mut </span><span class="self">self</span>,
         script_inputs: <span class="kw-2">&amp;</span>[T],
@@ -855,7 +1059,15 @@
         <span class="prelude-val">Ok</span>(())
     }
 
-    <span class="kw">pub fn </span>set_p2tr_key_spend_witness(
+    <span class="doccomment">/// Sets the witness for a key path spend input.
+    ///
+    /// # Arguments
+    /// * `signature` - The Taproot signature.
+    /// * `txin_index` - The input index.
+    ///
+    /// # Returns
+    /// Ok(()) if successful, or a [`BridgeError`] if not.
+    </span><span class="kw">pub fn </span>set_p2tr_key_spend_witness(
         <span class="kw-2">&amp;mut </span><span class="self">self</span>,
         signature: <span class="kw-2">&amp;</span>taproot::Signature,
         txin_index: usize,
@@ -878,6 +1090,7 @@
 }
 
 <span class="attr">#[derive(Debug, Clone)]
+</span><span class="doccomment">/// Builder for [`TxHandler`], allowing stepwise construction of inputs and outputs.
 </span><span class="kw">pub struct </span>TxHandlerBuilder {
     <span class="doccomment">/// TODO: Document
     </span>transaction_type: TransactionType,
@@ -888,7 +1101,8 @@
 }
 
 <span class="kw">impl </span>TxHandlerBuilder {
-    <span class="kw">pub fn </span>new(transaction_type: TransactionType) -&gt; TxHandlerBuilder {
+    <span class="doccomment">/// Creates a new [`TxHandlerBuilder`] for the specified transaction type.
+    </span><span class="kw">pub fn </span>new(transaction_type: TransactionType) -&gt; TxHandlerBuilder {
         TxHandlerBuilder {
             transaction_type,
             version: Version::TWO,
@@ -898,12 +1112,14 @@
         }
     }
 
-    <span class="kw">pub fn </span>with_version(<span class="kw-2">mut </span><span class="self">self</span>, version: Version) -&gt; <span class="self">Self </span>{
+    <span class="doccomment">/// Sets the version for the transaction being built.
+    </span><span class="kw">pub fn </span>with_version(<span class="kw-2">mut </span><span class="self">self</span>, version: Version) -&gt; <span class="self">Self </span>{
         <span class="self">self</span>.version = version;
         <span class="self">self
     </span>}
 
-    <span class="kw">pub fn </span>add_input(
+    <span class="doccomment">/// Adds an input to the transaction being built.
+    </span><span class="kw">pub fn </span>add_input(
         <span class="kw-2">mut </span><span class="self">self</span>,
         input_id: <span class="kw">impl </span>Into&lt;SignatureId&gt;,
         spendable: SpendableTxIn,
@@ -921,7 +1137,8 @@
         <span class="self">self
     </span>}
 
-    <span class="kw">pub fn </span>add_input_with_witness(
+    <span class="doccomment">/// Adds an input with a pre-specified witness to the transaction being built.
+    </span><span class="kw">pub fn </span>add_input_with_witness(
         <span class="kw-2">mut </span><span class="self">self</span>,
         spendable: SpendableTxIn,
         sequence: Sequence,
@@ -938,13 +1155,15 @@
         <span class="self">self
     </span>}
 
-    <span class="kw">pub fn </span>add_output(<span class="kw-2">mut </span><span class="self">self</span>, output: UnspentTxOut) -&gt; <span class="self">Self </span>{
+    <span class="doccomment">/// Adds an output to the transaction being built.
+    </span><span class="kw">pub fn </span>add_output(<span class="kw-2">mut </span><span class="self">self</span>, output: UnspentTxOut) -&gt; <span class="self">Self </span>{
         <span class="self">self</span>.txouts.push(output);
 
         <span class="self">self
     </span>}
 
     <span class="doccomment">/// TODO: output likely fallible
+    /// Finalizes the transaction, returning an unsigned [`TxHandler`].
     </span><span class="kw">pub fn </span>finalize(<span class="self">self</span>) -&gt; TxHandler&lt;Unsigned&gt; {
         <span class="comment">// construct cached Transaction
         </span><span class="kw">let </span>tx = Transaction {
@@ -981,12 +1200,21 @@
         }
     }
 
-    <span class="kw">pub fn </span>finalize_signed(<span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span>&lt;TxHandler&lt;Signed&gt;, BridgeError&gt; {
+    <span class="doccomment">/// Finalizes the transaction and promotes it to signed, checking all witnesses.
+    </span><span class="kw">pub fn </span>finalize_signed(<span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span>&lt;TxHandler&lt;Signed&gt;, BridgeError&gt; {
         <span class="self">self</span>.finalize().promote()
     }
 }
 
-<span class="kw">pub fn </span>remove_txhandler_from_map&lt;T: State&gt;(
+<span class="doccomment">/// Removes a [`TxHandler`] from a map by transaction type, returning an error if not found.
+///
+/// # Arguments
+/// * `txhandlers` - The map of transaction handlers.
+/// * `tx_type` - The transaction type to remove.
+///
+/// # Returns
+/// The removed [`TxHandler`], or a [`BridgeError`] if not found.
+</span><span class="kw">pub fn </span>remove_txhandler_from_map&lt;T: State&gt;(
     txhandlers: <span class="kw-2">&amp;mut </span>BTreeMap&lt;TransactionType, TxHandler&lt;T&gt;&gt;,
     tx_type: TransactionType,
 ) -&gt; <span class="prelude-ty">Result</span>&lt;TxHandler&lt;T&gt;, BridgeError&gt; {

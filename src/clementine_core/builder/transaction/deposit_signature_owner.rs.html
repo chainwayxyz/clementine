@@ -97,13 +97,48 @@
 <a href="#96" id="96">96</a>
 <a href="#97" id="97">97</a>
 <a href="#98" id="98">98</a>
-<a href="#99" id="99">99</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
+<a href="#99" id="99">99</a>
+<a href="#100" id="100">100</a>
+<a href="#101" id="101">101</a>
+<a href="#102" id="102">102</a>
+<a href="#103" id="103">103</a>
+<a href="#104" id="104">104</a>
+<a href="#105" id="105">105</a>
+<a href="#106" id="106">106</a>
+<a href="#107" id="107">107</a>
+<a href="#108" id="108">108</a>
+<a href="#109" id="109">109</a>
+<a href="#110" id="110">110</a>
+<a href="#111" id="111">111</a>
+<a href="#112" id="112">112</a>
+<a href="#113" id="113">113</a>
+<a href="#114" id="114">114</a>
+<a href="#115" id="115">115</a>
+<a href="#116" id="116">116</a>
+<a href="#117" id="117">117</a>
+<a href="#118" id="118">118</a>
+<a href="#119" id="119">119</a>
+<a href="#120" id="120">120</a>
+<a href="#121" id="121">121</a>
+<a href="#122" id="122">122</a>
+<a href="#123" id="123">123</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Deposit Signature Ownership Mapping
+//!
+//! This module provides types and logic for mapping transaction signature requirements to protocol entities in the Clementine bridge.
+//! It is used to determine which entity (operator, verifier, N-of-N, etc.) is responsible for providing a signature for a given transaction input,
+//! and what sighash type is required for that signature. Additionally it encodes when this signature is given to other entities.
+//!
+
+</span><span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
 <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::tagged_signature::SignatureId;
 <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind};
 <span class="kw">use </span>bitcoin::TapSighashType;
 <span class="kw">use </span>eyre::Context;
 
-<span class="attr">#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+<span class="doccomment">/// Enumerates the protocol entities that may own a required signature for a transaction input.
+/// Additionally it encodes when this signature is given to other entities. For example signatures with OperatorDeposit are operator's
+/// signatures that are shared with verifiers during a new deposit, while OperatorSetup is operator's signature that is given to the
+/// verifiers when Operator is  being newly setup and added to verifiers databases.
+</span><span class="attr">#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 </span><span class="kw">pub enum </span>EntityType {
     OperatorDeposit,
     Watchtower,
@@ -111,23 +146,31 @@
     OperatorSetup,
 }
 
-<span class="doccomment">/// Entity whose signature is needed to unlock the input utxo
+<span class="doccomment">/// Describes the ownership and sighash type for a required signature.
+///
+/// - `NotOwned`: No signature required or not owned by any protocol entity.
+/// - `OperatorSharedDeposit`: Operator's signature required for deposit, with the given sighash type.
+/// - `NofnSharedDeposit`: N-of-N signature required for deposit, with the given sighash type.
+/// - `Own`: Signature required for the entity running the program, with the given sighash type.
+/// - `OperatorSharedSetup`: Operator's signature required during aggregator setup, with the given sighash type.
 </span><span class="attr">#[derive(Debug, Clone, Copy)]
 </span><span class="kw">pub enum </span>DepositSigKeyOwner {
     NotOwned,
-    <span class="doccomment">/// this type is for operator's signatures that need to be saved during deposit
+    <span class="doccomment">/// Operator's signature required for deposit (shared with verifiers), with the given sighash type.
     </span>OperatorSharedDeposit(TapSighashType),
-    NofnSharedDeposit(TapSighashType),
-    <span class="doccomment">/// this type is for signatures that is needed for the entity themselves to spend the utxo
-    /// So verifiers do not need this signature info, thus it is not saved to DB.
+    <span class="doccomment">/// N-of-N signature required for deposit, with the given sighash type.
+    </span>NofnSharedDeposit(TapSighashType),
+    <span class="doccomment">/// Signature required for the entity itself, with the given sighash type.
+    /// Verifiers do not need this signature info, thus it is not saved to DB.
     /// Added to help define different sighash types for operator's own signatures.
     </span>Own(TapSighashType),
-    <span class="doccomment">/// For operator signatures that are needed to be saved during aggregator setups
+    <span class="doccomment">/// Operator's signature required during first setup, with the given sighash type.
     </span>OperatorSharedSetup(TapSighashType),
 }
 
 <span class="kw">impl </span>DepositSigKeyOwner {
-    <span class="kw">pub fn </span>sighash_type(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="prelude-ty">Option</span>&lt;TapSighashType&gt; {
+    <span class="doccomment">/// Returns the sighash type for this signature owner, if any.
+    </span><span class="kw">pub fn </span>sighash_type(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="prelude-ty">Option</span>&lt;TapSighashType&gt; {
         <span class="kw">match </span><span class="self">self </span>{
             DepositSigKeyOwner::NotOwned =&gt; <span class="prelude-val">None</span>,
             DepositSigKeyOwner::Own(t)
@@ -139,7 +182,12 @@
 }
 
 <span class="kw">impl </span>SignatureId {
-    <span class="kw">pub fn </span>get_deposit_sig_owner(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span>&lt;DepositSigKeyOwner, BridgeError&gt; {
+    <span class="doccomment">/// Maps a [`SignatureId`] to its required signature owner and sighash type.
+    ///
+    /// # Returns
+    ///
+    /// A [`DepositSigKeyOwner`] describing the required signature owner and sighash type for this signature ID, or a [`BridgeError`] if the mapping fails.
+    </span><span class="kw">pub fn </span>get_deposit_sig_owner(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span>&lt;DepositSigKeyOwner, BridgeError&gt; {
         <span class="kw">use </span>DepositSigKeyOwner::<span class="kw-2">*</span>;
         <span class="kw">use </span>TapSighashType::{
             Default <span class="kw">as </span>SighashDefault, <span class="prelude-val">None </span><span class="kw">as </span>SighashNone, SinglePlusAnyoneCanPay,

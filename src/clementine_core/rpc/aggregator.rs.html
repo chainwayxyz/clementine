@@ -1861,8 +1861,7 @@
 <a href="#1860" id="1860">1860</a>
 <a href="#1861" id="1861">1861</a>
 <a href="#1862" id="1862">1862</a>
-<a href="#1863" id="1863">1863</a>
-<a href="#1864" id="1864">1864</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::{
+<a href="#1863" id="1863">1863</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::{
     clementine_aggregator_server::ClementineAggregator, verifier_deposit_finalize_params,
     DepositParams, Empty, VerifierDepositFinalizeParams,
 };
@@ -1873,10 +1872,11 @@
 <span class="kw">use </span><span class="kw">crate</span>::builder::sighash::SignatureInfo;
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::{
     combine_emergency_stop_txhandler, create_emergency_stop_txhandler,
-    create_move_to_vault_txhandler, create_optimistic_payout_txhandler, Actors, DepositData,
-    DepositInfo, Signed, TransactionType, TxHandler,
+    create_move_to_vault_txhandler, create_optimistic_payout_txhandler, Signed, TransactionType,
+    TxHandler,
 };
 <span class="kw">use </span><span class="kw">crate</span>::config::BridgeConfig;
+<span class="kw">use </span><span class="kw">crate</span>::deposit::{Actors, DepositData, DepositInfo};
 <span class="kw">use </span><span class="kw">crate</span>::errors::ResultExt;
 <span class="kw">use </span><span class="kw">crate</span>::musig2::AggregateFromPublicKeys;
 <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
@@ -2441,8 +2441,7 @@
         movetx_agg_nonce: MusigAggNonce,
         deposit_params: DepositParams,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;TxHandler&lt;Signed&gt;, Status&gt; {
-        <span class="kw">let </span><span class="kw-2">mut </span>deposit_data: <span class="kw">crate</span>::builder::transaction::DepositData =
-            deposit_params.try_into()<span class="question-mark">?</span>;
+        <span class="kw">let </span><span class="kw-2">mut </span>deposit_data: DepositData = deposit_params.try_into()<span class="question-mark">?</span>;
         <span class="kw">let </span>musig_partial_sigs = parser::verifier::parse_partial_sigs(partial_sigs)<span class="question-mark">?</span>;
 
         <span class="comment">// create move tx and calculate sighash
@@ -2510,7 +2509,7 @@
         emergency_stop_agg_nonce: MusigAggNonce,
         deposit_params: DepositParams,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
-        <span class="kw">let </span><span class="kw-2">mut </span>deposit_data: <span class="kw">crate</span>::builder::transaction::DepositData = deposit_params
+        <span class="kw">let </span><span class="kw-2">mut </span>deposit_data: DepositData = deposit_params
             .try_into()
             .wrap_err(<span class="string">"Failed to convert deposit params to deposit data"</span>)<span class="question-mark">?</span>;
         <span class="kw">let </span>musig_partial_sigs = parser::verifier::parse_partial_sigs(emergency_stop_sigs)
@@ -3075,8 +3074,7 @@
                 })<span class="question-mark">?</span>;
         }
 
-        <span class="kw">let </span>deposit_data: <span class="kw">crate</span>::builder::transaction::DepositData =
-            deposit_params.clone().try_into()<span class="question-mark">?</span>;
+        <span class="kw">let </span>deposit_data: DepositData = deposit_params.clone().try_into()<span class="question-mark">?</span>;
 
         <span class="kw">let </span>deposit_blockhash = <span class="self">self
             </span>.rpc
@@ -3308,8 +3306,8 @@
 <span class="attr">#[cfg(test)]
 </span><span class="kw">mod </span>tests {
     <span class="kw">use </span><span class="kw">crate</span>::actor::Actor;
-    <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::{BaseDepositData, DepositInfo, DepositType};
     <span class="kw">use </span><span class="kw">crate</span>::citrea::mock::MockCitreaClient;
+    <span class="kw">use </span><span class="kw">crate</span>::deposit::{BaseDepositData, DepositInfo, DepositType};
     <span class="kw">use </span><span class="kw">crate</span>::musig2::AggregateFromPublicKeys;
     <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::{<span class="self">self</span>};
     <span class="kw">use </span><span class="kw">crate</span>::test::common::<span class="kw-2">*</span>;

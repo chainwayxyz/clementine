@@ -1442,7 +1442,8 @@
 <a href="#1441" id="1441">1441</a>
 <a href="#1442" id="1442">1442</a>
 <a href="#1443" id="1443">1443</a>
-<a href="#1444" id="1444">1444</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Operator Related Database Operations
+<a href="#1444" id="1444">1444</a>
+<a href="#1445" id="1445">1445</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Operator Related Database Operations
 //!
 //! This module includes database functions which are mainly used by an operator.
 
@@ -1453,7 +1454,7 @@
     },
     Database, DatabaseTransaction,
 };
-<span class="kw">use </span><span class="kw">crate</span>::builder::transaction::{DepositData, KickoffData, OperatorData};
+<span class="kw">use </span><span class="kw">crate</span>::deposit::{DepositData, KickoffData, OperatorData};
 <span class="kw">use crate</span>::{
     errors::BridgeError,
     execute_query_with_tx,
@@ -1945,8 +1946,9 @@
             }
         }
         <span class="comment">// On conflict, the previous signatures are already valid. Signatures only depend on deposit_outpoint (which depends on nofn pk) and
-        // operator_xonly_pk (which includes collateral outpoint, reimbursement addr (these should be unchanged)). We add on conflict so it
-        // doesn't fail if the signatures are already set.
+        // operator_xonly_pk (also depends on nofn_pk, as each operator is also a verifier and nofn_pk depends on verifiers pk)
+        // Additionally operator collateral outpoint and reimbursement addr should be unchanged which we ensure in relevant db fns.
+        // We add on conflict clause so it doesn't fail if the signatures are already set.
         // Why do we need to do this? If deposit fails somehow just at the end because movetx
         // signature fails to be collected, we might need to do a deposit again. Technically we can only collect movetx signature, not
         // do the full deposit.

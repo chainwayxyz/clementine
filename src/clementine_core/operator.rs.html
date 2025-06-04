@@ -1655,14 +1655,14 @@
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::{
     create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler,
-    create_round_txhandlers, create_txhandlers, ContractContext, DepositData, KickoffData,
-    KickoffWinternitzKeys, OperatorData, ReimburseDbCache, TransactionType, TxHandler,
-    TxHandlerCache,
+    create_round_txhandlers, create_txhandlers, ContractContext, KickoffWinternitzKeys,
+    ReimburseDbCache, TransactionType, TxHandler, TxHandlerCache,
 };
 <span class="kw">use </span><span class="kw">crate</span>::citrea::CitreaClientT;
 <span class="kw">use </span><span class="kw">crate</span>::config::BridgeConfig;
 <span class="kw">use </span><span class="kw">crate</span>::database::Database;
 <span class="kw">use </span><span class="kw">crate</span>::database::DatabaseTransaction;
+<span class="kw">use </span><span class="kw">crate</span>::deposit::{DepositData, KickoffData, OperatorData};
 <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
 <span class="kw">use </span><span class="kw">crate</span>::extended_rpc::ExtendedRpc;
 <span class="kw">use </span><span class="kw">crate</span>::header_chain_prover::HeaderChainProver;
@@ -2270,7 +2270,7 @@
         <span class="kw">let </span><span class="kw-2">mut </span>winternitz_pubkeys =
             Vec::with_capacity(<span class="self">self</span>.config.get_num_kickoff_winternitz_pks());
 
-        <span class="comment">// we need num_round_txs + 1 because the last round includes reimburse generators of previous round
+        <span class="comment">// we need num_round_txs + 1 because we need one extra round tx to generate the reimburse connectors of the actual last round
         </span><span class="kw">for </span>round_idx <span class="kw">in </span><span class="number">0</span>..<span class="self">self</span>.config.protocol_paramset().num_round_txs + <span class="number">1 </span>{
             <span class="kw">for </span>kickoff_idx <span class="kw">in </span><span class="number">0</span>..<span class="self">self</span>.config.protocol_paramset().num_kickoffs_per_round {
                 <span class="kw">let </span>path = WinternitzDerivationPath::Kickoff(
@@ -2694,7 +2694,7 @@
         _payout_blockhash: Witness,
         latest_blockhash: Witness,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
-        <span class="kw">let </span>context = ContractContext::new_context_for_kickoffs(
+        <span class="kw">let </span>context = ContractContext::new_context_for_kickoff(
             kickoff_data,
             deposit_data.clone(),
             <span class="self">self</span>.config.protocol_paramset(),

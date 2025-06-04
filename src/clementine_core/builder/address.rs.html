@@ -322,17 +322,39 @@
 <a href="#321" id="321">321</a>
 <a href="#322" id="322">322</a>
 <a href="#323" id="323">323</a>
-<a href="#324" id="324">324</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Address Builder
+<a href="#324" id="324">324</a>
+<a href="#325" id="325">325</a>
+<a href="#326" id="326">326</a>
+<a href="#327" id="327">327</a>
+<a href="#328" id="328">328</a>
+<a href="#329" id="329">329</a>
+<a href="#330" id="330">330</a>
+<a href="#331" id="331">331</a>
+<a href="#332" id="332">332</a>
+<a href="#333" id="333">333</a>
+<a href="#334" id="334">334</a>
+<a href="#335" id="335">335</a>
+<a href="#336" id="336">336</a>
+<a href="#337" id="337">337</a>
+<a href="#338" id="338">338</a>
+<a href="#339" id="339">339</a>
+<a href="#340" id="340">340</a>
+<a href="#341" id="341">341</a>
+<a href="#342" id="342">342</a>
+<a href="#343" id="343">343</a>
+<a href="#344" id="344">344</a>
+<a href="#345" id="345">345</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Bitcoin Address Construction
 //!
-//! Address builder provides useful functions for building typical Bitcoin
-//! addresses.
+//! Contains helper functions to create taproot addresses with given scripts and internal key.
+//! Contains helper functions to create correct deposit addresses. Addresses need to be of a specific format to be
+//! valid deposit addresses.
 
 </span><span class="kw">use </span><span class="kw">super</span>::script::{
     BaseDepositScript, CheckSig, Multisig, ReplacementDepositScript, SpendableScript,
     TimelockScript,
 };
-<span class="kw">use </span><span class="kw">super</span>::transaction::SecurityCouncil;
 <span class="kw">use </span><span class="kw">crate</span>::bitvm_client::SECP;
+<span class="kw">use </span><span class="kw">crate</span>::deposit::SecurityCouncil;
 <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
 <span class="kw">use crate</span>::{bitvm_client, EVMAddress};
 <span class="kw">use </span>bitcoin::address::NetworkUnchecked;
@@ -343,7 +365,9 @@
 };
 <span class="kw">use </span>eyre::Context;
 
-<span class="kw">pub fn </span>taproot_builder_with_scripts(scripts: <span class="kw-2">&amp;</span>[ScriptBuf]) -&gt; TaprootBuilder {
+<span class="doccomment">/// A helper to construct a `TaprootBuilder` from a slice of script buffers, forming the script tree.
+/// Finds the needed depth the script tree needs to be to fit all the scripts and inserts the scripts.
+</span><span class="kw">pub fn </span>taproot_builder_with_scripts(scripts: <span class="kw-2">&amp;</span>[ScriptBuf]) -&gt; TaprootBuilder {
     <span class="kw">let </span>builder = TaprootBuilder::new();
     <span class="kw">let </span>num_scripts = scripts.len();
 
@@ -374,8 +398,7 @@
     })
 }
 
-<span class="doccomment">/// Creates a taproot address with either key path spend or script spend path
-/// addresses. This depends on given arguments.
+<span class="doccomment">/// Creates a taproot address with given scripts and internal key.
 ///
 /// # Arguments
 ///
@@ -470,7 +493,26 @@
     <span class="prelude-val">Ok</span>((addr, spend))
 }
 
-<span class="kw">pub fn </span>generate_replacement_deposit_address(
+<span class="doccomment">/// Builds a Taproot address specifically for replacement deposits.
+/// Replacement deposits are to replace old move_to_vault transactions in case any issue is found on the bridge.
+/// This address incorporates a script committing to an old move transaction ID
+/// and a multisig script for the security council.
+/// This replacement deposit address will be used to create a new deposit transaction, which will then be used to
+/// sign the new related bridge deposit tx's.
+///
+/// # Parameters
+///
+/// - `old_move_txid`: The `Txid` of the old move_to_vault transaction that is being replaced.
+/// - `nofn_xonly_pk`: The N-of-N XOnlyPublicKey for the deposit.
+/// - `network`: The Bitcoin network on which the address will be used.
+/// - `security_council`: The `SecurityCouncil` configuration for the multisig script.
+///
+/// # Returns
+///
+/// - `Ok((Address, TaprootSpendInfo))` containing the new replacement deposit address
+///   and its associated `TaprootSpendInfo` if successful.
+/// - `Err(BridgeError)` if any error occurs during address generation.
+</span><span class="kw">pub fn </span>generate_replacement_deposit_address(
     old_move_txid: bitcoin::Txid,
     nofn_xonly_pk: XOnlyPublicKey,
     network: bitcoin::Network,

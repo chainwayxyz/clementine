@@ -434,11 +434,13 @@
 <a href="#433" id="433">433</a>
 <a href="#434" id="434">434</a>
 <a href="#435" id="435">435</a>
-<a href="#436" id="436">436</a></pre></div><pre class="rust"><code><span class="kw">use </span>statig::prelude::<span class="kw-2">*</span>;
+<a href="#436" id="436">436</a>
+<a href="#437" id="437">437</a></pre></div><pre class="rust"><code><span class="kw">use </span>statig::prelude::<span class="kw-2">*</span>;
 <span class="kw">use </span>std::collections::{HashMap, HashSet};
 
+<span class="kw">use </span><span class="kw">crate</span>::deposit::OperatorData;
 <span class="kw">use crate</span>::{
-    builder::transaction::{input::UtxoVout, ContractContext, OperatorData, TransactionType},
+    builder::transaction::{input::UtxoVout, ContractContext, TransactionType},
     errors::{BridgeError, TxError},
 };
 <span class="kw">use </span>bitcoin::OutPoint;
@@ -595,7 +597,7 @@
                     );
 
                     <span class="comment">// To determine if operator exited the protocol, we check if collateral was not spent in the first round tx.
-                    </span><span class="kw">let </span>contract_context = ContractContext::new_context_for_rounds(
+                    </span><span class="kw">let </span>contract_context = ContractContext::new_context_for_round(
                         <span class="self">self</span>.operator_data.xonly_pk,
                         <span class="number">0</span>,
                         context.paramset,
@@ -739,7 +741,7 @@
             .capture_error(<span class="kw">async </span>|context| {
                 {
                     <span class="self">self</span>.matchers = HashMap::new();
-                    <span class="kw">let </span>contract_context = ContractContext::new_context_for_rounds(
+                    <span class="kw">let </span>contract_context = ContractContext::new_context_for_round(
                         <span class="self">self</span>.operator_data.xonly_pk,
                         <span class="kw-2">*</span>round_idx,
                         context.paramset,
@@ -821,7 +823,7 @@
                 {
                     <span class="self">self</span>.matchers = HashMap::new();
                     <span class="comment">// get next rounds Round tx
-                    </span><span class="kw">let </span>next_round_context = ContractContext::new_context_for_rounds(
+                    </span><span class="kw">let </span>next_round_context = ContractContext::new_context_for_round(
                         <span class="self">self</span>.operator_data.xonly_pk,
                         <span class="kw-2">*</span>round_idx + <span class="number">1</span>,
                         context.paramset,
@@ -840,7 +842,7 @@
                             round_idx: <span class="kw-2">*</span>round_idx + <span class="number">1</span>,
                         },
                     );
-                    <span class="kw">let </span>current_round_context = ContractContext::new_context_for_rounds(
+                    <span class="kw">let </span>current_round_context = ContractContext::new_context_for_round(
                         <span class="self">self</span>.operator_data.xonly_pk,
                         <span class="kw-2">*</span>round_idx,
                         context.paramset,
