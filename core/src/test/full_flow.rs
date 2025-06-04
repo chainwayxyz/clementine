@@ -3,13 +3,12 @@ use crate::actor::Actor;
 use crate::bitvm_client::{self};
 use crate::builder::transaction::input::UtxoVout;
 use crate::builder::transaction::sign::get_kickoff_utxos_to_sign;
-use crate::builder::transaction::{
-    BaseDepositData, DepositInfo, DepositType, KickoffData, TransactionType as TxType,
-};
+use crate::builder::transaction::TransactionType as TxType;
 use crate::citrea::mock::MockCitreaClient;
 use crate::config::protocol::BLOCKS_PER_HOUR;
 use crate::config::BridgeConfig;
 use crate::database::Database;
+use crate::deposit::{BaseDepositData, DepositInfo, DepositType, KickoffData};
 use crate::extended_rpc::ExtendedRpc;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;

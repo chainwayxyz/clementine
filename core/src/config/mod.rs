@@ -11,7 +11,7 @@
 //! described in `BridgeConfig` struct.
 
 use crate::bitvm_client::UNSPENDABLE_XONLY_PUBKEY;
-use crate::builder::transaction::SecurityCouncil;
+use crate::deposit::SecurityCouncil;
 use crate::errors::BridgeError;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::secp256k1::SecretKey;

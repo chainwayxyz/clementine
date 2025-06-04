@@ -7,7 +7,7 @@ on:
 
 jobs:
   linux_amd64_binary_extraction:
-    runs-on: ubicloud-standard-30
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -45,7 +45,7 @@ jobs:
           path: target/release/clementine-cli
 
   release:
-    needs:  linux_amd64_binary_extraction
+    needs: linux_amd64_binary_extraction
     runs-on: ubuntu-latest
     steps:
       - name: Download linux-amd64 Binary
@@ -81,5 +81,3 @@ jobs:
             It includes:
             - clementine-core-${{ github.ref_name }}-linux-amd64
             - clementine-cli-${{ github.ref_name }}-linux-amd64
-
-
