@@ -22,8 +22,6 @@ use crate::builder::script::{PreimageRevealScript, SpendPath};
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::txhandler::{TxHandler, TxHandlerBuilder};
 use crate::config::protocol::ProtocolParamset;
-use crate::constants::ANCHOR_AMOUNT;
-use crate::constants::MIN_TAPROOT_AMOUNT;
 use crate::deposit::{DepositData, KickoffData};
 use crate::errors::BridgeError;
 use crate::rpc::clementine::NormalSignatureKind;
@@ -69,7 +67,7 @@ pub enum AssertScripts<'a> {
 /// * `move_txhandler` - The move-to-vault transaction handler.
 /// * `deposit_data` - Mutable reference to deposit data.
 /// * `operator_xonly_pk` - The operator's x-only public key.
-/// * `assert_scripts` - Actual assertion scripts or tapnode hashes (for fater creation of assert utxos) for BitVM assertion.
+/// * `assert_scripts` - Actual assertion scripts or tapnode hashes (for faster creation of assert utxos) for BitVM assertion.
 /// * `disprove_root_hash` - Root hash for BitVM disprove scripts.
 /// * `additional_disprove_script` - Additional disprove script bytes (for additional disprove script specific to Clementine).
 /// * `latest_blockhash_script` - Actual script or tapnode hash for latest blockhash assertion.
@@ -113,21 +111,21 @@ pub fn create_kickoff_txhandler(
     builder = builder
         // goes to challenge tx or no challenge tx
         .add_output(UnspentTxOut::from_scripts(
-            MIN_TAPROOT_AMOUNT,
+            paramset.default_utxo_amount(),
             vec![operator_script, operator_1week],
             None,
             paramset.network,
         ))
         // kickoff finalizer connector
         .add_output(UnspentTxOut::from_scripts(
-            MIN_TAPROOT_AMOUNT,
+            paramset.default_utxo_amount(),
             vec![nofn_script.clone()],
             None,
             paramset.network,
         ))
         // UTXO to reimburse tx
         .add_output(UnspentTxOut::from_scripts(
-            MIN_TAPROOT_AMOUNT,
+            paramset.default_utxo_amount(),
             vec![nofn_script.clone()],
             None,
             paramset.network,
@@ -147,7 +145,7 @@ pub fn create_kickoff_txhandler(
         operator_5week,
         additional_disprove_script.clone(),
         disprove_root_hash,
-        MIN_TAPROOT_AMOUNT,
+        paramset.default_utxo_amount(),
         paramset.network,
     ));
 
@@ -166,7 +164,7 @@ pub fn create_kickoff_txhandler(
             builder = builder.add_output(super::create_taproot_output_with_hidden_node(
                 nofn_latest_blockhash,
                 &latest_blockhash_root_hash,
-                MIN_TAPROOT_AMOUNT,
+                paramset.default_utxo_amount(),
                 paramset.network,
             ));
         }
@@ -176,7 +174,7 @@ pub fn create_kickoff_txhandler(
             }
             let latest_blockhash_script = latest_blockhash_script[0].clone();
             builder = builder.add_output(UnspentTxOut::from_scripts(
-                MIN_TAPROOT_AMOUNT,
+                paramset.default_utxo_amount(),
                 vec![nofn_latest_blockhash, latest_blockhash_script],
                 None,
                 paramset.network,
@@ -197,7 +195,7 @@ pub fn create_kickoff_txhandler(
                 builder = builder.add_output(super::create_taproot_output_with_hidden_node(
                     nofn_4week.clone(),
                     script_hash,
-                    MIN_TAPROOT_AMOUNT,
+                    paramset.default_utxo_amount(),
                     paramset.network,
                 ));
             }
@@ -205,7 +203,7 @@ pub fn create_kickoff_txhandler(
         AssertScripts::AssertSpendableScript(assert_scripts) => {
             for script in assert_scripts {
                 builder = builder.add_output(UnspentTxOut::from_scripts(
-                    MIN_TAPROOT_AMOUNT,
+                    paramset.default_utxo_amount(),
                     vec![nofn_4week.clone(), script],
                     None,
                     paramset.network,
@@ -223,7 +221,7 @@ pub fn create_kickoff_txhandler(
         ));
         // UTXO for watchtower challenge or watchtower challenge timeouts
         builder = builder.add_output(UnspentTxOut::from_scripts(
-            MIN_TAPROOT_AMOUNT * 2 + ANCHOR_AMOUNT, // watchtower challenge has 2 taproot outputs, 1 op_return and 1 anchor
+            paramset.default_utxo_amount() * 2 + paramset.anchor_amount(), // watchtower challenge has 2 taproot outputs, 1 op_return and 1 anchor
             vec![nofn_2week.clone()],
             Some(*watchtower_xonly_pk), // key path as watchtowers xonly pk
             paramset.network,
@@ -239,7 +237,7 @@ pub fn create_kickoff_txhandler(
             operator_unlock_hashes[watchtower_idx],
         ));
         builder = builder.add_output(UnspentTxOut::from_scripts(
-            MIN_TAPROOT_AMOUNT,
+            paramset.default_utxo_amount(),
             vec![
                 nofn_3week.clone(),
                 nofn_2week.clone(),
@@ -261,7 +259,7 @@ pub fn create_kickoff_txhandler(
     Ok(builder
         .add_output(UnspentTxOut::from_partial(op_return_txout))
         .add_output(UnspentTxOut::from_partial(
-            builder::transaction::anchor_output(),
+            builder::transaction::anchor_output(paramset.anchor_amount()),
         ))
         .finalize())
 }
@@ -286,6 +284,7 @@ pub fn create_kickoff_txhandler(
 pub fn create_kickoff_not_finalized_txhandler(
     kickoff_txhandler: &TxHandler,
     ready_to_reimburse_txhandler: &TxHandler,
+    paramset: &'static ProtocolParamset,
 ) -> Result<TxHandler, BridgeError> {
     Ok(TxHandlerBuilder::new(TransactionType::KickoffNotFinalized)
         .with_version(Version::non_standard(3))
@@ -302,7 +301,7 @@ pub fn create_kickoff_not_finalized_txhandler(
             DEFAULT_SEQUENCE,
         )
         .add_output(UnspentTxOut::from_partial(
-            builder::transaction::anchor_output(),
+            builder::transaction::anchor_output(paramset.anchor_amount()),
         ))
         .finalize())
 }
@@ -369,7 +368,7 @@ pub fn create_reimburse_txhandler(
             script_pubkey: operator_reimbursement_address.script_pubkey(),
         }))
         .add_output(UnspentTxOut::from_partial(
-            builder::transaction::anchor_output(),
+            builder::transaction::anchor_output(paramset.anchor_amount()),
         ))
         .finalize())
 }
@@ -477,7 +476,7 @@ pub fn create_optimistic_payout_txhandler(
         )
         .add_output(output_txout)
         .add_output(UnspentTxOut::from_partial(
-            builder::transaction::anchor_output(),
+            builder::transaction::non_ephemeral_anchor_output(),
         ))
         .finalize();
     txhandler.set_p2tr_key_spend_witness(&user_sig_wrapped, 0)?;

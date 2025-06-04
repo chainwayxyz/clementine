@@ -716,13 +716,14 @@ pub async fn create_txhandlers(
         )?;
 
         // Create and insert mini_asserts into return Vec
-        let mini_asserts = create_mini_asserts(&kickoff_txhandler, num_asserts)?;
+        let mini_asserts = create_mini_asserts(&kickoff_txhandler, num_asserts, paramset)?;
 
         for mini_assert in mini_asserts.into_iter() {
             txhandlers.insert(mini_assert.get_transaction_type(), mini_assert);
         }
 
-        let latest_blockhash_txhandler = create_latest_blockhash_txhandler(&kickoff_txhandler)?;
+        let latest_blockhash_txhandler =
+            create_latest_blockhash_txhandler(&kickoff_txhandler, paramset)?;
         txhandlers.insert(
             latest_blockhash_txhandler.get_transaction_type(),
             latest_blockhash_txhandler,
@@ -774,6 +775,7 @@ pub async fn create_txhandlers(
         builder::transaction::create_kickoff_not_finalized_txhandler(
             get_txhandler(&txhandlers, TransactionType::Kickoff)?,
             get_txhandler(&txhandlers, TransactionType::ReadyToReimburse)?,
+            paramset,
         )?;
     txhandlers.insert(
         kickoff_not_finalized_txhandler.get_transaction_type(),
@@ -878,6 +880,7 @@ pub async fn create_txhandlers(
             let disprove_txhandler = builder::transaction::create_disprove_txhandler(
                 get_txhandler(&txhandlers, TransactionType::Kickoff)?,
                 get_txhandler(&txhandlers, TransactionType::Round)?,
+                paramset,
             )?;
             txhandlers.insert(
                 disprove_txhandler.get_transaction_type(),
