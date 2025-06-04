@@ -1,7 +1,7 @@
 //! # Environment Variable Support For [`BridgeConfig`]
 
 use super::BridgeConfig;
-use crate::{builder::transaction::SecurityCouncil, errors::BridgeError};
+use crate::{deposit::SecurityCouncil, errors::BridgeError};
 use bitcoin::{address::NetworkUnchecked, secp256k1::SecretKey, Amount};
 use std::{path::PathBuf, str::FromStr};
 
