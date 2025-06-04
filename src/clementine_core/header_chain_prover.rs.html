@@ -1233,8 +1233,7 @@
 <a href="#1232" id="1232">1232</a>
 <a href="#1233" id="1233">1233</a>
 <a href="#1234" id="1234">1234</a>
-<a href="#1235" id="1235">1235</a>
-<a href="#1236" id="1236">1236</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Header Chain Prover
+<a href="#1235" id="1235">1235</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Header Chain Prover
 //!
 //! This module contains utilities for proving Bitcoin block headers. This
 //! module must be fed with new blocks via the database. Later, it can check if
@@ -1942,12 +1941,11 @@
 
 <span class="attr">#[cfg(test)]
 </span><span class="kw">mod </span>tests {
-    <span class="kw">use </span><span class="kw">crate</span>::citrea::mock::MockCitreaClient;
-    <span class="kw">use </span><span class="kw">crate</span>::database::Database;
     <span class="kw">use </span><span class="kw">crate</span>::extended_rpc::ExtendedRpc;
     <span class="kw">use </span><span class="kw">crate</span>::header_chain_prover::HeaderChainProver;
     <span class="kw">use </span><span class="kw">crate</span>::test::common::<span class="kw-2">*</span>;
     <span class="kw">use </span><span class="kw">crate</span>::verifier::VerifierServer;
+    <span class="kw">use crate</span>::{database::Database, test::common::citrea::MockCitreaClient};
     <span class="kw">use </span>bitcoin::{block::Header, hashes::Hash, BlockHash, Network};
     <span class="kw">use </span>bitcoincore_rpc::RpcApi;
     <span class="kw">use </span>circuits_lib::header_chain::{

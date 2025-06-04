@@ -1442,8 +1442,7 @@
 <a href="#1441" id="1441">1441</a>
 <a href="#1442" id="1442">1442</a>
 <a href="#1443" id="1443">1443</a>
-<a href="#1444" id="1444">1444</a>
-<a href="#1445" id="1445">1445</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Operator Related Database Operations
+<a href="#1444" id="1444">1444</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Operator Related Database Operations
 //!
 //! This module includes database functions which are mainly used by an operator.
 
@@ -2281,20 +2280,19 @@
 
 <span class="attr">#[cfg(test)]
 </span><span class="kw">mod </span>tests {
-    <span class="kw">use </span>std::str::FromStr;
-
     <span class="kw">use </span><span class="kw">crate</span>::bitvm_client::{SECP, UNSPENDABLE_XONLY_PUBKEY};
-    <span class="kw">use </span><span class="kw">crate</span>::citrea::mock::MockCitreaClient;
     <span class="kw">use </span><span class="kw">crate</span>::operator::Operator;
     <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::{
         DepositSignatures, NormalSignatureKind, NumberedSignatureKind, TaggedSignature,
     };
+    <span class="kw">use </span><span class="kw">crate</span>::test::common::citrea::MockCitreaClient;
     <span class="kw">use </span><span class="kw">crate</span>::UTXO;
     <span class="kw">use crate</span>::{database::Database, test::common::<span class="kw-2">*</span>};
     <span class="kw">use </span>bitcoin::hashes::Hash;
     <span class="kw">use </span>bitcoin::key::constants::SCHNORR_SIGNATURE_SIZE;
     <span class="kw">use </span>bitcoin::key::Keypair;
     <span class="kw">use </span>bitcoin::{Address, Amount, OutPoint, ScriptBuf, TxOut, Txid, XOnlyPublicKey};
+    <span class="kw">use </span>std::str::FromStr;
 
     <span class="attr">#[tokio::test]
     </span><span class="kw">async fn </span>test_set_get_operator() {

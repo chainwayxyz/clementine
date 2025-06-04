@@ -1365,9 +1365,7 @@
 <a href="#1364" id="1364">1364</a>
 <a href="#1365" id="1365">1365</a>
 <a href="#1366" id="1366">1366</a>
-<a href="#1367" id="1367">1367</a>
-<a href="#1368" id="1368">1368</a>
-<a href="#1369" id="1369">1369</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Transaction Handler Creation Logic
+<a href="#1367" id="1367">1367</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Transaction Handler Creation Logic
 //!
 //! This module provides the logic for constructing, caching, and managing transaction handlers (`TxHandler`) for all transaction types in the Clementine bridge.
 //!
@@ -2344,23 +2342,21 @@
 
 <span class="attr">#[cfg(test)]
 </span><span class="kw">mod </span>tests {
-
-    <span class="kw">use </span>std::collections::HashMap;
-
     <span class="kw">use super</span>::<span class="kw-2">*</span>;
     <span class="kw">use </span><span class="kw">crate</span>::actor::Actor;
     <span class="kw">use </span><span class="kw">crate</span>::bitvm_client::ClementineBitVMPublicKeys;
     <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::sign::get_kickoff_utxos_to_sign;
     <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::{TransactionType, TxHandlerBuilder};
-    <span class="kw">use </span><span class="kw">crate</span>::citrea::mock::MockCitreaClient;
     <span class="kw">use </span><span class="kw">crate</span>::config::BridgeConfig;
     <span class="kw">use </span><span class="kw">crate</span>::deposit::{DepositInfo, KickoffData};
     <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
     <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
     <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::{SignedTxsWithType, TransactionRequest};
+    <span class="kw">use </span><span class="kw">crate</span>::test::common::citrea::MockCitreaClient;
     <span class="kw">use </span><span class="kw">crate</span>::test::common::<span class="kw-2">*</span>;
     <span class="kw">use </span>bitcoin::{BlockHash, Transaction, XOnlyPublicKey};
     <span class="kw">use </span>futures::future::try_join_all;
+    <span class="kw">use </span>std::collections::HashMap;
     <span class="kw">use </span>tokio::sync::mpsc;
 
     <span class="kw">fn </span>signed_txs_to_txid(signed_txs: SignedTxsWithType) -&gt; Vec&lt;(TransactionType, bitcoin::Txid)&gt; {
