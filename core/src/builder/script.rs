@@ -1,12 +1,27 @@
-//! # Script Builder
+//! # Bitcoin Script Construction
 //!
-//! Script builder provides useful functions for building typical Bitcoin
-//! scripts.
-// Currently generate_witness functions are not yet used.
+//! This module provides a collection of builders for creating various Bitcoin
+//! scripts utilized within the Clementine bridge. It defines a `SpendableScript`
+//! trait, implemented by specific script structures (e.g., `CheckSig`,
+//! `WinternitzCommit`, `TimelockScript`, `BaseDepositScript`) to standardize
+//! script generation and witness creation.
+//!
+//! Each script builder offers:
+//! - A constructor to initialize the script with its specific parameters.
+//! - A method to convert the script structure into a `bitcoin::ScriptBuf`.
+//! - A method to generate the corresponding `bitcoin::Witness` required to spend
+//!   an output locked with this script.
+//!
+//! The module also includes `ScriptKind`, an enum to differentiate between various
+//! spendable script types, facilitating dynamic dispatch and script management.
+//! Helper functions like `extract_winternitz_commits` are provided for parsing
+//! specific data committed using witnernitz keys from witness.
+
 #![allow(dead_code)]
 
 use crate::actor::WinternitzDerivationPath;
 use crate::config::protocol::ProtocolParamset;
+use crate::deposit::SecurityCouncil;
 use crate::EVMAddress;
 use bitcoin::hashes::Hash;
 use bitcoin::opcodes::OP_TRUE;
@@ -20,8 +35,6 @@ use bitvm::signatures::winternitz::{Parameters, PublicKey, SecretKey};
 use eyre::{Context, Result};
 use std::any::Any;
 use std::fmt::Debug;
-
-use super::transaction::SecurityCouncil;
 
 #[derive(Debug, Copy, Clone, serde::Serialize, serde::Deserialize)]
 pub enum SpendPath {
@@ -89,6 +102,41 @@ pub fn extract_winternitz_commits(
     }
     commits.reverse();
     Ok(commits)
+}
+
+/// Extracts the committed data from the witness.
+/// Note: The function is hardcoded for winternitz_log_d = 4 currently, will not work for others.
+pub fn extract_winternitz_commits_with_sigs(
+    witness: Witness,
+    wt_derive_paths: &[WinternitzDerivationPath],
+    paramset: &'static ProtocolParamset,
+) -> Result<Vec<Vec<Vec<u8>>>> {
+    if paramset.winternitz_log_d != 4 {
+        return Err(eyre::eyre!("Only winternitz_log_d = 4 is supported"));
+    }
+    // Structure: [commit][signature_sequence][element]
+    // - commit: one signed message
+    // - signature_sequence: alternating signature elements and signed characters, ending with a checksum
+    // - element: raw bytes of either a signature part, signed character, or checksum
+    let mut commits_with_sig: Vec<Vec<Vec<u8>>> = Vec::new();
+    let mut cur_witness_iter = witness.into_iter().skip(1);
+
+    for wt_path in wt_derive_paths.iter().rev() {
+        let wt_params = wt_path.get_params();
+        let message_digits =
+            (wt_params.message_byte_len() * 8).div_ceil(paramset.winternitz_log_d) as usize;
+        let checksum_digits = wt_params.total_digit_len() as usize - message_digits;
+
+        let elements: Vec<Vec<u8>> = cur_witness_iter
+            .by_ref()
+            .take((message_digits + checksum_digits) * 2)
+            .map(|x| x.to_vec())
+            .collect();
+
+        commits_with_sig.push(elements);
+    }
+
+    Ok(commits_with_sig)
 }
 
 /// A trait that marks all script types. Each script has a `generate_script_inputs` (eg. [`WinternitzCommit::generate_script_inputs`]) function that
@@ -358,7 +406,7 @@ impl TimelockScript {
     }
 }
 
-/// Struct for scripts that reveal a preimage and verify it against a hash.
+/// Struct for scripts that reveal a preimage of a OP_HASH160 and verify it against the given hash in the script.
 pub struct PreimageRevealScript(pub(crate) XOnlyPublicKey, [u8; 20]);
 
 impl SpendableScript for PreimageRevealScript {

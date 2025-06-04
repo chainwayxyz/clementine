@@ -121,7 +121,7 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
     }
     // Bitcoin node configuration
     // Construct args for bitcoind
-    let args = vec![
+    let mut args = vec![
         "-regtest".to_string(),
         format!("-datadir={}", data_dir.display()),
         "-listen=0".to_string(),
@@ -134,6 +134,11 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
         "-rpcallowip=0.0.0.0/0".to_string(),
         "-maxtxfee=5".to_string(),
     ];
+
+    if config.protocol_paramset().bridge_nonstandard {
+        // allow 0 sat outputs in regtest
+        args.push("-dustrelayfee=0".to_string());
+    }
 
     // Create log file in temp directory
     let log_file = data_dir.join("debug.log");
@@ -315,10 +320,7 @@ pub async fn create_actors<C: CitreaClientT>(
     ClementineAggregatorClient<Channel>,
     ActorsCleanup,
 ) {
-    let all_verifiers_secret_keys = config.all_verifiers_secret_keys.clone().unwrap_or_else(|| {
-        panic!("All secret keys of the verifiers are required for testing");
-    });
-
+    let all_verifiers_secret_keys = &config.test_params.all_verifiers_secret_keys;
     // Collect all shutdown channels
     let mut shutdown_channels = Vec::new();
 
@@ -364,9 +366,7 @@ pub async fn create_actors<C: CitreaClientT>(
 
     shutdown_channels.extend(verifier_shutdown_channels);
 
-    let all_operators_secret_keys = config.all_operators_secret_keys.clone().unwrap_or_else(|| {
-        panic!("All secret keys of the operators are required for testing");
-    });
+    let all_operators_secret_keys = &config.test_params.all_operators_secret_keys;
 
     // Create futures for operator Unix socket servers
     let operator_futures = all_operators_secret_keys

@@ -13,14 +13,14 @@ use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::builder::transaction::{
     create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler,
-    create_round_txhandlers, create_txhandlers, ContractContext, DepositData, KickoffData,
-    KickoffWinternitzKeys, OperatorData, ReimburseDbCache, TransactionType, TxHandler,
-    TxHandlerCache,
+    create_round_txhandlers, create_txhandlers, ContractContext, KickoffWinternitzKeys,
+    ReimburseDbCache, TransactionType, TxHandler, TxHandlerCache,
 };
 use crate::citrea::CitreaClientT;
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::database::DatabaseTransaction;
+use crate::deposit::{DepositData, KickoffData, OperatorData};
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::header_chain_prover::HeaderChainProver;
@@ -31,6 +31,7 @@ use crate::task::payout_checker::{PayoutCheckerTask, PAYOUT_CHECKER_POLL_DELAY};
 use crate::task::{IntoTask, TaskExt};
 use crate::tx_sender::TxSenderClient;
 use crate::tx_sender::{ActivatedWithOutpoint, ActivatedWithTxid, FeePayingType, TxMetadata};
+use crate::utils::Last20Bytes;
 use crate::{builder, UTXO};
 use bitcoin::consensus::deserialize;
 use bitcoin::hashes::Hash;
@@ -627,7 +628,7 @@ where
         let mut winternitz_pubkeys =
             Vec::with_capacity(self.config.get_num_kickoff_winternitz_pks());
 
-        // we need num_round_txs + 1 because the last round includes reimburse generators of previous round
+        // we need num_round_txs + 1 because we need one extra round tx to generate the reimburse connectors of the actual last round
         for round_idx in 0..self.config.protocol_paramset().num_round_txs + 1 {
             for kickoff_idx in 0..self.config.protocol_paramset().num_kickoffs_per_round {
                 let path = WinternitzDerivationPath::Kickoff(
@@ -771,16 +772,25 @@ where
             kickoff_data,
         };
 
+        let payout_tx_blockhash: [u8; 20] = payout_tx_blockhash.as_byte_array().last_20_bytes();
+
+        #[cfg(test)]
+        let mut payout_tx_blockhash = payout_tx_blockhash;
+
+        #[cfg(test)]
+        {
+            if self.config.test_params.disrupt_payout_tx_block_hash_commit {
+                tracing::info!("Disrupting latest blockhash for testing purposes",);
+                payout_tx_blockhash[19] ^= 0x01;
+            }
+        }
+
         let signed_txs = create_and_sign_txs(
             self.db.clone(),
             &self.signer,
             self.config.clone(),
             transaction_data,
-            Some(
-                payout_tx_blockhash.as_byte_array()[12..] // TODO: Make a helper function for this
-                    .try_into()
-                    .expect("length statically known"),
-            ),
+            Some(payout_tx_blockhash),
         )
         .await?;
 
@@ -948,6 +958,7 @@ where
                 &current_round_txhandler,
                 &unspent_kickoff_connector_indices,
                 &self.signer.address,
+                self.config.protocol_paramset(),
             )?;
 
         // sign burn unused kickoff connectors tx
@@ -1042,7 +1053,7 @@ where
         _payout_blockhash: Witness,
         latest_blockhash: Witness,
     ) -> Result<(), BridgeError> {
-        let context = ContractContext::new_context_for_kickoffs(
+        let context = ContractContext::new_context_for_kickoff(
             kickoff_data,
             deposit_data.clone(),
             self.config.protocol_paramset(),
@@ -1176,7 +1187,18 @@ where
             )
             .await?;
 
-        // find out which blockhash is latest_blockhash (only last 20 bytes is commited to Witness)
+        #[cfg(test)]
+        let mut latest_blockhash = latest_blockhash;
+
+        #[cfg(test)]
+        {
+            if self.config.test_params.disrupt_latest_block_hash_commit {
+                tracing::info!("Correcting latest blockhash for testing purposes",);
+                latest_blockhash[19] ^= 0x01;
+            }
+        }
+
+        // find out which blockhash is latest_blockhash (only last 20 bytes is committed to Witness)
         let latest_blockhash_index = block_hashes
             .iter()
             .position(|(block_hash, _)| {
@@ -1216,6 +1238,14 @@ where
             });
         }
 
+        #[cfg(test)]
+        {
+            if self.config.test_params.operator_forgot_watchtower_challenge {
+                tracing::info!("Disrupting watchtower challenges in send_asserts");
+                wt_contexts.pop();
+            }
+        }
+
         let watchtower_challenge_connector_start_idx =
             (FIRST_FIVE_OUTPUTS + NUMBER_OF_ASSERT_TXS) as u16;
 
@@ -1250,6 +1280,29 @@ where
             prove_bridge_circuit(bridge_circuit_host_params, bridge_circuit_elf);
         tracing::info!("Proved bridge circuit in send_asserts");
         let public_input_scalar = ark_bn254::Fr::from_be_bytes_mod_order(&g16_output);
+
+        #[cfg(test)]
+        let mut public_inputs = public_inputs;
+
+        #[cfg(test)]
+        {
+            if self
+                .config
+                .test_params
+                .disrupt_challenge_sending_watchtowers_commit
+            {
+                tracing::info!("Disrupting challenge sending watchtowers commit in send_asserts");
+                public_inputs.challenge_sending_watchtowers[0] ^= 0x01;
+                tracing::info!(
+                    "Disrupted challenge sending watchtowers commit: {:?}",
+                    public_inputs.challenge_sending_watchtowers
+                );
+            }
+        }
+        tracing::info!(
+            "Challenge sending watchtowers commit: {:?}",
+            public_inputs.challenge_sending_watchtowers
+        );
 
         let asserts = if cfg!(test) && is_dev_mode() {
             generate_assertions(

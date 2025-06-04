@@ -7,6 +7,7 @@ use bitcoin::{Amount, FeeRate, OutPoint, Transaction, TxOut, Txid, Weight};
 use bitcoincore_rpc::{json::EstimateMode, RpcApi};
 use serde::{Deserialize, Serialize};
 
+use crate::config::protocol::ProtocolParamset;
 use crate::errors::ResultExt;
 use crate::{
     actor::Actor,
@@ -56,8 +57,8 @@ pub struct TxSender {
     pub signer: Actor,
     pub rpc: ExtendedRpc,
     pub db: Database,
-    pub network: bitcoin::Network,
     pub btc_syncer_consumer_id: String,
+    paramset: &'static ProtocolParamset,
     cached_spendinfo: TaprootSpendInfo,
 }
 
@@ -151,20 +152,20 @@ impl TxSender {
         rpc: ExtendedRpc,
         db: Database,
         btc_syncer_consumer_id: String,
-        network: bitcoin::Network,
+        paramset: &'static ProtocolParamset,
     ) -> Self {
         Self {
             cached_spendinfo: builder::address::create_taproot_address(
                 &[],
                 Some(signer.xonly_public_key),
-                network,
+                paramset.network,
             )
             .1,
             signer,
             rpc,
             db,
             btc_syncer_consumer_id,
-            network,
+            paramset,
         }
     }
 
@@ -189,7 +190,7 @@ impl TxSender {
             Ok(fee_rate) => match fee_rate.fee_rate {
                 Some(fee_rate) => Ok(FeeRate::from_sat_per_kwu(fee_rate.to_sat())),
                 None => {
-                    if self.network == bitcoin::Network::Regtest {
+                    if self.paramset.network == bitcoin::Network::Regtest {
                         tracing::debug!("Using fee rate of 1 sat/vb (Regtest mode)");
                         return Ok(FeeRate::from_sat_per_vb_unchecked(1));
                     }
@@ -268,8 +269,8 @@ impl TxSender {
     }
 
     fn is_p2a_anchor(&self, output: &TxOut) -> bool {
-        output.value == builder::transaction::anchor_output().value
-            && output.script_pubkey == builder::transaction::anchor_output().script_pubkey
+        output.script_pubkey
+            == builder::transaction::anchor_output(self.paramset.anchor_amount()).script_pubkey
     }
 
     fn find_p2a_vout(&self, tx: &Transaction) -> Result<usize> {
@@ -401,7 +402,7 @@ mod tests {
     use crate::builder::transaction::input::SpendableTxIn;
     use crate::builder::transaction::output::UnspentTxOut;
     use crate::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE};
-    use crate::constants::MIN_TAPROOT_AMOUNT;
+    use crate::constants::{MIN_TAPROOT_AMOUNT, NON_EPHEMERAL_ANCHOR_AMOUNT};
     use crate::errors::BridgeError;
     use crate::rpc::clementine::tagged_signature::SignatureId;
     use crate::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind};
@@ -446,7 +447,7 @@ mod tests {
             rpc.clone(),
             db.clone(),
             "tx_sender".into(),
-            network,
+            config.protocol_paramset(),
         );
 
         (
@@ -535,13 +536,11 @@ mod tests {
                 DEFAULT_SEQUENCE,
             )
             .add_output(UnspentTxOut::from_partial(TxOut {
-                value: amount
-                    - builder::transaction::anchor_output().value
-                    - MIN_TAPROOT_AMOUNT * 3, // buffer so that rbf works without adding inputs
+                value: amount - NON_EPHEMERAL_ANCHOR_AMOUNT - MIN_TAPROOT_AMOUNT * 3, // buffer so that rbf works without adding inputs
                 script_pubkey: address.script_pubkey(), // In practice, should be the wallet address, not the signer address
             }))
             .add_output(UnspentTxOut::from_partial(
-                builder::transaction::anchor_output(),
+                builder::transaction::non_ephemeral_anchor_output(),
             ))
             .finalize();
 
@@ -655,7 +654,7 @@ mod tests {
             rpc.clone(),
             db,
             "tx_sender".into(),
-            config.protocol_paramset().network,
+            config.protocol_paramset(),
         );
 
         let scripts: Vec<Arc<dyn SpendableScript>> =
@@ -704,9 +703,14 @@ mod tests {
             .unwrap();
 
         rpc.mine_blocks(1).await.unwrap();
+        let mempool_info = rpc.client.get_mempool_info().await.unwrap();
+        tracing::info!("Mempool info: {:?}", mempool_info);
 
         let will_fail_tx = will_fail_handler.get_cached_tx();
-        assert!(rpc.client.send_raw_transaction(will_fail_tx).await.is_err());
+
+        if mempool_info.mempool_min_fee.to_sat() > 0 {
+            assert!(rpc.client.send_raw_transaction(will_fail_tx).await.is_err());
+        }
 
         // Calculate and send with fee.
         let fee_rate = tx_sender._get_fee_rate().await.unwrap();

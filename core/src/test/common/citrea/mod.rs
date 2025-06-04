@@ -24,7 +24,7 @@ mod requests;
 pub fn get_bridge_params() -> String {
     let config = BridgeConfig::default();
 
-    let verifiers_secret_keys = config.all_verifiers_secret_keys.unwrap();
+    let verifiers_secret_keys = config.test_params.all_verifiers_secret_keys;
     let secp = bitcoin::secp256k1::Secp256k1::new();
     let verifiers_public_keys: Vec<PublicKey> = verifiers_secret_keys
         .iter()

@@ -9,7 +9,7 @@ use super::{
     },
     Database, DatabaseTransaction,
 };
-use crate::builder::transaction::{DepositData, KickoffData, OperatorData};
+use crate::deposit::{DepositData, KickoffData, OperatorData};
 use crate::{
     errors::BridgeError,
     execute_query_with_tx,
@@ -161,7 +161,7 @@ impl Database {
 
     /// Sets the unspent kickoff sigs received from operators during initial setup.
     /// Sigs of each round are stored together in the same row.
-    /// On conflict, do not update the existing sigs. Although techically, as long as kickoff winternitz keys
+    /// On conflict, do not update the existing sigs. Although technically, as long as kickoff winternitz keys
     /// and operator data(collateral funding outpoint and reimburse address) are not changed, the sigs are still valid
     /// even if they are changed.
     pub async fn set_unspent_kickoff_sigs(
@@ -501,8 +501,9 @@ impl Database {
             }
         }
         // On conflict, the previous signatures are already valid. Signatures only depend on deposit_outpoint (which depends on nofn pk) and
-        // operator_xonly_pk (which includes collateral outpoint, reimbursement addr (these should be unchanged)). We add on conflict so it
-        // doesn't fail if the signatures are already set.
+        // operator_xonly_pk (also depends on nofn_pk, as each operator is also a verifier and nofn_pk depends on verifiers pk)
+        // Additionally operator collateral outpoint and reimbursement addr should be unchanged which we ensure in relevant db fns.
+        // We add on conflict clause so it doesn't fail if the signatures are already set.
         // Why do we need to do this? If deposit fails somehow just at the end because movetx
         // signature fails to be collected, we might need to do a deposit again. Technically we can only collect movetx signature, not
         // do the full deposit.

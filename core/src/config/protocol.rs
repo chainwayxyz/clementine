@@ -1,4 +1,5 @@
 use crate::config::env::read_string_from_env_then_parse;
+use crate::constants::{MIN_TAPROOT_AMOUNT, NON_EPHEMERAL_ANCHOR_AMOUNT};
 use crate::errors::BridgeError;
 use bitcoin::{Amount, Network};
 use eyre::Context;
@@ -126,6 +127,8 @@ pub struct ProtocolParamset {
     pub header_chain_proof_batch_size: u32,
     /// Bridge circuit method id
     pub bridge_circuit_method_id_constant: [u8; 32],
+    /// Denotes if the bridge is non-standard, i.e. uses 0 sat outputs
+    pub bridge_nonstandard: bool,
 }
 
 impl ProtocolParamset {
@@ -203,9 +206,26 @@ impl ProtocolParamset {
             bridge_circuit_method_id_constant: convert_hex_string_to_bytes(
                 &read_string_from_env_then_parse::<String>("BRIDGE_CIRCUIT_METHOD_ID_CONSTANT")?,
             )?,
+            bridge_nonstandard: read_string_from_env_then_parse::<bool>("BRIDGE_NONSTANDARD")?,
         };
 
         Ok(config)
+    }
+
+    pub fn default_utxo_amount(&self) -> Amount {
+        if self.bridge_nonstandard {
+            Amount::from_sat(0)
+        } else {
+            MIN_TAPROOT_AMOUNT
+        }
+    }
+
+    pub fn anchor_amount(&self) -> Amount {
+        if self.bridge_nonstandard {
+            Amount::from_sat(0)
+        } else {
+            NON_EPHEMERAL_ANCHOR_AMOUNT
+        }
     }
 }
 
@@ -235,7 +255,7 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     num_kickoffs_per_round: 10,
     num_signed_kickoffs: 2,
     bridge_amount: Amount::from_sat(1_000_000_000),
-    kickoff_amount: Amount::from_sat(55_000),
+    kickoff_amount: Amount::from_sat(55000),
     operator_challenge_amount: Amount::from_sat(200_000_000),
     collateral_funding_amount: Amount::from_sat(99_000_000),
     watchtower_challenge_bytes: 144,
@@ -259,5 +279,9 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
         134, 20, 132, 171, 180, 175, 95, 126, 69, 127, 140, 34, 22,
     ],
     header_chain_proof_batch_size: 100,
-    bridge_circuit_method_id_constant: [255u8; 32],
+    bridge_circuit_method_id_constant: [
+        161, 224, 123, 224, 161, 79, 5, 157, 211, 176, 198, 123, 128, 173, 148, 114, 197, 152, 64,
+        188, 185, 37, 45, 158, 225, 162, 241, 192, 225, 240, 16, 113,
+    ],
+    bridge_nonstandard: false,
 };

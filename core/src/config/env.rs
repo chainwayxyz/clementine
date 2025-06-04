@@ -1,7 +1,7 @@
 //! # Environment Variable Support For [`BridgeConfig`]
 
 use super::BridgeConfig;
-use crate::{builder::transaction::SecurityCouncil, errors::BridgeError};
+use crate::{deposit::SecurityCouncil, errors::BridgeError};
 use bitcoin::{address::NetworkUnchecked, secp256k1::SecretKey, Amount};
 use std::{path::PathBuf, str::FromStr};
 
@@ -44,39 +44,6 @@ impl BridgeConfig {
                         .map(|x| x.to_string())
                         .collect::<Vec<String>>()
                 });
-
-        let all_verifiers_secret_keys =
-            if let Ok(all_verifiers_secret_keys) = std::env::var("ALL_VERIFIERS_SECRET_KEYS") {
-                Some(
-                    all_verifiers_secret_keys
-                        .split(",")
-                        .collect::<Vec<&str>>()
-                        .iter()
-                        .map(|x| SecretKey::from_str(x))
-                        .collect::<Result<Vec<SecretKey>, _>>()
-                        .map_err(|e| {
-                            BridgeError::EnvVarMalformed("ALL_VERIFIERS_SECRET_KEYS", e.to_string())
-                        })?,
-                )
-            } else {
-                None
-            };
-        let all_operators_secret_keys =
-            if let Ok(all_operators_secret_keys) = std::env::var("ALL_OPERATORS_SECRET_KEYS") {
-                Some(
-                    all_operators_secret_keys
-                        .split(",")
-                        .collect::<Vec<&str>>()
-                        .iter()
-                        .map(|x| SecretKey::from_str(x))
-                        .collect::<Result<Vec<SecretKey>, _>>()
-                        .map_err(|e| {
-                            BridgeError::EnvVarMalformed("ALL_OPERATORS_SECRET_KEYS", e.to_string())
-                        })?,
-                )
-            } else {
-                None
-            };
 
         let winternitz_secret_key = if let Ok(sk) = std::env::var("WINTERNITZ_SECRET_KEY") {
             Some(sk.parse::<SecretKey>().map_err(|e| {
@@ -179,8 +146,6 @@ impl BridgeConfig {
             header_chain_proof_path,
             verifier_endpoints,
             operator_endpoints,
-            all_verifiers_secret_keys,
-            all_operators_secret_keys,
             security_council,
 
             client_verification,
@@ -279,26 +244,6 @@ mod tests {
         }
         if let Some(ref operator_endpoints) = default_config.operator_endpoints {
             std::env::set_var("OPERATOR_ENDPOINTS", operator_endpoints.join(","));
-        }
-        if let Some(ref all_verifiers_secret_keys) = default_config.all_verifiers_secret_keys {
-            std::env::set_var(
-                "ALL_VERIFIERS_SECRET_KEYS",
-                all_verifiers_secret_keys
-                    .iter()
-                    .map(|sk| sk.display_secret().to_string())
-                    .collect::<Vec<String>>()
-                    .join(","),
-            );
-        }
-        if let Some(ref all_operators_secret_keys) = default_config.all_operators_secret_keys {
-            std::env::set_var(
-                "ALL_OPERATORS_SECRET_KEYS",
-                all_operators_secret_keys
-                    .iter()
-                    .map(|sk| sk.display_secret().to_string())
-                    .collect::<Vec<String>>()
-                    .join(","),
-            );
         }
 
         if let Some(ref operator_reimbursement_address) =
@@ -433,6 +378,10 @@ mod tests {
         std::env::set_var(
             "BRIDGE_CIRCUIT_METHOD_ID_CONSTANT",
             hex::encode(default_config.bridge_circuit_method_id_constant),
+        );
+        std::env::set_var(
+            "BRIDGE_NONSTANDARD",
+            default_config.bridge_nonstandard.to_string(),
         );
 
         assert_eq!(ProtocolParamset::from_env().unwrap(), default_config);

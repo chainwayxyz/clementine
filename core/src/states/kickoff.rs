@@ -7,9 +7,9 @@ use statig::prelude::*;
 
 use crate::{
     builder::transaction::{
-        input::UtxoVout, remove_txhandler_from_map, ContractContext, DepositData, KickoffData,
-        TransactionType,
+        input::UtxoVout, remove_txhandler_from_map, ContractContext, TransactionType,
     },
+    deposit::{DepositData, KickoffData},
     errors::BridgeError,
 };
 
@@ -439,7 +439,7 @@ impl<T: Owner> KickoffStateMachine<T> {
         &mut self,
         context: &mut StateContext<T>,
     ) -> Result<(), BridgeError> {
-        let contract_context = ContractContext::new_context_for_kickoffs(
+        let contract_context = ContractContext::new_context_for_kickoff(
             self.kickoff_data,
             self.deposit_data.clone(),
             context.paramset,
@@ -458,6 +458,11 @@ impl<T: Owner> KickoffStateMachine<T> {
             // TODO: use dedicated functions or smth else, not hardcoded here.
             // It will be easier when we have data of operators/watchtowers that participated in the deposit in DepositData
             let mini_assert_vout = UtxoVout::Assert(assert_idx).get_vout();
+            tracing::info!(
+                "Adding matcher for assert {} with vout {}",
+                assert_idx,
+                mini_assert_vout
+            );
             let assert_timeout_txhandler = remove_txhandler_from_map(
                 &mut txhandlers,
                 TransactionType::AssertTimeout(assert_idx),

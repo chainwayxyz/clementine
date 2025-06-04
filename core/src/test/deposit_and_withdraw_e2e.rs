@@ -5,11 +5,10 @@ use crate::builder::address::create_taproot_address;
 use crate::builder::script::SpendPath;
 use crate::builder::transaction::input::{SpendableTxIn, UtxoVout};
 use crate::builder::transaction::output::UnspentTxOut;
-use crate::builder::transaction::{
-    KickoffData, TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE,
-};
+use crate::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE};
 use crate::citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER};
 use crate::database::Database;
+use crate::deposit::KickoffData;
 use crate::rpc::clementine::{
     FinalizedPayoutParams, KickoffId, NormalSignatureKind, TransactionRequest, WithdrawParams,
 };
@@ -59,6 +58,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
                 "-txindex=1",
                 "-fallbackfee=0.000001",
                 "-rpcallowip=0.0.0.0/0",
+                "-dustrelayfee=0",
             ],
             ..Default::default()
         }
@@ -133,7 +133,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         let block_count = da.get_block_count().await?;
         tracing::debug!("Block count before deposit: {:?}", block_count);
 
-        tracing::debug!(
+        tracing::info!(
             "Deposit starting at block height: {:?}",
             rpc.client.get_block_count().await?
         );
@@ -147,7 +147,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             _deposit_blockhash,
             verifiers_public_keys,
         ) = run_single_deposit::<CitreaClient>(&mut config, rpc.clone(), None).await?;
-        tracing::debug!(
+        tracing::info!(
             "Deposit ending block_height: {:?}",
             rpc.client.get_block_count().await?
         );
@@ -552,7 +552,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             .collect::<Vec<Txid>>();
         for (idx, txid) in operator_assert_txids.into_iter().enumerate() {
             assert!(
-                rpc.is_txid_in_chain(&txid).await.unwrap(),
+                rpc.is_tx_on_chain(&txid).await.unwrap(),
                 "Mini assert {} was not found in the chain",
                 idx
             );
@@ -1253,7 +1253,7 @@ async fn mock_citrea_run_malicious() {
     // tx_2 should not have challenge amount output
     assert!(tx_2.output[0].value != config.protocol_paramset().operator_challenge_amount);
 
-    // TODO: check that operators collateral got burned. It cant be checked right now as we dont have auto disprove implemented.
+    // TODO: check that operators collateral got burned. It can't be checked right now as we dont have auto disprove implemented.
 }
 
 /// Tests protocol safety when an operator exits before a challenge can be made.

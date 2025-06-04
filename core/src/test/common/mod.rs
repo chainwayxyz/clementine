@@ -7,14 +7,14 @@ use std::time::Duration;
 use crate::actor::Actor;
 use crate::bitvm_client::SECP;
 use crate::builder::address::create_taproot_address;
-use crate::builder::script::{CheckSig, Multisig, SpendPath, SpendableScript};
-use crate::builder::transaction::input::SpendableTxIn;
-use crate::builder::transaction::{
-    create_replacement_deposit_txhandler, BaseDepositData, DepositInfo, DepositType,
-    ReplacementDepositData, SecurityCouncil, TxHandler, DEFAULT_SEQUENCE,
-};
+use crate::builder::script::{CheckSig, Multisig, SpendableScript};
+use crate::builder::transaction::input::UtxoVout;
+use crate::builder::transaction::{create_replacement_deposit_txhandler, TxHandler};
 use crate::citrea::CitreaClientT;
 use crate::config::BridgeConfig;
+use crate::deposit::{
+    BaseDepositData, DepositInfo, DepositType, ReplacementDepositData, SecurityCouncil,
+};
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::{
@@ -33,7 +33,7 @@ use bitcoin::key::Keypair;
 use bitcoin::secp256k1::Message;
 use bitcoin::secp256k1::PublicKey;
 use bitcoin::XOnlyPublicKey;
-use bitcoin::{taproot, Amount, BlockHash, OutPoint, Transaction, Txid, Witness};
+use bitcoin::{taproot, BlockHash, OutPoint, Transaction, Txid, Witness};
 use bitcoincore_rpc::RpcApi;
 use citrea::MockCitreaClient;
 use eyre::Context;
@@ -425,9 +425,8 @@ fn sign_nofn_deposit_tx(
     );
 
     let kps = config
+        .test_params
         .all_verifiers_secret_keys
-        .clone()
-        .unwrap()
         .iter()
         .map(|sk| Keypair::from_secret_key(&SECP, sk))
         .collect::<Vec<_>>();
@@ -545,41 +544,16 @@ pub async fn run_replacement_deposit(
     assert_eq!(move_tx.output[0].script_pubkey, addr.script_pubkey());
 
     // generate replacement deposit tx
-    let new_deposit_tx = create_replacement_deposit_txhandler(
+    let mut new_deposit_tx = create_replacement_deposit_txhandler(
         move_txid,
+        OutPoint {
+            txid: move_txid,
+            vout: UtxoVout::DepositInMove.get_vout(),
+        },
         nofn_xonly_pk,
         config.protocol_paramset(),
         config.security_council.clone(),
     )?;
-    let some_funding_utxo = rpc
-        .send_to_address(
-            &create_taproot_address(
-                &[],
-                Some(actor.xonly_public_key),
-                config.protocol_paramset().network,
-            )
-            .0,
-            Amount::from_sat(1000),
-        )
-        .await
-        .expect("Failed to send funding utxo");
-
-    let new_deposit_tx = new_deposit_tx.add_input(
-        NormalSignatureKind::NotStored,
-        SpendableTxIn::from_scripts(
-            bitcoin::OutPoint {
-                txid: some_funding_utxo.txid,
-                vout: some_funding_utxo.vout,
-            },
-            Amount::from_sat(1000),
-            vec![],
-            Some(actor.xonly_public_key),
-            config.protocol_paramset().network,
-        ),
-        SpendPath::KeySpend,
-        DEFAULT_SEQUENCE,
-    );
-    let mut new_deposit_tx = new_deposit_tx.finalize();
 
     actor
         .tx_sign_and_fill_sigs(
