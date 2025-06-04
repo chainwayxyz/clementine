@@ -796,12 +796,6 @@ pub fn create_disprove_taproot_output(
         .finalize(&SECP, *UNSPENDABLE_XONLY_PUBKEY)
         .expect("valid taptree");
 
-    let disprove_path = if let DisprovePath::Scripts(_) = disprove_path {
-        "script"
-    } else {
-        "hidden_node"
-    };
-
     let address = Address::p2tr(
         &SECP,
         *UNSPENDABLE_XONLY_PUBKEY,
