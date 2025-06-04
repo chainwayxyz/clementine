@@ -494,8 +494,8 @@ impl ClementineBitVMPublicKeys {
         paramset: &'static ProtocolParamset,
     ) -> Vec<WinternitzDerivationPath> {
         vec![
-            Self::get_challenge_sending_watchtowers_derivation(deposit_outpoint, paramset),
-            WinternitzDerivationPath::BitvmAssert(32 * 2, 3, 0, deposit_outpoint, paramset),
+            Self::get_challenge_sending_watchtowers_derivation(deposit_outpoint, paramset), // Will not go into BitVM disprove scripts
+            WinternitzDerivationPath::BitvmAssert(32 * 2, 3, 0, deposit_outpoint, paramset), //
             WinternitzDerivationPath::BitvmAssert(32 * 2, 4, 12, deposit_outpoint, paramset),
             WinternitzDerivationPath::BitvmAssert(32 * 2, 4, 13, deposit_outpoint, paramset),
             WinternitzDerivationPath::BitvmAssert(16 * 2, 5, 360, deposit_outpoint, paramset),

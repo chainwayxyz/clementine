@@ -36,16 +36,20 @@ use crate::{musig2, UTXO};
 use bitcoin::hashes::Hash;
 use bitcoin::key::Secp256k1;
 use bitcoin::opcodes::all::OP_RETURN;
+use bitcoin::script::Instruction;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::Message;
 use bitcoin::taproot::TaprootBuilder;
 use bitcoin::{Address, Amount, ScriptBuf, Witness, XOnlyPublicKey};
 use bitcoin::{OutPoint, TxOut};
+use bitcoin_script::builder::StructuredScript;
 use bitcoincore_rpc::RpcApi;
+use bitvm::chunk::api::validate_assertions;
 use bitvm::clementine::additional_disprove::{
     replace_placeholders_in_script, validate_assertions_for_additional_script,
 };
 use bitvm::signatures::winternitz;
+use bridge_circuit_host::utils::get_ark_verifying_key;
 use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
 use circuits_lib::bridge_circuit::{deposit_constant, parse_op_return_data};
 use circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
@@ -1838,6 +1842,286 @@ where
             .wrap_err("Error sending disprove tx")?;
         Ok(())
     }
+
+    async fn verify_disprove_conditions(
+        &self,
+        deposit_data: &mut DepositData,
+        kickoff_data: &KickoffData,
+        operator_asserts: &HashMap<usize, Witness>,
+        txhandlers: &BTreeMap<TransactionType, TxHandler>,
+    ) -> Result<Option<(usize, StructuredScript)>, BridgeError> {
+
+        let nofn_key = deposit_data.get_nofn_xonly_pk().inspect_err(|e| {
+            tracing::error!("Error getting nofn xonly pk: {:?}", e);
+        })?;
+
+        let move_txid = txhandlers
+            .get(&TransactionType::MoveToVault)
+            .ok_or(TxError::TxHandlerNotFound(TransactionType::MoveToVault))?
+            .get_txid()
+            .to_byte_array();
+
+        let round_txid = txhandlers
+            .get(&TransactionType::Round)
+            .ok_or(TxError::TxHandlerNotFound(TransactionType::Round))?
+            .get_txid()
+            .to_byte_array();
+
+        let vout = kickoff_data.kickoff_idx + 1;
+
+        let watchtower_challenge_start_idx = (FIRST_FIVE_OUTPUTS + NUMBER_OF_ASSERT_TXS) as u16;
+
+        let secp = Secp256k1::verification_only();
+
+        let watchtower_xonly_pk = deposit_data.get_watchtowers();
+        let watchtower_pubkeys = watchtower_xonly_pk
+            .iter()
+            .map(|xonly_pk| {
+                // Create timelock script that this watchtower key will commit to
+                let nofn_2week = Arc::new(TimelockScript::new(
+                    Some(nofn_key),
+                    self.config
+                        .protocol_paramset
+                        .watchtower_challenge_timeout_timelock,
+                ));
+
+                let builder = TaprootBuilder::new();
+                let tweaked = builder
+                    .add_leaf(0, nofn_2week.to_script_buf())
+                    .expect("Valid script leaf")
+                    .finalize(&secp, *xonly_pk)
+                    .expect("taproot finalize must succeed");
+
+                tweaked.output_key().serialize()
+            })
+            .collect::<Vec<_>>();
+
+        let deposit_constant = deposit_constant(
+            kickoff_data.operator_xonly_pk.serialize(),
+            watchtower_challenge_start_idx,
+            &watchtower_pubkeys,
+            move_txid,
+            round_txid,
+            vout,
+            self.config.protocol_paramset.genesis_chain_state_hash,
+        );
+
+        tracing::debug!("Deposit constant: {:?}", deposit_constant);
+
+        let bitvm_pks = self.signer.generate_bitvm_pks_for_deposit(
+            deposit_data.get_deposit_outpoint(),
+            self.config.protocol_paramset,
+        )?;
+        let disprove_scripts = bitvm_pks.get_g16_verifier_disprove_scripts();
+
+        let deposit_outpoint = deposit_data.get_deposit_outpoint();
+        let paramset = self.config.protocol_paramset();
+
+        let mut all_assert_commits: Vec<Vec<Vec<u8>>> = Vec::new();
+        tracing::info!("Number of operator asserts: {}", operator_asserts.len());
+        for i in 0..operator_asserts.len() {
+            let witness = operator_asserts
+                .get(&i)
+                .wrap_err("No witness found in operator asserts")?
+                .clone();
+            let commits = extract_winternitz_commits_with_sigs(
+                witness,
+                &ClementineBitVMPublicKeys::get_assert_derivations(i, deposit_outpoint, paramset),
+                self.config.protocol_paramset(),
+            )?;
+            all_assert_commits.extend(commits);
+        }
+
+        let first: [[([u8; 20], u8); 68]; 1] = [
+            // This outer bracket creates the `[[...]; 1]`
+            // `std::array::from_fn` will create the inner array: `[([u8; 20], u8); 68]`
+            std::array::from_fn(|i: usize| -> ([u8; 20], u8) {
+                // `i` will iterate from 0 to 67.
+                // We access the i-th element of `all_assert_commits[0]`.
+                let inner_byte_vector: &Vec<u8> = &all_assert_commits[0][2 * i];
+
+                // Based on "We know that this can be converted," we assume:
+                // 1. all_assert_commits[0].len() == 68, so `all_assert_commits[0][i]` is valid for i in 0..67.
+                // 2. inner_byte_vector.len() == 21.
+
+                // Extract the first 20 bytes for the array [u8; 20].
+                // .try_into() converts a slice to a fixed-size array.
+                // .expect() will panic if the slice length isn't 20 (but our assumption is it will be).
+                let array_part: [u8; 20] = inner_byte_vector[0..20]
+                    .try_into()
+                    .expect("Failed to convert slice to [u8; 20]. Expected 20 bytes.");
+
+                // Extract the 21st byte for the u8.
+                let u8_part: u8 = all_assert_commits[0][2 * i + 1][0];
+
+                // Return the tuple for the i-th element of the inner array.
+                (array_part, u8_part)
+            }), // This call to std::array::from_fn(...) results in the [([u8; 20], u8); 68]
+        ];
+
+        let second: [[([u8; 20], u8); 68]; 14] =
+    // The outer `std::array::from_fn` creates the array of 14 elements.
+    // `block_idx` will iterate from 0 to 13.
+    std::array::from_fn(|block_idx: usize| -> [([u8; 20], u8); 68] {
+        // For each `block_idx`, we are constructing one `[([u8; 20], u8); 68]` array.
+        // We assume `all_assert_commits[block_idx]` provides the data for this current block.
+        let data_for_current_block: &Vec<Vec<u8>> = &all_assert_commits[block_idx + 1];
+
+        // Now, use the same logic as before to create the inner array of 68 tuples
+        // using `data_for_current_block`.
+        // `tuple_idx` will iterate from 0 to 67.
+        std::array::from_fn(|tuple_idx: usize| -> ([u8; 20], u8) {
+            // `data_for_current_block` is expected to have 136 elements.
+            // `data_for_current_block[2 * tuple_idx]` is for the [u8; 20] part.
+            // `data_for_current_block[2 * tuple_idx + 1]` is for the u8 part.
+
+            let twenty_byte_vec: &Vec<u8> = &data_for_current_block[2 * tuple_idx];
+            // Assuming twenty_byte_vec.len() == 20.
+            let array_part: [u8; 20] = twenty_byte_vec[0..20]
+                .try_into()
+                .expect("Failed to convert slice to [u8; 20]. Expected 20 bytes.");
+
+            let one_byte_vec: &Vec<u8> = &data_for_current_block[2 * tuple_idx + 1];
+            // Assuming one_byte_vec.len() == 1.
+            let u8_part: u8 = one_byte_vec[0];
+
+            (array_part, u8_part)
+        }) // This inner from_fn produces one [([u8; 20], u8); 68]
+    });
+
+        let third: [[([u8; 20], u8); 36]; 363] =
+    // The outer `std::array::from_fn` creates the array of 14 elements.
+    // `block_idx` will iterate from 0 to 13.
+    std::array::from_fn(|block_idx: usize| -> [([u8; 20], u8); 36] {
+        // For each `block_idx`, we are constructing one `[([u8; 20], u8); 68]` array.
+        // We assume `all_assert_commits[block_idx]` provides the data for this current block.
+        let data_for_current_block: &Vec<Vec<u8>> = &all_assert_commits[block_idx + 15];
+
+        // Now, use the same logic as before to create the inner array of 68 tuples
+        // using `data_for_current_block`.
+        // `tuple_idx` will iterate from 0 to 67.
+        std::array::from_fn(|tuple_idx: usize| -> ([u8; 20], u8) {
+            // `data_for_current_block` is expected to have 136 elements.
+            // `data_for_current_block[2 * tuple_idx]` is for the [u8; 20] part.
+            // `data_for_current_block[2 * tuple_idx + 1]` is for the u8 part.
+
+            let twenty_byte_vec: &Vec<u8> = &data_for_current_block[2 * tuple_idx];
+            // Assuming twenty_byte_vec.len() == 20.
+            let array_part: [u8; 20] = twenty_byte_vec[0..20]
+                .try_into()
+                .expect("Failed to convert slice to [u8; 20]. Expected 20 bytes.");
+
+            let one_byte_vec: &Vec<u8> = &data_for_current_block[2 * tuple_idx + 1];
+            // Assuming one_byte_vec.len() == 1.
+            let u8_part: u8 = one_byte_vec[0];
+
+            (array_part, u8_part)
+        }) // This inner from_fn produces one [([u8; 20], u8); 68]
+    });
+
+        let first_box = Box::new(first);
+        let second_box = Box::new(second);
+        let third_box = Box::new(third);
+
+        let res = validate_assertions(
+            &get_ark_verifying_key(),
+            (first_box, second_box, third_box),
+            bitvm_pks.bitvm_pks,
+            disprove_scripts
+                .as_slice()
+                .try_into()
+                .expect("Cannot fail, there must be exactly 364 disprove scripts"),
+        );
+
+        if res.is_none() {
+            tracing::info!("No disprove witness found");
+            return Ok(None);
+        } else {
+            let (index, disprove_script) = res.unwrap();
+            // let final_disprove_script = disprove_script.compile();
+            Ok(Some((index, disprove_script)))
+        }
+    }
+
+    async fn send_disprove_tx(
+        &self,
+        txhandlers: &BTreeMap<TransactionType, TxHandler>,
+        kickoff_data: KickoffData,
+        deposit_data: DepositData,
+        disprove_script: (usize, StructuredScript),
+    ) -> Result<(), BridgeError> {
+        let verifier_xonly_pk = self.signer.xonly_public_key;
+
+        let mut disprove_txhandler = txhandlers
+            .get(&TransactionType::Disprove)
+            .wrap_err("Disprove txhandler not found in txhandlers")?
+            .clone();
+
+        let disprove_inputs: Vec<Vec<u8>> = disprove_script
+            .1
+            .compile()
+            .instructions()
+            .into_iter()
+            .filter_map(|ins_res| match ins_res {
+                Ok(Instruction::PushBytes(bytes)) => Some(bytes.as_bytes().to_vec()),
+                _ => None,
+            })
+            .collect();
+
+        disprove_txhandler
+            .set_p2tr_script_spend_witness(&disprove_inputs, 0, disprove_script.0 + 2)
+            .inspect_err(|e| {
+                tracing::error!("Error setting disprove input witness: {:?}", e);
+            })?;
+
+        let operators_sig = self
+            .db
+            .get_deposit_signatures(
+                None,
+                deposit_data.get_deposit_outpoint(),
+                kickoff_data.operator_xonly_pk,
+                kickoff_data.round_idx as usize,
+                kickoff_data.kickoff_idx as usize,
+            )
+            .await?
+            .ok_or_eyre("No operator signature found for the disprove tx")?;
+
+        let mut tweak_cache = TweakCache::default();
+
+        self.signer
+            .tx_sign_and_fill_sigs(
+                &mut disprove_txhandler,
+                operators_sig.as_ref(),
+                Some(&mut tweak_cache),
+            )
+            .inspect_err(|e| {
+                tracing::error!(
+                    "Error signing disprove tx for verifier {:?}: {:?}",
+                    verifier_xonly_pk,
+                    e
+                );
+            })?;
+
+        let disprove_tx = disprove_txhandler.get_cached_tx().clone();
+
+        tracing::debug!("Disprove txid: {:?}", disprove_tx.compute_txid());
+
+        tracing::info!(
+            "Disprove tx created for verifier {:?} with kickoff_data: {:?}, deposit_data: {:?}",
+            verifier_xonly_pk,
+            kickoff_data,
+            deposit_data
+        );
+
+        let raw_tx = bitcoin::consensus::serialize(&disprove_tx);
+
+        self.rpc
+            .client
+            .send_raw_transaction(&raw_tx)
+            .await
+            .wrap_err("Error sending disprove tx")?;
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -1928,6 +2212,35 @@ where
                         "Verifier {:?} did not find additional disprove witness",
                         verifier_xonly_pk
                     );
+
+                    if let Some((index, disprove_script)) = self
+                        .verify_disprove_conditions(
+                            &mut deposit_data,
+                            &kickoff_data,
+                            &operator_asserts,
+                            &txhandlers,
+                        )
+                        .await?
+                    {
+                        tracing::info!(
+                            "Verifier {:?} found disprove script with index: {:?}, script: {:?}",
+                            verifier_xonly_pk,
+                            index,
+                            disprove_script
+                        );
+                        self.send_disprove_tx(
+                            &txhandlers,
+                            kickoff_data,
+                            deposit_data,
+                            (index, disprove_script),
+                        )
+                        .await?;
+                    } else {
+                        tracing::info!(
+                            "Verifier {:?} did not find disprove witness",
+                            verifier_xonly_pk
+                        );
+                    }
                 }
 
                 Ok(DutyResult::Handled)

@@ -59,10 +59,10 @@ bincode = { workspace = true }
 ark-ff = { workspace = true }
 rustls-pki-types = { workspace = true }
 once_cell = { workspace = true }
+bitcoin-script = { workspace = true }
 
 [dev-dependencies]
 serial_test = { workspace = true }
-bitcoin-script = { workspace = true }
 citrea-e2e = { workspace = true }
 base64 = { workspace = true }
 bridge-circuit-host = { path = "../bridge-circuit-host" }
