@@ -309,7 +309,7 @@ impl<T: Owner> RoundStateMachine<T> {
                     if *round_idx == context.paramset.num_round_txs as u32 + 1 {
                         Ok::<(), BridgeError>(())
                     } else {
-                        let contract_context = ContractContext::new_context_for_rounds(
+                        let contract_context = ContractContext::new_context_for_round(
                             self.operator_data.xonly_pk,
                             *round_idx,
                             context.paramset,
