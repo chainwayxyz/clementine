@@ -319,7 +319,7 @@ pub fn create_disprove_txhandler(
 /// This transaction is used to reimburse an operator for a valid challenge, intended to cover their costs for sending asserts transactions,
 /// and potentially cover their opportunity cost as their reimbursements are delayed due to the challenge. This cost of a challenge is also
 /// used to disincentivize sending challenges for kickoffs that are correct. In case the challenge is correct and operator is proved to be
-/// malicious, the challenge cost will be reimbursed using the operator's collateral thats locked in Citrea.
+/// malicious, the challenge cost will be reimbursed using the operator's collateral that's locked in Citrea.
 ///
 /// # Inputs
 /// 1. KickoffTx: Challenge utxo
