@@ -473,7 +473,7 @@ impl AdditionalDisproveTest {
         let txid = assert_tx.compute_txid();
 
         assert!(
-            rpc.is_txid_in_chain(&txid).await.unwrap(),
+            rpc.is_tx_on_chain(&txid).await.unwrap(),
             "Mini assert 0 was not found in the chain",
         );
 
