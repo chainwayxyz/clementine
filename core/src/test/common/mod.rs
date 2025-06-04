@@ -10,7 +10,6 @@ use crate::builder::address::create_taproot_address;
 use crate::builder::script::{CheckSig, Multisig, SpendableScript};
 use crate::builder::transaction::input::UtxoVout;
 use crate::builder::transaction::{create_replacement_deposit_txhandler, TxHandler};
-use crate::citrea::mock::MockCitreaClient;
 use crate::citrea::CitreaClientT;
 use crate::config::BridgeConfig;
 use crate::deposit::{
@@ -36,6 +35,7 @@ use bitcoin::secp256k1::PublicKey;
 use bitcoin::XOnlyPublicKey;
 use bitcoin::{taproot, BlockHash, OutPoint, Transaction, Txid, Witness};
 use bitcoincore_rpc::RpcApi;
+use citrea::MockCitreaClient;
 use eyre::Context;
 use secp256k1::rand;
 pub use setup_utils::*;

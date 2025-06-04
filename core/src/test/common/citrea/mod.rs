@@ -9,11 +9,13 @@ use citrea_e2e::{
     framework::TestFramework,
     node::{Node, NodeKind},
 };
+pub use client_mock::*;
 use jsonrpsee::http_client::HttpClient;
 pub use parameters::*;
 pub use requests::*;
 
 mod bitcoin_merkle;
+mod client_mock;
 mod parameters;
 mod requests;
 
