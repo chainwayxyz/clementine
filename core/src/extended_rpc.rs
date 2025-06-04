@@ -523,13 +523,22 @@ impl ExtendedRpc {
 
 #[cfg(test)]
 mod tests {
+    use crate::actor::Actor;
+    use crate::config::protocol::{ProtocolParamset, REGTEST_PARAMSET};
+    use crate::extended_rpc::ExtendedRpc;
+    use crate::test::common::{citrea, create_test_config_with_thread_name};
     use crate::{
-        bitvm_client::SECP,
-        extended_rpc::BitcoinRPCError,
-        test::common::{create_regtest_rpc, create_test_config_with_thread_name},
+        bitvm_client::SECP, extended_rpc::BitcoinRPCError, test::common::create_regtest_rpc,
     };
+    use bitcoin::Amount;
     use bitcoin::{amount, key::Keypair, Address, FeeRate, XOnlyPublicKey};
     use bitcoincore_rpc::RpcApi;
+    use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
+    use citrea_e2e::config::{BitcoinConfig, TestCaseDockerConfig};
+    use citrea_e2e::test_case::TestCaseRunner;
+    use citrea_e2e::Result;
+    use citrea_e2e::{config::TestCaseConfig, framework::TestFramework, test_case::TestCase};
+    use tonic::async_trait;
 
     #[tokio::test]
     async fn new_extended_rpc_with_clone() {
@@ -653,5 +662,105 @@ mod tests {
             .await
             .unwrap();
         assert_ne!(txid, utxo.txid);
+    }
+
+    struct ReorgChecks;
+    #[async_trait]
+    impl TestCase for ReorgChecks {
+        fn bitcoin_config() -> BitcoinConfig {
+            BitcoinConfig {
+                extra_args: vec![
+                    "-txindex=1",
+                    "-fallbackfee=0.000001",
+                    "-rpcallowip=0.0.0.0/0",
+                ],
+                ..Default::default()
+            }
+        }
+
+        fn test_config() -> TestCaseConfig {
+            TestCaseConfig {
+                with_sequencer: true,
+                with_batch_prover: false,
+                n_nodes: 2,
+                docker: TestCaseDockerConfig {
+                    bitcoin: true,
+                    citrea: true,
+                },
+                ..Default::default()
+            }
+        }
+
+        async fn run_test(&mut self, f: &mut TestFramework) -> Result<()> {
+            let (da0, da1) = (
+                f.bitcoin_nodes.get(0).unwrap(),
+                f.bitcoin_nodes.get(1).unwrap(),
+            );
+
+            let mut config = create_test_config_with_thread_name().await;
+            const PARAMSET: ProtocolParamset = ProtocolParamset {
+                finality_depth: DEFAULT_FINALITY_DEPTH as u32,
+                ..REGTEST_PARAMSET
+            };
+            config.protocol_paramset = &PARAMSET;
+            citrea::update_config_with_citrea_e2e_values(
+                &mut config,
+                da0,
+                f.sequencer.as_ref().expect("Sequencer is present"),
+                None,
+            );
+
+            let rpc = ExtendedRpc::connect(
+                config.bitcoin_rpc_url.clone(),
+                config.bitcoin_rpc_user.clone(),
+                config.bitcoin_rpc_password.clone(),
+            )
+            .await
+            .unwrap();
+
+            // Reorg starts here.
+            f.bitcoin_nodes.disconnect_nodes().await?;
+
+            let before_reorg_tip_height = rpc.client.get_block_count().await?;
+            let before_reorg_tip_hash = rpc.client.get_block_hash(before_reorg_tip_height).await?;
+
+            let address =
+                Actor::new(config.secret_key, None, config.protocol_paramset.network).address;
+            let tx = rpc
+                .send_to_address(&address, Amount::from_sat(10000))
+                .await?;
+
+            assert!(!rpc.is_tx_on_chain(&tx.txid).await?);
+            rpc.mine_blocks(1).await?;
+            assert!(rpc.is_tx_on_chain(&tx.txid).await?);
+
+            // Make the second branch longer and perform a reorg.
+            let reorg_depth = 4;
+            da1.generate(reorg_depth).await.unwrap();
+            f.bitcoin_nodes.connect_nodes().await?;
+            f.bitcoin_nodes.wait_for_sync(None).await?;
+
+            // Check that reorg happened.
+            let current_tip_height = rpc.client.get_block_count().await?;
+            assert_eq!(
+                before_reorg_tip_height + reorg_depth,
+                current_tip_height,
+                "Re-org did not occur"
+            );
+            let current_tip_hash = rpc.client.get_block_hash(current_tip_height).await?;
+            assert_ne!(
+                before_reorg_tip_hash, current_tip_hash,
+                "Re-org did not occur"
+            );
+
+            assert!(!rpc.is_tx_on_chain(&tx.txid).await?);
+
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn reorg_checks() -> Result<()> {
+        TestCaseRunner::new(ReorgChecks).run().await
     }
 }
