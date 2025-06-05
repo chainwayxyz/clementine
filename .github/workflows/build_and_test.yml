@@ -216,7 +216,7 @@ jobs:
           shared-key: "release-build"
 
       - name: Run tests
-        run: cargo test ${{ matrix.test_script_name }} --release  -- --ignored
+        run: cargo test ${{ matrix.test_script_name }} --features automation --release  -- --ignored
 
   coverage:
     name: Coverage checks with Codecov
