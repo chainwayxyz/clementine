@@ -487,6 +487,12 @@ where
             return Err(BridgeError::InvalidDeposit);
         }
 
+        // set deposit data to db before starting to sign, ensures that if the deposit data already exists in db, it matches the one
+        // given by the aggregator currently. We do not want to sign 2 different deposits for same deposit_outpoint
+        self.db
+            .set_deposit_data(None, &mut deposit_data, self.config.protocol_paramset())
+            .await?;
+
         let verifier = self.clone();
         let (partial_sig_tx, partial_sig_rx) = mpsc::channel(1280);
         let verifier_index = deposit_data.get_verifier_index(&self.signer.public_key)?;
@@ -883,13 +889,6 @@ where
 
         // Save signatures to db
         let mut dbtx = self.db.begin_transaction().await?;
-        self.db
-            .set_deposit_data(
-                Some(&mut dbtx),
-                deposit_data.clone(),
-                *move_txhandler.get_txid(),
-            )
-            .await?;
         // Deposit is not actually finalized here, its only finalized after the aggregator gets all the partial sigs and checks the aggregated sig
         // TODO: It can create problems if the deposit fails at the end by some verifier not sending movetx partial sig, but we still added sigs to db
         for (operator_idx, (operator_xonly_pk, operator_sigs)) in operator_xonly_pks
@@ -1049,10 +1048,14 @@ where
 
     pub async fn set_operator_keys(
         &self,
-        deposit_data: DepositData,
+        mut deposit_data: DepositData,
         keys: OperatorKeys,
         operator_xonly_pk: XOnlyPublicKey,
     ) -> Result<(), BridgeError> {
+        self.db
+            .set_deposit_data(None, &mut deposit_data, self.config.protocol_paramset())
+            .await?;
+
         let hashes: Vec<[u8; 20]> = keys
             .challenge_ack_digests
             .into_iter()
@@ -2220,6 +2223,9 @@ mod tests {
         // Should succeed or fail gracefully - testing idempotency, not functionality
         tracing::info!("First call result: {:?}", result1);
 
+        // Commit the first transaction
+        dbtx1.commit().await.unwrap();
+
         // Second call with identical parameters should also succeed (idempotent)
         let mut dbtx2 = verifier.db.begin_transaction().await.unwrap();
         let result2 = verifier
@@ -2233,6 +2239,9 @@ mod tests {
             .await;
         // Should succeed or fail gracefully - testing idempotency, not functionality
         tracing::info!("Second call result: {:?}", result2);
+
+        // Commit the second transaction
+        dbtx2.commit().await.unwrap();
 
         // Both calls should have same outcome (both succeed or both fail with same error type)
         assert_eq!(
