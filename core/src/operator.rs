@@ -771,6 +771,7 @@ where
             .await?
             .ok_or(BridgeError::DatabaseError(sqlx::Error::RowNotFound))?;
 
+        #[cfg(feature = "automation")]
         if current_round_index != round_idx {
             // we currently have no free kickoff connectors in the current round, so we need to end round first
             // if current_round_index should only be smaller than round_idx, and should not be smaller by more than 1
