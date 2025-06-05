@@ -1850,64 +1850,6 @@ where
         operator_asserts: &HashMap<usize, Witness>,
         txhandlers: &BTreeMap<TransactionType, TxHandler>,
     ) -> Result<Option<(usize, StructuredScript)>, BridgeError> {
-
-        let nofn_key = deposit_data.get_nofn_xonly_pk().inspect_err(|e| {
-            tracing::error!("Error getting nofn xonly pk: {:?}", e);
-        })?;
-
-        let move_txid = txhandlers
-            .get(&TransactionType::MoveToVault)
-            .ok_or(TxError::TxHandlerNotFound(TransactionType::MoveToVault))?
-            .get_txid()
-            .to_byte_array();
-
-        let round_txid = txhandlers
-            .get(&TransactionType::Round)
-            .ok_or(TxError::TxHandlerNotFound(TransactionType::Round))?
-            .get_txid()
-            .to_byte_array();
-
-        let vout = kickoff_data.kickoff_idx + 1;
-
-        let watchtower_challenge_start_idx = (FIRST_FIVE_OUTPUTS + NUMBER_OF_ASSERT_TXS) as u16;
-
-        let secp = Secp256k1::verification_only();
-
-        let watchtower_xonly_pk = deposit_data.get_watchtowers();
-        let watchtower_pubkeys = watchtower_xonly_pk
-            .iter()
-            .map(|xonly_pk| {
-                // Create timelock script that this watchtower key will commit to
-                let nofn_2week = Arc::new(TimelockScript::new(
-                    Some(nofn_key),
-                    self.config
-                        .protocol_paramset
-                        .watchtower_challenge_timeout_timelock,
-                ));
-
-                let builder = TaprootBuilder::new();
-                let tweaked = builder
-                    .add_leaf(0, nofn_2week.to_script_buf())
-                    .expect("Valid script leaf")
-                    .finalize(&secp, *xonly_pk)
-                    .expect("taproot finalize must succeed");
-
-                tweaked.output_key().serialize()
-            })
-            .collect::<Vec<_>>();
-
-        let deposit_constant = deposit_constant(
-            kickoff_data.operator_xonly_pk.serialize(),
-            watchtower_challenge_start_idx,
-            &watchtower_pubkeys,
-            move_txid,
-            round_txid,
-            vout,
-            self.config.protocol_paramset.genesis_chain_state_hash,
-        );
-
-        tracing::debug!("Deposit constant: {:?}", deposit_constant);
-
         let bitvm_pks = self.signer.generate_bitvm_pks_for_deposit(
             deposit_data.get_deposit_outpoint(),
             self.config.protocol_paramset,
@@ -1917,20 +1859,51 @@ where
         let deposit_outpoint = deposit_data.get_deposit_outpoint();
         let paramset = self.config.protocol_paramset();
 
-        let mut all_assert_commits: Vec<Vec<Vec<u8>>> = Vec::new();
+        // let mut all_assert_commits: Vec<Vec<Vec<u8>>> = Vec::new();
+        let mut g16_public_input_commit: Vec<Vec<Vec<u8>>> = vec![vec![vec![]]; 1];
+        let mut num_u256_commits: Vec<Vec<Vec<u8>>> = vec![vec![vec![]]; 14];
+        let mut intermediate_value_commits: Vec<Vec<Vec<u8>>> = vec![vec![vec![]]; 363];
         tracing::info!("Number of operator asserts: {}", operator_asserts.len());
         for i in 0..operator_asserts.len() {
             let witness = operator_asserts
                 .get(&i)
                 .wrap_err("No witness found in operator asserts")?
                 .clone();
-            let commits = extract_winternitz_commits_with_sigs(
+            let mut commits = extract_winternitz_commits_with_sigs(
                 witness,
                 &ClementineBitVMPublicKeys::get_assert_derivations(i, deposit_outpoint, paramset),
                 self.config.protocol_paramset(),
             )?;
-            all_assert_commits.extend(commits);
+            if i == 0 {
+                let len = commits.len();
+                commits.pop(); // Get rid of the last commit which is challenge sending watchtowers
+                g16_public_input_commit[0] = commits.remove(len - 2);
+                num_u256_commits[12] = commits.remove(len - 3);
+                num_u256_commits[13] = commits.remove(len - 4);
+                intermediate_value_commits[360] = commits.remove(len - 5);
+                intermediate_value_commits[361] = commits.remove(len - 6);
+                intermediate_value_commits[362] = commits.remove(len - 7);
+            } else if (1..=2).contains(&i) {
+                for j in 0..6 {
+                    num_u256_commits[6 * (i - 1) + j] = commits.pop().expect("Should not panic");
+                }
+            } else if (3..=32).contains(&i) {
+                for j in 0..12 {
+                    intermediate_value_commits[12 * (i - 3) + j] = commits.pop().expect("Should not panic");
+                }
+            } else {
+                panic!("Should not reach here, i: {}; we know that there must be exactly 33 operator asserts", i);
+            }
+            // commits.reverse(); // Reverse to match the expected order
+            // all_assert_commits.extend(commits);
         }
+
+        tracing::info!("Converting assert commits to required format");
+        tracing::info!(
+            "g16_public_input_commit[0]: {:?}",
+            g16_public_input_commit[0]
+        );
+
 
         let first: [[([u8; 20], u8); 68]; 1] = [
             // This outer bracket creates the `[[...]; 1]`
@@ -1938,7 +1911,7 @@ where
             std::array::from_fn(|i: usize| -> ([u8; 20], u8) {
                 // `i` will iterate from 0 to 67.
                 // We access the i-th element of `all_assert_commits[0]`.
-                let inner_byte_vector: &Vec<u8> = &all_assert_commits[0][2 * i];
+                let inner_byte_vector: &Vec<u8> = &g16_public_input_commit[0][2 * i];
 
                 // Based on "We know that this can be converted," we assume:
                 // 1. all_assert_commits[0].len() == 68, so `all_assert_commits[0][i]` is valid for i in 0..67.
@@ -1952,20 +1925,23 @@ where
                     .expect("Failed to convert slice to [u8; 20]. Expected 20 bytes.");
 
                 // Extract the 21st byte for the u8.
-                let u8_part: u8 = all_assert_commits[0][2 * i + 1][0];
+                let u8_part: u8 = g16_public_input_commit[0][2 * i + 1]
+                    .get(0)
+                    .map_or(0, |&val| val);
 
                 // Return the tuple for the i-th element of the inner array.
                 (array_part, u8_part)
             }), // This call to std::array::from_fn(...) results in the [([u8; 20], u8); 68]
         ];
+        tracing::info!("First created");
 
-        let second: [[([u8; 20], u8); 68]; 14] =
+        let mut second: [[([u8; 20], u8); 68]; 14] =
     // The outer `std::array::from_fn` creates the array of 14 elements.
     // `block_idx` will iterate from 0 to 13.
     std::array::from_fn(|block_idx: usize| -> [([u8; 20], u8); 68] {
         // For each `block_idx`, we are constructing one `[([u8; 20], u8); 68]` array.
         // We assume `all_assert_commits[block_idx]` provides the data for this current block.
-        let data_for_current_block: &Vec<Vec<u8>> = &all_assert_commits[block_idx + 1];
+        let data_for_current_block: &Vec<Vec<u8>> = &num_u256_commits[block_idx];
 
         // Now, use the same logic as before to create the inner array of 68 tuples
         // using `data_for_current_block`.
@@ -1983,19 +1959,20 @@ where
 
             let one_byte_vec: &Vec<u8> = &data_for_current_block[2 * tuple_idx + 1];
             // Assuming one_byte_vec.len() == 1.
-            let u8_part: u8 = one_byte_vec[0];
+            let u8_part: u8 = one_byte_vec.get(0).map_or(0, |&val| val);
 
             (array_part, u8_part)
         }) // This inner from_fn produces one [([u8; 20], u8); 68]
     });
+        tracing::info!("Second created");
 
-        let third: [[([u8; 20], u8); 36]; 363] =
+        let mut third: [[([u8; 20], u8); 36]; 363] =
     // The outer `std::array::from_fn` creates the array of 14 elements.
     // `block_idx` will iterate from 0 to 13.
     std::array::from_fn(|block_idx: usize| -> [([u8; 20], u8); 36] {
         // For each `block_idx`, we are constructing one `[([u8; 20], u8); 68]` array.
         // We assume `all_assert_commits[block_idx]` provides the data for this current block.
-        let data_for_current_block: &Vec<Vec<u8>> = &all_assert_commits[block_idx + 15];
+        let data_for_current_block: &Vec<Vec<u8>> = &intermediate_value_commits[block_idx];
 
         // Now, use the same logic as before to create the inner array of 68 tuples
         // using `data_for_current_block`.
@@ -2013,15 +1990,20 @@ where
 
             let one_byte_vec: &Vec<u8> = &data_for_current_block[2 * tuple_idx + 1];
             // Assuming one_byte_vec.len() == 1.
-            let u8_part: u8 = one_byte_vec[0];
+            let u8_part: u8 = one_byte_vec.get(0).map_or(0, |&val| val);
 
             (array_part, u8_part)
         }) // This inner from_fn produces one [([u8; 20], u8); 68]
     });
+        tracing::info!("Third created");
+        second.reverse();
+        third.reverse();
 
         let first_box = Box::new(first);
         let second_box = Box::new(second);
         let third_box = Box::new(third);
+
+        tracing::info!("Boxes created");
 
         let res = validate_assertions(
             &get_ark_verifying_key(),
@@ -2032,11 +2014,13 @@ where
                 .try_into()
                 .expect("Cannot fail, there must be exactly 364 disprove scripts"),
         );
+        tracing::info!("Disprove validation result: {:?}", res);
 
         if res.is_none() {
             tracing::info!("No disprove witness found");
             return Ok(None);
         } else {
+            tracing::info!("Disprove witness found");
             let (index, disprove_script) = res.unwrap();
             // let final_disprove_script = disprove_script.compile();
             Ok(Some((index, disprove_script)))

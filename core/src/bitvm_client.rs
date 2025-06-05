@@ -495,9 +495,9 @@ impl ClementineBitVMPublicKeys {
     ) -> Vec<WinternitzDerivationPath> {
         vec![
             Self::get_challenge_sending_watchtowers_derivation(deposit_outpoint, paramset), // Will not go into BitVM disprove scripts
-            WinternitzDerivationPath::BitvmAssert(32 * 2, 3, 0, deposit_outpoint, paramset), //
-            WinternitzDerivationPath::BitvmAssert(32 * 2, 4, 12, deposit_outpoint, paramset),
-            WinternitzDerivationPath::BitvmAssert(32 * 2, 4, 13, deposit_outpoint, paramset),
+            WinternitzDerivationPath::BitvmAssert(32 * 2, 3, 0, deposit_outpoint, paramset), // This is the Groth16 public output
+            WinternitzDerivationPath::BitvmAssert(32 * 2, 4, 12, deposit_outpoint, paramset), // This is the extra 13th NUM_U256, after chunking by 6 for the first 2 asserts
+            WinternitzDerivationPath::BitvmAssert(32 * 2, 4, 13, deposit_outpoint, paramset), // This is the extra 14th NUM_U256, after chunking by 6 for the first 2 asserts
             WinternitzDerivationPath::BitvmAssert(16 * 2, 5, 360, deposit_outpoint, paramset),
             WinternitzDerivationPath::BitvmAssert(16 * 2, 5, 361, deposit_outpoint, paramset),
             WinternitzDerivationPath::BitvmAssert(16 * 2, 5, 362, deposit_outpoint, paramset),
