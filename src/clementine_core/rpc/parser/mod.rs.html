@@ -601,7 +601,7 @@
     SecurityCouncil,
 };
 <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
-<span class="kw">use </span><span class="kw">crate</span>::tx_sender::{FeePayingType, RbfSigningInfo};
+<span class="kw">use </span><span class="kw">crate</span>::utils::{FeePayingType, RbfSigningInfo};
 <span class="kw">use </span>bitcoin::hashes::{sha256d, FromSliceError, Hash};
 <span class="kw">use </span>bitcoin::secp256k1::schnorr::Signature;
 <span class="kw">use </span>bitcoin::{OutPoint, TapNodeHash, Txid, XOnlyPublicKey};

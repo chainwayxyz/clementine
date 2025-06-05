@@ -18,7 +18,8 @@
 <a href="#17" id="17">17</a>
 <a href="#18" id="18">18</a>
 <a href="#19" id="19">19</a>
-<a href="#20" id="20">20</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Bitcoin Transaction Builder for Clementine Bridge
+<a href="#20" id="20">20</a>
+<a href="#21" id="21">21</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Bitcoin Transaction Builder for Clementine Bridge
 //!
 //! This module provides a helper struct TxHandler for constructing
 //! the tx's needed for the bridge. TxHandler's purpose is to store additional
@@ -35,6 +36,7 @@
 //! - transaction: Contains the functions that create TxHandler's of every single tx needed for the bridge. For detailed information
 //!   about the tx's see the [clementine whitepaper](https://citrea.xyz/clementine_whitepaper.pdf).
 </span><span class="kw">pub mod </span>address;
+<span class="kw">pub mod </span>block_cache;
 <span class="kw">pub mod </span>script;
 <span class="kw">pub mod </span>sighash;
 <span class="kw">pub mod </span>transaction;

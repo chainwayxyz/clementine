@@ -1239,9 +1239,9 @@
 //! module must be fed with new blocks via the database. Later, it can check if
 //! proving should be triggered by verifying if the batch size is sufficient.
 
-</span><span class="kw">use </span><span class="kw">crate</span>::database::DatabaseTransaction;
+</span><span class="kw">use </span><span class="kw">crate</span>::builder::block_cache::BlockCache;
+<span class="kw">use </span><span class="kw">crate</span>::database::DatabaseTransaction;
 <span class="kw">use </span><span class="kw">crate</span>::errors::ResultExt;
-<span class="kw">use </span><span class="kw">crate</span>::states::block_cache::BlockCache;
 <span class="kw">use crate</span>::{
     config::BridgeConfig,
     database::Database,

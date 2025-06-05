@@ -342,10 +342,15 @@
 <a href="#341" id="341">341</a>
 <a href="#342" id="342">342</a>
 <a href="#343" id="343">343</a>
-<a href="#344" id="344">344</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::deposit::DepositData;
+<a href="#344" id="344">344</a>
+<a href="#345" id="345">345</a>
+<a href="#346" id="346">346</a>
+<a href="#347" id="347">347</a>
+<a href="#348" id="348">348</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::deposit::DepositData;
 <span class="kw">use </span><span class="kw">crate</span>::extended_rpc::ExtendedRpc;
 <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::{DepositParams, OperatorKeysWithDeposit};
-<span class="kw">use </span><span class="kw">crate</span>::tx_sender::TxSenderClient;
+<span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
+</span><span class="kw">use </span><span class="kw">crate</span>::tx_sender::TxSenderClient;
 <span class="kw">use crate</span>::{
     builder::{<span class="self">self</span>},
     config::BridgeConfig,
@@ -380,7 +385,8 @@
     <span class="kw">pub</span>(<span class="kw">crate</span>) rpc: ExtendedRpc,
     <span class="kw">pub</span>(<span class="kw">crate</span>) db: Database,
     <span class="kw">pub</span>(<span class="kw">crate</span>) config: BridgeConfig,
-    <span class="kw">pub</span>(<span class="kw">crate</span>) tx_sender: TxSenderClient,
+    <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
+    </span><span class="kw">pub</span>(<span class="kw">crate</span>) tx_sender: TxSenderClient,
     operator_clients: Vec&lt;ClementineOperatorClient&lt;tonic::transport::Channel&gt;&gt;,
     verifier_clients: Vec&lt;ClementineVerifierClient&lt;tonic::transport::Channel&gt;&gt;,
     verifier_keys: Vec&lt;PublicKey&gt;,
@@ -432,7 +438,8 @@
         )
         .<span class="kw">await</span><span class="question-mark">?</span>;
 
-        <span class="kw">let </span>tx_sender = TxSenderClient::new(db.clone(), <span class="string">"aggregator"</span>.to_string());
+        <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
+        </span><span class="kw">let </span>tx_sender = TxSenderClient::new(db.clone(), <span class="string">"aggregator"</span>.to_string());
 
         <span class="macro">tracing::info!</span>(
             <span class="string">"Aggregator created with {} verifiers and {} operators"</span>,
@@ -450,7 +457,8 @@
             rpc,
             db,
             config,
-            tx_sender,
+            <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
+            </span>tx_sender,
             verifier_clients,
             operator_clients,
             verifier_keys,

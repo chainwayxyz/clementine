@@ -136,7 +136,7 @@
 <a href="#135" id="135">135</a>
 <a href="#136" id="136">136</a></pre></div><pre class="rust"><code><span class="kw">use super</span>::{IntoTask, Task, TaskExt};
 <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
-<span class="kw">use </span><span class="kw">crate</span>::states::Owner;
+<span class="kw">use </span><span class="kw">crate</span>::utils::NamedEntity;
 <span class="kw">use </span>futures::future::join_all;
 <span class="kw">use </span>std::marker::PhantomData;
 <span class="kw">use </span>std::time::Duration;
@@ -148,7 +148,7 @@
 /// dropped, it will abort all tasks. Graceful shutdown can be performed with
 /// `graceful_shutdown`
 </span><span class="attr">#[derive(Debug)]
-</span><span class="kw">pub struct </span>BackgroundTaskManager&lt;T: Owner + <span class="lifetime">'static</span>&gt; {
+</span><span class="kw">pub struct </span>BackgroundTaskManager&lt;T: NamedEntity + <span class="lifetime">'static</span>&gt; {
     <span class="doccomment">/// Task handles for spawned tasks
     </span>abort_handles: Vec&lt;AbortHandle&gt;,
     <span class="doccomment">/// Cancellation senders for tasks
@@ -156,7 +156,7 @@
     phantom: PhantomData&lt;T&gt;,
 }
 
-<span class="kw">impl</span>&lt;T: Owner + <span class="lifetime">'static</span>&gt; Default <span class="kw">for </span>BackgroundTaskManager&lt;T&gt; {
+<span class="kw">impl</span>&lt;T: NamedEntity + <span class="lifetime">'static</span>&gt; Default <span class="kw">for </span>BackgroundTaskManager&lt;T&gt; {
     <span class="kw">fn </span>default() -&gt; <span class="self">Self </span>{
         <span class="self">Self </span>{
             abort_handles: Vec::new(),
@@ -166,7 +166,7 @@
     }
 }
 
-<span class="kw">impl</span>&lt;T: Owner + <span class="lifetime">'static</span>&gt; BackgroundTaskManager&lt;T&gt; {
+<span class="kw">impl</span>&lt;T: NamedEntity + <span class="lifetime">'static</span>&gt; BackgroundTaskManager&lt;T&gt; {
     <span class="kw">fn </span>monitor_spawned_task(<span class="kw-2">&amp;</span><span class="self">self</span>, handle: JoinHandle&lt;<span class="prelude-ty">Result</span>&lt;(), BridgeError&gt;&gt;, task_name: String) {
         tokio::spawn(<span class="kw">async move </span>{
             <span class="kw">match </span>handle.<span class="kw">await </span>{
@@ -265,7 +265,7 @@
     }
 }
 
-<span class="kw">impl</span>&lt;T: Owner + <span class="lifetime">'static</span>&gt; Drop <span class="kw">for </span>BackgroundTaskManager&lt;T&gt; {
+<span class="kw">impl</span>&lt;T: NamedEntity + <span class="lifetime">'static</span>&gt; Drop <span class="kw">for </span>BackgroundTaskManager&lt;T&gt; {
     <span class="kw">fn </span>drop(<span class="kw-2">&amp;mut </span><span class="self">self</span>) {
         <span class="self">self</span>.abort_all();
     }

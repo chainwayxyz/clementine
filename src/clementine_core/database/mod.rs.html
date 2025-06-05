@@ -216,7 +216,9 @@
 <a href="#215" id="215">215</a>
 <a href="#216" id="216">216</a>
 <a href="#217" id="217">217</a>
-<a href="#218" id="218">218</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Database Operations
+<a href="#218" id="218">218</a>
+<a href="#219" id="219">219</a>
+<a href="#220" id="220">220</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Database Operations
 //!
 //! Database crate provides functions that adds/reads values from PostgreSQL
 //! database.
@@ -237,8 +239,10 @@
 <span class="kw">mod </span>bitcoin_syncer;
 <span class="kw">mod </span>header_chain_prover;
 <span class="kw">mod </span>operator;
-<span class="kw">mod </span>state_machine;
-<span class="kw">mod </span>tx_sender;
+<span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
+</span><span class="kw">mod </span>state_machine;
+<span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
+</span><span class="kw">mod </span>tx_sender;
 <span class="kw">mod </span>verifier;
 <span class="kw">mod </span>wrapper;
 

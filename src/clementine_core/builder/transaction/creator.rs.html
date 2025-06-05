@@ -1365,7 +1365,8 @@
 <a href="#1364" id="1364">1364</a>
 <a href="#1365" id="1365">1365</a>
 <a href="#1366" id="1366">1366</a>
-<a href="#1367" id="1367">1367</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Transaction Handler Creation Logic
+<a href="#1367" id="1367">1367</a>
+<a href="#1368" id="1368">1368</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Transaction Handler Creation Logic
 //!
 //! This module provides the logic for constructing, caching, and managing transaction handlers (`TxHandler`) for all transaction types in the Clementine bridge.
 //!
@@ -2634,6 +2635,7 @@
     }
 
     <span class="attr">#[tokio::test(flavor = <span class="string">"multi_thread"</span>)]
+    #[cfg(feature = <span class="string">"automation"</span>)]
     </span><span class="kw">async fn </span>test_replacement_deposit_and_sign_txs() {
         <span class="kw">let </span><span class="kw-2">mut </span>config = create_test_config_with_thread_name().<span class="kw">await</span>;
         <span class="kw">let </span>WithProcessCleanup(<span class="kw">_</span>, <span class="kw-2">ref </span>rpc, <span class="kw">_</span>, <span class="kw">_</span>) = create_regtest_rpc(<span class="kw-2">&amp;mut </span>config).<span class="kw">await</span>;

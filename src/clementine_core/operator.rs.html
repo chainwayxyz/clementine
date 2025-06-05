@@ -1641,11 +1641,55 @@
 <a href="#1640" id="1640">1640</a>
 <a href="#1641" id="1641">1641</a>
 <a href="#1642" id="1642">1642</a>
-<a href="#1643" id="1643">1643</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_ff::PrimeField;
+<a href="#1643" id="1643">1643</a>
+<a href="#1644" id="1644">1644</a>
+<a href="#1645" id="1645">1645</a>
+<a href="#1646" id="1646">1646</a>
+<a href="#1647" id="1647">1647</a>
+<a href="#1648" id="1648">1648</a>
+<a href="#1649" id="1649">1649</a>
+<a href="#1650" id="1650">1650</a>
+<a href="#1651" id="1651">1651</a>
+<a href="#1652" id="1652">1652</a>
+<a href="#1653" id="1653">1653</a>
+<a href="#1654" id="1654">1654</a>
+<a href="#1655" id="1655">1655</a>
+<a href="#1656" id="1656">1656</a>
+<a href="#1657" id="1657">1657</a>
+<a href="#1658" id="1658">1658</a>
+<a href="#1659" id="1659">1659</a>
+<a href="#1660" id="1660">1660</a>
+<a href="#1661" id="1661">1661</a>
+<a href="#1662" id="1662">1662</a>
+<a href="#1663" id="1663">1663</a>
+<a href="#1664" id="1664">1664</a>
+<a href="#1665" id="1665">1665</a>
+<a href="#1666" id="1666">1666</a>
+<a href="#1667" id="1667">1667</a>
+<a href="#1668" id="1668">1668</a>
+<a href="#1669" id="1669">1669</a>
+<a href="#1670" id="1670">1670</a>
+<a href="#1671" id="1671">1671</a>
+<a href="#1672" id="1672">1672</a>
+<a href="#1673" id="1673">1673</a>
+<a href="#1674" id="1674">1674</a>
+<a href="#1675" id="1675">1675</a>
+<a href="#1676" id="1676">1676</a>
+<a href="#1677" id="1677">1677</a>
+<a href="#1678" id="1678">1678</a>
+<a href="#1679" id="1679">1679</a>
+<a href="#1680" id="1680">1680</a>
+<a href="#1681" id="1681">1681</a>
+<a href="#1682" id="1682">1682</a>
+<a href="#1683" id="1683">1683</a>
+<a href="#1684" id="1684">1684</a>
+<a href="#1685" id="1685">1685</a>
+<a href="#1686" id="1686">1686</a>
+<a href="#1687" id="1687">1687</a>
+<a href="#1688" id="1688">1688</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_ff::PrimeField;
 <span class="kw">use </span>circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
 <span class="kw">use </span>risc0_zkvm::is_dev_mode;
-<span class="kw">use </span>std::collections::{BTreeMap, HashMap};
-<span class="kw">use </span>std::sync::Arc;
+<span class="kw">use </span>std::collections::HashMap;
 <span class="kw">use </span>std::time::Duration;
 
 <span class="kw">use </span><span class="kw">crate</span>::actor::{Actor, TweakCache, WinternitzDerivationPath};
@@ -1667,22 +1711,18 @@
 <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
 <span class="kw">use </span><span class="kw">crate</span>::extended_rpc::ExtendedRpc;
 <span class="kw">use </span><span class="kw">crate</span>::header_chain_prover::HeaderChainProver;
-<span class="kw">use </span><span class="kw">crate</span>::states::context::DutyResult;
-<span class="kw">use </span><span class="kw">crate</span>::states::{block_cache, Duty, Owner, StateManager};
 <span class="kw">use </span><span class="kw">crate</span>::task::manager::BackgroundTaskManager;
 <span class="kw">use </span><span class="kw">crate</span>::task::payout_checker::{PayoutCheckerTask, PAYOUT_CHECKER_POLL_DELAY};
-<span class="kw">use </span><span class="kw">crate</span>::task::{IntoTask, TaskExt};
-<span class="kw">use </span><span class="kw">crate</span>::tx_sender::TxSenderClient;
-<span class="kw">use </span><span class="kw">crate</span>::tx_sender::{ActivatedWithOutpoint, ActivatedWithTxid, FeePayingType, TxMetadata};
+<span class="kw">use </span><span class="kw">crate</span>::task::TaskExt;
 <span class="kw">use </span><span class="kw">crate</span>::utils::Last20Bytes;
+<span class="kw">use </span><span class="kw">crate</span>::utils::{NamedEntity, TxMetadata};
 <span class="kw">use crate</span>::{builder, UTXO};
 <span class="kw">use </span>bitcoin::consensus::deserialize;
 <span class="kw">use </span>bitcoin::hashes::Hash;
 <span class="kw">use </span>bitcoin::secp256k1::schnorr::Signature;
 <span class="kw">use </span>bitcoin::secp256k1::{schnorr, Message};
 <span class="kw">use </span>bitcoin::{
-    Address, Amount, BlockHash, OutPoint, ScriptBuf, Transaction, TxOut, Txid, Witness,
-    XOnlyPublicKey,
+    Address, Amount, BlockHash, OutPoint, ScriptBuf, Transaction, TxOut, Txid, XOnlyPublicKey,
 };
 <span class="kw">use </span>bitcoincore_rpc::json::AddressType;
 <span class="kw">use </span>bitcoincore_rpc::RpcApi;
@@ -1697,6 +1737,16 @@
 <span class="kw">use </span>eyre::{Context, OptionExt};
 <span class="kw">use </span>tokio::sync::mpsc;
 <span class="kw">use </span>tokio_stream::StreamExt;
+
+<span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
+</span><span class="kw">use crate</span>::{
+    states::StateManager,
+    task::IntoTask,
+    tx_sender::{ActivatedWithOutpoint, ActivatedWithTxid, TxSenderClient},
+    utils::FeePayingType,
+};
+<span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
+</span><span class="kw">use </span>bitcoin::Witness;
 
 <span class="kw">pub type </span>SecretPreimage = [u8; <span class="number">20</span>];
 <span class="kw">pub type </span>PublicHash = [u8; <span class="number">20</span>]; <span class="comment">// TODO: Make sure these are 20 bytes and maybe do this a struct?
@@ -1714,7 +1764,8 @@
     <span class="kw">pub </span>config: BridgeConfig,
     <span class="kw">pub </span>collateral_funding_outpoint: OutPoint,
     <span class="kw">pub</span>(<span class="kw">crate</span>) reimburse_addr: Address,
-    <span class="kw">pub </span>tx_sender: TxSenderClient,
+    <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
+    </span><span class="kw">pub </span>tx_sender: TxSenderClient,
     <span class="kw">pub </span>header_chain_prover: HeaderChainProver,
     <span class="kw">pub </span>citrea_client: C,
 }
@@ -1724,31 +1775,31 @@
     </span>C: CitreaClientT,
 {
     <span class="kw">pub async fn </span>new(config: BridgeConfig) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="self">Self</span>, BridgeError&gt; {
-        <span class="kw">let </span>paramset = config.protocol_paramset();
         <span class="kw">let </span>operator = Operator::new(config.clone()).<span class="kw">await</span><span class="question-mark">?</span>;
         <span class="kw">let </span><span class="kw-2">mut </span>background_tasks = BackgroundTaskManager::default();
 
         <span class="comment">// initialize and run state manager
-        </span><span class="kw">let </span>state_manager =
-            StateManager::new(operator.db.clone(), operator.clone(), paramset).<span class="kw">await</span><span class="question-mark">?</span>;
+        </span><span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
+        </span>{
+            <span class="kw">let </span>paramset = config.protocol_paramset();
+            <span class="kw">let </span>state_manager =
+                StateManager::new(operator.db.clone(), operator.clone(), paramset).<span class="kw">await</span><span class="question-mark">?</span>;
 
-        <span class="macro">tracing::info!</span>(<span class="string">"State manager created"</span>);
+            <span class="kw">let </span>should_run_state_mgr = {
+                <span class="attr">#[cfg(test)]
+                </span>{
+                    config.test_params.should_run_state_manager
+                }
+                <span class="attr">#[cfg(not(test))]
+                </span>{
+                    <span class="bool-val">true
+                </span>}
+            };
 
-        <span class="kw">let </span>should_run_state_mgr = {
-            <span class="attr">#[cfg(test)]
-            </span>{
-                config.test_params.should_run_state_manager
+            <span class="kw">if </span>should_run_state_mgr {
+                background_tasks.loop_and_monitor(state_manager.block_fetcher_task().<span class="kw">await</span><span class="question-mark">?</span>);
+                background_tasks.loop_and_monitor(state_manager.into_task());
             }
-            <span class="attr">#[cfg(not(test))]
-            </span>{
-                <span class="bool-val">true
-            </span>}
-        };
-
-        <span class="kw">if </span>should_run_state_mgr {
-            background_tasks.loop_and_monitor(state_manager.block_fetcher_task().<span class="kw">await</span><span class="question-mark">?</span>);
-            background_tasks.loop_and_monitor(state_manager.into_task());
-            <span class="macro">tracing::info!</span>(<span class="string">"State manager tasks started"</span>);
         }
 
         <span class="comment">// run payout checker task
@@ -1760,8 +1811,11 @@
         <span class="macro">tracing::info!</span>(<span class="string">"Payout checker task started"</span>);
 
         <span class="comment">// track the operator's round state
-        </span>operator.track_rounds().<span class="kw">await</span><span class="question-mark">?</span>;
-        <span class="macro">tracing::info!</span>(<span class="string">"Operator round state tracked"</span>);
+        </span><span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
+        </span>{
+            operator.track_rounds().<span class="kw">await</span><span class="question-mark">?</span>;
+            <span class="macro">tracing::info!</span>(<span class="string">"Operator round state tracked"</span>);
+        }
 
         <span class="prelude-val">Ok</span>(<span class="self">Self </span>{
             operator,
@@ -1796,7 +1850,8 @@
         )
         .<span class="kw">await</span><span class="question-mark">?</span>;
 
-        <span class="kw">let </span>tx_sender = TxSenderClient::new(
+        <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
+        </span><span class="kw">let </span>tx_sender = TxSenderClient::new(
             db.clone(),
             <span class="macro">format!</span>(<span class="string">"operator_{:?}"</span>, signer.xonly_public_key).to_string(),
         );
@@ -1902,11 +1957,38 @@
             signer,
             config,
             collateral_funding_outpoint,
-            tx_sender,
+            <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
+            </span>tx_sender,
             citrea_client,
             header_chain_prover,
             reimburse_addr,
         })
+    }
+
+    <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
+    </span><span class="kw">pub async fn </span>send_initial_round_tx(<span class="kw-2">&amp;</span><span class="self">self</span>, round_tx: <span class="kw-2">&amp;</span>Transaction) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
+        <span class="kw">let </span><span class="kw-2">mut </span>dbtx = <span class="self">self</span>.db.begin_transaction().<span class="kw">await</span><span class="question-mark">?</span>;
+        <span class="self">self</span>.tx_sender
+            .insert_try_to_send(
+                <span class="kw-2">&amp;mut </span>dbtx,
+                <span class="prelude-val">Some</span>(TxMetadata {
+                    tx_type: TransactionType::Round,
+                    operator_xonly_pk: <span class="prelude-val">None</span>,
+                    round_idx: <span class="prelude-val">Some</span>(<span class="number">0</span>),
+                    kickoff_idx: <span class="prelude-val">None</span>,
+                    deposit_outpoint: <span class="prelude-val">None</span>,
+                }),
+                round_tx,
+                FeePayingType::CPFP,
+                <span class="prelude-val">None</span>,
+                <span class="kw-2">&amp;</span>[],
+                <span class="kw-2">&amp;</span>[],
+                <span class="kw-2">&amp;</span>[],
+                <span class="kw-2">&amp;</span>[],
+            )
+            .<span class="kw">await</span><span class="question-mark">?</span>;
+        dbtx.commit().<span class="kw">await</span><span class="question-mark">?</span>;
+        <span class="prelude-val">Ok</span>(())
     }
 
     <span class="doccomment">/// Returns an operator's winternitz public keys and challenge ackpreimages
@@ -1954,27 +2036,9 @@
             .clone()
             .tx_sign_and_fill_sigs(<span class="kw-2">&amp;mut </span>first_round_tx, <span class="kw-2">&amp;</span>[], <span class="prelude-val">None</span>)<span class="question-mark">?</span>;
 
-        <span class="kw">let </span><span class="kw-2">mut </span>dbtx = <span class="self">self</span>.db.begin_transaction().<span class="kw">await</span><span class="question-mark">?</span>;
-        <span class="self">self</span>.tx_sender
-            .insert_try_to_send(
-                <span class="kw-2">&amp;mut </span>dbtx,
-                <span class="prelude-val">Some</span>(TxMetadata {
-                    tx_type: TransactionType::Round,
-                    operator_xonly_pk: <span class="prelude-val">None</span>,
-                    round_idx: <span class="prelude-val">Some</span>(<span class="number">0</span>),
-                    kickoff_idx: <span class="prelude-val">None</span>,
-                    deposit_outpoint: <span class="prelude-val">None</span>,
-                }),
-                first_round_tx.get_cached_tx(),
-                FeePayingType::CPFP,
-                <span class="prelude-val">None</span>,
-                <span class="kw-2">&amp;</span>[],
-                <span class="kw-2">&amp;</span>[],
-                <span class="kw-2">&amp;</span>[],
-                <span class="kw-2">&amp;</span>[],
-            )
+        <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
+        </span><span class="self">self</span>.send_initial_round_tx(first_round_tx.get_cached_tx())
             .<span class="kw">await</span><span class="question-mark">?</span>;
-        dbtx.commit().<span class="kw">await</span><span class="question-mark">?</span>;
 
         tokio::spawn(<span class="kw">async move </span>{
             <span class="kw">for </span>wpk <span class="kw">in </span>wpks {
@@ -2044,6 +2108,7 @@
     }
 
     <span class="doccomment">/// Creates the round state machine by adding a system event to the database
+    </span><span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
     </span><span class="kw">pub async fn </span>track_rounds(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
         <span class="kw">let </span><span class="kw-2">mut </span>dbtx = <span class="self">self</span>.db.begin_transaction().<span class="kw">await</span><span class="question-mark">?</span>;
         <span class="comment">// set operators own kickoff winternitz public keys before creating the round state machine
@@ -2055,6 +2120,7 @@
                 <span class="self">self</span>.generate_kickoff_winternitz_pubkeys()<span class="question-mark">?</span>,
             )
             .<span class="kw">await</span><span class="question-mark">?</span>;
+
         StateManager::&lt;Operator&lt;C&gt;&gt;::dispatch_new_round_machine(
             <span class="self">self</span>.db.clone(),
             <span class="kw-2">&amp;mut </span>dbtx,
@@ -2453,7 +2519,8 @@
                 | TransactionType::ChallengeTimeout
                 | TransactionType::DisproveTimeout
                 | TransactionType::Reimburse =&gt; {
-                    <span class="self">self</span>.tx_sender
+                    <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
+                    </span><span class="self">self</span>.tx_sender
                         .add_tx_to_queue(
                             dbtx,
                             <span class="kw-2">*</span>tx_type,
@@ -2490,7 +2557,8 @@
         <span class="prelude-val">Ok</span>(kickoff_txid)
     }
 
-    <span class="kw">pub async fn </span>end_round&lt;<span class="lifetime">'a</span>&gt;(
+    <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
+    </span><span class="kw">pub async fn </span>end_round&lt;<span class="lifetime">'a</span>&gt;(
         <span class="kw-2">&amp;</span><span class="lifetime">'a </span><span class="self">self</span>,
         dbtx: DatabaseTransaction&lt;<span class="lifetime">'a</span>, <span class="lifetime">'_</span>&gt;,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
@@ -2688,7 +2756,8 @@
         <span class="prelude-val">Ok</span>(())
     }
 
-    <span class="kw">async fn </span>send_asserts(
+    <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
+    </span><span class="kw">async fn </span>send_asserts(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         kickoff_data: KickoffData,
         deposit_data: DepositData,
@@ -2701,11 +2770,12 @@
             deposit_data.clone(),
             <span class="self">self</span>.config.protocol_paramset(),
         );
-        <span class="kw">let </span><span class="kw-2">mut </span>db_cache = ReimburseDbCache::from_context(<span class="self">self</span>.db.clone(), <span class="kw-2">&amp;</span>context);
-        <span class="kw">let </span>txhandlers = create_txhandlers(
+        <span class="kw">let </span><span class="kw-2">mut </span>db_cache =
+            <span class="kw">crate</span>::builder::transaction::ReimburseDbCache::from_context(<span class="self">self</span>.db.clone(), <span class="kw-2">&amp;</span>context);
+        <span class="kw">let </span>txhandlers = builder::transaction::create_txhandlers(
             TransactionType::Kickoff,
             context,
-            <span class="kw-2">&amp;mut </span>TxHandlerCache::new(),
+            <span class="kw-2">&amp;mut </span><span class="kw">crate</span>::builder::transaction::TxHandlerCache::new(),
             <span class="kw-2">&amp;mut </span>db_cache,
         )
         .<span class="kw">await</span><span class="question-mark">?</span>;
@@ -3000,7 +3070,8 @@
         <span class="prelude-val">Ok</span>(())
     }
 
-    <span class="kw">fn </span>data(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; OperatorData {
+    <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
+    </span><span class="kw">fn </span>data(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; OperatorData {
         OperatorData {
             xonly_pk: <span class="self">self</span>.signer.xonly_public_key,
             collateral_funding_outpoint: <span class="self">self</span>.collateral_funding_outpoint,
@@ -3008,7 +3079,8 @@
         }
     }
 
-    <span class="kw">async fn </span>send_latest_blockhash(
+    <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
+    </span><span class="kw">async fn </span>send_latest_blockhash(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         kickoff_data: KickoffData,
         deposit_data: DepositData,
@@ -3051,115 +3123,133 @@
     }
 }
 
-<span class="attr">#[tonic::async_trait]
-</span><span class="kw">impl</span>&lt;C&gt; Owner <span class="kw">for </span>Operator&lt;C&gt;
+<span class="kw">impl</span>&lt;C&gt; NamedEntity <span class="kw">for </span>Operator&lt;C&gt;
 <span class="kw">where
     </span>C: CitreaClientT,
 {
-    <span class="kw">const </span>OWNER_TYPE: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str = <span class="string">"operator"</span>;
-    <span class="kw">async fn </span>handle_duty(<span class="kw-2">&amp;</span><span class="self">self</span>, duty: Duty) -&gt; <span class="prelude-ty">Result</span>&lt;DutyResult, BridgeError&gt; {
-        <span class="kw">match </span>duty {
-            Duty::NewReadyToReimburse {
-                round_idx,
-                operator_xonly_pk,
-                used_kickoffs,
-            } =&gt; {
-                <span class="macro">tracing::info!</span>(<span class="string">"Operator {:?} called new ready to reimburse with round_idx: {}, operator_xonly_pk: {:?}, used_kickoffs: {:?}"</span>,
+    <span class="kw">const </span>ENTITY_NAME: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str = <span class="string">"operator"</span>;
+}
+
+<span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
+</span><span class="kw">mod </span>states {
+    <span class="kw">use super</span>::<span class="kw-2">*</span>;
+    <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::{
+        create_txhandlers, ContractContext, ReimburseDbCache, TransactionType, TxHandler,
+        TxHandlerCache,
+    };
+    <span class="kw">use </span><span class="kw">crate</span>::states::context::DutyResult;
+    <span class="kw">use </span><span class="kw">crate</span>::states::{block_cache, Duty, Owner, StateManager};
+    <span class="kw">use </span>std::collections::BTreeMap;
+    <span class="kw">use </span>std::sync::Arc;
+
+    <span class="attr">#[tonic::async_trait]
+    </span><span class="kw">impl</span>&lt;C&gt; Owner <span class="kw">for </span>Operator&lt;C&gt;
+    <span class="kw">where
+        </span>C: CitreaClientT,
+    {
+        <span class="kw">async fn </span>handle_duty(<span class="kw-2">&amp;</span><span class="self">self</span>, duty: Duty) -&gt; <span class="prelude-ty">Result</span>&lt;DutyResult, BridgeError&gt; {
+            <span class="kw">match </span>duty {
+                Duty::NewReadyToReimburse {
+                    round_idx,
+                    operator_xonly_pk,
+                    used_kickoffs,
+                } =&gt; {
+                    <span class="macro">tracing::info!</span>(<span class="string">"Operator {:?} called new ready to reimburse with round_idx: {}, operator_xonly_pk: {:?}, used_kickoffs: {:?}"</span>,
                     <span class="self">self</span>.signer.xonly_public_key, round_idx, operator_xonly_pk, used_kickoffs);
-                <span class="prelude-val">Ok</span>(DutyResult::Handled)
-            }
-            Duty::WatchtowerChallenge { .. } =&gt; <span class="prelude-val">Ok</span>(DutyResult::Handled),
-            Duty::SendOperatorAsserts {
-                kickoff_data,
-                deposit_data,
-                watchtower_challenges,
-                payout_blockhash,
-                latest_blockhash,
-            } =&gt; {
-                <span class="macro">tracing::warn!</span>(<span class="string">"Operator {:?} called send operator asserts with kickoff_data: {:?}, deposit_data: {:?}, watchtower_challenges: {:?}"</span>,
-                    <span class="self">self</span>.signer.xonly_public_key, kickoff_data, deposit_data, watchtower_challenges.len());
-                <span class="self">self</span>.send_asserts(
+                    <span class="prelude-val">Ok</span>(DutyResult::Handled)
+                }
+                Duty::WatchtowerChallenge { .. } =&gt; <span class="prelude-val">Ok</span>(DutyResult::Handled),
+                Duty::SendOperatorAsserts {
                     kickoff_data,
                     deposit_data,
                     watchtower_challenges,
                     payout_blockhash,
                     latest_blockhash,
-                )
-                .<span class="kw">await</span><span class="question-mark">?</span>;
-                <span class="prelude-val">Ok</span>(DutyResult::Handled)
-            }
-            Duty::VerifierDisprove { .. } =&gt; <span class="prelude-val">Ok</span>(DutyResult::Handled),
-            Duty::SendLatestBlockhash {
-                kickoff_data,
-                deposit_data,
-                latest_blockhash,
-            } =&gt; {
-                <span class="macro">tracing::warn!</span>(<span class="string">"Operator {:?} called send latest blockhash with kickoff_id: {:?}, deposit_data: {:?}, latest_blockhash: {:?}"</span>, <span class="self">self</span>.signer.xonly_public_key, kickoff_data, deposit_data, latest_blockhash);
-                <span class="self">self</span>.send_latest_blockhash(kickoff_data, deposit_data, latest_blockhash)
-                    .<span class="kw">await</span><span class="question-mark">?</span>;
-                <span class="prelude-val">Ok</span>(DutyResult::Handled)
-            }
-            Duty::CheckIfKickoff {
-                txid,
-                block_height,
-                witness,
-                challenged_before: <span class="kw">_</span>,
-            } =&gt; {
-                <span class="macro">tracing::debug!</span>(
-                    <span class="string">"Operator {:?} called check if kickoff with txid: {:?}, block_height: {:?}"</span>,
-                    <span class="self">self</span>.signer.xonly_public_key,
-                    txid,
-                    block_height,
-                );
-                <span class="kw">let </span>kickoff_data = <span class="self">self
-                    </span>.db
-                    .get_deposit_data_with_kickoff_txid(<span class="prelude-val">None</span>, txid)
-                    .<span class="kw">await</span><span class="question-mark">?</span>;
-                <span class="kw">if let </span><span class="prelude-val">Some</span>((deposit_data, kickoff_data)) = kickoff_data {
-                    <span class="comment">// add kickoff machine if there is a new kickoff
-                    </span><span class="kw">let </span><span class="kw-2">mut </span>dbtx = <span class="self">self</span>.db.begin_transaction().<span class="kw">await</span><span class="question-mark">?</span>;
-                    StateManager::&lt;<span class="self">Self</span>&gt;::dispatch_new_kickoff_machine(
-                        <span class="self">self</span>.db.clone(),
-                        <span class="kw-2">&amp;mut </span>dbtx,
+                } =&gt; {
+                    <span class="macro">tracing::warn!</span>(<span class="string">"Operator {:?} called send operator asserts with kickoff_data: {:?}, deposit_data: {:?}, watchtower_challenges: {:?}"</span>,
+                    <span class="self">self</span>.signer.xonly_public_key, kickoff_data, deposit_data, watchtower_challenges.len());
+                    <span class="self">self</span>.send_asserts(
                         kickoff_data,
-                        block_height,
                         deposit_data,
-                        witness,
+                        watchtower_challenges,
+                        payout_blockhash,
+                        latest_blockhash,
                     )
                     .<span class="kw">await</span><span class="question-mark">?</span>;
-                    dbtx.commit().<span class="kw">await</span><span class="question-mark">?</span>;
+                    <span class="prelude-val">Ok</span>(DutyResult::Handled)
                 }
-                <span class="prelude-val">Ok</span>(DutyResult::Handled)
+                Duty::VerifierDisprove { .. } =&gt; <span class="prelude-val">Ok</span>(DutyResult::Handled),
+                Duty::SendLatestBlockhash {
+                    kickoff_data,
+                    deposit_data,
+                    latest_blockhash,
+                } =&gt; {
+                    <span class="macro">tracing::warn!</span>(<span class="string">"Operator {:?} called send latest blockhash with kickoff_id: {:?}, deposit_data: {:?}, latest_blockhash: {:?}"</span>, <span class="self">self</span>.signer.xonly_public_key, kickoff_data, deposit_data, latest_blockhash);
+                    <span class="self">self</span>.send_latest_blockhash(kickoff_data, deposit_data, latest_blockhash)
+                        .<span class="kw">await</span><span class="question-mark">?</span>;
+                    <span class="prelude-val">Ok</span>(DutyResult::Handled)
+                }
+                Duty::CheckIfKickoff {
+                    txid,
+                    block_height,
+                    witness,
+                    challenged_before: <span class="kw">_</span>,
+                } =&gt; {
+                    <span class="macro">tracing::debug!</span>(
+                        <span class="string">"Operator {:?} called check if kickoff with txid: {:?}, block_height: {:?}"</span>,
+                        <span class="self">self</span>.signer.xonly_public_key,
+                        txid,
+                        block_height,
+                    );
+                    <span class="kw">let </span>kickoff_data = <span class="self">self
+                        </span>.db
+                        .get_deposit_data_with_kickoff_txid(<span class="prelude-val">None</span>, txid)
+                        .<span class="kw">await</span><span class="question-mark">?</span>;
+                    <span class="kw">if let </span><span class="prelude-val">Some</span>((deposit_data, kickoff_data)) = kickoff_data {
+                        <span class="comment">// add kickoff machine if there is a new kickoff
+                        </span><span class="kw">let </span><span class="kw-2">mut </span>dbtx = <span class="self">self</span>.db.begin_transaction().<span class="kw">await</span><span class="question-mark">?</span>;
+                        StateManager::&lt;<span class="self">Self</span>&gt;::dispatch_new_kickoff_machine(
+                            <span class="self">self</span>.db.clone(),
+                            <span class="kw-2">&amp;mut </span>dbtx,
+                            kickoff_data,
+                            block_height,
+                            deposit_data,
+                            witness,
+                        )
+                        .<span class="kw">await</span><span class="question-mark">?</span>;
+                        dbtx.commit().<span class="kw">await</span><span class="question-mark">?</span>;
+                    }
+                    <span class="prelude-val">Ok</span>(DutyResult::Handled)
+                }
             }
         }
-    }
 
-    <span class="kw">async fn </span>create_txhandlers(
-        <span class="kw-2">&amp;</span><span class="self">self</span>,
-        tx_type: TransactionType,
-        contract_context: ContractContext,
-    ) -&gt; <span class="prelude-ty">Result</span>&lt;BTreeMap&lt;TransactionType, TxHandler&gt;, BridgeError&gt; {
-        <span class="kw">let </span><span class="kw-2">mut </span>db_cache = ReimburseDbCache::from_context(<span class="self">self</span>.db.clone(), <span class="kw-2">&amp;</span>contract_context);
-        <span class="kw">let </span>txhandlers = create_txhandlers(
-            tx_type,
-            contract_context,
-            <span class="kw-2">&amp;mut </span>TxHandlerCache::new(),
-            <span class="kw-2">&amp;mut </span>db_cache,
-        )
-        .<span class="kw">await</span><span class="question-mark">?</span>;
-        <span class="prelude-val">Ok</span>(txhandlers)
-    }
+        <span class="kw">async fn </span>create_txhandlers(
+            <span class="kw-2">&amp;</span><span class="self">self</span>,
+            tx_type: TransactionType,
+            contract_context: ContractContext,
+        ) -&gt; <span class="prelude-ty">Result</span>&lt;BTreeMap&lt;TransactionType, TxHandler&gt;, BridgeError&gt; {
+            <span class="kw">let </span><span class="kw-2">mut </span>db_cache = ReimburseDbCache::from_context(<span class="self">self</span>.db.clone(), <span class="kw-2">&amp;</span>contract_context);
+            <span class="kw">let </span>txhandlers = create_txhandlers(
+                tx_type,
+                contract_context,
+                <span class="kw-2">&amp;mut </span>TxHandlerCache::new(),
+                <span class="kw-2">&amp;mut </span>db_cache,
+            )
+            .<span class="kw">await</span><span class="question-mark">?</span>;
+            <span class="prelude-val">Ok</span>(txhandlers)
+        }
 
-    <span class="kw">async fn </span>handle_finalized_block(
-        <span class="kw-2">&amp;</span><span class="self">self</span>,
-        _dbtx: DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;,
-        _block_id: u32,
-        _block_height: u32,
-        _block_cache: Arc&lt;block_cache::BlockCache&gt;,
-        _light_client_proof_wait_interval_secs: <span class="prelude-ty">Option</span>&lt;u32&gt;,
-    ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
-        <span class="macro">tracing::info!</span>(<span class="string">"Operator called handle finalized block {}"</span>, _block_height);
-        <span class="prelude-val">Ok</span>(())
+        <span class="kw">async fn </span>handle_finalized_block(
+            <span class="kw-2">&amp;</span><span class="self">self</span>,
+            _dbtx: DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;,
+            _block_id: u32,
+            _block_height: u32,
+            _block_cache: Arc&lt;block_cache::BlockCache&gt;,
+            _light_client_proof_wait_interval_secs: <span class="prelude-ty">Option</span>&lt;u32&gt;,
+        ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
+            <span class="prelude-val">Ok</span>(())
+        }
     }
 }
 

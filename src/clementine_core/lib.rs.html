@@ -188,7 +188,10 @@
 <a href="#187" id="187">187</a>
 <a href="#188" id="188">188</a>
 <a href="#189" id="189">189</a>
-<a href="#190" id="190">190</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Clementine 🍊
+<a href="#190" id="190">190</a>
+<a href="#191" id="191">191</a>
+<a href="#192" id="192">192</a>
+<a href="#193" id="193">193</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Clementine 🍊
 //!
 //! Clementine is Citrea's BitVM-based, trust-minimized two-way peg program.
 //! Please refer to the [whitepaper](https://citrea.xyz/clementine_whitepaper.pdf)
@@ -295,6 +298,7 @@
 //! available for testing and how to use them.
 
 </span><span class="attr">#![allow(clippy::too_many_arguments)]
+#![allow(warnings)]
 
 </span><span class="kw">use </span>bitcoin::{OutPoint, Txid};
 <span class="kw">use </span>serde::{Deserialize, Serialize};
@@ -317,9 +321,11 @@
 <span class="kw">pub mod </span>operator;
 <span class="kw">pub mod </span>rpc;
 <span class="kw">pub mod </span>servers;
-<span class="kw">pub mod </span>states;
+<span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
+</span><span class="kw">pub mod </span>states;
 <span class="kw">pub mod </span>task;
-<span class="kw">pub mod </span>tx_sender;
+<span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
+</span><span class="kw">pub mod </span>tx_sender;
 <span class="kw">pub mod </span>utils;
 <span class="kw">pub mod </span>verifier;
 

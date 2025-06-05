@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["get_vergen_response","initialize_logger","monitor_task_with_panic"],"struct":["AddMethodMiddleware","AddMethodMiddlewareLayer"],"trait":["Last20Bytes"]};
+window.SIDEBAR_ITEMS = {"enum":["FeePayingType"],"fn":["get_vergen_response","initialize_logger","monitor_task_with_panic"],"struct":["AddMethodMiddleware","AddMethodMiddlewareLayer","RbfSigningInfo","TxMetadata"],"trait":["Last20Bytes","NamedEntity"]};

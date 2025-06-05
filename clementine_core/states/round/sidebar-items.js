@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["RoundEvent","State","Superstate"],"struct":["RoundStateMachine"]};

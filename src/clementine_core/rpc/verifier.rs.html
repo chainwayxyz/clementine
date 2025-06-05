@@ -520,7 +520,17 @@
 <a href="#519" id="519">519</a>
 <a href="#520" id="520">520</a>
 <a href="#521" id="521">521</a>
-<a href="#522" id="522">522</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::{
+<a href="#522" id="522">522</a>
+<a href="#523" id="523">523</a>
+<a href="#524" id="524">524</a>
+<a href="#525" id="525">525</a>
+<a href="#526" id="526">526</a>
+<a href="#527" id="527">527</a>
+<a href="#528" id="528">528</a>
+<a href="#529" id="529">529</a>
+<a href="#530" id="530">530</a>
+<a href="#531" id="531">531</a>
+<a href="#532" id="532">532</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::{
     <span class="self">self</span>, clementine_verifier_server::ClementineVerifier, Empty, NonceGenRequest, NonceGenResponse,
     OperatorParams, OptimisticPayoutParams, PartialSig, RawTxWithRbfInfo, SignedTxWithType,
     SignedTxsWithType, VergenResponse, VerifierDepositFinalizeParams, VerifierDepositSignParams,
@@ -1030,15 +1040,25 @@
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         request: tonic::Request&lt;<span class="kw">super</span>::TxDebugRequest&gt;,
     ) -&gt; std::result::Result&lt;tonic::Response&lt;<span class="kw">super</span>::TxDebugInfo&gt;, tonic::Status&gt; {
-        <span class="kw">let </span>tx_id = request.into_inner().tx_id;
+        <span class="attr">#[cfg(not(feature = <span class="string">"automation"</span>))]
+        </span>{
+            <span class="prelude-val">Err</span>(tonic::Status::unimplemented(
+                <span class="string">"Automation is not enabled, TxSender is not running."</span>,
+            ))
+        }
 
         <span class="comment">// Get debug info from tx_sender
-        </span><span class="kw">match </span><span class="self">self</span>.verifier.tx_sender.debug_tx(tx_id).<span class="kw">await </span>{
-            <span class="prelude-val">Ok</span>(debug_info) =&gt; <span class="prelude-val">Ok</span>(tonic::Response::new(debug_info)),
-            <span class="prelude-val">Err</span>(e) =&gt; <span class="prelude-val">Err</span>(tonic::Status::internal(<span class="macro">format!</span>(
-                <span class="string">"Failed to debug TX {}: {}"</span>,
-                tx_id, e
-            ))),
+        </span><span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
+        </span>{
+            <span class="kw">let </span>tx_id = request.into_inner().tx_id;
+
+            <span class="kw">match </span><span class="self">self</span>.verifier.tx_sender.debug_tx(tx_id).<span class="kw">await </span>{
+                <span class="prelude-val">Ok</span>(debug_info) =&gt; <span class="prelude-val">Ok</span>(tonic::Response::new(debug_info)),
+                <span class="prelude-val">Err</span>(e) =&gt; <span class="prelude-val">Err</span>(tonic::Status::internal(<span class="macro">format!</span>(
+                    <span class="string">"Failed to debug TX {}: {}"</span>,
+                    tx_id, e
+                ))),
+            }
         }
     }
 }

@@ -313,7 +313,17 @@
 <a href="#312" id="312">312</a>
 <a href="#313" id="313">313</a>
 <a href="#314" id="314">314</a>
-<a href="#315" id="315">315</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::clementine_operator_server::ClementineOperator;
+<a href="#315" id="315">315</a>
+<a href="#316" id="316">316</a>
+<a href="#317" id="317">317</a>
+<a href="#318" id="318">318</a>
+<a href="#319" id="319">319</a>
+<a href="#320" id="320">320</a>
+<a href="#321" id="321">321</a>
+<a href="#322" id="322">322</a>
+<a href="#323" id="323">323</a>
+<a href="#324" id="324">324</a>
+<a href="#325" id="325">325</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::clementine_operator_server::ClementineOperator;
 <span class="kw">use </span><span class="kw">super</span>::clementine::{
     <span class="self">self</span>, ChallengeAckDigest, DepositParams, DepositSignSession, Empty, FinalizedPayoutParams,
     OperatorKeys, OperatorParams, SchnorrSig, SignedTxWithType, SignedTxsWithType,
@@ -611,10 +621,20 @@
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         _request: Request&lt;Empty&gt;,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;Response&lt;Empty&gt;, Status&gt; {
-        <span class="kw">let </span><span class="kw-2">mut </span>dbtx = <span class="self">self</span>.operator.db.begin_transaction().<span class="kw">await</span><span class="question-mark">?</span>;
-        <span class="self">self</span>.operator.end_round(<span class="kw-2">&amp;mut </span>dbtx).<span class="kw">await</span><span class="question-mark">?</span>;
-        dbtx.commit().<span class="kw">await</span>.expect(<span class="string">"Failed to commit transaction"</span>);
-        <span class="prelude-val">Ok</span>(Response::new(Empty {}))
+        <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
+        </span>{
+            <span class="kw">let </span><span class="kw-2">mut </span>dbtx = <span class="self">self</span>.operator.db.begin_transaction().<span class="kw">await</span><span class="question-mark">?</span>;
+
+            <span class="self">self</span>.operator.end_round(<span class="kw-2">&amp;mut </span>dbtx).<span class="kw">await</span><span class="question-mark">?</span>;
+
+            dbtx.commit().<span class="kw">await</span>.expect(<span class="string">"Failed to commit transaction"</span>);
+            <span class="prelude-val">Ok</span>(Response::new(Empty {}))
+        }
+
+        <span class="attr">#[cfg(not(feature = <span class="string">"automation"</span>))]
+        </span><span class="prelude-val">Err</span>(Status::unimplemented(
+            <span class="string">"Automation is not enabled. Operator does not manage its rounds"</span>,
+        ))
     }
 
     <span class="attr">#[tracing::instrument(skip(<span class="self">self</span>), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]

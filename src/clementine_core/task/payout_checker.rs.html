@@ -81,7 +81,8 @@
 <a href="#80" id="80">80</a>
 <a href="#81" id="81">81</a>
 <a href="#82" id="82">82</a>
-<a href="#83" id="83">83</a></pre></div><pre class="rust"><code><span class="kw">use </span>tokio::time::Duration;
+<a href="#83" id="83">83</a>
+<a href="#84" id="84">84</a></pre></div><pre class="rust"><code><span class="kw">use </span>tokio::time::Duration;
 <span class="kw">use </span>tonic::async_trait;
 
 <span class="kw">use crate</span>::{citrea::CitreaClientT, database::Database, errors::BridgeError, operator::Operator};
@@ -153,6 +154,7 @@
             .<span class="kw">await</span><span class="question-mark">?</span>;
 
         <span class="comment">// TODO: Remove this, for now, we can end round after handling a single payout
+        </span><span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
         </span><span class="self">self</span>.operator.end_round(<span class="kw-2">&amp;mut </span>dbtx).<span class="kw">await</span><span class="question-mark">?</span>;
 
         <span class="self">self</span>.db

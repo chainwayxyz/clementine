@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"mod":["address","script","sighash","transaction"]};
+window.SIDEBAR_ITEMS = {"mod":["address","block_cache","script","sighash","transaction"]};

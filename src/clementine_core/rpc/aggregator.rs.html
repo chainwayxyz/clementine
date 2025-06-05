@@ -1862,7 +1862,50 @@
 <a href="#1861" id="1861">1861</a>
 <a href="#1862" id="1862">1862</a>
 <a href="#1863" id="1863">1863</a>
-<a href="#1864" id="1864">1864</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::{
+<a href="#1864" id="1864">1864</a>
+<a href="#1865" id="1865">1865</a>
+<a href="#1866" id="1866">1866</a>
+<a href="#1867" id="1867">1867</a>
+<a href="#1868" id="1868">1868</a>
+<a href="#1869" id="1869">1869</a>
+<a href="#1870" id="1870">1870</a>
+<a href="#1871" id="1871">1871</a>
+<a href="#1872" id="1872">1872</a>
+<a href="#1873" id="1873">1873</a>
+<a href="#1874" id="1874">1874</a>
+<a href="#1875" id="1875">1875</a>
+<a href="#1876" id="1876">1876</a>
+<a href="#1877" id="1877">1877</a>
+<a href="#1878" id="1878">1878</a>
+<a href="#1879" id="1879">1879</a>
+<a href="#1880" id="1880">1880</a>
+<a href="#1881" id="1881">1881</a>
+<a href="#1882" id="1882">1882</a>
+<a href="#1883" id="1883">1883</a>
+<a href="#1884" id="1884">1884</a>
+<a href="#1885" id="1885">1885</a>
+<a href="#1886" id="1886">1886</a>
+<a href="#1887" id="1887">1887</a>
+<a href="#1888" id="1888">1888</a>
+<a href="#1889" id="1889">1889</a>
+<a href="#1890" id="1890">1890</a>
+<a href="#1891" id="1891">1891</a>
+<a href="#1892" id="1892">1892</a>
+<a href="#1893" id="1893">1893</a>
+<a href="#1894" id="1894">1894</a>
+<a href="#1895" id="1895">1895</a>
+<a href="#1896" id="1896">1896</a>
+<a href="#1897" id="1897">1897</a>
+<a href="#1898" id="1898">1898</a>
+<a href="#1899" id="1899">1899</a>
+<a href="#1900" id="1900">1900</a>
+<a href="#1901" id="1901">1901</a>
+<a href="#1902" id="1902">1902</a>
+<a href="#1903" id="1903">1903</a>
+<a href="#1904" id="1904">1904</a>
+<a href="#1905" id="1905">1905</a>
+<a href="#1906" id="1906">1906</a>
+<a href="#1907" id="1907">1907</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::{
     clementine_aggregator_server::ClementineAggregator, verifier_deposit_finalize_params,
     DepositParams, Empty, VerifierDepositFinalizeParams,
 };
@@ -1884,8 +1927,8 @@
 <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
 <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::VerifierDepositSignParams;
 <span class="kw">use </span><span class="kw">crate</span>::rpc::parser;
-<span class="kw">use </span><span class="kw">crate</span>::tx_sender::{FeePayingType, TxMetadata};
 <span class="kw">use </span><span class="kw">crate</span>::utils::get_vergen_response;
+<span class="kw">use </span><span class="kw">crate</span>::utils::{FeePayingType, TxMetadata};
 <span class="kw">use </span><span class="kw">crate</span>::UTXO;
 <span class="kw">use crate</span>::{
     aggregator::Aggregator,
@@ -2436,7 +2479,7 @@
         <span class="prelude-val">Ok</span>(operator_sigs)
     }
 
-    <span class="kw">async fn </span>send_movetx(
+    <span class="kw">async fn </span>create_movetx(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         partial_sigs: Vec&lt;Vec&lt;u8&gt;&gt;,
         movetx_agg_nonce: MusigAggNonce,
@@ -2468,38 +2511,6 @@
 
         <span class="comment">// Put the signature in the tx
         </span>move_txhandler.set_p2tr_script_spend_witness(<span class="kw-2">&amp;</span>[final_sig.as_ref()], <span class="number">0</span>, <span class="number">0</span>)<span class="question-mark">?</span>;
-        <span class="comment">// Add fee bumper.
-        </span><span class="kw">let </span>move_tx = move_txhandler.get_cached_tx();
-
-        <span class="kw">let </span><span class="kw-2">mut </span>dbtx = <span class="self">self</span>.db.begin_transaction().<span class="kw">await</span><span class="question-mark">?</span>;
-        <span class="self">self</span>.tx_sender
-            .insert_try_to_send(
-                <span class="kw-2">&amp;mut </span>dbtx,
-                <span class="prelude-val">Some</span>(TxMetadata {
-                    deposit_outpoint: <span class="prelude-val">Some</span>(deposit_data.get_deposit_outpoint()),
-                    operator_xonly_pk: <span class="prelude-val">None</span>,
-                    round_idx: <span class="prelude-val">None</span>,
-                    kickoff_idx: <span class="prelude-val">None</span>,
-                    tx_type: TransactionType::MoveToVault,
-                }),
-                move_tx,
-                FeePayingType::CPFP,
-                <span class="prelude-val">None</span>,
-                <span class="kw-2">&amp;</span>[],
-                <span class="kw-2">&amp;</span>[],
-                <span class="kw-2">&amp;</span>[],
-                <span class="kw-2">&amp;</span>[],
-            )
-            .<span class="kw">await
-            </span>.map_err(BridgeError::from)<span class="question-mark">?</span>;
-        dbtx.commit()
-            .<span class="kw">await
-            </span>.map_err(|e| Status::internal(<span class="macro">format!</span>(<span class="string">"Failed to commit db transaction: {}"</span>, e)))<span class="question-mark">?</span>;
-
-        <span class="macro">tracing::info!</span>(
-            <span class="string">"move_tx: {}"</span>,
-            hex::encode(bitcoin::consensus::serialize(<span class="kw-2">&amp;</span>move_tx))
-        );
 
         <span class="prelude-val">Ok</span>(move_txhandler.promote()<span class="question-mark">?</span>)
     }
@@ -2654,7 +2665,8 @@
         <span class="prelude-val">Ok</span>(combined_stop_tx)
     }
 
-    <span class="kw">pub async fn </span>send_emergency_stop_tx(
+    <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
+    </span><span class="kw">pub async fn </span>send_emergency_stop_tx(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         tx: bitcoin::Transaction,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;bitcoin::Transaction, Status&gt; {
@@ -2739,8 +2751,7 @@
             </span><span class="kw">let </span>pub_nonces = get_next_pub_nonces(<span class="kw-2">&amp;mut </span>nonce_streams)
                 .<span class="kw">await
                 </span>.wrap_err(<span class="string">"Failed to aggregate nonces for optimistic payout"</span>)
-                .map_to_status()
-                .map_err(|e| <span class="kw-2">*</span>e)<span class="question-mark">?</span>;
+                .map_to_status()<span class="question-mark">?</span>;
             <span class="kw">let </span>agg_nonce = aggregate_nonces(pub_nonces.iter().collect::&lt;Vec&lt;<span class="kw">_</span>&gt;&gt;().as_slice());
             <span class="comment">// send the agg nonce to the verifiers to sign the optimistic payout tx
             </span><span class="kw">let </span>verifier_clients = <span class="self">self</span>.get_verifier_clients();
@@ -2768,8 +2779,7 @@
                 </span>.rpc
                 .get_txout_from_outpoint(<span class="kw-2">&amp;</span>input_outpoint)
                 .<span class="kw">await
-                </span>.map_to_status()
-                .map_err(|e| <span class="kw-2">*</span>e)<span class="question-mark">?</span>;
+                </span>.map_to_status()<span class="question-mark">?</span>;
             <span class="kw">let </span>withdrawal_utxo = UTXO {
                 outpoint: input_outpoint,
                 txout: withdrawal_prevout,
@@ -2816,25 +2826,31 @@
             </span>opt_payout_txhandler.set_p2tr_script_spend_witness(<span class="kw-2">&amp;</span>[final_sig.serialize()], <span class="number">1</span>, <span class="number">0</span>)<span class="question-mark">?</span>;
             <span class="kw">let </span>opt_payout_txhandler = opt_payout_txhandler.promote()<span class="question-mark">?</span>;
             <span class="kw">let </span>opt_payout_tx = opt_payout_txhandler.get_cached_tx();
-            <span class="kw">let </span><span class="kw-2">mut </span>dbtx = <span class="self">self</span>.db.begin_transaction().<span class="kw">await</span><span class="question-mark">?</span>;
-            <span class="self">self</span>.tx_sender
-                .add_tx_to_queue(
-                    <span class="kw-2">&amp;mut </span>dbtx,
-                    TransactionType::OptimisticPayout,
-                    opt_payout_tx,
-                    <span class="kw-2">&amp;</span>[],
-                    <span class="prelude-val">None</span>,
-                    <span class="kw-2">&amp;</span><span class="self">self</span>.config,
-                    <span class="prelude-val">None</span>,
-                )
-                .<span class="kw">await
-                </span>.map_err(BridgeError::from)<span class="question-mark">?</span>;
-            dbtx.commit().<span class="kw">await</span>.map_err(|e| {
-                Status::internal(<span class="macro">format!</span>(
-                    <span class="string">"Failed to commit db transaction to send optimistic payout tx: {}"</span>,
-                    e
-                ))
-            })<span class="question-mark">?</span>;
+
+            <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
+            </span>{
+                <span class="macro">tracing::info!</span>(<span class="string">"Sending optimistic payout tx via tx_sender"</span>);
+
+                <span class="kw">let </span><span class="kw-2">mut </span>dbtx = <span class="self">self</span>.db.begin_transaction().<span class="kw">await</span><span class="question-mark">?</span>;
+                <span class="self">self</span>.tx_sender
+                    .add_tx_to_queue(
+                        <span class="kw-2">&amp;mut </span>dbtx,
+                        TransactionType::OptimisticPayout,
+                        opt_payout_tx,
+                        <span class="kw-2">&amp;</span>[],
+                        <span class="prelude-val">None</span>,
+                        <span class="kw-2">&amp;</span><span class="self">self</span>.config,
+                        <span class="prelude-val">None</span>,
+                    )
+                    .<span class="kw">await
+                    </span>.map_err(BridgeError::from)<span class="question-mark">?</span>;
+                dbtx.commit().<span class="kw">await</span>.map_err(|e| {
+                    Status::internal(<span class="macro">format!</span>(
+                        <span class="string">"Failed to commit db transaction to send optimistic payout tx: {}"</span>,
+                        e
+                    ))
+                })<span class="question-mark">?</span>;
+            }
 
             <span class="prelude-val">Ok</span>(Response::new(RawSignedTx::from(opt_payout_tx)))
         } <span class="kw">else </span>{
@@ -2849,31 +2865,39 @@
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         request: Request&lt;clementine::SendTxRequest&gt;,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;Response&lt;Empty&gt;, Status&gt; {
-        <span class="kw">let </span>send_tx_req = request.into_inner();
-        <span class="kw">let </span>fee_type = send_tx_req.fee_type();
-        <span class="kw">let </span>signed_tx: bitcoin::Transaction = send_tx_req
-            .raw_tx
-            .ok_or(Status::invalid_argument(<span class="string">"Missing raw_tx"</span>))<span class="question-mark">?
-            </span>.try_into()<span class="question-mark">?</span>;
-        <span class="kw">let </span><span class="kw-2">mut </span>dbtx = <span class="self">self</span>.db.begin_transaction().<span class="kw">await</span><span class="question-mark">?</span>;
-        <span class="self">self</span>.tx_sender
-            .insert_try_to_send(
-                <span class="kw-2">&amp;mut </span>dbtx,
-                <span class="prelude-val">None</span>,
-                <span class="kw-2">&amp;</span>signed_tx,
-                fee_type.try_into()<span class="question-mark">?</span>,
-                <span class="prelude-val">None</span>,
-                <span class="kw-2">&amp;</span>[],
-                <span class="kw-2">&amp;</span>[],
-                <span class="kw-2">&amp;</span>[],
-                <span class="kw-2">&amp;</span>[],
-            )
-            .<span class="kw">await
-            </span>.map_err(BridgeError::from)<span class="question-mark">?</span>;
-        dbtx.commit()
-            .<span class="kw">await
-            </span>.map_err(|e| Status::internal(<span class="macro">format!</span>(<span class="string">"Failed to commit db transaction: {}"</span>, e)))<span class="question-mark">?</span>;
-        <span class="prelude-val">Ok</span>(Response::new(Empty {}))
+        <span class="attr">#[cfg(not(feature = <span class="string">"automation"</span>))]
+        </span>{
+            <span class="prelude-val">Err</span>(Status::unimplemented(<span class="string">"Automation is not enabled"</span>))
+        }
+        <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
+        </span>{
+            <span class="kw">let </span>send_tx_req = request.into_inner();
+            <span class="kw">let </span>fee_type = send_tx_req.fee_type();
+            <span class="kw">let </span>signed_tx: bitcoin::Transaction = send_tx_req
+                .raw_tx
+                .ok_or(Status::invalid_argument(<span class="string">"Missing raw_tx"</span>))<span class="question-mark">?
+                </span>.try_into()<span class="question-mark">?</span>;
+
+            <span class="kw">let </span><span class="kw-2">mut </span>dbtx = <span class="self">self</span>.db.begin_transaction().<span class="kw">await</span><span class="question-mark">?</span>;
+            <span class="self">self</span>.tx_sender
+                .insert_try_to_send(
+                    <span class="kw-2">&amp;mut </span>dbtx,
+                    <span class="prelude-val">None</span>,
+                    <span class="kw-2">&amp;</span>signed_tx,
+                    fee_type.try_into()<span class="question-mark">?</span>,
+                    <span class="prelude-val">None</span>,
+                    <span class="kw-2">&amp;</span>[],
+                    <span class="kw-2">&amp;</span>[],
+                    <span class="kw-2">&amp;</span>[],
+                    <span class="kw-2">&amp;</span>[],
+                )
+                .<span class="kw">await
+                </span>.map_err(BridgeError::from)<span class="question-mark">?</span>;
+            dbtx.commit()
+                .<span class="kw">await
+                </span>.map_err(|e| Status::internal(<span class="macro">format!</span>(<span class="string">"Failed to commit db transaction: {}"</span>, e)))<span class="question-mark">?</span>;
+            <span class="prelude-val">Ok</span>(Response::new(Empty {}))
+        }
     }
 
     <span class="attr">#[tracing::instrument(skip_all, err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
@@ -2978,7 +3002,7 @@
     </span><span class="kw">async fn </span>new_deposit(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         request: Request&lt;Deposit&gt;,
-    ) -&gt; <span class="prelude-ty">Result</span>&lt;Response&lt;clementine::Txid&gt;, Status&gt; {
+    ) -&gt; <span class="prelude-ty">Result</span>&lt;Response&lt;clementine::RawSignedTx&gt;, Status&gt; {
         <span class="kw">let </span>deposit_info: DepositInfo = request.into_inner().try_into()<span class="question-mark">?</span>;
 
         <span class="kw">let </span>deposit_data = DepositData {
@@ -3082,8 +3106,7 @@
             </span>.rpc
             .get_blockhash_of_tx(<span class="kw-2">&amp;</span>deposit_data.get_deposit_outpoint().txid)
             .<span class="kw">await
-            </span>.map_to_status()
-            .map_err(|e| <span class="kw-2">*</span>e)<span class="question-mark">?</span>;
+            </span>.map_to_status()<span class="question-mark">?</span>;
 
         <span class="kw">let </span>verifiers_public_keys = deposit_data.get_verifiers();
 
@@ -3223,11 +3246,14 @@
         .<span class="kw">await</span><span class="question-mark">?</span>;
 
         <span class="kw">let </span>signed_movetx_handler = <span class="self">self
-            </span>.send_movetx(move_to_vault_sigs, movetx_agg_nonce, deposit_params)
+            </span>.create_movetx(move_to_vault_sigs, movetx_agg_nonce, deposit_params)
             .<span class="kw">await</span><span class="question-mark">?</span>;
-        <span class="kw">let </span>txid = <span class="kw-2">*</span>signed_movetx_handler.get_txid();
 
-        <span class="prelude-val">Ok</span>(Response::new(txid.into()))
+        <span class="kw">let </span>raw_signed_tx = RawSignedTx {
+            raw_tx: bitcoin::consensus::serialize(<span class="kw-2">&amp;</span>signed_movetx_handler.get_cached_tx()),
+        };
+
+        <span class="prelude-val">Ok</span>(Response::new(raw_signed_tx))
     }
 
     <span class="attr">#[tracing::instrument(skip(<span class="self">self</span>), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
@@ -3303,6 +3329,63 @@
             raw_tx: bitcoin::consensus::serialize(<span class="kw-2">&amp;</span>combined_stop_tx).to_vec(),
         }))
     }
+
+    <span class="kw">async fn </span>send_move_to_vault_tx(
+        <span class="kw-2">&amp;</span><span class="self">self</span>,
+        request: Request&lt;clementine::SendMoveTxRequest&gt;,
+    ) -&gt; <span class="prelude-ty">Result</span>&lt;Response&lt;clementine::Txid&gt;, Status&gt; {
+        <span class="attr">#[cfg(not(feature = <span class="string">"automation"</span>))]
+        </span>{
+            <span class="kw">let _ </span>= request;
+            <span class="kw">return </span><span class="prelude-val">Err</span>(Status::unimplemented(
+                <span class="string">"Automation is disabled, cannot automatically send move to vault tx."</span>,
+            ));
+        }
+
+        <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
+        </span>{
+            <span class="kw">let </span>request = request.into_inner();
+            <span class="kw">let </span>movetx = bitcoin::consensus::deserialize(
+                <span class="kw-2">&amp;</span>request
+                    .raw_tx
+                    .ok_or_eyre(<span class="string">"raw_tx is required"</span>)
+                    .map_to_status()<span class="question-mark">?
+                    </span>.raw_tx,
+            )
+            .wrap_err(<span class="string">"Failed to deserialize movetx"</span>)
+            .map_to_status()<span class="question-mark">?</span>;
+
+            <span class="kw">let </span><span class="kw-2">mut </span>dbtx = <span class="self">self</span>.db.begin_transaction().<span class="kw">await</span><span class="question-mark">?</span>;
+            <span class="self">self</span>.tx_sender
+                .insert_try_to_send(
+                    <span class="kw-2">&amp;mut </span>dbtx,
+                    <span class="prelude-val">Some</span>(TxMetadata {
+                        deposit_outpoint: request
+                            .deposit_outpoint
+                            .map(TryInto::try_into)
+                            .transpose()<span class="question-mark">?</span>,
+                        operator_xonly_pk: <span class="prelude-val">None</span>,
+                        round_idx: <span class="prelude-val">None</span>,
+                        kickoff_idx: <span class="prelude-val">None</span>,
+                        tx_type: TransactionType::MoveToVault,
+                    }),
+                    <span class="kw-2">&amp;</span>movetx,
+                    FeePayingType::CPFP,
+                    <span class="prelude-val">None</span>,
+                    <span class="kw-2">&amp;</span>[],
+                    <span class="kw-2">&amp;</span>[],
+                    <span class="kw-2">&amp;</span>[],
+                    <span class="kw-2">&amp;</span>[],
+                )
+                .<span class="kw">await
+                </span>.map_err(BridgeError::from)<span class="question-mark">?</span>;
+            dbtx.commit()
+                .<span class="kw">await
+                </span>.map_err(|e| Status::internal(<span class="macro">format!</span>(<span class="string">"Failed to commit db transaction: {}"</span>, e)))<span class="question-mark">?</span>;
+
+            <span class="prelude-val">Ok</span>(Response::new(movetx.compute_txid().into()))
+        }
+    }
 }
 
 <span class="attr">#[cfg(test)]
@@ -3310,12 +3393,12 @@
     <span class="kw">use </span><span class="kw">crate</span>::actor::Actor;
     <span class="kw">use </span><span class="kw">crate</span>::deposit::{BaseDepositData, DepositInfo, DepositType};
     <span class="kw">use </span><span class="kw">crate</span>::musig2::AggregateFromPublicKeys;
-    <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::{<span class="self">self</span>};
+    <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::{<span class="self">self</span>, RawSignedTx, SendMoveTxRequest};
     <span class="kw">use </span><span class="kw">crate</span>::test::common::citrea::MockCitreaClient;
+    <span class="kw">use </span><span class="kw">crate</span>::test::common::tx_utils::ensure_tx_onchain;
     <span class="kw">use </span><span class="kw">crate</span>::test::common::<span class="kw-2">*</span>;
     <span class="kw">use crate</span>::{builder, EVMAddress};
     <span class="kw">use </span>bitcoin::hashes::Hash;
-    <span class="kw">use </span>bitcoin::Txid;
     <span class="kw">use </span>bitcoincore_rpc::RpcApi;
     <span class="kw">use </span>eyre::Context;
     <span class="kw">use </span>std::time::Duration;
@@ -3338,94 +3421,6 @@
             .setup(tonic::Request::new(clementine::Empty {}))
             .<span class="kw">await
             </span>.is_err());
-    }
-
-    <span class="attr">#[tokio::test(flavor = <span class="string">"multi_thread"</span>)]
-    </span><span class="kw">async fn </span>aggregator_deposit_movetx_lands_onchain() {
-        <span class="kw">let </span><span class="kw-2">mut </span>config = create_test_config_with_thread_name().<span class="kw">await</span>;
-        <span class="kw">let </span>regtest = create_regtest_rpc(<span class="kw-2">&amp;mut </span>config).<span class="kw">await</span>;
-        <span class="kw">let </span>rpc = regtest.rpc();
-        <span class="kw">let </span>(_verifiers, _operators, <span class="kw-2">mut </span>aggregator, _cleanup) =
-            create_actors::&lt;MockCitreaClient&gt;(<span class="kw-2">&amp;</span>config).<span class="kw">await</span>;
-
-        <span class="kw">let </span>evm_address = EVMAddress([<span class="number">1u8</span>; <span class="number">20</span>]);
-        <span class="kw">let </span>signer = Actor::new(
-            config.secret_key,
-            config.winternitz_secret_key,
-            config.protocol_paramset().network,
-        );
-
-        <span class="kw">let </span>verifiers_public_keys: Vec&lt;bitcoin::secp256k1::PublicKey&gt; = aggregator
-            .setup(tonic::Request::new(clementine::Empty {}))
-            .<span class="kw">await
-            </span>.unwrap()
-            .into_inner()
-            .try_into()
-            .unwrap();
-        sleep(Duration::from_secs(<span class="number">3</span>)).<span class="kw">await</span>;
-
-        <span class="kw">let </span>nofn_xonly_pk =
-            bitcoin::XOnlyPublicKey::from_musig2_pks(verifiers_public_keys.clone(), <span class="prelude-val">None</span>).unwrap();
-
-        <span class="kw">let </span>deposit_address = builder::address::generate_deposit_address(
-            nofn_xonly_pk,
-            signer.address.as_unchecked(),
-            evm_address,
-            config.protocol_paramset().network,
-            config.protocol_paramset().user_takes_after,
-        )
-        .unwrap()
-        .<span class="number">0</span>;
-
-        <span class="kw">let </span>deposit_outpoint = rpc
-            .send_to_address(<span class="kw-2">&amp;</span>deposit_address, config.protocol_paramset().bridge_amount)
-            .<span class="kw">await
-            </span>.unwrap();
-        rpc.mine_blocks(<span class="number">18</span>).<span class="kw">await</span>.unwrap();
-
-        <span class="kw">let </span>deposit_info = DepositInfo {
-            deposit_outpoint,
-            deposit_type: DepositType::BaseDeposit(BaseDepositData {
-                evm_address,
-                recovery_taproot_address: signer.address.as_unchecked().clone(),
-            }),
-        };
-
-        <span class="kw">let </span>movetx_txid: Txid = aggregator
-            .new_deposit(clementine::Deposit::from(deposit_info))
-            .<span class="kw">await
-            </span>.unwrap()
-            .into_inner()
-            .try_into()
-            .unwrap();
-        rpc.mine_blocks(<span class="number">1</span>).<span class="kw">await</span>.unwrap();
-        sleep(Duration::from_secs(<span class="number">3</span>)).<span class="kw">await</span>;
-
-        <span class="kw">let </span>tx = poll_get(
-            <span class="kw">async </span>|| {
-                rpc.mine_blocks(<span class="number">1</span>).<span class="kw">await</span>.unwrap();
-
-                <span class="kw">let </span>tx_result = rpc
-                    .client
-                    .get_raw_transaction_info(<span class="kw-2">&amp;</span>movetx_txid, <span class="prelude-val">None</span>)
-                    .<span class="kw">await</span>;
-
-                <span class="kw">let </span>tx_result = tx_result
-                    .inspect_err(|e| {
-                        <span class="macro">tracing::error!</span>(<span class="string">"Error getting transaction: {:?}"</span>, e);
-                    })
-                    .ok();
-
-                <span class="prelude-val">Ok</span>(tx_result)
-            },
-            <span class="prelude-val">None</span>,
-            <span class="prelude-val">None</span>,
-        )
-        .<span class="kw">await
-        </span>.wrap_err_with(|| <span class="macro">eyre::eyre!</span>(<span class="string">"MoveTx did not land onchain"</span>))
-        .unwrap();
-
-        <span class="macro">assert!</span>(tx.confirmations.unwrap() &gt; <span class="number">0</span>);
     }
 
     <span class="attr">#[tokio::test(flavor = <span class="string">"multi_thread"</span>)]
@@ -3480,20 +3475,136 @@
         };
 
         <span class="comment">// Two deposits with the same values.
-        </span><span class="kw">let </span>_movetx_txid: Txid = aggregator
+        </span><span class="kw">let </span>movetx_one = aggregator
             .new_deposit(clementine::Deposit::from(deposit_info.clone()))
             .<span class="kw">await
             </span>.unwrap()
-            .into_inner()
-            .try_into()
-            .unwrap();
-        <span class="kw">let </span>movetx_txid: Txid = aggregator
-            .new_deposit(clementine::Deposit::from(deposit_info))
+            .into_inner();
+        <span class="kw">let </span>movetx_one_txid: bitcoin::Txid = aggregator
+            .send_move_to_vault_tx(SendMoveTxRequest {
+                deposit_outpoint: <span class="prelude-val">Some</span>(deposit_outpoint.into()),
+                raw_tx: <span class="prelude-val">Some</span>(movetx_one),
+            })
             .<span class="kw">await
             </span>.unwrap()
             .into_inner()
             .try_into()
             .unwrap();
+
+        <span class="kw">let </span>movetx_two = aggregator
+            .new_deposit(clementine::Deposit::from(deposit_info))
+            .<span class="kw">await
+            </span>.unwrap()
+            .into_inner();
+        <span class="kw">let </span>movetx_two_txid: bitcoin::Txid = aggregator
+            .send_move_to_vault_tx(SendMoveTxRequest {
+                deposit_outpoint: <span class="prelude-val">Some</span>(deposit_outpoint.into()),
+                raw_tx: <span class="prelude-val">Some</span>(movetx_two),
+            })
+            .<span class="kw">await
+            </span>.unwrap()
+            .into_inner()
+            .try_into()
+            .unwrap();
+        rpc.mine_blocks(<span class="number">1</span>).<span class="kw">await</span>.unwrap();
+        sleep(Duration::from_secs(<span class="number">3</span>)).<span class="kw">await</span>;
+
+        <span class="kw">let </span>tx = poll_get(
+            <span class="kw">async </span>|| {
+                rpc.mine_blocks(<span class="number">1</span>).<span class="kw">await</span>.unwrap();
+
+                <span class="kw">let </span>tx_result = rpc
+                    .client
+                    .get_raw_transaction_info(<span class="kw-2">&amp;</span>movetx_one_txid, <span class="prelude-val">None</span>)
+                    .<span class="kw">await</span>;
+
+                <span class="kw">let </span>tx_result = tx_result
+                    .inspect_err(|e| {
+                        <span class="macro">tracing::error!</span>(<span class="string">"Error getting transaction: {:?}"</span>, e);
+                    })
+                    .ok();
+
+                <span class="prelude-val">Ok</span>(tx_result)
+            },
+            <span class="prelude-val">None</span>,
+            <span class="prelude-val">None</span>,
+        )
+        .<span class="kw">await
+        </span>.wrap_err_with(|| <span class="macro">eyre::eyre!</span>(<span class="string">"MoveTx did not land onchain"</span>))
+        .unwrap();
+
+        <span class="macro">assert!</span>(tx.confirmations.unwrap() &gt; <span class="number">0</span>);
+    }
+
+    <span class="attr">#[tokio::test(flavor = <span class="string">"multi_thread"</span>)]
+    </span><span class="kw">async fn </span>aggregator_deposit_movetx_lands_onchain() {
+        <span class="kw">let </span><span class="kw-2">mut </span>config = create_test_config_with_thread_name().<span class="kw">await</span>;
+        <span class="kw">let </span>regtest = create_regtest_rpc(<span class="kw-2">&amp;mut </span>config).<span class="kw">await</span>;
+        <span class="kw">let </span>rpc = regtest.rpc();
+        <span class="kw">let </span>(_verifiers, _operators, <span class="kw-2">mut </span>aggregator, _cleanup) =
+            create_actors::&lt;MockCitreaClient&gt;(<span class="kw-2">&amp;</span>config).<span class="kw">await</span>;
+
+        <span class="kw">let </span>evm_address = EVMAddress([<span class="number">1u8</span>; <span class="number">20</span>]);
+        <span class="kw">let </span>signer = Actor::new(
+            config.secret_key,
+            config.winternitz_secret_key,
+            config.protocol_paramset().network,
+        );
+
+        <span class="kw">let </span>verifiers_public_keys: Vec&lt;bitcoin::secp256k1::PublicKey&gt; = aggregator
+            .setup(tonic::Request::new(clementine::Empty {}))
+            .<span class="kw">await
+            </span>.unwrap()
+            .into_inner()
+            .try_into()
+            .unwrap();
+        sleep(Duration::from_secs(<span class="number">3</span>)).<span class="kw">await</span>;
+
+        <span class="kw">let </span>nofn_xonly_pk =
+            bitcoin::XOnlyPublicKey::from_musig2_pks(verifiers_public_keys.clone(), <span class="prelude-val">None</span>).unwrap();
+
+        <span class="kw">let </span>deposit_address = builder::address::generate_deposit_address(
+            nofn_xonly_pk,
+            signer.address.as_unchecked(),
+            evm_address,
+            config.protocol_paramset().network,
+            config.protocol_paramset().user_takes_after,
+        )
+        .unwrap()
+        .<span class="number">0</span>;
+
+        <span class="kw">let </span>deposit_outpoint = rpc
+            .send_to_address(<span class="kw-2">&amp;</span>deposit_address, config.protocol_paramset().bridge_amount)
+            .<span class="kw">await
+            </span>.unwrap();
+        rpc.mine_blocks(<span class="number">18</span>).<span class="kw">await</span>.unwrap();
+
+        <span class="kw">let </span>deposit_info = DepositInfo {
+            deposit_outpoint,
+            deposit_type: DepositType::BaseDeposit(BaseDepositData {
+                evm_address,
+                recovery_taproot_address: signer.address.as_unchecked().clone(),
+            }),
+        };
+
+        <span class="comment">// Generate and broadcast the move-to-vault transaction
+        </span><span class="kw">let </span>raw_move_tx = aggregator
+            .new_deposit(clementine::Deposit::from(deposit_info))
+            .<span class="kw">await
+            </span>.unwrap()
+            .into_inner();
+
+        <span class="kw">let </span>movetx_txid = aggregator
+            .send_move_to_vault_tx(SendMoveTxRequest {
+                deposit_outpoint: <span class="prelude-val">Some</span>(deposit_outpoint.into()),
+                raw_tx: <span class="prelude-val">Some</span>(raw_move_tx),
+            })
+            .<span class="kw">await
+            </span>.unwrap()
+            .into_inner()
+            .try_into()
+            .unwrap();
+
         rpc.mine_blocks(<span class="number">1</span>).<span class="kw">await</span>.unwrap();
         sleep(Duration::from_secs(<span class="number">3</span>)).<span class="kw">await</span>;
 
@@ -3599,78 +3710,53 @@
             }),
         };
 
-        <span class="kw">let </span>movetx_txid_0: Txid = aggregator
+        <span class="comment">// Generate and broadcast the move-to-vault tx for the first deposit
+        </span><span class="kw">let </span>raw_move_tx_0 = aggregator
             .new_deposit(clementine::Deposit::from(deposit_info_0))
             .<span class="kw">await
             </span>.unwrap()
-            .into_inner()
-            .try_into()
-            .unwrap();
-        rpc.mine_blocks(<span class="number">1</span>).<span class="kw">await</span>.unwrap();
-        sleep(Duration::from_secs(<span class="number">3</span>)).<span class="kw">await</span>;
-
-        <span class="kw">let </span>movetx_txid_1: Txid = aggregator
-            .new_deposit(clementine::Deposit::from(deposit_info_1))
+            .into_inner();
+        <span class="kw">let </span>move_txid_0: bitcoin::Txid = aggregator
+            .send_move_to_vault_tx(SendMoveTxRequest {
+                deposit_outpoint: <span class="prelude-val">Some</span>(deposit_outpoint_0.into()),
+                raw_tx: <span class="prelude-val">Some</span>(raw_move_tx_0),
+            })
             .<span class="kw">await
             </span>.unwrap()
             .into_inner()
             .try_into()
             .unwrap();
+
         rpc.mine_blocks(<span class="number">1</span>).<span class="kw">await</span>.unwrap();
         sleep(Duration::from_secs(<span class="number">3</span>)).<span class="kw">await</span>;
+        ensure_tx_onchain(rpc, move_txid_0)
+            .<span class="kw">await
+            </span>.expect(<span class="string">"failed to get movetx_0 on chain"</span>);
 
-        <span class="kw">let </span>tx_0 = poll_get(
-            <span class="kw">async </span>|| {
-                rpc.mine_blocks(<span class="number">1</span>).<span class="kw">await</span>.unwrap();
+        <span class="comment">// Generate and broadcast the move-to-vault tx for the second deposit
+        </span><span class="kw">let </span>raw_move_tx_1 = aggregator
+            .new_deposit(clementine::Deposit::from(deposit_info_1))
+            .<span class="kw">await
+            </span>.unwrap()
+            .into_inner();
+        <span class="kw">let </span>move_txid_1 = aggregator
+            .send_move_to_vault_tx(SendMoveTxRequest {
+                deposit_outpoint: <span class="prelude-val">Some</span>(deposit_outpoint_1.into()),
+                raw_tx: <span class="prelude-val">Some</span>(raw_move_tx_1),
+            })
+            .<span class="kw">await
+            </span>.unwrap()
+            .into_inner()
+            .try_into()
+            .unwrap();
 
-                <span class="kw">let </span>tx_result = rpc
-                    .client
-                    .get_raw_transaction_info(<span class="kw-2">&amp;</span>movetx_txid_0, <span class="prelude-val">None</span>)
-                    .<span class="kw">await</span>;
+        rpc.mine_blocks(<span class="number">1</span>).<span class="kw">await</span>.unwrap();
+        ensure_tx_onchain(rpc, move_txid_1)
+            .<span class="kw">await
+            </span>.expect(<span class="string">"failed to get movetx_1 on chain"</span>);
+        sleep(Duration::from_secs(<span class="number">3</span>)).<span class="kw">await</span>;
 
-                <span class="kw">let </span>tx_result = tx_result
-                    .inspect_err(|e| {
-                        <span class="macro">tracing::error!</span>(<span class="string">"Error getting transaction: {:?}"</span>, e);
-                    })
-                    .ok();
-
-                <span class="prelude-val">Ok</span>(tx_result)
-            },
-            <span class="prelude-val">None</span>,
-            <span class="prelude-val">None</span>,
-        )
-        .<span class="kw">await
-        </span>.wrap_err_with(|| <span class="macro">eyre::eyre!</span>(<span class="string">"MoveTx did not land onchain"</span>))
-        .unwrap();
-
-        <span class="kw">let </span>tx_1 = poll_get(
-            <span class="kw">async </span>|| {
-                rpc.mine_blocks(<span class="number">1</span>).<span class="kw">await</span>.unwrap();
-
-                <span class="kw">let </span>tx_result = rpc
-                    .client
-                    .get_raw_transaction_info(<span class="kw-2">&amp;</span>movetx_txid_1, <span class="prelude-val">None</span>)
-                    .<span class="kw">await</span>;
-
-                <span class="kw">let </span>tx_result = tx_result
-                    .inspect_err(|e| {
-                        <span class="macro">tracing::error!</span>(<span class="string">"Error getting transaction: {:?}"</span>, e);
-                    })
-                    .ok();
-
-                <span class="prelude-val">Ok</span>(tx_result)
-            },
-            <span class="prelude-val">None</span>,
-            <span class="prelude-val">None</span>,
-        )
-        .<span class="kw">await
-        </span>.wrap_err_with(|| <span class="macro">eyre::eyre!</span>(<span class="string">"MoveTx did not land onchain"</span>))
-        .unwrap();
-
-        <span class="macro">assert!</span>(tx_0.confirmations.unwrap() &gt; <span class="number">0</span>);
-        <span class="macro">assert!</span>(tx_1.confirmations.unwrap() &gt; <span class="number">0</span>);
-
-        <span class="kw">let </span>move_txids = <span class="macro">vec!</span>[movetx_txid_0, movetx_txid_1];
+        <span class="kw">let </span>move_txids = <span class="macro">vec!</span>[move_txid_0, move_txid_1];
 
         <span class="macro">tracing::debug!</span>(<span class="string">"Move txids: {:?}"</span>, move_txids);
 
