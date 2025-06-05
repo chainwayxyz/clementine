@@ -49,7 +49,7 @@ use bitvm::clementine::additional_disprove::{
     replace_placeholders_in_script, validate_assertions_for_additional_script,
 };
 use bitvm::signatures::winternitz;
-use bridge_circuit_host::utils::get_ark_verifying_key;
+use bridge_circuit_host::utils::{get_ark_verifying_key_dev_mode_bridge};
 use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
 use circuits_lib::bridge_circuit::{deposit_constant, parse_op_return_data};
 use circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
@@ -1996,8 +1996,8 @@ where
         }) // This inner from_fn produces one [([u8; 20], u8); 68]
     });
         tracing::info!("Third created");
-        second.reverse();
-        third.reverse();
+        // second.reverse();
+        // third.reverse();
 
         let first_box = Box::new(first);
         let second_box = Box::new(second);
@@ -2006,7 +2006,7 @@ where
         tracing::info!("Boxes created");
 
         let res = validate_assertions(
-            &get_ark_verifying_key(),
+            &get_ark_verifying_key_dev_mode_bridge(),
             (first_box, second_box, third_box),
             bitvm_pks.bitvm_pks,
             disprove_scripts

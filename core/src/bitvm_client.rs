@@ -14,7 +14,7 @@ use bitvm::chunk::api::{
 use bitvm::signatures::wots_api::wots160;
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use bridge_circuit_host::utils::get_ark_verifying_key;
+use bridge_circuit_host::utils::{get_ark_verifying_key, get_ark_verifying_key_dev_mode_bridge};
 use std::fs;
 
 use std::str::FromStr;
@@ -108,7 +108,7 @@ impl BitvmCache {
 }
 
 fn generate_fresh_data() -> BitvmCache {
-    let vk = get_ark_verifying_key();
+    let vk = get_ark_verifying_key_dev_mode_bridge();
 
     let dummy_pks = ClementineBitVMPublicKeys::create_replacable();
 
@@ -678,7 +678,7 @@ mod tests {
     async fn test_generate_fresh_data() {
         let bitvm_cache = generate_fresh_data();
         bitvm_cache
-            .save_to_file("bitvm_cache.bin")
+            .save_to_file("bitvm_cache_new.bin")
             .expect("Failed to save BitVM cache");
     }
 }
