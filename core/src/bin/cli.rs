@@ -413,7 +413,9 @@ async fn create_move_transaction(
     let deposit = aggregator
         .new_deposit(Deposit {
             deposit_outpoint: Some(Outpoint {
-                txid: deposit_outpoint_txid,
+                txid: Some(clementine_core::rpc::clementine::Txid {
+                    txid: deposit_outpoint_txid,
+                }),
                 vout: deposit_outpoint_vout,
             }),
             deposit_data: Some(DepositData::BaseDeposit(BaseDeposit {
@@ -631,7 +633,9 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                 .send_move_to_vault_tx(SendMoveTxRequest {
                     raw_tx: Some(deposit.into_inner()),
                     deposit_outpoint: Some(Outpoint {
-                        txid: deposit_outpoint_txid,
+                        txid: Some(clementine_core::rpc::clementine::Txid {
+                            txid: deposit_outpoint_txid,
+                        }),
                         vout: deposit_outpoint_vout,
                     }),
                 })
@@ -1097,7 +1101,9 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                 .send_move_to_vault_tx(SendMoveTxRequest {
                     raw_tx: Some(deposit.into_inner()),
                     deposit_outpoint: Some(Outpoint {
-                        txid: deposit_outpoint_txid,
+                        txid: Some(clementine_core::rpc::clementine::Txid {
+                            txid: deposit_outpoint_txid,
+                        }),
                         vout: deposit_outpoint_vout,
                     }),
                 })
