@@ -68,7 +68,13 @@ Before running Clementine:
 
 ### Configure Clementine
 
-Clementine supports two primary configuration methods:
+Clementine can be configured to enable automation at build-time via the `automation` feature. The automation feature enables the State Manager and Transaction Sender which automatically fulfills the duties of verifier/operator/aggregator entities. It also enables automatic sending and management of transactions to the Bitcoin network via Transaction Sender.
+
+```bash
+cargo build --release --features automation
+```
+
+Clementine supports two runtime primary configuration methods:
 
 1. **Configuration Files**: Specify main configuration and protocol parameters via TOML files
 2. **Environment Variables**: Configure the application entirely through environment variables

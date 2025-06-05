@@ -10,6 +10,7 @@ mod state_manager;
 mod taproot;
 mod withdraw;
 
+#[cfg(feature = "automation")]
 mod additional_disprove_scripts;
 mod bitvm_script;
 
