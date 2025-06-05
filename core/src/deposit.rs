@@ -34,13 +34,29 @@ pub struct KickoffData {
 /// - actors includes the public keys of the actors that will participate in the deposit.
 /// - security_council includes the public keys of the security council that can unlock the deposit to create a replacement deposit
 ///     in case a bug is found in the bridge.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Eq)]
 pub struct DepositData {
     /// Cached nofn xonly public key used for deposit.
     pub nofn_xonly_pk: Option<XOnlyPublicKey>,
     pub deposit: DepositInfo,
     pub actors: Actors,
     pub security_council: SecurityCouncil,
+}
+
+impl PartialEq for DepositData {
+    fn eq(&self, other: &Self) -> bool {
+        // nofn_xonly_pk only depends on verifiers pk's so it can be ignored as verifiers are already compared
+        // for security council, order of keys matter as it will change the m of n multisig script,
+        // thus change the scriptpubkey of move to vault tx
+        self.security_council == other.security_council
+            && self.deposit.deposit_outpoint == other.deposit.deposit_outpoint
+            // for watchtowers/verifiers/operators, order doesn't matter, we compare sorted lists
+            // get() functions already return sorted lists
+            && self.get_operators() == other.get_operators()
+            && self.get_verifiers() == other.get_verifiers()
+            && self.get_watchtowers() == other.get_watchtowers()
+            && self.deposit.deposit_type == other.deposit.deposit_type
+    }
 }
 
 /// Data structure to represent the deposit outpoint and type.
