@@ -1442,7 +1442,62 @@
 <a href="#1441" id="1441">1441</a>
 <a href="#1442" id="1442">1442</a>
 <a href="#1443" id="1443">1443</a>
-<a href="#1444" id="1444">1444</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Operator Related Database Operations
+<a href="#1444" id="1444">1444</a>
+<a href="#1445" id="1445">1445</a>
+<a href="#1446" id="1446">1446</a>
+<a href="#1447" id="1447">1447</a>
+<a href="#1448" id="1448">1448</a>
+<a href="#1449" id="1449">1449</a>
+<a href="#1450" id="1450">1450</a>
+<a href="#1451" id="1451">1451</a>
+<a href="#1452" id="1452">1452</a>
+<a href="#1453" id="1453">1453</a>
+<a href="#1454" id="1454">1454</a>
+<a href="#1455" id="1455">1455</a>
+<a href="#1456" id="1456">1456</a>
+<a href="#1457" id="1457">1457</a>
+<a href="#1458" id="1458">1458</a>
+<a href="#1459" id="1459">1459</a>
+<a href="#1460" id="1460">1460</a>
+<a href="#1461" id="1461">1461</a>
+<a href="#1462" id="1462">1462</a>
+<a href="#1463" id="1463">1463</a>
+<a href="#1464" id="1464">1464</a>
+<a href="#1465" id="1465">1465</a>
+<a href="#1466" id="1466">1466</a>
+<a href="#1467" id="1467">1467</a>
+<a href="#1468" id="1468">1468</a>
+<a href="#1469" id="1469">1469</a>
+<a href="#1470" id="1470">1470</a>
+<a href="#1471" id="1471">1471</a>
+<a href="#1472" id="1472">1472</a>
+<a href="#1473" id="1473">1473</a>
+<a href="#1474" id="1474">1474</a>
+<a href="#1475" id="1475">1475</a>
+<a href="#1476" id="1476">1476</a>
+<a href="#1477" id="1477">1477</a>
+<a href="#1478" id="1478">1478</a>
+<a href="#1479" id="1479">1479</a>
+<a href="#1480" id="1480">1480</a>
+<a href="#1481" id="1481">1481</a>
+<a href="#1482" id="1482">1482</a>
+<a href="#1483" id="1483">1483</a>
+<a href="#1484" id="1484">1484</a>
+<a href="#1485" id="1485">1485</a>
+<a href="#1486" id="1486">1486</a>
+<a href="#1487" id="1487">1487</a>
+<a href="#1488" id="1488">1488</a>
+<a href="#1489" id="1489">1489</a>
+<a href="#1490" id="1490">1490</a>
+<a href="#1491" id="1491">1491</a>
+<a href="#1492" id="1492">1492</a>
+<a href="#1493" id="1493">1493</a>
+<a href="#1494" id="1494">1494</a>
+<a href="#1495" id="1495">1495</a>
+<a href="#1496" id="1496">1496</a>
+<a href="#1497" id="1497">1497</a>
+<a href="#1498" id="1498">1498</a>
+<a href="#1499" id="1499">1499</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Operator Related Database Operations
 //!
 //! This module includes database functions which are mainly used by an operator.
 
@@ -1453,7 +1508,11 @@
     },
     Database, DatabaseTransaction,
 };
-<span class="kw">use </span><span class="kw">crate</span>::deposit::{DepositData, KickoffData, OperatorData};
+<span class="kw">use crate</span>::{
+    builder::transaction::create_move_to_vault_txhandler,
+    config::protocol::ProtocolParamset,
+    deposit::{DepositData, KickoffData, OperatorData},
+};
 <span class="kw">use crate</span>::{
     errors::BridgeError,
     execute_query_with_tx,
@@ -1834,28 +1893,79 @@
     }
 
     <span class="doccomment">/// Saves deposit infos, and returns the deposit_id
+    /// This function additionally checks if the deposit data already exists in the db.
+    /// As we don't want to overwrite deposit data on the db, this function should give an error if deposit data is changed.
     </span><span class="kw">pub async fn </span>set_deposit_data(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
-        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
-        deposit_data: DepositData,
-        move_to_vault_txid: Txid,
+        <span class="kw-2">mut </span>tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+        deposit_data: <span class="kw-2">&amp;mut </span>DepositData,
+        paramset: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>ProtocolParamset,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;u32, BridgeError&gt; {
-        <span class="kw">let </span>query = sqlx::query_as(
+        <span class="comment">// compute move to vault txid
+        </span><span class="kw">let </span>move_to_vault_txid = create_move_to_vault_txhandler(deposit_data, paramset)<span class="question-mark">?
+            </span>.get_cached_tx()
+            .compute_txid();
+
+        <span class="kw">let </span>query = sqlx::query_as::&lt;<span class="kw">_</span>, (i32,)&gt;(
             <span class="string">"INSERT INTO deposits (deposit_outpoint, deposit_params, move_to_vault_txid)
                 VALUES ($1, $2, $3)
-                ON CONFLICT (deposit_outpoint) DO UPDATE
-                SET deposit_params = EXCLUDED.deposit_params,
-                    move_to_vault_txid = EXCLUDED.move_to_vault_txid
+                ON CONFLICT (deposit_outpoint) DO NOTHING
                 RETURNING deposit_id"</span>,
         )
         .bind(OutPointDB(deposit_data.get_deposit_outpoint()))
-        .bind(DepositParamsDB(deposit_data.into()))
+        .bind(DepositParamsDB(deposit_data.clone().into()))
         .bind(TxidDB(move_to_vault_txid));
 
-        <span class="kw">let </span>deposit_id: <span class="prelude-ty">Result</span>&lt;(i32,), sqlx::Error&gt; =
-            <span class="macro">execute_query_with_tx!</span>(<span class="self">self</span>.connection, tx, query, fetch_one);
+        <span class="kw">let </span>result =
+            <span class="macro">execute_query_with_tx!</span>(<span class="self">self</span>.connection, tx.as_deref_mut(), query, fetch_optional)<span class="question-mark">?</span>;
 
-        <span class="prelude-val">Ok</span>(u32::try_from(deposit_id<span class="question-mark">?</span>.<span class="number">0</span>).wrap_err(<span class="string">"Failed to convert deposit id to u32"</span>)<span class="question-mark">?</span>)
+        <span class="comment">// If we got a deposit_id back, that means we successfully inserted new data
+        </span><span class="kw">if let </span><span class="prelude-val">Some</span>((deposit_id,)) = result {
+            <span class="kw">return </span><span class="prelude-val">Ok</span>(u32::try_from(deposit_id).wrap_err(<span class="string">"Failed to convert deposit id to u32"</span>)<span class="question-mark">?</span>);
+        }
+
+        <span class="comment">// If no rows were returned, data already exists - check if it matches
+        </span><span class="kw">let </span>existing_query = sqlx::query_as::&lt;<span class="kw">_</span>, (i32, DepositParamsDB, TxidDB)&gt;(
+            <span class="string">"SELECT deposit_id, deposit_params, move_to_vault_txid FROM deposits WHERE deposit_outpoint = $1"
+        </span>)
+        .bind(OutPointDB(deposit_data.get_deposit_outpoint()));
+
+        <span class="kw">let </span>(existing_deposit_id, existing_deposit_params, existing_move_txid): (
+            i32,
+            DepositParamsDB,
+            TxidDB,
+        ) = <span class="macro">execute_query_with_tx!</span>(<span class="self">self</span>.connection, tx, existing_query, fetch_one)<span class="question-mark">?</span>;
+
+        <span class="kw">let </span>existing_deposit_data: DepositData = existing_deposit_params
+            .<span class="number">0
+            </span>.try_into()
+            .map_err(|e| <span class="macro">eyre::eyre!</span>(<span class="string">"Invalid deposit params {e}"</span>))<span class="question-mark">?</span>;
+
+        <span class="kw">if </span>existing_deposit_data != <span class="kw-2">*</span>deposit_data {
+            <span class="macro">tracing::error!</span>(
+                <span class="string">"Deposit data mismatch: Existing {:?}, New {:?}"</span>,
+                existing_deposit_data,
+                deposit_data
+            );
+            <span class="kw">return </span><span class="prelude-val">Err</span>(BridgeError::DepositDataMismatch(
+                deposit_data.get_deposit_outpoint(),
+            ));
+        }
+
+        <span class="kw">if </span>existing_move_txid.<span class="number">0 </span>!= move_to_vault_txid {
+            <span class="comment">// This should never happen, only a sanity check
+            </span><span class="macro">tracing::error!</span>(
+                <span class="string">"Move to vault txid mismatch in set_deposit_data: Existing {:?}, New {:?}"</span>,
+                existing_move_txid.<span class="number">0</span>,
+                move_to_vault_txid
+            );
+            <span class="kw">return </span><span class="prelude-val">Err</span>(BridgeError::DepositDataMismatch(
+                deposit_data.get_deposit_outpoint(),
+            ));
+        }
+
+        <span class="comment">// If data matches, return the existing deposit_id
+        </span><span class="prelude-val">Ok</span>(u32::try_from(existing_deposit_id).wrap_err(<span class="string">"Failed to convert deposit id to u32"</span>)<span class="question-mark">?</span>)
     }
 
     <span class="kw">pub async fn </span>get_deposit_data_with_move_tx(

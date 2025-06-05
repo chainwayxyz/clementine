@@ -327,7 +327,23 @@
 <a href="#326" id="326">326</a>
 <a href="#327" id="327">327</a>
 <a href="#328" id="328">328</a>
-<a href="#329" id="329">329</a></pre></div><pre class="rust"><code><span class="doccomment">//! This module defines the data structures related to Citrea deposits in the Clementine bridge.
+<a href="#329" id="329">329</a>
+<a href="#330" id="330">330</a>
+<a href="#331" id="331">331</a>
+<a href="#332" id="332">332</a>
+<a href="#333" id="333">333</a>
+<a href="#334" id="334">334</a>
+<a href="#335" id="335">335</a>
+<a href="#336" id="336">336</a>
+<a href="#337" id="337">337</a>
+<a href="#338" id="338">338</a>
+<a href="#339" id="339">339</a>
+<a href="#340" id="340">340</a>
+<a href="#341" id="341">341</a>
+<a href="#342" id="342">342</a>
+<a href="#343" id="343">343</a>
+<a href="#344" id="344">344</a>
+<a href="#345" id="345">345</a></pre></div><pre class="rust"><code><span class="doccomment">//! This module defines the data structures related to Citrea deposits in the Clementine bridge.
 //!
 //! It includes structures for representing deposit data, actors involved (verifiers, watchtowers, operators),
 //! and security council configurations. The module also provides functionality for managing different types
@@ -363,13 +379,29 @@
 /// - actors includes the public keys of the actors that will participate in the deposit.
 /// - security_council includes the public keys of the security council that can unlock the deposit to create a replacement deposit
 ///     in case a bug is found in the bridge.
-</span><span class="attr">#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+</span><span class="attr">#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Eq)]
 </span><span class="kw">pub struct </span>DepositData {
     <span class="doccomment">/// Cached nofn xonly public key used for deposit.
     </span><span class="kw">pub </span>nofn_xonly_pk: <span class="prelude-ty">Option</span>&lt;XOnlyPublicKey&gt;,
     <span class="kw">pub </span>deposit: DepositInfo,
     <span class="kw">pub </span>actors: Actors,
     <span class="kw">pub </span>security_council: SecurityCouncil,
+}
+
+<span class="kw">impl </span>PartialEq <span class="kw">for </span>DepositData {
+    <span class="kw">fn </span>eq(<span class="kw-2">&amp;</span><span class="self">self</span>, other: <span class="kw-2">&amp;</span><span class="self">Self</span>) -&gt; bool {
+        <span class="comment">// nofn_xonly_pk only depends on verifiers pk's so it can be ignored as verifiers are already compared
+        // for security council, order of keys matter as it will change the m of n multisig script,
+        // thus change the scriptpubkey of move to vault tx
+        </span><span class="self">self</span>.security_council == other.security_council
+            &amp;&amp; <span class="self">self</span>.deposit.deposit_outpoint == other.deposit.deposit_outpoint
+            <span class="comment">// for watchtowers/verifiers/operators, order doesn't matter, we compare sorted lists
+            // get() functions already return sorted lists
+            </span>&amp;&amp; <span class="self">self</span>.get_operators() == other.get_operators()
+            &amp;&amp; <span class="self">self</span>.get_verifiers() == other.get_verifiers()
+            &amp;&amp; <span class="self">self</span>.get_watchtowers() == other.get_watchtowers()
+            &amp;&amp; <span class="self">self</span>.deposit.deposit_type == other.deposit.deposit_type
+    }
 }
 
 <span class="doccomment">/// Data structure to represent the deposit outpoint and type.

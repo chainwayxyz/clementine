@@ -267,7 +267,11 @@
 <a href="#266" id="266">266</a>
 <a href="#267" id="267">267</a>
 <a href="#268" id="268">268</a>
-<a href="#269" id="269">269</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Errors
+<a href="#269" id="269">269</a>
+<a href="#270" id="270">270</a>
+<a href="#271" id="271">271</a>
+<a href="#272" id="272">272</a>
+<a href="#273" id="273">273</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Errors
 //!
 //! This module defines globally shared error messages, the crate-level error wrapper and extension traits for error/results.
 //! Our error paradigm is as follows:
@@ -338,7 +342,7 @@
 };
 <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
 </span><span class="kw">use crate</span>::{states::StateMachineError, tx_sender::SendTxError};
-<span class="kw">use </span>bitcoin::{secp256k1::PublicKey, OutPoint, XOnlyPublicKey};
+<span class="kw">use </span>bitcoin::{secp256k1::PublicKey, OutPoint, Txid, XOnlyPublicKey};
 <span class="kw">use </span>clap::builder::StyledStr;
 <span class="kw">use </span>core::fmt::Debug;
 <span class="kw">use </span>hex::FromHexError;
@@ -401,6 +405,8 @@
     </span>InvalidDeposit,
     <span class="attr">#[error(<span class="string">"Operator data mismatch. Data already stored in DB and received by set_operator doesn't match for xonly_pk: {0}"</span>)]
     </span>OperatorDataMismatch(XOnlyPublicKey),
+    <span class="attr">#[error(<span class="string">"Deposit data mismatch. Data already stored in DB doesn't match the new data for deposit {0:?}"</span>)]
+    </span>DepositDataMismatch(OutPoint),
     <span class="attr">#[error(<span class="string">"Operator winternitz public keys mismatch. Data already stored in DB doesn't match the new data for operator {0}"</span>)]
     </span>OperatorWinternitzPublicKeysMismatch(XOnlyPublicKey),
     <span class="attr">#[error(<span class="string">"BitVM setup data mismatch. Data already stored in DB doesn't match the new data for operator {0} and deposit {1:?}"</span>)]
@@ -415,6 +421,8 @@
     </span>InvalidOperatorIndex,
     <span class="attr">#[error(<span class="string">"Invalid protocol paramset"</span>)]
     </span>InvalidProtocolParamset,
+    <span class="attr">#[error(<span class="string">"Deposit already signed and move txid {0} is in chain"</span>)]
+    </span>DepositAlreadySigned(Txid),
 
     <span class="comment">// External crate error wrappers
     </span><span class="attr">#[error(<span class="string">"Failed to call database: {0}"</span>)]

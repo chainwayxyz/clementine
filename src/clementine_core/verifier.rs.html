@@ -2284,7 +2284,16 @@
 <a href="#2283" id="2283">2283</a>
 <a href="#2284" id="2284">2284</a>
 <a href="#2285" id="2285">2285</a>
-<a href="#2286" id="2286">2286</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
+<a href="#2286" id="2286">2286</a>
+<a href="#2287" id="2287">2287</a>
+<a href="#2288" id="2288">2288</a>
+<a href="#2289" id="2289">2289</a>
+<a href="#2290" id="2290">2290</a>
+<a href="#2291" id="2291">2291</a>
+<a href="#2292" id="2292">2292</a>
+<a href="#2293" id="2293">2293</a>
+<a href="#2294" id="2294">2294</a>
+<a href="#2295" id="2295">2295</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
 <span class="kw">use </span><span class="kw">crate</span>::bitcoin_syncer::{BitcoinSyncer, BlockHandler, FinalizedBlockFetcherTask};
 <span class="kw">use </span><span class="kw">crate</span>::bitvm_client::ClementineBitVMPublicKeys;
 <span class="kw">use </span><span class="kw">crate</span>::builder::address::{create_taproot_address, taproot_builder_with_scripts};
@@ -2773,6 +2782,12 @@
             <span class="kw">return </span><span class="prelude-val">Err</span>(BridgeError::InvalidDeposit);
         }
 
+        <span class="comment">// set deposit data to db before starting to sign, ensures that if the deposit data already exists in db, it matches the one
+        // given by the aggregator currently. We do not want to sign 2 different deposits for same deposit_outpoint
+        </span><span class="self">self</span>.db
+            .set_deposit_data(<span class="prelude-val">None</span>, <span class="kw-2">&amp;mut </span>deposit_data, <span class="self">self</span>.config.protocol_paramset())
+            .<span class="kw">await</span><span class="question-mark">?</span>;
+
         <span class="kw">let </span>verifier = <span class="self">self</span>.clone();
         <span class="kw">let </span>(partial_sig_tx, partial_sig_rx) = mpsc::channel(<span class="number">1280</span>);
         <span class="kw">let </span>verifier_index = deposit_data.get_verifier_index(<span class="kw-2">&amp;</span><span class="self">self</span>.signer.public_key)<span class="question-mark">?</span>;
@@ -3169,13 +3184,6 @@
 
         <span class="comment">// Save signatures to db
         </span><span class="kw">let </span><span class="kw-2">mut </span>dbtx = <span class="self">self</span>.db.begin_transaction().<span class="kw">await</span><span class="question-mark">?</span>;
-        <span class="self">self</span>.db
-            .set_deposit_data(
-                <span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx),
-                deposit_data.clone(),
-                <span class="kw-2">*</span>move_txhandler.get_txid(),
-            )
-            .<span class="kw">await</span><span class="question-mark">?</span>;
         <span class="comment">// Deposit is not actually finalized here, its only finalized after the aggregator gets all the partial sigs and checks the aggregated sig
         // TODO: It can create problems if the deposit fails at the end by some verifier not sending movetx partial sig, but we still added sigs to db
         </span><span class="kw">for </span>(operator_idx, (operator_xonly_pk, operator_sigs)) <span class="kw">in </span>operator_xonly_pks
@@ -3335,10 +3343,14 @@
 
     <span class="kw">pub async fn </span>set_operator_keys(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
-        deposit_data: DepositData,
+        <span class="kw-2">mut </span>deposit_data: DepositData,
         keys: OperatorKeys,
         operator_xonly_pk: XOnlyPublicKey,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
+        <span class="self">self</span>.db
+            .set_deposit_data(<span class="prelude-val">None</span>, <span class="kw-2">&amp;mut </span>deposit_data, <span class="self">self</span>.config.protocol_paramset())
+            .<span class="kw">await</span><span class="question-mark">?</span>;
+
         <span class="kw">let </span>hashes: Vec&lt;[u8; <span class="number">20</span>]&gt; = keys
             .challenge_ack_digests
             .into_iter()
@@ -4506,6 +4518,9 @@
         <span class="comment">// Should succeed or fail gracefully - testing idempotency, not functionality
         </span><span class="macro">tracing::info!</span>(<span class="string">"First call result: {:?}"</span>, result1);
 
+        <span class="comment">// Commit the first transaction
+        </span>dbtx1.commit().<span class="kw">await</span>.unwrap();
+
         <span class="comment">// Second call with identical parameters should also succeed (idempotent)
         </span><span class="kw">let </span><span class="kw-2">mut </span>dbtx2 = verifier.db.begin_transaction().<span class="kw">await</span>.unwrap();
         <span class="kw">let </span>result2 = verifier
@@ -4519,6 +4534,9 @@
             .<span class="kw">await</span>;
         <span class="comment">// Should succeed or fail gracefully - testing idempotency, not functionality
         </span><span class="macro">tracing::info!</span>(<span class="string">"Second call result: {:?}"</span>, result2);
+
+        <span class="comment">// Commit the second transaction
+        </span>dbtx2.commit().<span class="kw">await</span>.unwrap();
 
         <span class="comment">// Both calls should have same outcome (both succeed or both fail with same error type)
         </span><span class="macro">assert_eq!</span>(
