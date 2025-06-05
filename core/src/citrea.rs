@@ -2,7 +2,6 @@
 
 use crate::citrea::BRIDGE_CONTRACT::DepositReplaced;
 use crate::errors::BridgeError;
-
 use alloy::{
     eips::{BlockId, BlockNumberOrTag},
     network::EthereumWallet,
@@ -30,9 +29,6 @@ use risc0_zkvm::{InnerReceipt, Receipt};
 use std::{fmt::Debug, time::Duration};
 use tonic::async_trait;
 
-#[cfg(test)]
-pub mod mock;
-
 pub const LIGHT_CLIENT_ADDRESS: &str = "0x3100000000000000000000000000000000000001";
 pub const BRIDGE_CONTRACT_ADDRESS: &str = "0x3100000000000000000000000000000000000002";
 pub const SATS_TO_WEI_MULTIPLIER: u64 = 10_000_000_000;
@@ -47,7 +43,7 @@ sol!(
     #[sol(rpc)]
     #[derive(Debug)]
     BRIDGE_CONTRACT,
-    "src/citrea/Bridge.json"
+    "../scripts/Bridge.json"
 );
 
 #[async_trait]

@@ -974,23 +974,21 @@ pub fn create_round_txhandlers(
 
 #[cfg(test)]
 mod tests {
-
-    use std::collections::HashMap;
-
     use super::*;
     use crate::actor::Actor;
     use crate::bitvm_client::ClementineBitVMPublicKeys;
     use crate::builder::transaction::sign::get_kickoff_utxos_to_sign;
     use crate::builder::transaction::{TransactionType, TxHandlerBuilder};
-    use crate::citrea::mock::MockCitreaClient;
     use crate::config::BridgeConfig;
     use crate::deposit::{DepositInfo, KickoffData};
     use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
     use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
     use crate::rpc::clementine::{SignedTxsWithType, TransactionRequest};
+    use crate::test::common::citrea::MockCitreaClient;
     use crate::test::common::*;
     use bitcoin::{BlockHash, Transaction, XOnlyPublicKey};
     use futures::future::try_join_all;
+    use std::collections::HashMap;
     use tokio::sync::mpsc;
 
     fn signed_txs_to_txid(signed_txs: SignedTxsWithType) -> Vec<(TransactionType, bitcoin::Txid)> {
