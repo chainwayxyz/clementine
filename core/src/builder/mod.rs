@@ -15,6 +15,7 @@
 //! - transaction: Contains the functions that create TxHandler's of every single tx needed for the bridge. For detailed information
 //!   about the tx's see the [clementine whitepaper](https://citrea.xyz/clementine_whitepaper.pdf).
 pub mod address;
+pub mod block_cache;
 pub mod script;
 pub mod sighash;
 pub mod transaction;

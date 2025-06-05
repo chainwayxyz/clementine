@@ -13,6 +13,7 @@ use crate::rpc::clementine::{
     FinalizedPayoutParams, KickoffId, NormalSignatureKind, TransactionRequest, WithdrawParams,
 };
 use crate::test::common::citrea::{get_citrea_safe_withdraw_params, MockCitreaClient, SECRET_KEYS};
+use crate::test::common::tx_utils::get_tx_from_signed_txs_with_type;
 use crate::test::common::tx_utils::{
     create_tx_sender, ensure_outpoint_spent,
     ensure_outpoint_spent_while_waiting_for_light_client_sync, get_txid_where_utxo_is_spent,
@@ -22,8 +23,7 @@ use crate::test::common::{
     create_regtest_rpc, generate_withdrawal_transaction_and_signature, mine_once_after_in_mempool,
     poll_get, poll_until_condition, run_single_deposit,
 };
-use crate::test::full_flow::get_tx_from_signed_txs_with_type;
-use crate::tx_sender::{FeePayingType, TxMetadata};
+use crate::utils::{FeePayingType, TxMetadata};
 use crate::UTXO;
 use crate::{
     extended_rpc::ExtendedRpc,

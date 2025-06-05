@@ -68,7 +68,13 @@ Before running Clementine:
 
 ### Configure Clementine
 
-Clementine supports two primary configuration methods:
+Clementine can be configured to enable automation at build-time via the `automation` feature. The automation feature enables the State Manager and Transaction Sender which automatically fulfills the duties of verifier/operator/aggregator entities. It also enables automatic sending and management of transactions to the Bitcoin network via Transaction Sender.
+
+```bash
+cargo build --release --features automation
+```
+
+Clementine supports two runtime primary configuration methods:
 
 1. **Configuration Files**: Specify main configuration and protocol parameters via TOML files
 2. **Environment Variables**: Configure the application entirely through environment variables
@@ -153,8 +159,8 @@ Clementine is designed to be run multiple times for every actor that an entity
 requires. An actor's server can be started using its corresponding argument:
 
 ```sh
-# Build the binary
-cargo build --release
+# Build the binary (with optional automation)
+cargo build --release [--features automation]
 
 # Run binary with configuration file
 ./target/release/clementine-core verifier --config /path/to/config.toml
@@ -261,7 +267,7 @@ export TEST_CONFIG=/path/to/configuration.toml
 To run all tests:
 
 ```sh
-cargo test
+cargo test --all-features
 ```
 
 #### Helper Scripts
