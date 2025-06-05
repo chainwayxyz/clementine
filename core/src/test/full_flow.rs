@@ -801,7 +801,6 @@ pub async fn run_bad_path_3(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
     Ok(())
 }
 
-
 // After a challenge, state machine should automatically send:
 // Watchtower challenges and operator asserts
 pub async fn run_challenge_with_state_machine(
