@@ -20,8 +20,8 @@ use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
 use crate::rpc::clementine::VerifierDepositSignParams;
 use crate::rpc::parser;
-use crate::tx_sender::{FeePayingType, TxMetadata};
 use crate::utils::get_vergen_response;
+use crate::utils::{FeePayingType, TxMetadata};
 use crate::UTXO;
 use crate::{
     aggregator::Aggregator,
@@ -572,7 +572,7 @@ impl Aggregator {
         Ok(operator_sigs)
     }
 
-    async fn send_movetx(
+    async fn create_movetx(
         &self,
         partial_sigs: Vec<Vec<u8>>,
         movetx_agg_nonce: MusigAggNonce,
@@ -603,38 +603,6 @@ impl Aggregator {
 
         // Put the signature in the tx
         move_txhandler.set_p2tr_script_spend_witness(&[final_sig.as_ref()], 0, 0)?;
-        // Add fee bumper.
-        let move_tx = move_txhandler.get_cached_tx();
-
-        let mut dbtx = self.db.begin_transaction().await?;
-        self.tx_sender
-            .insert_try_to_send(
-                &mut dbtx,
-                Some(TxMetadata {
-                    deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
-                    operator_xonly_pk: None,
-                    round_idx: None,
-                    kickoff_idx: None,
-                    tx_type: TransactionType::MoveToVault,
-                }),
-                move_tx,
-                FeePayingType::CPFP,
-                None,
-                &[],
-                &[],
-                &[],
-                &[],
-            )
-            .await
-            .map_err(BridgeError::from)?;
-        dbtx.commit()
-            .await
-            .map_err(|e| Status::internal(format!("Failed to commit db transaction: {}", e)))?;
-
-        tracing::info!(
-            "move_tx: {}",
-            hex::encode(bitcoin::consensus::serialize(&move_tx))
-        );
 
         Ok(move_txhandler.promote()?)
     }
@@ -789,6 +757,7 @@ impl Aggregator {
         Ok(combined_stop_tx)
     }
 
+    #[cfg(feature = "automation")]
     pub async fn send_emergency_stop_tx(
         &self,
         tx: bitcoin::Transaction,
@@ -876,8 +845,7 @@ impl ClementineAggregator for Aggregator {
             let pub_nonces = get_next_pub_nonces(&mut nonce_streams)
                 .await
                 .wrap_err("Failed to aggregate nonces for optimistic payout")
-                .map_to_status()
-                .map_err(|e| *e)?;
+                .map_to_status()?;
             let agg_nonce = aggregate_nonces(pub_nonces.iter().collect::<Vec<_>>().as_slice());
             // send the agg nonce to the verifiers to sign the optimistic payout tx
             let verifier_clients = self.get_verifier_clients();
@@ -905,8 +873,7 @@ impl ClementineAggregator for Aggregator {
                 .rpc
                 .get_txout_from_outpoint(&input_outpoint)
                 .await
-                .map_to_status()
-                .map_err(|e| *e)?;
+                .map_to_status()?;
             let withdrawal_utxo = UTXO {
                 outpoint: input_outpoint,
                 txout: withdrawal_prevout,
@@ -953,25 +920,31 @@ impl ClementineAggregator for Aggregator {
             opt_payout_txhandler.set_p2tr_script_spend_witness(&[final_sig.serialize()], 1, 0)?;
             let opt_payout_txhandler = opt_payout_txhandler.promote()?;
             let opt_payout_tx = opt_payout_txhandler.get_cached_tx();
-            let mut dbtx = self.db.begin_transaction().await?;
-            self.tx_sender
-                .add_tx_to_queue(
-                    &mut dbtx,
-                    TransactionType::OptimisticPayout,
-                    opt_payout_tx,
-                    &[],
-                    None,
-                    &self.config,
-                    None,
-                )
-                .await
-                .map_err(BridgeError::from)?;
-            dbtx.commit().await.map_err(|e| {
-                Status::internal(format!(
-                    "Failed to commit db transaction to send optimistic payout tx: {}",
-                    e
-                ))
-            })?;
+
+            #[cfg(feature = "automation")]
+            {
+                tracing::info!("Sending optimistic payout tx via tx_sender");
+
+                let mut dbtx = self.db.begin_transaction().await?;
+                self.tx_sender
+                    .add_tx_to_queue(
+                        &mut dbtx,
+                        TransactionType::OptimisticPayout,
+                        opt_payout_tx,
+                        &[],
+                        None,
+                        &self.config,
+                        None,
+                    )
+                    .await
+                    .map_err(BridgeError::from)?;
+                dbtx.commit().await.map_err(|e| {
+                    Status::internal(format!(
+                        "Failed to commit db transaction to send optimistic payout tx: {}",
+                        e
+                    ))
+                })?;
+            }
 
             Ok(Response::new(RawSignedTx::from(opt_payout_tx)))
         } else {
@@ -986,31 +959,39 @@ impl ClementineAggregator for Aggregator {
         &self,
         request: Request<clementine::SendTxRequest>,
     ) -> Result<Response<Empty>, Status> {
-        let send_tx_req = request.into_inner();
-        let fee_type = send_tx_req.fee_type();
-        let signed_tx: bitcoin::Transaction = send_tx_req
-            .raw_tx
-            .ok_or(Status::invalid_argument("Missing raw_tx"))?
-            .try_into()?;
-        let mut dbtx = self.db.begin_transaction().await?;
-        self.tx_sender
-            .insert_try_to_send(
-                &mut dbtx,
-                None,
-                &signed_tx,
-                fee_type.try_into()?,
-                None,
-                &[],
-                &[],
-                &[],
-                &[],
-            )
-            .await
-            .map_err(BridgeError::from)?;
-        dbtx.commit()
-            .await
-            .map_err(|e| Status::internal(format!("Failed to commit db transaction: {}", e)))?;
-        Ok(Response::new(Empty {}))
+        #[cfg(not(feature = "automation"))]
+        {
+            Err(Status::unimplemented("Automation is not enabled"))
+        }
+        #[cfg(feature = "automation")]
+        {
+            let send_tx_req = request.into_inner();
+            let fee_type = send_tx_req.fee_type();
+            let signed_tx: bitcoin::Transaction = send_tx_req
+                .raw_tx
+                .ok_or(Status::invalid_argument("Missing raw_tx"))?
+                .try_into()?;
+
+            let mut dbtx = self.db.begin_transaction().await?;
+            self.tx_sender
+                .insert_try_to_send(
+                    &mut dbtx,
+                    None,
+                    &signed_tx,
+                    fee_type.try_into()?,
+                    None,
+                    &[],
+                    &[],
+                    &[],
+                    &[],
+                )
+                .await
+                .map_err(BridgeError::from)?;
+            dbtx.commit()
+                .await
+                .map_err(|e| Status::internal(format!("Failed to commit db transaction: {}", e)))?;
+            Ok(Response::new(Empty {}))
+        }
     }
 
     #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
@@ -1115,7 +1096,7 @@ impl ClementineAggregator for Aggregator {
     async fn new_deposit(
         &self,
         request: Request<Deposit>,
-    ) -> Result<Response<clementine::Txid>, Status> {
+    ) -> Result<Response<clementine::RawSignedTx>, Status> {
         let deposit_info: DepositInfo = request.into_inner().try_into()?;
 
         let deposit_data = DepositData {
@@ -1219,8 +1200,7 @@ impl ClementineAggregator for Aggregator {
             .rpc
             .get_blockhash_of_tx(&deposit_data.get_deposit_outpoint().txid)
             .await
-            .map_to_status()
-            .map_err(|e| *e)?;
+            .map_to_status()?;
 
         let verifiers_public_keys = deposit_data.get_verifiers();
 
@@ -1360,11 +1340,14 @@ impl ClementineAggregator for Aggregator {
         .await?;
 
         let signed_movetx_handler = self
-            .send_movetx(move_to_vault_sigs, movetx_agg_nonce, deposit_params)
+            .create_movetx(move_to_vault_sigs, movetx_agg_nonce, deposit_params)
             .await?;
-        let txid = *signed_movetx_handler.get_txid();
 
-        Ok(Response::new(txid.into()))
+        let raw_signed_tx = RawSignedTx {
+            raw_tx: bitcoin::consensus::serialize(&signed_movetx_handler.get_cached_tx()),
+        };
+
+        Ok(Response::new(raw_signed_tx))
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
@@ -1440,6 +1423,63 @@ impl ClementineAggregator for Aggregator {
             raw_tx: bitcoin::consensus::serialize(&combined_stop_tx).to_vec(),
         }))
     }
+
+    async fn send_move_to_vault_tx(
+        &self,
+        request: Request<clementine::SendMoveTxRequest>,
+    ) -> Result<Response<clementine::Txid>, Status> {
+        #[cfg(not(feature = "automation"))]
+        {
+            let _ = request;
+            return Err(Status::unimplemented(
+                "Automation is disabled, cannot automatically send move to vault tx.",
+            ));
+        }
+
+        #[cfg(feature = "automation")]
+        {
+            let request = request.into_inner();
+            let movetx = bitcoin::consensus::deserialize(
+                &request
+                    .raw_tx
+                    .ok_or_eyre("raw_tx is required")
+                    .map_to_status()?
+                    .raw_tx,
+            )
+            .wrap_err("Failed to deserialize movetx")
+            .map_to_status()?;
+
+            let mut dbtx = self.db.begin_transaction().await?;
+            self.tx_sender
+                .insert_try_to_send(
+                    &mut dbtx,
+                    Some(TxMetadata {
+                        deposit_outpoint: request
+                            .deposit_outpoint
+                            .map(TryInto::try_into)
+                            .transpose()?,
+                        operator_xonly_pk: None,
+                        round_idx: None,
+                        kickoff_idx: None,
+                        tx_type: TransactionType::MoveToVault,
+                    }),
+                    &movetx,
+                    FeePayingType::CPFP,
+                    None,
+                    &[],
+                    &[],
+                    &[],
+                    &[],
+                )
+                .await
+                .map_err(BridgeError::from)?;
+            dbtx.commit()
+                .await
+                .map_err(|e| Status::internal(format!("Failed to commit db transaction: {}", e)))?;
+
+            Ok(Response::new(movetx.compute_txid().into()))
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1447,12 +1487,12 @@ mod tests {
     use crate::actor::Actor;
     use crate::deposit::{BaseDepositData, DepositInfo, DepositType};
     use crate::musig2::AggregateFromPublicKeys;
-    use crate::rpc::clementine::{self};
+    use crate::rpc::clementine::{self, RawSignedTx, SendMoveTxRequest};
     use crate::test::common::citrea::MockCitreaClient;
+    use crate::test::common::tx_utils::ensure_tx_onchain;
     use crate::test::common::*;
     use crate::{builder, EVMAddress};
     use bitcoin::hashes::Hash;
-    use bitcoin::Txid;
     use bitcoincore_rpc::RpcApi;
     use eyre::Context;
     use std::time::Duration;
@@ -1475,94 +1515,6 @@ mod tests {
             .setup(tonic::Request::new(clementine::Empty {}))
             .await
             .is_err());
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn aggregator_deposit_movetx_lands_onchain() {
-        let mut config = create_test_config_with_thread_name().await;
-        let regtest = create_regtest_rpc(&mut config).await;
-        let rpc = regtest.rpc();
-        let (_verifiers, _operators, mut aggregator, _cleanup) =
-            create_actors::<MockCitreaClient>(&config).await;
-
-        let evm_address = EVMAddress([1u8; 20]);
-        let signer = Actor::new(
-            config.secret_key,
-            config.winternitz_secret_key,
-            config.protocol_paramset().network,
-        );
-
-        let verifiers_public_keys: Vec<bitcoin::secp256k1::PublicKey> = aggregator
-            .setup(tonic::Request::new(clementine::Empty {}))
-            .await
-            .unwrap()
-            .into_inner()
-            .try_into()
-            .unwrap();
-        sleep(Duration::from_secs(3)).await;
-
-        let nofn_xonly_pk =
-            bitcoin::XOnlyPublicKey::from_musig2_pks(verifiers_public_keys.clone(), None).unwrap();
-
-        let deposit_address = builder::address::generate_deposit_address(
-            nofn_xonly_pk,
-            signer.address.as_unchecked(),
-            evm_address,
-            config.protocol_paramset().network,
-            config.protocol_paramset().user_takes_after,
-        )
-        .unwrap()
-        .0;
-
-        let deposit_outpoint = rpc
-            .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
-            .await
-            .unwrap();
-        rpc.mine_blocks(18).await.unwrap();
-
-        let deposit_info = DepositInfo {
-            deposit_outpoint,
-            deposit_type: DepositType::BaseDeposit(BaseDepositData {
-                evm_address,
-                recovery_taproot_address: signer.address.as_unchecked().clone(),
-            }),
-        };
-
-        let movetx_txid: Txid = aggregator
-            .new_deposit(clementine::Deposit::from(deposit_info))
-            .await
-            .unwrap()
-            .into_inner()
-            .try_into()
-            .unwrap();
-        rpc.mine_blocks(1).await.unwrap();
-        sleep(Duration::from_secs(3)).await;
-
-        let tx = poll_get(
-            async || {
-                rpc.mine_blocks(1).await.unwrap();
-
-                let tx_result = rpc
-                    .client
-                    .get_raw_transaction_info(&movetx_txid, None)
-                    .await;
-
-                let tx_result = tx_result
-                    .inspect_err(|e| {
-                        tracing::error!("Error getting transaction: {:?}", e);
-                    })
-                    .ok();
-
-                Ok(tx_result)
-            },
-            None,
-            None,
-        )
-        .await
-        .wrap_err_with(|| eyre::eyre!("MoveTx did not land onchain"))
-        .unwrap();
-
-        assert!(tx.confirmations.unwrap() > 0);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -1617,20 +1569,136 @@ mod tests {
         };
 
         // Two deposits with the same values.
-        let _movetx_txid: Txid = aggregator
+        let movetx_one = aggregator
             .new_deposit(clementine::Deposit::from(deposit_info.clone()))
             .await
             .unwrap()
-            .into_inner()
-            .try_into()
-            .unwrap();
-        let movetx_txid: Txid = aggregator
-            .new_deposit(clementine::Deposit::from(deposit_info))
+            .into_inner();
+        let movetx_one_txid: bitcoin::Txid = aggregator
+            .send_move_to_vault_tx(SendMoveTxRequest {
+                deposit_outpoint: Some(deposit_outpoint.into()),
+                raw_tx: Some(movetx_one),
+            })
             .await
             .unwrap()
             .into_inner()
             .try_into()
             .unwrap();
+
+        let movetx_two = aggregator
+            .new_deposit(clementine::Deposit::from(deposit_info))
+            .await
+            .unwrap()
+            .into_inner();
+        let movetx_two_txid: bitcoin::Txid = aggregator
+            .send_move_to_vault_tx(SendMoveTxRequest {
+                deposit_outpoint: Some(deposit_outpoint.into()),
+                raw_tx: Some(movetx_two),
+            })
+            .await
+            .unwrap()
+            .into_inner()
+            .try_into()
+            .unwrap();
+        rpc.mine_blocks(1).await.unwrap();
+        sleep(Duration::from_secs(3)).await;
+
+        let tx = poll_get(
+            async || {
+                rpc.mine_blocks(1).await.unwrap();
+
+                let tx_result = rpc
+                    .client
+                    .get_raw_transaction_info(&movetx_one_txid, None)
+                    .await;
+
+                let tx_result = tx_result
+                    .inspect_err(|e| {
+                        tracing::error!("Error getting transaction: {:?}", e);
+                    })
+                    .ok();
+
+                Ok(tx_result)
+            },
+            None,
+            None,
+        )
+        .await
+        .wrap_err_with(|| eyre::eyre!("MoveTx did not land onchain"))
+        .unwrap();
+
+        assert!(tx.confirmations.unwrap() > 0);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn aggregator_deposit_movetx_lands_onchain() {
+        let mut config = create_test_config_with_thread_name().await;
+        let regtest = create_regtest_rpc(&mut config).await;
+        let rpc = regtest.rpc();
+        let (_verifiers, _operators, mut aggregator, _cleanup) =
+            create_actors::<MockCitreaClient>(&config).await;
+
+        let evm_address = EVMAddress([1u8; 20]);
+        let signer = Actor::new(
+            config.secret_key,
+            config.winternitz_secret_key,
+            config.protocol_paramset().network,
+        );
+
+        let verifiers_public_keys: Vec<bitcoin::secp256k1::PublicKey> = aggregator
+            .setup(tonic::Request::new(clementine::Empty {}))
+            .await
+            .unwrap()
+            .into_inner()
+            .try_into()
+            .unwrap();
+        sleep(Duration::from_secs(3)).await;
+
+        let nofn_xonly_pk =
+            bitcoin::XOnlyPublicKey::from_musig2_pks(verifiers_public_keys.clone(), None).unwrap();
+
+        let deposit_address = builder::address::generate_deposit_address(
+            nofn_xonly_pk,
+            signer.address.as_unchecked(),
+            evm_address,
+            config.protocol_paramset().network,
+            config.protocol_paramset().user_takes_after,
+        )
+        .unwrap()
+        .0;
+
+        let deposit_outpoint = rpc
+            .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
+            .await
+            .unwrap();
+        rpc.mine_blocks(18).await.unwrap();
+
+        let deposit_info = DepositInfo {
+            deposit_outpoint,
+            deposit_type: DepositType::BaseDeposit(BaseDepositData {
+                evm_address,
+                recovery_taproot_address: signer.address.as_unchecked().clone(),
+            }),
+        };
+
+        // Generate and broadcast the move-to-vault transaction
+        let raw_move_tx = aggregator
+            .new_deposit(clementine::Deposit::from(deposit_info))
+            .await
+            .unwrap()
+            .into_inner();
+
+        let movetx_txid = aggregator
+            .send_move_to_vault_tx(SendMoveTxRequest {
+                deposit_outpoint: Some(deposit_outpoint.into()),
+                raw_tx: Some(raw_move_tx),
+            })
+            .await
+            .unwrap()
+            .into_inner()
+            .try_into()
+            .unwrap();
+
         rpc.mine_blocks(1).await.unwrap();
         sleep(Duration::from_secs(3)).await;
 
@@ -1736,78 +1804,53 @@ mod tests {
             }),
         };
 
-        let movetx_txid_0: Txid = aggregator
+        // Generate and broadcast the move-to-vault tx for the first deposit
+        let raw_move_tx_0 = aggregator
             .new_deposit(clementine::Deposit::from(deposit_info_0))
             .await
             .unwrap()
-            .into_inner()
-            .try_into()
-            .unwrap();
-        rpc.mine_blocks(1).await.unwrap();
-        sleep(Duration::from_secs(3)).await;
-
-        let movetx_txid_1: Txid = aggregator
-            .new_deposit(clementine::Deposit::from(deposit_info_1))
+            .into_inner();
+        let move_txid_0: bitcoin::Txid = aggregator
+            .send_move_to_vault_tx(SendMoveTxRequest {
+                deposit_outpoint: Some(deposit_outpoint_0.into()),
+                raw_tx: Some(raw_move_tx_0),
+            })
             .await
             .unwrap()
             .into_inner()
             .try_into()
             .unwrap();
+
         rpc.mine_blocks(1).await.unwrap();
         sleep(Duration::from_secs(3)).await;
+        ensure_tx_onchain(rpc, move_txid_0)
+            .await
+            .expect("failed to get movetx_0 on chain");
 
-        let tx_0 = poll_get(
-            async || {
-                rpc.mine_blocks(1).await.unwrap();
+        // Generate and broadcast the move-to-vault tx for the second deposit
+        let raw_move_tx_1 = aggregator
+            .new_deposit(clementine::Deposit::from(deposit_info_1))
+            .await
+            .unwrap()
+            .into_inner();
+        let move_txid_1 = aggregator
+            .send_move_to_vault_tx(SendMoveTxRequest {
+                deposit_outpoint: Some(deposit_outpoint_1.into()),
+                raw_tx: Some(raw_move_tx_1),
+            })
+            .await
+            .unwrap()
+            .into_inner()
+            .try_into()
+            .unwrap();
 
-                let tx_result = rpc
-                    .client
-                    .get_raw_transaction_info(&movetx_txid_0, None)
-                    .await;
+        rpc.mine_blocks(1).await.unwrap();
+        ensure_tx_onchain(rpc, move_txid_1)
+            .await
+            .expect("failed to get movetx_1 on chain");
+        sleep(Duration::from_secs(3)).await;
 
-                let tx_result = tx_result
-                    .inspect_err(|e| {
-                        tracing::error!("Error getting transaction: {:?}", e);
-                    })
-                    .ok();
-
-                Ok(tx_result)
-            },
-            None,
-            None,
-        )
-        .await
-        .wrap_err_with(|| eyre::eyre!("MoveTx did not land onchain"))
-        .unwrap();
-
-        let tx_1 = poll_get(
-            async || {
-                rpc.mine_blocks(1).await.unwrap();
-
-                let tx_result = rpc
-                    .client
-                    .get_raw_transaction_info(&movetx_txid_1, None)
-                    .await;
-
-                let tx_result = tx_result
-                    .inspect_err(|e| {
-                        tracing::error!("Error getting transaction: {:?}", e);
-                    })
-                    .ok();
-
-                Ok(tx_result)
-            },
-            None,
-            None,
-        )
-        .await
-        .wrap_err_with(|| eyre::eyre!("MoveTx did not land onchain"))
-        .unwrap();
-
-        assert!(tx_0.confirmations.unwrap() > 0);
-        assert!(tx_1.confirmations.unwrap() > 0);
-
-        let move_txids = vec![movetx_txid_0, movetx_txid_1];
+        let move_txids = vec![move_txid_0, move_txid_1];
 
         tracing::debug!("Move txids: {:?}", move_txids);
 

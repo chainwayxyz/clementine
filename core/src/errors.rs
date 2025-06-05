@@ -66,9 +66,9 @@ use crate::{
     extended_rpc::BitcoinRPCError,
     header_chain_prover::HeaderChainProverError,
     rpc::{aggregator::AggregatorError, ParserError},
-    states::StateMachineError,
-    tx_sender::SendTxError,
 };
+#[cfg(feature = "automation")]
+use crate::{states::StateMachineError, tx_sender::SendTxError};
 use bitcoin::{secp256k1::PublicKey, OutPoint, XOnlyPublicKey};
 use clap::builder::StyledStr;
 use core::fmt::Debug;
@@ -85,6 +85,7 @@ pub enum BridgeError {
     Prover(#[from] HeaderChainProverError),
     #[error("Failed to build transactions: {0}")]
     Transaction(#[from] TxError),
+    #[cfg(feature = "automation")]
     #[error("Failed to send transactions: {0}")]
     SendTx(#[from] SendTxError),
     #[error("Aggregator error: {0}")]
@@ -95,6 +96,7 @@ pub enum BridgeError {
     SpendableTxIn(#[from] SpendableTxInError),
     #[error("Bitcoin RPC error: {0}")]
     BitcoinRPC(#[from] BitcoinRPCError),
+    #[cfg(feature = "automation")]
     #[error("State machine error: {0}")]
     StateMachine(#[from] StateMachineError),
     #[error("RPC authentication error: {0}")]
@@ -185,7 +187,7 @@ pub trait ResultExt: Sized {
     type Output;
 
     fn map_to_eyre(self) -> Result<Self::Output, eyre::Report>;
-    fn map_to_status(self) -> Result<Self::Output, Box<tonic::Status>>;
+    fn map_to_status(self) -> Result<Self::Output, tonic::Status>;
 }
 
 impl<T: Into<BridgeError>> ErrorExt for T {
@@ -207,8 +209,8 @@ impl<U: Sized, T: Into<BridgeError>> ResultExt for Result<U, T> {
         self.map_err(ErrorExt::into_eyre)
     }
 
-    fn map_to_status(self) -> Result<Self::Output, Box<tonic::Status>> {
-        Ok(self.map_err(ErrorExt::into_status)?)
+    fn map_to_status(self) -> Result<Self::Output, tonic::Status> {
+        self.map_err(ErrorExt::into_status)
     }
 }
 

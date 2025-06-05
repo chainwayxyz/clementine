@@ -38,6 +38,19 @@ pub enum BitcoinSyncerEvent {
     ReorgedBlock(u32),
 }
 
+/// Trait for handling new blocks as they are finalized
+#[async_trait]
+pub trait BlockHandler: Send + Sync + 'static {
+    /// Handle a new finalized block
+    async fn handle_new_block(
+        &mut self,
+        dbtx: DatabaseTransaction<'_, '_>,
+        block_id: u32,
+        block: bitcoin::Block,
+        height: u32,
+    ) -> Result<(), BridgeError>;
+}
+
 /// Fetches the [`BlockInfo`] for a given height from Bitcoin.
 async fn fetch_block_info_from_height(
     rpc: &ExtendedRpc,
@@ -441,6 +454,110 @@ impl Task for BitcoinSyncerTask {
 
         // Return true to indicate work was done
         Ok(true)
+    }
+}
+
+#[derive(Debug)]
+pub struct FinalizedBlockFetcherTask<H: BlockHandler> {
+    db: Database,
+    btc_syncer_consumer_id: String,
+    paramset: &'static ProtocolParamset,
+    next_height: u32,
+    handler: H,
+}
+
+impl<H: BlockHandler> FinalizedBlockFetcherTask<H> {
+    pub fn new(
+        db: Database,
+        btc_syncer_consumer_id: String,
+        paramset: &'static ProtocolParamset,
+        next_height: u32,
+        handler: H,
+    ) -> Self {
+        Self {
+            db,
+            btc_syncer_consumer_id,
+            paramset,
+            next_height,
+            handler,
+        }
+    }
+}
+
+#[async_trait]
+impl<H: BlockHandler> Task for FinalizedBlockFetcherTask<H> {
+    type Output = bool;
+
+    async fn run_once(&mut self) -> Result<Self::Output, BridgeError> {
+        let mut dbtx = self.db.begin_transaction().await?;
+
+        // Poll for the next bitcoin syncer event
+        let Some(event) = self
+            .db
+            .fetch_next_bitcoin_syncer_evt(&mut dbtx, &self.btc_syncer_consumer_id)
+            .await?
+        else {
+            // No event found, we can safely commit the transaction and return
+            dbtx.commit().await?;
+            return Ok(false);
+        };
+
+        // Process the event
+        let did_find_new_block = match event {
+            BitcoinSyncerEvent::NewBlock(block_id) => {
+                let current_tip_height = self
+                    .db
+                    .get_block_info_from_id(Some(&mut dbtx), block_id)
+                    .await?
+                    .ok_or(BridgeError::Error(
+                        "Block not found in BlockFetcherTask".to_string(),
+                    ))?
+                    .1;
+                let mut new_tip = false;
+
+                // Update states to catch up to finalized chain
+                while current_tip_height >= self.paramset.finality_depth
+                    && self.next_height <= current_tip_height - self.paramset.finality_depth
+                {
+                    new_tip = true;
+
+                    let block = self
+                        .db
+                        .get_full_block(Some(&mut dbtx), self.next_height)
+                        .await?
+                        .ok_or(BridgeError::Error(format!(
+                            "Block at height {} not found in BlockFetcherTask, current tip height is {}",
+                            self.next_height, current_tip_height
+                        )))?;
+
+                    let new_block_id = self
+                        .db
+                        .get_canonical_block_id_from_height(Some(&mut dbtx), self.next_height)
+                        .await?;
+
+                    let Some(new_block_id) = new_block_id else {
+                        tracing::error!("Block at height {} not found in BlockFetcherTask, current tip height is {}", self.next_height, current_tip_height);
+                        return Err(BridgeError::Error(format!(
+                            "Block at height {} not found in BlockFetcherTask, current tip height is {}",
+                            self.next_height, current_tip_height
+                        )));
+                    };
+
+                    self.handler
+                        .handle_new_block(&mut dbtx, new_block_id, block, self.next_height)
+                        .await?;
+
+                    self.next_height += 1;
+                }
+
+                new_tip
+            }
+            BitcoinSyncerEvent::ReorgedBlock(_) => false,
+        };
+
+        dbtx.commit().await?;
+        // Return whether we found new blocks
+        Ok(did_find_new_block)
     }
 }
 

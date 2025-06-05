@@ -1,12 +1,16 @@
 pub mod common;
+#[cfg(feature = "automation")]
 mod deposit_and_withdraw_e2e;
+#[cfg(feature = "automation")]
 mod full_flow;
 mod musig2;
 mod rpc_auth;
+#[cfg(feature = "automation")]
 mod state_manager;
 mod taproot;
 mod withdraw;
 
+#[cfg(feature = "automation")]
 mod additional_disprove_scripts;
 mod bitvm_script;
 
