@@ -1439,6 +1439,13 @@ async fn mock_citrea_run_malicious_after_exit() {
     // mine 1 block to make sure collateral burn tx lands onchain
     rpc.mine_blocks(1).await.unwrap();
 
+    // because operator collaterl was spent outside of the procotol, new deposit with this operator should be rejected
+    assert!(
+        run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None)
+            .await
+            .is_err()
+    );
+
     let kickoff_txid: bitcoin::Txid = operators[0]
         .internal_finalized_payout(FinalizedPayoutParams {
             payout_blockhash: vec![0u8; 32],

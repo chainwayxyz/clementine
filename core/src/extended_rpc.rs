@@ -248,7 +248,7 @@ impl ExtendedRpc {
         }
 
         // if the collateral utxo we found latest in the round tx chain is spent, operators collateral is spent from Clementine
-        // bridge protocol, thus it is unusable and operator cannot fullfill withdrawals anymore
+        // bridge protocol, thus it is unusable and operator cannot fulfill withdrawals anymore
         Ok(!self.is_utxo_spent(&current_collateral_outpoint).await?)
     }
 

@@ -323,7 +323,7 @@ where
             // if operator is in deposit, but the collateral is not usable, return false
             if operator_xonly_pks.contains(&xonly_pk) && !is_collateral_usable {
                 tracing::warn!(
-                    "Operator {:?} is in the deposit but its collateral is spent, operator cannot fullfill withdrawals anymore",
+                    "Operator {:?} is in the deposit but its collateral is spent, operator cannot fulfill withdrawals anymore",
                     xonly_pk
                 );
                 return Ok(false);
