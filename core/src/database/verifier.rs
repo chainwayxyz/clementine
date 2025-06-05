@@ -166,7 +166,7 @@ impl Database {
                     vout: u32::try_from(vout)
                         .wrap_err("Failed to convert withdrawal utxo vout to u32")?,
                 }),
-                _ => Err(eyre::eyre!("Unexpected null value".to_string()).into()),
+                _ => Err(eyre::eyre!("Unexpected null value").into()),
             })
             .transpose()
     }

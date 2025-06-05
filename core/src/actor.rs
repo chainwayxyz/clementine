@@ -181,10 +181,10 @@ pub fn verify_schnorr(
             None => calc_tweaked_xonly_pk(pubkey, merkle_root)?,
         },
         TapTweakData::ScriptPath => pubkey,
-        TapTweakData::Unknown => return Err(eyre::eyre!("Spend Path Unknown".to_string()).into()),
+        TapTweakData::Unknown => return Err(eyre::eyre!("Spend Path Unknown").into()),
     };
     SECP.verify_schnorr(signature, sighash, &pubkey)
-        .map_err(|_| eyre::eyre!("Failed to verify Schnorr signature".to_string()).into())
+        .map_err(|_| eyre::eyre!("Failed to verify Schnorr signature").into())
 }
 
 #[derive(Debug, Clone)]
@@ -255,7 +255,7 @@ impl Actor {
                 self.sign_with_tweak(sighash, merkle_root, tweak_cache)
             }
             TapTweakData::ScriptPath => Ok(self.sign(sighash)),
-            TapTweakData::Unknown => Err(eyre::eyre!("Spend Data Unknown".to_string()).into()),
+            TapTweakData::Unknown => Err(eyre::eyre!("Spend Data Unknown").into()),
         }
     }
 

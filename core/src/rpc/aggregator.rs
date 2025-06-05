@@ -861,10 +861,12 @@ impl ClementineAggregator for Aggregator {
                 .db
                 .get_deposit_data_with_move_tx(None, move_txid)
                 .await?;
-            let mut deposit_data = deposit_data.ok_or(BridgeError::from(eyre::eyre!(
-                "Deposit data not found for move txid {}",
-                move_txid
-            )))?;
+            let mut deposit_data = deposit_data
+                .ok_or(eyre::eyre!(
+                    "Deposit data not found for move txid {}",
+                    move_txid
+                ))
+                .map_err(BridgeError::from)?;
 
             // get which verifiers participated in the deposit to collect the optimistic payout tx signature
             let verifiers = self.get_participating_verifiers(&deposit_data).await?;
