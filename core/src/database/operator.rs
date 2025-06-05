@@ -9,7 +9,11 @@ use super::{
     },
     Database, DatabaseTransaction,
 };
-use crate::deposit::{DepositData, KickoffData, OperatorData};
+use crate::{
+    builder::transaction::create_move_to_vault_txhandler,
+    config::protocol::ProtocolParamset,
+    deposit::{DepositData, KickoffData, OperatorData},
+};
 use crate::{
     errors::BridgeError,
     execute_query_with_tx,
@@ -390,28 +394,79 @@ impl Database {
     }
 
     /// Saves deposit infos, and returns the deposit_id
+    /// This function additionally checks if the deposit data already exists in the db.
+    /// As we don't want to overwrite deposit data on the db, this function should give an error if deposit data is changed.
     pub async fn set_deposit_data(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
-        deposit_data: DepositData,
-        move_to_vault_txid: Txid,
+        mut tx: Option<DatabaseTransaction<'_, '_>>,
+        deposit_data: &mut DepositData,
+        paramset: &'static ProtocolParamset,
     ) -> Result<u32, BridgeError> {
-        let query = sqlx::query_as(
+        // compute move to vault txid
+        let move_to_vault_txid = create_move_to_vault_txhandler(deposit_data, paramset)?
+            .get_cached_tx()
+            .compute_txid();
+
+        let query = sqlx::query_as::<_, (i32,)>(
             "INSERT INTO deposits (deposit_outpoint, deposit_params, move_to_vault_txid)
                 VALUES ($1, $2, $3)
-                ON CONFLICT (deposit_outpoint) DO UPDATE
-                SET deposit_params = EXCLUDED.deposit_params,
-                    move_to_vault_txid = EXCLUDED.move_to_vault_txid
+                ON CONFLICT (deposit_outpoint) DO NOTHING
                 RETURNING deposit_id",
         )
         .bind(OutPointDB(deposit_data.get_deposit_outpoint()))
-        .bind(DepositParamsDB(deposit_data.into()))
+        .bind(DepositParamsDB(deposit_data.clone().into()))
         .bind(TxidDB(move_to_vault_txid));
 
-        let deposit_id: Result<(i32,), sqlx::Error> =
-            execute_query_with_tx!(self.connection, tx, query, fetch_one);
+        let result =
+            execute_query_with_tx!(self.connection, tx.as_deref_mut(), query, fetch_optional)?;
 
-        Ok(u32::try_from(deposit_id?.0).wrap_err("Failed to convert deposit id to u32")?)
+        // If we got a deposit_id back, that means we successfully inserted new data
+        if let Some((deposit_id,)) = result {
+            return Ok(u32::try_from(deposit_id).wrap_err("Failed to convert deposit id to u32")?);
+        }
+
+        // If no rows were returned, data already exists - check if it matches
+        let existing_query = sqlx::query_as::<_, (i32, DepositParamsDB, TxidDB)>(
+            "SELECT deposit_id, deposit_params, move_to_vault_txid FROM deposits WHERE deposit_outpoint = $1"
+        )
+        .bind(OutPointDB(deposit_data.get_deposit_outpoint()));
+
+        let (existing_deposit_id, existing_deposit_params, existing_move_txid): (
+            i32,
+            DepositParamsDB,
+            TxidDB,
+        ) = execute_query_with_tx!(self.connection, tx, existing_query, fetch_one)?;
+
+        let existing_deposit_data: DepositData = existing_deposit_params
+            .0
+            .try_into()
+            .map_err(|e| eyre::eyre!("Invalid deposit params {e}"))?;
+
+        if existing_deposit_data != *deposit_data {
+            tracing::error!(
+                "Deposit data mismatch: Existing {:?}, New {:?}",
+                existing_deposit_data,
+                deposit_data
+            );
+            return Err(BridgeError::DepositDataMismatch(
+                deposit_data.get_deposit_outpoint(),
+            ));
+        }
+
+        if existing_move_txid.0 != move_to_vault_txid {
+            // This should never happen, only a sanity check
+            tracing::error!(
+                "Move to vault txid mismatch in set_deposit_data: Existing {:?}, New {:?}",
+                existing_move_txid.0,
+                move_to_vault_txid
+            );
+            return Err(BridgeError::DepositDataMismatch(
+                deposit_data.get_deposit_outpoint(),
+            ));
+        }
+
+        // If data matches, return the existing deposit_id
+        Ok(u32::try_from(existing_deposit_id).wrap_err("Failed to convert deposit id to u32")?)
     }
 
     pub async fn get_deposit_data_with_move_tx(
