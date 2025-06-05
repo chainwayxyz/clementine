@@ -47,7 +47,7 @@ pub async fn eth_get_balance(
         .await
         .wrap_err("Failed to get balance")?;
     let ret = u128::from_str_radix(&response[2..], 16)
-        .map_err(|e| eyre::eyre!(format!("Can't convert hex to int: {}", e)))?;
+        .map_err(|e| eyre::eyre!("Can't convert hex to int: {}", e))?;
 
     Ok(ret)
 }

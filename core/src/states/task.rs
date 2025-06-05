@@ -108,10 +108,10 @@ impl<T: Owner + std::fmt::Debug + 'static> Task for BlockFetcherTask<T> {
                         .db
                         .get_full_block(Some(&mut dbtx), self.next_height)
                         .await?
-                        .ok_or(eyre::eyre!(format!(
+                        .ok_or(eyre::eyre!(
                             "Block at height {} not found in BlockFetcherTask, current tip height is {}",
                             self.next_height, current_tip_height
-                        )))?;
+                        ))?;
 
                     let new_block_id = self
                         .db
@@ -120,10 +120,10 @@ impl<T: Owner + std::fmt::Debug + 'static> Task for BlockFetcherTask<T> {
 
                     if new_block_id.is_none() {
                         tracing::error!("Block at height {} not found in BlockFetcherTask, current tip height is {}", self.next_height, current_tip_height);
-                        return Err(eyre::eyre!(format!(
+                        return Err(eyre::eyre!(
                             "Block at height {} not found in BlockFetcherTask, current tip height is {}",
                             self.next_height, current_tip_height
-                        )).into());
+                        ).into());
                     }
 
                     let event = SystemEvent::NewBlock {
@@ -136,7 +136,7 @@ impl<T: Owner + std::fmt::Debug + 'static> Task for BlockFetcherTask<T> {
                         .send_with_cxn(&self.queue_name, &event, &mut *dbtx)
                         .await
                         .map_err(|e| {
-                            eyre::eyre!(format!("Error sending new block event to queue: {:?}", e))
+                            eyre::eyre!("Error sending new block event to queue: {:?}", e)
                         })?;
 
                     self.next_height += 1;

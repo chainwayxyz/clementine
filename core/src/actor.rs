@@ -113,7 +113,7 @@ fn calc_tweaked_keypair(
             &TapTweakHash::from_key_and_tweak(keypair.x_only_public_key().0, merkle_root)
                 .to_scalar(),
         )
-        .map_err(|e| eyre::eyre!(format!("Failed to add tweak to keypair: {}", e)).into())
+        .map_err(|e| eyre::eyre!("Failed to add tweak to keypair: {}", e).into())
 }
 
 fn calc_tweaked_xonly_pk(
@@ -125,7 +125,7 @@ fn calc_tweaked_xonly_pk(
             &SECP,
             &TapTweakHash::from_key_and_tweak(pubkey, merkle_root).to_scalar(),
         )
-        .map_err(|e| eyre::eyre!(format!("Failed to add tweak to xonly_pk: {}", e)))?
+        .map_err(|e| eyre::eyre!("Failed to add tweak to xonly_pk: {}", e))?
         .0)
 }
 

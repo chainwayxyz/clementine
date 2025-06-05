@@ -496,7 +496,7 @@ impl ExtendedRpc {
                             return Err(BitcoinRPCError::BumpFeeUTXOSpent(outpoint));
                         }
 
-                        return Err(eyre::eyre!(format!("{:?}", rpc_error))
+                        return Err(eyre::eyre!("{:?}", rpc_error)
                             .wrap_err(BitcoinRPCError::BumpFeeError(txid, fee_rate))
                             .into());
                     }
@@ -660,7 +660,6 @@ mod tests {
             })
             .is_err());
 
-        // TODO: Calculate this dynamically.
         let current_fee_rate = FeeRate::from_sat_per_vb_unchecked(1);
 
         // Trying to bump a transaction with a fee rate that is already enough

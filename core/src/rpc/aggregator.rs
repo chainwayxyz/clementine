@@ -861,10 +861,10 @@ impl ClementineAggregator for Aggregator {
                 .db
                 .get_deposit_data_with_move_tx(None, move_txid)
                 .await?;
-            let mut deposit_data = deposit_data.ok_or(BridgeError::from(eyre::eyre!(format!(
+            let mut deposit_data = deposit_data.ok_or(BridgeError::from(eyre::eyre!(
                 "Deposit data not found for move txid {}",
                 move_txid
-            ))))?;
+            )))?;
 
             // get which verifiers participated in the deposit to collect the optimistic payout tx signature
             let verifiers = self.get_participating_verifiers(&deposit_data).await?;
@@ -1045,9 +1045,7 @@ impl ClementineAggregator for Aggregator {
                         .into_inner();
                     tx.send(stream.try_collect::<Vec<_>>().await?)
                         .map_err(|e| {
-                            BridgeError::from(eyre::eyre!(format!(
-                                "failed to read operator params: {e}"
-                            )))
+                            BridgeError::from(eyre::eyre!("failed to read operator params: {e}"))
                         })?;
                     Ok::<_, Status>(())
                 }

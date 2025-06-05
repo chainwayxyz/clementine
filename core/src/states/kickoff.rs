@@ -127,10 +127,11 @@ impl<T: Owner> KickoffStateMachine<T> {
     }
 
     pub fn kickoff_meta(&self, method: &'static str) -> StateMachineError {
-        eyre::eyre!(format!(
+        eyre::eyre!(
             "Error in kickoff state machine for kickoff {:?} in {}",
-            self.kickoff_data, method
-        ))
+            self.kickoff_data,
+            method
+        )
         .into()
     }
 

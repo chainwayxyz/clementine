@@ -487,10 +487,10 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 self.kickoff_machines = kickoff_machines_checkpoint;
                 self.round_machines = round_machines_checkpoint;
                 // Return first error or create a combined error
-                return Err(eyre::eyre!(format!(
+                return Err(eyre::eyre!(
                     "Multiple errors occurred during state processing: {:?}",
                     all_errors
-                )));
+                ));
             }
 
             // Append the newly generated state machines into the changed machines list

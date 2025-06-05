@@ -150,10 +150,11 @@ pub async fn mine_once_after_in_mempool(
 
     loop {
         if start.elapsed() > std::time::Duration::from_secs(timeout) {
-            return Err(eyre::eyre!(format!(
+            return Err(eyre::eyre!(
                 "{} did not land onchain within {} seconds",
-                tx_name, timeout
-            ))
+                tx_name,
+                timeout
+            )
             .into());
         }
 
@@ -172,11 +173,11 @@ pub async fn mine_once_after_in_mempool(
         .get_raw_transaction_info(&txid, None)
         .await
         .map_err(|e| {
-            eyre::eyre!(format!(
+            eyre::eyre!(
             "{} did not land onchain after in mempool and mining 1 block and rpc gave error: {}",
             tx_name,
             e
-        ))
+        )
         })?;
 
     if tx.blockhash.is_none() {
@@ -185,10 +186,10 @@ pub async fn mine_once_after_in_mempool(
             tx_name
         );
 
-        return Err(eyre::eyre!(format!(
+        return Err(eyre::eyre!(
             "{} did not land onchain after in mempool and mining 1 block",
             tx_name
-        ))
+        )
         .into());
     }
 

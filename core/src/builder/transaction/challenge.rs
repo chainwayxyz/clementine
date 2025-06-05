@@ -67,10 +67,10 @@ pub fn create_watchtower_challenge_txhandler(
         // encode next 32 bytes of data as script pubkey of taproot utxo
         let data = PushBytesBuf::try_from(commit_data[current_idx..current_idx + 32].to_vec())
             .map_err(|e| {
-                eyre::eyre!(format!(
+                eyre::eyre!(
                     "Failed to create pushbytesbuf for watchtower challenge op_return: {}",
                     e
-                ))
+                )
             })?;
 
         let data_encoded_scriptbuf = Builder::new()
@@ -89,10 +89,10 @@ pub fn create_watchtower_challenge_txhandler(
     if current_idx < paramset.watchtower_challenge_bytes {
         let remaining_data =
             PushBytesBuf::try_from(commit_data[current_idx..].to_vec()).map_err(|e| {
-                eyre::eyre!(format!(
+                eyre::eyre!(
                     "Failed to create pushbytesbuf for watchtower challenge op_return: {}",
                     e
-                ))
+                )
             })?;
         builder = builder.add_output(UnspentTxOut::from_partial(op_return_txout(remaining_data)));
     }

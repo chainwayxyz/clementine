@@ -641,11 +641,11 @@ where
         }
 
         if winternitz_pubkeys.len() != self.config.get_num_kickoff_winternitz_pks() {
-            return Err(eyre::eyre!(format!(
+            return Err(eyre::eyre!(
                 "Expected {} number of kickoff winternitz pubkeys, but got {}",
                 self.config.get_num_kickoff_winternitz_pks(),
                 winternitz_pubkeys.len()
-            ))
+            )
             .into());
         }
 
@@ -702,11 +702,11 @@ where
             }
         }
         if sigs.len() != self.config.get_num_unspent_kickoff_sigs() {
-            return Err(eyre::eyre!(format!(
+            return Err(eyre::eyre!(
                 "Expected {} number of unspent kickoff sigs, but got {}",
                 self.config.get_num_unspent_kickoff_sigs(),
                 sigs.len()
-            ))
+            )
             .into());
         }
         Ok(sigs)
@@ -729,11 +729,11 @@ where
         }
 
         if hashes.len() != self.config.get_num_challenge_ack_hashes(deposit_data) {
-            return Err(eyre::eyre!(format!(
+            return Err(eyre::eyre!(
                 "Expected {} number of challenge ack hashes, but got {}",
                 self.config.get_num_challenge_ack_hashes(deposit_data),
                 hashes.len()
-            ))
+            )
             .into());
         }
 
