@@ -801,20 +801,6 @@ pub async fn run_bad_path_3(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
     Ok(())
 }
 
-pub fn get_tx_from_signed_txs_with_type(
-    txs: &SignedTxsWithType,
-    tx_type: TxType,
-) -> Result<bitcoin::Transaction> {
-    let tx = txs
-        .signed_txs
-        .iter()
-        .find(|tx| tx.transaction_type == Some(tx_type.into()))
-        .to_owned()
-        .unwrap_or_else(|| panic!("expected tx of type: {:?} not found", tx_type))
-        .to_owned()
-        .raw_tx;
-    bitcoin::consensus::deserialize(&tx).context("expected valid tx")
-}
 
 // After a challenge, state machine should automatically send:
 // Watchtower challenges and operator asserts

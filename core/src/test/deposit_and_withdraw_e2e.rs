@@ -22,7 +22,7 @@ use crate::test::common::{
     create_regtest_rpc, generate_withdrawal_transaction_and_signature, mine_once_after_in_mempool,
     poll_get, poll_until_condition, run_single_deposit,
 };
-use crate::test::full_flow::get_tx_from_signed_txs_with_type;
+use crate::test::common::tx_utils::get_tx_from_signed_txs_with_type;
 use crate::utils::{FeePayingType, TxMetadata};
 use crate::UTXO;
 use crate::{

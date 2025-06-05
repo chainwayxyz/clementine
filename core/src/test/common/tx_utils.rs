@@ -16,6 +16,20 @@ use eyre::{bail, Context, Result};
 
 use super::{mine_once_after_in_mempool, poll_until_condition};
 
+pub fn get_tx_from_signed_txs_with_type(
+    txs: &SignedTxsWithType,
+    tx_type: TxType,
+) -> Result<bitcoin::Transaction> {
+    let tx = txs
+        .signed_txs
+        .iter()
+        .find(|tx| tx.transaction_type == Some(tx_type.into()))
+        .to_owned()
+        .unwrap_or_else(|| panic!("expected tx of type: {:?} not found", tx_type))
+        .to_owned()
+        .raw_tx;
+    bitcoin::consensus::deserialize(&tx).context("expected valid tx")
+}
 // Cannot use ensure_async due to `Send` requirement being broken upstream
 pub async fn ensure_outpoint_spent_while_waiting_for_light_client_sync(
     rpc: &ExtendedRpc,
