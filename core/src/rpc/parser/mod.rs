@@ -9,7 +9,7 @@ use crate::deposit::{
     SecurityCouncil,
 };
 use crate::errors::BridgeError;
-use crate::tx_sender::{FeePayingType, RbfSigningInfo};
+use crate::utils::{FeePayingType, RbfSigningInfo};
 use bitcoin::hashes::{sha256d, FromSliceError, Hash};
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::{OutPoint, TapNodeHash, Txid, XOnlyPublicKey};

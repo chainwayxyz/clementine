@@ -1,6 +1,7 @@
 use crate::config::protocol::ProtocolParamset;
 use crate::database::DatabaseTransaction;
 use crate::deposit::{DepositData, KickoffData};
+use crate::utils::NamedEntity;
 
 use bitcoin::BlockHash;
 use bitcoin::Transaction;
@@ -109,14 +110,7 @@ pub enum DutyResult {
 
 /// Owner trait with async handling and tx handler creation
 #[async_trait]
-pub trait Owner: Send + Sync + Clone {
-    /// A string identifier for this owner type used to distinguish between
-    /// state machines with different owners in the database.
-    ///
-    /// ## Example
-    /// "operator", "watchtower", "verifier", "user"
-    const OWNER_TYPE: &'static str;
-
+pub trait Owner: Send + Sync + Clone + NamedEntity {
     /// Handle a duty
     async fn handle_duty(&self, duty: Duty) -> Result<DutyResult, BridgeError>;
     async fn create_txhandlers(
@@ -155,7 +149,7 @@ impl<T: Owner> StateContext<T> {
         paramset: &'static ProtocolParamset,
     ) -> Self {
         // Get the owner type string from the owner instance
-        let owner_type = T::OWNER_TYPE.to_string();
+        let owner_type = T::ENTITY_NAME.to_string();
 
         Self {
             db,

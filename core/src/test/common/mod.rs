@@ -24,9 +24,9 @@ use crate::musig2::{
 use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
-use crate::rpc::clementine::{Deposit, Empty};
+use crate::rpc::clementine::{Deposit, Empty, SendMoveTxRequest};
 use crate::rpc::clementine::{NormalSignatureKind, TaggedSignature};
-use crate::tx_sender::FeePayingType;
+use crate::utils::FeePayingType;
 use crate::EVMAddress;
 use bitcoin::hashes::Hash;
 use bitcoin::key::Keypair;
@@ -41,11 +41,13 @@ use secp256k1::rand;
 pub use setup_utils::*;
 use tonic::transport::Channel;
 use tonic::Request;
-use tx_utils::{create_tx_sender, get_txid_where_utxo_is_spent};
 
 pub mod citrea;
 mod setup_utils;
 pub mod tx_utils;
+
+#[cfg(feature = "automation")]
+use tx_utils::{create_tx_sender, get_txid_where_utxo_is_spent};
 
 /// Generate a random XOnlyPublicKey
 pub fn generate_random_xonly_pk() -> XOnlyPublicKey {
@@ -261,10 +263,18 @@ pub async fn run_multiple_deposits<C: CitreaClientT>(
 
         let deposit: Deposit = deposit_info.into();
 
-        let move_txid: Txid = aggregator
+        let movetx = aggregator
             .new_deposit(deposit)
             .await
             .wrap_err("Error while making a deposit")?
+            .into_inner();
+        let move_txid = aggregator
+            .send_move_to_vault_tx(SendMoveTxRequest {
+                deposit_outpoint: Some(deposit_outpoint.into()),
+                raw_tx: Some(movetx),
+            })
+            .await
+            .expect("failed to send movetx")
             .into_inner()
             .try_into()?;
         rpc.mine_blocks(1).await?;
@@ -355,10 +365,19 @@ pub async fn run_single_deposit<C: CitreaClientT>(
 
     let deposit: Deposit = deposit_info.clone().into();
 
-    let move_txid: Txid = aggregator
+    let movetx = aggregator
         .new_deposit(deposit)
         .await
-        .wrap_err("Error while making a deposit")?
+        .wrap_err("Error while making a deposit")
+        .expect("failed to make deposit")
+        .into_inner();
+    let move_txid = aggregator
+        .send_move_to_vault_tx(SendMoveTxRequest {
+            deposit_outpoint: Some(deposit_outpoint.into()),
+            raw_tx: Some(movetx),
+        })
+        .await
+        .expect("failed to send movetx")
         .into_inner()
         .try_into()?;
 
@@ -494,6 +513,7 @@ fn sign_nofn_deposit_tx(
     tx
 }
 
+#[cfg(feature = "automation")]
 pub async fn run_replacement_deposit(
     config: &mut BridgeConfig,
     rpc: ExtendedRpc,
@@ -626,10 +646,20 @@ pub async fn run_replacement_deposit(
 
     let deposit: Deposit = deposit_info.clone().into();
 
-    let move_txid: Txid = aggregator
+    // First create the raw signed move-to-vault transaction for the replacement deposit
+    let raw_signed_tx = aggregator
         .new_deposit(deposit)
         .await
         .wrap_err("Error while making a deposit")?
+        .into_inner();
+    // Broadcast the move-to-vault transaction and get its Txid
+    let move_txid: Txid = aggregator
+        .send_move_to_vault_tx(SendMoveTxRequest {
+            deposit_outpoint: Some(deposit_info.deposit_outpoint.into()),
+            raw_tx: Some(raw_signed_tx),
+        })
+        .await
+        .wrap_err("Error sending replacement deposit move-to-vault tx")?
         .into_inner()
         .try_into()?;
 

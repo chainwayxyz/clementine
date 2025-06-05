@@ -19,7 +19,9 @@ mod aggregator;
 mod bitcoin_syncer;
 mod header_chain_prover;
 mod operator;
+#[cfg(feature = "automation")]
 mod state_machine;
+#[cfg(feature = "automation")]
 mod tx_sender;
 mod verifier;
 mod wrapper;

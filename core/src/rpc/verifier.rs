@@ -508,15 +508,25 @@ where
         &self,
         request: tonic::Request<super::TxDebugRequest>,
     ) -> std::result::Result<tonic::Response<super::TxDebugInfo>, tonic::Status> {
-        let tx_id = request.into_inner().tx_id;
+        #[cfg(not(feature = "automation"))]
+        {
+            Err(tonic::Status::unimplemented(
+                "Automation is not enabled, TxSender is not running.",
+            ))
+        }
 
         // Get debug info from tx_sender
-        match self.verifier.tx_sender.debug_tx(tx_id).await {
-            Ok(debug_info) => Ok(tonic::Response::new(debug_info)),
-            Err(e) => Err(tonic::Status::internal(format!(
-                "Failed to debug TX {}: {}",
-                tx_id, e
-            ))),
+        #[cfg(feature = "automation")]
+        {
+            let tx_id = request.into_inner().tx_id;
+
+            match self.verifier.tx_sender.debug_tx(tx_id).await {
+                Ok(debug_info) => Ok(tonic::Response::new(debug_info)),
+                Err(e) => Err(tonic::Status::internal(format!(
+                    "Failed to debug TX {}: {}",
+                    tx_id, e
+                ))),
+            }
         }
     }
 }

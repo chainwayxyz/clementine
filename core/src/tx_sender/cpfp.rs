@@ -10,7 +10,7 @@ use eyre::Context;
 
 use crate::errors::{ErrorExt, ResultExt};
 use crate::extended_rpc::BitcoinRPCError;
-use crate::tx_sender::FeePayingType;
+use crate::utils::FeePayingType;
 use crate::{
     builder::{
         self,
