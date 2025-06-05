@@ -706,12 +706,11 @@ impl HeaderChainProver {
 
 #[cfg(test)]
 mod tests {
-    use crate::citrea::mock::MockCitreaClient;
-    use crate::database::Database;
     use crate::extended_rpc::ExtendedRpc;
     use crate::header_chain_prover::HeaderChainProver;
     use crate::test::common::*;
     use crate::verifier::VerifierServer;
+    use crate::{database::Database, test::common::citrea::MockCitreaClient};
     use bitcoin::{block::Header, hashes::Hash, BlockHash, Network};
     use bitcoincore_rpc::RpcApi;
     use circuits_lib::header_chain::{

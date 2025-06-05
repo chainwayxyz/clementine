@@ -3,13 +3,11 @@ use crate::actor::Actor;
 use crate::bitvm_client::{self};
 use crate::builder::transaction::input::UtxoVout;
 use crate::builder::transaction::sign::get_kickoff_utxos_to_sign;
-use crate::builder::transaction::{
-    BaseDepositData, DepositInfo, DepositType, KickoffData, TransactionType as TxType,
-};
-use crate::citrea::mock::MockCitreaClient;
+use crate::builder::transaction::TransactionType as TxType;
 use crate::config::protocol::BLOCKS_PER_HOUR;
 use crate::config::BridgeConfig;
 use crate::database::Database;
+use crate::deposit::{BaseDepositData, DepositInfo, DepositType, KickoffData};
 use crate::extended_rpc::ExtendedRpc;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
@@ -17,6 +15,7 @@ use crate::rpc::clementine::SendMoveTxRequest;
 use crate::rpc::clementine::{
     Deposit, Empty, FinalizedPayoutParams, SignedTxsWithType, TransactionRequest,
 };
+use crate::test::common::citrea::MockCitreaClient;
 use crate::test::common::*;
 use crate::tx_sender::TxSenderClient;
 use crate::utils::RbfSigningInfo;
@@ -879,7 +878,7 @@ pub async fn run_challenge_with_state_machine(
     tracing::info!("Checking if watchtower challenge timeouts were not sent");
     // check if watchtower challenge timeouts were not sent
     for txid in watchtower_challenge_timeout_txids {
-        assert!(!rpc.is_txid_in_chain(&txid).await?);
+        assert!(!rpc.is_tx_on_chain(&txid).await?);
     }
 
     let latest_blockhash_outpoint = OutPoint {
@@ -892,7 +891,7 @@ pub async fn run_challenge_with_state_machine(
     // check if latest blockhash timeout was not sent
     let latest_blockhash_timeout_txid =
         get_tx_from_signed_txs_with_type(&all_txs, TxType::LatestBlockhashTimeout)?.compute_txid();
-    assert!(!rpc.is_txid_in_chain(&latest_blockhash_timeout_txid).await?);
+    assert!(!rpc.is_tx_on_chain(&latest_blockhash_timeout_txid).await?);
 
     // check if operator asserts are sent by state machine
     // Get deposit data and kickoff ID for assert creation

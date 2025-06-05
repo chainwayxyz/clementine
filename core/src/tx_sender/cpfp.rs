@@ -118,6 +118,7 @@ impl TxSender {
     fn create_child_tx(
         &self,
         p2a_anchor: OutPoint,
+        anchor_sat: Amount,
         fee_payer_utxos: Vec<SpendableTxIn>,
         parent_tx_size: Weight,
         fee_rate: FeeRate,
@@ -139,8 +140,7 @@ impl TxSender {
             .iter()
             .map(|utxo| utxo.get_prevout().value)
             .sum::<Amount>()
-            + builder::transaction::anchor_output().value; // We add the anchor output value to the total amount.
-
+            + anchor_sat; // We add the anchor output value to the total amount.
         if change_address.script_pubkey().minimal_non_dust() + required_fee > total_fee_payer_amount
         {
             return Err(SendTxError::InsufficientFeePayerAmount);
@@ -150,7 +150,10 @@ impl TxSender {
             .with_version(Version::non_standard(3))
             .add_input(
                 NormalSignatureKind::OperatorSighashDefault,
-                SpendableTxIn::new_partial(p2a_anchor, builder::transaction::anchor_output()),
+                SpendableTxIn::new_partial(
+                    p2a_anchor,
+                    builder::transaction::anchor_output(anchor_sat),
+                ),
                 SpendPath::Unknown,
                 DEFAULT_SEQUENCE,
             );
@@ -218,12 +221,16 @@ impl TxSender {
             .find_p2a_vout(&tx)
             .wrap_err("Failed to find p2a vout")?;
 
+        // get sat amount of anchor output in the tx
+        let anchor_sat = tx.output[p2a_vout].value;
+
         let child_tx = self
             .create_child_tx(
                 OutPoint {
                     txid,
                     vout: p2a_vout as u32,
                 },
+                anchor_sat,
                 fee_payer_utxos,
                 tx.weight(),
                 fee_rate,

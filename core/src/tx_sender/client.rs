@@ -220,7 +220,6 @@ impl TxSenderClient {
             | TransactionType::UnspentKickoff(_)
             | TransactionType::Payout
             | TransactionType::MoveToVault
-            | TransactionType::AssertTimeout(_)
             | TransactionType::Disprove
             | TransactionType::BurnUnusedKickoffConnectors
             | TransactionType::KickoffNotFinalized
@@ -228,7 +227,10 @@ impl TxSenderClient {
             | TransactionType::LatestBlockhashTimeout
             | TransactionType::LatestBlockhash
             | TransactionType::EmergencyStop
-            | TransactionType::OptimisticPayout => {
+            | TransactionType::OptimisticPayout
+            | TransactionType::ReadyToReimburse
+            | TransactionType::ReplacementDeposit
+            | TransactionType::AssertTimeout(_) => {
                 // no_dependency and cpfp
                 self.insert_try_to_send(
                     dbtx,
@@ -257,7 +259,10 @@ impl TxSenderClient {
                 )
                 .await
             }
-            TransactionType::WatchtowerChallengeTimeout(_watchtower_idx) => {
+            TransactionType::WatchtowerChallengeTimeout(_) => {
+                // do not send watchtowet timeout if kickoff is already finalized
+                // which is done by adding kickoff finalizer utxo to cancel_outpoints
+                // this is not needed for any timeouts that spend the kickoff finalizer utxo like AssertTimeout
                 let kickoff_txid = related_txs
                     .iter()
                     .find_map(|(tx_type, tx)| {
@@ -276,7 +281,7 @@ impl TxSenderClient {
                     rbf_info,
                     &[OutPoint {
                         txid: kickoff_txid,
-                        vout: 1, // TODO: Make this a function of smth
+                        vout: UtxoVout::KickoffFinalizer.get_vout(),
                     }],
                     &[],
                     &[],
@@ -305,6 +310,7 @@ impl TxSenderClient {
                     &[],
                     &[],
                     &[ActivatedWithOutpoint {
+                        // only send OperatorChallengeAck if corresponding watchtower challenge is sent
                         outpoint: OutPoint {
                             txid: kickoff_txid,
                             vout: UtxoVout::WatchtowerChallenge(watchtower_idx).get_vout(),
@@ -317,9 +323,7 @@ impl TxSenderClient {
             TransactionType::AllNeededForDeposit | TransactionType::YieldKickoffTxid => {
                 unreachable!()
             }
-            TransactionType::ReadyToReimburse
-            | TransactionType::BaseDeposit
-            | TransactionType::ReplacementDeposit => unimplemented!(),
+            TransactionType::BaseDeposit => unimplemented!(),
         }
     }
 

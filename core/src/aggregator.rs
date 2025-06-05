@@ -1,4 +1,4 @@
-use crate::builder::transaction::DepositData;
+use crate::deposit::DepositData;
 use crate::extended_rpc::ExtendedRpc;
 use crate::rpc::clementine::{DepositParams, OperatorKeysWithDeposit};
 #[cfg(feature = "automation")]

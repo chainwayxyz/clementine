@@ -1,3 +1,10 @@
+//! # Transaction Handler Module
+//!
+//! This module defines the [`TxHandler`] abstraction, which wraps a protocol transaction and its metadata.
+//! Metadata includes taproot scripts and protocol specific data to enable signing of the transactions.
+//! [`TxHandlerBuilder`] is used to create [`TxHandler`]s.
+//!
+
 use super::input::{SpendableTxIn, SpentTxIn, UtxoVout};
 use super::output::UnspentTxOut;
 use crate::builder::script::SpendPath;
@@ -19,6 +26,7 @@ use std::marker::PhantomData;
 pub const DEFAULT_SEQUENCE: Sequence = Sequence::ENABLE_RBF_NO_LOCKTIME;
 
 #[derive(Debug, Clone)]
+/// Handler for protocol transactions, wrapping inputs, outputs, and cached transaction data.
 pub struct TxHandler<T: State = Unsigned> {
     transaction_type: TransactionType,
     txins: Vec<SpentTxIn>,
@@ -36,8 +44,10 @@ pub trait State: Clone + std::fmt::Debug {}
 // #[derive(Debug, Clone)]
 // pub struct PartialInputs;
 #[derive(Debug, Clone)]
+/// Marker type for signed transactions.
 pub struct Signed;
 #[derive(Debug, Clone)]
+/// Marker type for unsigned transactions.
 pub struct Unsigned;
 
 // impl State for PartialInputs {}
@@ -47,6 +57,13 @@ pub type SighashCalculator<'a> =
     Box<dyn FnOnce(TapSighashType) -> Result<TapSighash, BridgeError> + 'a>;
 
 impl<T: State> TxHandler<T> {
+    /// Returns a spendable input for the specified output index in this transaction.
+    ///
+    /// # Arguments
+    /// * `vout` - The protocol-specific output index.
+    ///
+    /// # Returns
+    /// A [`SpendableTxIn`] for the specified output, or a [`BridgeError`] if not found.
     pub fn get_spendable_output(&self, vout: UtxoVout) -> Result<SpendableTxIn, BridgeError> {
         let idx = vout.get_vout();
         let txout = self
@@ -64,6 +81,13 @@ impl<T: State> TxHandler<T> {
         )) // TODO: Can we get rid of clones?
     }
 
+    /// Returns the Taproot merkle root of the specified input, if available.
+    ///
+    /// # Arguments
+    /// * `idx` - The input index.
+    ///
+    /// # Returns
+    /// The Taproot merkle root, or a [`BridgeError`] if not found.
     pub fn get_merkle_root_of_txin(&self, idx: usize) -> Result<Option<TapNodeHash>, BridgeError> {
         let txin = self
             .txins
@@ -80,24 +104,41 @@ impl<T: State> TxHandler<T> {
         Ok(merkle_root)
     }
 
+    /// Returns the signature ID for the specified input.
+    ///
+    /// # Arguments
+    /// * `idx` - The input index.
+    ///
+    /// # Returns
+    /// The signature ID, or a [`BridgeError`] if not found.
     pub fn get_signature_id(&self, idx: usize) -> Result<SignatureId, BridgeError> {
         let txin = self.txins.get(idx).ok_or(TxError::TxInputNotFound)?;
         Ok(txin.get_signature_id())
     }
 
+    /// Returns the protocol transaction type for this handler.
     pub fn get_transaction_type(&self) -> TransactionType {
         self.transaction_type
     }
 
+    /// Returns a reference to the cached Bitcoin transaction.
     pub fn get_cached_tx(&self) -> &Transaction {
         &self.cached_tx
     }
 
+    /// Returns a reference to the cached transaction ID.
     pub fn get_txid(&self) -> &Txid {
         // Not sure if this should be public
         &self.cached_txid
     }
 
+    /// Returns a lambda function that calculates the sighash for the specified input, given the sighash type.
+    ///
+    /// # Arguments
+    /// * `idx` - The input index.
+    ///
+    /// # Returns
+    /// A lambda function that calculates the sighash for the specified input, given the sighash type.
     fn get_sighash_calculator(
         &self,
         idx: usize,
@@ -117,7 +158,7 @@ impl<T: State> TxHandler<T> {
     ///
     /// This function will skip all transaction inputs that already have a witness.
     ///
-    /// # Parameters
+    /// # Arguments
     /// * `signer` - A function that returns an optional witness for transaction inputs or returns an error
     ///   if the signing fails. The function takes the input idx, input object, and a sighash calculator closure.
     ///
@@ -148,6 +189,14 @@ impl<T: State> TxHandler<T> {
         Ok(())
     }
 
+    /// Calculates the Taproot sighash for a key spend input for the given input and sighash type.
+    ///
+    /// # Arguments
+    /// * `txin_index` - The input index.
+    /// * `sighash_type` - The Taproot sighash type.
+    ///
+    /// # Returns
+    /// The calculated Taproot sighash, or a [`BridgeError`] if calculation fails.
     pub fn calculate_pubkey_spend_sighash(
         &self,
         txin_index: usize,
@@ -176,6 +225,15 @@ impl<T: State> TxHandler<T> {
         Ok(sig_hash)
     }
 
+    /// Calculates the Taproot sighash for a script spend input by script index.
+    ///
+    /// # Arguments
+    /// * `txin_index` - The input index.
+    /// * `spend_script_idx` - The script index in the input's script list.
+    /// * `sighash_type` - The Taproot sighash type.
+    ///
+    /// # Returns
+    /// The calculated Taproot sighash, or a [`BridgeError`] if calculation fails.
     pub fn calculate_script_spend_sighash_indexed(
         &self,
         txin_index: usize,
@@ -196,6 +254,15 @@ impl<T: State> TxHandler<T> {
         self.calculate_script_spend_sighash(txin_index, &script, sighash_type)
     }
 
+    /// Calculates the Taproot sighash for a script spend input by script.
+    ///
+    /// # Arguments
+    /// * `txin_index` - The input index.
+    /// * `spend_script` - The script being spent.
+    /// * `sighash_type` - The Taproot sighash type.
+    ///
+    /// # Returns
+    /// The calculated Taproot sighash, or a [`BridgeError`] if calculation fails.
     pub fn calculate_script_spend_sighash(
         &self,
         txin_index: usize,
@@ -226,6 +293,14 @@ impl<T: State> TxHandler<T> {
         Ok(sig_hash)
     }
 
+    /// Calculates the sighash for the specified input, based on its spend path stored inside [`SpentTxIn`].
+    ///
+    /// # Arguments
+    /// * `txin_index` - The input index.
+    /// * `sighash_type` - The Taproot sighash type.
+    ///
+    /// # Returns
+    /// The calculated Taproot sighash, or a [`BridgeError`] if calculation fails.
     pub fn calculate_sighash_txin(
         &self,
         txin_index: usize,
@@ -240,6 +315,14 @@ impl<T: State> TxHandler<T> {
         }
     }
 
+    /// Calculates sighashes for all shared inputs for a given entity type.
+    ///
+    /// # Arguments
+    /// * `needed_entity` - The entity type (operator, verifier, etc.).
+    /// * `partial_signature_info` - Partial signature info for the entity.
+    ///
+    /// # Returns
+    /// A vector of (sighash, signature info) pairs, or a [`BridgeError`] if calculation fails.
     pub fn calculate_shared_txins_sighash(
         &self,
         needed_entity: EntityType,
@@ -275,12 +358,14 @@ impl<T: State> TxHandler<T> {
     }
 
     #[cfg(test)]
+    /// Returns the previous output (TxOut) for the specified input
     pub fn get_input_txout(&self, input_idx: usize) -> &TxOut {
         self.txins[input_idx].get_spendable().get_prevout()
     }
 }
 
 impl TxHandler<Signed> {
+    /// Encodes the signed transaction as a raw byte vector.
     pub fn encode_tx(&self) -> RawSignedTx {
         RawSignedTx {
             raw_tx: bitcoin::consensus::encode::serialize(self.get_cached_tx()),
@@ -289,6 +374,10 @@ impl TxHandler<Signed> {
 }
 
 impl TxHandler<Unsigned> {
+    /// Promotes an unsigned handler to a signed handler, checking that all witnesses are present.
+    ///
+    /// # Returns
+    /// A [`TxHandler<Signed>`] if all witnesses are present, or a [`BridgeError`] if not.
     pub fn promote(self) -> Result<TxHandler<Signed>, BridgeError> {
         if self.txins.iter().any(|s| s.get_witness().is_none()) {
             return Err(eyre::eyre!("Missing witness data").into());
@@ -304,14 +393,15 @@ impl TxHandler<Unsigned> {
         })
     }
 
-    /// Constructs the witness for a script path spend of a transaction input.
+    /// Sets the witness for a script path spend input.
     ///
     /// # Arguments
+    /// * `script_inputs` - The inputs to the tapscript.
+    /// * `txin_index` - The input index.
+    /// * `script_index` - The script index in the input's script list.
     ///
-    /// - `tx`: The transaction to add the witness to.
-    /// - `script_inputs`: The inputs to the tapscript
-    /// - `txin_index`: The index of the transaction input to add the witness to.
-    /// - `script_index`: The script index in the input UTXO's Taproot script tree. This is used to get the control block and script contents of the script being spent.
+    /// # Returns
+    /// Ok(()) if successful, or a [`BridgeError`] if not.
     pub fn set_p2tr_script_spend_witness<T: AsRef<[u8]>>(
         &mut self,
         script_inputs: &[T],
@@ -357,6 +447,14 @@ impl TxHandler<Unsigned> {
         Ok(())
     }
 
+    /// Sets the witness for a key path spend input.
+    ///
+    /// # Arguments
+    /// * `signature` - The Taproot signature.
+    /// * `txin_index` - The input index.
+    ///
+    /// # Returns
+    /// Ok(()) if successful, or a [`BridgeError`] if not.
     pub fn set_p2tr_key_spend_witness(
         &mut self,
         signature: &taproot::Signature,
@@ -380,6 +478,7 @@ impl TxHandler<Unsigned> {
 }
 
 #[derive(Debug, Clone)]
+/// Builder for [`TxHandler`], allowing stepwise construction of inputs and outputs.
 pub struct TxHandlerBuilder {
     /// TODO: Document
     transaction_type: TransactionType,
@@ -390,6 +489,7 @@ pub struct TxHandlerBuilder {
 }
 
 impl TxHandlerBuilder {
+    /// Creates a new [`TxHandlerBuilder`] for the specified transaction type.
     pub fn new(transaction_type: TransactionType) -> TxHandlerBuilder {
         TxHandlerBuilder {
             transaction_type,
@@ -400,11 +500,13 @@ impl TxHandlerBuilder {
         }
     }
 
+    /// Sets the version for the transaction being built.
     pub fn with_version(mut self, version: Version) -> Self {
         self.version = version;
         self
     }
 
+    /// Adds an input to the transaction being built.
     pub fn add_input(
         mut self,
         input_id: impl Into<SignatureId>,
@@ -423,6 +525,7 @@ impl TxHandlerBuilder {
         self
     }
 
+    /// Adds an input with a pre-specified witness to the transaction being built.
     pub fn add_input_with_witness(
         mut self,
         spendable: SpendableTxIn,
@@ -440,6 +543,7 @@ impl TxHandlerBuilder {
         self
     }
 
+    /// Adds an output to the transaction being built.
     pub fn add_output(mut self, output: UnspentTxOut) -> Self {
         self.txouts.push(output);
 
@@ -447,6 +551,7 @@ impl TxHandlerBuilder {
     }
 
     /// TODO: output likely fallible
+    /// Finalizes the transaction, returning an unsigned [`TxHandler`].
     pub fn finalize(self) -> TxHandler<Unsigned> {
         // construct cached Transaction
         let tx = Transaction {
@@ -483,11 +588,20 @@ impl TxHandlerBuilder {
         }
     }
 
+    /// Finalizes the transaction and promotes it to signed, checking all witnesses.
     pub fn finalize_signed(self) -> Result<TxHandler<Signed>, BridgeError> {
         self.finalize().promote()
     }
 }
 
+/// Removes a [`TxHandler`] from a map by transaction type, returning an error if not found.
+///
+/// # Arguments
+/// * `txhandlers` - The map of transaction handlers.
+/// * `tx_type` - The transaction type to remove.
+///
+/// # Returns
+/// The removed [`TxHandler`], or a [`BridgeError`] if not found.
 pub fn remove_txhandler_from_map<T: State>(
     txhandlers: &mut BTreeMap<TransactionType, TxHandler<T>>,
     tx_type: TransactionType,

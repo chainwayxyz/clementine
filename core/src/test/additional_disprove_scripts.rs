@@ -2,10 +2,11 @@ use super::common::citrea::get_bridge_params;
 use super::common::ActorsCleanup;
 use crate::bitvm_client::SECP;
 use crate::builder::transaction::input::UtxoVout;
-use crate::builder::transaction::{KickoffData, TransactionType};
+use crate::builder::transaction::TransactionType;
 use crate::citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER};
 use crate::config::BridgeConfig;
 use crate::database::Database;
+use crate::deposit::KickoffData;
 use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
@@ -473,7 +474,7 @@ impl AdditionalDisproveTest {
         let txid = assert_tx.compute_txid();
 
         assert!(
-            rpc.is_txid_in_chain(&txid).await.unwrap(),
+            rpc.is_tx_on_chain(&txid).await.unwrap(),
             "Mini assert 0 was not found in the chain",
         );
 

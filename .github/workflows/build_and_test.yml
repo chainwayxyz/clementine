@@ -148,7 +148,7 @@ jobs:
 
   bridge_circuit_release_build_test:
     name: Test bridge circuit host code with release build
-    runs-on: ubicloud-standard-30
+    runs-on: ubicloud
     needs: release_build_automation
 
     env:
@@ -170,7 +170,7 @@ jobs:
 
   bridge_additional_disprove_tests_matrix:
     name: Test additional disprove script ${{ matrix.description_suffix }} with release build
-    runs-on: ubicloud-standard-30
+    runs-on: ubicloud
     needs: release_build
     strategy:
       fail-fast: false

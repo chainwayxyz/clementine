@@ -172,8 +172,8 @@ impl TxSender {
                         ));
                     }
                 }
-                let address =
-                    Address::from_script(&out.script_pubkey, self.network).map_err(|e| eyre!(e));
+                let address = Address::from_script(&out.script_pubkey, self.paramset.network)
+                    .map_err(|e| eyre!(e));
                 match address {
                     Ok(address) => Some(WalletCreateFundedPsbtOutput::Spendable(
                         address.to_string(),
