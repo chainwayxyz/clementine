@@ -2223,6 +2223,9 @@ mod tests {
         // Should succeed or fail gracefully - testing idempotency, not functionality
         tracing::info!("First call result: {:?}", result1);
 
+        // Commit the first transaction
+        dbtx1.commit().await.unwrap();
+
         // Second call with identical parameters should also succeed (idempotent)
         let mut dbtx2 = verifier.db.begin_transaction().await.unwrap();
         let result2 = verifier
@@ -2236,6 +2239,9 @@ mod tests {
             .await;
         // Should succeed or fail gracefully - testing idempotency, not functionality
         tracing::info!("Second call result: {:?}", result2);
+
+        // Commit the second transaction
+        dbtx2.commit().await.unwrap();
 
         // Both calls should have same outcome (both succeed or both fail with same error type)
         assert_eq!(
