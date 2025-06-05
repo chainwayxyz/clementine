@@ -891,20 +891,19 @@ impl Database {
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-
     use crate::bitvm_client::{SECP, UNSPENDABLE_XONLY_PUBKEY};
-    use crate::citrea::mock::MockCitreaClient;
     use crate::operator::Operator;
     use crate::rpc::clementine::{
         DepositSignatures, NormalSignatureKind, NumberedSignatureKind, TaggedSignature,
     };
+    use crate::test::common::citrea::MockCitreaClient;
     use crate::UTXO;
     use crate::{database::Database, test::common::*};
     use bitcoin::hashes::Hash;
     use bitcoin::key::constants::SCHNORR_SIGNATURE_SIZE;
     use bitcoin::key::Keypair;
     use bitcoin::{Address, Amount, OutPoint, ScriptBuf, TxOut, Txid, XOnlyPublicKey};
+    use std::str::FromStr;
 
     #[tokio::test]
     async fn test_set_get_operator() {
