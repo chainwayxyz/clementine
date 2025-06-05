@@ -27,6 +27,15 @@ use eyre::OptionExt;
 use std::str::FromStr;
 use std::sync::Arc;
 
+use crate::builder::transaction::create_round_txhandlers;
+use crate::builder::transaction::input::UtxoVout;
+use crate::builder::transaction::KickoffWinternitzKeys;
+use crate::builder::transaction::TransactionType;
+use crate::builder::transaction::TxHandler;
+use crate::config::protocol::ProtocolParamset;
+use crate::deposit::OperatorData;
+use crate::errors::BridgeError;
+
 type Result<T> = std::result::Result<T, BitcoinRPCError>;
 
 /// Bitcoin RPC wrapper. Extended RPC provides useful wrapper functions for
@@ -111,6 +120,136 @@ impl ExtendedRpc {
             .wrap_err("Failed to get block count")?;
 
         Ok(u32::try_from(height).wrap_err("Failed to convert block count to u32")?)
+    }
+
+    /// Checks if an operator's collateral is valid and available for use.
+    ///
+    /// This function validates the operator's collateral by:
+    /// 1. Verifying the collateral UTXO exists and has the correct amount
+    /// 2. Creating the round transaction chain to track current collateral position
+    /// 3. Determining if the current collateral UTXO in the chain is spent in a non-protocol tx, signaling the exit of operator from the protocol
+    ///
+    /// # Parameters
+    ///
+    /// * `operator_data`: Data about the operator including collateral funding outpoint
+    /// * `kickoff_wpks`: Kickoff Winternitz public keys for round transaction creation
+    /// * `paramset`: Protocol parameters
+    ///
+    /// # Returns
+    ///
+    /// - [`bool`]: `true` if the collateral is still usable, thus operator is still in protocol, `false` if the collateral is spent, thus operator is not in protocol anymore
+    ///
+    /// # Errors
+    ///
+    /// - [`BridgeError`]: If there was an error retrieving transaction data, creating round transactions,
+    ///   or checking UTXO status
+    pub async fn collateral_check(
+        &self,
+        operator_data: &OperatorData,
+        kickoff_wpks: &KickoffWinternitzKeys,
+        paramset: &'static ProtocolParamset,
+    ) -> std::result::Result<bool, BridgeError> {
+        // first check if the collateral utxo is
+        let tx = self
+            .get_tx_of_txid(&operator_data.collateral_funding_outpoint.txid)
+            .await
+            .wrap_err(format!(
+                "Failed to find collateral utxo in chain for outpoint {:?}",
+                operator_data.collateral_funding_outpoint
+            ))?;
+        let input_amount = match tx
+            .output
+            .get(operator_data.collateral_funding_outpoint.vout as usize)
+        {
+            Some(output) => output.value,
+            None => {
+                tracing::error!(
+                    "No output at index {} for txid {} while checking for collateral existence",
+                    operator_data.collateral_funding_outpoint.vout,
+                    operator_data.collateral_funding_outpoint.txid
+                );
+                return Ok(false);
+            }
+        };
+        if input_amount != paramset.collateral_funding_amount {
+            tracing::error!(
+                "Collateral amount for collateral {:?} is not correct: expected {}, got {}",
+                operator_data.collateral_funding_outpoint,
+                paramset.collateral_funding_amount,
+                input_amount
+            );
+            return Ok(false);
+        }
+
+        let mut current_collateral_outpoint: OutPoint = operator_data.collateral_funding_outpoint;
+        let mut prev_ready_to_reimburse: Option<TxHandler> = None;
+        for round_idx in 1..=paramset.num_round_txs {
+            // create round and ready to reimburse txs for the round
+            let txhandlers = create_round_txhandlers(
+                paramset,
+                round_idx,
+                operator_data,
+                kickoff_wpks,
+                prev_ready_to_reimburse.as_ref(),
+            )?;
+
+            let mut round_txhandler_opt = None;
+            let mut ready_to_reimburse_txhandler_opt = None;
+            for txhandler in &txhandlers {
+                match txhandler.get_transaction_type() {
+                    TransactionType::Round => round_txhandler_opt = Some(txhandler),
+                    TransactionType::ReadyToReimburse => {
+                        ready_to_reimburse_txhandler_opt = Some(txhandler)
+                    }
+                    _ => {}
+                }
+            }
+            if round_txhandler_opt.is_none() || ready_to_reimburse_txhandler_opt.is_none() {
+                return Err(eyre!(
+                    "Failed to create round and ready to reimburse txs for round {} for operator {}",
+                    round_idx,
+                    operator_data.xonly_pk
+                ).into());
+            }
+
+            let round_txid = round_txhandler_opt
+                .expect("Round txhandler should exist")
+                .get_cached_tx()
+                .compute_txid();
+            let is_round_tx_on_chain = self.is_tx_on_chain(&round_txid).await?;
+            if !is_round_tx_on_chain {
+                break;
+            }
+            current_collateral_outpoint = OutPoint {
+                txid: round_txid,
+                vout: UtxoVout::CollateralInRound.get_vout(),
+            };
+            if round_idx == paramset.num_round_txs {
+                // for the last round, only check round tx, as if the operator endered ready to reimburse tx of last round,
+                // it cannot create more kickoffs anymore
+                break;
+            }
+            let ready_to_reimburse_txhandler = ready_to_reimburse_txhandler_opt
+                .expect("Ready to reimburse txhandler should exist");
+            let ready_to_reimburse_txid =
+                ready_to_reimburse_txhandler.get_cached_tx().compute_txid();
+            let is_ready_to_reimburse_tx_on_chain =
+                self.is_tx_on_chain(&ready_to_reimburse_txid).await?;
+            if !is_ready_to_reimburse_tx_on_chain {
+                break;
+            }
+
+            current_collateral_outpoint = OutPoint {
+                txid: ready_to_reimburse_txid,
+                vout: UtxoVout::CollateralInReadyToReimburse.get_vout(),
+            };
+
+            prev_ready_to_reimburse = Some(ready_to_reimburse_txhandler.clone());
+        }
+
+        // if the collateral utxo we found latest in the round tx chain is spent, operators collateral is spent from Clementine
+        // bridge protocol, thus it is unusable and operator cannot fullfill withdrawals anymore
+        Ok(!self.is_utxo_spent(&current_collateral_outpoint).await?)
     }
 
     /// Returns block hash of a transaction, if confirmed.

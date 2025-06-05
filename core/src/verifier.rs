@@ -281,23 +281,55 @@ where
         Ok(tagged_sigs)
     }
 
-    /// Checks if all operators in verifier's db are in the deposit.
+    /// Checks if all operators in verifier's db that are still in protocol are in the deposit.
     /// Afterwards, it checks if the given deposit outpoint is valid. First it checks if the tx exists on chain,
     /// then it checks if the amount in TxOut is equal to bridge_amount and if the script is correct.
     async fn is_deposit_valid(&self, deposit_data: &mut DepositData) -> Result<bool, BridgeError> {
         let operator_xonly_pks = deposit_data.get_operators();
-        // check if all operators are in the deposit
-        let are_all_operators_in_deposit = self
-            .db
-            .get_operators(None)
-            .await?
-            .into_iter()
-            .all(|(xonly_pk, _, _)| operator_xonly_pks.contains(&xonly_pk));
-        if !are_all_operators_in_deposit {
-            tracing::warn!("All operators are not in the deposit");
-            return Ok(false);
+        // check if all operators that still have collateral are in the deposit
+        let are_all_operators_in_deposit = self.db.get_operators(None).await?;
+        for (xonly_pk, reimburse_addr, collateral_funding_outpoint) in are_all_operators_in_deposit
+        {
+            let operator_data = OperatorData {
+                xonly_pk,
+                collateral_funding_outpoint,
+                reimburse_addr,
+            };
+            let kickoff_wpks = self
+                .db
+                .get_operator_kickoff_winternitz_public_keys(None, xonly_pk)
+                .await?;
+            let kickoff_wpks = KickoffWinternitzKeys::new(
+                kickoff_wpks,
+                self.config.protocol_paramset().num_kickoffs_per_round,
+                self.config.protocol_paramset().num_round_txs,
+            );
+            let is_collateral_usable = self
+                .rpc
+                .collateral_check(
+                    &operator_data,
+                    &kickoff_wpks,
+                    self.config.protocol_paramset(),
+                )
+                .await?;
+            // if operator is not in deposit but its collateral is still on chain, return false
+            if !operator_xonly_pks.contains(&xonly_pk) && is_collateral_usable {
+                tracing::warn!(
+                    "Operator {:?} is is still in protocol but not in the deposit",
+                    xonly_pk
+                );
+                return Ok(false);
+            }
+            // if operator is in deposit, but the collateral is not usable, return false
+            if operator_xonly_pks.contains(&xonly_pk) && !is_collateral_usable {
+                tracing::warn!(
+                    "Operator {:?} is in the deposit but its collateral is spent, operator cannot fullfill withdrawals anymore",
+                    xonly_pk
+                );
+                return Ok(false);
+            }
         }
-        // check if deposit script is valid
+        // check if deposit script in deposit_outpoint is valid
         let deposit_scripts: Vec<ScriptBuf> = deposit_data
             .get_deposit_scripts(self.config.protocol_paramset())?
             .into_iter()
@@ -352,15 +384,38 @@ where
         operator_winternitz_public_keys: Vec<winternitz::PublicKey>,
         unspent_kickoff_sigs: Vec<Signature>,
     ) -> Result<(), BridgeError> {
+        let operator_data = OperatorData {
+            xonly_pk: operator_xonly_pk,
+            collateral_funding_outpoint,
+            reimburse_addr: wallet_reimburse_address,
+        };
+
         let kickoff_wpks = KickoffWinternitzKeys::new(
             operator_winternitz_public_keys,
             self.config.protocol_paramset().num_kickoffs_per_round,
             self.config.protocol_paramset().num_round_txs,
         );
+
+        if !self
+            .rpc
+            .collateral_check(
+                &operator_data,
+                &kickoff_wpks,
+                self.config.protocol_paramset(),
+            )
+            .await?
+        {
+            return Err(eyre::eyre!(
+                "Collateral utxo of operator {:?} does not exist or is not usable in bitcoin, cannot set operator",
+                operator_xonly_pk,
+            )
+            .into());
+        }
+
         let tagged_sigs = self.verify_unspent_kickoff_sigs(
             collateral_funding_outpoint,
             operator_xonly_pk,
-            wallet_reimburse_address.clone(),
+            operator_data.reimburse_addr.clone(),
             unspent_kickoff_sigs,
             &kickoff_wpks,
         )?;
@@ -372,7 +427,7 @@ where
             .set_operator(
                 Some(&mut dbtx),
                 operator_xonly_pk,
-                &wallet_reimburse_address,
+                &operator_data.reimburse_addr,
                 collateral_funding_outpoint,
             )
             .await?;
@@ -398,12 +453,6 @@ where
                 .set_unspent_kickoff_sigs(Some(&mut dbtx), operator_xonly_pk, round_idx, sigs)
                 .await?;
         }
-
-        let operator_data = OperatorData {
-            xonly_pk: operator_xonly_pk,
-            collateral_funding_outpoint,
-            reimburse_addr: wallet_reimburse_address,
-        };
 
         StateManager::<Self>::dispatch_new_round_machine(self.db.clone(), &mut dbtx, operator_data)
             .await?;
