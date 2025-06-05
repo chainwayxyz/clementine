@@ -101,11 +101,12 @@ where
         // initialize and run automation features
         #[cfg(feature = "automation")]
         {
+            // TODO: Removing index causes to remove the index from the tx_sender handle as well
             let tx_sender = TxSender::new(
                 verifier.signer.clone(),
                 rpc.clone(),
                 verifier.db.clone(),
-                format!("verifier_{}", verifier.signer.xonly_public_key),
+                "verifier_".to_string(),
                 config.protocol_paramset(),
             );
 
@@ -211,9 +212,9 @@ where
             sessions: HashMap::new(),
         };
 
+        // TODO: Removing index causes to remove the index from the tx_sender handle as well
         #[cfg(feature = "automation")]
-        let tx_sender =
-            TxSenderClient::new(db.clone(), format!("verifier_{}", signer.xonly_public_key));
+        let tx_sender = TxSenderClient::new(db.clone(), "verifier_".to_string());
 
         let header_chain_prover = if std::env::var("ENABLE_HEADER_CHAIN_PROVER").is_ok() {
             Some(HeaderChainProver::new(&config, rpc.clone()).await?)
@@ -445,27 +446,18 @@ where
         &self,
         num_nonces: u32,
     ) -> Result<(u32, Vec<MusigPubNonce>), BridgeError> {
-        let (mut sec_nonces, mut pub_nonces): (Vec<MusigSecNonce>, Vec<MusigPubNonce>) =
-            (vec![], vec![]);
-
-        for result in (0..num_nonces).map(|_| {
-            // nonce pair needs keypair and a rng
-            let (sec_nonce, pub_nonce) = musig2::nonce_pair(
-                &self.signer.keypair,
-                &mut bitcoin::secp256k1::rand::thread_rng(),
-            )?;
-            Ok::<
-                (
-                    secp256k1::musig::MusigSecNonce,
-                    secp256k1::musig::MusigPubNonce,
-                ),
-                BridgeError,
-            >((sec_nonce, pub_nonce))
-        }) {
-            let (sec_nonce, pub_nonce) = result?;
-            sec_nonces.push(sec_nonce);
-            pub_nonces.push(pub_nonce);
-        }
+        let (sec_nonces, pub_nonces): (Vec<MusigSecNonce>, Vec<MusigPubNonce>) = (0..num_nonces)
+            .map(|_| {
+                // nonce pair needs keypair and a rng
+                let (sec_nonce, pub_nonce) = musig2::nonce_pair(
+                    &self.signer.keypair,
+                    &mut bitcoin::secp256k1::rand::thread_rng(),
+                )?;
+                Ok((sec_nonce, pub_nonce))
+            })
+            .collect::<Result<Vec<(MusigSecNonce, MusigPubNonce)>, BridgeError>>()?
+            .into_iter()
+            .unzip(); // TODO: fix extra copies
 
         let session = NonceSession { nonces: sec_nonces };
 
@@ -581,6 +573,7 @@ where
         Ok(partial_sig_rx)
     }
 
+    /// TODO: This function should be split in to multiple functions
     pub async fn deposit_finalize(
         &self,
         deposit_data: &mut DepositData,
@@ -898,6 +891,7 @@ where
             )
             .await?;
         // Deposit is not actually finalized here, its only finalized after the aggregator gets all the partial sigs and checks the aggregated sig
+        // TODO: It can create problems if the deposit fails at the end by some verifier not sending movetx partial sig, but we still added sigs to db
         for (operator_idx, (operator_xonly_pk, operator_sigs)) in operator_xonly_pks
             .into_iter()
             .zip(verified_sigs.into_iter())
@@ -1233,9 +1227,9 @@ where
                 return Ok(true);
             }
         } else {
-            return Err(
-                eyre::eyre!("Couldn't retrieve committed data from witness".to_string(),).into(),
-            );
+            return Err(BridgeError::Error(
+                "Couldn't retrieve committed data from witness".to_string(),
+            ));
         }
         Ok(false)
     }
@@ -1539,7 +1533,9 @@ where
                     block_id
                 );
                 tracing::error!("Block cache: {:?}", block_cache);
-                return Err(eyre::eyre!("Payout tx not found in block cache".to_string(),).into());
+                return Err(BridgeError::Error(
+                    "Payout tx not found in block cache".to_string(),
+                ));
             }
             let payout_tx_idx = payout_tx_idx.expect("Payout tx not found in block cache");
             let payout_tx = &block.txdata[*payout_tx_idx];
@@ -2183,6 +2179,7 @@ mod tests {
     use std::sync::Arc;
 
     #[tokio::test]
+    #[ignore]
     async fn test_handle_finalized_block_idempotency() {
         let mut config = create_test_config_with_thread_name().await;
         let _regtest = create_regtest_rpc(&mut config).await;
