@@ -229,12 +229,6 @@ where
             }
         };
 
-        tracing::warn!(
-            "Setting operator in db with xonly pk: {:?}, collateral funding outpoint: {:?}, reimbursement address: {:?}",
-            signer.xonly_public_key,
-            collateral_funding_outpoint,
-            reimburse_addr
-        );
         db.set_operator(
             Some(&mut dbtx),
             signer.xonly_public_key,

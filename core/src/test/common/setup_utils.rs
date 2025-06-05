@@ -468,17 +468,6 @@ pub async fn create_actors<C: CitreaClientT>(
     .pop()
     .expect("could not connect to aggregator");
 
-    let rpc = ExtendedRpc::connect(
-        config.bitcoin_rpc_url.clone(),
-        config.bitcoin_rpc_user.clone(),
-        config.bitcoin_rpc_password.clone(),
-    )
-    .await
-    .expect("Could not connect to Bitcoin RPC");
-
-    // mine blocks to include operator collaterals in chain
-    rpc.mine_blocks(1).await.expect("Could not mine block");
-
     (
         verifiers,
         operators,

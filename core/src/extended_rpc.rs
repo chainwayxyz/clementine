@@ -249,7 +249,17 @@ impl ExtendedRpc {
 
         // if the collateral utxo we found latest in the round tx chain is spent, operators collateral is spent from Clementine
         // bridge protocol, thus it is unusable and operator cannot fulfill withdrawals anymore
-        Ok(!self.is_utxo_spent(&current_collateral_outpoint).await?)
+        // if not spent, it should exist in chain, which is checked below
+        Ok(self
+            .client
+            .get_tx_out(
+                &current_collateral_outpoint.txid,
+                current_collateral_outpoint.vout,
+                Some(true), // include mempool too
+            )
+            .await
+            .wrap_err("Failed to get transaction output")?
+            .is_some())
     }
 
     /// Returns block hash of a transaction, if confirmed.

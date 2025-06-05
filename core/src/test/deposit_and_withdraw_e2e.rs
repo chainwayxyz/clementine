@@ -10,8 +10,8 @@ use crate::citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER};
 use crate::database::Database;
 use crate::deposit::KickoffData;
 use crate::rpc::clementine::{
-    FeeType, FinalizedPayoutParams, KickoffId, NormalSignatureKind, RawSignedTx, SendTxRequest,
-    TransactionRequest, WithdrawParams,
+    Deposit, FeeType, FinalizedPayoutParams, KickoffId, NormalSignatureKind, RawSignedTx,
+    SendTxRequest, TransactionRequest, WithdrawParams,
 };
 use crate::test::common::citrea::{get_citrea_safe_withdraw_params, MockCitreaClient, SECRET_KEYS};
 use crate::test::common::tx_utils::{
@@ -1438,13 +1438,10 @@ async fn mock_citrea_run_malicious_after_exit() {
 
     // mine 1 block to make sure collateral burn tx lands onchain
     rpc.mine_blocks(1).await.unwrap();
+    let deposit: Deposit = deposit_info.clone().into();
 
     // because operator collaterl was spent outside of the protocol, new deposit with this operator should be rejected
-    assert!(
-        run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None)
-            .await
-            .is_err()
-    );
+    assert!(aggregator.new_deposit(deposit).await.is_err());
 
     let kickoff_txid: bitcoin::Txid = operators[0]
         .internal_finalized_payout(FinalizedPayoutParams {
