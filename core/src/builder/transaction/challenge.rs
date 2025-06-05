@@ -14,6 +14,7 @@ use crate::errors::BridgeError;
 use crate::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind};
 use bitcoin::script::PushBytesBuf;
 use bitcoin::{Sequence, TxOut, WitnessVersion};
+use eyre::Context;
 
 use self::input::UtxoVout;
 
@@ -66,12 +67,7 @@ pub fn create_watchtower_challenge_txhandler(
     while current_idx + 80 < paramset.watchtower_challenge_bytes {
         // encode next 32 bytes of data as script pubkey of taproot utxo
         let data = PushBytesBuf::try_from(commit_data[current_idx..current_idx + 32].to_vec())
-            .map_err(|e| {
-                eyre::eyre!(
-                    "Failed to create pushbytesbuf for watchtower challenge op_return: {}",
-                    e
-                )
-            })?;
+            .wrap_err("Failed to create pushbytesbuf for watchtower challenge op_return: {}")?;
 
         let data_encoded_scriptbuf = Builder::new()
             .push_opcode(WitnessVersion::V1.into())
@@ -87,13 +83,8 @@ pub fn create_watchtower_challenge_txhandler(
 
     // add the remaining data as an op_return output
     if current_idx < paramset.watchtower_challenge_bytes {
-        let remaining_data =
-            PushBytesBuf::try_from(commit_data[current_idx..].to_vec()).map_err(|e| {
-                eyre::eyre!(
-                    "Failed to create pushbytesbuf for watchtower challenge op_return: {}",
-                    e
-                )
-            })?;
+        let remaining_data = PushBytesBuf::try_from(commit_data[current_idx..].to_vec())
+            .wrap_err("Failed to create pushbytesbuf for watchtower challenge op_return")?;
         builder = builder.add_output(UnspentTxOut::from_partial(op_return_txout(remaining_data)));
     }
 

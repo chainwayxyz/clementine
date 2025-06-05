@@ -21,7 +21,7 @@ use bitcoin::{
 };
 use bitcoin::{OutPoint, TapNodeHash, TapSighashType, Witness};
 use bitvm::signatures::winternitz::{self, BinarysearchVerifier, ToBytesConverter, Winternitz};
-use eyre::OptionExt;
+use eyre::{Context, OptionExt};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, thiserror::Error)]
 pub enum VerificationError {
@@ -107,13 +107,13 @@ fn calc_tweaked_keypair(
     keypair: &Keypair,
     merkle_root: Option<TapNodeHash>,
 ) -> Result<Keypair, BridgeError> {
-    keypair
+    Ok(keypair
         .add_xonly_tweak(
             &SECP,
             &TapTweakHash::from_key_and_tweak(keypair.x_only_public_key().0, merkle_root)
                 .to_scalar(),
         )
-        .map_err(|e| eyre::eyre!("Failed to add tweak to keypair: {}", e).into())
+        .wrap_err("Failed to add tweak to keypair")?)
 }
 
 fn calc_tweaked_xonly_pk(
@@ -125,7 +125,7 @@ fn calc_tweaked_xonly_pk(
             &SECP,
             &TapTweakHash::from_key_and_tweak(pubkey, merkle_root).to_scalar(),
         )
-        .map_err(|e| eyre::eyre!("Failed to add tweak to xonly_pk: {}", e))?
+        .wrap_err("Failed to add tweak to xonly_pk")?
         .0)
 }
 

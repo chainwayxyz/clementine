@@ -133,11 +133,9 @@ pub struct ProtocolParamset {
 
 impl ProtocolParamset {
     pub fn from_toml_file(path: &Path) -> Result<Self, BridgeError> {
-        let contents = fs::read_to_string(path)
-            .map_err(|e| eyre::eyre!("Failed to read config file: {}", e))?;
+        let contents = fs::read_to_string(path).wrap_err("Failed to read config file")?;
 
-        let paramset: Self =
-            toml::from_str(&contents).map_err(|e| eyre::eyre!("Failed to parse TOML: {}", e))?;
+        let paramset: Self = toml::from_str(&contents).wrap_err("Failed to parse TOML")?;
 
         Ok(paramset)
     }
