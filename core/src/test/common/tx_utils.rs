@@ -5,7 +5,7 @@ use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::extended_rpc::ExtendedRpc;
 use crate::rpc::clementine::SignedTxsWithType;
-use crate::tx_sender::{FeePayingType, RbfSigningInfo, TxMetadata, TxSenderClient};
+use crate::utils::{FeePayingType, RbfSigningInfo, TxMetadata};
 use bitcoin::consensus::{self};
 use bitcoin::{block, OutPoint, Transaction, Txid};
 use bitcoincore_rpc::RpcApi;
@@ -16,6 +16,20 @@ use eyre::{bail, Context, Result};
 
 use super::{mine_once_after_in_mempool, poll_until_condition};
 
+pub fn get_tx_from_signed_txs_with_type(
+    txs: &SignedTxsWithType,
+    tx_type: TxType,
+) -> Result<bitcoin::Transaction> {
+    let tx = txs
+        .signed_txs
+        .iter()
+        .find(|tx| tx.transaction_type == Some(tx_type.into()))
+        .to_owned()
+        .unwrap_or_else(|| panic!("expected tx of type: {:?} not found", tx_type))
+        .to_owned()
+        .raw_tx;
+    bitcoin::consensus::deserialize(&tx).context("expected valid tx")
+}
 // Cannot use ensure_async due to `Send` requirement being broken upstream
 pub async fn ensure_outpoint_spent_while_waiting_for_light_client_sync(
     rpc: &ExtendedRpc,
@@ -126,9 +140,10 @@ pub async fn mine_once_after_outpoint_spent_in_mempool(
     Ok(())
 }
 
+#[cfg(feature = "automation")]
 // Helper function to send a transaction and mine a block
 pub async fn send_tx(
-    tx_sender: &TxSenderClient,
+    tx_sender: &crate::tx_sender::TxSenderClient,
     rpc: &ExtendedRpc,
     raw_tx: &[u8],
     tx_type: TxType,
@@ -249,9 +264,10 @@ pub async fn ensure_outpoint_spent(
     Ok(())
 }
 
+#[cfg(feature = "automation")]
 pub async fn send_tx_with_type(
     rpc: &ExtendedRpc,
-    tx_sender: &TxSenderClient,
+    tx_sender: &crate::tx_sender::TxSenderClient,
     all_txs: &SignedTxsWithType,
     tx_type: TxType,
 ) -> Result<(), eyre::Error> {
@@ -266,16 +282,20 @@ pub async fn send_tx_with_type(
     Ok(())
 }
 
+#[cfg(feature = "automation")]
 pub async fn create_tx_sender(
     config: &BridgeConfig,
     verifier_index: u32,
-) -> Result<(TxSenderClient, Database)> {
+) -> Result<(crate::tx_sender::TxSenderClient, Database)> {
     let verifier_config = {
         let mut config = config.clone();
         config.db_name += &verifier_index.to_string();
         config
     };
     let db = Database::new(&verifier_config).await?;
-    let tx_sender = TxSenderClient::new(db.clone(), format!("tx_sender_test_{}", verifier_index));
+    let tx_sender = crate::tx_sender::TxSenderClient::new(
+        db.clone(),
+        format!("tx_sender_test_{}", verifier_index),
+    );
     Ok((tx_sender, db))
 }

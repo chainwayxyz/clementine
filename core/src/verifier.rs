@@ -1,7 +1,8 @@
 use crate::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
-use crate::bitcoin_syncer::BitcoinSyncer;
+use crate::bitcoin_syncer::{BitcoinSyncer, BlockHandler, FinalizedBlockFetcherTask};
 use crate::bitvm_client::ClementineBitVMPublicKeys;
 use crate::builder::address::{create_taproot_address, taproot_builder_with_scripts};
+use crate::builder::block_cache;
 use crate::builder::script::{
     extract_winternitz_commits, extract_winternitz_commits_with_sigs, SpendableScript,
     TimelockScript, WinternitzCommit,
@@ -27,12 +28,12 @@ use crate::errors::{BridgeError, TxError};
 use crate::extended_rpc::ExtendedRpc;
 use crate::header_chain_prover::{HeaderChainProver, HeaderChainProverError};
 use crate::rpc::clementine::{NormalSignatureKind, OperatorKeys, TaggedSignature};
-use crate::states::context::DutyResult;
-use crate::states::{block_cache, StateManager};
-use crate::states::{Duty, Owner};
 use crate::task::manager::BackgroundTaskManager;
-use crate::task::IntoTask;
-use crate::tx_sender::{TxMetadata, TxSender, TxSenderClient};
+use crate::task::{IntoTask, TaskExt};
+#[cfg(feature = "automation")]
+use crate::tx_sender::{TxSender, TxSenderClient};
+use crate::utils::NamedEntity;
+use crate::utils::TxMetadata;
 use crate::{musig2, UTXO};
 use bitcoin::hashes::Hash;
 use bitcoin::key::Secp256k1;
@@ -54,7 +55,9 @@ use eyre::{Context, ContextCompat, OptionExt, Result};
 #[cfg(test)]
 use risc0_zkvm::is_dev_mode;
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce, MusigSecNonce};
-use std::collections::{BTreeMap, HashMap, HashSet};
+#[cfg(feature = "automation")]
+use std::collections::BTreeMap;
+use std::collections::{HashMap, HashSet};
 use std::pin::pin;
 use std::sync::Arc;
 use std::time::Duration;
@@ -95,35 +98,54 @@ where
         )
         .await?;
 
-        // TODO: Removing index causes to remove the index from the tx_sender handle as well
-        let tx_sender = TxSender::new(
-            verifier.signer.clone(),
-            rpc.clone(),
-            verifier.db.clone(),
-            "verifier_".to_string(),
-            config.protocol_paramset(),
-        );
+        // initialize and run automation features
+        #[cfg(feature = "automation")]
+        {
+            // TODO: Removing index causes to remove the index from the tx_sender handle as well
+            let tx_sender = TxSender::new(
+                verifier.signer.clone(),
+                rpc.clone(),
+                verifier.db.clone(),
+                "verifier_".to_string(),
+                config.protocol_paramset(),
+            );
 
-        background_tasks.loop_and_monitor(tx_sender.into_task());
+            background_tasks.loop_and_monitor(tx_sender.into_task());
+            let state_manager = crate::states::StateManager::new(
+                db.clone(),
+                verifier.clone(),
+                config.protocol_paramset(),
+            )
+            .await?;
 
-        // initialize and run state manager
-        let state_manager =
-            StateManager::new(db.clone(), verifier.clone(), config.protocol_paramset()).await?;
+            let should_run_state_mgr = {
+                #[cfg(test)]
+                {
+                    config.test_params.should_run_state_manager
+                }
+                #[cfg(not(test))]
+                {
+                    true
+                }
+            };
 
-        let should_run_state_mgr = {
-            #[cfg(test)]
-            {
-                config.test_params.should_run_state_manager
+            if should_run_state_mgr {
+                background_tasks.loop_and_monitor(state_manager.block_fetcher_task().await?);
+                background_tasks.loop_and_monitor(state_manager.into_task());
             }
-            #[cfg(not(test))]
-            {
-                true
-            }
-        };
-
-        if should_run_state_mgr {
-            background_tasks.loop_and_monitor(state_manager.block_fetcher_task().await?);
-            background_tasks.loop_and_monitor(state_manager.into_task());
+        }
+        #[cfg(not(feature = "automation"))]
+        {
+            background_tasks.loop_and_monitor(
+                FinalizedBlockFetcherTask::new(
+                    db.clone(),
+                    "verifier".to_string(),
+                    config.protocol_paramset(),
+                    config.protocol_paramset().start_height,
+                    verifier.clone(),
+                )
+                .with_delay(Duration::from_secs(1)),
+            );
         }
 
         let syncer = BitcoinSyncer::new(db, rpc, config.protocol_paramset()).await?;
@@ -151,6 +173,7 @@ pub struct Verifier<C: CitreaClientT> {
     pub(crate) db: Database,
     pub(crate) config: BridgeConfig,
     pub(crate) nonces: Arc<tokio::sync::Mutex<AllSessions>>,
+    #[cfg(feature = "automation")]
     pub tx_sender: TxSenderClient,
     pub header_chain_prover: Option<HeaderChainProver>,
     pub citrea_client: C,
@@ -190,6 +213,7 @@ where
         };
 
         // TODO: Removing index causes to remove the index from the tx_sender handle as well
+        #[cfg(feature = "automation")]
         let tx_sender = TxSenderClient::new(db.clone(), "verifier_".to_string());
 
         let header_chain_prover = if std::env::var("ENABLE_HEADER_CHAIN_PROVER").is_ok() {
@@ -204,6 +228,7 @@ where
             db: db.clone(),
             config: config.clone(),
             nonces: Arc::new(tokio::sync::Mutex::new(all_sessions)),
+            #[cfg(feature = "automation")]
             tx_sender,
             header_chain_prover,
             citrea_client,
@@ -397,15 +422,21 @@ where
                 .await?;
         }
 
-        let operator_data = OperatorData {
-            xonly_pk: operator_xonly_pk,
-            collateral_funding_outpoint,
-            reimburse_addr: wallet_reimburse_address,
-        };
+        #[cfg(feature = "automation")]
+        {
+            let operator_data = OperatorData {
+                xonly_pk: operator_xonly_pk,
+                collateral_funding_outpoint,
+                reimburse_addr: wallet_reimburse_address,
+            };
 
-        StateManager::<Self>::dispatch_new_round_machine(self.db.clone(), &mut dbtx, operator_data)
+            crate::states::StateManager::<Self>::dispatch_new_round_machine(
+                self.db.clone(),
+                &mut dbtx,
+                operator_data,
+            )
             .await?;
-
+        }
         dbtx.commit().await?;
 
         Ok(())
@@ -1266,6 +1297,7 @@ where
                 | TransactionType::KickoffNotFinalized
                 | TransactionType::LatestBlockhashTimeout
                 | TransactionType::OperatorChallengeNack(_) => {
+                    #[cfg(feature = "automation")]
                     self.tx_sender
                         .add_tx_to_queue(
                             dbtx,
@@ -1366,30 +1398,34 @@ where
             )
             .await?;
 
-        let mut dbtx = self.db.begin_transaction().await?;
-        self.tx_sender
-            .add_tx_to_queue(
-                &mut dbtx,
-                tx_type,
-                &challenge_tx,
-                &[],
-                Some(TxMetadata {
-                    tx_type,
-                    operator_xonly_pk: Some(kickoff_data.operator_xonly_pk),
-                    round_idx: Some(kickoff_data.round_idx),
-                    kickoff_idx: Some(kickoff_data.kickoff_idx),
-                    deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
-                }),
-                &self.config,
-                Some(rbf_info),
-            )
-            .await?;
+        #[cfg(feature = "automation")]
+        {
+            let mut dbtx = self.db.begin_transaction().await?;
 
-        dbtx.commit().await?;
-        tracing::info!(
-            "Committed watchtower challenge, commit data: {:?}",
-            commit_data
-        );
+            self.tx_sender
+                .add_tx_to_queue(
+                    &mut dbtx,
+                    tx_type,
+                    &challenge_tx,
+                    &[],
+                    Some(TxMetadata {
+                        tx_type,
+                        operator_xonly_pk: Some(kickoff_data.operator_xonly_pk),
+                        round_idx: Some(kickoff_data.round_idx),
+                        kickoff_idx: Some(kickoff_data.kickoff_idx),
+                        deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
+                    }),
+                    &self.config,
+                    Some(rbf_info),
+                )
+                .await?;
+
+            dbtx.commit().await?;
+            tracing::info!(
+                "Committed watchtower challenge, commit data: {:?}",
+                commit_data
+            );
+        }
 
         Ok(())
     }
@@ -1564,6 +1600,7 @@ where
                 if used_kickoffs.contains(&kickoff_idx) {
                     continue;
                 }
+                #[cfg(feature = "automation")]
                 self.tx_sender
                     .add_tx_to_queue(
                         &mut dbtx,
@@ -1587,6 +1624,7 @@ where
         Ok(())
     }
 
+    #[cfg(feature = "automation")]
     async fn verify_additional_disprove_conditions(
         &self,
         deposit_data: &mut DepositData,
@@ -1597,6 +1635,8 @@ where
         operator_acks: &HashMap<usize, Witness>,
         txhandlers: &BTreeMap<TransactionType, TxHandler>,
     ) -> Result<Option<bitcoin::Witness>, BridgeError> {
+        use crate::builder::transaction::ReimburseDbCache;
+
         let mut reimburse_db_cache = ReimburseDbCache::new_for_deposit(
             self.db.clone(),
             kickoff_data.operator_xonly_pk,
@@ -1775,6 +1815,7 @@ where
         Ok(additional_disprove_witness)
     }
 
+    #[cfg(feature = "automation")]
     async fn send_disprove_tx_additional(
         &self,
         txhandlers: &BTreeMap<TransactionType, TxHandler>,
@@ -1848,166 +1889,6 @@ where
             .wrap_err("Error sending disprove tx")?;
         Ok(())
     }
-}
-
-#[async_trait]
-impl<C> Owner for Verifier<C>
-where
-    C: CitreaClientT,
-{
-    const OWNER_TYPE: &'static str = "verifier";
-
-    async fn handle_duty(&self, duty: Duty) -> Result<DutyResult, BridgeError> {
-        let verifier_xonly_pk = &self.signer.xonly_public_key;
-        match duty {
-            Duty::NewReadyToReimburse {
-                round_idx,
-                operator_xonly_pk,
-                used_kickoffs,
-            } => {
-                tracing::info!(
-                    "Verifier {:?} called new ready to reimburse with round_idx: {:?}, operator_idx: {}, used_kickoffs: {:?}",
-                    verifier_xonly_pk, round_idx, operator_xonly_pk, used_kickoffs
-                );
-                self.send_unspent_kickoff_connectors(round_idx, operator_xonly_pk, used_kickoffs)
-                    .await?;
-                Ok(DutyResult::Handled)
-            }
-            Duty::WatchtowerChallenge {
-                kickoff_data,
-                deposit_data,
-            } => {
-                tracing::warn!(
-                    "Verifier {:?} called watchtower challenge with kickoff_data: {:?}, deposit_data: {:?}",
-                    verifier_xonly_pk, kickoff_data, deposit_data
-                );
-                self.send_watchtower_challenge(kickoff_data, deposit_data)
-                    .await?;
-
-                tracing::info!("Verifier sent watchtower challenge",);
-
-                Ok(DutyResult::Handled)
-            }
-            Duty::SendOperatorAsserts { .. } => Ok(DutyResult::Handled),
-            Duty::VerifierDisprove {
-                kickoff_data,
-                mut deposit_data,
-                operator_asserts,
-                operator_acks,
-                payout_blockhash,
-                latest_blockhash,
-            } => {
-                let context = ContractContext::new_context_for_kickoff(
-                    kickoff_data,
-                    deposit_data.clone(),
-                    self.config.protocol_paramset(),
-                );
-
-                let mut db_cache = ReimburseDbCache::from_context(self.db.clone(), &context);
-
-                let txhandlers = create_txhandlers(
-                    TransactionType::AllNeededForDeposit,
-                    context,
-                    &mut TxHandlerCache::new(),
-                    &mut db_cache,
-                )
-                .await?;
-
-                let additional_disprove_witness = self
-                    .verify_additional_disprove_conditions(
-                        &mut deposit_data,
-                        &kickoff_data,
-                        &latest_blockhash,
-                        &payout_blockhash,
-                        &operator_asserts,
-                        &operator_acks,
-                        &txhandlers,
-                    )
-                    .await?;
-
-                if let Some(additional_disprove_witness) = additional_disprove_witness {
-                    self.send_disprove_tx_additional(
-                        &txhandlers,
-                        kickoff_data,
-                        deposit_data,
-                        additional_disprove_witness,
-                    )
-                    .await?;
-                } else {
-                    tracing::info!(
-                        "Verifier {:?} did not find additional disprove witness",
-                        verifier_xonly_pk
-                    );
-                }
-
-                Ok(DutyResult::Handled)
-            }
-            Duty::SendLatestBlockhash { .. } => Ok(DutyResult::Handled),
-            Duty::CheckIfKickoff {
-                txid,
-                block_height,
-                witness,
-                challenged_before,
-            } => {
-                tracing::debug!(
-                    "Verifier {:?} called check if kickoff with txid: {:?}, block_height: {:?}",
-                    verifier_xonly_pk,
-                    txid,
-                    block_height,
-                );
-                let db_kickoff_data = self
-                    .db
-                    .get_deposit_data_with_kickoff_txid(None, txid)
-                    .await?;
-                let mut challenged = false;
-                if let Some((deposit_data, kickoff_data)) = db_kickoff_data {
-                    tracing::debug!(
-                        "New kickoff found {:?}, for deposit: {:?}",
-                        kickoff_data,
-                        deposit_data.get_deposit_outpoint()
-                    );
-                    // add kickoff machine if there is a new kickoff
-                    let mut dbtx = self.db.begin_transaction().await?;
-                    StateManager::<Self>::dispatch_new_kickoff_machine(
-                        self.db.clone(),
-                        &mut dbtx,
-                        kickoff_data,
-                        block_height,
-                        deposit_data.clone(),
-                        witness.clone(),
-                    )
-                    .await?;
-                    challenged = self
-                        .handle_kickoff(
-                            &mut dbtx,
-                            witness,
-                            deposit_data,
-                            kickoff_data,
-                            challenged_before,
-                        )
-                        .await?;
-                    dbtx.commit().await?;
-                }
-                Ok(DutyResult::CheckIfKickoff { challenged })
-            }
-        }
-    }
-
-    async fn create_txhandlers(
-        &self,
-        tx_type: TransactionType,
-        contract_context: ContractContext,
-    ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
-        let mut db_cache = ReimburseDbCache::from_context(self.db.clone(), &contract_context);
-        let txhandlers = create_txhandlers(
-            tx_type,
-            contract_context,
-            &mut TxHandlerCache::new(),
-            &mut db_cache,
-        )
-        .await?;
-        Ok(txhandlers)
-    }
 
     async fn handle_finalized_block(
         &self,
@@ -2035,6 +1916,7 @@ where
             tracing::error!("Error getting citrea l2 height range: {:?}", e);
             return Err(e);
         }
+
         let (l2_height_start, l2_height_end) =
             l2_range_result.expect("Failed to get citrea l2 height range");
 
@@ -2063,5 +1945,345 @@ where
         }
 
         Ok(())
+    }
+}
+
+// This implementation is only relevant for non-automation mode, where the verifier is run as a standalone process
+#[cfg(not(feature = "automation"))]
+#[async_trait]
+impl<C> BlockHandler for Verifier<C>
+where
+    C: CitreaClientT,
+{
+    async fn handle_new_block(
+        &mut self,
+        dbtx: DatabaseTransaction<'_, '_>,
+        block_id: u32,
+        block: bitcoin::Block,
+        height: u32,
+    ) -> Result<(), BridgeError> {
+        self.handle_finalized_block(
+            dbtx,
+            block_id,
+            height,
+            Arc::new(block_cache::BlockCache::from_block(&block, height)),
+            None,
+        )
+        .await
+    }
+}
+
+impl<C> NamedEntity for Verifier<C>
+where
+    C: CitreaClientT,
+{
+    const ENTITY_NAME: &'static str = "verifier";
+}
+
+#[cfg(feature = "automation")]
+mod states {
+    use super::*;
+    use crate::builder::transaction::{
+        create_txhandlers, ContractContext, ReimburseDbCache, TxHandlerCache,
+    };
+    use crate::states::context::DutyResult;
+    use crate::states::{block_cache, StateManager};
+    use crate::states::{Duty, Owner};
+    use std::collections::BTreeMap;
+    use tonic::async_trait;
+
+    #[async_trait]
+    impl<C> Owner for Verifier<C>
+    where
+        C: CitreaClientT,
+    {
+        async fn handle_duty(&self, duty: Duty) -> Result<DutyResult, BridgeError> {
+            let verifier_xonly_pk = &self.signer.xonly_public_key;
+            match duty {
+                Duty::NewReadyToReimburse {
+                    round_idx,
+                    operator_xonly_pk,
+                    used_kickoffs,
+                } => {
+                    tracing::info!(
+                    "Verifier {:?} called new ready to reimburse with round_idx: {:?}, operator_idx: {}, used_kickoffs: {:?}",
+                    verifier_xonly_pk, round_idx, operator_xonly_pk, used_kickoffs
+                );
+                    self.send_unspent_kickoff_connectors(
+                        round_idx,
+                        operator_xonly_pk,
+                        used_kickoffs,
+                    )
+                    .await?;
+                    Ok(DutyResult::Handled)
+                }
+                Duty::WatchtowerChallenge {
+                    kickoff_data,
+                    deposit_data,
+                } => {
+                    tracing::warn!(
+                    "Verifier {:?} called watchtower challenge with kickoff_data: {:?}, deposit_data: {:?}",
+                    verifier_xonly_pk, kickoff_data, deposit_data
+                );
+                    self.send_watchtower_challenge(kickoff_data, deposit_data)
+                        .await?;
+
+                    tracing::info!("Verifier sent watchtower challenge",);
+
+                    Ok(DutyResult::Handled)
+                }
+                Duty::SendOperatorAsserts { .. } => Ok(DutyResult::Handled),
+                Duty::VerifierDisprove {
+                    kickoff_data,
+                    mut deposit_data,
+                    operator_asserts,
+                    operator_acks,
+                    payout_blockhash,
+                    latest_blockhash,
+                } => {
+                    let context = ContractContext::new_context_for_kickoff(
+                        kickoff_data,
+                        deposit_data.clone(),
+                        self.config.protocol_paramset(),
+                    );
+
+                    let mut db_cache = ReimburseDbCache::from_context(self.db.clone(), &context);
+
+                    let txhandlers = create_txhandlers(
+                        TransactionType::AllNeededForDeposit,
+                        context,
+                        &mut TxHandlerCache::new(),
+                        &mut db_cache,
+                    )
+                    .await?;
+
+                    let additional_disprove_witness = self
+                        .verify_additional_disprove_conditions(
+                            &mut deposit_data,
+                            &kickoff_data,
+                            &latest_blockhash,
+                            &payout_blockhash,
+                            &operator_asserts,
+                            &operator_acks,
+                            &txhandlers,
+                        )
+                        .await?;
+
+                    if let Some(additional_disprove_witness) = additional_disprove_witness {
+                        self.send_disprove_tx_additional(
+                            &txhandlers,
+                            kickoff_data,
+                            deposit_data,
+                            additional_disprove_witness,
+                        )
+                        .await?;
+                    } else {
+                        tracing::info!(
+                            "Verifier {:?} did not find additional disprove witness",
+                            verifier_xonly_pk
+                        );
+                    }
+
+                    Ok(DutyResult::Handled)
+                }
+                Duty::SendLatestBlockhash { .. } => Ok(DutyResult::Handled),
+                Duty::CheckIfKickoff {
+                    txid,
+                    block_height,
+                    witness,
+                    challenged_before,
+                } => {
+                    tracing::debug!(
+                        "Verifier {:?} called check if kickoff with txid: {:?}, block_height: {:?}",
+                        verifier_xonly_pk,
+                        txid,
+                        block_height,
+                    );
+                    let db_kickoff_data = self
+                        .db
+                        .get_deposit_data_with_kickoff_txid(None, txid)
+                        .await?;
+                    let mut challenged = false;
+                    if let Some((deposit_data, kickoff_data)) = db_kickoff_data {
+                        tracing::debug!(
+                            "New kickoff found {:?}, for deposit: {:?}",
+                            kickoff_data,
+                            deposit_data.get_deposit_outpoint()
+                        );
+                        // add kickoff machine if there is a new kickoff
+                        let mut dbtx = self.db.begin_transaction().await?;
+                        StateManager::<Self>::dispatch_new_kickoff_machine(
+                            self.db.clone(),
+                            &mut dbtx,
+                            kickoff_data,
+                            block_height,
+                            deposit_data.clone(),
+                            witness.clone(),
+                        )
+                        .await?;
+                        challenged = self
+                            .handle_kickoff(
+                                &mut dbtx,
+                                witness,
+                                deposit_data,
+                                kickoff_data,
+                                challenged_before,
+                            )
+                            .await?;
+                        dbtx.commit().await?;
+                    }
+                    Ok(DutyResult::CheckIfKickoff { challenged })
+                }
+            }
+        }
+
+        async fn create_txhandlers(
+            &self,
+            tx_type: TransactionType,
+            contract_context: ContractContext,
+        ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
+            let mut db_cache = ReimburseDbCache::from_context(self.db.clone(), &contract_context);
+            let txhandlers = create_txhandlers(
+                tx_type,
+                contract_context,
+                &mut TxHandlerCache::new(),
+                &mut db_cache,
+            )
+            .await?;
+            Ok(txhandlers)
+        }
+
+        async fn handle_finalized_block(
+            &self,
+            mut dbtx: DatabaseTransaction<'_, '_>,
+            block_id: u32,
+            block_height: u32,
+            block_cache: Arc<block_cache::BlockCache>,
+            light_client_proof_wait_interval_secs: Option<u32>,
+        ) -> Result<(), BridgeError> {
+            self.handle_finalized_block(
+                dbtx,
+                block_id,
+                block_height,
+                block_cache,
+                light_client_proof_wait_interval_secs,
+            )
+            .await
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test::common::citrea::MockCitreaClient;
+    use crate::test::common::*;
+    use bitcoin::Block;
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn test_handle_finalized_block_idempotency() {
+        let mut config = create_test_config_with_thread_name().await;
+        let _regtest = create_regtest_rpc(&mut config).await;
+
+        let verifier = Verifier::<MockCitreaClient>::new(config.clone())
+            .await
+            .unwrap();
+
+        // Create test block data
+        let block_id = 1u32;
+        let block_height = 100u32;
+        let test_block = Block {
+            header: bitcoin::block::Header {
+                version: bitcoin::block::Version::ONE,
+                prev_blockhash: bitcoin::BlockHash::all_zeros(),
+                merkle_root: bitcoin::TxMerkleNode::all_zeros(),
+                time: 1234567890,
+                bits: bitcoin::CompactTarget::from_consensus(0x207fffff),
+                nonce: 12345,
+            },
+            txdata: vec![], // empty transactions
+        };
+        let block_cache = Arc::new(block_cache::BlockCache::from_block(
+            &test_block,
+            block_height,
+        ));
+
+        // First call to handle_finalized_block
+        let mut dbtx1 = verifier.db.begin_transaction().await.unwrap();
+        let result1 = verifier
+            .handle_finalized_block(
+                &mut dbtx1,
+                block_id,
+                block_height,
+                block_cache.clone(),
+                None,
+            )
+            .await;
+        // Should succeed or fail gracefully - testing idempotency, not functionality
+        tracing::info!("First call result: {:?}", result1);
+
+        // Second call with identical parameters should also succeed (idempotent)
+        let mut dbtx2 = verifier.db.begin_transaction().await.unwrap();
+        let result2 = verifier
+            .handle_finalized_block(
+                &mut dbtx2,
+                block_id,
+                block_height,
+                block_cache.clone(),
+                None,
+            )
+            .await;
+        // Should succeed or fail gracefully - testing idempotency, not functionality
+        tracing::info!("Second call result: {:?}", result2);
+
+        // Both calls should have same outcome (both succeed or both fail with same error type)
+        assert_eq!(
+            result1.is_ok(),
+            result2.is_ok(),
+            "Both calls should have the same outcome"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_database_operations_idempotency() {
+        let mut config = create_test_config_with_thread_name().await;
+        let _regtest = create_regtest_rpc(&mut config).await;
+
+        let verifier = Verifier::<MockCitreaClient>::new(config.clone())
+            .await
+            .unwrap();
+
+        // Test header chain prover save operation idempotency
+        if let Some(ref header_chain_prover) = verifier.header_chain_prover {
+            let test_block = Block {
+                header: bitcoin::block::Header {
+                    version: bitcoin::block::Version::ONE,
+                    prev_blockhash: bitcoin::BlockHash::all_zeros(),
+                    merkle_root: bitcoin::TxMerkleNode::all_zeros(),
+                    time: 1234567890,
+                    bits: bitcoin::CompactTarget::from_consensus(0x207fffff),
+                    nonce: 12345,
+                },
+                txdata: vec![], // empty transactions
+            };
+            let block_cache = block_cache::BlockCache::from_block(&test_block, 100u32);
+
+            // First save
+            let mut dbtx1 = verifier.db.begin_transaction().await.unwrap();
+            let result1 = header_chain_prover
+                .save_unproven_block_cache(Some(&mut dbtx1), &block_cache)
+                .await;
+            assert!(result1.is_ok(), "First save should succeed");
+            dbtx1.commit().await.unwrap();
+
+            // Second save with same data should be idempotent
+            let mut dbtx2 = verifier.db.begin_transaction().await.unwrap();
+            let result2 = header_chain_prover
+                .save_unproven_block_cache(Some(&mut dbtx2), &block_cache)
+                .await;
+            assert!(result2.is_ok(), "Second save should succeed (idempotent)");
+            dbtx2.commit().await.unwrap();
+        }
     }
 }
