@@ -49,7 +49,7 @@ use bitvm::clementine::additional_disprove::{
     replace_placeholders_in_script, validate_assertions_for_additional_script,
 };
 use bitvm::signatures::winternitz;
-use bridge_circuit_host::utils::{get_ark_verifying_key_dev_mode_bridge};
+use bridge_circuit_host::utils::get_ark_verifying_key_dev_mode_bridge;
 use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
 use circuits_lib::bridge_circuit::{deposit_constant, parse_op_return_data};
 use circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
@@ -1846,9 +1846,7 @@ where
     async fn verify_disprove_conditions(
         &self,
         deposit_data: &mut DepositData,
-        kickoff_data: &KickoffData,
         operator_asserts: &HashMap<usize, Witness>,
-        txhandlers: &BTreeMap<TransactionType, TxHandler>,
     ) -> Result<Option<(usize, StructuredScript)>, BridgeError> {
         let bitvm_pks = self.signer.generate_bitvm_pks_for_deposit(
             deposit_data.get_deposit_outpoint(),
@@ -1889,7 +1887,8 @@ where
                 }
             } else if (3..=32).contains(&i) {
                 for j in 0..12 {
-                    intermediate_value_commits[12 * (i - 3) + j] = commits.pop().expect("Should not panic");
+                    intermediate_value_commits[12 * (i - 3) + j] =
+                        commits.pop().expect("Should not panic");
                 }
             } else {
                 panic!("Should not reach here, i: {}; we know that there must be exactly 33 operator asserts", i);
@@ -1903,7 +1902,6 @@ where
             "g16_public_input_commit[0]: {:?}",
             g16_public_input_commit[0]
         );
-
 
         let first: [[([u8; 20], u8); 68]; 1] = [
             // This outer bracket creates the `[[...]; 1]`
@@ -1926,7 +1924,7 @@ where
 
                 // Extract the 21st byte for the u8.
                 let u8_part: u8 = g16_public_input_commit[0][2 * i + 1]
-                    .get(0)
+                    .first()
                     .map_or(0, |&val| val);
 
                 // Return the tuple for the i-th element of the inner array.
@@ -1935,7 +1933,7 @@ where
         ];
         tracing::info!("First created");
 
-        let mut second: [[([u8; 20], u8); 68]; 14] =
+        let second: [[([u8; 20], u8); 68]; 14] =
     // The outer `std::array::from_fn` creates the array of 14 elements.
     // `block_idx` will iterate from 0 to 13.
     std::array::from_fn(|block_idx: usize| -> [([u8; 20], u8); 68] {
@@ -1959,14 +1957,14 @@ where
 
             let one_byte_vec: &Vec<u8> = &data_for_current_block[2 * tuple_idx + 1];
             // Assuming one_byte_vec.len() == 1.
-            let u8_part: u8 = one_byte_vec.get(0).map_or(0, |&val| val);
+            let u8_part: u8 = one_byte_vec.first().map_or(0, |&val| val);
 
             (array_part, u8_part)
         }) // This inner from_fn produces one [([u8; 20], u8); 68]
     });
         tracing::info!("Second created");
 
-        let mut third: [[([u8; 20], u8); 36]; 363] =
+        let third: [[([u8; 20], u8); 36]; 363] =
     // The outer `std::array::from_fn` creates the array of 14 elements.
     // `block_idx` will iterate from 0 to 13.
     std::array::from_fn(|block_idx: usize| -> [([u8; 20], u8); 36] {
@@ -1990,7 +1988,7 @@ where
 
             let one_byte_vec: &Vec<u8> = &data_for_current_block[2 * tuple_idx + 1];
             // Assuming one_byte_vec.len() == 1.
-            let u8_part: u8 = one_byte_vec.get(0).map_or(0, |&val| val);
+            let u8_part: u8 = one_byte_vec.first().map_or(0, |&val| val);
 
             (array_part, u8_part)
         }) // This inner from_fn produces one [([u8; 20], u8); 68]
@@ -2018,10 +2016,11 @@ where
 
         if res.is_none() {
             tracing::info!("No disprove witness found");
-            return Ok(None);
+            Ok(None)
         } else {
             tracing::info!("Disprove witness found");
-            let (index, disprove_script) = res.unwrap();
+            let (index, disprove_script) =
+                res.expect("Disprove validation result should not be None, we checked it above");
             // let final_disprove_script = disprove_script.compile();
             Ok(Some((index, disprove_script)))
         }
@@ -2045,7 +2044,6 @@ where
             .1
             .compile()
             .instructions()
-            .into_iter()
             .filter_map(|ins_res| match ins_res {
                 Ok(Instruction::PushBytes(bytes)) => Some(bytes.as_bytes().to_vec()),
                 _ => None,
@@ -2198,12 +2196,7 @@ where
                     );
 
                     if let Some((index, disprove_script)) = self
-                        .verify_disprove_conditions(
-                            &mut deposit_data,
-                            &kickoff_data,
-                            &operator_asserts,
-                            &txhandlers,
-                        )
+                        .verify_disprove_conditions(&mut deposit_data, &operator_asserts)
                         .await?
                     {
                         tracing::info!(

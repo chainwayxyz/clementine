@@ -33,6 +33,7 @@ pub struct TestParams {
     pub disrupt_payout_tx_block_hash_commit: bool,
     pub disrupt_challenge_sending_watchtowers_commit: bool,
     pub operator_forgot_watchtower_challenge: bool,
+    pub corrupted_asserts: bool,
 }
 
 impl Default for TestParams {
@@ -71,6 +72,7 @@ impl Default for TestParams {
             disrupt_payout_tx_block_hash_commit: false,
             disrupt_challenge_sending_watchtowers_commit: false,
             operator_forgot_watchtower_challenge: false,
+            corrupted_asserts: false,
         }
     }
 }

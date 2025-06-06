@@ -1319,6 +1319,17 @@ where
             .map_err(|e| eyre::eyre!("Failed to generate assertions: {}", e))?
         };
 
+        #[cfg(test)]
+        let mut asserts = asserts;
+
+        #[cfg(test)]
+        {
+            if self.config.test_params.corrupted_asserts {
+                tracing::info!("Disrupting asserts commit in send_asserts");
+                asserts.0[0][0] ^= 0x01;
+            }
+        }
+
         let assert_txs = self
             .create_assert_commitment_txs(
                 TransactionRequestData {
