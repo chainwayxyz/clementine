@@ -675,7 +675,7 @@ impl TestCase for DisproveTest {
                 self.healthy_state_test(f).await?;
             }
             DisproveTestVariant::CorruptedAssert => {
-                tracing::info!("Running disrupted latest block hash commit test");
+                tracing::info!("Running disrupted operator BitVM assert test");
                 self.corrupted_asserts(f).await?;
             }
         }
