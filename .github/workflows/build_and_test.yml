@@ -206,9 +206,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - test_script_name: bitvm_disprove_scripts:disprove_script_test_healthy
+          - test_script_name: bitvm_disprove_scripts::disprove_script_test_healthy
             description_suffix: "healthy path"
-          - test_script_name: bitvm_disprove_scripts:disprove_script_test_corrupted_assert
+          - test_script_name: bitvm_disprove_scripts::disprove_script_test_corrupted_assert
             description_suffix: "disrupted assert path"
     services:
       postgres:
