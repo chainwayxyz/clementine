@@ -199,7 +199,7 @@ jobs:
 
 
   bridge_disprove_tests_matrix:
-    name: Test additional disprove script ${{ matrix.description_suffix }} with release build
+    name: Test disprove script ${{ matrix.description_suffix }} with release build
     runs-on: ubicloud-standard-30
     needs: release_build
     strategy:
