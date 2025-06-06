@@ -197,6 +197,51 @@ jobs:
       - name: Run tests
         run: cargo test ${{ matrix.test_script_name }} --release  -- --ignored
 
+
+  bridge_disprove_tests_matrix:
+    name: Test additional disprove script ${{ matrix.description_suffix }} with release build
+    runs-on: ubicloud-standard-30
+    needs: release_build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - test_script_name: bitvm_disprove_scripts:disprove_script_test_healthy
+            description_suffix: "healthy path"
+          - test_script_name: bitvm_disprove_scripts:disprove_script_test_corrupted_assert
+            description_suffix: "disrupted assert path"
+    services:
+      postgres:
+        image: postgres:latest
+        env:
+          POSTGRES_DB: clementine
+          POSTGRES_USER: clementine
+          POSTGRES_PASSWORD: clementine
+          POSTGRES_INITDB_ARGS: "-c shared_buffers=8GB -c max_connections=1000"
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/install-risc0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: ./.github/actions/build-prerequisites
+      - uses: ./.github/actions/test-prerequisites
+
+      - name: Restore cached build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "release-build"
+
+      - name: Run tests
+        run: cargo test ${{ matrix.test_script_name }} --release  -- --ignored
+
   coverage:
     name: Coverage checks with Codecov
     runs-on: ubicloud-standard-30
