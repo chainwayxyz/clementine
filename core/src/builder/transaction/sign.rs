@@ -307,10 +307,11 @@ where
             .db
             .get_unspent_kickoff_sigs(None, operator_xonly_pk, round_idx as usize)
             .await?
-            .ok_or(BridgeError::Error(format!(
+            .ok_or(eyre::eyre!(
                 "No unspent kickoff signatures found for operator {:?} and round {}",
-                operator_xonly_pk, round_idx
-            )))?;
+                operator_xonly_pk,
+                round_idx
+            ))?;
 
         let mut signed_txs = Vec::with_capacity(txhandlers.len());
         let mut tweak_cache = TweakCache::default();

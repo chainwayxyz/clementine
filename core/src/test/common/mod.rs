@@ -152,10 +152,12 @@ pub async fn mine_once_after_in_mempool(
 
     loop {
         if start.elapsed() > std::time::Duration::from_secs(timeout) {
-            return Err(BridgeError::Error(format!(
+            return Err(eyre::eyre!(
                 "{} did not land onchain within {} seconds",
-                tx_name, timeout
-            )));
+                tx_name,
+                timeout
+            )
+            .into());
         }
 
         if rpc.client.get_mempool_entry(&txid).await.is_ok() {
@@ -173,11 +175,11 @@ pub async fn mine_once_after_in_mempool(
         .get_raw_transaction_info(&txid, None)
         .await
         .map_err(|e| {
-            BridgeError::Error(format!(
+            eyre::eyre!(
             "{} did not land onchain after in mempool and mining 1 block and rpc gave error: {}",
             tx_name,
             e
-        ))
+        )
         })?;
 
     if tx.blockhash.is_none() {
@@ -186,10 +188,11 @@ pub async fn mine_once_after_in_mempool(
             tx_name
         );
 
-        return Err(BridgeError::Error(format!(
+        return Err(eyre::eyre!(
             "{} did not land onchain after in mempool and mining 1 block",
             tx_name
-        )));
+        )
+        .into());
     }
 
     let tx_block_height = rpc

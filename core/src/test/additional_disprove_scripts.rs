@@ -314,7 +314,14 @@ impl AdditionalDisproveTest {
                 Ok(withdrawal_response) => {
                     tracing::info!("Withdrawal response: {:?}", withdrawal_response);
                     break Txid::from_byte_array(
-                        withdrawal_response.into_inner().txid.try_into().unwrap(),
+                        withdrawal_response
+                            .into_inner()
+                            .txid
+                            .ok_or(eyre::eyre!("Malformed outpoint in withdrawal response"))
+                            .unwrap()
+                            .txid
+                            .try_into()
+                            .unwrap(),
                     );
                 }
                 Err(e) => {

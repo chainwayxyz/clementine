@@ -25,7 +25,7 @@ pub async fn block_number(client: &HttpClient) -> Result<u32, BridgeError> {
         .await
         .wrap_err("Failed to get block number")?;
 
-    let decoded_hex = hex::decode(&response[2..]).map_err(|e| BridgeError::Error(e.to_string()))?;
+    let decoded_hex = hex::decode(&response[2..]).map_err(|e| eyre::eyre!(e.to_string()))?;
     let block_number = decoded_hex
         .iter()
         .rev()
@@ -47,7 +47,7 @@ pub async fn eth_get_balance(
         .await
         .wrap_err("Failed to get balance")?;
     let ret = u128::from_str_radix(&response[2..], 16)
-        .map_err(|e| BridgeError::Error(format!("Can't convert hex to int: {}", e)))?;
+        .map_err(|e| eyre::eyre!("Can't convert hex to int: {}", e))?;
 
     Ok(ret)
 }

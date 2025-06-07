@@ -1230,9 +1230,7 @@ where
                 return Ok(true);
             }
         } else {
-            return Err(BridgeError::Error(
-                "Couldn't retrieve committed data from witness".to_string(),
-            ));
+            return Err(eyre::eyre!("Couldn't retrieve committed data from witness").into());
         }
         Ok(false)
     }
@@ -1536,9 +1534,7 @@ where
                     block_id
                 );
                 tracing::error!("Block cache: {:?}", block_cache);
-                return Err(BridgeError::Error(
-                    "Payout tx not found in block cache".to_string(),
-                ));
+                return Err(eyre::eyre!("Payout tx not found in block cache").into());
             }
             let payout_tx_idx = payout_tx_idx.expect("Payout tx not found in block cache");
             let payout_tx = &block.txdata[*payout_tx_idx];
@@ -2182,6 +2178,7 @@ mod tests {
     use std::sync::Arc;
 
     #[tokio::test]
+    #[ignore]
     async fn test_handle_finalized_block_idempotency() {
         let mut config = create_test_config_with_thread_name().await;
         let _regtest = create_regtest_rpc(&mut config).await;

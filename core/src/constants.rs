@@ -4,7 +4,7 @@ use bitcoin::{Address, Amount, ScriptBuf};
 pub const NON_EPHEMERAL_ANCHOR_AMOUNT: Amount = Amount::from_sat(240);
 
 /// The minimum possible amount that a UTXO can have when created into a Taproot address.
-pub const MIN_TAPROOT_AMOUNT: Amount = Amount::from_sat(330); // TODO: Maybe this could be 294, check
+pub const MIN_TAPROOT_AMOUNT: Amount = Amount::from_sat(330);
 
 pub const TEN_MINUTES_IN_SECS: u32 = 600;
 

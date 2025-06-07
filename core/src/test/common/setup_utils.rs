@@ -24,7 +24,6 @@ use std::net::TcpListener;
 use tokio::sync::oneshot;
 use tonic::transport::Channel;
 
-/// TODO: This won't block `let _ =`.
 #[must_use = "Servers will die if not used"]
 pub struct ActorsCleanup(pub (Vec<oneshot::Sender<()>>, tempfile::TempDir));
 
