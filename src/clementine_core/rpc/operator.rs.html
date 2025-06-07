@@ -463,7 +463,7 @@
             .<span class="kw">await</span><span class="question-mark">?</span>;
 
         <span class="prelude-val">Ok</span>(Response::new(WithdrawResponse {
-            txid: withdrawal_txid.as_raw_hash().to_byte_array().to_vec(),
+            txid: <span class="prelude-val">Some</span>(withdrawal_txid.into()),
         }))
     }
 

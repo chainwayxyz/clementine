@@ -522,7 +522,8 @@
 <a href="#521" id="521">521</a>
 <a href="#522" id="522">522</a>
 <a href="#523" id="523">523</a>
-<a href="#524" id="524">524</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Transaction Signing Utilities
+<a href="#524" id="524">524</a>
+<a href="#525" id="525">525</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Transaction Signing Utilities
 //!
 //! This module provides logic signing the transactions used in the Clementine bridge.
 
@@ -831,10 +832,11 @@
             </span>.db
             .get_unspent_kickoff_sigs(<span class="prelude-val">None</span>, operator_xonly_pk, round_idx <span class="kw">as </span>usize)
             .<span class="kw">await</span><span class="question-mark">?
-            </span>.ok_or(BridgeError::Error(<span class="macro">format!</span>(
+            </span>.ok_or(<span class="macro">eyre::eyre!</span>(
                 <span class="string">"No unspent kickoff signatures found for operator {:?} and round {}"</span>,
-                operator_xonly_pk, round_idx
-            )))<span class="question-mark">?</span>;
+                operator_xonly_pk,
+                round_idx
+            ))<span class="question-mark">?</span>;
 
         <span class="kw">let </span><span class="kw-2">mut </span>signed_txs = Vec::with_capacity(txhandlers.len());
         <span class="kw">let </span><span class="kw-2">mut </span>tweak_cache = TweakCache::default();

@@ -1365,8 +1365,7 @@
 <a href="#1364" id="1364">1364</a>
 <a href="#1365" id="1365">1365</a>
 <a href="#1366" id="1366">1366</a>
-<a href="#1367" id="1367">1367</a>
-<a href="#1368" id="1368">1368</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Transaction Handler Creation Logic
+<a href="#1367" id="1367">1367</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Transaction Handler Creation Logic
 //!
 //! This module provides the logic for constructing, caching, and managing transaction handlers (`TxHandler`) for all transaction types in the Clementine bridge.
 //!
@@ -1736,8 +1735,7 @@
     </span>kickoff_idx: <span class="prelude-ty">Option</span>&lt;u32&gt;,
     deposit_data: <span class="prelude-ty">Option</span>&lt;DepositData&gt;,
     signer: <span class="prelude-ty">Option</span>&lt;Actor&gt;,
-    <span class="comment">// TODO: why different winternitz_secret_key???
-</span>}
+}
 
 <span class="kw">impl </span>ContractContext {
     <span class="doccomment">/// Contains all necessary context for creating txhandlers for a specific operator and collateral chain
@@ -2201,9 +2199,9 @@
     }
 
     <span class="kw">if let </span>TransactionType::WatchtowerChallenge(<span class="kw">_</span>) = transaction_type {
-        <span class="kw">return </span><span class="prelude-val">Err</span>(BridgeError::Error(
+        <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(
             <span class="string">"Can't directly create a watchtower challenge in create_txhandlers as it needs commit data"</span>.to_string(),
-        ));
+        ).into());
     }
 
     <span class="kw">let </span>assert_timeouts = create_assert_timeout_txhandlers(

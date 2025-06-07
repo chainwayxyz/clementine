@@ -189,9 +189,7 @@
 <a href="#188" id="188">188</a>
 <a href="#189" id="189">189</a>
 <a href="#190" id="190">190</a>
-<a href="#191" id="191">191</a>
-<a href="#192" id="192">192</a>
-<a href="#193" id="193">193</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Clementine 🍊
+<a href="#191" id="191">191</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Clementine 🍊
 //!
 //! Clementine is Citrea's BitVM-based, trust-minimized two-way peg program.
 //! Please refer to the [whitepaper](https://citrea.xyz/clementine_whitepaper.pdf)
@@ -358,10 +356,8 @@
 </span><span class="kw">pub struct </span>EVMAddress(<span class="attr">#[serde(with = <span class="string">"hex::serde"</span>)] </span><span class="kw">pub </span>[u8; <span class="number">20</span>]);
 
 <span class="macro">impl_try_from_vec_u8!</span>(EVMAddress, <span class="number">20</span>);
-<span class="doccomment">/// Type alias for withdrawal payment, HashType is taproot script hash
-</span><span class="comment">// pub type WithdrawalPayment = (Txid, HashType);
 
-</span><span class="attr">#[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
+<span class="attr">#[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
 </span><span class="kw">pub struct </span>UTXO {
     <span class="kw">pub </span>outpoint: OutPoint,
     <span class="kw">pub </span>txout: bitcoin::TxOut,

@@ -780,8 +780,7 @@
 <a href="#779" id="779">779</a>
 <a href="#780" id="780">780</a>
 <a href="#781" id="781">781</a>
-<a href="#782" id="782">782</a>
-<a href="#783" id="783">783</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Bitcoin Extended RPC Interface
+<a href="#782" id="782">782</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Bitcoin Extended RPC Interface
 //!
 //! Extended RPC interface communicates with the Bitcoin node. It features some
 //! common wrappers around typical RPC operations as well as direct
@@ -1137,9 +1136,9 @@
             .get_transaction(<span class="kw-2">&amp;</span>txid, <span class="prelude-val">None</span>)
             .<span class="kw">await
             </span>.wrap_err(<span class="string">"Failed to get transaction"</span>)<span class="question-mark">?</span>;
-        <span class="kw">let </span>vout = tx_result.details[<span class="number">0</span>].vout; <span class="comment">// TODO: this might be incorrect
+        <span class="kw">let </span>vout = tx_result.details[<span class="number">0</span>].vout;
 
-        </span><span class="prelude-val">Ok</span>(OutPoint { txid, vout })
+        <span class="prelude-val">Ok</span>(OutPoint { txid, vout })
     }
 
     <span class="doccomment">/// Retrieves the transaction output for a given outpoint.
@@ -1279,7 +1278,7 @@
                             <span class="kw">return </span><span class="prelude-val">Err</span>(BitcoinRPCError::BumpFeeUTXOSpent(outpoint));
                         }
 
-                        <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(<span class="macro">format!</span>(<span class="string">"{:?}"</span>, rpc_error))
+                        <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(<span class="string">"{:?}"</span>, rpc_error)
                             .wrap_err(BitcoinRPCError::BumpFeeError(txid, fee_rate))
                             .into());
                     }
@@ -1443,8 +1442,7 @@
             })
             .is_err());
 
-        <span class="comment">// TODO: Calculate this dynamically.
-        </span><span class="kw">let </span>current_fee_rate = FeeRate::from_sat_per_vb_unchecked(<span class="number">1</span>);
+        <span class="kw">let </span>current_fee_rate = FeeRate::from_sat_per_vb_unchecked(<span class="number">1</span>);
 
         <span class="comment">// Trying to bump a transaction with a fee rate that is already enough
         // should return the original txid.

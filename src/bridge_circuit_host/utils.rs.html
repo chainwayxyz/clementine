@@ -269,8 +269,7 @@
 <a href="#268" id="268">268</a>
 <a href="#269" id="269">269</a>
 <a href="#270" id="270">270</a>
-<a href="#271" id="271">271</a>
-<a href="#272" id="272">272</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_bn254::{Bn254, Fq, Fq2, G1Affine, G2Affine};
+<a href="#271" id="271">271</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_bn254::{Bn254, Fq, Fq2, G1Affine, G2Affine};
 <span class="kw">use </span>ark_groth16::VerifyingKey;
 <span class="kw">use </span>risc0_circuit_recursion::control_id::BN254_IDENTITY_CONTROL_ID;
 <span class="kw">use </span>risc0_zkvm::{sha::Digestible, SuccinctReceiptVerifierParameters, SystemState};
@@ -514,7 +513,6 @@
 }
 
 <span class="doccomment">/// Sha256(control_root, pre_state_digest, post_state_digest, id_bn254_fr)
-/// TODO: This function may be the same with something that is already here
 </span><span class="kw">pub fn </span>calculate_succinct_output_prefix(method_id: <span class="kw-2">&amp;</span>[u8]) -&gt; [u8; <span class="number">32</span>] {
     <span class="kw">let </span>succinct_verifier_params = SuccinctReceiptVerifierParameters::default();
     <span class="kw">let </span>succinct_control_root = succinct_verifier_params.control_root;

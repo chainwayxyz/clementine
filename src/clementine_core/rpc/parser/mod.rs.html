@@ -590,7 +590,10 @@
 <a href="#589" id="589">589</a>
 <a href="#590" id="590">590</a>
 <a href="#591" id="591">591</a>
-<a href="#592" id="592">592</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::{
+<a href="#592" id="592">592</a>
+<a href="#593" id="593">593</a>
+<a href="#594" id="594">594</a>
+<a href="#595" id="595">595</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::{
     <span class="self">self</span>, DepositParams, FeeType, Outpoint, RawSignedTx, RbfSigningInfoRpc, SchnorrSig,
     TransactionRequest, WinternitzPubkey,
 };
@@ -729,7 +732,12 @@
     <span class="kw">type </span>Error = BridgeError;
 
     <span class="kw">fn </span>try_from(value: Outpoint) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="self">Self</span>, <span class="self">Self</span>::Error&gt; {
-        <span class="kw">let </span>hash = <span class="kw">match </span>Hash::from_slice(<span class="kw-2">&amp;</span>value.txid) {
+        <span class="kw">let </span>hash = <span class="kw">match </span>Hash::from_slice(
+            <span class="kw-2">&amp;</span>value
+                .txid
+                .ok_or(<span class="macro">eyre::eyre!</span>(<span class="string">"Can't convert empty txid"</span>))<span class="question-mark">?
+                </span>.txid,
+        ) {
             <span class="prelude-val">Ok</span>(h) =&gt; h,
             <span class="prelude-val">Err</span>(e) =&gt; <span class="kw">return </span><span class="prelude-val">Err</span>(BridgeError::FromSliceError(e)),
         };
@@ -743,7 +751,7 @@
 <span class="kw">impl </span>From&lt;OutPoint&gt; <span class="kw">for </span>Outpoint {
     <span class="kw">fn </span>from(value: OutPoint) -&gt; <span class="self">Self </span>{
         Outpoint {
-            txid: value.txid.to_byte_array().to_vec(),
+            txid: <span class="prelude-val">Some</span>(value.txid.into()),
             vout: value.vout,
         }
     }
@@ -1054,10 +1062,8 @@
 
 <span class="kw">impl </span>From&lt;Txid&gt; <span class="kw">for </span>clementine::Txid {
     <span class="kw">fn </span>from(value: Txid) -&gt; <span class="self">Self </span>{
-        {
-            <span class="kw">let </span>txid = value.to_byte_array().to_vec();
-
-            clementine::Txid { txid }
+        clementine::Txid {
+            txid: value.to_byte_array().to_vec(),
         }
     }
 }
@@ -1065,11 +1071,7 @@
     <span class="kw">type </span>Error = FromSliceError;
 
     <span class="kw">fn </span>try_from(value: clementine::Txid) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="self">Self</span>, <span class="self">Self</span>::Error&gt; {
-        {
-            <span class="kw">let </span>txid = value.txid;
-
-            <span class="prelude-val">Ok</span>(Txid::from_raw_hash(sha256d::Hash::from_slice(<span class="kw-2">&amp;</span>txid)<span class="question-mark">?</span>))
-        }
+        <span class="prelude-val">Ok</span>(Txid::from_raw_hash(sha256d::Hash::from_slice(<span class="kw-2">&amp;</span>value.txid)<span class="question-mark">?</span>))
     }
 }
 
@@ -1137,7 +1139,9 @@
         <span class="macro">assert_eq!</span>(og_outpoint, bitcoin_outpoint);
 
         <span class="kw">let </span>proto_outpoint = Outpoint {
-            txid: <span class="macro">vec!</span>[<span class="number">0x1F</span>; <span class="number">32</span>],
+            txid: <span class="prelude-val">Some</span>(clementine::Txid {
+                txid: <span class="macro">vec!</span>[<span class="number">0x1F</span>; <span class="number">32</span>],
+            }),
             vout: <span class="number">0x45</span>,
         };
         <span class="kw">let </span>bitcoin_outpoint: OutPoint = proto_outpoint.try_into().unwrap();
@@ -1147,7 +1151,9 @@
     <span class="attr">#[test]
     </span><span class="kw">fn </span>from_proto_outpoint_to_bitcoin_outpoint() {
         <span class="kw">let </span>og_outpoint = Outpoint {
-            txid: <span class="macro">vec!</span>[<span class="number">0x1F</span>; <span class="number">32</span>],
+            txid: <span class="prelude-val">Some</span>(clementine::Txid {
+                txid: <span class="macro">vec!</span>[<span class="number">0x1F</span>; <span class="number">32</span>],
+            }),
             vout: <span class="number">0x45</span>,
         };
 

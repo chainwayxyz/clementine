@@ -907,10 +907,7 @@
 <a href="#906" id="906">906</a>
 <a href="#907" id="907">907</a>
 <a href="#908" id="908">908</a>
-<a href="#909" id="909">909</a>
-<a href="#910" id="910">910</a>
-<a href="#911" id="911">911</a>
-<a href="#912" id="912">912</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Bitcoin Syncer
+<a href="#909" id="909">909</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Bitcoin Syncer
 //!
 //! This module provides common utilities to fetch Bitcoin state. Other modules
 //! can use this module to operate over Bitcoin.
@@ -1107,8 +1104,7 @@
         <span class="kw">return </span><span class="prelude-val">Ok</span>(());
     }
 
-    <span class="comment">// TODO: save blocks starting from start_height in config paramset
-    </span><span class="kw">let </span>current_height = u32::try_from(
+    <span class="kw">let </span>current_height = u32::try_from(
         rpc.client
             .get_block_count()
             .<span class="kw">await
@@ -1422,9 +1418,7 @@
                     </span>.db
                     .get_block_info_from_id(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx), block_id)
                     .<span class="kw">await</span><span class="question-mark">?
-                    </span>.ok_or(BridgeError::Error(
-                        <span class="string">"Block not found in BlockFetcherTask"</span>.to_string(),
-                    ))<span class="question-mark">?
+                    </span>.ok_or(<span class="macro">eyre::eyre!</span>(<span class="string">"Block not found in BlockFetcherTask"</span>,))<span class="question-mark">?
                     </span>.<span class="number">1</span>;
                 <span class="kw">let </span><span class="kw-2">mut </span>new_tip = <span class="bool-val">false</span>;
 
@@ -1438,10 +1432,10 @@
                         </span>.db
                         .get_full_block(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx), <span class="self">self</span>.next_height)
                         .<span class="kw">await</span><span class="question-mark">?
-                        </span>.ok_or(BridgeError::Error(<span class="macro">format!</span>(
+                        </span>.ok_or(<span class="macro">eyre::eyre!</span>(
                             <span class="string">"Block at height {} not found in BlockFetcherTask, current tip height is {}"</span>,
                             <span class="self">self</span>.next_height, current_tip_height
-                        )))<span class="question-mark">?</span>;
+                        ))<span class="question-mark">?</span>;
 
                     <span class="kw">let </span>new_block_id = <span class="self">self
                         </span>.db
@@ -1450,10 +1444,10 @@
 
                     <span class="kw">let </span><span class="prelude-val">Some</span>(new_block_id) = new_block_id <span class="kw">else </span>{
                         <span class="macro">tracing::error!</span>(<span class="string">"Block at height {} not found in BlockFetcherTask, current tip height is {}"</span>, <span class="self">self</span>.next_height, current_tip_height);
-                        <span class="kw">return </span><span class="prelude-val">Err</span>(BridgeError::Error(<span class="macro">format!</span>(
+                        <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(
                             <span class="string">"Block at height {} not found in BlockFetcherTask, current tip height is {}"</span>,
                             <span class="self">self</span>.next_height, current_tip_height
-                        )));
+                        ).into());
                     };
 
                     <span class="self">self</span>.handler

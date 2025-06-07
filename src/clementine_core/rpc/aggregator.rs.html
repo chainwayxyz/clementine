@@ -1905,7 +1905,8 @@
 <a href="#1904" id="1904">1904</a>
 <a href="#1905" id="1905">1905</a>
 <a href="#1906" id="1906">1906</a>
-<a href="#1907" id="1907">1907</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::{
+<a href="#1907" id="1907">1907</a>
+<a href="#1908" id="1908">1908</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::{
     clementine_aggregator_server::ClementineAggregator, verifier_deposit_finalize_params,
     DepositParams, Empty, VerifierDepositFinalizeParams,
 };
@@ -2506,8 +2507,7 @@
             movetx_agg_nonce,
             <span class="kw-2">&amp;</span>musig_partial_sigs,
             Message::from_digest(sighash.to_byte_array()),
-        )
-        .map_err(|x| BridgeError::Error(<span class="macro">format!</span>(<span class="string">"Aggregating MoveTx signatures failed {}"</span>, x)))<span class="question-mark">?</span>;
+        )<span class="question-mark">?</span>;
 
         <span class="comment">// Put the signature in the tx
         </span>move_txhandler.set_p2tr_script_spend_witness(<span class="kw-2">&amp;</span>[final_sig.as_ref()], <span class="number">0</span>, <span class="number">0</span>)<span class="question-mark">?</span>;
@@ -2738,10 +2738,12 @@
                 </span>.db
                 .get_deposit_data_with_move_tx(<span class="prelude-val">None</span>, move_txid)
                 .<span class="kw">await</span><span class="question-mark">?</span>;
-            <span class="kw">let </span><span class="kw-2">mut </span>deposit_data = deposit_data.ok_or(BridgeError::Error(<span class="macro">format!</span>(
-                <span class="string">"Deposit data not found for move txid {}"</span>,
-                move_txid
-            )))<span class="question-mark">?</span>;
+            <span class="kw">let </span><span class="kw-2">mut </span>deposit_data = deposit_data
+                .ok_or(<span class="macro">eyre::eyre!</span>(
+                    <span class="string">"Deposit data not found for move txid {}"</span>,
+                    move_txid
+                ))
+                .map_err(BridgeError::from)<span class="question-mark">?</span>;
 
             <span class="comment">// get which verifiers participated in the deposit to collect the optimistic payout tx signature
             </span><span class="kw">let </span>verifiers = <span class="self">self</span>.get_participating_verifiers(<span class="kw-2">&amp;</span>deposit_data).<span class="kw">await</span><span class="question-mark">?</span>;
@@ -2934,7 +2936,7 @@
                         </span>.into_inner();
                     tx.send(stream.try_collect::&lt;Vec&lt;<span class="kw">_</span>&gt;&gt;().<span class="kw">await</span><span class="question-mark">?</span>)
                         .map_err(|e| {
-                            BridgeError::Error(<span class="macro">format!</span>(<span class="string">"failed to read operator params: {e}"</span>))
+                            BridgeError::from(<span class="macro">eyre::eyre!</span>(<span class="string">"failed to read operator params: {e}"</span>))
                         })<span class="question-mark">?</span>;
                     <span class="prelude-val">Ok</span>::&lt;<span class="kw">_</span>, Status&gt;(())
                 }

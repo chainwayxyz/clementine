@@ -607,10 +607,7 @@
 <a href="#606" id="606">606</a>
 <a href="#607" id="607">607</a>
 <a href="#608" id="608">608</a>
-<a href="#609" id="609">609</a>
-<a href="#610" id="610">610</a>
-<a href="#611" id="611">611</a>
-<a href="#612" id="612">612</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Transaction Handler Module
+<a href="#609" id="609">609</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Transaction Handler Module
 //!
 //! This module defines the [`TxHandler`] abstraction, which wraps a protocol transaction and its metadata.
 //! Metadata includes taproot scripts and protocol specific data to enable signing of the transactions.
@@ -690,8 +687,8 @@
             txout.txout().clone(),
             txout.scripts().clone(),
             txout.spendinfo().clone(),
-        )) <span class="comment">// TODO: Can we get rid of clones?
-    </span>}
+        ))
+    }
 
     <span class="doccomment">/// Returns the Taproot merkle root of the specified input, if available.
     ///
@@ -818,8 +815,8 @@
             </span>.txins
             .iter()
             .map(|s| s.get_spendable().get_prevout())
-            .collect(); <span class="comment">// TODO: Maybe there is a better way to do this
-        </span><span class="kw">let </span><span class="kw-2">mut </span>sighash_cache: SighashCache&lt;<span class="kw-2">&amp;</span>bitcoin::Transaction&gt; =
+            .collect();
+        <span class="kw">let </span><span class="kw-2">mut </span>sighash_cache: SighashCache&lt;<span class="kw-2">&amp;</span>bitcoin::Transaction&gt; =
             SighashCache::new(<span class="kw-2">&amp;</span><span class="self">self</span>.cached_tx);
         <span class="kw">let </span>prevouts = <span class="kw">match </span>sighash_type {
             TapSighashType::SinglePlusAnyoneCanPay
@@ -862,8 +859,7 @@
             .ok_or(TxError::ScriptNotFound(spend_script_idx))<span class="question-mark">?
             </span>.to_script_buf();
 
-        <span class="comment">// TODO: remove copy here
-        </span><span class="self">self</span>.calculate_script_spend_sighash(txin_index, <span class="kw-2">&amp;</span>script, sighash_type)
+        <span class="self">self</span>.calculate_script_spend_sighash(txin_index, <span class="kw-2">&amp;</span>script, sighash_type)
     }
 
     <span class="doccomment">/// Calculates the Taproot sighash for a script spend input by script.
@@ -885,8 +881,8 @@
             </span>.txins
             .iter()
             .map(|s| s.get_spendable().get_prevout())
-            .collect(); <span class="comment">// TODO: Maybe there is a better way to do this
-        </span><span class="kw">let </span><span class="kw-2">mut </span>sighash_cache: SighashCache&lt;<span class="kw-2">&amp;</span>bitcoin::Transaction&gt; =
+            .collect();
+        <span class="kw">let </span><span class="kw-2">mut </span>sighash_cache: SighashCache&lt;<span class="kw-2">&amp;</span>bitcoin::Transaction&gt; =
             SighashCache::new(<span class="kw-2">&amp;</span><span class="self">self</span>.cached_tx);
 
         <span class="kw">let </span>prevouts = <span class="kw-2">&amp;</span><span class="kw">match </span>sighash_type {
@@ -1092,8 +1088,7 @@
 <span class="attr">#[derive(Debug, Clone)]
 </span><span class="doccomment">/// Builder for [`TxHandler`], allowing stepwise construction of inputs and outputs.
 </span><span class="kw">pub struct </span>TxHandlerBuilder {
-    <span class="doccomment">/// TODO: Document
-    </span>transaction_type: TransactionType,
+    transaction_type: TransactionType,
     version: Version,
     lock_time: absolute::LockTime,
     txins: Vec&lt;SpentTxIn&gt;,
@@ -1162,16 +1157,15 @@
         <span class="self">self
     </span>}
 
-    <span class="doccomment">/// TODO: output likely fallible
-    /// Finalizes the transaction, returning an unsigned [`TxHandler`].
+    <span class="doccomment">/// Finalizes the transaction, returning an unsigned [`TxHandler`].
     </span><span class="kw">pub fn </span>finalize(<span class="self">self</span>) -&gt; TxHandler&lt;Unsigned&gt; {
         <span class="comment">// construct cached Transaction
         </span><span class="kw">let </span>tx = Transaction {
             version: <span class="self">self</span>.version,
             lock_time: <span class="self">self</span>.lock_time,
             input: <span class="self">self</span>.txins.iter().map(|s| s.to_txin()).collect(),
-            output: <span class="self">self</span>.txouts.iter().map(|s| s.txout().clone()).collect(), <span class="comment">// TODO: Get rid of .clone()
-        </span>};
+            output: <span class="self">self</span>.txouts.iter().map(|s| s.txout().clone()).collect(),
+        };
         <span class="kw">let </span>txid = tx.compute_txid();
 
         <span class="comment">// #[cfg(debug_assertions)]

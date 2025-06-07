@@ -656,7 +656,7 @@
                             <span class="kw">yield </span>(TapSighash::all_zeros(), partial.complete_with_kickoff_txid(<span class="kw-2">*</span>kickoff_txid));
                         }
                         (<span class="bool-val">true</span>, <span class="prelude-val">None</span>) =&gt; {
-                            <span class="prelude-val">Err</span>(BridgeError::Error(<span class="string">"Kickoff txid not found in sighash stream"</span>.to_string()))<span class="question-mark">?</span>;
+                            <span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(<span class="string">"Kickoff txid not found in sighash stream"</span>))<span class="question-mark">?</span>;
                         }
                         <span class="kw">_ </span>=&gt; {}
                     }

@@ -1207,7 +1207,26 @@
 <a href="#1206" id="1206">1206</a>
 <a href="#1207" id="1207">1207</a>
 <a href="#1208" id="1208">1208</a>
-<a href="#1209" id="1209">1209</a></pre></div><pre class="rust"><code><span class="doccomment">//! This module defines a command line interface for the RPC client.
+<a href="#1209" id="1209">1209</a>
+<a href="#1210" id="1210">1210</a>
+<a href="#1211" id="1211">1211</a>
+<a href="#1212" id="1212">1212</a>
+<a href="#1213" id="1213">1213</a>
+<a href="#1214" id="1214">1214</a>
+<a href="#1215" id="1215">1215</a>
+<a href="#1216" id="1216">1216</a>
+<a href="#1217" id="1217">1217</a>
+<a href="#1218" id="1218">1218</a>
+<a href="#1219" id="1219">1219</a>
+<a href="#1220" id="1220">1220</a>
+<a href="#1221" id="1221">1221</a>
+<a href="#1222" id="1222">1222</a>
+<a href="#1223" id="1223">1223</a>
+<a href="#1224" id="1224">1224</a>
+<a href="#1225" id="1225">1225</a>
+<a href="#1226" id="1226">1226</a>
+<a href="#1227" id="1227">1227</a>
+<a href="#1228" id="1228">1228</a></pre></div><pre class="rust"><code><span class="doccomment">//! This module defines a command line interface for the RPC client.
 
 </span><span class="kw">use </span>std::path::PathBuf;
 <span class="kw">use </span>std::str::FromStr;
@@ -1622,7 +1641,9 @@
     <span class="kw">let </span>deposit = aggregator
         .new_deposit(Deposit {
             deposit_outpoint: <span class="prelude-val">Some</span>(Outpoint {
-                txid: deposit_outpoint_txid,
+                txid: <span class="prelude-val">Some</span>(clementine_core::rpc::clementine::Txid {
+                    txid: deposit_outpoint_txid,
+                }),
                 vout: deposit_outpoint_vout,
             }),
             deposit_data: <span class="prelude-val">Some</span>(DepositData::BaseDeposit(BaseDeposit {
@@ -1659,7 +1680,10 @@
                 }),
                 deposit: <span class="prelude-val">Some</span>(Deposit {
                     deposit_outpoint: <span class="prelude-val">Some</span>(Outpoint {
-                        txid: deposit_outpoint_txid.into(),
+                        txid: <span class="prelude-val">Some</span>(clementine::Txid {
+                            txid: hex::decode(deposit_outpoint_txid)
+                                .expect(<span class="string">"Failed to decode txid"</span>),
+                        }),
                         vout: deposit_outpoint_vout,
                     }),
                     deposit_data: <span class="prelude-val">Some</span>(DepositData::BaseDeposit(BaseDeposit {
@@ -1706,7 +1730,9 @@
                 withdrawal_id,
                 input_signature: input_signature.as_bytes().to_vec(),
                 input_outpoint: <span class="prelude-val">Some</span>(Outpoint {
-                    txid: input_outpoint_txid.as_bytes().to_vec(),
+                    txid: <span class="prelude-val">Some</span>(clementine_core::rpc::clementine::Txid {
+                        txid: hex::decode(input_outpoint_txid).expect(<span class="string">"Failed to decode txid"</span>),
+                    }),
                     vout: input_outpoint_vout,
                 }),
                 output_script_pubkey: output_script_pubkey.as_bytes().to_vec(),
@@ -1817,7 +1843,9 @@
             <span class="kw">let </span>deposit = aggregator
                 .new_deposit(Deposit {
                     deposit_outpoint: <span class="prelude-val">Some</span>(Outpoint {
-                        txid: deposit_outpoint_txid.clone(),
+                        txid: <span class="prelude-val">Some</span>(clementine_core::rpc::clementine::Txid {
+                            txid: deposit_outpoint_txid.clone(),
+                        }),
                         vout: deposit_outpoint_vout,
                     }),
                     deposit_data: <span class="prelude-val">Some</span>(DepositData::BaseDeposit(BaseDeposit {
@@ -1833,7 +1861,9 @@
                 .send_move_to_vault_tx(SendMoveTxRequest {
                     raw_tx: <span class="prelude-val">Some</span>(deposit.into_inner()),
                     deposit_outpoint: <span class="prelude-val">Some</span>(Outpoint {
-                        txid: deposit_outpoint_txid,
+                        txid: <span class="prelude-val">Some</span>(clementine_core::rpc::clementine::Txid {
+                            txid: deposit_outpoint_txid,
+                        }),
                         vout: deposit_outpoint_vout,
                     }),
                 })
@@ -2191,7 +2221,7 @@
             //         let mut raw = Vec::new();
             //         param
             //             .consensus_encode(&amp;mut raw)
-            //             .map_err(|e| BridgeError::Error(format!("Can't encode param: {}", e)))?;
+            //             .map_err(|e| eyre::eyre!("Can't encode param: {}", e))?;
 
             //         Ok::&lt;Vec&lt;u8&gt;, BridgeError&gt;(raw)
             //     })
@@ -2208,7 +2238,7 @@
             //         .map(|param| {
             //             let mut raw = Vec::new();
             //             param.witness.consensus_encode(&amp;mut raw).map_err(|e| {
-            //                 BridgeError::Error(format!("Can't encode param: {}", e))
+            //                 eyre::eyre!("Can't encode param: {}", e)
             //             })?;
 
             //             Ok::&lt;Vec&lt;u8&gt;, BridgeError&gt;(raw)
@@ -2282,7 +2312,9 @@
             <span class="kw">let </span>deposit = aggregator
                 .new_deposit(Deposit {
                     deposit_outpoint: <span class="prelude-val">Some</span>(Outpoint {
-                        txid: deposit_outpoint_txid.clone(),
+                        txid: <span class="prelude-val">Some</span>(clementine_core::rpc::clementine::Txid {
+                            txid: deposit_outpoint_txid.clone(),
+                        }),
                         vout: deposit_outpoint_vout,
                     }),
                     deposit_data: <span class="prelude-val">Some</span>(DepositData::ReplacementDeposit(ReplacementDeposit {
@@ -2297,7 +2329,9 @@
                 .send_move_to_vault_tx(SendMoveTxRequest {
                     raw_tx: <span class="prelude-val">Some</span>(deposit.into_inner()),
                     deposit_outpoint: <span class="prelude-val">Some</span>(Outpoint {
-                        txid: deposit_outpoint_txid,
+                        txid: <span class="prelude-val">Some</span>(clementine_core::rpc::clementine::Txid {
+                            txid: deposit_outpoint_txid,
+                        }),
                         vout: deposit_outpoint_vout,
                     }),
                 })
@@ -2335,7 +2369,9 @@
                 withdrawal_id,
                 input_signature: input_signature_bytes,
                 input_outpoint: <span class="prelude-val">Some</span>(Outpoint {
-                    txid: input_outpoint_txid_bytes,
+                    txid: <span class="prelude-val">Some</span>(clementine_core::rpc::clementine::Txid {
+                        txid: input_outpoint_txid_bytes,
+                    }),
                     vout: input_outpoint_vout,
                 }),
                 output_script_pubkey: output_script_pubkey_bytes,
@@ -2358,6 +2394,8 @@
                             success
                                 .txid
                                 .clone()
+                                .expect(<span class="string">"Failed to get txid"</span>)
+                                .txid
                                 .try_into()
                                 .expect(<span class="string">"Failed to convert txid to array"</span>),
                         );

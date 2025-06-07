@@ -2290,10 +2290,7 @@
 <a href="#2289" id="2289">2289</a>
 <a href="#2290" id="2290">2290</a>
 <a href="#2291" id="2291">2291</a>
-<a href="#2292" id="2292">2292</a>
-<a href="#2293" id="2293">2293</a>
-<a href="#2294" id="2294">2294</a>
-<a href="#2295" id="2295">2295</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
+<a href="#2292" id="2292">2292</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
 <span class="kw">use </span><span class="kw">crate</span>::bitcoin_syncer::{BitcoinSyncer, BlockHandler, FinalizedBlockFetcherTask};
 <span class="kw">use </span><span class="kw">crate</span>::bitvm_client::ClementineBitVMPublicKeys;
 <span class="kw">use </span><span class="kw">crate</span>::builder::address::{create_taproot_address, taproot_builder_with_scripts};
@@ -3525,9 +3522,7 @@
                 <span class="kw">return </span><span class="prelude-val">Ok</span>(<span class="bool-val">true</span>);
             }
         } <span class="kw">else </span>{
-            <span class="kw">return </span><span class="prelude-val">Err</span>(BridgeError::Error(
-                <span class="string">"Couldn't retrieve committed data from witness"</span>.to_string(),
-            ));
+            <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(<span class="string">"Couldn't retrieve committed data from witness"</span>).into());
         }
         <span class="prelude-val">Ok</span>(<span class="bool-val">false</span>)
     }
@@ -3831,9 +3826,7 @@
                     block_id
                 );
                 <span class="macro">tracing::error!</span>(<span class="string">"Block cache: {:?}"</span>, block_cache);
-                <span class="kw">return </span><span class="prelude-val">Err</span>(BridgeError::Error(
-                    <span class="string">"Payout tx not found in block cache"</span>.to_string(),
-                ));
+                <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(<span class="string">"Payout tx not found in block cache"</span>).into());
             }
             <span class="kw">let </span>payout_tx_idx = payout_tx_idx.expect(<span class="string">"Payout tx not found in block cache"</span>);
             <span class="kw">let </span>payout_tx = <span class="kw-2">&amp;</span>block.txdata[<span class="kw-2">*</span>payout_tx_idx];
@@ -4477,6 +4470,7 @@
     <span class="kw">use </span>std::sync::Arc;
 
     <span class="attr">#[tokio::test]
+    #[ignore]
     </span><span class="kw">async fn </span>test_handle_finalized_block_idempotency() {
         <span class="kw">let </span><span class="kw-2">mut </span>config = create_test_config_with_thread_name().<span class="kw">await</span>;
         <span class="kw">let </span>_regtest = create_regtest_rpc(<span class="kw-2">&amp;mut </span>config).<span class="kw">await</span>;

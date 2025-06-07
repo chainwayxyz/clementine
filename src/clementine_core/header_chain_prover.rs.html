@@ -1341,11 +1341,11 @@
         <span class="kw">if </span>tip_height
             &lt; config.protocol_paramset().start_height + config.protocol_paramset().finality_depth
         {
-            <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(<span class="macro">format!</span>(
+            <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(
                 <span class="string">"Start height is not finalized, reduce start height: {} &lt; {}"</span>,
                 tip_height,
                 config.protocol_paramset().start_height + config.protocol_paramset().finality_depth
-            ))
+            )
             .into());
         }
         db.fetch_and_save_missing_blocks(

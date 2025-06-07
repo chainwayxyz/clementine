@@ -21,9 +21,9 @@
 </span><span class="kw">pub const </span>NON_EPHEMERAL_ANCHOR_AMOUNT: Amount = Amount::from_sat(<span class="number">240</span>);
 
 <span class="doccomment">/// The minimum possible amount that a UTXO can have when created into a Taproot address.
-</span><span class="kw">pub const </span>MIN_TAPROOT_AMOUNT: Amount = Amount::from_sat(<span class="number">330</span>); <span class="comment">// TODO: Maybe this could be 294, check
+</span><span class="kw">pub const </span>MIN_TAPROOT_AMOUNT: Amount = Amount::from_sat(<span class="number">330</span>);
 
-</span><span class="kw">pub const </span>TEN_MINUTES_IN_SECS: u32 = <span class="number">600</span>;
+<span class="kw">pub const </span>TEN_MINUTES_IN_SECS: u32 = <span class="number">600</span>;
 
 <span class="macro">lazy_static::lazy_static!</span> {
   <span class="kw">pub static </span><span class="kw-2">ref </span>BURN_SCRIPT: ScriptBuf = (<span class="string">"1111111111111111111114oLvT2"</span>)

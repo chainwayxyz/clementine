@@ -1207,8 +1207,8 @@
         <span class="kw">let </span>inner_txouts: Vec&lt;TxOut&gt; = watchtower_input
             .watchtower_challenge_utxos
             .iter()
-            .map(|utxo| utxo.<span class="number">0</span>.clone()) <span class="comment">// TODO: Get rid of this clone if possible
-            </span>.collect::&lt;Vec&lt;TxOut&gt;&gt;();
+            .map(|utxo| utxo.<span class="number">0</span>.clone())
+            .collect::&lt;Vec&lt;TxOut&gt;&gt;();
 
         <span class="kw">let </span>prevouts = Prevouts::All(<span class="kw-2">&amp;</span>inner_txouts);
 

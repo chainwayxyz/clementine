@@ -1686,7 +1686,10 @@
 <a href="#1685" id="1685">1685</a>
 <a href="#1686" id="1686">1686</a>
 <a href="#1687" id="1687">1687</a>
-<a href="#1688" id="1688">1688</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_ff::PrimeField;
+<a href="#1688" id="1688">1688</a>
+<a href="#1689" id="1689">1689</a>
+<a href="#1690" id="1690">1690</a>
+<a href="#1691" id="1691">1691</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_ff::PrimeField;
 <span class="kw">use </span>circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
 <span class="kw">use </span>risc0_zkvm::is_dev_mode;
 <span class="kw">use </span>std::collections::HashMap;
@@ -1749,9 +1752,9 @@
 </span><span class="kw">use </span>bitcoin::Witness;
 
 <span class="kw">pub type </span>SecretPreimage = [u8; <span class="number">20</span>];
-<span class="kw">pub type </span>PublicHash = [u8; <span class="number">20</span>]; <span class="comment">// TODO: Make sure these are 20 bytes and maybe do this a struct?
+<span class="kw">pub type </span>PublicHash = [u8; <span class="number">20</span>];
 
-</span><span class="kw">pub struct </span>OperatorServer&lt;C: CitreaClientT&gt; {
+<span class="kw">pub struct </span>OperatorServer&lt;C: CitreaClientT&gt; {
     <span class="kw">pub </span>operator: Operator&lt;C&gt;,
     background_tasks: BackgroundTaskManager&lt;Operator&lt;C&gt;&gt;,
 }
@@ -2350,11 +2353,12 @@
         }
 
         <span class="kw">if </span>winternitz_pubkeys.len() != <span class="self">self</span>.config.get_num_kickoff_winternitz_pks() {
-            <span class="kw">return </span><span class="prelude-val">Err</span>(BridgeError::Error(<span class="macro">format!</span>(
+            <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(
                 <span class="string">"Expected {} number of kickoff winternitz pubkeys, but got {}"</span>,
                 <span class="self">self</span>.config.get_num_kickoff_winternitz_pks(),
                 winternitz_pubkeys.len()
-            )));
+            )
+            .into());
         }
 
         <span class="prelude-val">Ok</span>(winternitz_pubkeys)
@@ -2410,11 +2414,12 @@
             }
         }
         <span class="kw">if </span>sigs.len() != <span class="self">self</span>.config.get_num_unspent_kickoff_sigs() {
-            <span class="kw">return </span><span class="prelude-val">Err</span>(BridgeError::Error(<span class="macro">format!</span>(
+            <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(
                 <span class="string">"Expected {} number of unspent kickoff sigs, but got {}"</span>,
                 <span class="self">self</span>.config.get_num_unspent_kickoff_sigs(),
                 sigs.len()
-            )));
+            )
+            .into());
         }
         <span class="prelude-val">Ok</span>(sigs)
     }
@@ -2436,11 +2441,12 @@
         }
 
         <span class="kw">if </span>hashes.len() != <span class="self">self</span>.config.get_num_challenge_ack_hashes(deposit_data) {
-            <span class="kw">return </span><span class="prelude-val">Err</span>(BridgeError::Error(<span class="macro">format!</span>(
+            <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(
                 <span class="string">"Expected {} number of challenge ack hashes, but got {}"</span>,
                 <span class="self">self</span>.config.get_num_challenge_ack_hashes(deposit_data),
                 hashes.len()
-            )));
+            )
+            .into());
         }
 
         <span class="prelude-val">Ok</span>(hashes)
@@ -2545,7 +2551,7 @@
                     <span class="prelude-val">None
                 </span>}
             })
-            .ok_or(BridgeError::Error(
+            .ok_or(<span class="macro">eyre::eyre!</span>(
                 <span class="string">"Couldn't find kickoff tx in signed_txs"</span>.to_string(),
             ))<span class="question-mark">?</span>;
 

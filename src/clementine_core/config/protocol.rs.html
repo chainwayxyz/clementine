@@ -283,9 +283,7 @@
 <a href="#282" id="282">282</a>
 <a href="#283" id="283">283</a>
 <a href="#284" id="284">284</a>
-<a href="#285" id="285">285</a>
-<a href="#286" id="286">286</a>
-<a href="#287" id="287">287</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::config::env::read_string_from_env_then_parse;
+<a href="#285" id="285">285</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::config::env::read_string_from_env_then_parse;
 <span class="kw">use </span><span class="kw">crate</span>::constants::{MIN_TAPROOT_AMOUNT, NON_EPHEMERAL_ANCHOR_AMOUNT};
 <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
 <span class="kw">use </span>bitcoin::{Amount, Network};
@@ -420,11 +418,9 @@
 
 <span class="kw">impl </span>ProtocolParamset {
     <span class="kw">pub fn </span>from_toml_file(path: <span class="kw-2">&amp;</span>Path) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="self">Self</span>, BridgeError&gt; {
-        <span class="kw">let </span>contents = fs::read_to_string(path)
-            .map_err(|e| BridgeError::Error(<span class="macro">format!</span>(<span class="string">"Failed to read config file: {}"</span>, e)))<span class="question-mark">?</span>;
+        <span class="kw">let </span>contents = fs::read_to_string(path).wrap_err(<span class="string">"Failed to read config file"</span>)<span class="question-mark">?</span>;
 
-        <span class="kw">let </span>paramset: <span class="self">Self </span>= toml::from_str(<span class="kw-2">&amp;</span>contents)
-            .map_err(|e| BridgeError::Error(<span class="macro">format!</span>(<span class="string">"Failed to parse TOML: {}"</span>, e)))<span class="question-mark">?</span>;
+        <span class="kw">let </span>paramset: <span class="self">Self </span>= toml::from_str(<span class="kw-2">&amp;</span>contents).wrap_err(<span class="string">"Failed to parse TOML"</span>)<span class="question-mark">?</span>;
 
         <span class="prelude-val">Ok</span>(paramset)
     }

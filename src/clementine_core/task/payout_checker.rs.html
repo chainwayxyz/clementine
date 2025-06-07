@@ -139,7 +139,7 @@
             .get_deposit_data_with_move_tx(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx), move_to_vault_txid)
             .<span class="kw">await</span><span class="question-mark">?</span>;
         <span class="kw">if </span>deposit_data.is_none() {
-            <span class="kw">return </span><span class="prelude-val">Err</span>(BridgeError::Error(<span class="string">"Deposit data not found"</span>.to_string()));
+            <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(<span class="string">"Deposit data not found"</span>).into());
         }
 
         <span class="kw">let </span>deposit_data = deposit_data.expect(<span class="string">"Must be Some"</span>);

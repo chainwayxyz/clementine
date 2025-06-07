@@ -1153,7 +1153,7 @@
             <span class="string">"reorged_block" </span>=&gt; BitcoinSyncerEvent::ReorgedBlock(
                 u32::try_from(event.<span class="number">1</span>).wrap_err(BridgeError::IntConversionError)<span class="question-mark">?</span>,
             ),
-            <span class="kw">_ </span>=&gt; <span class="kw">return </span><span class="prelude-val">Err</span>(BridgeError::Error(<span class="string">"Invalid event type"</span>.to_string())),
+            <span class="kw">_ </span>=&gt; <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(<span class="string">"Invalid event type"</span>).into()),
         };
         <span class="kw">let </span>event_id = event.<span class="number">0</span>;
 

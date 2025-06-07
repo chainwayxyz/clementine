@@ -606,7 +606,7 @@
         .<span class="kw">await</span><span class="question-mark">?</span>;
 
         <span class="kw">if </span>query.is_none() {
-            <span class="kw">return </span><span class="prelude-val">Err</span>(BridgeError::Error(<span class="string">"Old move txid not found"</span>.to_string()));
+            <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(<span class="string">"Old move txid not found: {}"</span>, old_move_txid).into());
         }
         <span class="prelude-val">Ok</span>(())
     }
@@ -661,7 +661,7 @@
                     vout: u32::try_from(vout)
                         .wrap_err(<span class="string">"Failed to convert withdrawal utxo vout to u32"</span>)<span class="question-mark">?</span>,
                 }),
-                <span class="kw">_ </span>=&gt; <span class="prelude-val">Err</span>(BridgeError::Error(<span class="string">"Unexpected null value"</span>.to_string())),
+                <span class="kw">_ </span>=&gt; <span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(<span class="string">"Unexpected null value"</span>).into()),
             })
             .transpose()
     }

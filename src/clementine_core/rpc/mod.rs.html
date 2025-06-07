@@ -168,8 +168,7 @@
 <a href="#167" id="167">167</a>
 <a href="#168" id="168">168</a>
 <a href="#169" id="169">169</a>
-<a href="#170" id="170">170</a>
-<a href="#171" id="171">171</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
+<a href="#170" id="170">170</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
 <span class="kw">use </span>clementine::<span class="kw-2">*</span>;
 <span class="kw">use </span>eyre::Context;
 <span class="kw">use </span>hyper_util::rt::TokioIo;
@@ -177,8 +176,7 @@
 <span class="kw">use </span>tagged_signature::SignatureId;
 <span class="kw">use </span>tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity, Uri};
 
-<span class="comment">// Add this to ensure certificates exist in tests
-</span><span class="attr">#[cfg(test)]
+<span class="attr">#[cfg(test)]
 </span><span class="kw">use </span><span class="kw">crate</span>::test::common::ensure_test_certificates;
 
 <span class="attr">#[allow(clippy::all)]

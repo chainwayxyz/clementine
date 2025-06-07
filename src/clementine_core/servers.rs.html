@@ -396,8 +396,7 @@
 <a href="#395" id="395">395</a>
 <a href="#396" id="396">396</a>
 <a href="#397" id="397">397</a>
-<a href="#398" id="398">398</a>
-<a href="#399" id="399">399</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Servers
+<a href="#398" id="398">398</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Servers
 //!
 //! Utilities for operator and verifier servers.
 </span><span class="kw">use </span><span class="kw">crate</span>::aggregator::Aggregator;
@@ -420,8 +419,7 @@
 <span class="kw">use </span>tonic::service::interceptor::InterceptedService;
 <span class="kw">use </span>tonic::transport::{Certificate, CertificateDer, Identity, ServerTlsConfig};
 
-<span class="comment">// Add this to ensure certificates exist in tests
-</span><span class="attr">#[cfg(test)]
+<span class="attr">#[cfg(test)]
 </span><span class="kw">use </span><span class="kw">crate</span>::test::common::ensure_test_certificates;
 
 <span class="kw">pub type </span>ServerFuture = <span class="kw">dyn </span>futures::Future&lt;Output = <span class="prelude-ty">Result</span>&lt;(), tonic::transport::Error&gt;&gt;;

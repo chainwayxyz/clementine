@@ -1545,7 +1545,7 @@
         collateral_funding_outpoint: OutPoint,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
         <span class="kw">let </span>query = sqlx::query(
-            <span class="string">"INSERT INTO operators (xonly_pk, wallet_reimburse_address, collateral_funding_outpoint) 
+            <span class="string">"INSERT INTO operators (xonly_pk, wallet_reimburse_address, collateral_funding_outpoint)
              VALUES ($1, $2, $3)
              ON CONFLICT (xonly_pk) DO NOTHING"</span>,
         )
@@ -1767,7 +1767,7 @@
         <span class="kw">let </span>wpk = borsh::to_vec(<span class="kw-2">&amp;</span>winternitz_public_key).wrap_err(BridgeError::BorshError)<span class="question-mark">?</span>;
 
         <span class="kw">let </span>query = sqlx::query(
-            <span class="string">"INSERT INTO operator_winternitz_public_keys (xonly_pk, winternitz_public_keys) 
+            <span class="string">"INSERT INTO operator_winternitz_public_keys (xonly_pk, winternitz_public_keys)
              VALUES ($1, $2)
              ON CONFLICT (xonly_pk) DO NOTHING"</span>,
         )
@@ -2037,17 +2037,17 @@
 
         <span class="comment">// First check if the entry already exists.
         </span><span class="kw">let </span>query = sqlx::query_as(
-            <span class="string">"SELECT kickoff_txid, signatures FROM deposit_signatures
+            <span class="string">"SELECT kickoff_txid FROM deposit_signatures
         WHERE deposit_id = $1 AND operator_xonly_pk = $2 AND round_idx = $3 AND kickoff_idx = $4;"</span>,
         )
         .bind(i32::try_from(deposit_id).wrap_err(<span class="string">"Failed to convert deposit id to i32"</span>)<span class="question-mark">?</span>)
         .bind(XOnlyPublicKeyDB(operator_xonly_pk))
         .bind(round_idx <span class="kw">as </span>i32)
         .bind(kickoff_idx <span class="kw">as </span>i32);
-        <span class="kw">let </span>txid_and_signatures: <span class="prelude-ty">Option</span>&lt;(TxidDB, SignaturesDB)&gt; =
+        <span class="kw">let </span>txid_and_signatures: <span class="prelude-ty">Option</span>&lt;(TxidDB,)&gt; =
             <span class="macro">execute_query_with_tx!</span>(<span class="self">self</span>.connection, tx.as_deref_mut(), query, fetch_optional)<span class="question-mark">?</span>;
 
-        <span class="kw">if let </span><span class="prelude-val">Some</span>((existing_kickoff_txid, _existing_signatures)) = txid_and_signatures {
+        <span class="kw">if let </span><span class="prelude-val">Some</span>((existing_kickoff_txid,)) = txid_and_signatures {
             <span class="kw">if </span>existing_kickoff_txid.<span class="number">0 </span>== kickoff_txid {
                 <span class="kw">return </span><span class="prelude-val">Ok</span>(());
             } <span class="kw">else </span>{
