@@ -780,11 +780,11 @@ where
             // if current_round_index should only be smaller than round_idx, and should not be smaller by more than 1
             // so sanity check:
             if current_round_index + 1 != round_idx {
-                return Err(BridgeError::Error(format!(
+                return Err(eyre::eyre!(format!(
                     "Current round index in DB ({}) is not at most 1 less than the smallest possible round index ({}) that can
                     be used for reimbursement for payout for deposit {:?}",
                     current_round_index, round_idx, deposit_outpoint
-                )));
+                )).into());
             }
             // start the next round to be able to get reimbursement for the payout
             self.end_round(dbtx).await?;
