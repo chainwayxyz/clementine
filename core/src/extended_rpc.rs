@@ -503,7 +503,7 @@ impl ExtendedRpc {
             .get_transaction(&txid, None)
             .await
             .wrap_err("Failed to get transaction")?;
-        let vout = tx_result.details[0].vout; // TODO: this might be incorrect
+        let vout = tx_result.details[0].vout;
 
         Ok(OutPoint { txid, vout })
     }
@@ -645,7 +645,7 @@ impl ExtendedRpc {
                             return Err(BitcoinRPCError::BumpFeeUTXOSpent(outpoint));
                         }
 
-                        return Err(eyre::eyre!(format!("{:?}", rpc_error))
+                        return Err(eyre::eyre!("{:?}", rpc_error)
                             .wrap_err(BitcoinRPCError::BumpFeeError(txid, fee_rate))
                             .into());
                     }
@@ -809,7 +809,6 @@ mod tests {
             })
             .is_err());
 
-        // TODO: Calculate this dynamically.
         let current_fee_rate = FeeRate::from_sat_per_vb_unchecked(1);
 
         // Trying to bump a transaction with a fee rate that is already enough

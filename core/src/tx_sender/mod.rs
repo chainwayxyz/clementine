@@ -122,8 +122,6 @@ impl TxSender {
     ///
     /// If fee estimation is unavailable (e.g., node is warming up), it returns
     /// an error, except in Regtest mode where it defaults to 1 sat/vB for testing convenience.
-    ///
-    /// TODO: Implement more sophisticated fee estimation (e.g., mempool.space API).
     async fn _get_fee_rate(&self) -> Result<FeeRate> {
         tracing::info!("Getting fee rate");
         let fee_rate = self

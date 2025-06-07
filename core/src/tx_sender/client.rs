@@ -1,9 +1,4 @@
 use super::Result;
-use bitcoin::hashes::Hash;
-use std::collections::BTreeMap;
-
-use bitcoin::{OutPoint, Transaction, Txid};
-
 use super::{ActivatedWithOutpoint, ActivatedWithTxid};
 use crate::builder::transaction::input::UtxoVout;
 use crate::errors::ResultExt;
@@ -15,6 +10,9 @@ use crate::{
     config::BridgeConfig,
     database::{Database, DatabaseTransaction},
 };
+use bitcoin::hashes::Hash;
+use bitcoin::{OutPoint, Transaction, Txid};
+use std::collections::BTreeMap;
 
 #[derive(Debug, Clone)]
 pub struct TxSenderClient {
@@ -367,13 +365,15 @@ impl TxSenderClient {
 
         let fee_payer_utxos = fee_payer_utxos
             .into_iter()
-            .map(|(txid, vout, amount, confirmed)| TxDebugFeePayerUtxo {
-                txid: txid.as_raw_hash().to_byte_array().to_vec(),
-                vout,
-                amount: amount.to_sat(),
-                confirmed,
+            .map(|(txid, vout, amount, confirmed)| {
+                Ok(TxDebugFeePayerUtxo {
+                    txid: Some(txid.into()),
+                    vout,
+                    amount: amount.to_sat(),
+                    confirmed,
+                })
             })
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>>>()?;
 
         let txid = match fee_paying_type {
             FeePayingType::CPFP => tx.compute_txid(),
@@ -390,7 +390,7 @@ impl TxSenderClient {
             current_state: current_state.unwrap_or_else(|| "unknown".to_string()),
             submission_errors,
             created_at: "".to_string(),
-            txid: txid.as_raw_hash().to_byte_array().to_vec(),
+            txid: Some(txid.into()),
             fee_paying_type: format!("{:?}", fee_paying_type),
             fee_payer_utxos_count: fee_payer_utxos.len() as u32,
             fee_payer_utxos_confirmed_count: fee_payer_utxos

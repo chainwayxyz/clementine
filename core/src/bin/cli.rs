@@ -413,7 +413,9 @@ async fn create_move_transaction(
     let deposit = aggregator
         .new_deposit(Deposit {
             deposit_outpoint: Some(Outpoint {
-                txid: deposit_outpoint_txid,
+                txid: Some(clementine_core::rpc::clementine::Txid {
+                    txid: deposit_outpoint_txid,
+                }),
                 vout: deposit_outpoint_vout,
             }),
             deposit_data: Some(DepositData::BaseDeposit(BaseDeposit {
@@ -450,7 +452,10 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
                 }),
                 deposit: Some(Deposit {
                     deposit_outpoint: Some(Outpoint {
-                        txid: deposit_outpoint_txid.into(),
+                        txid: Some(clementine::Txid {
+                            txid: hex::decode(deposit_outpoint_txid)
+                                .expect("Failed to decode txid"),
+                        }),
                         vout: deposit_outpoint_vout,
                     }),
                     deposit_data: Some(DepositData::BaseDeposit(BaseDeposit {
@@ -497,7 +502,9 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
                 withdrawal_id,
                 input_signature: input_signature.as_bytes().to_vec(),
                 input_outpoint: Some(Outpoint {
-                    txid: input_outpoint_txid.as_bytes().to_vec(),
+                    txid: Some(clementine_core::rpc::clementine::Txid {
+                        txid: hex::decode(input_outpoint_txid).expect("Failed to decode txid"),
+                    }),
                     vout: input_outpoint_vout,
                 }),
                 output_script_pubkey: output_script_pubkey.as_bytes().to_vec(),
@@ -608,7 +615,9 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             let deposit = aggregator
                 .new_deposit(Deposit {
                     deposit_outpoint: Some(Outpoint {
-                        txid: deposit_outpoint_txid.clone(),
+                        txid: Some(clementine_core::rpc::clementine::Txid {
+                            txid: deposit_outpoint_txid.clone(),
+                        }),
                         vout: deposit_outpoint_vout,
                     }),
                     deposit_data: Some(DepositData::BaseDeposit(BaseDeposit {
@@ -624,7 +633,9 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                 .send_move_to_vault_tx(SendMoveTxRequest {
                     raw_tx: Some(deposit.into_inner()),
                     deposit_outpoint: Some(Outpoint {
-                        txid: deposit_outpoint_txid,
+                        txid: Some(clementine_core::rpc::clementine::Txid {
+                            txid: deposit_outpoint_txid,
+                        }),
                         vout: deposit_outpoint_vout,
                     }),
                 })
@@ -982,7 +993,7 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             //         let mut raw = Vec::new();
             //         param
             //             .consensus_encode(&mut raw)
-            //             .map_err(|e| BridgeError::Error(format!("Can't encode param: {}", e)))?;
+            //             .map_err(|e| eyre::eyre!("Can't encode param: {}", e))?;
 
             //         Ok::<Vec<u8>, BridgeError>(raw)
             //     })
@@ -999,7 +1010,7 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             //         .map(|param| {
             //             let mut raw = Vec::new();
             //             param.witness.consensus_encode(&mut raw).map_err(|e| {
-            //                 BridgeError::Error(format!("Can't encode param: {}", e))
+            //                 eyre::eyre!("Can't encode param: {}", e)
             //             })?;
 
             //             Ok::<Vec<u8>, BridgeError>(raw)
@@ -1073,7 +1084,9 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             let deposit = aggregator
                 .new_deposit(Deposit {
                     deposit_outpoint: Some(Outpoint {
-                        txid: deposit_outpoint_txid.clone(),
+                        txid: Some(clementine_core::rpc::clementine::Txid {
+                            txid: deposit_outpoint_txid.clone(),
+                        }),
                         vout: deposit_outpoint_vout,
                     }),
                     deposit_data: Some(DepositData::ReplacementDeposit(ReplacementDeposit {
@@ -1088,7 +1101,9 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                 .send_move_to_vault_tx(SendMoveTxRequest {
                     raw_tx: Some(deposit.into_inner()),
                     deposit_outpoint: Some(Outpoint {
-                        txid: deposit_outpoint_txid,
+                        txid: Some(clementine_core::rpc::clementine::Txid {
+                            txid: deposit_outpoint_txid,
+                        }),
                         vout: deposit_outpoint_vout,
                     }),
                 })
@@ -1126,7 +1141,9 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                 withdrawal_id,
                 input_signature: input_signature_bytes,
                 input_outpoint: Some(Outpoint {
-                    txid: input_outpoint_txid_bytes,
+                    txid: Some(clementine_core::rpc::clementine::Txid {
+                        txid: input_outpoint_txid_bytes,
+                    }),
                     vout: input_outpoint_vout,
                 }),
                 output_script_pubkey: output_script_pubkey_bytes,
@@ -1149,6 +1166,8 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                             success
                                 .txid
                                 .clone()
+                                .expect("Failed to get txid")
+                                .txid
                                 .try_into()
                                 .expect("Failed to convert txid to array"),
                         );

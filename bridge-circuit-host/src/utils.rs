@@ -242,7 +242,6 @@ pub fn get_ark_verifying_key_dev_mode_bridge() -> ark_groth16::VerifyingKey<Bn25
 }
 
 /// Sha256(control_root, pre_state_digest, post_state_digest, id_bn254_fr)
-/// TODO: This function may be the same with something that is already here
 pub fn calculate_succinct_output_prefix(method_id: &[u8]) -> [u8; 32] {
     let succinct_verifier_params = SuccinctReceiptVerifierParameters::default();
     let succinct_control_root = succinct_verifier_params.control_root;

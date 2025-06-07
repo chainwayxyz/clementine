@@ -46,7 +46,7 @@ impl Database {
         collateral_funding_outpoint: OutPoint,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
-            "INSERT INTO operators (xonly_pk, wallet_reimburse_address, collateral_funding_outpoint) 
+            "INSERT INTO operators (xonly_pk, wallet_reimburse_address, collateral_funding_outpoint)
              VALUES ($1, $2, $3)
              ON CONFLICT (xonly_pk) DO NOTHING",
         )
@@ -268,7 +268,7 @@ impl Database {
         let wpk = borsh::to_vec(&winternitz_public_key).wrap_err(BridgeError::BorshError)?;
 
         let query = sqlx::query(
-            "INSERT INTO operator_winternitz_public_keys (xonly_pk, winternitz_public_keys) 
+            "INSERT INTO operator_winternitz_public_keys (xonly_pk, winternitz_public_keys)
              VALUES ($1, $2)
              ON CONFLICT (xonly_pk) DO NOTHING",
         )
@@ -538,17 +538,17 @@ impl Database {
 
         // First check if the entry already exists.
         let query = sqlx::query_as(
-            "SELECT kickoff_txid, signatures FROM deposit_signatures
+            "SELECT kickoff_txid FROM deposit_signatures
         WHERE deposit_id = $1 AND operator_xonly_pk = $2 AND round_idx = $3 AND kickoff_idx = $4;",
         )
         .bind(i32::try_from(deposit_id).wrap_err("Failed to convert deposit id to i32")?)
         .bind(XOnlyPublicKeyDB(operator_xonly_pk))
         .bind(round_idx as i32)
         .bind(kickoff_idx as i32);
-        let txid_and_signatures: Option<(TxidDB, SignaturesDB)> =
+        let txid_and_signatures: Option<(TxidDB,)> =
             execute_query_with_tx!(self.connection, tx.as_deref_mut(), query, fetch_optional)?;
 
-        if let Some((existing_kickoff_txid, _existing_signatures)) = txid_and_signatures {
+        if let Some((existing_kickoff_txid,)) = txid_and_signatures {
             if existing_kickoff_txid.0 == kickoff_txid {
                 return Ok(());
             } else {

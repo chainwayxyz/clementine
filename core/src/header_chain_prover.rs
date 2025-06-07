@@ -106,11 +106,11 @@ impl HeaderChainProver {
         if tip_height
             < config.protocol_paramset().start_height + config.protocol_paramset().finality_depth
         {
-            return Err(eyre::eyre!(format!(
+            return Err(eyre::eyre!(
                 "Start height is not finalized, reduce start height: {} < {}",
                 tip_height,
                 config.protocol_paramset().start_height + config.protocol_paramset().finality_depth
-            ))
+            )
             .into());
         }
         db.fetch_and_save_missing_blocks(

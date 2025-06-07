@@ -385,7 +385,6 @@ pub struct ContractContext {
     kickoff_idx: Option<u32>,
     deposit_data: Option<DepositData>,
     signer: Option<Actor>,
-    // TODO: why different winternitz_secret_key???
 }
 
 impl ContractContext {
@@ -852,9 +851,9 @@ pub async fn create_txhandlers(
     }
 
     if let TransactionType::WatchtowerChallenge(_) = transaction_type {
-        return Err(BridgeError::Error(
+        return Err(eyre::eyre!(
             "Can't directly create a watchtower challenge in create_txhandlers as it needs commit data".to_string(),
-        ));
+        ).into());
     }
 
     let assert_timeouts = create_assert_timeout_txhandlers(

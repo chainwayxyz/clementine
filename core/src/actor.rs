@@ -21,7 +21,7 @@ use bitcoin::{
 };
 use bitcoin::{OutPoint, TapNodeHash, TapSighashType, Witness};
 use bitvm::signatures::winternitz::{self, BinarysearchVerifier, ToBytesConverter, Winternitz};
-use eyre::OptionExt;
+use eyre::{Context, OptionExt};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, thiserror::Error)]
 pub enum VerificationError {
@@ -107,13 +107,13 @@ fn calc_tweaked_keypair(
     keypair: &Keypair,
     merkle_root: Option<TapNodeHash>,
 ) -> Result<Keypair, BridgeError> {
-    keypair
+    Ok(keypair
         .add_xonly_tweak(
             &SECP,
             &TapTweakHash::from_key_and_tweak(keypair.x_only_public_key().0, merkle_root)
                 .to_scalar(),
         )
-        .map_err(|e| BridgeError::Error(format!("Failed to add tweak to keypair: {}", e)))
+        .wrap_err("Failed to add tweak to keypair")?)
 }
 
 fn calc_tweaked_xonly_pk(
@@ -125,7 +125,7 @@ fn calc_tweaked_xonly_pk(
             &SECP,
             &TapTweakHash::from_key_and_tweak(pubkey, merkle_root).to_scalar(),
         )
-        .map_err(|e| BridgeError::Error(format!("Failed to add tweak to xonly_pk: {}", e)))?
+        .wrap_err("Failed to add tweak to xonly_pk")?
         .0)
 }
 
@@ -181,10 +181,10 @@ pub fn verify_schnorr(
             None => calc_tweaked_xonly_pk(pubkey, merkle_root)?,
         },
         TapTweakData::ScriptPath => pubkey,
-        TapTweakData::Unknown => return Err(BridgeError::Error("Spend Path Unknown".to_string())),
+        TapTweakData::Unknown => return Err(eyre::eyre!("Spend Path Unknown").into()),
     };
     SECP.verify_schnorr(signature, sighash, &pubkey)
-        .map_err(|_| BridgeError::Error("Failed to verify Schnorr signature".to_string()))
+        .map_err(|_| eyre::eyre!("Failed to verify Schnorr signature").into())
 }
 
 #[derive(Debug, Clone)]
@@ -255,7 +255,7 @@ impl Actor {
                 self.sign_with_tweak(sighash, merkle_root, tweak_cache)
             }
             TapTweakData::ScriptPath => Ok(self.sign(sighash)),
-            TapTweakData::Unknown => Err(BridgeError::Error("Spend Data Unknown".to_string())),
+            TapTweakData::Unknown => Err(eyre::eyre!("Spend Data Unknown").into()),
         }
     }
 
