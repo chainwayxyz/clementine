@@ -164,8 +164,18 @@ pub async fn mine_once_after_in_mempool(
             break;
         };
 
+        // mine if there are some txs in mempool
+        if rpc
+            .client
+            .get_mempool_info()
+            .await
+            .is_ok_and(|info| info.size > 0)
+        {
+            rpc.mine_blocks(1).await?;
+        }
+
         tracing::info!("Waiting for {} transaction to hit mempool...", tx_name);
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
     }
 
     rpc.mine_blocks(1).await?;
@@ -373,11 +383,6 @@ pub async fn run_single_deposit<C: CitreaClientT>(
         .expect("failed to send movetx")
         .into_inner()
         .try_into()?;
-
-    // sleep 6 seconds so that tx_sender can send the fee_payer_tx to the mempool
-    tokio::time::sleep(std::time::Duration::from_secs(6)).await;
-    // mine 1 block
-    rpc.mine_blocks(1).await?;
 
     mine_once_after_in_mempool(&rpc, move_txid, Some("Move tx"), None).await?;
 

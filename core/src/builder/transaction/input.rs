@@ -74,6 +74,10 @@ pub enum UtxoVout {
     ReimburseInRound(usize, &'static ProtocolParamset),
     /// The vout of the kickoff utxo in RoundTx
     Kickoff(usize),
+    /// The vout of the collateral utxo in RoundTx
+    CollateralInRound,
+    /// The vout of the collateral utxo in ReadyToReimburseTx
+    CollateralInReadyToReimburse,
 }
 
 impl UtxoVout {
@@ -100,6 +104,8 @@ impl UtxoVout {
             }
             UtxoVout::Kickoff(idx) => idx as u32 + 1,
             UtxoVout::DepositInMove => 0,
+            UtxoVout::CollateralInRound => 0,
+            UtxoVout::CollateralInReadyToReimburse => 0,
         }
     }
 }

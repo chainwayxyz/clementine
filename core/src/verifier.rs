@@ -11,6 +11,7 @@ use crate::builder::sighash::{
     create_nofn_sighash_stream, create_operator_sighash_stream, PartialSignatureInfo, SignatureInfo,
 };
 use crate::builder::transaction::deposit_signature_owner::EntityType;
+use crate::builder::transaction::input::UtxoVout;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::builder::transaction::{
     create_emergency_stop_txhandler, create_move_to_vault_txhandler,
@@ -50,7 +51,6 @@ use bitvm::clementine::additional_disprove::{
 use bitvm::signatures::winternitz;
 use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
 use circuits_lib::bridge_circuit::{deposit_constant, parse_op_return_data};
-use circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
 use eyre::{Context, ContextCompat, OptionExt, Result};
 #[cfg(test)]
 use risc0_zkvm::is_dev_mode;
@@ -255,7 +255,7 @@ where
             reimburse_addr: wallet_reimburse_address.clone(),
         };
         let mut cur_sig_index = 0;
-        for round_idx in 0..self.config.protocol_paramset().num_round_txs {
+        for round_idx in 1..=self.config.protocol_paramset().num_round_txs {
             let txhandlers = create_round_txhandlers(
                 self.config.protocol_paramset(),
                 round_idx,
@@ -306,23 +306,55 @@ where
         Ok(tagged_sigs)
     }
 
-    /// Checks if all operators in verifier's db are in the deposit.
+    /// Checks if all operators in verifier's db that are still in protocol are in the deposit.
     /// Afterwards, it checks if the given deposit outpoint is valid. First it checks if the tx exists on chain,
     /// then it checks if the amount in TxOut is equal to bridge_amount and if the script is correct.
     async fn is_deposit_valid(&self, deposit_data: &mut DepositData) -> Result<bool, BridgeError> {
         let operator_xonly_pks = deposit_data.get_operators();
-        // check if all operators are in the deposit
-        let are_all_operators_in_deposit = self
-            .db
-            .get_operators(None)
-            .await?
-            .into_iter()
-            .all(|(xonly_pk, _, _)| operator_xonly_pks.contains(&xonly_pk));
-        if !are_all_operators_in_deposit {
-            tracing::warn!("All operators are not in the deposit");
-            return Ok(false);
+        // check if all operators that still have collateral are in the deposit
+        let are_all_operators_in_deposit = self.db.get_operators(None).await?;
+        for (xonly_pk, reimburse_addr, collateral_funding_outpoint) in are_all_operators_in_deposit
+        {
+            let operator_data = OperatorData {
+                xonly_pk,
+                collateral_funding_outpoint,
+                reimburse_addr,
+            };
+            let kickoff_wpks = self
+                .db
+                .get_operator_kickoff_winternitz_public_keys(None, xonly_pk)
+                .await?;
+            let kickoff_wpks = KickoffWinternitzKeys::new(
+                kickoff_wpks,
+                self.config.protocol_paramset().num_kickoffs_per_round,
+                self.config.protocol_paramset().num_round_txs,
+            );
+            let is_collateral_usable = self
+                .rpc
+                .collateral_check(
+                    &operator_data,
+                    &kickoff_wpks,
+                    self.config.protocol_paramset(),
+                )
+                .await?;
+            // if operator is not in deposit but its collateral is still on chain, return false
+            if !operator_xonly_pks.contains(&xonly_pk) && is_collateral_usable {
+                tracing::warn!(
+                    "Operator {:?} is is still in protocol but not in the deposit",
+                    xonly_pk
+                );
+                return Ok(false);
+            }
+            // if operator is in deposit, but the collateral is not usable, return false
+            if operator_xonly_pks.contains(&xonly_pk) && !is_collateral_usable {
+                tracing::warn!(
+                    "Operator {:?} is in the deposit but its collateral is spent, operator cannot fulfill withdrawals anymore",
+                    xonly_pk
+                );
+                return Ok(false);
+            }
         }
-        // check if deposit script is valid
+        // check if deposit script in deposit_outpoint is valid
         let deposit_scripts: Vec<ScriptBuf> = deposit_data
             .get_deposit_scripts(self.config.protocol_paramset())?
             .into_iter()
@@ -377,14 +409,38 @@ where
         operator_winternitz_public_keys: Vec<winternitz::PublicKey>,
         unspent_kickoff_sigs: Vec<Signature>,
     ) -> Result<(), BridgeError> {
+        let operator_data = OperatorData {
+            xonly_pk: operator_xonly_pk,
+            collateral_funding_outpoint,
+            reimburse_addr: wallet_reimburse_address,
+        };
+
         let kickoff_wpks = KickoffWinternitzKeys::new(
             operator_winternitz_public_keys,
             self.config.protocol_paramset().num_kickoffs_per_round,
+            self.config.protocol_paramset().num_round_txs,
         );
+
+        if !self
+            .rpc
+            .collateral_check(
+                &operator_data,
+                &kickoff_wpks,
+                self.config.protocol_paramset(),
+            )
+            .await?
+        {
+            return Err(eyre::eyre!(
+                "Collateral utxo of operator {:?} does not exist or is not usable in bitcoin, cannot set operator",
+                operator_xonly_pk,
+            )
+            .into());
+        }
+
         let tagged_sigs = self.verify_unspent_kickoff_sigs(
             collateral_funding_outpoint,
             operator_xonly_pk,
-            wallet_reimburse_address.clone(),
+            operator_data.reimburse_addr.clone(),
             unspent_kickoff_sigs,
             &kickoff_wpks,
         )?;
@@ -396,7 +452,7 @@ where
             .set_operator(
                 Some(&mut dbtx),
                 operator_xonly_pk,
-                &wallet_reimburse_address,
+                &operator_data.reimburse_addr,
                 collateral_funding_outpoint,
             )
             .await?;
@@ -416,7 +472,8 @@ where
             .map(|chunk| chunk.to_vec())
             .collect();
 
-        for (round_idx, sigs) in tagged_sigs_per_round.into_iter().enumerate() {
+        for (round_idx_0, sigs) in tagged_sigs_per_round.into_iter().enumerate() {
+            let round_idx = round_idx_0 + 1; // rounds start from 1
             self.db
                 .set_unspent_kickoff_sigs(Some(&mut dbtx), operator_xonly_pk, round_idx, sigs)
                 .await?;
@@ -424,12 +481,6 @@ where
 
         #[cfg(feature = "automation")]
         {
-            let operator_data = OperatorData {
-                xonly_pk: operator_xonly_pk,
-                collateral_funding_outpoint,
-                reimburse_addr: wallet_reimburse_address,
-            };
-
             crate::states::StateManager::<Self>::dispatch_new_round_machine(
                 self.db.clone(),
                 &mut dbtx,
@@ -636,12 +687,12 @@ where
                     );
                     num_kickoffs_per_round
                 ];
-                num_round_txs
+                num_round_txs + 1
             ];
             num_operators
         ];
 
-        let mut kickoff_txids = vec![vec![vec![]; num_round_txs]; num_operators];
+        let mut kickoff_txids = vec![vec![vec![]; num_round_txs + 1]; num_operators];
 
         // ------ N-of-N SIGNATURES VERIFICATION ------
 
@@ -896,13 +947,14 @@ where
             .zip(verified_sigs.into_iter())
             .enumerate()
         {
-            for (round_idx, mut op_round_sigs) in operator_sigs.into_iter().enumerate() {
+            // skip round 0, which is the collateral round, during iteration
+            for (round_idx, mut op_round_sigs) in operator_sigs.into_iter().enumerate().skip(1) {
                 if kickoff_txids[operator_idx][round_idx].len()
                     != self.config.protocol_paramset().num_signed_kickoffs
                 {
                     return Err(eyre::eyre!(
                         "Number of signed kickoff utxos for operator: {}, round: {} is wrong. Expected: {}, got: {}",
-                            operator_xonly_pk, round_idx, self.config.protocol_paramset().num_signed_kickoffs, kickoff_txids[operator_idx][round_idx].len()
+                                operator_xonly_pk, round_idx, self.config.protocol_paramset().num_signed_kickoffs, kickoff_txids[operator_idx][round_idx].len()
                     ).into());
                 }
                 for (kickoff_txid, kickoff_idx) in &kickoff_txids[operator_idx][round_idx] {
@@ -910,7 +962,7 @@ where
                         return Err(eyre::eyre!(
                             "Kickoff txid not found for {}, {}, {}",
                             operator_xonly_pk,
-                            round_idx,
+                            round_idx, // rounds start from 1
                             kickoff_idx
                         )
                         .into());
@@ -919,7 +971,7 @@ where
                     tracing::trace!(
                         "Setting deposit signatures for {:?}, {:?}, {:?} {:?}",
                         operator_xonly_pk,
-                        round_idx,
+                        round_idx, // rounds start from 1
                         kickoff_idx,
                         kickoff_txid
                     );
@@ -929,7 +981,7 @@ where
                             Some(&mut dbtx),
                             deposit_data.get_deposit_outpoint(),
                             operator_xonly_pk,
-                            round_idx,
+                            round_idx, // rounds start from 1
                             *kickoff_idx,
                             kickoff_txid.expect("Kickoff txid must be Some"),
                             std::mem::take(&mut op_round_sigs[*kickoff_idx]),
@@ -1658,7 +1710,9 @@ where
 
         let vout = kickoff_data.kickoff_idx + 1;
 
-        let watchtower_challenge_start_idx = (FIRST_FIVE_OUTPUTS + NUMBER_OF_ASSERT_TXS) as u16;
+        let watchtower_challenge_start_idx =
+            u16::try_from(UtxoVout::WatchtowerChallenge(0).get_vout())
+                .wrap_err("Watchtower challenge start index overflow")?;
 
         let secp = Secp256k1::verification_only();
 
@@ -1703,7 +1757,9 @@ where
             .clone();
 
         let payout_tx_blockhash_pk = kickoff_winternitz_keys
-            .get_keys_for_round(kickoff_data.round_idx as usize)[kickoff_data.kickoff_idx as usize]
+            .get_keys_for_round(kickoff_data.round_idx as usize)?
+            .get(kickoff_data.kickoff_idx as usize)
+            .ok_or(TxError::IndexOverflow)?
             .clone();
 
         let replaceable_additional_disprove_script = reimburse_db_cache
