@@ -1,6 +1,7 @@
 use crate::config::protocol::ProtocolParamset;
 use crate::database::DatabaseTransaction;
 use crate::deposit::{DepositData, KickoffData};
+use crate::operator::RoundIndex;
 use crate::utils::NamedEntity;
 
 use bitcoin::BlockHash;
@@ -43,7 +44,7 @@ pub enum Duty {
     /// used_kickoffs is a set of kickoff indexes that have been used in the previous round.
     /// If there are unspent kickoffs, the owner can send a unspent kickoff connector tx.
     NewReadyToReimburse {
-        round_idx: u32,
+        round_idx: RoundIndex,
         operator_xonly_pk: XOnlyPublicKey,
         used_kickoffs: HashSet<usize>,
     },

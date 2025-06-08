@@ -7,6 +7,7 @@ use crate::citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER};
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::deposit::KickoffData;
+use crate::operator::RoundIndex;
 use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
@@ -373,7 +374,7 @@ impl AdditionalDisproveTest {
             kickoff_id: Some(
                 KickoffData {
                     operator_xonly_pk: op0_xonly_pk,
-                    round_idx: 1,
+                    round_idx: RoundIndex::Round(0),
                     kickoff_idx: kickoff_idx as u32,
                 }
                 .into(),

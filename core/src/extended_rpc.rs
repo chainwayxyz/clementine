@@ -35,6 +35,7 @@ use crate::builder::transaction::TxHandler;
 use crate::config::protocol::ProtocolParamset;
 use crate::deposit::OperatorData;
 use crate::errors::BridgeError;
+use crate::operator::RoundIndex;
 
 type Result<T> = std::result::Result<T, BitcoinRPCError>;
 
@@ -183,7 +184,8 @@ impl ExtendedRpc {
 
         let mut current_collateral_outpoint: OutPoint = operator_data.collateral_funding_outpoint;
         let mut prev_ready_to_reimburse: Option<TxHandler> = None;
-        for round_idx in 1..=paramset.num_round_txs {
+        // iterate over all rounds
+        for round_idx in RoundIndex::iter_rounds(paramset.num_round_txs) {
             // create round and ready to reimburse txs for the round
             let txhandlers = create_round_txhandlers(
                 paramset,
@@ -206,7 +208,7 @@ impl ExtendedRpc {
             }
             if round_txhandler_opt.is_none() || ready_to_reimburse_txhandler_opt.is_none() {
                 return Err(eyre!(
-                    "Failed to create round and ready to reimburse txs for round {} for operator {}",
+                    "Failed to create round and ready to reimburse txs for round {:?} for operator {}",
                     round_idx,
                     operator_data.xonly_pk
                 ).into());
@@ -224,8 +226,8 @@ impl ExtendedRpc {
                 txid: round_txid,
                 vout: UtxoVout::CollateralInRound.get_vout(),
             };
-            if round_idx == paramset.num_round_txs {
-                // for the last round, only check round tx, as if the operator endered ready to reimburse tx of last round,
+            if round_idx == RoundIndex::Round(paramset.num_round_txs - 1) {
+                // for the last round, only check round tx, as if the operator sent the ready to reimburse tx of last round,
                 // it cannot create more kickoffs anymore
                 break;
             }
@@ -475,6 +477,20 @@ impl ExtendedRpc {
             .generate_to_address(block_num, &new_address)
             .await
             .wrap_err("Failed to generate to address")?)
+    }
+
+    /// Gets the number of transactions in the mempool.
+    ///
+    /// # Returns
+    ///
+    /// - [`usize`]: The number of transactions in the mempool.
+    pub async fn mempool_size(&self) -> Result<usize> {
+        let mempool_info = self
+            .client
+            .get_mempool_info()
+            .await
+            .wrap_err("Failed to get mempool info")?;
+        Ok(mempool_info.size)
     }
 
     /// Sends a specified amount of Bitcoins to the given address.

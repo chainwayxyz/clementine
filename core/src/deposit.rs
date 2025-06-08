@@ -12,6 +12,7 @@ use crate::builder::script::{
 use crate::config::protocol::ProtocolParamset;
 use crate::errors::BridgeError;
 use crate::musig2::AggregateFromPublicKeys;
+use crate::operator::RoundIndex;
 use crate::EVMAddress;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::secp256k1::PublicKey;
@@ -24,7 +25,7 @@ use eyre::Context;
 )]
 pub struct KickoffData {
     pub operator_xonly_pk: XOnlyPublicKey,
-    pub round_idx: u32,
+    pub round_idx: RoundIndex,
     pub kickoff_idx: u32,
 }
 

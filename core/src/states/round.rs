@@ -2,6 +2,7 @@ use statig::prelude::*;
 use std::collections::{HashMap, HashSet};
 
 use crate::deposit::OperatorData;
+use crate::operator::RoundIndex;
 use crate::{
     builder::transaction::{input::UtxoVout, ContractContext, TransactionType},
     errors::{BridgeError, TxError},
@@ -25,10 +26,10 @@ pub enum RoundEvent {
         kickoff_outpoint: OutPoint,
     },
     ReadyToReimburseSent {
-        round_idx: u32,
+        round_idx: RoundIndex,
     },
     RoundSent {
-        round_idx: u32,
+        round_idx: RoundIndex,
     },
     /// This event is sent if operators collateral was spent in any way other than default behaviour (default is round -> ready to reimburse -> round ...)
     /// It means operator stopped participating in the protocol and can no longer withdraw.
@@ -154,15 +155,11 @@ impl<T: Owner> RoundStateMachine<T> {
             .capture_error(async |context| {
                 {
                     self.matchers = HashMap::new();
-                    self.matchers.insert(
-                        matcher::Matcher::SpentUtxo(self.operator_data.collateral_funding_outpoint),
-                        RoundEvent::RoundSent { round_idx: 1 },
-                    );
 
                     // To determine if operator exited the protocol, we check if collateral was not spent in the first round tx.
                     let contract_context = ContractContext::new_context_for_round(
                         self.operator_data.xonly_pk,
-                        1,
+                        RoundIndex::Round(0),
                         context.paramset,
                     );
                     let round_txhandlers = context
@@ -173,6 +170,13 @@ impl<T: Owner> RoundStateMachine<T> {
                         .get(&TransactionType::Round)
                         .ok_or(TxError::TxHandlerNotFound(TransactionType::Round))?
                         .get_txid();
+                    // if round tx is sent, we can send the round sent event
+                    self.matchers.insert(
+                        matcher::Matcher::SentTx(*round_txid),
+                        RoundEvent::RoundSent {
+                            round_idx: RoundIndex::Round(0),
+                        },
+                    );
                     self.matchers.insert(
                         matcher::Matcher::SpentUtxoButNotTxid(
                             self.operator_data.collateral_funding_outpoint,
@@ -192,7 +196,7 @@ impl<T: Owner> RoundStateMachine<T> {
     pub(crate) async fn round_tx(
         &mut self,
         event: &RoundEvent,
-        round_idx: &mut u32,
+        round_idx: &mut RoundIndex,
         used_kickoffs: &mut HashSet<usize>,
         challenged_before: &mut bool,
         context: &mut StateContext<T>,
@@ -269,7 +273,7 @@ impl<T: Owner> RoundStateMachine<T> {
     #[action]
     pub(crate) async fn on_round_tx_exit(
         &mut self,
-        round_idx: &mut u32,
+        round_idx: &mut RoundIndex,
         used_kickoffs: &mut HashSet<usize>,
         context: &mut StateContext<T>,
     ) {
@@ -294,7 +298,7 @@ impl<T: Owner> RoundStateMachine<T> {
     #[action]
     pub(crate) async fn on_round_tx_entry(
         &mut self,
-        round_idx: &mut u32,
+        round_idx: &mut RoundIndex,
         challenged_before: &mut bool,
         context: &mut StateContext<T>,
     ) {
@@ -304,9 +308,9 @@ impl<T: Owner> RoundStateMachine<T> {
             .capture_error(async |context| {
                 {
                     self.matchers = HashMap::new();
-                    // On last round, do not care about anything, last round has index num_round_txs + 1 and is there only for reimbursement
+                    // On last round, do not care about anything, last round has index num_round_txs and is there only for reimbursement
                     // nothing is signed with them
-                    if *round_idx == context.paramset.num_round_txs as u32 + 1 {
+                    if *round_idx == RoundIndex::Round(context.paramset.num_round_txs) {
                         Ok::<(), BridgeError>(())
                     } else {
                         let contract_context = ContractContext::new_context_for_round(
@@ -369,7 +373,7 @@ impl<T: Owner> RoundStateMachine<T> {
         &mut self,
         event: &RoundEvent,
         context: &mut StateContext<T>,
-        round_idx: &mut u32,
+        round_idx: &mut RoundIndex,
     ) -> Response<State> {
         match event {
             RoundEvent::RoundSent {
@@ -388,7 +392,7 @@ impl<T: Owner> RoundStateMachine<T> {
     pub(crate) async fn on_ready_to_reimburse_entry(
         &mut self,
         context: &mut StateContext<T>,
-        round_idx: &mut u32,
+        round_idx: &mut RoundIndex,
     ) {
         context
             .capture_error(async |context| {
@@ -397,7 +401,7 @@ impl<T: Owner> RoundStateMachine<T> {
                     // get next rounds Round tx
                     let next_round_context = ContractContext::new_context_for_round(
                         self.operator_data.xonly_pk,
-                        *round_idx + 1,
+                        round_idx.next_round(),
                         context.paramset,
                     );
                     let next_round_txhandlers = context
@@ -411,7 +415,7 @@ impl<T: Owner> RoundStateMachine<T> {
                     self.matchers.insert(
                         matcher::Matcher::SentTx(*next_round_txid),
                         RoundEvent::RoundSent {
-                            round_idx: *round_idx + 1,
+                            round_idx: round_idx.next_round(),
                         },
                     );
                     let current_round_context = ContractContext::new_context_for_round(

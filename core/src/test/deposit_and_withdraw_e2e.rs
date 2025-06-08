@@ -9,6 +9,7 @@ use crate::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQ
 use crate::citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER};
 use crate::database::Database;
 use crate::deposit::KickoffData;
+use crate::operator::RoundIndex;
 use crate::rpc::clementine::{
     Deposit, FeeType, FinalizedPayoutParams, KickoffId, NormalSignatureKind, RawSignedTx,
     SendTxRequest, TransactionRequest, WithdrawParams,
@@ -447,7 +448,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             kickoff_id: Some(
                 KickoffData {
                     operator_xonly_pk: op0_xonly_pk,
-                    round_idx: 1,
+                    round_idx: RoundIndex::Round(0),
                     kickoff_idx: kickoff_idx as u32,
                 }
                 .into(),
@@ -648,7 +649,6 @@ async fn mock_citrea_run_truthful() {
         "Deposit ending block_height: {:?}",
         rpc.client.get_block_count().await.unwrap()
     );
-    // rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
 
     // Send deposit to Citrea
     let tx = rpc
@@ -1196,12 +1196,14 @@ async fn mock_citrea_run_malicious() {
 
     let challenge_outpoint = OutPoint {
         txid: kickoff_txid,
-        vout: 0,
+        vout: UtxoVout::Challenge.get_vout(),
     };
 
     let challenge_spent_txid = get_txid_where_utxo_is_spent(&rpc, challenge_outpoint)
         .await
         .unwrap();
+
+    tracing::info!("Challenge outpoint spent txid: {:?}", challenge_spent_txid);
 
     // check that challenge utxo was not spent on timeout -> meaning challenge was sent
     let tx = rpc.get_tx_of_txid(&challenge_spent_txid).await.unwrap();
@@ -1238,7 +1240,7 @@ async fn mock_citrea_run_malicious() {
     // second kickoff tx should not be challenged as a kickoff of the same round was already challenged
     let challenge_outpoint_2 = OutPoint {
         txid: kickoff_txid_2,
-        vout: 0,
+        vout: UtxoVout::Challenge.get_vout(),
     };
     let challenge_spent_txid_2 = get_txid_where_utxo_is_spent(&rpc, challenge_outpoint_2)
         .await

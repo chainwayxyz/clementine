@@ -28,6 +28,7 @@ use crate::deposit::{DepositData, KickoffData, OperatorData};
 use crate::errors::{BridgeError, TxError};
 use crate::extended_rpc::ExtendedRpc;
 use crate::header_chain_prover::{HeaderChainProver, HeaderChainProverError};
+use crate::operator::RoundIndex;
 use crate::rpc::clementine::{NormalSignatureKind, OperatorKeys, TaggedSignature};
 use crate::task::manager::BackgroundTaskManager;
 use crate::task::{IntoTask, TaskExt};
@@ -255,7 +256,7 @@ where
             reimburse_addr: wallet_reimburse_address.clone(),
         };
         let mut cur_sig_index = 0;
-        for round_idx in 1..=self.config.protocol_paramset().num_round_txs {
+        for round_idx in RoundIndex::iter_rounds(self.config.protocol_paramset().num_round_txs) {
             let txhandlers = create_round_txhandlers(
                 self.config.protocol_paramset(),
                 round_idx,
@@ -472,10 +473,14 @@ where
             .map(|chunk| chunk.to_vec())
             .collect();
 
-        for (round_idx_0, sigs) in tagged_sigs_per_round.into_iter().enumerate() {
-            let round_idx = round_idx_0 + 1; // rounds start from 1
+        for (round_idx, sigs) in tagged_sigs_per_round.into_iter().enumerate() {
             self.db
-                .set_unspent_kickoff_sigs(Some(&mut dbtx), operator_xonly_pk, round_idx, sigs)
+                .set_unspent_kickoff_sigs(
+                    Some(&mut dbtx),
+                    operator_xonly_pk,
+                    RoundIndex::Round(round_idx),
+                    sigs,
+                )
                 .await?;
         }
 
@@ -711,7 +716,8 @@ where
             } = &typed_sighash.1;
 
             if signature_id == NormalSignatureKind::YieldKickoffTxid.into() {
-                kickoff_txids[operator_idx][round_idx].push((kickoff_txid, kickoff_utxo_idx));
+                kickoff_txids[operator_idx][round_idx.to_index()]
+                    .push((kickoff_txid, kickoff_utxo_idx));
                 continue;
             }
 
@@ -741,7 +747,7 @@ where
                 signature: sig.serialize().to_vec(),
                 signature_id: Some(signature_id),
             };
-            verified_sigs[operator_idx][round_idx][kickoff_utxo_idx].push(tagged_sig);
+            verified_sigs[operator_idx][round_idx.to_index()][kickoff_utxo_idx].push(tagged_sig);
 
             tracing::debug!("Final Signature Verified");
 
@@ -837,7 +843,8 @@ where
                     signature: operator_sig.serialize().to_vec(),
                     signature_id: Some(signature_id),
                 };
-                verified_sigs[operator_idx][round_idx][kickoff_utxo_idx].push(tagged_sig);
+                verified_sigs[operator_idx][round_idx.to_index()][kickoff_utxo_idx]
+                    .push(tagged_sig);
 
                 op_sig_count += 1;
                 total_op_sig_count += 1;
@@ -947,8 +954,12 @@ where
             .zip(verified_sigs.into_iter())
             .enumerate()
         {
-            // skip round 0, which is the collateral round, during iteration
-            for (round_idx, mut op_round_sigs) in operator_sigs.into_iter().enumerate().skip(1) {
+            // skip indexes until round 0 (currently 0th index corresponds to collateral, which doesnt have any sigs)
+            for (round_idx, mut op_round_sigs) in operator_sigs
+                .into_iter()
+                .enumerate()
+                .skip(RoundIndex::Round(0).to_index())
+            {
                 if kickoff_txids[operator_idx][round_idx].len()
                     != self.config.protocol_paramset().num_signed_kickoffs
                 {
@@ -981,7 +992,7 @@ where
                             Some(&mut dbtx),
                             deposit_data.get_deposit_outpoint(),
                             operator_xonly_pk,
-                            round_idx, // rounds start from 1
+                            RoundIndex::from_index(round_idx),
                             *kickoff_idx,
                             kickoff_txid.expect("Kickoff txid must be Some"),
                             std::mem::take(&mut op_round_sigs[*kickoff_idx]),
@@ -1314,6 +1325,7 @@ where
             deposit_outpoint: deposit_data.get_deposit_outpoint(),
             kickoff_data,
         };
+
         let signed_txs = create_and_sign_txs(
             self.db.clone(),
             &self.signer,
@@ -1630,7 +1642,7 @@ where
 
     async fn send_unspent_kickoff_connectors(
         &self,
-        round_idx: u32,
+        round_idx: RoundIndex,
         operator_xonly_pk: XOnlyPublicKey,
         used_kickoffs: HashSet<usize>,
     ) -> Result<(), BridgeError> {
@@ -1757,7 +1769,7 @@ where
             .clone();
 
         let payout_tx_blockhash_pk = kickoff_winternitz_keys
-            .get_keys_for_round(kickoff_data.round_idx as usize)?
+            .get_keys_for_round(kickoff_data.round_idx)?
             .get(kickoff_data.kickoff_idx as usize)
             .ok_or(TxError::IndexOverflow)?
             .clone();
@@ -1899,7 +1911,7 @@ where
                 None,
                 deposit_data.get_deposit_outpoint(),
                 kickoff_data.operator_xonly_pk,
-                kickoff_data.round_idx as usize,
+                kickoff_data.round_idx,
                 kickoff_data.kickoff_idx as usize,
             )
             .await?

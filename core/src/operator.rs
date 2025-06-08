@@ -63,6 +63,58 @@ use bitcoin::Witness;
 pub type SecretPreimage = [u8; 20];
 pub type PublicHash = [u8; 20];
 
+/// Round index is used to represent the round index safely.
+/// Collateral represents the collateral utxo.
+/// Round(index) represents the rounds of the bridge operators, index is 0-indexed.
+/// As a single u32, collateral is represented as 0 and rounds are represented starting from 1.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, Ord, PartialOrd,
+)]
+pub enum RoundIndex {
+    Collateral,
+    Round(usize), // 0-indexed
+}
+
+impl RoundIndex {
+    /// Converts the round to a 0-indexed index.
+    pub fn to_index(&self) -> usize {
+        match self {
+            RoundIndex::Collateral => 0,
+            RoundIndex::Round(index) => *index + 1,
+        }
+    }
+
+    /// Converts a 0-indexed index to a RoundIndex.
+    /// Use this only when dealing with 0-indexed data. Currently these are data coming from the database and rpc.
+    pub fn from_index(index: usize) -> Self {
+        if index == 0 {
+            RoundIndex::Collateral
+        } else {
+            RoundIndex::Round(index - 1)
+        }
+    }
+
+    /// Returns the next RoundIndex.
+    pub fn next_round(&self) -> Self {
+        match self {
+            RoundIndex::Collateral => RoundIndex::Round(0),
+            RoundIndex::Round(index) => RoundIndex::Round(*index + 1),
+        }
+    }
+
+    /// Creates an iterator over rounds from 0 to num_rounds (exclusive)
+    /// Only iterates actual rounds, collateral is not included.
+    pub fn iter_rounds(num_rounds: usize) -> impl Iterator<Item = RoundIndex> {
+        Self::iter_rounds_range(0, num_rounds)
+    }
+
+    /// Creates an iterator over rounds from start to end (exclusive)
+    /// Only iterates actual rounds, collateral is not included.
+    pub fn iter_rounds_range(start: usize, end: usize) -> impl Iterator<Item = RoundIndex> {
+        (start..end).map(RoundIndex::Round)
+    }
+}
+
 pub struct OperatorServer<C: CitreaClientT> {
     pub operator: Operator<C>,
     background_tasks: BackgroundTaskManager<Operator<C>>,
@@ -286,7 +338,7 @@ where
                 Some(TxMetadata {
                     tx_type: TransactionType::Round,
                     operator_xonly_pk: None,
-                    round_idx: Some(0),
+                    round_idx: Some(RoundIndex::Round(0)),
                     kickoff_idx: None,
                     deposit_outpoint: None,
                 }),
@@ -324,7 +376,7 @@ where
         ),
         BridgeError,
     > {
-        tracing::warn!("Generating operator params");
+        tracing::info!("Generating operator params");
         let wpks = self.generate_kickoff_winternitz_pubkeys()?;
         let (wpk_tx, wpk_rx) = mpsc::channel(wpks.len());
         let kickoff_wpks = KickoffWinternitzKeys::new(
@@ -634,10 +686,11 @@ where
             Vec::with_capacity(self.config.get_num_kickoff_winternitz_pks());
 
         // we need num_round_txs + 1 because the last round includes reimburse generators of previous round
-        for round_idx in 1..=self.config.protocol_paramset().num_round_txs + 1 {
+        for round_idx in RoundIndex::iter_rounds(self.config.protocol_paramset().num_round_txs + 1)
+        {
             for kickoff_idx in 0..self.config.protocol_paramset().num_kickoffs_per_round {
                 let path = WinternitzDerivationPath::Kickoff(
-                    round_idx as u32,
+                    round_idx,
                     kickoff_idx as u32,
                     self.config.protocol_paramset(),
                 );
@@ -670,10 +723,10 @@ where
             collateral_funding_outpoint: self.collateral_funding_outpoint,
             reimburse_addr: self.reimburse_addr.clone(),
         };
-        for idx in 1..=self.config.protocol_paramset().num_round_txs {
+        for round_idx in RoundIndex::iter_rounds(self.config.protocol_paramset().num_round_txs) {
             let txhandlers = create_round_txhandlers(
                 self.config.protocol_paramset(),
-                idx,
+                round_idx,
                 &operator_data,
                 kickoff_wpks,
                 prev_ready_to_reimburse.as_ref(),
@@ -684,7 +737,7 @@ where
                 {
                     let partial = PartialSignatureInfo {
                         operator_idx: 0, // dummy value, doesn't
-                        round_idx: idx,
+                        round_idx,
                         kickoff_utxo_idx: kickoff_idx,
                     };
                     let sighashes = txhandler
@@ -789,6 +842,8 @@ where
             self.end_round(dbtx).await?;
         }
 
+        let round_idx = RoundIndex::from_index(round_idx as usize);
+
         // get signed txs,
         let kickoff_data = KickoffData {
             operator_xonly_pk: self.signer.xonly_public_key,
@@ -830,6 +885,7 @@ where
             kickoff_idx: Some(kickoff_idx),
             deposit_outpoint: Some(deposit_outpoint),
         });
+
         // try to send them
         for (tx_type, signed_tx) in &signed_txs {
             match *tx_type {
@@ -888,7 +944,7 @@ where
             self.signer.xonly_public_key,
             self.collateral_funding_outpoint,
             self.config.protocol_paramset().collateral_funding_amount,
-            1, // index 1 for the first round
+            RoundIndex::Round(0),
             &kickoff_wpks,
             self.config.protocol_paramset(),
         )?;
@@ -902,7 +958,7 @@ where
                 Some(TxMetadata {
                     tx_type: TransactionType::Round,
                     operator_xonly_pk: None,
-                    round_idx: Some(1),
+                    round_idx: Some(RoundIndex::Round(0)),
                     kickoff_idx: None,
                     deposit_outpoint: None,
                 }),
@@ -917,7 +973,9 @@ where
             .await?;
 
         // update current round index to 1
-        self.db.update_current_round_index(Some(dbtx), 1).await?;
+        self.db
+            .update_current_round_index(Some(dbtx), RoundIndex::Round(0))
+            .await?;
 
         Ok(())
     }
@@ -943,8 +1001,10 @@ where
             self.config.protocol_paramset().num_round_txs,
         );
 
+        let current_round = RoundIndex::from_index(current_round_index as usize);
+
         // if we are at round 0, which is just the collateral, we need to start the first round
-        if current_round_index == 0 {
+        if current_round == RoundIndex::Collateral {
             return self.start_first_round(dbtx, kickoff_wpks).await;
         }
 
@@ -953,7 +1013,7 @@ where
                 self.signer.xonly_public_key,
                 self.collateral_funding_outpoint,
                 self.config.protocol_paramset().collateral_funding_amount,
-                current_round_index as usize,
+                current_round,
                 &kickoff_wpks,
                 self.config.protocol_paramset(),
             )?;
@@ -962,7 +1022,7 @@ where
             self.signer.xonly_public_key,
             self.collateral_funding_outpoint,
             self.config.protocol_paramset().collateral_funding_amount,
-            current_round_index as usize + 1,
+            current_round.next_round(),
             &kickoff_wpks,
             self.config.protocol_paramset(),
         )?;
@@ -999,7 +1059,7 @@ where
                 .db
                 .get_kickoff_txid_for_used_kickoff_connector(
                     Some(dbtx),
-                    current_round_index,
+                    current_round,
                     kickoff_connector_idx,
                 )
                 .await?;
@@ -1022,7 +1082,7 @@ where
                     self.db
                         .set_kickoff_connector_as_used(
                             Some(dbtx),
-                            current_round_index,
+                            current_round,
                             kickoff_connector_idx,
                             None,
                         )
@@ -1057,7 +1117,7 @@ where
                 Some(TxMetadata {
                     tx_type: TransactionType::BurnUnusedKickoffConnectors,
                     operator_xonly_pk: Some(self.signer.xonly_public_key),
-                    round_idx: Some(current_round_index),
+                    round_idx: Some(current_round),
                     kickoff_idx: None,
                     deposit_outpoint: None,
                 }),
@@ -1078,7 +1138,7 @@ where
                 Some(TxMetadata {
                     tx_type: TransactionType::ReadyToReimburse,
                     operator_xonly_pk: Some(self.signer.xonly_public_key),
-                    round_idx: Some(current_round_index),
+                    round_idx: Some(current_round),
                     kickoff_idx: None,
                     deposit_outpoint: None,
                 }),
@@ -1099,7 +1159,7 @@ where
                 Some(TxMetadata {
                     tx_type: TransactionType::Round,
                     operator_xonly_pk: Some(self.signer.xonly_public_key),
-                    round_idx: Some(current_round_index + 1),
+                    round_idx: Some(current_round.next_round()),
                     kickoff_idx: None,
                     deposit_outpoint: None,
                 }),
@@ -1122,7 +1182,7 @@ where
 
         // update current round index
         self.db
-            .update_current_round_index(Some(dbtx), current_round_index + 1)
+            .update_current_round_index(Some(dbtx), current_round.next_round())
             .await?;
 
         Ok(())
@@ -1526,7 +1586,7 @@ mod states {
                     operator_xonly_pk,
                     used_kickoffs,
                 } => {
-                    tracing::info!("Operator {:?} called new ready to reimburse with round_idx: {}, operator_xonly_pk: {:?}, used_kickoffs: {:?}",
+                    tracing::info!("Operator {:?} called new ready to reimburse with round_idx: {:?}, operator_xonly_pk: {:?}, used_kickoffs: {:?}",
                     self.signer.xonly_public_key, round_idx, operator_xonly_pk, used_kickoffs);
                     Ok(DutyResult::Handled)
                 }

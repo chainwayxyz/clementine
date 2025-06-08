@@ -9,6 +9,7 @@ use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::deposit::{BaseDepositData, DepositInfo, DepositType, KickoffData};
 use crate::extended_rpc::ExtendedRpc;
+use crate::operator::RoundIndex;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
 use crate::rpc::clementine::SendMoveTxRequest;
@@ -141,7 +142,7 @@ async fn base_setup(
         kickoff_id: Some(
             KickoffData {
                 operator_xonly_pk: op0_xonly_pk,
-                round_idx: 1,
+                round_idx: RoundIndex::Round(0),
                 kickoff_idx,
             }
             .into(),
@@ -313,7 +314,7 @@ pub async fn run_happy_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
             kickoff_id: Some(
                 KickoffData {
                     operator_xonly_pk: op0_xonly_pk,
-                    round_idx: 2,
+                    round_idx: RoundIndex::Round(1),
                     kickoff_idx: 0,
                 }
                 .into(),
@@ -462,7 +463,7 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
             kickoff_id: Some(
                 KickoffData {
                     operator_xonly_pk: op0_xonly_pk,
-                    round_idx: 2,
+                    round_idx: RoundIndex::Round(1),
                     kickoff_idx: 0,
                 }
                 .into(),

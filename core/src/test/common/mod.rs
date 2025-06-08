@@ -165,12 +165,7 @@ pub async fn mine_once_after_in_mempool(
         };
 
         // mine if there are some txs in mempool
-        if rpc
-            .client
-            .get_mempool_info()
-            .await
-            .is_ok_and(|info| info.size > 0)
-        {
+        if rpc.mempool_size().await? > 0 {
             rpc.mine_blocks(1).await?;
         }
 

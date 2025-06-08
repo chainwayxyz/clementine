@@ -15,7 +15,7 @@ use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::deposit::KickoffData;
 use crate::errors::{BridgeError, TxError};
-use crate::operator::Operator;
+use crate::operator::{Operator, RoundIndex};
 use crate::utils::RbfSigningInfo;
 use crate::verifier::Verifier;
 use bitcoin::hashes::Hash;
@@ -125,7 +125,7 @@ pub async fn create_and_sign_txs(
             None,
             transaction_data.deposit_outpoint,
             transaction_data.kickoff_data.operator_xonly_pk,
-            transaction_data.kickoff_data.round_idx as usize,
+            transaction_data.kickoff_data.round_idx,
             transaction_data.kickoff_data.kickoff_idx as usize,
         )
         .await?;
@@ -136,7 +136,7 @@ pub async fn create_and_sign_txs(
         .get_unspent_kickoff_sigs(
             None,
             transaction_data.kickoff_data.operator_xonly_pk,
-            transaction_data.kickoff_data.round_idx as usize,
+            transaction_data.kickoff_data.round_idx,
         )
         .await?;
 
@@ -281,7 +281,7 @@ where
     ///     2. Transaction: Signed unspent kickoff connector transaction
     pub async fn create_and_sign_unspent_kickoff_connector_txs(
         &self,
-        round_idx: u32,
+        round_idx: RoundIndex,
         operator_xonly_pk: XOnlyPublicKey,
     ) -> Result<Vec<(TransactionType, Transaction)>, BridgeError> {
         let context = ContractContext::new_context_for_round(
@@ -305,13 +305,12 @@ where
         // signatures saved during setup
         let unspent_kickoff_sigs = self
             .db
-            .get_unspent_kickoff_sigs(None, operator_xonly_pk, round_idx as usize)
+            .get_unspent_kickoff_sigs(None, operator_xonly_pk, round_idx)
             .await?
-            .ok_or(eyre::eyre!(
-                "No unspent kickoff signatures found for operator {:?} and round {}",
-                operator_xonly_pk,
-                round_idx
-            ))?;
+            .ok_or(BridgeError::Error(format!(
+                "No unspent kickoff signatures found for operator {:?} and round {:?}",
+                operator_xonly_pk, round_idx
+            )))?;
 
         let mut signed_txs = Vec::with_capacity(txhandlers.len());
         let mut tweak_cache = TweakCache::default();

@@ -214,31 +214,43 @@ pub fn create_round_nth_txhandler(
     operator_xonly_pk: XOnlyPublicKey,
     input_outpoint: OutPoint,
     input_amount: Amount,
-    index: usize,
+    index: RoundIndex,
     pubkeys: &KickoffWinternitzKeys,
     paramset: &'static ProtocolParamset,
 ) -> Result<(TxHandler, TxHandler), BridgeError> {
     // 0th round is the collateral, there are no keys for the 0th round
     // Additionally there are no keys after num_rounds + 1, +1 is because we need additional round to generate
     // reimbursement connectors of previous round
-    if index == 0 || index > paramset.num_round_txs + 1 {
+
+    if index == RoundIndex::Collateral
+        || index.to_index() > RoundIndex::Round(paramset.num_round_txs).to_index()
+    {
         return Err(TxError::InvalidRoundIndex(index).into());
     }
+
+    // create the first round txhandler
     let mut round_txhandler = create_round_txhandler(
         operator_xonly_pk,
         RoundTxInput::Collateral(input_outpoint, input_amount),
-        pubkeys.get_keys_for_round(1)?,
+        pubkeys.get_keys_for_round(RoundIndex::Round(0))?,
         paramset,
     )?;
     let mut ready_to_reimburse_txhandler =
         create_ready_to_reimburse_txhandler(&round_txhandler, operator_xonly_pk, paramset)?;
-    for idx in 2..=index {
+
+    // get which round index we are creating txhandlers for
+    let round_idx = match index {
+        RoundIndex::Collateral => 0, // impossible, checked before
+        RoundIndex::Round(idx) => idx,
+    };
+    // iterate starting from second round to the requested round
+    for round_idx in RoundIndex::iter_rounds_range(1, round_idx + 1) {
         round_txhandler = create_round_txhandler(
             operator_xonly_pk,
             RoundTxInput::Prevout(Box::new(
                 ready_to_reimburse_txhandler.get_spendable_output(UtxoVout::BurnConnector)?,
             )),
-            pubkeys.get_keys_for_round(idx)?,
+            pubkeys.get_keys_for_round(round_idx)?,
             paramset,
         )?;
         ready_to_reimburse_txhandler =
