@@ -304,7 +304,7 @@ impl<T: Owner> RoundStateMachine<T> {
             .capture_error(async |context| {
                 {
                     self.matchers = HashMap::new();
-                    // On last round, do not care about anything, last round has index num_round_txs + 1 and is there only for reimbur
+                    // On last round, do not care about anything, last round has index num_round_txs + 1 and is there only for reimbursement
                     // nothing is signed with them
                     if *round_idx == context.paramset.num_round_txs as u32 + 1 {
                         Ok::<(), BridgeError>(())

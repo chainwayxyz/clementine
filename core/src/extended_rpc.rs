@@ -163,7 +163,7 @@ impl ExtendedRpc {
         {
             Some(output) => output.value,
             None => {
-                tracing::error!(
+                tracing::warn!(
                     "No output at index {} for txid {} while checking for collateral existence",
                     operator_data.collateral_funding_outpoint.vout,
                     operator_data.collateral_funding_outpoint.txid
@@ -213,7 +213,7 @@ impl ExtendedRpc {
             }
 
             let round_txid = round_txhandler_opt
-                .expect("Round txhandler should exist")
+                .expect("Round txhandler should exist, checked above")
                 .get_cached_tx()
                 .compute_txid();
             let is_round_tx_on_chain = self.is_tx_on_chain(&round_txid).await?;

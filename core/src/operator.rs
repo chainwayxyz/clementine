@@ -780,9 +780,8 @@ where
             // if current_round_index should only be smaller than round_idx, and should not be smaller by more than 1
             // so sanity check:
             if current_round_index + 1 != round_idx {
-                return Err(eyre::eyre!(format!(
-                    "Current round index in DB ({}) is not at most 1 less than the smallest possible round index ({}) that can
-                    be used for reimbursement for payout for deposit {:?}",
+                return Err(BridgeError::Error(format!(
+                    "Internal error: Expected the current round ({}) to be equal to or 1 less than the round of the first available kickoff for deposit reimbursement ({}) for deposit {:?}. If the round is less than the current round, there is an issue with the logic of the fn that gets the first available kickoff. If the round is greater, that means the next round do not have any kickoff connectors available for reimbursement, which should not be possible.",
                     current_round_index, round_idx, deposit_outpoint
                 )).into());
             }
@@ -895,7 +894,6 @@ where
         )?;
 
         self.signer
-            .clone()
             .tx_sign_and_fill_sigs(&mut first_round_tx, &[], None)?;
 
         self.tx_sender
