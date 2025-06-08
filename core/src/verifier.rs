@@ -954,7 +954,7 @@ where
             .zip(verified_sigs.into_iter())
             .enumerate()
         {
-            // skip indexes until round 0 (currently 0th index corresponds to collateral, which doesnt have any sigs)
+            // skip indexes until round 0 (currently 0th index corresponds to collateral, which doesn't have any sigs)
             for (round_idx, mut op_round_sigs) in operator_sigs
                 .into_iter()
                 .enumerate()

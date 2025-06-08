@@ -567,7 +567,6 @@ pub async fn create_txhandlers(
         ..
     } = context;
 
-    
     let mut txhandlers = txhandler_cache.get_cached_txs();
     if !txhandlers.contains_key(&TransactionType::Round) {
         // create round tx, ready to reimburse tx, and unspent kickoff txs if not in cache
