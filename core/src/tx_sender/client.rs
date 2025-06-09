@@ -2,6 +2,7 @@ use super::Result;
 use super::{ActivatedWithOutpoint, ActivatedWithTxid};
 use crate::builder::transaction::input::UtxoVout;
 use crate::errors::ResultExt;
+use crate::operator::RoundIndex;
 use crate::rpc;
 use crate::rpc::clementine::XonlyPublicKey;
 use crate::utils::{FeePayingType, RbfSigningInfo, TxMetadata};
@@ -405,7 +406,10 @@ impl TxSenderClient {
                     xonly_pk: pk.serialize().to_vec(),
                 }),
 
-                round_idx: metadata.round_idx.unwrap_or(0),
+                round_idx: metadata
+                    .round_idx
+                    .unwrap_or(RoundIndex::Round(0))
+                    .to_index() as u32,
                 kickoff_idx: metadata.kickoff_idx.unwrap_or(0),
                 tx_type: Some(metadata.tx_type.into()),
             }),

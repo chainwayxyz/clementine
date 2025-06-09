@@ -42,6 +42,7 @@ use crate::config::protocol::ProtocolParamset;
 use crate::constants::NON_EPHEMERAL_ANCHOR_AMOUNT;
 use crate::deposit::{DepositData, SecurityCouncil};
 use crate::errors::BridgeError;
+use crate::operator::RoundIndex;
 use crate::rpc::clementine::grpc_transaction_id;
 use crate::rpc::clementine::GrpcTransactionId;
 use crate::rpc::clementine::{
@@ -120,6 +121,10 @@ pub enum TxError {
     IncorrectWatchtowerChallengeDataLength,
     #[error("Latest blockhash script must be a single script")]
     LatestBlockhashScriptNumber,
+    #[error("Round index cannot be used to create a Round transaction: {0:?}")]
+    InvalidRoundIndex(RoundIndex),
+    #[error("Index overflow")]
+    IndexOverflow,
 
     #[error(transparent)]
     Other(#[from] eyre::Report),

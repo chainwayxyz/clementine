@@ -1,5 +1,6 @@
 use crate::builder::transaction::TransactionType;
 use crate::errors::BridgeError;
+use crate::operator::RoundIndex;
 use crate::rpc::clementine::VergenResponse;
 use bitcoin::{OutPoint, TapNodeHash, XOnlyPublicKey};
 use http::HeaderValue;
@@ -324,7 +325,7 @@ pub trait NamedEntity {
 pub struct TxMetadata {
     pub deposit_outpoint: Option<OutPoint>,
     pub operator_xonly_pk: Option<XOnlyPublicKey>,
-    pub round_idx: Option<u32>,
+    pub round_idx: Option<RoundIndex>,
     pub kickoff_idx: Option<u32>,
     pub tx_type: TransactionType,
 }

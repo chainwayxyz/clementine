@@ -35,7 +35,7 @@ use crate::config::protocol::ProtocolParamset;
 use crate::database::Database;
 use crate::deposit::{DepositData, KickoffData, OperatorData};
 use crate::errors::{BridgeError, TxError};
-use crate::operator::PublicHash;
+use crate::operator::{PublicHash, RoundIndex};
 use bitcoin::hashes::Hash;
 use bitcoin::key::Secp256k1;
 use bitcoin::taproot::TaprootBuilder;
@@ -65,6 +65,7 @@ fn get_txhandler(
 pub struct KickoffWinternitzKeys {
     pub keys: Vec<bitvm::signatures::winternitz::PublicKey>,
     num_kickoffs_per_round: usize,
+    num_rounds: usize,
 }
 
 impl KickoffWinternitzKeys {
@@ -72,10 +73,12 @@ impl KickoffWinternitzKeys {
     pub fn new(
         keys: Vec<bitvm::signatures::winternitz::PublicKey>,
         num_kickoffs_per_round: usize,
+        num_rounds: usize,
     ) -> Self {
         Self {
             keys,
             num_kickoffs_per_round,
+            num_rounds,
         }
     }
 
@@ -88,10 +91,23 @@ impl KickoffWinternitzKeys {
     /// A slice of Winternitz public keys for the given round.
     pub fn get_keys_for_round(
         &self,
-        round_idx: usize,
-    ) -> &[bitvm::signatures::winternitz::PublicKey] {
-        &self.keys
-            [round_idx * self.num_kickoffs_per_round..(round_idx + 1) * self.num_kickoffs_per_round]
+        round_idx: RoundIndex,
+    ) -> Result<&[bitvm::signatures::winternitz::PublicKey], TxError> {
+        // 0th round is the collateral, there are no keys for the 0th round
+        // Additionally there are no keys after num_rounds + 1, +1 is because we need additional round to generate
+        // reimbursement connectors of previous round
+        if round_idx == RoundIndex::Collateral || round_idx.to_index() > self.num_rounds + 1 {
+            return Err(TxError::InvalidRoundIndex(round_idx));
+        }
+        let start_idx = (round_idx.to_index() as usize)
+            .checked_sub(1) // 0th round is the collateral, there are no keys for the 0th round
+            .ok_or(TxError::IndexOverflow)?
+            .checked_mul(self.num_kickoffs_per_round)
+            .ok_or(TxError::IndexOverflow)?;
+        let end_idx = start_idx
+            .checked_add(self.num_kickoffs_per_round)
+            .ok_or(TxError::IndexOverflow)?;
+        Ok(&self.keys[start_idx..end_idx])
     }
 }
 
@@ -232,6 +248,7 @@ impl ReimburseDbCache {
                         .await
                         .wrap_err("Failed to get kickoff winternitz keys from database")?,
                     self.paramset.num_kickoffs_per_round,
+                    self.paramset.num_round_txs,
                 ));
                 Ok(self
                     .kickoff_winternitz_keys
@@ -362,7 +379,7 @@ impl ReimburseDbCache {
 pub struct ContractContext {
     /// required
     operator_xonly_pk: XOnlyPublicKey,
-    round_idx: u32,
+    round_idx: RoundIndex,
     paramset: &'static ProtocolParamset,
     /// optional (only used for after kickoff)
     kickoff_idx: Option<u32>,
@@ -374,7 +391,7 @@ impl ContractContext {
     /// Contains all necessary context for creating txhandlers for a specific operator and collateral chain
     pub fn new_context_for_round(
         operator_xonly_pk: XOnlyPublicKey,
-        round_idx: u32,
+        round_idx: RoundIndex,
         paramset: &'static ProtocolParamset,
     ) -> Self {
         Self {
@@ -551,12 +568,11 @@ pub async fn create_txhandlers(
     } = context;
 
     let mut txhandlers = txhandler_cache.get_cached_txs();
-
     if !txhandlers.contains_key(&TransactionType::Round) {
         // create round tx, ready to reimburse tx, and unspent kickoff txs if not in cache
         let round_txhandlers = create_round_txhandlers(
             paramset,
-            round_idx as usize,
+            round_idx,
             &operator_data,
             &kickoff_winternitz_keys,
             txhandler_cache.get_prev_ready_to_reimburse(),
@@ -584,7 +600,7 @@ pub async fn create_txhandlers(
             get_txhandler(&txhandlers, TransactionType::ReadyToReimburse)?
                 .get_spendable_output(UtxoVout::BurnConnector)?,
         )),
-        kickoff_winternitz_keys.get_keys_for_round(round_idx as usize + 1),
+        kickoff_winternitz_keys.get_keys_for_round(round_idx.next_round())?,
         paramset,
     )?;
 
@@ -662,8 +678,10 @@ pub async fn create_txhandlers(
         deposit_data.get_deposit_outpoint(),
     );
 
-    let payout_tx_blockhash_pk = kickoff_winternitz_keys.get_keys_for_round(round_idx as usize)
-        [kickoff_data.kickoff_idx as usize]
+    let payout_tx_blockhash_pk = kickoff_winternitz_keys
+        .get_keys_for_round(round_idx)?
+        .get(kickoff_data.kickoff_idx as usize)
+        .ok_or(TxError::IndexOverflow)?
         .clone();
 
     let additional_disprove_script = db_cache
@@ -911,7 +929,7 @@ pub async fn create_txhandlers(
 /// A vector of [`TxHandler`] for the round, ready-to-reimburse, and unspent kickoff transactions, or a [`BridgeError`] if construction fails.
 pub fn create_round_txhandlers(
     paramset: &'static ProtocolParamset,
-    round_idx: usize,
+    round_idx: RoundIndex,
     operator_data: &OperatorData,
     kickoff_winternitz_keys: &KickoffWinternitzKeys,
     prev_ready_to_reimburse: Option<&TxHandler>,
@@ -920,7 +938,7 @@ pub fn create_round_txhandlers(
 
     let (round_txhandler, ready_to_reimburse_txhandler) = match prev_ready_to_reimburse {
         Some(prev_ready_to_reimburse_txhandler) => {
-            if round_idx == 0 {
+            if round_idx == RoundIndex::Collateral || round_idx == RoundIndex::Round(0) {
                 return Err(
                     eyre::eyre!("Round 0 cannot be created from prev_ready_to_reimburse").into(),
                 );
@@ -931,7 +949,7 @@ pub fn create_round_txhandlers(
                     prev_ready_to_reimburse_txhandler
                         .get_spendable_output(UtxoVout::BurnConnector)?,
                 )),
-                kickoff_winternitz_keys.get_keys_for_round(round_idx),
+                kickoff_winternitz_keys.get_keys_for_round(round_idx)?,
                 paramset,
             )?;
 
@@ -1079,11 +1097,11 @@ mod tests {
                 let tx = tx.clone();
                 let operator_xonly_pk = operator_xonly_pks[operator_idx];
                 async move {
-                    for round_idx in 0..paramset.num_round_txs {
+                    for round_idx in RoundIndex::iter_rounds(paramset.num_round_txs) {
                         for &kickoff_idx in &utxo_idxs[operator_idx] {
                             let kickoff_data = KickoffData {
                                 operator_xonly_pk,
-                                round_idx: round_idx as u32,
+                                round_idx,
                                 kickoff_idx: kickoff_idx as u32,
                             };
                             let start_time = std::time::Instant::now();
@@ -1164,11 +1182,11 @@ mod tests {
                 let operator_xonly_pks = operator_xonly_pks.clone();
                 async move {
                     for (operator_idx, utxo_idx) in utxo_idxs.iter().enumerate() {
-                        for round_idx in 0..paramset.num_round_txs {
+                        for round_idx in RoundIndex::iter_rounds(paramset.num_round_txs) {
                             for &kickoff_idx in utxo_idx {
                                 let kickoff_data = KickoffData {
                                     operator_xonly_pk: operator_xonly_pks[operator_idx],
-                                    round_idx: round_idx as u32,
+                                    round_idx,
                                     kickoff_idx: kickoff_idx as u32,
                                 };
                                 let start_time = std::time::Instant::now();

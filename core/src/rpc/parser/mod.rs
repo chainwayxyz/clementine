@@ -9,6 +9,7 @@ use crate::deposit::{
     SecurityCouncil,
 };
 use crate::errors::BridgeError;
+use crate::operator::RoundIndex;
 use crate::utils::{FeePayingType, RbfSigningInfo};
 use bitcoin::hashes::{sha256d, FromSliceError, Hash};
 use bitcoin::secp256k1::schnorr::Signature;
@@ -510,7 +511,7 @@ impl TryFrom<clementine::KickoffId> for crate::deposit::KickoffData {
 
         Ok(crate::deposit::KickoffData {
             operator_xonly_pk,
-            round_idx: value.round_idx,
+            round_idx: RoundIndex::from_index(value.round_idx as usize),
             kickoff_idx: value.kickoff_idx,
         })
     }
@@ -520,7 +521,7 @@ impl From<crate::deposit::KickoffData> for clementine::KickoffId {
     fn from(value: crate::deposit::KickoffData) -> Self {
         clementine::KickoffId {
             operator_xonly_pk: value.operator_xonly_pk.serialize().to_vec(),
-            round_idx: value.round_idx,
+            round_idx: value.round_idx.to_index() as u32,
             kickoff_idx: value.kickoff_idx,
         }
     }

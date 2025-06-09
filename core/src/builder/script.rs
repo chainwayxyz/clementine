@@ -557,6 +557,7 @@ mod tests {
     use crate::builder::address::create_taproot_address;
     use crate::config::protocol::ProtocolParamsetName;
     use crate::extended_rpc::ExtendedRpc;
+    use crate::operator::RoundIndex;
     use std::sync::Arc;
 
     use super::*;
@@ -1061,7 +1062,8 @@ mod tests {
             bitcoin::Network::Regtest,
         );
 
-        let kickoff = WinternitzDerivationPath::Kickoff(0, 0, config.protocol_paramset());
+        let kickoff =
+            WinternitzDerivationPath::Kickoff(RoundIndex::Round(0), 0, config.protocol_paramset());
         let bitvm_assert = WinternitzDerivationPath::BitvmAssert(
             64,
             3,

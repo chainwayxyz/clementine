@@ -30,6 +30,7 @@ use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::deposit::{DepositData, KickoffData};
 use crate::errors::BridgeError;
+use crate::operator::RoundIndex;
 use crate::rpc::clementine::tagged_signature::SignatureId;
 use crate::rpc::clementine::NormalSignatureKind;
 use async_stream::try_stream;
@@ -127,7 +128,7 @@ impl BridgeConfig {
 #[derive(Copy, Clone, Debug)]
 pub struct PartialSignatureInfo {
     pub operator_idx: usize,
-    pub round_idx: usize,
+    pub round_idx: RoundIndex,
     pub kickoff_utxo_idx: usize,
 }
 
@@ -150,7 +151,7 @@ pub enum TapTweakData {
 #[derive(Copy, Clone, Debug)]
 pub struct SignatureInfo {
     pub operator_idx: usize,
-    pub round_idx: usize,
+    pub round_idx: RoundIndex,
     pub kickoff_utxo_idx: usize,
     pub signature_id: SignatureId,
     pub tweak_data: TapTweakData,
@@ -160,7 +161,7 @@ pub struct SignatureInfo {
 impl PartialSignatureInfo {
     pub fn new(
         operator_idx: usize,
-        round_idx: usize,
+        round_idx: RoundIndex,
         kickoff_utxo_idx: usize,
     ) -> PartialSignatureInfo {
         PartialSignatureInfo {
@@ -235,7 +236,7 @@ pub fn create_nofn_sighash_stream(
 
             let mut txhandler_cache = TxHandlerCache::new();
 
-            for round_idx in 0..paramset.num_round_txs {
+            for round_idx in RoundIndex::iter_rounds(paramset.num_round_txs) {
                 // For each round, we have multiple kickoff_utxos to sign for the deposit.
                 for &kickoff_idx in &utxo_idxs {
                     let partial = PartialSignatureInfo::new(operator_idx, round_idx, kickoff_idx);
@@ -243,7 +244,7 @@ pub fn create_nofn_sighash_stream(
                     let context = ContractContext::new_context_for_kickoff(
                         KickoffData {
                             operator_xonly_pk: *op_xonly_pk,
-                            round_idx: round_idx as u32,
+                            round_idx,
                             kickoff_idx: kickoff_idx as u32,
                         },
                         deposit_data.clone(),
@@ -339,14 +340,14 @@ pub fn create_operator_sighash_stream(
         let operator_idx = deposit_data.get_operator_index(operator_xonly_pk)?;
 
         // For each round_tx, we have multiple kickoff_utxos as the connectors.
-        for round_idx in 0..paramset.num_round_txs {
+        for round_idx in RoundIndex::iter_rounds(paramset.num_round_txs) {
             for &kickoff_idx in &utxo_idxs {
                 let partial = PartialSignatureInfo::new(operator_idx, round_idx, kickoff_idx);
 
                 let context = ContractContext::new_context_for_kickoff(
                     KickoffData {
                         operator_xonly_pk,
-                        round_idx: round_idx as u32,
+                        round_idx,
                         kickoff_idx: kickoff_idx as u32,
                     },
                     deposit_data.clone(),
