@@ -7,7 +7,7 @@ on:
 
 jobs:
   linux_amd64_binary_extraction:
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-60
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -50,7 +50,7 @@ jobs:
 
   release:
     needs: linux_amd64_binary_extraction
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
     steps:
       - name: Download linux-amd64 Binary
         uses: actions/download-artifact@v4
