@@ -74,8 +74,8 @@ jobs:
 
       - name: Release
         uses: softprops/action-gh-release@v2
-        draft: ${{ contains(github.ref, 'tmp') }}
         with:
+          draft: ${{ contains(github.ref, 'tmp') }}
           files: |
             release/clementine-core-${{ github.ref_name }}-linux-amd64
             release/clementine-cli-${{ github.ref_name }}-linux-amd64
