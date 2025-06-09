@@ -379,7 +379,8 @@
 <a href="#378" id="378">378</a>
 <a href="#379" id="379">379</a>
 <a href="#380" id="380">380</a>
-<a href="#381" id="381">381</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Sighash Builder
+<a href="#381" id="381">381</a>
+<a href="#382" id="382">382</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Sighash Builder
 //!
 //! This module provides functions and types for constructing signature hashes (sighashes) for the transactions in the Clementine bridge protocol.
 //! Sighash is the message that is signed by the private key of the signer.
@@ -411,6 +412,7 @@
 <span class="kw">use </span><span class="kw">crate</span>::database::Database;
 <span class="kw">use </span><span class="kw">crate</span>::deposit::{DepositData, KickoffData};
 <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
+<span class="kw">use </span><span class="kw">crate</span>::operator::RoundIndex;
 <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::tagged_signature::SignatureId;
 <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::NormalSignatureKind;
 <span class="kw">use </span>async_stream::try_stream;
@@ -508,7 +510,7 @@
 </span><span class="attr">#[derive(Copy, Clone, Debug)]
 </span><span class="kw">pub struct </span>PartialSignatureInfo {
     <span class="kw">pub </span>operator_idx: usize,
-    <span class="kw">pub </span>round_idx: usize,
+    <span class="kw">pub </span>round_idx: RoundIndex,
     <span class="kw">pub </span>kickoff_utxo_idx: usize,
 }
 
@@ -531,7 +533,7 @@
 </span><span class="attr">#[derive(Copy, Clone, Debug)]
 </span><span class="kw">pub struct </span>SignatureInfo {
     <span class="kw">pub </span>operator_idx: usize,
-    <span class="kw">pub </span>round_idx: usize,
+    <span class="kw">pub </span>round_idx: RoundIndex,
     <span class="kw">pub </span>kickoff_utxo_idx: usize,
     <span class="kw">pub </span>signature_id: SignatureId,
     <span class="kw">pub </span>tweak_data: TapTweakData,
@@ -541,7 +543,7 @@
 <span class="kw">impl </span>PartialSignatureInfo {
     <span class="kw">pub fn </span>new(
         operator_idx: usize,
-        round_idx: usize,
+        round_idx: RoundIndex,
         kickoff_utxo_idx: usize,
     ) -&gt; PartialSignatureInfo {
         PartialSignatureInfo {
@@ -616,7 +618,7 @@
 
             <span class="kw">let </span><span class="kw-2">mut </span>txhandler_cache = TxHandlerCache::new();
 
-            <span class="kw">for </span>round_idx <span class="kw">in </span><span class="number">0</span>..paramset.num_round_txs {
+            <span class="kw">for </span>round_idx <span class="kw">in </span>RoundIndex::iter_rounds(paramset.num_round_txs) {
                 <span class="comment">// For each round, we have multiple kickoff_utxos to sign for the deposit.
                 </span><span class="kw">for </span><span class="kw-2">&amp;</span>kickoff_idx <span class="kw">in </span><span class="kw-2">&amp;</span>utxo_idxs {
                     <span class="kw">let </span>partial = PartialSignatureInfo::new(operator_idx, round_idx, kickoff_idx);
@@ -624,7 +626,7 @@
                     <span class="kw">let </span>context = ContractContext::new_context_for_kickoff(
                         KickoffData {
                             operator_xonly_pk: <span class="kw-2">*</span>op_xonly_pk,
-                            round_idx: round_idx <span class="kw">as </span>u32,
+                            round_idx,
                             kickoff_idx: kickoff_idx <span class="kw">as </span>u32,
                         },
                         deposit_data.clone(),
@@ -720,14 +722,14 @@
         <span class="kw">let </span>operator_idx = deposit_data.get_operator_index(operator_xonly_pk)<span class="question-mark">?</span>;
 
         <span class="comment">// For each round_tx, we have multiple kickoff_utxos as the connectors.
-        </span><span class="kw">for </span>round_idx <span class="kw">in </span><span class="number">0</span>..paramset.num_round_txs {
+        </span><span class="kw">for </span>round_idx <span class="kw">in </span>RoundIndex::iter_rounds(paramset.num_round_txs) {
             <span class="kw">for </span><span class="kw-2">&amp;</span>kickoff_idx <span class="kw">in </span><span class="kw-2">&amp;</span>utxo_idxs {
                 <span class="kw">let </span>partial = PartialSignatureInfo::new(operator_idx, round_idx, kickoff_idx);
 
                 <span class="kw">let </span>context = ContractContext::new_context_for_kickoff(
                     KickoffData {
                         operator_xonly_pk,
-                        round_idx: round_idx <span class="kw">as </span>u32,
+                        round_idx,
                         kickoff_idx: kickoff_idx <span class="kw">as </span>u32,
                     },
                     deposit_data.clone(),

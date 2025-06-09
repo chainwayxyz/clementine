@@ -2290,7 +2290,75 @@
 <a href="#2289" id="2289">2289</a>
 <a href="#2290" id="2290">2290</a>
 <a href="#2291" id="2291">2291</a>
-<a href="#2292" id="2292">2292</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
+<a href="#2292" id="2292">2292</a>
+<a href="#2293" id="2293">2293</a>
+<a href="#2294" id="2294">2294</a>
+<a href="#2295" id="2295">2295</a>
+<a href="#2296" id="2296">2296</a>
+<a href="#2297" id="2297">2297</a>
+<a href="#2298" id="2298">2298</a>
+<a href="#2299" id="2299">2299</a>
+<a href="#2300" id="2300">2300</a>
+<a href="#2301" id="2301">2301</a>
+<a href="#2302" id="2302">2302</a>
+<a href="#2303" id="2303">2303</a>
+<a href="#2304" id="2304">2304</a>
+<a href="#2305" id="2305">2305</a>
+<a href="#2306" id="2306">2306</a>
+<a href="#2307" id="2307">2307</a>
+<a href="#2308" id="2308">2308</a>
+<a href="#2309" id="2309">2309</a>
+<a href="#2310" id="2310">2310</a>
+<a href="#2311" id="2311">2311</a>
+<a href="#2312" id="2312">2312</a>
+<a href="#2313" id="2313">2313</a>
+<a href="#2314" id="2314">2314</a>
+<a href="#2315" id="2315">2315</a>
+<a href="#2316" id="2316">2316</a>
+<a href="#2317" id="2317">2317</a>
+<a href="#2318" id="2318">2318</a>
+<a href="#2319" id="2319">2319</a>
+<a href="#2320" id="2320">2320</a>
+<a href="#2321" id="2321">2321</a>
+<a href="#2322" id="2322">2322</a>
+<a href="#2323" id="2323">2323</a>
+<a href="#2324" id="2324">2324</a>
+<a href="#2325" id="2325">2325</a>
+<a href="#2326" id="2326">2326</a>
+<a href="#2327" id="2327">2327</a>
+<a href="#2328" id="2328">2328</a>
+<a href="#2329" id="2329">2329</a>
+<a href="#2330" id="2330">2330</a>
+<a href="#2331" id="2331">2331</a>
+<a href="#2332" id="2332">2332</a>
+<a href="#2333" id="2333">2333</a>
+<a href="#2334" id="2334">2334</a>
+<a href="#2335" id="2335">2335</a>
+<a href="#2336" id="2336">2336</a>
+<a href="#2337" id="2337">2337</a>
+<a href="#2338" id="2338">2338</a>
+<a href="#2339" id="2339">2339</a>
+<a href="#2340" id="2340">2340</a>
+<a href="#2341" id="2341">2341</a>
+<a href="#2342" id="2342">2342</a>
+<a href="#2343" id="2343">2343</a>
+<a href="#2344" id="2344">2344</a>
+<a href="#2345" id="2345">2345</a>
+<a href="#2346" id="2346">2346</a>
+<a href="#2347" id="2347">2347</a>
+<a href="#2348" id="2348">2348</a>
+<a href="#2349" id="2349">2349</a>
+<a href="#2350" id="2350">2350</a>
+<a href="#2351" id="2351">2351</a>
+<a href="#2352" id="2352">2352</a>
+<a href="#2353" id="2353">2353</a>
+<a href="#2354" id="2354">2354</a>
+<a href="#2355" id="2355">2355</a>
+<a href="#2356" id="2356">2356</a>
+<a href="#2357" id="2357">2357</a>
+<a href="#2358" id="2358">2358</a>
+<a href="#2359" id="2359">2359</a>
+<a href="#2360" id="2360">2360</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
 <span class="kw">use </span><span class="kw">crate</span>::bitcoin_syncer::{BitcoinSyncer, BlockHandler, FinalizedBlockFetcherTask};
 <span class="kw">use </span><span class="kw">crate</span>::bitvm_client::ClementineBitVMPublicKeys;
 <span class="kw">use </span><span class="kw">crate</span>::builder::address::{create_taproot_address, taproot_builder_with_scripts};
@@ -2303,6 +2371,7 @@
     create_nofn_sighash_stream, create_operator_sighash_stream, PartialSignatureInfo, SignatureInfo,
 };
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::deposit_signature_owner::EntityType;
+<span class="kw">use </span><span class="kw">crate</span>::builder::transaction::input::UtxoVout;
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::{
     create_emergency_stop_txhandler, create_move_to_vault_txhandler,
@@ -2319,6 +2388,7 @@
 <span class="kw">use </span><span class="kw">crate</span>::errors::{BridgeError, TxError};
 <span class="kw">use </span><span class="kw">crate</span>::extended_rpc::ExtendedRpc;
 <span class="kw">use </span><span class="kw">crate</span>::header_chain_prover::{HeaderChainProver, HeaderChainProverError};
+<span class="kw">use </span><span class="kw">crate</span>::operator::RoundIndex;
 <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::{NormalSignatureKind, OperatorKeys, TaggedSignature};
 <span class="kw">use </span><span class="kw">crate</span>::task::manager::BackgroundTaskManager;
 <span class="kw">use </span><span class="kw">crate</span>::task::{IntoTask, TaskExt};
@@ -2342,7 +2412,6 @@
 <span class="kw">use </span>bitvm::signatures::winternitz;
 <span class="kw">use </span>circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
 <span class="kw">use </span>circuits_lib::bridge_circuit::{deposit_constant, parse_op_return_data};
-<span class="kw">use </span>circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
 <span class="kw">use </span>eyre::{Context, ContextCompat, OptionExt, <span class="prelude-ty">Result</span>};
 <span class="attr">#[cfg(test)]
 </span><span class="kw">use </span>risc0_zkvm::is_dev_mode;
@@ -2547,7 +2616,7 @@
             reimburse_addr: wallet_reimburse_address.clone(),
         };
         <span class="kw">let </span><span class="kw-2">mut </span>cur_sig_index = <span class="number">0</span>;
-        <span class="kw">for </span>round_idx <span class="kw">in </span><span class="number">0</span>..<span class="self">self</span>.config.protocol_paramset().num_round_txs {
+        <span class="kw">for </span>round_idx <span class="kw">in </span>RoundIndex::iter_rounds(<span class="self">self</span>.config.protocol_paramset().num_round_txs) {
             <span class="kw">let </span>txhandlers = create_round_txhandlers(
                 <span class="self">self</span>.config.protocol_paramset(),
                 round_idx,
@@ -2598,23 +2667,55 @@
         <span class="prelude-val">Ok</span>(tagged_sigs)
     }
 
-    <span class="doccomment">/// Checks if all operators in verifier's db are in the deposit.
+    <span class="doccomment">/// Checks if all operators in verifier's db that are still in protocol are in the deposit.
     /// Afterwards, it checks if the given deposit outpoint is valid. First it checks if the tx exists on chain,
     /// then it checks if the amount in TxOut is equal to bridge_amount and if the script is correct.
     </span><span class="kw">async fn </span>is_deposit_valid(<span class="kw-2">&amp;</span><span class="self">self</span>, deposit_data: <span class="kw-2">&amp;mut </span>DepositData) -&gt; <span class="prelude-ty">Result</span>&lt;bool, BridgeError&gt; {
         <span class="kw">let </span>operator_xonly_pks = deposit_data.get_operators();
-        <span class="comment">// check if all operators are in the deposit
-        </span><span class="kw">let </span>are_all_operators_in_deposit = <span class="self">self
-            </span>.db
-            .get_operators(<span class="prelude-val">None</span>)
-            .<span class="kw">await</span><span class="question-mark">?
-            </span>.into_iter()
-            .all(|(xonly_pk, <span class="kw">_</span>, <span class="kw">_</span>)| operator_xonly_pks.contains(<span class="kw-2">&amp;</span>xonly_pk));
-        <span class="kw">if </span>!are_all_operators_in_deposit {
-            <span class="macro">tracing::warn!</span>(<span class="string">"All operators are not in the deposit"</span>);
-            <span class="kw">return </span><span class="prelude-val">Ok</span>(<span class="bool-val">false</span>);
+        <span class="comment">// check if all operators that still have collateral are in the deposit
+        </span><span class="kw">let </span>are_all_operators_in_deposit = <span class="self">self</span>.db.get_operators(<span class="prelude-val">None</span>).<span class="kw">await</span><span class="question-mark">?</span>;
+        <span class="kw">for </span>(xonly_pk, reimburse_addr, collateral_funding_outpoint) <span class="kw">in </span>are_all_operators_in_deposit
+        {
+            <span class="kw">let </span>operator_data = OperatorData {
+                xonly_pk,
+                collateral_funding_outpoint,
+                reimburse_addr,
+            };
+            <span class="kw">let </span>kickoff_wpks = <span class="self">self
+                </span>.db
+                .get_operator_kickoff_winternitz_public_keys(<span class="prelude-val">None</span>, xonly_pk)
+                .<span class="kw">await</span><span class="question-mark">?</span>;
+            <span class="kw">let </span>kickoff_wpks = KickoffWinternitzKeys::new(
+                kickoff_wpks,
+                <span class="self">self</span>.config.protocol_paramset().num_kickoffs_per_round,
+                <span class="self">self</span>.config.protocol_paramset().num_round_txs,
+            );
+            <span class="kw">let </span>is_collateral_usable = <span class="self">self
+                </span>.rpc
+                .collateral_check(
+                    <span class="kw-2">&amp;</span>operator_data,
+                    <span class="kw-2">&amp;</span>kickoff_wpks,
+                    <span class="self">self</span>.config.protocol_paramset(),
+                )
+                .<span class="kw">await</span><span class="question-mark">?</span>;
+            <span class="comment">// if operator is not in deposit but its collateral is still on chain, return false
+            </span><span class="kw">if </span>!operator_xonly_pks.contains(<span class="kw-2">&amp;</span>xonly_pk) &amp;&amp; is_collateral_usable {
+                <span class="macro">tracing::warn!</span>(
+                    <span class="string">"Operator {:?} is is still in protocol but not in the deposit"</span>,
+                    xonly_pk
+                );
+                <span class="kw">return </span><span class="prelude-val">Ok</span>(<span class="bool-val">false</span>);
+            }
+            <span class="comment">// if operator is in deposit, but the collateral is not usable, return false
+            </span><span class="kw">if </span>operator_xonly_pks.contains(<span class="kw-2">&amp;</span>xonly_pk) &amp;&amp; !is_collateral_usable {
+                <span class="macro">tracing::warn!</span>(
+                    <span class="string">"Operator {:?} is in the deposit but its collateral is spent, operator cannot fulfill withdrawals anymore"</span>,
+                    xonly_pk
+                );
+                <span class="kw">return </span><span class="prelude-val">Ok</span>(<span class="bool-val">false</span>);
+            }
         }
-        <span class="comment">// check if deposit script is valid
+        <span class="comment">// check if deposit script in deposit_outpoint is valid
         </span><span class="kw">let </span>deposit_scripts: Vec&lt;ScriptBuf&gt; = deposit_data
             .get_deposit_scripts(<span class="self">self</span>.config.protocol_paramset())<span class="question-mark">?
             </span>.into_iter()
@@ -2669,14 +2770,38 @@
         operator_winternitz_public_keys: Vec&lt;winternitz::PublicKey&gt;,
         unspent_kickoff_sigs: Vec&lt;Signature&gt;,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
+        <span class="kw">let </span>operator_data = OperatorData {
+            xonly_pk: operator_xonly_pk,
+            collateral_funding_outpoint,
+            reimburse_addr: wallet_reimburse_address,
+        };
+
         <span class="kw">let </span>kickoff_wpks = KickoffWinternitzKeys::new(
             operator_winternitz_public_keys,
             <span class="self">self</span>.config.protocol_paramset().num_kickoffs_per_round,
+            <span class="self">self</span>.config.protocol_paramset().num_round_txs,
         );
+
+        <span class="kw">if </span>!<span class="self">self
+            </span>.rpc
+            .collateral_check(
+                <span class="kw-2">&amp;</span>operator_data,
+                <span class="kw-2">&amp;</span>kickoff_wpks,
+                <span class="self">self</span>.config.protocol_paramset(),
+            )
+            .<span class="kw">await</span><span class="question-mark">?
+        </span>{
+            <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(
+                <span class="string">"Collateral utxo of operator {:?} does not exist or is not usable in bitcoin, cannot set operator"</span>,
+                operator_xonly_pk,
+            )
+            .into());
+        }
+
         <span class="kw">let </span>tagged_sigs = <span class="self">self</span>.verify_unspent_kickoff_sigs(
             collateral_funding_outpoint,
             operator_xonly_pk,
-            wallet_reimburse_address.clone(),
+            operator_data.reimburse_addr.clone(),
             unspent_kickoff_sigs,
             <span class="kw-2">&amp;</span>kickoff_wpks,
         )<span class="question-mark">?</span>;
@@ -2688,7 +2813,7 @@
             .set_operator(
                 <span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx),
                 operator_xonly_pk,
-                <span class="kw-2">&amp;</span>wallet_reimburse_address,
+                <span class="kw-2">&amp;</span>operator_data.reimburse_addr,
                 collateral_funding_outpoint,
             )
             .<span class="kw">await</span><span class="question-mark">?</span>;
@@ -2710,18 +2835,17 @@
 
         <span class="kw">for </span>(round_idx, sigs) <span class="kw">in </span>tagged_sigs_per_round.into_iter().enumerate() {
             <span class="self">self</span>.db
-                .set_unspent_kickoff_sigs(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx), operator_xonly_pk, round_idx, sigs)
+                .set_unspent_kickoff_sigs(
+                    <span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx),
+                    operator_xonly_pk,
+                    RoundIndex::Round(round_idx),
+                    sigs,
+                )
                 .<span class="kw">await</span><span class="question-mark">?</span>;
         }
 
         <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
         </span>{
-            <span class="kw">let </span>operator_data = OperatorData {
-                xonly_pk: operator_xonly_pk,
-                collateral_funding_outpoint,
-                reimburse_addr: wallet_reimburse_address,
-            };
-
             <span class="kw">crate</span>::states::StateManager::&lt;<span class="self">Self</span>&gt;::dispatch_new_round_machine(
                 <span class="self">self</span>.db.clone(),
                 <span class="kw-2">&amp;mut </span>dbtx,
@@ -2928,12 +3052,12 @@
                     );
                     num_kickoffs_per_round
                 ];
-                num_round_txs
-            ];
+                num_round_txs + <span class="number">1
+            </span>];
             num_operators
         ];
 
-        <span class="kw">let </span><span class="kw-2">mut </span>kickoff_txids = <span class="macro">vec!</span>[<span class="macro">vec!</span>[<span class="macro">vec!</span>[]; num_round_txs]; num_operators];
+        <span class="kw">let </span><span class="kw-2">mut </span>kickoff_txids = <span class="macro">vec!</span>[<span class="macro">vec!</span>[<span class="macro">vec!</span>[]; num_round_txs + <span class="number">1</span>]; num_operators];
 
         <span class="comment">// ------ N-of-N SIGNATURES VERIFICATION ------
 
@@ -2952,7 +3076,8 @@
             } = <span class="kw-2">&amp;</span>typed_sighash.<span class="number">1</span>;
 
             <span class="kw">if </span>signature_id == NormalSignatureKind::YieldKickoffTxid.into() {
-                kickoff_txids[operator_idx][round_idx].push((kickoff_txid, kickoff_utxo_idx));
+                kickoff_txids[operator_idx][round_idx.to_index()]
+                    .push((kickoff_txid, kickoff_utxo_idx));
                 <span class="kw">continue</span>;
             }
 
@@ -2982,7 +3107,7 @@
                 signature: sig.serialize().to_vec(),
                 signature_id: <span class="prelude-val">Some</span>(signature_id),
             };
-            verified_sigs[operator_idx][round_idx][kickoff_utxo_idx].push(tagged_sig);
+            verified_sigs[operator_idx][round_idx.to_index()][kickoff_utxo_idx].push(tagged_sig);
 
             <span class="macro">tracing::debug!</span>(<span class="string">"Final Signature Verified"</span>);
 
@@ -3078,7 +3203,8 @@
                     signature: operator_sig.serialize().to_vec(),
                     signature_id: <span class="prelude-val">Some</span>(signature_id),
                 };
-                verified_sigs[operator_idx][round_idx][kickoff_utxo_idx].push(tagged_sig);
+                verified_sigs[operator_idx][round_idx.to_index()][kickoff_utxo_idx]
+                    .push(tagged_sig);
 
                 op_sig_count += <span class="number">1</span>;
                 total_op_sig_count += <span class="number">1</span>;
@@ -3188,13 +3314,18 @@
             .zip(verified_sigs.into_iter())
             .enumerate()
         {
-            <span class="kw">for </span>(round_idx, <span class="kw-2">mut </span>op_round_sigs) <span class="kw">in </span>operator_sigs.into_iter().enumerate() {
+            <span class="comment">// skip indexes until round 0 (currently 0th index corresponds to collateral, which doesn't have any sigs)
+            </span><span class="kw">for </span>(round_idx, <span class="kw-2">mut </span>op_round_sigs) <span class="kw">in </span>operator_sigs
+                .into_iter()
+                .enumerate()
+                .skip(RoundIndex::Round(<span class="number">0</span>).to_index())
+            {
                 <span class="kw">if </span>kickoff_txids[operator_idx][round_idx].len()
                     != <span class="self">self</span>.config.protocol_paramset().num_signed_kickoffs
                 {
                     <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(
                         <span class="string">"Number of signed kickoff utxos for operator: {}, round: {} is wrong. Expected: {}, got: {}"</span>,
-                            operator_xonly_pk, round_idx, <span class="self">self</span>.config.protocol_paramset().num_signed_kickoffs, kickoff_txids[operator_idx][round_idx].len()
+                                operator_xonly_pk, round_idx, <span class="self">self</span>.config.protocol_paramset().num_signed_kickoffs, kickoff_txids[operator_idx][round_idx].len()
                     ).into());
                 }
                 <span class="kw">for </span>(kickoff_txid, kickoff_idx) <span class="kw">in </span><span class="kw-2">&amp;</span>kickoff_txids[operator_idx][round_idx] {
@@ -3202,8 +3333,8 @@
                         <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(
                             <span class="string">"Kickoff txid not found for {}, {}, {}"</span>,
                             operator_xonly_pk,
-                            round_idx,
-                            kickoff_idx
+                            round_idx, <span class="comment">// rounds start from 1
+                            </span>kickoff_idx
                         )
                         .into());
                     }
@@ -3211,8 +3342,8 @@
                     <span class="macro">tracing::trace!</span>(
                         <span class="string">"Setting deposit signatures for {:?}, {:?}, {:?} {:?}"</span>,
                         operator_xonly_pk,
-                        round_idx,
-                        kickoff_idx,
+                        round_idx, <span class="comment">// rounds start from 1
+                        </span>kickoff_idx,
                         kickoff_txid
                     );
 
@@ -3221,7 +3352,7 @@
                             <span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx),
                             deposit_data.get_deposit_outpoint(),
                             operator_xonly_pk,
-                            round_idx,
+                            RoundIndex::from_index(round_idx),
                             <span class="kw-2">*</span>kickoff_idx,
                             kickoff_txid.expect(<span class="string">"Kickoff txid must be Some"</span>),
                             std::mem::take(<span class="kw-2">&amp;mut </span>op_round_sigs[<span class="kw-2">*</span>kickoff_idx]),
@@ -3554,6 +3685,7 @@
             deposit_outpoint: deposit_data.get_deposit_outpoint(),
             kickoff_data,
         };
+
         <span class="kw">let </span>signed_txs = create_and_sign_txs(
             <span class="self">self</span>.db.clone(),
             <span class="kw-2">&amp;</span><span class="self">self</span>.signer,
@@ -3870,7 +4002,7 @@
 
     <span class="kw">async fn </span>send_unspent_kickoff_connectors(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
-        round_idx: u32,
+        round_idx: RoundIndex,
         operator_xonly_pk: XOnlyPublicKey,
         used_kickoffs: HashSet&lt;usize&gt;,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
@@ -3950,7 +4082,9 @@
 
         <span class="kw">let </span>vout = kickoff_data.kickoff_idx + <span class="number">1</span>;
 
-        <span class="kw">let </span>watchtower_challenge_start_idx = (FIRST_FIVE_OUTPUTS + NUMBER_OF_ASSERT_TXS) <span class="kw">as </span>u16;
+        <span class="kw">let </span>watchtower_challenge_start_idx =
+            u16::try_from(UtxoVout::WatchtowerChallenge(<span class="number">0</span>).get_vout())
+                .wrap_err(<span class="string">"Watchtower challenge start index overflow"</span>)<span class="question-mark">?</span>;
 
         <span class="kw">let </span>secp = Secp256k1::verification_only();
 
@@ -3995,8 +4129,10 @@
             </span>.clone();
 
         <span class="kw">let </span>payout_tx_blockhash_pk = kickoff_winternitz_keys
-            .get_keys_for_round(kickoff_data.round_idx <span class="kw">as </span>usize)[kickoff_data.kickoff_idx <span class="kw">as </span>usize]
-            .clone();
+            .get_keys_for_round(kickoff_data.round_idx)<span class="question-mark">?
+            </span>.get(kickoff_data.kickoff_idx <span class="kw">as </span>usize)
+            .ok_or(TxError::IndexOverflow)<span class="question-mark">?
+            </span>.clone();
 
         <span class="kw">let </span>replaceable_additional_disprove_script = reimburse_db_cache
             .get_replaceable_additional_disprove_script()
@@ -4135,7 +4271,7 @@
                 <span class="prelude-val">None</span>,
                 deposit_data.get_deposit_outpoint(),
                 kickoff_data.operator_xonly_pk,
-                kickoff_data.round_idx <span class="kw">as </span>usize,
+                kickoff_data.round_idx,
                 kickoff_data.kickoff_idx <span class="kw">as </span>usize,
             )
             .<span class="kw">await</span><span class="question-mark">?

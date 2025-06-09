@@ -1365,7 +1365,25 @@
 <a href="#1364" id="1364">1364</a>
 <a href="#1365" id="1365">1365</a>
 <a href="#1366" id="1366">1366</a>
-<a href="#1367" id="1367">1367</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Transaction Handler Creation Logic
+<a href="#1367" id="1367">1367</a>
+<a href="#1368" id="1368">1368</a>
+<a href="#1369" id="1369">1369</a>
+<a href="#1370" id="1370">1370</a>
+<a href="#1371" id="1371">1371</a>
+<a href="#1372" id="1372">1372</a>
+<a href="#1373" id="1373">1373</a>
+<a href="#1374" id="1374">1374</a>
+<a href="#1375" id="1375">1375</a>
+<a href="#1376" id="1376">1376</a>
+<a href="#1377" id="1377">1377</a>
+<a href="#1378" id="1378">1378</a>
+<a href="#1379" id="1379">1379</a>
+<a href="#1380" id="1380">1380</a>
+<a href="#1381" id="1381">1381</a>
+<a href="#1382" id="1382">1382</a>
+<a href="#1383" id="1383">1383</a>
+<a href="#1384" id="1384">1384</a>
+<a href="#1385" id="1385">1385</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Transaction Handler Creation Logic
 //!
 //! This module provides the logic for constructing, caching, and managing transaction handlers (`TxHandler`) for all transaction types in the Clementine bridge.
 //!
@@ -1402,7 +1420,7 @@
 <span class="kw">use </span><span class="kw">crate</span>::database::Database;
 <span class="kw">use </span><span class="kw">crate</span>::deposit::{DepositData, KickoffData, OperatorData};
 <span class="kw">use </span><span class="kw">crate</span>::errors::{BridgeError, TxError};
-<span class="kw">use </span><span class="kw">crate</span>::operator::PublicHash;
+<span class="kw">use </span><span class="kw">crate</span>::operator::{PublicHash, RoundIndex};
 <span class="kw">use </span>bitcoin::hashes::Hash;
 <span class="kw">use </span>bitcoin::key::Secp256k1;
 <span class="kw">use </span>bitcoin::taproot::TaprootBuilder;
@@ -1432,6 +1450,7 @@
 </span><span class="kw">pub struct </span>KickoffWinternitzKeys {
     <span class="kw">pub </span>keys: Vec&lt;bitvm::signatures::winternitz::PublicKey&gt;,
     num_kickoffs_per_round: usize,
+    num_rounds: usize,
 }
 
 <span class="kw">impl </span>KickoffWinternitzKeys {
@@ -1439,10 +1458,12 @@
     </span><span class="kw">pub fn </span>new(
         keys: Vec&lt;bitvm::signatures::winternitz::PublicKey&gt;,
         num_kickoffs_per_round: usize,
+        num_rounds: usize,
     ) -&gt; <span class="self">Self </span>{
         <span class="self">Self </span>{
             keys,
             num_kickoffs_per_round,
+            num_rounds,
         }
     }
 
@@ -1455,10 +1476,23 @@
     /// A slice of Winternitz public keys for the given round.
     </span><span class="kw">pub fn </span>get_keys_for_round(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
-        round_idx: usize,
-    ) -&gt; <span class="kw-2">&amp;</span>[bitvm::signatures::winternitz::PublicKey] {
-        <span class="kw-2">&amp;</span><span class="self">self</span>.keys
-            [round_idx * <span class="self">self</span>.num_kickoffs_per_round..(round_idx + <span class="number">1</span>) * <span class="self">self</span>.num_kickoffs_per_round]
+        round_idx: RoundIndex,
+    ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="kw-2">&amp;</span>[bitvm::signatures::winternitz::PublicKey], TxError&gt; {
+        <span class="comment">// 0th round is the collateral, there are no keys for the 0th round
+        // Additionally there are no keys after num_rounds + 1, +1 is because we need additional round to generate
+        // reimbursement connectors of previous round
+        </span><span class="kw">if </span>round_idx == RoundIndex::Collateral || round_idx.to_index() &gt; <span class="self">self</span>.num_rounds + <span class="number">1 </span>{
+            <span class="kw">return </span><span class="prelude-val">Err</span>(TxError::InvalidRoundIndex(round_idx));
+        }
+        <span class="kw">let </span>start_idx = (round_idx.to_index() <span class="kw">as </span>usize)
+            .checked_sub(<span class="number">1</span>) <span class="comment">// 0th round is the collateral, there are no keys for the 0th round
+            </span>.ok_or(TxError::IndexOverflow)<span class="question-mark">?
+            </span>.checked_mul(<span class="self">self</span>.num_kickoffs_per_round)
+            .ok_or(TxError::IndexOverflow)<span class="question-mark">?</span>;
+        <span class="kw">let </span>end_idx = start_idx
+            .checked_add(<span class="self">self</span>.num_kickoffs_per_round)
+            .ok_or(TxError::IndexOverflow)<span class="question-mark">?</span>;
+        <span class="prelude-val">Ok</span>(<span class="kw-2">&amp;</span><span class="self">self</span>.keys[start_idx..end_idx])
     }
 }
 
@@ -1599,6 +1633,7 @@
                         .<span class="kw">await
                         </span>.wrap_err(<span class="string">"Failed to get kickoff winternitz keys from database"</span>)<span class="question-mark">?</span>,
                     <span class="self">self</span>.paramset.num_kickoffs_per_round,
+                    <span class="self">self</span>.paramset.num_round_txs,
                 ));
                 <span class="prelude-val">Ok</span>(<span class="self">self
                     </span>.kickoff_winternitz_keys
@@ -1729,7 +1764,7 @@
 </span><span class="kw">pub struct </span>ContractContext {
     <span class="doccomment">/// required
     </span>operator_xonly_pk: XOnlyPublicKey,
-    round_idx: u32,
+    round_idx: RoundIndex,
     paramset: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>ProtocolParamset,
     <span class="doccomment">/// optional (only used for after kickoff)
     </span>kickoff_idx: <span class="prelude-ty">Option</span>&lt;u32&gt;,
@@ -1741,7 +1776,7 @@
     <span class="doccomment">/// Contains all necessary context for creating txhandlers for a specific operator and collateral chain
     </span><span class="kw">pub fn </span>new_context_for_round(
         operator_xonly_pk: XOnlyPublicKey,
-        round_idx: u32,
+        round_idx: RoundIndex,
         paramset: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>ProtocolParamset,
     ) -&gt; <span class="self">Self </span>{
         <span class="self">Self </span>{
@@ -1918,12 +1953,11 @@
     } = context;
 
     <span class="kw">let </span><span class="kw-2">mut </span>txhandlers = txhandler_cache.get_cached_txs();
-
     <span class="kw">if </span>!txhandlers.contains_key(<span class="kw-2">&amp;</span>TransactionType::Round) {
         <span class="comment">// create round tx, ready to reimburse tx, and unspent kickoff txs if not in cache
         </span><span class="kw">let </span>round_txhandlers = create_round_txhandlers(
             paramset,
-            round_idx <span class="kw">as </span>usize,
+            round_idx,
             <span class="kw-2">&amp;</span>operator_data,
             <span class="kw-2">&amp;</span>kickoff_winternitz_keys,
             txhandler_cache.get_prev_ready_to_reimburse(),
@@ -1951,7 +1985,7 @@
             get_txhandler(<span class="kw-2">&amp;</span>txhandlers, TransactionType::ReadyToReimburse)<span class="question-mark">?
                 </span>.get_spendable_output(UtxoVout::BurnConnector)<span class="question-mark">?</span>,
         )),
-        kickoff_winternitz_keys.get_keys_for_round(round_idx <span class="kw">as </span>usize + <span class="number">1</span>),
+        kickoff_winternitz_keys.get_keys_for_round(round_idx.next_round())<span class="question-mark">?</span>,
         paramset,
     )<span class="question-mark">?</span>;
 
@@ -2029,9 +2063,11 @@
         deposit_data.get_deposit_outpoint(),
     );
 
-    <span class="kw">let </span>payout_tx_blockhash_pk = kickoff_winternitz_keys.get_keys_for_round(round_idx <span class="kw">as </span>usize)
-        [kickoff_data.kickoff_idx <span class="kw">as </span>usize]
-        .clone();
+    <span class="kw">let </span>payout_tx_blockhash_pk = kickoff_winternitz_keys
+        .get_keys_for_round(round_idx)<span class="question-mark">?
+        </span>.get(kickoff_data.kickoff_idx <span class="kw">as </span>usize)
+        .ok_or(TxError::IndexOverflow)<span class="question-mark">?
+        </span>.clone();
 
     <span class="kw">let </span>additional_disprove_script = db_cache
         .get_replaceable_additional_disprove_script()
@@ -2278,7 +2314,7 @@
 /// A vector of [`TxHandler`] for the round, ready-to-reimburse, and unspent kickoff transactions, or a [`BridgeError`] if construction fails.
 </span><span class="kw">pub fn </span>create_round_txhandlers(
     paramset: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>ProtocolParamset,
-    round_idx: usize,
+    round_idx: RoundIndex,
     operator_data: <span class="kw-2">&amp;</span>OperatorData,
     kickoff_winternitz_keys: <span class="kw-2">&amp;</span>KickoffWinternitzKeys,
     prev_ready_to_reimburse: <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span>TxHandler&gt;,
@@ -2287,7 +2323,7 @@
 
     <span class="kw">let </span>(round_txhandler, ready_to_reimburse_txhandler) = <span class="kw">match </span>prev_ready_to_reimburse {
         <span class="prelude-val">Some</span>(prev_ready_to_reimburse_txhandler) =&gt; {
-            <span class="kw">if </span>round_idx == <span class="number">0 </span>{
+            <span class="kw">if </span>round_idx == RoundIndex::Collateral || round_idx == RoundIndex::Round(<span class="number">0</span>) {
                 <span class="kw">return </span><span class="prelude-val">Err</span>(
                     <span class="macro">eyre::eyre!</span>(<span class="string">"Round 0 cannot be created from prev_ready_to_reimburse"</span>).into(),
                 );
@@ -2298,7 +2334,7 @@
                     prev_ready_to_reimburse_txhandler
                         .get_spendable_output(UtxoVout::BurnConnector)<span class="question-mark">?</span>,
                 )),
-                kickoff_winternitz_keys.get_keys_for_round(round_idx),
+                kickoff_winternitz_keys.get_keys_for_round(round_idx)<span class="question-mark">?</span>,
                 paramset,
             )<span class="question-mark">?</span>;
 
@@ -2446,11 +2482,11 @@
                 <span class="kw">let </span>tx = tx.clone();
                 <span class="kw">let </span>operator_xonly_pk = operator_xonly_pks[operator_idx];
                 <span class="kw">async move </span>{
-                    <span class="kw">for </span>round_idx <span class="kw">in </span><span class="number">0</span>..paramset.num_round_txs {
+                    <span class="kw">for </span>round_idx <span class="kw">in </span>RoundIndex::iter_rounds(paramset.num_round_txs) {
                         <span class="kw">for </span><span class="kw-2">&amp;</span>kickoff_idx <span class="kw">in </span><span class="kw-2">&amp;</span>utxo_idxs[operator_idx] {
                             <span class="kw">let </span>kickoff_data = KickoffData {
                                 operator_xonly_pk,
-                                round_idx: round_idx <span class="kw">as </span>u32,
+                                round_idx,
                                 kickoff_idx: kickoff_idx <span class="kw">as </span>u32,
                             };
                             <span class="kw">let </span>start_time = std::time::Instant::now();
@@ -2531,11 +2567,11 @@
                 <span class="kw">let </span>operator_xonly_pks = operator_xonly_pks.clone();
                 <span class="kw">async move </span>{
                     <span class="kw">for </span>(operator_idx, utxo_idx) <span class="kw">in </span>utxo_idxs.iter().enumerate() {
-                        <span class="kw">for </span>round_idx <span class="kw">in </span><span class="number">0</span>..paramset.num_round_txs {
+                        <span class="kw">for </span>round_idx <span class="kw">in </span>RoundIndex::iter_rounds(paramset.num_round_txs) {
                             <span class="kw">for </span><span class="kw-2">&amp;</span>kickoff_idx <span class="kw">in </span>utxo_idx {
                                 <span class="kw">let </span>kickoff_data = KickoffData {
                                     operator_xonly_pk: operator_xonly_pks[operator_idx],
-                                    round_idx: round_idx <span class="kw">as </span>u32,
+                                    round_idx,
                                     kickoff_idx: kickoff_idx <span class="kw">as </span>u32,
                                 };
                                 <span class="kw">let </span>start_time = std::time::Instant::now();

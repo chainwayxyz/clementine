@@ -1175,7 +1175,9 @@
 <a href="#1174" id="1174">1174</a>
 <a href="#1175" id="1175">1175</a>
 <a href="#1176" id="1176">1176</a>
-<a href="#1177" id="1177">1177</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Bitcoin Script Construction
+<a href="#1177" id="1177">1177</a>
+<a href="#1178" id="1178">1178</a>
+<a href="#1179" id="1179">1179</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Bitcoin Script Construction
 //!
 //! This module provides a collection of builders for creating various Bitcoin
 //! scripts utilized within the Clementine bridge. It defines a `SpendableScript`
@@ -1734,6 +1736,7 @@
     <span class="kw">use </span><span class="kw">crate</span>::builder::address::create_taproot_address;
     <span class="kw">use </span><span class="kw">crate</span>::config::protocol::ProtocolParamsetName;
     <span class="kw">use </span><span class="kw">crate</span>::extended_rpc::ExtendedRpc;
+    <span class="kw">use </span><span class="kw">crate</span>::operator::RoundIndex;
     <span class="kw">use </span>std::sync::Arc;
 
     <span class="kw">use super</span>::<span class="kw-2">*</span>;
@@ -2238,7 +2241,8 @@
             bitcoin::Network::Regtest,
         );
 
-        <span class="kw">let </span>kickoff = WinternitzDerivationPath::Kickoff(<span class="number">0</span>, <span class="number">0</span>, config.protocol_paramset());
+        <span class="kw">let </span>kickoff =
+            WinternitzDerivationPath::Kickoff(RoundIndex::Round(<span class="number">0</span>), <span class="number">0</span>, config.protocol_paramset());
         <span class="kw">let </span>bitvm_assert = WinternitzDerivationPath::BitvmAssert(
             <span class="number">64</span>,
             <span class="number">3</span>,

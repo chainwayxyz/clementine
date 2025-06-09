@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"struct":["Operator","OperatorServer"],"type":["PublicHash","SecretPreimage"]};
+window.SIDEBAR_ITEMS = {"enum":["RoundIndex"],"struct":["Operator","OperatorServer"],"type":["PublicHash","SecretPreimage"]};

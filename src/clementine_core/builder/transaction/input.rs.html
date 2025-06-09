@@ -343,7 +343,13 @@
 <a href="#342" id="342">342</a>
 <a href="#343" id="343">343</a>
 <a href="#344" id="344">344</a>
-<a href="#345" id="345">345</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Transaction Input Types and Utilities
+<a href="#345" id="345">345</a>
+<a href="#346" id="346">346</a>
+<a href="#347" id="347">347</a>
+<a href="#348" id="348">348</a>
+<a href="#349" id="349">349</a>
+<a href="#350" id="350">350</a>
+<a href="#351" id="351">351</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Transaction Input Types and Utilities
 //!
 //! This module defines types and utilities for representing and handling transaction inputs used in [`TxHandler`].
 //! It provides abstractions for spendable inputs, input errors, correctness checks, supporting Taproot and script path spends.
@@ -419,6 +425,10 @@
     </span>ReimburseInRound(usize, <span class="kw-2">&amp;</span><span class="lifetime">'static </span>ProtocolParamset),
     <span class="doccomment">/// The vout of the kickoff utxo in RoundTx
     </span>Kickoff(usize),
+    <span class="doccomment">/// The vout of the collateral utxo in RoundTx
+    </span>CollateralInRound,
+    <span class="doccomment">/// The vout of the collateral utxo in ReadyToReimburseTx
+    </span>CollateralInReadyToReimburse,
 }
 
 <span class="kw">impl </span>UtxoVout {
@@ -445,6 +455,8 @@
             }
             UtxoVout::Kickoff(idx) =&gt; idx <span class="kw">as </span>u32 + <span class="number">1</span>,
             UtxoVout::DepositInMove =&gt; <span class="number">0</span>,
+            UtxoVout::CollateralInRound =&gt; <span class="number">0</span>,
+            UtxoVout::CollateralInReadyToReimburse =&gt; <span class="number">0</span>,
         }
     }
 }

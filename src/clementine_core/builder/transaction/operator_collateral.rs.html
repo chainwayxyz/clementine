@@ -379,7 +379,25 @@
 <a href="#378" id="378">378</a>
 <a href="#379" id="379">379</a>
 <a href="#380" id="380">380</a>
-<a href="#381" id="381">381</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Collaterals
+<a href="#381" id="381">381</a>
+<a href="#382" id="382">382</a>
+<a href="#383" id="383">383</a>
+<a href="#384" id="384">384</a>
+<a href="#385" id="385">385</a>
+<a href="#386" id="386">386</a>
+<a href="#387" id="387">387</a>
+<a href="#388" id="388">388</a>
+<a href="#389" id="389">389</a>
+<a href="#390" id="390">390</a>
+<a href="#391" id="391">391</a>
+<a href="#392" id="392">392</a>
+<a href="#393" id="393">393</a>
+<a href="#394" id="394">394</a>
+<a href="#395" id="395">395</a>
+<a href="#396" id="396">396</a>
+<a href="#397" id="397">397</a>
+<a href="#398" id="398">398</a>
+<a href="#399" id="399">399</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Collaterals
 //!
 //! This module contains the logic for creating the `round_tx`, `ready_to_reimburse_tx`,
 //! and `unspent_kickoff_tx` transactions. These transactions are used to control the sequence of transactions
@@ -579,7 +597,7 @@
     <span class="prelude-val">Ok</span>(txhandlers)
 }
 
-<span class="doccomment">/// Creates the nth (0-indexed) `round_txhandler` and `reimburse_generator_txhandler` pair for a specific operator.
+<span class="doccomment">/// Creates the nth (1-indexed) `round_txhandler` and `reimburse_generator_txhandler` pair for a specific operator.
 ///
 /// # Arguments
 /// * `operator_xonly_pk` - The operator's x-only public key.
@@ -595,25 +613,43 @@
     operator_xonly_pk: XOnlyPublicKey,
     input_outpoint: OutPoint,
     input_amount: Amount,
-    index: usize,
+    index: RoundIndex,
     pubkeys: <span class="kw-2">&amp;</span>KickoffWinternitzKeys,
     paramset: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>ProtocolParamset,
 ) -&gt; <span class="prelude-ty">Result</span>&lt;(TxHandler, TxHandler), BridgeError&gt; {
-    <span class="kw">let </span><span class="kw-2">mut </span>round_txhandler = create_round_txhandler(
+    <span class="comment">// 0th round is the collateral, there are no keys for the 0th round
+    // Additionally there are no keys after num_rounds + 1, +1 is because we need additional round to generate
+    // reimbursement connectors of previous round
+
+    </span><span class="kw">if </span>index == RoundIndex::Collateral
+        || index.to_index() &gt; RoundIndex::Round(paramset.num_round_txs).to_index()
+    {
+        <span class="kw">return </span><span class="prelude-val">Err</span>(TxError::InvalidRoundIndex(index).into());
+    }
+
+    <span class="comment">// create the first round txhandler
+    </span><span class="kw">let </span><span class="kw-2">mut </span>round_txhandler = create_round_txhandler(
         operator_xonly_pk,
         RoundTxInput::Collateral(input_outpoint, input_amount),
-        pubkeys.get_keys_for_round(<span class="number">0</span>),
+        pubkeys.get_keys_for_round(RoundIndex::Round(<span class="number">0</span>))<span class="question-mark">?</span>,
         paramset,
     )<span class="question-mark">?</span>;
     <span class="kw">let </span><span class="kw-2">mut </span>ready_to_reimburse_txhandler =
         create_ready_to_reimburse_txhandler(<span class="kw-2">&amp;</span>round_txhandler, operator_xonly_pk, paramset)<span class="question-mark">?</span>;
-    <span class="kw">for </span>idx <span class="kw">in </span><span class="number">1</span>..=index {
+
+    <span class="comment">// get which round index we are creating txhandlers for
+    </span><span class="kw">let </span>round_idx = <span class="kw">match </span>index {
+        RoundIndex::Collateral =&gt; <span class="number">0</span>, <span class="comment">// impossible, checked before
+        </span>RoundIndex::Round(idx) =&gt; idx,
+    };
+    <span class="comment">// iterate starting from second round to the requested round
+    </span><span class="kw">for </span>round_idx <span class="kw">in </span>RoundIndex::iter_rounds_range(<span class="number">1</span>, round_idx + <span class="number">1</span>) {
         round_txhandler = create_round_txhandler(
             operator_xonly_pk,
             RoundTxInput::Prevout(Box::new(
                 ready_to_reimburse_txhandler.get_spendable_output(UtxoVout::BurnConnector)<span class="question-mark">?</span>,
             )),
-            pubkeys.get_keys_for_round(idx),
+            pubkeys.get_keys_for_round(round_idx)<span class="question-mark">?</span>,
             paramset,
         )<span class="question-mark">?</span>;
         ready_to_reimburse_txhandler =

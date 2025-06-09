@@ -343,7 +343,8 @@
 <a href="#342" id="342">342</a>
 <a href="#343" id="343">343</a>
 <a href="#344" id="344">344</a>
-<a href="#345" id="345">345</a></pre></div><pre class="rust"><code><span class="doccomment">//! This module defines the data structures related to Citrea deposits in the Clementine bridge.
+<a href="#345" id="345">345</a>
+<a href="#346" id="346">346</a></pre></div><pre class="rust"><code><span class="doccomment">//! This module defines the data structures related to Citrea deposits in the Clementine bridge.
 //!
 //! It includes structures for representing deposit data, actors involved (verifiers, watchtowers, operators),
 //! and security council configurations. The module also provides functionality for managing different types
@@ -357,6 +358,7 @@
 <span class="kw">use </span><span class="kw">crate</span>::config::protocol::ProtocolParamset;
 <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
 <span class="kw">use </span><span class="kw">crate</span>::musig2::AggregateFromPublicKeys;
+<span class="kw">use </span><span class="kw">crate</span>::operator::RoundIndex;
 <span class="kw">use </span><span class="kw">crate</span>::EVMAddress;
 <span class="kw">use </span>bitcoin::address::NetworkUnchecked;
 <span class="kw">use </span>bitcoin::secp256k1::PublicKey;
@@ -369,7 +371,7 @@
 )]
 </span><span class="kw">pub struct </span>KickoffData {
     <span class="kw">pub </span>operator_xonly_pk: XOnlyPublicKey,
-    <span class="kw">pub </span>round_idx: u32,
+    <span class="kw">pub </span>round_idx: RoundIndex,
     <span class="kw">pub </span>kickoff_idx: u32,
 }
 

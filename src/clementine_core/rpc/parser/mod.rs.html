@@ -593,7 +593,8 @@
 <a href="#592" id="592">592</a>
 <a href="#593" id="593">593</a>
 <a href="#594" id="594">594</a>
-<a href="#595" id="595">595</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::{
+<a href="#595" id="595">595</a>
+<a href="#596" id="596">596</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::{
     <span class="self">self</span>, DepositParams, FeeType, Outpoint, RawSignedTx, RbfSigningInfoRpc, SchnorrSig,
     TransactionRequest, WinternitzPubkey,
 };
@@ -604,6 +605,7 @@
     SecurityCouncil,
 };
 <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
+<span class="kw">use </span><span class="kw">crate</span>::operator::RoundIndex;
 <span class="kw">use </span><span class="kw">crate</span>::utils::{FeePayingType, RbfSigningInfo};
 <span class="kw">use </span>bitcoin::hashes::{sha256d, FromSliceError, Hash};
 <span class="kw">use </span>bitcoin::secp256k1::schnorr::Signature;
@@ -1105,7 +1107,7 @@
 
         <span class="prelude-val">Ok</span>(<span class="kw">crate</span>::deposit::KickoffData {
             operator_xonly_pk,
-            round_idx: value.round_idx,
+            round_idx: RoundIndex::from_index(value.round_idx <span class="kw">as </span>usize),
             kickoff_idx: value.kickoff_idx,
         })
     }
@@ -1115,7 +1117,7 @@
     <span class="kw">fn </span>from(value: <span class="kw">crate</span>::deposit::KickoffData) -&gt; <span class="self">Self </span>{
         clementine::KickoffId {
             operator_xonly_pk: value.operator_xonly_pk.serialize().to_vec(),
-            round_idx: value.round_idx,
+            round_idx: value.round_idx.to_index() <span class="kw">as </span>u32,
             kickoff_idx: value.kickoff_idx,
         }
     }

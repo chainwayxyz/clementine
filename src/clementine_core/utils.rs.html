@@ -387,8 +387,10 @@
 <a href="#386" id="386">386</a>
 <a href="#387" id="387">387</a>
 <a href="#388" id="388">388</a>
-<a href="#389" id="389">389</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::builder::transaction::TransactionType;
+<a href="#389" id="389">389</a>
+<a href="#390" id="390">390</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::builder::transaction::TransactionType;
 <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
+<span class="kw">use </span><span class="kw">crate</span>::operator::RoundIndex;
 <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::VergenResponse;
 <span class="kw">use </span>bitcoin::{OutPoint, TapNodeHash, XOnlyPublicKey};
 <span class="kw">use </span>http::HeaderValue;
@@ -713,7 +715,7 @@
 </span><span class="kw">pub struct </span>TxMetadata {
     <span class="kw">pub </span>deposit_outpoint: <span class="prelude-ty">Option</span>&lt;OutPoint&gt;,
     <span class="kw">pub </span>operator_xonly_pk: <span class="prelude-ty">Option</span>&lt;XOnlyPublicKey&gt;,
-    <span class="kw">pub </span>round_idx: <span class="prelude-ty">Option</span>&lt;u32&gt;,
+    <span class="kw">pub </span>round_idx: <span class="prelude-ty">Option</span>&lt;RoundIndex&gt;,
     <span class="kw">pub </span>kickoff_idx: <span class="prelude-ty">Option</span>&lt;u32&gt;,
     <span class="kw">pub </span>tx_type: TransactionType,
 }

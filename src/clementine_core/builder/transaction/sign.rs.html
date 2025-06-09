@@ -540,7 +540,7 @@
 <span class="kw">use </span><span class="kw">crate</span>::database::Database;
 <span class="kw">use </span><span class="kw">crate</span>::deposit::KickoffData;
 <span class="kw">use </span><span class="kw">crate</span>::errors::{BridgeError, TxError};
-<span class="kw">use </span><span class="kw">crate</span>::operator::Operator;
+<span class="kw">use </span><span class="kw">crate</span>::operator::{Operator, RoundIndex};
 <span class="kw">use </span><span class="kw">crate</span>::utils::RbfSigningInfo;
 <span class="kw">use </span><span class="kw">crate</span>::verifier::Verifier;
 <span class="kw">use </span>bitcoin::hashes::Hash;
@@ -650,7 +650,7 @@
             <span class="prelude-val">None</span>,
             transaction_data.deposit_outpoint,
             transaction_data.kickoff_data.operator_xonly_pk,
-            transaction_data.kickoff_data.round_idx <span class="kw">as </span>usize,
+            transaction_data.kickoff_data.round_idx,
             transaction_data.kickoff_data.kickoff_idx <span class="kw">as </span>usize,
         )
         .<span class="kw">await</span><span class="question-mark">?</span>;
@@ -661,7 +661,7 @@
         .get_unspent_kickoff_sigs(
             <span class="prelude-val">None</span>,
             transaction_data.kickoff_data.operator_xonly_pk,
-            transaction_data.kickoff_data.round_idx <span class="kw">as </span>usize,
+            transaction_data.kickoff_data.round_idx,
         )
         .<span class="kw">await</span><span class="question-mark">?</span>;
 
@@ -806,7 +806,7 @@
     ///     2. Transaction: Signed unspent kickoff connector transaction
     </span><span class="kw">pub async fn </span>create_and_sign_unspent_kickoff_connector_txs(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
-        round_idx: u32,
+        round_idx: RoundIndex,
         operator_xonly_pk: XOnlyPublicKey,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;Vec&lt;(TransactionType, Transaction)&gt;, BridgeError&gt; {
         <span class="kw">let </span>context = ContractContext::new_context_for_round(
@@ -830,10 +830,10 @@
         <span class="comment">// signatures saved during setup
         </span><span class="kw">let </span>unspent_kickoff_sigs = <span class="self">self
             </span>.db
-            .get_unspent_kickoff_sigs(<span class="prelude-val">None</span>, operator_xonly_pk, round_idx <span class="kw">as </span>usize)
+            .get_unspent_kickoff_sigs(<span class="prelude-val">None</span>, operator_xonly_pk, round_idx)
             .<span class="kw">await</span><span class="question-mark">?
             </span>.ok_or(<span class="macro">eyre::eyre!</span>(
-                <span class="string">"No unspent kickoff signatures found for operator {:?} and round {}"</span>,
+                <span class="string">"No unspent kickoff signatures found for operator {:?} and round {:?}"</span>,
                 operator_xonly_pk,
                 round_idx
             ))<span class="question-mark">?</span>;

@@ -1497,7 +1497,14 @@
 <a href="#1496" id="1496">1496</a>
 <a href="#1497" id="1497">1497</a>
 <a href="#1498" id="1498">1498</a>
-<a href="#1499" id="1499">1499</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Operator Related Database Operations
+<a href="#1499" id="1499">1499</a>
+<a href="#1500" id="1500">1500</a>
+<a href="#1501" id="1501">1501</a>
+<a href="#1502" id="1502">1502</a>
+<a href="#1503" id="1503">1503</a>
+<a href="#1504" id="1504">1504</a>
+<a href="#1505" id="1505">1505</a>
+<a href="#1506" id="1506">1506</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Operator Related Database Operations
 //!
 //! This module includes database functions which are mainly used by an operator.
 
@@ -1512,6 +1519,7 @@
     builder::transaction::create_move_to_vault_txhandler,
     config::protocol::ProtocolParamset,
     deposit::{DepositData, KickoffData, OperatorData},
+    operator::RoundIndex,
 };
 <span class="kw">use crate</span>::{
     errors::BridgeError,
@@ -1671,13 +1679,13 @@
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
         operator_xonly_pk: XOnlyPublicKey,
-        round_idx: usize,
+        round_idx: RoundIndex,
         signatures: Vec&lt;TaggedSignature&gt;,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
         <span class="kw">let </span>query = sqlx::query(
             <span class="string">"INSERT INTO unspent_kickoff_signatures (xonly_pk, round_idx, signatures) VALUES ($1, $2, $3)
              ON CONFLICT (xonly_pk, round_idx) DO NOTHING;"</span>,
-        ).bind(XOnlyPublicKeyDB(operator_xonly_pk)).bind(round_idx <span class="kw">as </span>i32).bind(SignaturesDB(DepositSignatures{signatures}));
+        ).bind(XOnlyPublicKeyDB(operator_xonly_pk)).bind(round_idx.to_index() <span class="kw">as </span>i32).bind(SignaturesDB(DepositSignatures{signatures}));
 
         <span class="macro">execute_query_with_tx!</span>(<span class="self">self</span>.connection, tx, query, execute)<span class="question-mark">?</span>;
         <span class="prelude-val">Ok</span>(())
@@ -1688,11 +1696,11 @@
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
         operator_xonly_pk: XOnlyPublicKey,
-        round_idx: usize,
+        round_idx: RoundIndex,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;Vec&lt;TaggedSignature&gt;&gt;, BridgeError&gt; {
         <span class="kw">let </span>query = sqlx::query_as::&lt;<span class="kw">_</span>, (SignaturesDB,)&gt;(<span class="string">"SELECT signatures FROM unspent_kickoff_signatures WHERE xonly_pk = $1 AND round_idx = $2"</span>)
             .bind(XOnlyPublicKeyDB(operator_xonly_pk))
-            .bind(round_idx <span class="kw">as </span>i32);
+            .bind(round_idx.to_index() <span class="kw">as </span>i32);
 
         <span class="kw">let </span>result: <span class="prelude-ty">Result</span>&lt;(SignaturesDB,), sqlx::Error&gt; =
             <span class="macro">execute_query_with_tx!</span>(<span class="self">self</span>.connection, tx, query, fetch_one);
@@ -2026,7 +2034,7 @@
         <span class="kw-2">mut </span>tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
         deposit_outpoint: OutPoint,
         operator_xonly_pk: XOnlyPublicKey,
-        round_idx: usize,
+        round_idx: RoundIndex,
         kickoff_idx: usize,
         kickoff_txid: Txid,
         signatures: Vec&lt;TaggedSignature&gt;,
@@ -2042,7 +2050,7 @@
         )
         .bind(i32::try_from(deposit_id).wrap_err(<span class="string">"Failed to convert deposit id to i32"</span>)<span class="question-mark">?</span>)
         .bind(XOnlyPublicKeyDB(operator_xonly_pk))
-        .bind(round_idx <span class="kw">as </span>i32)
+        .bind(round_idx.to_index() <span class="kw">as </span>i32)
         .bind(kickoff_idx <span class="kw">as </span>i32);
         <span class="kw">let </span>txid_and_signatures: <span class="prelude-ty">Option</span>&lt;(TxidDB,)&gt; =
             <span class="macro">execute_query_with_tx!</span>(<span class="self">self</span>.connection, tx.as_deref_mut(), query, fetch_optional)<span class="question-mark">?</span>;
@@ -2069,7 +2077,7 @@
         </span>)
         .bind(i32::try_from(deposit_id).wrap_err(<span class="string">"Failed to convert deposit id to i32"</span>)<span class="question-mark">?</span>)
         .bind(XOnlyPublicKeyDB(operator_xonly_pk))
-        .bind(round_idx <span class="kw">as </span>i32)
+        .bind(round_idx.to_index() <span class="kw">as </span>i32)
         .bind(kickoff_idx <span class="kw">as </span>i32)
         .bind(TxidDB(kickoff_txid))
         .bind(SignaturesDB(DepositSignatures{signatures: signatures.clone()}));
@@ -2105,7 +2113,7 @@
         tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
         deposit_outpoint: OutPoint,
         operator_xonly_pk: XOnlyPublicKey,
-        round_idx: usize,
+        round_idx: RoundIndex,
         kickoff_idx: usize,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;Vec&lt;TaggedSignature&gt;&gt;, BridgeError&gt; {
         <span class="kw">let </span>query = sqlx::query_as::&lt;<span class="kw">_</span>, (SignaturesDB,)&gt;(
@@ -2118,7 +2126,7 @@
         )
         .bind(OutPointDB(deposit_outpoint))
         .bind(XOnlyPublicKeyDB(operator_xonly_pk))
-        .bind(round_idx <span class="kw">as </span>i32)
+        .bind(round_idx.to_index() <span class="kw">as </span>i32)
         .bind(kickoff_idx <span class="kw">as </span>i32);
 
         <span class="kw">let </span>result: <span class="prelude-ty">Result</span>&lt;(SignaturesDB,), sqlx::Error&gt; =
@@ -2154,8 +2162,10 @@
                     .wrap_err(<span class="string">"Can't convert deposit params"</span>)<span class="question-mark">?</span>,
                 KickoffData {
                     operator_xonly_pk: operator_xonly_pk.<span class="number">0</span>,
-                    round_idx: u32::try_from(round_idx)
-                        .wrap_err(<span class="string">"Failed to convert round idx to u32"</span>)<span class="question-mark">?</span>,
+                    round_idx: RoundIndex::from_index(
+                        usize::try_from(round_idx)
+                            .wrap_err(<span class="string">"Failed to convert round idx to usize"</span>)<span class="question-mark">?</span>,
+                    ),
                     kickoff_idx: u32::try_from(kickoff_idx)
                         .wrap_err(<span class="string">"Failed to convert kickoff idx to u32"</span>)<span class="question-mark">?</span>,
                 },
@@ -2274,7 +2284,7 @@
     <span class="kw">pub async fn </span>set_kickoff_connector_as_used(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
-        round_idx: u32,
+        round_idx: RoundIndex,
         kickoff_connector_idx: u32,
         kickoff_txid: <span class="prelude-ty">Option</span>&lt;Txid&gt;,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
@@ -2282,7 +2292,7 @@
             <span class="string">"INSERT INTO used_kickoff_connectors (round_idx, kickoff_connector_idx, kickoff_txid)
              VALUES ($1, $2, $3);"</span>,
         )
-        .bind(i32::try_from(round_idx).wrap_err(<span class="string">"Failed to convert round idx to i32"</span>)<span class="question-mark">?</span>)
+        .bind(round_idx.to_index() <span class="kw">as </span>i32)
         .bind(
             i32::try_from(kickoff_connector_idx)
                 .wrap_err(<span class="string">"Failed to convert kickoff connector idx to i32"</span>)<span class="question-mark">?</span>,
@@ -2297,13 +2307,13 @@
     <span class="kw">pub async fn </span>get_kickoff_txid_for_used_kickoff_connector(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
-        round_idx: u32,
+        round_idx: RoundIndex,
         kickoff_connector_idx: u32,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;Txid&gt;, BridgeError&gt; {
         <span class="kw">let </span>query = sqlx::query_as::&lt;<span class="kw">_</span>, (TxidDB,)&gt;(
             <span class="string">"SELECT kickoff_txid FROM used_kickoff_connectors WHERE round_idx = $1 AND kickoff_connector_idx = $2;"</span>,
         )
-        .bind(i32::try_from(round_idx).wrap_err(<span class="string">"Failed to convert round idx to i32"</span>)<span class="question-mark">?</span>)
+        .bind(round_idx.to_index() <span class="kw">as </span>i32)
         .bind(i32::try_from(kickoff_connector_idx).wrap_err(<span class="string">"Failed to convert kickoff connector idx to i32"</span>)<span class="question-mark">?</span>);
 
         <span class="kw">let </span>result = <span class="macro">execute_query_with_tx!</span>(<span class="self">self</span>.connection, tx, query, fetch_optional)<span class="question-mark">?</span>;
@@ -2377,10 +2387,10 @@
     <span class="kw">pub async fn </span>update_current_round_index(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
-        round_idx: u32,
+        round_idx: RoundIndex,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
         <span class="kw">let </span>query = sqlx::query(<span class="string">"UPDATE current_round_index SET round_idx = $1 WHERE id = 1"</span>)
-            .bind(i32::try_from(round_idx).wrap_err(<span class="string">"Failed to convert round idx to i32"</span>)<span class="question-mark">?</span>);
+            .bind(round_idx.to_index() <span class="kw">as </span>i32);
 
         <span class="macro">execute_query_with_tx!</span>(<span class="self">self</span>.connection, tx, query, execute)<span class="question-mark">?</span>;
 
@@ -2391,7 +2401,7 @@
 <span class="attr">#[cfg(test)]
 </span><span class="kw">mod </span>tests {
     <span class="kw">use </span><span class="kw">crate</span>::bitvm_client::{SECP, UNSPENDABLE_XONLY_PUBKEY};
-    <span class="kw">use </span><span class="kw">crate</span>::operator::Operator;
+    <span class="kw">use </span><span class="kw">crate</span>::operator::{Operator, RoundIndex};
     <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::{
         DepositSignatures, NormalSignatureKind, NumberedSignatureKind, TaggedSignature,
     };
@@ -2617,27 +2627,31 @@
             .set_unspent_kickoff_sigs(
                 <span class="prelude-val">None</span>,
                 operator_xonly_pk,
-                round_idx,
+                RoundIndex::Round(round_idx),
                 signatures.signatures.clone(),
             )
             .<span class="kw">await
             </span>.unwrap();
 
         <span class="kw">let </span>result = database
-            .get_unspent_kickoff_sigs(<span class="prelude-val">None</span>, operator_xonly_pk, round_idx)
+            .get_unspent_kickoff_sigs(<span class="prelude-val">None</span>, operator_xonly_pk, RoundIndex::Round(round_idx))
             .<span class="kw">await
             </span>.unwrap()
             .unwrap();
         <span class="macro">assert_eq!</span>(result, signatures.signatures);
 
         <span class="kw">let </span>non_existent = database
-            .get_unspent_kickoff_sigs(<span class="prelude-val">None</span>, non_existant_xonly_pk, round_idx)
+            .get_unspent_kickoff_sigs(<span class="prelude-val">None</span>, non_existant_xonly_pk, RoundIndex::Round(round_idx))
             .<span class="kw">await
             </span>.unwrap();
         <span class="macro">assert!</span>(non_existent.is_none());
 
         <span class="kw">let </span>non_existent = database
-            .get_unspent_kickoff_sigs(<span class="prelude-val">None</span>, non_existant_xonly_pk, round_idx + <span class="number">1</span>)
+            .get_unspent_kickoff_sigs(
+                <span class="prelude-val">None</span>,
+                non_existant_xonly_pk,
+                RoundIndex::Round(round_idx + <span class="number">1</span>),
+            )
             .<span class="kw">await
             </span>.unwrap();
         <span class="macro">assert!</span>(non_existent.is_none());
@@ -2924,7 +2938,7 @@
                 <span class="prelude-val">None</span>,
                 deposit_outpoint,
                 operator_xonly_pk,
-                round_idx,
+                RoundIndex::Round(round_idx),
                 kickoff_idx,
                 Txid::all_zeros(),
                 signatures.signatures.clone(),
@@ -2937,7 +2951,7 @@
                 <span class="prelude-val">None</span>,
                 deposit_outpoint,
                 operator_xonly_pk,
-                round_idx,
+                RoundIndex::Round(round_idx),
                 kickoff_idx,
                 Txid::all_zeros(),
                 signatures.signatures.clone(),
@@ -2950,7 +2964,7 @@
                 <span class="prelude-val">None</span>,
                 deposit_outpoint,
                 operator_xonly_pk,
-                round_idx,
+                RoundIndex::Round(round_idx),
                 kickoff_idx,
                 Txid::from_slice(<span class="kw-2">&amp;</span>[<span class="number">0x1F</span>; <span class="number">32</span>]).unwrap(),
                 signatures.signatures.clone(),
@@ -2963,7 +2977,7 @@
                 <span class="prelude-val">None</span>,
                 deposit_outpoint,
                 operator_xonly_pk,
-                round_idx,
+                RoundIndex::Round(round_idx),
                 kickoff_idx,
             )
             .<span class="kw">await
@@ -2976,7 +2990,7 @@
                 <span class="prelude-val">None</span>,
                 deposit_outpoint,
                 operator_xonly_pk,
-                round_idx + <span class="number">1</span>,
+                RoundIndex::Round(round_idx + <span class="number">1</span>),
                 kickoff_idx + <span class="number">1</span>,
             )
             .<span class="kw">await
@@ -2988,7 +3002,7 @@
                 <span class="prelude-val">None</span>,
                 OutPoint::null(),
                 unset_operator_xonly_pk,
-                round_idx,
+                RoundIndex::Round(round_idx),
                 kickoff_idx,
             )
             .<span class="kw">await

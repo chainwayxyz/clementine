@@ -1282,8 +1282,7 @@
 <a href="#1281" id="1281">1281</a>
 <a href="#1282" id="1282">1282</a>
 <a href="#1283" id="1283">1283</a>
-<a href="#1284" id="1284">1284</a>
-<a href="#1285" id="1285">1285</a></pre></div><pre class="rust"><code><span class="kw">use </span>std::collections::hash_map::Entry;
+<a href="#1284" id="1284">1284</a></pre></div><pre class="rust"><code><span class="kw">use </span>std::collections::hash_map::Entry;
 <span class="kw">use </span>std::collections::HashMap;
 
 <span class="kw">use </span><span class="kw">crate</span>::bitvm_client::{<span class="self">self</span>, ClementineBitVMPublicKeys, SECP};
@@ -1293,7 +1292,7 @@
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::{SighashCalculator, TxHandler};
 <span class="kw">use </span><span class="kw">crate</span>::config::protocol::ProtocolParamset;
 <span class="kw">use </span><span class="kw">crate</span>::errors::{BridgeError, TxError};
-<span class="kw">use </span><span class="kw">crate</span>::operator::PublicHash;
+<span class="kw">use </span><span class="kw">crate</span>::operator::{PublicHash, RoundIndex};
 <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::tagged_signature::SignatureId;
 <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::TaggedSignature;
 <span class="kw">use </span>bitcoin::hashes::hash160;
@@ -1322,7 +1321,7 @@
 </span><span class="kw">pub enum </span>WinternitzDerivationPath {
     <span class="doccomment">/// round_idx, kickoff_idx
     /// Message length is fixed KICKOFF_BLOCKHASH_COMMIT_LENGTH
-    </span>Kickoff(u32, u32, <span class="kw-2">&amp;</span><span class="lifetime">'static </span>ProtocolParamset),
+    </span>Kickoff(RoundIndex, u32, <span class="kw-2">&amp;</span><span class="lifetime">'static </span>ProtocolParamset),
     <span class="doccomment">/// message_length, pk_type_idx, pk_idx, deposit_outpoint
     </span>BitvmAssert(u32, u32, u32, OutPoint, <span class="kw-2">&amp;</span><span class="lifetime">'static </span>ProtocolParamset),
     <span class="doccomment">/// watchtower_idx, deposit_outpoint
@@ -1344,8 +1343,8 @@
         <span class="kw">let </span><span class="kw-2">mut </span>bytes = <span class="macro">vec!</span>[type_id];
 
         <span class="kw">match </span><span class="self">self </span>{
-            WinternitzDerivationPath::Kickoff(seq_collat_idx, kickoff_idx, <span class="kw">_</span>) =&gt; {
-                bytes.extend_from_slice(<span class="kw-2">&amp;</span>seq_collat_idx.to_be_bytes());
+            WinternitzDerivationPath::Kickoff(round_idx, kickoff_idx, <span class="kw">_</span>) =&gt; {
+                bytes.extend_from_slice(<span class="kw-2">&amp;</span>round_idx.to_index().to_be_bytes());
                 bytes.extend_from_slice(<span class="kw-2">&amp;</span>kickoff_idx.to_be_bytes());
             }
             WinternitzDerivationPath::BitvmAssert(
@@ -2272,12 +2271,12 @@
             Network::Regtest,
         );
 
-        <span class="kw">let </span><span class="kw-2">mut </span>params = WinternitzDerivationPath::Kickoff(<span class="number">0</span>, <span class="number">0</span>, paramset);
+        <span class="kw">let </span><span class="kw-2">mut </span>params = WinternitzDerivationPath::Kickoff(RoundIndex::Round(<span class="number">0</span>), <span class="number">0</span>, paramset);
         <span class="kw">let </span>pk0 = actor.derive_winternitz_pk(params.clone()).unwrap();
         <span class="kw">let </span>pk1 = actor.derive_winternitz_pk(params).unwrap();
         <span class="macro">assert_eq!</span>(pk0, pk1);
 
-        params = WinternitzDerivationPath::Kickoff(<span class="number">0</span>, <span class="number">1</span>, paramset);
+        params = WinternitzDerivationPath::Kickoff(RoundIndex::Round(<span class="number">0</span>), <span class="number">1</span>, paramset);
         <span class="kw">let </span>pk2 = actor.derive_winternitz_pk(params).unwrap();
         <span class="macro">assert_ne!</span>(pk0, pk2);
     }
@@ -2368,10 +2367,9 @@
         );
         <span class="comment">// Test so that same path always returns the same public key (to not change it accidentally)
         // check only first digit
-        </span><span class="kw">let </span>params = WinternitzDerivationPath::Kickoff(<span class="number">0</span>, <span class="number">1</span>, paramset);
+        </span><span class="kw">let </span>params = WinternitzDerivationPath::Kickoff(RoundIndex::Round(<span class="number">0</span>), <span class="number">1</span>, paramset);
         <span class="kw">let </span>expected_pk = <span class="macro">vec!</span>[
-            <span class="number">173</span>, <span class="number">204</span>, <span class="number">163</span>, <span class="number">206</span>, <span class="number">248</span>, <span class="number">61</span>, <span class="number">42</span>, <span class="number">248</span>, <span class="number">42</span>, <span class="number">163</span>, <span class="number">51</span>, <span class="number">172</span>, <span class="number">127</span>, <span class="number">111</span>, <span class="number">1</span>, <span class="number">82</span>, <span class="number">142</span>, <span class="number">151</span>, <span class="number">78</span>,
-            <span class="number">6</span>,
+            <span class="number">135</span>, <span class="number">71</span>, <span class="number">6</span>, <span class="number">82</span>, <span class="number">172</span>, <span class="number">209</span>, <span class="number">8</span>, <span class="number">35</span>, <span class="number">87</span>, <span class="number">30</span>, <span class="number">137</span>, <span class="number">147</span>, <span class="number">39</span>, <span class="number">46</span>, <span class="number">87</span>, <span class="number">31</span>, <span class="number">20</span>, <span class="number">100</span>, <span class="number">127</span>, <span class="number">210</span>,
         ];
         <span class="macro">assert_eq!</span>(
             actor.derive_winternitz_pk(params).unwrap()[<span class="number">0</span>].to_vec(),
