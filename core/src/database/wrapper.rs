@@ -7,6 +7,7 @@ use bitcoin::{
     address::NetworkUnchecked,
     block,
     consensus::{deserialize, serialize, Decodable, Encodable},
+    hashes::Hash,
     hex::DisplayHex,
     secp256k1::{schnorr, Message, PublicKey},
     Address, OutPoint, ScriptBuf, TxOut, Txid, XOnlyPublicKey,
@@ -181,7 +182,6 @@ macro_rules! impl_text_wrapper_default {
 }
 
 impl_text_wrapper_default!(OutPointDB, OutPoint);
-impl_text_wrapper_default!(TxidDB, Txid);
 impl_text_wrapper_default!(BlockHashDB, block::BlockHash);
 impl_text_wrapper_default!(PublicKeyDB, PublicKey);
 impl_text_wrapper_default!(XOnlyPublicKeyDB, XOnlyPublicKey);
@@ -208,6 +208,13 @@ impl_text_wrapper_custom!(
             eyre!("Failed to deserialize EVMAddress from {:?}", arr)
         })?))
     }
+);
+
+impl_bytea_wrapper_custom!(
+    TxidDB,
+    Txid,
+    |txid: &Txid| *txid, // Txid is Copy, which requires this hack
+    |x: &[u8]| -> Result<Txid, BoxDynError> { Ok(Txid::from_slice(x)?) }
 );
 
 impl_bytea_wrapper_custom!(
@@ -422,11 +429,11 @@ mod tests {
     async fn txiddb_encode_decode_invariant() {
         assert_eq!(
             TxidDB::type_info(),
-            sqlx::postgres::PgTypeInfo::with_name("TEXT")
+            sqlx::postgres::PgTypeInfo::with_name("BYTEA")
         );
 
         let txid = TxidDB(Txid::all_zeros());
-        test_encode_decode_invariant!(TxidDB, Txid, txid, "txid", "TEXT");
+        test_encode_decode_invariant!(TxidDB, Txid, txid, "txid", "BYTEA");
     }
 
     #[tokio::test]
