@@ -30,7 +30,11 @@ jobs:
 
       - name: Build Project
         run: |
-          cargo build --release
+          if [[ "${{ github.ref_name }}" == *"testing"* ]]; then
+            cargo build --all-features --release
+          else
+            cargo build --release
+          fi
 
       - name: Upload clementine linux-amd64 Binary
         uses: actions/upload-artifact@v4
