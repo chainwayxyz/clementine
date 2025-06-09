@@ -27,6 +27,16 @@ use eyre::OptionExt;
 use std::str::FromStr;
 use std::sync::Arc;
 
+use crate::builder::transaction::create_round_txhandlers;
+use crate::builder::transaction::input::UtxoVout;
+use crate::builder::transaction::KickoffWinternitzKeys;
+use crate::builder::transaction::TransactionType;
+use crate::builder::transaction::TxHandler;
+use crate::config::protocol::ProtocolParamset;
+use crate::deposit::OperatorData;
+use crate::errors::BridgeError;
+use crate::operator::RoundIndex;
+
 type Result<T> = std::result::Result<T, BitcoinRPCError>;
 
 /// Bitcoin RPC wrapper. Extended RPC provides useful wrapper functions for
@@ -111,6 +121,147 @@ impl ExtendedRpc {
             .wrap_err("Failed to get block count")?;
 
         Ok(u32::try_from(height).wrap_err("Failed to convert block count to u32")?)
+    }
+
+    /// Checks if an operator's collateral is valid and available for use.
+    ///
+    /// This function validates the operator's collateral by:
+    /// 1. Verifying the collateral UTXO exists and has the correct amount
+    /// 2. Creating the round transaction chain to track current collateral position
+    /// 3. Determining if the current collateral UTXO in the chain is spent in a non-protocol tx, signaling the exit of operator from the protocol
+    ///
+    /// # Parameters
+    ///
+    /// * `operator_data`: Data about the operator including collateral funding outpoint
+    /// * `kickoff_wpks`: Kickoff Winternitz public keys for round transaction creation
+    /// * `paramset`: Protocol parameters
+    ///
+    /// # Returns
+    ///
+    /// - [`bool`]: `true` if the collateral is still usable, thus operator is still in protocol, `false` if the collateral is spent, thus operator is not in protocol anymore
+    ///
+    /// # Errors
+    ///
+    /// - [`BridgeError`]: If there was an error retrieving transaction data, creating round transactions,
+    ///   or checking UTXO status
+    pub async fn collateral_check(
+        &self,
+        operator_data: &OperatorData,
+        kickoff_wpks: &KickoffWinternitzKeys,
+        paramset: &'static ProtocolParamset,
+    ) -> std::result::Result<bool, BridgeError> {
+        // first check if the collateral utxo is
+        let tx = self
+            .get_tx_of_txid(&operator_data.collateral_funding_outpoint.txid)
+            .await
+            .wrap_err(format!(
+                "Failed to find collateral utxo in chain for outpoint {:?}",
+                operator_data.collateral_funding_outpoint
+            ))?;
+        let input_amount = match tx
+            .output
+            .get(operator_data.collateral_funding_outpoint.vout as usize)
+        {
+            Some(output) => output.value,
+            None => {
+                tracing::warn!(
+                    "No output at index {} for txid {} while checking for collateral existence",
+                    operator_data.collateral_funding_outpoint.vout,
+                    operator_data.collateral_funding_outpoint.txid
+                );
+                return Ok(false);
+            }
+        };
+        if input_amount != paramset.collateral_funding_amount {
+            tracing::error!(
+                "Collateral amount for collateral {:?} is not correct: expected {}, got {}",
+                operator_data.collateral_funding_outpoint,
+                paramset.collateral_funding_amount,
+                input_amount
+            );
+            return Ok(false);
+        }
+
+        let mut current_collateral_outpoint: OutPoint = operator_data.collateral_funding_outpoint;
+        let mut prev_ready_to_reimburse: Option<TxHandler> = None;
+        // iterate over all rounds
+        for round_idx in RoundIndex::iter_rounds(paramset.num_round_txs) {
+            // create round and ready to reimburse txs for the round
+            let txhandlers = create_round_txhandlers(
+                paramset,
+                round_idx,
+                operator_data,
+                kickoff_wpks,
+                prev_ready_to_reimburse.as_ref(),
+            )?;
+
+            let mut round_txhandler_opt = None;
+            let mut ready_to_reimburse_txhandler_opt = None;
+            for txhandler in &txhandlers {
+                match txhandler.get_transaction_type() {
+                    TransactionType::Round => round_txhandler_opt = Some(txhandler),
+                    TransactionType::ReadyToReimburse => {
+                        ready_to_reimburse_txhandler_opt = Some(txhandler)
+                    }
+                    _ => {}
+                }
+            }
+            if round_txhandler_opt.is_none() || ready_to_reimburse_txhandler_opt.is_none() {
+                return Err(eyre!(
+                    "Failed to create round and ready to reimburse txs for round {:?} for operator {}",
+                    round_idx,
+                    operator_data.xonly_pk
+                ).into());
+            }
+
+            let round_txid = round_txhandler_opt
+                .expect("Round txhandler should exist, checked above")
+                .get_cached_tx()
+                .compute_txid();
+            let is_round_tx_on_chain = self.is_tx_on_chain(&round_txid).await?;
+            if !is_round_tx_on_chain {
+                break;
+            }
+            current_collateral_outpoint = OutPoint {
+                txid: round_txid,
+                vout: UtxoVout::CollateralInRound.get_vout(),
+            };
+            if round_idx == RoundIndex::Round(paramset.num_round_txs - 1) {
+                // for the last round, only check round tx, as if the operator sent the ready to reimburse tx of last round,
+                // it cannot create more kickoffs anymore
+                break;
+            }
+            let ready_to_reimburse_txhandler = ready_to_reimburse_txhandler_opt
+                .expect("Ready to reimburse txhandler should exist");
+            let ready_to_reimburse_txid =
+                ready_to_reimburse_txhandler.get_cached_tx().compute_txid();
+            let is_ready_to_reimburse_tx_on_chain =
+                self.is_tx_on_chain(&ready_to_reimburse_txid).await?;
+            if !is_ready_to_reimburse_tx_on_chain {
+                break;
+            }
+
+            current_collateral_outpoint = OutPoint {
+                txid: ready_to_reimburse_txid,
+                vout: UtxoVout::CollateralInReadyToReimburse.get_vout(),
+            };
+
+            prev_ready_to_reimburse = Some(ready_to_reimburse_txhandler.clone());
+        }
+
+        // if the collateral utxo we found latest in the round tx chain is spent, operators collateral is spent from Clementine
+        // bridge protocol, thus it is unusable and operator cannot fulfill withdrawals anymore
+        // if not spent, it should exist in chain, which is checked below
+        Ok(self
+            .client
+            .get_tx_out(
+                &current_collateral_outpoint.txid,
+                current_collateral_outpoint.vout,
+                Some(true), // include mempool too
+            )
+            .await
+            .wrap_err("Failed to get transaction output")?
+            .is_some())
     }
 
     /// Returns block hash of a transaction, if confirmed.
@@ -328,6 +479,20 @@ impl ExtendedRpc {
             .wrap_err("Failed to generate to address")?)
     }
 
+    /// Gets the number of transactions in the mempool.
+    ///
+    /// # Returns
+    ///
+    /// - [`usize`]: The number of transactions in the mempool.
+    pub async fn mempool_size(&self) -> Result<usize> {
+        let mempool_info = self
+            .client
+            .get_mempool_info()
+            .await
+            .wrap_err("Failed to get mempool info")?;
+        Ok(mempool_info.size)
+    }
+
     /// Sends a specified amount of Bitcoins to the given address.
     ///
     /// # Parameters
@@ -354,7 +519,7 @@ impl ExtendedRpc {
             .get_transaction(&txid, None)
             .await
             .wrap_err("Failed to get transaction")?;
-        let vout = tx_result.details[0].vout; // TODO: this might be incorrect
+        let vout = tx_result.details[0].vout;
 
         Ok(OutPoint { txid, vout })
     }
@@ -496,7 +661,7 @@ impl ExtendedRpc {
                             return Err(BitcoinRPCError::BumpFeeUTXOSpent(outpoint));
                         }
 
-                        return Err(eyre::eyre!(format!("{:?}", rpc_error))
+                        return Err(eyre::eyre!("{:?}", rpc_error)
                             .wrap_err(BitcoinRPCError::BumpFeeError(txid, fee_rate))
                             .into());
                     }
@@ -660,7 +825,6 @@ mod tests {
             })
             .is_err());
 
-        // TODO: Calculate this dynamically.
         let current_fee_rate = FeeRate::from_sat_per_vb_unchecked(1);
 
         // Trying to bump a transaction with a fee rate that is already enough

@@ -8,7 +8,7 @@ use crate::builder::transaction::input::SpentTxIn;
 use crate::builder::transaction::{SighashCalculator, TxHandler};
 use crate::config::protocol::ProtocolParamset;
 use crate::errors::{BridgeError, TxError};
-use crate::operator::PublicHash;
+use crate::operator::{PublicHash, RoundIndex};
 use crate::rpc::clementine::tagged_signature::SignatureId;
 use crate::rpc::clementine::TaggedSignature;
 use bitcoin::hashes::hash160;
@@ -21,7 +21,7 @@ use bitcoin::{
 };
 use bitcoin::{OutPoint, TapNodeHash, TapSighashType, Witness};
 use bitvm::signatures::winternitz::{self, BinarysearchVerifier, ToBytesConverter, Winternitz};
-use eyre::OptionExt;
+use eyre::{Context, OptionExt};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, thiserror::Error)]
 pub enum VerificationError {
@@ -37,7 +37,7 @@ pub enum VerificationError {
 pub enum WinternitzDerivationPath {
     /// round_idx, kickoff_idx
     /// Message length is fixed KICKOFF_BLOCKHASH_COMMIT_LENGTH
-    Kickoff(u32, u32, &'static ProtocolParamset),
+    Kickoff(RoundIndex, u32, &'static ProtocolParamset),
     /// message_length, pk_type_idx, pk_idx, deposit_outpoint
     BitvmAssert(u32, u32, u32, OutPoint, &'static ProtocolParamset),
     /// watchtower_idx, deposit_outpoint
@@ -59,8 +59,8 @@ impl WinternitzDerivationPath {
         let mut bytes = vec![type_id];
 
         match self {
-            WinternitzDerivationPath::Kickoff(seq_collat_idx, kickoff_idx, _) => {
-                bytes.extend_from_slice(&seq_collat_idx.to_be_bytes());
+            WinternitzDerivationPath::Kickoff(round_idx, kickoff_idx, _) => {
+                bytes.extend_from_slice(&round_idx.to_index().to_be_bytes());
                 bytes.extend_from_slice(&kickoff_idx.to_be_bytes());
             }
             WinternitzDerivationPath::BitvmAssert(
@@ -107,13 +107,13 @@ fn calc_tweaked_keypair(
     keypair: &Keypair,
     merkle_root: Option<TapNodeHash>,
 ) -> Result<Keypair, BridgeError> {
-    keypair
+    Ok(keypair
         .add_xonly_tweak(
             &SECP,
             &TapTweakHash::from_key_and_tweak(keypair.x_only_public_key().0, merkle_root)
                 .to_scalar(),
         )
-        .map_err(|e| BridgeError::Error(format!("Failed to add tweak to keypair: {}", e)))
+        .wrap_err("Failed to add tweak to keypair")?)
 }
 
 fn calc_tweaked_xonly_pk(
@@ -125,7 +125,7 @@ fn calc_tweaked_xonly_pk(
             &SECP,
             &TapTweakHash::from_key_and_tweak(pubkey, merkle_root).to_scalar(),
         )
-        .map_err(|e| BridgeError::Error(format!("Failed to add tweak to xonly_pk: {}", e)))?
+        .wrap_err("Failed to add tweak to xonly_pk")?
         .0)
 }
 
@@ -181,10 +181,10 @@ pub fn verify_schnorr(
             None => calc_tweaked_xonly_pk(pubkey, merkle_root)?,
         },
         TapTweakData::ScriptPath => pubkey,
-        TapTweakData::Unknown => return Err(BridgeError::Error("Spend Path Unknown".to_string())),
+        TapTweakData::Unknown => return Err(eyre::eyre!("Spend Path Unknown").into()),
     };
     SECP.verify_schnorr(signature, sighash, &pubkey)
-        .map_err(|_| BridgeError::Error("Failed to verify Schnorr signature".to_string()))
+        .map_err(|_| eyre::eyre!("Failed to verify Schnorr signature").into())
 }
 
 #[derive(Debug, Clone)]
@@ -255,7 +255,7 @@ impl Actor {
                 self.sign_with_tweak(sighash, merkle_root, tweak_cache)
             }
             TapTweakData::ScriptPath => Ok(self.sign(sighash)),
-            TapTweakData::Unknown => Err(BridgeError::Error("Spend Data Unknown".to_string())),
+            TapTweakData::Unknown => Err(eyre::eyre!("Spend Data Unknown").into()),
         }
     }
 
@@ -987,12 +987,12 @@ mod tests {
             Network::Regtest,
         );
 
-        let mut params = WinternitzDerivationPath::Kickoff(0, 0, paramset);
+        let mut params = WinternitzDerivationPath::Kickoff(RoundIndex::Round(0), 0, paramset);
         let pk0 = actor.derive_winternitz_pk(params.clone()).unwrap();
         let pk1 = actor.derive_winternitz_pk(params).unwrap();
         assert_eq!(pk0, pk1);
 
-        params = WinternitzDerivationPath::Kickoff(0, 1, paramset);
+        params = WinternitzDerivationPath::Kickoff(RoundIndex::Round(0), 1, paramset);
         let pk2 = actor.derive_winternitz_pk(params).unwrap();
         assert_ne!(pk0, pk2);
     }
@@ -1083,10 +1083,9 @@ mod tests {
         );
         // Test so that same path always returns the same public key (to not change it accidentally)
         // check only first digit
-        let params = WinternitzDerivationPath::Kickoff(0, 1, paramset);
+        let params = WinternitzDerivationPath::Kickoff(RoundIndex::Round(0), 1, paramset);
         let expected_pk = vec![
-            173, 204, 163, 206, 248, 61, 42, 248, 42, 163, 51, 172, 127, 111, 1, 82, 142, 151, 78,
-            6,
+            135, 71, 6, 82, 172, 209, 8, 35, 87, 30, 137, 147, 39, 46, 87, 31, 20, 100, 127, 210,
         ];
         assert_eq!(
             actor.derive_winternitz_pk(params).unwrap()[0].to_vec(),

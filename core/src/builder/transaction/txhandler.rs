@@ -78,7 +78,7 @@ impl<T: State> TxHandler<T> {
             txout.txout().clone(),
             txout.scripts().clone(),
             txout.spendinfo().clone(),
-        )) // TODO: Can we get rid of clones?
+        ))
     }
 
     /// Returns the Taproot merkle root of the specified input, if available.
@@ -206,7 +206,7 @@ impl<T: State> TxHandler<T> {
             .txins
             .iter()
             .map(|s| s.get_spendable().get_prevout())
-            .collect(); // TODO: Maybe there is a better way to do this
+            .collect();
         let mut sighash_cache: SighashCache<&bitcoin::Transaction> =
             SighashCache::new(&self.cached_tx);
         let prevouts = match sighash_type {
@@ -250,7 +250,6 @@ impl<T: State> TxHandler<T> {
             .ok_or(TxError::ScriptNotFound(spend_script_idx))?
             .to_script_buf();
 
-        // TODO: remove copy here
         self.calculate_script_spend_sighash(txin_index, &script, sighash_type)
     }
 
@@ -273,7 +272,7 @@ impl<T: State> TxHandler<T> {
             .txins
             .iter()
             .map(|s| s.get_spendable().get_prevout())
-            .collect(); // TODO: Maybe there is a better way to do this
+            .collect();
         let mut sighash_cache: SighashCache<&bitcoin::Transaction> =
             SighashCache::new(&self.cached_tx);
 
@@ -480,7 +479,6 @@ impl TxHandler<Unsigned> {
 #[derive(Debug, Clone)]
 /// Builder for [`TxHandler`], allowing stepwise construction of inputs and outputs.
 pub struct TxHandlerBuilder {
-    /// TODO: Document
     transaction_type: TransactionType,
     version: Version,
     lock_time: absolute::LockTime,
@@ -550,7 +548,6 @@ impl TxHandlerBuilder {
         self
     }
 
-    /// TODO: output likely fallible
     /// Finalizes the transaction, returning an unsigned [`TxHandler`].
     pub fn finalize(self) -> TxHandler<Unsigned> {
         // construct cached Transaction
@@ -558,7 +555,7 @@ impl TxHandlerBuilder {
             version: self.version,
             lock_time: self.lock_time,
             input: self.txins.iter().map(|s| s.to_txin()).collect(),
-            output: self.txouts.iter().map(|s| s.txout().clone()).collect(), // TODO: Get rid of .clone()
+            output: self.txouts.iter().map(|s| s.txout().clone()).collect(),
         };
         let txid = tx.compute_txid();
 

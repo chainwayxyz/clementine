@@ -195,7 +195,6 @@ pub async fn set_initial_block_info_if_not_exists(
         return Ok(());
     }
 
-    // TODO: save blocks starting from start_height in config paramset
     let current_height = u32::try_from(
         rpc.client
             .get_block_count()
@@ -510,9 +509,7 @@ impl<H: BlockHandler> Task for FinalizedBlockFetcherTask<H> {
                     .db
                     .get_block_info_from_id(Some(&mut dbtx), block_id)
                     .await?
-                    .ok_or(BridgeError::Error(
-                        "Block not found in BlockFetcherTask".to_string(),
-                    ))?
+                    .ok_or(eyre::eyre!("Block not found in BlockFetcherTask",))?
                     .1;
                 let mut new_tip = false;
 
@@ -526,10 +523,10 @@ impl<H: BlockHandler> Task for FinalizedBlockFetcherTask<H> {
                         .db
                         .get_full_block(Some(&mut dbtx), self.next_height)
                         .await?
-                        .ok_or(BridgeError::Error(format!(
+                        .ok_or(eyre::eyre!(
                             "Block at height {} not found in BlockFetcherTask, current tip height is {}",
                             self.next_height, current_tip_height
-                        )))?;
+                        ))?;
 
                     let new_block_id = self
                         .db
@@ -538,10 +535,10 @@ impl<H: BlockHandler> Task for FinalizedBlockFetcherTask<H> {
 
                     let Some(new_block_id) = new_block_id else {
                         tracing::error!("Block at height {} not found in BlockFetcherTask, current tip height is {}", self.next_height, current_tip_height);
-                        return Err(BridgeError::Error(format!(
+                        return Err(eyre::eyre!(
                             "Block at height {} not found in BlockFetcherTask, current tip height is {}",
                             self.next_height, current_tip_height
-                        )));
+                        ).into());
                     };
 
                     self.handler

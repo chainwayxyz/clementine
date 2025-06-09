@@ -61,7 +61,59 @@ use crate::{
 use bitcoin::Witness;
 
 pub type SecretPreimage = [u8; 20];
-pub type PublicHash = [u8; 20]; // TODO: Make sure these are 20 bytes and maybe do this a struct?
+pub type PublicHash = [u8; 20];
+
+/// Round index is used to represent the round index safely.
+/// Collateral represents the collateral utxo.
+/// Round(index) represents the rounds of the bridge operators, index is 0-indexed.
+/// As a single u32, collateral is represented as 0 and rounds are represented starting from 1.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, Ord, PartialOrd,
+)]
+pub enum RoundIndex {
+    Collateral,
+    Round(usize), // 0-indexed
+}
+
+impl RoundIndex {
+    /// Converts the round to a 0-indexed index.
+    pub fn to_index(&self) -> usize {
+        match self {
+            RoundIndex::Collateral => 0,
+            RoundIndex::Round(index) => *index + 1,
+        }
+    }
+
+    /// Converts a 0-indexed index to a RoundIndex.
+    /// Use this only when dealing with 0-indexed data. Currently these are data coming from the database and rpc.
+    pub fn from_index(index: usize) -> Self {
+        if index == 0 {
+            RoundIndex::Collateral
+        } else {
+            RoundIndex::Round(index - 1)
+        }
+    }
+
+    /// Returns the next RoundIndex.
+    pub fn next_round(&self) -> Self {
+        match self {
+            RoundIndex::Collateral => RoundIndex::Round(0),
+            RoundIndex::Round(index) => RoundIndex::Round(*index + 1),
+        }
+    }
+
+    /// Creates an iterator over rounds from 0 to num_rounds (exclusive)
+    /// Only iterates actual rounds, collateral is not included.
+    pub fn iter_rounds(num_rounds: usize) -> impl Iterator<Item = RoundIndex> {
+        Self::iter_rounds_range(0, num_rounds)
+    }
+
+    /// Creates an iterator over rounds from start to end (exclusive)
+    /// Only iterates actual rounds, collateral is not included.
+    pub fn iter_rounds_range(start: usize, end: usize) -> impl Iterator<Item = RoundIndex> {
+        (start..end).map(RoundIndex::Round)
+    }
+}
 
 pub struct OperatorServer<C: CitreaClientT> {
     pub operator: Operator<C>,
@@ -286,7 +338,7 @@ where
                 Some(TxMetadata {
                     tx_type: TransactionType::Round,
                     operator_xonly_pk: None,
-                    round_idx: Some(0),
+                    round_idx: Some(RoundIndex::Round(0)),
                     kickoff_idx: None,
                     deposit_outpoint: None,
                 }),
@@ -324,33 +376,17 @@ where
         ),
         BridgeError,
     > {
+        tracing::info!("Generating operator params");
         let wpks = self.generate_kickoff_winternitz_pubkeys()?;
         let (wpk_tx, wpk_rx) = mpsc::channel(wpks.len());
         let kickoff_wpks = KickoffWinternitzKeys::new(
             wpks,
             self.config.protocol_paramset().num_kickoffs_per_round,
+            self.config.protocol_paramset().num_round_txs,
         );
         let kickoff_sigs = self.generate_unspent_kickoff_sigs(&kickoff_wpks)?;
         let wpks = kickoff_wpks.keys.clone();
         let (sig_tx, sig_rx) = mpsc::channel(kickoff_sigs.len());
-
-        // try to send the first round tx
-        let (mut first_round_tx, _) = create_round_nth_txhandler(
-            self.signer.xonly_public_key,
-            self.collateral_funding_outpoint,
-            self.config.protocol_paramset().collateral_funding_amount,
-            0, // index 0 for the first round
-            &kickoff_wpks,
-            self.config.protocol_paramset(),
-        )?;
-
-        self.signer
-            .clone()
-            .tx_sign_and_fill_sigs(&mut first_round_tx, &[], None)?;
-
-        #[cfg(feature = "automation")]
-        self.send_initial_round_tx(first_round_tx.get_cached_tx())
-            .await?;
 
         tokio::spawn(async move {
             for wpk in wpks {
@@ -649,11 +685,12 @@ where
         let mut winternitz_pubkeys =
             Vec::with_capacity(self.config.get_num_kickoff_winternitz_pks());
 
-        // we need num_round_txs + 1 because we need one extra round tx to generate the reimburse connectors of the actual last round
-        for round_idx in 0..self.config.protocol_paramset().num_round_txs + 1 {
+        // we need num_round_txs + 1 because the last round includes reimburse generators of previous round
+        for round_idx in RoundIndex::iter_rounds(self.config.protocol_paramset().num_round_txs + 1)
+        {
             for kickoff_idx in 0..self.config.protocol_paramset().num_kickoffs_per_round {
                 let path = WinternitzDerivationPath::Kickoff(
-                    round_idx as u32,
+                    round_idx,
                     kickoff_idx as u32,
                     self.config.protocol_paramset(),
                 );
@@ -662,11 +699,12 @@ where
         }
 
         if winternitz_pubkeys.len() != self.config.get_num_kickoff_winternitz_pks() {
-            return Err(BridgeError::Error(format!(
+            return Err(eyre::eyre!(
                 "Expected {} number of kickoff winternitz pubkeys, but got {}",
                 self.config.get_num_kickoff_winternitz_pks(),
                 winternitz_pubkeys.len()
-            )));
+            )
+            .into());
         }
 
         Ok(winternitz_pubkeys)
@@ -685,10 +723,10 @@ where
             collateral_funding_outpoint: self.collateral_funding_outpoint,
             reimburse_addr: self.reimburse_addr.clone(),
         };
-        for idx in 0..self.config.protocol_paramset().num_round_txs {
+        for round_idx in RoundIndex::iter_rounds(self.config.protocol_paramset().num_round_txs) {
             let txhandlers = create_round_txhandlers(
                 self.config.protocol_paramset(),
-                idx,
+                round_idx,
                 &operator_data,
                 kickoff_wpks,
                 prev_ready_to_reimburse.as_ref(),
@@ -699,7 +737,7 @@ where
                 {
                     let partial = PartialSignatureInfo {
                         operator_idx: 0, // dummy value, doesn't
-                        round_idx: idx,
+                        round_idx,
                         kickoff_utxo_idx: kickoff_idx,
                     };
                     let sighashes = txhandler
@@ -722,11 +760,12 @@ where
             }
         }
         if sigs.len() != self.config.get_num_unspent_kickoff_sigs() {
-            return Err(BridgeError::Error(format!(
+            return Err(eyre::eyre!(
                 "Expected {} number of unspent kickoff sigs, but got {}",
                 self.config.get_num_unspent_kickoff_sigs(),
                 sigs.len()
-            )));
+            )
+            .into());
         }
         Ok(sigs)
     }
@@ -748,11 +787,12 @@ where
         }
 
         if hashes.len() != self.config.get_num_challenge_ack_hashes(deposit_data) {
-            return Err(BridgeError::Error(format!(
+            return Err(eyre::eyre!(
                 "Expected {} number of challenge ack hashes, but got {}",
                 self.config.get_num_challenge_ack_hashes(deposit_data),
                 hashes.len()
-            )));
+            )
+            .into());
         }
 
         Ok(hashes)
@@ -780,6 +820,29 @@ where
             )
             .await?
             .ok_or(BridgeError::DatabaseError(sqlx::Error::RowNotFound))?;
+
+        let current_round_index = self
+            .db
+            .get_current_round_index(Some(dbtx))
+            .await?
+            .ok_or(BridgeError::DatabaseError(sqlx::Error::RowNotFound))?;
+
+        #[cfg(feature = "automation")]
+        if current_round_index != round_idx {
+            // we currently have no free kickoff connectors in the current round, so we need to end round first
+            // if current_round_index should only be smaller than round_idx, and should not be smaller by more than 1
+            // so sanity check:
+            if current_round_index + 1 != round_idx {
+                return Err(eyre::eyre!(
+                    "Internal error: Expected the current round ({}) to be equal to or 1 less than the round of the first available kickoff for deposit reimbursement ({}) for deposit {:?}. If the round is less than the current round, there is an issue with the logic of the fn that gets the first available kickoff. If the round is greater, that means the next round do not have any kickoff connectors available for reimbursement, which should not be possible.",
+                    current_round_index, round_idx, deposit_outpoint
+                ).into());
+            }
+            // start the next round to be able to get reimbursement for the payout
+            self.end_round(dbtx).await?;
+        }
+
+        let round_idx = RoundIndex::from_index(round_idx as usize);
 
         // get signed txs,
         let kickoff_data = KickoffData {
@@ -822,6 +885,7 @@ where
             kickoff_idx: Some(kickoff_idx),
             deposit_outpoint: Some(deposit_outpoint),
         });
+
         // try to send them
         for (tx_type, signed_tx) in &signed_txs {
             match *tx_type {
@@ -857,7 +921,7 @@ where
                     None
                 }
             })
-            .ok_or(BridgeError::Error(
+            .ok_or(eyre::eyre!(
                 "Couldn't find kickoff tx in signed_txs".to_string(),
             ))?;
 
@@ -867,6 +931,53 @@ where
             .await?;
 
         Ok(kickoff_txid)
+    }
+
+    #[cfg(feature = "automation")]
+    async fn start_first_round(
+        &self,
+        dbtx: DatabaseTransaction<'_, '_>,
+        kickoff_wpks: KickoffWinternitzKeys,
+    ) -> Result<(), BridgeError> {
+        // try to send the first round tx
+        let (mut first_round_tx, _) = create_round_nth_txhandler(
+            self.signer.xonly_public_key,
+            self.collateral_funding_outpoint,
+            self.config.protocol_paramset().collateral_funding_amount,
+            RoundIndex::Round(0),
+            &kickoff_wpks,
+            self.config.protocol_paramset(),
+        )?;
+
+        self.signer
+            .tx_sign_and_fill_sigs(&mut first_round_tx, &[], None)?;
+
+        self.tx_sender
+            .insert_try_to_send(
+                dbtx,
+                Some(TxMetadata {
+                    tx_type: TransactionType::Round,
+                    operator_xonly_pk: None,
+                    round_idx: Some(RoundIndex::Round(0)),
+                    kickoff_idx: None,
+                    deposit_outpoint: None,
+                }),
+                first_round_tx.get_cached_tx(),
+                FeePayingType::CPFP,
+                None,
+                &[],
+                &[],
+                &[],
+                &[],
+            )
+            .await?;
+
+        // update current round index to 1
+        self.db
+            .update_current_round_index(Some(dbtx), RoundIndex::Round(0))
+            .await?;
+
+        Ok(())
     }
 
     #[cfg(feature = "automation")]
@@ -887,13 +998,22 @@ where
         let kickoff_wpks = KickoffWinternitzKeys::new(
             operator_winternitz_public_keys,
             self.config.protocol_paramset().num_kickoffs_per_round,
+            self.config.protocol_paramset().num_round_txs,
         );
+
+        let current_round = RoundIndex::from_index(current_round_index as usize);
+
+        // if we are at round 0, which is just the collateral, we need to start the first round
+        if current_round == RoundIndex::Collateral {
+            return self.start_first_round(dbtx, kickoff_wpks).await;
+        }
+
         let (current_round_txhandler, mut ready_to_reimburse_txhandler) =
             create_round_nth_txhandler(
                 self.signer.xonly_public_key,
                 self.collateral_funding_outpoint,
                 self.config.protocol_paramset().collateral_funding_amount,
-                current_round_index as usize,
+                current_round,
                 &kickoff_wpks,
                 self.config.protocol_paramset(),
             )?;
@@ -902,7 +1022,7 @@ where
             self.signer.xonly_public_key,
             self.collateral_funding_outpoint,
             self.config.protocol_paramset().collateral_funding_amount,
-            current_round_index as usize + 1,
+            current_round.next_round(),
             &kickoff_wpks,
             self.config.protocol_paramset(),
         )?;
@@ -939,7 +1059,7 @@ where
                 .db
                 .get_kickoff_txid_for_used_kickoff_connector(
                     Some(dbtx),
-                    current_round_index,
+                    current_round,
                     kickoff_connector_idx,
                 )
                 .await?;
@@ -962,7 +1082,7 @@ where
                     self.db
                         .set_kickoff_connector_as_used(
                             Some(dbtx),
-                            current_round_index,
+                            current_round,
                             kickoff_connector_idx,
                             None,
                         )
@@ -997,7 +1117,7 @@ where
                 Some(TxMetadata {
                     tx_type: TransactionType::BurnUnusedKickoffConnectors,
                     operator_xonly_pk: Some(self.signer.xonly_public_key),
-                    round_idx: Some(current_round_index),
+                    round_idx: Some(current_round),
                     kickoff_idx: None,
                     deposit_outpoint: None,
                 }),
@@ -1018,7 +1138,7 @@ where
                 Some(TxMetadata {
                     tx_type: TransactionType::ReadyToReimburse,
                     operator_xonly_pk: Some(self.signer.xonly_public_key),
-                    round_idx: Some(current_round_index),
+                    round_idx: Some(current_round),
                     kickoff_idx: None,
                     deposit_outpoint: None,
                 }),
@@ -1039,7 +1159,7 @@ where
                 Some(TxMetadata {
                     tx_type: TransactionType::Round,
                     operator_xonly_pk: Some(self.signer.xonly_public_key),
-                    round_idx: Some(current_round_index + 1),
+                    round_idx: Some(current_round.next_round()),
                     kickoff_idx: None,
                     deposit_outpoint: None,
                 }),
@@ -1062,7 +1182,7 @@ where
 
         // update current round index
         self.db
-            .update_current_round_index(Some(dbtx), current_round_index + 1)
+            .update_current_round_index(Some(dbtx), current_round.next_round())
             .await?;
 
         Ok(())
@@ -1466,7 +1586,7 @@ mod states {
                     operator_xonly_pk,
                     used_kickoffs,
                 } => {
-                    tracing::info!("Operator {:?} called new ready to reimburse with round_idx: {}, operator_xonly_pk: {:?}, used_kickoffs: {:?}",
+                    tracing::info!("Operator {:?} called new ready to reimburse with round_idx: {:?}, operator_xonly_pk: {:?}, used_kickoffs: {:?}",
                     self.signer.xonly_public_key, round_idx, operator_xonly_pk, used_kickoffs);
                     Ok(DutyResult::Handled)
                 }

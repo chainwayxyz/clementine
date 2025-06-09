@@ -6,7 +6,6 @@ use std::path::PathBuf;
 use tagged_signature::SignatureId;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity, Uri};
 
-// Add this to ensure certificates exist in tests
 #[cfg(test)]
 use crate::test::common::ensure_test_certificates;
 

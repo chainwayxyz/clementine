@@ -182,8 +182,13 @@ impl Database {
     /// - [`Receipt`] - Previous block's proof
     pub async fn get_next_unproven_block(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        mut tx: Option<DatabaseTransaction<'_, '_>>,
     ) -> Result<Option<(BlockHash, Header, u64, Receipt)>, BridgeError> {
+        let latest_proven_block_height = self
+            .get_latest_proven_block_info(tx.as_deref_mut())
+            .await?
+            .map(|(_, _, height)| height);
+
         let query = sqlx::query_as(
             "SELECT h1.block_hash,
                     h1.block_header,
@@ -203,11 +208,21 @@ impl Database {
             Some(result) => {
                 let receipt: Receipt =
                     borsh::from_slice(&result.3).wrap_err(BridgeError::BorshError)?;
-                let height = result.2.try_into().wrap_err("Can't convert i64 to u64")?;
+                let height: u64 = result.2.try_into().wrap_err("Can't convert i64 to u64")?;
                 Some((result.0 .0, result.1 .0, height, receipt))
             }
             None => None,
         };
+
+        // If the latest block is already proven, return None instead of the old
+        // unproven block.
+        if let (Some((_, _, height, _)), Some(latest_proven_block_height)) =
+            (&result, latest_proven_block_height)
+        {
+            if *height < latest_proven_block_height {
+                return Ok(None);
+            }
+        }
 
         Ok(result)
     }
@@ -623,9 +638,7 @@ mod tests {
             .unwrap();
 
         // This time, `get_non_proven_block` shouldn't return any block because latest is proved.
-        // TODO: `get_non_proven_block` will still return the last unproven block that it's
-        // predecessor has a proof. This might be unexpected behavior. Check back again.
-        // assert!(db.get_next_non_proven_block(None).await.unwrap().is_none());
+        assert!(db.get_next_unproven_block(None).await.unwrap().is_none());
 
         // Save fifth block without a proof.
         let block = block::Block {

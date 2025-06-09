@@ -66,19 +66,8 @@ jobs:
       - name: Build documentation
         run: cargo doc --no-deps
 
-  todo:
-    name: Check for TODO statements
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Run script
-        run: scripts/check_for_todos.sh
-        continue-on-error: true # TODO: This should be removed later
-
   codespell:
-    name: codespell
+    name: Check spelling
     runs-on: ubuntu-latest
     if: github.event.pull_request.draft == false
     steps:

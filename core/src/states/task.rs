@@ -48,9 +48,7 @@ impl BlockHandler for QueueBlockHandler {
         self.queue
             .send_with_cxn(&self.queue_name, &event, &mut **dbtx)
             .await
-            .map_err(|e| {
-                BridgeError::Error(format!("Error sending new block event to queue: {:?}", e))
-            })?;
+            .wrap_err("Error sending new block event to queue")?;
         Ok(())
     }
 }

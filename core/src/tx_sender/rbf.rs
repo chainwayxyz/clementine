@@ -996,7 +996,7 @@ mod tests {
 
         // Get the actual transaction from the mempool
         rpc.get_tx_of_txid(&bitcoin::Txid::from_byte_array(
-            tx_debug_info.txid.try_into().unwrap(),
+            tx_debug_info.txid.unwrap().txid.try_into().unwrap(),
         ))
         .await
         .expect("Transaction should be in mempool");
@@ -1066,7 +1066,7 @@ mod tests {
 
         // Get the actual transaction from the mempool
         rpc.get_tx_of_txid(&bitcoin::Txid::from_byte_array(
-            tx_debug_info.txid.try_into().unwrap(),
+            tx_debug_info.txid.unwrap().txid.try_into().unwrap(),
         ))
         .await
         .expect("Transaction should be in mempool");
@@ -1137,7 +1137,7 @@ mod tests {
         // Get the actual transaction from the mempool
         let tx = rpc
             .get_tx_of_txid(&bitcoin::Txid::from_byte_array(
-                tx_debug_info.txid.try_into().unwrap(),
+                tx_debug_info.txid.unwrap().txid.try_into().unwrap(),
             ))
             .await
             .expect("Transaction should be in mempool");
@@ -1200,7 +1200,7 @@ mod tests {
 
         // Get the actual transaction from the mempool
         rpc.get_tx_of_txid(&bitcoin::Txid::from_byte_array(
-            tx_debug_info.txid.try_into().unwrap(),
+            tx_debug_info.txid.unwrap().txid.try_into().unwrap(),
         ))
         .await
         .expect("Transaction should be in mempool");
@@ -1267,7 +1267,7 @@ mod tests {
 
         // Verify that TX is in mempool
         rpc.get_tx_of_txid(&bitcoin::Txid::from_byte_array(
-            tx_debug_info.txid.try_into().unwrap(),
+            tx_debug_info.txid.unwrap().txid.try_into().unwrap(),
         ))
         .await
         .expect("Transaction should be in mempool");
@@ -1301,7 +1301,7 @@ mod tests {
 
         // Verify that TX is in mempool
         rpc.get_tx_of_txid(&bitcoin::Txid::from_byte_array(
-            tx_debug_info.txid.try_into().unwrap(),
+            tx_debug_info.txid.unwrap().txid.try_into().unwrap(),
         ))
         .await
         .expect("Transaction should be in mempool");

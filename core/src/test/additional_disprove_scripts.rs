@@ -7,6 +7,7 @@ use crate::citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER};
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::deposit::KickoffData;
+use crate::operator::RoundIndex;
 use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
@@ -314,7 +315,14 @@ impl AdditionalDisproveTest {
                 Ok(withdrawal_response) => {
                     tracing::info!("Withdrawal response: {:?}", withdrawal_response);
                     break Txid::from_byte_array(
-                        withdrawal_response.into_inner().txid.try_into().unwrap(),
+                        withdrawal_response
+                            .into_inner()
+                            .txid
+                            .ok_or(eyre::eyre!("Malformed outpoint in withdrawal response"))
+                            .unwrap()
+                            .txid
+                            .try_into()
+                            .unwrap(),
                     );
                 }
                 Err(e) => {
@@ -355,11 +363,6 @@ impl AdditionalDisproveTest {
             .await?
             .expect("Payout must be handled");
 
-        // wait 3 seconds so fee payer txs are sent to mempool
-        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-        // mine 1 block to make sure the fee payer txs are in the next block
-        rpc.mine_blocks(1).await.unwrap();
-
         // Wait for the kickoff tx to be onchain
         let kickoff_block_height =
             mine_once_after_in_mempool(&rpc, kickoff_txid, Some("Kickoff tx"), Some(300)).await?;
@@ -371,7 +374,7 @@ impl AdditionalDisproveTest {
             kickoff_id: Some(
                 KickoffData {
                     operator_xonly_pk: op0_xonly_pk,
-                    round_idx: 0,
+                    round_idx: RoundIndex::Round(0),
                     kickoff_idx: kickoff_idx as u32,
                 }
                 .into(),

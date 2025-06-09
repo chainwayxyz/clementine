@@ -21,7 +21,6 @@ use tonic::server::NamedService;
 use tonic::service::interceptor::InterceptedService;
 use tonic::transport::{Certificate, CertificateDer, Identity, ServerTlsConfig};
 
-// Add this to ensure certificates exist in tests
 #[cfg(test)]
 use crate::test::common::ensure_test_certificates;
 

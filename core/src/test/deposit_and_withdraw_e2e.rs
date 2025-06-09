@@ -9,15 +9,17 @@ use crate::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQ
 use crate::citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER};
 use crate::database::Database;
 use crate::deposit::KickoffData;
+use crate::operator::RoundIndex;
 use crate::rpc::clementine::{
-    FinalizedPayoutParams, KickoffId, NormalSignatureKind, TransactionRequest, WithdrawParams,
+    Deposit, FeeType, FinalizedPayoutParams, KickoffId, NormalSignatureKind, RawSignedTx,
+    SendTxRequest, TransactionRequest, WithdrawParams,
 };
 use crate::test::common::citrea::{get_citrea_safe_withdraw_params, MockCitreaClient, SECRET_KEYS};
 use crate::test::common::tx_utils::get_tx_from_signed_txs_with_type;
 use crate::test::common::tx_utils::{
     create_tx_sender, ensure_outpoint_spent,
-    ensure_outpoint_spent_while_waiting_for_light_client_sync, get_txid_where_utxo_is_spent,
-    mine_once_after_outpoint_spent_in_mempool,
+    ensure_outpoint_spent_while_waiting_for_light_client_sync, ensure_tx_onchain,
+    get_txid_where_utxo_is_spent, mine_once_after_outpoint_spent_in_mempool,
 };
 use crate::test::common::{
     create_regtest_rpc, generate_withdrawal_transaction_and_signature, mine_once_after_in_mempool,
@@ -382,7 +384,13 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
                 Ok(withdrawal_response) => {
                     tracing::info!("Withdrawal response: {:?}", withdrawal_response);
                     break Txid::from_byte_array(
-                        withdrawal_response.into_inner().txid.try_into().unwrap(),
+                        withdrawal_response
+                            .into_inner()
+                            .txid
+                            .unwrap()
+                            .txid
+                            .try_into()
+                            .unwrap(),
                     );
                 }
                 Err(e) => {
@@ -428,11 +436,6 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             vout: UtxoVout::ReimburseInKickoff.get_vout(),
         };
 
-        // wait 3 seconds so fee payer txs are sent to mempool
-        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-        // mine 1 block to make sure the fee payer txs are in the next block
-        rpc.mine_blocks(1).await.unwrap();
-
         // Wait for the kickoff tx to be onchain
         let kickoff_block_height =
             mine_once_after_in_mempool(&rpc, kickoff_txid, Some("Kickoff tx"), Some(300)).await?;
@@ -445,7 +448,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             kickoff_id: Some(
                 KickoffData {
                     operator_xonly_pk: op0_xonly_pk,
-                    round_idx: 0,
+                    round_idx: RoundIndex::Round(0),
                     kickoff_idx: kickoff_idx as u32,
                 }
                 .into(),
@@ -646,7 +649,6 @@ async fn mock_citrea_run_truthful() {
         "Deposit ending block_height: {:?}",
         rpc.client.get_block_count().await.unwrap()
     );
-    // rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
 
     // Send deposit to Citrea
     let tx = rpc
@@ -735,7 +737,13 @@ async fn mock_citrea_run_truthful() {
                 Ok(withdrawal_response) => {
                     tracing::info!("Withdrawal response: {:?}", withdrawal_response);
                     let payout_txid = Some(Txid::from_byte_array(
-                        withdrawal_response.into_inner().txid.try_into().unwrap(),
+                        withdrawal_response
+                            .into_inner()
+                            .txid
+                            .unwrap()
+                            .txid
+                            .try_into()
+                            .unwrap(),
                     ));
                     Ok(Some(payout_txid))
                 }
@@ -818,11 +826,6 @@ async fn mock_citrea_run_truthful() {
         txid: kickoff_txid,
         vout: UtxoVout::ReimburseInKickoff.get_vout(),
     };
-
-    // wait 3 seconds so fee payer txs are sent to mempool
-    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-    // mine 1 block to make sure the fee payer txs are in the next block
-    rpc.mine_blocks(1).await.unwrap();
 
     // Wait for the kickoff tx to be onchain
     let _kickoff_block_height =
@@ -1185,11 +1188,6 @@ async fn mock_citrea_run_malicious() {
 
     tracing::info!("Kickoff txid: {:?}", kickoff_txid);
 
-    // wait 3 seconds so fee payer txs are sent to mempool
-    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-    // mine 1 block to make sure the fee payer txs are in the next block
-    rpc.mine_blocks(1).await.unwrap();
-
     // Wait for the kickoff tx to be onchain
     let _kickoff_block_height =
         mine_once_after_in_mempool(&rpc, kickoff_txid, Some("Kickoff tx"), Some(1800))
@@ -1198,12 +1196,14 @@ async fn mock_citrea_run_malicious() {
 
     let challenge_outpoint = OutPoint {
         txid: kickoff_txid,
-        vout: 0,
+        vout: UtxoVout::Challenge.get_vout(),
     };
 
     let challenge_spent_txid = get_txid_where_utxo_is_spent(&rpc, challenge_outpoint)
         .await
         .unwrap();
+
+    tracing::info!("Challenge outpoint spent txid: {:?}", challenge_spent_txid);
 
     // check that challenge utxo was not spent on timeout -> meaning challenge was sent
     let tx = rpc.get_tx_of_txid(&challenge_spent_txid).await.unwrap();
@@ -1226,17 +1226,13 @@ async fn mock_citrea_run_malicious() {
         .into_inner()
         .try_into()
         .unwrap();
-    // wait 3 seconds so fee payer txs are sent to mempool
-    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-    // mine 1 block to make sure the fee payer txs are in the next block
-    rpc.mine_blocks(1).await.unwrap();
 
     let _kickoff_block_height2 =
         mine_once_after_in_mempool(&rpc, kickoff_txid_2, Some("Kickoff tx2"), Some(1800))
             .await
             .unwrap();
 
-    tracing::warn!(
+    tracing::info!(
         "Kickoff txid: {:?}, kickoff txid 2: {:?}",
         kickoff_txid,
         kickoff_txid_2
@@ -1244,7 +1240,7 @@ async fn mock_citrea_run_malicious() {
     // second kickoff tx should not be challenged as a kickoff of the same round was already challenged
     let challenge_outpoint_2 = OutPoint {
         txid: kickoff_txid_2,
-        vout: 0,
+        vout: UtxoVout::Challenge.get_vout(),
     };
     let challenge_spent_txid_2 = get_txid_where_utxo_is_spent(&rpc, challenge_outpoint_2)
         .await
@@ -1295,7 +1291,7 @@ async fn mock_citrea_run_malicious_after_exit() {
     let (
         _verifiers,
         mut operators,
-        _aggregator,
+        mut aggregator,
         _cleanup,
         deposit_info,
         move_txid,
@@ -1392,7 +1388,7 @@ async fn mock_citrea_run_malicious_after_exit() {
         .internal_create_signed_txs(TransactionRequest {
             deposit_outpoint: Some(deposit_info.deposit_outpoint.into()),
             kickoff_id: Some(KickoffId {
-                round_idx: 0,
+                round_idx: 1,
                 operator_xonly_pk: verifier_pks[0].x_only_public_key().0.serialize().to_vec(),
                 kickoff_idx: 0,
             }),
@@ -1404,7 +1400,20 @@ async fn mock_citrea_run_malicious_after_exit() {
     // get first round's tx
     let round_tx =
         get_tx_from_signed_txs_with_type(&first_round_txs, TransactionType::Round).unwrap();
+    // send first round tx
+    aggregator
+        .internal_send_tx(SendTxRequest {
+            raw_tx: Some(RawSignedTx {
+                raw_tx: bitcoin::consensus::serialize(&round_tx),
+            }),
+            fee_type: FeeType::Cpfp as i32,
+        })
+        .await
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
     let round_txid = round_tx.compute_txid();
+    ensure_tx_onchain(&rpc, round_txid).await.unwrap();
+    tracing::warn!("Round tx sent");
 
     let op_xonly_pk = actor.xonly_public_key;
     let (_op_address, op_spend) =
@@ -1443,6 +1452,10 @@ async fn mock_citrea_run_malicious_after_exit() {
 
     // mine 1 block to make sure collateral burn tx lands onchain
     rpc.mine_blocks(1).await.unwrap();
+    let deposit: Deposit = deposit_info.clone().into();
+
+    // because operator collaterl was spent outside of the protocol, new deposit with this operator should be rejected
+    assert!(aggregator.new_deposit(deposit).await.is_err());
 
     let kickoff_txid: bitcoin::Txid = operators[0]
         .internal_finalized_payout(FinalizedPayoutParams {
@@ -1454,12 +1467,6 @@ async fn mock_citrea_run_malicious_after_exit() {
         .into_inner()
         .try_into()
         .unwrap();
-
-    // wait 3 seconds so fee payer txs are sent to mempool
-    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-
-    // mine 1 block to make sure the fee payer txs are in the next block
-    rpc.mine_blocks(1).await.unwrap();
 
     // Wait for the kickoff tx to be onchain
     let _kickoff_block_height =
