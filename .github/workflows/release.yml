@@ -7,7 +7,7 @@ on:
 
 jobs:
   linux_amd64_binary_extraction:
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -30,7 +30,11 @@ jobs:
 
       - name: Build Project
         run: |
-          cargo build --release
+          if [[ "${{ github.ref_name }}" == *"testing"* ]]; then
+            cargo build --all-features --release
+          else
+            cargo build --release
+          fi
 
       - name: Upload clementine linux-amd64 Binary
         uses: actions/upload-artifact@v4
@@ -46,7 +50,7 @@ jobs:
 
   release:
     needs: linux_amd64_binary_extraction
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
     steps:
       - name: Download linux-amd64 Binary
         uses: actions/download-artifact@v4
@@ -71,6 +75,7 @@ jobs:
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
+          draft: ${{ contains(github.ref, 'tmp') }}
           files: |
             release/clementine-core-${{ github.ref_name }}-linux-amd64
             release/clementine-cli-${{ github.ref_name }}-linux-amd64
