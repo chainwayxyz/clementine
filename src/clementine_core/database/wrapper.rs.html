@@ -529,7 +529,14 @@
 <a href="#528" id="528">528</a>
 <a href="#529" id="529">529</a>
 <a href="#530" id="530">530</a>
-<a href="#531" id="531">531</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Type Wrappers for Parsing
+<a href="#531" id="531">531</a>
+<a href="#532" id="532">532</a>
+<a href="#533" id="533">533</a>
+<a href="#534" id="534">534</a>
+<a href="#535" id="535">535</a>
+<a href="#536" id="536">536</a>
+<a href="#537" id="537">537</a>
+<a href="#538" id="538">538</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Type Wrappers for Parsing
 //!
 //! This module includes wrappers for easy parsing of the foreign types.
 
@@ -538,6 +545,7 @@
     address::NetworkUnchecked,
     block,
     consensus::{deserialize, serialize, Decodable, Encodable},
+    hashes::Hash,
     hex::DisplayHex,
     secp256k1::{schnorr, Message, PublicKey},
     Address, OutPoint, ScriptBuf, TxOut, Txid, XOnlyPublicKey,
@@ -712,7 +720,6 @@
 }
 
 <span class="macro">impl_text_wrapper_default!</span>(OutPointDB, OutPoint);
-<span class="macro">impl_text_wrapper_default!</span>(TxidDB, Txid);
 <span class="macro">impl_text_wrapper_default!</span>(BlockHashDB, block::BlockHash);
 <span class="macro">impl_text_wrapper_default!</span>(PublicKeyDB, PublicKey);
 <span class="macro">impl_text_wrapper_default!</span>(XOnlyPublicKeyDB, XOnlyPublicKey);
@@ -739,6 +746,13 @@
             <span class="macro">eyre!</span>(<span class="string">"Failed to deserialize EVMAddress from {:?}"</span>, arr)
         })<span class="question-mark">?</span>))
     }
+);
+
+<span class="macro">impl_bytea_wrapper_custom!</span>(
+    TxidDB,
+    Txid,
+    |txid: <span class="kw-2">&amp;</span>Txid| <span class="kw-2">*</span>txid, <span class="comment">// Txid is Copy, which requires this hack
+    </span>|x: <span class="kw-2">&amp;</span>[u8]| -&gt; <span class="prelude-ty">Result</span>&lt;Txid, BoxDynError&gt; { <span class="prelude-val">Ok</span>(Txid::from_slice(x)<span class="question-mark">?</span>) }
 );
 
 <span class="macro">impl_bytea_wrapper_custom!</span>(
@@ -953,11 +967,11 @@
     </span><span class="kw">async fn </span>txiddb_encode_decode_invariant() {
         <span class="macro">assert_eq!</span>(
             TxidDB::type_info(),
-            sqlx::postgres::PgTypeInfo::with_name(<span class="string">"TEXT"</span>)
+            sqlx::postgres::PgTypeInfo::with_name(<span class="string">"BYTEA"</span>)
         );
 
         <span class="kw">let </span>txid = TxidDB(Txid::all_zeros());
-        <span class="macro">test_encode_decode_invariant!</span>(TxidDB, Txid, txid, <span class="string">"txid"</span>, <span class="string">"TEXT"</span>);
+        <span class="macro">test_encode_decode_invariant!</span>(TxidDB, Txid, txid, <span class="string">"txid"</span>, <span class="string">"BYTEA"</span>);
     }
 
     <span class="attr">#[tokio::test]
