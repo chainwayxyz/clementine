@@ -20,9 +20,9 @@ use crate::utils::RbfSigningInfo;
 use crate::verifier::Verifier;
 use bitcoin::hashes::Hash;
 use bitcoin::{BlockHash, OutPoint, Transaction, XOnlyPublicKey};
+use rand_chacha::rand_core::SeedableRng;
 use rand_chacha::ChaCha12Rng;
 use secp256k1::rand::seq::SliceRandom;
-use secp256k1::rand::SeedableRng;
 
 /// Data to identify the deposit and kickoff.
 #[derive(Debug, Clone)]
@@ -61,7 +61,7 @@ pub fn get_kickoff_utxos_to_sign(
     .concat();
 
     let seed = bitcoin::hashes::sha256d::Hash::hash(&deposit_data).to_byte_array();
-    let mut rng = secp256k1::rand::rngs::StdRng::from_seed(seed);
+    let mut rng = ChaCha12Rng::from_seed(seed);
 
     let mut numbers: Vec<usize> = (0..paramset.num_kickoffs_per_round).collect();
     numbers.shuffle(&mut rng);
