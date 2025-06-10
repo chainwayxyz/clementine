@@ -54,7 +54,7 @@ fn get_nonces(
     let nonce_pairs: Vec<MuSigNoncePair> = verifiers_secret_public_keys
         .iter()
         .map(|kp| nonce_pair(kp, &mut secp256k1::rand::thread_rng()))
-        .collect::<Result<Vec<_>, _>>()?;
+        .collect::<Result<Vec<MuSigNoncePair>, _>>()?;
 
     let agg_nonce = aggregate_nonces(
         nonce_pairs

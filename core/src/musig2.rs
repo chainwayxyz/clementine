@@ -17,15 +17,15 @@ use secp256k1::{
         MusigSession,
     },
     musig::{
-        new_nonce_pair, AggregatedNonce, KeyAggCache, PartialSignature, PublicNonce, SecretNonce,
-        Session, SessionSecretRand,
+        new_nonce_pair, AggregatedNonce, AggregatedSignature, KeyAggCache, PartialSignature,
+        PublicNonce, SecretNonce, Session, SessionSecretRand,
     },
     rand::Rng,
     Scalar, SECP256K1,
 };
 use sha2::{Digest, Sha256};
 
-pub type MuSigNoncePair = (MusigSecNonce, MusigPubNonce);
+pub type MuSigNoncePair = (SecretNonce, PublicNonce);
 
 pub fn from_secp_xonly(xpk: secp256k1::XOnlyPublicKey) -> XOnlyPublicKey {
     XOnlyPublicKey::from_slice(&xpk.serialize()).expect("serialized pubkey is valid")
@@ -52,6 +52,10 @@ pub fn from_secp_kp(kp: &secp256k1::Keypair) -> Keypair {
 
 pub fn from_secp_sig(sig: secp256k1::schnorr::Signature) -> schnorr::Signature {
     schnorr::Signature::from_slice(&sig.to_byte_array()).expect("serialized signature is valid")
+}
+
+pub fn from_secp_aggregated_signature(sig: AggregatedSignature) -> secp256k1::schnorr::Signature {
+    secp256k1::schnorr::Signature::from_byte_array(sig.assume_valid().to_byte_array())
 }
 
 pub fn to_secp_msg(msg: &Message) -> secp256k1::Message {
@@ -180,13 +184,15 @@ pub fn aggregate_partial_signatures(
 
     SECP256K1
         .verify_schnorr(
-            &final_sig,
+            &from_secp_aggregated_signature(final_sig),
             secp_message.as_ref(),
             &musig_key_agg_cache.agg_pk(),
         )
         .wrap_err("Failed to verify schnorr signature")?;
 
-    Ok(from_secp_sig(session.partial_sig_agg(&partial_sigs)))
+    Ok(from_secp_sig(from_secp_aggregated_signature(
+        session.partial_sig_agg(&partial_sigs),
+    )))
 }
 
 /// Generates a pair of nonces, one secret and one public. Be careful,
@@ -262,7 +268,7 @@ mod tests {
         secp256k1::{schnorr, Message, PublicKey},
         Amount, OutPoint, TapNodeHash, TapSighashType, TxOut, Txid, XOnlyPublicKey,
     };
-    use secp256k1::{ffi::PartialSignature, rand::Rng};
+    use secp256k1::{musig::PartialSignature, rand::Rng};
     use std::sync::Arc;
     use std::vec;
 
@@ -273,8 +279,7 @@ mod tests {
 
         for _ in 0..num_signers {
             let key_pair = Keypair::new(&SECP, &mut bitcoin::secp256k1::rand::thread_rng());
-            let nonce_pair =
-                nonce_pair(&key_pair, &mut bitcoin::secp256k1::rand::thread_rng()).unwrap();
+            let nonce_pair = nonce_pair(&key_pair, &mut secp256k1::rand::thread_rng()).unwrap();
 
             key_pairs.push(key_pair);
             nonce_pairs.push(nonce_pair);
@@ -753,9 +758,9 @@ mod tests {
         let agg_pk_script_tweak = from_secp_xonly(key_agg_cache.agg_pk());
 
         let (sec_nonce1, pub_nonce1) =
-            nonce_pair(&kp1, &mut bitcoin::secp256k1::rand::thread_rng()).unwrap();
+            nonce_pair(&kp1, &mut secp256k1::rand::thread_rng()).unwrap();
         let (sec_nonce2, pub_nonce2) =
-            nonce_pair(&kp2, &mut bitcoin::secp256k1::rand::thread_rng()).unwrap();
+            nonce_pair(&kp2, &mut secp256k1::rand::thread_rng()).unwrap();
         let agg_nonce = aggregate_nonces(&[&pub_nonce1, &pub_nonce2]);
 
         let partial_sig1 = partial_sign(
