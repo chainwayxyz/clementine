@@ -307,9 +307,17 @@ where
         Ok(tagged_sigs)
     }
 
-    /// Checks if all operators in verifier's db that are still in protocol are in the deposit.
+    /// Checks if the deposit is a valid deposit, returns false if it is not.
+    /// First checks if the security council is the same as in the config.
+    /// Then checks if all operators that still have collateral are in the deposit.
     /// Afterwards, it checks if the given deposit outpoint is valid. First it checks if the tx exists on chain,
     /// then it checks if the amount in TxOut is equal to bridge_amount and if the script is correct.
+    ///
+    /// # Arguments
+    /// * `deposit_data` - The deposit data to check.
+    ///
+    /// # Returns
+    /// * `true` if the deposit is valid, `false` otherwise.
     async fn is_deposit_valid(&self, deposit_data: &mut DepositData) -> Result<bool, BridgeError> {
         // check if security council is the same as in our config
         if deposit_data.security_council != self.config.security_council {
