@@ -17,6 +17,9 @@ jobs:
     runs-on: ubicloud-standard-30
 
     steps:
+      - name: Collect Workflow Telemetry
+        uses: catchpoint/workflow-telemetry-action@v2
+
       - uses: actions/checkout@v4
       - uses: ./.github/actions/install-risc0
         with:
@@ -36,6 +39,9 @@ jobs:
     runs-on: ubicloud-standard-30
 
     steps:
+      - name: Collect Workflow Telemetry
+        uses: catchpoint/workflow-telemetry-action@v2
+
       - uses: actions/checkout@v4
       - uses: ./.github/actions/install-risc0
         with:
@@ -73,6 +79,9 @@ jobs:
           --health-retries 5
 
     steps:
+      - name: Collect Workflow Telemetry
+        uses: catchpoint/workflow-telemetry-action@v2
+
       - uses: actions/checkout@v4
       - uses: ./.github/actions/install-risc0
         with:
@@ -110,6 +119,9 @@ jobs:
           --health-retries 5
 
     steps:
+      - name: Collect Workflow Telemetry
+        uses: catchpoint/workflow-telemetry-action@v2
+
       - uses: actions/checkout@v4
       - uses: ./.github/actions/install-risc0
         with:
@@ -134,6 +146,9 @@ jobs:
       RISC0_DEV_MODE: 0
 
     steps:
+      - name: Collect Workflow Telemetry
+        uses: catchpoint/workflow-telemetry-action@v2
+
       - uses: actions/checkout@v4
       - uses: ./.github/actions/install-risc0
         with:
@@ -182,6 +197,9 @@ jobs:
           --health-retries 5
 
     steps:
+      - name: Collect Workflow Telemetry
+        uses: catchpoint/workflow-telemetry-action@v2
+
       - uses: actions/checkout@v4
       - uses: ./.github/actions/install-risc0
         with:
@@ -227,6 +245,9 @@ jobs:
           --health-retries 5
 
     steps:
+      - name: Collect Workflow Telemetry
+        uses: catchpoint/workflow-telemetry-action@v2
+
       - uses: actions/checkout@v4
       - uses: ./.github/actions/install-risc0
         with:
@@ -265,6 +286,9 @@ jobs:
           --health-retries 5
 
     steps:
+      - name: Collect Workflow Telemetry
+        uses: catchpoint/workflow-telemetry-action@v2
+
       - uses: actions/checkout@v4
       - uses: ./.github/actions/install-risc0
         with:
