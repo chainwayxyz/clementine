@@ -73,7 +73,7 @@ jobs:
           mv release/clementine-cli release/clementine-cli-${{ github.ref_name }}-linux-amd64
 
       - name: Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v1
         with:
           draft: ${{ contains(github.ref, 'tmp') }}
           files: |
