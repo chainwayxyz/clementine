@@ -20,7 +20,7 @@ use bitcoin::secp256k1::{Message, PublicKey};
 use bitcoin::{hashes::Hash, script, Amount, TapSighashType};
 use bitcoin::{taproot, Sequence, TxOut, XOnlyPublicKey};
 use bitcoincore_rpc::RpcApi;
-use secp256k1::musig::{MusigAggNonce, MusigPartialSignature};
+use secp256k1::musig::{AggregatedNonce, PartialSignature};
 use std::sync::Arc;
 
 #[cfg(test)]
@@ -50,7 +50,7 @@ fn get_verifiers_keys(config: &BridgeConfig) -> (Vec<Keypair>, XOnlyPublicKey, V
 #[cfg(test)]
 fn get_nonces(
     verifiers_secret_public_keys: Vec<Keypair>,
-) -> Result<(Vec<MuSigNoncePair>, MusigAggNonce), BridgeError> {
+) -> Result<(Vec<MuSigNoncePair>, AggregatedNonce), BridgeError> {
     let nonce_pairs: Vec<MuSigNoncePair> = verifiers_secret_public_keys
         .iter()
         .map(|kp| nonce_pair(kp, &mut secp256k1::rand::thread_rng()))
@@ -117,7 +117,7 @@ async fn key_spend() {
     let merkle_root = from_address_spend_info.merkle_root();
     assert!(merkle_root.is_none());
 
-    let partial_sigs: Vec<MusigPartialSignature> = verifiers_secret_public_keys
+    let partial_sigs: Vec<PartialSignature> = verifiers_secret_public_keys
         .into_iter()
         .zip(nonce_pairs)
         .map(|(kp, nonce_pair)| {
@@ -221,7 +221,7 @@ async fn key_spend_with_script() {
     );
     let merkle_root = from_address_spend_info.merkle_root().unwrap();
 
-    let partial_sigs: Vec<MusigPartialSignature> = verifiers_secret_public_keys
+    let partial_sigs: Vec<PartialSignature> = verifiers_secret_public_keys
         .into_iter()
         .zip(nonce_pairs)
         .map(|(kp, nonce_pair)| {
@@ -329,7 +329,7 @@ async fn script_spend() {
             .to_byte_array(),
     );
 
-    let partial_sigs: Vec<MusigPartialSignature> = verifiers_secret_public_keys
+    let partial_sigs: Vec<PartialSignature> = verifiers_secret_public_keys
         .into_iter()
         .zip(nonce_pairs)
         .map(|(kp, nonce_pair)| {
@@ -500,7 +500,7 @@ async fn key_and_script_spend() {
     // Musig2 Partial Signatures
     // Script Spend
     let final_signature_1 = {
-        let partial_sigs: Vec<MusigPartialSignature> = verifiers_secret_public_keys
+        let partial_sigs: Vec<PartialSignature> = verifiers_secret_public_keys
             .iter()
             .zip(nonce_pairs)
             .map(|(kp, nonce_pair)| {
@@ -529,7 +529,7 @@ async fn key_and_script_spend() {
 
     // Key spend
     let final_signature_2 = {
-        let partial_sigs: Vec<MusigPartialSignature> = verifiers_secret_public_keys
+        let partial_sigs: Vec<PartialSignature> = verifiers_secret_public_keys
             .iter()
             .zip(nonce_pairs_2)
             .map(|(kp, nonce_pair)| {

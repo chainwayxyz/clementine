@@ -62,6 +62,7 @@ pub fn get_kickoff_utxos_to_sign(
 
     let seed = bitcoin::hashes::sha256d::Hash::hash(&deposit_data).to_byte_array();
     let mut rng = ChaCha12Rng::from_seed(seed);
+    let mut rng = secp256k1::rand::rngs::StdRng::from_rng(rng).expect("Failed to create RNG");
 
     let mut numbers: Vec<usize> = (0..paramset.num_kickoffs_per_round).collect();
     numbers.shuffle(&mut rng);

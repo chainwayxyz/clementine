@@ -641,8 +641,8 @@ pub fn replace_disprove_scripts(pks: &ClementineBitVMPublicKeys) -> Vec<ScriptBu
 
 #[cfg(test)]
 mod tests {
+    use bitcoin::secp256k1::rand::thread_rng;
     use bitcoin::{hashes::Hash, Txid};
-    use secp256k1::rand::thread_rng;
 
     use super::*;
     use crate::{actor::Actor, test::common::create_test_config_with_thread_name};

@@ -21,7 +21,7 @@ use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::{schnorr, Message, PublicKey};
 use bitcoin::XOnlyPublicKey;
 use futures_util::future::try_join_all;
-use secp256k1::musig::{MusigAggNonce, MusigPartialSignature};
+use secp256k1::musig::{AggregatedNonce, PartialSignature};
 use tonic::Status;
 
 /// Aggregator struct.
@@ -278,8 +278,8 @@ impl Aggregator {
     async fn aggregate_move_partial_sigs(
         &self,
         deposit_data: &mut DepositData,
-        agg_nonce: &MusigAggNonce,
-        partial_sigs: Vec<MusigPartialSignature>,
+        agg_nonce: &AggregatedNonce,
+        partial_sigs: Vec<PartialSignature>,
     ) -> Result<schnorr::Signature, BridgeError> {
         let tx = builder::transaction::create_move_to_vault_txhandler(
             deposit_data,

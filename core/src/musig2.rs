@@ -12,9 +12,13 @@ use bitcoin::{
 use eyre::Context;
 use lazy_static::lazy_static;
 use secp256k1::{
+    ffi::{
+        AggregatedNonce, MusigKeyAggCache, MusigPubNonce, MusigSecNonce, MusigSession,
+        PartialSignature,
+    },
     musig::{
-        new_musig_nonce_pair, MusigAggNonce, MusigKeyAggCache, MusigPartialSignature,
-        MusigPubNonce, MusigSecNonce, MusigSecRand, MusigSession,
+        new_nonce_pair, AggregatedNonce, KeyAggCache, PartialSignature, PublicNonce, SecretNonce,
+        Session, SessionSecretRand,
     },
     rand::Rng,
     Scalar, SECP256K1,
@@ -80,7 +84,7 @@ lazy_static! {
 fn create_key_agg_cache(
     public_keys: impl AsRef<[PublicKey]>,
     mode: Option<Musig2Mode>,
-) -> Result<MusigKeyAggCache, BridgeError> {
+) -> Result<KeyAggCache, BridgeError> {
     let secp_pubkeys: Vec<secp256k1::PublicKey> = public_keys
         .as_ref()
         .iter()
@@ -89,7 +93,7 @@ fn create_key_agg_cache(
     let pubkeys_ref: Vec<&secp256k1::PublicKey> = secp_pubkeys.iter().collect();
     let pubkeys_ref = pubkeys_ref.as_slice();
 
-    let mut musig_key_agg_cache = MusigKeyAggCache::new(SECP256K1, pubkeys_ref);
+    let mut musig_key_agg_cache = KeyAggCache::new(SECP256K1, pubkeys_ref);
     let agg_key = musig_key_agg_cache.agg_pk();
 
     if let Some(mode) = mode {
@@ -154,24 +158,24 @@ impl AggregateFromPublicKeys for XOnlyPublicKey {
 }
 
 // Aggregates the public nonces into a single aggregated nonce.
-pub fn aggregate_nonces(pub_nonces: &[&MusigPubNonce]) -> MusigAggNonce {
-    MusigAggNonce::new(SECP256K1, pub_nonces)
+pub fn aggregate_nonces(pub_nonces: &[&PublicNonce]) -> AggregatedNonce {
+    AggregatedNonce::new(SECP256K1, pub_nonces)
 }
 
 // Aggregates the partial signatures into a single aggregated signature.
 pub fn aggregate_partial_signatures(
     pks: &[PublicKey],
     tweak: Option<Musig2Mode>,
-    agg_nonce: MusigAggNonce,
-    partial_sigs: &[MusigPartialSignature],
+    agg_nonce: AggregatedNonce,
+    partial_sigs: &[PartialSignature],
     message: Message,
 ) -> Result<schnorr::Signature, BridgeError> {
-    let musig_key_agg_cache: MusigKeyAggCache = create_key_agg_cache(pks, tweak)?;
+    let musig_key_agg_cache = create_key_agg_cache(pks, tweak)?;
     let secp_message = to_secp_msg(&message);
 
-    let session = MusigSession::new(SECP256K1, &musig_key_agg_cache, agg_nonce, secp_message);
+    let session = Session::new(SECP256K1, &musig_key_agg_cache, agg_nonce, secp_message);
 
-    let partial_sigs: Vec<&MusigPartialSignature> = partial_sigs.iter().collect();
+    let partial_sigs: Vec<&PartialSignature> = partial_sigs.iter().collect();
     let final_sig = session.partial_sig_agg(&partial_sigs);
 
     SECP256K1
@@ -192,10 +196,10 @@ pub fn aggregate_partial_signatures(
 pub fn nonce_pair(
     keypair: &Keypair,
     mut rng: &mut impl Rng,
-) -> Result<(MusigSecNonce, MusigPubNonce), BridgeError> {
-    let musig_session_sec_rand = MusigSecRand::new(&mut rng);
+) -> Result<(SecretNonce, PublicNonce), BridgeError> {
+    let musig_session_sec_rand = SessionSecretRand::new();
 
-    Ok(new_musig_nonce_pair(
+    Ok(new_nonce_pair(
         SECP256K1,
         musig_session_sec_rand,
         None,
@@ -203,8 +207,7 @@ pub fn nonce_pair(
         to_secp_kp(keypair).public_key(),
         None,
         None,
-    )
-    .wrap_err("Failed to generate nonce pair")?)
+    ))
 }
 
 pub fn partial_sign(
@@ -212,28 +215,26 @@ pub fn partial_sign(
     // Aggregated tweak, if there is any. This is useful for
     // Taproot key-spends, since we might have script-spend conditions.
     tweak: Option<Musig2Mode>,
-    sec_nonce: MusigSecNonce,
-    agg_nonce: MusigAggNonce,
+    sec_nonce: SecretNonce,
+    agg_nonce: AggregatedNonce,
     keypair: Keypair,
     sighash: Message,
-) -> Result<MusigPartialSignature, BridgeError> {
+) -> Result<PartialSignature, BridgeError> {
     let musig_key_agg_cache = create_key_agg_cache(pks, tweak)?;
 
-    let session = MusigSession::new(
+    let session = Session::new(
         SECP256K1,
         &musig_key_agg_cache,
         agg_nonce,
         to_secp_msg(&sighash),
     );
 
-    Ok(session
-        .partial_sign(
-            SECP256K1,
-            sec_nonce,
-            &to_secp_kp(&keypair),
-            &musig_key_agg_cache,
-        )
-        .wrap_err("Failed to sign partial signature")?)
+    Ok(session.partial_sign(
+        SECP256K1,
+        sec_nonce,
+        &to_secp_kp(&keypair),
+        &musig_key_agg_cache,
+    ))
 }
 
 #[cfg(test)]
@@ -261,7 +262,7 @@ mod tests {
         secp256k1::{schnorr, Message, PublicKey},
         Amount, OutPoint, TapNodeHash, TapSighashType, TxOut, Txid, XOnlyPublicKey,
     };
-    use secp256k1::{musig::MusigPartialSignature, rand::Rng};
+    use secp256k1::{ffi::PartialSignature, rand::Rng};
     use std::sync::Arc;
     use std::vec;
 
@@ -332,9 +333,9 @@ mod tests {
 
     #[test]
     fn musig2_raw_fail_if_partial_sigs_invalid() {
-        let kp_0 = Keypair::new(&SECP, &mut secp256k1::rand::thread_rng());
-        let kp_1 = Keypair::new(&SECP, &mut secp256k1::rand::thread_rng());
-        let kp_2 = Keypair::new(&SECP, &mut secp256k1::rand::thread_rng());
+        let kp_0 = Keypair::new(&SECP, &mut bitcoin::secp256k1::rand::thread_rng());
+        let kp_1 = Keypair::new(&SECP, &mut bitcoin::secp256k1::rand::thread_rng());
+        let kp_2 = Keypair::new(&SECP, &mut bitcoin::secp256k1::rand::thread_rng());
 
         let message = Message::from_digest(secp256k1::rand::thread_rng().gen());
 
@@ -434,9 +435,9 @@ mod tests {
 
     #[test]
     fn musig2_tweak_fail() {
-        let kp_0 = Keypair::new(&SECP, &mut secp256k1::rand::thread_rng());
-        let kp_1 = Keypair::new(&SECP, &mut secp256k1::rand::thread_rng());
-        let kp_2 = Keypair::new(&SECP, &mut secp256k1::rand::thread_rng());
+        let kp_0 = Keypair::new(&SECP, &mut bitcoin::secp256k1::rand::thread_rng());
+        let kp_1 = Keypair::new(&SECP, &mut bitcoin::secp256k1::rand::thread_rng());
+        let kp_2 = Keypair::new(&SECP, &mut bitcoin::secp256k1::rand::thread_rng());
 
         let message = Message::from_digest(secp256k1::rand::thread_rng().gen::<[u8; 32]>());
 
@@ -567,7 +568,7 @@ mod tests {
         );
         let merkle_root = sending_address_spend_info.merkle_root().unwrap();
 
-        let partial_sigs: Vec<MusigPartialSignature> = key_pairs
+        let partial_sigs: Vec<PartialSignature> = key_pairs
             .into_iter()
             .zip(nonce_pairs)
             .map(|(kp, nonce_pair)| {
@@ -673,7 +674,7 @@ mod tests {
                 .to_byte_array(),
         );
 
-        let partial_sigs: Vec<MusigPartialSignature> = key_pairs
+        let partial_sigs: Vec<PartialSignature> = key_pairs
             .into_iter()
             .zip(nonce_pairs)
             .map(|(kp, nonce_pair)| {

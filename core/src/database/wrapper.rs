@@ -187,8 +187,8 @@ impl_text_wrapper_default!(PublicKeyDB, PublicKey);
 impl_text_wrapper_default!(XOnlyPublicKeyDB, XOnlyPublicKey);
 
 impl_bytea_wrapper_default!(SignatureDB, schnorr::Signature);
-impl_bytea_wrapper_default!(MusigPubNonceDB, musig::MusigPubNonce);
-impl_bytea_wrapper_default!(MusigAggNonceDB, musig::MusigAggNonce);
+impl_bytea_wrapper_default!(MusigPubNonceDB, secp256k1::ffi::MusigPubNonce);
+impl_bytea_wrapper_default!(MusigAggNonceDB, secp256k1::ffi::MusigAggNonce);
 
 impl_text_wrapper_custom!(
     AddressDB,

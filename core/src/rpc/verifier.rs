@@ -19,7 +19,7 @@ use crate::{
 };
 use bitcoin::Witness;
 use clementine::verifier_deposit_finalize_params::Params;
-use secp256k1::musig::MusigAggNonce;
+use secp256k1::musig::AggregatedNonce;
 use tokio::sync::mpsc::{self, error::SendError};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{async_trait, Request, Response, Status, Streaming};
@@ -38,7 +38,7 @@ where
         request: Request<OptimisticPayoutParams>,
     ) -> Result<Response<PartialSig>, Status> {
         let params = request.into_inner();
-        let agg_nonce = MusigAggNonce::from_slice(params.agg_nonce.as_slice())
+        let agg_nonce = AggregatedNonce::from_slice(params.agg_nonce.as_slice())
             .map_err(|e| Status::invalid_argument(format!("Invalid musigagg nonce: {}", e)))?;
         let nonce_session_id = params
             .nonce_gen
@@ -230,7 +230,7 @@ where
             {
                 let agg_nonce = match result {
                     clementine::verifier_deposit_sign_params::Params::AggNonce(agg_nonce) => {
-                        MusigAggNonce::from_slice(agg_nonce.as_slice())
+                        AggregatedNonce::from_slice(agg_nonce.as_slice())
                             .map_err(|_| ParserError::RPCParamMalformed("AggNonce".to_string()))?
                     }
                     _ => return Err(Status::invalid_argument("Expected AggNonce")),
