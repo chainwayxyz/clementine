@@ -583,7 +583,7 @@
         new_move_txid: Txid,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
         <span class="comment">// check if new move txid is already in the database
-        </span><span class="kw">let </span>query = sqlx::query_as::&lt;<span class="kw">_</span>, (i32,)&gt;(
+        </span><span class="kw">let </span>query = sqlx::query_as::&lt;<span class="kw">_</span>, (i64,)&gt;(
             <span class="string">"SELECT COUNT(*) FROM withdrawals WHERE move_to_vault_txid = $1"</span>,
         )
         .bind(TxidDB(new_move_txid))

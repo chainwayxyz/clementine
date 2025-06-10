@@ -5,7 +5,7 @@
     payment_block_height: <a class="primitive" href="https://doc.rust-lang.org/1.85.1/std/primitive.u32.html">u32</a>,
     genesis_block_height: <a class="primitive" href="https://doc.rust-lang.org/1.85.1/std/primitive.u32.html">u32</a>,
     payment_tx_index: <a class="primitive" href="https://doc.rust-lang.org/1.85.1/std/primitive.u32.html">u32</a>,
-) -&gt; <a class="struct" href="../../circuits_lib/bridge_circuit/spv/struct.SPV.html" title="struct circuits_lib::bridge_circuit::spv::SPV">SPV</a></code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Constructs an SPV (Simplified Payment Verification) proof.</p>
+) -&gt; SPV</code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Constructs an SPV (Simplified Payment Verification) proof.</p>
 <p>This function decodes a Bitcoin transaction, processes block headers,
 constructs an MMR (Merkle Mountain Range) for block header commitment,
 and generates a Merkle proof for the payout transaction’s inclusion in
