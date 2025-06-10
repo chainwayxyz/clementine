@@ -245,15 +245,15 @@ async fn nonce_distributor(
                         stream_name: format!("Partial sig stream {idx}"),
                     })?;
 
-                let arr: [u8; 32] = partial_sig
-                    .partial_sig
-                    .as_slice()
-                    .try_into()
-                    .wrap_err("AggregatedNonce must be 32 bytes")?;
-
                 Ok::<_, BridgeError>(
-                    PartialSignature::from_byte_array(&arr)
-                        .wrap_err("Failed to parse partial signature")?,
+                    PartialSignature::from_byte_array(
+                        &partial_sig
+                            .partial_sig
+                            .as_slice()
+                            .try_into()
+                            .wrap_err("AggregatedNonce must be 32 bytes")?,
+                    )
+                    .wrap_err("Failed to parse partial signature")?,
                 )
             },
         ))
@@ -504,12 +504,13 @@ impl Aggregator {
     ) -> Result<PublicNonce, BridgeError> {
         match response.ok_or_eyre("NonceGen response is empty")? {
             clementine::nonce_gen_response::Response::PubNonce(pub_nonce) => {
-                let arr: &[u8; 66] = pub_nonce
-                    .as_slice()
-                    .try_into()
-                    .wrap_err("PubNonce must be 66 bytes")?;
-
-                Ok(PublicNonce::from_byte_array(arr).wrap_err("Failed to parse pub nonce")?)
+                Ok(PublicNonce::from_byte_array(
+                    &pub_nonce
+                        .as_slice()
+                        .try_into()
+                        .wrap_err("PubNonce must be 66 bytes")?,
+                )
+                .wrap_err("Failed to parse pub nonce")?)
             }
             _ => Err(eyre::eyre!("Expected PubNonce in response").into()),
         }
@@ -914,11 +915,13 @@ impl ClementineAggregator for Aggregator {
             let musig_partial_sigs = payout_sig
                 .iter()
                 .map(|sig| {
-                    let arr: &[u8] = &sig.get_ref().partial_sig;
-                    let arr: &[u8; 32] = arr
-                        .try_into()
-                        .map_err(|_| secp256k1::musig::ParseError::MalformedArg)?;
-                    PartialSignature::from_byte_array(arr)
+                    PartialSignature::from_byte_array(
+                        &sig.get_ref()
+                            .partial_sig
+                            .clone()
+                            .try_into()
+                            .map_err(|_| secp256k1::musig::ParseError::MalformedArg)?,
+                    )
                 })
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(|e| Status::internal(format!("Failed to parse partial sig: {:?}", e)))?;
