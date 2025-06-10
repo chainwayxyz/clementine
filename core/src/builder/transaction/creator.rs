@@ -1,8 +1,27 @@
+//! # Transaction Handler Creation Logic
+//!
+//! This module provides the logic for constructing, caching, and managing transaction handlers (`TxHandler`) for all transaction types in the Clementine bridge.
+//!
+//! It is responsible for orchestrating the creation of all transaction flows for a given operator, round, and deposit, including collateral, kickoff, challenge, reimbursement, and assertion transactions. It also manages context and database-backed caching to support efficient and correct transaction construction.
+//!
+//! ## Key Types
+//!
+//! - [`KickoffWinternitzKeys`] - Helper for managing Winternitz keys for kickoff transactions, to retrieve the correct keys for a given round.
+//! - [`ReimburseDbCache`] - Retrieves and caches relevant data from the database for transaction handler creation.
+//! - [`ContractContext`] - Holds context for a specific operator, round, and optionally deposit, in short all the information needed to create the relevant transactions.
+//! - [`TxHandlerCache`] - Stores and manages cached transaction handlers for efficient flow construction. This is important during the deposit, as the functions create all transactions for a single operator, kickoff utxo, and deposit tuple, which has common transactions between them. (Mainly round tx and move to vault tx)
+//!
+//! ## Main Functions
+//!
+//! - [`create_txhandlers`] - Orchestrates the creation of all required transaction handlers for a given context and transaction type.
+//! - [`create_round_txhandlers`] - Creates round and ready-to-reimburse transaction handlers for a specific operator and round.
+//!
+
 use super::input::UtxoVout;
 use super::operator_assert::{
     create_latest_blockhash_timeout_txhandler, create_latest_blockhash_txhandler,
 };
-use super::{remove_txhandler_from_map, DepositData, KickoffData, RoundTxInput};
+use super::{remove_txhandler_from_map, RoundTxInput};
 use crate::actor::Actor;
 use crate::bitvm_client::ClementineBitVMPublicKeys;
 use crate::builder;
@@ -10,12 +29,13 @@ use crate::builder::script::{SpendableScript, TimelockScript, WinternitzCommit};
 use crate::builder::transaction::{
     create_assert_timeout_txhandlers, create_challenge_timeout_txhandler, create_kickoff_txhandler,
     create_mini_asserts, create_round_txhandler, create_unspent_kickoff_txhandlers, AssertScripts,
-    OperatorData, TransactionType, TxHandler,
+    TransactionType, TxHandler,
 };
 use crate::config::protocol::ProtocolParamset;
 use crate::database::Database;
+use crate::deposit::{DepositData, KickoffData, OperatorData};
 use crate::errors::{BridgeError, TxError};
-use crate::operator::PublicHash;
+use crate::operator::{PublicHash, RoundIndex};
 use bitcoin::hashes::Hash;
 use bitcoin::key::Secp256k1;
 use bitcoin::taproot::TaprootBuilder;
@@ -40,36 +60,63 @@ fn get_txhandler(
         .ok_or(TxError::TxHandlerNotFound(tx_type))
 }
 
-#[derive(Debug, Clone)]
 /// Helper struct to get specific kickoff winternitz keys for a sequential collateral tx
+#[derive(Debug, Clone)]
 pub struct KickoffWinternitzKeys {
     pub keys: Vec<bitvm::signatures::winternitz::PublicKey>,
     num_kickoffs_per_round: usize,
+    num_rounds: usize,
 }
 
 impl KickoffWinternitzKeys {
+    /// Creates a new [`KickoffWinternitzKeys`] with the given keys and number per round.
     pub fn new(
         keys: Vec<bitvm::signatures::winternitz::PublicKey>,
         num_kickoffs_per_round: usize,
+        num_rounds: usize,
     ) -> Self {
         Self {
             keys,
             num_kickoffs_per_round,
+            num_rounds,
         }
     }
 
-    /// Get the winternitz keys for a specific sequential collateral tx
+    /// Get the winternitz keys for a specific round tx.
+    ///
+    /// # Arguments
+    /// * `round_idx` - The index of the round.
+    ///
+    /// # Returns
+    /// A slice of Winternitz public keys for the given round.
     pub fn get_keys_for_round(
         &self,
-        round_idx: usize,
-    ) -> &[bitvm::signatures::winternitz::PublicKey] {
-        &self.keys
-            [round_idx * self.num_kickoffs_per_round..(round_idx + 1) * self.num_kickoffs_per_round]
+        round_idx: RoundIndex,
+    ) -> Result<&[bitvm::signatures::winternitz::PublicKey], TxError> {
+        // 0th round is the collateral, there are no keys for the 0th round
+        // Additionally there are no keys after num_rounds + 1, +1 is because we need additional round to generate
+        // reimbursement connectors of previous round
+        if round_idx == RoundIndex::Collateral || round_idx.to_index() > self.num_rounds + 1 {
+            return Err(TxError::InvalidRoundIndex(round_idx));
+        }
+        let start_idx = (round_idx.to_index() as usize)
+            .checked_sub(1) // 0th round is the collateral, there are no keys for the 0th round
+            .ok_or(TxError::IndexOverflow)?
+            .checked_mul(self.num_kickoffs_per_round)
+            .ok_or(TxError::IndexOverflow)?;
+        let end_idx = start_idx
+            .checked_add(self.num_kickoffs_per_round)
+            .ok_or(TxError::IndexOverflow)?;
+        Ok(&self.keys[start_idx..end_idx])
     }
 }
 
 /// Struct to retrieve and cache data from DB for creating TxHandlers on demand
 /// It can only store information for one deposit and operator pair.
+/// It has two context modes, for rounds or for deposits. Deposit context needs additional information, like the deposit outpoint, which is not needed for rounds.
+/// Round context can only create transactions that do not depend on the deposit, like the round tx and ready to reimburse tx.
+/// Deposit context can create all transactions.
+/// Note: This cache is specific to a single operator, for each operator a new cache is needed.
 #[derive(Debug, Clone)]
 pub struct ReimburseDbCache {
     pub db: Database,
@@ -136,6 +183,7 @@ impl ReimburseDbCache {
         }
     }
 
+    /// Creates a db cache from a contract context. This context can possible include a deposit data, for which it will be equivalent to new_for_deposit, otherwise it will be equivalent to new_for_rounds.
     pub fn from_context(db: Database, context: &ContractContext) -> Self {
         if context.deposit_data.is_some() {
             let deposit_data = context
@@ -200,6 +248,7 @@ impl ReimburseDbCache {
                         .await
                         .wrap_err("Failed to get kickoff winternitz keys from database")?,
                     self.paramset.num_kickoffs_per_round,
+                    self.paramset.num_round_txs,
                 ));
                 Ok(self
                     .kickoff_winternitz_keys
@@ -323,25 +372,26 @@ impl ReimburseDbCache {
     }
 }
 
+/// Context for a single operator and round, and optionally a single deposit.
+/// Data about deposit and kickoff idx is needed to create the deposit-related transactions.
+/// For non deposit related transactions, like the round tx and ready to reimburse tx, the round idx is enough.
 #[derive(Debug, Clone)]
-/// Context for a single operator and round, and optionally a single deposit
 pub struct ContractContext {
     /// required
     operator_xonly_pk: XOnlyPublicKey,
-    round_idx: u32,
+    round_idx: RoundIndex,
     paramset: &'static ProtocolParamset,
     /// optional (only used for after kickoff)
     kickoff_idx: Option<u32>,
     deposit_data: Option<DepositData>,
     signer: Option<Actor>,
-    // TODO: why different winternitz_secret_key???
 }
 
 impl ContractContext {
     /// Contains all necessary context for creating txhandlers for a specific operator and collateral chain
-    pub fn new_context_for_rounds(
+    pub fn new_context_for_round(
         operator_xonly_pk: XOnlyPublicKey,
-        round_idx: u32,
+        round_idx: RoundIndex,
         paramset: &'static ProtocolParamset,
     ) -> Self {
         Self {
@@ -355,7 +405,7 @@ impl ContractContext {
     }
 
     /// Contains all necessary context for creating txhandlers for a specific operator, kickoff utxo, and a deposit
-    pub fn new_context_for_kickoffs(
+    pub fn new_context_for_kickoff(
         kickoff_data: KickoffData,
         deposit_data: DepositData,
         paramset: &'static ProtocolParamset,
@@ -389,7 +439,25 @@ impl ContractContext {
     }
 }
 
-/// Struct to store common txhandlers for kickoffs
+/// Stores and manages cached transaction handlers for efficient flow construction.
+///
+/// This cache is used to avoid redundant construction of common transactions (such as round and move-to-vault transactions)
+/// when creating all transactions for a single operator, kickoff utxo, and deposit tuple. It is especially important during deposit flows,
+/// where many transactions share common intermediates. The cache tracks the previous ready-to-reimburse transaction and a map of saved
+/// transaction handlers by type.
+/// Note: Why is prev_ready_to_reimburse needed and not just stored in saved_txs? Because saved_txs can include the ReadyToReimburse txhandler for the current round, prev_ready_to_reimburse is specifically from the previous round.
+///
+/// # Fields
+///
+/// - `prev_ready_to_reimburse`: Optionally stores the previous round's ready-to-reimburse transaction handler.
+/// - `saved_txs`: A map from [`TransactionType`] to [`TxHandler`], storing cached transaction handlers for the current context.
+///
+/// # Usage
+///
+/// - Use `store_for_next_kickoff` to cache the current round's main transactions before moving to the next kickoff within the same round.
+/// - Use `store_for_next_round` to update the cache when moving to the next round, preserving the necessary state.
+/// - Use `get_cached_txs` to retrieve and clear the current cache when constructing new transactions.
+/// - Use `get_prev_ready_to_reimburse` to access the previous round's ready-to-reimburse transaction to create the next round's round tx.
 pub struct TxHandlerCache {
     pub prev_ready_to_reimburse: Option<TxHandler>,
     pub saved_txs: BTreeMap<TransactionType, TxHandler>,
@@ -402,12 +470,17 @@ impl Default for TxHandlerCache {
 }
 
 impl TxHandlerCache {
+    /// Creates a new, empty cache.
     pub fn new() -> Self {
         Self {
             saved_txs: BTreeMap::new(),
             prev_ready_to_reimburse: None,
         }
     }
+    /// Stores txhandlers for the next kickoff, caching MoveToVault, Round, and ReadyToReimburse.
+    ///
+    /// Removes these transaction types from the provided map and stores them in the cache.
+    /// This is used to preserve the state between kickoffs within the same round.
     pub fn store_for_next_kickoff(
         &mut self,
         txhandlers: &mut BTreeMap<TransactionType, TxHandler>,
@@ -428,7 +501,10 @@ impl TxHandlerCache {
         }
         Ok(())
     }
-    /// store move_to_vault and previous ready to reimburse
+    /// Stores MoveToVault and previous ReadyToReimburse for the next round.
+    ///
+    /// Moves the MoveToVault and ReadyToReimburse txhandlers from the cache to their respective fields,
+    /// clearing the rest of the cache. This is used to preserve the state between rounds.
     pub fn store_for_next_round(&mut self) -> Result<(), BridgeError> {
         let move_to_vault =
             remove_txhandler_from_map(&mut self.saved_txs, TransactionType::MoveToVault)?;
@@ -441,14 +517,39 @@ impl TxHandlerCache {
             .insert(move_to_vault.get_transaction_type(), move_to_vault);
         Ok(())
     }
+    /// Gets the previous ReadyToReimburse txhandler, if any.
+    ///
+    /// This is used to chain rounds together, as the output of the previous ready-to-reimburse transaction
+    /// is needed as input for the next round's round transaction. Without caching, we would have to create the full collateral chain again.
     pub fn get_prev_ready_to_reimburse(&self) -> Option<&TxHandler> {
         self.prev_ready_to_reimburse.as_ref()
     }
+    /// Takes and returns all cached txhandlers, clearing the cache.
     pub fn get_cached_txs(&mut self) -> BTreeMap<TransactionType, TxHandler> {
         std::mem::take(&mut self.saved_txs)
     }
 }
 
+/// Creates all required transaction handlers for a given context and transaction type.
+///
+/// This function builds and caches all necessary transaction handlers for the specified transaction type, operator, round, and deposit context.
+/// It handles the full flow of collateral, kickoff, challenge, reimbursement, and assertion transactions, including round management and challenge handling.
+/// Function returns early if the needed txhandler is already created.
+/// Currently there are 3 kinds of specific transaction types that can be given as parameter that change the logic flow
+/// - AllNeededForDeposit: Creates all transactions, including the round tx's and deposit related tx's.
+/// - Round related tx's (Round, ReadyToReimburse, UnspentKickoff): Creates only round related tx's and returns early.
+/// - MiniAssert and LatestBlockhash: These tx's are created to commit data in their witness using winternitz signatures. To enable signing these transactions, the kickoff transaction (where the input of MiniAssert and LatestBlockhash resides) needs to be created with the full list of scripts in its TxHandler data. This may take some time especially for a deposit where thousands of kickoff tx's are created. That's why if MiniAssert or LatestBlockhash is not requested, these scripts are not created and just the merkle root hash of these scripts is used to create the kickoff tx. But if these tx's are requested, the full list of scripts is needed to create the kickoff tx, to enable signing these transactions with winternitz signatures.
+///
+/// # Arguments
+///
+/// * `transaction_type` - The type of transaction(s) to create.
+/// * `context` - The contract context (operator, round, deposit, etc).
+/// * `txhandler_cache` - Cache for storing/retrieving intermediate txhandlers.
+/// * `db_cache` - Database-backed cache for retrieving protocol data.
+///
+/// # Returns
+///
+/// A map of [`TransactionType`] to [`TxHandler`] for all constructed transactions, or a [`BridgeError`] if construction fails.
 pub async fn create_txhandlers(
     transaction_type: TransactionType,
     context: ContractContext,
@@ -467,12 +568,11 @@ pub async fn create_txhandlers(
     } = context;
 
     let mut txhandlers = txhandler_cache.get_cached_txs();
-
     if !txhandlers.contains_key(&TransactionType::Round) {
         // create round tx, ready to reimburse tx, and unspent kickoff txs if not in cache
         let round_txhandlers = create_round_txhandlers(
             paramset,
-            round_idx as usize,
+            round_idx,
             &operator_data,
             &kickoff_winternitz_keys,
             txhandler_cache.get_prev_ready_to_reimburse(),
@@ -500,7 +600,7 @@ pub async fn create_txhandlers(
             get_txhandler(&txhandlers, TransactionType::ReadyToReimburse)?
                 .get_spendable_output(UtxoVout::BurnConnector)?,
         )),
-        kickoff_winternitz_keys.get_keys_for_round(round_idx as usize + 1),
+        kickoff_winternitz_keys.get_keys_for_round(round_idx.next_round())?,
         paramset,
     )?;
 
@@ -578,8 +678,10 @@ pub async fn create_txhandlers(
         deposit_data.get_deposit_outpoint(),
     );
 
-    let payout_tx_blockhash_pk = kickoff_winternitz_keys.get_keys_for_round(round_idx as usize)
-        [kickoff_data.kickoff_idx as usize]
+    let payout_tx_blockhash_pk = kickoff_winternitz_keys
+        .get_keys_for_round(round_idx)?
+        .get(kickoff_data.kickoff_idx as usize)
+        .ok_or(TxError::IndexOverflow)?
         .clone();
 
     let additional_disprove_script = db_cache
@@ -631,13 +733,14 @@ pub async fn create_txhandlers(
         )?;
 
         // Create and insert mini_asserts into return Vec
-        let mini_asserts = create_mini_asserts(&kickoff_txhandler, num_asserts)?;
+        let mini_asserts = create_mini_asserts(&kickoff_txhandler, num_asserts, paramset)?;
 
         for mini_assert in mini_asserts.into_iter() {
             txhandlers.insert(mini_assert.get_transaction_type(), mini_assert);
         }
 
-        let latest_blockhash_txhandler = create_latest_blockhash_txhandler(&kickoff_txhandler)?;
+        let latest_blockhash_txhandler =
+            create_latest_blockhash_txhandler(&kickoff_txhandler, paramset)?;
         txhandlers.insert(
             latest_blockhash_txhandler.get_transaction_type(),
             latest_blockhash_txhandler,
@@ -689,6 +792,7 @@ pub async fn create_txhandlers(
         builder::transaction::create_kickoff_not_finalized_txhandler(
             get_txhandler(&txhandlers, TransactionType::Kickoff)?,
             get_txhandler(&txhandlers, TransactionType::ReadyToReimburse)?,
+            paramset,
         )?;
     txhandlers.insert(
         kickoff_not_finalized_txhandler.get_transaction_type(),
@@ -746,9 +850,9 @@ pub async fn create_txhandlers(
     }
 
     if let TransactionType::WatchtowerChallenge(_) = transaction_type {
-        return Err(BridgeError::Error(
-            "Cant directly create a watchtower challenge in create_txhandlers as it needs commit data".to_string(),
-        ));
+        return Err(eyre::eyre!(
+            "Can't directly create a watchtower challenge in create_txhandlers as it needs commit data".to_string(),
+        ).into());
     }
 
     let assert_timeouts = create_assert_timeout_txhandlers(
@@ -793,6 +897,7 @@ pub async fn create_txhandlers(
             let disprove_txhandler = builder::transaction::create_disprove_txhandler(
                 get_txhandler(&txhandlers, TransactionType::Kickoff)?,
                 get_txhandler(&txhandlers, TransactionType::Round)?,
+                paramset,
             )?;
             txhandlers.insert(
                 disprove_txhandler.get_transaction_type(),
@@ -808,10 +913,23 @@ pub async fn create_txhandlers(
     Ok(txhandlers)
 }
 
-/// Function to create the round txhandler and ready to reimburse txhandler for a specific operator and round index
+/// Creates the round and ready-to-reimburse txhandlers for a specific operator and round index.
+/// These transactions currently include round tx, ready to reimburse tx, and unspent kickoff txs.
+///
+/// # Arguments
+///
+/// * `paramset` - Protocol parameter set.
+/// * `round_idx` - The index of the round.
+/// * `operator_data` - Data for the operator.
+/// * `kickoff_winternitz_keys` - All winternitz keys of the operator.
+/// * `prev_ready_to_reimburse` - Previous ready-to-reimburse txhandler, if any, to not create the full collateral chain if we already have the previous round's ready to reimburse txhandler.
+///
+/// # Returns
+///
+/// A vector of [`TxHandler`] for the round, ready-to-reimburse, and unspent kickoff transactions, or a [`BridgeError`] if construction fails.
 pub fn create_round_txhandlers(
     paramset: &'static ProtocolParamset,
-    round_idx: usize,
+    round_idx: RoundIndex,
     operator_data: &OperatorData,
     kickoff_winternitz_keys: &KickoffWinternitzKeys,
     prev_ready_to_reimburse: Option<&TxHandler>,
@@ -820,7 +938,7 @@ pub fn create_round_txhandlers(
 
     let (round_txhandler, ready_to_reimburse_txhandler) = match prev_ready_to_reimburse {
         Some(prev_ready_to_reimburse_txhandler) => {
-            if round_idx == 0 {
+            if round_idx == RoundIndex::Collateral || round_idx == RoundIndex::Round(0) {
                 return Err(
                     eyre::eyre!("Round 0 cannot be created from prev_ready_to_reimburse").into(),
                 );
@@ -831,7 +949,7 @@ pub fn create_round_txhandlers(
                     prev_ready_to_reimburse_txhandler
                         .get_spendable_output(UtxoVout::BurnConnector)?,
                 )),
-                kickoff_winternitz_keys.get_keys_for_round(round_idx),
+                kickoff_winternitz_keys.get_keys_for_round(round_idx)?,
                 paramset,
             )?;
 
@@ -874,24 +992,21 @@ pub fn create_round_txhandlers(
 
 #[cfg(test)]
 mod tests {
-
-    use std::collections::HashMap;
-
     use super::*;
     use crate::actor::Actor;
     use crate::bitvm_client::ClementineBitVMPublicKeys;
     use crate::builder::transaction::sign::get_kickoff_utxos_to_sign;
-    use crate::builder::transaction::{
-        DepositInfo, KickoffData, TransactionType, TxHandlerBuilder,
-    };
-    use crate::citrea::mock::MockCitreaClient;
+    use crate::builder::transaction::{TransactionType, TxHandlerBuilder};
     use crate::config::BridgeConfig;
+    use crate::deposit::{DepositInfo, KickoffData};
     use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
     use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
     use crate::rpc::clementine::{SignedTxsWithType, TransactionRequest};
+    use crate::test::common::citrea::MockCitreaClient;
     use crate::test::common::*;
     use bitcoin::{BlockHash, Transaction, XOnlyPublicKey};
     use futures::future::try_join_all;
+    use std::collections::HashMap;
     use tokio::sync::mpsc;
 
     fn signed_txs_to_txid(signed_txs: SignedTxsWithType) -> Vec<(TransactionType, bitcoin::Txid)> {
@@ -982,11 +1097,11 @@ mod tests {
                 let tx = tx.clone();
                 let operator_xonly_pk = operator_xonly_pks[operator_idx];
                 async move {
-                    for round_idx in 0..paramset.num_round_txs {
+                    for round_idx in RoundIndex::iter_rounds(paramset.num_round_txs) {
                         for &kickoff_idx in &utxo_idxs[operator_idx] {
                             let kickoff_data = KickoffData {
                                 operator_xonly_pk,
-                                round_idx: round_idx as u32,
+                                round_idx,
                                 kickoff_idx: kickoff_idx as u32,
                             };
                             let start_time = std::time::Instant::now();
@@ -1067,11 +1182,11 @@ mod tests {
                 let operator_xonly_pks = operator_xonly_pks.clone();
                 async move {
                     for (operator_idx, utxo_idx) in utxo_idxs.iter().enumerate() {
-                        for round_idx in 0..paramset.num_round_txs {
+                        for round_idx in RoundIndex::iter_rounds(paramset.num_round_txs) {
                             for &kickoff_idx in utxo_idx {
                                 let kickoff_data = KickoffData {
                                     operator_xonly_pk: operator_xonly_pks[operator_idx],
-                                    round_idx: round_idx as u32,
+                                    round_idx,
                                     kickoff_idx: kickoff_idx as u32,
                                 };
                                 let start_time = std::time::Instant::now();
@@ -1169,6 +1284,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    #[cfg(feature = "automation")]
     async fn test_replacement_deposit_and_sign_txs() {
         let mut config = create_test_config_with_thread_name().await;
         let WithProcessCleanup(_, ref rpc, _, _) = create_regtest_rpc(&mut config).await;
@@ -1228,7 +1344,7 @@ mod tests {
         assert!(txhandlers.contains_key(&TransactionType::Round));
         assert!(txhandlers.contains_key(&TransactionType::ReadyToReimburse));
         assert!(cache.store_for_next_kickoff(&mut txhandlers).is_ok());
-        // prev ready to reimburse still none as we didnt go to next round
+        // prev ready to reimburse still none as we didn't go to next round
         assert!(cache.prev_ready_to_reimburse.is_none());
 
         // should delete saved txs and store prev ready to reimburse, but it should keep movetovault

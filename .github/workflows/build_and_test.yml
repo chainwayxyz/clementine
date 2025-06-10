@@ -4,7 +4,9 @@ on: [push]
 
 env:
   CARGO_TERM_COLOR: always
-  CARGOFLAGS: --workspace --all-targets --all-features
+  AUTOMATION_ARGS: --features automation
+  CARGOFLAGS: --workspace --all-targets
+  CARGOFLAGS_AUTOMATION: --workspace --all-targets --features automation
   RUST_LOG: warn,risc0_zkvm=error,risc0_circuit_rv32im=error
   RISC0_DEV_MODE: 1
   ENABLE_HEADER_CHAIN_PROVER: 1
@@ -12,8 +14,8 @@ env:
 
 jobs:
   # Build ------------------------------------------------------------------------
-  debug_build:
-    name: Compile code with debug profile
+  debug_build_automation:
+    name: Compile code with debug profile (Automation enabled)
     runs-on: ubicloud-standard-30
 
     steps:
@@ -29,10 +31,29 @@ jobs:
           shared-key: "debug-build"
 
       - name: Compile in debug mode
-        run: cargo build $CARGOFLAGS --verbose
+        run: cargo build $CARGOFLAGS_AUTOMATION --verbose
 
-  release_build:
-    name: Compile code with release profile
+  release_build_automation:
+    name: Compile code with release profile (Automation enabled)
+    runs-on: ubicloud-standard-30
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/install-risc0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: ./.github/actions/build-prerequisites
+
+      - name: Save build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "release-build"
+
+      - name: Compile in release mode
+        run: cargo build $CARGOFLAGS_AUTOMATION --verbose --release
+
+  release_build_non_automation:
+    name: Compile code with release profile (Automation disabled)
     runs-on: ubicloud-standard-30
 
     steps:
@@ -51,10 +72,10 @@ jobs:
         run: cargo build $CARGOFLAGS --verbose --release
 
   # Tests ------------------------------------------------------------------------
-  debug_build_test:
-    name: Test code with debug build
+  debug_build_test_automation:
+    name: Test code with debug build (Automation enabled)
     runs-on: ubicloud-standard-30
-    needs: debug_build
+    needs: debug_build_automation
 
     services:
       postgres:
@@ -86,12 +107,12 @@ jobs:
           shared-key: "debug-build"
 
       - name: Run tests
-        run: cargo test
+        run: cargo test $AUTOMATION_ARGS
 
-  release_build_test:
-    name: Test code with release build
+  release_build_test_automation:
+    name: Test code with release build (Automation enabled)
     runs-on: ubicloud-standard-30
-    needs: release_build
+    needs: release_build_automation
 
     services:
       postgres:
@@ -123,12 +144,12 @@ jobs:
           shared-key: "release-build"
 
       - name: Run tests
-        run: cargo test --release
+        run: cargo test --release $AUTOMATION_ARGS
 
   bridge_circuit_release_build_test:
     name: Test bridge circuit host code with release build
-    runs-on: ubicloud-standard-30
-    needs: release_build
+    runs-on: ubicloud
+    needs: release_build_automation
 
     env:
       RISC0_DEV_MODE: 0
@@ -147,10 +168,60 @@ jobs:
       - name: Run tests
         run: cargo test --release -p bridge-circuit-host bridge_circuit_test -- --ignored
 
+  bridge_additional_disprove_tests_matrix:
+    name: Test additional disprove script ${{ matrix.description_suffix }} with release build
+    runs-on: ubicloud
+    needs: release_build_automation
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - test_script_name: additional_disprove_script_test_healthy
+            description_suffix: "healthy path"
+          - test_script_name: additional_disprove_script_test_disrupted_payout_tx_block_hash
+            description_suffix: "disrupted payout tx blockhash path"
+          - test_script_name: additional_disprove_script_test_disrupt_chal_sending_wts
+            description_suffix: "disrupted challenge sending watchtowers path"
+          - test_script_name: additional_disprove_script_test_operator_forgot_wt_challenge
+            description_suffix: "operator forgot watchtower challenge path"
+          - test_script_name: additional_disprove_script_test_disrupted_latest_block_hash
+            description_suffix: "disrupted latest blockhash path"
+    services:
+      postgres:
+        image: postgres:latest
+        env:
+          POSTGRES_DB: clementine
+          POSTGRES_USER: clementine
+          POSTGRES_PASSWORD: clementine
+          POSTGRES_INITDB_ARGS: "-c shared_buffers=8GB -c max_connections=1000"
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/install-risc0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: ./.github/actions/build-prerequisites
+      - uses: ./.github/actions/test-prerequisites
+
+      - name: Restore cached build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "release-build"
+
+      - name: Run tests
+        run: cargo test ${{ matrix.test_script_name }} --features automation --release  -- --ignored
+
   coverage:
     name: Coverage checks with Codecov
     runs-on: ubicloud-standard-30
-    needs: debug_build_test
+    needs: debug_build_test_automation
     if: github.event.pull_request.draft == false
 
     services:
@@ -179,7 +250,7 @@ jobs:
       - uses: taiki-e/install-action@cargo-llvm-cov
 
       - name: Run coverage
-        run: cargo llvm-cov --locked --lcov --output-path lcov.info
+        run: cargo llvm-cov $AUTOMATION_ARGS --locked --lcov --output-path lcov.info
       - name: Upload coverage
         uses: codecov/codecov-action@v4
         with:

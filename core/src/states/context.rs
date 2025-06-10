@@ -1,7 +1,8 @@
-use crate::builder::transaction::DepositData;
-use crate::builder::transaction::KickoffData;
 use crate::config::protocol::ProtocolParamset;
 use crate::database::DatabaseTransaction;
+use crate::deposit::{DepositData, KickoffData};
+use crate::operator::RoundIndex;
+use crate::utils::NamedEntity;
 
 use bitcoin::BlockHash;
 use bitcoin::Transaction;
@@ -43,7 +44,7 @@ pub enum Duty {
     /// used_kickoffs is a set of kickoff indexes that have been used in the previous round.
     /// If there are unspent kickoffs, the owner can send a unspent kickoff connector tx.
     NewReadyToReimburse {
-        round_idx: u32,
+        round_idx: RoundIndex,
         operator_xonly_pk: XOnlyPublicKey,
         used_kickoffs: HashSet<usize>,
     },
@@ -110,14 +111,7 @@ pub enum DutyResult {
 
 /// Owner trait with async handling and tx handler creation
 #[async_trait]
-pub trait Owner: Send + Sync + Clone {
-    /// A string identifier for this owner type used to distinguish between
-    /// state machines with different owners in the database.
-    ///
-    /// ## Example
-    /// "operator", "watchtower", "verifier", "user"
-    const OWNER_TYPE: &'static str;
-
+pub trait Owner: Send + Sync + Clone + NamedEntity {
     /// Handle a duty
     async fn handle_duty(&self, duty: Duty) -> Result<DutyResult, BridgeError>;
     async fn create_txhandlers(
@@ -156,7 +150,7 @@ impl<T: Owner> StateContext<T> {
         paramset: &'static ProtocolParamset,
     ) -> Self {
         // Get the owner type string from the owner instance
-        let owner_type = T::OWNER_TYPE.to_string();
+        let owner_type = T::ENTITY_NAME.to_string();
 
         Self {
             db,

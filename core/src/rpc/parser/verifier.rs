@@ -1,6 +1,6 @@
 use super::ParserError;
-use crate::builder::transaction::DepositData;
 use crate::citrea::CitreaClientT;
+use crate::deposit::DepositData;
 use crate::errors::BridgeError;
 use crate::fetch_next_optional_message_from_stream;
 use crate::rpc::clementine::{

@@ -4,6 +4,9 @@ version = "0.3.0"
 edition = "2021"
 rust-version = "1.85.0"
 
+[features]
+automation = []
+
 [build-dependencies]
 tonic-build = "0.12"
 vergen-git2 = { workspace = true }
@@ -58,6 +61,7 @@ bridge-circuit-host = { path = "../bridge-circuit-host" }
 bincode = { workspace = true }
 ark-ff = { workspace = true }
 rustls-pki-types = { workspace = true }
+once_cell = { workspace = true }
 
 [dev-dependencies]
 serial_test = { workspace = true }

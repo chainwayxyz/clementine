@@ -1,5 +1,4 @@
-use super::CitreaClientT;
-use crate::errors::BridgeError;
+use crate::{citrea::CitreaClientT, errors::BridgeError};
 use alloy::signers::local::PrivateKeySigner;
 use bitcoin::{OutPoint, Txid};
 use circuits_lib::bridge_circuit::structs::{LightClientProof, StorageProof};
@@ -83,7 +82,7 @@ impl CitreaClientT for MockCitreaClient {
         })
     }
     /// Connects a database with the given URL which is stored in
-    /// `citrea_rpc_url`. Other paramaters are dumped.
+    /// `citrea_rpc_url`. Other parameters are dumped.
     async fn new(
         citrea_rpc_url: String,
         _light_client_prover_url: String,
@@ -186,7 +185,7 @@ impl CitreaClientT for MockCitreaClient {
                 l2_height: l1_height.to_string(),
             },
             borsh::from_slice(include_bytes!(
-                "../../../bridge-circuit-host/bin-files/lcp_receipt.bin"
+                "../../../../../bridge-circuit-host/bin-files/lcp_receipt.bin"
             ))
             .wrap_err("Couldn't create mock receipt")?,
             l1_height,

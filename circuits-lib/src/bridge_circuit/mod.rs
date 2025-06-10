@@ -257,7 +257,7 @@ pub fn verify_watchtower_challenges(circuit_input: &BridgeCircuitInput) -> Watch
         let inner_txouts: Vec<TxOut> = watchtower_input
             .watchtower_challenge_utxos
             .iter()
-            .map(|utxo| utxo.0.clone()) // TODO: Get rid of this clone if possible
+            .map(|utxo| utxo.0.clone())
             .collect::<Vec<TxOut>>();
 
         let prevouts = Prevouts::All(&inner_txouts);

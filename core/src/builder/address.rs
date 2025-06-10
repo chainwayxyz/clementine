@@ -1,14 +1,15 @@
-//! # Address Builder
+//! # Bitcoin Address Construction
 //!
-//! Address builder provides useful functions for building typical Bitcoin
-//! addresses.
+//! Contains helper functions to create taproot addresses with given scripts and internal key.
+//! Contains helper functions to create correct deposit addresses. Addresses need to be of a specific format to be
+//! valid deposit addresses.
 
 use super::script::{
     BaseDepositScript, CheckSig, Multisig, ReplacementDepositScript, SpendableScript,
     TimelockScript,
 };
-use super::transaction::SecurityCouncil;
 use crate::bitvm_client::SECP;
+use crate::deposit::SecurityCouncil;
 use crate::errors::BridgeError;
 use crate::{bitvm_client, EVMAddress};
 use bitcoin::address::NetworkUnchecked;
@@ -19,6 +20,8 @@ use bitcoin::{
 };
 use eyre::Context;
 
+/// A helper to construct a `TaprootBuilder` from a slice of script buffers, forming the script tree.
+/// Finds the needed depth the script tree needs to be to fit all the scripts and inserts the scripts.
 pub fn taproot_builder_with_scripts(scripts: &[ScriptBuf]) -> TaprootBuilder {
     let builder = TaprootBuilder::new();
     let num_scripts = scripts.len();
@@ -50,8 +53,7 @@ pub fn taproot_builder_with_scripts(scripts: &[ScriptBuf]) -> TaprootBuilder {
     })
 }
 
-/// Creates a taproot address with either key path spend or script spend path
-/// addresses. This depends on given arguments.
+/// Creates a taproot address with given scripts and internal key.
 ///
 /// # Arguments
 ///
@@ -68,7 +70,7 @@ pub fn taproot_builder_with_scripts(scripts: &[ScriptBuf]) -> TaprootBuilder {
 ///
 /// # Panics
 ///
-/// Will panic if some of the operations have invalid paramaters.
+/// Will panic if some of the operations have invalid parameters.
 pub fn create_taproot_address(
     scripts: &[ScriptBuf],
     internal_key: Option<XOnlyPublicKey>,
@@ -146,6 +148,25 @@ pub fn generate_deposit_address(
     Ok((addr, spend))
 }
 
+/// Builds a Taproot address specifically for replacement deposits.
+/// Replacement deposits are to replace old move_to_vault transactions in case any issue is found on the bridge.
+/// This address incorporates a script committing to an old move transaction ID
+/// and a multisig script for the security council.
+/// This replacement deposit address will be used to create a new deposit transaction, which will then be used to
+/// sign the new related bridge deposit tx's.
+///
+/// # Parameters
+///
+/// - `old_move_txid`: The `Txid` of the old move_to_vault transaction that is being replaced.
+/// - `nofn_xonly_pk`: The N-of-N XOnlyPublicKey for the deposit.
+/// - `network`: The Bitcoin network on which the address will be used.
+/// - `security_council`: The `SecurityCouncil` configuration for the multisig script.
+///
+/// # Returns
+///
+/// - `Ok((Address, TaprootSpendInfo))` containing the new replacement deposit address
+///   and its associated `TaprootSpendInfo` if successful.
+/// - `Err(BridgeError)` if any error occurs during address generation.
 pub fn generate_replacement_deposit_address(
     old_move_txid: bitcoin::Txid,
     nofn_xonly_pk: XOnlyPublicKey,

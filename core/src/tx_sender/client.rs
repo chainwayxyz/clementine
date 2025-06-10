@@ -1,19 +1,19 @@
 use super::Result;
-use bitcoin::hashes::Hash;
-use std::collections::BTreeMap;
-
-use bitcoin::{OutPoint, Transaction, Txid};
-
-use super::{ActivatedWithOutpoint, ActivatedWithTxid, FeePayingType, RbfSigningInfo, TxMetadata};
+use super::{ActivatedWithOutpoint, ActivatedWithTxid};
 use crate::builder::transaction::input::UtxoVout;
 use crate::errors::ResultExt;
+use crate::operator::RoundIndex;
 use crate::rpc;
 use crate::rpc::clementine::XonlyPublicKey;
+use crate::utils::{FeePayingType, RbfSigningInfo, TxMetadata};
 use crate::{
     builder::transaction::TransactionType,
     config::BridgeConfig,
     database::{Database, DatabaseTransaction},
 };
+use bitcoin::hashes::Hash;
+use bitcoin::{OutPoint, Transaction, Txid};
+use std::collections::BTreeMap;
 
 #[derive(Debug, Clone)]
 pub struct TxSenderClient {
@@ -219,7 +219,6 @@ impl TxSenderClient {
             | TransactionType::UnspentKickoff(_)
             | TransactionType::Payout
             | TransactionType::MoveToVault
-            | TransactionType::AssertTimeout(_)
             | TransactionType::Disprove
             | TransactionType::BurnUnusedKickoffConnectors
             | TransactionType::KickoffNotFinalized
@@ -227,7 +226,10 @@ impl TxSenderClient {
             | TransactionType::LatestBlockhashTimeout
             | TransactionType::LatestBlockhash
             | TransactionType::EmergencyStop
-            | TransactionType::OptimisticPayout => {
+            | TransactionType::OptimisticPayout
+            | TransactionType::ReadyToReimburse
+            | TransactionType::ReplacementDeposit
+            | TransactionType::AssertTimeout(_) => {
                 // no_dependency and cpfp
                 self.insert_try_to_send(
                     dbtx,
@@ -256,7 +258,10 @@ impl TxSenderClient {
                 )
                 .await
             }
-            TransactionType::WatchtowerChallengeTimeout(_watchtower_idx) => {
+            TransactionType::WatchtowerChallengeTimeout(_) => {
+                // do not send watchtowet timeout if kickoff is already finalized
+                // which is done by adding kickoff finalizer utxo to cancel_outpoints
+                // this is not needed for any timeouts that spend the kickoff finalizer utxo like AssertTimeout
                 let kickoff_txid = related_txs
                     .iter()
                     .find_map(|(tx_type, tx)| {
@@ -275,7 +280,7 @@ impl TxSenderClient {
                     rbf_info,
                     &[OutPoint {
                         txid: kickoff_txid,
-                        vout: 1, // TODO: Make this a function of smth
+                        vout: UtxoVout::KickoffFinalizer.get_vout(),
                     }],
                     &[],
                     &[],
@@ -304,6 +309,7 @@ impl TxSenderClient {
                     &[],
                     &[],
                     &[ActivatedWithOutpoint {
+                        // only send OperatorChallengeAck if corresponding watchtower challenge is sent
                         outpoint: OutPoint {
                             txid: kickoff_txid,
                             vout: UtxoVout::WatchtowerChallenge(watchtower_idx).get_vout(),
@@ -316,9 +322,7 @@ impl TxSenderClient {
             TransactionType::AllNeededForDeposit | TransactionType::YieldKickoffTxid => {
                 unreachable!()
             }
-            TransactionType::ReadyToReimburse
-            | TransactionType::BaseDeposit
-            | TransactionType::ReplacementDeposit => unimplemented!(),
+            TransactionType::BaseDeposit => unimplemented!(),
         }
     }
 
@@ -362,13 +366,15 @@ impl TxSenderClient {
 
         let fee_payer_utxos = fee_payer_utxos
             .into_iter()
-            .map(|(txid, vout, amount, confirmed)| TxDebugFeePayerUtxo {
-                txid: txid.as_raw_hash().to_byte_array().to_vec(),
-                vout,
-                amount: amount.to_sat(),
-                confirmed,
+            .map(|(txid, vout, amount, confirmed)| {
+                Ok(TxDebugFeePayerUtxo {
+                    txid: Some(txid.into()),
+                    vout,
+                    amount: amount.to_sat(),
+                    confirmed,
+                })
             })
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>>>()?;
 
         let txid = match fee_paying_type {
             FeePayingType::CPFP => tx.compute_txid(),
@@ -385,7 +391,7 @@ impl TxSenderClient {
             current_state: current_state.unwrap_or_else(|| "unknown".to_string()),
             submission_errors,
             created_at: "".to_string(),
-            txid: txid.as_raw_hash().to_byte_array().to_vec(),
+            txid: Some(txid.into()),
             fee_paying_type: format!("{:?}", fee_paying_type),
             fee_payer_utxos_count: fee_payer_utxos.len() as u32,
             fee_payer_utxos_confirmed_count: fee_payer_utxos
@@ -400,7 +406,10 @@ impl TxSenderClient {
                     xonly_pk: pk.serialize().to_vec(),
                 }),
 
-                round_idx: metadata.round_idx.unwrap_or(0),
+                round_idx: metadata
+                    .round_idx
+                    .unwrap_or(RoundIndex::Round(0))
+                    .to_index() as u32,
                 kickoff_idx: metadata.kickoff_idx.unwrap_or(0),
                 tx_type: Some(metadata.tx_type.into()),
             }),

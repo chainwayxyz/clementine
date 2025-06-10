@@ -4,9 +4,9 @@
 //! module must be fed with new blocks via the database. Later, it can check if
 //! proving should be triggered by verifying if the batch size is sufficient.
 
+use crate::builder::block_cache::BlockCache;
 use crate::database::DatabaseTransaction;
 use crate::errors::ResultExt;
-use crate::states::block_cache::BlockCache;
 use crate::{
     config::BridgeConfig,
     database::Database,
@@ -106,11 +106,11 @@ impl HeaderChainProver {
         if tip_height
             < config.protocol_paramset().start_height + config.protocol_paramset().finality_depth
         {
-            return Err(eyre::eyre!(format!(
+            return Err(eyre::eyre!(
                 "Start height is not finalized, reduce start height: {} < {}",
                 tip_height,
                 config.protocol_paramset().start_height + config.protocol_paramset().finality_depth
-            ))
+            )
             .into());
         }
         db.fetch_and_save_missing_blocks(
@@ -706,12 +706,11 @@ impl HeaderChainProver {
 
 #[cfg(test)]
 mod tests {
-    use crate::citrea::mock::MockCitreaClient;
-    use crate::database::Database;
     use crate::extended_rpc::ExtendedRpc;
     use crate::header_chain_prover::HeaderChainProver;
     use crate::test::common::*;
     use crate::verifier::VerifierServer;
+    use crate::{database::Database, test::common::citrea::MockCitreaClient};
     use bitcoin::{block::Header, hashes::Hash, BlockHash, Network};
     use bitcoincore_rpc::RpcApi;
     use circuits_lib::header_chain::{

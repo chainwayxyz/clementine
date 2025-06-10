@@ -18,7 +18,7 @@ jobs:
   docker:
     timeout-minutes: 120
     name: Build and publish Docker image
-    runs-on: ubicloud-standard-30
+    runs-on: ubicloud-standard-2
     steps:
       - uses: actions/checkout@v4
       - name: Docker Setup Buildx

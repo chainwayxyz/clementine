@@ -15,7 +15,8 @@ use eyre::Context;
 
 use crate::builder::{self};
 
-use super::{log_error_for_tx, RbfSigningInfo, Result, SendTxError, TxMetadata, TxSender};
+use super::{log_error_for_tx, Result, SendTxError, TxMetadata, TxSender};
+use crate::utils::RbfSigningInfo;
 
 impl TxSender {
     /// Calculates the appropriate fee rate for a Replace-By-Fee (RBF) transaction.
@@ -171,8 +172,8 @@ impl TxSender {
                         ));
                     }
                 }
-                let address =
-                    Address::from_script(&out.script_pubkey, self.network).map_err(|e| eyre!(e));
+                let address = Address::from_script(&out.script_pubkey, self.paramset.network)
+                    .map_err(|e| eyre!(e));
                 match address {
                     Ok(address) => Some(WalletCreateFundedPsbtOutput::Spendable(
                         address.to_string(),
@@ -837,7 +838,7 @@ mod tests {
     use crate::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind};
     use crate::task::{IntoTask, TaskExt};
     use crate::test::common::*;
-    use crate::tx_sender::FeePayingType;
+    use crate::utils::FeePayingType;
     use bitcoin::hashes::Hash;
     use bitcoin::transaction::Version;
     use bitcoin::TxOut;
@@ -995,7 +996,7 @@ mod tests {
 
         // Get the actual transaction from the mempool
         rpc.get_tx_of_txid(&bitcoin::Txid::from_byte_array(
-            tx_debug_info.txid.try_into().unwrap(),
+            tx_debug_info.txid.unwrap().txid.try_into().unwrap(),
         ))
         .await
         .expect("Transaction should be in mempool");
@@ -1065,7 +1066,7 @@ mod tests {
 
         // Get the actual transaction from the mempool
         rpc.get_tx_of_txid(&bitcoin::Txid::from_byte_array(
-            tx_debug_info.txid.try_into().unwrap(),
+            tx_debug_info.txid.unwrap().txid.try_into().unwrap(),
         ))
         .await
         .expect("Transaction should be in mempool");
@@ -1136,7 +1137,7 @@ mod tests {
         // Get the actual transaction from the mempool
         let tx = rpc
             .get_tx_of_txid(&bitcoin::Txid::from_byte_array(
-                tx_debug_info.txid.try_into().unwrap(),
+                tx_debug_info.txid.unwrap().txid.try_into().unwrap(),
             ))
             .await
             .expect("Transaction should be in mempool");
@@ -1199,7 +1200,7 @@ mod tests {
 
         // Get the actual transaction from the mempool
         rpc.get_tx_of_txid(&bitcoin::Txid::from_byte_array(
-            tx_debug_info.txid.try_into().unwrap(),
+            tx_debug_info.txid.unwrap().txid.try_into().unwrap(),
         ))
         .await
         .expect("Transaction should be in mempool");
@@ -1266,7 +1267,7 @@ mod tests {
 
         // Verify that TX is in mempool
         rpc.get_tx_of_txid(&bitcoin::Txid::from_byte_array(
-            tx_debug_info.txid.try_into().unwrap(),
+            tx_debug_info.txid.unwrap().txid.try_into().unwrap(),
         ))
         .await
         .expect("Transaction should be in mempool");
@@ -1300,7 +1301,7 @@ mod tests {
 
         // Verify that TX is in mempool
         rpc.get_tx_of_txid(&bitcoin::Txid::from_byte_array(
-            tx_debug_info.txid.try_into().unwrap(),
+            tx_debug_info.txid.unwrap().txid.try_into().unwrap(),
         ))
         .await
         .expect("Transaction should be in mempool");

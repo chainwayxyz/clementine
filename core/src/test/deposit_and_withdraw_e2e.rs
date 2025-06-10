@@ -5,28 +5,28 @@ use crate::builder::address::create_taproot_address;
 use crate::builder::script::SpendPath;
 use crate::builder::transaction::input::{SpendableTxIn, UtxoVout};
 use crate::builder::transaction::output::UnspentTxOut;
-use crate::builder::transaction::{
-    KickoffData, TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE,
-};
-use crate::citrea::mock::MockCitreaClient;
+use crate::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE};
 use crate::citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER};
 use crate::config::BridgeConfig;
 use crate::database::Database;
+use crate::deposit::KickoffData;
+use crate::operator::RoundIndex;
 use crate::rpc::clementine::{
-    FinalizedPayoutParams, KickoffId, NormalSignatureKind, TransactionRequest, WithdrawParams,
+    Deposit, FeeType, FinalizedPayoutParams, KickoffId, NormalSignatureKind, RawSignedTx,
+    SendTxRequest, TransactionRequest, WithdrawParams,
 };
-use crate::test::common::citrea::{get_citrea_safe_withdraw_params, SECRET_KEYS};
+use crate::test::common::citrea::{get_citrea_safe_withdraw_params, MockCitreaClient, SECRET_KEYS};
+use crate::test::common::tx_utils::get_tx_from_signed_txs_with_type;
 use crate::test::common::tx_utils::{
     confirm_fee_payer_utxos, create_tx_sender, ensure_outpoint_spent,
-    ensure_outpoint_spent_while_waiting_for_light_client_sync, get_txid_where_utxo_is_spent,
-    mine_once_after_outpoint_spent_in_mempool,
+    ensure_outpoint_spent_while_waiting_for_light_client_sync, ensure_tx_onchain,
+    get_txid_where_utxo_is_spent, mine_once_after_outpoint_spent_in_mempool,
 };
 use crate::test::common::{
     create_regtest_rpc, generate_withdrawal_transaction_and_signature, mine_once_after_in_mempool,
     poll_get, poll_until_condition, run_single_deposit,
 };
-use crate::test::full_flow::get_tx_from_signed_txs_with_type;
-use crate::tx_sender::{FeePayingType, TxMetadata};
+use crate::utils::{FeePayingType, TxMetadata};
 use crate::UTXO;
 use crate::{
     extended_rpc::ExtendedRpc,
@@ -61,6 +61,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
                 "-txindex=1",
                 "-fallbackfee=0.000001",
                 "-rpcallowip=0.0.0.0/0",
+                "-dustrelayfee=0",
             ],
             ..Default::default()
         }
@@ -136,7 +137,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         let block_count = da.get_block_count().await?;
         tracing::debug!("Block count before deposit: {:?}", block_count);
 
-        tracing::debug!(
+        tracing::info!(
             "Deposit starting at block height: {:?}",
             rpc.client.get_block_count().await?
         );
@@ -150,7 +151,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             _deposit_blockhash,
             verifiers_public_keys,
         ) = run_single_deposit::<CitreaClient>(&mut config, rpc.clone(), None).await?;
-        tracing::debug!(
+        tracing::info!(
             "Deposit ending block_height: {:?}",
             rpc.client.get_block_count().await?
         );
@@ -381,7 +382,13 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
                 Ok(withdrawal_response) => {
                     tracing::info!("Withdrawal response: {:?}", withdrawal_response);
                     break Txid::from_byte_array(
-                        withdrawal_response.into_inner().txid.try_into().unwrap(),
+                        withdrawal_response
+                            .into_inner()
+                            .txid
+                            .unwrap()
+                            .txid
+                            .try_into()
+                            .unwrap(),
                     );
                 }
                 Err(e) => {
@@ -441,7 +448,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             kickoff_id: Some(
                 KickoffData {
                     operator_xonly_pk: op0_xonly_pk,
-                    round_idx: 0,
+                    round_idx: RoundIndex::Round(0),
                     kickoff_idx: kickoff_idx as u32,
                 }
                 .into(),
@@ -548,7 +555,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             .collect::<Vec<Txid>>();
         for (idx, txid) in operator_assert_txids.into_iter().enumerate() {
             assert!(
-                rpc.is_txid_in_chain(&txid).await.unwrap(),
+                rpc.is_tx_on_chain(&txid).await.unwrap(),
                 "Mini assert {} was not found in the chain",
                 idx
             );
@@ -642,7 +649,6 @@ async fn mock_citrea_run_truthful() {
         "Deposit ending block_height: {:?}",
         rpc.client.get_block_count().await.unwrap()
     );
-    // rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
 
     // Send deposit to Citrea
     let tx = rpc
@@ -731,7 +737,13 @@ async fn mock_citrea_run_truthful() {
                 Ok(withdrawal_response) => {
                     tracing::info!("Withdrawal response: {:?}", withdrawal_response);
                     let payout_txid = Some(Txid::from_byte_array(
-                        withdrawal_response.into_inner().txid.try_into().unwrap(),
+                        withdrawal_response
+                            .into_inner()
+                            .txid
+                            .unwrap()
+                            .txid
+                            .try_into()
+                            .unwrap(),
                     ));
                     Ok(Some(payout_txid))
                 }
@@ -1194,12 +1206,14 @@ async fn mock_citrea_run_malicious() {
 
     let challenge_outpoint = OutPoint {
         txid: kickoff_txid,
-        vout: 0,
+        vout: UtxoVout::Challenge.get_vout(),
     };
 
     let challenge_spent_txid = get_txid_where_utxo_is_spent(&rpc, challenge_outpoint)
         .await
         .unwrap();
+
+    tracing::info!("Challenge outpoint spent txid: {:?}", challenge_spent_txid);
 
     // check that challenge utxo was not spent on timeout -> meaning challenge was sent
     let tx = rpc.get_tx_of_txid(&challenge_spent_txid).await.unwrap();
@@ -1231,7 +1245,7 @@ async fn mock_citrea_run_malicious() {
             .await
             .unwrap();
 
-    tracing::warn!(
+    tracing::info!(
         "Kickoff txid: {:?}, kickoff txid 2: {:?}",
         kickoff_txid,
         kickoff_txid_2
@@ -1239,7 +1253,7 @@ async fn mock_citrea_run_malicious() {
     // second kickoff tx should not be challenged as a kickoff of the same round was already challenged
     let challenge_outpoint_2 = OutPoint {
         txid: kickoff_txid_2,
-        vout: 0,
+        vout: UtxoVout::Challenge.get_vout(),
     };
     let challenge_spent_txid_2 = get_txid_where_utxo_is_spent(&rpc, challenge_outpoint_2)
         .await
@@ -1248,7 +1262,7 @@ async fn mock_citrea_run_malicious() {
     // tx_2 should not have challenge amount output
     assert!(tx_2.output[0].value != config.protocol_paramset().operator_challenge_amount);
 
-    // TODO: check that operators collateral got burned. It cant be checked right now as we dont have auto disprove implemented.
+    // TODO: check that operators collateral got burned. It can't be checked right now as we dont have auto disprove implemented.
 }
 
 /// Tests protocol safety when an operator exits before a challenge can be made.
@@ -1290,7 +1304,7 @@ async fn mock_citrea_run_malicious_after_exit() {
     let (
         _verifiers,
         mut operators,
-        _aggregator,
+        mut aggregator,
         _cleanup,
         deposit_info,
         move_txid,
@@ -1393,7 +1407,7 @@ async fn mock_citrea_run_malicious_after_exit() {
         .internal_create_signed_txs(TransactionRequest {
             deposit_outpoint: Some(deposit_info.deposit_outpoint.into()),
             kickoff_id: Some(KickoffId {
-                round_idx: 0,
+                round_idx: 1,
                 operator_xonly_pk: verifier_pks[0].x_only_public_key().0.serialize().to_vec(),
                 kickoff_idx: 0,
             }),
@@ -1405,7 +1419,20 @@ async fn mock_citrea_run_malicious_after_exit() {
     // get first round's tx
     let round_tx =
         get_tx_from_signed_txs_with_type(&first_round_txs, TransactionType::Round).unwrap();
+    // send first round tx
+    aggregator
+        .internal_send_tx(SendTxRequest {
+            raw_tx: Some(RawSignedTx {
+                raw_tx: bitcoin::consensus::serialize(&round_tx),
+            }),
+            fee_type: FeeType::Cpfp as i32,
+        })
+        .await
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
     let round_txid = round_tx.compute_txid();
+    ensure_tx_onchain(&rpc, round_txid).await.unwrap();
+    tracing::warn!("Round tx sent");
 
     let op_xonly_pk = actor.xonly_public_key;
     let (_op_address, op_spend) =
@@ -1444,6 +1471,10 @@ async fn mock_citrea_run_malicious_after_exit() {
 
     // mine 1 block to make sure collateral burn tx lands onchain
     rpc.mine_blocks(1).await.unwrap();
+    let deposit: Deposit = deposit_info.clone().into();
+
+    // because operator collaterl was spent outside of the protocol, new deposit with this operator should be rejected
+    assert!(aggregator.new_deposit(deposit).await.is_err());
 
     let kickoff_txid: bitcoin::Txid = operators[0]
         .internal_finalized_payout(FinalizedPayoutParams {

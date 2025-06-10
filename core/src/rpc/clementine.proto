@@ -3,13 +3,12 @@ package clementine;
 
 message Empty {}
 
-// TODO: Use this message for all txid instances
 message Txid {
   bytes txid = 1;
 }
 
 message Outpoint {
-  bytes txid = 1;
+  Txid txid = 1;
   uint32 vout = 2;
 }
 
@@ -261,7 +260,7 @@ message WithdrawParams {
 
 message WithdrawResponse {
   // The withdrawal transaction's txid
-  bytes txid = 1;
+  Txid txid = 1;
 }
 
 message WithdrawErrorResponse {
@@ -448,7 +447,7 @@ message TxDebugSubmissionError {
 }
 
 message TxDebugFeePayerUtxo {
-  bytes txid = 1;
+  Txid txid = 1;
   uint32 vout = 2;
   uint64 amount = 3;
   bool confirmed = 4;
@@ -472,7 +471,7 @@ message TxDebugInfo {
   repeated TxDebugSubmissionError submission_errors = 4;
   repeated TxDebugFeePayerUtxo fee_payer_utxos = 5;
   string created_at = 6;
-  bytes txid = 7;
+  Txid txid = 7;
   string fee_paying_type = 8;
   uint32 fee_payer_utxos_count = 9;
   uint32 fee_payer_utxos_confirmed_count = 10;
@@ -601,6 +600,11 @@ message CreateEmergencyStopTxRequest {
   bool add_anchor = 2;
 }
 
+message SendMoveTxRequest {
+  RawSignedTx raw_tx = 1;
+  Outpoint deposit_outpoint = 2;
+}
+
 service ClementineAggregator {
   rpc GetNofnAggregatedXonlyPk(Empty) returns (NofnResponse) {}
 
@@ -622,7 +626,7 @@ service ClementineAggregator {
   // tx.
   //
   // Used by the clementine-backend service to initiate a deposit
-  rpc NewDeposit(Deposit) returns (Txid) {}
+  rpc NewDeposit(Deposit) returns (RawSignedTx) {}
 
   // Call's withdraw on all operators
   // Used by the clementine-backend service to initiate a withdrawal
@@ -635,6 +639,7 @@ service ClementineAggregator {
   // Send a pre-signed tx to the network
   rpc InternalSendTx(SendTxRequest) returns (Empty) {}
 
+  rpc SendMoveToVaultTx(SendMoveTxRequest) returns (Txid) {}
 
   // Creates an emergency stop tx that won't be broadcasted.
   // Tx will have around 3 sats/vbyte fee.

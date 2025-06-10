@@ -335,7 +335,7 @@ pub fn dev_stark_to_risc0_g16(
     let contents = std::fs::read_to_string(proof_path).unwrap();
     let proof_json: ProofJson = serde_json::from_str(&contents).unwrap();
     let seal: Seal = proof_json.try_into().unwrap();
-    let g16_verifier_params = Groth16ReceiptVerifierParameters::default(); // TODO: This is incorrect, but should not matter as it is not used.
+    let g16_verifier_params = Groth16ReceiptVerifierParameters::default(); // This is incorrect, but should not matter as it is not used.
     let g16_receipt = Groth16Receipt::new(
         seal.to_vec(),
         risc0_zkvm::MaybePruned::Value(receipt_claim),

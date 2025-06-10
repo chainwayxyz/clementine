@@ -52,7 +52,7 @@ impl Database {
             let mut block_infos = Vec::with_capacity((batch_end - batch_start + 1) as usize);
             for height in batch_start..=batch_end {
                 let (block_hash, block_header) =
-                    rpc.get_block_header_by_height(height as u64).await?;
+                    rpc.get_block_info_by_height(height as u64).await?;
                 block_infos.push((block_hash, block_header, height));
             }
 
@@ -182,8 +182,13 @@ impl Database {
     /// - [`Receipt`] - Previous block's proof
     pub async fn get_next_unproven_block(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        mut tx: Option<DatabaseTransaction<'_, '_>>,
     ) -> Result<Option<(BlockHash, Header, u64, Receipt)>, BridgeError> {
+        let latest_proven_block_height = self
+            .get_latest_proven_block_info(tx.as_deref_mut())
+            .await?
+            .map(|(_, _, height)| height);
+
         let query = sqlx::query_as(
             "SELECT h1.block_hash,
                     h1.block_header,
@@ -203,11 +208,21 @@ impl Database {
             Some(result) => {
                 let receipt: Receipt =
                     borsh::from_slice(&result.3).wrap_err(BridgeError::BorshError)?;
-                let height = result.2.try_into().wrap_err("Can't convert i64 to u64")?;
+                let height: u64 = result.2.try_into().wrap_err("Can't convert i64 to u64")?;
                 Some((result.0 .0, result.1 .0, height, receipt))
             }
             None => None,
         };
+
+        // If the latest block is already proven, return None instead of the old
+        // unproven block.
+        if let (Some((_, _, height, _)), Some(latest_proven_block_height)) =
+            (&result, latest_proven_block_height)
+        {
+            if *height < latest_proven_block_height {
+                return Ok(None);
+            }
+        }
 
         Ok(result)
     }
@@ -430,8 +445,7 @@ mod tests {
                 .unwrap(),
             height
         );
-        let receipt =
-            Receipt::try_from_slice(include_bytes!("../../tests/data/first_1.bin")).unwrap();
+        let receipt = Receipt::try_from_slice(include_bytes!("../test/data/first_1.bin")).unwrap();
         db.set_block_proof(None, block_hash, receipt).await.unwrap();
         let latest_proven_block = db
             .get_latest_proven_block_info(None)
@@ -495,8 +509,7 @@ mod tests {
         assert!(read_receipt.is_none());
 
         // Update it with a proof.
-        let receipt =
-            Receipt::try_from_slice(include_bytes!("../../tests/data/first_1.bin")).unwrap();
+        let receipt = Receipt::try_from_slice(include_bytes!("../test/data/first_1.bin")).unwrap();
         db.set_block_proof(None, block_hash, receipt.clone())
             .await
             .unwrap();
@@ -566,8 +579,7 @@ mod tests {
         db.save_unproven_finalized_block(None, block_hash1, block.header, height1)
             .await
             .unwrap();
-        let receipt =
-            Receipt::try_from_slice(include_bytes!("../../tests/data/first_1.bin")).unwrap();
+        let receipt = Receipt::try_from_slice(include_bytes!("../test/data/first_1.bin")).unwrap();
         db.set_block_proof(None, block_hash1, receipt.clone())
             .await
             .unwrap();
@@ -626,9 +638,7 @@ mod tests {
             .unwrap();
 
         // This time, `get_non_proven_block` shouldn't return any block because latest is proved.
-        // TODO: `get_non_proven_block` will still return the last unproven block that it's
-        // predecessor has a proof. This might be unexpected behavior. Check back again.
-        // assert!(db.get_next_non_proven_block(None).await.unwrap().is_none());
+        assert!(db.get_next_unproven_block(None).await.unwrap().is_none());
 
         // Save fifth block without a proof.
         let block = block::Block {
@@ -721,8 +731,7 @@ mod tests {
         db.save_unproven_finalized_block(None, block_hash1, block.header, height)
             .await
             .unwrap();
-        let receipt =
-            Receipt::try_from_slice(include_bytes!("../../tests/data/first_1.bin")).unwrap();
+        let receipt = Receipt::try_from_slice(include_bytes!("../test/data/first_1.bin")).unwrap();
         db.set_block_proof(None, block_hash1, receipt.clone())
             .await
             .unwrap();
@@ -829,8 +838,7 @@ mod tests {
     async fn get_latest_proven_block_info() {
         let config = create_test_config_with_thread_name().await;
         let db = Database::new(&config).await.unwrap();
-        let proof =
-            Receipt::try_from_slice(include_bytes!("../../tests/data/first_1.bin")).unwrap();
+        let proof = Receipt::try_from_slice(include_bytes!("../test/data/first_1.bin")).unwrap();
 
         assert!(db
             .get_latest_proven_block_info(None)

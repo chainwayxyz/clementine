@@ -1,3 +1,4 @@
+pub use crate::builder::block_cache;
 use crate::config::protocol::ProtocolParamset;
 use crate::database::{Database, DatabaseTransaction};
 use crate::errors::BridgeError;
@@ -13,7 +14,7 @@ use std::cmp::max;
 use std::future::Future;
 use std::sync::Arc;
 use thiserror::Error;
-pub mod block_cache;
+
 pub mod context;
 mod event;
 pub mod kickoff;
@@ -103,7 +104,7 @@ pub struct StateManager<T: Owner> {
 
 impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
     pub fn queue_name() -> String {
-        format!("{}_state_mgr_events", T::OWNER_TYPE)
+        format!("{}_state_mgr_events", T::ENTITY_NAME)
     }
 
     pub async fn new(
@@ -487,11 +488,10 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 self.kickoff_machines = kickoff_machines_checkpoint;
                 self.round_machines = round_machines_checkpoint;
                 // Return first error or create a combined error
-                return Err(BridgeError::Error(format!(
+                return Err(eyre::eyre!(
                     "Multiple errors occurred during state processing: {:?}",
                     all_errors
-                ))
-                .into());
+                ));
             }
 
             // Append the newly generated state machines into the changed machines list

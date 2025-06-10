@@ -7,12 +7,15 @@ use bitcoin::{Amount, FeeRate, OutPoint, Transaction, TxOut, Txid, Weight};
 use bitcoincore_rpc::{json::EstimateMode, RpcApi};
 use serde::{Deserialize, Serialize};
 
+use crate::config::protocol::ProtocolParamset;
 use crate::errors::ResultExt;
+use crate::utils::FeePayingType;
 use crate::{
     actor::Actor,
     builder::{self, transaction::TransactionType},
     database::Database,
     extended_rpc::ExtendedRpc,
+    utils::TxMetadata,
 };
 
 #[cfg(test)]
@@ -56,37 +59,9 @@ pub struct TxSender {
     pub signer: Actor,
     pub rpc: ExtendedRpc,
     pub db: Database,
-    pub network: bitcoin::Network,
     pub btc_syncer_consumer_id: String,
+    paramset: &'static ProtocolParamset,
     cached_spendinfo: TaprootSpendInfo,
-}
-
-/// Information to re-sign an RBF transaction.
-/// Specifically the merkle root of the taproot to keyspend with and the output index of the utxo to be
-/// re-signed.
-///
-/// - Not needed for SinglePlusAnyoneCanPay RBF txs.
-/// - Not needed for CPFP.
-/// - Only signs for a keypath spend
-#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
-pub struct RbfSigningInfo {
-    pub vout: u32,
-    pub tweak_merkle_root: Option<TapNodeHash>,
-}
-
-/// Specifies the fee bumping strategy used for a transaction.
-#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, sqlx::Type)]
-#[sqlx(type_name = "fee_paying_type", rename_all = "lowercase")]
-pub enum FeePayingType {
-    /// Child-Pays-For-Parent: A new "child" transaction is created, spending an output
-    /// from the original "parent" transaction. The child pays a high fee, sufficient
-    /// to cover both its own cost and the parent's fee deficit, incentivizing miners
-    /// to confirm both together. Specifically, we utilize "fee payer" UTXOs.
-    CPFP,
-    /// Replace-By-Fee: The original unconfirmed transaction is replaced with a new
-    /// version that includes a higher fee. The original transaction must signal
-    /// RBF enablement (e.g., via nSequence). Bitcoin Core's `bumpfee` RPC is often used.
-    RBF,
 }
 
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
@@ -99,34 +74,6 @@ pub struct ActivatedWithTxid {
 pub struct ActivatedWithOutpoint {
     pub outpoint: OutPoint,
     pub relative_block_height: u32,
-}
-
-#[derive(Copy, Clone, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct TxMetadata {
-    pub deposit_outpoint: Option<OutPoint>,
-    pub operator_xonly_pk: Option<XOnlyPublicKey>,
-    pub round_idx: Option<u32>,
-    pub kickoff_idx: Option<u32>,
-    pub tx_type: TransactionType,
-}
-impl std::fmt::Debug for TxMetadata {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut dbg_struct = f.debug_struct("TxMetadata");
-        if let Some(deposit_outpoint) = self.deposit_outpoint {
-            dbg_struct.field("deposit_outpoint", &deposit_outpoint);
-        }
-        if let Some(operator_xonly_pk) = self.operator_xonly_pk {
-            dbg_struct.field("operator_xonly_pk", &operator_xonly_pk);
-        }
-        if let Some(round_idx) = self.round_idx {
-            dbg_struct.field("round_idx", &round_idx);
-        }
-        if let Some(kickoff_idx) = self.kickoff_idx {
-            dbg_struct.field("kickoff_idx", &kickoff_idx);
-        }
-        dbg_struct.field("tx_type", &self.tx_type);
-        dbg_struct.finish()
-    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -151,20 +98,20 @@ impl TxSender {
         rpc: ExtendedRpc,
         db: Database,
         btc_syncer_consumer_id: String,
-        network: bitcoin::Network,
+        paramset: &'static ProtocolParamset,
     ) -> Self {
         Self {
             cached_spendinfo: builder::address::create_taproot_address(
                 &[],
                 Some(signer.xonly_public_key),
-                network,
+                paramset.network,
             )
             .1,
             signer,
             rpc,
             db,
             btc_syncer_consumer_id,
-            network,
+            paramset,
         }
     }
 
@@ -175,8 +122,6 @@ impl TxSender {
     ///
     /// If fee estimation is unavailable (e.g., node is warming up), it returns
     /// an error, except in Regtest mode where it defaults to 1 sat/vB for testing convenience.
-    ///
-    /// TODO: Implement more sophisticated fee estimation (e.g., mempool.space API).
     async fn _get_fee_rate(&self) -> Result<FeeRate> {
         tracing::info!("Getting fee rate");
         let fee_rate = self
@@ -189,7 +134,7 @@ impl TxSender {
             Ok(fee_rate) => match fee_rate.fee_rate {
                 Some(fee_rate) => Ok(FeeRate::from_sat_per_kwu(fee_rate.to_sat())),
                 None => {
-                    if self.network == bitcoin::Network::Regtest {
+                    if self.paramset.network == bitcoin::Network::Regtest {
                         tracing::debug!("Using fee rate of 1 sat/vb (Regtest mode)");
                         return Ok(FeeRate::from_sat_per_vb_unchecked(1));
                     }
@@ -268,8 +213,8 @@ impl TxSender {
     }
 
     fn is_p2a_anchor(&self, output: &TxOut) -> bool {
-        output.value == builder::transaction::anchor_output().value
-            && output.script_pubkey == builder::transaction::anchor_output().script_pubkey
+        output.script_pubkey
+            == builder::transaction::anchor_output(self.paramset.anchor_amount()).script_pubkey
     }
 
     fn find_p2a_vout(&self, tx: &Transaction) -> Result<usize> {
@@ -401,7 +346,7 @@ mod tests {
     use crate::builder::transaction::input::SpendableTxIn;
     use crate::builder::transaction::output::UnspentTxOut;
     use crate::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE};
-    use crate::constants::MIN_TAPROOT_AMOUNT;
+    use crate::constants::{MIN_TAPROOT_AMOUNT, NON_EPHEMERAL_ANCHOR_AMOUNT};
     use crate::errors::BridgeError;
     use crate::rpc::clementine::tagged_signature::SignatureId;
     use crate::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind};
@@ -446,7 +391,7 @@ mod tests {
             rpc.clone(),
             db.clone(),
             "tx_sender".into(),
-            network,
+            config.protocol_paramset(),
         );
 
         (
@@ -535,13 +480,11 @@ mod tests {
                 DEFAULT_SEQUENCE,
             )
             .add_output(UnspentTxOut::from_partial(TxOut {
-                value: amount
-                    - builder::transaction::anchor_output().value
-                    - MIN_TAPROOT_AMOUNT * 3, // buffer so that rbf works without adding inputs
+                value: amount - NON_EPHEMERAL_ANCHOR_AMOUNT - MIN_TAPROOT_AMOUNT * 3, // buffer so that rbf works without adding inputs
                 script_pubkey: address.script_pubkey(), // In practice, should be the wallet address, not the signer address
             }))
             .add_output(UnspentTxOut::from_partial(
-                builder::transaction::anchor_output(),
+                builder::transaction::non_ephemeral_anchor_output(),
             ))
             .finalize();
 
@@ -655,7 +598,7 @@ mod tests {
             rpc.clone(),
             db,
             "tx_sender".into(),
-            config.protocol_paramset().network,
+            config.protocol_paramset(),
         );
 
         let scripts: Vec<Arc<dyn SpendableScript>> =
@@ -704,9 +647,14 @@ mod tests {
             .unwrap();
 
         rpc.mine_blocks(1).await.unwrap();
+        let mempool_info = rpc.client.get_mempool_info().await.unwrap();
+        tracing::info!("Mempool info: {:?}", mempool_info);
 
         let will_fail_tx = will_fail_handler.get_cached_tx();
-        assert!(rpc.client.send_raw_transaction(will_fail_tx).await.is_err());
+
+        if mempool_info.mempool_min_fee.to_sat() > 0 {
+            assert!(rpc.client.send_raw_transaction(will_fail_tx).await.is_err());
+        }
 
         // Calculate and send with fee.
         let fee_rate = tx_sender._get_fee_rate().await.unwrap();
