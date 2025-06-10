@@ -206,12 +206,12 @@ mod tests {
         builder,
         musig2::AggregateFromPublicKeys,
     };
+    use bitcoin::secp256k1::rand;
     use bitcoin::{
         key::{Keypair, TapTweak},
         secp256k1::{PublicKey, SecretKey},
         Address, AddressType, ScriptBuf, XOnlyPublicKey,
     };
-    use secp256k1::rand;
     use std::str::FromStr;
 
     #[test]

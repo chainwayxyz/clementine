@@ -13,8 +13,8 @@ use eyre::Context;
 use lazy_static::lazy_static;
 use secp256k1::{
     ffi::{
-        AggregatedNonce, MusigKeyAggCache, MusigPubNonce, MusigSecNonce, MusigSession,
-        PartialSignature,
+        MusigAggNonce, MusigKeyAggCache, MusigPartialSignature, MusigPubNonce, MusigSecNonce,
+        MusigSession,
     },
     musig::{
         new_nonce_pair, AggregatedNonce, KeyAggCache, PartialSignature, PublicNonce, SecretNonce,

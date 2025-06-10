@@ -38,8 +38,14 @@ where
         request: Request<OptimisticPayoutParams>,
     ) -> Result<Response<PartialSig>, Status> {
         let params = request.into_inner();
-        let agg_nonce = AggregatedNonce::from_slice(params.agg_nonce.as_slice())
-            .map_err(|e| Status::invalid_argument(format!("Invalid musigagg nonce: {}", e)))?;
+        let agg_nonce = AggregatedNonce::from_byte_array(
+            params
+                .agg_nonce
+                .as_slice()
+                .try_into()
+                .map_err(|_| Status::invalid_argument("agg_nonce must be exactly 66 bytes"))?,
+        )
+        .map_err(|e| Status::invalid_argument(format!("Invalid musigagg nonce: {}", e)))?;
         let nonce_session_id = params
             .nonce_gen
             .ok_or(Status::invalid_argument(
@@ -230,8 +236,12 @@ where
             {
                 let agg_nonce = match result {
                     clementine::verifier_deposit_sign_params::Params::AggNonce(agg_nonce) => {
-                        AggregatedNonce::from_slice(agg_nonce.as_slice())
-                            .map_err(|_| ParserError::RPCParamMalformed("AggNonce".to_string()))?
+                        AggregatedNonce::from_byte_array(
+                            agg_nonce.as_slice().try_into().map_err(|_| {
+                                ParserError::RPCParamMalformed("AggNonce".to_string())
+                            })?,
+                        )
+                        .map_err(|_| ParserError::RPCParamMalformed("AggNonce".to_string()))?
                     }
                     _ => return Err(Status::invalid_argument("Expected AggNonce")),
                 };

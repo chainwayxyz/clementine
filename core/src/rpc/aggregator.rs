@@ -40,7 +40,7 @@ use futures::{
     stream::{BoxStream, TryStreamExt},
     FutureExt, Stream, StreamExt, TryFutureExt,
 };
-use secp256k1::musig::{AggregatedNonce, MusigPubNonce, PartialSignature};
+use secp256k1::musig::{AggregatedNonce, PartialSignature, PublicNonce};
 use std::future::Future;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tonic::{async_trait, Request, Response, Status, Streaming};
@@ -67,11 +67,11 @@ pub enum AggregatorError {
 }
 
 async fn get_next_pub_nonces(
-    nonce_streams: &mut [impl Stream<Item = Result<MusigPubNonce, BridgeError>>
+    nonce_streams: &mut [impl Stream<Item = Result<PublicNonce, BridgeError>>
               + Unpin
               + Send
               + 'static],
-) -> Result<Vec<MusigPubNonce>, BridgeError> {
+) -> Result<Vec<PublicNonce>, BridgeError> {
     Ok(try_join_all(
         nonce_streams
             .iter_mut()
@@ -95,7 +95,7 @@ async fn get_next_pub_nonces(
 /// For each expected sighash, we collect a batch of public nonces from all verifiers. We aggregate and send to the agg_nonce_sender. Then repeat for the next sighash.
 async fn nonce_aggregator(
     mut nonce_streams: Vec<
-        impl Stream<Item = Result<MusigPubNonce, BridgeError>> + Unpin + Send + 'static,
+        impl Stream<Item = Result<PublicNonce, BridgeError>> + Unpin + Send + 'static,
     >,
     mut sighash_stream: impl Stream<Item = Result<(TapSighash, SignatureInfo), BridgeError>>
         + Unpin
@@ -245,8 +245,14 @@ async fn nonce_distributor(
                         stream_name: format!("Partial sig stream {idx}"),
                     })?;
 
+                let arr: [u8; 32] = partial_sig
+                    .partial_sig
+                    .as_slice()
+                    .try_into()
+                    .wrap_err("AggregatedNonce must be 32 bytes")?;
+
                 Ok::<_, BridgeError>(
-                    PartialSignature::from_slice(&partial_sig.partial_sig)
+                    PartialSignature::from_byte_array(&arr)
                         .wrap_err("Failed to parse partial signature")?,
                 )
             },
@@ -403,7 +409,7 @@ async fn create_nonce_streams(
 ) -> Result<
     (
         Vec<clementine::NonceGenFirstResponse>,
-        Vec<BoxStream<'static, Result<MusigPubNonce, BridgeError>>>,
+        Vec<BoxStream<'static, Result<PublicNonce, BridgeError>>>,
     ),
     BridgeError,
 > {
@@ -495,10 +501,15 @@ impl Aggregator {
     // Extracts pub_nonce from given stream.
     fn extract_pub_nonce(
         response: Option<clementine::nonce_gen_response::Response>,
-    ) -> Result<MusigPubNonce, BridgeError> {
+    ) -> Result<PublicNonce, BridgeError> {
         match response.ok_or_eyre("NonceGen response is empty")? {
             clementine::nonce_gen_response::Response::PubNonce(pub_nonce) => {
-                Ok(MusigPubNonce::from_slice(&pub_nonce).wrap_err("Failed to parse pub nonce")?)
+                let arr: &[u8; 66] = pub_nonce
+                    .as_slice()
+                    .try_into()
+                    .wrap_err("PubNonce must be 66 bytes")?;
+
+                Ok(PublicNonce::from_byte_array(arr).wrap_err("Failed to parse pub nonce")?)
             }
             _ => Err(eyre::eyre!("Expected PubNonce in response").into()),
         }
@@ -899,9 +910,16 @@ impl ClementineAggregator for Aggregator {
 
             // calculate final sig
             let payout_sig = try_join_all(payout_sigs).await?;
+
             let musig_partial_sigs = payout_sig
                 .iter()
-                .map(|sig| PartialSignature::from_slice(&sig.get_ref().partial_sig))
+                .map(|sig| {
+                    let arr: &[u8] = &sig.get_ref().partial_sig;
+                    let arr: &[u8; 32] = arr
+                        .try_into()
+                        .map_err(|_| secp256k1::musig::ParseError::MalformedArg)?;
+                    PartialSignature::from_byte_array(arr)
+                })
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(|e| Status::internal(format!("Failed to parse partial sig: {:?}", e)))?;
 
