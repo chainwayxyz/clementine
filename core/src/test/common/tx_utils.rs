@@ -298,6 +298,7 @@ pub async fn create_tx_sender(
     Ok((tx_sender, db))
 }
 
+#[cfg(feature = "automation")]
 pub async fn wait_for_fee_payer_utxos_to_be_in_mempool(
     rpc: &ExtendedRpc,
     db: Database,
@@ -344,6 +345,7 @@ pub async fn wait_for_fee_payer_utxos_to_be_in_mempool(
 }
 
 /// Finds fee payer utxos for a transaction and confirms them.
+#[cfg(feature = "automation")]
 pub async fn confirm_fee_payer_utxos(rpc: &ExtendedRpc, db: Database, txid: Txid) -> Result<()> {
     wait_for_fee_payer_utxos_to_be_in_mempool(rpc, db, txid).await?;
 

@@ -31,7 +31,6 @@ use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
 use crate::rpc::clementine::{Deposit, Empty, SendMoveTxRequest};
 use crate::rpc::clementine::{NormalSignatureKind, TaggedSignature};
-use crate::test::common::tx_utils::wait_for_fee_payer_utxos_to_be_in_mempool;
 use crate::utils::FeePayingType;
 use crate::EVMAddress;
 use bitcoin::hashes::Hash;
@@ -51,14 +50,15 @@ use std::sync::Mutex;
 use std::time::Duration;
 use tonic::transport::Channel;
 use tonic::Request;
-use tx_utils::{confirm_fee_payer_utxos, create_tx_sender, get_txid_where_utxo_is_spent};
 
 pub mod citrea;
 mod setup_utils;
 pub mod tx_utils;
 
 #[cfg(feature = "automation")]
-use tx_utils::{create_tx_sender, get_txid_where_utxo_is_spent};
+use crate::test::common::tx_utils::wait_for_fee_payer_utxos_to_be_in_mempool;
+#[cfg(feature = "automation")]
+use tx_utils::{confirm_fee_payer_utxos, create_tx_sender, get_txid_where_utxo_is_spent};
 
 /// Generate a random XOnlyPublicKey
 pub fn generate_random_xonly_pk() -> XOnlyPublicKey {
@@ -242,6 +242,7 @@ pub async fn mine_once_after_in_mempool(
 /// - [`Txid`]: TXID of the move transaction.
 /// - [`BlockHash`]: Block hash of the block where the user deposit was mined.
 /// - [`Vec<PublicKey>`]: Public keys of the verifiers used in the deposit.
+#[cfg(feature = "automation")]
 pub async fn run_single_deposit<C: CitreaClientT>(
     config: &mut BridgeConfig,
     rpc: ExtendedRpc,
@@ -615,13 +616,15 @@ pub fn ensure_test_certificates() -> Result<(), std::io::Error> {
 
 mod tests {
     use crate::{
-        citrea::mock::MockCitreaClient,
         extended_rpc::ExtendedRpc,
-        test::common::{create_regtest_rpc, create_test_config_with_thread_name},
+        test::common::{
+            citrea::MockCitreaClient, create_regtest_rpc, create_test_config_with_thread_name,
+        },
     };
     use bitcoincore_rpc::RpcApi;
 
     #[ignore = "Tested everywhere, no need to run again"]
+    #[cfg(feature = "automation")]
     #[tokio::test]
     async fn run_single_deposit() {
         let mut config = create_test_config_with_thread_name().await;
