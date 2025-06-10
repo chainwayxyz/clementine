@@ -187,8 +187,30 @@ impl_text_wrapper_default!(PublicKeyDB, PublicKey);
 impl_text_wrapper_default!(XOnlyPublicKeyDB, XOnlyPublicKey);
 
 impl_bytea_wrapper_default!(SignatureDB, schnorr::Signature);
-impl_bytea_wrapper_default!(MusigPubNonceDB, musig::PublicNonce);
-impl_bytea_wrapper_default!(MusigAggNonceDB, musig::AggregatedNonce);
+
+impl_bytea_wrapper_custom!(
+    MusigPubNonceDB,
+    musig::PublicNonce,
+    |pub_nonce: &musig::PublicNonce| pub_nonce.serialize(), // Txid is Copy, which requires this hack
+    |x: &[u8]| -> Result<musig::PublicNonce, BoxDynError> {
+        let arr: &[u8; 66] = x
+            .try_into()
+            .map_err(|_| eyre!("Expected 66 bytes for PublicNonce"))?;
+        Ok(musig::PublicNonce::from_byte_array(arr)?)
+    }
+);
+
+impl_bytea_wrapper_custom!(
+    MusigAggNonceDB,
+    musig::AggregatedNonce,
+    |pub_nonce: &musig::AggregatedNonce| pub_nonce.serialize(),
+    |x: &[u8]| -> Result<musig::AggregatedNonce, BoxDynError> {
+        let arr: &[u8; 66] = x
+            .try_into()
+            .map_err(|_| eyre!("Expected 66 bytes for AggregatedNonce"))?;
+        Ok(musig::AggregatedNonce::from_byte_array(arr)?)
+    }
+);
 
 impl_text_wrapper_custom!(
     AddressDB,
