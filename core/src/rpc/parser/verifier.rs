@@ -150,12 +150,12 @@ pub fn parse_partial_sigs(partial_sigs: Vec<Vec<u8>>) -> Result<Vec<PartialSigna
         .iter()
         .enumerate()
         .map(|(idx, sig)| {
-            let arr: [u8; 32] = sig
-                .as_slice()
-                .try_into()
-                .map_err(|_| Status::invalid_argument("AggregatedNonce must be 32 bytes"))?;
-
-            PartialSignature::from_byte_array(&arr).map_err(|e| {
+            PartialSignature::from_byte_array(
+                &sig.as_slice()
+                    .try_into()
+                    .map_err(|_| Status::invalid_argument("PartialSignature must be 32 bytes"))?,
+            )
+            .map_err(|e| {
                 error::invalid_argument(
                     "partial_sig",
                     format!("Verifier {idx} returned an invalid partial signature").as_str(),
@@ -231,13 +231,13 @@ pub async fn parse_deposit_finalize_param_emergency_stop_agg_nonce(
 
     match sig {
         verifier_deposit_finalize_params::Params::EmergencyStopAggNonce(aggnonce) => {
-            let arr: [u8; 66] = aggnonce
-                .as_slice()
-                .try_into()
-                .map_err(|_| Status::invalid_argument("AggregatedNonce must be 66 bytes"))?;
-
-            Ok(AggregatedNonce::from_byte_array(&arr)
-                .map_err(invalid_argument("AggregatedNonce", "failed to parse"))?)
+            Ok(AggregatedNonce::from_byte_array(
+                &aggnonce
+                    .as_slice()
+                    .try_into()
+                    .map_err(|_| Status::invalid_argument("AggregatedNonce must be 66 bytes"))?,
+            )
+            .map_err(invalid_argument("AggregatedNonce", "failed to parse"))?)
         }
         _ => Err(Status::internal("Expected FinalSig 2")),
     }

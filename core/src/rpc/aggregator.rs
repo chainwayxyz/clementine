@@ -251,7 +251,7 @@ async fn nonce_distributor(
                             .partial_sig
                             .as_slice()
                             .try_into()
-                            .wrap_err("AggregatedNonce must be 32 bytes")?,
+                            .wrap_err("PartialSignature must be 32 bytes")?,
                     )
                     .wrap_err("Failed to parse partial signature")?,
                 )
