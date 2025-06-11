@@ -2048,7 +2048,8 @@ where
         tracing::info!("Number of operator asserts: {}", operator_asserts.len());
         for i in 0..operator_asserts.len() {
             let witness = operator_asserts
-                .get(&i).unwrap()
+                .get(&i)
+                .expect("indexed from 0 to 32")
                 .clone();
 
             let mut commits = extract_winternitz_commits_with_sigs(
