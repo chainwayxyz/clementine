@@ -404,7 +404,9 @@ where
                 assert_data.deposit_outpoint,
                 self.config.protocol_paramset(),
             );
-            let dummy_data: Vec<(Vec<u8>, WinternitzDerivationPath)> = derivations
+            // Combine data to be committed with the corresponding bitvm derivation path (needed to regenerate the winternitz secret keys
+            // to sign the transaction)
+            let winternitz_data: Vec<(Vec<u8>, WinternitzDerivationPath)> = derivations
                 .iter()
                 .zip(commit_data[idx].iter())
                 .map(|(derivation, commit_data)| match derivation {
@@ -415,7 +417,7 @@ where
                 })
                 .collect();
             self.signer
-                .tx_sign_winternitz(&mut mini_assert_txhandler, &dummy_data)?;
+                .tx_sign_winternitz(&mut mini_assert_txhandler, &winternitz_data)?;
             signed_txhandlers.push(mini_assert_txhandler.promote()?);
         }
 
