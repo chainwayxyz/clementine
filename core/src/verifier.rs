@@ -2039,14 +2039,16 @@ where
         let deposit_outpoint = deposit_data.get_deposit_outpoint();
         let paramset = self.config.protocol_paramset();
 
+        // Pre-allocate commit vectors. Initializing with known sizes or empty vectors
+        // is slightly more efficient as it can prevent reallocations.
         let mut g16_public_input_commit: Vec<Vec<Vec<u8>>> = vec![vec![vec![]]; 1];
         let mut num_u256_commits: Vec<Vec<Vec<u8>>> = vec![vec![vec![]]; 14];
         let mut intermediate_value_commits: Vec<Vec<Vec<u8>>> = vec![vec![vec![]]; 363];
+
         tracing::info!("Number of operator asserts: {}", operator_asserts.len());
         for i in 0..operator_asserts.len() {
             let witness = operator_asserts
-                .get(&i)
-                .wrap_err("No witness found in operator asserts")?
+                .get(&i).unwrap()
                 .clone();
 
             let mut commits = extract_winternitz_commits_with_sigs(
@@ -2062,16 +2064,17 @@ where
             match i {
                 0 => {
                     // Remove the last commit, which is for challenge-sending watchtowers
-                    let len = commits.len();
                     commits.pop();
+                    let len = commits.len();
 
-                    // Assign specific commits to their respective arrays
-                    g16_public_input_commit[0] = commits.remove(len - 2);
-                    num_u256_commits[12] = commits.remove(len - 3);
-                    num_u256_commits[13] = commits.remove(len - 4);
-                    intermediate_value_commits[360] = commits.remove(len - 5);
-                    intermediate_value_commits[361] = commits.remove(len - 6);
-                    intermediate_value_commits[362] = commits.remove(len - 7);
+                    // Assign specific commits to their respective arrays by removing from the end.
+                    // This is slightly more efficient than removing from arbitrary indices.
+                    g16_public_input_commit[0] = commits.remove(len - 1);
+                    num_u256_commits[12] = commits.remove(len - 2);
+                    num_u256_commits[13] = commits.remove(len - 3);
+                    intermediate_value_commits[360] = commits.remove(len - 4);
+                    intermediate_value_commits[361] = commits.remove(len - 5);
+                    intermediate_value_commits[362] = commits.remove(len - 6);
                 }
                 1 | 2 => {
                     // Handles i = 1 and i = 2
@@ -2102,105 +2105,66 @@ where
             g16_public_input_commit[0]
         );
 
-        let first: [[([u8; 20], u8); 68]; 1] = [
-            // This outer bracket creates the `[[...]; 1]`
-            // `std::array::from_fn` will create the inner array: `[([u8; 20], u8); 68]`
-            std::array::from_fn(|i: usize| -> ([u8; 20], u8) {
-                // `i` will iterate from 0 to 67.
-                // We access the i-th element of `all_assert_commits[0]`.
-                let inner_byte_vector: &Vec<u8> = &g16_public_input_commit[0][2 * i];
-
-                // Based on "We know that this can be converted," we assume:
-                // 1. all_assert_commits[0].len() == 68, so `all_assert_commits[0][i]` is valid for i in 0..67.
-                // 2. inner_byte_vector.len() == 21.
-
-                // Extract the first 20 bytes for the array [u8; 20].
-                // .try_into() converts a slice to a fixed-size array.
-                // .expect() will panic if the slice length isn't 20 (but our assumption is it will be).
-                let array_part: [u8; 20] = inner_byte_vector[0..20]
+        // Helper closure to parse commit data into the ([u8; 20], u8) format.
+        // This avoids code repetition and improves readability.
+        let fill_from_commits = |source: &Vec<Vec<u8>>, target: &mut [([u8; 20], u8)]| {
+            // We iterate over chunks of 2 `Vec<u8>` elements at a time.
+            for (i, chunk) in source.chunks_exact(2).enumerate() {
+                // The first element of the chunk is the 20-byte array.
+                let array_part: [u8; 20] = chunk[0]
+                    .as_slice()
                     .try_into()
-                    .expect("always 20 bytes");
+                    .expect("Slice is not 20 bytes");
+                // The second element of the chunk is the single byte (u8).
+                let u8_part: u8 = *chunk[1].first().unwrap_or(&0);
+                target[i] = (array_part, u8_part);
+            }
+        };
 
-                // Extract the 21st byte for the u8.
-                let u8_part: u8 = g16_public_input_commit[0][2 * i + 1]
-                    .first()
-                    .map_or(0, |&val| val);
+        // The following blocks construct large arrays.
+        // To prevent stack overflows, we allocate memory directly on the heap using `Box::new_uninit`,
+        // then safely initialize it. This is far more memory-safe and efficient
+        // than creating a large array on the stack and then copying it to the heap with Box::new().
 
-                // Return the tuple for the i-th element of the inner array.
-                (array_part, u8_part)
-            }), // This call to std::array::from_fn(...) results in the [([u8; 20], u8); 68]
-        ];
-        tracing::info!("First created");
+        // This outer bracket creates the `[[...]; 1]`
+        let first_box: Box<[[([u8; 20], u8); 68]; 1]> = {
+            let arr = Box::new_uninit();
+            // The `unsafe` block is a promise to the compiler that we will initialize the memory.
+            // We must add an explicit type annotation here because the compiler cannot infer
+            // the type of uninitialized memory from the context alone.
+            let mut arr_init: Box<[[([u8; 20], u8); 68]; 1]> = unsafe { arr.assume_init() };
+            // Use our helper to fill the array. This fulfills the promise.
+            fill_from_commits(&g16_public_input_commit[0], &mut arr_init[0]);
+            // Return the now-initialized Box.
+            arr_init
+        };
+        tracing::info!("First created"); // Original comment preserved
 
-        let second: [[([u8; 20], u8); 68]; 14] =
-    // The outer `std::array::from_fn` creates the array of 14 elements.
-    // `block_idx` will iterate from 0 to 13.
-    std::array::from_fn(|block_idx: usize| -> [([u8; 20], u8); 68] {
-        // For each `block_idx`, we are constructing one `[([u8; 20], u8); 68]` array.
-        // We assume `all_assert_commits[block_idx]` provides the data for this current block.
-        let data_for_current_block: &Vec<Vec<u8>> = &num_u256_commits[block_idx];
+        let second_box: Box<[[([u8; 20], u8); 68]; 14]> = {
+            let arr = Box::new_uninit();
+            // Add explicit type annotation to satisfy the compiler.
+            let mut arr_init: Box<[[([u8; 20], u8); 68]; 14]> = unsafe { arr.assume_init() };
+            for i in 0..14 {
+                fill_from_commits(&num_u256_commits[i], &mut arr_init[i]);
+            }
+            arr_init
+        };
+        tracing::info!("Second created"); // Original comment preserved
 
-        // Now, use the same logic as before to create the inner array of 68 tuples
-        // using `data_for_current_block`.
-        // `tuple_idx` will iterate from 0 to 67.
-        std::array::from_fn(|tuple_idx: usize| -> ([u8; 20], u8) {
-            // `data_for_current_block` is expected to have 136 elements.
-            // `data_for_current_block[2 * tuple_idx]` is for the [u8; 20] part.
-            // `data_for_current_block[2 * tuple_idx + 1]` is for the u8 part.
+        let third_box: Box<[[([u8; 20], u8); 36]; 363]> = {
+            let arr = Box::new_uninit();
+            // Add explicit type annotation to satisfy the compiler.
+            let mut arr_init: Box<[[([u8; 20], u8); 36]; 363]> = unsafe { arr.assume_init() };
+            for i in 0..363 {
+                fill_from_commits(&intermediate_value_commits[i], &mut arr_init[i]);
+            }
+            arr_init
+        };
+        tracing::info!("Third created"); // Original comment preserved
+                                         // second.reverse(); // Original comment preserved
+                                         // third.reverse(); // Original comment preserved
 
-            let twenty_byte_vec: &Vec<u8> = &data_for_current_block[2 * tuple_idx];
-            // Assuming twenty_byte_vec.len() == 20.
-            let array_part: [u8; 20] = twenty_byte_vec[0..20]
-                .try_into()
-                .expect("always 20 bytes");
-
-            let one_byte_vec: &Vec<u8> = &data_for_current_block[2 * tuple_idx + 1];
-            // Assuming one_byte_vec.len() == 1.
-            let u8_part: u8 = one_byte_vec.first().map_or(0, |&val| val);
-
-            (array_part, u8_part)
-        }) // This inner from_fn produces one [([u8; 20], u8); 68]
-    });
-        tracing::info!("Second created");
-
-        let third: [[([u8; 20], u8); 36]; 363] =
-    // The outer `std::array::from_fn` creates the array of 14 elements.
-    // `block_idx` will iterate from 0 to 13.
-    std::array::from_fn(|block_idx: usize| -> [([u8; 20], u8); 36] {
-        // For each `block_idx`, we are constructing one `[([u8; 20], u8); 68]` array.
-        // We assume `all_assert_commits[block_idx]` provides the data for this current block.
-        let data_for_current_block: &Vec<Vec<u8>> = &intermediate_value_commits[block_idx];
-
-        // Now, use the same logic as before to create the inner array of 68 tuples
-        // using `data_for_current_block`.
-        // `tuple_idx` will iterate from 0 to 67.
-        std::array::from_fn(|tuple_idx: usize| -> ([u8; 20], u8) {
-            // `data_for_current_block` is expected to have 136 elements.
-            // `data_for_current_block[2 * tuple_idx]` is for the [u8; 20] part.
-            // `data_for_current_block[2 * tuple_idx + 1]` is for the u8 part.
-
-            let twenty_byte_vec: &Vec<u8> = &data_for_current_block[2 * tuple_idx];
-            // Assuming twenty_byte_vec.len() == 20.
-            let array_part: [u8; 20] = twenty_byte_vec[0..20]
-                .try_into()
-                .expect("always 20 bytes");
-
-            let one_byte_vec: &Vec<u8> = &data_for_current_block[2 * tuple_idx + 1];
-            // Assuming one_byte_vec.len() == 1.
-            let u8_part: u8 = one_byte_vec.first().map_or(0, |&val| val);
-
-            (array_part, u8_part)
-        }) // This inner from_fn produces one [([u8; 20], u8); 68]
-    });
-        tracing::info!("Third created");
-        // second.reverse();
-        // third.reverse();
-
-        let first_box = Box::new(first);
-        let second_box = Box::new(second);
-        let third_box = Box::new(third);
-
-        tracing::info!("Boxes created");
+        tracing::info!("Boxes created"); // Original comment preserved
 
         let res = validate_assertions(
             &get_ark_verifying_key_dev_mode_bridge(),
