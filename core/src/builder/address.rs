@@ -54,6 +54,21 @@ pub fn taproot_builder_with_scripts(scripts: &[ScriptBuf]) -> TaprootBuilder {
     })
 }
 
+/// Calculates the depth for each script leaf in a Taproot Merkle tree.
+///
+/// This function determines the depth of each script to create a balanced
+/// binary tree. For a given list of scripts, it arranges them in a way
+/// that the resulting Merkle tree is as compact as possible. Some scripts
+/// are placed at a shallower depth (`deepest_layer_depth - 1`) to achieve this balance.
+///
+/// # Arguments
+///
+/// - `scripts`: A slice of [`ScriptBuf`] representing the leaves of the Taproot tree.
+///
+/// # Returns
+///
+/// - A `Vec<(u8, ScriptBuf)>` where each tuple contains the calculated depth (`u8`)
+///   and a clone of the corresponding script. Returns an empty vector if the input is empty.
 pub fn taproot_leaf_depths(scripts: &[ScriptBuf]) -> Vec<(u8, ScriptBuf)> {
     let num_scripts = scripts.len();
 
@@ -227,7 +242,7 @@ pub fn create_checksig_address(
 mod tests {
     use crate::{
         bitvm_client::{self, SECP},
-        builder,
+        builder::{self, address::taproot_leaf_depths},
         musig2::AggregateFromPublicKeys,
     };
     use bitcoin::{
@@ -365,5 +380,54 @@ mod tests {
 
             assert_eq!(tree_info.script_map().len(), i as usize);
         }
+    }
+
+    #[test]
+    fn test_taproot_leaf_depths() {
+        let script1 = ScriptBuf::new();
+        let script2 = ScriptBuf::from(vec![0x51]); // OP_1
+        let script3 = ScriptBuf::from(vec![0x52]); // OP_2
+        let script4 = ScriptBuf::from(vec![0x53]); // OP_3
+
+        // Test case 1: Empty scripts
+        let scripts: Vec<ScriptBuf> = vec![];
+        let expected: Vec<(u8, ScriptBuf)> = vec![];
+        assert_eq!(taproot_leaf_depths(&scripts), expected);
+
+        // Test case 2: Single script
+        let scripts = vec![script1.clone()];
+        let expected = vec![(0, script1.clone())];
+        assert_eq!(taproot_leaf_depths(&scripts), expected);
+
+        // Test case 3: Two scripts (balanced tree, depth 1 for both)
+        let scripts = vec![script1.clone(), script2.clone()];
+        let expected = vec![(1, script1.clone()), (1, script2.clone())];
+        assert_eq!(taproot_leaf_depths(&scripts), expected);
+
+        // Test case 4: Three scripts (unbalanced, two at depth 2, one at depth 1)
+        // Tree: H(H(S1,S2), S3) -> S1,S2 are at depth 2; S3 is at depth 1
+        let scripts = vec![script1.clone(), script2.clone(), script3.clone()];
+        let expected = vec![
+            (2, script1.clone()),
+            (2, script2.clone()),
+            (1, script3.clone()),
+        ];
+        assert_eq!(taproot_leaf_depths(&scripts), expected);
+
+        // Test case 5: Four scripts (perfectly balanced tree, all at depth 2)
+        // Tree: H(H(S1,S2), H(S3,S4)) -> All scripts at depth 2
+        let scripts = vec![
+            script1.clone(),
+            script2.clone(),
+            script3.clone(),
+            script4.clone(),
+        ];
+        let expected = vec![
+            (2, script1.clone()),
+            (2, script2.clone()),
+            (2, script3.clone()),
+            (2, script4.clone()),
+        ];
+        assert_eq!(taproot_leaf_depths(&scripts), expected);
     }
 }

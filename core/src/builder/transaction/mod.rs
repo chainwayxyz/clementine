@@ -576,7 +576,7 @@ pub fn create_replacement_deposit_txhandler(
 pub fn create_disprove_taproot_output(
     operator_timeout_script: Arc<dyn SpendableScript>,
     additional_script: ScriptBuf,
-    disprove_path: DisprovePath, // <--- use the enum here
+    disprove_path: DisprovePath,
     amount: Amount,
     network: bitcoin::Network,
 ) -> UnspentTxOut {

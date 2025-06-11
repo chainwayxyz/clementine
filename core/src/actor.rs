@@ -582,7 +582,7 @@ impl Actor {
 
             if tx_type == TransactionType::DisproveTimeout {
                 let x = spt.get_spend_path();
-                println!("DisproveTimeout: {:?} {:?}", x, spt.get_signature_id());
+                tracing::info!("DisproveTimeout: {:?} {:?}", x, spt.get_signature_id());
             }
 
             match spt.get_spend_path() {

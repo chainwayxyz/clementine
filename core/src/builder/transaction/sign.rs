@@ -150,7 +150,7 @@ pub async fn create_and_sign_txs(
             signer.tx_sign_and_fill_sigs(&mut txhandler, &signatures, Some(&mut tweak_cache));
 
         if tx_type == TransactionType::DisproveTimeout {
-            println!("result of signing DisproveTimeout: {:?}", result);
+            tracing::info!("result of signing DisproveTimeout: {:?}", result);
         }
 
         if let TransactionType::OperatorChallengeAck(watchtower_idx) = tx_type {
@@ -179,7 +179,7 @@ pub async fn create_and_sign_txs(
         let checked_txhandler = txhandler.promote();
 
         if tx_type == TransactionType::DisproveTimeout {
-            println!(
+            tracing::info!(
                 "checked_txhandler for DisproveTimeout: {:?}",
                 checked_txhandler
             );
@@ -199,7 +199,7 @@ pub async fn create_and_sign_txs(
         }
     }
 
-    println!(
+    tracing::info!(
         "Disprove timeout txs after signing: {:?}",
         signed_txs
             .iter()
