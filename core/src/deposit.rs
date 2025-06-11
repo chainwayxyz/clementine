@@ -121,6 +121,7 @@ impl DepositData {
     /// Returns sorted verifiers, they are sorted so that their order is deterministic.
     pub fn get_verifiers(&self) -> Vec<PublicKey> {
         let mut verifiers = self.actors.verifiers.clone();
+        verifiers.sort();
 
         verifiers
     }

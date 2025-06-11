@@ -482,14 +482,9 @@ fn sign_nofn_deposit_tx(
         })
         .collect::<Vec<_>>();
 
-    let final_signature = aggregate_partial_signatures(
-        &verifiers_public_keys.clone(),
-        None,
-        agg_nonce,
-        &partial_sigs,
-        msg,
-    )
-    .unwrap();
+    let final_signature =
+        aggregate_partial_signatures(verifiers_public_keys, None, agg_nonce, &partial_sigs, msg)
+            .unwrap();
 
     let final_taproot_sig = taproot::Signature {
         signature: final_signature,

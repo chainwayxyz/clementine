@@ -82,14 +82,12 @@ lazy_static! {
 }
 
 fn create_key_agg_cache(
-    public_keys: impl AsRef<[PublicKey]>,
+    mut public_keys: Vec<PublicKey>,
     mode: Option<Musig2Mode>,
 ) -> Result<KeyAggCache, BridgeError> {
-    let secp_pubkeys: Vec<secp256k1::PublicKey> = public_keys
-        .as_ref()
-        .iter()
-        .map(|pk| to_secp_pk(*pk))
-        .collect();
+    public_keys.sort();
+    let secp_pubkeys: Vec<secp256k1::PublicKey> =
+        public_keys.iter().map(|pk| to_secp_pk(*pk)).collect();
     let pubkeys_ref: Vec<&secp256k1::PublicKey> = secp_pubkeys.iter().collect();
     let pubkeys_ref = pubkeys_ref.as_slice();
 
@@ -164,7 +162,7 @@ pub fn aggregate_nonces(pub_nonces: &[&PublicNonce]) -> AggregatedNonce {
 
 // Aggregates the partial signatures into a single aggregated signature.
 pub fn aggregate_partial_signatures(
-    pks: &[PublicKey],
+    pks: Vec<PublicKey>,
     tweak: Option<Musig2Mode>,
     agg_nonce: AggregatedNonce,
     partial_sigs: &[PartialSignature],
@@ -213,7 +211,7 @@ pub fn nonce_pair(
 }
 
 pub fn partial_sign(
-    pks: impl AsRef<[PublicKey]>,
+    pks: Vec<PublicKey>,
     // Aggregated tweak, if there is any. This is useful for
     // Taproot key-spends, since we might have script-spend conditions.
     tweak: Option<Musig2Mode>,
@@ -320,7 +318,7 @@ mod tests {
             .collect::<Vec<_>>();
 
         let final_signature = super::aggregate_partial_signatures(
-            &public_keys,
+            public_keys,
             None,
             aggregated_nonce,
             &partial_sigs,
@@ -370,7 +368,7 @@ mod tests {
         let partial_sigs = vec![partial_sig_0, partial_sig_1, partial_sig_2];
 
         let final_signature: Result<schnorr::Signature, BridgeError> =
-            super::aggregate_partial_signatures(&pks, None, agg_nonce, &partial_sigs, message);
+            super::aggregate_partial_signatures(pks, None, agg_nonce, &partial_sigs, message);
 
         assert!(final_signature.is_err());
     }
@@ -420,7 +418,7 @@ mod tests {
             .collect::<Vec<_>>();
 
         let final_signature = super::aggregate_partial_signatures(
-            &public_keys,
+            public_keys,
             Some(Musig2Mode::KeySpendWithScript(
                 TapNodeHash::from_slice(&tweak).unwrap(),
             )),
@@ -483,7 +481,7 @@ mod tests {
         let partial_sigs = vec![partial_sig_0, partial_sig_1, partial_sig_2];
 
         let final_signature = super::aggregate_partial_signatures(
-            &pks,
+            pks,
             Some(Musig2Mode::KeySpendWithScript(
                 TapNodeHash::from_slice(&tweak).unwrap(),
             )),
@@ -586,7 +584,7 @@ mod tests {
             .collect();
 
         let final_signature = super::aggregate_partial_signatures(
-            &public_keys,
+            public_keys.clone(),
             Some(Musig2Mode::KeySpendWithScript(merkle_root)),
             agg_nonce,
             &partial_sigs,
@@ -692,7 +690,7 @@ mod tests {
             .collect();
 
         let final_signature = super::aggregate_partial_signatures(
-            &public_keys,
+            public_keys,
             None,
             agg_nonce,
             &partial_sigs,
@@ -779,7 +777,7 @@ mod tests {
         .unwrap();
 
         let final_sig = aggregate_partial_signatures(
-            &public_keys,
+            public_keys.clone(),
             Some(key_spend_with_script_tweak),
             agg_nonce,
             &[partial_sig1, partial_sig2],
@@ -792,7 +790,7 @@ mod tests {
 
         // Verification will fail with a untweaked aggregate public key against
         // a signature created with a tweaked aggregate public key.
-        let key_agg_cache = create_key_agg_cache(public_keys.clone(), None).unwrap();
+        let key_agg_cache = create_key_agg_cache(public_keys, None).unwrap();
         let agg_pk_no_tweak = from_secp_xonly(key_agg_cache.agg_pk());
         assert!(SECP
             .verify_schnorr(&final_sig, &message, &agg_pk_no_tweak)

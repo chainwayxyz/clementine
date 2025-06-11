@@ -15,6 +15,7 @@ use crate::{
     config::BridgeConfig,
     musig2::{nonce_pair, partial_sign, MuSigNoncePair},
 };
+use ark_groth16::verifier;
 use bitcoin::key::Keypair;
 use bitcoin::secp256k1::{Message, PublicKey};
 use bitcoin::{hashes::Hash, script, Amount, TapSighashType};
@@ -134,7 +135,7 @@ async fn key_spend() {
         .collect();
 
     let final_signature = aggregate_partial_signatures(
-        &verifier_public_keys,
+        verifier_public_keys.clone(),
         Some(Musig2Mode::OnlyKeySpend),
         agg_nonce,
         &partial_sigs,
@@ -142,11 +143,9 @@ async fn key_spend() {
     )
     .unwrap();
 
-    let agg_pk = XOnlyPublicKey::from_musig2_pks(
-        verifier_public_keys.clone(),
-        Some(Musig2Mode::OnlyKeySpend),
-    )
-    .unwrap();
+    let agg_pk =
+        XOnlyPublicKey::from_musig2_pks(verifier_public_keys, Some(Musig2Mode::OnlyKeySpend))
+            .unwrap();
     SECP.verify_schnorr(&final_signature, &message, &agg_pk)
         .unwrap();
 
@@ -238,7 +237,7 @@ async fn key_spend_with_script() {
         .collect();
 
     let final_signature = aggregate_partial_signatures(
-        &verifier_public_keys,
+        verifier_public_keys.clone(),
         Some(Musig2Mode::KeySpendWithScript(merkle_root)),
         agg_nonce,
         &partial_sigs,
@@ -247,7 +246,7 @@ async fn key_spend_with_script() {
     .unwrap();
 
     let agg_pk = XOnlyPublicKey::from_musig2_pks(
-        verifier_public_keys.clone(),
+        verifier_public_keys,
         Some(Musig2Mode::KeySpendWithScript(merkle_root)),
     )
     .unwrap();
@@ -345,7 +344,7 @@ async fn script_spend() {
         })
         .collect();
     let final_signature = aggregate_partial_signatures(
-        &verifier_public_keys,
+        verifier_public_keys,
         None,
         agg_nonce,
         &partial_sigs,
@@ -518,7 +517,7 @@ async fn key_and_script_spend() {
 
         // Musig2 Aggregate
         aggregate_partial_signatures(
-            &verifier_public_keys,
+            verifier_public_keys.clone(),
             None,
             agg_nonce,
             &partial_sigs,
@@ -546,7 +545,7 @@ async fn key_and_script_spend() {
             .collect();
 
         aggregate_partial_signatures(
-            &verifier_public_keys,
+            verifier_public_keys,
             Some(Musig2Mode::KeySpendWithScript(merkle_root)),
             agg_nonce_2,
             &partial_sigs,

@@ -294,7 +294,7 @@ impl Aggregator {
         let verifiers_public_keys = deposit_data.get_verifiers();
 
         let final_sig = aggregate_partial_signatures(
-            &verifiers_public_keys,
+            verifiers_public_keys,
             None,
             *agg_nonce,
             &partial_sigs,

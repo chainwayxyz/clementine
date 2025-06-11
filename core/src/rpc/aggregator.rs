@@ -297,7 +297,7 @@ async fn signature_aggregator(
         );
 
         let final_sig = crate::musig2::aggregate_partial_signatures(
-            &verifiers_public_keys,
+            verifiers_public_keys.clone(),
             None,
             queue_item.agg_nonce,
             &partial_sigs,
@@ -606,7 +606,7 @@ impl Aggregator {
         // aggregate partial signatures
         let verifiers_public_keys = deposit_data.get_verifiers();
         let final_sig = crate::musig2::aggregate_partial_signatures(
-            &verifiers_public_keys,
+            verifiers_public_keys,
             None,
             movetx_agg_nonce,
             &musig_partial_sigs,
@@ -650,7 +650,7 @@ impl Aggregator {
         let verifiers_public_keys = deposit_data.get_verifiers();
 
         let final_sig = crate::musig2::aggregate_partial_signatures(
-            &verifiers_public_keys,
+            verifiers_public_keys,
             None,
             emergency_stop_agg_nonce,
             &musig_partial_sigs,
@@ -928,7 +928,7 @@ impl ClementineAggregator for Aggregator {
 
             let final_sig = bitcoin::taproot::Signature {
                 signature: crate::musig2::aggregate_partial_signatures(
-                    &deposit_data.get_verifiers(),
+                    deposit_data.get_verifiers(),
                     None,
                     agg_nonce,
                     &musig_partial_sigs,
