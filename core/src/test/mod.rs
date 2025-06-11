@@ -12,6 +12,8 @@ mod withdraw;
 
 #[cfg(feature = "automation")]
 mod additional_disprove_scripts;
+
+#[cfg(feature = "automation")]
 mod bitvm_disprove_scripts;
 mod bitvm_script;
 
