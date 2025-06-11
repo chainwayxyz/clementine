@@ -54,10 +54,6 @@ pub fn from_secp_sig(sig: secp256k1::schnorr::Signature) -> schnorr::Signature {
     schnorr::Signature::from_slice(&sig.to_byte_array()).expect("serialized signature is valid")
 }
 
-pub fn from_secp_aggregated_signature(sig: AggregatedSignature) -> secp256k1::schnorr::Signature {
-    secp256k1::schnorr::Signature::from_byte_array(sig.assume_valid().to_byte_array())
-}
-
 pub fn to_secp_msg(msg: &Message) -> secp256k1::Message {
     secp256k1::Message::from_digest(*msg.as_ref())
 }
@@ -184,15 +180,15 @@ pub fn aggregate_partial_signatures(
 
     SECP256K1
         .verify_schnorr(
-            &from_secp_aggregated_signature(final_sig),
+            &final_sig.assume_valid(),
             secp_message.as_ref(),
             &musig_key_agg_cache.agg_pk(),
         )
         .wrap_err("Failed to verify schnorr signature")?;
 
-    Ok(from_secp_sig(from_secp_aggregated_signature(
-        session.partial_sig_agg(&partial_sigs),
-    )))
+    Ok(from_secp_sig(
+        session.partial_sig_agg(&partial_sigs).assume_valid(),
+    ))
 }
 
 /// Generates a pair of nonces, one secret and one public. Be careful,
