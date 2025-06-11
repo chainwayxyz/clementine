@@ -16,7 +16,7 @@ jobs:
   # Build ------------------------------------------------------------------------
   debug_build_automation:
     name: Compile code with debug profile (Automation enabled)
-    runs-on: ubicloud-standard-30
+    runs-on: ubicloud-premium-30
 
     steps:
       - uses: actions/checkout@v4
@@ -35,7 +35,7 @@ jobs:
 
   release_build_automation:
     name: Compile code with release profile (Automation enabled)
-    runs-on: ubicloud-standard-30
+    runs-on: ubicloud-premium-30
 
     steps:
       - uses: actions/checkout@v4
@@ -54,7 +54,7 @@ jobs:
 
   release_build_non_automation:
     name: Compile code with release profile (Automation disabled)
-    runs-on: ubicloud-standard-30
+    runs-on: ubicloud-premium-30
 
     steps:
       - uses: actions/checkout@v4
@@ -74,7 +74,7 @@ jobs:
   # Tests ------------------------------------------------------------------------
   debug_build_test_automation:
     name: Test code with debug build (Automation enabled)
-    runs-on: ubicloud-standard-30
+    runs-on: ubicloud-premium-30
     needs: debug_build_automation
 
     services:
@@ -111,7 +111,7 @@ jobs:
 
   release_build_test_automation:
     name: Test code with release build (Automation enabled)
-    runs-on: ubicloud-standard-30
+    runs-on: ubicloud-premium-30
     needs: release_build_automation
 
     services:
@@ -220,7 +220,7 @@ jobs:
 
   coverage:
     name: Coverage checks with Codecov
-    runs-on: ubicloud-standard-30
+    runs-on: ubicloud-premium-30
     needs: debug_build_test_automation
     if: github.event.pull_request.draft == false
 
