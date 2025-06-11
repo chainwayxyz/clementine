@@ -88,7 +88,7 @@ impl Database {
         new_move_txid: Txid,
     ) -> Result<(), BridgeError> {
         // check if new move txid is already in the database
-        let query = sqlx::query_as::<_, (i32,)>(
+        let query = sqlx::query_as::<_, (i64,)>(
             "SELECT COUNT(*) FROM withdrawals WHERE move_to_vault_txid = $1",
         )
         .bind(TxidDB(new_move_txid))
