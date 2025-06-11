@@ -523,7 +523,9 @@
 <a href="#522" id="522">522</a>
 <a href="#523" id="523">523</a>
 <a href="#524" id="524">524</a>
-<a href="#525" id="525">525</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Transaction Signing Utilities
+<a href="#525" id="525">525</a>
+<a href="#526" id="526">526</a>
+<a href="#527" id="527">527</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Transaction Signing Utilities
 //!
 //! This module provides logic signing the transactions used in the Clementine bridge.
 
@@ -929,7 +931,9 @@
                 assert_data.deposit_outpoint,
                 <span class="self">self</span>.config.protocol_paramset(),
             );
-            <span class="kw">let </span>dummy_data: Vec&lt;(Vec&lt;u8&gt;, WinternitzDerivationPath)&gt; = derivations
+            <span class="comment">// Combine data to be committed with the corresponding bitvm derivation path (needed to regenerate the winternitz secret keys
+            // to sign the transaction)
+            </span><span class="kw">let </span>winternitz_data: Vec&lt;(Vec&lt;u8&gt;, WinternitzDerivationPath)&gt; = derivations
                 .iter()
                 .zip(commit_data[idx].iter())
                 .map(|(derivation, commit_data)| <span class="kw">match </span>derivation {
@@ -940,7 +944,7 @@
                 })
                 .collect();
             <span class="self">self</span>.signer
-                .tx_sign_winternitz(<span class="kw-2">&amp;mut </span>mini_assert_txhandler, <span class="kw-2">&amp;</span>dummy_data)<span class="question-mark">?</span>;
+                .tx_sign_winternitz(<span class="kw-2">&amp;mut </span>mini_assert_txhandler, <span class="kw-2">&amp;</span>winternitz_data)<span class="question-mark">?</span>;
             signed_txhandlers.push(mini_assert_txhandler.promote()<span class="question-mark">?</span>);
         }
 
