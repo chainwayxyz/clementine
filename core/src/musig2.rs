@@ -145,9 +145,10 @@ pub trait AggregateFromPublicKeys {
 
 impl AggregateFromPublicKeys for XOnlyPublicKey {
     fn from_musig2_pks(
-        pks: Vec<PublicKey>,
+        mut pks: Vec<PublicKey>,
         tweak: Option<Musig2Mode>,
     ) -> Result<XOnlyPublicKey, BridgeError> {
+        pks.sort();
         let musig_key_agg_cache = create_key_agg_cache(pks, tweak)?;
 
         Ok(
