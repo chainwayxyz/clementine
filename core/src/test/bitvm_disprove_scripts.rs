@@ -709,7 +709,7 @@ impl TestCase for DisproveTest {
 /// * Confirms that a disprove timeout transaction is created and included on Bitcoin.
 /// * Verifies that the transaction correctly spends the `KickoffFinalizer` output.
 #[tokio::test]
-#[ignore = "This test is too slow, run seperately"]
+#[ignore = "This test is too slow, run separately"]
 async fn disprove_script_test_healthy() -> Result<()> {
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
@@ -736,7 +736,7 @@ async fn disprove_script_test_healthy() -> Result<()> {
 /// - Confirms a disprove transaction is created and included on Bitcoin.
 /// - Validates that the disprove transaction consumes the correct input (the `BurnConnector` outpoint).
 #[tokio::test]
-#[ignore = "This test is too slow, run seperately"]
+#[ignore = "This test is too slow, run separately"]
 async fn disprove_script_test_corrupted_assert() -> Result<()> {
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
