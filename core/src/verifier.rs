@@ -62,7 +62,7 @@ use risc0_zkvm::is_dev_mode;
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce, MusigSecNonce};
 #[cfg(feature = "automation")]
 use std::collections::BTreeMap;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::pin::pin;
 use std::sync::Arc;
 use std::time::Duration;
@@ -1958,6 +1958,7 @@ where
         Ok(())
     }
 
+    #[cfg(feature = "automation")]
     async fn verify_disprove_conditions(
         &self,
         deposit_data: &mut DepositData,
@@ -2141,6 +2142,7 @@ where
         }
     }
 
+    #[cfg(feature = "automation")]
     async fn send_disprove_tx(
         &self,
         txhandlers: &BTreeMap<TransactionType, TxHandler>,
