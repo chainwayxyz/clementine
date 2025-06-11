@@ -90,7 +90,7 @@ jobs:
           POSTGRES_DB: clementine
           POSTGRES_USER: clementine
           POSTGRES_PASSWORD: clementine
-          POSTGRES_INITDB_ARGS: "-c shared_buffers=16GB -c max_connections=5000"
+          POSTGRES_INITDB_ARGS: "-c shared_buffers=8GB -c max_connections=5000"
         ports:
           - 5432:5432
         options: >-
@@ -130,7 +130,7 @@ jobs:
           POSTGRES_DB: clementine
           POSTGRES_USER: clementine
           POSTGRES_PASSWORD: clementine
-          POSTGRES_INITDB_ARGS: "-c shared_buffers=16GB -c max_connections=5000"
+          POSTGRES_INITDB_ARGS: "-c shared_buffers=8GB -c max_connections=5000"
         ports:
           - 5432:5432
         options: >-
@@ -208,7 +208,7 @@ jobs:
           POSTGRES_DB: clementine
           POSTGRES_USER: clementine
           POSTGRES_PASSWORD: clementine
-          POSTGRES_INITDB_ARGS: "-c shared_buffers=16GB -c max_connections=1000"
+          POSTGRES_INITDB_ARGS: "-c shared_buffers=8GB -c max_connections=1000"
         ports:
           - 5432:5432
         options: >-
@@ -255,7 +255,7 @@ jobs:
           POSTGRES_DB: clementine
           POSTGRES_USER: clementine
           POSTGRES_PASSWORD: clementine
-          POSTGRES_INITDB_ARGS: "-c shared_buffers=16GB -c max_connections=5000"
+          POSTGRES_INITDB_ARGS: "-c shared_buffers=8GB -c max_connections=5000"
         ports:
           - 5432:5432
         options: >-
@@ -296,7 +296,7 @@ jobs:
           POSTGRES_DB: clementine
           POSTGRES_USER: clementine
           POSTGRES_PASSWORD: clementine
-          POSTGRES_INITDB_ARGS: "-c shared_buffers=16GB -c max_connections=5000"
+          POSTGRES_INITDB_ARGS: "-c shared_buffers=8GB -c max_connections=5000"
         ports:
           - 5432:5432
         options: >-
