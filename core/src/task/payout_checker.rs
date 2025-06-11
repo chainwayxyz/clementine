@@ -55,7 +55,7 @@ where
             .get_deposit_data_with_move_tx(Some(&mut dbtx), move_to_vault_txid)
             .await?;
         if deposit_data.is_none() {
-            return Err(BridgeError::Error("Deposit data not found".to_string()));
+            return Err(eyre::eyre!("Deposit data not found").into());
         }
 
         let deposit_data = deposit_data.expect("Must be Some");
@@ -70,6 +70,7 @@ where
             .await?;
 
         // TODO: Remove this, for now, we can end round after handling a single payout
+        #[cfg(feature = "automation")]
         self.operator.end_round(&mut dbtx).await?;
 
         self.db

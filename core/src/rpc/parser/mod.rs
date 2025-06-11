@@ -4,12 +4,13 @@ use super::clementine::{
 };
 use super::error;
 use crate::builder::transaction::sign::TransactionRequestData;
-use crate::builder::transaction::{
+use crate::deposit::{
     Actors, BaseDepositData, DepositData, DepositInfo, DepositType, ReplacementDepositData,
     SecurityCouncil,
 };
 use crate::errors::BridgeError;
-use crate::tx_sender::{FeePayingType, RbfSigningInfo};
+use crate::operator::RoundIndex;
+use crate::utils::{FeePayingType, RbfSigningInfo};
 use bitcoin::hashes::{sha256d, FromSliceError, Hash};
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::{OutPoint, TapNodeHash, Txid, XOnlyPublicKey};
@@ -137,7 +138,12 @@ impl TryFrom<Outpoint> for OutPoint {
     type Error = BridgeError;
 
     fn try_from(value: Outpoint) -> Result<Self, Self::Error> {
-        let hash = match Hash::from_slice(&value.txid) {
+        let hash = match Hash::from_slice(
+            &value
+                .txid
+                .ok_or(eyre::eyre!("Can't convert empty txid"))?
+                .txid,
+        ) {
             Ok(h) => h,
             Err(e) => return Err(BridgeError::FromSliceError(e)),
         };
@@ -151,7 +157,7 @@ impl TryFrom<Outpoint> for OutPoint {
 impl From<OutPoint> for Outpoint {
     fn from(value: OutPoint) -> Self {
         Outpoint {
-            txid: value.txid.to_byte_array().to_vec(),
+            txid: Some(value.txid.into()),
             vout: value.vout,
         }
     }
@@ -462,10 +468,8 @@ impl From<&bitcoin::Transaction> for RawSignedTx {
 
 impl From<Txid> for clementine::Txid {
     fn from(value: Txid) -> Self {
-        {
-            let txid = value.to_byte_array().to_vec();
-
-            clementine::Txid { txid }
+        clementine::Txid {
+            txid: value.to_byte_array().to_vec(),
         }
     }
 }
@@ -473,11 +477,7 @@ impl TryFrom<clementine::Txid> for Txid {
     type Error = FromSliceError;
 
     fn try_from(value: clementine::Txid) -> Result<Self, Self::Error> {
-        {
-            let txid = value.txid;
-
-            Ok(Txid::from_raw_hash(sha256d::Hash::from_slice(&txid)?))
-        }
+        Ok(Txid::from_raw_hash(sha256d::Hash::from_slice(&value.txid)?))
     }
 }
 
@@ -500,7 +500,7 @@ pub fn parse_transaction_request(
     })
 }
 
-impl TryFrom<clementine::KickoffId> for crate::builder::transaction::KickoffData {
+impl TryFrom<clementine::KickoffId> for crate::deposit::KickoffData {
     type Error = Status;
 
     fn try_from(value: clementine::KickoffId) -> Result<Self, Self::Error> {
@@ -509,19 +509,19 @@ impl TryFrom<clementine::KickoffId> for crate::builder::transaction::KickoffData
                 Status::invalid_argument(format!("Failed to parse operator_xonly_pk: {}", e))
             })?;
 
-        Ok(crate::builder::transaction::KickoffData {
+        Ok(crate::deposit::KickoffData {
             operator_xonly_pk,
-            round_idx: value.round_idx,
+            round_idx: RoundIndex::from_index(value.round_idx as usize),
             kickoff_idx: value.kickoff_idx,
         })
     }
 }
 
-impl From<crate::builder::transaction::KickoffData> for clementine::KickoffId {
-    fn from(value: crate::builder::transaction::KickoffData) -> Self {
+impl From<crate::deposit::KickoffData> for clementine::KickoffId {
+    fn from(value: crate::deposit::KickoffData) -> Self {
         clementine::KickoffId {
             operator_xonly_pk: value.operator_xonly_pk.serialize().to_vec(),
-            round_idx: value.round_idx,
+            round_idx: value.round_idx.to_index() as u32,
             kickoff_idx: value.kickoff_idx,
         }
     }
@@ -545,7 +545,9 @@ mod tests {
         assert_eq!(og_outpoint, bitcoin_outpoint);
 
         let proto_outpoint = Outpoint {
-            txid: vec![0x1F; 32],
+            txid: Some(clementine::Txid {
+                txid: vec![0x1F; 32],
+            }),
             vout: 0x45,
         };
         let bitcoin_outpoint: OutPoint = proto_outpoint.try_into().unwrap();
@@ -555,7 +557,9 @@ mod tests {
     #[test]
     fn from_proto_outpoint_to_bitcoin_outpoint() {
         let og_outpoint = Outpoint {
-            txid: vec![0x1F; 32],
+            txid: Some(clementine::Txid {
+                txid: vec![0x1F; 32],
+            }),
             vout: 0x45,
         };
 

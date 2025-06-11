@@ -5,8 +5,8 @@ use pgmq::PGMQueueExt;
 use statig::awaitable::IntoStateMachineExt;
 
 use crate::{
-    builder::transaction::{DepositData, KickoffData, OperatorData},
     database::{Database, DatabaseTransaction},
+    deposit::{DepositData, KickoffData, OperatorData},
     errors::BridgeError,
 };
 
@@ -45,7 +45,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         queue
             .send_with_cxn(&queue_name, &message, &mut *(*tx))
             .await
-            .map_err(|e| BridgeError::Error(format!("Error sending NewOperator event: {:?}", e)))?;
+            .map_err(|e| eyre::eyre!("Error sending NewOperator event: {:?}", e))?;
         Ok(())
     }
 
@@ -68,7 +68,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         queue
             .send_with_cxn(&queue_name, &message, &mut *(*tx))
             .await
-            .map_err(|e| BridgeError::Error(format!("Error sending NewKickoff event: {:?}", e)))?;
+            .map_err(|e| eyre::eyre!("Error sending NewKickoff event: {:?}", e))?;
         Ok(())
     }
 

@@ -33,18 +33,28 @@ pub enum RoundTxInput {
     Collateral(OutPoint, Amount),
 }
 
-/// Creates a [`TxHandler`] for `round_tx`. It will always use the first
-/// output of the  previous `ready_to_reimburse_tx` as the input. The flow is as follows:
-/// `round_tx -> ready_to_reimburse_tx -> round_tx -> ...`
+/// Creates a [`TxHandler`] for `round_tx`.
 ///
-/// # Returns
+/// This transaction is used to create a collateral for the withdrawal, kickoff UTXOs for the current round, and the reimburse connectors for the previous round.
+/// It always uses the first output of the previous `ready_to_reimburse_tx` as the input, chaining rounds together.
 ///
-/// A `round_tx` that has outputs of:
+/// `round tx` inputs:
+/// 1. Either the first collateral utxo of operator, or operators collateral in the previous rounds ready to reimburse tx.
 ///
+/// `round tx` outputs:
 /// 1. Operator's Burn Connector
-/// 2. Kickoff input utxo(s): the utxo(s) will be used as the input(s) for the kickoff_tx(s)
+/// 2. Kickoff utxo(s): the utxos will be used as the input for the kickoff transactions
 /// 3. Reimburse utxo(s): the utxo(s) will be used as an input to Reimburse TX
 /// 4. P2Anchor: Anchor output for CPFP
+///
+/// # Arguments
+/// * `operator_xonly_pk` - The operator's x-only public key.
+/// * `txin` - The input to the round transaction (either a previous output or the first collateral).
+/// * `pubkeys` - Winternitz public keys for the round's kickoff UTXOs.
+/// * `paramset` - Protocol parameter set.
+///
+/// # Returns
+/// A [`TxHandler`] for the round transaction, or a [`BridgeError`] if construction fails.
 pub fn create_round_txhandler(
     operator_xonly_pk: XOnlyPublicKey,
     txin: RoundTxInput,
@@ -92,9 +102,9 @@ pub fn create_round_txhandler(
 
     builder = builder.add_output(UnspentTxOut::from_scripts(
         input_amount
-            - (paramset.kickoff_amount + MIN_TAPROOT_AMOUNT)
+            - (paramset.kickoff_amount + paramset.default_utxo_amount())
                 * (paramset.num_kickoffs_per_round as u64)
-            - ANCHOR_AMOUNT,
+            - paramset.anchor_amount(),
         vec![],
         Some(operator_xonly_pk),
         paramset.network,
@@ -117,7 +127,7 @@ pub fn create_round_txhandler(
     // Create reimburse utxos
     for _ in 0..paramset.num_kickoffs_per_round {
         builder = builder.add_output(UnspentTxOut::from_scripts(
-            MIN_TAPROOT_AMOUNT,
+            paramset.default_utxo_amount(),
             vec![],
             Some(operator_xonly_pk),
             paramset.network,
@@ -125,14 +135,31 @@ pub fn create_round_txhandler(
     }
     Ok(builder
         .add_output(UnspentTxOut::from_partial(
-            builder::transaction::anchor_output(),
+            builder::transaction::anchor_output(paramset.anchor_amount()),
         ))
         .finalize())
 }
 
-/// Creates a [`TxHandler`] for the `assert_timeout_tx`. This transaction will be sent by anyone
-/// in case the operator did not send any of their asserts in time, burning their burn connector
-/// and kickoff finalizer.
+/// Creates a vector of [`TxHandler`] for `assert_timeout_tx` transactions.
+///
+/// These transactions can be sent by anyone if the operator did not send their asserts in time, burning their burn connector and kickoff finalizer.
+///
+/// # Inputs
+/// 1. KickoffTx: Assert utxo (corresponding to the assert)
+/// 2. KickoffTx: KickoffFinalizer utxo
+/// 3. RoundTx: BurnConnector utxo
+///
+/// # Outputs
+/// 1. Anchor output for CPFP
+///
+/// # Arguments
+/// * `kickoff_txhandler` - The kickoff transaction handler providing the input.
+/// * `round_txhandler` - The round transaction handler providing an additional input.
+/// * `num_asserts` - Number of assert timeout transactions to create.
+/// * `paramset` - Protocol parameter set.
+///
+/// # Returns
+/// A vector of [`TxHandler`] for all assert timeout transactions, or a [`BridgeError`] if construction fails.
 pub fn create_assert_timeout_txhandlers(
     kickoff_txhandler: &TxHandler,
     round_txhandler: &TxHandler,
@@ -163,7 +190,7 @@ pub fn create_assert_timeout_txhandlers(
                     DEFAULT_SEQUENCE,
                 )
                 .add_output(UnspentTxOut::from_partial(
-                    builder::transaction::anchor_output(),
+                    builder::transaction::anchor_output(paramset.anchor_amount()),
                 ))
                 .finalize(),
         );
@@ -171,31 +198,59 @@ pub fn create_assert_timeout_txhandlers(
     Ok(txhandlers)
 }
 
-/// Creates the nth (0-indexed) `round_txhandler` and `reimburse_generator_txhandler` pair
-/// for a specific operator.
+/// Creates the nth (1-indexed) `round_txhandler` and `reimburse_generator_txhandler` pair for a specific operator.
+///
+/// # Arguments
+/// * `operator_xonly_pk` - The operator's x-only public key.
+/// * `input_outpoint` - The outpoint to use as input for the first round.
+/// * `input_amount` - The amount for the input outpoint.
+/// * `index` - The index of the round to create.
+/// * `pubkeys` - Winternitz keys for all rounds.
+/// * `paramset` - Protocol parameter set.
+///
+/// # Returns
+/// A tuple of (`TxHandler` for the round, `TxHandler` for ready-to-reimburse), or a [`BridgeError`] if construction fails.
 pub fn create_round_nth_txhandler(
     operator_xonly_pk: XOnlyPublicKey,
     input_outpoint: OutPoint,
     input_amount: Amount,
-    index: usize,
+    index: RoundIndex,
     pubkeys: &KickoffWinternitzKeys,
     paramset: &'static ProtocolParamset,
 ) -> Result<(TxHandler, TxHandler), BridgeError> {
+    // 0th round is the collateral, there are no keys for the 0th round
+    // Additionally there are no keys after num_rounds + 1, +1 is because we need additional round to generate
+    // reimbursement connectors of previous round
+
+    if index == RoundIndex::Collateral
+        || index.to_index() > RoundIndex::Round(paramset.num_round_txs).to_index()
+    {
+        return Err(TxError::InvalidRoundIndex(index).into());
+    }
+
+    // create the first round txhandler
     let mut round_txhandler = create_round_txhandler(
         operator_xonly_pk,
         RoundTxInput::Collateral(input_outpoint, input_amount),
-        pubkeys.get_keys_for_round(0),
+        pubkeys.get_keys_for_round(RoundIndex::Round(0))?,
         paramset,
     )?;
     let mut ready_to_reimburse_txhandler =
         create_ready_to_reimburse_txhandler(&round_txhandler, operator_xonly_pk, paramset)?;
-    for idx in 1..=index {
+
+    // get which round index we are creating txhandlers for
+    let round_idx = match index {
+        RoundIndex::Collateral => 0, // impossible, checked before
+        RoundIndex::Round(idx) => idx,
+    };
+    // iterate starting from second round to the requested round
+    for round_idx in RoundIndex::iter_rounds_range(1, round_idx + 1) {
         round_txhandler = create_round_txhandler(
             operator_xonly_pk,
             RoundTxInput::Prevout(Box::new(
                 ready_to_reimburse_txhandler.get_spendable_output(UtxoVout::BurnConnector)?,
             )),
-            pubkeys.get_keys_for_round(idx),
+            pubkeys.get_keys_for_round(round_idx)?,
             paramset,
         )?;
         ready_to_reimburse_txhandler =
@@ -204,6 +259,22 @@ pub fn create_round_nth_txhandler(
     Ok((round_txhandler, ready_to_reimburse_txhandler))
 }
 
+/// Creates a [`TxHandler`] for the `ready_to_reimburse_tx`.
+///
+/// # Inputs
+/// 1. RoundTx: BurnConnector utxo
+///
+/// # Outputs
+/// 1. Operator's collateral
+/// 2. Anchor output for CPFP
+///
+/// # Arguments
+/// * `round_txhandler` - The round transaction handler providing the input.
+/// * `operator_xonly_pk` - The operator's x-only public key.
+/// * `paramset` - Protocol parameter set.
+///
+/// # Returns
+/// A [`TxHandler`] for the ready-to-reimburse transaction, or a [`BridgeError`] if construction fails.
 pub fn create_ready_to_reimburse_txhandler(
     round_txhandler: &TxHandler,
     operator_xonly_pk: XOnlyPublicKey,
@@ -221,17 +292,34 @@ pub fn create_ready_to_reimburse_txhandler(
             DEFAULT_SEQUENCE,
         )
         .add_output(UnspentTxOut::from_scripts(
-            prev_value - ANCHOR_AMOUNT,
+            prev_value - paramset.anchor_amount(),
             vec![],
             Some(operator_xonly_pk),
             paramset.network,
         ))
         .add_output(UnspentTxOut::from_partial(
-            builder::transaction::anchor_output(),
+            builder::transaction::anchor_output(paramset.anchor_amount()),
         ))
         .finalize())
 }
 
+/// Creates a vector of [`TxHandler`] for `unspent_kickoff_tx` transactions.
+/// These transactions can be sent if an operator sends ReadyToReimburse transaction without spending all the kickoff utxos of the round.
+///
+/// # Inputs
+/// 1. ReadyToReimburseTx: BurnConnector utxo
+/// 2. RoundTx: Any kickoff utxo of the same round
+///
+/// # Outputs
+/// 1. Anchor output for CPFP
+///
+/// # Arguments
+/// * `round_txhandler` - The round transaction handler providing the kickoff utxos.
+/// * `ready_to_reimburse_txhandler` - The ready-to-reimburse transaction handler providing the collateral.
+/// * `paramset` - Protocol parameter set.
+///
+/// # Returns
+/// A vector of [`TxHandler`] for unspent kickoff transactions, or a [`BridgeError`] if construction fails.
 pub fn create_unspent_kickoff_txhandlers(
     round_txhandler: &TxHandler,
     ready_to_reimburse_txhandler: &TxHandler,
@@ -255,7 +343,7 @@ pub fn create_unspent_kickoff_txhandlers(
                     Sequence::from_height(1),
                 )
                 .add_output(UnspentTxOut::from_partial(
-                    builder::transaction::anchor_output(),
+                    builder::transaction::anchor_output(paramset.anchor_amount()),
                 ))
                 .finalize(),
         );
@@ -263,10 +351,27 @@ pub fn create_unspent_kickoff_txhandlers(
     Ok(txhandlers)
 }
 
+/// Creates a [`TxHandler`] for burning unused kickoff connectors.
+///
+/// # Inputs
+/// 1. RoundTx: Kickoff utxo(s) (per unused connector)
+///
+/// # Outputs
+/// 1. Change output to the provided address
+/// 2. Anchor output for CPFP
+///
+/// # Arguments
+/// * `round_txhandler` - The round transaction handler providing the input.
+/// * `unused_kickoff_connectors_indices` - Indices of the unused kickoff connectors (0-indexed).
+/// * `change_address` - The address to send the change to.
+///
+/// # Returns
+/// A [`TxHandler`] for burning unused kickoff connectors, or a [`BridgeError`] if construction fails.
 pub fn create_burn_unused_kickoff_connectors_txhandler(
     round_txhandler: &TxHandler,
-    unused_kickoff_connectors_indices: &[usize], // indices of the kickoff connectors that are not used, 0 indexed, 0 => first kickoff connector
+    unused_kickoff_connectors_indices: &[usize],
     change_address: &Address,
+    paramset: &'static ProtocolParamset,
 ) -> Result<TxHandler, BridgeError> {
     let mut tx_handler_builder =
         TxHandlerBuilder::new(TransactionType::BurnUnusedKickoffConnectors)
@@ -279,12 +384,16 @@ pub fn create_burn_unused_kickoff_connectors_txhandler(
             Sequence::from_height(1),
         );
     }
-    tx_handler_builder = tx_handler_builder.add_output(UnspentTxOut::from_partial(TxOut {
-        value: MIN_TAPROOT_AMOUNT,
-        script_pubkey: change_address.script_pubkey(),
-    }));
+    if !paramset.bridge_nonstandard {
+        // if we use standard tx's, kickoff utxo's will hold some sats so we can return the change to the change address
+        // but if we use nonstandard tx's with 0 sat values then the change is 0 anyway, no need to add an output
+        tx_handler_builder = tx_handler_builder.add_output(UnspentTxOut::from_partial(TxOut {
+            value: MIN_TAPROOT_AMOUNT,
+            script_pubkey: change_address.script_pubkey(),
+        }));
+    }
     tx_handler_builder = tx_handler_builder.add_output(UnspentTxOut::from_partial(
-        builder::transaction::anchor_output(),
+        builder::transaction::anchor_output(paramset.anchor_amount()),
     ));
     Ok(tx_handler_builder.finalize())
 }

@@ -3,6 +3,7 @@ name: Code Checks
 on: [push]
 
 env:
+  AUTOMATION_ARGS: --features automation
   CARGO_TERM_COLOR: always
   RUST_LOG: warn,risc0_zkvm=error,risc0_circuit_rv32im=error
   RISC0_DEV_MODE: 1
@@ -30,11 +31,11 @@ jobs:
       - name: Install cargo-clippy
         run: rustup component add --toolchain 1.85-x86_64-unknown-linux-gnu clippy
       - name: Run Cargo clippy
-        run: cargo clippy --no-deps --all-targets -- -Dwarnings
+        run: cargo clippy --no-deps --all-targets $AUTOMATION_ARGS -- -Dwarnings
 
   udeps:
     name: Check unused dependencies
-    runs-on: ubicloud-standard-30
+    runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
@@ -54,24 +55,32 @@ jobs:
         uses: aig787/cargo-udeps-action@v1
         with:
           version: "latest"
-          args: "--workspace --all-features --all-targets"
+          args: "--workspace --all-features --all-targets ${{ env.AUTOMATION_ARGS }}"
 
   docs:
     name: Check documentation build
-    runs-on: ubicloud-standard-30
+    runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
       - name: Build documentation
         run: cargo doc --no-deps
 
-  todo:
-    name: Check for TODO statements
+  codespell:
+    name: Check spelling
     runs-on: ubuntu-latest
-
+    if: github.event.pull_request.draft == false
     steps:
       - uses: actions/checkout@v4
 
-      - name: Run script
-        run: scripts/check_for_todos.sh
-        continue-on-error: true # TODO: This should be removed later
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install codespell
+        run: pip install codespell
+
+      - name: Run codespell
+        run: |
+          codespell --skip="*.lock,./target" -I="codespell_ignore.txt"

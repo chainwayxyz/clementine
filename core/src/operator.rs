@@ -1,8 +1,7 @@
 use ark_ff::PrimeField;
 use circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
 use risc0_zkvm::is_dev_mode;
-use std::collections::{BTreeMap, HashMap};
-use std::sync::Arc;
+use std::collections::HashMap;
 use std::time::Duration;
 
 use crate::actor::{Actor, TweakCache, WinternitzDerivationPath};
@@ -13,33 +12,29 @@ use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::builder::transaction::{
     create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler,
-    create_round_txhandlers, create_txhandlers, ContractContext, DepositData, KickoffData,
-    KickoffWinternitzKeys, OperatorData, ReimburseDbCache, TransactionType, TxHandler,
-    TxHandlerCache,
+    create_round_txhandlers, create_txhandlers, ContractContext, KickoffWinternitzKeys,
+    ReimburseDbCache, TransactionType, TxHandler, TxHandlerCache,
 };
 use crate::citrea::CitreaClientT;
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::database::DatabaseTransaction;
+use crate::deposit::{DepositData, KickoffData, OperatorData};
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::header_chain_prover::HeaderChainProver;
-use crate::states::context::DutyResult;
-use crate::states::{block_cache, Duty, Owner, StateManager};
 use crate::task::manager::BackgroundTaskManager;
 use crate::task::payout_checker::{PayoutCheckerTask, PAYOUT_CHECKER_POLL_DELAY};
-use crate::task::{IntoTask, TaskExt};
-use crate::tx_sender::TxSenderClient;
-use crate::tx_sender::{ActivatedWithOutpoint, ActivatedWithTxid, FeePayingType, TxMetadata};
+use crate::task::TaskExt;
 use crate::utils::Last20Bytes;
+use crate::utils::{NamedEntity, TxMetadata};
 use crate::{builder, UTXO};
 use bitcoin::consensus::deserialize;
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::{schnorr, Message};
 use bitcoin::{
-    Address, Amount, BlockHash, OutPoint, ScriptBuf, Transaction, TxOut, Txid, Witness,
-    XOnlyPublicKey,
+    Address, Amount, BlockHash, OutPoint, ScriptBuf, Transaction, TxOut, Txid, XOnlyPublicKey,
 };
 use bitcoincore_rpc::json::AddressType;
 use bitcoincore_rpc::RpcApi;
@@ -55,8 +50,70 @@ use eyre::{Context, OptionExt};
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 
+#[cfg(feature = "automation")]
+use crate::{
+    states::StateManager,
+    task::IntoTask,
+    tx_sender::{ActivatedWithOutpoint, ActivatedWithTxid, TxSenderClient},
+    utils::FeePayingType,
+};
+#[cfg(feature = "automation")]
+use bitcoin::Witness;
+
 pub type SecretPreimage = [u8; 20];
-pub type PublicHash = [u8; 20]; // TODO: Make sure these are 20 bytes and maybe do this a struct?
+pub type PublicHash = [u8; 20];
+
+/// Round index is used to represent the round index safely.
+/// Collateral represents the collateral utxo.
+/// Round(index) represents the rounds of the bridge operators, index is 0-indexed.
+/// As a single u32, collateral is represented as 0 and rounds are represented starting from 1.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, Ord, PartialOrd,
+)]
+pub enum RoundIndex {
+    Collateral,
+    Round(usize), // 0-indexed
+}
+
+impl RoundIndex {
+    /// Converts the round to a 0-indexed index.
+    pub fn to_index(&self) -> usize {
+        match self {
+            RoundIndex::Collateral => 0,
+            RoundIndex::Round(index) => *index + 1,
+        }
+    }
+
+    /// Converts a 0-indexed index to a RoundIndex.
+    /// Use this only when dealing with 0-indexed data. Currently these are data coming from the database and rpc.
+    pub fn from_index(index: usize) -> Self {
+        if index == 0 {
+            RoundIndex::Collateral
+        } else {
+            RoundIndex::Round(index - 1)
+        }
+    }
+
+    /// Returns the next RoundIndex.
+    pub fn next_round(&self) -> Self {
+        match self {
+            RoundIndex::Collateral => RoundIndex::Round(0),
+            RoundIndex::Round(index) => RoundIndex::Round(*index + 1),
+        }
+    }
+
+    /// Creates an iterator over rounds from 0 to num_rounds (exclusive)
+    /// Only iterates actual rounds, collateral is not included.
+    pub fn iter_rounds(num_rounds: usize) -> impl Iterator<Item = RoundIndex> {
+        Self::iter_rounds_range(0, num_rounds)
+    }
+
+    /// Creates an iterator over rounds from start to end (exclusive)
+    /// Only iterates actual rounds, collateral is not included.
+    pub fn iter_rounds_range(start: usize, end: usize) -> impl Iterator<Item = RoundIndex> {
+        (start..end).map(RoundIndex::Round)
+    }
+}
 
 pub struct OperatorServer<C: CitreaClientT> {
     pub operator: Operator<C>,
@@ -71,6 +128,7 @@ pub struct Operator<C: CitreaClientT> {
     pub config: BridgeConfig,
     pub collateral_funding_outpoint: OutPoint,
     pub(crate) reimburse_addr: Address,
+    #[cfg(feature = "automation")]
     pub tx_sender: TxSenderClient,
     pub header_chain_prover: HeaderChainProver,
     pub citrea_client: C,
@@ -81,31 +139,31 @@ where
     C: CitreaClientT,
 {
     pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
-        let paramset = config.protocol_paramset();
         let operator = Operator::new(config.clone()).await?;
         let mut background_tasks = BackgroundTaskManager::default();
 
         // initialize and run state manager
-        let state_manager =
-            StateManager::new(operator.db.clone(), operator.clone(), paramset).await?;
+        #[cfg(feature = "automation")]
+        {
+            let paramset = config.protocol_paramset();
+            let state_manager =
+                StateManager::new(operator.db.clone(), operator.clone(), paramset).await?;
 
-        tracing::info!("State manager created");
+            let should_run_state_mgr = {
+                #[cfg(test)]
+                {
+                    config.test_params.should_run_state_manager
+                }
+                #[cfg(not(test))]
+                {
+                    true
+                }
+            };
 
-        let should_run_state_mgr = {
-            #[cfg(test)]
-            {
-                config.test_params.should_run_state_manager
+            if should_run_state_mgr {
+                background_tasks.loop_and_monitor(state_manager.block_fetcher_task().await?);
+                background_tasks.loop_and_monitor(state_manager.into_task());
             }
-            #[cfg(not(test))]
-            {
-                true
-            }
-        };
-
-        if should_run_state_mgr {
-            background_tasks.loop_and_monitor(state_manager.block_fetcher_task().await?);
-            background_tasks.loop_and_monitor(state_manager.into_task());
-            tracing::info!("State manager tasks started");
         }
 
         // run payout checker task
@@ -117,8 +175,11 @@ where
         tracing::info!("Payout checker task started");
 
         // track the operator's round state
-        operator.track_rounds().await?;
-        tracing::info!("Operator round state tracked");
+        #[cfg(feature = "automation")]
+        {
+            operator.track_rounds().await?;
+            tracing::info!("Operator round state tracked");
+        }
 
         Ok(Self {
             operator,
@@ -153,6 +214,7 @@ where
         )
         .await?;
 
+        #[cfg(feature = "automation")]
         let tx_sender = TxSenderClient::new(
             db.clone(),
             format!("operator_{:?}", signer.xonly_public_key).to_string(),
@@ -259,11 +321,38 @@ where
             signer,
             config,
             collateral_funding_outpoint,
+            #[cfg(feature = "automation")]
             tx_sender,
             citrea_client,
             header_chain_prover,
             reimburse_addr,
         })
+    }
+
+    #[cfg(feature = "automation")]
+    pub async fn send_initial_round_tx(&self, round_tx: &Transaction) -> Result<(), BridgeError> {
+        let mut dbtx = self.db.begin_transaction().await?;
+        self.tx_sender
+            .insert_try_to_send(
+                &mut dbtx,
+                Some(TxMetadata {
+                    tx_type: TransactionType::Round,
+                    operator_xonly_pk: None,
+                    round_idx: Some(RoundIndex::Round(0)),
+                    kickoff_idx: None,
+                    deposit_outpoint: None,
+                }),
+                round_tx,
+                FeePayingType::CPFP,
+                None,
+                &[],
+                &[],
+                &[],
+                &[],
+            )
+            .await?;
+        dbtx.commit().await?;
+        Ok(())
     }
 
     /// Returns an operator's winternitz public keys and challenge ackpreimages
@@ -287,51 +376,17 @@ where
         ),
         BridgeError,
     > {
+        tracing::info!("Generating operator params");
         let wpks = self.generate_kickoff_winternitz_pubkeys()?;
         let (wpk_tx, wpk_rx) = mpsc::channel(wpks.len());
         let kickoff_wpks = KickoffWinternitzKeys::new(
             wpks,
             self.config.protocol_paramset().num_kickoffs_per_round,
+            self.config.protocol_paramset().num_round_txs,
         );
         let kickoff_sigs = self.generate_unspent_kickoff_sigs(&kickoff_wpks)?;
         let wpks = kickoff_wpks.keys.clone();
         let (sig_tx, sig_rx) = mpsc::channel(kickoff_sigs.len());
-
-        // try to send the first round tx
-        let (mut first_round_tx, _) = create_round_nth_txhandler(
-            self.signer.xonly_public_key,
-            self.collateral_funding_outpoint,
-            self.config.protocol_paramset().collateral_funding_amount,
-            0, // index 0 for the first round
-            &kickoff_wpks,
-            self.config.protocol_paramset(),
-        )?;
-
-        self.signer
-            .clone()
-            .tx_sign_and_fill_sigs(&mut first_round_tx, &[], None)?;
-
-        let mut dbtx = self.db.begin_transaction().await?;
-        self.tx_sender
-            .insert_try_to_send(
-                &mut dbtx,
-                Some(TxMetadata {
-                    tx_type: TransactionType::Round,
-                    operator_xonly_pk: None,
-                    round_idx: Some(0),
-                    kickoff_idx: None,
-                    deposit_outpoint: None,
-                }),
-                first_round_tx.get_cached_tx(),
-                FeePayingType::CPFP,
-                None,
-                &[],
-                &[],
-                &[],
-                &[],
-            )
-            .await?;
-        dbtx.commit().await?;
 
         tokio::spawn(async move {
             for wpk in wpks {
@@ -401,6 +456,7 @@ where
     }
 
     /// Creates the round state machine by adding a system event to the database
+    #[cfg(feature = "automation")]
     pub async fn track_rounds(&self) -> Result<(), BridgeError> {
         let mut dbtx = self.db.begin_transaction().await?;
         // set operators own kickoff winternitz public keys before creating the round state machine
@@ -412,6 +468,7 @@ where
                 self.generate_kickoff_winternitz_pubkeys()?,
             )
             .await?;
+
         StateManager::<Operator<C>>::dispatch_new_round_machine(
             self.db.clone(),
             &mut dbtx,
@@ -629,10 +686,11 @@ where
             Vec::with_capacity(self.config.get_num_kickoff_winternitz_pks());
 
         // we need num_round_txs + 1 because the last round includes reimburse generators of previous round
-        for round_idx in 0..self.config.protocol_paramset().num_round_txs + 1 {
+        for round_idx in RoundIndex::iter_rounds(self.config.protocol_paramset().num_round_txs + 1)
+        {
             for kickoff_idx in 0..self.config.protocol_paramset().num_kickoffs_per_round {
                 let path = WinternitzDerivationPath::Kickoff(
-                    round_idx as u32,
+                    round_idx,
                     kickoff_idx as u32,
                     self.config.protocol_paramset(),
                 );
@@ -641,11 +699,12 @@ where
         }
 
         if winternitz_pubkeys.len() != self.config.get_num_kickoff_winternitz_pks() {
-            return Err(BridgeError::Error(format!(
+            return Err(eyre::eyre!(
                 "Expected {} number of kickoff winternitz pubkeys, but got {}",
                 self.config.get_num_kickoff_winternitz_pks(),
                 winternitz_pubkeys.len()
-            )));
+            )
+            .into());
         }
 
         Ok(winternitz_pubkeys)
@@ -664,10 +723,10 @@ where
             collateral_funding_outpoint: self.collateral_funding_outpoint,
             reimburse_addr: self.reimburse_addr.clone(),
         };
-        for idx in 0..self.config.protocol_paramset().num_round_txs {
+        for round_idx in RoundIndex::iter_rounds(self.config.protocol_paramset().num_round_txs) {
             let txhandlers = create_round_txhandlers(
                 self.config.protocol_paramset(),
-                idx,
+                round_idx,
                 &operator_data,
                 kickoff_wpks,
                 prev_ready_to_reimburse.as_ref(),
@@ -678,7 +737,7 @@ where
                 {
                     let partial = PartialSignatureInfo {
                         operator_idx: 0, // dummy value, doesn't
-                        round_idx: idx,
+                        round_idx,
                         kickoff_utxo_idx: kickoff_idx,
                     };
                     let sighashes = txhandler
@@ -701,11 +760,12 @@ where
             }
         }
         if sigs.len() != self.config.get_num_unspent_kickoff_sigs() {
-            return Err(BridgeError::Error(format!(
+            return Err(eyre::eyre!(
                 "Expected {} number of unspent kickoff sigs, but got {}",
                 self.config.get_num_unspent_kickoff_sigs(),
                 sigs.len()
-            )));
+            )
+            .into());
         }
         Ok(sigs)
     }
@@ -727,11 +787,12 @@ where
         }
 
         if hashes.len() != self.config.get_num_challenge_ack_hashes(deposit_data) {
-            return Err(BridgeError::Error(format!(
+            return Err(eyre::eyre!(
                 "Expected {} number of challenge ack hashes, but got {}",
                 self.config.get_num_challenge_ack_hashes(deposit_data),
                 hashes.len()
-            )));
+            )
+            .into());
         }
 
         Ok(hashes)
@@ -759,6 +820,29 @@ where
             )
             .await?
             .ok_or(BridgeError::DatabaseError(sqlx::Error::RowNotFound))?;
+
+        let current_round_index = self
+            .db
+            .get_current_round_index(Some(dbtx))
+            .await?
+            .ok_or(BridgeError::DatabaseError(sqlx::Error::RowNotFound))?;
+
+        #[cfg(feature = "automation")]
+        if current_round_index != round_idx {
+            // we currently have no free kickoff connectors in the current round, so we need to end round first
+            // if current_round_index should only be smaller than round_idx, and should not be smaller by more than 1
+            // so sanity check:
+            if current_round_index + 1 != round_idx {
+                return Err(eyre::eyre!(
+                    "Internal error: Expected the current round ({}) to be equal to or 1 less than the round of the first available kickoff for deposit reimbursement ({}) for deposit {:?}. If the round is less than the current round, there is an issue with the logic of the fn that gets the first available kickoff. If the round is greater, that means the next round do not have any kickoff connectors available for reimbursement, which should not be possible.",
+                    current_round_index, round_idx, deposit_outpoint
+                ).into());
+            }
+            // start the next round to be able to get reimbursement for the payout
+            self.end_round(dbtx).await?;
+        }
+
+        let round_idx = RoundIndex::from_index(round_idx as usize);
 
         // get signed txs,
         let kickoff_data = KickoffData {
@@ -801,6 +885,7 @@ where
             kickoff_idx: Some(kickoff_idx),
             deposit_outpoint: Some(deposit_outpoint),
         });
+
         // try to send them
         for (tx_type, signed_tx) in &signed_txs {
             match *tx_type {
@@ -810,6 +895,7 @@ where
                 | TransactionType::ChallengeTimeout
                 | TransactionType::DisproveTimeout
                 | TransactionType::Reimburse => {
+                    #[cfg(feature = "automation")]
                     self.tx_sender
                         .add_tx_to_queue(
                             dbtx,
@@ -835,7 +921,7 @@ where
                     None
                 }
             })
-            .ok_or(BridgeError::Error(
+            .ok_or(eyre::eyre!(
                 "Couldn't find kickoff tx in signed_txs".to_string(),
             ))?;
 
@@ -847,6 +933,54 @@ where
         Ok(kickoff_txid)
     }
 
+    #[cfg(feature = "automation")]
+    async fn start_first_round(
+        &self,
+        dbtx: DatabaseTransaction<'_, '_>,
+        kickoff_wpks: KickoffWinternitzKeys,
+    ) -> Result<(), BridgeError> {
+        // try to send the first round tx
+        let (mut first_round_tx, _) = create_round_nth_txhandler(
+            self.signer.xonly_public_key,
+            self.collateral_funding_outpoint,
+            self.config.protocol_paramset().collateral_funding_amount,
+            RoundIndex::Round(0),
+            &kickoff_wpks,
+            self.config.protocol_paramset(),
+        )?;
+
+        self.signer
+            .tx_sign_and_fill_sigs(&mut first_round_tx, &[], None)?;
+
+        self.tx_sender
+            .insert_try_to_send(
+                dbtx,
+                Some(TxMetadata {
+                    tx_type: TransactionType::Round,
+                    operator_xonly_pk: None,
+                    round_idx: Some(RoundIndex::Round(0)),
+                    kickoff_idx: None,
+                    deposit_outpoint: None,
+                }),
+                first_round_tx.get_cached_tx(),
+                FeePayingType::CPFP,
+                None,
+                &[],
+                &[],
+                &[],
+                &[],
+            )
+            .await?;
+
+        // update current round index to 1
+        self.db
+            .update_current_round_index(Some(dbtx), RoundIndex::Round(0))
+            .await?;
+
+        Ok(())
+    }
+
+    #[cfg(feature = "automation")]
     pub async fn end_round<'a>(
         &'a self,
         dbtx: DatabaseTransaction<'a, '_>,
@@ -864,13 +998,22 @@ where
         let kickoff_wpks = KickoffWinternitzKeys::new(
             operator_winternitz_public_keys,
             self.config.protocol_paramset().num_kickoffs_per_round,
+            self.config.protocol_paramset().num_round_txs,
         );
+
+        let current_round = RoundIndex::from_index(current_round_index as usize);
+
+        // if we are at round 0, which is just the collateral, we need to start the first round
+        if current_round == RoundIndex::Collateral {
+            return self.start_first_round(dbtx, kickoff_wpks).await;
+        }
+
         let (current_round_txhandler, mut ready_to_reimburse_txhandler) =
             create_round_nth_txhandler(
                 self.signer.xonly_public_key,
                 self.collateral_funding_outpoint,
                 self.config.protocol_paramset().collateral_funding_amount,
-                current_round_index as usize,
+                current_round,
                 &kickoff_wpks,
                 self.config.protocol_paramset(),
             )?;
@@ -879,7 +1022,7 @@ where
             self.signer.xonly_public_key,
             self.collateral_funding_outpoint,
             self.config.protocol_paramset().collateral_funding_amount,
-            current_round_index as usize + 1,
+            current_round.next_round(),
             &kickoff_wpks,
             self.config.protocol_paramset(),
         )?;
@@ -916,7 +1059,7 @@ where
                 .db
                 .get_kickoff_txid_for_used_kickoff_connector(
                     Some(dbtx),
-                    current_round_index,
+                    current_round,
                     kickoff_connector_idx,
                 )
                 .await?;
@@ -939,7 +1082,7 @@ where
                     self.db
                         .set_kickoff_connector_as_used(
                             Some(dbtx),
-                            current_round_index,
+                            current_round,
                             kickoff_connector_idx,
                             None,
                         )
@@ -958,6 +1101,7 @@ where
                 &current_round_txhandler,
                 &unspent_kickoff_connector_indices,
                 &self.signer.address,
+                self.config.protocol_paramset(),
             )?;
 
         // sign burn unused kickoff connectors tx
@@ -973,7 +1117,7 @@ where
                 Some(TxMetadata {
                     tx_type: TransactionType::BurnUnusedKickoffConnectors,
                     operator_xonly_pk: Some(self.signer.xonly_public_key),
-                    round_idx: Some(current_round_index),
+                    round_idx: Some(current_round),
                     kickoff_idx: None,
                     deposit_outpoint: None,
                 }),
@@ -994,7 +1138,7 @@ where
                 Some(TxMetadata {
                     tx_type: TransactionType::ReadyToReimburse,
                     operator_xonly_pk: Some(self.signer.xonly_public_key),
-                    round_idx: Some(current_round_index),
+                    round_idx: Some(current_round),
                     kickoff_idx: None,
                     deposit_outpoint: None,
                 }),
@@ -1015,7 +1159,7 @@ where
                 Some(TxMetadata {
                     tx_type: TransactionType::Round,
                     operator_xonly_pk: Some(self.signer.xonly_public_key),
-                    round_idx: Some(current_round_index + 1),
+                    round_idx: Some(current_round.next_round()),
                     kickoff_idx: None,
                     deposit_outpoint: None,
                 }),
@@ -1038,12 +1182,13 @@ where
 
         // update current round index
         self.db
-            .update_current_round_index(Some(dbtx), current_round_index + 1)
+            .update_current_round_index(Some(dbtx), current_round.next_round())
             .await?;
 
         Ok(())
     }
 
+    #[cfg(feature = "automation")]
     async fn send_asserts(
         &self,
         kickoff_data: KickoffData,
@@ -1052,16 +1197,17 @@ where
         _payout_blockhash: Witness,
         latest_blockhash: Witness,
     ) -> Result<(), BridgeError> {
-        let context = ContractContext::new_context_for_kickoffs(
+        let context = ContractContext::new_context_for_kickoff(
             kickoff_data,
             deposit_data.clone(),
             self.config.protocol_paramset(),
         );
-        let mut db_cache = ReimburseDbCache::from_context(self.db.clone(), &context);
-        let txhandlers = create_txhandlers(
+        let mut db_cache =
+            crate::builder::transaction::ReimburseDbCache::from_context(self.db.clone(), &context);
+        let txhandlers = builder::transaction::create_txhandlers(
             TransactionType::Kickoff,
             context,
-            &mut TxHandlerCache::new(),
+            &mut crate::builder::transaction::TxHandlerCache::new(),
             &mut db_cache,
         )
         .await?;
@@ -1197,7 +1343,7 @@ where
             }
         }
 
-        // find out which blockhash is latest_blockhash (only last 20 bytes is commited to Witness)
+        // find out which blockhash is latest_blockhash (only last 20 bytes is committed to Witness)
         let latest_blockhash_index = block_hashes
             .iter()
             .position(|(block_hash, _)| {
@@ -1367,6 +1513,7 @@ where
         Ok(())
     }
 
+    #[cfg(feature = "automation")]
     fn data(&self) -> OperatorData {
         OperatorData {
             xonly_pk: self.signer.xonly_public_key,
@@ -1375,6 +1522,7 @@ where
         }
     }
 
+    #[cfg(feature = "automation")]
     async fn send_latest_blockhash(
         &self,
         kickoff_data: KickoffData,
@@ -1418,122 +1566,140 @@ where
     }
 }
 
-#[tonic::async_trait]
-impl<C> Owner for Operator<C>
+impl<C> NamedEntity for Operator<C>
 where
     C: CitreaClientT,
 {
-    const OWNER_TYPE: &'static str = "operator";
-    async fn handle_duty(&self, duty: Duty) -> Result<DutyResult, BridgeError> {
-        match duty {
-            Duty::NewReadyToReimburse {
-                round_idx,
-                operator_xonly_pk,
-                used_kickoffs,
-            } => {
-                tracing::info!("Operator {:?} called new ready to reimburse with round_idx: {}, operator_xonly_pk: {:?}, used_kickoffs: {:?}",
+    const ENTITY_NAME: &'static str = "operator";
+}
+
+#[cfg(feature = "automation")]
+mod states {
+    use super::*;
+    use crate::builder::transaction::{
+        create_txhandlers, ContractContext, ReimburseDbCache, TransactionType, TxHandler,
+        TxHandlerCache,
+    };
+    use crate::states::context::DutyResult;
+    use crate::states::{block_cache, Duty, Owner, StateManager};
+    use std::collections::BTreeMap;
+    use std::sync::Arc;
+
+    #[tonic::async_trait]
+    impl<C> Owner for Operator<C>
+    where
+        C: CitreaClientT,
+    {
+        async fn handle_duty(&self, duty: Duty) -> Result<DutyResult, BridgeError> {
+            match duty {
+                Duty::NewReadyToReimburse {
+                    round_idx,
+                    operator_xonly_pk,
+                    used_kickoffs,
+                } => {
+                    tracing::info!("Operator {:?} called new ready to reimburse with round_idx: {:?}, operator_xonly_pk: {:?}, used_kickoffs: {:?}",
                     self.signer.xonly_public_key, round_idx, operator_xonly_pk, used_kickoffs);
-                Ok(DutyResult::Handled)
-            }
-            Duty::WatchtowerChallenge { .. } => Ok(DutyResult::Handled),
-            Duty::SendOperatorAsserts {
-                kickoff_data,
-                deposit_data,
-                watchtower_challenges,
-                payout_blockhash,
-                latest_blockhash,
-            } => {
-                tracing::warn!("Operator {:?} called send operator asserts with kickoff_data: {:?}, deposit_data: {:?}, watchtower_challenges: {:?}",
-                    self.signer.xonly_public_key, kickoff_data, deposit_data, watchtower_challenges.len());
-                self.send_asserts(
+                    Ok(DutyResult::Handled)
+                }
+                Duty::WatchtowerChallenge { .. } => Ok(DutyResult::Handled),
+                Duty::SendOperatorAsserts {
                     kickoff_data,
                     deposit_data,
                     watchtower_challenges,
                     payout_blockhash,
                     latest_blockhash,
-                )
-                .await?;
-                Ok(DutyResult::Handled)
-            }
-            Duty::VerifierDisprove { .. } => Ok(DutyResult::Handled),
-            Duty::SendLatestBlockhash {
-                kickoff_data,
-                deposit_data,
-                latest_blockhash,
-            } => {
-                tracing::warn!("Operator {:?} called send latest blockhash with kickoff_id: {:?}, deposit_data: {:?}, latest_blockhash: {:?}", self.signer.xonly_public_key, kickoff_data, deposit_data, latest_blockhash);
-                self.send_latest_blockhash(kickoff_data, deposit_data, latest_blockhash)
-                    .await?;
-                Ok(DutyResult::Handled)
-            }
-            Duty::CheckIfKickoff {
-                txid,
-                block_height,
-                witness,
-                challenged_before: _,
-            } => {
-                tracing::debug!(
-                    "Operator {:?} called check if kickoff with txid: {:?}, block_height: {:?}",
-                    self.signer.xonly_public_key,
-                    txid,
-                    block_height,
-                );
-                let kickoff_data = self
-                    .db
-                    .get_deposit_data_with_kickoff_txid(None, txid)
-                    .await?;
-                if let Some((deposit_data, kickoff_data)) = kickoff_data {
-                    // add kickoff machine if there is a new kickoff
-                    let mut dbtx = self.db.begin_transaction().await?;
-                    StateManager::<Self>::dispatch_new_kickoff_machine(
-                        self.db.clone(),
-                        &mut dbtx,
+                } => {
+                    tracing::warn!("Operator {:?} called send operator asserts with kickoff_data: {:?}, deposit_data: {:?}, watchtower_challenges: {:?}",
+                    self.signer.xonly_public_key, kickoff_data, deposit_data, watchtower_challenges.len());
+                    self.send_asserts(
                         kickoff_data,
-                        block_height,
                         deposit_data,
-                        witness,
+                        watchtower_challenges,
+                        payout_blockhash,
+                        latest_blockhash,
                     )
                     .await?;
-                    dbtx.commit().await?;
+                    Ok(DutyResult::Handled)
                 }
-                Ok(DutyResult::Handled)
+                Duty::VerifierDisprove { .. } => Ok(DutyResult::Handled),
+                Duty::SendLatestBlockhash {
+                    kickoff_data,
+                    deposit_data,
+                    latest_blockhash,
+                } => {
+                    tracing::warn!("Operator {:?} called send latest blockhash with kickoff_id: {:?}, deposit_data: {:?}, latest_blockhash: {:?}", self.signer.xonly_public_key, kickoff_data, deposit_data, latest_blockhash);
+                    self.send_latest_blockhash(kickoff_data, deposit_data, latest_blockhash)
+                        .await?;
+                    Ok(DutyResult::Handled)
+                }
+                Duty::CheckIfKickoff {
+                    txid,
+                    block_height,
+                    witness,
+                    challenged_before: _,
+                } => {
+                    tracing::debug!(
+                        "Operator {:?} called check if kickoff with txid: {:?}, block_height: {:?}",
+                        self.signer.xonly_public_key,
+                        txid,
+                        block_height,
+                    );
+                    let kickoff_data = self
+                        .db
+                        .get_deposit_data_with_kickoff_txid(None, txid)
+                        .await?;
+                    if let Some((deposit_data, kickoff_data)) = kickoff_data {
+                        // add kickoff machine if there is a new kickoff
+                        let mut dbtx = self.db.begin_transaction().await?;
+                        StateManager::<Self>::dispatch_new_kickoff_machine(
+                            self.db.clone(),
+                            &mut dbtx,
+                            kickoff_data,
+                            block_height,
+                            deposit_data,
+                            witness,
+                        )
+                        .await?;
+                        dbtx.commit().await?;
+                    }
+                    Ok(DutyResult::Handled)
+                }
             }
         }
-    }
 
-    async fn create_txhandlers(
-        &self,
-        tx_type: TransactionType,
-        contract_context: ContractContext,
-    ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
-        let mut db_cache = ReimburseDbCache::from_context(self.db.clone(), &contract_context);
-        let txhandlers = create_txhandlers(
-            tx_type,
-            contract_context,
-            &mut TxHandlerCache::new(),
-            &mut db_cache,
-        )
-        .await?;
-        Ok(txhandlers)
-    }
+        async fn create_txhandlers(
+            &self,
+            tx_type: TransactionType,
+            contract_context: ContractContext,
+        ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
+            let mut db_cache = ReimburseDbCache::from_context(self.db.clone(), &contract_context);
+            let txhandlers = create_txhandlers(
+                tx_type,
+                contract_context,
+                &mut TxHandlerCache::new(),
+                &mut db_cache,
+            )
+            .await?;
+            Ok(txhandlers)
+        }
 
-    async fn handle_finalized_block(
-        &self,
-        _dbtx: DatabaseTransaction<'_, '_>,
-        _block_id: u32,
-        _block_height: u32,
-        _block_cache: Arc<block_cache::BlockCache>,
-        _light_client_proof_wait_interval_secs: Option<u32>,
-    ) -> Result<(), BridgeError> {
-        tracing::info!("Operator called handle finalized block {}", _block_height);
-        Ok(())
+        async fn handle_finalized_block(
+            &self,
+            _dbtx: DatabaseTransaction<'_, '_>,
+            _block_id: u32,
+            _block_height: u32,
+            _block_cache: Arc<block_cache::BlockCache>,
+            _light_client_proof_wait_interval_secs: Option<u32>,
+        ) -> Result<(), BridgeError> {
+            Ok(())
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::citrea::mock::MockCitreaClient;
     use crate::operator::Operator;
+    use crate::test::common::citrea::MockCitreaClient;
     use crate::test::common::*;
     use bitcoin::hashes::Hash;
     use bitcoin::{OutPoint, Txid};

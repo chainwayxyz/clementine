@@ -362,7 +362,7 @@ impl Database {
             "reorged_block" => BitcoinSyncerEvent::ReorgedBlock(
                 u32::try_from(event.1).wrap_err(BridgeError::IntConversionError)?,
             ),
-            _ => return Err(BridgeError::Error("Invalid event type".to_string())),
+            _ => return Err(eyre::eyre!("Invalid event type").into()),
         };
         let event_id = event.0;
 

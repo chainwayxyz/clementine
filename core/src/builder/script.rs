@@ -1,12 +1,27 @@
-//! # Script Builder
+//! # Bitcoin Script Construction
 //!
-//! Script builder provides useful functions for building typical Bitcoin
-//! scripts.
-// Currently generate_witness functions are not yet used.
+//! This module provides a collection of builders for creating various Bitcoin
+//! scripts utilized within the Clementine bridge. It defines a `SpendableScript`
+//! trait, implemented by specific script structures (e.g., `CheckSig`,
+//! `WinternitzCommit`, `TimelockScript`, `BaseDepositScript`) to standardize
+//! script generation and witness creation.
+//!
+//! Each script builder offers:
+//! - A constructor to initialize the script with its specific parameters.
+//! - A method to convert the script structure into a `bitcoin::ScriptBuf`.
+//! - A method to generate the corresponding `bitcoin::Witness` required to spend
+//!   an output locked with this script.
+//!
+//! The module also includes `ScriptKind`, an enum to differentiate between various
+//! spendable script types, facilitating dynamic dispatch and script management.
+//! Helper functions like `extract_winternitz_commits` are provided for parsing
+//! specific data committed using witnernitz keys from witness.
+
 #![allow(dead_code)]
 
 use crate::actor::WinternitzDerivationPath;
 use crate::config::protocol::ProtocolParamset;
+use crate::deposit::SecurityCouncil;
 use crate::EVMAddress;
 use bitcoin::hashes::Hash;
 use bitcoin::opcodes::OP_TRUE;
@@ -20,8 +35,6 @@ use bitvm::signatures::winternitz::{Parameters, PublicKey, SecretKey};
 use eyre::{Context, Result};
 use std::any::Any;
 use std::fmt::Debug;
-
-use super::transaction::SecurityCouncil;
 
 #[derive(Debug, Copy, Clone, serde::Serialize, serde::Deserialize)]
 pub enum SpendPath {
@@ -393,7 +406,7 @@ impl TimelockScript {
     }
 }
 
-/// Struct for scripts that reveal a preimage and verify it against a hash.
+/// Struct for scripts that reveal a preimage of a OP_HASH160 and verify it against the given hash in the script.
 pub struct PreimageRevealScript(pub(crate) XOnlyPublicKey, [u8; 20]);
 
 impl SpendableScript for PreimageRevealScript {
@@ -544,6 +557,7 @@ mod tests {
     use crate::builder::address::create_taproot_address;
     use crate::config::protocol::ProtocolParamsetName;
     use crate::extended_rpc::ExtendedRpc;
+    use crate::operator::RoundIndex;
     use std::sync::Arc;
 
     use super::*;
@@ -1048,7 +1062,8 @@ mod tests {
             bitcoin::Network::Regtest,
         );
 
-        let kickoff = WinternitzDerivationPath::Kickoff(0, 0, config.protocol_paramset());
+        let kickoff =
+            WinternitzDerivationPath::Kickoff(RoundIndex::Round(0), 0, config.protocol_paramset());
         let bitvm_assert = WinternitzDerivationPath::BitvmAssert(
             64,
             3,

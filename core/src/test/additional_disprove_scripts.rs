@@ -2,10 +2,12 @@ use super::common::citrea::get_bridge_params;
 use super::common::ActorsCleanup;
 use crate::bitvm_client::SECP;
 use crate::builder::transaction::input::UtxoVout;
-use crate::builder::transaction::{KickoffData, TransactionType};
+use crate::builder::transaction::TransactionType;
 use crate::citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER};
 use crate::config::BridgeConfig;
 use crate::database::Database;
+use crate::deposit::KickoffData;
+use crate::operator::RoundIndex;
 use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
@@ -13,14 +15,14 @@ use crate::rpc::clementine::{TransactionRequest, WithdrawParams};
 use crate::test::common::citrea::{get_citrea_safe_withdraw_params, SECRET_KEYS};
 use crate::test::common::tx_utils::{
     create_tx_sender, ensure_outpoint_spent_while_waiting_for_light_client_sync,
+    get_tx_from_signed_txs_with_type,
     get_txid_where_utxo_is_spent_while_waiting_for_light_client_sync,
     mine_once_after_outpoint_spent_in_mempool,
 };
 use crate::test::common::{
     generate_withdrawal_transaction_and_signature, mine_once_after_in_mempool, run_single_deposit,
 };
-use crate::test::full_flow::get_tx_from_signed_txs_with_type;
-use crate::tx_sender::{FeePayingType, TxMetadata};
+use crate::utils::{FeePayingType, TxMetadata};
 use crate::{
     extended_rpc::ExtendedRpc,
     test::common::{
@@ -313,7 +315,14 @@ impl AdditionalDisproveTest {
                 Ok(withdrawal_response) => {
                     tracing::info!("Withdrawal response: {:?}", withdrawal_response);
                     break Txid::from_byte_array(
-                        withdrawal_response.into_inner().txid.try_into().unwrap(),
+                        withdrawal_response
+                            .into_inner()
+                            .txid
+                            .ok_or(eyre::eyre!("Malformed outpoint in withdrawal response"))
+                            .unwrap()
+                            .txid
+                            .try_into()
+                            .unwrap(),
                     );
                 }
                 Err(e) => {
@@ -372,7 +381,7 @@ impl AdditionalDisproveTest {
             kickoff_id: Some(
                 KickoffData {
                     operator_xonly_pk: op0_xonly_pk,
-                    round_idx: 0,
+                    round_idx: RoundIndex::Round(0),
                     kickoff_idx: kickoff_idx as u32,
                 }
                 .into(),
@@ -474,7 +483,7 @@ impl AdditionalDisproveTest {
         let txid = assert_tx.compute_txid();
 
         assert!(
-            rpc.is_txid_in_chain(&txid).await.unwrap(),
+            rpc.is_tx_on_chain(&txid).await.unwrap(),
             "Mini assert 0 was not found in the chain",
         );
 
@@ -927,7 +936,7 @@ impl TestCase for AdditionalDisproveTest {
 /// * Confirms that a disprove transaction is created on Bitcoin.
 /// * Validates that the disprove transaction consumes the correct input (the burn connector outpoint).
 #[tokio::test]
-#[ignore = "This test is too slow, run seperately"]
+#[ignore = "This test is too slow, run separately"]
 async fn additional_disprove_script_test_disrupted_latest_block_hash() -> Result<()> {
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
@@ -954,7 +963,7 @@ async fn additional_disprove_script_test_disrupted_latest_block_hash() -> Result
 /// * Confirms that a disprove timeout transaction is created and included on Bitcoin.
 /// * Verifies that the transaction correctly spends the `KickoffFinalizer` output.
 #[tokio::test]
-#[ignore = "This test is too slow, run seperately"]
+#[ignore = "This test is too slow, run separately"]
 async fn additional_disprove_script_test_healthy() -> Result<()> {
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
@@ -981,7 +990,7 @@ async fn additional_disprove_script_test_healthy() -> Result<()> {
 /// * Confirms that a disprove transaction is created on Bitcoin.
 /// * Validates that the disprove transaction consumes the correct input (the burn connector outpoint).
 #[tokio::test]
-#[ignore = "This test is too slow, run seperately"]
+#[ignore = "This test is too slow, run separately"]
 async fn additional_disprove_script_test_disrupted_payout_tx_block_hash() -> Result<()> {
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
@@ -1008,7 +1017,7 @@ async fn additional_disprove_script_test_disrupted_payout_tx_block_hash() -> Res
 /// * Confirms that a disprove transaction is created on Bitcoin.
 /// * Validates that the disprove transaction consumes the correct input (the burn connector outpoint).
 #[tokio::test]
-#[ignore = "This test is too slow, run seperately"]
+#[ignore = "This test is too slow, run separately"]
 async fn additional_disprove_script_test_disrupt_chal_sending_wts() -> Result<()> {
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
@@ -1035,7 +1044,7 @@ async fn additional_disprove_script_test_disrupt_chal_sending_wts() -> Result<()
 /// * Confirms that a disprove transaction is created on Bitcoin.
 /// * Validates that the disprove transaction consumes the correct input (the burn connector outpoint).
 #[tokio::test]
-#[ignore = "This test is too slow, run seperately"]
+#[ignore = "This test is too slow, run separately"]
 async fn additional_disprove_script_test_operator_forgot_wt_challenge() -> Result<()> {
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",

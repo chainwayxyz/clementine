@@ -53,7 +53,7 @@ create table if not exists deposits (
         deposit_outpoint ~ '^[a-fA-F0-9]{64}:(0|[1-9][0-9]{0,9})$'
     ),
     deposit_params bytea,
-    move_to_vault_txid text check (move_to_vault_txid ~ '^[a-fA-F0-9]{64}')
+    move_to_vault_txid bytea
 );
 -- Deposit signatures
 create table if not exists deposit_signatures (
@@ -61,7 +61,7 @@ create table if not exists deposit_signatures (
     operator_xonly_pk text not null,
     round_idx int not null,
     kickoff_idx int not null,
-    kickoff_txid text check (kickoff_txid ~ '^[a-fA-F0-9]{64}'),
+    kickoff_txid bytea,
     signatures bytea not null,
     primary key (
         deposit_id,
@@ -109,13 +109,13 @@ create table if not exists bitcoin_syncer (
 );
 create table if not exists bitcoin_syncer_txs (
     block_id int not null references bitcoin_syncer (id),
-    txid text not null,
+    txid bytea not null,
     primary key (block_id, txid)
 );
 create table if not exists bitcoin_syncer_spent_utxos (
     block_id bigint not null references bitcoin_syncer (id),
-    spending_txid text not null,
-    txid text not null,
+    spending_txid bytea not null,
+    txid bytea not null,
     vout bigint not null,
     primary key (block_id, spending_txid, txid, vout),
     foreign key (block_id, spending_txid) references bitcoin_syncer_txs (block_id, txid)
@@ -155,7 +155,7 @@ create table if not exists tx_sender_try_to_send_txs (
     tx_metadata text,
     fee_paying_type fee_paying_type not null,
     effective_fee_rate bigint,
-    txid text check (txid ~ '^[a-fA-F0-9]{64}'),
+    txid bytea,
     -- txid of the tx if it is CPFP
     seen_block_id int references bitcoin_syncer(id),
     latest_active_at timestamp,
@@ -165,7 +165,7 @@ create table if not exists tx_sender_try_to_send_txs (
 create table if not exists tx_sender_rbf_txids (
     insertion_order serial not null,
     id int not null references tx_sender_try_to_send_txs(id),
-    txid text not null check (txid ~ '^[a-fA-F0-9]{64}'),
+    txid bytea not null,
     created_at timestamp not null default now(),
     primary key (id, txid)
 );
@@ -174,7 +174,7 @@ create table if not exists tx_sender_fee_payer_utxos (
     id serial primary key,
     replacement_of_id int references tx_sender_fee_payer_utxos(id),
     bumped_id int not null references tx_sender_try_to_send_txs(id),
-    fee_payer_txid text not null check (fee_payer_txid ~ '^[a-fA-F0-9]{64}'),
+    fee_payer_txid bytea not null,
     vout int not null,
     amount bigint not null,
     seen_block_id int references bitcoin_syncer(id),
@@ -182,7 +182,7 @@ create table if not exists tx_sender_fee_payer_utxos (
 );
 create table if not exists tx_sender_cancel_try_to_send_outpoints (
     cancelled_id int not null references tx_sender_try_to_send_txs(id),
-    txid text not null check (txid ~ '^[a-fA-F0-9]{64}'),
+    txid bytea not null,
     vout int not null,
     seen_block_id int references bitcoin_syncer(id),
     created_at timestamp not null default now(),
@@ -190,14 +190,14 @@ create table if not exists tx_sender_cancel_try_to_send_outpoints (
 );
 create table if not exists tx_sender_cancel_try_to_send_txids (
     cancelled_id int not null references tx_sender_try_to_send_txs(id),
-    txid text not null check (txid ~ '^[a-fA-F0-9]{64}'),
+    txid bytea not null,
     seen_block_id int references bitcoin_syncer(id),
     created_at timestamp not null default now(),
     primary key (cancelled_id, txid)
 );
 create table if not exists tx_sender_activate_try_to_send_txids (
     activated_id int not null references tx_sender_try_to_send_txs(id),
-    txid text not null check (txid ~ '^[a-fA-F0-9]{64}'),
+    txid bytea not null,
     timelock bigint not null,
     seen_block_id int references bitcoin_syncer(id),
     created_at timestamp not null default now(),
@@ -205,7 +205,7 @@ create table if not exists tx_sender_activate_try_to_send_txids (
 );
 create table if not exists tx_sender_activate_try_to_send_outpoints (
     activated_id int not null references tx_sender_try_to_send_txs(id),
-    txid text not null check (txid ~ '^[a-fA-F0-9]{64}'),
+    txid bytea not null,
     vout int not null,
     timelock bigint not null,
     seen_block_id int references bitcoin_syncer(id),
@@ -215,15 +215,15 @@ create table if not exists tx_sender_activate_try_to_send_outpoints (
 -------- FINALIZED BLOCK SYNCER , CITREA DEPOSITS AND WITHDRAWALS --------
 create table if not exists withdrawals (
     idx int primary key,
-    move_to_vault_txid text not null check (move_to_vault_txid ~ '^[a-fA-F0-9]{64}'),
-    withdrawal_utxo_txid text check (withdrawal_utxo_txid ~ '^[a-fA-F0-9]{64}'),
+    move_to_vault_txid bytea not null,
+    withdrawal_utxo_txid bytea,
     withdrawal_utxo_vout int,
     withdrawal_batch_proof_bitcoin_block_height int,
-    payout_txid text check (payout_txid ~ '^[a-fA-F0-9]{64}'),
+    payout_txid bytea,
     payout_payer_operator_xonly_pk text,
     payout_tx_blockhash text check (payout_tx_blockhash ~ '^[a-fA-F0-9]{64}'),
     is_payout_handled boolean not null default false,
-    kickoff_txid text check (kickoff_txid ~ '^[a-fA-F0-9]{64}'),
+    kickoff_txid bytea,
     created_at timestamp not null default now()
 );
 -- Add state machine tables at the end of the file:
@@ -346,11 +346,11 @@ DROP TRIGGER IF EXISTS trigger_update_activate_outpoints_seen_block_id ON tx_sen
 CREATE TRIGGER trigger_update_activate_outpoints_seen_block_id
 AFTER
 INSERT ON tx_sender_activate_try_to_send_outpoints FOR EACH ROW EXECUTE FUNCTION update_activate_outpoints_seen_block_id();
--------- ROUND MANAGMENT FOR OPERATOR --------
+-------- ROUND MANAGEMENT FOR OPERATOR --------
 create table if not exists used_kickoff_connectors (
     round_idx int not null,
     kickoff_connector_idx int not null,
-    kickoff_txid text check (kickoff_txid ~ '^[a-fA-F0-9]{64}'),
+    kickoff_txid bytea,
     created_at timestamp not null default now(),
     primary key (round_idx, kickoff_connector_idx)
 );
@@ -381,7 +381,7 @@ CREATE INDEX IF NOT EXISTS tx_sender_debug_submission_errors_tx_id_idx ON tx_sen
 
 -- Table to store emergency stop signatures
 CREATE TABLE IF NOT EXISTS emergency_stop_sigs (
-    move_txid text primary key not null check (move_txid ~ '^[a-fA-F0-9]{64}'),
+    move_txid bytea primary key not null,
     emergency_stop_tx bytea not null,
     created_at timestamp not null default now()
 );

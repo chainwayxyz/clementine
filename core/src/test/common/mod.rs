@@ -7,15 +7,14 @@ use std::time::Duration;
 use crate::actor::Actor;
 use crate::bitvm_client::SECP;
 use crate::builder::address::create_taproot_address;
-use crate::builder::script::{CheckSig, Multisig, SpendPath, SpendableScript};
-use crate::builder::transaction::input::SpendableTxIn;
-use crate::builder::transaction::{
-    create_replacement_deposit_txhandler, BaseDepositData, DepositInfo, DepositType,
-    ReplacementDepositData, SecurityCouncil, TxHandler, DEFAULT_SEQUENCE,
-};
-use crate::citrea::mock::MockCitreaClient;
+use crate::builder::script::{CheckSig, Multisig, SpendableScript};
+use crate::builder::transaction::input::UtxoVout;
+use crate::builder::transaction::{create_replacement_deposit_txhandler, TxHandler};
 use crate::citrea::CitreaClientT;
 use crate::config::BridgeConfig;
+use crate::deposit::{
+    BaseDepositData, DepositInfo, DepositType, ReplacementDepositData, SecurityCouncil,
+};
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::{
@@ -25,27 +24,30 @@ use crate::musig2::{
 use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
-use crate::rpc::clementine::{Deposit, Empty};
+use crate::rpc::clementine::{Deposit, Empty, SendMoveTxRequest};
 use crate::rpc::clementine::{NormalSignatureKind, TaggedSignature};
-use crate::tx_sender::FeePayingType;
+use crate::utils::FeePayingType;
 use crate::EVMAddress;
 use bitcoin::hashes::Hash;
 use bitcoin::key::Keypair;
 use bitcoin::secp256k1::Message;
 use bitcoin::secp256k1::PublicKey;
 use bitcoin::XOnlyPublicKey;
-use bitcoin::{taproot, Amount, BlockHash, OutPoint, Transaction, Txid, Witness};
+use bitcoin::{taproot, BlockHash, OutPoint, Transaction, Txid, Witness};
 use bitcoincore_rpc::RpcApi;
+use citrea::MockCitreaClient;
 use eyre::Context;
 use secp256k1::rand;
 pub use setup_utils::*;
 use tonic::transport::Channel;
 use tonic::Request;
-use tx_utils::{create_tx_sender, get_txid_where_utxo_is_spent};
 
 pub mod citrea;
 mod setup_utils;
 pub mod tx_utils;
+
+#[cfg(feature = "automation")]
+use tx_utils::{create_tx_sender, get_txid_where_utxo_is_spent};
 
 /// Generate a random XOnlyPublicKey
 pub fn generate_random_xonly_pk() -> XOnlyPublicKey {
@@ -150,18 +152,25 @@ pub async fn mine_once_after_in_mempool(
 
     loop {
         if start.elapsed() > std::time::Duration::from_secs(timeout) {
-            return Err(BridgeError::Error(format!(
+            return Err(eyre::eyre!(
                 "{} did not land onchain within {} seconds",
-                tx_name, timeout
-            )));
+                tx_name,
+                timeout
+            )
+            .into());
         }
 
         if rpc.client.get_mempool_entry(&txid).await.is_ok() {
             break;
         };
 
+        // mine if there are some txs in mempool
+        if rpc.mempool_size().await? > 0 {
+            rpc.mine_blocks(1).await?;
+        }
+
         tracing::info!("Waiting for {} transaction to hit mempool...", tx_name);
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
     }
 
     rpc.mine_blocks(1).await?;
@@ -171,11 +180,11 @@ pub async fn mine_once_after_in_mempool(
         .get_raw_transaction_info(&txid, None)
         .await
         .map_err(|e| {
-            BridgeError::Error(format!(
+            eyre::eyre!(
             "{} did not land onchain after in mempool and mining 1 block and rpc gave error: {}",
             tx_name,
             e
-        ))
+        )
         })?;
 
     if tx.blockhash.is_none() {
@@ -184,10 +193,11 @@ pub async fn mine_once_after_in_mempool(
             tx_name
         );
 
-        return Err(BridgeError::Error(format!(
+        return Err(eyre::eyre!(
             "{} did not land onchain after in mempool and mining 1 block",
             tx_name
-        )));
+        )
+        .into());
     }
 
     let tx_block_height = rpc
@@ -251,10 +261,18 @@ pub async fn run_multiple_deposits<C: CitreaClientT>(
 
         let deposit: Deposit = deposit_info.into();
 
-        let move_txid: Txid = aggregator
+        let movetx = aggregator
             .new_deposit(deposit)
             .await
             .wrap_err("Error while making a deposit")?
+            .into_inner();
+        let move_txid = aggregator
+            .send_move_to_vault_tx(SendMoveTxRequest {
+                deposit_outpoint: Some(deposit_outpoint.into()),
+                raw_tx: Some(movetx),
+            })
+            .await
+            .expect("failed to send movetx")
             .into_inner()
             .try_into()?;
         rpc.mine_blocks(1).await?;
@@ -345,17 +363,21 @@ pub async fn run_single_deposit<C: CitreaClientT>(
 
     let deposit: Deposit = deposit_info.clone().into();
 
-    let move_txid: Txid = aggregator
+    let movetx = aggregator
         .new_deposit(deposit)
         .await
-        .wrap_err("Error while making a deposit")?
+        .wrap_err("Error while making a deposit")
+        .expect("failed to make deposit")
+        .into_inner();
+    let move_txid = aggregator
+        .send_move_to_vault_tx(SendMoveTxRequest {
+            deposit_outpoint: Some(deposit_outpoint.into()),
+            raw_tx: Some(movetx),
+        })
+        .await
+        .expect("failed to send movetx")
         .into_inner()
         .try_into()?;
-
-    // sleep 6 seconds so that tx_sender can send the fee_payer_tx to the mempool
-    tokio::time::sleep(std::time::Duration::from_secs(6)).await;
-    // mine 1 block
-    rpc.mine_blocks(1).await?;
 
     mine_once_after_in_mempool(&rpc, move_txid, Some("Move tx"), None).await?;
 
@@ -489,6 +511,7 @@ fn sign_nofn_deposit_tx(
     tx
 }
 
+#[cfg(feature = "automation")]
 pub async fn run_replacement_deposit(
     config: &mut BridgeConfig,
     rpc: ExtendedRpc,
@@ -544,41 +567,16 @@ pub async fn run_replacement_deposit(
     assert_eq!(move_tx.output[0].script_pubkey, addr.script_pubkey());
 
     // generate replacement deposit tx
-    let new_deposit_tx = create_replacement_deposit_txhandler(
+    let mut new_deposit_tx = create_replacement_deposit_txhandler(
         move_txid,
+        OutPoint {
+            txid: move_txid,
+            vout: UtxoVout::DepositInMove.get_vout(),
+        },
         nofn_xonly_pk,
         config.protocol_paramset(),
         config.security_council.clone(),
     )?;
-    let some_funding_utxo = rpc
-        .send_to_address(
-            &create_taproot_address(
-                &[],
-                Some(actor.xonly_public_key),
-                config.protocol_paramset().network,
-            )
-            .0,
-            Amount::from_sat(1000),
-        )
-        .await
-        .expect("Failed to send funding utxo");
-
-    let new_deposit_tx = new_deposit_tx.add_input(
-        NormalSignatureKind::NotStored,
-        SpendableTxIn::from_scripts(
-            bitcoin::OutPoint {
-                txid: some_funding_utxo.txid,
-                vout: some_funding_utxo.vout,
-            },
-            Amount::from_sat(1000),
-            vec![],
-            Some(actor.xonly_public_key),
-            config.protocol_paramset().network,
-        ),
-        SpendPath::KeySpend,
-        DEFAULT_SEQUENCE,
-    );
-    let mut new_deposit_tx = new_deposit_tx.finalize();
 
     actor
         .tx_sign_and_fill_sigs(
@@ -646,10 +644,20 @@ pub async fn run_replacement_deposit(
 
     let deposit: Deposit = deposit_info.clone().into();
 
-    let move_txid: Txid = aggregator
+    // First create the raw signed move-to-vault transaction for the replacement deposit
+    let raw_signed_tx = aggregator
         .new_deposit(deposit)
         .await
         .wrap_err("Error while making a deposit")?
+        .into_inner();
+    // Broadcast the move-to-vault transaction and get its Txid
+    let move_txid: Txid = aggregator
+        .send_move_to_vault_tx(SendMoveTxRequest {
+            deposit_outpoint: Some(deposit_info.deposit_outpoint.into()),
+            raw_tx: Some(raw_signed_tx),
+        })
+        .await
+        .wrap_err("Error sending replacement deposit move-to-vault tx")?
         .into_inner()
         .try_into()?;
 

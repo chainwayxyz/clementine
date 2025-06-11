@@ -1,6 +1,7 @@
 # Clementine 🍊
 
-Clementine is Citrea's BitVM based trust-minimized two-way peg program.
+Clementine is Citrea's BitVM based trust-minimized two-way peg program. You can
+check Clementine whitepaper at [citrea.xyz/clementine_whitepaper.pdf](https://citrea.xyz/clementine_whitepaper.pdf).
 
 The repository includes:
 
@@ -12,6 +13,19 @@ The repository includes:
 > Clementine is still a work in progress. It has not been audited and should not
 > be used in production under any circumstances. It also requires a full BitVM
 > implementation to be run fully on-chain.
+
+## Documentation
+
+Code documentation can be viewed at
+[chainwayxyz.github.io/clementine/clementine_core](https://chainwayxyz.github.io/clementine/clementine_core/).
+It can also be generated locally:
+
+```bash
+cargo doc --no-deps
+```
+
+Documentation will be available at `target/doc/clementine_core/index.html` after
+that.
 
 ## Instructions
 
@@ -54,7 +68,13 @@ Before running Clementine:
 
 ### Configure Clementine
 
-Clementine supports two primary configuration methods:
+Clementine can be configured to enable automation at build-time via the `automation` feature. The automation feature enables the State Manager and Transaction Sender which automatically fulfills the duties of verifier/operator/aggregator entities. It also enables automatic sending and management of transactions to the Bitcoin network via Transaction Sender.
+
+```bash
+cargo build --release --features automation
+```
+
+Clementine supports two runtime primary configuration methods:
 
 1. **Configuration Files**: Specify main configuration and protocol parameters via TOML files
 2. **Environment Variables**: Configure the application entirely through environment variables
@@ -63,7 +83,7 @@ Clementine supports two primary configuration methods:
 
 Running the binary as a verifier, aggregator, operator or watchtower requires a
 configuration file. An example configuration file is located at
-[`core/tests/data/test_config.toml`](core/tests/data/test_config.toml) and can
+[`core/src/test/data/bridge_config.toml`](core/src/test/data/bridge_config.toml) and can
 be taken as reference. Please copy that configuration file to another location
 and modify fields to your local configuration.
 
@@ -110,7 +130,8 @@ Before running the servers, you need to generate certificates. A script is provi
 ```
 
 This will create certificates in the following structure:
-```
+
+```text
 certs/
 ├── ca/
 │   ├── ca.key     # CA private key
@@ -138,8 +159,8 @@ Clementine is designed to be run multiple times for every actor that an entity
 requires. An actor's server can be started using its corresponding argument:
 
 ```sh
-# Build the binary
-cargo build --release
+# Build the binary (with optional automation)
+cargo build --release [--features automation]
 
 # Run binary with configuration file
 ./target/release/clementine-core verifier --config /path/to/config.toml
@@ -246,8 +267,16 @@ export TEST_CONFIG=/path/to/configuration.toml
 To run all tests:
 
 ```sh
-cargo test
+cargo test --all-features
 ```
+
+#### Helper Scripts
+
+There are handful amount of scripts in [scripts](scripts) directory. Most of
+them are for testing but still can be used for setting up the environment. They
+can change quite frequently. So, please check for useful ones.
+
+Each script should have a name and comment inside that explain its purpose.
 
 ## Security Considerations
 

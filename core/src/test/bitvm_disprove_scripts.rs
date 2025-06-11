@@ -2,10 +2,9 @@ use super::common::citrea::get_bridge_params;
 use super::common::ActorsCleanup;
 use crate::bitvm_client::SECP;
 use crate::builder::transaction::input::UtxoVout;
-use crate::builder::transaction::{KickoffData, TransactionType};
-use crate::citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER};
 use crate::config::BridgeConfig;
 use crate::database::Database;
+use crate::deposit::KickoffData;
 use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
@@ -13,14 +12,18 @@ use crate::rpc::clementine::{TransactionRequest, WithdrawParams};
 use crate::test::common::citrea::{get_citrea_safe_withdraw_params, SECRET_KEYS};
 use crate::test::common::tx_utils::{
     create_tx_sender, ensure_outpoint_spent_while_waiting_for_light_client_sync,
+    get_tx_from_signed_txs_with_type,
     get_txid_where_utxo_is_spent_while_waiting_for_light_client_sync,
     mine_once_after_outpoint_spent_in_mempool,
 };
 use crate::test::common::{
     generate_withdrawal_transaction_and_signature, mine_once_after_in_mempool, run_single_deposit,
 };
-use crate::test::full_flow::get_tx_from_signed_txs_with_type;
-use crate::tx_sender::{FeePayingType, TxMetadata};
+use crate::utils::{FeePayingType, TxMetadata};
+use crate::{
+    builder::transaction::TransactionType,
+    citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER},
+};
 use crate::{
     extended_rpc::ExtendedRpc,
     test::common::{
@@ -43,6 +46,7 @@ use citrea_e2e::{
     test_case::{TestCase, TestCaseRunner},
     Result,
 };
+use prost::Message;
 use tonic::transport::Channel;
 pub enum DisproveTestVariant {
     HealthyState,
@@ -310,7 +314,13 @@ impl DisproveTest {
                 Ok(withdrawal_response) => {
                     tracing::info!("Withdrawal response: {:?}", withdrawal_response);
                     break Txid::from_byte_array(
-                        withdrawal_response.into_inner().txid.try_into().unwrap(),
+                        withdrawal_response
+                            .into_inner()
+                            .txid
+                            .unwrap()
+                            .encode_to_vec()
+                            .try_into()
+                            .unwrap(),
                     );
                 }
                 Err(e) => {
@@ -369,7 +379,7 @@ impl DisproveTest {
             kickoff_id: Some(
                 KickoffData {
                     operator_xonly_pk: op0_xonly_pk,
-                    round_idx: 0,
+                    round_idx: crate::operator::RoundIndex::Collateral,
                     kickoff_idx: kickoff_idx as u32,
                 }
                 .into(),
@@ -471,7 +481,7 @@ impl DisproveTest {
         let txid = assert_tx.compute_txid();
 
         assert!(
-            rpc.is_txid_in_chain(&txid).await.unwrap(),
+            rpc.is_tx_on_chain(&txid).await.unwrap(),
             "Mini assert 0 was not found in the chain",
         );
 

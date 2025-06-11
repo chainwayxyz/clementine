@@ -9,8 +9,8 @@ use super::error::*;
 use super::parser::ParserError;
 use crate::bitvm_client::ClementineBitVMPublicKeys;
 use crate::builder::transaction::sign::create_and_sign_txs;
-use crate::builder::transaction::DepositData;
 use crate::citrea::CitreaClientT;
+use crate::deposit::DepositData;
 use crate::operator::OperatorServer;
 use crate::rpc::parser;
 use crate::rpc::parser::parse_transaction_request;
@@ -138,7 +138,7 @@ where
             .await?;
 
         Ok(Response::new(WithdrawResponse {
-            txid: withdrawal_txid.as_raw_hash().to_byte_array().to_vec(),
+            txid: Some(withdrawal_txid.into()),
         }))
     }
 
@@ -296,10 +296,20 @@ where
         &self,
         _request: Request<Empty>,
     ) -> Result<Response<Empty>, Status> {
-        let mut dbtx = self.operator.db.begin_transaction().await?;
-        self.operator.end_round(&mut dbtx).await?;
-        dbtx.commit().await.expect("Failed to commit transaction");
-        Ok(Response::new(Empty {}))
+        #[cfg(feature = "automation")]
+        {
+            let mut dbtx = self.operator.db.begin_transaction().await?;
+
+            self.operator.end_round(&mut dbtx).await?;
+
+            dbtx.commit().await.expect("Failed to commit transaction");
+            Ok(Response::new(Empty {}))
+        }
+
+        #[cfg(not(feature = "automation"))]
+        Err(Status::unimplemented(
+            "Automation is not enabled. Operator does not manage its rounds",
+        ))
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
