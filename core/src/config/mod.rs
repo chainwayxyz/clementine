@@ -26,13 +26,32 @@ pub mod protocol;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TestParams {
+    /// Controls whether the state manager component is initialized and run as part of the test setup.
+    /// Allows for testing components in isolation from the state manager.
     pub should_run_state_manager: bool,
+
+    /// Contains the secret keys for all simulated verifier nodes in the test environment.
     pub all_verifiers_secret_keys: Vec<SecretKey>,
+
+    /// Contains the secret keys for all simulated operator nodes in the test.
     pub all_operators_secret_keys: Vec<SecretKey>,
+
+    /// A fault injection flag. If true, an operator will intentionally commit to an incorrect latest block hash.
+    /// This is used to test if verifiers can correctly detect and handle this invalid commitment.
     pub disrupt_latest_block_hash_commit: bool,
+
+    /// A fault injection flag. If true, simulates an operator committing to an invalid block hash
+    /// for the payout transaction.
     pub disrupt_payout_tx_block_hash_commit: bool,
+
+    /// A fault injection flag for challenge sending watchtowers detection. When enabled, simulates an operator
+    /// sending a corrupted or invalid commitment to watchtowers who has sent challenges.
     pub disrupt_challenge_sending_watchtowers_commit: bool,
+
+    /// Simulates a scenario where an operator fails to include a watchtower, who has sent a challenge,
     pub operator_forgot_watchtower_challenge: bool,
+
+    /// A flag to introduce intentionally inconsistent or invalid data into the BitVM assertions.
     pub corrupted_asserts: bool,
 }
 

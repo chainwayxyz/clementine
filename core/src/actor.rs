@@ -580,11 +580,6 @@ impl Actor {
                 .map(|s| s.sighash_type())?
                 .unwrap_or(TapSighashType::Default);
 
-            if tx_type == TransactionType::DisproveTimeout {
-                let x = spt.get_spend_path();
-                tracing::info!("DisproveTimeout: {:?} {:?}", x, spt.get_signature_id());
-            }
-
             match spt.get_spend_path() {
                 SpendPath::ScriptSpend(script_idx) => {
                     let script = spt

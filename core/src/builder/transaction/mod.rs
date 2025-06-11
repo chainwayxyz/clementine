@@ -31,7 +31,7 @@
 
 use super::script::{CheckSig, Multisig, SpendableScript};
 use super::script::{ReplacementDepositScript, SpendPath};
-use crate::builder::address::taproot_leaf_depths;
+use crate::builder::address::calculate_taproot_leaf_depths;
 use crate::builder::script::OtherSpendable;
 use crate::builder::transaction::challenge::*;
 use crate::builder::transaction::input::SpendableTxIn;
@@ -592,22 +592,30 @@ pub fn create_disprove_taproot_output(
             builder = builder
                 .add_leaf(1, operator_timeout_script.to_script_buf())
                 .expect("add operator timeout script")
-                .add_leaf(2, additional_script.clone())
+                .add_leaf(2, additional_script)
                 .expect("add additional script");
 
-            for (depth, script) in taproot_leaf_depths(extra_scripts.clone()) {
+            // 1. Calculate depths. This is cheap and doesn't need ownership of scripts.
+            let depths = calculate_taproot_leaf_depths(extra_scripts.len());
+
+            // 2. Zip depths with an iterator over the scripts.
+            //    We clone the `script` inside the loop because the builder needs an owned value.
+            //    This is more efficient than cloning the whole Vec upfront.
+            for (depth, script) in depths.into_iter().zip(extra_scripts.iter()) {
                 let main_tree_depth = 2 + depth;
                 builder = builder
-                    .add_leaf(main_tree_depth, script)
+                    .add_leaf(main_tree_depth, script.clone())
                     .expect("add inlined disprove script");
             }
+
+            // 3. Now, move the original `extra_scripts` into `scripts.extend`. No clone needed.
             scripts.extend(extra_scripts);
             builder
         }
         DisprovePath::HiddenNode(root_hash) => TaprootBuilder::new()
             .add_leaf(1, operator_timeout_script.to_script_buf())
             .expect("empty taptree will accept a script node")
-            .add_leaf(2, additional_script.clone())
+            .add_leaf(2, additional_script)
             .expect("taptree with one node will accept a node at depth 2")
             .add_hidden_node(2, TapNodeHash::from_byte_array(*root_hash))
             .expect("taptree with two nodes will accept a node at depth 2"),

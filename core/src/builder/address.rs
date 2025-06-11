@@ -54,37 +54,26 @@ pub fn taproot_builder_with_scripts(scripts: &[ScriptBuf]) -> TaprootBuilder {
     })
 }
 
-/// Calculates the depth for each script leaf in a Taproot Merkle tree.
-///
-/// This function determines the depth of each script to create a balanced
-/// binary tree. For a given list of scripts, it arranges them in a way
-/// that the resulting Merkle tree is as compact as possible. Some scripts
-/// are placed at a shallower depth (`deepest_layer_depth - 1`) to achieve this balance.
-///
-/// # Arguments
-///
-/// - `scripts`: A slice of [`ScriptBuf`] representing the leaves of the Taproot tree.
-///
-/// # Returns
-///
-/// - A `Vec<(u8, ScriptBuf)>` where each tuple contains the calculated depth (`u8`)
-///   and a clone of the corresponding script. Returns an empty vector if the input is empty.
-pub fn taproot_leaf_depths(scripts: Vec<ScriptBuf>) -> impl Iterator<Item = (u8, ScriptBuf)> {
-    let num_scripts = scripts.len();
+/// Calculates the depth of each leaf in a balanced Taproot tree structure.
+/// The returned Vec contains the depth for each script at the corresponding index.
+pub fn calculate_taproot_leaf_depths(num_scripts: usize) -> Vec<u8> {
+    match num_scripts {
+        0 => return vec![],
+        1 => return vec![0],
+        _ => {}
+    }
 
-    // The logic to calculate depths remains the same.
-    let deepest_layer_depth = if num_scripts > 0 {
-        (num_scripts as f32).log2().ceil() as u8
-    } else {
-        0
-    };
-    scripts.into_iter().enumerate().map(move |(i, script)| {
-        let mut depth = deepest_layer_depth;
-        if i >= (1_usize << deepest_layer_depth) - num_scripts {
-            depth -= 1;
-        }
-        (depth, script)
-    })
+    let deepest_layer_depth: u8 = ((num_scripts - 1).ilog2() + 1) as u8;
+
+    let num_empty_nodes_in_final_depth = 2_usize.pow(deepest_layer_depth.into()) - num_scripts;
+    let num_nodes_in_final_depth = num_scripts - num_empty_nodes_in_final_depth;
+
+    (0..num_scripts)
+        .map(|i| {
+            let is_node_in_last_minus_one_depth = (i >= num_nodes_in_final_depth) as u8;
+            deepest_layer_depth - is_node_in_last_minus_one_depth
+        })
+        .collect()
 }
 
 /// Creates a taproot address with given scripts and internal key.
@@ -237,7 +226,7 @@ pub fn create_checksig_address(
 mod tests {
     use crate::{
         bitvm_client::{self, SECP},
-        builder::{self, address::taproot_leaf_depths},
+        builder::{self, address::calculate_taproot_leaf_depths},
         musig2::AggregateFromPublicKeys,
     };
     use bitcoin::{
@@ -378,65 +367,36 @@ mod tests {
     }
 
     #[test]
-    fn test_taproot_leaf_depths() {
-        let script1 = ScriptBuf::new();
-        let script2 = ScriptBuf::from(vec![0x51]); // OP_1
-        let script3 = ScriptBuf::from(vec![0x52]); // OP_2
-        let script4 = ScriptBuf::from(vec![0x53]); // OP_3
+    fn test_calculate_taproot_leaf_depths() {
+        // Test case 1: 0 scripts
+        let expected: Vec<u8> = vec![];
+        assert_eq!(calculate_taproot_leaf_depths(0), expected);
 
-        // Test case 1: Empty scripts
-        let scripts: Vec<ScriptBuf> = vec![];
-        let expected: Vec<(u8, ScriptBuf)> = vec![];
-        assert_eq!(
-            taproot_leaf_depths(scripts).collect::<Vec<(u8, ScriptBuf)>>(),
-            expected
-        );
+        // Test case 2: 1 script
+        assert_eq!(calculate_taproot_leaf_depths(1), vec![0]);
 
-        // Test case 2: Single script
-        let scripts = vec![script1.clone()];
-        let expected = vec![(0, scripts[0].clone())];
-        assert_eq!(
-            taproot_leaf_depths(scripts).collect::<Vec<(u8, ScriptBuf)>>(),
-            expected
-        );
+        // Test case 3: 2 scripts (balanced tree, depth 1 for both)
+        assert_eq!(calculate_taproot_leaf_depths(2), vec![1, 1]);
 
-        // Test case 3: Two scripts (balanced tree, depth 1 for both)
-        let scripts = vec![script1.clone(), script2.clone()];
-        let expected = vec![(1, scripts[0].clone()), (1, scripts[1].clone())];
-        assert_eq!(
-            taproot_leaf_depths(scripts).collect::<Vec<(u8, ScriptBuf)>>(),
-            expected
-        );
+        // Test case 4: 3 scripts (unbalanced)
+        // The first two scripts are at depth 2, the last is promoted to depth 1.
+        assert_eq!(calculate_taproot_leaf_depths(3), vec![2, 2, 1]);
 
-        // Test case 4: Three scripts (unbalanced)
-        // The function's logic puts the first two scripts at depth 2 and the last one at depth 1.
-        let scripts = vec![script1.clone(), script2.clone(), script3.clone()];
-        let expected = vec![
-            (2, scripts[0].clone()),
-            (2, scripts[1].clone()),
-            (1, scripts[2].clone()),
-        ];
-        assert_eq!(
-            taproot_leaf_depths(scripts).collect::<Vec<(u8, ScriptBuf)>>(),
-            expected
-        );
+        // Test case 5: 4 scripts (perfectly balanced tree, all at depth 2)
+        assert_eq!(calculate_taproot_leaf_depths(4), vec![2, 2, 2, 2]);
 
-        // Test case 5: Four scripts (perfectly balanced tree, all at depth 2)
-        let scripts = vec![
-            script1.clone(),
-            script2.clone(),
-            script3.clone(),
-            script4.clone(),
-        ];
-        let expected = vec![
-            (2, scripts[0].clone()),
-            (2, scripts[1].clone()),
-            (2, scripts[2].clone()),
-            (2, scripts[3].clone()),
-        ];
+        // Test case 6: 5 scripts (unbalanced)
+        // num_nodes_in_final_depth is 2, so first two are at depth 3, rest are at depth 2.
+        // deepest_layer_depth = ilog2(4) + 1 = 3
+        // num_empty_nodes = 2^3 - 5 = 3
+        // num_nodes_in_final_depth = 5 - 3 = 2
+        // Depths: (3, 3, 2, 2, 2)
+        assert_eq!(calculate_taproot_leaf_depths(5), vec![3, 3, 2, 2, 2]);
+
+        // Test case 7: 8 scripts (perfectly balanced tree, all at depth 3)
         assert_eq!(
-            taproot_leaf_depths(scripts).collect::<Vec<(u8, ScriptBuf)>>(),
-            expected
+            calculate_taproot_leaf_depths(8),
+            vec![3, 3, 3, 3, 3, 3, 3, 3]
         );
     }
 }
