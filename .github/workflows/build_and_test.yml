@@ -208,7 +208,7 @@ jobs:
           POSTGRES_DB: clementine
           POSTGRES_USER: clementine
           POSTGRES_PASSWORD: clementine
-          POSTGRES_INITDB_ARGS: "-c shared_buffers=32GB -c max_connections=5000"
+          POSTGRES_INITDB_ARGS: "-c shared_buffers=32GB -c max_connections=1000"
         ports:
           - 5432:5432
         options: >-
@@ -234,8 +234,7 @@ jobs:
           shared-key: "release-build"
 
       - name: Run tests
-        run: cargo test ${{ matrix.test_script_name }} --release  -- --ignored
-
+        run: cargo test ${{ matrix.test_script_name }} --features automation --release  -- --ignored
 
   bridge_disprove_tests_matrix:
     name: Test disprove script ${{ matrix.description_suffix }} with release build
