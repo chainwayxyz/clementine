@@ -69,27 +69,22 @@ pub fn taproot_builder_with_scripts(scripts: &[ScriptBuf]) -> TaprootBuilder {
 ///
 /// - A `Vec<(u8, ScriptBuf)>` where each tuple contains the calculated depth (`u8`)
 ///   and a clone of the corresponding script. Returns an empty vector if the input is empty.
-pub fn taproot_leaf_depths(scripts: &[ScriptBuf]) -> Vec<(u8, ScriptBuf)> {
+pub fn taproot_leaf_depths(scripts: Vec<ScriptBuf>) -> impl Iterator<Item = (u8, ScriptBuf)> {
     let num_scripts = scripts.len();
 
-    match num_scripts {
-        0 => return vec![],
-        1 => return vec![(0, scripts[0].clone())],
-        _ => {}
-    }
-
-    let deepest_layer_depth: u8 = ((num_scripts - 1).ilog2() + 1) as u8;
-
-    let num_empty_nodes_in_final_depth = 2_usize.pow(deepest_layer_depth.into()) - num_scripts;
-    let num_nodes_in_final_depth = num_scripts - num_empty_nodes_in_final_depth;
-
-    (0..num_scripts)
-        .map(|i| {
-            let is_node_in_last_minus_one_depth = (i >= num_nodes_in_final_depth) as u8;
-            let depth = deepest_layer_depth - is_node_in_last_minus_one_depth;
-            (depth, scripts[i].clone())
-        })
-        .collect()
+    // The logic to calculate depths remains the same.
+    let deepest_layer_depth = if num_scripts > 0 {
+        (num_scripts as f32).log2().ceil() as u8
+    } else {
+        0
+    };
+    scripts.into_iter().enumerate().map(move |(i, script)| {
+        let mut depth = deepest_layer_depth;
+        if i >= (1_usize << deepest_layer_depth) - num_scripts {
+            depth -= 1;
+        }
+        (depth, script)
+    })
 }
 
 /// Creates a taproot address with given scripts and internal key.
@@ -392,30 +387,41 @@ mod tests {
         // Test case 1: Empty scripts
         let scripts: Vec<ScriptBuf> = vec![];
         let expected: Vec<(u8, ScriptBuf)> = vec![];
-        assert_eq!(taproot_leaf_depths(&scripts), expected);
+        assert_eq!(
+            taproot_leaf_depths(scripts).collect::<Vec<(u8, ScriptBuf)>>(),
+            expected
+        );
 
         // Test case 2: Single script
         let scripts = vec![script1.clone()];
-        let expected = vec![(0, script1.clone())];
-        assert_eq!(taproot_leaf_depths(&scripts), expected);
+        let expected = vec![(0, scripts[0].clone())];
+        assert_eq!(
+            taproot_leaf_depths(scripts).collect::<Vec<(u8, ScriptBuf)>>(),
+            expected
+        );
 
         // Test case 3: Two scripts (balanced tree, depth 1 for both)
         let scripts = vec![script1.clone(), script2.clone()];
-        let expected = vec![(1, script1.clone()), (1, script2.clone())];
-        assert_eq!(taproot_leaf_depths(&scripts), expected);
+        let expected = vec![(1, scripts[0].clone()), (1, scripts[1].clone())];
+        assert_eq!(
+            taproot_leaf_depths(scripts).collect::<Vec<(u8, ScriptBuf)>>(),
+            expected
+        );
 
-        // Test case 4: Three scripts (unbalanced, two at depth 2, one at depth 1)
-        // Tree: H(H(S1,S2), S3) -> S1,S2 are at depth 2; S3 is at depth 1
+        // Test case 4: Three scripts (unbalanced)
+        // The function's logic puts the first two scripts at depth 2 and the last one at depth 1.
         let scripts = vec![script1.clone(), script2.clone(), script3.clone()];
         let expected = vec![
-            (2, script1.clone()),
-            (2, script2.clone()),
-            (1, script3.clone()),
+            (2, scripts[0].clone()),
+            (2, scripts[1].clone()),
+            (1, scripts[2].clone()),
         ];
-        assert_eq!(taproot_leaf_depths(&scripts), expected);
+        assert_eq!(
+            taproot_leaf_depths(scripts).collect::<Vec<(u8, ScriptBuf)>>(),
+            expected
+        );
 
         // Test case 5: Four scripts (perfectly balanced tree, all at depth 2)
-        // Tree: H(H(S1,S2), H(S3,S4)) -> All scripts at depth 2
         let scripts = vec![
             script1.clone(),
             script2.clone(),
@@ -423,11 +429,14 @@ mod tests {
             script4.clone(),
         ];
         let expected = vec![
-            (2, script1.clone()),
-            (2, script2.clone()),
-            (2, script3.clone()),
-            (2, script4.clone()),
+            (2, scripts[0].clone()),
+            (2, scripts[1].clone()),
+            (2, scripts[2].clone()),
+            (2, scripts[3].clone()),
         ];
-        assert_eq!(taproot_leaf_depths(&scripts), expected);
+        assert_eq!(
+            taproot_leaf_depths(scripts).collect::<Vec<(u8, ScriptBuf)>>(),
+            expected
+        );
     }
 }

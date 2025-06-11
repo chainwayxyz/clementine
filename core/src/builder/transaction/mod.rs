@@ -595,7 +595,7 @@ pub fn create_disprove_taproot_output(
                 .add_leaf(2, additional_script.clone())
                 .expect("add additional script");
 
-            for (depth, script) in taproot_leaf_depths(&extra_scripts) {
+            for (depth, script) in taproot_leaf_depths(extra_scripts.clone()) {
                 let main_tree_depth = 2 + depth;
                 builder = builder
                     .add_leaf(main_tree_depth, script)

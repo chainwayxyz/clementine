@@ -318,9 +318,10 @@ impl DisproveTest {
                             .into_inner()
                             .txid
                             .unwrap()
-                            .encode_to_vec()
+                            .txid
+                            .to_vec()
                             .try_into()
-                            .unwrap(),
+                            .expect("Invalid txid length"),
                     );
                 }
                 Err(e) => {
@@ -379,7 +380,7 @@ impl DisproveTest {
             kickoff_id: Some(
                 KickoffData {
                     operator_xonly_pk: op0_xonly_pk,
-                    round_idx: crate::operator::RoundIndex::Collateral,
+                    round_idx: crate::operator::RoundIndex::Round(0),
                     kickoff_idx: kickoff_idx as u32,
                 }
                 .into(),
