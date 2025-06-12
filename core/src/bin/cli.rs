@@ -1,12 +1,11 @@
 //! This module defines a command line interface for the RPC client.
 
-use bitcoin::{consensus::Encodable, hashes::Hash, ScriptBuf};
+use bitcoin::{hashes::Hash, ScriptBuf};
 use bitcoincore_rpc::RpcApi;
 use clap::{Parser, Subcommand};
 use clementine_core::{
     config::BridgeConfig,
     deposit::SecurityCouncil,
-    errors::BridgeError,
     extended_rpc,
     rpc::clementine::{
         self, clementine_aggregator_client::ClementineAggregatorClient,
@@ -14,7 +13,7 @@ use clementine_core::{
         clementine_verifier_client::ClementineVerifierClient, deposit::DepositData, Actors,
         BaseDeposit, Deposit, Empty, Outpoint, ReplacementDeposit, SendMoveTxRequest,
     },
-    utils::bitcoin_merkle::get_block_merkle_proof,
+    utils::{bitcoin_merkle::get_block_merkle_proof, citrea::get_transaction_details_for_citrea},
     EVMAddress,
 };
 use std::path::PathBuf;
@@ -746,29 +745,24 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             .await
             .expect("Failed to connect to Bitcoin RPC");
 
-            let flag: u16 = 1;
-
             let txid: &bitcoin::Txid =
                 &bitcoin::Txid::from_str(&move_txid).expect("Failed to parse txid");
-
             let tx = extended_rpc
                 .get_tx_of_txid(txid)
                 .await
                 .expect("Failed to get tx of txid");
+            let tx_params =
+                get_transaction_details_for_citrea(&tx).expect("Failed to get transaction details");
 
             let block_hash = extended_rpc
                 .get_blockhash_of_tx(txid)
                 .await
                 .expect("Failed to get block hash");
-
-            let version = (tx.version.0 as u32).to_le_bytes();
-
             let block = extended_rpc
                 .client
                 .get_block(&block_hash)
                 .await
                 .expect("Failed to get block");
-
             let block_height = block
                 .bip34_block_height()
                 .expect("Failed to get block height");
@@ -776,80 +770,12 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             let (index, merkle_proof) = get_block_merkle_proof(&block, *txid, false)
                 .expect("Failed to get block merkle proof");
 
-            let vin: Vec<u8> = tx
-                .input
-                .iter()
-                .map(|input| {
-                    let mut encoded_input = Vec::new();
-                    let mut previous_output = Vec::new();
-                    input
-                        .previous_output
-                        .consensus_encode(&mut previous_output)
-                        .expect("Failed to encode previous output");
-                    let mut script_sig = Vec::new();
-                    input
-                        .script_sig
-                        .consensus_encode(&mut script_sig)
-                        .expect("Failed to encode script sig");
-                    let mut sequence = Vec::new();
-                    input
-                        .sequence
-                        .consensus_encode(&mut sequence)
-                        .expect("Failed to encode sequence");
-
-                    encoded_input.extend(previous_output);
-                    encoded_input.extend(script_sig);
-                    encoded_input.extend(sequence);
-
-                    Ok::<Vec<u8>, BridgeError>(encoded_input)
-                })
-                .collect::<Result<Vec<_>, _>>()
-                .expect("Failed to encode input")
-                .into_iter()
-                .flatten()
-                .collect::<Vec<u8>>();
-
-            let vin = [vec![tx.input.len() as u8], vin].concat();
-
-            let vout: Vec<u8> = tx
-                .output
-                .iter()
-                .map(|param| {
-                    let mut raw = Vec::new();
-                    param
-                        .consensus_encode(&mut raw)
-                        .map_err(|e| eyre::eyre!("Can't encode param: {}", e))?;
-
-                    Ok::<Vec<u8>, BridgeError>(raw)
-                })
-                .collect::<Result<Vec<_>, _>>()
-                .expect("Failed to encode output")
-                .into_iter()
-                .flatten()
-                .collect::<Vec<u8>>();
-            let vout = [vec![tx.output.len() as u8], vout].concat();
-
-            let witness: Vec<u8> = tx
-                .input
-                .iter()
-                .map(|param| {
-                    let mut raw = Vec::new();
-                    param
-                        .witness
-                        .consensus_encode(&mut raw)
-                        .map_err(|e| eyre::eyre!("Can't encode param: {}", e))?;
-
-                    Ok::<Vec<u8>, BridgeError>(raw)
-                })
-                .collect::<Result<Vec<_>, _>>()
-                .expect("Failed to encode witness")
-                .into_iter()
-                .flatten()
-                .collect::<Vec<u8>>();
-
-            let lock_time = tx.lock_time.to_consensus_u32();
-
-            // println!("Transaction params: {:?}", tx_params);
+            println!("Transaction params: {:?}", tx_params);
+            println!("Merkle proof for index {}: {:?}", index, merkle_proof);
+            println!(
+                "Transactions is at block height {} and block hash {:?}",
+                block_height, block_hash
+            );
         }
         AggregatorCommands::GetReplacementDepositAddress {
             move_txid,
