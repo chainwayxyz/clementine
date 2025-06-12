@@ -518,7 +518,7 @@ pub fn stark_to_bitvm2_g16_dev_mode(
 
     // Step 2: Convert the decimal string to BigUint and then to hexadecimal
     let output_content_hex = BigUint::from_str_radix(output_str, 10)
-        .unwrap()
+        .expect("always decimal")
         .to_str_radix(16);
 
     // If the length of the hexadecimal string is odd, add a leading zero
@@ -530,8 +530,15 @@ pub fn stark_to_bitvm2_g16_dev_mode(
 
     // Step 3: Decode the hexadecimal string to a byte vector
     let output_byte_vec = hex::decode(&output_content_hex).unwrap();
-    // let output_byte_vec = hex::decode(output_hex).unwrap();
-    let output_bytes: [u8; 31] = output_byte_vec.as_slice().try_into().unwrap();
+    // Create our target 31-byte array, initialized to all zeros.
+    let mut output_bytes = [0u8; 31];
+
+    // Calculate the starting position in the destination array.
+    // This ensures the bytes are right-aligned, effectively padding with leading zeros.
+    let start_index = 31 - output_byte_vec.len();
+
+    // Copy the decoded bytes from the vector into the correct slice of the array.
+    output_bytes[start_index..].copy_from_slice(&output_byte_vec);
     (proof_json.try_into().unwrap(), output_bytes)
 }
 
