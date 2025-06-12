@@ -185,7 +185,7 @@ jobs:
 
   bridge_additional_disprove_tests_matrix:
     name: Test additional disprove script ${{ matrix.description_suffix }} with release build
-    runs-on: ubicloud
+    runs-on: ubicloud-standard-4
     needs: release_build_automation
     strategy:
       fail-fast: false
