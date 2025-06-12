@@ -74,6 +74,7 @@ use clap::builder::StyledStr;
 use core::fmt::Debug;
 use hex::FromHexError;
 use thiserror::Error;
+use tonic::Status;
 
 pub use crate::builder::transaction::TxError;
 
@@ -160,6 +161,8 @@ pub enum BridgeError {
     AlloySolTypes(#[from] alloy::sol_types::Error),
     #[error("{0}")]
     CLIDisplayAndExit(StyledStr),
+    #[error("User-facing error: {0}")]
+    RPC(#[from] Status),
 
     // Base wrapper for eyre
     #[error(transparent)]
@@ -224,11 +227,16 @@ impl From<BridgeError> for tonic::Status {
         // This exposes our internal errors to the user. What we want here is:
         // 1. We don't want to expose internal errors to the user.
         // 2. We want lower-level errors to be able to define whether and how they want to be exposed to the user.
+        let eyre_report = val.into_eyre();
+
         tracing::error!(
-            "Casting BridgeError to Status message (possibly lossy): {:?}",
-            val
+            "Casting BridgeError to Status message (possibly lossy), full report: {:?}",
+            eyre_report
         );
-        tonic::Status::from_error(Box::new(val))
+
+        tonic::Status::from_error(Into::<Box<dyn std::error::Error + Send + Sync>>::into(
+            eyre_report,
+        ))
 
         // Possible future implementation, requires manually matching all TryInto<Status> types
         // for err in val.into_eyre().chain() {
@@ -249,6 +257,8 @@ impl From<BridgeError> for tonic::Status {
 
 #[cfg(test)]
 mod tests {
+    use crate::citrea::Bridge;
+
     use super::*;
     #[test]
     fn test_downcast() {
@@ -263,5 +273,16 @@ mod tests {
                 .to_string(),
             BridgeError::IntConversionError.to_string()
         );
+    }
+
+    #[test]
+    fn test_status_in_chain_cast_properly() {
+        let err: BridgeError = eyre::eyre!("Some problem")
+            .wrap_err(tonic::Status::deadline_exceeded("Some timer expired"))
+            .into();
+
+        let status: Status = err.into_status();
+        assert_eq!(status.code(), tonic::Code::DeadlineExceeded);
+        assert_eq!(status.message(), "Some timer expired");
     }
 }

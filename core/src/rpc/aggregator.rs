@@ -6,6 +6,7 @@ use super::clementine::{
     AggregatorWithdrawResponse, Deposit, OptimisticPayoutParams, RawSignedTx, VergenResponse,
     VerifierPublicKeys, WithdrawParams,
 };
+use crate::aggregator::ParticipatingOperators;
 use crate::builder::sighash::SignatureInfo;
 use crate::builder::transaction::{
     combine_emergency_stop_txhandler, create_emergency_stop_txhandler,
@@ -20,7 +21,7 @@ use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
 use crate::rpc::clementine::VerifierDepositSignParams;
 use crate::rpc::parser;
-use crate::utils::get_vergen_response;
+use crate::utils::{get_vergen_response, timed_request, timed_try_join_all};
 use crate::utils::{FeePayingType, TxMetadata};
 use crate::UTXO;
 use crate::{
@@ -33,6 +34,7 @@ use crate::{
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::{Message, PublicKey};
+use bitcoin::taproot::Signature as TaprootSignature;
 use bitcoin::{TapSighash, TxOut, Txid, XOnlyPublicKey};
 use eyre::{Context, OptionExt};
 use futures::{
@@ -41,9 +43,24 @@ use futures::{
     FutureExt, Stream, StreamExt, TryFutureExt,
 };
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce};
+use std::fmt::Display;
 use std::future::Future;
+use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
+use tokio::time::timeout;
 use tonic::{async_trait, Request, Response, Status, Streaming};
+
+const OVERALL_DEPOSIT_TIMEOUT: Duration = Duration::from_secs(7200); // 2 hours
+const KEY_DISTRIBUTION_TIMEOUT: Duration = Duration::from_secs(600); // 10 minutes
+const NONCE_STREAM_CREATION_TIMEOUT: Duration = Duration::from_secs(300); // 5 minutes
+const PARTIAL_SIG_STREAM_CREATION_TIMEOUT: Duration = Duration::from_secs(300); // 5 minutes
+const OPERATOR_SIGS_STREAM_CREATION_TIMEOUT: Duration = Duration::from_secs(300); // 5 minutes
+const DEPOSIT_FINALIZE_STREAM_CREATION_TIMEOUT: Duration = Duration::from_secs(300); // 5 minutes
+const PIPELINE_COMPLETION_TIMEOUT: Duration = Duration::from_secs(1200); // 20 minutes
+const OPERATOR_SIGS_TIMEOUT: Duration = Duration::from_secs(1200); // 20 minutes
+const SEND_OPERATOR_SIGS_TIMEOUT: Duration = Duration::from_secs(600); // 10 minutes
+const DEPOSIT_FINALIZATION_TIMEOUT: Duration = Duration::from_secs(600); // 10 minutes
 
 #[derive(Debug, Clone)]
 struct AggNonceQueueItem {
@@ -506,14 +523,18 @@ impl Aggregator {
 
     /// For a specific deposit, collects needed signatures from all operators into a [`Vec<Vec<Signature>>`].
     async fn collect_operator_sigs(
-        operator_clients: Vec<ClementineOperatorClient<tonic::transport::Channel>>,
+        operator_clients: ParticipatingOperators,
         config: BridgeConfig,
         mut deposit_sign_session: DepositSignSession,
     ) -> Result<Vec<Vec<Signature>>, BridgeError> {
         deposit_sign_session.nonce_gen_first_responses = Vec::new(); // not needed for operators
         let mut operator_sigs_streams =
             // create deposit sign streams with each operator
-            try_join_all(operator_clients.into_iter().enumerate().map(|(idx, mut operator_client)| {
+            timed_try_join_all(
+                OPERATOR_SIGS_STREAM_CREATION_TIMEOUT,
+                "Operator signature stream creation",
+                Some(operator_clients.ids()),
+                operator_clients.clients().into_iter().enumerate().map(|(idx, mut operator_client)| {
                 let sign_session = deposit_sign_session.clone();
                 async move {
                     let stream = operator_client
@@ -840,7 +861,7 @@ impl ClementineAggregator for Aggregator {
             // get which verifiers participated in the deposit to collect the optimistic payout tx signature
             let verifiers = self.get_participating_verifiers(&deposit_data).await?;
             let (first_responses, mut nonce_streams) =
-                create_nonce_streams(verifiers.clone(), 1).await?;
+                create_nonce_streams(verifiers.clients(), 1).await?;
             // collect nonces
             let pub_nonces = get_next_pub_nonces(&mut nonce_streams)
                 .await
@@ -1092,262 +1113,318 @@ impl ClementineAggregator for Aggregator {
     ///    - Nonce distribution
     ///    - Signature aggregation
     ///    - Signature distribution
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    // #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn new_deposit(
         &self,
         request: Request<Deposit>,
     ) -> Result<Response<clementine::RawSignedTx>, Status> {
-        let deposit_info: DepositInfo = request.into_inner().try_into()?;
+        timed_request(OVERALL_DEPOSIT_TIMEOUT, "Overall new deposit", async {
+            let deposit_info: DepositInfo = request.into_inner().try_into()?;
 
-        let deposit_data = DepositData {
-            deposit: deposit_info,
-            nofn_xonly_pk: None,
-            actors: Actors {
-                verifiers: self.get_verifier_keys(),
-                watchtowers: vec![],
-                operators: self.get_operator_keys(),
-            },
-            security_council: self.config.security_council.clone(),
-        };
+            let deposit_data = DepositData {
+                deposit: deposit_info,
+                nofn_xonly_pk: None,
+                actors: Actors {
+                    verifiers: self.get_verifier_keys(),
+                    watchtowers: vec![],
+                    operators: self.get_operator_keys(),
+                },
+                security_council: self.config.security_council.clone(),
+            };
 
-        let deposit_params = deposit_data.clone().into();
+            let deposit_params = deposit_data.clone().into();
 
-        // Collect and distribute keys needed keys from operators and watchtowers to verifiers
-        let start = std::time::Instant::now();
-        self.collect_and_distribute_keys(&deposit_params).await?;
-        tracing::info!("Collected and distributed keys in {:?}", start.elapsed());
+            // Collect and distribute keys needed keys from operators and watchtowers to verifiers
+            let start = std::time::Instant::now();
+            timed_request(
+                KEY_DISTRIBUTION_TIMEOUT,
+                "Key collection and distribution",
+                self.collect_and_distribute_keys(&deposit_params).map_err(Into::into),
+            )
+            .await?;
+            tracing::info!("Collected and distributed keys in {:?}", start.elapsed());
 
-        let participating_verifiers = self.get_participating_verifiers(&deposit_data).await?;
+            let verifiers = self.get_participating_verifiers(&deposit_data).await?;
 
-        // Generate nonce streams for all verifiers.
-        let num_required_sigs = self.config.get_num_required_nofn_sigs(&deposit_data);
-        let (first_responses, nonce_streams) = create_nonce_streams(
-            participating_verifiers.clone(),
-            num_required_sigs as u32 + 2,
-        )
-        .await?; // ask for +2 for the final movetx signature + emergency stop signature, but don't send it on deposit_sign stage
-
-        let mut partial_sig_streams =
-            try_join_all(participating_verifiers.iter().map(|verifier_client| {
-                let mut verifier_client = verifier_client.clone();
-
-                async move {
-                    let (tx, rx) = tokio::sync::mpsc::channel(1280);
-                    let stream = verifier_client
-                        .deposit_sign(tokio_stream::wrappers::ReceiverStream::new(rx))
-                        .await?
-                        .into_inner();
-
-                    Ok::<_, Status>((stream, tx))
-                }
-            }))
+            // Generate nonce streams for all verifiers.
+            let num_required_sigs = self.config.get_num_required_nofn_sigs(&deposit_data);
+            let (first_responses, nonce_streams) = timed_request(
+                NONCE_STREAM_CREATION_TIMEOUT,
+                "Nonce stream creation",
+                async {
+                    create_nonce_streams(
+                        verifiers.clients(),
+                        num_required_sigs as u32 + 2, // ask for +2 for the final movetx signature + emergency stop signature, but don't send it on deposit_sign stage
+                    )
+                    .await
+                    .map_err(Into::into)
+                },
+            )
             .await?;
 
-        // Create initial deposit session and send to verifiers
-        let deposit_sign_session = DepositSignSession {
-            deposit_params: Some(deposit_params.clone()),
-            nonce_gen_first_responses: first_responses,
-        };
+            let mut partial_sig_streams = timed_try_join_all(
+                PARTIAL_SIG_STREAM_CREATION_TIMEOUT,
+                "Partial signature stream creation",
+                Some(verifiers.ids()),
+                verifiers.clients().into_iter().map(|verifier_client| {
+                    let mut verifier_client = verifier_client.clone();
 
-        tracing::debug!("Sending deposit sign session to verifiers");
-        for (_, tx) in partial_sig_streams.iter_mut() {
-            let deposit_sign_param: VerifierDepositSignParams = deposit_sign_session.clone().into();
+                    async move {
+                        let (tx, rx) = tokio::sync::mpsc::channel(1280);
+                        let stream = verifier_client
+                            .deposit_sign(tokio_stream::wrappers::ReceiverStream::new(rx))
+                            .await?
+                            .into_inner();
 
-            tx.send(deposit_sign_param).await.map_err(|e| {
-                Status::internal(format!("Failed to send deposit sign session: {:?}", e))
-            })?;
-        }
+                        Ok::<_, BridgeError>((stream, tx))
+                    }
+                })
+            )
+            .await?;
 
-        // Set up deposit finalization streams
-        let deposit_finalize_clients = participating_verifiers.clone();
-        let deposit_finalize_streams = try_join_all(deposit_finalize_clients.into_iter().map(
-            |mut verifier_client| async move {
-                let (tx, rx) = tokio::sync::mpsc::channel(1280);
-                let receiver_stream = tokio_stream::wrappers::ReceiverStream::new(rx);
-                // start deposit_finalize with tokio spawn
-                let deposit_finalize_future =
-                    tokio::spawn(
-                        async move { verifier_client.deposit_finalize(receiver_stream).await },
-                    );
+            // Create initial deposit session and send to verifiers
+            let deposit_sign_session = DepositSignSession {
+                deposit_params: Some(deposit_params.clone()),
+                nonce_gen_first_responses: first_responses,
+            };
 
-                Ok::<_, Status>((deposit_finalize_future, tx))
-            },
-        ))
-        .await?;
+            tracing::debug!("Sending deposit sign session to verifiers");
+            for (_, tx) in partial_sig_streams.iter_mut() {
+                let deposit_sign_param: VerifierDepositSignParams =
+                    deposit_sign_session.clone().into();
 
-        tracing::info!("Sending deposit finalize streams to verifiers");
-
-        let (mut deposit_finalize_futures, deposit_finalize_sender): (Vec<_>, Vec<_>) =
-            deposit_finalize_streams.into_iter().unzip();
-
-        // Send initial finalization params
-        let deposit_finalize_first_param: VerifierDepositFinalizeParams =
-            deposit_sign_session.clone().into();
-        for tx in deposit_finalize_sender.iter() {
-            tx.send(deposit_finalize_first_param.clone())
-                .await
-                .map_err(|e| {
-                    Status::internal(format!(
-                        "Failed to send deposit finalize first param: {:?}",
-                        e
-                    ))
+                tx.send(deposit_sign_param).await.map_err(|e| {
+                    Status::internal(format!("Failed to send deposit sign session: {:?}", e))
                 })?;
-        }
+            }
 
-        let deposit_data: DepositData = deposit_params.clone().try_into()?;
+            // Set up deposit finalization streams
+            let deposit_finalize_streams = verifiers.clients().into_iter().map(
+                    |mut verifier| {
+                        let (tx, rx) = tokio::sync::mpsc::channel(1280);
+                        let receiver_stream = tokio_stream::wrappers::ReceiverStream::new(rx);
+                        // start deposit_finalize with tokio spawn
+                        let deposit_finalize_future = tokio::spawn(async move {
+                            verifier.deposit_finalize(receiver_stream).await
+                        });
 
-        let deposit_blockhash = self
-            .rpc
-            .get_blockhash_of_tx(&deposit_data.get_deposit_outpoint().txid)
-            .await
-            .map_to_status()?;
+                        Ok::<_, BridgeError>((deposit_finalize_future, tx))
+                    },
+                ).collect::<Result<Vec<_>, BridgeError>>()?;
 
-        let verifiers_public_keys = deposit_data.get_verifiers();
+            tracing::info!("Sending deposit finalize streams to verifiers");
 
-        // Create sighash stream for transaction signing
-        let sighash_stream = Box::pin(create_nofn_sighash_stream(
-            self.db.clone(),
-            self.config.clone(),
-            deposit_data.clone(),
-            deposit_blockhash,
-            false,
-        ));
+            let (mut deposit_finalize_futures, deposit_finalize_sender): (Vec<_>, Vec<_>) =
+                deposit_finalize_streams.into_iter().unzip();
 
-        // Create channels for pipeline communication
-        let (agg_nonce_sender, agg_nonce_receiver) = channel(1280);
-        let (partial_sig_sender, partial_sig_receiver) = channel(1280);
-        let (final_sig_sender, final_sig_receiver) = channel(1280);
+            // Send initial finalization params
+            let deposit_finalize_first_param: VerifierDepositFinalizeParams =
+                deposit_sign_session.clone().into();
 
-        // Start the nonce aggregation pipe.
-        let nonce_agg_handle = tokio::spawn(nonce_aggregator(
-            nonce_streams,
-            sighash_stream,
-            agg_nonce_sender,
-        ));
+            timed_try_join_all(
+                DEPOSIT_FINALIZE_STREAM_CREATION_TIMEOUT,
+                "Deposit finalization initial param send",
+                Some(verifiers.ids()),
+                deposit_finalize_sender.iter().cloned().map(|tx| {
+                    let param = deposit_finalize_first_param.clone();
+                    async move {
+                        tx.send(param).await
+                        .map_err(|e| {
+                            Status::internal(format!(
+                                "Failed to send deposit finalize first param: {:?}",
+                                e
+                            ))
+                        }).map_err(Into::into)
+                    }
+                })
+            ).await?;
 
-        // Start the nonce distribution pipe.
-        let nonce_dist_handle = tokio::spawn(nonce_distributor(
-            agg_nonce_receiver,
-            partial_sig_streams,
-            partial_sig_sender,
-        ));
 
-        // Start the signature aggregation pipe.
-        let sig_agg_handle = tokio::spawn(signature_aggregator(
-            partial_sig_receiver,
-            verifiers_public_keys,
-            final_sig_sender,
-        ));
+            let deposit_data: DepositData = deposit_params.clone().try_into()?;
 
-        tracing::debug!("Getting signatures from operators");
-        // Get sigs from each operator in background
-        let operator_sigs_fut = tokio::spawn(Aggregator::collect_operator_sigs(
-            self.get_participating_operators(&deposit_data).await?,
-            self.config.clone(),
-            deposit_sign_session,
-        ));
+            let deposit_blockhash = self
+                .rpc
+                .get_blockhash_of_tx(&deposit_data.get_deposit_outpoint().txid)
+                .await
+                .map_to_status()?;
 
-        // Join the nonce aggregation handle to get the movetx agg nonce.
-        let nonce_agg_handle = nonce_agg_handle
-            .map_err(|_| Status::internal("panic when aggregating nonces"))
-            .map(|res| -> Result<(MusigAggNonce, MusigAggNonce), Status> {
-                res.and_then(|r| r.map_err(Into::into))
-            })
-            .shared();
+            let verifiers_public_keys = deposit_data.get_verifiers();
 
-        // Start the deposit finalization pipe.
-        let sig_dist_handle = tokio::spawn(signature_distributor(
-            final_sig_receiver,
-            deposit_finalize_sender.clone(),
-            nonce_agg_handle.clone(),
-        ));
+            // Create sighash stream for transaction signing
+            let sighash_stream = Box::pin(create_nofn_sighash_stream(
+                self.db.clone(),
+                self.config.clone(),
+                deposit_data.clone(),
+                deposit_blockhash,
+                false,
+            ));
 
-        tracing::debug!(
-            "Waiting for pipeline tasks to complete (nonce agg, sig agg, sig dist, operator sigs)"
-        );
+            // Create channels for pipeline communication
+            let (agg_nonce_sender, agg_nonce_receiver) = channel(1280);
+            let (partial_sig_sender, partial_sig_receiver) = channel(1280);
+            let (final_sig_sender, final_sig_receiver) = channel(1280);
 
-        tracing::debug!("Waiting for pipeline tasks to complete");
-        // Wait for all pipeline tasks to complete
-        try_join_all([nonce_dist_handle, sig_agg_handle, sig_dist_handle])
+            // Start the nonce aggregation pipe.
+            let nonce_agg_handle = tokio::spawn(nonce_aggregator(
+                nonce_streams,
+                sighash_stream,
+                agg_nonce_sender,
+            ));
+
+            // Start the nonce distribution pipe.
+            let nonce_dist_handle = tokio::spawn(nonce_distributor(
+                agg_nonce_receiver,
+                partial_sig_streams,
+                partial_sig_sender,
+            ));
+
+            // Start the signature aggregation pipe.
+            let sig_agg_handle = tokio::spawn(signature_aggregator(
+                partial_sig_receiver,
+                verifiers_public_keys,
+                final_sig_sender,
+            ));
+
+            tracing::debug!("Getting signatures from operators");
+            // Get sigs from each operator in background
+            let operators = self.get_participating_operators(&deposit_data).await?;
+            let operator_clients = operators.clients();
+
+            let config_clone = self.config.clone();
+            let operator_sigs_fut = tokio::spawn(async move {
+                timed_request(
+                    OPERATOR_SIGS_TIMEOUT,
+                    "Operator signature collection",
+                    async {
+                        Aggregator::collect_operator_sigs(
+                            operators,
+                            config_clone,
+                            deposit_sign_session,
+                        )
+                        .await
+                        .map_err(Into::into)
+                    },
+                )
+                .await
+            });
+
+            // Join the nonce aggregation handle to get the movetx agg nonce.
+            let nonce_agg_handle = nonce_agg_handle
+                .map_err(|_| Status::internal("panic when aggregating nonces"))
+                .map(|res| -> Result<(MusigAggNonce, MusigAggNonce), Status> {
+                    res.and_then(|r| r.map_err(Into::into))
+                })
+                .shared();
+
+            // Start the deposit finalization pipe.
+            let sig_dist_handle = tokio::spawn(signature_distributor(
+                final_sig_receiver,
+                deposit_finalize_sender.clone(),
+                nonce_agg_handle.clone(),
+            ));
+
+            tracing::debug!(
+                "Waiting for pipeline tasks to complete (nonce agg, sig agg, sig dist, operator sigs)"
+            );
+
+            tracing::debug!("Waiting for pipeline tasks to complete");
+            // Wait for all pipeline tasks to complete
+            timed_request(
+                PIPELINE_COMPLETION_TIMEOUT,
+                "MuSig2 signing pipeline",
+                try_join_all([nonce_dist_handle, sig_agg_handle, sig_dist_handle]).map_err(|join_err| -> BridgeError { eyre::Report::from(join_err).wrap_err("Failed to join on pipelined tasks").into()}),
+            )
             .await
             .map_err(|_| Status::internal("panic when pipelining"))?;
 
-        tracing::debug!("Pipeline tasks completed");
+            tracing::debug!("Pipeline tasks completed");
 
-        // Right now we collect all operator sigs then start to send them, we can do it simultaneously in the future
-        // Need to change sig verification ordering in deposit_finalize() in verifiers so that we verify
-        // 1st signature of all operators, then 2nd of all operators etc.
-        let operator_sigs = operator_sigs_fut
-            .await
-            .map_err(|_| Status::internal("panic when collecting operator signatures"))??;
+            // Right now we collect all operator sigs then start to send them, we can do it simultaneously in the future
+            // Need to change sig verification ordering in deposit_finalize() in verifiers so that we verify
+            // 1st signature of all operators, then 2nd of all operators etc.
+            let operator_sigs = operator_sigs_fut
+                .await
+                .map_err(|_| Status::internal("panic when collecting operator signatures"))??;
 
-        tracing::debug!("Got all operator signatures");
+            tracing::debug!("Got all operator signatures");
 
-        // send operators sigs to verifiers after all verifiers have signed
-        let send_operator_sigs: Vec<_> = deposit_finalize_sender
-            .iter()
-            .map(|tx| async {
-                for sigs in operator_sigs.iter() {
-                    for sig in sigs.iter() {
-                        let deposit_finalize_param: VerifierDepositFinalizeParams = sig.into();
+            // send operators sigs to verifiers after all verifiers have signed
+            timed_request(
+                SEND_OPERATOR_SIGS_TIMEOUT,
+                "Sending operator signatures to verifiers",
+                async {
+                    let send_operator_sigs: Vec<_> = deposit_finalize_sender
+                        .iter()
+                        .map(|tx| async {
+                            for sigs in operator_sigs.iter() {
+                                for sig in sigs.iter() {
+                                    let deposit_finalize_param: VerifierDepositFinalizeParams =
+                                        sig.into();
 
-                        tx.send(deposit_finalize_param).await.wrap_err_with(|| {
-                            eyre::eyre!(AggregatorError::OutputStreamEndedEarly {
-                                stream_name: "deposit_finalize_sender".into(),
-                            })
-                        })?;
-                    }
-                }
+                                    tx.send(deposit_finalize_param).await.wrap_err_with(|| {
+                                        eyre::eyre!(AggregatorError::OutputStreamEndedEarly {
+                                            stream_name: "deposit_finalize_sender".into(),
+                                        })
+                                    })?;
+                                }
+                            }
 
-                Ok::<(), BridgeError>(())
-            })
-            .collect();
+                            Ok::<(), BridgeError>(())
+                        })
+                        .collect();
+                    try_join_all(send_operator_sigs).await?;
+                    Ok(())
+                },
+            )
+            .await?;
 
-        // wait until all operator sigs are sent to every verifier
-        try_join_all(send_operator_sigs).await?;
+            tracing::debug!("Waiting for deposit finalization");
 
-        tracing::debug!("Waiting for deposit finalization");
-
-        // Collect partial signatures for move transaction
-        let partial_sigs: Vec<(Vec<u8>, Vec<u8>)> =
-            try_join_all(deposit_finalize_futures.iter_mut().map(|fut| async {
-                let response = fut
-                    .await
-                    .map_err(|_| Status::internal("panic finishing deposit_finalize"))??
-                    .into_inner();
-                Ok::<_, Status>((
-                    response.move_to_vault_partial_sig,
-                    response.emergency_stop_partial_sig,
-                ))
-            }))
+            // Collect partial signatures for move transaction
+            let partial_sigs: Vec<(Vec<u8>, Vec<u8>)> = timed_request(
+                DEPOSIT_FINALIZATION_TIMEOUT,
+                "Deposit finalization from verifiers",
+                try_join_all(deposit_finalize_futures.iter_mut().map(|fut| async {
+                    let response = fut
+                        .await
+                        .map_err(|_| Status::internal("panic finishing deposit_finalize"))??
+                        .into_inner();
+                    Ok((
+                        response.move_to_vault_partial_sig,
+                        response.emergency_stop_partial_sig,
+                    ))
+                })),
+            )
             .await
             .map_err(|e| Status::internal(format!("Failed to finalize deposit: {:?}", e)))?;
 
-        let (move_to_vault_sigs, emergency_stop_sigs): (Vec<Vec<u8>>, Vec<Vec<u8>>) =
-            partial_sigs.into_iter().unzip();
+            let (move_to_vault_sigs, emergency_stop_sigs): (Vec<Vec<u8>>, Vec<Vec<u8>>) =
+                partial_sigs.into_iter().unzip();
 
-        tracing::debug!("Received move tx partial sigs: {:?}", move_to_vault_sigs);
+            tracing::debug!("Received move tx partial sigs: {:?}", move_to_vault_sigs);
 
-        // Create the final move transaction and check the signatures
-        let (movetx_agg_nonce, emergency_stop_agg_nonce) = nonce_agg_handle.await?;
+            // Create the final move transaction and check the signatures
+            let (movetx_agg_nonce, emergency_stop_agg_nonce) = nonce_agg_handle.await?;
 
-        // Verify emergency stop signatures
-        self.verify_and_save_emergency_stop_sigs(
-            emergency_stop_sigs,
-            emergency_stop_agg_nonce,
-            deposit_params.clone(),
-        )
-        .await?;
-
-        let signed_movetx_handler = self
-            .create_movetx(move_to_vault_sigs, movetx_agg_nonce, deposit_params)
+            // Verify emergency stop signatures
+            self.verify_and_save_emergency_stop_sigs(
+                emergency_stop_sigs,
+                emergency_stop_agg_nonce,
+                deposit_params.clone(),
+            )
             .await?;
 
-        let raw_signed_tx = RawSignedTx {
-            raw_tx: bitcoin::consensus::serialize(&signed_movetx_handler.get_cached_tx()),
-        };
+            let signed_movetx_handler = self
+                .create_movetx(move_to_vault_sigs, movetx_agg_nonce, deposit_params)
+                .await?;
 
-        Ok(Response::new(raw_signed_tx))
+            let raw_signed_tx = RawSignedTx {
+                raw_tx: bitcoin::consensus::serialize(&signed_movetx_handler.get_cached_tx()),
+            };
+
+            Ok(Response::new(raw_signed_tx))
+        })
+        .await.map_err(Into::into)
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]

@@ -45,6 +45,84 @@ pub struct Aggregator {
     operator_keys: Vec<XOnlyPublicKey>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct VerifierId(PublicKey);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct OperatorId(XOnlyPublicKey);
+
+impl std::fmt::Display for VerifierId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Verifier({}...)", &self.0.to_string()[..10])
+    }
+}
+
+impl std::fmt::Display for OperatorId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Operator({}...)", &self.0.to_string()[..10])
+    }
+}
+
+#[test]
+fn test_verifier_id_display() {
+    let verifier_id = VerifierId(PublicKey::from_slice(&[0; 32]).unwrap());
+    assert_eq!(verifier_id.to_string(), "Verifier(0000000000...)");
+}
+
+#[derive(Debug, Clone)]
+pub struct ParticipatingVerifiers(
+    pub  Vec<(
+        ClementineVerifierClient<tonic::transport::Channel>,
+        VerifierId,
+    )>,
+);
+
+impl ParticipatingVerifiers {
+    pub fn new(
+        verifiers: Vec<(
+            ClementineVerifierClient<tonic::transport::Channel>,
+            VerifierId,
+        )>,
+    ) -> Self {
+        Self(verifiers)
+    }
+
+    pub fn clients(&self) -> Vec<ClementineVerifierClient<tonic::transport::Channel>> {
+        self.0.iter().map(|(client, _)| client.clone()).collect()
+    }
+
+    pub fn ids(&self) -> Vec<VerifierId> {
+        self.0.iter().map(|(_, id)| id.clone()).collect()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ParticipatingOperators(
+    pub  Vec<(
+        ClementineOperatorClient<tonic::transport::Channel>,
+        OperatorId,
+    )>,
+);
+
+impl ParticipatingOperators {
+    pub fn new(
+        operators: Vec<(
+            ClementineOperatorClient<tonic::transport::Channel>,
+            OperatorId,
+        )>,
+    ) -> Self {
+        Self(operators)
+    }
+
+    pub fn clients(&self) -> Vec<ClementineOperatorClient<tonic::transport::Channel>> {
+        self.0.iter().map(|(client, _)| client.clone()).collect()
+    }
+
+    pub fn ids(&self) -> Vec<OperatorId> {
+        self.0.iter().map(|(_, id)| id.clone()).collect()
+    }
+}
+
 impl Aggregator {
     pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
         let db = Database::new(&config).await?;
@@ -158,14 +236,18 @@ impl Aggregator {
             .collect::<Vec<_>>();
 
         let mut operators = self.get_participating_operators(&deposit_data).await?;
+        let mut operator_clients = operators.clients();
+
         let operator_xonly_pks = deposit_data.get_operators();
         let num_operators = deposit_data.get_num_operators();
         let deposit = deposit_params.clone();
 
         tracing::info!("Starting operator key collection");
         let get_operators_keys_handle = tokio::spawn(async move {
-            let operator_futures = operators.iter_mut().zip(operator_xonly_pks.iter()).map(
-                |(operator_client, operator_xonly_pk)| {
+            let operator_futures = operator_clients
+                .iter_mut()
+                .zip(operator_xonly_pks.iter())
+                .map(|(operator_client, operator_xonly_pk)| {
                     let deposit_params = deposit.clone();
                     let tx = operator_keys_tx.clone();
                     async move {
@@ -194,15 +276,19 @@ impl Aggregator {
                         .map_err(|_| Status::internal("Failed to send operator keys"))?;
                         Ok::<_, Status>(())
                     }
-                },
-            );
+                });
             try_join_all(operator_futures).await
         });
 
         tracing::info!("Starting operator key distribution to verifiers");
-        let mut verifiers = self.get_participating_verifiers(&deposit_data).await?;
+        let verifiers = self.get_participating_verifiers(&deposit_data).await?;
+
+        let mut verifier_clients = verifiers.clients();
+
+        let verifier_ids = verifiers.ids();
+
         let distribute_operators_keys_handle = tokio::spawn(async move {
-            let distribution_futures = verifiers.iter_mut().zip(operator_rx_handles).map(
+            let distribution_futures = verifier_clients.iter_mut().zip(operator_rx_handles).map(
                 |(verifier, mut rx)| async move {
                     // Only wait for expected number of messages
                     let mut received_keys = std::collections::HashSet::new();
@@ -308,7 +394,7 @@ impl Aggregator {
     pub async fn get_participating_verifiers(
         &self,
         deposit_data: &DepositData,
-    ) -> Result<Vec<ClementineVerifierClient<tonic::transport::Channel>>, BridgeError> {
+    ) -> Result<ParticipatingVerifiers, BridgeError> {
         let verifier_keys = self.get_verifier_keys();
         let mut participating_verifiers = Vec::new();
 
@@ -316,20 +402,21 @@ impl Aggregator {
 
         for verifier_pk in verifiers {
             if let Some(pos) = verifier_keys.iter().position(|key| key == &verifier_pk) {
-                participating_verifiers.push(self.verifier_clients[pos].clone());
+                participating_verifiers
+                    .push((self.verifier_clients[pos].clone(), VerifierId(verifier_pk)));
             } else {
                 return Err(BridgeError::VerifierNotFound(verifier_pk));
             }
         }
 
-        Ok(participating_verifiers)
+        Ok(ParticipatingVerifiers::new(participating_verifiers))
     }
 
     /// Returns a list of operator clients that are participating in the deposit.
     pub async fn get_participating_operators(
         &self,
         deposit_data: &DepositData,
-    ) -> Result<Vec<ClementineOperatorClient<tonic::transport::Channel>>, BridgeError> {
+    ) -> Result<ParticipatingOperators, BridgeError> {
         let operator_keys = self.get_operator_keys();
         let mut participating_operators = Vec::new();
 
@@ -337,12 +424,13 @@ impl Aggregator {
 
         for operator_pk in operators {
             if let Some(pos) = operator_keys.iter().position(|key| key == &operator_pk) {
-                participating_operators.push(self.operator_clients[pos].clone());
+                participating_operators
+                    .push((self.operator_clients[pos].clone(), OperatorId(operator_pk)));
             } else {
                 return Err(BridgeError::OperatorNotFound(operator_pk));
             }
         }
 
-        Ok(participating_operators)
+        Ok(ParticipatingOperators::new(participating_operators))
     }
 }
