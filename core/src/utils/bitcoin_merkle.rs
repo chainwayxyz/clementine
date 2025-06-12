@@ -1,11 +1,8 @@
+use crate::errors::BridgeError;
+use bitcoin::hashes::Hash;
+use bitcoin::{Block, Txid};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BitcoinMerkleTree {
-    depth: u32,
-    nodes: Vec<Vec<[u8; 32]>>,
-}
 
 pub fn calculate_double_sha256(input: &[u8]) -> [u8; 32] {
     let mut hasher = Sha256::default();
@@ -15,6 +12,53 @@ pub fn calculate_double_sha256(input: &[u8]) -> [u8; 32] {
     hasher.finalize().into()
 }
 
+/// Returns merkle proof for a given transaction (via txid) in a block.
+pub fn get_block_merkle_proof(
+    block: &Block,
+    target_txid: Txid,
+    is_witness_merkle_proof: bool,
+) -> Result<(usize, Vec<u8>), BridgeError> {
+    let mut txid_index = 0;
+    let txids = block
+        .txdata
+        .iter()
+        .enumerate()
+        .map(|(i, tx)| {
+            let txid = tx.compute_txid();
+            if txid == target_txid {
+                txid_index = i;
+            }
+
+            if is_witness_merkle_proof {
+                if i == 0 {
+                    [0; 32]
+                } else {
+                    let wtxid = tx.compute_wtxid();
+                    wtxid.as_byte_array().to_owned()
+                }
+            } else {
+                txid.as_byte_array().to_owned()
+            }
+        })
+        .collect::<Vec<_>>();
+
+    let merkle_tree = BitcoinMerkleTree::new(txids.clone());
+    let witness_idx_path = merkle_tree.get_idx_path(txid_index.try_into().unwrap());
+
+    let _root = merkle_tree.calculate_root_with_merkle_proof(
+        txids[txid_index],
+        txid_index.try_into().unwrap(),
+        witness_idx_path.clone(),
+    );
+
+    Ok((txid_index, witness_idx_path.into_iter().flatten().collect()))
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BitcoinMerkleTree {
+    depth: u32,
+    nodes: Vec<Vec<[u8; 32]>>,
+}
 impl BitcoinMerkleTree {
     pub fn new(transactions: Vec<[u8; 32]>) -> Self {
         // assert!(depth > 0, "Depth must be greater than 0");

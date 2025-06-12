@@ -8,7 +8,7 @@ use crate::citrea::Bridge::Transaction as CitreaTransaction;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::rpc::clementine::NormalSignatureKind;
-use crate::test::common::citrea::bitcoin_merkle::BitcoinMerkleTree;
+use crate::utils::bitcoin_merkle::get_block_merkle_proof;
 use crate::UTXO;
 use alloy::primitives::{Bytes, FixedBytes, Uint};
 use bitcoin::consensus::Encodable;
@@ -17,49 +17,8 @@ use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr;
 use bitcoin::{Block, Transaction, Txid};
 use bitcoincore_rpc::RpcApi;
+use circuits_lib::bridge_circuit::merkle_tree::BitcoinMerkleTree;
 use eyre::Context;
-
-/// Returns merkle proof for a given transaction (via txid) in a block.
-fn get_block_merkle_proof(
-    block: &Block,
-    target_txid: Txid,
-    is_witness_merkle_proof: bool,
-) -> Result<(usize, Vec<u8>), BridgeError> {
-    let mut txid_index = 0;
-    let txids = block
-        .txdata
-        .iter()
-        .enumerate()
-        .map(|(i, tx)| {
-            let txid = tx.compute_txid();
-            if txid == target_txid {
-                txid_index = i;
-            }
-
-            if is_witness_merkle_proof {
-                if i == 0 {
-                    [0; 32]
-                } else {
-                    let wtxid = tx.compute_wtxid();
-                    wtxid.as_byte_array().to_owned()
-                }
-            } else {
-                txid.as_byte_array().to_owned()
-            }
-        })
-        .collect::<Vec<_>>();
-
-    let merkle_tree = BitcoinMerkleTree::new(txids.clone());
-    let witness_idx_path = merkle_tree.get_idx_path(txid_index.try_into().unwrap());
-
-    let _root = merkle_tree.calculate_root_with_merkle_proof(
-        txids[txid_index],
-        txid_index.try_into().unwrap(),
-        witness_idx_path.clone(),
-    );
-
-    Ok((txid_index, witness_idx_path.into_iter().flatten().collect()))
-}
 
 fn get_transaction_details_for_citrea(
     transaction: &Transaction,
