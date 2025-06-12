@@ -2484,8 +2484,8 @@ mod states {
                         .await?
                     {
                         tracing::info!(
-                            "Verifier {:?} found additional disprove witness",
-                            verifier_xonly_pk
+                            "The additional public inputs for the bridge proof provided by operator {:?} for the deposit are incorrect.",
+                            kickoff_data.operator_xonly_pk
                         );
                         self.send_disprove_tx_additional(
                             &txhandlers,
@@ -2496,8 +2496,8 @@ mod states {
                         .await?;
                     } else {
                         tracing::info!(
-                            "Verifier {:?} did not find additional disprove witness",
-                            verifier_xonly_pk
+                            "The additional public inputs for the bridge proof provided by operator {:?} for the deposit are correct.",
+                            kickoff_data.operator_xonly_pk
                         );
 
                         // If no additional witness, try to find a standard disprove witness
@@ -2507,11 +2507,10 @@ mod states {
                         {
                             Some((index, disprove_script)) => {
                                 tracing::info!(
-                    "Verifier {:?} found disprove script with index: {:?}, script: {:?}",
-                    verifier_xonly_pk,
-                    index,
-                    disprove_script
-                );
+                                    "The public inputs for the bridge proof provided by operator {:?} for the deposit are incorrect.",
+                                    kickoff_data.operator_xonly_pk
+                                );
+
                                 self.send_disprove_tx(
                                     &txhandlers,
                                     kickoff_data,
@@ -2522,8 +2521,8 @@ mod states {
                             }
                             None => {
                                 tracing::info!(
-                                    "Verifier {:?} did not find any standard disprove witness",
-                                    verifier_xonly_pk
+                                    "The public inputs for the bridge proof provided by operator {:?} for the deposit are correct.",
+                                    kickoff_data.operator_xonly_pk
                                 );
                             }
                         }
