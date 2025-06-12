@@ -1,8 +1,10 @@
+use crate::bitvm_client::{SECP, UNSPENDABLE_XONLY_PUBKEY};
 use crate::deposit::DepositData;
 use crate::extended_rpc::ExtendedRpc;
 use crate::rpc::clementine::{DepositParams, OperatorKeysWithDeposit};
 #[cfg(feature = "automation")]
 use crate::tx_sender::TxSenderClient;
+use crate::utils::timed_try_join_all;
 use crate::{
     builder::{self},
     config::BridgeConfig,
@@ -20,8 +22,10 @@ use crate::{
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::{schnorr, Message, PublicKey};
 use bitcoin::XOnlyPublicKey;
+use eyre::Context;
 use futures_util::future::try_join_all;
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature};
+use secp256k1::Parity;
 use tonic::Status;
 
 /// Aggregator struct.
@@ -43,6 +47,78 @@ pub struct Aggregator {
     verifier_clients: Vec<ClementineVerifierClient<tonic::transport::Channel>>,
     verifier_keys: Vec<PublicKey>,
     operator_keys: Vec<XOnlyPublicKey>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct VerifierId(PublicKey);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct OperatorId(XOnlyPublicKey);
+
+impl std::fmt::Display for VerifierId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Verifier({}...)", &self.0.to_string()[..10])
+    }
+}
+
+impl std::fmt::Display for OperatorId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Operator({}...)", &self.0.to_string()[..10])
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ParticipatingVerifiers(
+    pub  Vec<(
+        ClementineVerifierClient<tonic::transport::Channel>,
+        VerifierId,
+    )>,
+);
+
+impl ParticipatingVerifiers {
+    pub fn new(
+        verifiers: Vec<(
+            ClementineVerifierClient<tonic::transport::Channel>,
+            VerifierId,
+        )>,
+    ) -> Self {
+        Self(verifiers)
+    }
+
+    pub fn clients(&self) -> Vec<ClementineVerifierClient<tonic::transport::Channel>> {
+        self.0.iter().map(|(client, _)| client.clone()).collect()
+    }
+
+    pub fn ids(&self) -> Vec<VerifierId> {
+        self.0.iter().map(|(_, id)| id.clone()).collect()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ParticipatingOperators(
+    pub  Vec<(
+        ClementineOperatorClient<tonic::transport::Channel>,
+        OperatorId,
+    )>,
+);
+
+impl ParticipatingOperators {
+    pub fn new(
+        operators: Vec<(
+            ClementineOperatorClient<tonic::transport::Channel>,
+            OperatorId,
+        )>,
+    ) -> Self {
+        Self(operators)
+    }
+
+    pub fn clients(&self) -> Vec<ClementineOperatorClient<tonic::transport::Channel>> {
+        self.0.iter().map(|(client, _)| client.clone()).collect()
+    }
+
+    pub fn ids(&self) -> Vec<OperatorId> {
+        self.0.iter().map(|(_, id)| id.clone()).collect()
+    }
 }
 
 impl Aggregator {
@@ -140,8 +216,10 @@ impl Aggregator {
     pub async fn collect_and_distribute_keys(
         &self,
         deposit_params: &DepositParams,
-    ) -> Result<(), Status> {
+    ) -> Result<(), BridgeError> {
+        use crate::utils::timed_try_join_all;
         use tokio::time::{timeout, Duration};
+
         const OPERATION_TIMEOUT: Duration = Duration::from_secs(500);
 
         tracing::info!("Starting collect_and_distribute_keys");
@@ -157,53 +235,68 @@ impl Aggregator {
             .map(|_| operator_keys_rx.resubscribe())
             .collect::<Vec<_>>();
 
-        let mut operators = self.get_participating_operators(&deposit_data).await?;
+        let operators = self.get_participating_operators(&deposit_data).await?;
+        let operator_clients = operators.clients();
+
         let operator_xonly_pks = deposit_data.get_operators();
         let num_operators = deposit_data.get_num_operators();
         let deposit = deposit_params.clone();
 
         tracing::info!("Starting operator key collection");
         let get_operators_keys_handle = tokio::spawn(async move {
-            let operator_futures = operators.iter_mut().zip(operator_xonly_pks.iter()).map(
-                |(operator_client, operator_xonly_pk)| {
-                    let deposit_params = deposit.clone();
-                    let tx = operator_keys_tx.clone();
-                    async move {
-                        tracing::debug!("Requesting keys from operator {}", operator_xonly_pk);
-                        let start = std::time::Instant::now();
-                        let operator_keys = timeout(
-                            OPERATION_TIMEOUT,
-                            operator_client.get_deposit_keys(deposit_params.clone()),
-                        )
-                        .await
-                        .map_err(|_| {
-                            Status::deadline_exceeded("Operator key retrieval timed out")
-                        })??
-                        .into_inner();
-                        tracing::debug!(
-                            "Got keys from operator {} in {:?}",
-                            operator_xonly_pk,
-                            start.elapsed()
-                        );
+            timed_try_join_all(
+                OPERATION_TIMEOUT,
+                "Operator key retrieval",
+                Some(operators.ids()),
+                operator_clients
+                    .into_iter()
+                    .zip(operator_xonly_pks.into_iter())
+                    .map(|(mut operator_client, operator_xonly_pk)| {
+                        let deposit_params = deposit.clone();
+                        let tx = operator_keys_tx.clone();
+                        async move {
+                            tracing::debug!("Requesting keys from operator {}", operator_xonly_pk);
+                            let start = std::time::Instant::now();
 
-                        tx.send(OperatorKeysWithDeposit {
-                            deposit_params: Some(deposit_params),
-                            operator_keys: Some(operator_keys),
-                            operator_xonly_pk: operator_xonly_pk.serialize().to_vec(),
-                        })
-                        .map_err(|_| Status::internal("Failed to send operator keys"))?;
-                        Ok::<_, Status>(())
-                    }
-                },
-            );
-            try_join_all(operator_futures).await
+                            let operator_keys = operator_client
+                                .get_deposit_keys(deposit_params.clone())
+                                .await
+                                .wrap_err(Status::internal("Operator key retrieval failed"))?
+                                .into_inner();
+
+                            tracing::debug!(
+                                "Got keys from operator {} in {:?}",
+                                operator_xonly_pk,
+                                start.elapsed()
+                            );
+
+                            tx.send(OperatorKeysWithDeposit {
+                                deposit_params: Some(deposit_params),
+                                operator_keys: Some(operator_keys),
+                                operator_xonly_pk: operator_xonly_pk.serialize().to_vec(),
+                            })
+                            .map_err(|e| eyre::eyre!(e.to_string()))
+                            .wrap_err(Status::internal(
+                                "Failed to send operator keys via broadcast channel",
+                            ))?;
+
+                            Ok(())
+                        }
+                    }),
+            )
+            .await
         });
 
         tracing::info!("Starting operator key distribution to verifiers");
-        let mut verifiers = self.get_participating_verifiers(&deposit_data).await?;
+        let verifiers = self.get_participating_verifiers(&deposit_data).await?;
+
+        let verifier_clients = verifiers.clients();
+
+        let verifier_ids = verifiers.ids();
+
         let distribute_operators_keys_handle = tokio::spawn(async move {
-            let distribution_futures = verifiers.iter_mut().zip(operator_rx_handles).map(
-                |(verifier, mut rx)| async move {
+            try_join_all(verifier_clients.into_iter().zip(operator_rx_handles).map(
+                |(mut verifier, mut rx)| async move {
                     // Only wait for expected number of messages
                     let mut received_keys = std::collections::HashSet::new();
                     while received_keys.len() < num_operators {
@@ -213,7 +306,7 @@ impl Aggregator {
                             num_operators
                         );
                         let start = std::time::Instant::now();
-                        match timeout(OPERATION_TIMEOUT, rx.recv()).await {
+                        match tokio::time::timeout(OPERATION_TIMEOUT, rx.recv()).await {
                             Ok(Ok(operator_keys)) => {
                                 let operator_xonly_pk = operator_keys.operator_xonly_pk.clone();
                                 if received_keys.insert(operator_xonly_pk.clone()) {
@@ -222,56 +315,47 @@ impl Aggregator {
                                         operator_xonly_pk,
                                         start.elapsed()
                                     );
-                                    timeout(
+                                    tokio::time::timeout(
                                         OPERATION_TIMEOUT,
                                         verifier.set_operator_keys(operator_keys),
                                     )
                                     .await
-                                    .map_err(|_| {
-                                        Status::deadline_exceeded("Setting operator keys timed out")
-                                    })??;
+                                    .wrap_err(
+                                        Status::deadline_exceeded(
+                                            "Setting operator keys timed out",
+                                        ),
+                                    )?;
                                 }
                             }
-                            Ok(Err(_)) => break, // Channel closed
-                            Err(_) => {
-                                return Err(Status::deadline_exceeded(
+                            Ok(Err(e)) => Err(eyre::eyre!(e.to_string()).wrap_err(
+                                Status::internal("Operator key broadcast channel closed"),
+                            ))?, // Channel closed
+                            Err(_) => Err(eyre::eyre!("Timeout waiting for operator keys")
+                                .wrap_err(Status::deadline_exceeded(
                                     "Timeout waiting for operator keys",
-                                ))
-                            }
+                                )))?,
                         }
                     }
-                    Ok::<_, Status>(())
+                    Ok::<_, BridgeError>(())
                 },
-            );
-            try_join_all(distribution_futures).await
+            ))
+            .await
         });
 
-        // Wait for all tasks with a timeout
-        let result = match timeout(
-            OPERATION_TIMEOUT,
-            try_join_all(vec![
-                get_operators_keys_handle,
-                distribute_operators_keys_handle,
-            ]),
-        )
-        .await
-        {
-            Ok(Ok(_)) => Ok(()),
-            Ok(Err(e)) => Err(Status::internal(format!(
-                "Failed to collect and distribute keys: {:?}",
-                e
-            ))),
-            Err(_) => Err(Status::deadline_exceeded(
-                "Overall key collection and distribution timed out",
-            )),
-        };
+        // Wait for all tasks
+        let (get_keys_res, distribute_keys_res) =
+            tokio::try_join!(get_operators_keys_handle, distribute_operators_keys_handle)
+                .wrap_err(Status::internal("Task join error in key distribution"))?;
+
+        get_keys_res?;
+        distribute_keys_res?;
 
         tracing::info!(
             "collect_and_distribute_keys completed in {:?}",
             start_time.elapsed()
         );
 
-        result
+        Ok(())
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
@@ -308,7 +392,7 @@ impl Aggregator {
     pub async fn get_participating_verifiers(
         &self,
         deposit_data: &DepositData,
-    ) -> Result<Vec<ClementineVerifierClient<tonic::transport::Channel>>, BridgeError> {
+    ) -> Result<ParticipatingVerifiers, BridgeError> {
         let verifier_keys = self.get_verifier_keys();
         let mut participating_verifiers = Vec::new();
 
@@ -316,20 +400,21 @@ impl Aggregator {
 
         for verifier_pk in verifiers {
             if let Some(pos) = verifier_keys.iter().position(|key| key == &verifier_pk) {
-                participating_verifiers.push(self.verifier_clients[pos].clone());
+                participating_verifiers
+                    .push((self.verifier_clients[pos].clone(), VerifierId(verifier_pk)));
             } else {
                 return Err(BridgeError::VerifierNotFound(verifier_pk));
             }
         }
 
-        Ok(participating_verifiers)
+        Ok(ParticipatingVerifiers::new(participating_verifiers))
     }
 
     /// Returns a list of operator clients that are participating in the deposit.
     pub async fn get_participating_operators(
         &self,
         deposit_data: &DepositData,
-    ) -> Result<Vec<ClementineOperatorClient<tonic::transport::Channel>>, BridgeError> {
+    ) -> Result<ParticipatingOperators, BridgeError> {
         let operator_keys = self.get_operator_keys();
         let mut participating_operators = Vec::new();
 
@@ -337,12 +422,13 @@ impl Aggregator {
 
         for operator_pk in operators {
             if let Some(pos) = operator_keys.iter().position(|key| key == &operator_pk) {
-                participating_operators.push(self.operator_clients[pos].clone());
+                participating_operators
+                    .push((self.operator_clients[pos].clone(), OperatorId(operator_pk)));
             } else {
                 return Err(BridgeError::OperatorNotFound(operator_pk));
             }
         }
 
-        Ok(participating_operators)
+        Ok(ParticipatingOperators::new(participating_operators))
     }
 }

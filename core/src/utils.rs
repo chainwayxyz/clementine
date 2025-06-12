@@ -3,11 +3,17 @@ use crate::errors::BridgeError;
 use crate::operator::RoundIndex;
 use crate::rpc::clementine::VergenResponse;
 use bitcoin::{OutPoint, TapNodeHash, XOnlyPublicKey};
+use futures::future::try_join_all;
 use http::HeaderValue;
 use serde::{Deserialize, Serialize};
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
+use std::future::Future;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::{Context, Poll};
+use std::time::Duration;
+use tokio::time::timeout;
+use tonic::Status;
 use tower::{Layer, Service};
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::layer::SubscriberExt;
@@ -387,4 +393,52 @@ impl Last20Bytes for [u8; 32] {
         result.copy_from_slice(&self[12..32]);
         result
     }
+}
+
+pub async fn timed_request<F, T>(
+    duration: Duration,
+    description: &str,
+    future: F,
+) -> Result<T, BridgeError>
+where
+    F: Future<Output = Result<T, BridgeError>>,
+{
+    timeout(duration, future)
+        .await
+        .map_err(|_| Status::deadline_exceeded(format!("{} timed out", description)))?
+}
+
+pub async fn timed_try_join_all<I, T, D>(
+    duration: Duration,
+    description: &str,
+    ids: Option<Vec<D>>,
+    iter: I,
+) -> Result<Vec<T>, BridgeError>
+where
+    D: Display,
+    I: IntoIterator,
+    I::Item: Future<Output = Result<T, BridgeError>>,
+{
+    let ids = Arc::new(ids);
+    try_join_all(iter.into_iter().enumerate().map(|item| {
+        let ids = ids.clone();
+        async move {
+            let id = Option::as_ref(&ids).map(|ids| ids.get(item.0)).flatten();
+
+            timeout(duration, item.1).await.map_err(|_| {
+                Status::deadline_exceeded(format!(
+                    "{} (id: {}) timed out",
+                    description,
+                    id.map(|id| id.to_string())
+                        .unwrap_or_else(|| "n/a".to_string())
+                ))
+            })?
+        }
+    }))
+    .await
+    .map_err(|join_err| -> BridgeError {
+        eyre::Report::from(join_err)
+            .wrap_err(Status::internal(format!("{} failed to join", description)))
+            .into()
+    })
 }
