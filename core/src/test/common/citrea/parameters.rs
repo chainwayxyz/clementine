@@ -9,7 +9,7 @@ use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::rpc::clementine::NormalSignatureKind;
 use crate::utils::bitcoin_merkle::get_block_merkle_proof;
-use crate::utils::citrea::get_transaction_details_for_citrea;
+use crate::utils::citrea::get_transaction_params_for_citrea;
 use crate::UTXO;
 use alloy::primitives::{Bytes, FixedBytes, Uint};
 use bitcoin::consensus::Encodable;
@@ -70,7 +70,7 @@ pub async fn get_citrea_deposit_params(
     block_height: u32,
     txid: Txid,
 ) -> Result<(CitreaTransaction, CitreaMerkleProof, FixedBytes<32>), BridgeError> {
-    let tp = get_transaction_details_for_citrea(&transaction)?;
+    let tp = get_transaction_params_for_citrea(&transaction)?;
     let mp = get_transaction_merkle_proof_for_citrea(block_height, &block, txid, true)?;
     let sha_script_pubkeys =
         get_transaction_sha_script_pubkeys_for_citrea(rpc, transaction).await?;
@@ -96,7 +96,7 @@ pub async fn get_citrea_safe_withdraw_params(
         .get_tx_of_txid(&withdrawal_dust_utxo.outpoint.txid)
         .await?;
 
-    let prepare_tx_struct = get_transaction_details_for_citrea(&prepare_tx)?;
+    let prepare_tx_struct = get_transaction_params_for_citrea(&prepare_tx)?;
 
     let prepare_tx_blockhash = rpc
         .get_blockhash_of_tx(&withdrawal_dust_utxo.outpoint.txid)
@@ -154,7 +154,7 @@ pub async fn get_citrea_safe_withdraw_params(
 
     let payout_transaction = tx.get_cached_tx();
 
-    let payout_tx_params = get_transaction_details_for_citrea(payout_transaction)?;
+    let payout_tx_params = get_transaction_params_for_citrea(payout_transaction)?;
 
     let block_header_bytes =
         Bytes::copy_from_slice(&bitcoin::consensus::serialize(&prepare_tx_block_header));

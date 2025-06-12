@@ -2,7 +2,7 @@ use crate::{citrea::Bridge::Transaction as CitreaTransaction, errors::BridgeErro
 use alloy::primitives::{Bytes, FixedBytes};
 use bitcoin::{consensus::Encodable, Transaction};
 
-pub fn get_transaction_details_for_citrea(
+pub fn get_transaction_params_for_citrea(
     transaction: &Transaction,
 ) -> Result<CitreaTransaction, BridgeError> {
     let version = (transaction.version.0 as u32).to_le_bytes();
