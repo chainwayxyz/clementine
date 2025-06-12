@@ -2048,13 +2048,14 @@ where
 
         tracing::info!("Number of operator asserts: {}", operator_asserts.len());
 
-        assert_eq!(
-            operator_asserts.len(),
-            ClementineBitVMPublicKeys::number_of_assert_txs(),
-            "Expected exactly {} operator asserts, got {}",
-            ClementineBitVMPublicKeys::number_of_assert_txs(),
-            operator_asserts.len()
-        );
+        if operator_asserts.len() != ClementineBitVMPublicKeys::number_of_assert_txs() {
+            return Err(eyre::eyre!(
+                "Expected exactly {} operator asserts, got {}",
+                ClementineBitVMPublicKeys::number_of_assert_txs(),
+                operator_asserts.len()
+            )
+            .into());
+        }
 
         for i in 0..operator_asserts.len() {
             let witness = operator_asserts
