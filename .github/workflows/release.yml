@@ -5,6 +5,10 @@ on:
     tags:
       - "v*.*.*"
 
+concurrency: 
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ (github.ref != 'refs/heads/main') }}
+
 jobs:
   linux_amd64_binary_extraction:
     runs-on: ubicloud-standard-30
