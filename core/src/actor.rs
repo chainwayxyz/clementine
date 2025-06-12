@@ -5,7 +5,7 @@ use crate::bitvm_client::{self, ClementineBitVMPublicKeys, SECP};
 use crate::builder::script::SpendPath;
 use crate::builder::sighash::TapTweakData;
 use crate::builder::transaction::input::SpentTxIn;
-use crate::builder::transaction::{SighashCalculator, TxHandler};
+use crate::builder::transaction::{SighashCalculator, TransactionType, TxHandler};
 use crate::config::protocol::ProtocolParamset;
 use crate::errors::{BridgeError, TxError};
 use crate::operator::{PublicHash, RoundIndex};
@@ -579,6 +579,7 @@ impl Actor {
                 .get_deposit_sig_owner()
                 .map(|s| s.sighash_type())?
                 .unwrap_or(TapSighashType::Default);
+
             match spt.get_spend_path() {
                 SpendPath::ScriptSpend(script_idx) => {
                     let script = spt
