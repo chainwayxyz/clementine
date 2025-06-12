@@ -2380,7 +2380,335 @@
 <a href="#2379" id="2379">2379</a>
 <a href="#2380" id="2380">2380</a>
 <a href="#2381" id="2381">2381</a>
-<a href="#2382" id="2382">2382</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
+<a href="#2382" id="2382">2382</a>
+<a href="#2383" id="2383">2383</a>
+<a href="#2384" id="2384">2384</a>
+<a href="#2385" id="2385">2385</a>
+<a href="#2386" id="2386">2386</a>
+<a href="#2387" id="2387">2387</a>
+<a href="#2388" id="2388">2388</a>
+<a href="#2389" id="2389">2389</a>
+<a href="#2390" id="2390">2390</a>
+<a href="#2391" id="2391">2391</a>
+<a href="#2392" id="2392">2392</a>
+<a href="#2393" id="2393">2393</a>
+<a href="#2394" id="2394">2394</a>
+<a href="#2395" id="2395">2395</a>
+<a href="#2396" id="2396">2396</a>
+<a href="#2397" id="2397">2397</a>
+<a href="#2398" id="2398">2398</a>
+<a href="#2399" id="2399">2399</a>
+<a href="#2400" id="2400">2400</a>
+<a href="#2401" id="2401">2401</a>
+<a href="#2402" id="2402">2402</a>
+<a href="#2403" id="2403">2403</a>
+<a href="#2404" id="2404">2404</a>
+<a href="#2405" id="2405">2405</a>
+<a href="#2406" id="2406">2406</a>
+<a href="#2407" id="2407">2407</a>
+<a href="#2408" id="2408">2408</a>
+<a href="#2409" id="2409">2409</a>
+<a href="#2410" id="2410">2410</a>
+<a href="#2411" id="2411">2411</a>
+<a href="#2412" id="2412">2412</a>
+<a href="#2413" id="2413">2413</a>
+<a href="#2414" id="2414">2414</a>
+<a href="#2415" id="2415">2415</a>
+<a href="#2416" id="2416">2416</a>
+<a href="#2417" id="2417">2417</a>
+<a href="#2418" id="2418">2418</a>
+<a href="#2419" id="2419">2419</a>
+<a href="#2420" id="2420">2420</a>
+<a href="#2421" id="2421">2421</a>
+<a href="#2422" id="2422">2422</a>
+<a href="#2423" id="2423">2423</a>
+<a href="#2424" id="2424">2424</a>
+<a href="#2425" id="2425">2425</a>
+<a href="#2426" id="2426">2426</a>
+<a href="#2427" id="2427">2427</a>
+<a href="#2428" id="2428">2428</a>
+<a href="#2429" id="2429">2429</a>
+<a href="#2430" id="2430">2430</a>
+<a href="#2431" id="2431">2431</a>
+<a href="#2432" id="2432">2432</a>
+<a href="#2433" id="2433">2433</a>
+<a href="#2434" id="2434">2434</a>
+<a href="#2435" id="2435">2435</a>
+<a href="#2436" id="2436">2436</a>
+<a href="#2437" id="2437">2437</a>
+<a href="#2438" id="2438">2438</a>
+<a href="#2439" id="2439">2439</a>
+<a href="#2440" id="2440">2440</a>
+<a href="#2441" id="2441">2441</a>
+<a href="#2442" id="2442">2442</a>
+<a href="#2443" id="2443">2443</a>
+<a href="#2444" id="2444">2444</a>
+<a href="#2445" id="2445">2445</a>
+<a href="#2446" id="2446">2446</a>
+<a href="#2447" id="2447">2447</a>
+<a href="#2448" id="2448">2448</a>
+<a href="#2449" id="2449">2449</a>
+<a href="#2450" id="2450">2450</a>
+<a href="#2451" id="2451">2451</a>
+<a href="#2452" id="2452">2452</a>
+<a href="#2453" id="2453">2453</a>
+<a href="#2454" id="2454">2454</a>
+<a href="#2455" id="2455">2455</a>
+<a href="#2456" id="2456">2456</a>
+<a href="#2457" id="2457">2457</a>
+<a href="#2458" id="2458">2458</a>
+<a href="#2459" id="2459">2459</a>
+<a href="#2460" id="2460">2460</a>
+<a href="#2461" id="2461">2461</a>
+<a href="#2462" id="2462">2462</a>
+<a href="#2463" id="2463">2463</a>
+<a href="#2464" id="2464">2464</a>
+<a href="#2465" id="2465">2465</a>
+<a href="#2466" id="2466">2466</a>
+<a href="#2467" id="2467">2467</a>
+<a href="#2468" id="2468">2468</a>
+<a href="#2469" id="2469">2469</a>
+<a href="#2470" id="2470">2470</a>
+<a href="#2471" id="2471">2471</a>
+<a href="#2472" id="2472">2472</a>
+<a href="#2473" id="2473">2473</a>
+<a href="#2474" id="2474">2474</a>
+<a href="#2475" id="2475">2475</a>
+<a href="#2476" id="2476">2476</a>
+<a href="#2477" id="2477">2477</a>
+<a href="#2478" id="2478">2478</a>
+<a href="#2479" id="2479">2479</a>
+<a href="#2480" id="2480">2480</a>
+<a href="#2481" id="2481">2481</a>
+<a href="#2482" id="2482">2482</a>
+<a href="#2483" id="2483">2483</a>
+<a href="#2484" id="2484">2484</a>
+<a href="#2485" id="2485">2485</a>
+<a href="#2486" id="2486">2486</a>
+<a href="#2487" id="2487">2487</a>
+<a href="#2488" id="2488">2488</a>
+<a href="#2489" id="2489">2489</a>
+<a href="#2490" id="2490">2490</a>
+<a href="#2491" id="2491">2491</a>
+<a href="#2492" id="2492">2492</a>
+<a href="#2493" id="2493">2493</a>
+<a href="#2494" id="2494">2494</a>
+<a href="#2495" id="2495">2495</a>
+<a href="#2496" id="2496">2496</a>
+<a href="#2497" id="2497">2497</a>
+<a href="#2498" id="2498">2498</a>
+<a href="#2499" id="2499">2499</a>
+<a href="#2500" id="2500">2500</a>
+<a href="#2501" id="2501">2501</a>
+<a href="#2502" id="2502">2502</a>
+<a href="#2503" id="2503">2503</a>
+<a href="#2504" id="2504">2504</a>
+<a href="#2505" id="2505">2505</a>
+<a href="#2506" id="2506">2506</a>
+<a href="#2507" id="2507">2507</a>
+<a href="#2508" id="2508">2508</a>
+<a href="#2509" id="2509">2509</a>
+<a href="#2510" id="2510">2510</a>
+<a href="#2511" id="2511">2511</a>
+<a href="#2512" id="2512">2512</a>
+<a href="#2513" id="2513">2513</a>
+<a href="#2514" id="2514">2514</a>
+<a href="#2515" id="2515">2515</a>
+<a href="#2516" id="2516">2516</a>
+<a href="#2517" id="2517">2517</a>
+<a href="#2518" id="2518">2518</a>
+<a href="#2519" id="2519">2519</a>
+<a href="#2520" id="2520">2520</a>
+<a href="#2521" id="2521">2521</a>
+<a href="#2522" id="2522">2522</a>
+<a href="#2523" id="2523">2523</a>
+<a href="#2524" id="2524">2524</a>
+<a href="#2525" id="2525">2525</a>
+<a href="#2526" id="2526">2526</a>
+<a href="#2527" id="2527">2527</a>
+<a href="#2528" id="2528">2528</a>
+<a href="#2529" id="2529">2529</a>
+<a href="#2530" id="2530">2530</a>
+<a href="#2531" id="2531">2531</a>
+<a href="#2532" id="2532">2532</a>
+<a href="#2533" id="2533">2533</a>
+<a href="#2534" id="2534">2534</a>
+<a href="#2535" id="2535">2535</a>
+<a href="#2536" id="2536">2536</a>
+<a href="#2537" id="2537">2537</a>
+<a href="#2538" id="2538">2538</a>
+<a href="#2539" id="2539">2539</a>
+<a href="#2540" id="2540">2540</a>
+<a href="#2541" id="2541">2541</a>
+<a href="#2542" id="2542">2542</a>
+<a href="#2543" id="2543">2543</a>
+<a href="#2544" id="2544">2544</a>
+<a href="#2545" id="2545">2545</a>
+<a href="#2546" id="2546">2546</a>
+<a href="#2547" id="2547">2547</a>
+<a href="#2548" id="2548">2548</a>
+<a href="#2549" id="2549">2549</a>
+<a href="#2550" id="2550">2550</a>
+<a href="#2551" id="2551">2551</a>
+<a href="#2552" id="2552">2552</a>
+<a href="#2553" id="2553">2553</a>
+<a href="#2554" id="2554">2554</a>
+<a href="#2555" id="2555">2555</a>
+<a href="#2556" id="2556">2556</a>
+<a href="#2557" id="2557">2557</a>
+<a href="#2558" id="2558">2558</a>
+<a href="#2559" id="2559">2559</a>
+<a href="#2560" id="2560">2560</a>
+<a href="#2561" id="2561">2561</a>
+<a href="#2562" id="2562">2562</a>
+<a href="#2563" id="2563">2563</a>
+<a href="#2564" id="2564">2564</a>
+<a href="#2565" id="2565">2565</a>
+<a href="#2566" id="2566">2566</a>
+<a href="#2567" id="2567">2567</a>
+<a href="#2568" id="2568">2568</a>
+<a href="#2569" id="2569">2569</a>
+<a href="#2570" id="2570">2570</a>
+<a href="#2571" id="2571">2571</a>
+<a href="#2572" id="2572">2572</a>
+<a href="#2573" id="2573">2573</a>
+<a href="#2574" id="2574">2574</a>
+<a href="#2575" id="2575">2575</a>
+<a href="#2576" id="2576">2576</a>
+<a href="#2577" id="2577">2577</a>
+<a href="#2578" id="2578">2578</a>
+<a href="#2579" id="2579">2579</a>
+<a href="#2580" id="2580">2580</a>
+<a href="#2581" id="2581">2581</a>
+<a href="#2582" id="2582">2582</a>
+<a href="#2583" id="2583">2583</a>
+<a href="#2584" id="2584">2584</a>
+<a href="#2585" id="2585">2585</a>
+<a href="#2586" id="2586">2586</a>
+<a href="#2587" id="2587">2587</a>
+<a href="#2588" id="2588">2588</a>
+<a href="#2589" id="2589">2589</a>
+<a href="#2590" id="2590">2590</a>
+<a href="#2591" id="2591">2591</a>
+<a href="#2592" id="2592">2592</a>
+<a href="#2593" id="2593">2593</a>
+<a href="#2594" id="2594">2594</a>
+<a href="#2595" id="2595">2595</a>
+<a href="#2596" id="2596">2596</a>
+<a href="#2597" id="2597">2597</a>
+<a href="#2598" id="2598">2598</a>
+<a href="#2599" id="2599">2599</a>
+<a href="#2600" id="2600">2600</a>
+<a href="#2601" id="2601">2601</a>
+<a href="#2602" id="2602">2602</a>
+<a href="#2603" id="2603">2603</a>
+<a href="#2604" id="2604">2604</a>
+<a href="#2605" id="2605">2605</a>
+<a href="#2606" id="2606">2606</a>
+<a href="#2607" id="2607">2607</a>
+<a href="#2608" id="2608">2608</a>
+<a href="#2609" id="2609">2609</a>
+<a href="#2610" id="2610">2610</a>
+<a href="#2611" id="2611">2611</a>
+<a href="#2612" id="2612">2612</a>
+<a href="#2613" id="2613">2613</a>
+<a href="#2614" id="2614">2614</a>
+<a href="#2615" id="2615">2615</a>
+<a href="#2616" id="2616">2616</a>
+<a href="#2617" id="2617">2617</a>
+<a href="#2618" id="2618">2618</a>
+<a href="#2619" id="2619">2619</a>
+<a href="#2620" id="2620">2620</a>
+<a href="#2621" id="2621">2621</a>
+<a href="#2622" id="2622">2622</a>
+<a href="#2623" id="2623">2623</a>
+<a href="#2624" id="2624">2624</a>
+<a href="#2625" id="2625">2625</a>
+<a href="#2626" id="2626">2626</a>
+<a href="#2627" id="2627">2627</a>
+<a href="#2628" id="2628">2628</a>
+<a href="#2629" id="2629">2629</a>
+<a href="#2630" id="2630">2630</a>
+<a href="#2631" id="2631">2631</a>
+<a href="#2632" id="2632">2632</a>
+<a href="#2633" id="2633">2633</a>
+<a href="#2634" id="2634">2634</a>
+<a href="#2635" id="2635">2635</a>
+<a href="#2636" id="2636">2636</a>
+<a href="#2637" id="2637">2637</a>
+<a href="#2638" id="2638">2638</a>
+<a href="#2639" id="2639">2639</a>
+<a href="#2640" id="2640">2640</a>
+<a href="#2641" id="2641">2641</a>
+<a href="#2642" id="2642">2642</a>
+<a href="#2643" id="2643">2643</a>
+<a href="#2644" id="2644">2644</a>
+<a href="#2645" id="2645">2645</a>
+<a href="#2646" id="2646">2646</a>
+<a href="#2647" id="2647">2647</a>
+<a href="#2648" id="2648">2648</a>
+<a href="#2649" id="2649">2649</a>
+<a href="#2650" id="2650">2650</a>
+<a href="#2651" id="2651">2651</a>
+<a href="#2652" id="2652">2652</a>
+<a href="#2653" id="2653">2653</a>
+<a href="#2654" id="2654">2654</a>
+<a href="#2655" id="2655">2655</a>
+<a href="#2656" id="2656">2656</a>
+<a href="#2657" id="2657">2657</a>
+<a href="#2658" id="2658">2658</a>
+<a href="#2659" id="2659">2659</a>
+<a href="#2660" id="2660">2660</a>
+<a href="#2661" id="2661">2661</a>
+<a href="#2662" id="2662">2662</a>
+<a href="#2663" id="2663">2663</a>
+<a href="#2664" id="2664">2664</a>
+<a href="#2665" id="2665">2665</a>
+<a href="#2666" id="2666">2666</a>
+<a href="#2667" id="2667">2667</a>
+<a href="#2668" id="2668">2668</a>
+<a href="#2669" id="2669">2669</a>
+<a href="#2670" id="2670">2670</a>
+<a href="#2671" id="2671">2671</a>
+<a href="#2672" id="2672">2672</a>
+<a href="#2673" id="2673">2673</a>
+<a href="#2674" id="2674">2674</a>
+<a href="#2675" id="2675">2675</a>
+<a href="#2676" id="2676">2676</a>
+<a href="#2677" id="2677">2677</a>
+<a href="#2678" id="2678">2678</a>
+<a href="#2679" id="2679">2679</a>
+<a href="#2680" id="2680">2680</a>
+<a href="#2681" id="2681">2681</a>
+<a href="#2682" id="2682">2682</a>
+<a href="#2683" id="2683">2683</a>
+<a href="#2684" id="2684">2684</a>
+<a href="#2685" id="2685">2685</a>
+<a href="#2686" id="2686">2686</a>
+<a href="#2687" id="2687">2687</a>
+<a href="#2688" id="2688">2688</a>
+<a href="#2689" id="2689">2689</a>
+<a href="#2690" id="2690">2690</a>
+<a href="#2691" id="2691">2691</a>
+<a href="#2692" id="2692">2692</a>
+<a href="#2693" id="2693">2693</a>
+<a href="#2694" id="2694">2694</a>
+<a href="#2695" id="2695">2695</a>
+<a href="#2696" id="2696">2696</a>
+<a href="#2697" id="2697">2697</a>
+<a href="#2698" id="2698">2698</a>
+<a href="#2699" id="2699">2699</a>
+<a href="#2700" id="2700">2700</a>
+<a href="#2701" id="2701">2701</a>
+<a href="#2702" id="2702">2702</a>
+<a href="#2703" id="2703">2703</a>
+<a href="#2704" id="2704">2704</a>
+<a href="#2705" id="2705">2705</a>
+<a href="#2706" id="2706">2706</a>
+<a href="#2707" id="2707">2707</a>
+<a href="#2708" id="2708">2708</a>
+<a href="#2709" id="2709">2709</a>
+<a href="#2710" id="2710">2710</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
 <span class="kw">use </span><span class="kw">crate</span>::bitcoin_syncer::{BitcoinSyncer, BlockHandler, FinalizedBlockFetcherTask};
 <span class="kw">use </span><span class="kw">crate</span>::bitvm_client::ClementineBitVMPublicKeys;
 <span class="kw">use </span><span class="kw">crate</span>::builder::address::{create_taproot_address, taproot_builder_with_scripts};
@@ -2422,21 +2750,26 @@
 <span class="kw">use </span>bitcoin::hashes::Hash;
 <span class="kw">use </span>bitcoin::key::Secp256k1;
 <span class="kw">use </span>bitcoin::opcodes::all::OP_RETURN;
+<span class="kw">use </span>bitcoin::script::Instruction;
 <span class="kw">use </span>bitcoin::secp256k1::schnorr::Signature;
 <span class="kw">use </span>bitcoin::secp256k1::Message;
 <span class="kw">use </span>bitcoin::taproot::TaprootBuilder;
 <span class="kw">use </span>bitcoin::{Address, Amount, ScriptBuf, Witness, XOnlyPublicKey};
 <span class="kw">use </span>bitcoin::{OutPoint, TxOut};
+<span class="kw">use </span>bitcoin_script::builder::StructuredScript;
 <span class="kw">use </span>bitcoincore_rpc::RpcApi;
+<span class="kw">use </span>bitvm::chunk::api::validate_assertions;
 <span class="kw">use </span>bitvm::clementine::additional_disprove::{
     replace_placeholders_in_script, validate_assertions_for_additional_script,
 };
 <span class="kw">use </span>bitvm::signatures::winternitz;
+<span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
+</span><span class="kw">use </span>bridge_circuit_host::utils::get_ark_verifying_key;
+<span class="kw">use </span>bridge_circuit_host::utils::get_ark_verifying_key_dev_mode_bridge;
 <span class="kw">use </span>circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
 <span class="kw">use </span>circuits_lib::bridge_circuit::{deposit_constant, parse_op_return_data};
 <span class="kw">use </span>eyre::{Context, ContextCompat, OptionExt, <span class="prelude-ty">Result</span>};
-<span class="attr">#[cfg(test)]
-</span><span class="kw">use </span>risc0_zkvm::is_dev_mode;
+<span class="kw">use </span>risc0_zkvm::is_dev_mode;
 <span class="kw">use </span>secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce, MusigSecNonce};
 <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
 </span><span class="kw">use </span>std::collections::BTreeMap;
@@ -2689,9 +3022,7 @@
         <span class="prelude-val">Ok</span>(tagged_sigs)
     }
 
-    <span class="doccomment">/// Checks if the deposit is a valid deposit, returns false if it is not.
-    /// First checks if the security council is the same as in the config.
-    /// Then checks if all operators that still have collateral are in the deposit.
+    <span class="doccomment">/// Checks if all operators in verifier's db that are still in protocol are in the deposit.
     /// Afterwards, it checks if the given deposit outpoint is valid. First it checks if the tx exists on chain,
     /// then it checks if the amount in TxOut is equal to bridge_amount and if the script is correct.
     ///
@@ -3514,11 +3845,6 @@
         keys: OperatorKeys,
         operator_xonly_pk: XOnlyPublicKey,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
-        <span class="comment">// check if deposit is valid first
-        </span><span class="kw">if </span>!<span class="self">self</span>.is_deposit_valid(<span class="kw-2">&amp;mut </span>deposit_data).<span class="kw">await</span><span class="question-mark">? </span>{
-            <span class="kw">return </span><span class="prelude-val">Err</span>(BridgeError::InvalidDeposit);
-        }
-
         <span class="self">self</span>.db
             .set_deposit_data(<span class="prelude-val">None</span>, <span class="kw-2">&amp;mut </span>deposit_data, <span class="self">self</span>.config.protocol_paramset())
             .<span class="kw">await</span><span class="question-mark">?</span>;
@@ -4088,7 +4414,27 @@
         <span class="prelude-val">Ok</span>(())
     }
 
-    <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
+    <span class="doccomment">/// Verifies the conditions required to disprove an operator's actions using the "additional" disprove path.
+    ///
+    /// This function handles specific, non-Groth16 challenges. It reconstructs a unique challenge script
+    /// based on on-chain data and constants (`deposit_constant`). It then validates the operator's
+    /// provided assertions (`operator_asserts`) and acknowledgements (`operator_acks`) against this script.
+    /// The goal is to produce a spendable witness for the disprove transaction if the operator is found to be at fault.
+    ///
+    /// # Arguments
+    /// * `deposit_data` - Mutable data for the specific deposit being challenged.
+    /// * `kickoff_data` - Information about the kickoff transaction that initiated this challenge.
+    /// * `latest_blockhash` - The witness containing Winternitz signature for the latest Bitcoin blockhash.
+    /// * `payout_blockhash` - The witness containing Winternitz signature for the payout transaction's blockhash.
+    /// * `operator_asserts` - A map of witnesses from the operator, containing their assertions (claims).
+    /// * `operator_acks` - A map of witnesses from the operator, containing their acknowledgements of watchtower challenges.
+    /// * `txhandlers` - A map of transaction builders, used here to retrieve TXIDs of dependent transactions.
+    ///
+    /// # Returns
+    /// - `Ok(Some(bitcoin::Witness))` if the operator's claims are successfully proven false, returning the complete witness needed to spend the disprove script path.
+    /// - `Ok(None)` if the operator's claims are valid under this specific challenge, and no disprove is possible.
+    /// - `Err(BridgeError)` if any error occurs during script reconstruction or validation.
+    </span><span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
     </span><span class="kw">async fn </span>verify_additional_disprove_conditions(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         deposit_data: <span class="kw-2">&amp;mut </span>DepositData,
@@ -4283,7 +4629,22 @@
         <span class="prelude-val">Ok</span>(additional_disprove_witness)
     }
 
-    <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
+    <span class="doccomment">/// Constructs, signs, and broadcasts the "additional" disprove transaction.
+    ///
+    /// This function is called after `verify_additional_disprove_conditions` successfully returns a witness.
+    /// It takes this witness, places it into the disprove transaction's script spend path, adds the required
+    /// operator and verifier signatures, and broadcasts the finalized transaction to the Bitcoin network.
+    ///
+    /// # Arguments
+    /// * `txhandlers` - A map containing the pre-built `Disprove` transaction handler.
+    /// * `kickoff_data` - Contextual data from the kickoff transaction.
+    /// * `deposit_data` - Contextual data for the deposit being challenged.
+    /// * `additional_disprove_witness` - The witness generated by `verify_additional_disprove_conditions`, proving the operator's fault.
+    ///
+    /// # Returns
+    /// - `Ok(())` on successful broadcast of the transaction.
+    /// - `Err(BridgeError)` if signing or broadcasting fails.
+    </span><span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
     </span><span class="kw">async fn </span>send_disprove_tx_additional(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         txhandlers: <span class="kw-2">&amp;</span>BTreeMap&lt;TransactionType, TxHandler&gt;,
@@ -4305,6 +4666,270 @@
 
         disprove_txhandler
             .set_p2tr_script_spend_witness(<span class="kw-2">&amp;</span>disprove_input, <span class="number">0</span>, <span class="number">1</span>)
+            .inspect_err(|e| {
+                <span class="macro">tracing::error!</span>(<span class="string">"Error setting disprove input witness: {:?}"</span>, e);
+            })<span class="question-mark">?</span>;
+
+        <span class="kw">let </span>operators_sig = <span class="self">self
+            </span>.db
+            .get_deposit_signatures(
+                <span class="prelude-val">None</span>,
+                deposit_data.get_deposit_outpoint(),
+                kickoff_data.operator_xonly_pk,
+                kickoff_data.round_idx,
+                kickoff_data.kickoff_idx <span class="kw">as </span>usize,
+            )
+            .<span class="kw">await</span><span class="question-mark">?
+            </span>.ok_or_eyre(<span class="string">"No operator signature found for the disprove tx"</span>)<span class="question-mark">?</span>;
+
+        <span class="kw">let </span><span class="kw-2">mut </span>tweak_cache = TweakCache::default();
+
+        <span class="self">self</span>.signer
+            .tx_sign_and_fill_sigs(
+                <span class="kw-2">&amp;mut </span>disprove_txhandler,
+                operators_sig.as_ref(),
+                <span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>tweak_cache),
+            )
+            .inspect_err(|e| {
+                <span class="macro">tracing::error!</span>(
+                    <span class="string">"Error signing disprove tx for verifier {:?}: {:?}"</span>,
+                    verifier_xonly_pk,
+                    e
+                );
+            })<span class="question-mark">?</span>;
+
+        <span class="kw">let </span>disprove_tx = disprove_txhandler.get_cached_tx().clone();
+
+        <span class="macro">tracing::debug!</span>(<span class="string">"Disprove txid: {:?}"</span>, disprove_tx.compute_txid());
+
+        <span class="macro">tracing::info!</span>(
+            <span class="string">"Disprove tx created for verifier {:?} with kickoff_data: {:?}, deposit_data: {:?}"</span>,
+            verifier_xonly_pk,
+            kickoff_data,
+            deposit_data
+        );
+
+        <span class="kw">let </span>raw_tx = bitcoin::consensus::serialize(<span class="kw-2">&amp;</span>disprove_tx);
+
+        <span class="self">self</span>.rpc
+            .client
+            .send_raw_transaction(<span class="kw-2">&amp;</span>raw_tx)
+            .<span class="kw">await
+            </span>.wrap_err(<span class="string">"Error sending disprove tx"</span>)<span class="question-mark">?</span>;
+        <span class="prelude-val">Ok</span>(())
+    }
+
+    <span class="doccomment">/// Performs the primary G16 proof verification to disprove an operator's claim.
+    ///
+    /// This is a complex function that aggregates all of the operator's assertions, which are commitments
+    /// from a Winternitz one-time signature scheme. It meticulously parses and reorganizes these commitments
+    /// into the precise input format required by the underlying Groth16 SNARK verifier (`validate_assertions`).
+    /// It then invokes the verifier to check for a faulty computation.
+    ///
+    /// # Arguments
+    /// * `deposit_data` - Mutable data for the specific deposit being challenged.
+    /// * `operator_asserts` - A map containing all 33 required operator assertion witnesses.
+    ///
+    /// # Returns
+    /// - `Ok(Some((index, script)))` if the ZK proof is faulty. The tuple contains the `StructuredScript`
+    ///   that can be executed on-chain and its `index` in the Taproot tree.
+    /// - `Ok(None)` if the ZK proof is valid.
+    /// - `Err(BridgeError)` if any error occurs during data processing or ZK proof verification.
+    </span><span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
+    </span><span class="kw">async fn </span>verify_disprove_conditions(
+        <span class="kw-2">&amp;</span><span class="self">self</span>,
+        deposit_data: <span class="kw-2">&amp;mut </span>DepositData,
+        operator_asserts: <span class="kw-2">&amp;</span>HashMap&lt;usize, Witness&gt;,
+    ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;(usize, StructuredScript)&gt;, BridgeError&gt; {
+        <span class="kw">let </span>bitvm_pks = <span class="self">self</span>.signer.generate_bitvm_pks_for_deposit(
+            deposit_data.get_deposit_outpoint(),
+            <span class="self">self</span>.config.protocol_paramset,
+        )<span class="question-mark">?</span>;
+        <span class="kw">let </span>disprove_scripts = bitvm_pks.get_g16_verifier_disprove_scripts();
+
+        <span class="kw">let </span>deposit_outpoint = deposit_data.get_deposit_outpoint();
+        <span class="kw">let </span>paramset = <span class="self">self</span>.config.protocol_paramset();
+
+        <span class="comment">// Pre-allocate commit vectors. Initializing with known sizes or empty vectors
+        // is slightly more efficient as it can prevent reallocations.
+        </span><span class="kw">let </span><span class="kw-2">mut </span>g16_public_input_commit: Vec&lt;Vec&lt;Vec&lt;u8&gt;&gt;&gt; = <span class="macro">vec!</span>[<span class="macro">vec!</span>[<span class="macro">vec!</span>[]]; <span class="number">1</span>];
+        <span class="kw">let </span><span class="kw-2">mut </span>num_u256_commits: Vec&lt;Vec&lt;Vec&lt;u8&gt;&gt;&gt; = <span class="macro">vec!</span>[<span class="macro">vec!</span>[<span class="macro">vec!</span>[]]; <span class="number">14</span>];
+        <span class="kw">let </span><span class="kw-2">mut </span>intermediate_value_commits: Vec&lt;Vec&lt;Vec&lt;u8&gt;&gt;&gt; = <span class="macro">vec!</span>[<span class="macro">vec!</span>[<span class="macro">vec!</span>[]]; <span class="number">363</span>];
+
+        <span class="macro">tracing::info!</span>(<span class="string">"Number of operator asserts: {}"</span>, operator_asserts.len());
+
+        <span class="kw">if </span>operator_asserts.len() != ClementineBitVMPublicKeys::number_of_assert_txs() {
+            <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(
+                <span class="string">"Expected exactly {} operator asserts, got {}"</span>,
+                ClementineBitVMPublicKeys::number_of_assert_txs(),
+                operator_asserts.len()
+            )
+            .into());
+        }
+
+        <span class="kw">for </span>i <span class="kw">in </span><span class="number">0</span>..operator_asserts.len() {
+            <span class="kw">let </span>witness = operator_asserts
+                .get(<span class="kw-2">&amp;</span>i)
+                .expect(<span class="string">"indexed from 0 to 32"</span>)
+                .clone();
+
+            <span class="kw">let </span><span class="kw-2">mut </span>commits = extract_winternitz_commits_with_sigs(
+                witness,
+                <span class="kw-2">&amp;</span>ClementineBitVMPublicKeys::get_assert_derivations(i, deposit_outpoint, paramset),
+                <span class="self">self</span>.config.protocol_paramset(),
+            )<span class="question-mark">?</span>;
+
+            <span class="comment">// Similar to the original operator asserts ordering, here we reorder into the format that BitVM expects.
+            // For the first transaction, we have specific commits that need to be assigned to their respective arrays.
+            // It includes the g16 public input commit, the last 2 num_u256 commits, and the last 3 intermediate value commits.
+            // The rest of the commits are assigned to the num_u256_commits and intermediate_value_commits arrays.
+            </span><span class="kw">match </span>i {
+                <span class="number">0 </span>=&gt; {
+                    <span class="comment">// Remove the last commit, which is for challenge-sending watchtowers
+                    </span>commits.pop();
+                    <span class="kw">let </span>len = commits.len();
+
+                    <span class="comment">// Assign specific commits to their respective arrays by removing from the end.
+                    // This is slightly more efficient than removing from arbitrary indices.
+                    </span>g16_public_input_commit[<span class="number">0</span>] = commits.remove(len - <span class="number">1</span>);
+                    num_u256_commits[<span class="number">12</span>] = commits.remove(len - <span class="number">2</span>);
+                    num_u256_commits[<span class="number">13</span>] = commits.remove(len - <span class="number">3</span>);
+                    intermediate_value_commits[<span class="number">360</span>] = commits.remove(len - <span class="number">4</span>);
+                    intermediate_value_commits[<span class="number">361</span>] = commits.remove(len - <span class="number">5</span>);
+                    intermediate_value_commits[<span class="number">362</span>] = commits.remove(len - <span class="number">6</span>);
+                }
+                <span class="number">1 </span>| <span class="number">2 </span>=&gt; {
+                    <span class="comment">// Handles i = 1 and i = 2
+                    </span><span class="kw">for </span>j <span class="kw">in </span><span class="number">0</span>..<span class="number">6 </span>{
+                        num_u256_commits[<span class="number">6 </span>* (i - <span class="number">1</span>) + j] = commits
+                            .pop()
+                            .expect(<span class="string">"Should not panic: `num_u256_commits` index out of bounds"</span>);
+                    }
+                }
+                <span class="number">3</span>..=<span class="number">32 </span>=&gt; {
+                    <span class="comment">// Handles i from 3 to 32
+                    </span><span class="kw">for </span>j <span class="kw">in </span><span class="number">0</span>..<span class="number">12 </span>{
+                        intermediate_value_commits[<span class="number">12 </span>* (i - <span class="number">3</span>) + j] = commits.pop().expect(
+                            <span class="string">"Should not panic: `intermediate_value_commits` index out of bounds"</span>,
+                        );
+                    }
+                }
+                <span class="kw">_ </span>=&gt; {
+                    <span class="comment">// Catch-all for any other 'i' values
+                    </span><span class="macro">panic!</span>(<span class="string">"Unexpected operator assert index: {}; expected 0 to 32."</span>, i);
+                }
+            }
+        }
+
+        <span class="macro">tracing::info!</span>(<span class="string">"Converting assert commits to required format"</span>);
+        <span class="macro">tracing::info!</span>(
+            <span class="string">"g16_public_input_commit[0]: {:?}"</span>,
+            g16_public_input_commit[<span class="number">0</span>]
+        );
+
+        <span class="comment">// Helper closure to parse commit data into the ([u8; 20], u8) format.
+        // This avoids code repetition and improves readability.
+        </span><span class="kw">let </span>fill_from_commits = |source: <span class="kw-2">&amp;</span>Vec&lt;Vec&lt;u8&gt;&gt;, target: <span class="kw-2">&amp;mut </span>[([u8; <span class="number">20</span>], u8)]| {
+            <span class="comment">// We iterate over chunks of 2 `Vec&lt;u8&gt;` elements at a time.
+            </span><span class="kw">for </span>(i, chunk) <span class="kw">in </span>source.chunks_exact(<span class="number">2</span>).enumerate() {
+                <span class="comment">// The first element of the chunk is the 20-byte array.
+                </span><span class="kw">let </span>array_part: [u8; <span class="number">20</span>] = chunk[<span class="number">0</span>]
+                    .as_slice()
+                    .try_into()
+                    .expect(<span class="string">"Slice is not 20 bytes"</span>);
+                <span class="comment">// The second element of the chunk is the single byte (u8).
+                </span><span class="kw">let </span>u8_part: u8 = <span class="kw-2">*</span>chunk[<span class="number">1</span>].first().unwrap_or(<span class="kw-2">&amp;</span><span class="number">0</span>);
+                target[i] = (array_part, u8_part);
+            }
+        };
+
+        <span class="kw">let </span><span class="kw-2">mut </span>first_box = Box::new([[([<span class="number">0u8</span>; <span class="number">20</span>], <span class="number">0u8</span>); <span class="number">68</span>]; <span class="number">1</span>]);
+        fill_from_commits(<span class="kw-2">&amp;</span>g16_public_input_commit[<span class="number">0</span>], <span class="kw-2">&amp;mut </span>first_box[<span class="number">0</span>]);
+
+        <span class="kw">let </span><span class="kw-2">mut </span>second_box = Box::new([[([<span class="number">0u8</span>; <span class="number">20</span>], <span class="number">0u8</span>); <span class="number">68</span>]; <span class="number">14</span>]);
+        <span class="kw">for </span>i <span class="kw">in </span><span class="number">0</span>..<span class="number">14 </span>{
+            fill_from_commits(<span class="kw-2">&amp;</span>num_u256_commits[i], <span class="kw-2">&amp;mut </span>second_box[i]);
+        }
+
+        <span class="kw">let </span><span class="kw-2">mut </span>third_box = Box::new([[([<span class="number">0u8</span>; <span class="number">20</span>], <span class="number">0u8</span>); <span class="number">36</span>]; <span class="number">363</span>]);
+        <span class="kw">for </span>i <span class="kw">in </span><span class="number">0</span>..<span class="number">363 </span>{
+            fill_from_commits(<span class="kw-2">&amp;</span>intermediate_value_commits[i], <span class="kw-2">&amp;mut </span>third_box[i]);
+        }
+
+        <span class="macro">tracing::info!</span>(<span class="string">"Boxes created"</span>);
+
+        <span class="kw">let </span>vk = <span class="kw">if </span>is_dev_mode() {
+            get_ark_verifying_key_dev_mode_bridge()
+        } <span class="kw">else </span>{
+            get_ark_verifying_key()
+        };
+
+        <span class="kw">let </span>res = validate_assertions(
+            <span class="kw-2">&amp;</span>vk,
+            (first_box, second_box, third_box),
+            bitvm_pks.bitvm_pks,
+            disprove_scripts
+                .as_slice()
+                .try_into()
+                .expect(<span class="string">"static bitvm_cache contains exactly 364 disprove scripts"</span>),
+        );
+        <span class="macro">tracing::info!</span>(<span class="string">"Disprove validation result: {:?}"</span>, res);
+
+        <span class="kw">match </span>res {
+            <span class="prelude-val">None </span>=&gt; {
+                <span class="macro">tracing::info!</span>(<span class="string">"No disprove witness found"</span>);
+                <span class="prelude-val">Ok</span>(<span class="prelude-val">None</span>)
+            }
+            <span class="prelude-val">Some</span>((index, disprove_script)) =&gt; {
+                <span class="macro">tracing::info!</span>(<span class="string">"Disprove witness found"</span>);
+                <span class="prelude-val">Ok</span>(<span class="prelude-val">Some</span>((index, disprove_script)))
+            }
+        }
+    }
+
+    <span class="doccomment">/// Constructs, signs, and broadcasts the primary disprove transaction based on the operator assertions.
+    ///
+    /// This function takes the `StructuredScript` and its `index` returned by `verify_disprove_conditions`.
+    /// It compiles the script, extracts the witness data (the push-only elements), and places it into the correct
+    /// script path (`index`) of the disprove transaction. It then adds the necessary operator and verifier
+    /// signatures before broadcasting the transaction to the Bitcoin network.
+    ///
+    /// # Arguments
+    /// * `txhandlers` - A map containing the pre-built `Disprove` transaction handler.
+    /// * `kickoff_data` - Contextual data from the kickoff transaction.
+    /// * `deposit_data` - Contextual data for the deposit being challenged.
+    /// * `disprove_script` - A tuple containing the executable `StructuredScript` and its Taproot leaf `index`, as returned by `verify_disprove_conditions`.
+    ///
+    /// # Returns
+    /// - `Ok(())` on successful broadcast of the transaction.
+    /// - `Err(BridgeError)` if signing or broadcasting fails.
+    </span><span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
+    </span><span class="kw">async fn </span>send_disprove_tx(
+        <span class="kw-2">&amp;</span><span class="self">self</span>,
+        txhandlers: <span class="kw-2">&amp;</span>BTreeMap&lt;TransactionType, TxHandler&gt;,
+        kickoff_data: KickoffData,
+        deposit_data: DepositData,
+        disprove_script: (usize, StructuredScript),
+    ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
+        <span class="kw">let </span>verifier_xonly_pk = <span class="self">self</span>.signer.xonly_public_key;
+
+        <span class="kw">let </span><span class="kw-2">mut </span>disprove_txhandler = txhandlers
+            .get(<span class="kw-2">&amp;</span>TransactionType::Disprove)
+            .wrap_err(<span class="string">"Disprove txhandler not found in txhandlers"</span>)<span class="question-mark">?
+            </span>.clone();
+
+        <span class="kw">let </span>disprove_inputs: Vec&lt;Vec&lt;u8&gt;&gt; = disprove_script
+            .<span class="number">1
+            </span>.compile()
+            .instructions()
+            .filter_map(|ins_res| <span class="kw">match </span>ins_res {
+                <span class="prelude-val">Ok</span>(Instruction::PushBytes(bytes)) =&gt; <span class="prelude-val">Some</span>(bytes.as_bytes().to_vec()),
+                <span class="kw">_ </span>=&gt; <span class="prelude-val">None</span>,
+            })
+            .collect();
+
+        disprove_txhandler
+            .set_p2tr_script_spend_witness(<span class="kw-2">&amp;</span>disprove_inputs, <span class="number">0</span>, disprove_script.<span class="number">0 </span>+ <span class="number">2</span>)
             .inspect_err(|e| {
                 <span class="macro">tracing::error!</span>(<span class="string">"Error setting disprove input witness: {:?}"</span>, e);
             })<span class="question-mark">?</span>;
@@ -4509,23 +5134,24 @@
                     payout_blockhash,
                     latest_blockhash,
                 } =&gt; {
-                    <span class="kw">let </span>context = ContractContext::new_context_for_kickoff(
+                    <span class="kw">let </span>context = ContractContext::new_context_with_signer(
                         kickoff_data,
                         deposit_data.clone(),
                         <span class="self">self</span>.config.protocol_paramset(),
+                        <span class="self">self</span>.signer.clone(),
                     );
-
                     <span class="kw">let </span><span class="kw-2">mut </span>db_cache = ReimburseDbCache::from_context(<span class="self">self</span>.db.clone(), <span class="kw-2">&amp;</span>context);
 
                     <span class="kw">let </span>txhandlers = create_txhandlers(
-                        TransactionType::AllNeededForDeposit,
+                        TransactionType::Disprove,
                         context,
                         <span class="kw-2">&amp;mut </span>TxHandlerCache::new(),
                         <span class="kw-2">&amp;mut </span>db_cache,
                     )
                     .<span class="kw">await</span><span class="question-mark">?</span>;
 
-                    <span class="kw">let </span>additional_disprove_witness = <span class="self">self
+                    <span class="comment">// Attempt to find an additional disprove witness first
+                    </span><span class="kw">if let </span><span class="prelude-val">Some</span>(additional_disprove_witness) = <span class="self">self
                         </span>.verify_additional_disprove_conditions(
                             <span class="kw-2">&amp;mut </span>deposit_data,
                             <span class="kw-2">&amp;</span>kickoff_data,
@@ -4535,9 +5161,12 @@
                             <span class="kw-2">&amp;</span>operator_acks,
                             <span class="kw-2">&amp;</span>txhandlers,
                         )
-                        .<span class="kw">await</span><span class="question-mark">?</span>;
-
-                    <span class="kw">if let </span><span class="prelude-val">Some</span>(additional_disprove_witness) = additional_disprove_witness {
+                        .<span class="kw">await</span><span class="question-mark">?
+                    </span>{
+                        <span class="macro">tracing::info!</span>(
+                            <span class="string">"The additional public inputs for the bridge proof provided by operator {:?} for the deposit are incorrect."</span>,
+                            kickoff_data.operator_xonly_pk
+                        );
                         <span class="self">self</span>.send_disprove_tx_additional(
                             <span class="kw-2">&amp;</span>txhandlers,
                             kickoff_data,
@@ -4547,9 +5176,36 @@
                         .<span class="kw">await</span><span class="question-mark">?</span>;
                     } <span class="kw">else </span>{
                         <span class="macro">tracing::info!</span>(
-                            <span class="string">"Verifier {:?} did not find additional disprove witness"</span>,
-                            verifier_xonly_pk
+                            <span class="string">"The additional public inputs for the bridge proof provided by operator {:?} for the deposit are correct."</span>,
+                            kickoff_data.operator_xonly_pk
                         );
+
+                        <span class="comment">// If no additional witness, try to find a standard disprove witness
+                        </span><span class="kw">match </span><span class="self">self
+                            </span>.verify_disprove_conditions(<span class="kw-2">&amp;mut </span>deposit_data, <span class="kw-2">&amp;</span>operator_asserts)
+                            .<span class="kw">await</span><span class="question-mark">?
+                        </span>{
+                            <span class="prelude-val">Some</span>((index, disprove_script)) =&gt; {
+                                <span class="macro">tracing::info!</span>(
+                                    <span class="string">"The public inputs for the bridge proof provided by operator {:?} for the deposit are incorrect."</span>,
+                                    kickoff_data.operator_xonly_pk
+                                );
+
+                                <span class="self">self</span>.send_disprove_tx(
+                                    <span class="kw-2">&amp;</span>txhandlers,
+                                    kickoff_data,
+                                    deposit_data,
+                                    (index, disprove_script),
+                                )
+                                .<span class="kw">await</span><span class="question-mark">?</span>;
+                            }
+                            <span class="prelude-val">None </span>=&gt; {
+                                <span class="macro">tracing::info!</span>(
+                                    <span class="string">"The public inputs for the bridge proof provided by operator {:?} for the deposit are correct."</span>,
+                                    kickoff_data.operator_xonly_pk
+                                );
+                            }
+                        }
                     }
 
                     <span class="prelude-val">Ok</span>(DutyResult::Handled)

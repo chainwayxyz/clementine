@@ -682,7 +682,16 @@
 <a href="#681" id="681">681</a>
 <a href="#682" id="682">682</a>
 <a href="#683" id="683">683</a>
-<a href="#684" id="684">684</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::WinternitzDerivationPath;
+<a href="#684" id="684">684</a>
+<a href="#685" id="685">685</a>
+<a href="#686" id="686">686</a>
+<a href="#687" id="687">687</a>
+<a href="#688" id="688">688</a>
+<a href="#689" id="689">689</a>
+<a href="#690" id="690">690</a>
+<a href="#691" id="691">691</a>
+<a href="#692" id="692">692</a>
+<a href="#693" id="693">693</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::WinternitzDerivationPath;
 <span class="kw">use </span><span class="kw">crate</span>::builder::address::taproot_builder_with_scripts;
 <span class="kw">use </span><span class="kw">crate</span>::builder::script::{SpendableScript, WinternitzCommit};
 
@@ -698,7 +707,8 @@
 <span class="kw">use </span>bitvm::signatures::wots_api::wots160;
 
 <span class="kw">use </span>borsh::{BorshDeserialize, BorshSerialize};
-<span class="kw">use </span>bridge_circuit_host::utils::get_ark_verifying_key;
+<span class="kw">use </span>bridge_circuit_host::utils::{get_ark_verifying_key, get_ark_verifying_key_dev_mode_bridge};
+<span class="kw">use </span>risc0_zkvm::is_dev_mode;
 <span class="kw">use </span>std::fs;
 
 <span class="kw">use </span>std::str::FromStr;
@@ -735,7 +745,11 @@
         <span class="kw">let </span>start = Instant::now();
 
         <span class="kw">let </span>bitvm_cache = {
-            <span class="kw">let </span>cache_path = std::env::var(<span class="string">"BITVM_CACHE_PATH"</span>).unwrap_or_else(|<span class="kw">_</span>| <span class="string">"bitvm_cache.bin"</span>.to_string());
+            <span class="kw">let </span>cache_path = <span class="kw">if </span><span class="macro">cfg!</span>(test) &amp;&amp; is_dev_mode() {
+                <span class="string">"bitvm_cache_dev.bin"</span>.to_string()
+            } <span class="kw">else </span>{
+                std::env::var(<span class="string">"BITVM_CACHE_PATH"</span>).unwrap_or_else(|<span class="kw">_</span>| <span class="string">"bitvm_cache.bin"</span>.to_string())
+            };
             <span class="macro">tracing::info!</span>(<span class="string">"Loading BitVM cache from file: {}"</span>, cache_path);
             <span class="kw">match </span>BitvmCache::load_from_file(<span class="kw-2">&amp;</span>cache_path) {
                 <span class="prelude-val">Ok</span>(cache) =&gt; {
@@ -792,7 +806,11 @@
 }
 
 <span class="kw">fn </span>generate_fresh_data() -&gt; BitvmCache {
-    <span class="kw">let </span>vk = get_ark_verifying_key();
+    <span class="kw">let </span>vk = <span class="kw">if </span><span class="macro">cfg!</span>(test) &amp;&amp; is_dev_mode() {
+        get_ark_verifying_key_dev_mode_bridge()
+    } <span class="kw">else </span>{
+        get_ark_verifying_key()
+    };
 
     <span class="kw">let </span>dummy_pks = ClementineBitVMPublicKeys::create_replacable();
 
@@ -1178,11 +1196,11 @@
         paramset: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>ProtocolParamset,
     ) -&gt; Vec&lt;WinternitzDerivationPath&gt; {
         <span class="macro">vec!</span>[
-            <span class="self">Self</span>::get_challenge_sending_watchtowers_derivation(deposit_outpoint, paramset),
-            WinternitzDerivationPath::BitvmAssert(<span class="number">32 </span>* <span class="number">2</span>, <span class="number">3</span>, <span class="number">0</span>, deposit_outpoint, paramset),
-            WinternitzDerivationPath::BitvmAssert(<span class="number">32 </span>* <span class="number">2</span>, <span class="number">4</span>, <span class="number">12</span>, deposit_outpoint, paramset),
-            WinternitzDerivationPath::BitvmAssert(<span class="number">32 </span>* <span class="number">2</span>, <span class="number">4</span>, <span class="number">13</span>, deposit_outpoint, paramset),
-            WinternitzDerivationPath::BitvmAssert(<span class="number">16 </span>* <span class="number">2</span>, <span class="number">5</span>, <span class="number">360</span>, deposit_outpoint, paramset),
+            <span class="self">Self</span>::get_challenge_sending_watchtowers_derivation(deposit_outpoint, paramset), <span class="comment">// Will not go into BitVM disprove scripts
+            </span>WinternitzDerivationPath::BitvmAssert(<span class="number">32 </span>* <span class="number">2</span>, <span class="number">3</span>, <span class="number">0</span>, deposit_outpoint, paramset), <span class="comment">// This is the Groth16 public output
+            </span>WinternitzDerivationPath::BitvmAssert(<span class="number">32 </span>* <span class="number">2</span>, <span class="number">4</span>, <span class="number">12</span>, deposit_outpoint, paramset), <span class="comment">// This is the extra 13th NUM_U256, after chunking by 6 for the first 2 asserts
+            </span>WinternitzDerivationPath::BitvmAssert(<span class="number">32 </span>* <span class="number">2</span>, <span class="number">4</span>, <span class="number">13</span>, deposit_outpoint, paramset), <span class="comment">// This is the extra 14th NUM_U256, after chunking by 6 for the first 2 asserts
+            </span>WinternitzDerivationPath::BitvmAssert(<span class="number">16 </span>* <span class="number">2</span>, <span class="number">5</span>, <span class="number">360</span>, deposit_outpoint, paramset),
             WinternitzDerivationPath::BitvmAssert(<span class="number">16 </span>* <span class="number">2</span>, <span class="number">5</span>, <span class="number">361</span>, deposit_outpoint, paramset),
             WinternitzDerivationPath::BitvmAssert(<span class="number">16 </span>* <span class="number">2</span>, <span class="number">5</span>, <span class="number">362</span>, deposit_outpoint, paramset),
         ]
@@ -1362,7 +1380,7 @@
     </span><span class="kw">async fn </span>test_generate_fresh_data() {
         <span class="kw">let </span>bitvm_cache = generate_fresh_data();
         bitvm_cache
-            .save_to_file(<span class="string">"bitvm_cache.bin"</span>)
+            .save_to_file(<span class="string">"bitvm_cache_new.bin"</span>)
             .expect(<span class="string">"Failed to save BitVM cache"</span>);
     }
 }

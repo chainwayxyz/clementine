@@ -1383,7 +1383,16 @@
 <a href="#1382" id="1382">1382</a>
 <a href="#1383" id="1383">1383</a>
 <a href="#1384" id="1384">1384</a>
-<a href="#1385" id="1385">1385</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Transaction Handler Creation Logic
+<a href="#1385" id="1385">1385</a>
+<a href="#1386" id="1386">1386</a>
+<a href="#1387" id="1387">1387</a>
+<a href="#1388" id="1388">1388</a>
+<a href="#1389" id="1389">1389</a>
+<a href="#1390" id="1390">1390</a>
+<a href="#1391" id="1391">1391</a>
+<a href="#1392" id="1392">1392</a>
+<a href="#1393" id="1393">1393</a>
+<a href="#1394" id="1394">1394</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Transaction Handler Creation Logic
 //!
 //! This module provides the logic for constructing, caching, and managing transaction handlers (`TxHandler`) for all transaction types in the Clementine bridge.
 //!
@@ -1411,6 +1420,7 @@
 <span class="kw">use </span><span class="kw">crate</span>::bitvm_client::ClementineBitVMPublicKeys;
 <span class="kw">use </span><span class="kw">crate</span>::builder;
 <span class="kw">use </span><span class="kw">crate</span>::builder::script::{SpendableScript, TimelockScript, WinternitzCommit};
+<span class="kw">use </span><span class="kw">crate</span>::builder::transaction::operator_reimburse::DisprovePath;
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::{
     create_assert_timeout_txhandlers, create_challenge_timeout_txhandler, create_kickoff_txhandler,
     create_mini_asserts, create_round_txhandler, create_unspent_kickoff_txhandlers, AssertScripts,
@@ -1807,7 +1817,7 @@
 
     <span class="doccomment">/// Contains all necessary context for creating txhandlers for a specific operator, kickoff utxo, and a deposit
     /// Additionally holds signer of an actor that can generate the actual winternitz public keys.
-    </span><span class="kw">pub fn </span>new_context_for_asserts(
+    </span><span class="kw">pub fn </span>new_context_with_signer(
         kickoff_data: KickoffData,
         deposit_data: DepositData,
         paramset: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>ProtocolParamset,
@@ -2082,6 +2092,16 @@
     <span class="kw">let </span>disprove_root_hash = <span class="kw-2">*</span>db_cache.get_bitvm_disprove_root_hash().<span class="kw">await</span><span class="question-mark">?</span>;
     <span class="kw">let </span>latest_blockhash_root_hash = <span class="kw-2">*</span>db_cache.get_latest_blockhash_root_hash().<span class="kw">await</span><span class="question-mark">?</span>;
 
+    <span class="kw">let </span>disprove_path = <span class="kw">if </span>transaction_type == TransactionType::Disprove {
+        <span class="kw">let </span>actor = context.signer.clone().ok_or(TxError::InsufficientContext)<span class="question-mark">?</span>;
+        <span class="kw">let </span>bitvm_pks =
+            actor.generate_bitvm_pks_for_deposit(deposit_data.get_deposit_outpoint(), paramset)<span class="question-mark">?</span>;
+        <span class="kw">let </span>disprove_scripts = bitvm_pks.get_g16_verifier_disprove_scripts();
+        DisprovePath::Scripts(disprove_scripts)
+    } <span class="kw">else </span>{
+        DisprovePath::HiddenNode(<span class="kw-2">&amp;</span>disprove_root_hash)
+    };
+
     <span class="kw">let </span>kickoff_txhandler = <span class="kw">if </span><span class="macro">matches!</span>(
         transaction_type,
         TransactionType::LatestBlockhash | TransactionType::MiniAssert(<span class="kw">_</span>)
@@ -2110,7 +2130,7 @@
             <span class="kw-2">&amp;mut </span>deposit_data,
             operator_data.xonly_pk,
             AssertScripts::AssertSpendableScript(assert_scripts),
-            <span class="kw-2">&amp;</span>disprove_root_hash,
+            disprove_path,
             additional_disprove_script.clone(),
             AssertScripts::AssertSpendableScript(<span class="macro">vec!</span>[latest_blockhash_script]),
             <span class="kw-2">&amp;</span>public_hashes,
@@ -2141,7 +2161,7 @@
             <span class="kw-2">&amp;mut </span>deposit_data,
             operator_data.xonly_pk,
             AssertScripts::AssertScriptTapNodeHash(db_cache.get_bitvm_assert_hash().<span class="kw">await</span><span class="question-mark">?</span>),
-            <span class="kw-2">&amp;</span>disprove_root_hash,
+            disprove_path,
             additional_disprove_script.clone(),
             AssertScripts::AssertScriptTapNodeHash(<span class="kw-2">&amp;</span>[latest_blockhash_root_hash]),
             <span class="kw-2">&amp;</span>public_hashes,
@@ -2278,20 +2298,18 @@
     );
 
     <span class="kw">match </span>transaction_type {
-        TransactionType::AllNeededForDeposit =&gt; {
+        TransactionType::AllNeededForDeposit | TransactionType::Disprove =&gt; {
             <span class="kw">let </span>disprove_txhandler = builder::transaction::create_disprove_txhandler(
                 get_txhandler(<span class="kw-2">&amp;</span>txhandlers, TransactionType::Kickoff)<span class="question-mark">?</span>,
                 get_txhandler(<span class="kw-2">&amp;</span>txhandlers, TransactionType::Round)<span class="question-mark">?</span>,
                 paramset,
             )<span class="question-mark">?</span>;
+
             txhandlers.insert(
                 disprove_txhandler.get_transaction_type(),
                 disprove_txhandler,
             );
         }
-        TransactionType::Disprove =&gt; {
-            <span class="comment">// TODO: if TransactionType::Disprove, we need to add the actual disprove script here because requester wants to disprove the withdrawal
-        </span>}
         <span class="kw">_ </span>=&gt; {}
     }
 

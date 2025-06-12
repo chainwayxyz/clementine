@@ -525,7 +525,8 @@
 <a href="#524" id="524">524</a>
 <a href="#525" id="525">525</a>
 <a href="#526" id="526">526</a>
-<a href="#527" id="527">527</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Transaction Signing Utilities
+<a href="#527" id="527">527</a>
+<a href="#528" id="528">528</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Transaction Signing Utilities
 //!
 //! This module provides logic signing the transactions used in the Clementine bridge.
 
@@ -673,7 +674,8 @@
     <span class="kw">let </span><span class="kw-2">mut </span>tweak_cache = TweakCache::default();
 
     <span class="kw">for </span>(tx_type, <span class="kw-2">mut </span>txhandler) <span class="kw">in </span>txhandlers.into_iter() {
-        <span class="kw">let _ </span>= signer.tx_sign_and_fill_sigs(<span class="kw-2">&amp;mut </span>txhandler, <span class="kw-2">&amp;</span>signatures, <span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>tweak_cache));
+        <span class="kw">let </span>result =
+            signer.tx_sign_and_fill_sigs(<span class="kw-2">&amp;mut </span>txhandler, <span class="kw-2">&amp;</span>signatures, <span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>tweak_cache));
 
         <span class="kw">if let </span>TransactionType::OperatorChallengeAck(watchtower_idx) = tx_type {
             <span class="kw">let </span>path = WinternitzDerivationPath::ChallengeAckHash(
@@ -750,7 +752,7 @@
             ))<span class="question-mark">?
             </span>.<span class="number">1</span>;
 
-        <span class="kw">let </span>context = ContractContext::new_context_for_asserts(
+        <span class="kw">let </span>context = ContractContext::new_context_with_signer(
             transaction_data.kickoff_data,
             deposit_data.clone(),
             <span class="self">self</span>.config.protocol_paramset(),
@@ -900,7 +902,7 @@
             </span>.ok_or(BridgeError::DepositNotFound(assert_data.deposit_outpoint))<span class="question-mark">?
             </span>.<span class="number">1</span>;
 
-        <span class="kw">let </span>context = ContractContext::new_context_for_asserts(
+        <span class="kw">let </span>context = ContractContext::new_context_with_signer(
             assert_data.kickoff_data,
             deposit_data.clone(),
             <span class="self">self</span>.config.protocol_paramset(),
@@ -981,7 +983,7 @@
             </span>.ok_or(BridgeError::DepositNotFound(assert_data.deposit_outpoint))<span class="question-mark">?
             </span>.<span class="number">1</span>;
 
-        <span class="kw">let </span>context = ContractContext::new_context_for_asserts(
+        <span class="kw">let </span>context = ContractContext::new_context_with_signer(
             assert_data.kickoff_data,
             deposit_data,
             <span class="self">self</span>.config.protocol_paramset(),

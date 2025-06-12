@@ -1282,14 +1282,15 @@
 <a href="#1281" id="1281">1281</a>
 <a href="#1282" id="1282">1282</a>
 <a href="#1283" id="1283">1283</a>
-<a href="#1284" id="1284">1284</a></pre></div><pre class="rust"><code><span class="kw">use </span>std::collections::hash_map::Entry;
+<a href="#1284" id="1284">1284</a>
+<a href="#1285" id="1285">1285</a></pre></div><pre class="rust"><code><span class="kw">use </span>std::collections::hash_map::Entry;
 <span class="kw">use </span>std::collections::HashMap;
 
 <span class="kw">use </span><span class="kw">crate</span>::bitvm_client::{<span class="self">self</span>, ClementineBitVMPublicKeys, SECP};
 <span class="kw">use </span><span class="kw">crate</span>::builder::script::SpendPath;
 <span class="kw">use </span><span class="kw">crate</span>::builder::sighash::TapTweakData;
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::input::SpentTxIn;
-<span class="kw">use </span><span class="kw">crate</span>::builder::transaction::{SighashCalculator, TxHandler};
+<span class="kw">use </span><span class="kw">crate</span>::builder::transaction::{SighashCalculator, TransactionType, TxHandler};
 <span class="kw">use </span><span class="kw">crate</span>::config::protocol::ProtocolParamset;
 <span class="kw">use </span><span class="kw">crate</span>::errors::{BridgeError, TxError};
 <span class="kw">use </span><span class="kw">crate</span>::operator::{PublicHash, RoundIndex};
@@ -1863,6 +1864,7 @@
                 .get_deposit_sig_owner()
                 .map(|s| s.sighash_type())<span class="question-mark">?
                 </span>.unwrap_or(TapSighashType::Default);
+
             <span class="kw">match </span>spt.get_spend_path() {
                 SpendPath::ScriptSpend(script_idx) =&gt; {
                     <span class="kw">let </span>script = spt

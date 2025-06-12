@@ -1806,7 +1806,18 @@
 <a href="#1805" id="1805">1805</a>
 <a href="#1806" id="1806">1806</a>
 <a href="#1807" id="1807">1807</a>
-<a href="#1808" id="1808">1808</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_ff::PrimeField;
+<a href="#1808" id="1808">1808</a>
+<a href="#1809" id="1809">1809</a>
+<a href="#1810" id="1810">1810</a>
+<a href="#1811" id="1811">1811</a>
+<a href="#1812" id="1812">1812</a>
+<a href="#1813" id="1813">1813</a>
+<a href="#1814" id="1814">1814</a>
+<a href="#1815" id="1815">1815</a>
+<a href="#1816" id="1816">1816</a>
+<a href="#1817" id="1817">1817</a>
+<a href="#1818" id="1818">1818</a>
+<a href="#1819" id="1819">1819</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_ff::PrimeField;
 <span class="kw">use </span>circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
 <span class="kw">use </span>risc0_zkvm::is_dev_mode;
 <span class="kw">use </span>std::collections::HashMap;
@@ -3272,6 +3283,17 @@
             )
             .map_err(|e| <span class="macro">eyre::eyre!</span>(<span class="string">"Failed to generate assertions: {}"</span>, e))<span class="question-mark">?
         </span>};
+
+        <span class="attr">#[cfg(test)]
+        </span><span class="kw">let </span><span class="kw-2">mut </span>asserts = asserts;
+
+        <span class="attr">#[cfg(test)]
+        </span>{
+            <span class="kw">if </span><span class="self">self</span>.config.test_params.corrupted_asserts {
+                <span class="macro">tracing::info!</span>(<span class="string">"Disrupting asserts commit in send_asserts"</span>);
+                asserts.<span class="number">0</span>[<span class="number">0</span>][<span class="number">0</span>] ^= <span class="number">0x01</span>;
+            }
+        }
 
         <span class="kw">let </span>assert_txs = <span class="self">self
             </span>.create_assert_commitment_txs(

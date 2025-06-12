@@ -482,7 +482,14 @@
 <a href="#481" id="481">481</a>
 <a href="#482" id="482">482</a>
 <a href="#483" id="483">483</a>
-<a href="#484" id="484">484</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Operator Reimburse Transactions
+<a href="#484" id="484">484</a>
+<a href="#485" id="485">485</a>
+<a href="#486" id="486">486</a>
+<a href="#487" id="487">487</a>
+<a href="#488" id="488">488</a>
+<a href="#489" id="489">489</a>
+<a href="#490" id="490">490</a>
+<a href="#491" id="491">491</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Operator Reimburse Transactions
 //!
 //! This module contains the logic for creating operator reimbursement and payout-related transactions in the protocol.
 //! These transactions handle the flow of funds for operator compensation, challenge handling, and user withdrawals.
@@ -498,6 +505,7 @@
 <span class="kw">use </span><span class="kw">super</span>::input::UtxoVout;
 <span class="kw">use </span><span class="kw">super</span>::op_return_txout;
 <span class="kw">use </span><span class="kw">super</span>::txhandler::DEFAULT_SEQUENCE;
+<span class="kw">use </span><span class="kw">super</span>::HiddenNode;
 <span class="kw">use </span><span class="kw">super</span>::Signed;
 <span class="kw">use </span><span class="kw">super</span>::TransactionType;
 <span class="kw">use </span><span class="kw">super</span>::TxError;
@@ -523,6 +531,12 @@
 </span><span class="kw">pub enum </span>AssertScripts&lt;<span class="lifetime">'a</span>&gt; {
     AssertScriptTapNodeHash(<span class="kw-2">&amp;</span><span class="lifetime">'a </span>[[u8; <span class="number">32</span>]]),
     AssertSpendableScript(Vec&lt;Arc&lt;<span class="kw">dyn </span>SpendableScript&gt;&gt;),
+}
+
+<span class="attr">#[derive(Debug, Clone)]
+</span><span class="kw">pub enum </span>DisprovePath&lt;<span class="lifetime">'a</span>&gt; {
+    Scripts(Vec&lt;ScriptBuf&gt;),
+    HiddenNode(HiddenNode&lt;<span class="lifetime">'a</span>&gt;),
 }
 
 <span class="doccomment">/// Creates a [`TxHandler`] for the `kickoff_tx`.
@@ -567,7 +581,7 @@
     deposit_data: <span class="kw-2">&amp;mut </span>DepositData,
     operator_xonly_pk: XOnlyPublicKey,
     assert_scripts: AssertScripts,
-    disprove_root_hash: <span class="kw-2">&amp;</span>[u8; <span class="number">32</span>],
+    disprove_path: DisprovePath,
     additional_disprove_script: Vec&lt;u8&gt;,
     latest_blockhash_script: AssertScripts,
     operator_unlock_hashes: <span class="kw-2">&amp;</span>[[u8; <span class="number">20</span>]],
@@ -628,7 +642,7 @@
     </span>builder = builder.add_output(<span class="kw">super</span>::create_disprove_taproot_output(
         operator_5week,
         additional_disprove_script.clone(),
-        disprove_root_hash,
+        disprove_path,
         paramset.default_utxo_amount(),
         paramset.network,
     ));

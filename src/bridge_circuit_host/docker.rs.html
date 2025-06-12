@@ -551,7 +551,14 @@
 <a href="#550" id="550">550</a>
 <a href="#551" id="551">551</a>
 <a href="#552" id="552">552</a>
-<a href="#553" id="553">553</a></pre></div><pre class="rust"><code><span class="kw">use </span>hex::ToHex;
+<a href="#553" id="553">553</a>
+<a href="#554" id="554">554</a>
+<a href="#555" id="555">555</a>
+<a href="#556" id="556">556</a>
+<a href="#557" id="557">557</a>
+<a href="#558" id="558">558</a>
+<a href="#559" id="559">559</a>
+<a href="#560" id="560">560</a></pre></div><pre class="rust"><code><span class="kw">use </span>hex::ToHex;
 <span class="kw">use </span>num_bigint::BigUint;
 <span class="kw">use </span>num_traits::Num;
 <span class="kw">use </span>risc0_groth16::{to_json, ProofJson, Seal};
@@ -1071,7 +1078,7 @@
 
     // Step 2: Convert the decimal string to BigUint and then to hexadecimal
     </span><span class="kw">let </span>output_content_hex = BigUint::from_str_radix(output_str, <span class="number">10</span>)
-        .unwrap()
+        .expect(<span class="string">"always decimal"</span>)
         .to_str_radix(<span class="number">16</span>);
 
     <span class="comment">// If the length of the hexadecimal string is odd, add a leading zero
@@ -1083,8 +1090,15 @@
 
     <span class="comment">// Step 3: Decode the hexadecimal string to a byte vector
     </span><span class="kw">let </span>output_byte_vec = hex::decode(<span class="kw-2">&amp;</span>output_content_hex).unwrap();
-    <span class="comment">// let output_byte_vec = hex::decode(output_hex).unwrap();
-    </span><span class="kw">let </span>output_bytes: [u8; <span class="number">31</span>] = output_byte_vec.as_slice().try_into().unwrap();
+    <span class="comment">// Create our target 31-byte array, initialized to all zeros.
+    </span><span class="kw">let </span><span class="kw-2">mut </span>output_bytes = [<span class="number">0u8</span>; <span class="number">31</span>];
+
+    <span class="comment">// Calculate the starting position in the destination array.
+    // This ensures the bytes are right-aligned, effectively padding with leading zeros.
+    </span><span class="kw">let </span>start_index = <span class="number">31 </span>- output_byte_vec.len();
+
+    <span class="comment">// Copy the decoded bytes from the vector into the correct slice of the array.
+    </span>output_bytes[start_index..].copy_from_slice(<span class="kw-2">&amp;</span>output_byte_vec);
     (proof_json.try_into().unwrap(), output_bytes)
 }
 

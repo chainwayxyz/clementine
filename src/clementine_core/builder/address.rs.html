@@ -343,7 +343,64 @@
 <a href="#342" id="342">342</a>
 <a href="#343" id="343">343</a>
 <a href="#344" id="344">344</a>
-<a href="#345" id="345">345</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Bitcoin Address Construction
+<a href="#345" id="345">345</a>
+<a href="#346" id="346">346</a>
+<a href="#347" id="347">347</a>
+<a href="#348" id="348">348</a>
+<a href="#349" id="349">349</a>
+<a href="#350" id="350">350</a>
+<a href="#351" id="351">351</a>
+<a href="#352" id="352">352</a>
+<a href="#353" id="353">353</a>
+<a href="#354" id="354">354</a>
+<a href="#355" id="355">355</a>
+<a href="#356" id="356">356</a>
+<a href="#357" id="357">357</a>
+<a href="#358" id="358">358</a>
+<a href="#359" id="359">359</a>
+<a href="#360" id="360">360</a>
+<a href="#361" id="361">361</a>
+<a href="#362" id="362">362</a>
+<a href="#363" id="363">363</a>
+<a href="#364" id="364">364</a>
+<a href="#365" id="365">365</a>
+<a href="#366" id="366">366</a>
+<a href="#367" id="367">367</a>
+<a href="#368" id="368">368</a>
+<a href="#369" id="369">369</a>
+<a href="#370" id="370">370</a>
+<a href="#371" id="371">371</a>
+<a href="#372" id="372">372</a>
+<a href="#373" id="373">373</a>
+<a href="#374" id="374">374</a>
+<a href="#375" id="375">375</a>
+<a href="#376" id="376">376</a>
+<a href="#377" id="377">377</a>
+<a href="#378" id="378">378</a>
+<a href="#379" id="379">379</a>
+<a href="#380" id="380">380</a>
+<a href="#381" id="381">381</a>
+<a href="#382" id="382">382</a>
+<a href="#383" id="383">383</a>
+<a href="#384" id="384">384</a>
+<a href="#385" id="385">385</a>
+<a href="#386" id="386">386</a>
+<a href="#387" id="387">387</a>
+<a href="#388" id="388">388</a>
+<a href="#389" id="389">389</a>
+<a href="#390" id="390">390</a>
+<a href="#391" id="391">391</a>
+<a href="#392" id="392">392</a>
+<a href="#393" id="393">393</a>
+<a href="#394" id="394">394</a>
+<a href="#395" id="395">395</a>
+<a href="#396" id="396">396</a>
+<a href="#397" id="397">397</a>
+<a href="#398" id="398">398</a>
+<a href="#399" id="399">399</a>
+<a href="#400" id="400">400</a>
+<a href="#401" id="401">401</a>
+<a href="#402" id="402">402</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Bitcoin Address Construction
 //!
 //! Contains helper functions to create taproot addresses with given scripts and internal key.
 //! Contains helper functions to create correct deposit addresses. Addresses need to be of a specific format to be
@@ -363,6 +420,7 @@
     taproot::{TaprootBuilder, TaprootSpendInfo},
     Address, ScriptBuf,
 };
+
 <span class="kw">use </span>eyre::Context;
 
 <span class="doccomment">/// A helper to construct a `TaprootBuilder` from a slice of script buffers, forming the script tree.
@@ -396,6 +454,28 @@
         )
         .expect(<span class="string">"algorithm tested to be correct"</span>)
     })
+}
+
+<span class="doccomment">/// Calculates the depth of each leaf in a balanced Taproot tree structure.
+/// The returned Vec contains the depth for each script at the corresponding index.
+</span><span class="kw">pub fn </span>calculate_taproot_leaf_depths(num_scripts: usize) -&gt; Vec&lt;u8&gt; {
+    <span class="kw">match </span>num_scripts {
+        <span class="number">0 </span>=&gt; <span class="kw">return </span><span class="macro">vec!</span>[],
+        <span class="number">1 </span>=&gt; <span class="kw">return </span><span class="macro">vec!</span>[<span class="number">0</span>],
+        <span class="kw">_ </span>=&gt; {}
+    }
+
+    <span class="kw">let </span>deepest_layer_depth: u8 = ((num_scripts - <span class="number">1</span>).ilog2() + <span class="number">1</span>) <span class="kw">as </span>u8;
+
+    <span class="kw">let </span>num_empty_nodes_in_final_depth = <span class="number">2_usize</span>.pow(deepest_layer_depth.into()) - num_scripts;
+    <span class="kw">let </span>num_nodes_in_final_depth = num_scripts - num_empty_nodes_in_final_depth;
+
+    (<span class="number">0</span>..num_scripts)
+        .map(|i| {
+            <span class="kw">let </span>is_node_in_last_minus_one_depth = (i &gt;= num_nodes_in_final_depth) <span class="kw">as </span>u8;
+            deepest_layer_depth - is_node_in_last_minus_one_depth
+        })
+        .collect()
 }
 
 <span class="doccomment">/// Creates a taproot address with given scripts and internal key.
@@ -548,7 +628,7 @@
 </span><span class="kw">mod </span>tests {
     <span class="kw">use crate</span>::{
         bitvm_client::{<span class="self">self</span>, SECP},
-        builder,
+        builder::{<span class="self">self</span>, address::calculate_taproot_leaf_depths},
         musig2::AggregateFromPublicKeys,
     };
     <span class="kw">use </span>bitcoin::{
@@ -686,6 +766,40 @@
 
             <span class="macro">assert_eq!</span>(tree_info.script_map().len(), i <span class="kw">as </span>usize);
         }
+    }
+
+    <span class="attr">#[test]
+    </span><span class="kw">fn </span>test_calculate_taproot_leaf_depths() {
+        <span class="comment">// Test case 1: 0 scripts
+        </span><span class="kw">let </span>expected: Vec&lt;u8&gt; = <span class="macro">vec!</span>[];
+        <span class="macro">assert_eq!</span>(calculate_taproot_leaf_depths(<span class="number">0</span>), expected);
+
+        <span class="comment">// Test case 2: 1 script
+        </span><span class="macro">assert_eq!</span>(calculate_taproot_leaf_depths(<span class="number">1</span>), <span class="macro">vec!</span>[<span class="number">0</span>]);
+
+        <span class="comment">// Test case 3: 2 scripts (balanced tree, depth 1 for both)
+        </span><span class="macro">assert_eq!</span>(calculate_taproot_leaf_depths(<span class="number">2</span>), <span class="macro">vec!</span>[<span class="number">1</span>, <span class="number">1</span>]);
+
+        <span class="comment">// Test case 4: 3 scripts (unbalanced)
+        // The first two scripts are at depth 2, the last is promoted to depth 1.
+        </span><span class="macro">assert_eq!</span>(calculate_taproot_leaf_depths(<span class="number">3</span>), <span class="macro">vec!</span>[<span class="number">2</span>, <span class="number">2</span>, <span class="number">1</span>]);
+
+        <span class="comment">// Test case 5: 4 scripts (perfectly balanced tree, all at depth 2)
+        </span><span class="macro">assert_eq!</span>(calculate_taproot_leaf_depths(<span class="number">4</span>), <span class="macro">vec!</span>[<span class="number">2</span>, <span class="number">2</span>, <span class="number">2</span>, <span class="number">2</span>]);
+
+        <span class="comment">// Test case 6: 5 scripts (unbalanced)
+        // num_nodes_in_final_depth is 2, so first two are at depth 3, rest are at depth 2.
+        // deepest_layer_depth = ilog2(4) + 1 = 3
+        // num_empty_nodes = 2^3 - 5 = 3
+        // num_nodes_in_final_depth = 5 - 3 = 2
+        // Depths: (3, 3, 2, 2, 2)
+        </span><span class="macro">assert_eq!</span>(calculate_taproot_leaf_depths(<span class="number">5</span>), <span class="macro">vec!</span>[<span class="number">3</span>, <span class="number">3</span>, <span class="number">2</span>, <span class="number">2</span>, <span class="number">2</span>]);
+
+        <span class="comment">// Test case 7: 8 scripts (perfectly balanced tree, all at depth 3)
+        </span><span class="macro">assert_eq!</span>(
+            calculate_taproot_leaf_depths(<span class="number">8</span>),
+            <span class="macro">vec!</span>[<span class="number">3</span>, <span class="number">3</span>, <span class="number">3</span>, <span class="number">3</span>, <span class="number">3</span>, <span class="number">3</span>, <span class="number">3</span>, <span class="number">3</span>]
+        );
     }
 }
 </code></pre></div></section></main></body></html>
