@@ -2,6 +2,10 @@ name: Build And Test
 
 on: [push]
 
+concurrency: 
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
   AUTOMATION_ARGS: --features automation
