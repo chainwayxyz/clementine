@@ -165,7 +165,8 @@ impl AdditionalDisproveTest {
             )
             .await
             .unwrap(),
-            0
+            0,
+            "Balance should be non-zero after deposit"
         );
 
         tracing::debug!("Deposit operations are successful.");
