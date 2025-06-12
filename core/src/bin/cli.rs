@@ -1,14 +1,10 @@
 //! This module defines a command line interface for the RPC client.
 
-use std::path::PathBuf;
-use std::str::FromStr;
-
-use bitcoin::{hashes::Hash, Block, ScriptBuf, Txid};
+use bitcoin::{hashes::Hash, ScriptBuf};
 use clap::{Parser, Subcommand};
 use clementine_core::{
     config::BridgeConfig,
     deposit::SecurityCouncil,
-    errors::BridgeError,
     rpc::clementine::{
         self, clementine_aggregator_client::ClementineAggregatorClient,
         clementine_operator_client::ClementineOperatorClient,
@@ -18,8 +14,8 @@ use clementine_core::{
     },
     EVMAddress,
 };
-use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
+use std::path::PathBuf;
+use std::str::FromStr;
 use tonic::Request;
 
 #[derive(Parser)]
@@ -204,170 +200,6 @@ enum AggregatorCommands {
     },
     /// Get vergen build information
     Vergen,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BitcoinMerkleTree {
-    depth: u32,
-    nodes: Vec<Vec<[u8; 32]>>,
-}
-
-impl BitcoinMerkleTree {
-    pub fn new(transactions: Vec<[u8; 32]>) -> Self {
-        // assert!(depth > 0, "Depth must be greater than 0");
-        // assert!(depth <= 254, "Depth must be less than or equal to 254");
-        // assert!(
-        //     u32::pow(2, (depth) as u32) >= transactions.len() as u32,
-        //     "Too many transactions for this depth"
-        // );
-        let depth = (transactions.len() - 1).ilog(2) + 1;
-        let mut tree = BitcoinMerkleTree {
-            depth,
-            nodes: vec![],
-        };
-
-        // Populate leaf nodes
-        tree.nodes.push(vec![]);
-        for tx in transactions.iter() {
-            tree.nodes[0].push(*tx);
-        }
-
-        // Construct the tree
-        let mut curr_level_offset: usize = 1;
-        let mut prev_level_size = transactions.len();
-        let mut prev_level_index_offset = 0;
-        let mut preimage: [u8; 64] = [0; 64];
-        while prev_level_size > 1 {
-            // println!("curr_level_offset: {}", curr_level_offset);
-            // println!("prev_level_size: {}", prev_level_size);
-            // println!("prev_level_index_offset: {}", prev_level_index_offset);
-            tree.nodes.push(vec![]);
-            for i in 0..(prev_level_size / 2) {
-                preimage[..32].copy_from_slice(
-                    &tree.nodes[curr_level_offset - 1_usize][prev_level_index_offset + i * 2],
-                );
-                preimage[32..].copy_from_slice(
-                    &tree.nodes[curr_level_offset - 1][prev_level_index_offset + i * 2 + 1],
-                );
-                let combined_hash = calculate_double_sha256(&preimage);
-                tree.nodes[curr_level_offset].push(combined_hash);
-            }
-            if prev_level_size % 2 == 1 {
-                let mut preimage: [u8; 64] = [0; 64];
-                preimage[..32].copy_from_slice(
-                    &tree.nodes[curr_level_offset - 1]
-                        [prev_level_index_offset + prev_level_size - 1],
-                );
-                preimage[32..].copy_from_slice(
-                    &tree.nodes[curr_level_offset - 1]
-                        [prev_level_index_offset + prev_level_size - 1],
-                );
-                let combined_hash = calculate_double_sha256(&preimage);
-                tree.nodes[curr_level_offset].push(combined_hash);
-            }
-            curr_level_offset += 1;
-            prev_level_size = prev_level_size.div_ceil(2);
-            prev_level_index_offset = 0;
-        }
-        tree
-    }
-
-    // Returns the Merkle root
-    pub fn root(&self) -> [u8; 32] {
-        self.nodes[self.nodes.len() - 1][0]
-    }
-
-    pub fn get_idx_path(&self, index: u32) -> Vec<[u8; 32]> {
-        assert!(index < self.nodes[0].len() as u32, "Index out of bounds");
-        let mut path = vec![];
-        let mut level = 0;
-        let mut i = index;
-        while level < self.nodes.len() as u32 - 1 {
-            if i % 2 == 1 {
-                path.push(self.nodes[level as usize][i as usize - 1]);
-            } else if (self.nodes[level as usize].len() - 1) as u32 == i {
-                path.push(self.nodes[level as usize][i as usize]);
-            } else {
-                path.push(self.nodes[level as usize][(i + 1) as usize]);
-            }
-
-            level += 1;
-            i /= 2;
-        }
-
-        path
-    }
-
-    pub fn calculate_root_with_merkle_proof(
-        &self,
-        txid: [u8; 32],
-        idx: u32,
-        merkle_proof: Vec<[u8; 32]>,
-    ) -> [u8; 32] {
-        let mut preimage: [u8; 64] = [0; 64];
-        let mut combined_hash: [u8; 32] = txid;
-        let mut index = idx;
-        let mut level: u32 = 0;
-        while level < self.depth {
-            if index % 2 == 0 {
-                preimage[..32].copy_from_slice(&combined_hash);
-                preimage[32..].copy_from_slice(&merkle_proof[level as usize]);
-                combined_hash = calculate_double_sha256(&preimage);
-            } else {
-                preimage[..32].copy_from_slice(&merkle_proof[level as usize]);
-                preimage[32..].copy_from_slice(&combined_hash);
-                combined_hash = calculate_double_sha256(&preimage);
-            }
-            level += 1;
-            index /= 2;
-        }
-        combined_hash
-    }
-}
-
-pub fn calculate_double_sha256(input: &[u8]) -> [u8; 32] {
-    let mut hasher = Sha256::default();
-    hasher.update(input);
-    let result = hasher.finalize_reset();
-    hasher.update(result);
-    hasher.finalize().into()
-}
-
-fn _get_block_merkle_proof(
-    block: Block,
-    target_txid: Txid,
-) -> Result<(usize, Vec<u8>), BridgeError> {
-    let mut txid_index = 0;
-    let txids = block
-        .txdata
-        .iter()
-        .enumerate()
-        .map(|(i, tx)| {
-            if tx.compute_txid() == target_txid {
-                txid_index = i;
-            }
-
-            if i == 0 {
-                [0; 32]
-            } else {
-                let wtxid = tx.compute_wtxid();
-                wtxid.as_byte_array().to_owned()
-            }
-        })
-        .collect::<Vec<_>>();
-
-    let merkle_tree = BitcoinMerkleTree::new(txids.clone());
-    let _witness_root = block.witness_root().expect("Failed to get witness root");
-    let witness_idx_path =
-        merkle_tree.get_idx_path(txid_index.try_into().expect("Failed to convert index"));
-
-    let _root = merkle_tree.calculate_root_with_merkle_proof(
-        txids[txid_index],
-        txid_index.try_into().expect("Failed to convert index"),
-        witness_idx_path.clone(),
-    );
-
-    Ok((txid_index, witness_idx_path.into_iter().flatten().collect()))
 }
 
 // Create a minimal config with default TLS paths
