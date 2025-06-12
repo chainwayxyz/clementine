@@ -2047,6 +2047,15 @@ where
         let mut intermediate_value_commits: Vec<Vec<Vec<u8>>> = vec![vec![vec![]]; 363];
 
         tracing::info!("Number of operator asserts: {}", operator_asserts.len());
+
+        assert_eq!(
+            operator_asserts.len(),
+            ClementineBitVMPublicKeys::number_of_assert_txs(),
+            "Expected exactly {} operator asserts, got {}",
+            ClementineBitVMPublicKeys::number_of_assert_txs(),
+            operator_asserts.len()
+        );
+
         for i in 0..operator_asserts.len() {
             let witness = operator_asserts
                 .get(&i)
