@@ -1575,14 +1575,14 @@ where
             .get_replacement_deposit_move_txids(l2_height_start + 1, l2_height_end)
             .await?;
 
-        for (old_move_txid, new_move_txid) in replacement_move_txids {
+        for (idx, new_move_txid) in replacement_move_txids {
             tracing::info!(
                 "Setting replacement move txid: {:?} -> {:?}",
-                old_move_txid,
+                idx,
                 new_move_txid
             );
             self.db
-                .set_replacement_deposit_move_txid(dbtx, old_move_txid, new_move_txid)
+                .set_replacement_deposit_move_txid(dbtx, idx, new_move_txid)
                 .await?;
         }
 
