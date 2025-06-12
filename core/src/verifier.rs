@@ -2133,50 +2133,20 @@ where
             }
         };
 
-        // The following blocks construct large arrays.
-        // To prevent stack overflows, we allocate memory directly on the heap using `Box::new_uninit`,
-        // then safely initialize it. This is far more memory-safe and efficient
-        // than creating a large array on the stack and then copying it to the heap with Box::new().
+        let mut first_box = Box::new([[([0u8; 20], 0u8); 68]; 1]);
+        fill_from_commits(&g16_public_input_commit[0], &mut first_box[0]);
 
-        // This outer bracket creates the `[[...]; 1]`
-        let first_box: Box<[[([u8; 20], u8); 68]; 1]> = {
-            let arr = Box::new_uninit();
-            // The `unsafe` block is a promise to the compiler that we will initialize the memory.
-            // We must add an explicit type annotation here because the compiler cannot infer
-            // the type of uninitialized memory from the context alone.
-            let mut arr_init: Box<[[([u8; 20], u8); 68]; 1]> = unsafe { arr.assume_init() };
-            // Use our helper to fill the array. This fulfills the promise.
-            fill_from_commits(&g16_public_input_commit[0], &mut arr_init[0]);
-            // Return the now-initialized Box.
-            arr_init
-        };
-        tracing::info!("First created"); // Original comment preserved
+        let mut second_box = Box::new([[([0u8; 20], 0u8); 68]; 14]);
+        for i in 0..14 {
+            fill_from_commits(&num_u256_commits[i], &mut second_box[i]);
+        }
 
-        let second_box: Box<[[([u8; 20], u8); 68]; 14]> = {
-            let arr = Box::new_uninit();
-            // Add explicit type annotation to satisfy the compiler.
-            let mut arr_init: Box<[[([u8; 20], u8); 68]; 14]> = unsafe { arr.assume_init() };
-            for i in 0..14 {
-                fill_from_commits(&num_u256_commits[i], &mut arr_init[i]);
-            }
-            arr_init
-        };
-        tracing::info!("Second created"); // Original comment preserved
+        let mut third_box = Box::new([[([0u8; 20], 0u8); 36]; 363]);
+        for i in 0..363 {
+            fill_from_commits(&intermediate_value_commits[i], &mut third_box[i]);
+        }
 
-        let third_box: Box<[[([u8; 20], u8); 36]; 363]> = {
-            let arr = Box::new_uninit();
-            // Add explicit type annotation to satisfy the compiler.
-            let mut arr_init: Box<[[([u8; 20], u8); 36]; 363]> = unsafe { arr.assume_init() };
-            for i in 0..363 {
-                fill_from_commits(&intermediate_value_commits[i], &mut arr_init[i]);
-            }
-            arr_init
-        };
-        tracing::info!("Third created"); // Original comment preserved
-                                         // second.reverse(); // Original comment preserved
-                                         // third.reverse(); // Original comment preserved
-
-        tracing::info!("Boxes created"); // Original comment preserved
+        tracing::info!("Boxes created");
 
         let vk = if is_dev_mode() {
             get_ark_verifying_key_dev_mode_bridge()
