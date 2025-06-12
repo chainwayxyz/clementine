@@ -53,6 +53,8 @@ use bitvm::clementine::additional_disprove::{
     replace_placeholders_in_script, validate_assertions_for_additional_script,
 };
 use bitvm::signatures::winternitz;
+#[cfg(feature = "automation")]
+use bridge_circuit_host::utils::get_ark_verifying_key;
 use bridge_circuit_host::utils::get_ark_verifying_key_dev_mode_bridge;
 use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
 use circuits_lib::bridge_circuit::{deposit_constant, parse_op_return_data};
@@ -68,9 +70,6 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 use tonic::async_trait;
-#[cfg(feature = "automation")]
-use bridge_circuit_host::utils::get_ark_verifying_key;
-
 
 #[derive(Debug)]
 pub struct NonceSession {
