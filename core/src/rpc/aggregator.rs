@@ -1139,7 +1139,7 @@ impl ClementineAggregator for Aggregator {
             timed_request(
                 KEY_DISTRIBUTION_TIMEOUT,
                 "Key collection and distribution",
-                self.collect_and_distribute_keys(&deposit_params).map_err(Into::into),
+                self.collect_and_distribute_keys(&deposit_params),
             )
             .await?;
             tracing::info!("Collected and distributed keys in {:?}", start.elapsed());
