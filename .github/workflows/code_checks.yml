@@ -4,7 +4,7 @@ on: [push]
 
 concurrency: 
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ (github.ref != 'refs/heads/main') }}
 
 env:
   AUTOMATION_ARGS: --features automation
