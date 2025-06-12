@@ -223,10 +223,6 @@ impl<U: Sized, T: Into<BridgeError>> ResultExt for Result<U, T> {
 
 impl From<BridgeError> for tonic::Status {
     fn from(val: BridgeError) -> Self {
-        // TODO: we need a better solution for user-facing errors.
-        // This exposes our internal errors to the user. What we want here is:
-        // 1. We don't want to expose internal errors to the user.
-        // 2. We want lower-level errors to be able to define whether and how they want to be exposed to the user.
         let eyre_report = val.into_eyre();
 
         tracing::error!(
@@ -234,9 +230,17 @@ impl From<BridgeError> for tonic::Status {
             eyre_report
         );
 
-        tonic::Status::from_error(Into::<Box<dyn std::error::Error + Send + Sync>>::into(
-            eyre_report,
-        ))
+        // eyre::Report can cast any error in the chain to a Status, so we use its downcast method to get the first Status.
+        eyre_report.downcast::<Status>().unwrap_or_else(|report| {
+            tracing::error!("Returning internal error, full report: {:?}", report);
+
+            // TODO: Change this to internal error when we have proper user-facing errors wrapped around common problems.
+            let mut status = tonic::Status::unknown(report.to_string());
+            status.set_source(Into::into(
+                Into::<Box<dyn std::error::Error + Send + Sync>>::into(report),
+            ));
+            status
+        })
 
         // Possible future implementation, requires manually matching all TryInto<Status> types
         // for err in val.into_eyre().chain() {
@@ -279,6 +283,7 @@ mod tests {
     fn test_status_in_chain_cast_properly() {
         let err: BridgeError = eyre::eyre!("Some problem")
             .wrap_err(tonic::Status::deadline_exceeded("Some timer expired"))
+            .wrap_err("Something else went wrong")
             .into();
 
         let status: Status = err.into_status();
