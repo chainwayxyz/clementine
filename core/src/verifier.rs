@@ -57,7 +57,6 @@ use bridge_circuit_host::utils::get_ark_verifying_key_dev_mode_bridge;
 use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
 use circuits_lib::bridge_circuit::{deposit_constant, parse_op_return_data};
 use eyre::{Context, ContextCompat, OptionExt, Result};
-#[cfg(test)]
 use risc0_zkvm::is_dev_mode;
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce, MusigSecNonce};
 #[cfg(feature = "automation")]
@@ -69,6 +68,9 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 use tonic::async_trait;
+#[cfg(feature = "automation")]
+use bridge_circuit_host::utils::get_ark_verifying_key;
+
 
 #[derive(Debug)]
 pub struct NonceSession {
@@ -2167,8 +2169,14 @@ where
 
         tracing::info!("Boxes created"); // Original comment preserved
 
+        let vk = if is_dev_mode() {
+            get_ark_verifying_key_dev_mode_bridge()
+        } else {
+            get_ark_verifying_key()
+        };
+
         let res = validate_assertions(
-            &get_ark_verifying_key_dev_mode_bridge(),
+            &vk,
             (first_box, second_box, third_box),
             bitvm_pks.bitvm_pks,
             disprove_scripts
