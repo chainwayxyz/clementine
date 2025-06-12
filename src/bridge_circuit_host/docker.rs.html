@@ -546,19 +546,7 @@
 <a href="#545" id="545">545</a>
 <a href="#546" id="546">546</a>
 <a href="#547" id="547">547</a>
-<a href="#548" id="548">548</a>
-<a href="#549" id="549">549</a>
-<a href="#550" id="550">550</a>
-<a href="#551" id="551">551</a>
-<a href="#552" id="552">552</a>
-<a href="#553" id="553">553</a>
-<a href="#554" id="554">554</a>
-<a href="#555" id="555">555</a>
-<a href="#556" id="556">556</a>
-<a href="#557" id="557">557</a>
-<a href="#558" id="558">558</a>
-<a href="#559" id="559">559</a>
-<a href="#560" id="560">560</a></pre></div><pre class="rust"><code><span class="kw">use </span>hex::ToHex;
+<a href="#548" id="548">548</a></pre></div><pre class="rust"><code><span class="kw">use </span>hex::ToHex;
 <span class="kw">use </span>num_bigint::BigUint;
 <span class="kw">use </span>num_traits::Num;
 <span class="kw">use </span>risc0_groth16::{to_json, ProofJson, Seal};
@@ -681,20 +669,9 @@
     seal_json[<span class="string">"control_root"</span>] = <span class="macro">vec!</span>[a0_dec, a1_dec].into();
     std::fs::write(seal_path, serde_json::to_string_pretty(<span class="kw-2">&amp;</span>seal_json).unwrap()).unwrap();
 
-    <span class="kw">let </span>pull_status = Command::new(<span class="string">"docker"</span>)
-        .arg(<span class="string">"pull"</span>)
-        .arg(<span class="string">"ozancw/risc0-to-bitvm2-groth16-prover:latest"</span>)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .status()
-        .expect(<span class="string">"Failed to execute docker pull"</span>);
-
-    <span class="kw">if </span>!pull_status.success() {
-        <span class="macro">panic!</span>(<span class="string">"docker pull failed with status: {}"</span>, pull_status);
-    }
-
     <span class="kw">let </span>output = Command::new(<span class="string">"docker"</span>)
         .arg(<span class="string">"run"</span>)
+        .arg(<span class="string">"--pull=always"</span>)
         .arg(<span class="string">"--rm"</span>)
         .arg(<span class="string">"--platform=linux/amd64"</span>) <span class="comment">// Force linux/amd64 platform
         </span>.arg(<span class="string">"-v"</span>)
@@ -705,14 +682,13 @@
         .output()
         .unwrap();
 
-    <span class="macro">println!</span>(<span class="string">"Output: {:?}"</span>, output);
-
     <span class="kw">if </span>!output.status.success() {
-        <span class="macro">eprintln!</span>(
-            <span class="string">"docker returned failure exit code: {:?}"</span>,
-            output.status.code()
+        <span class="macro">panic!</span>(
+            <span class="string">"STARK to SNARK prover docker image returned failure: {:?}"</span>,
+            output
         );
     }
+
     <span class="macro">println!</span>(<span class="string">"proof_path: {:?}"</span>, proof_path);
     <span class="kw">let </span>proof_content = std::fs::read_to_string(proof_path).unwrap();
     <span class="kw">let </span>output_content_dec = std::fs::read_to_string(output_path).unwrap();
