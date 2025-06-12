@@ -4285,14 +4285,14 @@
             .get_replacement_deposit_move_txids(l2_height_start + <span class="number">1</span>, l2_height_end)
             .<span class="kw">await</span><span class="question-mark">?</span>;
 
-        <span class="kw">for </span>(old_move_txid, new_move_txid) <span class="kw">in </span>replacement_move_txids {
+        <span class="kw">for </span>(idx, new_move_txid) <span class="kw">in </span>replacement_move_txids {
             <span class="macro">tracing::info!</span>(
                 <span class="string">"Setting replacement move txid: {:?} -&gt; {:?}"</span>,
-                old_move_txid,
+                idx,
                 new_move_txid
             );
             <span class="self">self</span>.db
-                .set_replacement_deposit_move_txid(dbtx, old_move_txid, new_move_txid)
+                .set_replacement_deposit_move_txid(dbtx, idx, new_move_txid)
                 .<span class="kw">await</span><span class="question-mark">?</span>;
         }
 

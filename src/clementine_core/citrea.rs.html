@@ -604,8 +604,7 @@
 <a href="#603" id="603">603</a>
 <a href="#604" id="604">604</a>
 <a href="#605" id="605">605</a>
-<a href="#606" id="606">606</a>
-<a href="#607" id="607">607</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Citrea Related Utilities
+<a href="#606" id="606">606</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Citrea Related Utilities
 
 </span><span class="kw">use </span><span class="kw">crate</span>::citrea::BRIDGE_CONTRACT::DepositReplaced;
 <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
@@ -760,7 +759,7 @@
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         from_height: u64,
         to_height: u64,
-    ) -&gt; <span class="prelude-ty">Result</span>&lt;Vec&lt;(Txid, Txid)&gt;, BridgeError&gt;;
+    ) -&gt; <span class="prelude-ty">Result</span>&lt;Vec&lt;(u32, Txid)&gt;, BridgeError&gt;;
 
     <span class="kw">async fn </span>check_nofn_correctness(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
@@ -1124,7 +1123,7 @@
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         from_height: u64,
         to_height: u64,
-    ) -&gt; <span class="prelude-ty">Result</span>&lt;Vec&lt;(Txid, Txid)&gt;, BridgeError&gt; {
+    ) -&gt; <span class="prelude-ty">Result</span>&lt;Vec&lt;(u32, Txid)&gt;, BridgeError&gt; {
         <span class="kw">let </span><span class="kw-2">mut </span>replacement_move_txids = <span class="macro">vec!</span>[];
 
         <span class="comment">// get logs
@@ -1134,19 +1133,18 @@
         <span class="kw">for </span>log <span class="kw">in </span>logs {
             <span class="kw">let </span>replacement_raw_data = <span class="kw-2">&amp;</span>log.data().data;
 
-            <span class="kw">let </span>old_move_txid = DepositReplaced::abi_decode_data(replacement_raw_data, <span class="bool-val">false</span>)
+            <span class="kw">let </span>idx = DepositReplaced::abi_decode_data(replacement_raw_data, <span class="bool-val">false</span>)
                 .wrap_err(<span class="string">"Failed to decode replacement deposit data"</span>)<span class="question-mark">?
-                </span>.<span class="number">1</span>;
+                </span>.<span class="number">0</span>;
             <span class="kw">let </span>new_move_txid = DepositReplaced::abi_decode_data(replacement_raw_data, <span class="bool-val">false</span>)
                 .wrap_err(<span class="string">"Failed to decode replacement deposit data"</span>)<span class="question-mark">?
                 </span>.<span class="number">2</span>;
 
-            <span class="kw">let </span>old_move_txid = Txid::from_slice(old_move_txid.as_ref())
-                .wrap_err(<span class="string">"Failed to convert old move txid to Txid"</span>)<span class="question-mark">?</span>;
+            <span class="kw">let </span>idx = u32::try_from(idx).wrap_err(<span class="string">"Failed to convert idx to u32"</span>)<span class="question-mark">?</span>;
             <span class="kw">let </span>new_move_txid = Txid::from_slice(new_move_txid.as_ref())
                 .wrap_err(<span class="string">"Failed to convert new move txid to Txid"</span>)<span class="question-mark">?</span>;
 
-            replacement_move_txids.push((old_move_txid, new_move_txid));
+            replacement_move_txids.push((idx, new_move_txid));
         }
 
         <span class="prelude-val">Ok</span>(replacement_move_txids)

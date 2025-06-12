@@ -481,19 +481,7 @@
 <a href="#480" id="480">480</a>
 <a href="#481" id="481">481</a>
 <a href="#482" id="482">482</a>
-<a href="#483" id="483">483</a>
-<a href="#484" id="484">484</a>
-<a href="#485" id="485">485</a>
-<a href="#486" id="486">486</a>
-<a href="#487" id="487">487</a>
-<a href="#488" id="488">488</a>
-<a href="#489" id="489">489</a>
-<a href="#490" id="490">490</a>
-<a href="#491" id="491">491</a>
-<a href="#492" id="492">492</a>
-<a href="#493" id="493">493</a>
-<a href="#494" id="494">494</a>
-<a href="#495" id="495">495</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Verifier Related Database Operations
+<a href="#483" id="483">483</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Verifier Related Database Operations
 //!
 //! This module includes database functions which are mainly used by a verifier.
 
@@ -579,34 +567,22 @@
     <span class="kw">pub async fn </span>set_replacement_deposit_move_txid(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         tx: DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;,
-        old_move_txid: Txid,
+        idx: u32,
         new_move_txid: Txid,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
-        <span class="comment">// check if new move txid is already in the database
-        </span><span class="kw">let </span>query = sqlx::query_as::&lt;<span class="kw">_</span>, (i64,)&gt;(
-            <span class="string">"SELECT COUNT(*) FROM withdrawals WHERE move_to_vault_txid = $1"</span>,
-        )
-        .bind(TxidDB(new_move_txid))
-        .fetch_one(tx.deref_mut())
-        .<span class="kw">await</span><span class="question-mark">?</span>;
-
-        <span class="kw">if </span>query.<span class="number">0 </span>&gt; <span class="number">0 </span>{
-            <span class="kw">return </span><span class="prelude-val">Ok</span>(());
-        }
-
         <span class="kw">let </span>query = sqlx::query(
             <span class="string">"UPDATE withdrawals
              SET move_to_vault_txid = $2
-             WHERE move_to_vault_txid = $1
+             WHERE idx = $1
              RETURNING idx"</span>,
         )
-        .bind(TxidDB(old_move_txid))
+        .bind(i32::try_from(idx).wrap_err(<span class="string">"Failed to convert idx to i32"</span>)<span class="question-mark">?</span>)
         .bind(TxidDB(new_move_txid))
         .fetch_optional(tx.deref_mut())
         .<span class="kw">await</span><span class="question-mark">?</span>;
 
         <span class="kw">if </span>query.is_none() {
-            <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(<span class="string">"Old move txid not found: {}"</span>, old_move_txid).into());
+            <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(<span class="string">"Replacement move txid not found: {}"</span>, idx).into());
         }
         <span class="prelude-val">Ok</span>(())
     }
