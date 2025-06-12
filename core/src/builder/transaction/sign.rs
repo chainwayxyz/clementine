@@ -146,7 +146,8 @@ pub async fn create_and_sign_txs(
     let mut tweak_cache = TweakCache::default();
 
     for (tx_type, mut txhandler) in txhandlers.into_iter() {
-        let _ = signer.tx_sign_and_fill_sigs(&mut txhandler, &signatures, Some(&mut tweak_cache));
+        let result =
+            signer.tx_sign_and_fill_sigs(&mut txhandler, &signatures, Some(&mut tweak_cache));
 
         if let TransactionType::OperatorChallengeAck(watchtower_idx) = tx_type {
             let path = WinternitzDerivationPath::ChallengeAckHash(
@@ -223,7 +224,7 @@ where
             ))?
             .1;
 
-        let context = ContractContext::new_context_for_asserts(
+        let context = ContractContext::new_context_with_signer(
             transaction_data.kickoff_data,
             deposit_data.clone(),
             self.config.protocol_paramset(),
@@ -373,7 +374,7 @@ where
             .ok_or(BridgeError::DepositNotFound(assert_data.deposit_outpoint))?
             .1;
 
-        let context = ContractContext::new_context_for_asserts(
+        let context = ContractContext::new_context_with_signer(
             assert_data.kickoff_data,
             deposit_data.clone(),
             self.config.protocol_paramset(),
@@ -454,7 +455,7 @@ where
             .ok_or(BridgeError::DepositNotFound(assert_data.deposit_outpoint))?
             .1;
 
-        let context = ContractContext::new_context_for_asserts(
+        let context = ContractContext::new_context_with_signer(
             assert_data.kickoff_data,
             deposit_data,
             self.config.protocol_paramset(),
