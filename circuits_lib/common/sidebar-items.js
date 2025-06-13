@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["NETWORK_TYPE"],"fn":["get_network"],"mod":["constants","hashes","utils","zkvm"]};
+window.SIDEBAR_ITEMS = {"constant":["NETWORK_TYPE"],"fn":["get_network"],"mod":["constants","hashes","zkvm"]};

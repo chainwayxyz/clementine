@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["create_claim_digest","create_journal_digest","create_output_digest"],"struct":["CircuitGroth16WithTotalWork"]};
+window.SIDEBAR_ITEMS = {"fn":["create_claim_digest","create_journal_digest","create_output_digest","to_decimal"],"struct":["CircuitGroth16WithTotalWork"]};

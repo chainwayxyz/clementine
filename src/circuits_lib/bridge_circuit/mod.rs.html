@@ -948,7 +948,339 @@
 <a href="#947" id="947">947</a>
 <a href="#948" id="948">948</a>
 <a href="#949" id="949">949</a>
-<a href="#950" id="950">950</a></pre></div><pre class="rust"><code><span class="kw">pub mod </span>constants;
+<a href="#950" id="950">950</a>
+<a href="#951" id="951">951</a>
+<a href="#952" id="952">952</a>
+<a href="#953" id="953">953</a>
+<a href="#954" id="954">954</a>
+<a href="#955" id="955">955</a>
+<a href="#956" id="956">956</a>
+<a href="#957" id="957">957</a>
+<a href="#958" id="958">958</a>
+<a href="#959" id="959">959</a>
+<a href="#960" id="960">960</a>
+<a href="#961" id="961">961</a>
+<a href="#962" id="962">962</a>
+<a href="#963" id="963">963</a>
+<a href="#964" id="964">964</a>
+<a href="#965" id="965">965</a>
+<a href="#966" id="966">966</a>
+<a href="#967" id="967">967</a>
+<a href="#968" id="968">968</a>
+<a href="#969" id="969">969</a>
+<a href="#970" id="970">970</a>
+<a href="#971" id="971">971</a>
+<a href="#972" id="972">972</a>
+<a href="#973" id="973">973</a>
+<a href="#974" id="974">974</a>
+<a href="#975" id="975">975</a>
+<a href="#976" id="976">976</a>
+<a href="#977" id="977">977</a>
+<a href="#978" id="978">978</a>
+<a href="#979" id="979">979</a>
+<a href="#980" id="980">980</a>
+<a href="#981" id="981">981</a>
+<a href="#982" id="982">982</a>
+<a href="#983" id="983">983</a>
+<a href="#984" id="984">984</a>
+<a href="#985" id="985">985</a>
+<a href="#986" id="986">986</a>
+<a href="#987" id="987">987</a>
+<a href="#988" id="988">988</a>
+<a href="#989" id="989">989</a>
+<a href="#990" id="990">990</a>
+<a href="#991" id="991">991</a>
+<a href="#992" id="992">992</a>
+<a href="#993" id="993">993</a>
+<a href="#994" id="994">994</a>
+<a href="#995" id="995">995</a>
+<a href="#996" id="996">996</a>
+<a href="#997" id="997">997</a>
+<a href="#998" id="998">998</a>
+<a href="#999" id="999">999</a>
+<a href="#1000" id="1000">1000</a>
+<a href="#1001" id="1001">1001</a>
+<a href="#1002" id="1002">1002</a>
+<a href="#1003" id="1003">1003</a>
+<a href="#1004" id="1004">1004</a>
+<a href="#1005" id="1005">1005</a>
+<a href="#1006" id="1006">1006</a>
+<a href="#1007" id="1007">1007</a>
+<a href="#1008" id="1008">1008</a>
+<a href="#1009" id="1009">1009</a>
+<a href="#1010" id="1010">1010</a>
+<a href="#1011" id="1011">1011</a>
+<a href="#1012" id="1012">1012</a>
+<a href="#1013" id="1013">1013</a>
+<a href="#1014" id="1014">1014</a>
+<a href="#1015" id="1015">1015</a>
+<a href="#1016" id="1016">1016</a>
+<a href="#1017" id="1017">1017</a>
+<a href="#1018" id="1018">1018</a>
+<a href="#1019" id="1019">1019</a>
+<a href="#1020" id="1020">1020</a>
+<a href="#1021" id="1021">1021</a>
+<a href="#1022" id="1022">1022</a>
+<a href="#1023" id="1023">1023</a>
+<a href="#1024" id="1024">1024</a>
+<a href="#1025" id="1025">1025</a>
+<a href="#1026" id="1026">1026</a>
+<a href="#1027" id="1027">1027</a>
+<a href="#1028" id="1028">1028</a>
+<a href="#1029" id="1029">1029</a>
+<a href="#1030" id="1030">1030</a>
+<a href="#1031" id="1031">1031</a>
+<a href="#1032" id="1032">1032</a>
+<a href="#1033" id="1033">1033</a>
+<a href="#1034" id="1034">1034</a>
+<a href="#1035" id="1035">1035</a>
+<a href="#1036" id="1036">1036</a>
+<a href="#1037" id="1037">1037</a>
+<a href="#1038" id="1038">1038</a>
+<a href="#1039" id="1039">1039</a>
+<a href="#1040" id="1040">1040</a>
+<a href="#1041" id="1041">1041</a>
+<a href="#1042" id="1042">1042</a>
+<a href="#1043" id="1043">1043</a>
+<a href="#1044" id="1044">1044</a>
+<a href="#1045" id="1045">1045</a>
+<a href="#1046" id="1046">1046</a>
+<a href="#1047" id="1047">1047</a>
+<a href="#1048" id="1048">1048</a>
+<a href="#1049" id="1049">1049</a>
+<a href="#1050" id="1050">1050</a>
+<a href="#1051" id="1051">1051</a>
+<a href="#1052" id="1052">1052</a>
+<a href="#1053" id="1053">1053</a>
+<a href="#1054" id="1054">1054</a>
+<a href="#1055" id="1055">1055</a>
+<a href="#1056" id="1056">1056</a>
+<a href="#1057" id="1057">1057</a>
+<a href="#1058" id="1058">1058</a>
+<a href="#1059" id="1059">1059</a>
+<a href="#1060" id="1060">1060</a>
+<a href="#1061" id="1061">1061</a>
+<a href="#1062" id="1062">1062</a>
+<a href="#1063" id="1063">1063</a>
+<a href="#1064" id="1064">1064</a>
+<a href="#1065" id="1065">1065</a>
+<a href="#1066" id="1066">1066</a>
+<a href="#1067" id="1067">1067</a>
+<a href="#1068" id="1068">1068</a>
+<a href="#1069" id="1069">1069</a>
+<a href="#1070" id="1070">1070</a>
+<a href="#1071" id="1071">1071</a>
+<a href="#1072" id="1072">1072</a>
+<a href="#1073" id="1073">1073</a>
+<a href="#1074" id="1074">1074</a>
+<a href="#1075" id="1075">1075</a>
+<a href="#1076" id="1076">1076</a>
+<a href="#1077" id="1077">1077</a>
+<a href="#1078" id="1078">1078</a>
+<a href="#1079" id="1079">1079</a>
+<a href="#1080" id="1080">1080</a>
+<a href="#1081" id="1081">1081</a>
+<a href="#1082" id="1082">1082</a>
+<a href="#1083" id="1083">1083</a>
+<a href="#1084" id="1084">1084</a>
+<a href="#1085" id="1085">1085</a>
+<a href="#1086" id="1086">1086</a>
+<a href="#1087" id="1087">1087</a>
+<a href="#1088" id="1088">1088</a>
+<a href="#1089" id="1089">1089</a>
+<a href="#1090" id="1090">1090</a>
+<a href="#1091" id="1091">1091</a>
+<a href="#1092" id="1092">1092</a>
+<a href="#1093" id="1093">1093</a>
+<a href="#1094" id="1094">1094</a>
+<a href="#1095" id="1095">1095</a>
+<a href="#1096" id="1096">1096</a>
+<a href="#1097" id="1097">1097</a>
+<a href="#1098" id="1098">1098</a>
+<a href="#1099" id="1099">1099</a>
+<a href="#1100" id="1100">1100</a>
+<a href="#1101" id="1101">1101</a>
+<a href="#1102" id="1102">1102</a>
+<a href="#1103" id="1103">1103</a>
+<a href="#1104" id="1104">1104</a>
+<a href="#1105" id="1105">1105</a>
+<a href="#1106" id="1106">1106</a>
+<a href="#1107" id="1107">1107</a>
+<a href="#1108" id="1108">1108</a>
+<a href="#1109" id="1109">1109</a>
+<a href="#1110" id="1110">1110</a>
+<a href="#1111" id="1111">1111</a>
+<a href="#1112" id="1112">1112</a>
+<a href="#1113" id="1113">1113</a>
+<a href="#1114" id="1114">1114</a>
+<a href="#1115" id="1115">1115</a>
+<a href="#1116" id="1116">1116</a>
+<a href="#1117" id="1117">1117</a>
+<a href="#1118" id="1118">1118</a>
+<a href="#1119" id="1119">1119</a>
+<a href="#1120" id="1120">1120</a>
+<a href="#1121" id="1121">1121</a>
+<a href="#1122" id="1122">1122</a>
+<a href="#1123" id="1123">1123</a>
+<a href="#1124" id="1124">1124</a>
+<a href="#1125" id="1125">1125</a>
+<a href="#1126" id="1126">1126</a>
+<a href="#1127" id="1127">1127</a>
+<a href="#1128" id="1128">1128</a>
+<a href="#1129" id="1129">1129</a>
+<a href="#1130" id="1130">1130</a>
+<a href="#1131" id="1131">1131</a>
+<a href="#1132" id="1132">1132</a>
+<a href="#1133" id="1133">1133</a>
+<a href="#1134" id="1134">1134</a>
+<a href="#1135" id="1135">1135</a>
+<a href="#1136" id="1136">1136</a>
+<a href="#1137" id="1137">1137</a>
+<a href="#1138" id="1138">1138</a>
+<a href="#1139" id="1139">1139</a>
+<a href="#1140" id="1140">1140</a>
+<a href="#1141" id="1141">1141</a>
+<a href="#1142" id="1142">1142</a>
+<a href="#1143" id="1143">1143</a>
+<a href="#1144" id="1144">1144</a>
+<a href="#1145" id="1145">1145</a>
+<a href="#1146" id="1146">1146</a>
+<a href="#1147" id="1147">1147</a>
+<a href="#1148" id="1148">1148</a>
+<a href="#1149" id="1149">1149</a>
+<a href="#1150" id="1150">1150</a>
+<a href="#1151" id="1151">1151</a>
+<a href="#1152" id="1152">1152</a>
+<a href="#1153" id="1153">1153</a>
+<a href="#1154" id="1154">1154</a>
+<a href="#1155" id="1155">1155</a>
+<a href="#1156" id="1156">1156</a>
+<a href="#1157" id="1157">1157</a>
+<a href="#1158" id="1158">1158</a>
+<a href="#1159" id="1159">1159</a>
+<a href="#1160" id="1160">1160</a>
+<a href="#1161" id="1161">1161</a>
+<a href="#1162" id="1162">1162</a>
+<a href="#1163" id="1163">1163</a>
+<a href="#1164" id="1164">1164</a>
+<a href="#1165" id="1165">1165</a>
+<a href="#1166" id="1166">1166</a>
+<a href="#1167" id="1167">1167</a>
+<a href="#1168" id="1168">1168</a>
+<a href="#1169" id="1169">1169</a>
+<a href="#1170" id="1170">1170</a>
+<a href="#1171" id="1171">1171</a>
+<a href="#1172" id="1172">1172</a>
+<a href="#1173" id="1173">1173</a>
+<a href="#1174" id="1174">1174</a>
+<a href="#1175" id="1175">1175</a>
+<a href="#1176" id="1176">1176</a>
+<a href="#1177" id="1177">1177</a>
+<a href="#1178" id="1178">1178</a>
+<a href="#1179" id="1179">1179</a>
+<a href="#1180" id="1180">1180</a>
+<a href="#1181" id="1181">1181</a>
+<a href="#1182" id="1182">1182</a>
+<a href="#1183" id="1183">1183</a>
+<a href="#1184" id="1184">1184</a>
+<a href="#1185" id="1185">1185</a>
+<a href="#1186" id="1186">1186</a>
+<a href="#1187" id="1187">1187</a>
+<a href="#1188" id="1188">1188</a>
+<a href="#1189" id="1189">1189</a>
+<a href="#1190" id="1190">1190</a>
+<a href="#1191" id="1191">1191</a>
+<a href="#1192" id="1192">1192</a>
+<a href="#1193" id="1193">1193</a>
+<a href="#1194" id="1194">1194</a>
+<a href="#1195" id="1195">1195</a>
+<a href="#1196" id="1196">1196</a>
+<a href="#1197" id="1197">1197</a>
+<a href="#1198" id="1198">1198</a>
+<a href="#1199" id="1199">1199</a>
+<a href="#1200" id="1200">1200</a>
+<a href="#1201" id="1201">1201</a>
+<a href="#1202" id="1202">1202</a>
+<a href="#1203" id="1203">1203</a>
+<a href="#1204" id="1204">1204</a>
+<a href="#1205" id="1205">1205</a>
+<a href="#1206" id="1206">1206</a>
+<a href="#1207" id="1207">1207</a>
+<a href="#1208" id="1208">1208</a>
+<a href="#1209" id="1209">1209</a>
+<a href="#1210" id="1210">1210</a>
+<a href="#1211" id="1211">1211</a>
+<a href="#1212" id="1212">1212</a>
+<a href="#1213" id="1213">1213</a>
+<a href="#1214" id="1214">1214</a>
+<a href="#1215" id="1215">1215</a>
+<a href="#1216" id="1216">1216</a>
+<a href="#1217" id="1217">1217</a>
+<a href="#1218" id="1218">1218</a>
+<a href="#1219" id="1219">1219</a>
+<a href="#1220" id="1220">1220</a>
+<a href="#1221" id="1221">1221</a>
+<a href="#1222" id="1222">1222</a>
+<a href="#1223" id="1223">1223</a>
+<a href="#1224" id="1224">1224</a>
+<a href="#1225" id="1225">1225</a>
+<a href="#1226" id="1226">1226</a>
+<a href="#1227" id="1227">1227</a>
+<a href="#1228" id="1228">1228</a>
+<a href="#1229" id="1229">1229</a>
+<a href="#1230" id="1230">1230</a>
+<a href="#1231" id="1231">1231</a>
+<a href="#1232" id="1232">1232</a>
+<a href="#1233" id="1233">1233</a>
+<a href="#1234" id="1234">1234</a>
+<a href="#1235" id="1235">1235</a>
+<a href="#1236" id="1236">1236</a>
+<a href="#1237" id="1237">1237</a>
+<a href="#1238" id="1238">1238</a>
+<a href="#1239" id="1239">1239</a>
+<a href="#1240" id="1240">1240</a>
+<a href="#1241" id="1241">1241</a>
+<a href="#1242" id="1242">1242</a>
+<a href="#1243" id="1243">1243</a>
+<a href="#1244" id="1244">1244</a>
+<a href="#1245" id="1245">1245</a>
+<a href="#1246" id="1246">1246</a>
+<a href="#1247" id="1247">1247</a>
+<a href="#1248" id="1248">1248</a>
+<a href="#1249" id="1249">1249</a>
+<a href="#1250" id="1250">1250</a>
+<a href="#1251" id="1251">1251</a>
+<a href="#1252" id="1252">1252</a>
+<a href="#1253" id="1253">1253</a>
+<a href="#1254" id="1254">1254</a>
+<a href="#1255" id="1255">1255</a>
+<a href="#1256" id="1256">1256</a>
+<a href="#1257" id="1257">1257</a>
+<a href="#1258" id="1258">1258</a>
+<a href="#1259" id="1259">1259</a>
+<a href="#1260" id="1260">1260</a>
+<a href="#1261" id="1261">1261</a>
+<a href="#1262" id="1262">1262</a>
+<a href="#1263" id="1263">1263</a>
+<a href="#1264" id="1264">1264</a>
+<a href="#1265" id="1265">1265</a>
+<a href="#1266" id="1266">1266</a>
+<a href="#1267" id="1267">1267</a>
+<a href="#1268" id="1268">1268</a>
+<a href="#1269" id="1269">1269</a>
+<a href="#1270" id="1270">1270</a>
+<a href="#1271" id="1271">1271</a>
+<a href="#1272" id="1272">1272</a>
+<a href="#1273" id="1273">1273</a>
+<a href="#1274" id="1274">1274</a>
+<a href="#1275" id="1275">1275</a>
+<a href="#1276" id="1276">1276</a>
+<a href="#1277" id="1277">1277</a>
+<a href="#1278" id="1278">1278</a>
+<a href="#1279" id="1279">1279</a>
+<a href="#1280" id="1280">1280</a>
+<a href="#1281" id="1281">1281</a>
+<a href="#1282" id="1282">1282</a></pre></div><pre class="rust"><code><span class="kw">pub mod </span>constants;
 <span class="kw">pub mod </span>groth16;
 <span class="kw">pub mod </span>groth16_verifier;
 <span class="kw">pub mod </span>lc_proof;
@@ -960,17 +1292,19 @@
 
 <span class="kw">use </span><span class="kw">crate</span>::common::{
     constants::{
-        MAINNET_HEADER_CHAIN_METHOD_ID, REGTEST_HEADER_CHAIN_METHOD_ID,
+        MAINNET_HEADER_CHAIN_METHOD_ID, MAX_NUMBER_OF_WATCHTOWERS, REGTEST_HEADER_CHAIN_METHOD_ID,
         SIGNET_HEADER_CHAIN_METHOD_ID, TESTNET4_HEADER_CHAIN_METHOD_ID,
     },
     zkvm::ZkvmGuest,
 };
 <span class="kw">use </span>bitcoin::{
-    hashes::Hash,
+    consensus::Encodable,
+    hashes::{sha256, Hash},
+    io::{<span class="self">self</span>},
     opcodes,
     script::Instruction,
-    sighash::{Prevouts, SighashCache, TaprootError},
-    Script, TapSighash, TapSighashType, Transaction, TxOut,
+    sighash::{Prevouts, PrevoutsIndexError, SighashCache},
+    Script, TapLeafHash, TapSighash, TapSighashType, Transaction, TxOut,
 };
 
 <span class="kw">use </span>core::panic;
@@ -983,6 +1317,7 @@
 <span class="kw">use </span>lc_proof::lc_proof_verifier;
 <span class="kw">use </span>sha2::{Digest, Sha256};
 <span class="kw">use </span>signature::hazmat::PrehashVerifier;
+<span class="kw">use </span>std::borrow::{Borrow, BorrowMut};
 <span class="kw">use </span>storage_proof::verify_storage_proofs;
 <span class="kw">use </span>structs::{
     BridgeCircuitInput, ChallengeSendingWatchtowers, DepositConstant, LatestBlockhash,
@@ -1002,8 +1337,6 @@
         <span class="kw">_ </span>=&gt; <span class="macro">panic!</span>(<span class="string">"Invalid network type"</span>),
     }
 };
-
-<span class="kw">const </span>NUMBER_OF_WATCHTOWERS: usize = <span class="number">160</span>;
 
 <span class="doccomment">/// Executes the bridge circuit in a zkVM environment, verifying multiple cryptographic proofs
 /// related to watchtower work, SPV, and storage proofs.
@@ -1199,7 +1532,7 @@
 
     <span class="kw">let </span>kickoff_txid = circuit_input.kickoff_tx.compute_txid();
 
-    <span class="kw">if </span>circuit_input.watchtower_inputs.len() &gt; NUMBER_OF_WATCHTOWERS {
+    <span class="kw">if </span>circuit_input.watchtower_inputs.len() &gt; MAX_NUMBER_OF_WATCHTOWERS {
         <span class="macro">panic!</span>(<span class="string">"Invalid number of watchtower challenge transactions"</span>);
     }
 
@@ -1250,17 +1583,13 @@
             }
         };
 
-        <span class="kw">let </span><span class="prelude-val">Ok</span>(sighash) = sighash(
+        <span class="kw">let </span>sighash = sighash(
             <span class="kw-2">&amp;</span>watchtower_input.watchtower_challenge_tx,
             <span class="kw-2">&amp;</span>prevouts,
             watchtower_input_idx,
             sighash_type,
-        ) <span class="kw">else </span>{
-            <span class="macro">panic!</span>(
-                <span class="string">"Sighash could not be computed, watchtower index: {}"</span>,
-                watchtower_input.watchtower_idx
-            );
-        };
+            watchtower_input.annex_digest,
+        );
 
         <span class="kw">if </span>input.previous_output.txid != kickoff_txid {
             <span class="macro">panic!</span>(
@@ -1531,13 +1860,236 @@
     blake3::hash(<span class="kw-2">&amp;</span>concat_journal)
 }
 
-<span class="kw">fn </span>sighash(
+<span class="doccomment">/// Computes the Taproot sighash for a given transaction input.
+</span><span class="kw">fn </span>sighash(
     wt_tx: <span class="kw-2">&amp;</span>Transaction,
     prevouts: <span class="kw-2">&amp;</span>Prevouts&lt;TxOut&gt;,
     input_index: usize,
     sighash_type: TapSighashType,
-) -&gt; <span class="prelude-ty">Result</span>&lt;TapSighash, TaprootError&gt; {
-    SighashCache::new(wt_tx).taproot_key_spend_signature_hash(input_index, prevouts, sighash_type)
+    annex_hash: <span class="prelude-ty">Option</span>&lt;[u8; <span class="number">32</span>]&gt;,
+) -&gt; bitcoin::sighash::TapSighash {
+    <span class="kw">let </span><span class="kw-2">mut </span>enc = TapSighash::engine();
+    <span class="kw">let </span><span class="kw-2">mut </span>sighash_cache = SighashCache::new(wt_tx);
+    taproot_encode_signing_data_to_with_annex_digest::&lt;<span class="kw">_</span>, TxOut, <span class="kw-2">&amp;</span>Transaction&gt;(
+        sighash_cache.borrow_mut(),
+        enc.borrow_mut(),
+        input_index,
+        prevouts,
+        annex_hash,
+        <span class="prelude-val">None</span>,
+        sighash_type,
+    );
+    TapSighash::from_engine(enc)
+}
+
+<span class="doccomment">/// Encodes the BIP341 signing data for any flag type into a given object implementing the
+/// [`io::Write`] trait. This version takes a pre-computed annex hash and panics on error.
+</span><span class="kw">pub fn </span>taproot_encode_signing_data_to_with_annex_digest&lt;
+    W: io::Write + <span class="question-mark">?</span>Sized,
+    T: Borrow&lt;TxOut&gt;,
+    R: Borrow&lt;Transaction&gt;,
+&gt;(
+    sighash_cache: <span class="kw-2">&amp;mut </span>SighashCache&lt;R&gt;,
+    writer: <span class="kw-2">&amp;mut </span>W,
+    input_index: usize,
+    prevouts: <span class="kw-2">&amp;</span>Prevouts&lt;T&gt;,
+    annex_hash: <span class="prelude-ty">Option</span>&lt;[u8; <span class="number">32</span>]&gt;,
+    leaf_hash_code_separator: <span class="prelude-ty">Option</span>&lt;(TapLeafHash, u32)&gt;,
+    sighash_type: TapSighashType,
+) {
+    <span class="kw">let </span>tx = sighash_cache.transaction();
+    check_all_prevouts(prevouts, tx);
+
+    <span class="kw">let </span>(sighash, anyone_can_pay) = split_anyonecanpay_flag(sighash_type);
+    <span class="kw">let </span>expect_msg = <span class="string">"writer should not fail"</span>;
+
+    <span class="comment">// Epoch
+    </span><span class="number">0u8</span>.consensus_encode(writer).expect(expect_msg);
+
+    <span class="comment">// Control: hash_type (1).
+    </span>(sighash_type <span class="kw">as </span>u8)
+        .consensus_encode(writer)
+        .expect(expect_msg);
+
+    <span class="comment">// Transaction Data:
+    </span>tx.version.consensus_encode(writer).expect(expect_msg);
+    tx.lock_time.consensus_encode(writer).expect(expect_msg);
+
+    <span class="kw">if </span>!anyone_can_pay {
+        <span class="comment">// Manually compute sha_prevouts
+        </span><span class="kw">let </span><span class="kw-2">mut </span>enc_prevouts = sha256::Hash::engine();
+        <span class="kw">for </span>txin <span class="kw">in </span>tx.input.iter() {
+            txin.previous_output
+                .consensus_encode(<span class="kw-2">&amp;mut </span>enc_prevouts)
+                .expect(expect_msg);
+        }
+        sha256::Hash::from_engine(enc_prevouts)
+            .consensus_encode(writer)
+            .expect(expect_msg);
+
+        <span class="comment">// Manually compute sha_amounts
+        </span><span class="kw">let </span>all_prevouts = unwrap_all_prevouts(prevouts);
+        <span class="kw">let </span><span class="kw-2">mut </span>enc_amounts = sha256::Hash::engine();
+        <span class="kw">for </span>prevout <span class="kw">in </span>all_prevouts.iter() {
+            prevout
+                .borrow()
+                .value
+                .consensus_encode(<span class="kw-2">&amp;mut </span>enc_amounts)
+                .expect(expect_msg);
+        }
+        sha256::Hash::from_engine(enc_amounts)
+            .consensus_encode(writer)
+            .expect(expect_msg);
+
+        <span class="comment">// Manually compute sha_scriptpubkeys
+        </span><span class="kw">let </span><span class="kw-2">mut </span>enc_script_pubkeys = sha256::Hash::engine();
+        <span class="kw">for </span>prevout <span class="kw">in </span>all_prevouts.iter() {
+            prevout
+                .borrow()
+                .script_pubkey
+                .consensus_encode(<span class="kw-2">&amp;mut </span>enc_script_pubkeys)
+                .expect(expect_msg);
+        }
+        sha256::Hash::from_engine(enc_script_pubkeys)
+            .consensus_encode(writer)
+            .expect(expect_msg);
+
+        <span class="comment">// Manually compute sha_sequences
+        </span><span class="kw">let </span><span class="kw-2">mut </span>enc_sequences = sha256::Hash::engine();
+        <span class="kw">for </span>txin <span class="kw">in </span>tx.input.iter() {
+            txin.sequence
+                .consensus_encode(<span class="kw-2">&amp;mut </span>enc_sequences)
+                .expect(expect_msg);
+        }
+        sha256::Hash::from_engine(enc_sequences)
+            .consensus_encode(writer)
+            .expect(expect_msg);
+    }
+
+    <span class="kw">if </span>sighash != TapSighashType::None &amp;&amp; sighash != TapSighashType::Single {
+        <span class="comment">// Manually compute sha_outputs
+        </span><span class="kw">let </span><span class="kw-2">mut </span>enc_outputs = sha256::Hash::engine();
+        <span class="kw">for </span>txout <span class="kw">in </span>tx.output.iter() {
+            txout.consensus_encode(<span class="kw-2">&amp;mut </span>enc_outputs).expect(expect_msg);
+        }
+        sha256::Hash::from_engine(enc_outputs)
+            .consensus_encode(writer)
+            .expect(expect_msg);
+    }
+
+    <span class="comment">// Data about this input:
+    </span><span class="kw">let </span><span class="kw-2">mut </span>spend_type = <span class="number">0u8</span>;
+    <span class="kw">if </span>annex_hash.is_some() {
+        spend_type |= <span class="number">1u8</span>;
+    }
+    <span class="kw">if </span>leaf_hash_code_separator.is_some() {
+        spend_type |= <span class="number">2u8</span>;
+    }
+    spend_type.consensus_encode(writer).expect(expect_msg);
+
+    <span class="kw">if </span>anyone_can_pay {
+        <span class="kw">let </span>txin = tx.tx_in(input_index).expect(<span class="string">"invalid input index"</span>);
+        <span class="kw">let </span>previous_output =
+            get_for_prevouts(prevouts, input_index).expect(<span class="string">"invalid prevout for input index"</span>);
+        txin.previous_output
+            .consensus_encode(writer)
+            .expect(expect_msg);
+        previous_output
+            .borrow()
+            .value
+            .consensus_encode(writer)
+            .expect(expect_msg);
+        previous_output
+            .borrow()
+            .script_pubkey
+            .consensus_encode(writer)
+            .expect(expect_msg);
+        txin.sequence.consensus_encode(writer).expect(expect_msg);
+    } <span class="kw">else </span>{
+        (input_index <span class="kw">as </span>u32)
+            .consensus_encode(writer)
+            .expect(expect_msg);
+    }
+
+    <span class="kw">if let </span><span class="prelude-val">Some</span>(hash) = annex_hash {
+        hash.consensus_encode(writer).expect(expect_msg);
+    }
+
+    <span class="comment">// Data about this output:
+    </span><span class="kw">if </span>sighash == TapSighashType::Single {
+        <span class="kw">let </span><span class="kw-2">mut </span>enc_single_output = sha256::Hash::engine();
+        <span class="kw">let </span>output = tx
+            .output
+            .get(input_index)
+            .expect(<span class="string">"SIGHASH_SINGLE requires a corresponding output"</span>);
+        output
+            .consensus_encode(<span class="kw-2">&amp;mut </span>enc_single_output)
+            .expect(expect_msg);
+        <span class="kw">let </span>hash = sha256::Hash::from_engine(enc_single_output);
+        hash.consensus_encode(writer).expect(expect_msg);
+    }
+
+    <span class="kw">const </span>KEY_VERSION_0: u8 = <span class="number">0</span>;
+
+    <span class="kw">if let </span><span class="prelude-val">Some</span>((hash, code_separator_pos)) = leaf_hash_code_separator {
+        hash.as_byte_array()
+            .consensus_encode(writer)
+            .expect(expect_msg);
+        KEY_VERSION_0.consensus_encode(writer).expect(expect_msg);
+        code_separator_pos
+            .consensus_encode(writer)
+            .expect(expect_msg);
+    }
+}
+
+<span class="comment">// Helper functions for getting prevouts
+</span><span class="kw">fn </span>get_for_prevouts&lt;<span class="lifetime">'a</span>, T: Borrow&lt;TxOut&gt;&gt;(
+    prevouts: <span class="kw-2">&amp;</span><span class="lifetime">'a </span>Prevouts&lt;<span class="lifetime">'a</span>, T&gt;,
+    input_index: usize,
+) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="kw-2">&amp;</span><span class="lifetime">'a </span>T, PrevoutsIndexError&gt; {
+    <span class="kw">match </span>prevouts {
+        Prevouts::One(index, prevout) =&gt; {
+            <span class="kw">if </span>input_index == <span class="kw-2">*</span>index {
+                <span class="prelude-val">Ok</span>(prevout)
+            } <span class="kw">else </span>{
+                <span class="prelude-val">Err</span>(PrevoutsIndexError::InvalidOneIndex)
+            }
+        }
+        Prevouts::All(prevouts) =&gt; prevouts
+            .get(input_index)
+            .ok_or(PrevoutsIndexError::InvalidAllIndex),
+    }
+}
+
+<span class="kw">fn </span>unwrap_all_prevouts&lt;<span class="lifetime">'a</span>, T: Borrow&lt;TxOut&gt;&gt;(prevouts: <span class="kw-2">&amp;</span><span class="lifetime">'a </span>Prevouts&lt;<span class="lifetime">'a</span>, T&gt;) -&gt; <span class="kw-2">&amp;</span><span class="lifetime">'a </span>[T] {
+    <span class="kw">match </span>prevouts {
+        Prevouts::All(prevouts) =&gt; prevouts,
+        <span class="kw">_ </span>=&gt; <span class="macro">panic!</span>(<span class="string">"cannot get all prevouts from a single prevout"</span>),
+    }
+}
+
+<span class="kw">fn </span>check_all_prevouts&lt;T: Borrow&lt;TxOut&gt;&gt;(prevouts: <span class="kw-2">&amp;</span>Prevouts&lt;<span class="lifetime">'_</span>, T&gt;, tx: <span class="kw-2">&amp;</span>Transaction) {
+    <span class="kw">if let </span>Prevouts::All(prevouts) = prevouts {
+        <span class="kw">if </span>prevouts.len() != tx.input.len() {
+            <span class="macro">panic!</span>(
+                <span class="string">"Invalid number of prevouts: expected {}, got {}"</span>,
+                tx.input.len(),
+                prevouts.len()
+            );
+        }
+    }
+}
+
+<span class="kw">fn </span>split_anyonecanpay_flag(sighash: TapSighashType) -&gt; (TapSighashType, bool) {
+    <span class="kw">match </span>sighash {
+        TapSighashType::Default =&gt; (TapSighashType::Default, <span class="bool-val">false</span>),
+        TapSighashType::All =&gt; (TapSighashType::All, <span class="bool-val">false</span>),
+        TapSighashType::None =&gt; (TapSighashType::None, <span class="bool-val">false</span>),
+        TapSighashType::Single =&gt; (TapSighashType::Single, <span class="bool-val">false</span>),
+        TapSighashType::AllPlusAnyoneCanPay =&gt; (TapSighashType::All, <span class="bool-val">true</span>),
+        TapSighashType::NonePlusAnyoneCanPay =&gt; (TapSighashType::None, <span class="bool-val">true</span>),
+        TapSighashType::SinglePlusAnyoneCanPay =&gt; (TapSighashType::Single, <span class="bool-val">true</span>),
+    }
 }
 
 <span class="attr">#[cfg(test)]
@@ -1559,6 +2111,8 @@
     <span class="kw">use </span>bitcoin::{
         absolute::Height,
         consensus::{Decodable, Encodable},
+        sighash::Annex,
+        taproot::TAPROOT_ANNEX_PREFIX,
         transaction::Version,
         ScriptBuf, Transaction, TxIn, Txid, Witness,
     };
@@ -1624,6 +2178,7 @@
                 watchtower_challenge_input_idx: <span class="number">0</span>,
                 watchtower_challenge_utxos: <span class="macro">vec!</span>[CircuitTxOut(tx_out)],
                 watchtower_challenge_tx: CircuitTransaction(wt_tx.clone()),
+                annex_digest: <span class="prelude-val">None</span>,
             }],
             hcp: BlockHeaderCircuitOutput {
                 method_id: [<span class="number">0</span>; <span class="number">8</span>],
@@ -1896,6 +2451,115 @@
             expected_pk,
             <span class="string">"Operator xonlypk is not correct"
         </span>);
+    }
+
+    <span class="comment">// Helper function to extract and hash the annex
+    </span><span class="kw">fn </span>get_annex_hash(witness: <span class="kw-2">&amp;</span>Witness) -&gt; <span class="prelude-ty">Option</span>&lt;[u8; <span class="number">32</span>]&gt; {
+        <span class="comment">// Using a constant for the annex prefix as defined in bitcoin library
+
+        </span><span class="kw">let </span>watchtower_challenge_annex: <span class="prelude-ty">Option</span>&lt;Annex&gt; = {
+            <span class="kw">if let </span><span class="prelude-val">Some</span>(last_witness_element) = witness.last() {
+                <span class="comment">// Check if the first byte is 0x50 before attempting to create an Annex
+                </span><span class="kw">if </span>last_witness_element.first() == <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span>TAPROOT_ANNEX_PREFIX) {
+                    Annex::new(last_witness_element).ok() <span class="comment">// Convert Result&lt;Annex, AnnexError&gt; to Option&lt;Annex&gt;
+                </span>} <span class="kw">else </span>{
+                    <span class="prelude-val">None
+                </span>}
+            } <span class="kw">else </span>{
+                <span class="prelude-val">None
+            </span>}
+        };
+
+        watchtower_challenge_annex.and_then(|annex| {
+            <span class="kw">let </span><span class="kw-2">mut </span>enc = sha256::Hash::engine();
+            <span class="kw">match </span>annex.consensus_encode(<span class="kw-2">&amp;mut </span>enc) {
+                <span class="prelude-val">Ok</span>(<span class="kw">_</span>) =&gt; {
+                    <span class="kw">let </span>hash = sha256::Hash::from_engine(enc);
+                    <span class="prelude-val">Some</span>(hash.to_byte_array()) <span class="comment">// Use to_byte_array() for owned array
+                </span>}
+                <span class="prelude-val">Err</span>(<span class="kw">_</span>) =&gt; {
+                    <span class="comment">// In a production environment, you might want more robust error handling/logging here.
+                    // For now, returning None if encoding fails
+                    </span><span class="prelude-val">None
+                </span>}
+            }
+        })
+    }
+
+    <span class="attr">#[test]
+    </span><span class="kw">fn </span>test_annex_signature() {
+        <span class="kw">let </span>bitcoin_tx: Transaction = bitcoin::consensus::deserialize(<span class="kw-2">&amp;</span>hex::decode(<span class="string">"020000000001017a48f6958d00c4ab052b0a09589cb0c71df95ec6593fa39aabf3bd130d96da2f8800000000fdffffff010c8602000000000022512065b9b1db7b1d648097913234091a8a7703ca330178efa12437ea97fbc3e14bf2024036f4cd2cf3cf433c9dac8b3205f44ffa4cd8d63f9a6f8191e4fea443ad74c7c50bc8962c2689185f8bb6062ac9ff62b1a8221df45aa377cf3c34566088bff4edfd300250005249464626020000574542505650384c190200002f36800d0097c026008034c8e7fe93810ac4a680d5b004b0ed5a0d3601002699bb3bf659229a10893684426d6cdb50177f0fed1d08d52053a158131a2265fee3ff7f3f059855f202d15da33a5f98ac7a7c07f6342e6d693f826c36ecc857946d392fe8cf906f658025db569cca0b5eec4814e73f5b9a405ef3bd4f44ff27a0fc7cfb215cec477061b71fc00576ec477cfe07d4e7032713ed64e07594ec4c90bd8e27c3bbd13813decd56844e83777335ff183e782a1cc82dce96a553ec4364390801025bb1731df3f135d70f3dfc68b4157c98954f43f45ca92111652bae0361e23476ae1f76ac4844490e1a9e26763e60454098093047ec37ac802f34e6dc5e37f0c57608c44bc28dca0e8e60077889b604b01d6470c653358dedf85d5514e528d0a0390dca4cb841a92795d96c82d203a800aa24a6bd1fbcad272e6ada45d59bcd666d3a4087ea8de6bd1f2b1e5ab0e96165e0f87b9ae0d6a3a2dde02d2b2b680836716fb30910653e3722ad04f73e244159f1b4285aba4b824a49a22ce4f594c50045a2fa26d1b2b294173138d9a0fa264954acc12d5664810d91acb92a03d8b725ee249913c0981515e8db3749772581cc0900d9ce90746fa8ca0d3026882807acf660e92e29ddd3d73cf7c0e664a0d4308043951bc18e09501fb77bba2b09af83e1400e51766c1ccf96b827bc6945388428198bc048f880f01025dbc402bc361c724f8428d824166500a19e88a2b049ac69670604ea010000000000"</span>).unwrap()).unwrap();
+        <span class="kw">let </span>prevout: TxOut = bitcoin::consensus::deserialize(<span class="kw-2">&amp;</span>hex::decode(<span class="string">"949902000000000022512065b9b1db7b1d648097913234091a8a7703ca330178efa12437ea97fbc3e14bf2"</span>).unwrap()).unwrap();
+
+        <span class="kw">let </span>annex_hash = get_annex_hash(<span class="kw-2">&amp;</span>bitcoin_tx.input[<span class="number">0</span>].witness);
+
+        <span class="kw">let </span>sighash = sighash(
+            <span class="kw-2">&amp;</span>bitcoin_tx,
+            <span class="kw-2">&amp;</span>Prevouts::All(<span class="kw-2">&amp;</span>[prevout]),
+            <span class="number">0</span>,
+            TapSighashType::Default,
+            annex_hash, <span class="comment">// Pass the computed annex hash
+        </span>);
+
+        <span class="kw">let </span>xonly_pk_bytes =
+            hex::decode(<span class="string">"65b9b1db7b1d648097913234091a8a7703ca330178efa12437ea97fbc3e14bf2"</span>)
+                .unwrap();
+        <span class="kw">let </span>xonly_pk: VerifyingKey =
+            VerifyingKey::from_bytes(<span class="kw-2">&amp;</span>xonly_pk_bytes).expect(<span class="string">"Invalid xonly pk"</span>);
+
+        <span class="comment">// The actual signature is the first element in the witness stack
+        </span><span class="kw">let </span>signature_bytes = bitcoin_tx.input[<span class="number">0</span>]
+            .witness
+            .nth(<span class="number">0</span>)
+            .expect(<span class="string">"Signature not found in witness"</span>)
+            .to_vec();
+
+        <span class="kw">let </span>signature: Signature =
+            Signature::try_from(signature_bytes.as_slice()).expect(<span class="string">"Invalid signature"</span>);
+
+        xonly_pk
+            .verify_prehash(sighash.as_byte_array(), <span class="kw-2">&amp;</span>signature)
+            .expect(<span class="string">"Signature verification failed"</span>);
+    }
+
+    <span class="attr">#[test]
+    #[should_panic(expected = <span class="string">"Signature verification failed"</span>)] </span><span class="comment">// This panic is expected if the original signature was created with an annex
+    </span><span class="kw">fn </span>test_annex_removed_signature() {
+        <span class="kw">let </span><span class="kw-2">mut </span>bitcoin_tx: Transaction = bitcoin::consensus::deserialize(<span class="kw-2">&amp;</span>hex::decode(<span class="string">"020000000001017a48f6958d00c4ab052b0a09589cb0c71df95ec6593fa39aabf3bd130d96da2f8800000000fdffffff010c8602000000000022512065b9b1db7b1d648097913234091a8a7703ca330178efa12437ea97fbc3e14bf2024036f4cd2cf3cf433c9dac8b3205f44ffa4cd8d63f9a6f8191e4fea443ad74c7c50bc8962c2689185f8bb6062ac9ff62b1a8221df45aa377cf3c34566088bff4edfd300250005249464626020000574542505650384c190200002f36800d0097c026008034c8e7fe93810ac4a680d5b004b0ed5a0d3601002699bb3bf659229a10893684426d6cdb50177f0fed1d08d52053a158131a2265fee3ff7f3f059855f202d15da33a5f98ac7a7c07f6342e6d693f826c36ecc857946d392fe8cf906f658025db569cca0b5eec4814e73f5b9a405ef3bd4f44ff27a0fc7cfb215cec477061b71fc00576ec477cfe07d4e7032713ed64e07594ec4c90bd8e27c3bbd13813decd56844e83777335ff183e782a1cc82dce96a553ec4364390801025bb1731df3f135d70f3dfc68b4157c98954f43f45ca92111652bae0361e23476ae1f76ac4844490e1a9e26763e60454098093047ec37ac802f34e6dc5e37f0c57608c44bc28dca0e8e60077889b604b01d6470c653358dedf85d5514e528d0a0390dca4cb841a92795d96c82d203a800aa24a6bd1fbcad272e6ada45d59bcd666d3a4087ea8de6bd1f2b1e5ab0e96165e0f87b9ae0d6a3a2dde02d2b2b680836716fb30910653e3722ad04f73e244159f1b4285aba4b824a49a22ce4f594c50045a2fa26d1b2b294173138d9a0fa264954acc12d5664810d91acb92a03d8b725ee249913c0981515e8db3749772581cc0900d9ce90746fa8ca0d3026882807acf660e92e29ddd3d73cf7c0e664a0d4308043951bc18e09501fb77bba2b09af83e1400e51766c1ccf96b827bc6945388428198bc048f880f01025dbc402bc361c724f8428d824166500a19e88a2b049ac69670604ea010000000000"</span>).unwrap()).unwrap();
+        <span class="kw">let </span>prevout: TxOut = bitcoin::consensus::deserialize(<span class="kw-2">&amp;</span>hex::decode(<span class="string">"949902000000000022512065b9b1db7b1d648097913234091a8a7703ca330178efa12437ea97fbc3e14bf2"</span>).unwrap()).unwrap();
+
+        <span class="comment">// Remove the annex from the witness stack
+        </span><span class="kw">let </span>signature_bytes = bitcoin_tx.input[<span class="number">0</span>]
+            .witness
+            .nth(<span class="number">0</span>)
+            .expect(<span class="string">"Signature not found in witness"</span>)
+            .to_vec();
+        bitcoin_tx.input[<span class="number">0</span>].witness.clear();
+        bitcoin_tx.input[<span class="number">0</span>].witness.push(signature_bytes.clone()); <span class="comment">// Only push the signature
+
+        // Now, call sighash without providing the annex_hash
+        </span><span class="kw">let </span>sighash = sighash(
+            <span class="kw-2">&amp;</span>bitcoin_tx,
+            <span class="kw-2">&amp;</span>Prevouts::All(<span class="kw-2">&amp;</span>[prevout]),
+            <span class="number">0</span>,
+            TapSighashType::Default,
+            <span class="prelude-val">None</span>, <span class="comment">// Explicitly pass None for annex_hash
+        </span>);
+
+        <span class="kw">let </span>xonly_pk_bytes =
+            hex::decode(<span class="string">"65b9b1db7b1d648097913234091a8a7703ca330178efa12437ea97fbc3e14bf2"</span>)
+                .unwrap();
+        <span class="kw">let </span>xonly_pk: VerifyingKey =
+            VerifyingKey::from_bytes(<span class="kw-2">&amp;</span>xonly_pk_bytes).expect(<span class="string">"Invalid xonly pk"</span>);
+
+        <span class="kw">let </span>signature: Signature =
+            Signature::try_from(signature_bytes.as_slice()).expect(<span class="string">"Invalid signature"</span>);
+
+        <span class="comment">// This verification should fail because the sighash was computed WITHOUT an annex,
+        // but the original signature was likely created WITH an annex.
+        </span>xonly_pk
+            .verify_prehash(sighash.as_byte_array(), <span class="kw-2">&amp;</span>signature)
+            .expect(<span class="string">"Signature verification failed"</span>);
     }
 }
 </code></pre></div></section></main></body></html>
