@@ -791,7 +791,7 @@ fn get_all_for_prevouts_generic<'a, T: Borrow<TxOut>>(prevouts: &'a Prevouts<'a,
     }
 }
 
-fn check_all_generic<'a, T: Borrow<TxOut>>(prevouts: &Prevouts<'a, T>, tx: &Transaction) {
+fn check_all_generic<T: Borrow<TxOut>>(prevouts: &Prevouts<'_, T>, tx: &Transaction) {
     if let Prevouts::All(prevouts) = prevouts {
         if prevouts.len() != tx.input.len() {
             panic!(
