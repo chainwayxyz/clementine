@@ -379,7 +379,7 @@ pub async fn run_single_deposit<C: CitreaClientT>(
         .into_inner()
         .try_into()?;
 
-    mine_once_after_in_mempool(&rpc, move_txid, Some("Move tx"), None).await?;
+    mine_once_after_in_mempool(&rpc, move_txid, Some("Move tx"), Some(180)).await?;
 
     // let transaction = rpc
     //     .client

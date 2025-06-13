@@ -40,20 +40,25 @@ use crate::{musig2, UTXO};
 use bitcoin::hashes::Hash;
 use bitcoin::key::Secp256k1;
 use bitcoin::opcodes::all::OP_RETURN;
+use bitcoin::script::Instruction;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::Message;
 use bitcoin::taproot::TaprootBuilder;
 use bitcoin::{Address, Amount, ScriptBuf, Witness, XOnlyPublicKey};
 use bitcoin::{OutPoint, TxOut};
+use bitcoin_script::builder::StructuredScript;
 use bitcoincore_rpc::RpcApi;
+use bitvm::chunk::api::validate_assertions;
 use bitvm::clementine::additional_disprove::{
     replace_placeholders_in_script, validate_assertions_for_additional_script,
 };
 use bitvm::signatures::winternitz;
+#[cfg(feature = "automation")]
+use bridge_circuit_host::utils::get_ark_verifying_key;
+use bridge_circuit_host::utils::get_ark_verifying_key_dev_mode_bridge;
 use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
 use circuits_lib::bridge_circuit::{deposit_constant, parse_op_return_data};
 use eyre::{Context, ContextCompat, OptionExt, Result};
-#[cfg(test)]
 use risc0_zkvm::is_dev_mode;
 use secp256k1::musig::{AggregatedNonce, PartialSignature, PublicNonce, SecretNonce};
 #[cfg(feature = "automation")]
@@ -307,9 +312,7 @@ where
         Ok(tagged_sigs)
     }
 
-    /// Checks if the deposit is a valid deposit, returns false if it is not.
-    /// First checks if the security council is the same as in the config.
-    /// Then checks if all operators that still have collateral are in the deposit.
+    /// Checks if all operators in verifier's db that are still in protocol are in the deposit.
     /// Afterwards, it checks if the given deposit outpoint is valid. First it checks if the tx exists on chain,
     /// then it checks if the amount in TxOut is equal to bridge_amount and if the script is correct.
     ///
@@ -1127,11 +1130,6 @@ where
         keys: OperatorKeys,
         operator_xonly_pk: XOnlyPublicKey,
     ) -> Result<(), BridgeError> {
-        // check if deposit is valid first
-        if !self.is_deposit_valid(&mut deposit_data).await? {
-            return Err(BridgeError::InvalidDeposit);
-        }
-
         self.db
             .set_deposit_data(None, &mut deposit_data, self.config.protocol_paramset())
             .await?;
@@ -1572,14 +1570,14 @@ where
             .get_replacement_deposit_move_txids(l2_height_start + 1, l2_height_end)
             .await?;
 
-        for (old_move_txid, new_move_txid) in replacement_move_txids {
+        for (idx, new_move_txid) in replacement_move_txids {
             tracing::info!(
                 "Setting replacement move txid: {:?} -> {:?}",
-                old_move_txid,
+                idx,
                 new_move_txid
             );
             self.db
-                .set_replacement_deposit_move_txid(dbtx, old_move_txid, new_move_txid)
+                .set_replacement_deposit_move_txid(dbtx, idx, new_move_txid)
                 .await?;
         }
 
@@ -1701,6 +1699,26 @@ where
         Ok(())
     }
 
+    /// Verifies the conditions required to disprove an operator's actions using the "additional" disprove path.
+    ///
+    /// This function handles specific, non-Groth16 challenges. It reconstructs a unique challenge script
+    /// based on on-chain data and constants (`deposit_constant`). It then validates the operator's
+    /// provided assertions (`operator_asserts`) and acknowledgements (`operator_acks`) against this script.
+    /// The goal is to produce a spendable witness for the disprove transaction if the operator is found to be at fault.
+    ///
+    /// # Arguments
+    /// * `deposit_data` - Mutable data for the specific deposit being challenged.
+    /// * `kickoff_data` - Information about the kickoff transaction that initiated this challenge.
+    /// * `latest_blockhash` - The witness containing Winternitz signature for the latest Bitcoin blockhash.
+    /// * `payout_blockhash` - The witness containing Winternitz signature for the payout transaction's blockhash.
+    /// * `operator_asserts` - A map of witnesses from the operator, containing their assertions (claims).
+    /// * `operator_acks` - A map of witnesses from the operator, containing their acknowledgements of watchtower challenges.
+    /// * `txhandlers` - A map of transaction builders, used here to retrieve TXIDs of dependent transactions.
+    ///
+    /// # Returns
+    /// - `Ok(Some(bitcoin::Witness))` if the operator's claims are successfully proven false, returning the complete witness needed to spend the disprove script path.
+    /// - `Ok(None)` if the operator's claims are valid under this specific challenge, and no disprove is possible.
+    /// - `Err(BridgeError)` if any error occurs during script reconstruction or validation.
     #[cfg(feature = "automation")]
     async fn verify_additional_disprove_conditions(
         &self,
@@ -1896,6 +1914,21 @@ where
         Ok(additional_disprove_witness)
     }
 
+    /// Constructs, signs, and broadcasts the "additional" disprove transaction.
+    ///
+    /// This function is called after `verify_additional_disprove_conditions` successfully returns a witness.
+    /// It takes this witness, places it into the disprove transaction's script spend path, adds the required
+    /// operator and verifier signatures, and broadcasts the finalized transaction to the Bitcoin network.
+    ///
+    /// # Arguments
+    /// * `txhandlers` - A map containing the pre-built `Disprove` transaction handler.
+    /// * `kickoff_data` - Contextual data from the kickoff transaction.
+    /// * `deposit_data` - Contextual data for the deposit being challenged.
+    /// * `additional_disprove_witness` - The witness generated by `verify_additional_disprove_conditions`, proving the operator's fault.
+    ///
+    /// # Returns
+    /// - `Ok(())` on successful broadcast of the transaction.
+    /// - `Err(BridgeError)` if signing or broadcasting fails.
     #[cfg(feature = "automation")]
     async fn send_disprove_tx_additional(
         &self,
@@ -1918,6 +1951,270 @@ where
 
         disprove_txhandler
             .set_p2tr_script_spend_witness(&disprove_input, 0, 1)
+            .inspect_err(|e| {
+                tracing::error!("Error setting disprove input witness: {:?}", e);
+            })?;
+
+        let operators_sig = self
+            .db
+            .get_deposit_signatures(
+                None,
+                deposit_data.get_deposit_outpoint(),
+                kickoff_data.operator_xonly_pk,
+                kickoff_data.round_idx,
+                kickoff_data.kickoff_idx as usize,
+            )
+            .await?
+            .ok_or_eyre("No operator signature found for the disprove tx")?;
+
+        let mut tweak_cache = TweakCache::default();
+
+        self.signer
+            .tx_sign_and_fill_sigs(
+                &mut disprove_txhandler,
+                operators_sig.as_ref(),
+                Some(&mut tweak_cache),
+            )
+            .inspect_err(|e| {
+                tracing::error!(
+                    "Error signing disprove tx for verifier {:?}: {:?}",
+                    verifier_xonly_pk,
+                    e
+                );
+            })?;
+
+        let disprove_tx = disprove_txhandler.get_cached_tx().clone();
+
+        tracing::debug!("Disprove txid: {:?}", disprove_tx.compute_txid());
+
+        tracing::info!(
+            "Disprove tx created for verifier {:?} with kickoff_data: {:?}, deposit_data: {:?}",
+            verifier_xonly_pk,
+            kickoff_data,
+            deposit_data
+        );
+
+        let raw_tx = bitcoin::consensus::serialize(&disprove_tx);
+
+        self.rpc
+            .client
+            .send_raw_transaction(&raw_tx)
+            .await
+            .wrap_err("Error sending disprove tx")?;
+        Ok(())
+    }
+
+    /// Performs the primary G16 proof verification to disprove an operator's claim.
+    ///
+    /// This is a complex function that aggregates all of the operator's assertions, which are commitments
+    /// from a Winternitz one-time signature scheme. It meticulously parses and reorganizes these commitments
+    /// into the precise input format required by the underlying Groth16 SNARK verifier (`validate_assertions`).
+    /// It then invokes the verifier to check for a faulty computation.
+    ///
+    /// # Arguments
+    /// * `deposit_data` - Mutable data for the specific deposit being challenged.
+    /// * `operator_asserts` - A map containing all 33 required operator assertion witnesses.
+    ///
+    /// # Returns
+    /// - `Ok(Some((index, script)))` if the ZK proof is faulty. The tuple contains the `StructuredScript`
+    ///   that can be executed on-chain and its `index` in the Taproot tree.
+    /// - `Ok(None)` if the ZK proof is valid.
+    /// - `Err(BridgeError)` if any error occurs during data processing or ZK proof verification.
+    #[cfg(feature = "automation")]
+    async fn verify_disprove_conditions(
+        &self,
+        deposit_data: &mut DepositData,
+        operator_asserts: &HashMap<usize, Witness>,
+    ) -> Result<Option<(usize, StructuredScript)>, BridgeError> {
+        let bitvm_pks = self.signer.generate_bitvm_pks_for_deposit(
+            deposit_data.get_deposit_outpoint(),
+            self.config.protocol_paramset,
+        )?;
+        let disprove_scripts = bitvm_pks.get_g16_verifier_disprove_scripts();
+
+        let deposit_outpoint = deposit_data.get_deposit_outpoint();
+        let paramset = self.config.protocol_paramset();
+
+        // Pre-allocate commit vectors. Initializing with known sizes or empty vectors
+        // is slightly more efficient as it can prevent reallocations.
+        let mut g16_public_input_commit: Vec<Vec<Vec<u8>>> = vec![vec![vec![]]; 1];
+        let mut num_u256_commits: Vec<Vec<Vec<u8>>> = vec![vec![vec![]]; 14];
+        let mut intermediate_value_commits: Vec<Vec<Vec<u8>>> = vec![vec![vec![]]; 363];
+
+        tracing::info!("Number of operator asserts: {}", operator_asserts.len());
+
+        if operator_asserts.len() != ClementineBitVMPublicKeys::number_of_assert_txs() {
+            return Err(eyre::eyre!(
+                "Expected exactly {} operator asserts, got {}",
+                ClementineBitVMPublicKeys::number_of_assert_txs(),
+                operator_asserts.len()
+            )
+            .into());
+        }
+
+        for i in 0..operator_asserts.len() {
+            let witness = operator_asserts
+                .get(&i)
+                .expect("indexed from 0 to 32")
+                .clone();
+
+            let mut commits = extract_winternitz_commits_with_sigs(
+                witness,
+                &ClementineBitVMPublicKeys::get_assert_derivations(i, deposit_outpoint, paramset),
+                self.config.protocol_paramset(),
+            )?;
+
+            // Similar to the original operator asserts ordering, here we reorder into the format that BitVM expects.
+            // For the first transaction, we have specific commits that need to be assigned to their respective arrays.
+            // It includes the g16 public input commit, the last 2 num_u256 commits, and the last 3 intermediate value commits.
+            // The rest of the commits are assigned to the num_u256_commits and intermediate_value_commits arrays.
+            match i {
+                0 => {
+                    // Remove the last commit, which is for challenge-sending watchtowers
+                    commits.pop();
+                    let len = commits.len();
+
+                    // Assign specific commits to their respective arrays by removing from the end.
+                    // This is slightly more efficient than removing from arbitrary indices.
+                    g16_public_input_commit[0] = commits.remove(len - 1);
+                    num_u256_commits[12] = commits.remove(len - 2);
+                    num_u256_commits[13] = commits.remove(len - 3);
+                    intermediate_value_commits[360] = commits.remove(len - 4);
+                    intermediate_value_commits[361] = commits.remove(len - 5);
+                    intermediate_value_commits[362] = commits.remove(len - 6);
+                }
+                1 | 2 => {
+                    // Handles i = 1 and i = 2
+                    for j in 0..6 {
+                        num_u256_commits[6 * (i - 1) + j] = commits
+                            .pop()
+                            .expect("Should not panic: `num_u256_commits` index out of bounds");
+                    }
+                }
+                3..=32 => {
+                    // Handles i from 3 to 32
+                    for j in 0..12 {
+                        intermediate_value_commits[12 * (i - 3) + j] = commits.pop().expect(
+                            "Should not panic: `intermediate_value_commits` index out of bounds",
+                        );
+                    }
+                }
+                _ => {
+                    // Catch-all for any other 'i' values
+                    panic!("Unexpected operator assert index: {}; expected 0 to 32.", i);
+                }
+            }
+        }
+
+        tracing::info!("Converting assert commits to required format");
+        tracing::info!(
+            "g16_public_input_commit[0]: {:?}",
+            g16_public_input_commit[0]
+        );
+
+        // Helper closure to parse commit data into the ([u8; 20], u8) format.
+        // This avoids code repetition and improves readability.
+        let fill_from_commits = |source: &Vec<Vec<u8>>, target: &mut [([u8; 20], u8)]| {
+            // We iterate over chunks of 2 `Vec<u8>` elements at a time.
+            for (i, chunk) in source.chunks_exact(2).enumerate() {
+                // The first element of the chunk is the 20-byte array.
+                let array_part: [u8; 20] = chunk[0]
+                    .as_slice()
+                    .try_into()
+                    .expect("Slice is not 20 bytes");
+                // The second element of the chunk is the single byte (u8).
+                let u8_part: u8 = *chunk[1].first().unwrap_or(&0);
+                target[i] = (array_part, u8_part);
+            }
+        };
+
+        let mut first_box = Box::new([[([0u8; 20], 0u8); 68]; 1]);
+        fill_from_commits(&g16_public_input_commit[0], &mut first_box[0]);
+
+        let mut second_box = Box::new([[([0u8; 20], 0u8); 68]; 14]);
+        for i in 0..14 {
+            fill_from_commits(&num_u256_commits[i], &mut second_box[i]);
+        }
+
+        let mut third_box = Box::new([[([0u8; 20], 0u8); 36]; 363]);
+        for i in 0..363 {
+            fill_from_commits(&intermediate_value_commits[i], &mut third_box[i]);
+        }
+
+        tracing::info!("Boxes created");
+
+        let vk = if is_dev_mode() {
+            get_ark_verifying_key_dev_mode_bridge()
+        } else {
+            get_ark_verifying_key()
+        };
+
+        let res = validate_assertions(
+            &vk,
+            (first_box, second_box, third_box),
+            bitvm_pks.bitvm_pks,
+            disprove_scripts
+                .as_slice()
+                .try_into()
+                .expect("static bitvm_cache contains exactly 364 disprove scripts"),
+        );
+        tracing::info!("Disprove validation result: {:?}", res);
+
+        match res {
+            None => {
+                tracing::info!("No disprove witness found");
+                Ok(None)
+            }
+            Some((index, disprove_script)) => {
+                tracing::info!("Disprove witness found");
+                Ok(Some((index, disprove_script)))
+            }
+        }
+    }
+
+    /// Constructs, signs, and broadcasts the primary disprove transaction based on the operator assertions.
+    ///
+    /// This function takes the `StructuredScript` and its `index` returned by `verify_disprove_conditions`.
+    /// It compiles the script, extracts the witness data (the push-only elements), and places it into the correct
+    /// script path (`index`) of the disprove transaction. It then adds the necessary operator and verifier
+    /// signatures before broadcasting the transaction to the Bitcoin network.
+    ///
+    /// # Arguments
+    /// * `txhandlers` - A map containing the pre-built `Disprove` transaction handler.
+    /// * `kickoff_data` - Contextual data from the kickoff transaction.
+    /// * `deposit_data` - Contextual data for the deposit being challenged.
+    /// * `disprove_script` - A tuple containing the executable `StructuredScript` and its Taproot leaf `index`, as returned by `verify_disprove_conditions`.
+    ///
+    /// # Returns
+    /// - `Ok(())` on successful broadcast of the transaction.
+    /// - `Err(BridgeError)` if signing or broadcasting fails.
+    #[cfg(feature = "automation")]
+    async fn send_disprove_tx(
+        &self,
+        txhandlers: &BTreeMap<TransactionType, TxHandler>,
+        kickoff_data: KickoffData,
+        deposit_data: DepositData,
+        disprove_script: (usize, StructuredScript),
+    ) -> Result<(), BridgeError> {
+        let verifier_xonly_pk = self.signer.xonly_public_key;
+
+        let mut disprove_txhandler = txhandlers
+            .get(&TransactionType::Disprove)
+            .wrap_err("Disprove txhandler not found in txhandlers")?
+            .clone();
+
+        let disprove_inputs: Vec<Vec<u8>> = disprove_script
+            .1
+            .compile()
+            .instructions()
+            .filter_map(|ins_res| match ins_res {
+                Ok(Instruction::PushBytes(bytes)) => Some(bytes.as_bytes().to_vec()),
+                _ => None,
+            })
+            .collect();
+
+        disprove_txhandler
+            .set_p2tr_script_spend_witness(&disprove_inputs, 0, disprove_script.0 + 2)
             .inspect_err(|e| {
                 tracing::error!("Error setting disprove input witness: {:?}", e);
             })?;
@@ -2122,23 +2419,24 @@ mod states {
                     payout_blockhash,
                     latest_blockhash,
                 } => {
-                    let context = ContractContext::new_context_for_kickoff(
+                    let context = ContractContext::new_context_with_signer(
                         kickoff_data,
                         deposit_data.clone(),
                         self.config.protocol_paramset(),
+                        self.signer.clone(),
                     );
-
                     let mut db_cache = ReimburseDbCache::from_context(self.db.clone(), &context);
 
                     let txhandlers = create_txhandlers(
-                        TransactionType::AllNeededForDeposit,
+                        TransactionType::Disprove,
                         context,
                         &mut TxHandlerCache::new(),
                         &mut db_cache,
                     )
                     .await?;
 
-                    let additional_disprove_witness = self
+                    // Attempt to find an additional disprove witness first
+                    if let Some(additional_disprove_witness) = self
                         .verify_additional_disprove_conditions(
                             &mut deposit_data,
                             &kickoff_data,
@@ -2148,9 +2446,12 @@ mod states {
                             &operator_acks,
                             &txhandlers,
                         )
-                        .await?;
-
-                    if let Some(additional_disprove_witness) = additional_disprove_witness {
+                        .await?
+                    {
+                        tracing::info!(
+                            "The additional public inputs for the bridge proof provided by operator {:?} for the deposit are incorrect.",
+                            kickoff_data.operator_xonly_pk
+                        );
                         self.send_disprove_tx_additional(
                             &txhandlers,
                             kickoff_data,
@@ -2160,9 +2461,36 @@ mod states {
                         .await?;
                     } else {
                         tracing::info!(
-                            "Verifier {:?} did not find additional disprove witness",
-                            verifier_xonly_pk
+                            "The additional public inputs for the bridge proof provided by operator {:?} for the deposit are correct.",
+                            kickoff_data.operator_xonly_pk
                         );
+
+                        // If no additional witness, try to find a standard disprove witness
+                        match self
+                            .verify_disprove_conditions(&mut deposit_data, &operator_asserts)
+                            .await?
+                        {
+                            Some((index, disprove_script)) => {
+                                tracing::info!(
+                                    "The public inputs for the bridge proof provided by operator {:?} for the deposit are incorrect.",
+                                    kickoff_data.operator_xonly_pk
+                                );
+
+                                self.send_disprove_tx(
+                                    &txhandlers,
+                                    kickoff_data,
+                                    deposit_data,
+                                    (index, disprove_script),
+                                )
+                                .await?;
+                            }
+                            None => {
+                                tracing::info!(
+                                    "The public inputs for the bridge proof provided by operator {:?} for the deposit are correct.",
+                                    kickoff_data.operator_xonly_pk
+                                );
+                            }
+                        }
                     }
 
                     Ok(DutyResult::Handled)
