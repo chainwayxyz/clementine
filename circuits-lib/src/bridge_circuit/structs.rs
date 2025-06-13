@@ -1,7 +1,13 @@
 use std::ops::{Deref, DerefMut};
 
 use crate::common::constants::MAX_NUMBER_OF_WATCHTOWERS;
-use bitcoin::{hashes::Hash, Amount, ScriptBuf, Transaction, TxOut, Txid, Witness};
+use bitcoin::{
+    consensus::Encodable,
+    hashes::{sha256, Hash},
+    sighash::Annex,
+    taproot::TAPROOT_ANNEX_PREFIX,
+    Amount, ScriptBuf, Transaction, TxOut, Txid, Witness,
+};
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
@@ -143,6 +149,7 @@ pub struct WatchtowerInput {
     pub watchtower_challenge_utxos: Vec<CircuitTxOut>, // BridgeCircuitUTXO TxOut serialized and all the prevouts for watchtower challenge tx, Vec<TxOut>
     pub watchtower_challenge_tx: CircuitTransaction, // BridgeCircuitTransaction challenge tx itself for each watchtower
     pub watchtower_challenge_witness: CircuitWitness, // Witness
+    pub annex_digest: Option<[u8; 32]>, // Optional annex digest for the watchtower challenge tx
 }
 
 impl WatchtowerInput {
@@ -152,6 +159,7 @@ impl WatchtowerInput {
         watchtower_challenge_utxos: Vec<TxOut>,
         watchtower_challenge_tx: Transaction,
         watchtower_challenge_witness: Witness,
+        annex_digest: Option<[u8; 32]>,
     ) -> Result<Self, &'static str> {
         if watchtower_idx as usize >= MAX_NUMBER_OF_WATCHTOWERS {
             return Err("Watchtower index out of bounds");
@@ -173,6 +181,7 @@ impl WatchtowerInput {
             watchtower_challenge_utxos,
             watchtower_challenge_tx,
             watchtower_challenge_witness,
+            annex_digest,
         })
     }
 
@@ -264,6 +273,41 @@ impl WatchtowerInput {
 
         let mut watchtower_challenge_tx = CircuitTransaction::from(watchtower_tx);
 
+        let watchtower_challenge_annex: Option<Annex> = {
+            if let Some(last_witness_element) = watchtower_challenge_tx.input
+                [watchtower_challenge_input_idx as usize]
+                .witness
+                .last()
+            {
+                // Check if the first byte is 0x50 before attempting to create an Annex
+                // This avoids creating a Result that we immediately unwrap or map to None
+                if last_witness_element.first() == Some(&TAPROOT_ANNEX_PREFIX) {
+                    Annex::new(last_witness_element).ok() // Convert Result<Annex, AnnexError> to Option<Annex>
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        };
+
+        let annex_digest: Option<[u8; 32]> = watchtower_challenge_annex.and_then(|annex| {
+            // Use and_then to flatten the Option<Option<T>> to Option<T>
+            let mut enc = sha256::Hash::engine();
+            match annex.consensus_encode(&mut enc) {
+                Ok(_) => {
+                    // Discard the usize, we only care if it succeeded
+                    let hash = sha256::Hash::from_engine(enc);
+                    Some(hash.to_byte_array()) // Use to_byte_array() for owned array
+                }
+                Err(_) => {
+                    // Handle the error during encoding, e.g., log it or return None
+                    // For now, returning None if encoding fails
+                    None
+                }
+            }
+        });
+
         let watchtower_challenge_witness = CircuitWitness::from(
             watchtower_challenge_tx.input[watchtower_challenge_input_idx as usize]
                 .witness
@@ -280,6 +324,7 @@ impl WatchtowerInput {
             watchtower_challenge_utxos,
             watchtower_challenge_tx,
             watchtower_challenge_witness,
+            annex_digest,
         })
     }
 }

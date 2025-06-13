@@ -211,7 +211,7 @@ impl CitreaClientT for MockCitreaClient {
         &self,
         _from_height: u64,
         _to_height: u64,
-    ) -> Result<Vec<(Txid, Txid)>, BridgeError> {
+    ) -> Result<Vec<(u32, Txid)>, BridgeError> {
         Ok(vec![])
     }
 
