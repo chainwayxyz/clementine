@@ -631,12 +631,12 @@
         builder::{<span class="self">self</span>, address::calculate_taproot_leaf_depths},
         musig2::AggregateFromPublicKeys,
     };
+    <span class="kw">use </span>bitcoin::secp256k1::rand;
     <span class="kw">use </span>bitcoin::{
         key::{Keypair, TapTweak},
         secp256k1::{PublicKey, SecretKey},
         Address, AddressType, ScriptBuf, XOnlyPublicKey,
     };
-    <span class="kw">use </span>secp256k1::rand;
     <span class="kw">use </span>std::str::FromStr;
 
     <span class="attr">#[test]

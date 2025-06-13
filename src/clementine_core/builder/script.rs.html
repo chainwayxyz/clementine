@@ -1176,8 +1176,7 @@
 <a href="#1175" id="1175">1175</a>
 <a href="#1176" id="1176">1176</a>
 <a href="#1177" id="1177">1177</a>
-<a href="#1178" id="1178">1178</a>
-<a href="#1179" id="1179">1179</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Bitcoin Script Construction
+<a href="#1178" id="1178">1178</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Bitcoin Script Construction
 //!
 //! This module provides a collection of builders for creating various Bitcoin
 //! scripts utilized within the Clementine bridge. It defines a `SpendableScript`
@@ -1731,20 +1730,19 @@
 }
 <span class="attr">#[cfg(test)]
 </span><span class="kw">mod </span>tests {
+    <span class="kw">use super</span>::<span class="kw-2">*</span>;
     <span class="kw">use </span><span class="kw">crate</span>::actor::{Actor, WinternitzDerivationPath};
     <span class="kw">use </span><span class="kw">crate</span>::bitvm_client::{<span class="self">self</span>, UNSPENDABLE_XONLY_PUBKEY};
     <span class="kw">use </span><span class="kw">crate</span>::builder::address::create_taproot_address;
     <span class="kw">use </span><span class="kw">crate</span>::config::protocol::ProtocolParamsetName;
     <span class="kw">use </span><span class="kw">crate</span>::extended_rpc::ExtendedRpc;
     <span class="kw">use </span><span class="kw">crate</span>::operator::RoundIndex;
-    <span class="kw">use </span>std::sync::Arc;
-
-    <span class="kw">use super</span>::<span class="kw-2">*</span>;
-
     <span class="kw">use </span>bitcoin::hashes::Hash;
+    <span class="kw">use </span>bitcoin::secp256k1::rand::{<span class="self">self</span>, Rng};
     <span class="kw">use </span>bitcoin::secp256k1::{PublicKey, SecretKey};
     <span class="kw">use </span>bitcoincore_rpc::RpcApi;
-    <span class="kw">use </span>secp256k1::rand::{<span class="self">self</span>, Rng};
+    <span class="kw">use </span>std::sync::Arc;
+
     <span class="comment">// Create some dummy values for testing.
     // Note: These values are not cryptographically secure and are only used for tests.
     </span><span class="kw">fn </span>dummy_xonly() -&gt; XOnlyPublicKey {

@@ -2046,6 +2046,7 @@
     <span class="kw">use </span>bitcoin::sighash::TapSighashType;
     <span class="kw">use </span>bitcoin::transaction::Transaction;
 
+    <span class="kw">use </span>bitcoin::secp256k1::rand;
     <span class="kw">use </span>bitcoin::{Amount, Network, OutPoint, Txid};
     <span class="kw">use </span>bitcoincore_rpc::RpcApi;
     <span class="kw">use </span>bitvm::{
@@ -2054,7 +2055,6 @@
         treepp::script,
     };
     <span class="kw">use </span>rand::thread_rng;
-    <span class="kw">use </span>secp256k1::rand;
     <span class="kw">use </span>std::str::FromStr;
     <span class="kw">use </span>std::sync::Arc;
 

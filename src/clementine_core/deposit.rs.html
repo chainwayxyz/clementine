@@ -344,7 +344,8 @@
 <a href="#343" id="343">343</a>
 <a href="#344" id="344">344</a>
 <a href="#345" id="345">345</a>
-<a href="#346" id="346">346</a></pre></div><pre class="rust"><code><span class="doccomment">//! This module defines the data structures related to Citrea deposits in the Clementine bridge.
+<a href="#346" id="346">346</a>
+<a href="#347" id="347">347</a></pre></div><pre class="rust"><code><span class="doccomment">//! This module defines the data structures related to Citrea deposits in the Clementine bridge.
 //!
 //! It includes structures for representing deposit data, actors involved (verifiers, watchtowers, operators),
 //! and security council configurations. The module also provides functionality for managing different types
@@ -468,6 +469,7 @@
     </span><span class="kw">pub fn </span>get_verifiers(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; Vec&lt;PublicKey&gt; {
         <span class="kw">let </span><span class="kw-2">mut </span>verifiers = <span class="self">self</span>.actors.verifiers.clone();
         verifiers.sort();
+
         verifiers
     }
     <span class="doccomment">/// Returns sorted watchtowers, they are sorted so that their order is deterministic.

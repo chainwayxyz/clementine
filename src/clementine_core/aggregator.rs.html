@@ -369,7 +369,7 @@
 <span class="kw">use </span>bitcoin::secp256k1::{schnorr, Message, PublicKey};
 <span class="kw">use </span>bitcoin::XOnlyPublicKey;
 <span class="kw">use </span>futures_util::future::try_join_all;
-<span class="kw">use </span>secp256k1::musig::{MusigAggNonce, MusigPartialSignature};
+<span class="kw">use </span>secp256k1::musig::{AggregatedNonce, PartialSignature};
 <span class="kw">use </span>tonic::Status;
 
 <span class="doccomment">/// Aggregator struct.
@@ -626,8 +626,8 @@
     </span><span class="kw">async fn </span>aggregate_move_partial_sigs(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         deposit_data: <span class="kw-2">&amp;mut </span>DepositData,
-        agg_nonce: <span class="kw-2">&amp;</span>MusigAggNonce,
-        partial_sigs: Vec&lt;MusigPartialSignature&gt;,
+        agg_nonce: <span class="kw-2">&amp;</span>AggregatedNonce,
+        partial_sigs: Vec&lt;PartialSignature&gt;,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;schnorr::Signature, BridgeError&gt; {
         <span class="kw">let </span>tx = builder::transaction::create_move_to_vault_txhandler(
             deposit_data,
@@ -642,7 +642,7 @@
         <span class="kw">let </span>verifiers_public_keys = deposit_data.get_verifiers();
 
         <span class="kw">let </span>final_sig = aggregate_partial_signatures(
-            <span class="kw-2">&amp;</span>verifiers_public_keys,
+            verifiers_public_keys,
             <span class="prelude-val">None</span>,
             <span class="kw-2">*</span>agg_nonce,
             <span class="kw-2">&amp;</span>partial_sigs,

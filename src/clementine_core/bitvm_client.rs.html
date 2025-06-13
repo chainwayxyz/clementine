@@ -1343,8 +1343,8 @@
 
 <span class="attr">#[cfg(test)]
 </span><span class="kw">mod </span>tests {
+    <span class="kw">use </span>bitcoin::secp256k1::rand::thread_rng;
     <span class="kw">use </span>bitcoin::{hashes::Hash, Txid};
-    <span class="kw">use </span>secp256k1::rand::thread_rng;
 
     <span class="kw">use super</span>::<span class="kw-2">*</span>;
     <span class="kw">use crate</span>::{actor::Actor, test::common::create_test_config_with_thread_name};

@@ -243,7 +243,20 @@
 <a href="#242" id="242">242</a>
 <a href="#243" id="243">243</a>
 <a href="#244" id="244">244</a>
-<a href="#245" id="245">245</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::ParserError;
+<a href="#245" id="245">245</a>
+<a href="#246" id="246">246</a>
+<a href="#247" id="247">247</a>
+<a href="#248" id="248">248</a>
+<a href="#249" id="249">249</a>
+<a href="#250" id="250">250</a>
+<a href="#251" id="251">251</a>
+<a href="#252" id="252">252</a>
+<a href="#253" id="253">253</a>
+<a href="#254" id="254">254</a>
+<a href="#255" id="255">255</a>
+<a href="#256" id="256">256</a>
+<a href="#257" id="257">257</a>
+<a href="#258" id="258">258</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::ParserError;
 <span class="kw">use </span><span class="kw">crate</span>::citrea::CitreaClientT;
 <span class="kw">use </span><span class="kw">crate</span>::deposit::DepositData;
 <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
@@ -268,7 +281,7 @@
 <span class="kw">use </span>bitcoin::secp256k1::PublicKey;
 <span class="kw">use </span>bitcoin::XOnlyPublicKey;
 <span class="kw">use </span>eyre::Context;
-<span class="kw">use </span>secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce};
+<span class="kw">use </span>secp256k1::musig::{AggregatedNonce, PartialSignature, PublicNonce};
 <span class="kw">use </span>tonic::Status;
 
 <span class="kw">impl</span>&lt;C&gt; TryFrom&lt;<span class="kw-2">&amp;</span>Verifier&lt;C&gt;&gt; <span class="kw">for </span>VerifierParams
@@ -351,8 +364,8 @@
     }
 }
 
-<span class="kw">impl </span>From&lt;<span class="kw-2">&amp;</span>MusigPubNonce&gt; <span class="kw">for </span>NonceGenResponse {
-    <span class="kw">fn </span>from(value: <span class="kw-2">&amp;</span>MusigPubNonce) -&gt; <span class="self">Self </span>{
+<span class="kw">impl </span>From&lt;<span class="kw-2">&amp;</span>PublicNonce&gt; <span class="kw">for </span>NonceGenResponse {
+    <span class="kw">fn </span>from(value: <span class="kw-2">&amp;</span>PublicNonce) -&gt; <span class="self">Self </span>{
         NonceGenResponse {
             response: <span class="prelude-val">Some</span>(nonce_gen_response::Response::PubNonce(
                 value.serialize().to_vec(),
@@ -361,8 +374,8 @@
     }
 }
 
-<span class="kw">impl </span>From&lt;MusigPartialSignature&gt; <span class="kw">for </span>PartialSig {
-    <span class="kw">fn </span>from(value: MusigPartialSignature) -&gt; <span class="self">Self </span>{
+<span class="kw">impl </span>From&lt;PartialSignature&gt; <span class="kw">for </span>PartialSig {
+    <span class="kw">fn </span>from(value: PartialSignature) -&gt; <span class="self">Self </span>{
         PartialSig {
             partial_sig: value.serialize().to_vec(),
         }
@@ -390,14 +403,17 @@
 }
 
 <span class="attr">#[allow(clippy::result_large_err)]
-</span><span class="kw">pub fn </span>parse_partial_sigs(
-    partial_sigs: Vec&lt;Vec&lt;u8&gt;&gt;,
-) -&gt; <span class="prelude-ty">Result</span>&lt;Vec&lt;MusigPartialSignature&gt;, Status&gt; {
+</span><span class="kw">pub fn </span>parse_partial_sigs(partial_sigs: Vec&lt;Vec&lt;u8&gt;&gt;) -&gt; <span class="prelude-ty">Result</span>&lt;Vec&lt;PartialSignature&gt;, Status&gt; {
     partial_sigs
         .iter()
         .enumerate()
         .map(|(idx, sig)| {
-            MusigPartialSignature::from_slice(sig).map_err(|e| {
+            PartialSignature::from_byte_array(
+                <span class="kw-2">&amp;</span>sig.as_slice()
+                    .try_into()
+                    .map_err(|<span class="kw">_</span>| Status::invalid_argument(<span class="string">"PartialSignature must be 32 bytes"</span>))<span class="question-mark">?</span>,
+            )
+            .map_err(|e| {
                 error::invalid_argument(
                     <span class="string">"partial_sig"</span>,
                     <span class="macro">format!</span>(<span class="string">"Verifier {idx} returned an invalid partial signature"</span>).as_str(),
@@ -449,13 +465,18 @@
 
 <span class="kw">pub async fn </span>parse_deposit_finalize_param_move_tx_agg_nonce(
     stream: <span class="kw-2">&amp;mut </span>tonic::Streaming&lt;VerifierDepositFinalizeParams&gt;,
-) -&gt; <span class="prelude-ty">Result</span>&lt;MusigAggNonce, Status&gt; {
+) -&gt; <span class="prelude-ty">Result</span>&lt;AggregatedNonce, Status&gt; {
     <span class="kw">let </span>sig = <span class="macro">fetch_next_message_from_stream!</span>(stream, params)<span class="question-mark">?</span>;
 
     <span class="kw">match </span>sig {
         verifier_deposit_finalize_params::Params::MoveTxAggNonce(aggnonce) =&gt; {
-            <span class="prelude-val">Ok</span>(MusigAggNonce::from_slice(<span class="kw-2">&amp;</span>aggnonce)
-                .map_err(invalid_argument(<span class="string">"MusigAggNonce"</span>, <span class="string">"failed to parse"</span>))<span class="question-mark">?</span>)
+            <span class="kw">let </span>arr: [u8; <span class="number">66</span>] = aggnonce
+                .as_slice()
+                .try_into()
+                .map_err(|<span class="kw">_</span>| Status::invalid_argument(<span class="string">"AggregatedNonce must be 66 bytes"</span>))<span class="question-mark">?</span>;
+
+            <span class="prelude-val">Ok</span>(AggregatedNonce::from_byte_array(<span class="kw-2">&amp;</span>arr)
+                .map_err(invalid_argument(<span class="string">"AggregatedNonce"</span>, <span class="string">"failed to parse"</span>))<span class="question-mark">?</span>)
         }
         <span class="kw">_ </span>=&gt; <span class="prelude-val">Err</span>(Status::internal(<span class="string">"Expected FinalSig 2"</span>)),
     }
@@ -463,13 +484,18 @@
 
 <span class="kw">pub async fn </span>parse_deposit_finalize_param_emergency_stop_agg_nonce(
     stream: <span class="kw-2">&amp;mut </span>tonic::Streaming&lt;VerifierDepositFinalizeParams&gt;,
-) -&gt; <span class="prelude-ty">Result</span>&lt;MusigAggNonce, Status&gt; {
+) -&gt; <span class="prelude-ty">Result</span>&lt;AggregatedNonce, Status&gt; {
     <span class="kw">let </span>sig = <span class="macro">fetch_next_message_from_stream!</span>(stream, params)<span class="question-mark">?</span>;
 
     <span class="kw">match </span>sig {
         verifier_deposit_finalize_params::Params::EmergencyStopAggNonce(aggnonce) =&gt; {
-            <span class="prelude-val">Ok</span>(MusigAggNonce::from_slice(<span class="kw-2">&amp;</span>aggnonce)
-                .map_err(invalid_argument(<span class="string">"MusigAggNonce"</span>, <span class="string">"failed to parse"</span>))<span class="question-mark">?</span>)
+            <span class="prelude-val">Ok</span>(AggregatedNonce::from_byte_array(
+                <span class="kw-2">&amp;</span>aggnonce
+                    .as_slice()
+                    .try_into()
+                    .map_err(|<span class="kw">_</span>| Status::invalid_argument(<span class="string">"AggregatedNonce must be 66 bytes"</span>))<span class="question-mark">?</span>,
+            )
+            .map_err(invalid_argument(<span class="string">"AggregatedNonce"</span>, <span class="string">"failed to parse"</span>))<span class="question-mark">?</span>)
         }
         <span class="kw">_ </span>=&gt; <span class="prelude-val">Err</span>(Status::internal(<span class="string">"Expected FinalSig 2"</span>)),
     }

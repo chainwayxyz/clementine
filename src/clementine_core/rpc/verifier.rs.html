@@ -530,7 +530,17 @@
 <a href="#529" id="529">529</a>
 <a href="#530" id="530">530</a>
 <a href="#531" id="531">531</a>
-<a href="#532" id="532">532</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::{
+<a href="#532" id="532">532</a>
+<a href="#533" id="533">533</a>
+<a href="#534" id="534">534</a>
+<a href="#535" id="535">535</a>
+<a href="#536" id="536">536</a>
+<a href="#537" id="537">537</a>
+<a href="#538" id="538">538</a>
+<a href="#539" id="539">539</a>
+<a href="#540" id="540">540</a>
+<a href="#541" id="541">541</a>
+<a href="#542" id="542">542</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::{
     <span class="self">self</span>, clementine_verifier_server::ClementineVerifier, Empty, NonceGenRequest, NonceGenResponse,
     OperatorParams, OptimisticPayoutParams, PartialSig, RawTxWithRbfInfo, SignedTxWithType,
     SignedTxsWithType, VergenResponse, VerifierDepositFinalizeParams, VerifierDepositSignParams,
@@ -551,7 +561,7 @@
 };
 <span class="kw">use </span>bitcoin::Witness;
 <span class="kw">use </span>clementine::verifier_deposit_finalize_params::Params;
-<span class="kw">use </span>secp256k1::musig::MusigAggNonce;
+<span class="kw">use </span>secp256k1::musig::AggregatedNonce;
 <span class="kw">use </span>tokio::sync::mpsc::{<span class="self">self</span>, error::SendError};
 <span class="kw">use </span>tokio_stream::wrappers::ReceiverStream;
 <span class="kw">use </span>tonic::{async_trait, Request, Response, Status, Streaming};
@@ -570,8 +580,14 @@
         request: Request&lt;OptimisticPayoutParams&gt;,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;Response&lt;PartialSig&gt;, Status&gt; {
         <span class="kw">let </span>params = request.into_inner();
-        <span class="kw">let </span>agg_nonce = MusigAggNonce::from_slice(params.agg_nonce.as_slice())
-            .map_err(|e| Status::invalid_argument(<span class="macro">format!</span>(<span class="string">"Invalid musigagg nonce: {}"</span>, e)))<span class="question-mark">?</span>;
+        <span class="kw">let </span>agg_nonce = AggregatedNonce::from_byte_array(
+            params
+                .agg_nonce
+                .as_slice()
+                .try_into()
+                .map_err(|<span class="kw">_</span>| Status::invalid_argument(<span class="string">"agg_nonce must be exactly 66 bytes"</span>))<span class="question-mark">?</span>,
+        )
+        .map_err(|e| Status::invalid_argument(<span class="macro">format!</span>(<span class="string">"Invalid musigagg nonce: {}"</span>, e)))<span class="question-mark">?</span>;
         <span class="kw">let </span>nonce_session_id = params
             .nonce_gen
             .ok_or(Status::invalid_argument(
@@ -762,8 +778,12 @@
             {
                 <span class="kw">let </span>agg_nonce = <span class="kw">match </span>result {
                     clementine::verifier_deposit_sign_params::Params::AggNonce(agg_nonce) =&gt; {
-                        MusigAggNonce::from_slice(agg_nonce.as_slice())
-                            .map_err(|<span class="kw">_</span>| ParserError::RPCParamMalformed(<span class="string">"AggNonce"</span>.to_string()))<span class="question-mark">?
+                        AggregatedNonce::from_byte_array(
+                            agg_nonce.as_slice().try_into().map_err(|<span class="kw">_</span>| {
+                                ParserError::RPCParamMalformed(<span class="string">"AggNonce"</span>.to_string())
+                            })<span class="question-mark">?</span>,
+                        )
+                        .map_err(|<span class="kw">_</span>| ParserError::RPCParamMalformed(<span class="string">"AggNonce"</span>.to_string()))<span class="question-mark">?
                     </span>}
                     <span class="kw">_ </span>=&gt; <span class="kw">return </span><span class="prelude-val">Err</span>(Status::invalid_argument(<span class="string">"Expected AggNonce"</span>)),
                 };

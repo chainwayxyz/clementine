@@ -1906,7 +1906,30 @@
 <a href="#1905" id="1905">1905</a>
 <a href="#1906" id="1906">1906</a>
 <a href="#1907" id="1907">1907</a>
-<a href="#1908" id="1908">1908</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::{
+<a href="#1908" id="1908">1908</a>
+<a href="#1909" id="1909">1909</a>
+<a href="#1910" id="1910">1910</a>
+<a href="#1911" id="1911">1911</a>
+<a href="#1912" id="1912">1912</a>
+<a href="#1913" id="1913">1913</a>
+<a href="#1914" id="1914">1914</a>
+<a href="#1915" id="1915">1915</a>
+<a href="#1916" id="1916">1916</a>
+<a href="#1917" id="1917">1917</a>
+<a href="#1918" id="1918">1918</a>
+<a href="#1919" id="1919">1919</a>
+<a href="#1920" id="1920">1920</a>
+<a href="#1921" id="1921">1921</a>
+<a href="#1922" id="1922">1922</a>
+<a href="#1923" id="1923">1923</a>
+<a href="#1924" id="1924">1924</a>
+<a href="#1925" id="1925">1925</a>
+<a href="#1926" id="1926">1926</a>
+<a href="#1927" id="1927">1927</a>
+<a href="#1928" id="1928">1928</a>
+<a href="#1929" id="1929">1929</a>
+<a href="#1930" id="1930">1930</a>
+<a href="#1931" id="1931">1931</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::{
     clementine_aggregator_server::ClementineAggregator, verifier_deposit_finalize_params,
     DepositParams, Empty, VerifierDepositFinalizeParams,
 };
@@ -1948,14 +1971,14 @@
     stream::{BoxStream, TryStreamExt},
     FutureExt, Stream, StreamExt, TryFutureExt,
 };
-<span class="kw">use </span>secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce};
+<span class="kw">use </span>secp256k1::musig::{AggregatedNonce, PartialSignature, PublicNonce};
 <span class="kw">use </span>std::future::Future;
 <span class="kw">use </span>tokio::sync::mpsc::{channel, Receiver, Sender};
 <span class="kw">use </span>tonic::{async_trait, Request, Response, Status, Streaming};
 
 <span class="attr">#[derive(Debug, Clone)]
 </span><span class="kw">struct </span>AggNonceQueueItem {
-    agg_nonce: MusigAggNonce,
+    agg_nonce: AggregatedNonce,
     sighash: TapSighash,
 }
 
@@ -1975,11 +1998,11 @@
 }
 
 <span class="kw">async fn </span>get_next_pub_nonces(
-    nonce_streams: <span class="kw-2">&amp;mut </span>[<span class="kw">impl </span>Stream&lt;Item = <span class="prelude-ty">Result</span>&lt;MusigPubNonce, BridgeError&gt;&gt;
+    nonce_streams: <span class="kw-2">&amp;mut </span>[<span class="kw">impl </span>Stream&lt;Item = <span class="prelude-ty">Result</span>&lt;PublicNonce, BridgeError&gt;&gt;
               + Unpin
               + Send
               + <span class="lifetime">'static</span>],
-) -&gt; <span class="prelude-ty">Result</span>&lt;Vec&lt;MusigPubNonce&gt;, BridgeError&gt; {
+) -&gt; <span class="prelude-ty">Result</span>&lt;Vec&lt;PublicNonce&gt;, BridgeError&gt; {
     <span class="prelude-val">Ok</span>(try_join_all(
         nonce_streams
             .iter_mut()
@@ -2003,14 +2026,14 @@
 <span class="doccomment">/// For each expected sighash, we collect a batch of public nonces from all verifiers. We aggregate and send to the agg_nonce_sender. Then repeat for the next sighash.
 </span><span class="kw">async fn </span>nonce_aggregator(
     <span class="kw-2">mut </span>nonce_streams: Vec&lt;
-        <span class="kw">impl </span>Stream&lt;Item = <span class="prelude-ty">Result</span>&lt;MusigPubNonce, BridgeError&gt;&gt; + Unpin + Send + <span class="lifetime">'static</span>,
+        <span class="kw">impl </span>Stream&lt;Item = <span class="prelude-ty">Result</span>&lt;PublicNonce, BridgeError&gt;&gt; + Unpin + Send + <span class="lifetime">'static</span>,
     &gt;,
     <span class="kw-2">mut </span>sighash_stream: <span class="kw">impl </span>Stream&lt;Item = <span class="prelude-ty">Result</span>&lt;(TapSighash, SignatureInfo), BridgeError&gt;&gt;
         + Unpin
         + Send
         + <span class="lifetime">'static</span>,
     agg_nonce_sender: Sender&lt;AggNonceQueueItem&gt;,
-) -&gt; <span class="prelude-ty">Result</span>&lt;(MusigAggNonce, MusigAggNonce), BridgeError&gt; {
+) -&gt; <span class="prelude-ty">Result</span>&lt;(AggregatedNonce, AggregatedNonce), BridgeError&gt; {
     <span class="kw">let </span><span class="kw-2">mut </span>total_sigs = <span class="number">0</span>;
 
     <span class="macro">tracing::info!</span>(<span class="string">"Starting nonce aggregation"</span>);
@@ -2100,7 +2123,7 @@
         Streaming&lt;clementine::PartialSig&gt;,
         Sender&lt;clementine::VerifierDepositSignParams&gt;,
     )&gt;,
-    partial_sig_sender: Sender&lt;(Vec&lt;MusigPartialSignature&gt;, AggNonceQueueItem)&gt;,
+    partial_sig_sender: Sender&lt;(Vec&lt;PartialSignature&gt;, AggNonceQueueItem)&gt;,
 ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
     <span class="kw">let </span><span class="kw-2">mut </span>sig_count = <span class="number">0</span>;
     <span class="kw">while let </span><span class="prelude-val">Some</span>(queue_item) = agg_nonce_receiver.recv().<span class="kw">await </span>{
@@ -2154,8 +2177,14 @@
                     })<span class="question-mark">?</span>;
 
                 <span class="prelude-val">Ok</span>::&lt;<span class="kw">_</span>, BridgeError&gt;(
-                    MusigPartialSignature::from_slice(<span class="kw-2">&amp;</span>partial_sig.partial_sig)
-                        .wrap_err(<span class="string">"Failed to parse partial signature"</span>)<span class="question-mark">?</span>,
+                    PartialSignature::from_byte_array(
+                        <span class="kw-2">&amp;</span>partial_sig
+                            .partial_sig
+                            .as_slice()
+                            .try_into()
+                            .wrap_err(<span class="string">"PartialSignature must be 32 bytes"</span>)<span class="question-mark">?</span>,
+                    )
+                    .wrap_err(<span class="string">"Failed to parse partial signature"</span>)<span class="question-mark">?</span>,
                 )
             },
         ))
@@ -2186,7 +2215,7 @@
 
 <span class="doccomment">/// Collects partial signatures from given stream and aggregates them.
 </span><span class="kw">async fn </span>signature_aggregator(
-    <span class="kw-2">mut </span>partial_sig_receiver: Receiver&lt;(Vec&lt;MusigPartialSignature&gt;, AggNonceQueueItem)&gt;,
+    <span class="kw-2">mut </span>partial_sig_receiver: Receiver&lt;(Vec&lt;PartialSignature&gt;, AggNonceQueueItem)&gt;,
     verifiers_public_keys: Vec&lt;PublicKey&gt;,
     final_sig_sender: Sender&lt;FinalSigQueueItem&gt;,
 ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
@@ -2199,7 +2228,7 @@
         );
 
         <span class="kw">let </span>final_sig = <span class="kw">crate</span>::musig2::aggregate_partial_signatures(
-            <span class="kw-2">&amp;</span>verifiers_public_keys,
+            verifiers_public_keys.clone(),
             <span class="prelude-val">None</span>,
             queue_item.agg_nonce,
             <span class="kw-2">&amp;</span>partial_sigs,
@@ -2230,7 +2259,7 @@
 </span><span class="kw">async fn </span>signature_distributor(
     <span class="kw-2">mut </span>final_sig_receiver: Receiver&lt;FinalSigQueueItem&gt;,
     deposit_finalize_sender: Vec&lt;Sender&lt;VerifierDepositFinalizeParams&gt;&gt;,
-    agg_nonce: <span class="kw">impl </span>Future&lt;Output = <span class="prelude-ty">Result</span>&lt;(MusigAggNonce, MusigAggNonce), Status&gt;&gt;,
+    agg_nonce: <span class="kw">impl </span>Future&lt;Output = <span class="prelude-ty">Result</span>&lt;(AggregatedNonce, AggregatedNonce), Status&gt;&gt;,
 ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
     <span class="kw">use </span>verifier_deposit_finalize_params::Params;
     <span class="kw">let </span><span class="kw-2">mut </span>sig_count = <span class="number">0</span>;
@@ -2311,7 +2340,7 @@
 ) -&gt; <span class="prelude-ty">Result</span>&lt;
     (
         Vec&lt;clementine::NonceGenFirstResponse&gt;,
-        Vec&lt;BoxStream&lt;<span class="lifetime">'static</span>, <span class="prelude-ty">Result</span>&lt;MusigPubNonce, BridgeError&gt;&gt;&gt;,
+        Vec&lt;BoxStream&lt;<span class="lifetime">'static</span>, <span class="prelude-ty">Result</span>&lt;PublicNonce, BridgeError&gt;&gt;&gt;,
     ),
     BridgeError,
 &gt; {
@@ -2403,10 +2432,16 @@
     <span class="comment">// Extracts pub_nonce from given stream.
     </span><span class="kw">fn </span>extract_pub_nonce(
         response: <span class="prelude-ty">Option</span>&lt;clementine::nonce_gen_response::Response&gt;,
-    ) -&gt; <span class="prelude-ty">Result</span>&lt;MusigPubNonce, BridgeError&gt; {
+    ) -&gt; <span class="prelude-ty">Result</span>&lt;PublicNonce, BridgeError&gt; {
         <span class="kw">match </span>response.ok_or_eyre(<span class="string">"NonceGen response is empty"</span>)<span class="question-mark">? </span>{
             clementine::nonce_gen_response::Response::PubNonce(pub_nonce) =&gt; {
-                <span class="prelude-val">Ok</span>(MusigPubNonce::from_slice(<span class="kw-2">&amp;</span>pub_nonce).wrap_err(<span class="string">"Failed to parse pub nonce"</span>)<span class="question-mark">?</span>)
+                <span class="prelude-val">Ok</span>(PublicNonce::from_byte_array(
+                    <span class="kw-2">&amp;</span>pub_nonce
+                        .as_slice()
+                        .try_into()
+                        .wrap_err(<span class="string">"PubNonce must be 66 bytes"</span>)<span class="question-mark">?</span>,
+                )
+                .wrap_err(<span class="string">"Failed to parse pub nonce"</span>)<span class="question-mark">?</span>)
             }
             <span class="kw">_ </span>=&gt; <span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(<span class="string">"Expected PubNonce in response"</span>).into()),
         }
@@ -2483,7 +2518,7 @@
     <span class="kw">async fn </span>create_movetx(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         partial_sigs: Vec&lt;Vec&lt;u8&gt;&gt;,
-        movetx_agg_nonce: MusigAggNonce,
+        movetx_agg_nonce: AggregatedNonce,
         deposit_params: DepositParams,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;TxHandler&lt;Signed&gt;, Status&gt; {
         <span class="kw">let </span><span class="kw-2">mut </span>deposit_data: DepositData = deposit_params.try_into()<span class="question-mark">?</span>;
@@ -2502,7 +2537,7 @@
         <span class="comment">// aggregate partial signatures
         </span><span class="kw">let </span>verifiers_public_keys = deposit_data.get_verifiers();
         <span class="kw">let </span>final_sig = <span class="kw">crate</span>::musig2::aggregate_partial_signatures(
-            <span class="kw-2">&amp;</span>verifiers_public_keys,
+            verifiers_public_keys,
             <span class="prelude-val">None</span>,
             movetx_agg_nonce,
             <span class="kw-2">&amp;</span>musig_partial_sigs,
@@ -2518,7 +2553,7 @@
     <span class="kw">async fn </span>verify_and_save_emergency_stop_sigs(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         emergency_stop_sigs: Vec&lt;Vec&lt;u8&gt;&gt;,
-        emergency_stop_agg_nonce: MusigAggNonce,
+        emergency_stop_agg_nonce: AggregatedNonce,
         deposit_params: DepositParams,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
         <span class="kw">let </span><span class="kw-2">mut </span>deposit_data: DepositData = deposit_params
@@ -2546,7 +2581,7 @@
         <span class="kw">let </span>verifiers_public_keys = deposit_data.get_verifiers();
 
         <span class="kw">let </span>final_sig = <span class="kw">crate</span>::musig2::aggregate_partial_signatures(
-            <span class="kw-2">&amp;</span>verifiers_public_keys,
+            verifiers_public_keys,
             <span class="prelude-val">None</span>,
             emergency_stop_agg_nonce,
             <span class="kw-2">&amp;</span>musig_partial_sigs,
@@ -2807,15 +2842,24 @@
 
             <span class="comment">// calculate final sig
             </span><span class="kw">let </span>payout_sig = try_join_all(payout_sigs).<span class="kw">await</span><span class="question-mark">?</span>;
+
             <span class="kw">let </span>musig_partial_sigs = payout_sig
                 .iter()
-                .map(|sig| MusigPartialSignature::from_slice(<span class="kw-2">&amp;</span>sig.get_ref().partial_sig))
+                .map(|sig| {
+                    PartialSignature::from_byte_array(
+                        <span class="kw-2">&amp;</span>sig.get_ref()
+                            .partial_sig
+                            .clone()
+                            .try_into()
+                            .map_err(|<span class="kw">_</span>| secp256k1::musig::ParseError::MalformedArg)<span class="question-mark">?</span>,
+                    )
+                })
                 .collect::&lt;<span class="prelude-ty">Result</span>&lt;Vec&lt;<span class="kw">_</span>&gt;, <span class="kw">_</span>&gt;&gt;()
                 .map_err(|e| Status::internal(<span class="macro">format!</span>(<span class="string">"Failed to parse partial sig: {:?}"</span>, e)))<span class="question-mark">?</span>;
 
             <span class="kw">let </span>final_sig = bitcoin::taproot::Signature {
                 signature: <span class="kw">crate</span>::musig2::aggregate_partial_signatures(
-                    <span class="kw-2">&amp;</span>deposit_data.get_verifiers(),
+                    deposit_data.get_verifiers(),
                     <span class="prelude-val">None</span>,
                     agg_nonce,
                     <span class="kw-2">&amp;</span>musig_partial_sigs,
@@ -3158,9 +3202,11 @@
         <span class="comment">// Join the nonce aggregation handle to get the movetx agg nonce.
         </span><span class="kw">let </span>nonce_agg_handle = nonce_agg_handle
             .map_err(|<span class="kw">_</span>| Status::internal(<span class="string">"panic when aggregating nonces"</span>))
-            .map(|res| -&gt; <span class="prelude-ty">Result</span>&lt;(MusigAggNonce, MusigAggNonce), Status&gt; {
-                res.and_then(|r| r.map_err(Into::into))
-            })
+            .map(
+                |res| -&gt; <span class="prelude-ty">Result</span>&lt;(AggregatedNonce, AggregatedNonce), Status&gt; {
+                    res.and_then(|r| r.map_err(Into::into))
+                },
+            )
             .shared();
 
         <span class="comment">// Start the deposit finalization pipe.
