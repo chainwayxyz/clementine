@@ -205,7 +205,7 @@ pub fn create_operator_challenge_nack_txhandler(
                     NumberedSignatureKind::OperatorChallengeNack3,
                     watchtower_idx as i32,
                 ),
-                round_txhandler.get_spendable_output(UtxoVout::BurnConnector)?,
+                round_txhandler.get_spendable_output(UtxoVout::CollateralInRound)?,
                 SpendPath::KeySpend,
                 DEFAULT_SEQUENCE,
             )
@@ -295,7 +295,7 @@ pub fn create_disprove_txhandler(
         )
         .add_input(
             NormalSignatureKind::Disprove2,
-            round_txhandler.get_spendable_output(UtxoVout::BurnConnector)?,
+            round_txhandler.get_spendable_output(UtxoVout::CollateralInRound)?,
             SpendPath::KeySpend,
             DEFAULT_SEQUENCE,
         )

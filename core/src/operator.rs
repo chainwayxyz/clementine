@@ -1197,6 +1197,14 @@ where
         _payout_blockhash: Witness,
         latest_blockhash: Witness,
     ) -> Result<(), BridgeError> {
+        #[cfg(test)]
+        {
+            if self.config.test_params.operator_does_not_send_asserts {
+                tracing::info!("Operator does not send asserts in send_asserts for testing");
+                return Ok(());
+            }
+        }
+
         let context = ContractContext::new_context_for_kickoff(
             kickoff_data,
             deposit_data.clone(),

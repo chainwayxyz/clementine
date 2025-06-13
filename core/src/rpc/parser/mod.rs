@@ -482,22 +482,33 @@ impl TryFrom<clementine::Txid> for Txid {
 }
 
 #[allow(clippy::result_large_err)]
-pub fn parse_transaction_request(
-    request: TransactionRequest,
-) -> Result<TransactionRequestData, Status> {
-    let deposit_outpoint: OutPoint = request
-        .deposit_outpoint
-        .ok_or(Status::invalid_argument("No deposit params received"))?
-        .try_into()?;
+impl TryFrom<TransactionRequest> for TransactionRequestData {
+    type Error = Status;
 
-    let kickoff_id = request
-        .kickoff_id
-        .ok_or(Status::invalid_argument("No kickoff params received"))?;
+    fn try_from(request: TransactionRequest) -> Result<Self, Self::Error> {
+        let deposit_outpoint: OutPoint = request
+            .deposit_outpoint
+            .ok_or(Status::invalid_argument("No deposit params received"))?
+            .try_into()?;
 
-    Ok(TransactionRequestData {
-        deposit_outpoint,
-        kickoff_data: kickoff_id.try_into()?,
-    })
+        let kickoff_id = request
+            .kickoff_id
+            .ok_or(Status::invalid_argument("No kickoff params received"))?;
+
+        Ok(TransactionRequestData {
+            deposit_outpoint,
+            kickoff_data: kickoff_id.try_into()?,
+        })
+    }
+}
+
+impl From<TransactionRequestData> for TransactionRequest {
+    fn from(value: TransactionRequestData) -> Self {
+        TransactionRequest {
+            deposit_outpoint: Some(value.deposit_outpoint.into()),
+            kickoff_id: Some(value.kickoff_data.into()),
+        }
+    }
 }
 
 impl TryFrom<clementine::KickoffId> for crate::deposit::KickoffData {

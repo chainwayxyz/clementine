@@ -92,7 +92,7 @@ pub fn create_latest_blockhash_timeout_txhandler(
             )
             .add_input(
                 NormalSignatureKind::LatestBlockhashTimeout3,
-                round_txhandler.get_spendable_output(UtxoVout::BurnConnector)?,
+                round_txhandler.get_spendable_output(UtxoVout::CollateralInRound)?,
                 SpendPath::KeySpend,
                 DEFAULT_SEQUENCE,
             )

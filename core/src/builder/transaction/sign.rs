@@ -180,7 +180,8 @@ pub async fn create_and_sign_txs(
             }
             Err(e) => {
                 tracing::trace!(
-                    "Couldn't sign transaction {:?} in create_and_sign_all_txs: {:?}",
+                    "Couldn't sign transaction {:?} in create_and_sign_all_txs: {:?}. 
+                    This might be normal if the transaction is not needed to be/cannot be signed.",
                     tx_type,
                     e
                 );
@@ -498,7 +499,7 @@ where
         let block_hash_last_20 = block_hash[block_hash.len() - 20..].to_vec();
 
         tracing::info!(
-            "Creating latest blockhash tx with block hash: {:?}",
+            "Creating latest blockhash tx with block hash's last 20 bytes: {:?}",
             block_hash_last_20
         );
         self.signer.tx_sign_winternitz(

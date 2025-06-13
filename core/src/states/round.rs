@@ -118,7 +118,7 @@ impl<T: Owner> RoundStateMachine<T> {
         if matches!(evt, RoundEvent::SavedToDb) {
             self.dirty = false;
         } else {
-            tracing::debug!(?self.operator_data, "Dispatching event {:?}", evt);
+            tracing::trace!(?self.operator_data, "Dispatching event {:?}", evt);
             self.dirty = true;
 
             // Remove the matcher corresponding to the event.

@@ -599,7 +599,7 @@ pub async fn create_txhandlers(
         operator_data.xonly_pk,
         RoundTxInput::Prevout(Box::new(
             get_txhandler(&txhandlers, TransactionType::ReadyToReimburse)?
-                .get_spendable_output(UtxoVout::BurnConnector)?,
+                .get_spendable_output(UtxoVout::CollateralInReadyToReimburse)?,
         )),
         kickoff_winternitz_keys.get_keys_for_round(round_idx.next_round())?,
         paramset,
@@ -673,7 +673,7 @@ pub async fn create_txhandlers(
     );
 
     tracing::debug!(
-        "Deposit constant for {:?}: {:?} - depoist outpoint: {:?}",
+        "Deposit constant for {:?}: {:?} - deposit outpoint: {:?}",
         operator_xonly_pk,
         deposit_constant.0,
         deposit_data.get_deposit_outpoint(),
@@ -956,7 +956,7 @@ pub fn create_round_txhandlers(
                 operator_data.xonly_pk,
                 RoundTxInput::Prevout(Box::new(
                     prev_ready_to_reimburse_txhandler
-                        .get_spendable_output(UtxoVout::BurnConnector)?,
+                        .get_spendable_output(UtxoVout::CollateralInReadyToReimburse)?,
                 )),
                 kickoff_winternitz_keys.get_keys_for_round(round_idx)?,
                 paramset,
