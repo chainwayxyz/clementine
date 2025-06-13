@@ -578,7 +578,7 @@ pub fn journal_hash(
     blake3::hash(&concat_journal)
 }
 
-// Modified to panic on error
+/// Computes the Taproot sighash for a given transaction input.
 fn sighash(
     wt_tx: &Transaction,
     prevouts: &Prevouts<TxOut>,
@@ -588,12 +588,7 @@ fn sighash(
 ) -> bitcoin::sighash::TapSighash {
     let mut enc = TapSighash::engine();
     let mut sighash_cache = SighashCache::new(wt_tx);
-    // Explicitly specify the generic arguments for T and R
-    taproot_encode_signing_data_to_with_annex_digest::<
-        _,            // W: io::Write + ?Sized (inferred as sha256::HashEngine)
-        TxOut,        // T: Borrow<TxOut> (explicitly TxOut)
-        &Transaction, // R: Borrow<Transaction> (explicitly &Transaction)
-    >(
+    taproot_encode_signing_data_to_with_annex_digest::<_, TxOut, &Transaction>(
         sighash_cache.borrow_mut(),
         enc.borrow_mut(),
         input_index,
@@ -615,13 +610,13 @@ pub fn taproot_encode_signing_data_to_with_annex_digest<
     sighash_cache: &mut SighashCache<R>,
     writer: &mut W,
     input_index: usize,
-    prevouts: &Prevouts<T>, // Changed from `Prevouts<TxOut>` to `Prevouts<T>`
+    prevouts: &Prevouts<T>,
     annex_hash: Option<[u8; 32]>,
     leaf_hash_code_separator: Option<(TapLeafHash, u32)>,
     sighash_type: TapSighashType,
 ) {
     let tx = sighash_cache.transaction();
-    check_all_generic(prevouts, tx); // Adjusted to use a generic check_all
+    check_all_prevouts(prevouts, tx);
 
     let (sighash, anyone_can_pay) = split_anyonecanpay_flag(sighash_type);
     let expect_msg = "writer should not fail";
@@ -651,7 +646,7 @@ pub fn taproot_encode_signing_data_to_with_annex_digest<
             .expect(expect_msg);
 
         // Manually compute sha_amounts
-        let all_prevouts = get_all_for_prevouts_generic(prevouts); // Adjusted to use a generic get_all
+        let all_prevouts = unwrap_all_prevouts(prevouts);
         let mut enc_amounts = sha256::Hash::engine();
         for prevout in all_prevouts.iter() {
             prevout
@@ -712,18 +707,18 @@ pub fn taproot_encode_signing_data_to_with_annex_digest<
 
     if anyone_can_pay {
         let txin = tx.tx_in(input_index).expect("invalid input index");
-        let previous_output = get_for_prevouts_generic(prevouts, input_index)
-            .expect("invalid prevout for input index"); // Adjusted to use a generic get_for_prevouts
+        let previous_output =
+            get_for_prevouts(prevouts, input_index).expect("invalid prevout for input index");
         txin.previous_output
             .consensus_encode(writer)
             .expect(expect_msg);
         previous_output
-            .borrow() // Added .borrow()
+            .borrow()
             .value
             .consensus_encode(writer)
             .expect(expect_msg);
         previous_output
-            .borrow() // Added .borrow()
+            .borrow()
             .script_pubkey
             .consensus_encode(writer)
             .expect(expect_msg);
@@ -765,8 +760,8 @@ pub fn taproot_encode_signing_data_to_with_annex_digest<
     }
 }
 
-// Modified helper functions to be generic
-fn get_for_prevouts_generic<'a, T: Borrow<TxOut>>(
+// Helper functions for getting prevouts
+fn get_for_prevouts<'a, T: Borrow<TxOut>>(
     prevouts: &'a Prevouts<'a, T>,
     input_index: usize,
 ) -> Result<&'a T, PrevoutsIndexError> {
@@ -784,14 +779,14 @@ fn get_for_prevouts_generic<'a, T: Borrow<TxOut>>(
     }
 }
 
-fn get_all_for_prevouts_generic<'a, T: Borrow<TxOut>>(prevouts: &'a Prevouts<'a, T>) -> &'a [T] {
+fn unwrap_all_prevouts<'a, T: Borrow<TxOut>>(prevouts: &'a Prevouts<'a, T>) -> &'a [T] {
     match prevouts {
         Prevouts::All(prevouts) => prevouts,
         _ => panic!("cannot get all prevouts from a single prevout"),
     }
 }
 
-fn check_all_generic<T: Borrow<TxOut>>(prevouts: &Prevouts<'_, T>, tx: &Transaction) {
+fn check_all_prevouts<T: Borrow<TxOut>>(prevouts: &Prevouts<'_, T>, tx: &Transaction) {
     if let Prevouts::All(prevouts) = prevouts {
         if prevouts.len() != tx.input.len() {
             panic!(
@@ -803,7 +798,6 @@ fn check_all_generic<T: Borrow<TxOut>>(prevouts: &Prevouts<'_, T>, tx: &Transact
     }
 }
 
-// Unchanged helper functions
 fn split_anyonecanpay_flag(sighash: TapSighashType) -> (TapSighashType, bool) {
     match sighash {
         TapSighashType::Default => (TapSighashType::Default, false),

@@ -278,8 +278,8 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     ],
     header_chain_proof_batch_size: 100,
     bridge_circuit_method_id_constant: [
-        161, 224, 123, 224, 161, 79, 5, 157, 211, 176, 198, 123, 128, 173, 148, 114, 197, 152, 64,
-        188, 185, 37, 45, 158, 225, 162, 241, 192, 225, 240, 16, 113,
+        193, 177, 169, 7, 46, 106, 206, 205, 61, 246, 9, 212, 19, 179, 108, 45, 68, 182, 40, 49,
+        164, 60, 19, 48, 111, 118, 1, 47, 153, 133, 14, 171,
     ],
     bridge_nonstandard: false,
 };
