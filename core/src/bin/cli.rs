@@ -1,6 +1,6 @@
 //! This module defines a command line interface for the RPC client.
 
-use bitcoin::{hashes::Hash, ScriptBuf};
+use bitcoin::{hashes::Hash, secp256k1::schnorr, ScriptBuf};
 use bitcoincore_rpc::RpcApi;
 use clap::{Parser, Subcommand};
 use clementine_core::{
@@ -15,7 +15,7 @@ use clementine_core::{
         BaseDeposit, Deposit, Empty, Outpoint, ReplacementDeposit, SendMoveTxRequest,
     },
     utils::{bitcoin_merkle::get_block_merkle_proof, citrea::get_transaction_params_for_citrea},
-    EVMAddress,
+    EVMAddress, UTXO,
 };
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -224,6 +224,25 @@ enum CitreaCommands {
         bitcoin_rpc_password: String,
         #[arg(long)]
         txid: String,
+    },
+    /// Makes a safe withdrawal from Citrea
+    SafeWithdraw {
+        #[arg(long)]
+        bitcoin_rpc_url: String,
+        #[arg(long)]
+        bitcoin_rpc_user: String,
+        #[arg(long)]
+        bitcoin_rpc_password: String,
+        #[arg(long)]
+        withdrawal_dust_utxo_txid: String,
+        #[arg(long)]
+        withdrawal_dust_utxo_vout: u32,
+        #[arg(long)]
+        payout_output_txid: String,
+        #[arg(long)]
+        payout_output_vout: u32,
+        #[arg(long)]
+        signature: String,
     },
 }
 
@@ -972,11 +991,6 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
 async fn handle_citrea_call(url: String, command: CitreaCommands) {
     println!("Connecting to verifier at {}", url);
     let config = create_minimal_config();
-    // let mut verifier =
-    //     clementine_core::rpc::get_clients(vec![url], ClementineVerifierClient::new, &config, true)
-    //         .await
-    //         .expect("Exists")[0]
-    //         .clone();
 
     match command {
         CitreaCommands::Deposit {
@@ -1026,6 +1040,60 @@ async fn handle_citrea_call(url: String, command: CitreaCommands) {
             .await
             .expect("Failed to deposit to Citrea");
             println!("Deposit to Citrea completed successfully");
+        }
+        CitreaCommands::SafeWithdraw {
+            bitcoin_rpc_url,
+            bitcoin_rpc_user,
+            bitcoin_rpc_password,
+            withdrawal_dust_utxo_txid,
+            withdrawal_dust_utxo_vout,
+            payout_output_txid,
+            payout_output_vout,
+            signature,
+        } => {
+            let extended_rpc = extended_rpc::ExtendedRpc::connect(
+                bitcoin_rpc_url,
+                bitcoin_rpc_user,
+                bitcoin_rpc_password,
+            )
+            .await
+            .expect("Failed to connect to Bitcoin RPC");
+
+            // create utxo from withdrawal_dust_utxo_txid and withdrawal_dust_utxo_vout
+            let outpoint = bitcoin::OutPoint {
+                txid: bitcoin::Txid::from_str(&withdrawal_dust_utxo_txid)
+                    .expect("Failed to parse withdrawal dust utxo txid"),
+                vout: withdrawal_dust_utxo_vout,
+            };
+            let txout = extended_rpc
+                .get_txout_from_outpoint(&outpoint)
+                .await
+                .expect("Failed to get txout from outpoint");
+            let withdrawal_dust_utxo = UTXO { outpoint, txout };
+
+            let outpoint = bitcoin::OutPoint {
+                txid: bitcoin::Txid::from_str(&payout_output_txid)
+                    .expect("Failed to parse payout utxo txid"),
+                vout: payout_output_vout,
+            };
+            let payout_output = extended_rpc
+                .get_txout_from_outpoint(&outpoint)
+                .await
+                .expect("Failed to get txout from outpoint");
+
+            let signature =
+                schnorr::Signature::from_str(&signature).expect("Failed to parse signature");
+
+            let ret = clementine_core::utils::citrea::get_citrea_safe_withdraw_params(
+                &extended_rpc,
+                withdrawal_dust_utxo,
+                payout_output,
+                signature,
+            )
+            .await
+            .expect("Failed to get Citrea safe withdraw params");
+
+            println!("Citrea safe withdraw params: {:?}", ret);
         }
     }
 }
