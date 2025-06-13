@@ -50,17 +50,9 @@ use std::time::Duration;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::time::timeout;
 use tonic::{async_trait, Request, Response, Status, Streaming};
-
-const OVERALL_DEPOSIT_TIMEOUT: Duration = Duration::from_secs(7200); // 2 hours
-const KEY_DISTRIBUTION_TIMEOUT: Duration = Duration::from_secs(600); // 10 minutes
-const NONCE_STREAM_CREATION_TIMEOUT: Duration = Duration::from_secs(300); // 5 minutes
-const PARTIAL_SIG_STREAM_CREATION_TIMEOUT: Duration = Duration::from_secs(300); // 5 minutes
-const OPERATOR_SIGS_STREAM_CREATION_TIMEOUT: Duration = Duration::from_secs(300); // 5 minutes
-const DEPOSIT_FINALIZE_STREAM_CREATION_TIMEOUT: Duration = Duration::from_secs(300); // 5 minutes
-const PIPELINE_COMPLETION_TIMEOUT: Duration = Duration::from_secs(1200); // 20 minutes
-const OPERATOR_SIGS_TIMEOUT: Duration = Duration::from_secs(1200); // 20 minutes
-const SEND_OPERATOR_SIGS_TIMEOUT: Duration = Duration::from_secs(600); // 10 minutes
-const DEPOSIT_FINALIZATION_TIMEOUT: Duration = Duration::from_secs(600); // 10 minutes
+use crate::constants::{
+    DEPOSIT_FINALIZATION_TIMEOUT, DEPOSIT_FINALIZE_STREAM_CREATION_TIMEOUT, KEY_DISTRIBUTION_TIMEOUT, NONCE_STREAM_CREATION_TIMEOUT, OPERATOR_SIGS_STREAM_CREATION_TIMEOUT, OPERATOR_SIGS_TIMEOUT, OVERALL_DEPOSIT_TIMEOUT, PARTIAL_SIG_STREAM_CREATION_TIMEOUT, PIPELINE_COMPLETION_TIMEOUT, SEND_OPERATOR_SIGS_TIMEOUT
+};
 
 #[derive(Debug, Clone)]
 struct AggNonceQueueItem {
