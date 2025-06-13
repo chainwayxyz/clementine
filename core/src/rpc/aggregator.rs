@@ -40,14 +40,14 @@ use futures::{
     stream::{BoxStream, TryStreamExt},
     FutureExt, Stream, StreamExt, TryFutureExt,
 };
-use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce};
+use secp256k1::musig::{AggregatedNonce, PartialSignature, PublicNonce};
 use std::future::Future;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tonic::{async_trait, Request, Response, Status, Streaming};
 
 #[derive(Debug, Clone)]
 struct AggNonceQueueItem {
-    agg_nonce: MusigAggNonce,
+    agg_nonce: AggregatedNonce,
     sighash: TapSighash,
 }
 
@@ -67,11 +67,11 @@ pub enum AggregatorError {
 }
 
 async fn get_next_pub_nonces(
-    nonce_streams: &mut [impl Stream<Item = Result<MusigPubNonce, BridgeError>>
+    nonce_streams: &mut [impl Stream<Item = Result<PublicNonce, BridgeError>>
               + Unpin
               + Send
               + 'static],
-) -> Result<Vec<MusigPubNonce>, BridgeError> {
+) -> Result<Vec<PublicNonce>, BridgeError> {
     Ok(try_join_all(
         nonce_streams
             .iter_mut()
@@ -95,14 +95,14 @@ async fn get_next_pub_nonces(
 /// For each expected sighash, we collect a batch of public nonces from all verifiers. We aggregate and send to the agg_nonce_sender. Then repeat for the next sighash.
 async fn nonce_aggregator(
     mut nonce_streams: Vec<
-        impl Stream<Item = Result<MusigPubNonce, BridgeError>> + Unpin + Send + 'static,
+        impl Stream<Item = Result<PublicNonce, BridgeError>> + Unpin + Send + 'static,
     >,
     mut sighash_stream: impl Stream<Item = Result<(TapSighash, SignatureInfo), BridgeError>>
         + Unpin
         + Send
         + 'static,
     agg_nonce_sender: Sender<AggNonceQueueItem>,
-) -> Result<(MusigAggNonce, MusigAggNonce), BridgeError> {
+) -> Result<(AggregatedNonce, AggregatedNonce), BridgeError> {
     let mut total_sigs = 0;
 
     tracing::info!("Starting nonce aggregation");
@@ -192,7 +192,7 @@ async fn nonce_distributor(
         Streaming<clementine::PartialSig>,
         Sender<clementine::VerifierDepositSignParams>,
     )>,
-    partial_sig_sender: Sender<(Vec<MusigPartialSignature>, AggNonceQueueItem)>,
+    partial_sig_sender: Sender<(Vec<PartialSignature>, AggNonceQueueItem)>,
 ) -> Result<(), BridgeError> {
     let mut sig_count = 0;
     while let Some(queue_item) = agg_nonce_receiver.recv().await {
@@ -246,8 +246,14 @@ async fn nonce_distributor(
                     })?;
 
                 Ok::<_, BridgeError>(
-                    MusigPartialSignature::from_slice(&partial_sig.partial_sig)
-                        .wrap_err("Failed to parse partial signature")?,
+                    PartialSignature::from_byte_array(
+                        &partial_sig
+                            .partial_sig
+                            .as_slice()
+                            .try_into()
+                            .wrap_err("PartialSignature must be 32 bytes")?,
+                    )
+                    .wrap_err("Failed to parse partial signature")?,
                 )
             },
         ))
@@ -278,7 +284,7 @@ async fn nonce_distributor(
 
 /// Collects partial signatures from given stream and aggregates them.
 async fn signature_aggregator(
-    mut partial_sig_receiver: Receiver<(Vec<MusigPartialSignature>, AggNonceQueueItem)>,
+    mut partial_sig_receiver: Receiver<(Vec<PartialSignature>, AggNonceQueueItem)>,
     verifiers_public_keys: Vec<PublicKey>,
     final_sig_sender: Sender<FinalSigQueueItem>,
 ) -> Result<(), BridgeError> {
@@ -291,7 +297,7 @@ async fn signature_aggregator(
         );
 
         let final_sig = crate::musig2::aggregate_partial_signatures(
-            &verifiers_public_keys,
+            verifiers_public_keys.clone(),
             None,
             queue_item.agg_nonce,
             &partial_sigs,
@@ -322,7 +328,7 @@ async fn signature_aggregator(
 async fn signature_distributor(
     mut final_sig_receiver: Receiver<FinalSigQueueItem>,
     deposit_finalize_sender: Vec<Sender<VerifierDepositFinalizeParams>>,
-    agg_nonce: impl Future<Output = Result<(MusigAggNonce, MusigAggNonce), Status>>,
+    agg_nonce: impl Future<Output = Result<(AggregatedNonce, AggregatedNonce), Status>>,
 ) -> Result<(), BridgeError> {
     use verifier_deposit_finalize_params::Params;
     let mut sig_count = 0;
@@ -403,7 +409,7 @@ async fn create_nonce_streams(
 ) -> Result<
     (
         Vec<clementine::NonceGenFirstResponse>,
-        Vec<BoxStream<'static, Result<MusigPubNonce, BridgeError>>>,
+        Vec<BoxStream<'static, Result<PublicNonce, BridgeError>>>,
     ),
     BridgeError,
 > {
@@ -495,10 +501,16 @@ impl Aggregator {
     // Extracts pub_nonce from given stream.
     fn extract_pub_nonce(
         response: Option<clementine::nonce_gen_response::Response>,
-    ) -> Result<MusigPubNonce, BridgeError> {
+    ) -> Result<PublicNonce, BridgeError> {
         match response.ok_or_eyre("NonceGen response is empty")? {
             clementine::nonce_gen_response::Response::PubNonce(pub_nonce) => {
-                Ok(MusigPubNonce::from_slice(&pub_nonce).wrap_err("Failed to parse pub nonce")?)
+                Ok(PublicNonce::from_byte_array(
+                    &pub_nonce
+                        .as_slice()
+                        .try_into()
+                        .wrap_err("PubNonce must be 66 bytes")?,
+                )
+                .wrap_err("Failed to parse pub nonce")?)
             }
             _ => Err(eyre::eyre!("Expected PubNonce in response").into()),
         }
@@ -575,7 +587,7 @@ impl Aggregator {
     async fn create_movetx(
         &self,
         partial_sigs: Vec<Vec<u8>>,
-        movetx_agg_nonce: MusigAggNonce,
+        movetx_agg_nonce: AggregatedNonce,
         deposit_params: DepositParams,
     ) -> Result<TxHandler<Signed>, Status> {
         let mut deposit_data: DepositData = deposit_params.try_into()?;
@@ -594,7 +606,7 @@ impl Aggregator {
         // aggregate partial signatures
         let verifiers_public_keys = deposit_data.get_verifiers();
         let final_sig = crate::musig2::aggregate_partial_signatures(
-            &verifiers_public_keys,
+            verifiers_public_keys,
             None,
             movetx_agg_nonce,
             &musig_partial_sigs,
@@ -610,7 +622,7 @@ impl Aggregator {
     async fn verify_and_save_emergency_stop_sigs(
         &self,
         emergency_stop_sigs: Vec<Vec<u8>>,
-        emergency_stop_agg_nonce: MusigAggNonce,
+        emergency_stop_agg_nonce: AggregatedNonce,
         deposit_params: DepositParams,
     ) -> Result<(), BridgeError> {
         let mut deposit_data: DepositData = deposit_params
@@ -638,7 +650,7 @@ impl Aggregator {
         let verifiers_public_keys = deposit_data.get_verifiers();
 
         let final_sig = crate::musig2::aggregate_partial_signatures(
-            &verifiers_public_keys,
+            verifiers_public_keys,
             None,
             emergency_stop_agg_nonce,
             &musig_partial_sigs,
@@ -899,15 +911,24 @@ impl ClementineAggregator for Aggregator {
 
             // calculate final sig
             let payout_sig = try_join_all(payout_sigs).await?;
+
             let musig_partial_sigs = payout_sig
                 .iter()
-                .map(|sig| MusigPartialSignature::from_slice(&sig.get_ref().partial_sig))
+                .map(|sig| {
+                    PartialSignature::from_byte_array(
+                        &sig.get_ref()
+                            .partial_sig
+                            .clone()
+                            .try_into()
+                            .map_err(|_| secp256k1::musig::ParseError::MalformedArg)?,
+                    )
+                })
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(|e| Status::internal(format!("Failed to parse partial sig: {:?}", e)))?;
 
             let final_sig = bitcoin::taproot::Signature {
                 signature: crate::musig2::aggregate_partial_signatures(
-                    &deposit_data.get_verifiers(),
+                    deposit_data.get_verifiers(),
                     None,
                     agg_nonce,
                     &musig_partial_sigs,
@@ -1250,9 +1271,11 @@ impl ClementineAggregator for Aggregator {
         // Join the nonce aggregation handle to get the movetx agg nonce.
         let nonce_agg_handle = nonce_agg_handle
             .map_err(|_| Status::internal("panic when aggregating nonces"))
-            .map(|res| -> Result<(MusigAggNonce, MusigAggNonce), Status> {
-                res.and_then(|r| r.map_err(Into::into))
-            })
+            .map(
+                |res| -> Result<(AggregatedNonce, AggregatedNonce), Status> {
+                    res.and_then(|r| r.map_err(Into::into))
+                },
+            )
             .shared();
 
         // Start the deposit finalization pipe.

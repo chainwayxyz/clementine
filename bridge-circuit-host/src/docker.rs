@@ -121,20 +121,9 @@ pub fn stark_to_bitvm2_g16(
     seal_json["control_root"] = vec![a0_dec, a1_dec].into();
     std::fs::write(seal_path, serde_json::to_string_pretty(&seal_json).unwrap()).unwrap();
 
-    let pull_status = Command::new("docker")
-        .arg("pull")
-        .arg("ozancw/risc0-to-bitvm2-groth16-prover:latest")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .status()
-        .expect("Failed to execute docker pull");
-
-    if !pull_status.success() {
-        panic!("docker pull failed with status: {}", pull_status);
-    }
-
     let output = Command::new("docker")
         .arg("run")
+        .arg("--pull=always")
         .arg("--rm")
         .arg("--platform=linux/amd64") // Force linux/amd64 platform
         .arg("-v")
@@ -145,14 +134,13 @@ pub fn stark_to_bitvm2_g16(
         .output()
         .unwrap();
 
-    println!("Output: {:?}", output);
-
     if !output.status.success() {
-        eprintln!(
-            "docker returned failure exit code: {:?}",
-            output.status.code()
+        panic!(
+            "STARK to SNARK prover docker image returned failure: {:?}",
+            output
         );
     }
+
     println!("proof_path: {:?}", proof_path);
     let proof_content = std::fs::read_to_string(proof_path).unwrap();
     let output_content_dec = std::fs::read_to_string(output_path).unwrap();
