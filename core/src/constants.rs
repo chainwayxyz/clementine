@@ -14,6 +14,7 @@ pub const OVERALL_DEPOSIT_TIMEOUT: Duration = Duration::from_secs(7200); // 2 ho
 pub const KEY_DISTRIBUTION_TIMEOUT: Duration = Duration::from_secs(600); // 10 minutes
 pub const NONCE_STREAM_CREATION_TIMEOUT: Duration = Duration::from_secs(300); // 5 minutes
 pub const PARTIAL_SIG_STREAM_CREATION_TIMEOUT: Duration = Duration::from_secs(300); // 5 minutes
+pub const OPERATOR_GET_KEYS_TIMEOUT: Duration = Duration::from_secs(600); // 10 minutes
 pub const OPERATOR_SIGS_STREAM_CREATION_TIMEOUT: Duration = Duration::from_secs(300); // 5 minutes
 pub const DEPOSIT_FINALIZE_STREAM_CREATION_TIMEOUT: Duration = Duration::from_secs(300); // 5 minutes
 pub const PIPELINE_COMPLETION_TIMEOUT: Duration = Duration::from_secs(1200); // 20 minutes

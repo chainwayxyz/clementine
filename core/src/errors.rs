@@ -161,7 +161,7 @@ pub enum BridgeError {
     AlloySolTypes(#[from] alloy::sol_types::Error),
     #[error("{0}")]
     CLIDisplayAndExit(StyledStr),
-    #[error("User-facing error: {0}")]
+    #[error(transparent)]
     RPC(#[from] Status),
 
     // Base wrapper for eyre

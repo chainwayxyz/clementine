@@ -53,6 +53,91 @@ pub struct TestParams {
 
     /// A flag to introduce intentionally inconsistent or invalid data into the BitVM assertions.
     pub corrupted_asserts: bool,
+
+    #[serde(default)]
+    pub timeout_params: TimeoutTestParams,
+}
+
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct TimeoutTestParams {
+    /// Verifier index that should time out during key distribution.
+    pub key_distribution_verifier_idx: Option<usize>,
+    /// Operator index that should time out during key distribution.
+    pub key_distribution_operator_idx: Option<usize>,
+    /// Verifier index that should time out during nonce stream creation.
+    pub nonce_stream_creation_verifier_idx: Option<usize>,
+    /// Verifier index that should time out during partial signature stream creation.
+    pub partial_sig_stream_creation_verifier_idx: Option<usize>,
+    /// Operator index that should time out during operator signature collection.
+    pub operator_sig_collection_operator_idx: Option<usize>,
+    /// Verifier index that should time out during deposit finalization.
+    pub deposit_finalization_verifier_idx: Option<usize>,
+}
+
+impl TimeoutTestParams {
+    #[cfg(test)]
+    pub async fn hook_timeout_key_distribution_verifier(&self, idx: usize) {
+        if self.key_distribution_verifier_idx == Some(idx) {
+            use tokio::time::sleep;
+            sleep(crate::constants::KEY_DISTRIBUTION_TIMEOUT + std::time::Duration::from_secs(1))
+                .await;
+        }
+    }
+
+    #[cfg(test)]
+    pub async fn hook_timeout_key_distribution_operator(&self, idx: usize) {
+        if self.key_distribution_operator_idx == Some(idx) {
+            use tokio::time::sleep;
+            sleep(crate::constants::KEY_DISTRIBUTION_TIMEOUT + std::time::Duration::from_secs(1))
+                .await;
+        }
+    }
+
+    #[cfg(test)]
+    pub async fn hook_timeout_nonce_stream_creation_verifier(&self, idx: usize) {
+        if self.nonce_stream_creation_verifier_idx == Some(idx) {
+            use tokio::time::sleep;
+            sleep(
+                crate::constants::NONCE_STREAM_CREATION_TIMEOUT + std::time::Duration::from_secs(1),
+            )
+            .await;
+        }
+    }
+
+    #[cfg(test)]
+    pub async fn hook_timeout_partial_sig_stream_creation_verifier(&self, idx: usize) {
+        if self.partial_sig_stream_creation_verifier_idx == Some(idx) {
+            use tokio::time::sleep;
+            sleep(
+                crate::constants::PARTIAL_SIG_STREAM_CREATION_TIMEOUT
+                    + std::time::Duration::from_secs(1),
+            )
+            .await;
+        }
+    }
+
+    #[cfg(test)]
+    pub async fn hook_timeout_operator_sig_collection_operator(&self, idx: usize) {
+        if self.operator_sig_collection_operator_idx == Some(idx) {
+            use tokio::time::sleep;
+            sleep(
+                crate::constants::OPERATOR_SIGS_STREAM_CREATION_TIMEOUT
+                    + std::time::Duration::from_secs(1),
+            )
+            .await;
+        }
+    }
+
+    #[cfg(test)]
+    pub async fn hook_timeout_deposit_finalization_verifier(&self, idx: usize) {
+        if self.deposit_finalization_verifier_idx == Some(idx) {
+            use tokio::time::sleep;
+            sleep(
+                crate::constants::DEPOSIT_FINALIZATION_TIMEOUT + std::time::Duration::from_secs(1),
+            )
+            .await;
+        }
+    }
 }
 
 impl Default for TestParams {
@@ -92,6 +177,7 @@ impl Default for TestParams {
             disrupt_challenge_sending_watchtowers_commit: false,
             operator_forgot_watchtower_challenge: false,
             corrupted_asserts: false,
+            timeout_params: TimeoutTestParams::default(),
         }
     }
 }

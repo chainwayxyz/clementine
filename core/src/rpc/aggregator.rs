@@ -14,6 +14,12 @@ use crate::builder::transaction::{
     TxHandler,
 };
 use crate::config::BridgeConfig;
+use crate::constants::{
+    DEPOSIT_FINALIZATION_TIMEOUT, DEPOSIT_FINALIZE_STREAM_CREATION_TIMEOUT,
+    KEY_DISTRIBUTION_TIMEOUT, NONCE_STREAM_CREATION_TIMEOUT, OPERATOR_SIGS_STREAM_CREATION_TIMEOUT,
+    OPERATOR_SIGS_TIMEOUT, OVERALL_DEPOSIT_TIMEOUT, PARTIAL_SIG_STREAM_CREATION_TIMEOUT,
+    PIPELINE_COMPLETION_TIMEOUT, SEND_OPERATOR_SIGS_TIMEOUT,
+};
 use crate::deposit::{Actors, DepositData, DepositInfo};
 use crate::errors::ResultExt;
 use crate::musig2::AggregateFromPublicKeys;
@@ -50,9 +56,6 @@ use std::time::Duration;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::time::timeout;
 use tonic::{async_trait, Request, Response, Status, Streaming};
-use crate::constants::{
-    DEPOSIT_FINALIZATION_TIMEOUT, DEPOSIT_FINALIZE_STREAM_CREATION_TIMEOUT, KEY_DISTRIBUTION_TIMEOUT, NONCE_STREAM_CREATION_TIMEOUT, OPERATOR_SIGS_STREAM_CREATION_TIMEOUT, OPERATOR_SIGS_TIMEOUT, OVERALL_DEPOSIT_TIMEOUT, PARTIAL_SIG_STREAM_CREATION_TIMEOUT, PIPELINE_COMPLETION_TIMEOUT, SEND_OPERATOR_SIGS_TIMEOUT
-};
 
 #[derive(Debug, Clone)]
 struct AggNonceQueueItem {
@@ -409,6 +412,7 @@ async fn signature_distributor(
 async fn create_nonce_streams(
     verifier_clients: Vec<ClementineVerifierClient<tonic::transport::Channel>>,
     num_nonces: u32,
+    #[cfg(test)] config: &crate::config::BridgeConfig,
 ) -> Result<
     (
         Vec<clementine::NonceGenFirstResponse>,
@@ -419,8 +423,16 @@ async fn create_nonce_streams(
     let mut nonce_streams = try_join_all(verifier_clients.into_iter().enumerate().map(
         |(idx, client)| {
             let mut client = client.clone();
+            #[cfg(test)]
+            let config = config.clone();
 
             async move {
+                #[cfg(test)]
+                config
+                    .test_params
+                    .timeout_params
+                    .hook_timeout_nonce_stream_creation_verifier(idx)
+                    .await;
                 let response_stream = client
                     .nonce_gen(tonic::Request::new(clementine::NonceGenRequest {
                         num_nonces,
@@ -528,7 +540,15 @@ impl Aggregator {
                 Some(operator_clients.ids()),
                 operator_clients.clients().into_iter().enumerate().map(|(idx, mut operator_client)| {
                 let sign_session = deposit_sign_session.clone();
+                #[cfg(test)]
+                let config = config.clone();
                 async move {
+                    #[cfg(test)]
+                    config
+                        .test_params
+                        .timeout_params
+                        .hook_timeout_operator_sig_collection_operator(idx)
+                        .await;
                     let stream = operator_client
                         .deposit_sign(tonic::Request::new(sign_session))
                         .await.wrap_err_with(|| AggregatorError::RequestFailed {
@@ -852,8 +872,16 @@ impl ClementineAggregator for Aggregator {
 
             // get which verifiers participated in the deposit to collect the optimistic payout tx signature
             let verifiers = self.get_participating_verifiers(&deposit_data).await?;
-            let (first_responses, mut nonce_streams) =
-                create_nonce_streams(verifiers.clients(), 1).await?;
+            let (first_responses, mut nonce_streams) = {
+                #[cfg(not(test))]
+                {
+                    create_nonce_streams(verifiers.clients(), 1).await?
+                }
+                #[cfg(test)]
+                {
+                    create_nonce_streams(verifiers.clients(), 1, &self.config).await?
+                }
+            };
             // collect nonces
             let pub_nonces = get_next_pub_nonces(&mut nonce_streams)
                 .await
@@ -1147,6 +1175,8 @@ impl ClementineAggregator for Aggregator {
                     create_nonce_streams(
                         verifiers.clients(),
                         num_required_sigs as u32 + 2, // ask for +2 for the final movetx signature + emergency stop signature, but don't send it on deposit_sign stage
+                        #[cfg(test)]
+                        &self.config,
                     )
                     .await
                     .map_err(Into::into)
@@ -1158,10 +1188,18 @@ impl ClementineAggregator for Aggregator {
                 PARTIAL_SIG_STREAM_CREATION_TIMEOUT,
                 "Partial signature stream creation",
                 Some(verifiers.ids()),
-                verifiers.clients().into_iter().map(|verifier_client| {
+                verifiers.clients().into_iter().enumerate().map(|(idx, verifier_client)| {
                     let mut verifier_client = verifier_client.clone();
+                    #[cfg(test)]
+                    let config = self.config.clone();
 
                     async move {
+                        #[cfg(test)]
+                        config
+                            .test_params
+                            .timeout_params
+                            .hook_timeout_partial_sig_stream_creation_verifier(idx)
+                            .await;
                         let (tx, rx) = tokio::sync::mpsc::channel(1280);
                         let stream = verifier_client
                             .deposit_sign(tokio_stream::wrappers::ReceiverStream::new(rx))
@@ -1191,12 +1229,21 @@ impl ClementineAggregator for Aggregator {
             }
 
             // Set up deposit finalization streams
-            let deposit_finalize_streams = verifiers.clients().into_iter().map(
-                    |mut verifier| {
+            let deposit_finalize_streams = verifiers.clients().into_iter().enumerate().map(
+                    |(idx, mut verifier)| {
                         let (tx, rx) = tokio::sync::mpsc::channel(1280);
                         let receiver_stream = tokio_stream::wrappers::ReceiverStream::new(rx);
+                        #[cfg(test)]
+                        let config = self.config.clone();
                         // start deposit_finalize with tokio spawn
                         let deposit_finalize_future = tokio::spawn(async move {
+                            #[cfg(test)]
+                            config
+                                .test_params
+                                .timeout_params
+                                .hook_timeout_deposit_finalization_verifier(idx)
+                                .await;
+
                             verifier.deposit_finalize(receiver_stream).await
                         });
 
@@ -1373,22 +1420,21 @@ impl ClementineAggregator for Aggregator {
             tracing::debug!("Waiting for deposit finalization");
 
             // Collect partial signatures for move transaction
-            let partial_sigs: Vec<(Vec<u8>, Vec<u8>)> = timed_request(
-                DEPOSIT_FINALIZATION_TIMEOUT,
-                "Deposit finalization from verifiers",
-                try_join_all(deposit_finalize_futures.iter_mut().map(|fut| async {
-                    let response = fut
-                        .await
-                        .map_err(|_| Status::internal("panic finishing deposit_finalize"))??
-                        .into_inner();
-                    Ok((
-                        response.move_to_vault_partial_sig,
-                        response.emergency_stop_partial_sig,
-                    ))
-                })),
-            )
-            .await
-            .map_err(|e| Status::internal(format!("Failed to finalize deposit: {:?}", e)))?;
+            let partial_sigs: Vec<(Vec<u8>, Vec<u8>)> = {
+                let futs = deposit_finalize_futures.into_iter().map(|fut| {
+                    timeout(DEPOSIT_FINALIZATION_TIMEOUT, fut)
+                });
+                let results = try_join_all(futs).await
+                    .map_err(|e| Status::internal(format!("Timeout in deposit finalization: {:?}", e)))?;
+
+                results.into_iter()
+                    .map(|res| {
+                        let inner = res.map_err(|_| Status::internal("panic finishing deposit_finalize"))??.into_inner();
+                        Ok((inner.move_to_vault_partial_sig, inner.emergency_stop_partial_sig))
+                    })
+                    .collect::<Result<Vec<_>, Status>>()?
+            };
+
 
             let (move_to_vault_sigs, emergency_stop_sigs): (Vec<Vec<u8>>, Vec<Vec<u8>>) =
                 partial_sigs.into_iter().unzip();
@@ -1799,6 +1845,76 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    async fn aggregator_deposit_verifier_timeout() {
+        let mut config = create_test_config_with_thread_name().await;
+        config
+            .test_params
+            .timeout_params
+            .deposit_finalization_verifier_idx = Some(0);
+
+        let regtest = create_regtest_rpc(&mut config).await;
+        let rpc = regtest.rpc();
+        let (_verifiers, _operators, mut aggregator, _cleanup) =
+            create_actors::<MockCitreaClient>(&config).await;
+
+        let evm_address = EVMAddress([1u8; 20]);
+        let signer = Actor::new(
+            config.secret_key,
+            config.winternitz_secret_key,
+            config.protocol_paramset().network,
+        );
+
+        let verifiers_public_keys: Vec<bitcoin::secp256k1::PublicKey> = aggregator
+            .setup(tonic::Request::new(clementine::Empty {}))
+            .await
+            .unwrap()
+            .into_inner()
+            .try_into()
+            .unwrap();
+        sleep(Duration::from_secs(3)).await;
+
+        let nofn_xonly_pk =
+            bitcoin::XOnlyPublicKey::from_musig2_pks(verifiers_public_keys.clone(), None).unwrap();
+
+        let deposit_address = builder::address::generate_deposit_address(
+            nofn_xonly_pk,
+            signer.address.as_unchecked(),
+            evm_address,
+            config.protocol_paramset().network,
+            config.protocol_paramset().user_takes_after,
+        )
+        .unwrap()
+        .0;
+
+        let deposit_outpoint = rpc
+            .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
+            .await
+            .unwrap();
+        rpc.mine_blocks(18).await.unwrap();
+
+        let deposit_info = DepositInfo {
+            deposit_outpoint,
+            deposit_type: DepositType::BaseDeposit(BaseDepositData {
+                evm_address,
+                recovery_taproot_address: signer.address.as_unchecked().clone(),
+            }),
+        };
+
+        // Generate and broadcast the move-to-vault transaction
+        let res = aggregator
+            .new_deposit(clementine::Deposit::from(deposit_info))
+            .await;
+
+        assert!(res.is_err());
+        let err_string = res.unwrap_err().to_string();
+        assert!(
+            err_string.contains("timed out waiting for Deposit finalization from verifiers"),
+            "Error string was: {}",
+            err_string
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
     async fn aggregator_two_deposit_movetx_and_emergency_stop() {
         let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
@@ -1973,5 +2089,355 @@ mod tests {
         .await
         .wrap_err_with(|| eyre::eyre!("Emergency stop tx did not land onchain"))
         .unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn aggregator_deposit_key_distribution_verifier_timeout() {
+        let mut config = create_test_config_with_thread_name().await;
+        config
+            .test_params
+            .timeout_params
+            .key_distribution_verifier_idx = Some(0);
+
+        let regtest = create_regtest_rpc(&mut config).await;
+        let rpc = regtest.rpc();
+        let (_verifiers, _operators, mut aggregator, _cleanup) =
+            create_actors::<MockCitreaClient>(&config).await;
+
+        let evm_address = EVMAddress([1u8; 20]);
+        let signer = Actor::new(
+            config.secret_key,
+            config.winternitz_secret_key,
+            config.protocol_paramset().network,
+        );
+
+        let verifiers_public_keys: Vec<bitcoin::secp256k1::PublicKey> = aggregator
+            .setup(tonic::Request::new(clementine::Empty {}))
+            .await
+            .unwrap()
+            .into_inner()
+            .try_into()
+            .unwrap();
+        sleep(Duration::from_secs(3)).await;
+
+        let nofn_xonly_pk =
+            bitcoin::XOnlyPublicKey::from_musig2_pks(verifiers_public_keys.clone(), None).unwrap();
+
+        let deposit_address = builder::address::generate_deposit_address(
+            nofn_xonly_pk,
+            signer.address.as_unchecked(),
+            evm_address,
+            config.protocol_paramset().network,
+            config.protocol_paramset().user_takes_after,
+        )
+        .unwrap()
+        .0;
+
+        let deposit_outpoint = rpc
+            .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
+            .await
+            .unwrap();
+        rpc.mine_blocks(18).await.unwrap();
+
+        let deposit_info = DepositInfo {
+            deposit_outpoint,
+            deposit_type: DepositType::BaseDeposit(BaseDepositData {
+                evm_address,
+                recovery_taproot_address: signer.address.as_unchecked().clone(),
+            }),
+        };
+
+        // Generate and broadcast the move-to-vault transaction
+        let res = aggregator
+            .new_deposit(clementine::Deposit::from(deposit_info))
+            .await;
+
+        assert!(res.is_err());
+        let err_string = res.unwrap_err().to_string();
+        assert!(
+            err_string.contains("timed out waiting for Key collection and distribution"),
+            "Error string was: {}",
+            err_string
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn aggregator_deposit_key_distribution_operator_timeout() {
+        let mut config = create_test_config_with_thread_name().await;
+        config
+            .test_params
+            .timeout_params
+            .key_distribution_operator_idx = Some(0);
+
+        let regtest = create_regtest_rpc(&mut config).await;
+        let rpc = regtest.rpc();
+        let (_verifiers, _operators, mut aggregator, _cleanup) =
+            create_actors::<MockCitreaClient>(&config).await;
+
+        let evm_address = EVMAddress([1u8; 20]);
+        let signer = Actor::new(
+            config.secret_key,
+            config.winternitz_secret_key,
+            config.protocol_paramset().network,
+        );
+
+        let verifiers_public_keys: Vec<bitcoin::secp256k1::PublicKey> = aggregator
+            .setup(tonic::Request::new(clementine::Empty {}))
+            .await
+            .unwrap()
+            .into_inner()
+            .try_into()
+            .unwrap();
+        sleep(Duration::from_secs(3)).await;
+
+        let nofn_xonly_pk =
+            bitcoin::XOnlyPublicKey::from_musig2_pks(verifiers_public_keys.clone(), None).unwrap();
+
+        let deposit_address = builder::address::generate_deposit_address(
+            nofn_xonly_pk,
+            signer.address.as_unchecked(),
+            evm_address,
+            config.protocol_paramset().network,
+            config.protocol_paramset().user_takes_after,
+        )
+        .unwrap()
+        .0;
+
+        let deposit_outpoint = rpc
+            .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
+            .await
+            .unwrap();
+        rpc.mine_blocks(18).await.unwrap();
+
+        let deposit_info = DepositInfo {
+            deposit_outpoint,
+            deposit_type: DepositType::BaseDeposit(BaseDepositData {
+                evm_address,
+                recovery_taproot_address: signer.address.as_unchecked().clone(),
+            }),
+        };
+
+        // Generate and broadcast the move-to-vault transaction
+        let res = aggregator
+            .new_deposit(clementine::Deposit::from(deposit_info))
+            .await;
+
+        assert!(res.is_err());
+        let err_string = res.unwrap_err().to_string();
+        assert!(
+            err_string.contains("timed out waiting for Key collection and distribution"),
+            "Error string was: {}",
+            err_string
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn aggregator_deposit_nonce_stream_creation_verifier_timeout() {
+        let mut config = create_test_config_with_thread_name().await;
+        config
+            .test_params
+            .timeout_params
+            .nonce_stream_creation_verifier_idx = Some(0);
+
+        let regtest = create_regtest_rpc(&mut config).await;
+        let rpc = regtest.rpc();
+        let (_verifiers, _operators, mut aggregator, _cleanup) =
+            create_actors::<MockCitreaClient>(&config).await;
+
+        let evm_address = EVMAddress([1u8; 20]);
+        let signer = Actor::new(
+            config.secret_key,
+            config.winternitz_secret_key,
+            config.protocol_paramset().network,
+        );
+
+        let verifiers_public_keys: Vec<bitcoin::secp256k1::PublicKey> = aggregator
+            .setup(tonic::Request::new(clementine::Empty {}))
+            .await
+            .unwrap()
+            .into_inner()
+            .try_into()
+            .unwrap();
+        sleep(Duration::from_secs(3)).await;
+
+        let nofn_xonly_pk =
+            bitcoin::XOnlyPublicKey::from_musig2_pks(verifiers_public_keys.clone(), None).unwrap();
+
+        let deposit_address = builder::address::generate_deposit_address(
+            nofn_xonly_pk,
+            signer.address.as_unchecked(),
+            evm_address,
+            config.protocol_paramset().network,
+            config.protocol_paramset().user_takes_after,
+        )
+        .unwrap()
+        .0;
+
+        let deposit_outpoint = rpc
+            .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
+            .await
+            .unwrap();
+        rpc.mine_blocks(18).await.unwrap();
+
+        let deposit_info = DepositInfo {
+            deposit_outpoint,
+            deposit_type: DepositType::BaseDeposit(BaseDepositData {
+                evm_address,
+                recovery_taproot_address: signer.address.as_unchecked().clone(),
+            }),
+        };
+
+        // Generate and broadcast the move-to-vault transaction
+        let res = aggregator
+            .new_deposit(clementine::Deposit::from(deposit_info))
+            .await;
+
+        assert!(res.is_err());
+        let err_string = res.unwrap_err().to_string();
+        assert!(
+            err_string.contains("timed out waiting for Nonce stream creation"),
+            "Error string was: {}",
+            err_string
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn aggregator_deposit_partial_sig_stream_creation_verifier_timeout() {
+        let mut config = create_test_config_with_thread_name().await;
+        config
+            .test_params
+            .timeout_params
+            .partial_sig_stream_creation_verifier_idx = Some(0);
+
+        let regtest = create_regtest_rpc(&mut config).await;
+        let rpc = regtest.rpc();
+        let (_verifiers, _operators, mut aggregator, _cleanup) =
+            create_actors::<MockCitreaClient>(&config).await;
+
+        let evm_address = EVMAddress([1u8; 20]);
+        let signer = Actor::new(
+            config.secret_key,
+            config.winternitz_secret_key,
+            config.protocol_paramset().network,
+        );
+
+        let verifiers_public_keys: Vec<bitcoin::secp256k1::PublicKey> = aggregator
+            .setup(tonic::Request::new(clementine::Empty {}))
+            .await
+            .unwrap()
+            .into_inner()
+            .try_into()
+            .unwrap();
+        sleep(Duration::from_secs(3)).await;
+
+        let nofn_xonly_pk =
+            bitcoin::XOnlyPublicKey::from_musig2_pks(verifiers_public_keys.clone(), None).unwrap();
+
+        let deposit_address = builder::address::generate_deposit_address(
+            nofn_xonly_pk,
+            signer.address.as_unchecked(),
+            evm_address,
+            config.protocol_paramset().network,
+            config.protocol_paramset().user_takes_after,
+        )
+        .unwrap()
+        .0;
+
+        let deposit_outpoint = rpc
+            .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
+            .await
+            .unwrap();
+        rpc.mine_blocks(18).await.unwrap();
+
+        let deposit_info = DepositInfo {
+            deposit_outpoint,
+            deposit_type: DepositType::BaseDeposit(BaseDepositData {
+                evm_address,
+                recovery_taproot_address: signer.address.as_unchecked().clone(),
+            }),
+        };
+
+        // Generate and broadcast the move-to-vault transaction
+        let res = aggregator
+            .new_deposit(clementine::Deposit::from(deposit_info))
+            .await;
+
+        assert!(res.is_err());
+        let err_string = res.unwrap_err().to_string();
+        assert!(
+            err_string.contains("timed out waiting for Partial signature stream creation"),
+            "Error string was: {}",
+            err_string
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn aggregator_deposit_operator_sig_collection_operator_timeout() {
+        let mut config = create_test_config_with_thread_name().await;
+        config
+            .test_params
+            .timeout_params
+            .operator_sig_collection_operator_idx = Some(0);
+
+        let regtest = create_regtest_rpc(&mut config).await;
+        let rpc = regtest.rpc();
+        let (_verifiers, _operators, mut aggregator, _cleanup) =
+            create_actors::<MockCitreaClient>(&config).await;
+
+        let evm_address = EVMAddress([1u8; 20]);
+        let signer = Actor::new(
+            config.secret_key,
+            config.winternitz_secret_key,
+            config.protocol_paramset().network,
+        );
+
+        let verifiers_public_keys: Vec<bitcoin::secp256k1::PublicKey> = aggregator
+            .setup(tonic::Request::new(clementine::Empty {}))
+            .await
+            .unwrap()
+            .into_inner()
+            .try_into()
+            .unwrap();
+        sleep(Duration::from_secs(3)).await;
+
+        let nofn_xonly_pk =
+            bitcoin::XOnlyPublicKey::from_musig2_pks(verifiers_public_keys.clone(), None).unwrap();
+
+        let deposit_address = builder::address::generate_deposit_address(
+            nofn_xonly_pk,
+            signer.address.as_unchecked(),
+            evm_address,
+            config.protocol_paramset().network,
+            config.protocol_paramset().user_takes_after,
+        )
+        .unwrap()
+        .0;
+
+        let deposit_outpoint = rpc
+            .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
+            .await
+            .unwrap();
+        rpc.mine_blocks(18).await.unwrap();
+
+        let deposit_info = DepositInfo {
+            deposit_outpoint,
+            deposit_type: DepositType::BaseDeposit(BaseDepositData {
+                evm_address,
+                recovery_taproot_address: signer.address.as_unchecked().clone(),
+            }),
+        };
+
+        // Generate and broadcast the move-to-vault transaction
+        let res = aggregator
+            .new_deposit(clementine::Deposit::from(deposit_info))
+            .await;
+
+        assert!(res.is_err());
+        let err_string = res.unwrap_err().to_string();
+        assert!(
+            err_string.contains("timed out waiting for Operator signature collection"),
+            "Error string was: {}",
+            err_string
+        );
     }
 }
