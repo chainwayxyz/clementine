@@ -11,11 +11,9 @@ use citrea_e2e::{
 };
 pub use client_mock::*;
 use jsonrpsee::http_client::HttpClient;
-pub use parameters::*;
 pub use requests::*;
 
 mod client_mock;
-mod parameters;
 mod requests;
 
 /// Calculates bridge params dynamically with the N-of-N public key which

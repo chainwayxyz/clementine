@@ -4,6 +4,7 @@ use bitcoin::{hashes::Hash, ScriptBuf};
 use bitcoincore_rpc::RpcApi;
 use clap::{Parser, Subcommand};
 use clementine_core::{
+    citrea::{CitreaClient, CitreaClientT},
     config::BridgeConfig,
     deposit::SecurityCouncil,
     extended_rpc,
@@ -47,6 +48,11 @@ enum Commands {
     Aggregator {
         #[command(subcommand)]
         command: AggregatorCommands,
+    },
+    /// Citrea related commands
+    Citrea {
+        #[command(subcommand)]
+        command: CitreaCommands,
     },
 }
 
@@ -202,6 +208,23 @@ enum AggregatorCommands {
     },
     /// Get vergen build information
     Vergen,
+}
+
+#[derive(Subcommand)]
+enum CitreaCommands {
+    /// Make a deposit to Citrea for a tx with given txid
+    Deposit {
+        #[arg(long)]
+        lcp_url: String,
+        #[arg(long)]
+        bitcoin_rpc_url: String,
+        #[arg(long)]
+        bitcoin_rpc_user: String,
+        #[arg(long)]
+        bitcoin_rpc_password: String,
+        #[arg(long)]
+        txid: String,
+    },
 }
 
 // Create a minimal config with default TLS paths
@@ -946,6 +969,60 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
     }
 }
 
+async fn handle_citrea_call(url: String, command: CitreaCommands) {
+    println!("Connecting to verifier at {}", url);
+    let config = create_minimal_config();
+    // let mut verifier =
+    //     clementine_core::rpc::get_clients(vec![url], ClementineVerifierClient::new, &config, true)
+    //         .await
+    //         .expect("Exists")[0]
+    //         .clone();
+
+    match command {
+        CitreaCommands::Deposit {
+            lcp_url,
+            bitcoin_rpc_url,
+            bitcoin_rpc_user,
+            bitcoin_rpc_password,
+            txid,
+        } => {
+            let extended_rpc = extended_rpc::ExtendedRpc::connect(
+                bitcoin_rpc_url,
+                bitcoin_rpc_user,
+                bitcoin_rpc_password,
+            )
+            .await
+            .expect("Failed to connect to Bitcoin RPC");
+            let tx = extended_rpc
+                .get_tx_of_txid(&bitcoin::Txid::from_str(&txid).expect("Failed to parse txid"))
+                .await
+                .expect("Failed to get tx of txid");
+
+            let citrea_client = CitreaClient::new(url, lcp_url, config.citrea_chain_id, None)
+                .await
+                .expect("Failed to create Citrea client");
+
+            // let deposit = citrea_client
+            //     .contract
+            //     .deposit(
+            //         txid,
+            //         &tx,
+            //         bitcoin_rpc_url,
+            //         bitcoin_rpc_user,
+            //         bitcoin_rpc_password,
+            //     )
+            //     .await
+            //     .expect("Failed to make a deposit");
+
+            //     let params = verifier
+            //         .get_params(Empty {})
+            //         .await
+            //         .expect("Failed to make a request");
+            //     println!("Verifier params: {:?}", params);
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
@@ -974,6 +1051,9 @@ async fn main() {
         }
         Commands::Aggregator { command } => {
             handle_aggregator_call(cli.node_url, command).await;
+        }
+        Commands::Citrea { command } => {
+            handle_citrea_call(cli.node_url, command).await;
         }
     }
 }
