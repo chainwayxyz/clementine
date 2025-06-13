@@ -51,28 +51,3 @@ pub async fn eth_get_balance(
 
     Ok(ret)
 }
-
-/// Deposits a transaction to Citrea. This function is different from `contract.deposit` because it
-/// won't directly talk with EVM but with Citrea. So that authorization can be done (Citrea will
-/// block this call if it isn't an operator).
-pub async fn deposit(
-    rpc: &ExtendedRpc,
-    client: HttpClient,
-    block: Block,
-    block_height: u32,
-    transaction: Transaction,
-) -> Result<(), BridgeError> {
-    let txid = transaction.compute_txid();
-
-    let params = get_citrea_deposit_params(rpc, transaction, block, block_height, txid).await?;
-
-    let _response: () = client
-        .request(
-            "citrea_sendRawDepositTransaction",
-            rpc_params!(hex::encode(params.abi_encode_params())),
-        )
-        .await
-        .wrap_err("Failed to send deposit transaction")?;
-
-    Ok(())
-}

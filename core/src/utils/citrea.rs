@@ -9,6 +9,7 @@ use crate::rpc::clementine::NormalSignatureKind;
 use crate::utils::bitcoin_merkle::get_block_merkle_proof;
 use crate::UTXO;
 use alloy::primitives::{Bytes, FixedBytes, Uint};
+use alloy::sol_types::SolValue;
 use bitcoin::consensus::Encodable;
 use bitcoin::hashes::sha256;
 use bitcoin::hashes::Hash;
@@ -18,6 +19,9 @@ use bitcoin::{Block, Txid};
 use bitcoincore_rpc::RpcApi;
 use circuits_lib::bridge_circuit::merkle_tree::BitcoinMerkleTree;
 use eyre::Context;
+use jsonrpsee::core::client::ClientT;
+use jsonrpsee::http_client::HttpClient;
+use jsonrpsee::rpc_params;
 
 pub fn get_transaction_params_for_citrea(
     transaction: &Transaction,
@@ -134,6 +138,31 @@ pub async fn get_citrea_deposit_params(
     let sha_script_pubkeys =
         get_transaction_sha_script_pubkeys_for_citrea(rpc, transaction).await?;
     Ok((tp, mp, sha_script_pubkeys))
+}
+
+/// Deposits a transaction to Citrea. This function is different from `contract.deposit` because it
+/// won't directly talk with EVM but with Citrea. So that authorization can be done (Citrea will
+/// block this call if it isn't an operator).
+pub async fn deposit(
+    rpc: &ExtendedRpc,
+    client: HttpClient,
+    block: Block,
+    block_height: u32,
+    transaction: Transaction,
+) -> Result<(), BridgeError> {
+    let txid = transaction.compute_txid();
+
+    let params = get_citrea_deposit_params(rpc, transaction, block, block_height, txid).await?;
+
+    let _response: () = client
+        .request(
+            "citrea_sendRawDepositTransaction",
+            rpc_params!(hex::encode(params.abi_encode_params())),
+        )
+        .await
+        .wrap_err("Failed to send deposit transaction")?;
+
+    Ok(())
 }
 
 pub async fn get_citrea_safe_withdraw_params(

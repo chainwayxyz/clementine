@@ -146,7 +146,7 @@ impl AdditionalDisproveTest {
 
         tracing::debug!("Depositing to Citrea...");
 
-        citrea::deposit(
+        crate::utils::citrea::deposit(
             &rpc,
             sequencer.client.http_client().clone(),
             block,

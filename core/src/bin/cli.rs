@@ -997,28 +997,33 @@ async fn handle_citrea_call(url: String, command: CitreaCommands) {
                 .get_tx_of_txid(&bitcoin::Txid::from_str(&txid).expect("Failed to parse txid"))
                 .await
                 .expect("Failed to get tx of txid");
+            let block_hash = extended_rpc
+                .get_blockhash_of_tx(&tx.compute_txid())
+                .await
+                .expect("Failed to get block hash");
+            let block = extended_rpc
+                .client
+                .get_block(&block_hash)
+                .await
+                .expect("Failed to get block");
+            let block_height = block
+                .bip34_block_height()
+                .expect("Failed to get block height");
 
             let citrea_client = CitreaClient::new(url, lcp_url, config.citrea_chain_id, None)
                 .await
                 .expect("Failed to create Citrea client");
 
-            // let deposit = citrea_client
-            //     .contract
-            //     .deposit(
-            //         txid,
-            //         &tx,
-            //         bitcoin_rpc_url,
-            //         bitcoin_rpc_user,
-            //         bitcoin_rpc_password,
-            //     )
-            //     .await
-            //     .expect("Failed to make a deposit");
-
-            //     let params = verifier
-            //         .get_params(Empty {})
-            //         .await
-            //         .expect("Failed to make a request");
-            //     println!("Verifier params: {:?}", params);
+            clementine_core::utils::citrea::deposit(
+                &extended_rpc,
+                citrea_client.client,
+                block,
+                block_height.try_into().unwrap(),
+                tx,
+            )
+            .await
+            .expect("Failed to deposit to Citrea");
+            println!("Deposit to Citrea completed successfully");
         }
     }
 }

@@ -189,7 +189,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 
         tracing::debug!("Depositing to Citrea...");
 
-        citrea::deposit(
+        crate::utils::citrea::deposit(
             &rpc,
             sequencer.client.http_client().clone(),
             block,
