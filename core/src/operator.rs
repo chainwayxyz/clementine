@@ -1361,7 +1361,7 @@ where
 
         let blockhashes_serialized: Vec<[u8; 32]> = block_hashes
             .iter()
-            .take(hcp_height as usize + 1) // height 0 included
+            .take(latest_blockhash_index + 1) // get all blocks up to and including latest_blockhash
             .map(|(block_hash, _)| block_hash.to_byte_array())
             .collect::<Vec<_>>();
 
