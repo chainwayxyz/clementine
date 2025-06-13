@@ -60,7 +60,7 @@ use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
 use circuits_lib::bridge_circuit::{deposit_constant, parse_op_return_data};
 use eyre::{Context, ContextCompat, OptionExt, Result};
 use risc0_zkvm::is_dev_mode;
-use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce, MusigSecNonce};
+use secp256k1::musig::{AggregatedNonce, PartialSignature, PublicNonce, SecretNonce};
 #[cfg(feature = "automation")]
 use std::collections::BTreeMap;
 use std::collections::{HashMap, HashSet};
@@ -74,7 +74,7 @@ use tonic::async_trait;
 #[derive(Debug)]
 pub struct NonceSession {
     /// Nonces used for a deposit session (last nonce is for the movetx signature)
-    pub nonces: Vec<MusigSecNonce>,
+    pub nonces: Vec<SecretNonce>,
 }
 
 #[derive(Debug)]
@@ -518,20 +518,15 @@ where
         Ok(())
     }
 
-    pub async fn nonce_gen(
-        &self,
-        num_nonces: u32,
-    ) -> Result<(u32, Vec<MusigPubNonce>), BridgeError> {
-        let (sec_nonces, pub_nonces): (Vec<MusigSecNonce>, Vec<MusigPubNonce>) = (0..num_nonces)
+    pub async fn nonce_gen(&self, num_nonces: u32) -> Result<(u32, Vec<PublicNonce>), BridgeError> {
+        let (sec_nonces, pub_nonces): (Vec<SecretNonce>, Vec<PublicNonce>) = (0..num_nonces)
             .map(|_| {
                 // nonce pair needs keypair and a rng
-                let (sec_nonce, pub_nonce) = musig2::nonce_pair(
-                    &self.signer.keypair,
-                    &mut bitcoin::secp256k1::rand::thread_rng(),
-                )?;
+                let (sec_nonce, pub_nonce) =
+                    musig2::nonce_pair(&self.signer.keypair, &mut secp256k1::rand::thread_rng())?;
                 Ok((sec_nonce, pub_nonce))
             })
-            .collect::<Result<Vec<(MusigSecNonce, MusigPubNonce)>, BridgeError>>()?
+            .collect::<Result<Vec<(SecretNonce, PublicNonce)>, BridgeError>>()?
             .into_iter()
             .unzip(); // TODO: fix extra copies
 
@@ -553,8 +548,8 @@ where
         &self,
         mut deposit_data: DepositData,
         session_id: u32,
-        mut agg_nonce_rx: mpsc::Receiver<MusigAggNonce>,
-    ) -> Result<mpsc::Receiver<MusigPartialSignature>, BridgeError> {
+        mut agg_nonce_rx: mpsc::Receiver<AggregatedNonce>,
+    ) -> Result<mpsc::Receiver<PartialSignature>, BridgeError> {
         self.citrea_client
             .check_nofn_correctness(deposit_data.get_nofn_xonly_pk()?)
             .await?;
@@ -661,9 +656,9 @@ where
         deposit_data: &mut DepositData,
         session_id: u32,
         mut sig_receiver: mpsc::Receiver<Signature>,
-        mut agg_nonce_receiver: mpsc::Receiver<MusigAggNonce>,
+        mut agg_nonce_receiver: mpsc::Receiver<AggregatedNonce>,
         mut operator_sig_receiver: mpsc::Receiver<Signature>,
-    ) -> Result<(MusigPartialSignature, MusigPartialSignature), BridgeError> {
+    ) -> Result<(PartialSignature, PartialSignature), BridgeError> {
         self.citrea_client
             .check_nofn_correctness(deposit_data.get_nofn_xonly_pk()?)
             .await?;
@@ -1029,13 +1024,13 @@ where
     pub async fn sign_optimistic_payout(
         &self,
         nonce_session_id: u32,
-        agg_nonce: MusigAggNonce,
+        agg_nonce: AggregatedNonce,
         deposit_id: u32,
         input_signature: Signature,
         input_outpoint: OutPoint,
         output_script_pubkey: ScriptBuf,
         output_amount: Amount,
-    ) -> Result<MusigPartialSignature, BridgeError> {
+    ) -> Result<PartialSignature, BridgeError> {
         // check if withdrawal is valid first
         let move_txid = self
             .db
@@ -1575,14 +1570,14 @@ where
             .get_replacement_deposit_move_txids(l2_height_start + 1, l2_height_end)
             .await?;
 
-        for (old_move_txid, new_move_txid) in replacement_move_txids {
+        for (idx, new_move_txid) in replacement_move_txids {
             tracing::info!(
                 "Setting replacement move txid: {:?} -> {:?}",
-                old_move_txid,
+                idx,
                 new_move_txid
             );
             self.db
-                .set_replacement_deposit_move_txid(dbtx, old_move_txid, new_move_txid)
+                .set_replacement_deposit_move_txid(dbtx, idx, new_move_txid)
                 .await?;
         }
 
