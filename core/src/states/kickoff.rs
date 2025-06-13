@@ -6,6 +6,7 @@ use serde_with::serde_as;
 use statig::prelude::*;
 
 use crate::{
+    bitvm_client::ClementineBitVMPublicKeys,
     builder::transaction::{
         input::UtxoVout, remove_txhandler_from_map, ContractContext, TransactionType,
     },
@@ -184,6 +185,15 @@ impl<T: Owner> KickoffStateMachine<T> {
             .await;
     }
 
+    async fn check_if_time_to_send_disprove(&mut self, context: &mut StateContext<T>) {
+        if (self.operator_asserts.len() == ClementineBitVMPublicKeys::number_of_assert_txs()
+            && self.latest_blockhash != Witness::default()
+            && self.spent_watchtower_utxos.len() == self.deposit_data.get_num_watchtowers())
+        {
+            self.send_disprove(context).await;
+        }
+    }
+
     async fn send_operator_asserts(&mut self, context: &mut StateContext<T>) {
         context
             .capture_error(async |context| {
@@ -307,7 +317,8 @@ impl<T: Owner> KickoffStateMachine<T> {
                 Handled
             }
             KickoffEvent::TimeToSendVerifierDisprove => {
-                self.send_disprove(context).await;
+                // TODO: remove this event and time to send disprove protocol param
+                //self.send_disprove(context).await;
                 Handled
             }
             _ => {
@@ -338,6 +349,7 @@ impl<T: Owner> KickoffStateMachine<T> {
                 self.watchtower_challenges
                     .insert(*watchtower_idx, tx.clone());
                 self.check_if_time_to_commit_latest_blockhash(context).await;
+                self.check_if_time_to_send_disprove(context).await;
                 Handled
             }
             KickoffEvent::OperatorAssertSent {
@@ -350,6 +362,7 @@ impl<T: Owner> KickoffStateMachine<T> {
                     .expect("Assert outpoint that got matched should be in block");
                 // save assert witness
                 self.operator_asserts.insert(*assert_idx, witness);
+                self.check_if_time_to_send_disprove(context).await;
                 Handled
             }
             KickoffEvent::OperatorChallengeAckSent {
@@ -389,6 +402,7 @@ impl<T: Owner> KickoffStateMachine<T> {
                 self.latest_blockhash = witness;
                 // can start sending asserts as latest blockhash is committed and finalized
                 self.send_operator_asserts(context).await;
+                self.check_if_time_to_send_disprove(context).await;
                 Handled
             }
             KickoffEvent::TimeToSendOperatorAsserts => {
