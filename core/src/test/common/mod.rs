@@ -30,6 +30,7 @@ use crate::utils::FeePayingType;
 use crate::EVMAddress;
 use bitcoin::hashes::Hash;
 use bitcoin::key::Keypair;
+use bitcoin::secp256k1::rand;
 use bitcoin::secp256k1::Message;
 use bitcoin::secp256k1::PublicKey;
 use bitcoin::XOnlyPublicKey;
@@ -37,7 +38,6 @@ use bitcoin::{taproot, BlockHash, OutPoint, Transaction, Txid, Witness};
 use bitcoincore_rpc::RpcApi;
 use citrea::MockCitreaClient;
 use eyre::Context;
-use secp256k1::rand;
 pub use setup_utils::*;
 use tonic::transport::Channel;
 use tonic::Request;
@@ -482,14 +482,9 @@ fn sign_nofn_deposit_tx(
         })
         .collect::<Vec<_>>();
 
-    let final_signature = aggregate_partial_signatures(
-        &verifiers_public_keys.clone(),
-        None,
-        agg_nonce,
-        &partial_sigs,
-        msg,
-    )
-    .unwrap();
+    let final_signature =
+        aggregate_partial_signatures(verifiers_public_keys, None, agg_nonce, &partial_sigs, msg)
+            .unwrap();
 
     let final_taproot_sig = taproot::Signature {
         signature: final_signature,
