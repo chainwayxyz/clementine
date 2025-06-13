@@ -21,8 +21,8 @@ use bitcoin::{
     io::{self},
     opcodes,
     script::Instruction,
-    sighash::{Annex, Prevouts, PrevoutsIndexError, SighashCache},
-    Script, TapLeafHash, TapSighashType, Transaction, TxOut, Witness,
+    sighash::{Prevouts, PrevoutsIndexError, SighashCache},
+    Script, TapLeafHash, TapSighash, TapSighashType, Transaction, TxOut,
 };
 
 use core::panic;
@@ -35,7 +35,7 @@ use k256::{
 use lc_proof::lc_proof_verifier;
 use sha2::{Digest, Sha256};
 use signature::hazmat::PrehashVerifier;
-use std::borrow::Borrow;
+use std::borrow::{Borrow, BorrowMut};
 use storage_proof::verify_storage_proofs;
 use structs::{
     BridgeCircuitInput, ChallengeSendingWatchtowers, DepositConstant, LatestBlockhash,
@@ -306,6 +306,7 @@ pub fn verify_watchtower_challenges(circuit_input: &BridgeCircuitInput) -> Watch
             &prevouts,
             watchtower_input_idx,
             sighash_type,
+            watchtower_input.annex_digest,
         );
 
         if input.previous_output.txid != kickoff_txid {
@@ -577,27 +578,31 @@ pub fn journal_hash(
     blake3::hash(&concat_journal)
 }
 
-fn is_annex_present(witness: &Witness) -> bool {
-    witness.len() > 1 && witness.last().is_some_and(|last| last.starts_with(&[0x50]))
-}
-
 // Modified to panic on error
 fn sighash(
     wt_tx: &Transaction,
     prevouts: &Prevouts<TxOut>,
     input_index: usize,
     sighash_type: TapSighashType,
+    annex_hash: Option<[u8; 32]>,
 ) -> bitcoin::sighash::TapSighash {
-    let witness = &wt_tx.input[input_index].witness;
-    let annex: Option<Annex> = if is_annex_present(witness) {
-        Some(Annex::new(witness.last().unwrap()).expect("Annex must have 0x50 prefix"))
-    } else {
-        None
-    };
-
-    SighashCache::new(wt_tx)
-        .taproot_signature_hash(input_index, prevouts, annex, None, sighash_type)
-        .expect("Sighash generation failed")
+    let mut enc = TapSighash::engine();
+    let mut sighash_cache = SighashCache::new(wt_tx);
+    // Explicitly specify the generic arguments for T and R
+    taproot_encode_signing_data_to_with_annex_digest::<
+        _,            // W: io::Write + ?Sized (inferred as sha256::HashEngine)
+        TxOut,        // T: Borrow<TxOut> (explicitly TxOut)
+        &Transaction, // R: Borrow<Transaction> (explicitly &Transaction)
+    >(
+        sighash_cache.borrow_mut(),
+        enc.borrow_mut(),
+        input_index,
+        prevouts,
+        annex_hash,
+        None,
+        sighash_type,
+    );
+    TapSighash::from_engine(enc)
 }
 
 /// Encodes the BIP341 signing data for any flag type into a given object implementing the
@@ -610,13 +615,13 @@ pub fn taproot_encode_signing_data_to_with_annex_digest<
     sighash_cache: &mut SighashCache<R>,
     writer: &mut W,
     input_index: usize,
-    prevouts: &Prevouts<TxOut>,
+    prevouts: &Prevouts<T>, // Changed from `Prevouts<TxOut>` to `Prevouts<T>`
     annex_hash: Option<[u8; 32]>,
     leaf_hash_code_separator: Option<(TapLeafHash, u32)>,
     sighash_type: TapSighashType,
 ) {
     let tx = sighash_cache.transaction();
-    check_all(prevouts, tx);
+    check_all_generic(prevouts, tx); // Adjusted to use a generic check_all
 
     let (sighash, anyone_can_pay) = split_anyonecanpay_flag(sighash_type);
     let expect_msg = "writer should not fail";
@@ -646,7 +651,7 @@ pub fn taproot_encode_signing_data_to_with_annex_digest<
             .expect(expect_msg);
 
         // Manually compute sha_amounts
-        let all_prevouts = get_all_for_prevouts(prevouts);
+        let all_prevouts = get_all_for_prevouts_generic(prevouts); // Adjusted to use a generic get_all
         let mut enc_amounts = sha256::Hash::engine();
         for prevout in all_prevouts.iter() {
             prevout
@@ -707,16 +712,18 @@ pub fn taproot_encode_signing_data_to_with_annex_digest<
 
     if anyone_can_pay {
         let txin = tx.tx_in(input_index).expect("invalid input index");
-        let previous_output =
-            get_for_prevouts(prevouts, input_index).expect("invalid prevout for input index");
+        let previous_output = get_for_prevouts_generic(prevouts, input_index)
+            .expect("invalid prevout for input index"); // Adjusted to use a generic get_for_prevouts
         txin.previous_output
             .consensus_encode(writer)
             .expect(expect_msg);
         previous_output
+            .borrow() // Added .borrow()
             .value
             .consensus_encode(writer)
             .expect(expect_msg);
         previous_output
+            .borrow() // Added .borrow()
             .script_pubkey
             .consensus_encode(writer)
             .expect(expect_msg);
@@ -758,11 +765,11 @@ pub fn taproot_encode_signing_data_to_with_annex_digest<
     }
 }
 
-// Unchanged helper functions
-fn get_for_prevouts<'a>(
-    prevouts: &'a Prevouts<'a, TxOut>,
+// Modified helper functions to be generic
+fn get_for_prevouts_generic<'a, T: Borrow<TxOut>>(
+    prevouts: &'a Prevouts<'a, T>,
     input_index: usize,
-) -> Result<&'a TxOut, PrevoutsIndexError> {
+) -> Result<&'a T, PrevoutsIndexError> {
     match prevouts {
         Prevouts::One(index, prevout) => {
             if input_index == *index {
@@ -777,13 +784,26 @@ fn get_for_prevouts<'a>(
     }
 }
 
-fn get_all_for_prevouts<'a>(prevouts: &'a Prevouts<'a, TxOut>) -> &'a [TxOut] {
+fn get_all_for_prevouts_generic<'a, T: Borrow<TxOut>>(prevouts: &'a Prevouts<'a, T>) -> &'a [T] {
     match prevouts {
         Prevouts::All(prevouts) => prevouts,
         _ => panic!("cannot get all prevouts from a single prevout"),
     }
 }
 
+fn check_all_generic<'a, T: Borrow<TxOut>>(prevouts: &Prevouts<'a, T>, tx: &Transaction) {
+    if let Prevouts::All(prevouts) = prevouts {
+        if prevouts.len() != tx.input.len() {
+            panic!(
+                "Invalid number of prevouts: expected {}, got {}",
+                tx.input.len(),
+                prevouts.len()
+            );
+        }
+    }
+}
+
+// Unchanged helper functions
 fn split_anyonecanpay_flag(sighash: TapSighashType) -> (TapSighashType, bool) {
     match sighash {
         TapSighashType::Default => (TapSighashType::Default, false),
@@ -793,18 +813,6 @@ fn split_anyonecanpay_flag(sighash: TapSighashType) -> (TapSighashType, bool) {
         TapSighashType::AllPlusAnyoneCanPay => (TapSighashType::All, true),
         TapSighashType::NonePlusAnyoneCanPay => (TapSighashType::None, true),
         TapSighashType::SinglePlusAnyoneCanPay => (TapSighashType::Single, true),
-    }
-}
-
-fn check_all(prevouts: &Prevouts<TxOut>, tx: &Transaction) {
-    if let Prevouts::All(prevouts) = prevouts {
-        if prevouts.len() != tx.input.len() {
-            panic!(
-                "Invalid number of prevouts: expected {}, got {}",
-                tx.input.len(),
-                prevouts.len()
-            );
-        }
     }
 }
 
@@ -827,6 +835,8 @@ mod tests {
     use bitcoin::{
         absolute::Height,
         consensus::{Decodable, Encodable},
+        sighash::Annex,
+        taproot::TAPROOT_ANNEX_PREFIX,
         transaction::Version,
         ScriptBuf, Transaction, TxIn, Txid, Witness,
     };
@@ -892,6 +902,7 @@ mod tests {
                 watchtower_challenge_input_idx: 0,
                 watchtower_challenge_utxos: vec![CircuitTxOut(tx_out)],
                 watchtower_challenge_tx: CircuitTransaction(wt_tx.clone()),
+                annex_digest: None,
             }],
             hcp: BlockHeaderCircuitOutput {
                 method_id: [0; 8],
@@ -1166,15 +1177,52 @@ mod tests {
         );
     }
 
+    // Helper function to extract and hash the annex
+    fn get_annex_hash(witness: &Witness) -> Option<[u8; 32]> {
+        // Using a constant for the annex prefix as defined in bitcoin library
+
+        let watchtower_challenge_annex: Option<Annex> = {
+            if let Some(last_witness_element) = witness.last() {
+                // Check if the first byte is 0x50 before attempting to create an Annex
+                if last_witness_element.first() == Some(&TAPROOT_ANNEX_PREFIX) {
+                    Annex::new(last_witness_element).ok() // Convert Result<Annex, AnnexError> to Option<Annex>
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        };
+
+        watchtower_challenge_annex.and_then(|annex| {
+            let mut enc = sha256::Hash::engine();
+            match annex.consensus_encode(&mut enc) {
+                Ok(_) => {
+                    let hash = sha256::Hash::from_engine(enc);
+                    Some(hash.to_byte_array()) // Use to_byte_array() for owned array
+                }
+                Err(_) => {
+                    // In a production environment, you might want more robust error handling/logging here.
+                    // For now, returning None if encoding fails
+                    None
+                }
+            }
+        })
+    }
+
     #[test]
     fn test_annex_signature() {
         let bitcoin_tx: Transaction = bitcoin::consensus::deserialize(&hex::decode("020000000001017a48f6958d00c4ab052b0a09589cb0c71df95ec6593fa39aabf3bd130d96da2f8800000000fdffffff010c8602000000000022512065b9b1db7b1d648097913234091a8a7703ca330178efa12437ea97fbc3e14bf2024036f4cd2cf3cf433c9dac8b3205f44ffa4cd8d63f9a6f8191e4fea443ad74c7c50bc8962c2689185f8bb6062ac9ff62b1a8221df45aa377cf3c34566088bff4edfd300250005249464626020000574542505650384c190200002f36800d0097c026008034c8e7fe93810ac4a680d5b004b0ed5a0d3601002699bb3bf659229a10893684426d6cdb50177f0fed1d08d52053a158131a2265fee3ff7f3f059855f202d15da33a5f98ac7a7c07f6342e6d693f826c36ecc857946d392fe8cf906f658025db569cca0b5eec4814e73f5b9a405ef3bd4f44ff27a0fc7cfb215cec477061b71fc00576ec477cfe07d4e7032713ed64e07594ec4c90bd8e27c3bbd13813decd56844e83777335ff183e782a1cc82dce96a553ec4364390801025bb1731df3f135d70f3dfc68b4157c98954f43f45ca92111652bae0361e23476ae1f76ac4844490e1a9e26763e60454098093047ec37ac802f34e6dc5e37f0c57608c44bc28dca0e8e60077889b604b01d6470c653358dedf85d5514e528d0a0390dca4cb841a92795d96c82d203a800aa24a6bd1fbcad272e6ada45d59bcd666d3a4087ea8de6bd1f2b1e5ab0e96165e0f87b9ae0d6a3a2dde02d2b2b680836716fb30910653e3722ad04f73e244159f1b4285aba4b824a49a22ce4f594c50045a2fa26d1b2b294173138d9a0fa264954acc12d5664810d91acb92a03d8b725ee249913c0981515e8db3749772581cc0900d9ce90746fa8ca0d3026882807acf660e92e29ddd3d73cf7c0e664a0d4308043951bc18e09501fb77bba2b09af83e1400e51766c1ccf96b827bc6945388428198bc048f880f01025dbc402bc361c724f8428d824166500a19e88a2b049ac69670604ea010000000000").unwrap()).unwrap();
         let prevout: TxOut = bitcoin::consensus::deserialize(&hex::decode("949902000000000022512065b9b1db7b1d648097913234091a8a7703ca330178efa12437ea97fbc3e14bf2").unwrap()).unwrap();
+
+        let annex_hash = get_annex_hash(&bitcoin_tx.input[0].witness);
+
         let sighash = sighash(
             &bitcoin_tx,
             &Prevouts::All(&[prevout]),
             0,
             TapSighashType::Default,
+            annex_hash, // Pass the computed annex hash
         );
 
         let xonly_pk_bytes =
@@ -1183,7 +1231,12 @@ mod tests {
         let xonly_pk: VerifyingKey =
             VerifyingKey::from_bytes(&xonly_pk_bytes).expect("Invalid xonly pk");
 
-        let signature_bytes = bitcoin_tx.input[0].witness[0].to_vec();
+        // The actual signature is the first element in the witness stack
+        let signature_bytes = bitcoin_tx.input[0]
+            .witness
+            .nth(0)
+            .expect("Signature not found in witness")
+            .to_vec();
 
         let signature: Signature =
             Signature::try_from(signature_bytes.as_slice()).expect("Invalid signature");
@@ -1194,20 +1247,27 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Signature verification failed")]
+    #[should_panic(expected = "Signature verification failed")] // This panic is expected if the original signature was created with an annex
     fn test_annex_removed_signature() {
         let mut bitcoin_tx: Transaction = bitcoin::consensus::deserialize(&hex::decode("020000000001017a48f6958d00c4ab052b0a09589cb0c71df95ec6593fa39aabf3bd130d96da2f8800000000fdffffff010c8602000000000022512065b9b1db7b1d648097913234091a8a7703ca330178efa12437ea97fbc3e14bf2024036f4cd2cf3cf433c9dac8b3205f44ffa4cd8d63f9a6f8191e4fea443ad74c7c50bc8962c2689185f8bb6062ac9ff62b1a8221df45aa377cf3c34566088bff4edfd300250005249464626020000574542505650384c190200002f36800d0097c026008034c8e7fe93810ac4a680d5b004b0ed5a0d3601002699bb3bf659229a10893684426d6cdb50177f0fed1d08d52053a158131a2265fee3ff7f3f059855f202d15da33a5f98ac7a7c07f6342e6d693f826c36ecc857946d392fe8cf906f658025db569cca0b5eec4814e73f5b9a405ef3bd4f44ff27a0fc7cfb215cec477061b71fc00576ec477cfe07d4e7032713ed64e07594ec4c90bd8e27c3bbd13813decd56844e83777335ff183e782a1cc82dce96a553ec4364390801025bb1731df3f135d70f3dfc68b4157c98954f43f45ca92111652bae0361e23476ae1f76ac4844490e1a9e26763e60454098093047ec37ac802f34e6dc5e37f0c57608c44bc28dca0e8e60077889b604b01d6470c653358dedf85d5514e528d0a0390dca4cb841a92795d96c82d203a800aa24a6bd1fbcad272e6ada45d59bcd666d3a4087ea8de6bd1f2b1e5ab0e96165e0f87b9ae0d6a3a2dde02d2b2b680836716fb30910653e3722ad04f73e244159f1b4285aba4b824a49a22ce4f594c50045a2fa26d1b2b294173138d9a0fa264954acc12d5664810d91acb92a03d8b725ee249913c0981515e8db3749772581cc0900d9ce90746fa8ca0d3026882807acf660e92e29ddd3d73cf7c0e664a0d4308043951bc18e09501fb77bba2b09af83e1400e51766c1ccf96b827bc6945388428198bc048f880f01025dbc402bc361c724f8428d824166500a19e88a2b049ac69670604ea010000000000").unwrap()).unwrap();
         let prevout: TxOut = bitcoin::consensus::deserialize(&hex::decode("949902000000000022512065b9b1db7b1d648097913234091a8a7703ca330178efa12437ea97fbc3e14bf2").unwrap()).unwrap();
-        // Remove the annex from the witness
-        let signature_bytes = bitcoin_tx.input[0].witness[0].to_vec();
 
+        // Remove the annex from the witness stack
+        let signature_bytes = bitcoin_tx.input[0]
+            .witness
+            .nth(0)
+            .expect("Signature not found in witness")
+            .to_vec();
         bitcoin_tx.input[0].witness.clear();
-        bitcoin_tx.input[0].witness.push(signature_bytes.clone());
+        bitcoin_tx.input[0].witness.push(signature_bytes.clone()); // Only push the signature
+
+        // Now, call sighash without providing the annex_hash
         let sighash = sighash(
             &bitcoin_tx,
             &Prevouts::All(&[prevout]),
             0,
             TapSighashType::Default,
+            None, // Explicitly pass None for annex_hash
         );
 
         let xonly_pk_bytes =
@@ -1219,6 +1279,8 @@ mod tests {
         let signature: Signature =
             Signature::try_from(signature_bytes.as_slice()).expect("Invalid signature");
 
+        // This verification should fail because the sighash was computed WITHOUT an annex,
+        // but the original signature was likely created WITH an annex.
         xonly_pk
             .verify_prehash(sighash.as_byte_array(), &signature)
             .expect("Signature verification failed");
