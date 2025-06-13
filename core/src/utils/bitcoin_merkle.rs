@@ -1,6 +1,7 @@
 use crate::errors::BridgeError;
 use bitcoin::hashes::Hash;
 use bitcoin::{Block, Txid};
+use eyre::Context;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -43,11 +44,17 @@ pub fn get_block_merkle_proof(
         .collect::<Vec<_>>();
 
     let merkle_tree = BitcoinMerkleTree::new(txids.clone());
-    let witness_idx_path = merkle_tree.get_idx_path(txid_index.try_into().unwrap());
+    let witness_idx_path = merkle_tree.get_idx_path(
+        txid_index
+            .try_into()
+            .wrap_err("Can't convert index to u32")?,
+    );
 
     let _root = merkle_tree.calculate_root_with_merkle_proof(
         txids[txid_index],
-        txid_index.try_into().unwrap(),
+        txid_index
+            .try_into()
+            .wrap_err("Can't convert index to u32")?,
         witness_idx_path.clone(),
     );
 

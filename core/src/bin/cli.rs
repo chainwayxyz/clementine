@@ -1018,7 +1018,9 @@ async fn handle_citrea_call(url: String, command: CitreaCommands) {
                 &extended_rpc,
                 citrea_client.client,
                 block,
-                block_height.try_into().unwrap(),
+                block_height
+                    .try_into()
+                    .expect("Failed to convert block height"),
                 tx,
             )
             .await

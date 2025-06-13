@@ -73,7 +73,7 @@ pub fn get_transaction_params_for_citrea(
         .collect::<Vec<u8>>();
 
     let locktime = bitcoin::consensus::serialize(&transaction.lock_time);
-    let locktime: [u8; 4] = locktime.try_into().unwrap();
+    let locktime: [u8; 4] = locktime.try_into().expect("Locktime should be 4 bytes");
     Ok(CitreaTransaction {
         version: FixedBytes::from(version),
         flag: FixedBytes::from(flag),
@@ -109,7 +109,7 @@ async fn get_transaction_sha_script_pubkeys_for_citrea(
         prevout
             .script_pubkey
             .consensus_encode(&mut enc_script_pubkeys)
-            .unwrap();
+            .wrap_err("Failed to encode script pubkey")?;
     }
     let sha_script_pubkeys = sha256::Hash::from_engine(enc_script_pubkeys);
 
@@ -117,7 +117,7 @@ async fn get_transaction_sha_script_pubkeys_for_citrea(
         .as_byte_array()
         .to_vec()
         .try_into()
-        .unwrap();
+        .expect("SHA script pubkeys should be 32 bytes");
 
     let sha_script_pubkeys = FixedBytes::from(sha_script_pks);
 
