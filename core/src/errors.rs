@@ -225,37 +225,17 @@ impl From<BridgeError> for tonic::Status {
     fn from(val: BridgeError) -> Self {
         let eyre_report = val.into_eyre();
 
-        tracing::error!(
-            "Casting BridgeError to Status message (possibly lossy), full report: {:?}",
-            eyre_report
-        );
-
         // eyre::Report can cast any error in the chain to a Status, so we use its downcast method to get the first Status.
         eyre_report.downcast::<Status>().unwrap_or_else(|report| {
-            tracing::error!("Returning internal error, full report: {:?}", report);
+            // We don't want this case to happen, all casts to Status should contain a Status that contains a user-facing error message.
+            tracing::error!("Returning internal error on RPC call, full error: {:?}", report);
 
-            // TODO: Change this to internal error when we have proper user-facing errors wrapped around common problems.
-            let mut status = tonic::Status::unknown(report.to_string());
+            let mut status = tonic::Status::internal(report.to_string());
             status.set_source(Into::into(
                 Into::<Box<dyn std::error::Error + Send + Sync>>::into(report),
             ));
             status
         })
-
-        // Possible future implementation, requires manually matching all TryInto<Status> types
-        // for err in val.into_eyre().chain() {
-        //     match err.downcast_ref::<BridgeError>() {
-        //         Some(BridgeError::Aggregator(err)) => {
-        //             if let Ok(status) = err.try_into() {
-        //                 return status;
-        //             }
-        //         }
-        //         Some(_) | None => {}
-        //     }
-        // }
-
-        // tracing::error!("Internal server error: {:?}", val);
-        // tonic::Status::internal("Internal server error.")
     }
 }
 
