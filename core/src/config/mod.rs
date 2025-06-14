@@ -17,6 +17,7 @@ use bitcoin::address::NetworkUnchecked;
 use bitcoin::secp256k1::SecretKey;
 use bitcoin::{Address, Amount, OutPoint};
 use protocol::ProtocolParamset;
+use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use std::{fs::File, io::Read, path::PathBuf};
@@ -97,7 +98,7 @@ impl Default for TestParams {
 }
 
 /// Configuration options for any Clementine target (tests, binaries etc.).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct BridgeConfig {
     /// Protocol paramset
     ///
@@ -119,17 +120,17 @@ pub struct BridgeConfig {
     /// Bitcoin remote procedure call URL.
     pub bitcoin_rpc_url: String,
     /// Bitcoin RPC user.
-    pub bitcoin_rpc_user: String,
+    pub bitcoin_rpc_user: SecretString,
     /// Bitcoin RPC user password.
-    pub bitcoin_rpc_password: String,
+    pub bitcoin_rpc_password: SecretString,
     /// PostgreSQL database host address.
     pub db_host: String,
     /// PostgreSQL database port.
     pub db_port: usize,
     /// PostgreSQL database user name.
-    pub db_user: String,
+    pub db_user: SecretString,
     /// PostgreSQL database user password.
-    pub db_password: String,
+    pub db_password: SecretString,
     /// PostgreSQL database name.
     pub db_name: String,
     /// Citrea RPC URL.
@@ -253,13 +254,13 @@ impl Default for BridgeConfig {
             operator_withdrawal_fee_sats: Some(Amount::from_sat(100000)),
 
             bitcoin_rpc_url: "http://127.0.0.1:18443/wallet/admin".to_string(),
-            bitcoin_rpc_user: "admin".to_string(),
-            bitcoin_rpc_password: "admin".to_string(),
+            bitcoin_rpc_user: "admin".to_string().into(),
+            bitcoin_rpc_password: "admin".to_string().into(),
 
             db_host: "127.0.0.1".to_string(),
             db_port: 5432,
-            db_user: "clementine".to_string(),
-            db_password: "clementine".to_string(),
+            db_user: "clementine".to_string().into(),
+            db_password: "clementine".to_string().into(),
             db_name: "clementine".to_string(),
 
             citrea_rpc_url: "".to_string(),
@@ -313,9 +314,6 @@ mod tests {
         // In case of a incorrect file content, we should receive an error.
         let content = "brokenfilecontent";
         assert!(BridgeConfig::try_parse_from(content.to_string()).is_err());
-
-        let init = BridgeConfig::new();
-        BridgeConfig::try_parse_from(toml::to_string(&init).unwrap()).unwrap();
     }
 
     #[test]

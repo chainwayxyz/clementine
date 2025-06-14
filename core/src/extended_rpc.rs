@@ -24,6 +24,8 @@ use bitcoincore_rpc::RpcApi;
 use eyre::eyre;
 use eyre::Context;
 use eyre::OptionExt;
+use secrecy::ExposeSecret;
+use secrecy::SecretString;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -42,11 +44,19 @@ type Result<T> = std::result::Result<T, BitcoinRPCError>;
 /// Bitcoin RPC wrapper. Extended RPC provides useful wrapper functions for
 /// common operations, as well as direct access to Bitcoin RPC. Bitcoin RPC can
 /// be directly accessed via `client` member.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ExtendedRpc {
     pub url: String,
     auth: Auth,
     pub client: Arc<Client>,
+}
+
+impl std::fmt::Debug for ExtendedRpc {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ExtendedRpc")
+            .field("url", &self.url)
+            .finish()
+    }
 }
 
 /// Errors that can occur during Bitcoin RPC operations.
@@ -67,8 +77,11 @@ pub enum BitcoinRPCError {
 
 impl ExtendedRpc {
     /// Connects to Bitcoin RPC and returns a new [`ExtendedRpc`].
-    pub async fn connect(url: String, user: String, password: String) -> Result<Self> {
-        let auth = Auth::UserPass(user, password);
+    pub async fn connect(url: String, user: SecretString, password: SecretString) -> Result<Self> {
+        let auth = Auth::UserPass(
+            user.expose_secret().to_string(),
+            password.expose_secret().to_string(),
+        );
 
         let rpc = Client::new(&url, auth.clone())
             .await
