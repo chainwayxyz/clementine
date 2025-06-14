@@ -11,6 +11,7 @@ use std::time::Duration;
 use crate::{config::BridgeConfig, errors::BridgeError};
 use alloy::transports::http::reqwest::Url;
 use eyre::Context;
+use secrecy::ExposeSecret;
 use sqlx::postgres::PgConnectOptions;
 use sqlx::ConnectOptions;
 use sqlx::{Pool, Postgres};
@@ -134,9 +135,9 @@ impl Database {
     /// the given configuration.
     pub fn get_postgresql_url(config: &BridgeConfig) -> String {
         "postgresql://".to_owned()
-            + &config.db_user
+            + &config.db_user.expose_secret()
             + ":"
-            + &config.db_password
+            + &config.db_password.expose_secret()
             + "@"
             + &config.db_host
             + ":"
@@ -180,8 +181,8 @@ mod tests {
         let mut config = BridgeConfig::new();
         config.db_host = "nonexistinghost".to_string();
         config.db_name = "nonexistingpassword".to_string();
-        config.db_user = "nonexistinguser".to_string();
-        config.db_password = "nonexistingpassword".to_string();
+        config.db_user = "nonexistinguser".to_string().into();
+        config.db_password = "nonexistingpassword".to_string().into();
         config.db_port = 123;
 
         Database::new(&config).await.unwrap();
@@ -191,9 +192,9 @@ mod tests {
     fn get_postgresql_url() {
         let mut config = BridgeConfig::new();
 
-        config.db_password = "sofun".to_string();
+        config.db_password = "sofun".to_string().into();
         config.db_port = 45;
-        config.db_user = "iam".to_string();
+        config.db_user = "iam".to_string().into();
         config.db_host = "parties".to_string();
 
         assert_eq!(
@@ -207,9 +208,9 @@ mod tests {
         let mut config = BridgeConfig::new();
 
         config.db_name = "times".to_string();
-        config.db_password = "funnier".to_string();
+        config.db_password = "funnier".to_string().into();
         config.db_port = 45;
-        config.db_user = "butyouare".to_string();
+        config.db_user = "butyouare".to_string().into();
         config.db_host = "parties".to_string();
 
         assert_eq!(

@@ -63,6 +63,7 @@ ark-ff = { workspace = true }
 rustls-pki-types = { workspace = true }
 once_cell = { workspace = true }
 bitcoin-script = { workspace = true }
+secrecy = { workspace = true }
 
 [dev-dependencies]
 serial_test = { workspace = true }
