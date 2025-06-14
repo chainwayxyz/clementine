@@ -13,6 +13,9 @@ use tracing::level_filters::LevelFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::{fmt, EnvFilter, Registry};
 
+pub mod bitcoin_merkle;
+pub mod citrea;
+
 /// Initializes `tracing` as the logger.
 ///
 /// # Parameters

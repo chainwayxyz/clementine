@@ -1,5 +1,3 @@
-//! # Parameter Builder For Citrea Requests
-
 use crate::builder;
 use crate::builder::script::SpendPath;
 use crate::builder::transaction::TransactionType;
@@ -8,60 +6,24 @@ use crate::citrea::Bridge::Transaction as CitreaTransaction;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::rpc::clementine::NormalSignatureKind;
-use crate::test::common::citrea::bitcoin_merkle::BitcoinMerkleTree;
+use crate::utils::bitcoin_merkle::get_block_merkle_proof;
 use crate::UTXO;
 use alloy::primitives::{Bytes, FixedBytes, Uint};
+use alloy::sol_types::SolValue;
 use bitcoin::consensus::Encodable;
 use bitcoin::hashes::sha256;
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr;
-use bitcoin::{Block, Transaction, Txid};
+use bitcoin::Transaction;
+use bitcoin::{Block, Txid};
 use bitcoincore_rpc::RpcApi;
+use circuits_lib::bridge_circuit::merkle_tree::BitcoinMerkleTree;
 use eyre::Context;
+use jsonrpsee::core::client::ClientT;
+use jsonrpsee::http_client::HttpClient;
+use jsonrpsee::rpc_params;
 
-/// Returns merkle proof for a given transaction (via txid) in a block.
-fn get_block_merkle_proof(
-    block: &Block,
-    target_txid: Txid,
-    is_witness_merkle_proof: bool,
-) -> Result<(usize, Vec<u8>), BridgeError> {
-    let mut txid_index = 0;
-    let txids = block
-        .txdata
-        .iter()
-        .enumerate()
-        .map(|(i, tx)| {
-            let txid = tx.compute_txid();
-            if txid == target_txid {
-                txid_index = i;
-            }
-
-            if is_witness_merkle_proof {
-                if i == 0 {
-                    [0; 32]
-                } else {
-                    let wtxid = tx.compute_wtxid();
-                    wtxid.as_byte_array().to_owned()
-                }
-            } else {
-                txid.as_byte_array().to_owned()
-            }
-        })
-        .collect::<Vec<_>>();
-
-    let merkle_tree = BitcoinMerkleTree::new(txids.clone());
-    let witness_idx_path = merkle_tree.get_idx_path(txid_index.try_into().unwrap());
-
-    let _root = merkle_tree.calculate_root_with_merkle_proof(
-        txids[txid_index],
-        txid_index.try_into().unwrap(),
-        witness_idx_path.clone(),
-    );
-
-    Ok((txid_index, witness_idx_path.into_iter().flatten().collect()))
-}
-
-fn get_transaction_details_for_citrea(
+pub fn get_transaction_params_for_citrea(
     transaction: &Transaction,
 ) -> Result<CitreaTransaction, BridgeError> {
     let version = (transaction.version.0 as u32).to_le_bytes();
@@ -111,7 +73,7 @@ fn get_transaction_details_for_citrea(
         .collect::<Vec<u8>>();
 
     let locktime = bitcoin::consensus::serialize(&transaction.lock_time);
-    let locktime: [u8; 4] = locktime.try_into().unwrap();
+    let locktime: [u8; 4] = locktime.try_into().expect("Locktime should be 4 bytes");
     Ok(CitreaTransaction {
         version: FixedBytes::from(version),
         flag: FixedBytes::from(flag),
@@ -147,7 +109,7 @@ async fn get_transaction_sha_script_pubkeys_for_citrea(
         prevout
             .script_pubkey
             .consensus_encode(&mut enc_script_pubkeys)
-            .unwrap();
+            .wrap_err("Failed to encode script pubkey")?;
     }
     let sha_script_pubkeys = sha256::Hash::from_engine(enc_script_pubkeys);
 
@@ -155,7 +117,7 @@ async fn get_transaction_sha_script_pubkeys_for_citrea(
         .as_byte_array()
         .to_vec()
         .try_into()
-        .unwrap();
+        .expect("SHA script pubkeys should be 32 bytes");
 
     let sha_script_pubkeys = FixedBytes::from(sha_script_pks);
 
@@ -171,11 +133,36 @@ pub async fn get_citrea_deposit_params(
     block_height: u32,
     txid: Txid,
 ) -> Result<(CitreaTransaction, CitreaMerkleProof, FixedBytes<32>), BridgeError> {
-    let tp = get_transaction_details_for_citrea(&transaction)?;
+    let tp = get_transaction_params_for_citrea(&transaction)?;
     let mp = get_transaction_merkle_proof_for_citrea(block_height, &block, txid, true)?;
     let sha_script_pubkeys =
         get_transaction_sha_script_pubkeys_for_citrea(rpc, transaction).await?;
     Ok((tp, mp, sha_script_pubkeys))
+}
+
+/// Deposits a transaction to Citrea. This function is different from `contract.deposit` because it
+/// won't directly talk with EVM but with Citrea. So that authorization can be done (Citrea will
+/// block this call if it isn't an operator).
+pub async fn deposit(
+    rpc: &ExtendedRpc,
+    client: HttpClient,
+    block: Block,
+    block_height: u32,
+    transaction: Transaction,
+) -> Result<(), BridgeError> {
+    let txid = transaction.compute_txid();
+
+    let params = get_citrea_deposit_params(rpc, transaction, block, block_height, txid).await?;
+
+    let _response: () = client
+        .request(
+            "citrea_sendRawDepositTransaction",
+            rpc_params!(hex::encode(params.abi_encode_params())),
+        )
+        .await
+        .wrap_err("Failed to send deposit transaction")?;
+
+    Ok(())
 }
 
 pub async fn get_citrea_safe_withdraw_params(
@@ -197,7 +184,7 @@ pub async fn get_citrea_safe_withdraw_params(
         .get_tx_of_txid(&withdrawal_dust_utxo.outpoint.txid)
         .await?;
 
-    let prepare_tx_struct = get_transaction_details_for_citrea(&prepare_tx)?;
+    let prepare_tx_struct = get_transaction_params_for_citrea(&prepare_tx)?;
 
     let prepare_tx_blockhash = rpc
         .get_blockhash_of_tx(&withdrawal_dust_utxo.outpoint.txid)
@@ -255,7 +242,7 @@ pub async fn get_citrea_safe_withdraw_params(
 
     let payout_transaction = tx.get_cached_tx();
 
-    let payout_tx_params = get_transaction_details_for_citrea(payout_transaction)?;
+    let payout_tx_params = get_transaction_params_for_citrea(payout_transaction)?;
 
     let block_header_bytes =
         Bytes::copy_from_slice(&bitcoin::consensus::serialize(&prepare_tx_block_header));

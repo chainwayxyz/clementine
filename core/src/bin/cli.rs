@@ -1,25 +1,24 @@
 //! This module defines a command line interface for the RPC client.
 
-use std::path::PathBuf;
-use std::str::FromStr;
-
-use bitcoin::{hashes::Hash, Block, ScriptBuf, Txid};
+use bitcoin::{hashes::Hash, secp256k1::schnorr, ScriptBuf};
+use bitcoincore_rpc::RpcApi;
 use clap::{Parser, Subcommand};
 use clementine_core::{
+    citrea::{CitreaClient, CitreaClientT},
     config::BridgeConfig,
     deposit::SecurityCouncil,
-    errors::BridgeError,
+    extended_rpc,
     rpc::clementine::{
         self, clementine_aggregator_client::ClementineAggregatorClient,
         clementine_operator_client::ClementineOperatorClient,
         clementine_verifier_client::ClementineVerifierClient, deposit::DepositData, Actors,
         BaseDeposit, Deposit, Empty, Outpoint, ReplacementDeposit, SendMoveTxRequest,
-        VerifierPublicKeys, XOnlyPublicKeys,
     },
-    EVMAddress,
+    utils::{bitcoin_merkle::get_block_merkle_proof, citrea::get_transaction_params_for_citrea},
+    EVMAddress, UTXO,
 };
-use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
+use std::path::PathBuf;
+use std::str::FromStr;
 use tonic::Request;
 
 #[derive(Parser)]
@@ -49,6 +48,11 @@ enum Commands {
     Aggregator {
         #[command(subcommand)]
         command: AggregatorCommands,
+    },
+    /// Citrea related commands
+    Citrea {
+        #[command(subcommand)]
+        command: CitreaCommands,
     },
 }
 
@@ -206,168 +210,40 @@ enum AggregatorCommands {
     Vergen,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BitcoinMerkleTree {
-    depth: u32,
-    nodes: Vec<Vec<[u8; 32]>>,
-}
-
-impl BitcoinMerkleTree {
-    pub fn new(transactions: Vec<[u8; 32]>) -> Self {
-        // assert!(depth > 0, "Depth must be greater than 0");
-        // assert!(depth <= 254, "Depth must be less than or equal to 254");
-        // assert!(
-        //     u32::pow(2, (depth) as u32) >= transactions.len() as u32,
-        //     "Too many transactions for this depth"
-        // );
-        let depth = (transactions.len() - 1).ilog(2) + 1;
-        let mut tree = BitcoinMerkleTree {
-            depth,
-            nodes: vec![],
-        };
-
-        // Populate leaf nodes
-        tree.nodes.push(vec![]);
-        for tx in transactions.iter() {
-            tree.nodes[0].push(*tx);
-        }
-
-        // Construct the tree
-        let mut curr_level_offset: usize = 1;
-        let mut prev_level_size = transactions.len();
-        let mut prev_level_index_offset = 0;
-        let mut preimage: [u8; 64] = [0; 64];
-        while prev_level_size > 1 {
-            // println!("curr_level_offset: {}", curr_level_offset);
-            // println!("prev_level_size: {}", prev_level_size);
-            // println!("prev_level_index_offset: {}", prev_level_index_offset);
-            tree.nodes.push(vec![]);
-            for i in 0..(prev_level_size / 2) {
-                preimage[..32].copy_from_slice(
-                    &tree.nodes[curr_level_offset - 1_usize][prev_level_index_offset + i * 2],
-                );
-                preimage[32..].copy_from_slice(
-                    &tree.nodes[curr_level_offset - 1][prev_level_index_offset + i * 2 + 1],
-                );
-                let combined_hash = calculate_double_sha256(&preimage);
-                tree.nodes[curr_level_offset].push(combined_hash);
-            }
-            if prev_level_size % 2 == 1 {
-                let mut preimage: [u8; 64] = [0; 64];
-                preimage[..32].copy_from_slice(
-                    &tree.nodes[curr_level_offset - 1]
-                        [prev_level_index_offset + prev_level_size - 1],
-                );
-                preimage[32..].copy_from_slice(
-                    &tree.nodes[curr_level_offset - 1]
-                        [prev_level_index_offset + prev_level_size - 1],
-                );
-                let combined_hash = calculate_double_sha256(&preimage);
-                tree.nodes[curr_level_offset].push(combined_hash);
-            }
-            curr_level_offset += 1;
-            prev_level_size = prev_level_size.div_ceil(2);
-            prev_level_index_offset = 0;
-        }
-        tree
-    }
-
-    // Returns the Merkle root
-    pub fn root(&self) -> [u8; 32] {
-        self.nodes[self.nodes.len() - 1][0]
-    }
-
-    pub fn get_idx_path(&self, index: u32) -> Vec<[u8; 32]> {
-        assert!(index < self.nodes[0].len() as u32, "Index out of bounds");
-        let mut path = vec![];
-        let mut level = 0;
-        let mut i = index;
-        while level < self.nodes.len() as u32 - 1 {
-            if i % 2 == 1 {
-                path.push(self.nodes[level as usize][i as usize - 1]);
-            } else if (self.nodes[level as usize].len() - 1) as u32 == i {
-                path.push(self.nodes[level as usize][i as usize]);
-            } else {
-                path.push(self.nodes[level as usize][(i + 1) as usize]);
-            }
-
-            level += 1;
-            i /= 2;
-        }
-
-        path
-    }
-
-    pub fn calculate_root_with_merkle_proof(
-        &self,
-        txid: [u8; 32],
-        idx: u32,
-        merkle_proof: Vec<[u8; 32]>,
-    ) -> [u8; 32] {
-        let mut preimage: [u8; 64] = [0; 64];
-        let mut combined_hash: [u8; 32] = txid;
-        let mut index = idx;
-        let mut level: u32 = 0;
-        while level < self.depth {
-            if index % 2 == 0 {
-                preimage[..32].copy_from_slice(&combined_hash);
-                preimage[32..].copy_from_slice(&merkle_proof[level as usize]);
-                combined_hash = calculate_double_sha256(&preimage);
-            } else {
-                preimage[..32].copy_from_slice(&merkle_proof[level as usize]);
-                preimage[32..].copy_from_slice(&combined_hash);
-                combined_hash = calculate_double_sha256(&preimage);
-            }
-            level += 1;
-            index /= 2;
-        }
-        combined_hash
-    }
-}
-
-pub fn calculate_double_sha256(input: &[u8]) -> [u8; 32] {
-    let mut hasher = Sha256::default();
-    hasher.update(input);
-    let result = hasher.finalize_reset();
-    hasher.update(result);
-    hasher.finalize().into()
-}
-
-fn _get_block_merkle_proof(
-    block: Block,
-    target_txid: Txid,
-) -> Result<(usize, Vec<u8>), BridgeError> {
-    let mut txid_index = 0;
-    let txids = block
-        .txdata
-        .iter()
-        .enumerate()
-        .map(|(i, tx)| {
-            if tx.compute_txid() == target_txid {
-                txid_index = i;
-            }
-
-            if i == 0 {
-                [0; 32]
-            } else {
-                let wtxid = tx.compute_wtxid();
-                wtxid.as_byte_array().to_owned()
-            }
-        })
-        .collect::<Vec<_>>();
-
-    let merkle_tree = BitcoinMerkleTree::new(txids.clone());
-    let _witness_root = block.witness_root().expect("Failed to get witness root");
-    let witness_idx_path =
-        merkle_tree.get_idx_path(txid_index.try_into().expect("Failed to convert index"));
-
-    let _root = merkle_tree.calculate_root_with_merkle_proof(
-        txids[txid_index],
-        txid_index.try_into().expect("Failed to convert index"),
-        witness_idx_path.clone(),
-    );
-
-    Ok((txid_index, witness_idx_path.into_iter().flatten().collect()))
+#[derive(Subcommand)]
+enum CitreaCommands {
+    /// Make a deposit to Citrea for a tx with given txid
+    Deposit {
+        #[arg(long)]
+        lcp_url: String,
+        #[arg(long)]
+        bitcoin_rpc_url: String,
+        #[arg(long)]
+        bitcoin_rpc_user: String,
+        #[arg(long)]
+        bitcoin_rpc_password: String,
+        #[arg(long)]
+        txid: String,
+    },
+    /// Makes a safe withdrawal from Citrea
+    SafeWithdraw {
+        #[arg(long)]
+        bitcoin_rpc_url: String,
+        #[arg(long)]
+        bitcoin_rpc_user: String,
+        #[arg(long)]
+        bitcoin_rpc_password: String,
+        #[arg(long)]
+        withdrawal_dust_utxo_txid: String,
+        #[arg(long)]
+        withdrawal_dust_utxo_vout: u32,
+        #[arg(long)]
+        payout_output_txid: String,
+        #[arg(long)]
+        payout_output_vout: u32,
+        #[arg(long)]
+        signature: String,
+    },
 }
 
 // Create a minimal config with default TLS paths
@@ -463,18 +339,9 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
                         recovery_taproot_address: String::new(),
                     })),
                 }),
-                actors: Some(Actors {
-                    verifiers: Some(VerifierPublicKeys {
-                        verifier_public_keys: vec![],
-                    }),
-                    watchtowers: Some(XOnlyPublicKeys {
-                        xonly_public_keys: vec![],
-                    }),
-                    operators: Some(XOnlyPublicKeys {
-                        xonly_public_keys: vec![],
-                    }),
-                }),
+                actors: Some(Actors::default()),
             };
+
             let response = operator
                 .get_deposit_keys(Request::new(params))
                 .await
@@ -907,124 +774,50 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             println!("Deposit address: {}", deposit_address.0);
         }
         AggregatorCommands::GetTxParamsOfMoveTx {
-            bitcoin_rpc_url: _,
-            bitcoin_rpc_user: _,
-            bitcoin_rpc_password: _,
-            move_txid: _,
+            bitcoin_rpc_url,
+            bitcoin_rpc_user,
+            bitcoin_rpc_password,
+            move_txid,
         } => {
-            unimplemented!()
-            // let extended_rpc = extended_rpc::ExtendedRpc::connect(
-            //     bitcoin_rpc_url,
-            //     bitcoin_rpc_user,
-            //     bitcoin_rpc_password,
-            // )
-            // .await
-            // .expect("Failed to connect to Bitcoin RPC");
+            let extended_rpc = extended_rpc::ExtendedRpc::connect(
+                bitcoin_rpc_url,
+                bitcoin_rpc_user,
+                bitcoin_rpc_password,
+            )
+            .await
+            .expect("Failed to connect to Bitcoin RPC");
 
-            // let flag: u16 = 1;
+            let txid: &bitcoin::Txid =
+                &bitcoin::Txid::from_str(&move_txid).expect("Failed to parse txid");
+            let tx = extended_rpc
+                .get_tx_of_txid(txid)
+                .await
+                .expect("Failed to get tx of txid");
+            let tx_params =
+                get_transaction_params_for_citrea(&tx).expect("Failed to get transaction details");
 
-            // let tx_id: &bitcoin::Txid =
-            //     &bitcoin::Txid::from_str(&move_txid).expect("Failed to parse txid");
+            let block_hash = extended_rpc
+                .get_blockhash_of_tx(txid)
+                .await
+                .expect("Failed to get block hash");
+            let block = extended_rpc
+                .client
+                .get_block(&block_hash)
+                .await
+                .expect("Failed to get block");
+            let block_height = block
+                .bip34_block_height()
+                .expect("Failed to get block height");
 
-            // let tx = extended_rpc
-            //     .get_tx_of_txid(tx_id)
-            //     .await
-            //     .expect("Failed to get tx of txid");
+            let (index, merkle_proof) = get_block_merkle_proof(&block, *txid, false)
+                .expect("Failed to get block merkle proof");
 
-            // let block_hash = extended_rpc
-            //     .get_blockhash_of_tx(tx_id)
-            //     .await
-            //     .expect("Failed to get block hash");
-
-            // let version = (tx.version.0 as u32).to_le_bytes();
-
-            // let block = extended_rpc
-            //     .client
-            //     .get_block(&block_hash)
-            //     .await
-            //     .expect("Failed to get block");
-
-            // let block_height = block
-            //     .bip34_block_height()
-            //     .expect("Failed to get block height");
-
-            // let (index, merkle_proof) =
-            //     get_block_merkle_proof(block, *tx_id).expect("Failed to get block merkle proof");
-
-            // let vin: Vec<u8> = tx
-            //     .input
-            //     .iter()
-            //     .map(|input| {
-            //         let mut encoded_input = Vec::new();
-            //         let mut previous_output = Vec::new();
-            //         input
-            //             .previous_output
-            //             .consensus_encode(&mut previous_output)
-            //             .expect("Failed to encode previous output");
-            //         let mut script_sig = Vec::new();
-            //         input
-            //             .script_sig
-            //             .consensus_encode(&mut script_sig)
-            //             .expect("Failed to encode script sig");
-            //         let mut sequence = Vec::new();
-            //         input
-            //             .sequence
-            //             .consensus_encode(&mut sequence)
-            //             .expect("Failed to encode sequence");
-
-            //         encoded_input.extend(previous_output);
-            //         encoded_input.extend(script_sig);
-            //         encoded_input.extend(sequence);
-
-            //         Ok::<Vec<u8>, BridgeError>(encoded_input)
-            //     })
-            //     .collect::<Result<Vec<_>, _>>()
-            //     .expect("Failed to encode input")
-            //     .into_iter()
-            //     .flatten()
-            //     .collect::<Vec<u8>>();
-
-            // let vin = [vec![tx.input.len() as u8], vin].concat();
-
-            // let vout: Vec<u8> = tx
-            //     .output
-            //     .iter()
-            //     .map(|param| {
-            //         let mut raw = Vec::new();
-            //         param
-            //             .consensus_encode(&mut raw)
-            //             .map_err(|e| eyre::eyre!("Can't encode param: {}", e))?;
-
-            //         Ok::<Vec<u8>, BridgeError>(raw)
-            //     })
-            //     .collect::<Result<Vec<_>, _>>()
-            //     .expect("Failed to encode output")
-            //     .into_iter()
-            //     .flatten()
-            //     .collect::<Vec<u8>>();
-            // let vout = [vec![tx.output.len() as u8], vout].concat();
-
-            // let witness: Vec<u8> =
-            //     tx.input
-            //         .iter()
-            //         .map(|param| {
-            //             let mut raw = Vec::new();
-            //             param.witness.consensus_encode(&mut raw).map_err(|e| {
-            //                 eyre::eyre!("Can't encode param: {}", e)
-            //             })?;
-
-            //             Ok::<Vec<u8>, BridgeError>(raw)
-            //         })
-            //         .collect::<Result<Vec<_>, _>>()
-            //         .expect("Failed to encode witness")
-            //         .into_iter()
-            //         .flatten()
-            //         .collect::<Vec<u8>>();
-
-            // let lock_time = tx.lock_time.to_consensus_u32();
-
-            // unimplemented!()
-            // println!("Transaction params: {:?}", tx_params);
+            println!("Transaction params: {:?}", tx_params);
+            println!("Merkle proof for index {}: {:?}", index, merkle_proof);
+            println!(
+                "Transactions is at block height {} and block hash {:?}",
+                block_height, block_hash
+            );
         }
         AggregatorCommands::GetReplacementDepositAddress {
             move_txid,
@@ -1195,6 +988,116 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
     }
 }
 
+async fn handle_citrea_call(url: String, command: CitreaCommands) {
+    println!("Connecting to verifier at {}", url);
+    let config = create_minimal_config();
+
+    match command {
+        CitreaCommands::Deposit {
+            lcp_url,
+            bitcoin_rpc_url,
+            bitcoin_rpc_user,
+            bitcoin_rpc_password,
+            txid,
+        } => {
+            let extended_rpc = extended_rpc::ExtendedRpc::connect(
+                bitcoin_rpc_url,
+                bitcoin_rpc_user,
+                bitcoin_rpc_password,
+            )
+            .await
+            .expect("Failed to connect to Bitcoin RPC");
+            let tx = extended_rpc
+                .get_tx_of_txid(&bitcoin::Txid::from_str(&txid).expect("Failed to parse txid"))
+                .await
+                .expect("Failed to get tx of txid");
+            let block_hash = extended_rpc
+                .get_blockhash_of_tx(&tx.compute_txid())
+                .await
+                .expect("Failed to get block hash");
+            let block = extended_rpc
+                .client
+                .get_block(&block_hash)
+                .await
+                .expect("Failed to get block");
+            let block_height = block
+                .bip34_block_height()
+                .expect("Failed to get block height");
+
+            let citrea_client = CitreaClient::new(url, lcp_url, config.citrea_chain_id, None)
+                .await
+                .expect("Failed to create Citrea client");
+
+            clementine_core::utils::citrea::deposit(
+                &extended_rpc,
+                citrea_client.client,
+                block,
+                block_height
+                    .try_into()
+                    .expect("Failed to convert block height"),
+                tx,
+            )
+            .await
+            .expect("Failed to deposit to Citrea");
+            println!("Deposit to Citrea completed successfully");
+        }
+        CitreaCommands::SafeWithdraw {
+            bitcoin_rpc_url,
+            bitcoin_rpc_user,
+            bitcoin_rpc_password,
+            withdrawal_dust_utxo_txid,
+            withdrawal_dust_utxo_vout,
+            payout_output_txid,
+            payout_output_vout,
+            signature,
+        } => {
+            let extended_rpc = extended_rpc::ExtendedRpc::connect(
+                bitcoin_rpc_url,
+                bitcoin_rpc_user,
+                bitcoin_rpc_password,
+            )
+            .await
+            .expect("Failed to connect to Bitcoin RPC");
+
+            // create utxo from withdrawal_dust_utxo_txid and withdrawal_dust_utxo_vout
+            let outpoint = bitcoin::OutPoint {
+                txid: bitcoin::Txid::from_str(&withdrawal_dust_utxo_txid)
+                    .expect("Failed to parse withdrawal dust utxo txid"),
+                vout: withdrawal_dust_utxo_vout,
+            };
+            let txout = extended_rpc
+                .get_txout_from_outpoint(&outpoint)
+                .await
+                .expect("Failed to get txout from outpoint");
+            let withdrawal_dust_utxo = UTXO { outpoint, txout };
+
+            let outpoint = bitcoin::OutPoint {
+                txid: bitcoin::Txid::from_str(&payout_output_txid)
+                    .expect("Failed to parse payout utxo txid"),
+                vout: payout_output_vout,
+            };
+            let payout_output = extended_rpc
+                .get_txout_from_outpoint(&outpoint)
+                .await
+                .expect("Failed to get txout from outpoint");
+
+            let signature =
+                schnorr::Signature::from_str(&signature).expect("Failed to parse signature");
+
+            let ret = clementine_core::utils::citrea::get_citrea_safe_withdraw_params(
+                &extended_rpc,
+                withdrawal_dust_utxo,
+                payout_output,
+                signature,
+            )
+            .await
+            .expect("Failed to get Citrea safe withdraw params");
+
+            println!("Citrea safe withdraw params: {:?}", ret);
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
@@ -1223,6 +1126,9 @@ async fn main() {
         }
         Commands::Aggregator { command } => {
             handle_aggregator_call(cli.node_url, command).await;
+        }
+        Commands::Citrea { command } => {
+            handle_citrea_call(cli.node_url, command).await;
         }
     }
 }
