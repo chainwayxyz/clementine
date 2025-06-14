@@ -38,6 +38,7 @@ use crate::config::protocol::ProtocolParamset;
 use crate::deposit::OperatorData;
 use crate::errors::BridgeError;
 use crate::operator::RoundIndex;
+use secrecy::SecretBox;
 
 type Result<T> = std::result::Result<T, BitcoinRPCError>;
 
@@ -47,7 +48,6 @@ type Result<T> = std::result::Result<T, BitcoinRPCError>;
 #[derive(Clone)]
 pub struct ExtendedRpc {
     pub url: String,
-    auth: Auth,
     pub client: Arc<Client>,
 }
 
@@ -83,13 +83,12 @@ impl ExtendedRpc {
             password.expose_secret().to_string(),
         );
 
-        let rpc = Client::new(&url, auth.clone())
+        let rpc = Client::new(&url, auth)
             .await
             .wrap_err("Failed to connect to Bitcoin RPC")?;
 
         Ok(Self {
             url,
-            auth,
             client: Arc::new(rpc),
         })
     }
@@ -706,12 +705,9 @@ impl ExtendedRpc {
     ///
     /// - [`ExtendedRpc`]: A new instance of ExtendedRpc with a new client connection.
     pub async fn clone_inner(&self) -> std::result::Result<Self, bitcoincore_rpc::Error> {
-        let new_client = Client::new(&self.url, self.auth.clone()).await?;
-
         Ok(Self {
             url: self.url.clone(),
-            auth: self.auth.clone(),
-            client: Arc::new(new_client),
+            client: self.client.clone(),
         })
     }
 }
@@ -747,7 +743,6 @@ mod tests {
 
         let cloned_rpc = rpc.clone_inner().await.unwrap();
         assert_eq!(cloned_rpc.url, rpc.url);
-        assert_eq!(cloned_rpc.auth, rpc.auth);
         assert_eq!(cloned_rpc.client.get_block_count().await.unwrap(), height);
         assert_eq!(
             cloned_rpc.client.get_block_hash(height).await.unwrap(),
