@@ -17,7 +17,7 @@ use bitcoin::address::NetworkUnchecked;
 use bitcoin::secp256k1::SecretKey;
 use bitcoin::{Address, Amount, OutPoint};
 use protocol::ProtocolParamset;
-use secrecy::SecretString;
+use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use std::{fs::File, io::Read, path::PathBuf};
@@ -236,6 +236,49 @@ impl BridgeConfig {
             Ok(c) => Ok(c),
             Err(e) => Err(BridgeError::ConfigError(e.to_string())),
         }
+    }
+}
+
+// only needed for one test
+#[cfg(test)]
+impl PartialEq for BridgeConfig {
+    fn eq(&self, other: &Self) -> bool {
+        let mut all_eq = self.protocol_paramset == other.protocol_paramset
+            && self.host == other.host
+            && self.port == other.port
+            && self.secret_key == other.secret_key
+            && self.winternitz_secret_key == other.winternitz_secret_key
+            && self.operator_withdrawal_fee_sats == other.operator_withdrawal_fee_sats
+            && self.bitcoin_rpc_url == other.bitcoin_rpc_url
+            && self.bitcoin_rpc_user.expose_secret() == other.bitcoin_rpc_user.expose_secret()
+            && self.bitcoin_rpc_password.expose_secret()
+                == other.bitcoin_rpc_password.expose_secret()
+            && self.db_host == other.db_host
+            && self.db_port == other.db_port
+            && self.db_user.expose_secret() == other.db_user.expose_secret()
+            && self.db_password.expose_secret() == other.db_password.expose_secret()
+            && self.db_name == other.db_name
+            && self.citrea_rpc_url == other.citrea_rpc_url
+            && self.citrea_light_client_prover_url == other.citrea_light_client_prover_url
+            && self.citrea_chain_id == other.citrea_chain_id
+            && self.bridge_contract_address == other.bridge_contract_address
+            && self.header_chain_proof_path == other.header_chain_proof_path
+            && self.security_council == other.security_council
+            && self.verifier_endpoints == other.verifier_endpoints
+            && self.operator_endpoints == other.operator_endpoints
+            && self.operator_reimbursement_address == other.operator_reimbursement_address
+            && self.operator_collateral_funding_outpoint
+                == other.operator_collateral_funding_outpoint
+            && self.server_cert_path == other.server_cert_path
+            && self.server_key_path == other.server_key_path
+            && self.client_cert_path == other.client_cert_path
+            && self.client_key_path == other.client_key_path
+            && self.ca_cert_path == other.ca_cert_path
+            && self.client_verification == other.client_verification
+            && self.aggregator_cert_path == other.aggregator_cert_path
+            && self.test_params == other.test_params;
+
+        all_eq
     }
 }
 
