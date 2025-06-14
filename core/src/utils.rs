@@ -3,6 +3,7 @@ use crate::errors::BridgeError;
 use crate::operator::RoundIndex;
 use crate::rpc::clementine::VergenResponse;
 use bitcoin::{OutPoint, TapNodeHash, XOnlyPublicKey};
+use eyre::Context as _;
 use futures::future::try_join_all;
 use http::HeaderValue;
 use serde::{Deserialize, Serialize};
@@ -425,20 +426,25 @@ where
         async move {
             let id = Option::as_ref(&ids).map(|ids| ids.get(item.0)).flatten();
 
-            timeout(duration, item.1).await.map_err(|_| {
-                Status::deadline_exceeded(format!(
-                    "{} (id: {}) timed out",
-                    description,
-                    id.map(|id| id.to_string())
-                        .unwrap_or_else(|| "n/a".to_string())
-                ))
-            })?
+            timeout(duration, item.1)
+                .await
+                .map_err(|_| {
+                    Status::deadline_exceeded(format!(
+                        "{} (id: {}) timed out",
+                        description,
+                        id.map(|id| id.to_string())
+                            .unwrap_or_else(|| "n/a".to_string())
+                    ))
+                })?
+                // Add the id to the error chain for easier debugging for other errors.
+                .wrap_err_with(|| {
+                    format!(
+                        "Failed to join {}",
+                        id.map(ToString::to_string).unwrap_or_else(|| "n/a".into())
+                    )
+                })
+                .map_err(Into::into)
         }
     }))
     .await
-    .map_err(|join_err| -> BridgeError {
-        eyre::Report::from(join_err)
-            .wrap_err(Status::internal(format!("{} failed to join", description)))
-            .into()
-    })
 }

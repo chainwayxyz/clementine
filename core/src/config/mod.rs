@@ -24,163 +24,11 @@ use std::{fs::File, io::Read, path::PathBuf};
 pub mod env;
 pub mod protocol;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct TestParams {
-    /// Controls whether the state manager component is initialized and run as part of the test setup.
-    /// Allows for testing components in isolation from the state manager.
-    pub should_run_state_manager: bool,
+#[cfg(test)]
+mod test;
 
-    /// Contains the secret keys for all simulated verifier nodes in the test environment.
-    pub all_verifiers_secret_keys: Vec<SecretKey>,
-
-    /// Contains the secret keys for all simulated operator nodes in the test.
-    pub all_operators_secret_keys: Vec<SecretKey>,
-
-    /// A fault injection flag. If true, an operator will intentionally commit to an incorrect latest block hash.
-    /// This is used to test if verifiers can correctly detect and handle this invalid commitment.
-    pub disrupt_latest_block_hash_commit: bool,
-
-    /// A fault injection flag. If true, simulates an operator committing to an invalid block hash
-    /// for the payout transaction.
-    pub disrupt_payout_tx_block_hash_commit: bool,
-
-    /// A fault injection flag for challenge sending watchtowers detection. When enabled, simulates an operator
-    /// sending a corrupted or invalid commitment to watchtowers who has sent challenges.
-    pub disrupt_challenge_sending_watchtowers_commit: bool,
-
-    /// Simulates a scenario where an operator fails to include a watchtower, who has sent a challenge,
-    pub operator_forgot_watchtower_challenge: bool,
-
-    /// A flag to introduce intentionally inconsistent or invalid data into the BitVM assertions.
-    pub corrupted_asserts: bool,
-
-    #[serde(default)]
-    pub timeout_params: TimeoutTestParams,
-}
-
-#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Default)]
-pub struct TimeoutTestParams {
-    /// Verifier index that should time out during key distribution.
-    pub key_distribution_verifier_idx: Option<usize>,
-    /// Operator index that should time out during key distribution.
-    pub key_distribution_operator_idx: Option<usize>,
-    /// Verifier index that should time out during nonce stream creation.
-    pub nonce_stream_creation_verifier_idx: Option<usize>,
-    /// Verifier index that should time out during partial signature stream creation.
-    pub partial_sig_stream_creation_verifier_idx: Option<usize>,
-    /// Operator index that should time out during operator signature collection.
-    pub operator_sig_collection_operator_idx: Option<usize>,
-    /// Verifier index that should time out during deposit finalization.
-    pub deposit_finalization_verifier_idx: Option<usize>,
-}
-
-impl TimeoutTestParams {
-    #[cfg(test)]
-    pub async fn hook_timeout_key_distribution_verifier(&self, idx: usize) {
-        if self.key_distribution_verifier_idx == Some(idx) {
-            use tokio::time::sleep;
-            sleep(crate::constants::KEY_DISTRIBUTION_TIMEOUT + std::time::Duration::from_secs(1))
-                .await;
-        }
-    }
-
-    #[cfg(test)]
-    pub async fn hook_timeout_key_distribution_operator(&self, idx: usize) {
-        if self.key_distribution_operator_idx == Some(idx) {
-            use tokio::time::sleep;
-            sleep(crate::constants::KEY_DISTRIBUTION_TIMEOUT + std::time::Duration::from_secs(1))
-                .await;
-        }
-    }
-
-    #[cfg(test)]
-    pub async fn hook_timeout_nonce_stream_creation_verifier(&self, idx: usize) {
-        if self.nonce_stream_creation_verifier_idx == Some(idx) {
-            use tokio::time::sleep;
-            sleep(
-                crate::constants::NONCE_STREAM_CREATION_TIMEOUT + std::time::Duration::from_secs(1),
-            )
-            .await;
-        }
-    }
-
-    #[cfg(test)]
-    pub async fn hook_timeout_partial_sig_stream_creation_verifier(&self, idx: usize) {
-        if self.partial_sig_stream_creation_verifier_idx == Some(idx) {
-            use tokio::time::sleep;
-            sleep(
-                crate::constants::PARTIAL_SIG_STREAM_CREATION_TIMEOUT
-                    + std::time::Duration::from_secs(1),
-            )
-            .await;
-        }
-    }
-
-    #[cfg(test)]
-    pub async fn hook_timeout_operator_sig_collection_operator(&self, idx: usize) {
-        if self.operator_sig_collection_operator_idx == Some(idx) {
-            use tokio::time::sleep;
-            sleep(
-                crate::constants::OPERATOR_SIGS_STREAM_CREATION_TIMEOUT
-                    + std::time::Duration::from_secs(1),
-            )
-            .await;
-        }
-    }
-
-    #[cfg(test)]
-    pub async fn hook_timeout_deposit_finalization_verifier(&self, idx: usize) {
-        if self.deposit_finalization_verifier_idx == Some(idx) {
-            use tokio::time::sleep;
-            sleep(
-                crate::constants::DEPOSIT_FINALIZATION_TIMEOUT + std::time::Duration::from_secs(1),
-            )
-            .await;
-        }
-    }
-}
-
-impl Default for TestParams {
-    fn default() -> Self {
-        Self {
-            should_run_state_manager: true,
-            all_verifiers_secret_keys: vec![
-                SecretKey::from_str(
-                    "1111111111111111111111111111111111111111111111111111111111111111",
-                )
-                .expect("known valid input"),
-                SecretKey::from_str(
-                    "2222222222222222222222222222222222222222222222222222222222222222",
-                )
-                .expect("known valid input"),
-                SecretKey::from_str(
-                    "3333333333333333333333333333333333333333333333333333333333333333",
-                )
-                .expect("known valid input"),
-                SecretKey::from_str(
-                    "4444444444444444444444444444444444444444444444444444444444444444",
-                )
-                .expect("known valid input"),
-            ],
-            all_operators_secret_keys: vec![
-                SecretKey::from_str(
-                    "1111111111111111111111111111111111111111111111111111111111111111",
-                )
-                .expect("known valid input"),
-                SecretKey::from_str(
-                    "2222222222222222222222222222222222222222222222222222222222222222",
-                )
-                .expect("known valid input"),
-            ],
-            disrupt_latest_block_hash_commit: false,
-            disrupt_payout_tx_block_hash_commit: false,
-            disrupt_challenge_sending_watchtowers_commit: false,
-            operator_forgot_watchtower_challenge: false,
-            corrupted_asserts: false,
-            timeout_params: TimeoutTestParams::default(),
-        }
-    }
-}
+#[cfg(test)]
+pub use test::*;
 
 /// Configuration options for any Clementine target (tests, binaries etc.).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -280,7 +128,7 @@ pub struct BridgeConfig {
 
     #[cfg(test)]
     #[serde(skip)]
-    pub test_params: TestParams,
+    pub test_params: test::TestParams,
 }
 
 impl BridgeConfig {
@@ -381,7 +229,7 @@ impl Default for BridgeConfig {
             client_verification: true,
 
             #[cfg(test)]
-            test_params: TestParams::default(),
+            test_params: test::TestParams::default(),
         }
     }
 }

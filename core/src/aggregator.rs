@@ -259,7 +259,7 @@ impl Aggregator {
                     async move {
                         #[cfg(test)]
                         timeout_params
-                            .hook_timeout_key_distribution_operator(idx)
+                            .hook_timeout_key_collection_operator(idx)
                             .await;
 
                         let operator_keys = operator_client
@@ -308,23 +308,24 @@ impl Aggregator {
                 .zip(operator_rx_handles)
                 .zip(verifier_ids)
                 .enumerate()
-                .map(move |(idx, ((mut verifier, mut rx), verifier_id))| async move {
-                    #[cfg(test)]
-                    timeout_params
-                        .hook_timeout_key_distribution_verifier(idx)
-                        .await;
+                .map(
+                    move |(idx, ((mut verifier, mut rx), verifier_id))| async move {
+                        #[cfg(test)]
+                        timeout_params
+                            .hook_timeout_key_distribution_verifier(idx)
+                            .await;
 
-                    // Only wait for expected number of messages
-                    let mut received_keys = std::collections::HashSet::new();
-                    while received_keys.len() < num_operators {
-                        tracing::debug!(
-                            "Waiting for operator key (received {}/{})",
-                            received_keys.len(),
-                            num_operators
-                        );
+                        // Only wait for expected number of messages
+                        let mut received_keys = std::collections::HashSet::new();
+                        while received_keys.len() < num_operators {
+                            tracing::debug!(
+                                "Waiting for operator key (received {}/{})",
+                                received_keys.len(),
+                                num_operators
+                            );
 
-                        // This will not block forever because of the timeout on the join all.
-                        let operator_keys = rx
+                            // This will not block forever because of the timeout on the join all.
+                            let operator_keys = rx
                             .recv()
                             .instrument(debug_span!("operator_keys_recv"))
                             .await
@@ -332,31 +333,32 @@ impl Aggregator {
                                 "Operator broadcast channels closed before all keys were received",
                             ))?;
 
-                        let operator_xonly_pk = operator_keys.operator_xonly_pk.clone();
+                            let operator_xonly_pk = operator_keys.operator_xonly_pk.clone();
 
-                        if !received_keys.insert(operator_xonly_pk.clone()) {
-                            continue;
+                            if !received_keys.insert(operator_xonly_pk.clone()) {
+                                continue;
+                            }
+
+                            timed_request(
+                                Duration::from_secs(500),
+                                &format!("Setting operator keys for {}", verifier_id),
+                                async {
+                                    Ok(verifier
+                                        .set_operator_keys(operator_keys)
+                                        .await
+                                        .wrap_err_with(|| {
+                                            Status::internal(format!(
+                                                "Failed to set operator keys for {}",
+                                                verifier_id
+                                            ))
+                                        }))
+                                },
+                            )
+                            .await?;
                         }
-
-                        timed_request(
-                            Duration::from_secs(500),
-                            &format!("Setting operator keys for {}", verifier_id),
-                            async {
-                                Ok(verifier
-                                    .set_operator_keys(operator_keys)
-                                    .await
-                                    .wrap_err_with(|| {
-                                        Status::internal(format!(
-                                            "Failed to set operator keys for {}",
-                                            verifier_id
-                                        ))
-                                    }))
-                            },
-                        )
-                        .await?;
-                    }
-                    Ok::<_, BridgeError>(())
-                }),
+                        Ok::<_, BridgeError>(())
+                    },
+                ),
         ));
 
         // Wait for all tasks to complete
