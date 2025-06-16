@@ -195,6 +195,13 @@ impl HeaderChainProver {
                     "Failed to get genesis block hash at height {}",
                     config.protocol_paramset().genesis_height
                 ))?;
+
+            tracing::debug!(
+                "Genesis block hash: {}, height: {}",
+                genesis_block_hash,
+                config.protocol_paramset().genesis_height
+            ); // Should be debug
+
             let genesis_block_header = rpc
                 .client
                 .get_block_header(&genesis_block_hash)
