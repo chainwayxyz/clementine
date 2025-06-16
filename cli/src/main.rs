@@ -1,0 +1,1134 @@
+//! This module defines a command line interface for the RPC client.
+
+use bitcoin::{hashes::Hash, secp256k1::schnorr, ScriptBuf};
+use bitcoincore_rpc::RpcApi;
+use clap::{Parser, Subcommand};
+use clementine_core::{
+    citrea::{CitreaClient, CitreaClientT},
+    config::BridgeConfig,
+    deposit::SecurityCouncil,
+    extended_rpc,
+    rpc::clementine::{
+        self, clementine_aggregator_client::ClementineAggregatorClient,
+        clementine_operator_client::ClementineOperatorClient,
+        clementine_verifier_client::ClementineVerifierClient, deposit::DepositData, Actors,
+        BaseDeposit, Deposit, Empty, Outpoint, ReplacementDeposit, SendMoveTxRequest,
+    },
+    utils::{bitcoin_merkle::get_block_merkle_proof, citrea::get_transaction_params_for_citrea},
+    EVMAddress, UTXO,
+};
+use std::path::PathBuf;
+use std::str::FromStr;
+use tonic::Request;
+
+#[derive(Parser)]
+#[command(author, version, about, long_about = None)]
+struct Cli {
+    /// The URL of the gRPC service
+    #[arg(short, long)]
+    node_url: String,
+
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Operator service commands
+    Operator {
+        #[command(subcommand)]
+        command: OperatorCommands,
+    },
+    /// Verifier service commands
+    Verifier {
+        #[command(subcommand)]
+        command: VerifierCommands,
+    },
+    /// Aggregator service commands
+    Aggregator {
+        #[command(subcommand)]
+        command: AggregatorCommands,
+    },
+    /// Citrea related commands
+    Citrea {
+        #[command(subcommand)]
+        command: CitreaCommands,
+    },
+}
+
+#[derive(Subcommand)]
+enum OperatorCommands {
+    /// Get deposit keys
+    GetDepositKeys {
+        #[arg(long)]
+        deposit_outpoint_txid: String,
+        #[arg(long)]
+        deposit_outpoint_vout: u32,
+    },
+    /// Get operator parameters
+    GetParams,
+    /// Withdraw funds
+    Withdraw {
+        #[arg(long)]
+        withdrawal_id: u32,
+        #[arg(long)]
+        input_signature: String,
+        #[arg(long)]
+        input_outpoint_txid: String,
+        #[arg(long)]
+        input_outpoint_vout: u32,
+        #[arg(long)]
+        output_script_pubkey: String,
+        #[arg(long)]
+        output_amount: u64,
+    },
+    /// Get vergen build information
+    Vergen,
+    // Add other operator commands as needed
+}
+
+#[derive(Subcommand)]
+enum VerifierCommands {
+    /// Get verifier parameters
+    GetParams,
+    /// Generate nonces
+    NonceGen {
+        #[arg(long)]
+        num_nonces: u32,
+    },
+    /// Get vergen build information
+    Vergen,
+    // /// Set verifier public keys
+    // SetVerifiers {
+    //     #[arg(long, num_args = 1.., value_delimiter = ',')]
+    //     public_keys: Vec<String>,
+    // },
+    // Add other verifier commands as needed
+}
+
+#[derive(Subcommand)]
+enum AggregatorCommands {
+    /// Setup the system
+    Setup,
+    /// Process new deposit
+    NewDeposit {
+        #[arg(long)]
+        deposit_outpoint_txid: String,
+        #[arg(long)]
+        deposit_outpoint_vout: u32,
+        #[arg(long)]
+        evm_address: Option<String>,
+        #[arg(long)]
+        recovery_taproot_address: Option<String>,
+    },
+    /// Get move transaction for deposit without sending it
+    GetMoveTransaction {
+        #[arg(long)]
+        deposit_outpoint_txid: String,
+        #[arg(long)]
+        deposit_outpoint_vout: u32,
+        #[arg(long)]
+        evm_address: Option<String>,
+        #[arg(long)]
+        recovery_taproot_address: Option<String>,
+    },
+    /// Send move transaction using CPFP package
+    SendMoveTransactionCPFP {
+        #[arg(long)]
+        deposit_outpoint_txid: String,
+        #[arg(long)]
+        deposit_outpoint_vout: u32,
+        #[arg(long)]
+        evm_address: Option<String>,
+        #[arg(long)]
+        recovery_taproot_address: Option<String>,
+        #[arg(long)]
+        fee_rate: Option<f64>, // sat/vB
+        #[arg(long)]
+        bitcoin_rpc_url: String,
+        #[arg(long)]
+        bitcoin_rpc_user: String,
+        #[arg(long)]
+        bitcoin_rpc_password: String,
+    },
+    NewReplacementDeposit {
+        #[arg(long)]
+        deposit_outpoint_txid: String,
+        #[arg(long)]
+        deposit_outpoint_vout: u32,
+        #[arg(long)]
+        old_move_txid: String,
+    },
+    /// Get the aggregated NofN x-only public key
+    GetNofnAggregatedKey,
+    /// Get deposit address
+    GetDepositAddress {
+        #[arg(long)]
+        evm_address: Option<String>,
+        #[arg(long)]
+        recovery_taproot_address: Option<String>,
+        #[arg(long)]
+        network: Option<String>,
+        #[arg(long)]
+        user_takes_after: Option<u64>,
+    },
+    /// Get transaction parameters of a move transaction
+    GetTxParamsOfMoveTx {
+        #[arg(long)]
+        bitcoin_rpc_url: String,
+        #[arg(long)]
+        bitcoin_rpc_user: String,
+        #[arg(long)]
+        bitcoin_rpc_password: String,
+        #[arg(long)]
+        move_txid: String,
+    },
+    GetReplacementDepositAddress {
+        #[arg(long)]
+        move_txid: String,
+        #[arg(long)]
+        network: Option<String>,
+        #[arg(long)]
+        security_council: Option<SecurityCouncil>,
+    },
+    /// Process a new withdrawal
+    NewWithdrawal {
+        #[arg(long)]
+        withdrawal_id: u32,
+        #[arg(long)]
+        input_signature: String,
+        #[arg(long)]
+        input_outpoint_txid: String,
+        #[arg(long)]
+        input_outpoint_vout: u32,
+        #[arg(long)]
+        output_script_pubkey: String,
+        #[arg(long)]
+        output_amount: u64,
+    },
+    /// Get vergen build information
+    Vergen,
+}
+
+#[derive(Subcommand)]
+enum CitreaCommands {
+    /// Make a deposit to Citrea for a tx with given txid
+    Deposit {
+        #[arg(long)]
+        lcp_url: String,
+        #[arg(long)]
+        bitcoin_rpc_url: String,
+        #[arg(long)]
+        bitcoin_rpc_user: String,
+        #[arg(long)]
+        bitcoin_rpc_password: String,
+        #[arg(long)]
+        txid: String,
+    },
+    /// Makes a safe withdrawal from Citrea
+    SafeWithdraw {
+        #[arg(long)]
+        bitcoin_rpc_url: String,
+        #[arg(long)]
+        bitcoin_rpc_user: String,
+        #[arg(long)]
+        bitcoin_rpc_password: String,
+        #[arg(long)]
+        withdrawal_dust_utxo_txid: String,
+        #[arg(long)]
+        withdrawal_dust_utxo_vout: u32,
+        #[arg(long)]
+        payout_output_txid: String,
+        #[arg(long)]
+        payout_output_vout: u32,
+        #[arg(long)]
+        signature: String,
+    },
+}
+
+// Create a minimal config with default TLS paths
+fn create_minimal_config() -> BridgeConfig {
+    BridgeConfig {
+        server_cert_path: PathBuf::from("certs/server/server.pem"),
+        server_key_path: PathBuf::from("certs/server/server.key"),
+        ca_cert_path: PathBuf::from("certs/ca/ca.pem"),
+        client_cert_path: PathBuf::from("certs/client/client.pem"),
+        client_key_path: PathBuf::from("certs/client/client.key"),
+        client_verification: true,
+        ..Default::default()
+    }
+}
+
+// Helper function to create move transaction from deposit parameters
+async fn create_move_transaction(
+    aggregator: &mut ClementineAggregatorClient<tonic::transport::Channel>,
+    deposit_outpoint_txid: String,
+    deposit_outpoint_vout: u32,
+    evm_address: Option<String>,
+    recovery_taproot_address: Option<String>,
+) -> Result<clementine_core::rpc::clementine::RawSignedTx, Box<dyn std::error::Error>> {
+    let evm_address = match evm_address {
+        Some(address) => EVMAddress(
+            hex::decode(address)?
+                .try_into()
+                .map_err(|_| "Invalid EVM address length")?,
+        ),
+        None => EVMAddress([1; 20]),
+    };
+
+    let recovery_taproot_address = match recovery_taproot_address {
+        Some(address) => bitcoin::Address::from_str(&address)?,
+        None => bitcoin::Address::from_str(
+            "tb1p9k6y4my6vacczcyc4ph2m5q96hnxt5qlrqd9484qd9cwgrasc54qw56tuh",
+        )?,
+    };
+
+    let mut deposit_outpoint_txid = hex::decode(deposit_outpoint_txid)?;
+    deposit_outpoint_txid.reverse();
+
+    let deposit = aggregator
+        .new_deposit(Deposit {
+            deposit_outpoint: Some(Outpoint {
+                txid: Some(clementine_core::rpc::clementine::Txid {
+                    txid: deposit_outpoint_txid,
+                }),
+                vout: deposit_outpoint_vout,
+            }),
+            deposit_data: Some(DepositData::BaseDeposit(BaseDeposit {
+                evm_address: evm_address.0.to_vec(),
+                recovery_taproot_address: recovery_taproot_address.assume_checked().to_string(),
+            })),
+        })
+        .await?;
+
+    Ok(deposit.into_inner())
+}
+
+async fn handle_operator_call(url: String, command: OperatorCommands) {
+    let config = create_minimal_config();
+    let mut operator =
+        clementine_core::rpc::get_clients(vec![url], ClementineOperatorClient::new, &config, true)
+            .await
+            .expect("Exists")[0]
+            .clone();
+
+    match command {
+        OperatorCommands::GetDepositKeys {
+            deposit_outpoint_txid,
+            deposit_outpoint_vout,
+        } => {
+            println!(
+                "Getting deposit keys for outpoint {}:{}",
+                deposit_outpoint_txid, deposit_outpoint_vout
+            );
+            let params = clementine_core::rpc::clementine::DepositParams {
+                security_council: Some(clementine::SecurityCouncil {
+                    pks: vec![],
+                    threshold: 0,
+                }),
+                deposit: Some(Deposit {
+                    deposit_outpoint: Some(Outpoint {
+                        txid: Some(clementine::Txid {
+                            txid: hex::decode(deposit_outpoint_txid)
+                                .expect("Failed to decode txid"),
+                        }),
+                        vout: deposit_outpoint_vout,
+                    }),
+                    deposit_data: Some(DepositData::BaseDeposit(BaseDeposit {
+                        evm_address: vec![1; 20],
+                        recovery_taproot_address: String::new(),
+                    })),
+                }),
+                actors: Some(Actors::default()),
+            };
+
+            let response = operator
+                .get_deposit_keys(Request::new(params))
+                .await
+                .expect("Failed to make a request");
+            println!("Get deposit keys response: {:?}", response);
+        }
+        OperatorCommands::GetParams => {
+            let params = operator
+                .get_params(Empty {})
+                .await
+                .expect("Failed to make a request");
+            println!("Operator params: {:?}", params);
+        }
+        OperatorCommands::Withdraw {
+            withdrawal_id,
+            input_signature,
+            input_outpoint_txid,
+            input_outpoint_vout,
+            output_script_pubkey,
+            output_amount,
+        } => {
+            println!("Processing withdrawal with id {}", withdrawal_id);
+
+            let params = clementine_core::rpc::clementine::WithdrawParams {
+                withdrawal_id,
+                input_signature: input_signature.as_bytes().to_vec(),
+                input_outpoint: Some(Outpoint {
+                    txid: Some(clementine_core::rpc::clementine::Txid {
+                        txid: hex::decode(input_outpoint_txid).expect("Failed to decode txid"),
+                    }),
+                    vout: input_outpoint_vout,
+                }),
+                output_script_pubkey: output_script_pubkey.as_bytes().to_vec(),
+                output_amount,
+            };
+            operator
+                .withdraw(Request::new(params))
+                .await
+                .expect("Failed to make a request");
+        }
+        OperatorCommands::Vergen => {
+            let params = Empty {};
+            let response = operator
+                .vergen(Request::new(params))
+                .await
+                .expect("Failed to make a request");
+            println!("Vergen response:\n{}", response.into_inner().response);
+        }
+    }
+}
+
+async fn handle_verifier_call(url: String, command: VerifierCommands) {
+    println!("Connecting to verifier at {}", url);
+    let config = create_minimal_config();
+    let mut verifier =
+        clementine_core::rpc::get_clients(vec![url], ClementineVerifierClient::new, &config, true)
+            .await
+            .expect("Exists")[0]
+            .clone();
+
+    match command {
+        VerifierCommands::GetParams => {
+            let params = verifier
+                .get_params(Empty {})
+                .await
+                .expect("Failed to make a request");
+            println!("Verifier params: {:?}", params);
+        }
+        VerifierCommands::NonceGen { num_nonces } => {
+            let params = clementine_core::rpc::clementine::NonceGenRequest { num_nonces };
+            let response = verifier
+                .nonce_gen(Request::new(params))
+                .await
+                .expect("Failed to make a request");
+            println!("Noncegen response: {:?}", response);
+        }
+        VerifierCommands::Vergen => {
+            let params = Empty {};
+            let response = verifier
+                .vergen(Request::new(params))
+                .await
+                .expect("Failed to make a request");
+            println!("Vergen response:\n{}", response.into_inner().response);
+        }
+    }
+}
+
+async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
+    println!("Connecting to aggregator at {}", url);
+    let config = create_minimal_config();
+    let mut aggregator = clementine_core::rpc::get_clients(
+        vec![url],
+        ClementineAggregatorClient::new,
+        &config,
+        false,
+    )
+    .await
+    .expect("Exists")[0]
+        .clone();
+
+    match command {
+        AggregatorCommands::Setup => {
+            let setup = aggregator
+                .setup(Empty {})
+                .await
+                .expect("Failed to make a request");
+            println!("{:?}", setup);
+        }
+        AggregatorCommands::NewDeposit {
+            deposit_outpoint_txid,
+            deposit_outpoint_vout,
+            evm_address,
+            recovery_taproot_address,
+        } => {
+            let evm_address = match evm_address {
+                Some(address) => EVMAddress(
+                    hex::decode(address)
+                        .expect("Failed to decode evm address")
+                        .try_into()
+                        .expect("Failed to convert evm address to array"),
+                ),
+                None => EVMAddress([1; 20]),
+            };
+
+            let recovery_taproot_address = match recovery_taproot_address {
+                Some(address) => bitcoin::Address::from_str(&address)
+                    .expect("Failed to parse recovery taproot address"),
+                None => bitcoin::Address::from_str(
+                    "tb1p9k6y4my6vacczcyc4ph2m5q96hnxt5qlrqd9484qd9cwgrasc54qw56tuh",
+                )
+                .expect("Failed to parse recovery taproot address"),
+            };
+
+            let mut deposit_outpoint_txid =
+                hex::decode(deposit_outpoint_txid).expect("Failed to decode txid");
+            deposit_outpoint_txid.reverse();
+
+            let deposit = aggregator
+                .new_deposit(Deposit {
+                    deposit_outpoint: Some(Outpoint {
+                        txid: Some(clementine_core::rpc::clementine::Txid {
+                            txid: deposit_outpoint_txid.clone(),
+                        }),
+                        vout: deposit_outpoint_vout,
+                    }),
+                    deposit_data: Some(DepositData::BaseDeposit(BaseDeposit {
+                        evm_address: evm_address.0.to_vec(),
+                        recovery_taproot_address: recovery_taproot_address
+                            .assume_checked()
+                            .to_string(),
+                    })),
+                })
+                .await
+                .expect("Failed to make a request");
+            let deposit = aggregator
+                .send_move_to_vault_tx(SendMoveTxRequest {
+                    raw_tx: Some(deposit.into_inner()),
+                    deposit_outpoint: Some(Outpoint {
+                        txid: Some(clementine_core::rpc::clementine::Txid {
+                            txid: deposit_outpoint_txid,
+                        }),
+                        vout: deposit_outpoint_vout,
+                    }),
+                })
+                .await
+                .expect("Failed to make a request");
+            let move_txid = deposit.get_ref().txid.clone();
+            let txid = bitcoin::Txid::from_byte_array(
+                move_txid
+                    .try_into()
+                    .expect("Failed to convert txid to array"),
+            );
+            println!("Move txid: {}", txid);
+        }
+        AggregatorCommands::GetMoveTransaction {
+            deposit_outpoint_txid,
+            deposit_outpoint_vout,
+            evm_address,
+            recovery_taproot_address,
+        } => {
+            let raw_tx = create_move_transaction(
+                &mut aggregator,
+                deposit_outpoint_txid,
+                deposit_outpoint_vout,
+                evm_address,
+                recovery_taproot_address,
+            )
+            .await
+            .expect("Failed to create move transaction");
+
+            let raw_tx_hex = hex::encode(&raw_tx.raw_tx);
+
+            println!("Move transaction created successfully");
+            println!("Raw transaction: {}", raw_tx_hex);
+            println!();
+            println!("Manual Bitcoin RPC commands:");
+            println!("# Decode and verify the transaction:");
+            println!("bitcoin-cli -regtest -rpcport=18443 -rpcuser=admin -rpcpassword=admin decoderawtransaction {}", raw_tx_hex);
+            println!();
+            println!("# Broadcast the transaction:");
+            println!("bitcoin-cli -regtest -rpcport=18443 -rpcuser=admin -rpcpassword=admin sendrawtransaction {}", raw_tx_hex);
+            println!();
+            println!("# Mine a block to confirm:");
+            println!(
+                "bitcoin-cli -regtest -rpcport=18443 -rpcuser=admin -rpcpassword=admin -generate 1"
+            );
+        }
+        AggregatorCommands::SendMoveTransactionCPFP {
+            deposit_outpoint_txid,
+            deposit_outpoint_vout,
+            evm_address,
+            recovery_taproot_address,
+            fee_rate,
+            bitcoin_rpc_url,
+            bitcoin_rpc_user,
+            bitcoin_rpc_password,
+        } => {
+            let raw_tx = create_move_transaction(
+                &mut aggregator,
+                deposit_outpoint_txid,
+                deposit_outpoint_vout,
+                evm_address,
+                recovery_taproot_address,
+            )
+            .await
+            .expect("Failed to create move transaction");
+
+            let move_tx_hex = hex::encode(&raw_tx.raw_tx);
+            let move_tx: bitcoin::Transaction = bitcoin::consensus::deserialize(&raw_tx.raw_tx)
+                .expect("Failed to deserialize move transaction");
+
+            println!("Move transaction created: {}", move_tx.compute_txid());
+            println!("Raw transaction: {}", move_tx_hex);
+
+            // Find P2A anchor output (script: 51024e73)
+            let p2a_vout = move_tx
+                .output
+                .iter()
+                .position(|output| {
+                    output.script_pubkey == ScriptBuf::from_hex("51024e73").expect("valid script")
+                })
+                .expect("P2A anchor output not found in move transaction");
+
+            println!("Found P2A anchor output at vout: {}", p2a_vout);
+
+            // Connect to Bitcoin RPC
+            use bitcoincore_rpc::{Auth, Client, RpcApi};
+            let rpc = Client::new(
+                &bitcoin_rpc_url,
+                Auth::UserPass(bitcoin_rpc_user, bitcoin_rpc_password),
+            )
+            .await
+            .expect("Failed to connect to Bitcoin RPC");
+
+            let temp_address = rpc
+                .get_new_address(None, None)
+                .await
+                .expect("Failed to get new address");
+
+            let fee_rate_sat_vb = fee_rate.unwrap_or(10.0) as u64;
+
+            // Calculate package fee requirements
+            let parent_weight = move_tx.weight();
+            let estimated_child_weight = bitcoin::Weight::from_wu(500);
+            let total_weight = parent_weight + estimated_child_weight;
+            let required_fee_sats =
+                (total_weight.to_wu() as f64 * fee_rate_sat_vb as f64 / 4.0) as u64;
+            let required_fee = bitcoin::Amount::from_sat(required_fee_sats);
+
+            println!(
+                "Parent weight: {}, estimated total: {}, required fee: {} sats",
+                parent_weight,
+                total_weight,
+                required_fee.to_sat()
+            );
+
+            // Generate blocks to ensure fresh UTXOs for fees
+            println!("Generating blocks to create fresh UTXOs for CPFP");
+            let blocks_generated = rpc
+                .generate_to_address(1, &temp_address.clone().assume_checked())
+                .await
+                .expect("Failed to generate blocks");
+            println!("Generated {} block(s)", blocks_generated.len());
+
+            let unspent = rpc
+                .list_unspent(None, None, None, None, None)
+                .await
+                .expect("Failed to list unspent outputs");
+
+            if unspent.is_empty() {
+                println!("No unspent outputs available for fee payment");
+                return;
+            }
+
+            let fee_payer_utxo = unspent.last().expect("Checked unspent is not empty");
+            println!(
+                "Using UTXO {} for fees: {}",
+                fee_payer_utxo.txid, fee_payer_utxo.amount
+            );
+
+            // Create child transaction
+            use bitcoin::{transaction::Version, OutPoint, Sequence, TxIn, TxOut};
+
+            let child_input = TxIn {
+                previous_output: OutPoint {
+                    txid: move_tx.compute_txid(),
+                    vout: p2a_vout as u32,
+                },
+                script_sig: bitcoin::ScriptBuf::new(),
+                sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+                witness: bitcoin::Witness::new(),
+            };
+
+            let fee_payer_input = TxIn {
+                previous_output: OutPoint {
+                    txid: fee_payer_utxo.txid,
+                    vout: fee_payer_utxo.vout,
+                },
+                script_sig: bitcoin::ScriptBuf::new(),
+                sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+                witness: bitcoin::Witness::new(),
+            };
+
+            let total_input_value = bitcoin::Amount::from_sat(240) + fee_payer_utxo.amount;
+            let change_amount = total_input_value
+                .checked_sub(required_fee)
+                .expect("Insufficient funds for required fee");
+
+            let child_output = TxOut {
+                value: change_amount,
+                script_pubkey: temp_address.assume_checked().script_pubkey(),
+            };
+
+            let child_tx = bitcoin::Transaction {
+                version: Version::TWO,
+                lock_time: bitcoin::absolute::LockTime::ZERO,
+                input: vec![child_input, fee_payer_input],
+                output: vec![child_output],
+            };
+
+            println!("Child transaction created: {}", child_tx.compute_txid());
+
+            // Submit CPFP package
+            let package = vec![&move_tx, &child_tx];
+            println!("Submitting CPFP package");
+
+            match rpc
+                .submit_package(&package, Some(bitcoin::Amount::ZERO), None)
+                .await
+            {
+                Ok(result) => {
+                    println!("CPFP package submitted successfully");
+                    println!("Package result: {:?}", result);
+                    println!("Move transaction TXID: {}", move_tx.compute_txid());
+                    println!("Child transaction TXID: {}", child_tx.compute_txid());
+                }
+                Err(e) => {
+                    println!("Failed to submit CPFP package: {}", e);
+                    println!("Manual submission options:");
+                    println!("Parent tx: {}", move_tx_hex);
+                    println!(
+                        "Child tx: {}",
+                        hex::encode(bitcoin::consensus::serialize(&child_tx))
+                    );
+                }
+            }
+        }
+        AggregatorCommands::GetNofnAggregatedKey => {
+            let response = aggregator
+                .get_nofn_aggregated_xonly_pk(Request::new(Empty {}))
+                .await
+                .expect("Failed to make a request");
+            let xonly_pk = bitcoin::XOnlyPublicKey::from_slice(&response.get_ref().nofn_xonly_pk)
+                .expect("Failed to parse xonly_pk");
+            println!("{:?}", xonly_pk.to_string());
+        }
+        AggregatorCommands::GetDepositAddress {
+            evm_address,
+            recovery_taproot_address,
+            network,
+            user_takes_after,
+        } => {
+            let response = aggregator
+                .get_nofn_aggregated_xonly_pk(Request::new(Empty {}))
+                .await
+                .expect("Failed to make a request");
+            let xonly_pk = bitcoin::XOnlyPublicKey::from_slice(&response.get_ref().nofn_xonly_pk)
+                .expect("Failed to parse xonly_pk");
+
+            let recovery_taproot_address = match recovery_taproot_address {
+                Some(address) => bitcoin::Address::from_str(&address)
+                    .expect("Failed to parse recovery taproot address"),
+                None => bitcoin::Address::from_str(
+                    "tb1p9k6y4my6vacczcyc4ph2m5q96hnxt5qlrqd9484qd9cwgrasc54qw56tuh",
+                )
+                .expect("Failed to parse recovery taproot address"),
+            };
+
+            let evm_address = match evm_address {
+                Some(address) => EVMAddress(
+                    hex::decode(address)
+                        .expect("Failed to decode evm address")
+                        .try_into()
+                        .expect("Failed to convert evm address to array"),
+                ),
+                None => EVMAddress([1; 20]),
+            };
+
+            let network = match network {
+                Some(network) => {
+                    bitcoin::Network::from_str(&network).expect("Failed to parse network")
+                }
+                None => bitcoin::Network::Regtest,
+            };
+
+            let user_takes_after = match user_takes_after {
+                Some(amount) => amount as u16,
+                None => 200,
+            };
+
+            let deposit_address = clementine_core::builder::address::generate_deposit_address(
+                xonly_pk,
+                &recovery_taproot_address,
+                evm_address,
+                network,
+                user_takes_after,
+            )
+            .expect("Failed to generate deposit address");
+
+            println!("Deposit address: {}", deposit_address.0);
+        }
+        AggregatorCommands::GetTxParamsOfMoveTx {
+            bitcoin_rpc_url,
+            bitcoin_rpc_user,
+            bitcoin_rpc_password,
+            move_txid,
+        } => {
+            let extended_rpc = extended_rpc::ExtendedRpc::connect(
+                bitcoin_rpc_url,
+                bitcoin_rpc_user,
+                bitcoin_rpc_password,
+            )
+            .await
+            .expect("Failed to connect to Bitcoin RPC");
+
+            let txid: &bitcoin::Txid =
+                &bitcoin::Txid::from_str(&move_txid).expect("Failed to parse txid");
+            let tx = extended_rpc
+                .get_tx_of_txid(txid)
+                .await
+                .expect("Failed to get tx of txid");
+            let tx_params =
+                get_transaction_params_for_citrea(&tx).expect("Failed to get transaction details");
+
+            let block_hash = extended_rpc
+                .get_blockhash_of_tx(txid)
+                .await
+                .expect("Failed to get block hash");
+            let block = extended_rpc
+                .client
+                .get_block(&block_hash)
+                .await
+                .expect("Failed to get block");
+            let block_height = block
+                .bip34_block_height()
+                .expect("Failed to get block height");
+
+            let (index, merkle_proof) = get_block_merkle_proof(&block, *txid, false)
+                .expect("Failed to get block merkle proof");
+
+            println!("Transaction params: {:?}", tx_params);
+            println!("Merkle proof for index {}: {:?}", index, merkle_proof);
+            println!(
+                "Transactions is at block height {} and block hash {:?}",
+                block_height, block_hash
+            );
+        }
+        AggregatorCommands::GetReplacementDepositAddress {
+            move_txid,
+            network,
+            security_council,
+        } => {
+            let mut move_txid = hex::decode(move_txid).expect("Failed to decode txid");
+            move_txid.reverse();
+            let move_txid = bitcoin::Txid::from_byte_array(
+                move_txid
+                    .try_into()
+                    .expect("Failed to convert txid to array"),
+            );
+
+            let response = aggregator
+                .get_nofn_aggregated_xonly_pk(Request::new(Empty {}))
+                .await
+                .expect("Failed to make a request");
+
+            let nofn_xonly_pk =
+                bitcoin::XOnlyPublicKey::from_slice(&response.get_ref().nofn_xonly_pk)
+                    .expect("Failed to parse xonly_pk");
+
+            let network = match network {
+                Some(network) => {
+                    bitcoin::Network::from_str(&network).expect("Failed to parse network")
+                }
+                None => bitcoin::Network::Regtest,
+            };
+
+            let (replacement_deposit_address, _) =
+                clementine_core::builder::address::generate_replacement_deposit_address(
+                    move_txid,
+                    nofn_xonly_pk,
+                    network,
+                    security_council.expect("Security council is required"),
+                )
+                .expect("Failed to generate replacement deposit address");
+
+            println!(
+                "Replacement deposit address: {}",
+                replacement_deposit_address
+            );
+        }
+        AggregatorCommands::NewReplacementDeposit {
+            deposit_outpoint_txid,
+            deposit_outpoint_vout,
+            old_move_txid,
+        } => {
+            let mut old_move_txid = hex::decode(old_move_txid).expect("Failed to decode txid");
+            old_move_txid.reverse();
+
+            let mut deposit_outpoint_txid =
+                hex::decode(deposit_outpoint_txid).expect("Failed to decode txid");
+            deposit_outpoint_txid.reverse();
+
+            let deposit = aggregator
+                .new_deposit(Deposit {
+                    deposit_outpoint: Some(Outpoint {
+                        txid: Some(clementine_core::rpc::clementine::Txid {
+                            txid: deposit_outpoint_txid.clone(),
+                        }),
+                        vout: deposit_outpoint_vout,
+                    }),
+                    deposit_data: Some(DepositData::ReplacementDeposit(ReplacementDeposit {
+                        old_move_txid: Some(clementine::Txid {
+                            txid: old_move_txid,
+                        }),
+                    })),
+                })
+                .await
+                .expect("Failed to make a request");
+            let deposit = aggregator
+                .send_move_to_vault_tx(SendMoveTxRequest {
+                    raw_tx: Some(deposit.into_inner()),
+                    deposit_outpoint: Some(Outpoint {
+                        txid: Some(clementine_core::rpc::clementine::Txid {
+                            txid: deposit_outpoint_txid,
+                        }),
+                        vout: deposit_outpoint_vout,
+                    }),
+                })
+                .await
+                .expect("Failed to make a request");
+            let move_txid = deposit.get_ref().txid.clone();
+            let txid = bitcoin::Txid::from_byte_array(
+                move_txid
+                    .try_into()
+                    .expect("Failed to convert txid to array"),
+            );
+            println!("Move txid: {}", txid);
+        }
+        AggregatorCommands::NewWithdrawal {
+            withdrawal_id,
+            input_signature,
+            input_outpoint_txid,
+            input_outpoint_vout,
+            output_script_pubkey,
+            output_amount,
+        } => {
+            println!("Processing withdrawal with id {}", withdrawal_id);
+
+            let mut input_outpoint_txid_bytes =
+                hex::decode(input_outpoint_txid).expect("Failed to decode input outpoint txid");
+            input_outpoint_txid_bytes.reverse();
+
+            let input_signature_bytes =
+                hex::decode(input_signature).expect("Failed to decode input signature");
+
+            let output_script_pubkey_bytes =
+                hex::decode(output_script_pubkey).expect("Failed to decode output script pubkey");
+
+            let params = clementine_core::rpc::clementine::WithdrawParams {
+                withdrawal_id,
+                input_signature: input_signature_bytes,
+                input_outpoint: Some(Outpoint {
+                    txid: Some(clementine_core::rpc::clementine::Txid {
+                        txid: input_outpoint_txid_bytes,
+                    }),
+                    vout: input_outpoint_vout,
+                }),
+                output_script_pubkey: output_script_pubkey_bytes,
+                output_amount,
+            };
+
+            let response = aggregator
+                .withdraw(Request::new(params))
+                .await
+                .expect("Failed to make a request");
+
+            let withdraw_responses = response.get_ref().withdraw_responses.clone();
+
+            for (i, result) in withdraw_responses.iter().enumerate() {
+                match &result.result {
+                    Some(clementine_core::rpc::clementine::withdraw_result::Result::Success(
+                        success,
+                    )) => {
+                        let txid = bitcoin::Txid::from_byte_array(
+                            success
+                                .txid
+                                .clone()
+                                .expect("Failed to get txid")
+                                .txid
+                                .try_into()
+                                .expect("Failed to convert txid to array"),
+                        );
+                        println!("Operator {}: Withdrawal successful, txid: {}", i, txid);
+                    }
+                    Some(clementine_core::rpc::clementine::withdraw_result::Result::Error(
+                        error,
+                    )) => {
+                        println!("Operator {}: Withdrawal failed: {}", i, error.error);
+                    }
+                    None => {
+                        println!("Operator {}: Unknown result", i);
+                    }
+                }
+            }
+        }
+        AggregatorCommands::Vergen => {
+            let params = Empty {};
+            let response = aggregator
+                .vergen(Request::new(params))
+                .await
+                .expect("Failed to make a request");
+            println!("Vergen response:\n{}", response.into_inner().response);
+        }
+    }
+}
+
+async fn handle_citrea_call(url: String, command: CitreaCommands) {
+    println!("Connecting to verifier at {}", url);
+    let config = create_minimal_config();
+
+    match command {
+        CitreaCommands::Deposit {
+            lcp_url,
+            bitcoin_rpc_url,
+            bitcoin_rpc_user,
+            bitcoin_rpc_password,
+            txid,
+        } => {
+            let extended_rpc = extended_rpc::ExtendedRpc::connect(
+                bitcoin_rpc_url,
+                bitcoin_rpc_user,
+                bitcoin_rpc_password,
+            )
+            .await
+            .expect("Failed to connect to Bitcoin RPC");
+            let tx = extended_rpc
+                .get_tx_of_txid(&bitcoin::Txid::from_str(&txid).expect("Failed to parse txid"))
+                .await
+                .expect("Failed to get tx of txid");
+            let block_hash = extended_rpc
+                .get_blockhash_of_tx(&tx.compute_txid())
+                .await
+                .expect("Failed to get block hash");
+            let block = extended_rpc
+                .client
+                .get_block(&block_hash)
+                .await
+                .expect("Failed to get block");
+            let block_height = block
+                .bip34_block_height()
+                .expect("Failed to get block height");
+
+            let citrea_client = CitreaClient::new(url, lcp_url, config.citrea_chain_id, None)
+                .await
+                .expect("Failed to create Citrea client");
+
+            clementine_core::utils::citrea::deposit(
+                &extended_rpc,
+                citrea_client.client,
+                block,
+                block_height
+                    .try_into()
+                    .expect("Failed to convert block height"),
+                tx,
+            )
+            .await
+            .expect("Failed to deposit to Citrea");
+            println!("Deposit to Citrea completed successfully");
+        }
+        CitreaCommands::SafeWithdraw {
+            bitcoin_rpc_url,
+            bitcoin_rpc_user,
+            bitcoin_rpc_password,
+            withdrawal_dust_utxo_txid,
+            withdrawal_dust_utxo_vout,
+            payout_output_txid,
+            payout_output_vout,
+            signature,
+        } => {
+            let extended_rpc = extended_rpc::ExtendedRpc::connect(
+                bitcoin_rpc_url,
+                bitcoin_rpc_user,
+                bitcoin_rpc_password,
+            )
+            .await
+            .expect("Failed to connect to Bitcoin RPC");
+
+            // create utxo from withdrawal_dust_utxo_txid and withdrawal_dust_utxo_vout
+            let outpoint = bitcoin::OutPoint {
+                txid: bitcoin::Txid::from_str(&withdrawal_dust_utxo_txid)
+                    .expect("Failed to parse withdrawal dust utxo txid"),
+                vout: withdrawal_dust_utxo_vout,
+            };
+            let txout = extended_rpc
+                .get_txout_from_outpoint(&outpoint)
+                .await
+                .expect("Failed to get txout from outpoint");
+            let withdrawal_dust_utxo = UTXO { outpoint, txout };
+
+            let outpoint = bitcoin::OutPoint {
+                txid: bitcoin::Txid::from_str(&payout_output_txid)
+                    .expect("Failed to parse payout utxo txid"),
+                vout: payout_output_vout,
+            };
+            let payout_output = extended_rpc
+                .get_txout_from_outpoint(&outpoint)
+                .await
+                .expect("Failed to get txout from outpoint");
+
+            let signature =
+                schnorr::Signature::from_str(&signature).expect("Failed to parse signature");
+
+            let ret = clementine_core::utils::citrea::get_citrea_safe_withdraw_params(
+                &extended_rpc,
+                withdrawal_dust_utxo,
+                payout_output,
+                signature,
+            )
+            .await
+            .expect("Failed to get Citrea safe withdraw params");
+
+            println!("Citrea safe withdraw params: {:?}", ret);
+        }
+    }
+}
+
+#[tokio::main]
+async fn main() {
+    let cli = Cli::parse();
+
+    if !std::path::Path::new("certs/ca/ca.pem").exists() {
+        if PathBuf::from(
+            std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is not set"),
+        )
+        .canonicalize()
+        .expect("Failed to canonicalize path")
+            != std::env::current_dir().expect("Failed to get current directory")
+        {
+            println!("Error: CA certificates not found in expected path, please run this command from the `core` directory. Current directory: {}", std::env::current_dir().expect("Failed to get current directory").to_str().expect("Failed to get current directory as string"));
+        } else {
+            println!("Error: CA certificates not found in expected path, please generate them before running the CLI");
+        }
+        return;
+    }
+
+    match cli.command {
+        Commands::Operator { command } => {
+            handle_operator_call(cli.node_url, command).await;
+        }
+        Commands::Verifier { command } => {
+            handle_verifier_call(cli.node_url, command).await;
+        }
+        Commands::Aggregator { command } => {
+            handle_aggregator_call(cli.node_url, command).await;
+        }
+        Commands::Citrea { command } => {
+            handle_citrea_call(cli.node_url, command).await;
+        }
+    }
+}

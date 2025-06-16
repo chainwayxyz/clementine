@@ -1,0 +1,13 @@
+[package]
+name = "cli"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+clementine-core = { path = "../core" }
+bitcoin = { workspace = true }
+clap = { workspace = true }
+bitcoincore-rpc = { workspace = true }
+tonic = { workspace = true }
+tokio = { workspace = true }
+hex = { workspace = true }
