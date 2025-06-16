@@ -2319,7 +2319,9 @@ where
             header_chain_prover
                 .save_unproven_block_cache(Some(&mut dbtx), &block_cache)
                 .await?;
-            header_chain_prover.prove_if_ready().await?;
+            while let Some(_) = header_chain_prover.prove_if_ready().await? {
+                // Continue until prove_if_ready returns None
+            }
         }
 
         Ok(())
