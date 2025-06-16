@@ -25,7 +25,7 @@ use bitcoin::secp256k1::{schnorr, Message, PublicKey};
 use bitcoin::XOnlyPublicKey;
 use eyre::Context;
 use futures_util::future::try_join_all;
-use secp256k1::musig::{MusigAggNonce, MusigPartialSignature};
+use secp256k1::musig::{AggregatedNonce, PartialSignature};
 use secp256k1::Parity;
 use std::time::Duration;
 use tokio::time::timeout;
@@ -385,8 +385,8 @@ impl Aggregator {
     async fn aggregate_move_partial_sigs(
         &self,
         deposit_data: &mut DepositData,
-        agg_nonce: &MusigAggNonce,
-        partial_sigs: Vec<MusigPartialSignature>,
+        agg_nonce: &AggregatedNonce,
+        partial_sigs: Vec<PartialSignature>,
     ) -> Result<schnorr::Signature, BridgeError> {
         let tx = builder::transaction::create_move_to_vault_txhandler(
             deposit_data,
@@ -401,7 +401,7 @@ impl Aggregator {
         let verifiers_public_keys = deposit_data.get_verifiers();
 
         let final_sig = aggregate_partial_signatures(
-            &verifiers_public_keys,
+            verifiers_public_keys,
             None,
             *agg_nonce,
             &partial_sigs,
