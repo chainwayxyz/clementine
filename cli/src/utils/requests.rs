@@ -1,9 +1,9 @@
+use crate::utils::parameters::get_citrea_deposit_params;
 use alloy::sol_types::SolValue;
 use bitcoin::{Block, Transaction};
 use clementine_core::citrea::LIGHT_CLIENT_ADDRESS;
 use clementine_core::errors::BridgeError;
 use clementine_core::extended_rpc::ExtendedRpc;
-use clementine_core::test::common::citrea::parameters::get_citrea_deposit_params;
 use clementine_core::EVMAddress;
 use eyre::Context;
 use jsonrpsee::core::client::ClientT;
@@ -11,7 +11,7 @@ use jsonrpsee::http_client::HttpClient;
 use jsonrpsee::rpc_params;
 use serde_json::json;
 
-pub async fn block_number(client: &HttpClient) -> Result<u32, BridgeError> {
+pub async fn _block_number(client: &HttpClient) -> Result<u32, BridgeError> {
     let params = rpc_params![
         json!({
             "to": LIGHT_CLIENT_ADDRESS,
@@ -36,7 +36,7 @@ pub async fn block_number(client: &HttpClient) -> Result<u32, BridgeError> {
     Ok(block_number)
 }
 
-pub async fn eth_get_balance(
+pub async fn _eth_get_balance(
     client: HttpClient,
     evm_address: EVMAddress,
 ) -> Result<u128, BridgeError> {

@@ -1,4 +1,7 @@
-use crate::create_minimal_config;
+use crate::{
+    create_minimal_config,
+    utils::parameters::{get_block_merkle_proof, get_transaction_details_for_citrea},
+};
 use bitcoin::{hashes::Hash, ScriptBuf};
 use bitcoincore_rpc::RpcApi;
 use clap::Subcommand;
@@ -9,7 +12,6 @@ use clementine_core::{
         self, clementine_aggregator_client::ClementineAggregatorClient, deposit::DepositData,
         BaseDeposit, Deposit, Empty, Outpoint, ReplacementDeposit, SendMoveTxRequest,
     },
-    utils::{bitcoin_merkle::get_block_merkle_proof, citrea::get_transaction_params_for_citrea},
     EVMAddress,
 };
 use std::str::FromStr;
@@ -484,7 +486,7 @@ pub async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                 .await
                 .expect("Failed to get tx of txid");
             let tx_params =
-                get_transaction_params_for_citrea(&tx).expect("Failed to get transaction details");
+                get_transaction_details_for_citrea(&tx).expect("Failed to get transaction details");
 
             let block_hash = extended_rpc
                 .get_blockhash_of_tx(txid)

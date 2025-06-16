@@ -1,15 +1,14 @@
 //! This module defines a command line interface for the RPC client.
 
-use clap::{Parser, Subcommand};
-use clementine_core::config::BridgeConfig;
-use std::path::PathBuf;
-
 use crate::{
     aggregator::{handle_aggregator_call, AggregatorCommands},
     citrea::{handle_citrea_call, CitreaCommands},
     operator::{handle_operator_call, OperatorCommands},
     verifier::{handle_verifier_call, VerifierCommands},
 };
+use clap::{Parser, Subcommand};
+use clementine_core::config::BridgeConfig;
+use std::path::PathBuf;
 
 mod aggregator;
 mod citrea;
@@ -20,7 +19,7 @@ mod verifier;
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
-    /// The URL of the gRPC service
+    /// URL of the client
     #[arg(short, long)]
     node_url: String,
 

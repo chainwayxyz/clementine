@@ -2126,11 +2126,17 @@ dependencies = [
 name = "cli"
 version = "0.0.0"
 dependencies = [
+ "alloy",
  "bitcoin",
  "bitcoincore-rpc",
  "clap",
  "clementine-core",
+ "eyre",
  "hex",
+ "jsonrpsee",
+ "serde",
+ "serde_json",
+ "sha2",
  "tokio",
  "tonic",
 ]

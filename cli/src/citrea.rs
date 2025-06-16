@@ -1,4 +1,6 @@
 use crate::create_minimal_config;
+use crate::utils::parameters::get_citrea_safe_withdraw_params;
+use crate::utils::requests::deposit;
 use bitcoin::secp256k1::schnorr;
 use bitcoincore_rpc::RpcApi;
 use clap::Subcommand;
@@ -84,7 +86,7 @@ pub async fn handle_citrea_call(url: String, command: CitreaCommands) {
                 .await
                 .expect("Failed to create Citrea client");
 
-            clementine_core::utils::citrea::deposit(
+            deposit(
                 &extended_rpc,
                 citrea_client.client,
                 block,
@@ -140,7 +142,7 @@ pub async fn handle_citrea_call(url: String, command: CitreaCommands) {
             let signature =
                 schnorr::Signature::from_str(&signature).expect("Failed to parse signature");
 
-            let ret = clementine_core::utils::citrea::get_citrea_safe_withdraw_params(
+            let ret = get_citrea_safe_withdraw_params(
                 &extended_rpc,
                 withdrawal_dust_utxo,
                 payout_output,

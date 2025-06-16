@@ -1,3 +1,3 @@
-mod bitcoin_merkle;
-mod parameters;
-mod requests;
+pub mod bitcoin_merkle;
+pub mod parameters;
+pub mod requests;

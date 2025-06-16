@@ -15,12 +15,13 @@ use clementine_core::citrea::Bridge::Transaction as CitreaTransaction;
 use clementine_core::errors::BridgeError;
 use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::rpc::clementine::NormalSignatureKind;
-use clementine_core::test::common::citrea::bitcoin_merkle::BitcoinMerkleTree;
 use clementine_core::UTXO;
 use eyre::Context;
 
+use crate::utils::bitcoin_merkle::BitcoinMerkleTree;
+
 /// Returns merkle proof for a given transaction (via txid) in a block.
-fn get_block_merkle_proof(
+pub fn get_block_merkle_proof(
     block: &Block,
     target_txid: Txid,
     is_witness_merkle_proof: bool,
@@ -61,7 +62,7 @@ fn get_block_merkle_proof(
     Ok((txid_index, witness_idx_path.into_iter().flatten().collect()))
 }
 
-fn get_transaction_details_for_citrea(
+pub fn get_transaction_details_for_citrea(
     transaction: &Transaction,
 ) -> Result<CitreaTransaction, BridgeError> {
     let version = (transaction.version.0 as u32).to_le_bytes();
@@ -122,7 +123,7 @@ fn get_transaction_details_for_citrea(
     })
 }
 
-fn get_transaction_merkle_proof_for_citrea(
+pub fn get_transaction_merkle_proof_for_citrea(
     block_height: u32,
     block: &Block,
     txid: Txid,
@@ -137,7 +138,7 @@ fn get_transaction_merkle_proof_for_citrea(
     })
 }
 
-async fn get_transaction_sha_script_pubkeys_for_citrea(
+pub async fn get_transaction_sha_script_pubkeys_for_citrea(
     rpc: &ExtendedRpc,
     transaction: Transaction,
 ) -> Result<FixedBytes<32>, BridgeError> {
@@ -280,8 +281,8 @@ pub async fn get_citrea_safe_withdraw_params(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::extended_rpc::ExtendedRpc;
     use bitcoincore_rpc::RpcApi;
+    use clementine_core::extended_rpc::ExtendedRpc;
     use std::str::FromStr;
 
     #[ignore = "Manual testing utility"]

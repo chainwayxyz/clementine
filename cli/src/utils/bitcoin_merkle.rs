@@ -76,7 +76,7 @@ impl BitcoinMerkleTree {
     }
 
     // Returns the Merkle root
-    pub fn root(&self) -> [u8; 32] {
+    pub fn _root(&self) -> [u8; 32] {
         self.nodes[self.nodes.len() - 1][0]
     }
 
@@ -166,7 +166,7 @@ mod tests {
             transactions.push(tx);
         }
         let tree = BitcoinMerkleTree::new(transactions.clone());
-        let root = tree.root();
+        let root = tree._root();
         let idx_path = tree.get_idx_path(0);
         let calculated_root = tree.calculate_root_with_merkle_proof(transactions[0], 0, idx_path);
         assert_eq!(root, calculated_root);
