@@ -552,20 +552,19 @@ fn get_script_from_arr<T: SpendableScript>(
 }
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::actor::{Actor, WinternitzDerivationPath};
     use crate::bitvm_client::{self, UNSPENDABLE_XONLY_PUBKEY};
     use crate::builder::address::create_taproot_address;
     use crate::config::protocol::ProtocolParamsetName;
     use crate::extended_rpc::ExtendedRpc;
     use crate::operator::RoundIndex;
-    use std::sync::Arc;
-
-    use super::*;
-
     use bitcoin::hashes::Hash;
+    use bitcoin::secp256k1::rand::{self, Rng};
     use bitcoin::secp256k1::{PublicKey, SecretKey};
     use bitcoincore_rpc::RpcApi;
-    use secp256k1::rand::{self, Rng};
+    use std::sync::Arc;
+
     // Create some dummy values for testing.
     // Note: These values are not cryptographically secure and are only used for tests.
     fn dummy_xonly() -> XOnlyPublicKey {

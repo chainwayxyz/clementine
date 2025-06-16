@@ -761,6 +761,7 @@ mod tests {
     use bitcoin::sighash::TapSighashType;
     use bitcoin::transaction::Transaction;
 
+    use bitcoin::secp256k1::rand;
     use bitcoin::{Amount, Network, OutPoint, Txid};
     use bitcoincore_rpc::RpcApi;
     use bitvm::{
@@ -769,7 +770,6 @@ mod tests {
         treepp::script,
     };
     use rand::thread_rng;
-    use secp256k1::rand;
     use std::str::FromStr;
     use std::sync::Arc;
 
