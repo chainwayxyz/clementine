@@ -46,7 +46,7 @@ pub fn stark_to_bitvm2_g16(
     let tmp_dir = tempdir().wrap_err("Failed to create temporary directory")?;
     let work_var = std::env::var("RISC0_WORK_DIR").ok();
     let work_dir = work_var.as_ref().map(Path::new).unwrap_or(tmp_dir.path());
-    tracing::info!("work_dir: {:?}", work_dir);
+    tracing::debug!("work_dir: {:?}", work_dir);
 
     std::fs::write(work_dir.join("seal.r0"), identity_p254_seal_bytes.clone())
         .wrap_err("Failed to write seal file")?;
