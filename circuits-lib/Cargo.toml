@@ -28,7 +28,7 @@ num-traits = { workspace = true }
 hex = { workspace = true }
 once_cell = { workspace = true }
 hex-literal = { workspace = true }
-jmt = { workspace = true }
+jmt = { workspace = true, features = ["sha2"] }
 
 alloy-primitives = { workspace = true, features = ["serde"] }
 alloy-rpc-types = { workspace = true }

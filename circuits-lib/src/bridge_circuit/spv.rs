@@ -1,6 +1,6 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use crate::header_chain::{mmr_guest::MMRGuest, mmr_native::MMRInclusionProof, CircuitBlockHeader};
+use crate::header_chain::CircuitBlockHeader;
 
 use super::{merkle_tree::BlockInclusionProof, transaction::CircuitTransaction};
 
@@ -9,7 +9,7 @@ pub struct SPV {
     pub transaction: CircuitTransaction,
     pub block_inclusion_proof: BlockInclusionProof,
     pub block_header: CircuitBlockHeader,
-    pub mmr_inclusion_proof: MMRInclusionProof,
+    pub jmt_inclusion_proof: MMRInclusionProof,
 }
 
 impl SPV {
@@ -49,7 +49,7 @@ mod tests {
             spv::SPV,
             transaction::CircuitTransaction,
         },
-        header_chain::{mmr_guest::MMRGuest, mmr_native::MMRNative, CircuitBlockHeader},
+        header_chain::{jmt_guest::MMRGuest, mmr_native::MMRNative, CircuitBlockHeader},
     };
 
     // Mainnet block headers from 0 to 16

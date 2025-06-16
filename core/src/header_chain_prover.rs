@@ -18,7 +18,7 @@ use bitcoin::{hashes::Hash, BlockHash, Network};
 use bitcoincore_rpc::RpcApi;
 use bridge_circuit_host::docker::dev_stark_to_risc0_g16;
 use circuits_lib::bridge_circuit::structs::{WorkOnlyCircuitInput, WorkOnlyCircuitOutput};
-use circuits_lib::header_chain::mmr_guest::MMRGuest;
+use circuits_lib::header_chain::jmt_guest::MMRGuest;
 use circuits_lib::header_chain::{
     BlockHeaderCircuitOutput, ChainState, CircuitBlockHeader, HeaderChainCircuitInput,
     HeaderChainPrevProofType,
@@ -102,6 +102,9 @@ impl HeaderChainProver {
         rpc: ExtendedRpc,
     ) -> Result<Self, HeaderChainProverError> {
         let db = Database::new(config).await.map_to_eyre()?;
+        let rocks_db = RocksDbStorage::connect(
+            config.rocks_db_path,
+        ).await.map_to_eyre()?;;
         let tip_height = rpc.get_current_chain_height().await.map_to_eyre()?;
         if tip_height
             < config.protocol_paramset().start_height + config.protocol_paramset().finality_depth
@@ -205,6 +208,7 @@ impl HeaderChainProver {
                 ))?;
 
             let genesis_chain_state = HeaderChainProver::get_chain_state_from_height(
+                db.rocks_db(),
                 rpc.clone(),
                 config.protocol_paramset().genesis_height.into(),
                 config.protocol_paramset().network,
@@ -253,6 +257,7 @@ impl HeaderChainProver {
     }
 
     pub async fn get_chain_state_from_height(
+        rocks_db: rocksdb::DB,
         rpc: ExtendedRpc,
         height: u64,
         network: Network,
@@ -714,7 +719,7 @@ mod tests {
     use bitcoin::{block::Header, hashes::Hash, BlockHash, Network};
     use bitcoincore_rpc::RpcApi;
     use circuits_lib::header_chain::{
-        mmr_guest::MMRGuest, BlockHeaderCircuitOutput, ChainState, CircuitBlockHeader,
+        jmt_guest::MMRGuest, BlockHeaderCircuitOutput, ChainState, CircuitBlockHeader,
     };
     use secp256k1::rand::{self, Rng};
 

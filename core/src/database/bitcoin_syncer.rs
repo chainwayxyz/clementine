@@ -160,6 +160,7 @@ impl Database {
         }
     }
 
+    /// Gets the maximum height of the canonical blocks in the database.
     pub async fn get_max_height(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,

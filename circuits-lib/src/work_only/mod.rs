@@ -39,8 +39,9 @@ const HEADER_CHAIN_METHOD_ID: [u32; 8] = {
 /// 2. Ensures the `method_id` matches `HEADER_CHAIN_METHOD_ID`.
 /// 3. Serializes and verifies the header chain circuit output using `env::verify()`.
 /// 4. Converts `total_work` (from bytes) into a **128-bit integer** (`U128`).
-/// 5. Breaks down the 128-bit integer into **four 32-bit words**.
-/// 6. Commits the resulting `WorkOnlyCircuitOutput` to the guest.
+/// 5. Verifies that the blockhash provided by the operator via WOTS is not included inside the JMT.
+/// 6. Breaks down the 128-bit integer into **four 32-bit words**.
+/// 7. Commits the resulting `WorkOnlyCircuitOutput` to the guest.
 ///
 /// # Panics
 ///

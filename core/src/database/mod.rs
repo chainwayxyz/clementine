@@ -19,6 +19,7 @@ mod aggregator;
 mod bitcoin_syncer;
 mod header_chain_prover;
 mod operator;
+mod rocks_db;
 #[cfg(feature = "automation")]
 mod state_machine;
 #[cfg(feature = "automation")]

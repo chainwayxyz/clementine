@@ -13,14 +13,12 @@ use bitcoin::{
 };
 use borsh::{BorshDeserialize, BorshSerialize};
 use crypto_bigint::{Encoding, U256};
-use mmr_guest::MMRGuest;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::common::{get_network, zkvm::ZkvmGuest};
+use crate::{common::{get_network, zkvm::ZkvmGuest}, header_chain::jmt_guest::{BlockHashInsertionUpdateProof, JMTGuest}};
 
-pub mod mmr_guest;
-pub mod mmr_native;
+pub mod jmt_guest;
 
 /// The main entry point of the header chain circuit.
 pub fn header_chain_circuit(guest: &impl ZkvmGuest) {
@@ -43,7 +41,7 @@ pub fn header_chain_circuit(guest: &impl ZkvmGuest) {
         }
     };
 
-    chain_state.apply_blocks(input.block_headers);
+    chain_state.apply_blocks(input.block_headers_with_jmt_proofs);
 
     guest.commit(&BlockHeaderCircuitOutput {
         method_id: input.method_id,
@@ -138,6 +136,12 @@ const EXPECTED_EPOCH_TIMESPAN: u32 = match option_env!("BITCOIN_NETWORK") {
 /// Number of blocks per epoch
 const BLOCKS_PER_EPOCH: u32 = 2016;
 
+#[derive(Debug, BorshDeserialize, BorshSerialize)]
+pub struct CircuitInputForBlockHeader {
+    pub block_header: CircuitBlockHeader,
+    pub jmt_proof: BlockHashInsertionUpdateProof,
+}
+
 /// Bitcoin block header.
 #[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
 pub struct CircuitBlockHeader {
@@ -202,7 +206,7 @@ pub struct ChainState {
     pub current_target_bits: u32,
     pub epoch_start_time: u32,
     pub prev_11_timestamps: [u32; 11],
-    pub block_hashes_mmr: MMRGuest,
+    pub blockhashes_jmt_root: JMTGuest,
 }
 
 impl Default for ChainState {
@@ -220,7 +224,7 @@ impl ChainState {
             current_target_bits: NETWORK_CONSTANTS.max_bits,
             epoch_start_time: 0,
             prev_11_timestamps: [0u32; 11],
-            block_hashes_mmr: MMRGuest::new(),
+            blockhashes_jmt_root: JMTGuest::default(),
         }
     }
 
@@ -238,14 +242,11 @@ impl ChainState {
         for timestamp in self.prev_11_timestamps {
             hasher.update(timestamp.to_le_bytes());
         }
-        for hash in self.block_hashes_mmr.subroots.clone() {
-            hasher.update(hash);
-        }
-        hasher.update(self.block_hashes_mmr.size.to_le_bytes());
+        hasher.update(self.blockhashes_jmt_root.jmt_root.0);
         hasher.finalize().into()
     }
 
-    pub fn apply_blocks(&mut self, block_headers: Vec<CircuitBlockHeader>) {
+    pub fn apply_blocks(&mut self, block_headers_with_proofs: Vec<CircuitInputForBlockHeader>) {
         println!("Network type: {:?}", NETWORK_TYPE);
         let mut current_target_bytes = if IS_REGTEST {
             NETWORK_CONSTANTS.max_target.to_be_bytes()
@@ -264,7 +265,9 @@ impl ChainState {
             0
         };
 
-        for block_header in block_headers {
+        for block_header_with_proof in block_headers_with_proofs {
+            let block_header: CircuitBlockHeader = block_header_with_proof.block_header;
+            let jmt_proof = block_header_with_proof.jmt_proof;
             self.block_height = self.block_height.wrapping_add(1);
 
             let (target_to_use, expected_bits, work_to_add) = if IS_TESTNET4 {
@@ -314,7 +317,7 @@ impl ChainState {
                 panic!("Timestamp is not valid");
             }
 
-            self.block_hashes_mmr.append(new_block_hash);
+            self.blockhashes_jmt_root.verify_update(jmt_proof, new_block_hash, self.block_height);
             self.best_block_hash = new_block_hash;
             current_work = current_work.wrapping_add(&work_to_add);
 
@@ -434,11 +437,11 @@ pub enum HeaderChainPrevProofType {
 }
 
 /// The input of the header chain circuit.
-#[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
+#[derive(Debug, BorshDeserialize, BorshSerialize)]
 pub struct HeaderChainCircuitInput {
     pub method_id: [u32; 8],
     pub prev_proof: HeaderChainPrevProofType,
-    pub block_headers: Vec<CircuitBlockHeader>,
+    pub block_headers_with_jmt_proofs: Vec<CircuitInputForBlockHeader>,
 }
 
 #[cfg(test)]

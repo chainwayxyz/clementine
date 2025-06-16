@@ -132,6 +132,8 @@ pub struct BridgeConfig {
     pub db_password: String,
     /// PostgreSQL database name.
     pub db_name: String,
+    /// RocksDB database path.
+    pub rocks_db_path: Option<PathBuf>,
     /// Citrea RPC URL.
     pub citrea_rpc_url: String,
     /// Citrea light client prover RPC URL.
@@ -261,6 +263,7 @@ impl Default for BridgeConfig {
             db_user: "clementine".to_string(),
             db_password: "clementine".to_string(),
             db_name: "clementine".to_string(),
+            rocks_db_path: None,
 
             citrea_rpc_url: "".to_string(),
             citrea_light_client_prover_url: "".to_string(),
