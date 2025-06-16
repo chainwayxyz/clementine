@@ -1,5 +1,5 @@
 use crate::bitvm_client::{SECP, UNSPENDABLE_XONLY_PUBKEY};
-use crate::constants::OPERATOR_GET_KEYS_TIMEOUT;
+use crate::constants::{OPERATOR_GET_KEYS_TIMEOUT, VERIFIER_SEND_KEYS_TIMEOUT};
 use crate::deposit::DepositData;
 use crate::extended_rpc::ExtendedRpc;
 use crate::rpc::clementine::{DepositParams, OperatorKeysWithDeposit};
@@ -53,9 +53,11 @@ pub struct Aggregator {
     operator_keys: Vec<XOnlyPublicKey>,
 }
 
+/// Wrapper struct that renders the verifier id in the logs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct VerifierId(PublicKey);
 
+/// Wrapper struct that renders the operator id in the logs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct OperatorId(XOnlyPublicKey);
 
@@ -71,6 +73,7 @@ impl std::fmt::Display for OperatorId {
     }
 }
 
+/// Wrapper struct that matches verifier clients with their ids.
 #[derive(Debug, Clone)]
 pub struct ParticipatingVerifiers(
     pub  Vec<(
@@ -98,6 +101,7 @@ impl ParticipatingVerifiers {
     }
 }
 
+/// Wrapper struct that matches operator clients with their ids.
 #[derive(Debug, Clone)]
 pub struct ParticipatingOperators(
     pub  Vec<(
@@ -300,7 +304,7 @@ impl Aggregator {
         #[cfg(test)]
         let timeout_params = self.config.test_params.timeout_params;
         let distribute_operators_keys_handle = tokio::spawn(timed_try_join_all(
-            crate::constants::KEY_DISTRIBUTION_TIMEOUT,
+            VERIFIER_SEND_KEYS_TIMEOUT,
             "Verifier key distribution",
             Some(verifier_ids.clone()),
             verifier_clients

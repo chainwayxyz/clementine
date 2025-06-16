@@ -228,7 +228,10 @@ impl From<BridgeError> for tonic::Status {
         // eyre::Report can cast any error in the chain to a Status, so we use its downcast method to get the first Status.
         eyre_report.downcast::<Status>().unwrap_or_else(|report| {
             // We don't want this case to happen, all casts to Status should contain a Status that contains a user-facing error message.
-            tracing::error!("Returning internal error on RPC call, full error: {:?}", report);
+            tracing::error!(
+                "Returning internal error on RPC call, full error: {:?}",
+                report
+            );
 
             let mut status = tonic::Status::internal(report.to_string());
             status.set_source(Into::into(

@@ -55,7 +55,7 @@ pub struct TimeoutTestParams {
     /// Operator index that should time out during operator signature collection.
     pub operator_sig_collection_operator_idx: Option<usize>,
     /// Verifier index that should time out during deposit finalization.
-    pub deposit_finalization_verifier_idx: Option<usize>,
+    pub deposit_finalize_verifier_idx: Option<usize>,
 }
 
 impl TimeoutTestParams {
@@ -118,8 +118,8 @@ impl TimeoutTestParams {
     }
 
     #[cfg(test)]
-    pub async fn hook_timeout_deposit_finalization_verifier(&self, idx: usize) {
-        if self.deposit_finalization_verifier_idx == Some(idx) {
+    pub async fn hook_timeout_deposit_finalize_verifier(&self, idx: usize) {
+        if self.deposit_finalize_verifier_idx == Some(idx) {
             use tokio::time::sleep;
             tokio::time::pause();
             sleep(
