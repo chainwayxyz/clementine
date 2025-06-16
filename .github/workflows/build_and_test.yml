@@ -2,7 +2,7 @@ name: Build And Test
 
 on: [push]
 
-concurrency: 
+concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ (github.ref != 'refs/heads/main') }}
 
@@ -189,7 +189,7 @@ jobs:
 
   bridge_additional_disprove_tests_matrix:
     name: Test additional disprove script ${{ matrix.description_suffix }} with release build
-    runs-on: ubicloud-standard-4
+    runs-on: ubicloud-standard-8
     needs: release_build_automation
     strategy:
       fail-fast: false
