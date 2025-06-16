@@ -160,7 +160,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             .to_hash();
 
             let paramset = ProtocolParamset {
-                genesis_height: 10,
+                genesis_height: genesis_height,
                 genesis_chain_state_hash: chain_state,
                 ..Default::default()
             };
