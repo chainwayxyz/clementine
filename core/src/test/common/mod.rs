@@ -35,6 +35,7 @@ use crate::utils::FeePayingType;
 use crate::EVMAddress;
 use bitcoin::hashes::Hash;
 use bitcoin::key::Keypair;
+use bitcoin::secp256k1::rand;
 use bitcoin::secp256k1::Message;
 use bitcoin::secp256k1::PublicKey;
 use bitcoin::XOnlyPublicKey;
@@ -42,7 +43,6 @@ use bitcoin::{taproot, BlockHash, OutPoint, Transaction, Txid, Witness};
 use bitcoincore_rpc::RpcApi;
 use citrea::MockCitreaClient;
 use eyre::Context;
-use secp256k1::rand;
 pub use setup_utils::*;
 use std::path::Path;
 use std::process::Command;
@@ -320,7 +320,7 @@ pub async fn run_single_deposit<C: CitreaClientT>(
         .try_into()?;
 
     confirm_fee_payer_utxos(&rpc, aggregator_db.clone(), move_txid).await?;
-    mine_once_after_in_mempool(&rpc, move_txid, Some("Move tx"), None).await?;
+    mine_once_after_in_mempool(&rpc, move_txid, Some("Move tx"), Some(180)).await?;
 
     Ok((
         verifiers,
@@ -389,14 +389,9 @@ fn sign_nofn_deposit_tx(
         })
         .collect::<Vec<_>>();
 
-    let final_signature = aggregate_partial_signatures(
-        &verifiers_public_keys.clone(),
-        None,
-        agg_nonce,
-        &partial_sigs,
-        msg,
-    )
-    .unwrap();
+    let final_signature =
+        aggregate_partial_signatures(verifiers_public_keys, None, agg_nonce, &partial_sigs, msg)
+            .unwrap();
 
     let final_taproot_sig = taproot::Signature {
         signature: final_signature,

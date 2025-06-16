@@ -14,7 +14,8 @@ use bitvm::chunk::api::{
 use bitvm::signatures::wots_api::wots160;
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use bridge_circuit_host::utils::get_ark_verifying_key;
+use bridge_circuit_host::utils::{get_ark_verifying_key, get_ark_verifying_key_dev_mode_bridge};
+use risc0_zkvm::is_dev_mode;
 use std::fs;
 
 use std::str::FromStr;
@@ -51,7 +52,11 @@ lazy_static::lazy_static! {
         let start = Instant::now();
 
         let bitvm_cache = {
-            let cache_path = std::env::var("BITVM_CACHE_PATH").unwrap_or_else(|_| "bitvm_cache.bin".to_string());
+            let cache_path = if cfg!(test) && is_dev_mode() {
+                "bitvm_cache_dev.bin".to_string()
+            } else {
+                std::env::var("BITVM_CACHE_PATH").unwrap_or_else(|_| "bitvm_cache.bin".to_string())
+            };
             tracing::info!("Loading BitVM cache from file: {}", cache_path);
             match BitvmCache::load_from_file(&cache_path) {
                 Ok(cache) => {
@@ -108,7 +113,11 @@ impl BitvmCache {
 }
 
 fn generate_fresh_data() -> BitvmCache {
-    let vk = get_ark_verifying_key();
+    let vk = if cfg!(test) && is_dev_mode() {
+        get_ark_verifying_key_dev_mode_bridge()
+    } else {
+        get_ark_verifying_key()
+    };
 
     let dummy_pks = ClementineBitVMPublicKeys::create_replacable();
 
@@ -494,10 +503,10 @@ impl ClementineBitVMPublicKeys {
         paramset: &'static ProtocolParamset,
     ) -> Vec<WinternitzDerivationPath> {
         vec![
-            Self::get_challenge_sending_watchtowers_derivation(deposit_outpoint, paramset),
-            WinternitzDerivationPath::BitvmAssert(32 * 2, 3, 0, deposit_outpoint, paramset),
-            WinternitzDerivationPath::BitvmAssert(32 * 2, 4, 12, deposit_outpoint, paramset),
-            WinternitzDerivationPath::BitvmAssert(32 * 2, 4, 13, deposit_outpoint, paramset),
+            Self::get_challenge_sending_watchtowers_derivation(deposit_outpoint, paramset), // Will not go into BitVM disprove scripts
+            WinternitzDerivationPath::BitvmAssert(32 * 2, 3, 0, deposit_outpoint, paramset), // This is the Groth16 public output
+            WinternitzDerivationPath::BitvmAssert(32 * 2, 4, 12, deposit_outpoint, paramset), // This is the extra 13th NUM_U256, after chunking by 6 for the first 2 asserts
+            WinternitzDerivationPath::BitvmAssert(32 * 2, 4, 13, deposit_outpoint, paramset), // This is the extra 14th NUM_U256, after chunking by 6 for the first 2 asserts
             WinternitzDerivationPath::BitvmAssert(16 * 2, 5, 360, deposit_outpoint, paramset),
             WinternitzDerivationPath::BitvmAssert(16 * 2, 5, 361, deposit_outpoint, paramset),
             WinternitzDerivationPath::BitvmAssert(16 * 2, 5, 362, deposit_outpoint, paramset),
@@ -641,8 +650,8 @@ pub fn replace_disprove_scripts(pks: &ClementineBitVMPublicKeys) -> Vec<ScriptBu
 
 #[cfg(test)]
 mod tests {
+    use bitcoin::secp256k1::rand::thread_rng;
     use bitcoin::{hashes::Hash, Txid};
-    use secp256k1::rand::thread_rng;
 
     use super::*;
     use crate::{actor::Actor, test::common::create_test_config_with_thread_name};
@@ -678,7 +687,7 @@ mod tests {
     async fn test_generate_fresh_data() {
         let bitvm_cache = generate_fresh_data();
         bitvm_cache
-            .save_to_file("bitvm_cache.bin")
+            .save_to_file("bitvm_cache_new.bin")
             .expect("Failed to save BitVM cache");
     }
 }
