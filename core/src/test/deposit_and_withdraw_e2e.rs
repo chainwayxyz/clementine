@@ -150,7 +150,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         if self.variant == CitreaDepositAndWithdrawE2EVariant::GenesisHeightNonZero {
             let genesis_height: u32 = 10;
 
-            let chain_state = HeaderChainProver::get_chain_state_from_height(
+            let genesis_chain_state_hash = HeaderChainProver::get_chain_state_from_height(
                 rpc.clone(),
                 genesis_height as u64,
                 config.protocol_paramset().network,
@@ -160,8 +160,8 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             .to_hash();
 
             let paramset = ProtocolParamset {
-                genesis_height: genesis_height,
-                genesis_chain_state_hash: chain_state,
+                genesis_height,
+                genesis_chain_state_hash,
                 ..Default::default()
             };
 
