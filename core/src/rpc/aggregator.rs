@@ -48,8 +48,8 @@ use futures::{
     stream::{BoxStream, TryStreamExt},
     FutureExt, Stream, StreamExt, TryFutureExt,
 };
-use std::fmt::Display;
 use secp256k1::musig::{AggregatedNonce, PartialSignature, PublicNonce};
+use std::fmt::Display;
 use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
