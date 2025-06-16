@@ -14,6 +14,7 @@ use crate::{
 mod aggregator;
 mod citrea;
 mod operator;
+mod utils;
 mod verifier;
 
 #[derive(Parser)]
