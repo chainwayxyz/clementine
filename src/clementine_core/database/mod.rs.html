@@ -218,7 +218,8 @@
 <a href="#217" id="217">217</a>
 <a href="#218" id="218">218</a>
 <a href="#219" id="219">219</a>
-<a href="#220" id="220">220</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Database Operations
+<a href="#220" id="220">220</a>
+<a href="#221" id="221">221</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Database Operations
 //!
 //! Database crate provides functions that adds/reads values from PostgreSQL
 //! database.
@@ -231,6 +232,7 @@
 <span class="kw">use crate</span>::{config::BridgeConfig, errors::BridgeError};
 <span class="kw">use </span>alloy::transports::http::reqwest::Url;
 <span class="kw">use </span>eyre::Context;
+<span class="kw">use </span>secrecy::ExposeSecret;
 <span class="kw">use </span>sqlx::postgres::PgConnectOptions;
 <span class="kw">use </span>sqlx::ConnectOptions;
 <span class="kw">use </span>sqlx::{Pool, Postgres};
@@ -354,9 +356,9 @@
     /// the given configuration.
     </span><span class="kw">pub fn </span>get_postgresql_url(config: <span class="kw-2">&amp;</span>BridgeConfig) -&gt; String {
         <span class="string">"postgresql://"</span>.to_owned()
-            + <span class="kw-2">&amp;</span>config.db_user
+            + <span class="kw-2">&amp;</span>config.db_user.expose_secret()
             + <span class="string">":"
-            </span>+ <span class="kw-2">&amp;</span>config.db_password
+            </span>+ <span class="kw-2">&amp;</span>config.db_password.expose_secret()
             + <span class="string">"@"
             </span>+ <span class="kw-2">&amp;</span>config.db_host
             + <span class="string">":"
@@ -400,8 +402,8 @@
         <span class="kw">let </span><span class="kw-2">mut </span>config = BridgeConfig::new();
         config.db_host = <span class="string">"nonexistinghost"</span>.to_string();
         config.db_name = <span class="string">"nonexistingpassword"</span>.to_string();
-        config.db_user = <span class="string">"nonexistinguser"</span>.to_string();
-        config.db_password = <span class="string">"nonexistingpassword"</span>.to_string();
+        config.db_user = <span class="string">"nonexistinguser"</span>.to_string().into();
+        config.db_password = <span class="string">"nonexistingpassword"</span>.to_string().into();
         config.db_port = <span class="number">123</span>;
 
         Database::new(<span class="kw-2">&amp;</span>config).<span class="kw">await</span>.unwrap();
@@ -411,9 +413,9 @@
     </span><span class="kw">fn </span>get_postgresql_url() {
         <span class="kw">let </span><span class="kw-2">mut </span>config = BridgeConfig::new();
 
-        config.db_password = <span class="string">"sofun"</span>.to_string();
+        config.db_password = <span class="string">"sofun"</span>.to_string().into();
         config.db_port = <span class="number">45</span>;
-        config.db_user = <span class="string">"iam"</span>.to_string();
+        config.db_user = <span class="string">"iam"</span>.to_string().into();
         config.db_host = <span class="string">"parties"</span>.to_string();
 
         <span class="macro">assert_eq!</span>(
@@ -427,9 +429,9 @@
         <span class="kw">let </span><span class="kw-2">mut </span>config = BridgeConfig::new();
 
         config.db_name = <span class="string">"times"</span>.to_string();
-        config.db_password = <span class="string">"funnier"</span>.to_string();
+        config.db_password = <span class="string">"funnier"</span>.to_string().into();
         config.db_port = <span class="number">45</span>;
-        config.db_user = <span class="string">"butyouare"</span>.to_string();
+        config.db_user = <span class="string">"butyouare"</span>.to_string().into();
         config.db_host = <span class="string">"parties"</span>.to_string();
 
         <span class="macro">assert_eq!</span>(

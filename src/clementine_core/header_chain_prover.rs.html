@@ -2040,8 +2040,8 @@
         </span>std::env::set_var(<span class="string">"BITCOIN_NETWORK"</span>, <span class="string">"testnet4"</span>);
         <span class="kw">let </span>rpc = ExtendedRpc::connect(
             <span class="string">"http://127.0.0.1:48332"</span>.to_string(),
-            <span class="string">"admin"</span>.to_string(),
-            <span class="string">"admin"</span>.to_string(),
+            <span class="string">"admin"</span>.to_string().into(),
+            <span class="string">"admin"</span>.to_string().into(),
         )
         .<span class="kw">await
         </span>.unwrap();

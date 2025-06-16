@@ -945,7 +945,15 @@
 <a href="#944" id="944">944</a>
 <a href="#945" id="945">945</a>
 <a href="#946" id="946">946</a>
-<a href="#947" id="947">947</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Bitcoin Extended RPC Interface
+<a href="#947" id="947">947</a>
+<a href="#948" id="948">948</a>
+<a href="#949" id="949">949</a>
+<a href="#950" id="950">950</a>
+<a href="#951" id="951">951</a>
+<a href="#952" id="952">952</a>
+<a href="#953" id="953">953</a>
+<a href="#954" id="954">954</a>
+<a href="#955" id="955">955</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Bitcoin Extended RPC Interface
 //!
 //! Extended RPC interface communicates with the Bitcoin node. It features some
 //! common wrappers around typical RPC operations as well as direct
@@ -971,6 +979,8 @@
 <span class="kw">use </span>eyre::eyre;
 <span class="kw">use </span>eyre::Context;
 <span class="kw">use </span>eyre::OptionExt;
+<span class="kw">use </span>secrecy::ExposeSecret;
+<span class="kw">use </span>secrecy::SecretString;
 <span class="kw">use </span>std::str::FromStr;
 <span class="kw">use </span>std::sync::Arc;
 
@@ -983,17 +993,25 @@
 <span class="kw">use </span><span class="kw">crate</span>::deposit::OperatorData;
 <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
 <span class="kw">use </span><span class="kw">crate</span>::operator::RoundIndex;
+<span class="kw">use </span>secrecy::SecretBox;
 
 <span class="kw">type </span><span class="prelude-ty">Result</span>&lt;T&gt; = std::result::Result&lt;T, BitcoinRPCError&gt;;
 
 <span class="doccomment">/// Bitcoin RPC wrapper. Extended RPC provides useful wrapper functions for
 /// common operations, as well as direct access to Bitcoin RPC. Bitcoin RPC can
 /// be directly accessed via `client` member.
-</span><span class="attr">#[derive(Debug, Clone)]
+</span><span class="attr">#[derive(Clone)]
 </span><span class="kw">pub struct </span>ExtendedRpc {
     <span class="kw">pub </span>url: String,
-    auth: Auth,
     <span class="kw">pub </span>client: Arc&lt;Client&gt;,
+}
+
+<span class="kw">impl </span>std::fmt::Debug <span class="kw">for </span>ExtendedRpc {
+    <span class="kw">fn </span>fmt(<span class="kw-2">&amp;</span><span class="self">self</span>, f: <span class="kw-2">&amp;mut </span>std::fmt::Formatter&lt;<span class="lifetime">'_</span>&gt;) -&gt; std::fmt::Result {
+        f.debug_struct(<span class="string">"ExtendedRpc"</span>)
+            .field(<span class="string">"url"</span>, <span class="kw-2">&amp;</span><span class="self">self</span>.url)
+            .finish()
+    }
 }
 
 <span class="doccomment">/// Errors that can occur during Bitcoin RPC operations.
@@ -1014,16 +1032,18 @@
 
 <span class="kw">impl </span>ExtendedRpc {
     <span class="doccomment">/// Connects to Bitcoin RPC and returns a new [`ExtendedRpc`].
-    </span><span class="kw">pub async fn </span>connect(url: String, user: String, password: String) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="self">Self</span>&gt; {
-        <span class="kw">let </span>auth = Auth::UserPass(user, password);
+    </span><span class="kw">pub async fn </span>connect(url: String, user: SecretString, password: SecretString) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="self">Self</span>&gt; {
+        <span class="kw">let </span>auth = Auth::UserPass(
+            user.expose_secret().to_string(),
+            password.expose_secret().to_string(),
+        );
 
-        <span class="kw">let </span>rpc = Client::new(<span class="kw-2">&amp;</span>url, auth.clone())
+        <span class="kw">let </span>rpc = Client::new(<span class="kw-2">&amp;</span>url, auth)
             .<span class="kw">await
             </span>.wrap_err(<span class="string">"Failed to connect to Bitcoin RPC"</span>)<span class="question-mark">?</span>;
 
         <span class="prelude-val">Ok</span>(<span class="self">Self </span>{
             url,
-            auth,
             client: Arc::new(rpc),
         })
     }
@@ -1640,12 +1660,9 @@
     ///
     /// - [`ExtendedRpc`]: A new instance of ExtendedRpc with a new client connection.
     </span><span class="kw">pub async fn </span>clone_inner(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; std::result::Result&lt;<span class="self">Self</span>, bitcoincore_rpc::Error&gt; {
-        <span class="kw">let </span>new_client = Client::new(<span class="kw-2">&amp;</span><span class="self">self</span>.url, <span class="self">self</span>.auth.clone()).<span class="kw">await</span><span class="question-mark">?</span>;
-
         <span class="prelude-val">Ok</span>(<span class="self">Self </span>{
             url: <span class="self">self</span>.url.clone(),
-            auth: <span class="self">self</span>.auth.clone(),
-            client: Arc::new(new_client),
+            client: <span class="self">self</span>.client.clone(),
         })
     }
 }
@@ -1681,7 +1698,6 @@
 
         <span class="kw">let </span>cloned_rpc = rpc.clone_inner().<span class="kw">await</span>.unwrap();
         <span class="macro">assert_eq!</span>(cloned_rpc.url, rpc.url);
-        <span class="macro">assert_eq!</span>(cloned_rpc.auth, rpc.auth);
         <span class="macro">assert_eq!</span>(cloned_rpc.client.get_block_count().<span class="kw">await</span>.unwrap(), height);
         <span class="macro">assert_eq!</span>(
             cloned_rpc.client.get_block_hash(height).<span class="kw">await</span>.unwrap(),

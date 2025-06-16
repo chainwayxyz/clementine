@@ -371,7 +371,48 @@
 <a href="#370" id="370">370</a>
 <a href="#371" id="371">371</a>
 <a href="#372" id="372">372</a>
-<a href="#373" id="373">373</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Configuration Options
+<a href="#373" id="373">373</a>
+<a href="#374" id="374">374</a>
+<a href="#375" id="375">375</a>
+<a href="#376" id="376">376</a>
+<a href="#377" id="377">377</a>
+<a href="#378" id="378">378</a>
+<a href="#379" id="379">379</a>
+<a href="#380" id="380">380</a>
+<a href="#381" id="381">381</a>
+<a href="#382" id="382">382</a>
+<a href="#383" id="383">383</a>
+<a href="#384" id="384">384</a>
+<a href="#385" id="385">385</a>
+<a href="#386" id="386">386</a>
+<a href="#387" id="387">387</a>
+<a href="#388" id="388">388</a>
+<a href="#389" id="389">389</a>
+<a href="#390" id="390">390</a>
+<a href="#391" id="391">391</a>
+<a href="#392" id="392">392</a>
+<a href="#393" id="393">393</a>
+<a href="#394" id="394">394</a>
+<a href="#395" id="395">395</a>
+<a href="#396" id="396">396</a>
+<a href="#397" id="397">397</a>
+<a href="#398" id="398">398</a>
+<a href="#399" id="399">399</a>
+<a href="#400" id="400">400</a>
+<a href="#401" id="401">401</a>
+<a href="#402" id="402">402</a>
+<a href="#403" id="403">403</a>
+<a href="#404" id="404">404</a>
+<a href="#405" id="405">405</a>
+<a href="#406" id="406">406</a>
+<a href="#407" id="407">407</a>
+<a href="#408" id="408">408</a>
+<a href="#409" id="409">409</a>
+<a href="#410" id="410">410</a>
+<a href="#411" id="411">411</a>
+<a href="#412" id="412">412</a>
+<a href="#413" id="413">413</a>
+<a href="#414" id="414">414</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Configuration Options
 //!
 //! This module defines configuration options.
 //!
@@ -390,6 +431,7 @@
 <span class="kw">use </span>bitcoin::secp256k1::SecretKey;
 <span class="kw">use </span>bitcoin::{Address, Amount, OutPoint};
 <span class="kw">use </span>protocol::ProtocolParamset;
+<span class="kw">use </span>secrecy::{ExposeSecret, SecretString};
 <span class="kw">use </span>serde::{Deserialize, Serialize};
 <span class="kw">use </span>std::str::FromStr;
 <span class="kw">use </span>std::{fs::File, io::Read, path::PathBuf};
@@ -470,7 +512,7 @@
 }
 
 <span class="doccomment">/// Configuration options for any Clementine target (tests, binaries etc.).
-</span><span class="attr">#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+</span><span class="attr">#[derive(Debug, Clone, Deserialize)]
 </span><span class="kw">pub struct </span>BridgeConfig {
     <span class="doccomment">/// Protocol paramset
     ///
@@ -492,17 +534,17 @@
     <span class="doccomment">/// Bitcoin remote procedure call URL.
     </span><span class="kw">pub </span>bitcoin_rpc_url: String,
     <span class="doccomment">/// Bitcoin RPC user.
-    </span><span class="kw">pub </span>bitcoin_rpc_user: String,
+    </span><span class="kw">pub </span>bitcoin_rpc_user: SecretString,
     <span class="doccomment">/// Bitcoin RPC user password.
-    </span><span class="kw">pub </span>bitcoin_rpc_password: String,
+    </span><span class="kw">pub </span>bitcoin_rpc_password: SecretString,
     <span class="doccomment">/// PostgreSQL database host address.
     </span><span class="kw">pub </span>db_host: String,
     <span class="doccomment">/// PostgreSQL database port.
     </span><span class="kw">pub </span>db_port: usize,
     <span class="doccomment">/// PostgreSQL database user name.
-    </span><span class="kw">pub </span>db_user: String,
+    </span><span class="kw">pub </span>db_user: SecretString,
     <span class="doccomment">/// PostgreSQL database user password.
-    </span><span class="kw">pub </span>db_password: String,
+    </span><span class="kw">pub </span>db_password: SecretString,
     <span class="doccomment">/// PostgreSQL database name.
     </span><span class="kw">pub </span>db_name: String,
     <span class="doccomment">/// Citrea RPC URL.
@@ -611,6 +653,49 @@
     }
 }
 
+<span class="comment">// only needed for one test
+</span><span class="attr">#[cfg(test)]
+</span><span class="kw">impl </span>PartialEq <span class="kw">for </span>BridgeConfig {
+    <span class="kw">fn </span>eq(<span class="kw-2">&amp;</span><span class="self">self</span>, other: <span class="kw-2">&amp;</span><span class="self">Self</span>) -&gt; bool {
+        <span class="kw">let </span><span class="kw-2">mut </span>all_eq = <span class="self">self</span>.protocol_paramset == other.protocol_paramset
+            &amp;&amp; <span class="self">self</span>.host == other.host
+            &amp;&amp; <span class="self">self</span>.port == other.port
+            &amp;&amp; <span class="self">self</span>.secret_key == other.secret_key
+            &amp;&amp; <span class="self">self</span>.winternitz_secret_key == other.winternitz_secret_key
+            &amp;&amp; <span class="self">self</span>.operator_withdrawal_fee_sats == other.operator_withdrawal_fee_sats
+            &amp;&amp; <span class="self">self</span>.bitcoin_rpc_url == other.bitcoin_rpc_url
+            &amp;&amp; <span class="self">self</span>.bitcoin_rpc_user.expose_secret() == other.bitcoin_rpc_user.expose_secret()
+            &amp;&amp; <span class="self">self</span>.bitcoin_rpc_password.expose_secret()
+                == other.bitcoin_rpc_password.expose_secret()
+            &amp;&amp; <span class="self">self</span>.db_host == other.db_host
+            &amp;&amp; <span class="self">self</span>.db_port == other.db_port
+            &amp;&amp; <span class="self">self</span>.db_user.expose_secret() == other.db_user.expose_secret()
+            &amp;&amp; <span class="self">self</span>.db_password.expose_secret() == other.db_password.expose_secret()
+            &amp;&amp; <span class="self">self</span>.db_name == other.db_name
+            &amp;&amp; <span class="self">self</span>.citrea_rpc_url == other.citrea_rpc_url
+            &amp;&amp; <span class="self">self</span>.citrea_light_client_prover_url == other.citrea_light_client_prover_url
+            &amp;&amp; <span class="self">self</span>.citrea_chain_id == other.citrea_chain_id
+            &amp;&amp; <span class="self">self</span>.bridge_contract_address == other.bridge_contract_address
+            &amp;&amp; <span class="self">self</span>.header_chain_proof_path == other.header_chain_proof_path
+            &amp;&amp; <span class="self">self</span>.security_council == other.security_council
+            &amp;&amp; <span class="self">self</span>.verifier_endpoints == other.verifier_endpoints
+            &amp;&amp; <span class="self">self</span>.operator_endpoints == other.operator_endpoints
+            &amp;&amp; <span class="self">self</span>.operator_reimbursement_address == other.operator_reimbursement_address
+            &amp;&amp; <span class="self">self</span>.operator_collateral_funding_outpoint
+                == other.operator_collateral_funding_outpoint
+            &amp;&amp; <span class="self">self</span>.server_cert_path == other.server_cert_path
+            &amp;&amp; <span class="self">self</span>.server_key_path == other.server_key_path
+            &amp;&amp; <span class="self">self</span>.client_cert_path == other.client_cert_path
+            &amp;&amp; <span class="self">self</span>.client_key_path == other.client_key_path
+            &amp;&amp; <span class="self">self</span>.ca_cert_path == other.ca_cert_path
+            &amp;&amp; <span class="self">self</span>.client_verification == other.client_verification
+            &amp;&amp; <span class="self">self</span>.aggregator_cert_path == other.aggregator_cert_path
+            &amp;&amp; <span class="self">self</span>.test_params == other.test_params;
+
+        all_eq
+    }
+}
+
 <span class="kw">impl </span>Default <span class="kw">for </span>BridgeConfig {
     <span class="kw">fn </span>default() -&gt; <span class="self">Self </span>{
         <span class="self">Self </span>{
@@ -626,13 +711,13 @@
             operator_withdrawal_fee_sats: <span class="prelude-val">Some</span>(Amount::from_sat(<span class="number">100000</span>)),
 
             bitcoin_rpc_url: <span class="string">"http://127.0.0.1:18443/wallet/admin"</span>.to_string(),
-            bitcoin_rpc_user: <span class="string">"admin"</span>.to_string(),
-            bitcoin_rpc_password: <span class="string">"admin"</span>.to_string(),
+            bitcoin_rpc_user: <span class="string">"admin"</span>.to_string().into(),
+            bitcoin_rpc_password: <span class="string">"admin"</span>.to_string().into(),
 
             db_host: <span class="string">"127.0.0.1"</span>.to_string(),
             db_port: <span class="number">5432</span>,
-            db_user: <span class="string">"clementine"</span>.to_string(),
-            db_password: <span class="string">"clementine"</span>.to_string(),
+            db_user: <span class="string">"clementine"</span>.to_string().into(),
+            db_password: <span class="string">"clementine"</span>.to_string().into(),
             db_name: <span class="string">"clementine"</span>.to_string(),
 
             citrea_rpc_url: <span class="string">""</span>.to_string(),
@@ -686,9 +771,6 @@
         <span class="comment">// In case of a incorrect file content, we should receive an error.
         </span><span class="kw">let </span>content = <span class="string">"brokenfilecontent"</span>;
         <span class="macro">assert!</span>(BridgeConfig::try_parse_from(content.to_string()).is_err());
-
-        <span class="kw">let </span>init = BridgeConfig::new();
-        BridgeConfig::try_parse_from(toml::to_string(<span class="kw-2">&amp;</span>init).unwrap()).unwrap();
     }
 
     <span class="attr">#[test]
