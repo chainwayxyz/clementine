@@ -1,3 +1,10 @@
+use crate::create_minimal_config;
+use clap::Subcommand;
+use clementine_core::rpc::clementine::{
+    clementine_verifier_client::ClementineVerifierClient, Empty,
+};
+use tonic::Request;
+
 #[derive(Subcommand)]
 pub enum VerifierCommands {
     /// Get verifier parameters

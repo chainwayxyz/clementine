@@ -1,3 +1,13 @@
+use crate::create_minimal_config;
+use bitcoin::secp256k1::schnorr;
+use bitcoincore_rpc::RpcApi;
+use clap::Subcommand;
+use clementine_core::{
+    citrea::{CitreaClient, CitreaClientT},
+    extended_rpc, UTXO,
+};
+use std::str::FromStr;
+
 #[derive(Subcommand)]
 pub enum CitreaCommands {
     /// Make a deposit to Citrea for a tx with given txid

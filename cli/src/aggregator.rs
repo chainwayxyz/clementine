@@ -1,3 +1,20 @@
+use crate::create_minimal_config;
+use bitcoin::{hashes::Hash, ScriptBuf};
+use bitcoincore_rpc::RpcApi;
+use clap::Subcommand;
+use clementine_core::{
+    deposit::SecurityCouncil,
+    extended_rpc,
+    rpc::clementine::{
+        self, clementine_aggregator_client::ClementineAggregatorClient, deposit::DepositData,
+        BaseDeposit, Deposit, Empty, Outpoint, ReplacementDeposit, SendMoveTxRequest,
+    },
+    utils::{bitcoin_merkle::get_block_merkle_proof, citrea::get_transaction_params_for_citrea},
+    EVMAddress,
+};
+use std::str::FromStr;
+use tonic::Request;
+
 #[derive(Subcommand)]
 pub enum AggregatorCommands {
     /// Setup the system

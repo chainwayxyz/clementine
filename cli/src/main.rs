@@ -1,25 +1,15 @@
 //! This module defines a command line interface for the RPC client.
 
-use bitcoin::{hashes::Hash, secp256k1::schnorr, ScriptBuf};
-use bitcoincore_rpc::RpcApi;
 use clap::{Parser, Subcommand};
-use clementine_core::{
-    citrea::{CitreaClient, CitreaClientT},
-    config::BridgeConfig,
-    deposit::SecurityCouncil,
-    extended_rpc,
-    rpc::clementine::{
-        self, clementine_aggregator_client::ClementineAggregatorClient,
-        clementine_operator_client::ClementineOperatorClient,
-        clementine_verifier_client::ClementineVerifierClient, deposit::DepositData, Actors,
-        BaseDeposit, Deposit, Empty, Outpoint, ReplacementDeposit, SendMoveTxRequest,
-    },
-    utils::{bitcoin_merkle::get_block_merkle_proof, citrea::get_transaction_params_for_citrea},
-    EVMAddress, UTXO,
-};
+use clementine_core::config::BridgeConfig;
 use std::path::PathBuf;
-use std::str::FromStr;
-use tonic::Request;
+
+use crate::{
+    aggregator::{handle_aggregator_call, AggregatorCommands},
+    citrea::{handle_citrea_call, CitreaCommands},
+    operator::{handle_operator_call, OperatorCommands},
+    verifier::{handle_verifier_call, VerifierCommands},
+};
 
 mod aggregator;
 mod citrea;

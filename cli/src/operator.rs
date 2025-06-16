@@ -1,3 +1,11 @@
+use crate::create_minimal_config;
+use clap::Subcommand;
+use clementine_core::rpc::clementine::{
+    self, clementine_operator_client::ClementineOperatorClient, deposit::DepositData, Actors,
+    BaseDeposit, Deposit, Empty, Outpoint,
+};
+use tonic::Request;
+
 #[derive(Subcommand)]
 pub enum OperatorCommands {
     /// Get deposit keys
