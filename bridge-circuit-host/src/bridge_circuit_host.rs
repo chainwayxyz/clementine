@@ -11,6 +11,7 @@ use circuits_lib::bridge_circuit::merkle_tree::BitcoinMerkleTree;
 use circuits_lib::bridge_circuit::spv::SPV;
 use circuits_lib::bridge_circuit::structs::WorkOnlyCircuitInput;
 use circuits_lib::bridge_circuit::transaction::CircuitTransaction;
+use eyre::{eyre, Result, WrapErr};
 
 use circuits_lib::common::constants::{
     MAINNET_HEADER_CHAIN_METHOD_ID, REGTEST_HEADER_CHAIN_METHOD_ID, SIGNET_HEADER_CHAIN_METHOD_ID,
@@ -50,39 +51,40 @@ const TESTNET4_WORK_ONLY_ELF: &[u8] =
 ///
 /// # Returns
 ///
-/// Returns a tuple consisting of:
+/// Returns a Result containing a tuple consisting of:
 /// - `ark_groth16::Proof<Bn254>`: The final Groth16 proof.
 /// - `[u8; 31]`: The Groth16 output.
 /// - `BridgeCircuitBitvmInputs`: The structured inputs for the Bridge Circuit BitVM.
 ///
-/// # Panics
+/// # Errors
 ///
-/// This function will panic if:
+/// This function will return an error if:
 /// - The number of watchtowers does not match expectations.
 /// - The header chain proof output differs from the expected value.
 /// - Light client proof verification fails.
 /// - SPV verification fails.
 /// - The journal hash does not match the expected hash.
+/// - Any serialization/deserialization operation fails.
+/// - The network is unsupported.
 ///
 pub fn prove_bridge_circuit(
     bridge_circuit_host_params: BridgeCircuitHostParams,
     bridge_circuit_elf: &[u8],
-) -> (
+) -> Result<(
     ark_groth16::Proof<Bn254>,
     [u8; 31],
     BridgeCircuitBitvmInputs,
-) {
+)> {
     tracing::info!("Starting bridge circuit proof generation");
     let bridge_circuit_input = bridge_circuit_host_params
         .clone()
         .into_bridge_circuit_input();
 
-    let header_chain_proof_output_serialized =
-        borsh::to_vec(&bridge_circuit_input.hcp).expect("Could not serialize header chain output");
+    let header_chain_proof_output_serialized = borsh::to_vec(&bridge_circuit_input.hcp)
+        .wrap_err("Could not serialize header chain output")?;
 
     if bridge_circuit_input.lcp.lc_journal != bridge_circuit_host_params.lcp_receipt.journal.bytes {
-        tracing::error!("Light client proof output mismatch");
-        panic!("Light client proof output mismatch");
+        return Err(eyre!("Light client proof output mismatch"));
     }
 
     // if bridge_circuit_host_params.lcp_receipt.verify(LC_IMAGE_ID).is_err()
@@ -94,8 +96,7 @@ pub fn prove_bridge_circuit(
     if header_chain_proof_output_serialized
         != bridge_circuit_host_params.headerchain_receipt.journal.bytes
     {
-        tracing::error!("Header chain proof output mismatch");
-        panic!("Header chain proof output mismatch");
+        return Err(eyre!("Header chain proof output mismatch"));
     }
 
     let header_chain_method_id = match bridge_circuit_host_params.network {
@@ -103,7 +104,7 @@ pub fn prove_bridge_circuit(
         bitcoin::Network::Testnet4 => TESTNET4_HEADER_CHAIN_METHOD_ID,
         bitcoin::Network::Signet => SIGNET_HEADER_CHAIN_METHOD_ID,
         bitcoin::Network::Regtest => REGTEST_HEADER_CHAIN_METHOD_ID,
-        _ => panic!("Unsupported network"),
+        _ => return Err(eyre!("Unsupported network")),
     };
 
     // Check for headerchain receipt
@@ -112,8 +113,7 @@ pub fn prove_bridge_circuit(
         .verify(header_chain_method_id)
         .is_err()
     {
-        tracing::error!("Header chain receipt verification failed");
-        panic!("Header chain receipt verification failed");
+        return Err(eyre!("Header chain receipt verification failed"));
     }
 
     // SPV verification
@@ -124,8 +124,7 @@ pub fn prove_bridge_circuit(
             .block_hashes_mmr
             .clone(),
     ) {
-        tracing::error!("SPV verification failed");
-        panic!("SPV verification failed");
+        return Err(eyre!("SPV verification failed"));
     }
 
     let public_inputs: SuccinctBridgeCircuitPublicInputs =
@@ -134,51 +133,66 @@ pub fn prove_bridge_circuit(
     let journal_hash = public_inputs.host_journal_hash();
 
     let mut binding = ExecutorEnv::builder();
-    let env = binding.write_slice(&borsh::to_vec(&bridge_circuit_input).unwrap());
-    // let env = env.add_assumption(bridge_circuit_host_params.lcp_receipt);
-    let env = env.add_assumption(bridge_circuit_host_params.headerchain_receipt);
-    let env = env.build().unwrap();
+    let env = binding
+        .write_slice(
+            &borsh::to_vec(&bridge_circuit_input)
+                .wrap_err("Failed to serialize bridge circuit input")?,
+        )
+        .add_assumption(bridge_circuit_host_params.headerchain_receipt)
+        .build()
+        .map_err(|e| eyre!("Failed to build execution environment: {}", e))?;
     let prover = default_prover();
 
     tracing::info!("Checks complete, proving bridge circuit");
 
     let succinct_receipt = prover
         .prove_with_opts(env, bridge_circuit_elf, &ProverOpts::succinct())
-        .unwrap()
+        .map_err(|e| eyre!("Failed to generate bridge circuit proof: {}", e))?
         .receipt;
 
     tracing::info!("Bridge circuit proof generated");
 
-    let succinct_receipt_journal: [u8; 32] =
-        succinct_receipt.clone().journal.bytes.try_into().unwrap();
+    let succinct_receipt_journal: [u8; 32] = succinct_receipt
+        .clone()
+        .journal
+        .bytes
+        .try_into()
+        .map_err(|e| eyre!("Failed to convert receipt journal bytes to array: {:?}", e))?;
 
     if *journal_hash.as_bytes() != succinct_receipt_journal {
-        panic!("Journal hash mismatch");
+        return Err(eyre!("Journal hash mismatch"));
     }
 
-    let bridge_circuit_method_id = compute_image_id(bridge_circuit_elf).unwrap();
+    let bridge_circuit_method_id = compute_image_id(bridge_circuit_elf)
+        .map_err(|e| eyre!("Failed to compute image ID: {}", e))?;
     let combined_method_id_constant =
         calculate_succinct_output_prefix(bridge_circuit_method_id.as_bytes());
     let (g16_proof, g16_output) = if is_dev_mode() {
-        stark_to_bitvm2_g16_dev_mode(succinct_receipt, &succinct_receipt_journal)
+        stark_to_bitvm2_g16_dev_mode(succinct_receipt, &succinct_receipt_journal)?
     } else {
         stark_to_bitvm2_g16(
-            succinct_receipt.inner.succinct().unwrap().clone(),
+            succinct_receipt
+                .inner
+                .succinct()
+                .wrap_err("Failed to get succinct receipt")?
+                .clone(),
             &succinct_receipt_journal,
-        )
+        )?
     };
 
     tracing::info!("Bridge circuit Groth16 proof generated");
 
     let risc0_g16_seal_vec = g16_proof.to_vec();
-    let risc0_g16_256 = risc0_g16_seal_vec[0..256].try_into().unwrap();
+    let risc0_g16_256 = risc0_g16_seal_vec[0..256]
+        .try_into()
+        .wrap_err("Failed to convert groth16 seal to array")?;
     let circuit_g16_proof = CircuitGroth16Proof::from_seal(risc0_g16_256);
     let ark_groth16_proof: ark_groth16::Proof<Bn254> = circuit_g16_proof.into();
 
     let deposit_constant = public_inputs.deposit_constant.0;
     tracing::debug!("Deposit constant - circuit: {:?}", deposit_constant);
 
-    (
+    Ok((
         ark_groth16_proof,
         g16_output,
         BridgeCircuitBitvmInputs {
@@ -188,7 +202,7 @@ pub fn prove_bridge_circuit(
             deposit_constant: public_inputs.deposit_constant.0,
             combined_method_id: combined_method_id_constant,
         },
-    )
+    ))
 }
 
 /// Constructs an SPV (Simplified Payment Verification) proof.

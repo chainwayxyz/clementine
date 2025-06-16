@@ -392,7 +392,7 @@ impl HeaderChainProver {
                 .map_err(|e| eyre::eyre!(e))?
                 .receipt;
             let journal = stark_receipt.journal.bytes.clone();
-            dev_stark_to_risc0_g16(stark_receipt, &journal)
+            dev_stark_to_risc0_g16(stark_receipt, &journal)?
         };
         tracing::warn!("HCP work only proof proof generated");
         let work_output: WorkOnlyCircuitOutput = borsh::from_slice(&receipt.journal.bytes)
