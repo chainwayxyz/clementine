@@ -113,8 +113,6 @@ pub struct ProtocolParamset {
     pub watchtower_challenge_timeout_timelock: u16,
     /// Time to wait after a kickoff to send a watchtower challenge
     pub time_to_send_watchtower_challenge: u16,
-    /// Time to wait before trying to disprove (so that you collect all operator challenge acks before disproving)
-    pub time_to_disprove: u16,
     /// Amount of depth a block should have from the current head to be considered finalized
     pub finality_depth: u32,
     /// start height to sync the chain from, i.e. the height bridge was deployed
@@ -188,7 +186,6 @@ impl ProtocolParamset {
             time_to_send_watchtower_challenge: read_string_from_env_then_parse::<u16>(
                 "TIME_TO_SEND_WATCHTOWER_CHALLENGE",
             )?,
-            time_to_disprove: read_string_from_env_then_parse::<u16>("TIME_TO_DISPROVE")?,
             finality_depth: read_string_from_env_then_parse::<u32>("FINALITY_DEPTH")?,
             start_height: read_string_from_env_then_parse::<u32>("START_HEIGHT")?,
             genesis_height: read_string_from_env_then_parse::<u32>("GENESIS_HEIGHT")?,
@@ -267,7 +264,6 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     operator_reimburse_timelock: 2,
     watchtower_challenge_timeout_timelock: 4 * BLOCKS_PER_HOUR * 2,
     time_to_send_watchtower_challenge: 4 * BLOCKS_PER_HOUR * 3 / 2,
-    time_to_disprove: 4 * BLOCKS_PER_HOUR * 4 + 4 * BLOCKS_PER_HOUR / 2,
     latest_blockhash_timeout_timelock: 4 * BLOCKS_PER_HOUR * 5 / 2,
     finality_depth: 1,
     start_height: 190,
