@@ -59,6 +59,14 @@ pub struct TimeoutTestParams {
 }
 
 impl TimeoutTestParams {
+    pub fn any_timeout(&self) -> bool {
+        self.key_distribution_verifier_idx.is_some()
+            || self.key_collection_operator_idx.is_some()
+            || self.nonce_stream_creation_verifier_idx.is_some()
+            || self.partial_sig_stream_creation_verifier_idx.is_some()
+            || self.operator_sig_collection_operator_idx.is_some()
+    }
+
     pub async fn hook_timeout_key_distribution_verifier(&self, idx: usize) {
         if self.key_distribution_verifier_idx == Some(idx) {
             use tokio::time::sleep;

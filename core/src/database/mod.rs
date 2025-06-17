@@ -70,10 +70,23 @@ impl Database {
         let mut opt = PgConnectOptions::from_url(&url).map_err(BridgeError::DatabaseError)?;
         opt = opt.log_slow_statements(log::LevelFilter::Warn, Duration::from_secs(3));
 
-        match sqlx::PgPool::connect_with(opt).await {
-            Ok(connection) => Ok(Self { connection }),
-            Err(e) => Err(BridgeError::DatabaseError(e)),
-        }
+        let opts = sqlx::postgres::PgPoolOptions::new();
+
+        #[cfg(test)]
+        let opts = if config.test_params.timeout_params.any_timeout() {
+            // increase timeout for pool connections beyond any other to avoid flakiness
+            opts.acquire_timeout(Duration::from_secs(10000))
+                .acquire_slow_threshold(Duration::from_secs(10000))
+        } else {
+            opts
+        };
+
+        let connection = opts
+            .connect_with(opt)
+            .await
+            .map_err(BridgeError::DatabaseError)?;
+
+        Ok(Self { connection })
     }
 
     /// Closes database connection.
