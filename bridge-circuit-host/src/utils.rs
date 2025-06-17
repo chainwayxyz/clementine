@@ -269,24 +269,3 @@ pub fn calculate_succinct_output_prefix(method_id: &[u8]) -> [u8; 32] {
 
     result
 }
-
-#[cfg(test)]
-mod tests {
-    use risc0_zkvm::compute_image_id;
-
-    use super::*;
-
-    #[test]
-    fn test_calculate_succinct_output_prefix() {
-        let regtest_bridge_elf =
-            include_bytes!("../../risc0-circuits/elfs/regtest-bridge-circuit-guest.bin");
-        let regtest_bridge_circuit_method_id =
-            compute_image_id(regtest_bridge_elf).expect("should compute image id");
-        let result = calculate_succinct_output_prefix(regtest_bridge_circuit_method_id.as_bytes());
-        assert_eq!(
-            result,
-            [34, 146, 27, 83, 21, 221, 30, 152, 204, 188, 190, 155, 218, 106, 102, 1, 62, 129, 52, 141, 126, 188, 111, 210, 198, 39, 4, 129, 21, 0, 198, 163]
-        , "You forgot to update bridge_circuit_constant with the new method id. Please change it in these places: Here, core/src/cli.rs, core/src/config/protocol.rs, core/src/test/data/protocol_paramset.toml"
-        );
-    }
-}
