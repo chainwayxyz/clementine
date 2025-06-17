@@ -434,9 +434,6 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             vout: UtxoVout::ReimburseInKickoff.get_vout(),
         };
 
-        confirm_fee_payer_utxos(&rpc, db.clone(), kickoff_txid)
-            .await
-            .unwrap();
         let kickoff_block_height =
             mine_once_after_in_mempool(&rpc, kickoff_txid, Some("Kickoff tx"), Some(300)).await?;
 
@@ -827,9 +824,6 @@ async fn mock_citrea_run_truthful() {
         vout: UtxoVout::ReimburseInKickoff.get_vout(),
     };
 
-    confirm_fee_payer_utxos(&rpc, db.clone(), kickoff_txid)
-        .await
-        .unwrap();
     let _kickoff_block_height =
         mine_once_after_in_mempool(&rpc, kickoff_txid, Some("Kickoff tx"), Some(300))
             .await
@@ -1196,9 +1190,6 @@ async fn mock_citrea_run_malicious() {
 
     tracing::info!("Kickoff txid: {:?}", kickoff_txid);
 
-    confirm_fee_payer_utxos(&rpc, db.clone(), kickoff_txid)
-        .await
-        .unwrap();
     let _kickoff_block_height =
         mine_once_after_in_mempool(&rpc, kickoff_txid, Some("Kickoff tx"), Some(1800))
             .await
@@ -1487,9 +1478,6 @@ async fn mock_citrea_run_malicious_after_exit() {
         .try_into()
         .unwrap();
 
-    confirm_fee_payer_utxos(&rpc, db.clone(), kickoff_txid)
-        .await
-        .unwrap();
     let _kickoff_block_height =
         mine_once_after_in_mempool(&rpc, kickoff_txid, Some("Kickoff tx"), Some(1800))
             .await
