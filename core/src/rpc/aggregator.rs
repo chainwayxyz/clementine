@@ -1402,7 +1402,7 @@ impl ClementineAggregator for Aggregator {
             // Right now we collect all operator sigs then start to send them, we can do it simultaneously in the future
             // Need to change sig verification ordering in deposit_finalize() in verifiers so that we verify
             // 1st signature of all operators, then 2nd of all operators etc.
-            let operator_sigs = operator_sigs_fut
+            let all_op_sigs = operator_sigs_fut
                 .await
                 .map_err(|_| Status::internal("panic when collecting operator signatures"))??;
 
@@ -1416,8 +1416,8 @@ impl ClementineAggregator for Aggregator {
                     let send_operator_sigs: Vec<_> = deposit_finalize_sender
                         .iter()
                         .map(|tx| async {
-                            for sigs in operator_sigs.iter() {
-                                for sig in sigs.iter() {
+                            for one_op_sigs in all_op_sigs.iter() {
+                                for sig in one_op_sigs.iter() {
                                     let deposit_finalize_param: VerifierDepositFinalizeParams =
                                         sig.into();
 
