@@ -162,14 +162,20 @@ pub async fn mine_once_after_in_mempool(
     let start = std::time::Instant::now();
     let tx_name = tx_name.unwrap_or("Unnamed tx");
 
+    if rpc
+        .client
+        .get_transaction(&txid, None)
+        .await
+        .is_ok_and(|tx| tx.info.blockhash.is_some())
+    {
+        return Err(eyre::eyre!("{} is already mined", tx_name).into());
+    }
+
     loop {
         if start.elapsed() > std::time::Duration::from_secs(timeout) {
-            return Err(eyre::eyre!(
-                "{} did not land onchain within {} seconds",
-                tx_name,
-                timeout
-            )
-            .into());
+            return Err(
+                eyre::eyre!("{} didn't hit mempool within {} seconds", tx_name, timeout).into(),
+            );
         }
 
         if rpc.client.get_mempool_entry(&txid).await.is_ok() {
@@ -611,11 +617,13 @@ pub fn ensure_test_certificates() -> Result<(), std::io::Error> {
 
 mod tests {
     use crate::{
+        actor::Actor,
         extended_rpc::ExtendedRpc,
         test::common::{
             citrea::MockCitreaClient, create_regtest_rpc, create_test_config_with_thread_name,
         },
     };
+    use bitcoin::{absolute::LockTime, transaction::Version, Transaction};
     use bitcoincore_rpc::RpcApi;
 
     #[ignore = "Tested everywhere, no need to run again"]
@@ -628,6 +636,51 @@ mod tests {
         let _ = super::run_single_deposit::<MockCitreaClient>(&mut config, rpc, None)
             .await
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn mine_once_after_in_mempool() {
+        let mut config = create_test_config_with_thread_name().await;
+        let regtest = create_regtest_rpc(&mut config).await;
+        let rpc = regtest.rpc().clone();
+
+        // If a tx is not in the mempool, it should return an error.
+        let dummy_tx = Transaction {
+            version: Version::TWO,
+            lock_time: LockTime::ZERO,
+            input: vec![],
+            output: vec![],
+        };
+        assert!(super::mine_once_after_in_mempool(
+            &rpc,
+            dummy_tx.compute_txid(),
+            Some("Test tx"),
+            Some(1),
+        )
+        .await
+        .is_err());
+
+        // If a tx is in the mempool, it should mine it.
+        let actor = Actor::new(
+            config.secret_key,
+            config.winternitz_secret_key,
+            config.protocol_paramset().network,
+        );
+        let outpoint = rpc
+            .send_to_address(&actor.address, config.protocol_paramset().bridge_amount)
+            .await
+            .unwrap();
+        let tx = rpc.get_tx_of_txid(&outpoint.txid).await.unwrap();
+        super::mine_once_after_in_mempool(&rpc, outpoint.txid, Some("Test tx"), None)
+            .await
+            .unwrap();
+
+        // If the tx is mined, it should return an error telling that it is already mined.
+        assert!(
+            super::mine_once_after_in_mempool(&rpc, outpoint.txid, Some("Test tx"), None)
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]
