@@ -473,8 +473,8 @@ pub async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
         } => {
             let extended_rpc = extended_rpc::ExtendedRpc::connect(
                 bitcoin_rpc_url,
-                bitcoin_rpc_user,
-                bitcoin_rpc_password,
+                secrecy::SecretString::from(bitcoin_rpc_user),
+                secrecy::SecretString::from(bitcoin_rpc_password),
             )
             .await
             .expect("Failed to connect to Bitcoin RPC");

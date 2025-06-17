@@ -60,8 +60,8 @@ pub async fn handle_citrea_call(url: String, command: CitreaCommands) {
         } => {
             let extended_rpc = extended_rpc::ExtendedRpc::connect(
                 bitcoin_rpc_url,
-                bitcoin_rpc_user,
-                bitcoin_rpc_password,
+                secrecy::SecretString::from(bitcoin_rpc_user),
+                secrecy::SecretString::from(bitcoin_rpc_password),
             )
             .await
             .expect("Failed to connect to Bitcoin RPC");
@@ -111,8 +111,8 @@ pub async fn handle_citrea_call(url: String, command: CitreaCommands) {
         } => {
             let extended_rpc = extended_rpc::ExtendedRpc::connect(
                 bitcoin_rpc_url,
-                bitcoin_rpc_user,
-                bitcoin_rpc_password,
+                secrecy::SecretString::from(bitcoin_rpc_user),
+                secrecy::SecretString::from(bitcoin_rpc_password),
             )
             .await
             .expect("Failed to connect to Bitcoin RPC");

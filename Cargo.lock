@@ -2135,6 +2135,7 @@ dependencies = [
  "eyre",
  "hex",
  "jsonrpsee",
+ "secrecy",
  "serde",
  "serde_json",
  "sha2",
