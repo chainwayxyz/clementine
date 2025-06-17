@@ -447,49 +447,59 @@ pub fn total_work_and_watchtower_flags(
         let compressed_g16_proof: [u8; 128];
         let total_work: [u8; 16];
 
-        if outputs[0].script_pubkey.is_op_return() {
-            // If the first output is OP_RETURN, we expect a single output with 144 bytes
-            let Some(Ok(whole_output)) =
-                parse_op_return_data(&outputs[2].script_pubkey).map(TryInto::<[u8; 144]>::try_into)
-            else {
-                continue;
-            };
-            compressed_g16_proof = whole_output[0..128]
-                .try_into()
-                .expect("Cannot fail: slicing 128 bytes from 144-byte array");
-            total_work = borsh::from_slice(&whole_output[128..144])
-                .expect("Cannot fail: deserializing 16 bytes from a 16-byte slice");
-        } else {
-            // Otherwise we expect the first two outputs to be P2TR, third output to be OP_RETURN
-            if !outputs[0].script_pubkey.is_p2tr()
-                || !outputs[1].script_pubkey.is_p2tr()
-                || !outputs[2].script_pubkey.is_op_return()
-            {
-                continue;
+        match outputs.as_slice() {
+            // Single OP_RETURN output with 144 bytes
+            [op_return_output] if op_return_output.script_pubkey.is_op_return() => {
+                // If the first output is OP_RETURN, we expect a single output with 144 bytes
+                let Some(Ok(whole_output)) = parse_op_return_data(&outputs[2].script_pubkey)
+                    .map(TryInto::<[u8; 144]>::try_into)
+                else {
+                    continue;
+                };
+                compressed_g16_proof = whole_output[0..128]
+                    .try_into()
+                    .expect("Cannot fail: slicing 128 bytes from 144-byte array");
+                total_work = borsh::from_slice(&whole_output[128..144])
+                    .expect("Cannot fail: deserializing 16 bytes from a 16-byte slice");
             }
+            [out1, out2, out3, ..]
+                if out1.script_pubkey.is_p2tr()
+                    && out2.script_pubkey.is_p2tr()
+                    && out3.script_pubkey.is_op_return() =>
+            {
+                // Otherwise we expect the first two outputs to be P2TR, third output to be OP_RETURN
+                if !outputs[0].script_pubkey.is_p2tr()
+                    || !outputs[1].script_pubkey.is_p2tr()
+                    || !outputs[2].script_pubkey.is_op_return()
+                {
+                    continue;
+                }
 
-            let first_output: [u8; 32] = outputs[0].script_pubkey.to_bytes()[2..]
-                .try_into()
-                .expect("Cannot fail: slicing 32 bytes from P2TR output");
-            let second_output: [u8; 32] = outputs[1].script_pubkey.to_bytes()[2..]
-                .try_into()
-                .expect("Cannot fail: slicing 32 bytes from P2TR output");
+                let first_output: [u8; 32] = outputs[0].script_pubkey.to_bytes()[2..]
+                    .try_into()
+                    .expect("Cannot fail: slicing 32 bytes from P2TR output");
+                let second_output: [u8; 32] = outputs[1].script_pubkey.to_bytes()[2..]
+                    .try_into()
+                    .expect("Cannot fail: slicing 32 bytes from P2TR output");
 
-            let Some(Ok(third_output)) =
-                parse_op_return_data(&outputs[2].script_pubkey).map(TryInto::<[u8; 80]>::try_into)
-            else {
-                continue;
-            };
+                let Some(Ok(third_output)) = parse_op_return_data(&outputs[2].script_pubkey)
+                    .map(TryInto::<[u8; 80]>::try_into)
+                else {
+                    continue;
+                };
 
-            compressed_g16_proof = [&first_output[..], &second_output[..], &third_output[0..64]]
-                .concat()
-                .try_into()
-                .expect("Cannot fail: concatenating and converting to 128-byte array");
+                compressed_g16_proof =
+                    [&first_output[..], &second_output[..], &third_output[0..64]]
+                        .concat()
+                        .try_into()
+                        .expect("Cannot fail: concatenating and converting to 128-byte array");
 
-            // Borsh deserialization of the final 16 bytes is functionally redundant in this context,
-            // as it does not alter the byte content. It is retained here for consistency and defensive safety.
-            total_work = borsh::from_slice(&third_output[64..])
-                .expect("Cannot fail: deserializing 16 bytes from 16-byte slice");
+                // Borsh deserialization of the final 16 bytes is functionally redundant in this context,
+                // as it does not alter the byte content. It is retained here for consistency and defensive safety.
+                total_work = borsh::from_slice(&third_output[64..])
+                    .expect("Cannot fail: deserializing 16 bytes from 16-byte slice");
+            }
+            _ => continue,
         }
 
         let commitment = WatchTowerChallengeTxCommitment {
