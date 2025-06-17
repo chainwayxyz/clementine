@@ -1817,7 +1817,12 @@
 <a href="#1816" id="1816">1816</a>
 <a href="#1817" id="1817">1817</a>
 <a href="#1818" id="1818">1818</a>
-<a href="#1819" id="1819">1819</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_ff::PrimeField;
+<a href="#1819" id="1819">1819</a>
+<a href="#1820" id="1820">1820</a>
+<a href="#1821" id="1821">1821</a>
+<a href="#1822" id="1822">1822</a>
+<a href="#1823" id="1823">1823</a>
+<a href="#1824" id="1824">1824</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_ff::PrimeField;
 <span class="kw">use </span>circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
 <span class="kw">use </span>risc0_zkvm::is_dev_mode;
 <span class="kw">use </span>std::collections::HashMap;
@@ -3183,6 +3188,11 @@
             .take(hcp_height <span class="kw">as </span>usize + <span class="number">1</span>) <span class="comment">// height 0 included
             </span>.map(|(block_hash, <span class="kw">_</span>)| block_hash.to_byte_array())
             .collect::&lt;Vec&lt;<span class="kw">_</span>&gt;&gt;();
+
+        <span class="macro">tracing::debug!</span>(
+            <span class="string">"Genesis height - Before SPV: {},"</span>,
+            <span class="self">self</span>.config.protocol_paramset().genesis_height
+        );
 
         <span class="kw">let </span>spv = create_spv(
             payout_tx.clone(),
