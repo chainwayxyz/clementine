@@ -225,6 +225,7 @@ impl Aggregator {
         deposit_params: &DepositParams,
     ) -> Result<(), BridgeError> {
         tracing::info!("Starting collect_and_distribute_keys");
+
         let start_time = std::time::Instant::now();
 
         let deposit_data: DepositData = deposit_params.clone().try_into()?;

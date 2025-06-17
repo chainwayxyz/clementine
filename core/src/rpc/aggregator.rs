@@ -1394,8 +1394,7 @@ impl ClementineAggregator for Aggregator {
                 "MuSig2 signing pipeline",
                 try_join_all([nonce_dist_handle, sig_agg_handle, sig_dist_handle]).map_err(|join_err| -> BridgeError { eyre::Report::from(join_err).wrap_err("Failed to join on pipelined tasks").into()}),
             )
-            .await
-            .map_err(|_| Status::internal("panic when pipelining"))?;
+            .await?;
 
             tracing::debug!("Pipeline tasks completed");
 
@@ -1636,61 +1635,13 @@ mod tests {
     use tokio::time::sleep;
     use tonic::Status;
 
-    async fn perform_deposit(
-        mut config: BridgeConfig,
-    ) -> Result<tonic::Response<RawSignedTx>, Status> {
+    async fn perform_deposit(mut config: BridgeConfig) -> Result<(), Status> {
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc();
-        let (_verifiers, _operators, mut aggregator, _cleanup) =
-            create_actors::<MockCitreaClient>(&config).await;
 
-        let evm_address = EVMAddress([1u8; 20]);
-        let signer = Actor::new(
-            config.secret_key,
-            config.winternitz_secret_key,
-            config.protocol_paramset().network,
-        );
+        run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None).await?;
 
-        let verifiers_public_keys: Vec<bitcoin::secp256k1::PublicKey> = aggregator
-            .setup(tonic::Request::new(clementine::Empty {}))
-            .await
-            .unwrap()
-            .into_inner()
-            .try_into()
-            .unwrap();
-        sleep(Duration::from_secs(3)).await;
-
-        let nofn_xonly_pk =
-            bitcoin::XOnlyPublicKey::from_musig2_pks(verifiers_public_keys.clone(), None).unwrap();
-
-        let deposit_address = builder::address::generate_deposit_address(
-            nofn_xonly_pk,
-            signer.address.as_unchecked(),
-            evm_address,
-            config.protocol_paramset().network,
-            config.protocol_paramset().user_takes_after,
-        )
-        .unwrap()
-        .0;
-
-        let deposit_outpoint = rpc
-            .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
-            .await
-            .unwrap();
-        rpc.mine_blocks(18).await.unwrap();
-
-        let deposit_info = DepositInfo {
-            deposit_outpoint,
-            deposit_type: DepositType::BaseDeposit(BaseDepositData {
-                evm_address,
-                recovery_taproot_address: signer.address.as_unchecked().clone(),
-            }),
-        };
-
-        // Generate and broadcast the move-to-vault transaction
-        aggregator
-            .new_deposit(clementine::Deposit::from(deposit_info))
-            .await
+        Ok(())
     }
     #[tokio::test]
     #[ignore = "See #687"]
