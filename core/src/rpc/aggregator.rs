@@ -1387,6 +1387,15 @@ impl ClementineAggregator for Aggregator {
                 "Waiting for pipeline tasks to complete (nonce agg, sig agg, sig dist, operator sigs)"
             );
 
+            // Right now we collect all operator sigs then start to send them, we can do it simultaneously in the future
+            // Need to change sig verification ordering in deposit_finalize() in verifiers so that we verify
+            // 1st signature of all operators, then 2nd of all operators etc.
+            let all_op_sigs = operator_sigs_fut
+                .await
+                .map_err(|_| Status::internal("panic when collecting operator signatures"))??;
+
+            tracing::debug!("Got all operator signatures");
+
             tracing::debug!("Waiting for pipeline tasks to complete");
             // Wait for all pipeline tasks to complete
             timed_request(
@@ -1398,14 +1407,6 @@ impl ClementineAggregator for Aggregator {
 
             tracing::debug!("Pipeline tasks completed");
 
-            // Right now we collect all operator sigs then start to send them, we can do it simultaneously in the future
-            // Need to change sig verification ordering in deposit_finalize() in verifiers so that we verify
-            // 1st signature of all operators, then 2nd of all operators etc.
-            let all_op_sigs = operator_sigs_fut
-                .await
-                .map_err(|_| Status::internal("panic when collecting operator signatures"))??;
-
-            tracing::debug!("Got all operator signatures");
 
             // send operators sigs to verifiers after all verifiers have signed
             timed_request(
