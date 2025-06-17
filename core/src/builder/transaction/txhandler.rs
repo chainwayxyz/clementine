@@ -5,23 +5,32 @@
 //! [`TxHandlerBuilder`] is used to create [`TxHandler`]s.
 //!
 
-use super::input::{SpendableTxIn, SpentTxIn, UtxoVout};
-use super::output::UnspentTxOut;
-use crate::builder::script::SpendPath;
-use crate::builder::sighash::{PartialSignatureInfo, SignatureInfo};
-use crate::builder::transaction::deposit_signature_owner::{DepositSigKeyOwner, EntityType};
-use crate::builder::transaction::TransactionType;
-use crate::errors::{BridgeError, TxError};
-use crate::rpc::clementine::tagged_signature::SignatureId;
-use crate::rpc::clementine::{NormalSignatureKind, RawSignedTx};
-use bitcoin::sighash::SighashCache;
-use bitcoin::taproot::{self, LeafVersion};
-use bitcoin::transaction::Version;
-use bitcoin::{absolute, OutPoint, Script, Sequence, TapNodeHash, Transaction, Witness};
-use bitcoin::{TapLeafHash, TapSighash, TapSighashType, TxOut, Txid};
+use super::{
+    input::{SpendableTxIn, SpentTxIn, UtxoVout},
+    output::UnspentTxOut,
+};
+use crate::{
+    builder::{
+        script::SpendPath,
+        sighash::{PartialSignatureInfo, SignatureInfo},
+        transaction::{
+            deposit_signature_owner::{DepositSigKeyOwner, EntityType},
+            TransactionType,
+        },
+    },
+    errors::{BridgeError, TxError},
+    rpc::clementine::{tagged_signature::SignatureId, NormalSignatureKind, RawSignedTx},
+};
+use bitcoin::{
+    absolute,
+    sighash::SighashCache,
+    taproot::{self, LeafVersion},
+    transaction::Version,
+    OutPoint, Script, Sequence, TapLeafHash, TapNodeHash, TapSighash, TapSighashType, Transaction,
+    TxOut, Txid, Witness,
+};
 use eyre::{Context, OptionExt};
-use std::collections::BTreeMap;
-use std::marker::PhantomData;
+use std::{collections::BTreeMap, marker::PhantomData};
 
 pub const DEFAULT_SEQUENCE: Sequence = Sequence::ENABLE_RBF_NO_LOCKTIME;
 

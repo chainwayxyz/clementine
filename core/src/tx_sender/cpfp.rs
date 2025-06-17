@@ -4,13 +4,9 @@ use std::env;
 use bitcoin::{
     transaction::Version, Address, Amount, FeeRate, OutPoint, Transaction, TxOut, Weight,
 };
-use bitcoincore_rpc::PackageSubmissionResult;
-use bitcoincore_rpc::{PackageTransactionResult, RpcApi};
+use bitcoincore_rpc::{PackageSubmissionResult, PackageTransactionResult, RpcApi};
 use eyre::Context;
 
-use crate::errors::{ErrorExt, ResultExt};
-use crate::extended_rpc::BitcoinRPCError;
-use crate::utils::FeePayingType;
 use crate::{
     builder::{
         self,
@@ -21,7 +17,10 @@ use crate::{
         },
     },
     constants::MIN_TAPROOT_AMOUNT,
+    errors::{ErrorExt, ResultExt},
+    extended_rpc::BitcoinRPCError,
     rpc::clementine::NormalSignatureKind,
+    utils::FeePayingType,
 };
 
 use super::{Result, SendTxError, TxMetadata, TxSender};

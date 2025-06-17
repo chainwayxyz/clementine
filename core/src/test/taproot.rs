@@ -1,12 +1,17 @@
-use crate::actor::Actor;
-use crate::bitvm_client::SECP;
-use crate::builder::script::{CheckSig, SpendPath, SpendableScript};
-use crate::builder::transaction::input::SpendableTxIn;
-use crate::builder::transaction::output::UnspentTxOut;
-use crate::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE};
-use crate::builder::{self};
-use crate::rpc::clementine::NormalSignatureKind;
-use crate::test::common::*;
+use crate::{
+    actor::Actor,
+    bitvm_client::SECP,
+    builder::{
+        script::{CheckSig, SpendPath, SpendableScript},
+        transaction::{
+            input::SpendableTxIn, output::UnspentTxOut, TransactionType, TxHandlerBuilder,
+            DEFAULT_SEQUENCE,
+        },
+        {self},
+    },
+    rpc::clementine::NormalSignatureKind,
+    test::common::*,
+};
 use bitcoin::{Amount, TxOut};
 use bitcoincore_rpc::RpcApi;
 use std::sync::Arc;

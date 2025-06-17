@@ -5,9 +5,10 @@
 //! and what sighash type is required for that signature. Additionally it encodes when this signature is given to other entities.
 //!
 
-use crate::errors::BridgeError;
-use crate::rpc::clementine::tagged_signature::SignatureId;
-use crate::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind};
+use crate::{
+    errors::BridgeError,
+    rpc::clementine::{tagged_signature::SignatureId, NormalSignatureKind, NumberedSignatureKind},
+};
 use bitcoin::TapSighashType;
 use eyre::Context;
 

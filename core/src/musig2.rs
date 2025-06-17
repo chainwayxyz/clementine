@@ -240,20 +240,22 @@ pub fn partial_sign(
 #[cfg(test)]
 mod tests {
     use super::{nonce_pair, MuSigNoncePair, Musig2Mode};
-    use crate::builder::script::{CheckSig, OtherSpendable, SpendableScript};
-    use crate::builder::transaction::{TransactionType, DEFAULT_SEQUENCE};
-    use crate::rpc::clementine::NormalSignatureKind;
     use crate::{
         bitvm_client::{self, SECP},
         builder::{
             self,
-            transaction::{input::SpendableTxIn, output::UnspentTxOut, TxHandlerBuilder},
+            script::{CheckSig, OtherSpendable, SpendableScript},
+            transaction::{
+                input::SpendableTxIn, output::UnspentTxOut, TransactionType, TxHandlerBuilder,
+                DEFAULT_SEQUENCE,
+            },
         },
         errors::BridgeError,
         musig2::{
             aggregate_nonces, aggregate_partial_signatures, create_key_agg_cache, from_secp_xonly,
             partial_sign, AggregateFromPublicKeys,
         },
+        rpc::clementine::NormalSignatureKind,
     };
     use bitcoin::{
         hashes::Hash,
@@ -263,8 +265,7 @@ mod tests {
         Amount, OutPoint, TapNodeHash, TapSighashType, TxOut, Txid, XOnlyPublicKey,
     };
     use secp256k1::{musig::PartialSignature, rand::Rng};
-    use std::sync::Arc;
-    use std::vec;
+    use std::{sync::Arc, vec};
 
     /// Generates random key and nonce pairs for a given number of signers.
     fn create_key_and_nonce_pairs(num_signers: usize) -> (Vec<Keypair>, Vec<MuSigNoncePair>) {

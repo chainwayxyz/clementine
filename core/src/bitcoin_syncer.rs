@@ -561,15 +561,17 @@ impl<H: BlockHandler> Task for FinalizedBlockFetcherTask<H> {
 
 #[cfg(test)]
 mod tests {
-    use crate::bitcoin_syncer::BitcoinSyncer;
-    use crate::builder::transaction::DEFAULT_SEQUENCE;
+    use crate::{bitcoin_syncer::BitcoinSyncer, builder::transaction::DEFAULT_SEQUENCE};
 
-    use crate::task::{IntoTask, TaskExt};
-    use crate::{database::Database, test::common::*};
-    use bitcoin::absolute::Height;
-    use bitcoin::hashes::Hash;
-    use bitcoin::transaction::Version;
-    use bitcoin::{OutPoint, ScriptBuf, Transaction, TxIn, Witness};
+    use crate::{
+        database::Database,
+        task::{IntoTask, TaskExt},
+        test::common::*,
+    };
+    use bitcoin::{
+        absolute::Height, hashes::Hash, transaction::Version, OutPoint, ScriptBuf, Transaction,
+        TxIn, Witness,
+    };
     use bitcoincore_rpc::RpcApi;
 
     #[tokio::test]

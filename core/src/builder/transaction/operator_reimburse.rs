@@ -9,31 +9,32 @@
 //! - Handling payout transactions for user withdrawals, including both standard (with BitVM) and optimistic payout flows.
 //!
 
-use super::create_move_to_vault_txhandler;
-use super::input::SpendableTxIn;
-use super::input::UtxoVout;
-use super::op_return_txout;
-use super::txhandler::DEFAULT_SEQUENCE;
-use super::HiddenNode;
-use super::Signed;
-use super::TransactionType;
-use super::TxError;
-use crate::builder::script::{CheckSig, SpendableScript, TimelockScript};
-use crate::builder::script::{PreimageRevealScript, SpendPath};
-use crate::builder::transaction::output::UnspentTxOut;
-use crate::builder::transaction::txhandler::{TxHandler, TxHandlerBuilder};
-use crate::config::protocol::ProtocolParamset;
-use crate::deposit::{DepositData, KickoffData};
-use crate::errors::BridgeError;
-use crate::rpc::clementine::NormalSignatureKind;
-use crate::{builder, UTXO};
-use bitcoin::hashes::Hash;
-use bitcoin::script::PushBytesBuf;
-use bitcoin::secp256k1::schnorr::Signature;
-use bitcoin::transaction::Version;
-use bitcoin::ScriptBuf;
-use bitcoin::XOnlyPublicKey;
-use bitcoin::{TxOut, Txid};
+use super::{
+    create_move_to_vault_txhandler,
+    input::{SpendableTxIn, UtxoVout},
+    op_return_txout,
+    txhandler::DEFAULT_SEQUENCE,
+    HiddenNode, Signed, TransactionType, TxError,
+};
+use crate::{
+    builder,
+    builder::{
+        script::{CheckSig, PreimageRevealScript, SpendPath, SpendableScript, TimelockScript},
+        transaction::{
+            output::UnspentTxOut,
+            txhandler::{TxHandler, TxHandlerBuilder},
+        },
+    },
+    config::protocol::ProtocolParamset,
+    deposit::{DepositData, KickoffData},
+    errors::BridgeError,
+    rpc::clementine::NormalSignatureKind,
+    UTXO,
+};
+use bitcoin::{
+    hashes::Hash, script::PushBytesBuf, secp256k1::schnorr::Signature, transaction::Version,
+    ScriptBuf, TxOut, Txid, XOnlyPublicKey,
+};
 use std::sync::Arc;
 
 #[derive(Debug, Clone)]

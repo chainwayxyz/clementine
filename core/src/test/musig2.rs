@@ -1,25 +1,31 @@
-use crate::bitvm_client::SECP;
-use crate::builder::script::{CheckSig, OtherSpendable, SpendPath, SpendableScript};
-use crate::builder::transaction::input::SpendableTxIn;
-use crate::builder::transaction::output::UnspentTxOut;
-use crate::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE};
-use crate::errors::BridgeError;
-use crate::musig2::{
-    aggregate_nonces, aggregate_partial_signatures, AggregateFromPublicKeys, Musig2Mode,
-};
-use crate::rpc::clementine::NormalSignatureKind;
-use crate::test::common::*;
 use crate::{
     bitvm_client,
-    builder::{self},
+    bitvm_client::SECP,
+    builder::{
+        script::{CheckSig, OtherSpendable, SpendPath, SpendableScript},
+        transaction::{
+            input::SpendableTxIn, output::UnspentTxOut, TransactionType, TxHandlerBuilder,
+            DEFAULT_SEQUENCE,
+        },
+        {self},
+    },
     config::BridgeConfig,
-    musig2::{nonce_pair, partial_sign, MuSigNoncePair},
+    errors::BridgeError,
+    musig2::{
+        aggregate_nonces, aggregate_partial_signatures, nonce_pair, partial_sign,
+        AggregateFromPublicKeys, MuSigNoncePair, Musig2Mode,
+    },
+    rpc::clementine::NormalSignatureKind,
+    test::common::*,
 };
 use ark_groth16::verifier;
-use bitcoin::key::Keypair;
-use bitcoin::secp256k1::{Message, PublicKey};
-use bitcoin::{hashes::Hash, script, Amount, TapSighashType};
-use bitcoin::{taproot, Sequence, TxOut, XOnlyPublicKey};
+use bitcoin::{
+    hashes::Hash,
+    key::Keypair,
+    script,
+    secp256k1::{Message, PublicKey},
+    taproot, Amount, Sequence, TapSighashType, TxOut, XOnlyPublicKey,
+};
 use bitcoincore_rpc::RpcApi;
 use secp256k1::musig::{AggregatedNonce, PartialSignature};
 use std::sync::Arc;

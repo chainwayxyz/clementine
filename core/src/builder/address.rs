@@ -8,12 +8,11 @@ use super::script::{
     BaseDepositScript, CheckSig, Multisig, ReplacementDepositScript, SpendableScript,
     TimelockScript,
 };
-use crate::bitvm_client::SECP;
-use crate::deposit::SecurityCouncil;
-use crate::errors::BridgeError;
-use crate::{bitvm_client, EVMAddress};
-use bitcoin::address::NetworkUnchecked;
+use crate::{
+    bitvm_client, bitvm_client::SECP, deposit::SecurityCouncil, errors::BridgeError, EVMAddress,
+};
 use bitcoin::{
+    address::NetworkUnchecked,
     secp256k1::XOnlyPublicKey,
     taproot::{TaprootBuilder, TaprootSpendInfo},
     Address, ScriptBuf,
@@ -229,10 +228,9 @@ mod tests {
         builder::{self, address::calculate_taproot_leaf_depths},
         musig2::AggregateFromPublicKeys,
     };
-    use bitcoin::secp256k1::rand;
     use bitcoin::{
         key::{Keypair, TapTweak},
-        secp256k1::{PublicKey, SecretKey},
+        secp256k1::{rand, PublicKey, SecretKey},
         Address, AddressType, ScriptBuf, XOnlyPublicKey,
     };
     use std::str::FromStr;

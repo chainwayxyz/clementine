@@ -4,8 +4,7 @@
 //! Main purpose of it is to store the scripts used in the taproot outputs.
 //!
 
-use crate::builder::address::create_taproot_address;
-use crate::builder::script::SpendableScript;
+use crate::builder::{address::create_taproot_address, script::SpendableScript};
 use bitcoin::{taproot::TaprootSpendInfo, Amount, ScriptBuf, TxOut, XOnlyPublicKey};
 use std::sync::Arc;
 

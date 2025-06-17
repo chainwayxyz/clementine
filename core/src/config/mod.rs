@@ -10,17 +10,14 @@
 //! Configuration options can be read from a TOML file. File contents are
 //! described in `BridgeConfig` struct.
 
-use crate::bitvm_client::UNSPENDABLE_XONLY_PUBKEY;
-use crate::deposit::SecurityCouncil;
-use crate::errors::BridgeError;
-use bitcoin::address::NetworkUnchecked;
-use bitcoin::secp256k1::SecretKey;
-use bitcoin::{Address, Amount, OutPoint};
+use crate::{
+    bitvm_client::UNSPENDABLE_XONLY_PUBKEY, deposit::SecurityCouncil, errors::BridgeError,
+};
+use bitcoin::{address::NetworkUnchecked, secp256k1::SecretKey, Address, Amount, OutPoint};
 use protocol::ProtocolParamset;
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
-use std::str::FromStr;
-use std::{fs::File, io::Read, path::PathBuf};
+use std::{fs::File, io::Read, path::PathBuf, str::FromStr};
 
 pub mod env;
 pub mod protocol;

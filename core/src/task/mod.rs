@@ -1,8 +1,9 @@
 use std::time::Duration;
-use tokio::sync::oneshot;
-use tokio::sync::oneshot::error::TryRecvError;
-use tokio::task::JoinHandle;
-use tokio::time::sleep;
+use tokio::{
+    sync::{oneshot, oneshot::error::TryRecvError},
+    task::JoinHandle,
+    time::sleep,
+};
 use tonic::async_trait;
 
 use crate::errors::BridgeError;

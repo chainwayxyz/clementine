@@ -1,17 +1,20 @@
 use std::time::Duration;
 
-use crate::builder::transaction::TransactionType as TxType;
-use crate::config::BridgeConfig;
-use crate::database::Database;
-use crate::extended_rpc::ExtendedRpc;
-use crate::rpc::clementine::SignedTxsWithType;
-use crate::utils::{FeePayingType, RbfSigningInfo, TxMetadata};
-use bitcoin::consensus::{self};
-use bitcoin::{block, OutPoint, Transaction, Txid};
+use crate::{
+    builder::transaction::TransactionType as TxType,
+    config::BridgeConfig,
+    database::Database,
+    extended_rpc::ExtendedRpc,
+    rpc::clementine::SignedTxsWithType,
+    utils::{FeePayingType, RbfSigningInfo, TxMetadata},
+};
+use bitcoin::{
+    block,
+    consensus::{self},
+    OutPoint, Transaction, Txid,
+};
 use bitcoincore_rpc::RpcApi;
-use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
-use citrea_e2e::config::LightClientProverConfig;
-use citrea_e2e::node::Node;
+use citrea_e2e::{bitcoin::DEFAULT_FINALITY_DEPTH, config::LightClientProverConfig, node::Node};
 use eyre::{bail, Context, Result};
 
 use super::{mine_once_after_in_mempool, poll_until_condition};

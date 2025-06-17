@@ -10,22 +10,23 @@
 //! The `round_tx` is used to create a collateral for the withdrawal, kickoff utxos for the current
 //! round and the reimburse connectors for the previous round.
 
-use super::input::UtxoVout;
-use super::txhandler::DEFAULT_SEQUENCE;
-use crate::builder;
-use crate::builder::address::create_taproot_address;
-use crate::builder::script::{TimelockScript, WinternitzCommit};
-use crate::builder::transaction::creator::KickoffWinternitzKeys;
-use crate::builder::transaction::input::SpendableTxIn;
-use crate::builder::transaction::output::UnspentTxOut;
-use crate::builder::transaction::txhandler::TxHandler;
-use crate::builder::transaction::*;
-use crate::config::protocol::ProtocolParamset;
-use crate::constants::MIN_TAPROOT_AMOUNT;
-use crate::errors::BridgeError;
-use crate::rpc::clementine::NumberedSignatureKind;
-use bitcoin::Sequence;
-use bitcoin::{Amount, OutPoint, TxOut, XOnlyPublicKey};
+use super::{input::UtxoVout, txhandler::DEFAULT_SEQUENCE};
+use crate::{
+    builder,
+    builder::{
+        address::create_taproot_address,
+        script::{TimelockScript, WinternitzCommit},
+        transaction::{
+            creator::KickoffWinternitzKeys, input::SpendableTxIn, output::UnspentTxOut,
+            txhandler::TxHandler, *,
+        },
+    },
+    config::protocol::ProtocolParamset,
+    constants::MIN_TAPROOT_AMOUNT,
+    errors::BridgeError,
+    rpc::clementine::NumberedSignatureKind,
+};
+use bitcoin::{Amount, OutPoint, Sequence, TxOut, XOnlyPublicKey};
 use std::sync::Arc;
 
 pub enum RoundTxInput {

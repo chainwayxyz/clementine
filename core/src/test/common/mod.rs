@@ -1,46 +1,43 @@
 //! # Common Utilities for Integration Tests
-use std::path::Path;
-use std::process::Command;
-use std::sync::Mutex;
-use std::time::Duration;
+use std::{path::Path, process::Command, sync::Mutex, time::Duration};
 
-use crate::actor::Actor;
-use crate::bitvm_client::SECP;
-use crate::builder::address::create_taproot_address;
-use crate::builder::script::{CheckSig, Multisig, SpendableScript};
-use crate::builder::transaction::input::UtxoVout;
-use crate::builder::transaction::{create_replacement_deposit_txhandler, TxHandler};
-use crate::citrea::CitreaClientT;
-use crate::config::BridgeConfig;
-use crate::deposit::{
-    BaseDepositData, DepositInfo, DepositType, ReplacementDepositData, SecurityCouncil,
+use crate::{
+    actor::Actor,
+    bitvm_client::SECP,
+    builder::{
+        address::create_taproot_address,
+        script::{CheckSig, Multisig, SpendableScript},
+        transaction::{create_replacement_deposit_txhandler, input::UtxoVout, TxHandler},
+    },
+    citrea::CitreaClientT,
+    config::BridgeConfig,
+    deposit::{BaseDepositData, DepositInfo, DepositType, ReplacementDepositData, SecurityCouncil},
+    errors::BridgeError,
+    extended_rpc::ExtendedRpc,
+    musig2::{
+        aggregate_nonces, aggregate_partial_signatures, nonce_pair, partial_sign,
+        AggregateFromPublicKeys,
+    },
+    rpc::clementine::{
+        clementine_aggregator_client::ClementineAggregatorClient,
+        clementine_operator_client::ClementineOperatorClient,
+        clementine_verifier_client::ClementineVerifierClient, Deposit, Empty, NormalSignatureKind,
+        SendMoveTxRequest, TaggedSignature,
+    },
+    utils::FeePayingType,
+    EVMAddress,
 };
-use crate::errors::BridgeError;
-use crate::extended_rpc::ExtendedRpc;
-use crate::musig2::{
-    aggregate_nonces, aggregate_partial_signatures, nonce_pair, partial_sign,
-    AggregateFromPublicKeys,
+use bitcoin::{
+    hashes::Hash,
+    key::Keypair,
+    secp256k1::{rand, Message, PublicKey},
+    taproot, BlockHash, OutPoint, Transaction, Txid, Witness, XOnlyPublicKey,
 };
-use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
-use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
-use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
-use crate::rpc::clementine::{Deposit, Empty, SendMoveTxRequest};
-use crate::rpc::clementine::{NormalSignatureKind, TaggedSignature};
-use crate::utils::FeePayingType;
-use crate::EVMAddress;
-use bitcoin::hashes::Hash;
-use bitcoin::key::Keypair;
-use bitcoin::secp256k1::rand;
-use bitcoin::secp256k1::Message;
-use bitcoin::secp256k1::PublicKey;
-use bitcoin::XOnlyPublicKey;
-use bitcoin::{taproot, BlockHash, OutPoint, Transaction, Txid, Witness};
 use bitcoincore_rpc::RpcApi;
 use citrea::MockCitreaClient;
 use eyre::Context;
 pub use setup_utils::*;
-use tonic::transport::Channel;
-use tonic::Request;
+use tonic::{transport::Channel, Request};
 
 pub mod citrea;
 mod setup_utils;

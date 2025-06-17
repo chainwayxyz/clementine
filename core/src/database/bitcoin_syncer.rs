@@ -386,10 +386,8 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::database::Database;
-    use crate::test::common::*;
-    use bitcoin::hashes::Hash;
-    use bitcoin::{BlockHash, CompactTarget};
+    use crate::{database::Database, test::common::*};
+    use bitcoin::{hashes::Hash, BlockHash, CompactTarget};
 
     async fn setup_test_db() -> Database {
         let config = create_test_config_with_thread_name().await;

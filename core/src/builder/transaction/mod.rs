@@ -29,32 +29,29 @@
 //! - [`deposit_signature_owner.rs`] - Maps which TxIn signatures are signed by which protocol entities, additionally supporting different Sighash types.
 //!
 
-use super::script::{CheckSig, Multisig, SpendableScript};
-use super::script::{ReplacementDepositScript, SpendPath};
-use crate::builder::address::calculate_taproot_leaf_depths;
-use crate::builder::script::OtherSpendable;
-use crate::builder::transaction::challenge::*;
-use crate::builder::transaction::input::SpendableTxIn;
-use crate::builder::transaction::operator_assert::*;
-use crate::builder::transaction::operator_collateral::*;
-use crate::builder::transaction::operator_reimburse::*;
-use crate::builder::transaction::output::UnspentTxOut;
-use crate::config::protocol::ProtocolParamset;
-use crate::constants::NON_EPHEMERAL_ANCHOR_AMOUNT;
-use crate::deposit::{DepositData, SecurityCouncil};
-use crate::errors::BridgeError;
-use crate::operator::RoundIndex;
-use crate::rpc::clementine::grpc_transaction_id;
-use crate::rpc::clementine::GrpcTransactionId;
-use crate::rpc::clementine::{
-    NormalSignatureKind, NormalTransactionId, NumberedTransactionId, NumberedTransactionType,
+use super::script::{CheckSig, Multisig, ReplacementDepositScript, SpendPath, SpendableScript};
+use crate::{
+    builder::{
+        address::calculate_taproot_leaf_depths,
+        script::OtherSpendable,
+        transaction::{
+            challenge::*, input::SpendableTxIn, operator_assert::*, operator_collateral::*,
+            operator_reimburse::*, output::UnspentTxOut,
+        },
+    },
+    config::protocol::ProtocolParamset,
+    constants::NON_EPHEMERAL_ANCHOR_AMOUNT,
+    deposit::{DepositData, SecurityCouncil},
+    errors::BridgeError,
+    operator::RoundIndex,
+    rpc::clementine::{
+        grpc_transaction_id, GrpcTransactionId, NormalSignatureKind, NormalTransactionId,
+        NumberedTransactionId, NumberedTransactionType,
+    },
 };
-use bitcoin::hashes::Hash;
-use bitcoin::opcodes::all::OP_RETURN;
-use bitcoin::script::Builder;
-use bitcoin::transaction::Version;
 use bitcoin::{
-    Address, Amount, OutPoint, ScriptBuf, Transaction, TxIn, TxOut, Txid, XOnlyPublicKey,
+    hashes::Hash, opcodes::all::OP_RETURN, script::Builder, transaction::Version, Address, Amount,
+    OutPoint, ScriptBuf, Transaction, TxIn, TxOut, Txid, XOnlyPublicKey,
 };
 use hex;
 use input::UtxoVout;

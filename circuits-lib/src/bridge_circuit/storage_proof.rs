@@ -1,5 +1,4 @@
-use alloy_primitives::Bytes;
-use alloy_primitives::{Keccak256, U256};
+use alloy_primitives::{Bytes, Keccak256, U256};
 use alloy_rpc_types::EIP1186StorageProof;
 use jmt::KeyHash;
 use sha2::{Digest, Sha256};

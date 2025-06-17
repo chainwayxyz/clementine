@@ -1,18 +1,15 @@
-use super::Result;
-use super::{ActivatedWithOutpoint, ActivatedWithTxid};
-use crate::builder::transaction::input::UtxoVout;
-use crate::errors::ResultExt;
-use crate::operator::RoundIndex;
-use crate::rpc;
-use crate::rpc::clementine::XonlyPublicKey;
-use crate::utils::{FeePayingType, RbfSigningInfo, TxMetadata};
+use super::{ActivatedWithOutpoint, ActivatedWithTxid, Result};
 use crate::{
-    builder::transaction::TransactionType,
+    builder::transaction::{input::UtxoVout, TransactionType},
     config::BridgeConfig,
     database::{Database, DatabaseTransaction},
+    errors::ResultExt,
+    operator::RoundIndex,
+    rpc,
+    rpc::clementine::XonlyPublicKey,
+    utils::{FeePayingType, RbfSigningInfo, TxMetadata},
 };
-use bitcoin::hashes::Hash;
-use bitcoin::{OutPoint, Transaction, Txid};
+use bitcoin::{hashes::Hash, OutPoint, Transaction, Txid};
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone)]

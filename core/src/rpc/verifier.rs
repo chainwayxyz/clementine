@@ -1,21 +1,25 @@
-use super::clementine::{
-    self, clementine_verifier_server::ClementineVerifier, Empty, NonceGenRequest, NonceGenResponse,
-    OperatorParams, OptimisticPayoutParams, PartialSig, RawTxWithRbfInfo, SignedTxWithType,
-    SignedTxsWithType, VergenResponse, VerifierDepositFinalizeParams, VerifierDepositSignParams,
-    VerifierParams,
+use super::{
+    clementine::{
+        self, clementine_verifier_server::ClementineVerifier, Empty, NonceGenRequest,
+        NonceGenResponse, OperatorParams, OptimisticPayoutParams, PartialSig, RawTxWithRbfInfo,
+        SignedTxWithType, SignedTxsWithType, VergenResponse, VerifierDepositFinalizeParams,
+        VerifierDepositSignParams, VerifierParams,
+    },
+    error,
+    parser::ParserError,
 };
-use super::error;
-use super::parser::ParserError;
-use crate::builder::transaction::sign::create_and_sign_txs;
-use crate::citrea::CitreaClientT;
-use crate::fetch_next_optional_message_from_stream;
-use crate::rpc::clementine::VerifierDepositFinalizeResponse;
-use crate::rpc::parser::parse_transaction_request;
-use crate::utils::get_vergen_response;
-use crate::verifier::VerifierServer;
 use crate::{
-    fetch_next_message_from_stream,
-    rpc::parser::{self},
+    builder::transaction::sign::create_and_sign_txs,
+    citrea::CitreaClientT,
+    fetch_next_message_from_stream, fetch_next_optional_message_from_stream,
+    rpc::{
+        clementine::VerifierDepositFinalizeResponse,
+        parser::{
+            parse_transaction_request, {self},
+        },
+    },
+    utils::get_vergen_response,
+    verifier::VerifierServer,
 };
 use bitcoin::Witness;
 use clementine::verifier_deposit_finalize_params::Params;

@@ -1,21 +1,18 @@
-use bitcoin::taproot::TaprootSpendInfo;
-use bitcoin::TapNodeHash;
-use bitcoin::XOnlyPublicKey;
+use bitcoin::{taproot::TaprootSpendInfo, TapNodeHash, XOnlyPublicKey};
 use eyre::OptionExt;
 
 use bitcoin::{Amount, FeeRate, OutPoint, Transaction, TxOut, Txid, Weight};
 use bitcoincore_rpc::{json::EstimateMode, RpcApi};
 use serde::{Deserialize, Serialize};
 
-use crate::config::protocol::ProtocolParamset;
-use crate::errors::ResultExt;
-use crate::utils::FeePayingType;
 use crate::{
     actor::Actor,
     builder::{self, transaction::TransactionType},
+    config::protocol::ProtocolParamset,
     database::Database,
+    errors::ResultExt,
     extended_rpc::ExtendedRpc,
-    utils::TxMetadata,
+    utils::{FeePayingType, TxMetadata},
 };
 
 #[cfg(test)]
@@ -339,25 +336,31 @@ impl TxSender {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::actor::TweakCache;
-    use crate::bitcoin_syncer::BitcoinSyncer;
-    use crate::bitvm_client::SECP;
-    use crate::builder::script::{CheckSig, SpendPath, SpendableScript};
-    use crate::builder::transaction::input::SpendableTxIn;
-    use crate::builder::transaction::output::UnspentTxOut;
-    use crate::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE};
-    use crate::constants::{MIN_TAPROOT_AMOUNT, NON_EPHEMERAL_ANCHOR_AMOUNT};
-    use crate::errors::BridgeError;
-    use crate::rpc::clementine::tagged_signature::SignatureId;
-    use crate::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind};
-    use crate::task::{IntoTask, TaskExt};
-    use crate::{database::Database, test::common::*};
-    use bitcoin::secp256k1::rand;
-    use bitcoin::secp256k1::SecretKey;
-    use bitcoin::transaction::Version;
-    use std::result::Result;
-    use std::sync::Arc;
-    use std::time::Duration;
+    use crate::{
+        actor::TweakCache,
+        bitcoin_syncer::BitcoinSyncer,
+        bitvm_client::SECP,
+        builder::{
+            script::{CheckSig, SpendPath, SpendableScript},
+            transaction::{
+                input::SpendableTxIn, output::UnspentTxOut, TransactionType, TxHandlerBuilder,
+                DEFAULT_SEQUENCE,
+            },
+        },
+        constants::{MIN_TAPROOT_AMOUNT, NON_EPHEMERAL_ANCHOR_AMOUNT},
+        database::Database,
+        errors::BridgeError,
+        rpc::clementine::{
+            tagged_signature::SignatureId, NormalSignatureKind, NumberedSignatureKind,
+        },
+        task::{IntoTask, TaskExt},
+        test::common::*,
+    };
+    use bitcoin::{
+        secp256k1::{rand, SecretKey},
+        transaction::Version,
+    };
+    use std::{result::Result, sync::Arc, time::Duration};
     use tokio::sync::oneshot;
 
     impl TxSenderClient {

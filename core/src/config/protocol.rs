@@ -1,13 +1,12 @@
-use crate::config::env::read_string_from_env_then_parse;
-use crate::constants::{MIN_TAPROOT_AMOUNT, NON_EPHEMERAL_ANCHOR_AMOUNT};
-use crate::errors::BridgeError;
+use crate::{
+    config::env::read_string_from_env_then_parse,
+    constants::{MIN_TAPROOT_AMOUNT, NON_EPHEMERAL_ANCHOR_AMOUNT},
+    errors::BridgeError,
+};
 use bitcoin::{Amount, Network};
 use eyre::Context;
 use serde::{Deserialize, Serialize};
-use std::fmt::Display;
-use std::fs;
-use std::path::Path;
-use std::str::FromStr;
+use std::{fmt::Display, fs, path::Path, str::FromStr};
 
 pub const BLOCKS_PER_HOUR: u16 = 6;
 

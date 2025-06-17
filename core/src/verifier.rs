@@ -1,72 +1,80 @@
-use crate::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
-use crate::bitcoin_syncer::{BitcoinSyncer, BlockHandler, FinalizedBlockFetcherTask};
-use crate::bitvm_client::ClementineBitVMPublicKeys;
-use crate::builder::address::{create_taproot_address, taproot_builder_with_scripts};
-use crate::builder::block_cache;
-use crate::builder::script::{
-    extract_winternitz_commits, extract_winternitz_commits_with_sigs, SpendableScript,
-    TimelockScript, WinternitzCommit,
-};
-use crate::builder::sighash::{
-    create_nofn_sighash_stream, create_operator_sighash_stream, PartialSignatureInfo, SignatureInfo,
-};
-use crate::builder::transaction::deposit_signature_owner::EntityType;
-use crate::builder::transaction::input::UtxoVout;
-use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
-use crate::builder::transaction::{
-    create_emergency_stop_txhandler, create_move_to_vault_txhandler,
-    create_optimistic_payout_txhandler, create_txhandlers, ContractContext, ReimburseDbCache,
-    TransactionType, TxHandler, TxHandlerCache,
-};
-use crate::builder::transaction::{create_round_txhandlers, KickoffWinternitzKeys};
-use crate::citrea::CitreaClientT;
-use crate::config::protocol::ProtocolParamset;
-use crate::config::BridgeConfig;
-use crate::constants::{NON_EPHEMERAL_ANCHOR_AMOUNT, TEN_MINUTES_IN_SECS};
-use crate::database::{Database, DatabaseTransaction};
-use crate::deposit::{DepositData, KickoffData, OperatorData};
-use crate::errors::{BridgeError, TxError};
-use crate::extended_rpc::ExtendedRpc;
-use crate::header_chain_prover::{HeaderChainProver, HeaderChainProverError};
-use crate::operator::RoundIndex;
-use crate::rpc::clementine::{NormalSignatureKind, OperatorKeys, TaggedSignature};
-use crate::task::manager::BackgroundTaskManager;
-use crate::task::{IntoTask, TaskExt};
 #[cfg(feature = "automation")]
 use crate::tx_sender::{TxSender, TxSenderClient};
-use crate::utils::NamedEntity;
-use crate::utils::TxMetadata;
-use crate::{musig2, UTXO};
-use bitcoin::hashes::Hash;
-use bitcoin::key::Secp256k1;
-use bitcoin::opcodes::all::OP_RETURN;
-use bitcoin::script::Instruction;
-use bitcoin::secp256k1::schnorr::Signature;
-use bitcoin::secp256k1::Message;
-use bitcoin::taproot::TaprootBuilder;
-use bitcoin::{Address, Amount, ScriptBuf, Witness, XOnlyPublicKey};
-use bitcoin::{OutPoint, TxOut};
+use crate::{
+    actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath},
+    bitcoin_syncer::{BitcoinSyncer, BlockHandler, FinalizedBlockFetcherTask},
+    bitvm_client::ClementineBitVMPublicKeys,
+    builder::{
+        address::{create_taproot_address, taproot_builder_with_scripts},
+        block_cache,
+        script::{
+            extract_winternitz_commits, extract_winternitz_commits_with_sigs, SpendableScript,
+            TimelockScript, WinternitzCommit,
+        },
+        sighash::{
+            create_nofn_sighash_stream, create_operator_sighash_stream, PartialSignatureInfo,
+            SignatureInfo,
+        },
+        transaction::{
+            create_emergency_stop_txhandler, create_move_to_vault_txhandler,
+            create_optimistic_payout_txhandler, create_round_txhandlers, create_txhandlers,
+            deposit_signature_owner::EntityType,
+            input::UtxoVout,
+            sign::{create_and_sign_txs, TransactionRequestData},
+            ContractContext, KickoffWinternitzKeys, ReimburseDbCache, TransactionType, TxHandler,
+            TxHandlerCache,
+        },
+    },
+    citrea::CitreaClientT,
+    config::{protocol::ProtocolParamset, BridgeConfig},
+    constants::{NON_EPHEMERAL_ANCHOR_AMOUNT, TEN_MINUTES_IN_SECS},
+    database::{Database, DatabaseTransaction},
+    deposit::{DepositData, KickoffData, OperatorData},
+    errors::{BridgeError, TxError},
+    extended_rpc::ExtendedRpc,
+    header_chain_prover::{HeaderChainProver, HeaderChainProverError},
+    musig2,
+    operator::RoundIndex,
+    rpc::clementine::{NormalSignatureKind, OperatorKeys, TaggedSignature},
+    task::{manager::BackgroundTaskManager, IntoTask, TaskExt},
+    utils::{NamedEntity, TxMetadata},
+    UTXO,
+};
+use bitcoin::{
+    hashes::Hash,
+    key::Secp256k1,
+    opcodes::all::OP_RETURN,
+    script::Instruction,
+    secp256k1::{schnorr::Signature, Message},
+    taproot::TaprootBuilder,
+    Address, Amount, OutPoint, ScriptBuf, TxOut, Witness, XOnlyPublicKey,
+};
 use bitcoin_script::builder::StructuredScript;
 use bitcoincore_rpc::RpcApi;
-use bitvm::chunk::api::validate_assertions;
-use bitvm::clementine::additional_disprove::{
-    replace_placeholders_in_script, validate_assertions_for_additional_script,
+use bitvm::{
+    chunk::api::validate_assertions,
+    clementine::additional_disprove::{
+        replace_placeholders_in_script, validate_assertions_for_additional_script,
+    },
+    signatures::winternitz,
 };
-use bitvm::signatures::winternitz;
 #[cfg(feature = "automation")]
 use bridge_circuit_host::utils::get_ark_verifying_key;
 use bridge_circuit_host::utils::get_ark_verifying_key_dev_mode_bridge;
-use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
-use circuits_lib::bridge_circuit::{deposit_constant, parse_op_return_data};
+use circuits_lib::bridge_circuit::{
+    deposit_constant, groth16::CircuitGroth16Proof, parse_op_return_data,
+};
 use eyre::{Context, ContextCompat, OptionExt, Result};
 use risc0_zkvm::is_dev_mode;
 use secp256k1::musig::{AggregatedNonce, PartialSignature, PublicNonce, SecretNonce};
 #[cfg(feature = "automation")]
 use std::collections::BTreeMap;
-use std::collections::{HashMap, HashSet};
-use std::pin::pin;
-use std::sync::Arc;
-use std::time::Duration;
+use std::{
+    collections::{HashMap, HashSet},
+    pin::pin,
+    sync::Arc,
+    time::Duration,
+};
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 use tonic::async_trait;
@@ -2361,12 +2369,12 @@ where
 #[cfg(feature = "automation")]
 mod states {
     use super::*;
-    use crate::builder::transaction::{
-        create_txhandlers, ContractContext, ReimburseDbCache, TxHandlerCache,
+    use crate::{
+        builder::transaction::{
+            create_txhandlers, ContractContext, ReimburseDbCache, TxHandlerCache,
+        },
+        states::{block_cache, context::DutyResult, Duty, Owner, StateManager},
     };
-    use crate::states::context::DutyResult;
-    use crate::states::{block_cache, StateManager};
-    use crate::states::{Duty, Owner};
     use std::collections::BTreeMap;
     use tonic::async_trait;
 
@@ -2585,8 +2593,7 @@ mod states {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test::common::citrea::MockCitreaClient;
-    use crate::test::common::*;
+    use crate::test::common::{citrea::MockCitreaClient, *};
     use bitcoin::Block;
     use std::sync::Arc;
 

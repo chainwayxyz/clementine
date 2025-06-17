@@ -4,29 +4,26 @@
 //! module must be fed with new blocks via the database. Later, it can check if
 //! proving should be triggered by verifying if the batch size is sufficient.
 
-use crate::builder::block_cache::BlockCache;
-use crate::database::DatabaseTransaction;
-use crate::errors::ResultExt;
 use crate::{
+    builder::block_cache::BlockCache,
     config::BridgeConfig,
-    database::Database,
-    errors::{BridgeError, ErrorExt},
+    database::{Database, DatabaseTransaction},
+    errors::{BridgeError, ErrorExt, ResultExt},
     extended_rpc::ExtendedRpc,
 };
-use bitcoin::block::Header;
-use bitcoin::{hashes::Hash, BlockHash, Network};
+use bitcoin::{block::Header, hashes::Hash, BlockHash, Network};
 use bitcoincore_rpc::RpcApi;
 use bridge_circuit_host::docker::dev_stark_to_risc0_g16;
-use circuits_lib::bridge_circuit::structs::{WorkOnlyCircuitInput, WorkOnlyCircuitOutput};
-use circuits_lib::header_chain::mmr_guest::MMRGuest;
-use circuits_lib::header_chain::{
-    BlockHeaderCircuitOutput, ChainState, CircuitBlockHeader, HeaderChainCircuitInput,
-    HeaderChainPrevProofType,
+use circuits_lib::{
+    bridge_circuit::structs::{WorkOnlyCircuitInput, WorkOnlyCircuitOutput},
+    header_chain::{
+        mmr_guest::MMRGuest, BlockHeaderCircuitOutput, ChainState, CircuitBlockHeader,
+        HeaderChainCircuitInput, HeaderChainPrevProofType,
+    },
 };
 use eyre::{eyre, Context, OptionExt};
 use lazy_static::lazy_static;
-use risc0_zkvm::is_dev_mode;
-use risc0_zkvm::{compute_image_id, ExecutorEnv, ProverOpts, Receipt};
+use risc0_zkvm::{compute_image_id, is_dev_mode, ExecutorEnv, ProverOpts, Receipt};
 use std::{
     fs::File,
     io::{BufReader, Read},
@@ -706,11 +703,13 @@ impl HeaderChainProver {
 
 #[cfg(test)]
 mod tests {
-    use crate::extended_rpc::ExtendedRpc;
-    use crate::header_chain_prover::HeaderChainProver;
-    use crate::test::common::*;
-    use crate::verifier::VerifierServer;
-    use crate::{database::Database, test::common::citrea::MockCitreaClient};
+    use crate::{
+        database::Database,
+        extended_rpc::ExtendedRpc,
+        header_chain_prover::HeaderChainProver,
+        test::common::{citrea::MockCitreaClient, *},
+        verifier::VerifierServer,
+    };
     use bitcoin::{block::Header, hashes::Hash, BlockHash, Network};
     use bitcoincore_rpc::RpcApi;
     use circuits_lib::header_chain::{

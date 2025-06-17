@@ -1,7 +1,6 @@
 //! # Citrea Related Utilities
 
-use crate::musig2::AggregateFromPublicKeys;
-use crate::{config::BridgeConfig, errors::BridgeError};
+use crate::{config::BridgeConfig, errors::BridgeError, musig2::AggregateFromPublicKeys};
 use bitcoin::secp256k1::PublicKey;
 use citrea_e2e::{
     bitcoin::BitcoinNode,

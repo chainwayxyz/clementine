@@ -1,29 +1,26 @@
 use super::common::{create_actors, create_test_config_with_thread_name, tx_utils::*};
-use crate::actor::Actor;
-use crate::bitvm_client::{self};
-use crate::builder::transaction::input::UtxoVout;
-use crate::builder::transaction::sign::get_kickoff_utxos_to_sign;
-use crate::builder::transaction::TransactionType as TxType;
-use crate::config::protocol::BLOCKS_PER_HOUR;
-use crate::config::BridgeConfig;
-use crate::database::Database;
-use crate::deposit::{BaseDepositData, DepositInfo, DepositType, KickoffData};
-use crate::extended_rpc::ExtendedRpc;
-use crate::operator::RoundIndex;
-use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
-use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
-use crate::rpc::clementine::SendMoveTxRequest;
-use crate::rpc::clementine::{
-    Deposit, Empty, FinalizedPayoutParams, SignedTxsWithType, TransactionRequest,
+use crate::{
+    actor::Actor,
+    bitvm_client::{self},
+    builder::transaction::{
+        input::UtxoVout, sign::get_kickoff_utxos_to_sign, TransactionType as TxType,
+    },
+    config::{protocol::BLOCKS_PER_HOUR, BridgeConfig},
+    database::Database,
+    deposit::{BaseDepositData, DepositInfo, DepositType, KickoffData},
+    extended_rpc::ExtendedRpc,
+    operator::RoundIndex,
+    rpc::clementine::{
+        clementine_operator_client::ClementineOperatorClient,
+        clementine_verifier_client::ClementineVerifierClient, Deposit, Empty,
+        FinalizedPayoutParams, SendMoveTxRequest, SignedTxsWithType, TransactionRequest,
+    },
+    test::common::{citrea::MockCitreaClient, *},
+    tx_sender::TxSenderClient,
+    utils::RbfSigningInfo,
+    EVMAddress,
 };
-use crate::test::common::citrea::MockCitreaClient;
-use crate::test::common::*;
-use crate::tx_sender::TxSenderClient;
-use crate::utils::RbfSigningInfo;
-use crate::EVMAddress;
-use bitcoin::hashes::Hash;
-use bitcoin::secp256k1::PublicKey;
-use bitcoin::{OutPoint, Transaction, Txid, XOnlyPublicKey};
+use bitcoin::{hashes::Hash, secp256k1::PublicKey, OutPoint, Transaction, Txid, XOnlyPublicKey};
 use bitcoincore_rpc::RpcApi;
 use eyre::{Context, Result};
 use tonic::Request;

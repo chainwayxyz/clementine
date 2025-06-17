@@ -2,11 +2,11 @@ use hex::ToHex;
 use num_bigint::BigUint;
 use num_traits::Num;
 use risc0_groth16::{to_json, ProofJson, Seal};
-use risc0_zkvm::sha::Digestible;
 use risc0_zkvm::{
-    sha::Digest, ReceiptClaim, SuccinctReceipt, SuccinctReceiptVerifierParameters, SystemState,
+    sha::{Digest, Digestible},
+    Groth16Receipt, Groth16ReceiptVerifierParameters, InnerReceipt, Receipt, ReceiptClaim,
+    SuccinctReceipt, SuccinctReceiptVerifierParameters, SystemState,
 };
-use risc0_zkvm::{Groth16Receipt, Groth16ReceiptVerifierParameters, InnerReceipt, Receipt};
 use serde_json::Value;
 use std::{
     env::consts::ARCH,

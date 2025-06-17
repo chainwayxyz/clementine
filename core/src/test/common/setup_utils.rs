@@ -1,23 +1,29 @@
 //! # Testing Utilities
 
-use crate::builder::script::SpendPath;
-use crate::builder::transaction::TransactionType;
-use crate::citrea::CitreaClientT;
-use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
-use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
-use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
-use crate::rpc::clementine::NormalSignatureKind;
-use crate::rpc::get_clients;
-use crate::servers::{
-    create_aggregator_unix_server, create_operator_unix_server, create_verifier_unix_server,
-};
-use crate::utils::initialize_logger;
-use crate::utils::NamedEntity;
 use crate::{
-    actor::Actor, builder, config::BridgeConfig, database::Database, errors::BridgeError,
-    extended_rpc::ExtendedRpc, musig2::AggregateFromPublicKeys,
+    actor::Actor,
+    builder,
+    builder::{script::SpendPath, transaction::TransactionType},
+    citrea::CitreaClientT,
+    config::BridgeConfig,
+    database::Database,
+    errors::BridgeError,
+    extended_rpc::ExtendedRpc,
+    musig2::AggregateFromPublicKeys,
+    rpc::{
+        clementine::{
+            clementine_aggregator_client::ClementineAggregatorClient,
+            clementine_operator_client::ClementineOperatorClient,
+            clementine_verifier_client::ClementineVerifierClient, NormalSignatureKind,
+        },
+        get_clients,
+    },
+    servers::{
+        create_aggregator_unix_server, create_operator_unix_server, create_verifier_unix_server,
+    },
+    utils::{initialize_logger, NamedEntity},
+    EVMAddress, UTXO,
 };
-use crate::{EVMAddress, UTXO};
 use bitcoin::secp256k1::schnorr;
 use secrecy::ExposeSecret;
 use std::net::TcpListener;
@@ -604,13 +610,15 @@ impl NamedEntity for MockOwner {
 #[cfg(feature = "automation")]
 mod states {
     use super::*;
-    use crate::builder::block_cache;
-    use crate::builder::transaction::{ContractContext, TransactionType, TxHandler};
-    use crate::database::DatabaseTransaction;
-    use crate::states::context::DutyResult;
-    use crate::states::{Duty, Owner};
-    use std::collections::BTreeMap;
-    use std::sync::Arc;
+    use crate::{
+        builder::{
+            block_cache,
+            transaction::{ContractContext, TransactionType, TxHandler},
+        },
+        database::DatabaseTransaction,
+        states::{context::DutyResult, Duty, Owner},
+    };
+    use std::{collections::BTreeMap, sync::Arc};
     use tonic::async_trait;
 
     // Implement the Owner trait for MockOwner

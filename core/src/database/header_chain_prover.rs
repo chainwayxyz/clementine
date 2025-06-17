@@ -402,11 +402,12 @@ impl Database {
 
 #[cfg(test)]
 mod tests {
-    use crate::database::Database;
-    use crate::test::common::*;
-    use bitcoin::block::{self, Header, Version};
-    use bitcoin::hashes::Hash;
-    use bitcoin::{BlockHash, CompactTarget, TxMerkleNode};
+    use crate::{database::Database, test::common::*};
+    use bitcoin::{
+        block::{self, Header, Version},
+        hashes::Hash,
+        BlockHash, CompactTarget, TxMerkleNode,
+    };
     use borsh::BorshDeserialize;
     use risc0_zkvm::Receipt;
 

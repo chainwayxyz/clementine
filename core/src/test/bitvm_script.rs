@@ -1,6 +1,5 @@
 mod tests {
-    use bitcoin::hashes::hash160;
-    use bitcoin::hashes::Hash;
+    use bitcoin::hashes::{hash160, Hash};
     use bitvm::{
         clementine::additional_disprove::{
             create_additional_replacable_disprove_script, validate_assertions_for_additional_script,

@@ -1,16 +1,17 @@
 use ark_bn254::{Bn254, Fr};
-use ark_groth16::PreparedVerifyingKey;
-use ark_groth16::Proof;
+use ark_groth16::{PreparedVerifyingKey, Proof};
 use ark_serialize::CanonicalDeserialize;
 use num_bigint::BigUint;
 use num_traits::Num;
 
-use super::constants::{
-    A0_ARK, A1_ARK, ASSUMPTIONS, BN_254_CONTROL_ID_ARK, CLAIM_TAG, INPUT, OUTPUT_TAG, POST_STATE,
-    PREPARED_VK,
+use super::{
+    constants::{
+        A0_ARK, A1_ARK, ASSUMPTIONS, BN_254_CONTROL_ID_ARK, CLAIM_TAG, INPUT, OUTPUT_TAG,
+        POST_STATE, PREPARED_VK,
+    },
+    groth16::CircuitGroth16Proof,
+    structs::WorkOnlyCircuitOutput,
 };
-use super::groth16::CircuitGroth16Proof;
-use super::structs::WorkOnlyCircuitOutput;
 use hex::ToHex;
 use sha2::{Digest, Sha256};
 use std::str::FromStr;

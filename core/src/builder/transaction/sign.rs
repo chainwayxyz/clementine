@@ -2,26 +2,23 @@
 //!
 //! This module provides logic signing the transactions used in the Clementine bridge.
 
-use super::challenge::create_watchtower_challenge_txhandler;
-use super::{ContractContext, TxHandlerCache};
-use crate::actor::{Actor, TweakCache, WinternitzDerivationPath};
-use crate::bitvm_client::ClementineBitVMPublicKeys;
-use crate::builder;
-use crate::builder::transaction::creator::ReimburseDbCache;
-use crate::builder::transaction::TransactionType;
-use crate::citrea::CitreaClientT;
-use crate::config::protocol::ProtocolParamset;
-use crate::config::BridgeConfig;
-use crate::database::Database;
-use crate::deposit::KickoffData;
-use crate::errors::{BridgeError, TxError};
-use crate::operator::{Operator, RoundIndex};
-use crate::utils::RbfSigningInfo;
-use crate::verifier::Verifier;
-use bitcoin::hashes::Hash;
-use bitcoin::{BlockHash, OutPoint, Transaction, XOnlyPublicKey};
-use rand_chacha::rand_core::SeedableRng;
-use rand_chacha::ChaCha12Rng;
+use super::{challenge::create_watchtower_challenge_txhandler, ContractContext, TxHandlerCache};
+use crate::{
+    actor::{Actor, TweakCache, WinternitzDerivationPath},
+    bitvm_client::ClementineBitVMPublicKeys,
+    builder,
+    builder::transaction::{creator::ReimburseDbCache, TransactionType},
+    citrea::CitreaClientT,
+    config::{protocol::ProtocolParamset, BridgeConfig},
+    database::Database,
+    deposit::KickoffData,
+    errors::{BridgeError, TxError},
+    operator::{Operator, RoundIndex},
+    utils::RbfSigningInfo,
+    verifier::Verifier,
+};
+use bitcoin::{hashes::Hash, BlockHash, OutPoint, Transaction, XOnlyPublicKey};
+use rand_chacha::{rand_core::SeedableRng, ChaCha12Rng};
 use secp256k1::rand::seq::SliceRandom;
 
 /// Data to identify the deposit and kickoff.

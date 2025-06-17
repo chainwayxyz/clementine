@@ -1,7 +1,9 @@
-use bitcoin::script::Instruction;
-use bitcoin::sighash::{Prevouts, SighashCache};
-use bitcoin::taproot::{self};
-use bitcoin::{Psbt, TapSighashType, TxOut, Txid, Witness};
+use bitcoin::{
+    script::Instruction,
+    sighash::{Prevouts, SighashCache},
+    taproot::{self},
+    Psbt, TapSighashType, TxOut, Txid, Witness,
+};
 use bitcoincore_rpc::json::{
     BumpFeeOptions, BumpFeeResult, CreateRawTransactionInput, FinalizePsbtResult,
     WalletCreateFundedPsbtOutput, WalletCreateFundedPsbtOutputs, WalletCreateFundedPsbtResult,
@@ -822,29 +824,29 @@ impl TxSender {
 
 #[cfg(test)]
 mod tests {
-    use super::super::tests::*;
-    use super::*;
-    use crate::actor::Actor;
-    use crate::builder::script::SpendPath;
-    use crate::builder::transaction::input::SpendableTxIn;
-    use crate::builder::transaction::output::UnspentTxOut;
-    use crate::builder::transaction::{
-        op_return_txout, TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE,
+    use super::{super::tests::*, *};
+    use crate::{
+        actor::Actor,
+        builder::{
+            script::SpendPath,
+            transaction::{
+                input::SpendableTxIn, op_return_txout, output::UnspentTxOut, TransactionType,
+                TxHandlerBuilder, DEFAULT_SEQUENCE,
+            },
+        },
+        constants::MIN_TAPROOT_AMOUNT,
+        errors::BridgeError,
+        extended_rpc::ExtendedRpc,
+        rpc::clementine::{
+            tagged_signature::SignatureId, NormalSignatureKind, NumberedSignatureKind,
+        },
+        task::{IntoTask, TaskExt},
+        test::common::*,
+        utils::FeePayingType,
     };
-    use crate::constants::MIN_TAPROOT_AMOUNT;
-    use crate::errors::BridgeError;
-    use crate::extended_rpc::ExtendedRpc;
-    use crate::rpc::clementine::tagged_signature::SignatureId;
-    use crate::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind};
-    use crate::task::{IntoTask, TaskExt};
-    use crate::test::common::*;
-    use crate::utils::FeePayingType;
-    use bitcoin::hashes::Hash;
-    use bitcoin::transaction::Version;
-    use bitcoin::TxOut;
+    use bitcoin::{hashes::Hash, transaction::Version, TxOut};
     use bitcoincore_rpc::json::GetRawTransactionResult;
-    use std::result::Result;
-    use std::time::Duration;
+    use std::{result::Result, time::Duration};
 
     async fn create_rbf_tx(
         rpc: &ExtendedRpc,

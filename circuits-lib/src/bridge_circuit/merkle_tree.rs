@@ -287,8 +287,7 @@ pub fn verify_merkle_proof(
 #[cfg(test)]
 mod tests {
 
-    use bitcoin::hashes::Hash;
-    use bitcoin::Block;
+    use bitcoin::{hashes::Hash, Block};
 
     use crate::bridge_circuit::transaction::CircuitTransaction;
 

@@ -5,12 +5,11 @@ use tonic::async_trait;
 
 use crate::errors::ResultExt;
 
-use crate::task::{IgnoreError, WithDelay};
 use crate::{
     bitcoin_syncer::BitcoinSyncerEvent,
     database::Database,
     errors::BridgeError,
-    task::{IntoTask, Task, TaskExt},
+    task::{IgnoreError, IntoTask, Task, TaskExt, WithDelay},
 };
 
 use super::TxSender;

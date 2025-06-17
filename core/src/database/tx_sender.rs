@@ -1078,10 +1078,9 @@ mod tests {
 
     use super::*;
     use crate::database::Database;
-    use bitcoin::absolute::Height;
-    use bitcoin::hashes::Hash;
-    use bitcoin::transaction::Version;
-    use bitcoin::{Block, OutPoint, TapNodeHash, Txid};
+    use bitcoin::{
+        absolute::Height, hashes::Hash, transaction::Version, Block, OutPoint, TapNodeHash, Txid,
+    };
 
     async fn setup_test_db() -> Database {
         let config = create_test_config_with_thread_name().await;

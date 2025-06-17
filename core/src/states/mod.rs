@@ -1,18 +1,20 @@
 pub use crate::builder::block_cache;
-use crate::config::protocol::ProtocolParamset;
-use crate::database::{Database, DatabaseTransaction};
-use crate::errors::BridgeError;
+use crate::{
+    config::protocol::ProtocolParamset,
+    database::{Database, DatabaseTransaction},
+    errors::BridgeError,
+};
 use eyre::Context;
 use futures::future::{join, join_all};
 use kickoff::KickoffEvent;
 use matcher::BlockMatcher;
 use pgmq::PGMQueueExt;
 use round::RoundEvent;
-use statig::awaitable::{InitializedStateMachine, UninitializedStateMachine};
-use statig::prelude::*;
-use std::cmp::max;
-use std::future::Future;
-use std::sync::Arc;
+use statig::{
+    awaitable::{InitializedStateMachine, UninitializedStateMachine},
+    prelude::*,
+};
+use std::{cmp::max, future::Future, sync::Arc};
 use thiserror::Error;
 
 pub mod context;

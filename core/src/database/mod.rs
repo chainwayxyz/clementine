@@ -12,9 +12,7 @@ use crate::{config::BridgeConfig, errors::BridgeError};
 use alloy::transports::http::reqwest::Url;
 use eyre::Context;
 use secrecy::ExposeSecret;
-use sqlx::postgres::PgConnectOptions;
-use sqlx::ConnectOptions;
-use sqlx::{Pool, Postgres};
+use sqlx::{postgres::PgConnectOptions, ConnectOptions, Pool, Postgres};
 
 mod aggregator;
 mod bitcoin_syncer;
@@ -165,8 +163,7 @@ impl Database {
 
 #[cfg(test)]
 mod tests {
-    use crate::test::common::*;
-    use crate::{config::BridgeConfig, database::Database};
+    use crate::{config::BridgeConfig, database::Database, test::common::*};
 
     #[tokio::test]
     async fn valid_database_connection() {

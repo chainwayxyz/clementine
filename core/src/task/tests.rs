@@ -1,14 +1,14 @@
-use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use tokio::sync::Mutex;
 
 use tokio::time::sleep;
 
-use crate::errors::BridgeError;
-use crate::utils::NamedEntity;
+use crate::{errors::BridgeError, utils::NamedEntity};
 
-use super::manager::BackgroundTaskManager;
-use super::{CancelableResult, Task, TaskExt};
+use super::{manager::BackgroundTaskManager, CancelableResult, Task, TaskExt};
 
 // A simple counter task that increments a counter each time it runs
 #[derive(Debug, Clone)]

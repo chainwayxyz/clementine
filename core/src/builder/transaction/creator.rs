@@ -17,39 +17,42 @@
 //! - [`create_round_txhandlers`] - Creates round and ready-to-reimburse transaction handlers for a specific operator and round.
 //!
 
-use super::input::UtxoVout;
-use super::operator_assert::{
-    create_latest_blockhash_timeout_txhandler, create_latest_blockhash_txhandler,
+use super::{
+    input::UtxoVout,
+    operator_assert::{
+        create_latest_blockhash_timeout_txhandler, create_latest_blockhash_txhandler,
+    },
+    remove_txhandler_from_map, RoundTxInput,
 };
-use super::{remove_txhandler_from_map, RoundTxInput};
-use crate::actor::Actor;
-use crate::bitvm_client::ClementineBitVMPublicKeys;
-use crate::builder;
-use crate::builder::script::{SpendableScript, TimelockScript, WinternitzCommit};
-use crate::builder::transaction::operator_reimburse::DisprovePath;
-use crate::builder::transaction::{
-    create_assert_timeout_txhandlers, create_challenge_timeout_txhandler, create_kickoff_txhandler,
-    create_mini_asserts, create_round_txhandler, create_unspent_kickoff_txhandlers, AssertScripts,
-    TransactionType, TxHandler,
+use crate::{
+    actor::Actor,
+    bitvm_client::ClementineBitVMPublicKeys,
+    builder,
+    builder::{
+        script::{SpendableScript, TimelockScript, WinternitzCommit},
+        transaction::{
+            create_assert_timeout_txhandlers, create_challenge_timeout_txhandler,
+            create_kickoff_txhandler, create_mini_asserts, create_round_txhandler,
+            create_unspent_kickoff_txhandlers, operator_reimburse::DisprovePath, AssertScripts,
+            TransactionType, TxHandler,
+        },
+    },
+    config::protocol::ProtocolParamset,
+    database::Database,
+    deposit::{DepositData, KickoffData, OperatorData},
+    errors::{BridgeError, TxError},
+    operator::{PublicHash, RoundIndex},
 };
-use crate::config::protocol::ProtocolParamset;
-use crate::database::Database;
-use crate::deposit::{DepositData, KickoffData, OperatorData};
-use crate::errors::{BridgeError, TxError};
-use crate::operator::{PublicHash, RoundIndex};
-use bitcoin::hashes::Hash;
-use bitcoin::key::Secp256k1;
-use bitcoin::taproot::TaprootBuilder;
-use bitcoin::{OutPoint, XOnlyPublicKey};
+use bitcoin::{hashes::Hash, key::Secp256k1, taproot::TaprootBuilder, OutPoint, XOnlyPublicKey};
 use bitvm::clementine::additional_disprove::{
     create_additional_replacable_disprove_script_with_dummy, replace_placeholders_in_script,
 };
-use circuits_lib::bridge_circuit::deposit_constant;
-use circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
-use eyre::Context;
-use eyre::OptionExt;
-use std::collections::BTreeMap;
-use std::sync::Arc;
+use circuits_lib::{
+    bridge_circuit::deposit_constant,
+    common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS},
+};
+use eyre::{Context, OptionExt};
+use std::{collections::BTreeMap, sync::Arc};
 
 // helper function to get a txhandler from a hashmap
 fn get_txhandler(
@@ -1002,17 +1005,21 @@ pub fn create_round_txhandlers(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::actor::Actor;
-    use crate::bitvm_client::ClementineBitVMPublicKeys;
-    use crate::builder::transaction::sign::get_kickoff_utxos_to_sign;
-    use crate::builder::transaction::{TransactionType, TxHandlerBuilder};
-    use crate::config::BridgeConfig;
-    use crate::deposit::{DepositInfo, KickoffData};
-    use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
-    use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
-    use crate::rpc::clementine::{SignedTxsWithType, TransactionRequest};
-    use crate::test::common::citrea::MockCitreaClient;
-    use crate::test::common::*;
+    use crate::{
+        actor::Actor,
+        bitvm_client::ClementineBitVMPublicKeys,
+        builder::transaction::{
+            sign::get_kickoff_utxos_to_sign, TransactionType, TxHandlerBuilder,
+        },
+        config::BridgeConfig,
+        deposit::{DepositInfo, KickoffData},
+        rpc::clementine::{
+            clementine_operator_client::ClementineOperatorClient,
+            clementine_verifier_client::ClementineVerifierClient, SignedTxsWithType,
+            TransactionRequest,
+        },
+        test::common::{citrea::MockCitreaClient, *},
+    };
     use bitcoin::{BlockHash, Transaction, XOnlyPublicKey};
     use futures::future::try_join_all;
     use std::collections::HashMap;

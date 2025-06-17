@@ -1,25 +1,23 @@
-use std::collections::hash_map::Entry;
-use std::collections::HashMap;
+use std::collections::{hash_map::Entry, HashMap};
 
-use crate::bitvm_client::{self, ClementineBitVMPublicKeys, SECP};
-use crate::builder::script::SpendPath;
-use crate::builder::sighash::TapTweakData;
-use crate::builder::transaction::input::SpentTxIn;
-use crate::builder::transaction::{SighashCalculator, TransactionType, TxHandler};
-use crate::config::protocol::ProtocolParamset;
-use crate::errors::{BridgeError, TxError};
-use crate::operator::{PublicHash, RoundIndex};
-use crate::rpc::clementine::tagged_signature::SignatureId;
-use crate::rpc::clementine::TaggedSignature;
-use bitcoin::hashes::hash160;
-use bitcoin::secp256k1::PublicKey;
-use bitcoin::taproot::{self, LeafVersion, TaprootSpendInfo};
-use bitcoin::{
-    hashes::Hash,
-    secp256k1::{schnorr, Keypair, Message, SecretKey, XOnlyPublicKey},
-    Address, ScriptBuf, TapSighash, TapTweakHash,
+use crate::{
+    bitvm_client::{self, ClementineBitVMPublicKeys, SECP},
+    builder::{
+        script::SpendPath,
+        sighash::TapTweakData,
+        transaction::{input::SpentTxIn, SighashCalculator, TransactionType, TxHandler},
+    },
+    config::protocol::ProtocolParamset,
+    errors::{BridgeError, TxError},
+    operator::{PublicHash, RoundIndex},
+    rpc::clementine::{tagged_signature::SignatureId, TaggedSignature},
 };
-use bitcoin::{OutPoint, TapNodeHash, TapSighashType, Witness};
+use bitcoin::{
+    hashes::{hash160, Hash},
+    secp256k1::{schnorr, Keypair, Message, PublicKey, SecretKey, XOnlyPublicKey},
+    taproot::{self, LeafVersion, TaprootSpendInfo},
+    Address, OutPoint, ScriptBuf, TapNodeHash, TapSighash, TapSighashType, TapTweakHash, Witness,
+};
 use bitvm::signatures::winternitz::{self, BinarysearchVerifier, ToBytesConverter, Winternitz};
 use eyre::{Context, OptionExt};
 
@@ -744,25 +742,26 @@ impl Actor {
 #[cfg(test)]
 mod tests {
     use super::Actor;
-    use crate::builder::address::create_taproot_address;
-    use crate::config::protocol::ProtocolParamsetName;
+    use crate::{builder::address::create_taproot_address, config::protocol::ProtocolParamsetName};
 
     use super::*;
-    use crate::builder::script::{CheckSig, SpendPath, SpendableScript};
-    use crate::builder::transaction::input::SpendableTxIn;
-    use crate::builder::transaction::output::UnspentTxOut;
-    use crate::builder::transaction::{TransactionType, TxHandler, TxHandlerBuilder};
+    use crate::builder::{
+        script::{CheckSig, SpendPath, SpendableScript},
+        transaction::{
+            input::SpendableTxIn, output::UnspentTxOut, TransactionType, TxHandler,
+            TxHandlerBuilder,
+        },
+    };
 
-    use crate::bitvm_client::SECP;
-    use crate::rpc::clementine::NormalSignatureKind;
-    use crate::{actor::WinternitzDerivationPath, test::common::*};
+    use crate::{
+        actor::WinternitzDerivationPath, bitvm_client::SECP, rpc::clementine::NormalSignatureKind,
+        test::common::*,
+    };
     use bitcoin::secp256k1::{schnorr, Message, SecretKey};
 
-    use bitcoin::sighash::TapSighashType;
-    use bitcoin::transaction::Transaction;
+    use bitcoin::{sighash::TapSighashType, transaction::Transaction};
 
-    use bitcoin::secp256k1::rand;
-    use bitcoin::{Amount, Network, OutPoint, Txid};
+    use bitcoin::{secp256k1::rand, Amount, Network, OutPoint, Txid};
     use bitcoincore_rpc::RpcApi;
     use bitvm::{
         execute_script,
@@ -770,8 +769,7 @@ mod tests {
         treepp::script,
     };
     use rand::thread_rng;
-    use std::str::FromStr;
-    use std::sync::Arc;
+    use std::{str::FromStr, sync::Arc};
 
     // Helper: create a TxHandler with a single key spend input.
     fn create_key_spend_tx_handler(actor: &Actor) -> (bitcoin::TxOut, TxHandler) {

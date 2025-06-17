@@ -1,49 +1,54 @@
 use super::common::citrea::get_bridge_params;
-use crate::actor::Actor;
-use crate::bitvm_client::{self, SECP};
-use crate::builder::address::create_taproot_address;
-use crate::builder::script::SpendPath;
-use crate::builder::transaction::input::{SpendableTxIn, UtxoVout};
-use crate::builder::transaction::output::UnspentTxOut;
-use crate::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE};
-use crate::citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER};
-use crate::database::Database;
-use crate::deposit::KickoffData;
-use crate::operator::RoundIndex;
-use crate::rpc::clementine::{
-    Deposit, FeeType, FinalizedPayoutParams, KickoffId, NormalSignatureKind, RawSignedTx,
-    SendTxRequest, TransactionRequest, WithdrawParams,
-};
-use crate::test::common::citrea::{get_citrea_safe_withdraw_params, MockCitreaClient, SECRET_KEYS};
-use crate::test::common::tx_utils::get_tx_from_signed_txs_with_type;
-use crate::test::common::tx_utils::{
-    create_tx_sender, ensure_outpoint_spent,
-    ensure_outpoint_spent_while_waiting_for_light_client_sync, ensure_tx_onchain,
-    get_txid_where_utxo_is_spent, mine_once_after_outpoint_spent_in_mempool,
-};
-use crate::test::common::{
-    create_regtest_rpc, generate_withdrawal_transaction_and_signature, mine_once_after_in_mempool,
-    poll_get, poll_until_condition, run_single_deposit,
-};
-use crate::utils::{FeePayingType, TxMetadata};
-use crate::UTXO;
 use crate::{
-    extended_rpc::ExtendedRpc,
-    test::common::{
-        citrea::{self},
-        create_test_config_with_thread_name,
+    actor::Actor,
+    bitvm_client::{self, SECP},
+    builder::{
+        address::create_taproot_address,
+        script::SpendPath,
+        transaction::{
+            input::{SpendableTxIn, UtxoVout},
+            output::UnspentTxOut,
+            TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE,
+        },
     },
+    citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER},
+    database::Database,
+    deposit::KickoffData,
+    extended_rpc::ExtendedRpc,
+    operator::RoundIndex,
+    rpc::clementine::{
+        Deposit, FeeType, FinalizedPayoutParams, KickoffId, NormalSignatureKind, RawSignedTx,
+        SendTxRequest, TransactionRequest, WithdrawParams,
+    },
+    test::common::{
+        citrea::{
+            get_citrea_safe_withdraw_params, MockCitreaClient, SECRET_KEYS, {self},
+        },
+        create_regtest_rpc, create_test_config_with_thread_name,
+        generate_withdrawal_transaction_and_signature, mine_once_after_in_mempool, poll_get,
+        poll_until_condition, run_single_deposit,
+        tx_utils::{
+            create_tx_sender, ensure_outpoint_spent,
+            ensure_outpoint_spent_while_waiting_for_light_client_sync, ensure_tx_onchain,
+            get_tx_from_signed_txs_with_type, get_txid_where_utxo_is_spent,
+            mine_once_after_outpoint_spent_in_mempool,
+        },
+    },
+    utils::{FeePayingType, TxMetadata},
+    UTXO,
 };
 use alloy::primitives::U256;
 use async_trait::async_trait;
-use bitcoin::hashes::Hash;
-use bitcoin::{secp256k1::SecretKey, Address, Amount};
-use bitcoin::{OutPoint, Transaction, TxOut, Txid};
+use bitcoin::{
+    hashes::Hash, secp256k1::SecretKey, Address, Amount, OutPoint, Transaction, TxOut, Txid,
+};
 use bitcoincore_rpc::RpcApi;
-use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
-use citrea_e2e::config::{BatchProverConfig, LightClientProverConfig};
 use citrea_e2e::{
-    config::{BitcoinConfig, SequencerConfig, TestCaseConfig, TestCaseDockerConfig},
+    bitcoin::DEFAULT_FINALITY_DEPTH,
+    config::{
+        BatchProverConfig, BitcoinConfig, LightClientProverConfig, SequencerConfig, TestCaseConfig,
+        TestCaseDockerConfig,
+    },
     framework::TestFramework,
     test_case::{TestCase, TestCaseRunner},
     Result,

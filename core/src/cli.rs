@@ -3,22 +3,16 @@
 //! This module defines command line interface for server binaries. `Clap` is used
 //! for easy generation of help messages and handling arguments.
 
-use crate::config::protocol::ProtocolParamset;
-use crate::config::BridgeConfig;
-use crate::errors::BridgeError;
-use crate::errors::ErrorExt;
-use crate::utils;
-use crate::utils::delayed_panic;
-use clap::Parser;
-use clap::ValueEnum;
+use crate::{
+    config::{protocol::ProtocolParamset, BridgeConfig},
+    errors::{BridgeError, ErrorExt},
+    utils,
+    utils::delayed_panic,
+};
+use clap::{Parser, ValueEnum};
 use eyre::Context;
-use std::env;
-use std::ffi::OsString;
-use std::path::PathBuf;
-use std::process;
-use std::str::FromStr;
-use tracing::level_filters::LevelFilter;
-use tracing::Level;
+use std::{env, ffi::OsString, path::PathBuf, process, str::FromStr};
+use tracing::{level_filters::LevelFilter, Level};
 
 #[derive(Debug, Clone, Copy, ValueEnum, Eq, PartialEq)]
 pub enum Actors {
@@ -226,12 +220,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::{get_cli_config_from_args, get_config_source, parse_from, ConfigSource};
-    use crate::cli::Actors;
-    use crate::errors::BridgeError;
-    use std::env;
-    use std::fs::File;
-    use std::io::Write;
-    use std::path::PathBuf;
+    use crate::{cli::Actors, errors::BridgeError};
+    use std::{env, fs::File, io::Write, path::PathBuf};
 
     /// With help message flag, we should see the help message. Shocking.
     #[test]

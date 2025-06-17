@@ -4,12 +4,16 @@
 //! It provides abstractions for spendable inputs, input errors, correctness checks, supporting Taproot and script path spends.
 //!
 
-use crate::bitvm_client;
-use crate::builder::script::SpendableScript;
-use crate::builder::sighash::TapTweakData;
-use crate::builder::{address::create_taproot_address, script::SpendPath};
-use crate::config::protocol::ProtocolParamset;
-use crate::rpc::clementine::tagged_signature::SignatureId;
+use crate::{
+    bitvm_client,
+    builder::{
+        address::create_taproot_address,
+        script::{SpendPath, SpendableScript},
+        sighash::TapTweakData,
+    },
+    config::protocol::ProtocolParamset,
+    rpc::clementine::tagged_signature::SignatureId,
+};
 use bitcoin::{
     taproot::{LeafVersion, TaprootSpendInfo},
     Amount, OutPoint, ScriptBuf, Sequence, TxIn, TxOut, Witness, WitnessProgram, XOnlyPublicKey,

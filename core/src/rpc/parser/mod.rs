@@ -1,23 +1,31 @@
-use super::clementine::{
-    self, DepositParams, FeeType, Outpoint, RawSignedTx, RbfSigningInfoRpc, SchnorrSig,
-    TransactionRequest, WinternitzPubkey,
+use super::{
+    clementine::{
+        self, DepositParams, FeeType, Outpoint, RawSignedTx, RbfSigningInfoRpc, SchnorrSig,
+        TransactionRequest, WinternitzPubkey,
+    },
+    error,
 };
-use super::error;
-use crate::builder::transaction::sign::TransactionRequestData;
-use crate::deposit::{
-    Actors, BaseDepositData, DepositData, DepositInfo, DepositType, ReplacementDepositData,
-    SecurityCouncil,
+use crate::{
+    builder::transaction::sign::TransactionRequestData,
+    deposit::{
+        Actors, BaseDepositData, DepositData, DepositInfo, DepositType, ReplacementDepositData,
+        SecurityCouncil,
+    },
+    errors::BridgeError,
+    operator::RoundIndex,
+    utils::{FeePayingType, RbfSigningInfo},
 };
-use crate::errors::BridgeError;
-use crate::operator::RoundIndex;
-use crate::utils::{FeePayingType, RbfSigningInfo};
-use bitcoin::hashes::{sha256d, FromSliceError, Hash};
-use bitcoin::secp256k1::schnorr::Signature;
-use bitcoin::{OutPoint, TapNodeHash, Txid, XOnlyPublicKey};
+use bitcoin::{
+    hashes::{sha256d, FromSliceError, Hash},
+    secp256k1::schnorr::Signature,
+    OutPoint, TapNodeHash, Txid, XOnlyPublicKey,
+};
 use bitvm::signatures::winternitz;
 use eyre::Context;
-use std::fmt::{Debug, Display};
-use std::num::TryFromIntError;
+use std::{
+    fmt::{Debug, Display},
+    num::TryFromIntError,
+};
 use tonic::Status;
 
 pub mod operator;

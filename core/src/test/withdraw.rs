@@ -1,21 +1,21 @@
 use super::common::citrea::get_bridge_params;
-use crate::bitvm_client::SECP;
-use crate::citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER};
-use crate::test::common::citrea::SECRET_KEYS;
-use crate::test::common::generate_withdrawal_transaction_and_signature;
 use crate::{
+    bitvm_client::SECP,
+    citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER},
     extended_rpc::ExtendedRpc,
     test::common::{
-        citrea::{self},
-        create_test_config_with_thread_name,
+        citrea::{
+            SECRET_KEYS, {self},
+        },
+        create_test_config_with_thread_name, generate_withdrawal_transaction_and_signature,
     },
 };
-use alloy::primitives::FixedBytes;
-use alloy::primitives::U256;
-use alloy::providers::Provider;
+use alloy::{
+    primitives::{FixedBytes, U256},
+    providers::Provider,
+};
 use async_trait::async_trait;
-use bitcoin::hashes::Hash;
-use bitcoin::{secp256k1::SecretKey, Address, Amount};
+use bitcoin::{hashes::Hash, secp256k1::SecretKey, Address, Amount};
 use citrea_e2e::{
     config::{BitcoinConfig, SequencerConfig, TestCaseConfig, TestCaseDockerConfig},
     framework::TestFramework,

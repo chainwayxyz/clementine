@@ -1,26 +1,28 @@
-use crate::actor::WinternitzDerivationPath;
-use crate::builder::address::taproot_builder_with_scripts;
-use crate::builder::script::{SpendableScript, WinternitzCommit};
-
-use crate::config::protocol::ProtocolParamset;
-use crate::errors::BridgeError;
-use bitcoin::{self};
-use bitcoin::{ScriptBuf, XOnlyPublicKey};
-
-use bitvm::chunk::api::{
-    api_generate_full_tapscripts, api_generate_partial_script, Assertions, NUM_HASH, NUM_PUBS,
-    NUM_U256,
+use crate::{
+    actor::WinternitzDerivationPath,
+    builder::{
+        address::taproot_builder_with_scripts,
+        script::{SpendableScript, WinternitzCommit},
+    },
 };
-use bitvm::signatures::wots_api::wots160;
+
+use crate::{config::protocol::ProtocolParamset, errors::BridgeError};
+use bitcoin::{self, ScriptBuf, XOnlyPublicKey};
+
+use bitvm::{
+    chunk::api::{
+        api_generate_full_tapscripts, api_generate_partial_script, Assertions, NUM_HASH, NUM_PUBS,
+        NUM_U256,
+    },
+    signatures::wots_api::wots160,
+};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use bridge_circuit_host::utils::{get_ark_verifying_key, get_ark_verifying_key_dev_mode_bridge};
 use risc0_zkvm::is_dev_mode;
 use std::fs;
 
-use std::str::FromStr;
-use std::sync::Arc;
-use std::time::Instant;
+use std::{str::FromStr, sync::Arc, time::Instant};
 
 lazy_static::lazy_static! {
     /// Global secp context.
@@ -650,8 +652,7 @@ pub fn replace_disprove_scripts(pks: &ClementineBitVMPublicKeys) -> Vec<ScriptBu
 
 #[cfg(test)]
 mod tests {
-    use bitcoin::secp256k1::rand::thread_rng;
-    use bitcoin::{hashes::Hash, Txid};
+    use bitcoin::{hashes::Hash, secp256k1::rand::thread_rng, Txid};
 
     use super::*;
     use crate::{actor::Actor, test::common::create_test_config_with_thread_name};

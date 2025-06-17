@@ -1,7 +1,6 @@
 //! This module defines a command line interface for the RPC client.
 
-use std::path::PathBuf;
-use std::str::FromStr;
+use std::{path::PathBuf, str::FromStr};
 
 use bitcoin::{hashes::Hash, Block, ScriptBuf, Txid};
 use clap::{Parser, Subcommand};

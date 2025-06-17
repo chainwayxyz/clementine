@@ -1,17 +1,18 @@
-use crate::builder::transaction::TransactionType;
-use crate::errors::BridgeError;
-use crate::operator::RoundIndex;
-use crate::rpc::clementine::VergenResponse;
+use crate::{
+    builder::transaction::TransactionType, errors::BridgeError, operator::RoundIndex,
+    rpc::clementine::VergenResponse,
+};
 use bitcoin::{OutPoint, TapNodeHash, XOnlyPublicKey};
 use http::HeaderValue;
 use serde::{Deserialize, Serialize};
-use std::fmt::Debug;
-use std::pin::Pin;
-use std::task::{Context, Poll};
+use std::{
+    fmt::Debug,
+    pin::Pin,
+    task::{Context, Poll},
+};
 use tower::{Layer, Service};
 use tracing::level_filters::LevelFilter;
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::{fmt, EnvFilter, Registry};
+use tracing_subscriber::{fmt, layer::SubscriberExt, EnvFilter, Registry};
 
 /// Initializes `tracing` as the logger.
 ///

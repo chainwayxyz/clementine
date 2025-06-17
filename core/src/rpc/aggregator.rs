@@ -1,39 +1,38 @@
 use super::clementine::{
     clementine_aggregator_server::ClementineAggregator, verifier_deposit_finalize_params,
-    DepositParams, Empty, VerifierDepositFinalizeParams,
+    AggregatorWithdrawResponse, Deposit, DepositParams, Empty, OptimisticPayoutParams, RawSignedTx,
+    VergenResponse, VerifierDepositFinalizeParams, VerifierPublicKeys, WithdrawParams,
 };
-use super::clementine::{
-    AggregatorWithdrawResponse, Deposit, OptimisticPayoutParams, RawSignedTx, VergenResponse,
-    VerifierPublicKeys, WithdrawParams,
-};
-use crate::builder::sighash::SignatureInfo;
-use crate::builder::transaction::{
-    combine_emergency_stop_txhandler, create_emergency_stop_txhandler,
-    create_move_to_vault_txhandler, create_optimistic_payout_txhandler, Signed, TransactionType,
-    TxHandler,
-};
-use crate::config::BridgeConfig;
-use crate::deposit::{Actors, DepositData, DepositInfo};
-use crate::errors::ResultExt;
-use crate::musig2::AggregateFromPublicKeys;
-use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
-use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
-use crate::rpc::clementine::VerifierDepositSignParams;
-use crate::rpc::parser;
-use crate::utils::get_vergen_response;
-use crate::utils::{FeePayingType, TxMetadata};
-use crate::UTXO;
 use crate::{
     aggregator::Aggregator,
-    builder::sighash::create_nofn_sighash_stream,
-    errors::BridgeError,
-    musig2::aggregate_nonces,
-    rpc::clementine::{self, DepositSignSession},
+    builder::{
+        sighash::{create_nofn_sighash_stream, SignatureInfo},
+        transaction::{
+            combine_emergency_stop_txhandler, create_emergency_stop_txhandler,
+            create_move_to_vault_txhandler, create_optimistic_payout_txhandler, Signed,
+            TransactionType, TxHandler,
+        },
+    },
+    config::BridgeConfig,
+    deposit::{Actors, DepositData, DepositInfo},
+    errors::{BridgeError, ResultExt},
+    musig2::{aggregate_nonces, AggregateFromPublicKeys},
+    rpc::{
+        clementine::{
+            self, clementine_operator_client::ClementineOperatorClient,
+            clementine_verifier_client::ClementineVerifierClient, DepositSignSession,
+            VerifierDepositSignParams,
+        },
+        parser,
+    },
+    utils::{get_vergen_response, FeePayingType, TxMetadata},
+    UTXO,
 };
-use bitcoin::hashes::Hash;
-use bitcoin::secp256k1::schnorr::Signature;
-use bitcoin::secp256k1::{Message, PublicKey};
-use bitcoin::{TapSighash, TxOut, Txid, XOnlyPublicKey};
+use bitcoin::{
+    hashes::Hash,
+    secp256k1::{schnorr::Signature, Message, PublicKey},
+    TapSighash, TxOut, Txid, XOnlyPublicKey,
+};
 use eyre::{Context, OptionExt};
 use futures::{
     future::try_join_all,
@@ -1507,14 +1506,15 @@ impl ClementineAggregator for Aggregator {
 
 #[cfg(test)]
 mod tests {
-    use crate::actor::Actor;
-    use crate::deposit::{BaseDepositData, DepositInfo, DepositType};
-    use crate::musig2::AggregateFromPublicKeys;
-    use crate::rpc::clementine::{self, RawSignedTx, SendMoveTxRequest};
-    use crate::test::common::citrea::MockCitreaClient;
-    use crate::test::common::tx_utils::ensure_tx_onchain;
-    use crate::test::common::*;
-    use crate::{builder, EVMAddress};
+    use crate::{
+        actor::Actor,
+        builder,
+        deposit::{BaseDepositData, DepositInfo, DepositType},
+        musig2::AggregateFromPublicKeys,
+        rpc::clementine::{self, RawSignedTx, SendMoveTxRequest},
+        test::common::{citrea::MockCitreaClient, tx_utils::ensure_tx_onchain, *},
+        EVMAddress,
+    };
     use bitcoin::hashes::Hash;
     use bitcoincore_rpc::RpcApi;
     use eyre::Context;

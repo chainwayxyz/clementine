@@ -19,22 +19,19 @@
 
 #![allow(dead_code)]
 
-use crate::actor::WinternitzDerivationPath;
-use crate::config::protocol::ProtocolParamset;
-use crate::deposit::SecurityCouncil;
-use crate::EVMAddress;
-use bitcoin::hashes::Hash;
-use bitcoin::opcodes::OP_TRUE;
-use bitcoin::{
-    opcodes::{all::*, OP_FALSE},
-    script::Builder,
-    ScriptBuf, XOnlyPublicKey,
+use crate::{
+    actor::WinternitzDerivationPath, config::protocol::ProtocolParamset, deposit::SecurityCouncil,
+    EVMAddress,
 };
-use bitcoin::{taproot, Txid, Witness};
+use bitcoin::{
+    hashes::Hash,
+    opcodes::{all::*, OP_FALSE, OP_TRUE},
+    script::Builder,
+    taproot, ScriptBuf, Txid, Witness, XOnlyPublicKey,
+};
 use bitvm::signatures::winternitz::{Parameters, PublicKey, SecretKey};
 use eyre::{Context, Result};
-use std::any::Any;
-use std::fmt::Debug;
+use std::{any::Any, fmt::Debug};
 
 #[derive(Debug, Copy, Clone, serde::Serialize, serde::Deserialize)]
 pub enum SpendPath {
@@ -553,15 +550,21 @@ fn get_script_from_arr<T: SpendableScript>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::actor::{Actor, WinternitzDerivationPath};
-    use crate::bitvm_client::{self, UNSPENDABLE_XONLY_PUBKEY};
-    use crate::builder::address::create_taproot_address;
-    use crate::config::protocol::ProtocolParamsetName;
-    use crate::extended_rpc::ExtendedRpc;
-    use crate::operator::RoundIndex;
-    use bitcoin::hashes::Hash;
-    use bitcoin::secp256k1::rand::{self, Rng};
-    use bitcoin::secp256k1::{PublicKey, SecretKey};
+    use crate::{
+        actor::{Actor, WinternitzDerivationPath},
+        bitvm_client::{self, UNSPENDABLE_XONLY_PUBKEY},
+        builder::address::create_taproot_address,
+        config::protocol::ProtocolParamsetName,
+        extended_rpc::ExtendedRpc,
+        operator::RoundIndex,
+    };
+    use bitcoin::{
+        hashes::Hash,
+        secp256k1::{
+            rand::{self, Rng},
+            PublicKey, SecretKey,
+        },
+    };
     use bitcoincore_rpc::RpcApi;
     use std::sync::Arc;
 
@@ -698,11 +701,14 @@ mod tests {
         }
     }
     // Tests for the spendability of all scripts
-    use crate::bitvm_client::SECP;
-    use crate::builder;
-    use crate::builder::transaction::input::SpendableTxIn;
-    use crate::builder::transaction::output::UnspentTxOut;
-    use crate::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE};
+    use crate::{
+        bitvm_client::SECP,
+        builder,
+        builder::transaction::{
+            input::SpendableTxIn, output::UnspentTxOut, TransactionType, TxHandlerBuilder,
+            DEFAULT_SEQUENCE,
+        },
+    };
     use bitcoin::{Amount, OutPoint, Sequence, TxOut, Txid};
 
     async fn create_taproot_test_tx(

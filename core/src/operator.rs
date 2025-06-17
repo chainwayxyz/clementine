@@ -1,51 +1,55 @@
 use ark_ff::PrimeField;
 use circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
 use risc0_zkvm::is_dev_mode;
-use std::collections::HashMap;
-use std::time::Duration;
+use std::{collections::HashMap, time::Duration};
 
-use crate::actor::{Actor, TweakCache, WinternitzDerivationPath};
-use crate::bitvm_client::{ClementineBitVMPublicKeys, SECP};
-use crate::builder::script::extract_winternitz_commits;
-use crate::builder::sighash::{create_operator_sighash_stream, PartialSignatureInfo};
-use crate::builder::transaction::deposit_signature_owner::EntityType;
-use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
-use crate::builder::transaction::{
-    create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler,
-    create_round_txhandlers, create_txhandlers, ContractContext, KickoffWinternitzKeys,
-    ReimburseDbCache, TransactionType, TxHandler, TxHandlerCache,
+use crate::{
+    actor::{Actor, TweakCache, WinternitzDerivationPath},
+    bitvm_client::{ClementineBitVMPublicKeys, SECP},
+    builder,
+    builder::{
+        script::extract_winternitz_commits,
+        sighash::{create_operator_sighash_stream, PartialSignatureInfo},
+        transaction::{
+            create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler,
+            create_round_txhandlers, create_txhandlers,
+            deposit_signature_owner::EntityType,
+            sign::{create_and_sign_txs, TransactionRequestData},
+            ContractContext, KickoffWinternitzKeys, ReimburseDbCache, TransactionType, TxHandler,
+            TxHandlerCache,
+        },
+    },
+    citrea::CitreaClientT,
+    config::BridgeConfig,
+    database::{Database, DatabaseTransaction},
+    deposit::{DepositData, KickoffData, OperatorData},
+    errors::BridgeError,
+    extended_rpc::ExtendedRpc,
+    header_chain_prover::HeaderChainProver,
+    task::{
+        manager::BackgroundTaskManager,
+        payout_checker::{PayoutCheckerTask, PAYOUT_CHECKER_POLL_DELAY},
+        TaskExt,
+    },
+    utils::{Last20Bytes, NamedEntity, TxMetadata},
+    UTXO,
 };
-use crate::citrea::CitreaClientT;
-use crate::config::BridgeConfig;
-use crate::database::Database;
-use crate::database::DatabaseTransaction;
-use crate::deposit::{DepositData, KickoffData, OperatorData};
-use crate::errors::BridgeError;
-use crate::extended_rpc::ExtendedRpc;
-use crate::header_chain_prover::HeaderChainProver;
-use crate::task::manager::BackgroundTaskManager;
-use crate::task::payout_checker::{PayoutCheckerTask, PAYOUT_CHECKER_POLL_DELAY};
-use crate::task::TaskExt;
-use crate::utils::Last20Bytes;
-use crate::utils::{NamedEntity, TxMetadata};
-use crate::{builder, UTXO};
-use bitcoin::consensus::deserialize;
-use bitcoin::hashes::Hash;
-use bitcoin::secp256k1::schnorr::Signature;
-use bitcoin::secp256k1::{schnorr, Message};
 use bitcoin::{
+    consensus::deserialize,
+    hashes::Hash,
+    secp256k1::{schnorr, schnorr::Signature, Message},
     Address, Amount, BlockHash, OutPoint, ScriptBuf, Transaction, TxOut, Txid, XOnlyPublicKey,
 };
-use bitcoincore_rpc::json::AddressType;
-use bitcoincore_rpc::RpcApi;
-use bitvm::chunk::api::generate_assertions;
-use bitvm::signatures::winternitz;
-use bridge_circuit_host::bridge_circuit_host::{
-    create_spv, prove_bridge_circuit, MAINNET_BRIDGE_CIRCUIT_ELF, REGTEST_BRIDGE_CIRCUIT_ELF,
-    SIGNET_BRIDGE_CIRCUIT_ELF, TESTNET4_BRIDGE_CIRCUIT_ELF,
+use bitcoincore_rpc::{json::AddressType, RpcApi};
+use bitvm::{chunk::api::generate_assertions, signatures::winternitz};
+use bridge_circuit_host::{
+    bridge_circuit_host::{
+        create_spv, prove_bridge_circuit, MAINNET_BRIDGE_CIRCUIT_ELF, REGTEST_BRIDGE_CIRCUIT_ELF,
+        SIGNET_BRIDGE_CIRCUIT_ELF, TESTNET4_BRIDGE_CIRCUIT_ELF,
+    },
+    structs::{BridgeCircuitHostParams, WatchtowerContext},
+    utils::{get_ark_verifying_key, get_ark_verifying_key_dev_mode_bridge},
 };
-use bridge_circuit_host::structs::{BridgeCircuitHostParams, WatchtowerContext};
-use bridge_circuit_host::utils::{get_ark_verifying_key, get_ark_verifying_key_dev_mode_bridge};
 use eyre::{Context, OptionExt};
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
@@ -1576,14 +1580,14 @@ where
 #[cfg(feature = "automation")]
 mod states {
     use super::*;
-    use crate::builder::transaction::{
-        create_txhandlers, ContractContext, ReimburseDbCache, TransactionType, TxHandler,
-        TxHandlerCache,
+    use crate::{
+        builder::transaction::{
+            create_txhandlers, ContractContext, ReimburseDbCache, TransactionType, TxHandler,
+            TxHandlerCache,
+        },
+        states::{block_cache, context::DutyResult, Duty, Owner, StateManager},
     };
-    use crate::states::context::DutyResult;
-    use crate::states::{block_cache, Duty, Owner, StateManager};
-    use std::collections::BTreeMap;
-    use std::sync::Arc;
+    use std::{collections::BTreeMap, sync::Arc};
 
     #[tonic::async_trait]
     impl<C> Owner for Operator<C>
@@ -1698,11 +1702,11 @@ mod states {
 
 #[cfg(test)]
 mod tests {
-    use crate::operator::Operator;
-    use crate::test::common::citrea::MockCitreaClient;
-    use crate::test::common::*;
-    use bitcoin::hashes::Hash;
-    use bitcoin::{OutPoint, Txid};
+    use crate::{
+        operator::Operator,
+        test::common::{citrea::MockCitreaClient, *},
+    };
+    use bitcoin::{hashes::Hash, OutPoint, Txid};
 
     // #[tokio::test]
     // async fn set_funding_utxo() {

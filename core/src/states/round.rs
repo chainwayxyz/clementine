@@ -1,11 +1,11 @@
 use statig::prelude::*;
 use std::collections::{HashMap, HashSet};
 
-use crate::deposit::OperatorData;
-use crate::operator::RoundIndex;
 use crate::{
     builder::transaction::{input::UtxoVout, ContractContext, TransactionType},
+    deposit::OperatorData,
     errors::{BridgeError, TxError},
+    operator::RoundIndex,
 };
 use bitcoin::OutPoint;
 use serde_with::serde_as;

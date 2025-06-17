@@ -1,25 +1,27 @@
-use crate::deposit::DepositData;
-use crate::extended_rpc::ExtendedRpc;
-use crate::rpc::clementine::{DepositParams, OperatorKeysWithDeposit};
 #[cfg(feature = "automation")]
 use crate::tx_sender::TxSenderClient;
 use crate::{
     builder::{self},
     config::BridgeConfig,
     database::Database,
+    deposit::DepositData,
     errors::BridgeError,
+    extended_rpc::ExtendedRpc,
     musig2::aggregate_partial_signatures,
     rpc::{
         self,
         clementine::{
             clementine_operator_client::ClementineOperatorClient,
-            clementine_verifier_client::ClementineVerifierClient,
+            clementine_verifier_client::ClementineVerifierClient, DepositParams,
+            OperatorKeysWithDeposit,
         },
     },
 };
-use bitcoin::hashes::Hash;
-use bitcoin::secp256k1::{schnorr, Message, PublicKey};
-use bitcoin::XOnlyPublicKey;
+use bitcoin::{
+    hashes::Hash,
+    secp256k1::{schnorr, Message, PublicKey},
+    XOnlyPublicKey,
+};
 use futures_util::future::try_join_all;
 use secp256k1::musig::{AggregatedNonce, PartialSignature};
 use tonic::Status;

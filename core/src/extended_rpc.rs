@@ -10,34 +10,21 @@
 //! [`crate::test::common::create_regtest_rpc`]. Please refer to
 //! [`crate::test::common`] for using [`ExtendedRpc`] in tests.
 
-use bitcoin::Address;
-use bitcoin::Amount;
-use bitcoin::BlockHash;
-use bitcoin::FeeRate;
-use bitcoin::OutPoint;
-use bitcoin::ScriptBuf;
-use bitcoin::TxOut;
-use bitcoin::Txid;
-use bitcoincore_rpc::Auth;
-use bitcoincore_rpc::Client;
-use bitcoincore_rpc::RpcApi;
-use eyre::eyre;
-use eyre::Context;
-use eyre::OptionExt;
-use secrecy::ExposeSecret;
-use secrecy::SecretString;
-use std::str::FromStr;
-use std::sync::Arc;
+use bitcoin::{Address, Amount, BlockHash, FeeRate, OutPoint, ScriptBuf, TxOut, Txid};
+use bitcoincore_rpc::{Auth, Client, RpcApi};
+use eyre::{eyre, Context, OptionExt};
+use secrecy::{ExposeSecret, SecretString};
+use std::{str::FromStr, sync::Arc};
 
-use crate::builder::transaction::create_round_txhandlers;
-use crate::builder::transaction::input::UtxoVout;
-use crate::builder::transaction::KickoffWinternitzKeys;
-use crate::builder::transaction::TransactionType;
-use crate::builder::transaction::TxHandler;
-use crate::config::protocol::ProtocolParamset;
-use crate::deposit::OperatorData;
-use crate::errors::BridgeError;
-use crate::operator::RoundIndex;
+use crate::{
+    builder::transaction::{
+        create_round_txhandlers, input::UtxoVout, KickoffWinternitzKeys, TransactionType, TxHandler,
+    },
+    config::protocol::ProtocolParamset,
+    deposit::OperatorData,
+    errors::BridgeError,
+    operator::RoundIndex,
+};
 use secrecy::SecretBox;
 
 type Result<T> = std::result::Result<T, BitcoinRPCError>;
@@ -714,21 +701,22 @@ impl ExtendedRpc {
 
 #[cfg(test)]
 mod tests {
-    use crate::actor::Actor;
-    use crate::config::protocol::{ProtocolParamset, REGTEST_PARAMSET};
-    use crate::extended_rpc::ExtendedRpc;
-    use crate::test::common::{citrea, create_test_config_with_thread_name};
     use crate::{
-        bitvm_client::SECP, extended_rpc::BitcoinRPCError, test::common::create_regtest_rpc,
+        actor::Actor,
+        bitvm_client::SECP,
+        config::protocol::{ProtocolParamset, REGTEST_PARAMSET},
+        extended_rpc::{BitcoinRPCError, ExtendedRpc},
+        test::common::{citrea, create_regtest_rpc, create_test_config_with_thread_name},
     };
-    use bitcoin::Amount;
-    use bitcoin::{amount, key::Keypair, Address, FeeRate, XOnlyPublicKey};
+    use bitcoin::{amount, key::Keypair, Address, Amount, FeeRate, XOnlyPublicKey};
     use bitcoincore_rpc::RpcApi;
-    use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
-    use citrea_e2e::config::{BitcoinConfig, TestCaseDockerConfig};
-    use citrea_e2e::test_case::TestCaseRunner;
-    use citrea_e2e::Result;
-    use citrea_e2e::{config::TestCaseConfig, framework::TestFramework, test_case::TestCase};
+    use citrea_e2e::{
+        bitcoin::DEFAULT_FINALITY_DEPTH,
+        config::{BitcoinConfig, TestCaseConfig, TestCaseDockerConfig},
+        framework::TestFramework,
+        test_case::{TestCase, TestCaseRunner},
+        Result,
+    };
     use tonic::async_trait;
 
     #[tokio::test]

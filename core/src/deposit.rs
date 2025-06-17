@@ -6,17 +6,19 @@
 
 use std::sync::Arc;
 
-use crate::builder::script::{
-    BaseDepositScript, Multisig, ReplacementDepositScript, SpendableScript, TimelockScript,
+use crate::{
+    builder::script::{
+        BaseDepositScript, Multisig, ReplacementDepositScript, SpendableScript, TimelockScript,
+    },
+    config::protocol::ProtocolParamset,
+    errors::BridgeError,
+    musig2::AggregateFromPublicKeys,
+    operator::RoundIndex,
+    EVMAddress,
 };
-use crate::config::protocol::ProtocolParamset;
-use crate::errors::BridgeError;
-use crate::musig2::AggregateFromPublicKeys;
-use crate::operator::RoundIndex;
-use crate::EVMAddress;
-use bitcoin::address::NetworkUnchecked;
-use bitcoin::secp256k1::PublicKey;
-use bitcoin::{Address, OutPoint, Txid, XOnlyPublicKey};
+use bitcoin::{
+    address::NetworkUnchecked, secp256k1::PublicKey, Address, OutPoint, Txid, XOnlyPublicKey,
+};
 use eyre::Context;
 
 /// Data structure to represent a single kickoff utxo in an operators round tx.

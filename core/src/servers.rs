@@ -1,25 +1,34 @@
 //! # Servers
 //!
 //! Utilities for operator and verifier servers.
-use crate::aggregator::Aggregator;
-use crate::citrea::CitreaClientT;
-use crate::extended_rpc::ExtendedRpc;
-use crate::operator::OperatorServer;
-use crate::rpc::clementine::clementine_aggregator_server::ClementineAggregatorServer;
-use crate::rpc::clementine::clementine_operator_server::ClementineOperatorServer;
-use crate::rpc::clementine::clementine_verifier_server::ClementineVerifierServer;
-use crate::rpc::interceptors::Interceptors::{Noop, OnlyAggregatorAndSelf};
-use crate::utils::AddMethodMiddlewareLayer;
-use crate::verifier::VerifierServer;
-use crate::{config::BridgeConfig, errors};
+use crate::{
+    aggregator::Aggregator,
+    citrea::CitreaClientT,
+    config::BridgeConfig,
+    errors,
+    extended_rpc::ExtendedRpc,
+    operator::OperatorServer,
+    rpc::{
+        clementine::{
+            clementine_aggregator_server::ClementineAggregatorServer,
+            clementine_operator_server::ClementineOperatorServer,
+            clementine_verifier_server::ClementineVerifierServer,
+        },
+        interceptors::Interceptors::{Noop, OnlyAggregatorAndSelf},
+    },
+    utils::AddMethodMiddlewareLayer,
+    verifier::VerifierServer,
+};
 use errors::BridgeError;
 use eyre::Context;
 use rustls_pki_types::pem::PemObject;
 use std::thread;
 use tokio::sync::oneshot;
-use tonic::server::NamedService;
-use tonic::service::interceptor::InterceptedService;
-use tonic::transport::{Certificate, CertificateDer, Identity, ServerTlsConfig};
+use tonic::{
+    server::NamedService,
+    service::interceptor::InterceptedService,
+    transport::{Certificate, CertificateDer, Identity, ServerTlsConfig},
+};
 
 #[cfg(test)]
 use crate::test::common::ensure_test_certificates;

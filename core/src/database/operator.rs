@@ -13,18 +13,14 @@ use crate::{
     builder::transaction::create_move_to_vault_txhandler,
     config::protocol::ProtocolParamset,
     deposit::{DepositData, KickoffData, OperatorData},
-    operator::RoundIndex,
-};
-use crate::{
     errors::BridgeError,
     execute_query_with_tx,
-    operator::PublicHash,
+    operator::{PublicHash, RoundIndex},
     rpc::clementine::{DepositSignatures, TaggedSignature},
     UTXO,
 };
 use bitcoin::{OutPoint, Txid, XOnlyPublicKey};
-use bitvm::signatures::winternitz;
-use bitvm::signatures::winternitz::PublicKey as WinternitzPublicKey;
+use bitvm::signatures::{winternitz, winternitz::PublicKey as WinternitzPublicKey};
 use eyre::{eyre, Context};
 use std::str::FromStr;
 
@@ -894,18 +890,21 @@ impl Database {
 
 #[cfg(test)]
 mod tests {
-    use crate::bitvm_client::{SECP, UNSPENDABLE_XONLY_PUBKEY};
-    use crate::operator::{Operator, RoundIndex};
-    use crate::rpc::clementine::{
-        DepositSignatures, NormalSignatureKind, NumberedSignatureKind, TaggedSignature,
+    use crate::{
+        bitvm_client::{SECP, UNSPENDABLE_XONLY_PUBKEY},
+        database::Database,
+        operator::{Operator, RoundIndex},
+        rpc::clementine::{
+            DepositSignatures, NormalSignatureKind, NumberedSignatureKind, TaggedSignature,
+        },
+        test::common::{citrea::MockCitreaClient, *},
+        UTXO,
     };
-    use crate::test::common::citrea::MockCitreaClient;
-    use crate::UTXO;
-    use crate::{database::Database, test::common::*};
-    use bitcoin::hashes::Hash;
-    use bitcoin::key::constants::SCHNORR_SIGNATURE_SIZE;
-    use bitcoin::key::Keypair;
-    use bitcoin::{Address, Amount, OutPoint, ScriptBuf, TxOut, Txid, XOnlyPublicKey};
+    use bitcoin::{
+        hashes::Hash,
+        key::{constants::SCHNORR_SIGNATURE_SIZE, Keypair},
+        Address, Amount, OutPoint, ScriptBuf, TxOut, Txid, XOnlyPublicKey,
+    };
     use std::str::FromStr;
 
     #[tokio::test]

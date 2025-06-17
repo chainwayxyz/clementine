@@ -3,11 +3,10 @@
 ///
 use core::ops::{Deref, DerefMut};
 
-use bitcoin::absolute::LockTime;
-use bitcoin::consensus::Encodable;
-use bitcoin::hashes::Hash;
-use bitcoin::transaction::Version;
-use bitcoin::{Amount, OutPoint, ScriptBuf, Sequence, Transaction, TxIn, TxOut, Witness};
+use bitcoin::{
+    absolute::LockTime, consensus::Encodable, hashes::Hash, transaction::Version, Amount, OutPoint,
+    ScriptBuf, Sequence, Transaction, TxIn, TxOut, Witness,
+};
 use borsh::{BorshDeserialize, BorshSerialize};
 
 use crate::common::hashes::calculate_sha256;

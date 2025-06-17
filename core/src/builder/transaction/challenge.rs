@@ -3,17 +3,22 @@
 //! This module provides functions for constructing and challenge related transactions in the protocol.
 //! The transactions are: Challenge, ChallengeTimeout, OperatorChallengeNack, OperatorChallengeAck, Disprove.
 
-use crate::builder;
-use crate::builder::script::SpendPath;
-use crate::builder::transaction::output::UnspentTxOut;
-use crate::builder::transaction::txhandler::{TxHandler, DEFAULT_SEQUENCE};
-use crate::builder::transaction::*;
-use crate::config::protocol::ProtocolParamset;
-use crate::constants::MIN_TAPROOT_AMOUNT;
-use crate::errors::BridgeError;
-use crate::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind};
-use bitcoin::script::PushBytesBuf;
-use bitcoin::{Sequence, TxOut, WitnessVersion};
+use crate::{
+    builder,
+    builder::{
+        script::SpendPath,
+        transaction::{
+            output::UnspentTxOut,
+            txhandler::{TxHandler, DEFAULT_SEQUENCE},
+            *,
+        },
+    },
+    config::protocol::ProtocolParamset,
+    constants::MIN_TAPROOT_AMOUNT,
+    errors::BridgeError,
+    rpc::clementine::{NormalSignatureKind, NumberedSignatureKind},
+};
+use bitcoin::{script::PushBytesBuf, Sequence, TxOut, WitnessVersion};
 use eyre::Context;
 
 use self::input::UtxoVout;

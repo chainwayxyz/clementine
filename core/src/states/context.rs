@@ -1,19 +1,16 @@
-use crate::config::protocol::ProtocolParamset;
-use crate::database::DatabaseTransaction;
-use crate::deposit::{DepositData, KickoffData};
-use crate::operator::RoundIndex;
-use crate::utils::NamedEntity;
+use crate::{
+    config::protocol::ProtocolParamset,
+    database::DatabaseTransaction,
+    deposit::{DepositData, KickoffData},
+    operator::RoundIndex,
+    utils::NamedEntity,
+};
 
-use bitcoin::BlockHash;
-use bitcoin::Transaction;
-use bitcoin::Txid;
-use bitcoin::Witness;
-use bitcoin::XOnlyPublicKey;
+use bitcoin::{BlockHash, Transaction, Txid, Witness, XOnlyPublicKey};
 use statig::awaitable::InitializedStateMachine;
 use tonic::async_trait;
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use crate::database::Database;
 
@@ -29,9 +26,7 @@ use crate::errors::BridgeError;
 
 use std::collections::HashSet;
 
-use super::block_cache;
-use super::kickoff;
-use super::round;
+use super::{block_cache, kickoff, round};
 
 #[derive(Debug, Clone)]
 /// Duties are notifications that are sent to the owner (verifier or operator) of the state machine to notify them on changes to the current

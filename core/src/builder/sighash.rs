@@ -20,22 +20,21 @@
 //!
 //! For more on sighash types, see: <https://developer.bitcoin.org/devguide/transactions.html?highlight=sighash#signature-hash-types>
 
-use crate::bitvm_client;
-use crate::builder::transaction::deposit_signature_owner::EntityType;
-use crate::builder::transaction::sign::get_kickoff_utxos_to_sign;
-use crate::builder::transaction::{
-    create_txhandlers, ContractContext, ReimburseDbCache, TransactionType, TxHandlerCache,
+use crate::{
+    bitvm_client,
+    builder::transaction::{
+        create_txhandlers, deposit_signature_owner::EntityType, sign::get_kickoff_utxos_to_sign,
+        ContractContext, ReimburseDbCache, TransactionType, TxHandlerCache,
+    },
+    config::BridgeConfig,
+    database::Database,
+    deposit::{DepositData, KickoffData},
+    errors::BridgeError,
+    operator::RoundIndex,
+    rpc::clementine::{tagged_signature::SignatureId, NormalSignatureKind},
 };
-use crate::config::BridgeConfig;
-use crate::database::Database;
-use crate::deposit::{DepositData, KickoffData};
-use crate::errors::BridgeError;
-use crate::operator::RoundIndex;
-use crate::rpc::clementine::tagged_signature::SignatureId;
-use crate::rpc::clementine::NormalSignatureKind;
 use async_stream::try_stream;
-use bitcoin::hashes::Hash;
-use bitcoin::{TapNodeHash, TapSighash, XOnlyPublicKey};
+use bitcoin::{hashes::Hash, TapNodeHash, TapSighash, XOnlyPublicKey};
 use futures_core::stream::Stream;
 
 impl BridgeConfig {

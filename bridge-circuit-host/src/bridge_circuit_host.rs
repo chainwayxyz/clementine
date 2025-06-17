@@ -1,22 +1,25 @@
-use crate::docker::{stark_to_bitvm2_g16, stark_to_bitvm2_g16_dev_mode};
-use crate::structs::{
-    BridgeCircuitBitvmInputs, BridgeCircuitHostParams, SuccinctBridgeCircuitPublicInputs,
+use crate::{
+    docker::{stark_to_bitvm2_g16, stark_to_bitvm2_g16_dev_mode},
+    structs::{
+        BridgeCircuitBitvmInputs, BridgeCircuitHostParams, SuccinctBridgeCircuitPublicInputs,
+    },
+    utils::calculate_succinct_output_prefix,
 };
-use crate::utils::calculate_succinct_output_prefix;
 use ark_bn254::Bn254;
 use bitcoin::Transaction;
 use borsh;
-use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
-use circuits_lib::bridge_circuit::merkle_tree::BitcoinMerkleTree;
-use circuits_lib::bridge_circuit::spv::SPV;
-use circuits_lib::bridge_circuit::structs::WorkOnlyCircuitInput;
-use circuits_lib::bridge_circuit::transaction::CircuitTransaction;
-
-use circuits_lib::common::constants::{
-    MAINNET_HEADER_CHAIN_METHOD_ID, REGTEST_HEADER_CHAIN_METHOD_ID, SIGNET_HEADER_CHAIN_METHOD_ID,
-    TESTNET4_HEADER_CHAIN_METHOD_ID,
+use circuits_lib::bridge_circuit::{
+    groth16::CircuitGroth16Proof, merkle_tree::BitcoinMerkleTree, spv::SPV,
+    structs::WorkOnlyCircuitInput, transaction::CircuitTransaction,
 };
-use circuits_lib::header_chain::mmr_native::MMRNative;
+
+use circuits_lib::{
+    common::constants::{
+        MAINNET_HEADER_CHAIN_METHOD_ID, REGTEST_HEADER_CHAIN_METHOD_ID,
+        SIGNET_HEADER_CHAIN_METHOD_ID, TESTNET4_HEADER_CHAIN_METHOD_ID,
+    },
+    header_chain::mmr_native::MMRNative,
+};
 use risc0_zkvm::{compute_image_id, default_prover, is_dev_mode, ExecutorEnv, ProverOpts, Receipt};
 
 pub const REGTEST_BRIDGE_CIRCUIT_ELF: &[u8] =

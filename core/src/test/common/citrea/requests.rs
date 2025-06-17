@@ -1,14 +1,11 @@
-use crate::citrea::LIGHT_CLIENT_ADDRESS;
-use crate::errors::BridgeError;
-use crate::extended_rpc::ExtendedRpc;
-use crate::test::common::citrea::parameters::get_citrea_deposit_params;
-use crate::EVMAddress;
+use crate::{
+    citrea::LIGHT_CLIENT_ADDRESS, errors::BridgeError, extended_rpc::ExtendedRpc,
+    test::common::citrea::parameters::get_citrea_deposit_params, EVMAddress,
+};
 use alloy::sol_types::SolValue;
 use bitcoin::{Block, Transaction};
 use eyre::Context;
-use jsonrpsee::core::client::ClientT;
-use jsonrpsee::http_client::HttpClient;
-use jsonrpsee::rpc_params;
+use jsonrpsee::{core::client::ClientT, http_client::HttpClient, rpc_params};
 use serde_json::json;
 
 pub async fn block_number(client: &HttpClient) -> Result<u32, BridgeError> {

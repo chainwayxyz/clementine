@@ -1,27 +1,25 @@
 use super::ParserError;
-use crate::citrea::CitreaClientT;
-use crate::deposit::DepositData;
-use crate::errors::BridgeError;
-use crate::fetch_next_optional_message_from_stream;
-use crate::rpc::clementine::{
-    nonce_gen_response, verifier_deposit_sign_params, DepositSignSession, NonceGenFirstResponse,
-    OperatorKeys, OperatorKeysWithDeposit, PartialSig, VerifierDepositSignParams, VerifierParams,
-};
-use crate::verifier::Verifier;
 use crate::{
-    fetch_next_message_from_stream,
+    citrea::CitreaClientT,
+    deposit::DepositData,
+    errors::BridgeError,
+    fetch_next_message_from_stream, fetch_next_optional_message_from_stream,
     rpc::{
         clementine::{
-            self, verifier_deposit_finalize_params, NonceGenResponse,
-            VerifierDepositFinalizeParams, VerifierPublicKeys,
+            self, nonce_gen_response, verifier_deposit_finalize_params,
+            verifier_deposit_sign_params, DepositSignSession, NonceGenFirstResponse,
+            NonceGenResponse, OperatorKeys, OperatorKeysWithDeposit, PartialSig,
+            VerifierDepositFinalizeParams, VerifierDepositSignParams, VerifierParams,
+            VerifierPublicKeys,
         },
         error::{self, invalid_argument},
     },
+    verifier::Verifier,
 };
-use bitcoin::secp256k1::schnorr;
-use bitcoin::secp256k1::schnorr::Signature;
-use bitcoin::secp256k1::PublicKey;
-use bitcoin::XOnlyPublicKey;
+use bitcoin::{
+    secp256k1::{schnorr, schnorr::Signature, PublicKey},
+    XOnlyPublicKey,
+};
 use eyre::Context;
 use secp256k1::musig::{AggregatedNonce, PartialSignature, PublicNonce};
 use tonic::Status;
