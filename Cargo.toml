@@ -30,7 +30,8 @@ alloy = { version = "0.11.1", features = ["full"] }
 statig = { version = "0.3.0", features = ["async", "serde"] }
 pgmq = "0.30.0"
 serde_with = "3.12.0"
-rand_chacha = "0.3.1"
+rand_chacha = "0.9.0"
+secrecy = { version = "0.10.0", features = ["serde"] }
 
 # Citrea dependencies
 citrea-e2e = { git = "https://github.com/chainwayxyz/citrea-e2e", rev = "d45a29afa4de9d7e00dad9e8d9c59f95fe22e557" }
@@ -43,7 +44,7 @@ citrea-sov-rollup-interface = { git = "https://github.com/chainwayxyz/citrea", t
 # bitcoin
 bitcoin = { version = "0.32.5", features = ["serde", "base64"] }
 bitcoincore-rpc = "0.18.0"
-secp256k1 = { version = "0.30.0", features = [
+secp256k1 = { version = "0.31.0", features = [
   "serde",
   "rand",
   "std",
@@ -70,8 +71,8 @@ sha2 = { version = "=0.10.8", default-features = false }
 crypto-bigint = { version = "=0.5.5", features = ["rand_core"] }
 borsh = { version = "1.5.1", features = ["derive"] }
 k256 = { version = "=0.13.4" }
-risc0-build = "2.1.1"
-risc0-zkvm = { version = "2.0.2" }
+risc0-build = "2.1.2"
+risc0-zkvm = "2.1.0"
 ripemd = "0.1.3"
 once_cell = "1.10.0"
 jmt = "0.11.0"
@@ -88,7 +89,7 @@ ark-bn254 = { version = "0.5.0", features = [
 ], default-features = false }
 
 # Bridge Circuit Host
-risc0-circuit-recursion = "2.0.1"
+risc0-circuit-recursion = "2.0.2"
 risc0-zkp = "2.0.1"
 risc0-groth16 = "2.0.1"
 
@@ -120,7 +121,7 @@ vergen-git2 = { version = "1.0.0", features = [
 
 [patch.crates-io]
 bitcoincore-rpc = { version = "0.18.0", git = "https://github.com/chainwayxyz/rust-bitcoincore-rpc.git", rev = "5da45109a2de352472a6056ef90a517b66bc106f" }
-secp256k1 = { git = "https://github.com/jlest01/rust-secp256k1", rev = "1cc7410df436b73d06db3c8ff7cbb29a78916b06" }
+secp256k1 = { git = "https://github.com/rust-bitcoin/rust-secp256k1", rev = "4d36fefdddb118425bb9bcf611bb6e4dff306cfc" }
 
 [profile.release]
 lto = true
