@@ -244,8 +244,6 @@ impl From<BridgeError> for tonic::Status {
 
 #[cfg(test)]
 mod tests {
-    use crate::citrea::Bridge;
-
     use super::*;
     #[test]
     fn test_downcast() {

@@ -26,7 +26,6 @@ use bitcoin::XOnlyPublicKey;
 use eyre::Context;
 use futures_util::future::try_join_all;
 use secp256k1::musig::{AggregatedNonce, PartialSignature};
-use secp256k1::Parity;
 use std::time::Duration;
 use tokio::time::timeout;
 use tonic::Status;
