@@ -59,7 +59,6 @@ pub struct TimeoutTestParams {
 }
 
 impl TimeoutTestParams {
-    #[cfg(test)]
     pub async fn hook_timeout_key_distribution_verifier(&self, idx: usize) {
         if self.key_distribution_verifier_idx == Some(idx) {
             use tokio::time::sleep;
@@ -69,7 +68,6 @@ impl TimeoutTestParams {
         }
     }
 
-    #[cfg(test)]
     pub async fn hook_timeout_key_collection_operator(&self, idx: usize) {
         if self.key_collection_operator_idx == Some(idx) {
             use tokio::time::sleep;
@@ -79,7 +77,6 @@ impl TimeoutTestParams {
         }
     }
 
-    #[cfg(test)]
     pub async fn hook_timeout_nonce_stream_creation_verifier(&self, idx: usize) {
         if self.nonce_stream_creation_verifier_idx == Some(idx) {
             use tokio::time::sleep;
@@ -91,7 +88,6 @@ impl TimeoutTestParams {
         }
     }
 
-    #[cfg(test)]
     pub async fn hook_timeout_partial_sig_stream_creation_verifier(&self, idx: usize) {
         if self.partial_sig_stream_creation_verifier_idx == Some(idx) {
             use tokio::time::sleep;
@@ -104,7 +100,6 @@ impl TimeoutTestParams {
         }
     }
 
-    #[cfg(test)]
     pub async fn hook_timeout_operator_sig_collection_operator(&self, idx: usize) {
         if self.operator_sig_collection_operator_idx == Some(idx) {
             use tokio::time::sleep;
@@ -117,7 +112,6 @@ impl TimeoutTestParams {
         }
     }
 
-    #[cfg(test)]
     pub async fn hook_timeout_deposit_finalize_verifier(&self, idx: usize) {
         if self.deposit_finalize_verifier_idx == Some(idx) {
             use tokio::time::sleep;

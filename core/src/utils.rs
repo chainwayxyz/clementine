@@ -46,6 +46,8 @@ pub fn initialize_logger(level: Option<LevelFilter>) -> Result<(), BridgeError> 
         .with_target(true)
         // .with_current_span(true)
         // .with_span_list(true)
+        // To see how long each span takes, uncomment this.
+        // .with_span_events(FmtSpan::CLOSE)
         .json();
 
     // Standard human-readable layer for non-JSON output
@@ -54,6 +56,8 @@ pub fn initialize_logger(level: Option<LevelFilter>) -> Result<(), BridgeError> 
         // .with_timer(time::UtcTime::rfc_3339())
         .with_file(true)
         .with_line_number(true)
+        // To see how long each span takes, uncomment this.
+        // .with_span_events(FmtSpan::CLOSE)
         .with_target(true);
 
     let filter = match level {
