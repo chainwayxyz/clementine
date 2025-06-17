@@ -1365,6 +1365,11 @@ where
             .map(|(block_hash, _)| block_hash.to_byte_array())
             .collect::<Vec<_>>();
 
+        tracing::debug!(
+            "Genesis height - Before SPV: {},",
+            self.config.protocol_paramset().genesis_height
+        );
+
         let spv = create_spv(
             payout_tx.clone(),
             &blockhashes_serialized,
