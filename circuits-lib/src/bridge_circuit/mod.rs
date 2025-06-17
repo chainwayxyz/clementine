@@ -392,14 +392,10 @@ pub fn verify_watchtower_challenges(circuit_input: &BridgeCircuitInput) -> Watch
             .verify_prehash(sighash.as_byte_array(), &signature)
             .is_ok()
         {
-            // TODO: CHECK IF THIS IS CORRECT
             challenge_sending_watchtowers[(watchtower_input.watchtower_idx as usize) / 8] |=
                 1 << (watchtower_input.watchtower_idx % 8);
-            if watchtower_input.watchtower_challenge_tx.output.len() >= 3 {
-                watchtower_challenges_outputs
-                    .push(watchtower_input.watchtower_challenge_tx.output.clone());
-                // TODO: Get rid of clone if possible
-            }
+            watchtower_challenges_outputs
+                .push(watchtower_input.watchtower_challenge_tx.output.clone());
         }
     }
 
