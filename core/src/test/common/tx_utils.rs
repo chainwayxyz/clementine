@@ -51,13 +51,13 @@ pub async fn ensure_outpoint_spent_while_waiting_for_light_client_sync(
         let mut total_retry = 0;
         while let Err(e) = lc_prover
             .wait_for_l1_height(block_count as u64 - DEFAULT_FINALITY_DEPTH, None)
-            .await {
-                if total_retry > 10 {
-                    bail!("Failed to wait for l1 height: {:?}", e);
-                }
-                total_retry += 1;
-                tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+            .await
+        {
+            if total_retry > 10 {
+                bail!("Failed to wait for l1 height: {:?}", e);
             }
+            total_retry += 1;
+            tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
         }
         rpc.mine_blocks(1).await?;
 
