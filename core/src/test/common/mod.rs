@@ -1,8 +1,12 @@
-//! # Common Utilities for Integration Tests
-use std::path::Path;
-use std::process::Command;
-use std::sync::Mutex;
-use std::time::Duration;
+//! # Common Utilities for Tests
+//!
+//! This module provides all the common utilities needed in unit and integration
+//! tests, including:
+//!
+//! - Setting up databases, servers
+//! - Creating test configurations
+//! - Making common operetions like deposits
+//! - Communicating with Citrea
 
 use crate::actor::Actor;
 use crate::bitvm_client::SECP;
@@ -12,6 +16,7 @@ use crate::builder::transaction::input::UtxoVout;
 use crate::builder::transaction::{create_replacement_deposit_txhandler, TxHandler};
 use crate::citrea::CitreaClientT;
 use crate::config::BridgeConfig;
+use crate::database::Database;
 use crate::deposit::{
     BaseDepositData, DepositInfo, DepositType, ReplacementDepositData, SecurityCouncil,
 };
@@ -39,6 +44,10 @@ use bitcoincore_rpc::RpcApi;
 use citrea::MockCitreaClient;
 use eyre::Context;
 pub use setup_utils::*;
+use std::path::Path;
+use std::process::Command;
+use std::sync::Mutex;
+use std::time::Duration;
 use tonic::transport::Channel;
 use tonic::Request;
 
@@ -47,7 +56,9 @@ mod setup_utils;
 pub mod tx_utils;
 
 #[cfg(feature = "automation")]
-use tx_utils::{create_tx_sender, get_txid_where_utxo_is_spent};
+use crate::test::common::tx_utils::wait_for_fee_payer_utxos_to_be_in_mempool;
+#[cfg(feature = "automation")]
+use tx_utils::{confirm_fee_payer_utxos, create_tx_sender, get_txid_where_utxo_is_spent};
 
 /// Generate a random XOnlyPublicKey
 pub fn generate_random_xonly_pk() -> XOnlyPublicKey {
@@ -55,6 +66,7 @@ pub fn generate_random_xonly_pk() -> XOnlyPublicKey {
         .generate_keypair(&mut rand::thread_rng())
         .1
         .x_only_public_key();
+
     pubkey
 }
 
@@ -150,14 +162,20 @@ pub async fn mine_once_after_in_mempool(
     let start = std::time::Instant::now();
     let tx_name = tx_name.unwrap_or("Unnamed tx");
 
+    if rpc
+        .client
+        .get_transaction(&txid, None)
+        .await
+        .is_ok_and(|tx| tx.info.blockhash.is_some())
+    {
+        return Err(eyre::eyre!("{} is already mined", tx_name).into());
+    }
+
     loop {
         if start.elapsed() > std::time::Duration::from_secs(timeout) {
-            return Err(eyre::eyre!(
-                "{} did not land onchain within {} seconds",
-                tx_name,
-                timeout
-            )
-            .into());
+            return Err(
+                eyre::eyre!("{} didn't hit mempool within {} seconds", tx_name, timeout).into(),
+            );
         }
 
         if rpc.client.get_mempool_entry(&txid).await.is_ok() {
@@ -209,109 +227,32 @@ pub async fn mine_once_after_in_mempool(
     Ok(tx_block_height.height)
 }
 
-pub async fn run_multiple_deposits<C: CitreaClientT>(
-    config: &mut BridgeConfig,
-    rpc: ExtendedRpc,
-    count: usize,
-) -> Result<
-    (
-        Vec<ClementineVerifierClient<Channel>>,
-        Vec<ClementineOperatorClient<Channel>>,
-        ClementineAggregatorClient<Channel>,
-        ActorsCleanup,
-        Vec<OutPoint>,
-        Vec<Txid>,
-    ),
-    BridgeError,
-> {
-    let (verifiers, operators, mut aggregator, cleanup) = create_actors::<C>(config).await;
-
-    let evm_address = EVMAddress([1u8; 20]);
-    let actor = Actor::new(
-        config.secret_key,
-        config.winternitz_secret_key,
-        config.protocol_paramset().network,
-    );
-
-    let verifiers_public_keys: Vec<PublicKey> = aggregator
-        .setup(Request::new(Empty {}))
-        .await
-        .wrap_err("Can't setup aggregator")?
-        .into_inner()
-        .try_into()?;
-
-    let (deposit_address, _) =
-        get_deposit_address(config, evm_address, verifiers_public_keys.clone())?;
-    let mut deposit_outpoints = Vec::new();
-    let mut move_txids = Vec::new();
-
-    for _ in 0..count {
-        let deposit_outpoint: OutPoint = rpc
-            .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
-            .await?;
-        rpc.mine_blocks(18).await?;
-
-        let deposit_info = DepositInfo {
-            deposit_outpoint,
-            deposit_type: DepositType::BaseDeposit(BaseDepositData {
-                evm_address,
-                recovery_taproot_address: actor.address.as_unchecked().to_owned(),
-            }),
-        };
-
-        let deposit: Deposit = deposit_info.into();
-
-        let movetx = aggregator
-            .new_deposit(deposit)
-            .await
-            .wrap_err("Error while making a deposit")?
-            .into_inner();
-        let move_txid = aggregator
-            .send_move_to_vault_tx(SendMoveTxRequest {
-                deposit_outpoint: Some(deposit_outpoint.into()),
-                raw_tx: Some(movetx),
-            })
-            .await
-            .expect("failed to send movetx")
-            .into_inner()
-            .try_into()?;
-        rpc.mine_blocks(1).await?;
-
-        let _tx = poll_get(
-            async || {
-                rpc.mine_blocks(1).await?;
-
-                let tx_result = rpc.client.get_raw_transaction_info(&move_txid, None).await;
-
-                let _ = tx_result.as_ref().inspect_err(|e| {
-                    tracing::info!("Waiting for transaction to be on-chain: {}", e);
-                });
-
-                Ok(tx_result.ok())
-            },
-            None,
-            None,
-        )
-        .await?;
-
-        deposit_outpoints.push(deposit_outpoint);
-        move_txids.push(move_txid);
-    }
-
-    Ok((
-        verifiers,
-        operators,
-        aggregator,
-        cleanup,
-        deposit_outpoints,
-        move_txids,
-    ))
-}
-
+/// Creates a user deposit transaction and makes a new deposit call to
+/// Clementine via aggregator.
+///
+/// # Parameters
+///
+/// - `user_evm_address` [`EVMAddress`]: Optional EVM address to use for the
+///   deposit. If not provided, a default address is used.
+///
+/// # Returns
+///
+/// A big tuple, containing:
+///
+/// - Server clients:
+///    - [`ClementineVerifierClient`]: A vector of verifier clients.
+///    - [`ClementineOperatorClient`]: A vector of operator clients.
+///    - [`ClementineAggregatorClient`]: The aggregator client.
+///    - [`ActorsCleanup`]: Cleanup handle for the servers. Must not be dropped.
+/// - [`DepositInfo`]: Information about the deposit.
+/// - [`Txid`]: TXID of the move transaction.
+/// - [`BlockHash`]: Block hash of the block where the user deposit was mined.
+/// - [`Vec<PublicKey>`]: Public keys of the verifiers used in the deposit.
+#[cfg(feature = "automation")]
 pub async fn run_single_deposit<C: CitreaClientT>(
     config: &mut BridgeConfig,
     rpc: ExtendedRpc,
-    evm_address: Option<EVMAddress>,
+    user_evm_address: Option<EVMAddress>,
 ) -> Result<
     (
         Vec<ClementineVerifierClient<Channel>>,
@@ -326,8 +267,13 @@ pub async fn run_single_deposit<C: CitreaClientT>(
     BridgeError,
 > {
     let (verifiers, operators, mut aggregator, cleanup) = create_actors::<C>(config).await;
+    let aggregator_db = Database::new(&BridgeConfig {
+        db_name: config.db_name.clone() + "0",
+        ..config.clone()
+    })
+    .await?;
 
-    let evm_address = evm_address.unwrap_or(EVMAddress([1u8; 20]));
+    let user_evm_address = user_evm_address.unwrap_or(EVMAddress([1u8; 20]));
     let actor = Actor::new(
         config.secret_key,
         config.winternitz_secret_key,
@@ -345,7 +291,7 @@ pub async fn run_single_deposit<C: CitreaClientT>(
     tracing::info!("Setup completed in: {:?}", setup_elapsed);
 
     let (deposit_address, _) =
-        get_deposit_address(config, evm_address, verifiers_public_keys.clone())?;
+        get_deposit_address(config, user_evm_address, verifiers_public_keys.clone())?;
     let deposit_outpoint = rpc
         .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
         .await?;
@@ -356,7 +302,7 @@ pub async fn run_single_deposit<C: CitreaClientT>(
     let deposit_info = DepositInfo {
         deposit_outpoint,
         deposit_type: DepositType::BaseDeposit(BaseDepositData {
-            evm_address,
+            evm_address: user_evm_address,
             recovery_taproot_address: actor.address.as_unchecked().to_owned(),
         }),
     };
@@ -379,41 +325,8 @@ pub async fn run_single_deposit<C: CitreaClientT>(
         .into_inner()
         .try_into()?;
 
+    confirm_fee_payer_utxos(&rpc, aggregator_db.clone(), move_txid).await?;
     mine_once_after_in_mempool(&rpc, move_txid, Some("Move tx"), Some(180)).await?;
-
-    // let transaction = rpc
-    //     .client
-    //     .get_raw_transaction(&move_txid, None)
-    //     .await
-    //     .expect("a");
-    // let tx_info: bitcoincore_rpc::json::GetRawTransactionResult = rpc
-    //     .client
-    //     .get_raw_transaction_info(&move_txid, None)
-    //     .await
-    //     .expect("a");
-    // let block: bitcoincore_rpc::json::GetBlockResult = rpc
-    //     .client
-    //     .get_block_info(&tx_info.blockhash.unwrap())
-    //     .await
-    //     .expect("a");
-    // let block_height = block.height;
-    // let block = rpc
-    //     .client
-    //     .get_block(&tx_info.blockhash.unwrap())
-    //     .await
-    //     .expect("a");
-    // let transaction_params = get_citrea_deposit_params(
-    //     &rpc,
-    //     transaction.clone(),
-    //     block,
-    //     block_height as u32,
-    //     move_txid,
-    // ).await?;
-    // println!("Move tx Transaction params: {:?}", transaction_params);
-    // println!(
-    //     "Move tx: {:?}",
-    //     hex::encode(bitcoin::consensus::serialize(&transaction))
-    // );
 
     Ok((
         verifiers,
@@ -523,11 +436,6 @@ pub async fn run_replacement_deposit(
     ),
     BridgeError,
 > {
-    let actor = Actor::new(
-        config.secret_key,
-        config.winternitz_secret_key,
-        config.protocol_paramset().network,
-    );
     let (
         verifiers,
         operators,
@@ -538,11 +446,15 @@ pub async fn run_replacement_deposit(
         _,
         verifiers_public_keys,
     ) = run_single_deposit::<MockCitreaClient>(config, rpc.clone(), evm_address).await?;
+    tracing::info!("First deposit move txid: {}", move_txid);
 
+    let actor = Actor::new(
+        config.secret_key,
+        config.winternitz_secret_key,
+        config.protocol_paramset().network,
+    );
     let nofn_xonly_pk =
         bitcoin::XOnlyPublicKey::from_musig2_pks(verifiers_public_keys.clone(), None)?;
-
-    tracing::info!("First deposit move txid: {}", move_txid);
 
     let (addr, _) = create_taproot_address(
         &[
@@ -609,8 +521,13 @@ pub async fn run_replacement_deposit(
         .await
         .unwrap();
     db_commit.commit().await?;
-    // sleep 3 seconds so that tx_sender can send the fee_payer_tx to the mempool
-    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+
+    wait_for_fee_payer_utxos_to_be_in_mempool(
+        &rpc,
+        tx_sender_db.clone(),
+        replacement_deposit_tx.compute_txid(),
+    )
+    .await?;
 
     let replacement_deposit_txid = get_txid_where_utxo_is_spent(
         &rpc,
@@ -667,54 +584,6 @@ pub async fn run_replacement_deposit(
     ))
 }
 
-#[ignore = "Tested everywhere, no need to run again"]
-#[tokio::test]
-async fn test_deposit() {
-    let mut config = create_test_config_with_thread_name().await;
-    let regtest = create_regtest_rpc(&mut config).await;
-    let rpc = regtest.rpc().clone();
-    let _ = run_single_deposit::<MockCitreaClient>(&mut config, rpc, None)
-        .await
-        .unwrap();
-}
-
-#[ignore = "Tested everywhere, no need to run again"]
-#[tokio::test]
-async fn multiple_deposits_for_operator() {
-    let mut config = create_test_config_with_thread_name().await;
-    let regtest = create_regtest_rpc(&mut config).await;
-    let rpc = regtest.rpc().clone();
-    let _ = run_multiple_deposits::<MockCitreaClient>(&mut config, rpc, 2)
-        .await
-        .unwrap();
-}
-
-#[tokio::test]
-async fn test_regtest_create_and_connect() {
-    let mut config = create_test_config_with_thread_name().await;
-
-    let regtest = create_regtest_rpc(&mut config).await;
-
-    let macro_rpc = regtest.rpc();
-    let rpc = ExtendedRpc::connect(
-        config.bitcoin_rpc_url.clone(),
-        config.bitcoin_rpc_user.clone(),
-        config.bitcoin_rpc_password.clone(),
-    )
-    .await
-    .unwrap();
-
-    macro_rpc.mine_blocks(1).await.unwrap();
-    let height = macro_rpc.client.get_block_count().await.unwrap();
-    let new_rpc_height = rpc.client.get_block_count().await.unwrap();
-    assert_eq!(height, new_rpc_height);
-
-    rpc.mine_blocks(1).await.unwrap();
-    let new_rpc_height = rpc.client.get_block_count().await.unwrap();
-    let height = macro_rpc.client.get_block_count().await.unwrap();
-    assert_eq!(height, new_rpc_height);
-}
-
 /// Ensures that TLS certificates exist for tests.
 /// This will run the certificate generation script if certificates don't exist.
 pub fn ensure_test_certificates() -> Result<(), std::io::Error> {
@@ -744,4 +613,99 @@ pub fn ensure_test_certificates() -> Result<(), std::io::Error> {
     }
 
     Ok(())
+}
+
+mod tests {
+    use crate::{
+        actor::Actor,
+        extended_rpc::ExtendedRpc,
+        test::common::{
+            citrea::MockCitreaClient, create_regtest_rpc, create_test_config_with_thread_name,
+        },
+    };
+    use bitcoin::{absolute::LockTime, transaction::Version, Transaction};
+    use bitcoincore_rpc::RpcApi;
+
+    #[ignore = "Tested everywhere, no need to run again"]
+    #[cfg(feature = "automation")]
+    #[tokio::test]
+    async fn run_single_deposit() {
+        let mut config = create_test_config_with_thread_name().await;
+        let regtest = create_regtest_rpc(&mut config).await;
+        let rpc = regtest.rpc().clone();
+        let _ = super::run_single_deposit::<MockCitreaClient>(&mut config, rpc, None)
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn mine_once_after_in_mempool() {
+        let mut config = create_test_config_with_thread_name().await;
+        let regtest = create_regtest_rpc(&mut config).await;
+        let rpc = regtest.rpc().clone();
+
+        // If a tx is not in the mempool, it should return an error.
+        let dummy_tx = Transaction {
+            version: Version::TWO,
+            lock_time: LockTime::ZERO,
+            input: vec![],
+            output: vec![],
+        };
+        assert!(super::mine_once_after_in_mempool(
+            &rpc,
+            dummy_tx.compute_txid(),
+            Some("Test tx"),
+            Some(1),
+        )
+        .await
+        .is_err());
+
+        // If a tx is in the mempool, it should mine it.
+        let actor = Actor::new(
+            config.secret_key,
+            config.winternitz_secret_key,
+            config.protocol_paramset().network,
+        );
+        let outpoint = rpc
+            .send_to_address(&actor.address, config.protocol_paramset().bridge_amount)
+            .await
+            .unwrap();
+        let tx = rpc.get_tx_of_txid(&outpoint.txid).await.unwrap();
+        super::mine_once_after_in_mempool(&rpc, outpoint.txid, Some("Test tx"), None)
+            .await
+            .unwrap();
+
+        // If the tx is mined, it should return an error telling that it is already mined.
+        assert!(
+            super::mine_once_after_in_mempool(&rpc, outpoint.txid, Some("Test tx"), None)
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_regtest_create_and_connect() {
+        let mut config = create_test_config_with_thread_name().await;
+
+        let regtest = create_regtest_rpc(&mut config).await;
+
+        let macro_rpc = regtest.rpc();
+        let rpc = ExtendedRpc::connect(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        )
+        .await
+        .unwrap();
+
+        macro_rpc.mine_blocks(1).await.unwrap();
+        let height = macro_rpc.client.get_block_count().await.unwrap();
+        let new_rpc_height = rpc.client.get_block_count().await.unwrap();
+        assert_eq!(height, new_rpc_height);
+
+        rpc.mine_blocks(1).await.unwrap();
+        let new_rpc_height = rpc.client.get_block_count().await.unwrap();
+        let height = macro_rpc.client.get_block_count().await.unwrap();
+        assert_eq!(height, new_rpc_height);
+    }
 }
