@@ -19,6 +19,7 @@ use crate::{
 };
 use crate::{EVMAddress, UTXO};
 use bitcoin::secp256k1::schnorr;
+use secrecy::ExposeSecret;
 use std::net::TcpListener;
 
 use tokio::sync::oneshot;
@@ -121,8 +122,11 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
         format!("-datadir={}", data_dir.display()),
         "-listen=0".to_string(),
         format!("-rpcport={}", rpc_port),
-        format!("-rpcuser={}", config.bitcoin_rpc_user),
-        format!("-rpcpassword={}", config.bitcoin_rpc_password),
+        format!("-rpcuser={}", config.bitcoin_rpc_user.expose_secret()),
+        format!(
+            "-rpcpassword={}",
+            config.bitcoin_rpc_password.expose_secret()
+        ),
         "-wallet=admin".to_string(),
         "-txindex=1".to_string(),
         "-fallbackfee=0.00001".to_string(),
@@ -286,7 +290,8 @@ pub async fn initialize_database(config: &BridgeConfig) {
 
     sqlx::query(&format!(
         "CREATE DATABASE {} WITH OWNER {}",
-        config.db_name, config.db_user
+        config.db_name,
+        config.db_user.expose_secret()
     ))
     .execute(&conn)
     .await

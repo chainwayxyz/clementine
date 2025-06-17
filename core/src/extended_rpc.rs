@@ -24,6 +24,8 @@ use bitcoincore_rpc::RpcApi;
 use eyre::eyre;
 use eyre::Context;
 use eyre::OptionExt;
+use secrecy::ExposeSecret;
+use secrecy::SecretString;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -36,17 +38,25 @@ use crate::config::protocol::ProtocolParamset;
 use crate::deposit::OperatorData;
 use crate::errors::BridgeError;
 use crate::operator::RoundIndex;
+use secrecy::SecretBox;
 
 type Result<T> = std::result::Result<T, BitcoinRPCError>;
 
 /// Bitcoin RPC wrapper. Extended RPC provides useful wrapper functions for
 /// common operations, as well as direct access to Bitcoin RPC. Bitcoin RPC can
 /// be directly accessed via `client` member.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ExtendedRpc {
     pub url: String,
-    auth: Auth,
     pub client: Arc<Client>,
+}
+
+impl std::fmt::Debug for ExtendedRpc {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ExtendedRpc")
+            .field("url", &self.url)
+            .finish()
+    }
 }
 
 /// Errors that can occur during Bitcoin RPC operations.
@@ -67,16 +77,18 @@ pub enum BitcoinRPCError {
 
 impl ExtendedRpc {
     /// Connects to Bitcoin RPC and returns a new [`ExtendedRpc`].
-    pub async fn connect(url: String, user: String, password: String) -> Result<Self> {
-        let auth = Auth::UserPass(user, password);
+    pub async fn connect(url: String, user: SecretString, password: SecretString) -> Result<Self> {
+        let auth = Auth::UserPass(
+            user.expose_secret().to_string(),
+            password.expose_secret().to_string(),
+        );
 
-        let rpc = Client::new(&url, auth.clone())
+        let rpc = Client::new(&url, auth)
             .await
             .wrap_err("Failed to connect to Bitcoin RPC")?;
 
         Ok(Self {
             url,
-            auth,
             client: Arc::new(rpc),
         })
     }
@@ -693,12 +705,9 @@ impl ExtendedRpc {
     ///
     /// - [`ExtendedRpc`]: A new instance of ExtendedRpc with a new client connection.
     pub async fn clone_inner(&self) -> std::result::Result<Self, bitcoincore_rpc::Error> {
-        let new_client = Client::new(&self.url, self.auth.clone()).await?;
-
         Ok(Self {
             url: self.url.clone(),
-            auth: self.auth.clone(),
-            client: Arc::new(new_client),
+            client: self.client.clone(),
         })
     }
 }
@@ -734,7 +743,6 @@ mod tests {
 
         let cloned_rpc = rpc.clone_inner().await.unwrap();
         assert_eq!(cloned_rpc.url, rpc.url);
-        assert_eq!(cloned_rpc.auth, rpc.auth);
         assert_eq!(cloned_rpc.client.get_block_count().await.unwrap(), height);
         assert_eq!(
             cloned_rpc.client.get_block_hash(height).await.unwrap(),
