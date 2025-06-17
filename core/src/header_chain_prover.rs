@@ -812,8 +812,8 @@ mod tests {
         std::env::set_var("BITCOIN_NETWORK", "testnet4");
         let rpc = ExtendedRpc::connect(
             "http://127.0.0.1:48332".to_string(),
-            "admin".to_string(),
-            "admin".to_string(),
+            "admin".to_string().into(),
+            "admin".to_string().into(),
         )
         .await
         .unwrap();
