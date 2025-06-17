@@ -1265,7 +1265,7 @@ impl ClementineAggregator for Aggregator {
                                 .hook_timeout_deposit_finalize_verifier(idx)
                                 .await;
 
-                            verifier.deposit_finalize(receiver_stream).await
+                            verifier.deposit_finalize(receiver_stream).await.map_err(BridgeError::from)
                         });
 
                         Ok::<_, BridgeError>((deposit_finalize_future, tx))
@@ -1441,20 +1441,19 @@ impl ClementineAggregator for Aggregator {
             tracing::debug!("Waiting for deposit finalization");
 
             // Collect partial signatures for move transaction
-            let partial_sigs: Vec<(Vec<u8>, Vec<u8>)> = {
-                let futs = deposit_finalize_futures.into_iter().map(|fut| {
-                    timeout(DEPOSIT_FINALIZATION_TIMEOUT, fut)
-                });
-                let results = try_join_all(futs).await
-                    .map_err(|e| Status::internal(format!("Timeout in deposit finalization: {:?}", e)))?;
+            let partial_sigs: Vec<(Vec<u8>, Vec<u8>)> = timed_try_join_all(
+                    DEPOSIT_FINALIZATION_TIMEOUT,
+                    "Deposit finalization",
+                    Some(verifiers.ids()),
+                    deposit_finalize_futures.into_iter().map(|fut| async move {
+                        let inner = fut.await
+                            .map_err(|_| BridgeError::from(Status::internal("panic finishing deposit_finalize")))??
+                            .into_inner();
 
-                results.into_iter()
-                    .map(|res| {
-                        let inner = res.map_err(|_| Status::internal("panic finishing deposit_finalize"))??.into_inner();
                         Ok((inner.move_to_vault_partial_sig, inner.emergency_stop_partial_sig))
-                    })
-                    .collect::<Result<Vec<_>, Status>>()?
-            };
+                    }),
+                )
+                .await?;
 
 
             let (move_to_vault_sigs, emergency_stop_sigs): (Vec<Vec<u8>>, Vec<Vec<u8>>) =
