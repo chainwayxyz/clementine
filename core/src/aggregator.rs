@@ -343,22 +343,15 @@ impl Aggregator {
                                 continue;
                             }
 
-                            timed_request(
-                                Duration::from_secs(500),
-                                &format!("Setting operator keys for {}", verifier_id),
-                                async {
-                                    Ok(verifier
-                                        .set_operator_keys(operator_keys)
-                                        .await
-                                        .wrap_err_with(|| {
-                                            Status::internal(format!(
-                                                "Failed to set operator keys for {}",
-                                                verifier_id
-                                            ))
-                                        }))
-                                },
-                            )
-                            .await?;
+                            verifier
+                                .set_operator_keys(operator_keys)
+                                .await
+                                .wrap_err_with(|| {
+                                    Status::internal(format!(
+                                        "Failed to set operator keys for {}",
+                                        verifier_id
+                                    ))
+                                })?;
                         }
                         Ok::<_, BridgeError>(())
                     },
