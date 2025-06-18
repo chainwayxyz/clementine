@@ -29,13 +29,18 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/build-prerequisites
 
-      - name: Save build artifacts
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: "debug-build-all-features"
-
       - name: Compile in debug mode
         run: cargo build $CARGOFLAGS_ALL_FEATURES
+
+      # - uses: actions/cache@v4
+      #   with:
+      #     path: |
+      #       ~/.cargo/bin/
+      #       ~/.cargo/registry/index/
+      #       ~/.cargo/registry/cache/
+      #       ~/.cargo/git/db/
+      #       target/
+      #     key: ${{ runner.os }}-cargo-DEBUG-${{ hashFiles('**/Cargo.lock') }}-${{ github.base_ref }}
 
   release_build_all_features:
     name: Release | All features | Compile
@@ -48,10 +53,15 @@ jobs:
       - name: Compile in release mode
         run: cargo build $CARGOFLAGS_ALL_FEATURES --release
 
-      - name: Save build artifacts
-        uses: Swatinem/rust-cache@v2
+      - uses: actions/cache@v4
         with:
-          shared-key: "release-build-all-features"
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-RELEASE-${{ hashFiles('**/Cargo.lock') }}
 
   release_build:
     name: Release | No features | Compile
@@ -61,15 +71,7 @@ jobs:
       - name: Collect Workflow Telemetry
         uses: catchpoint/workflow-telemetry-action@v2
 
-      - uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - uses: actions/checkout@v4
 
       - name: Compile in release mode
         run: cargo build $CARGOFLAGS --release
@@ -106,10 +108,15 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
-      # - name: Restore cached build artifacts
-      #   uses: Swatinem/rust-cache@v2
+      # - uses: actions/cache@v4
       #   with:
-      #     shared-key: "debug-build-all-features"
+      #     path: |
+      #       ~/.cargo/bin/
+      #       ~/.cargo/registry/index/
+      #       ~/.cargo/registry/cache/
+      #       ~/.cargo/git/db/
+      #       target/
+      #     key: ${{ runner.os }}-cargo-DEBUG-${{ hashFiles('**/Cargo.lock') }}-${{ github.base_ref }}
 
       - name: Run tests
         run: cargo test $CARGOFLAGS_ALL_FEATURES
@@ -153,7 +160,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-RELEASE-${{ hashFiles('**/Cargo.lock') }}-${{ github.base_ref }}
 
       - name: Run tests
         run: cargo test --release $CARGOFLAGS_ALL_FEATURES
@@ -181,7 +188,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-RELEASE-${{ hashFiles('**/Cargo.lock') }}-${{ github.base_ref }}
 
       - name: Run tests
         run: cargo test --release -p bridge-circuit-host bridge_circuit_test -- --ignored
@@ -242,7 +249,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-RELEASE-${{ hashFiles('**/Cargo.lock') }}-${{ github.base_ref }}
 
       - name: Run tests
         run: cargo test ${{ matrix.test_script_name }} $CARGOFLAGS_ALL_FEATURES --release -- --ignored
@@ -289,7 +296,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-RELEASE-${{ hashFiles('**/Cargo.lock') }}-${{ github.base_ref }}
 
       - name: Run coverage
         run: cargo llvm-cov $CARGOFLAGS_ALL_FEATURES --release --lcov --locked --no-cfg-coverage --output-path lcov.info -j 8
