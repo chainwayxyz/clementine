@@ -564,7 +564,7 @@ mod tests {
             Some(deposit_state.operator_data.collateral_funding_outpoint);
 
         // after loading generate some funds to rpc wallet
-        // needed so that the deposit doesnt crash (I dont know why) due to unsufficient funds
+        // needed so that the deposit doesn't crash (I dont know why) due to insufficient funds
         let address = rpc
             .client
             .get_new_address(None, None)

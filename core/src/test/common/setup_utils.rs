@@ -204,7 +204,7 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
         .get_new_address(None, None)
         .await
         .expect("Failed to get new address");
-    
+
     if config.test_params.generate_to_address {
         client
             .client
