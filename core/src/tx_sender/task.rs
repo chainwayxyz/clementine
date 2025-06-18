@@ -55,7 +55,7 @@ impl Task for TxSenderTask {
                         .1;
 
                     tracing::info!(
-                        "TXSENDER: Confirmed transactions for new block with height {} and block id {}",
+                        "TXSENDER: Confirmed transactions for new block with height {} and internal block id {}",
                         self.current_tip_height, block_id
                     );
                     dbtx.commit().await?;
@@ -68,7 +68,7 @@ impl Task for TxSenderTask {
                     .await?
                     .ok_or(eyre::eyre!("Block not found in TxSenderTask".to_string(),))?
                     .1;
-                    tracing::info!("TXSENDER: Reorged block with height {} detected, unconfirming transactions for block {}", height, block_id);
+                    tracing::info!("TXSENDER: Reorged block with height {} detected, unconfirming transactions for block with internal block id {}", height, block_id);
                     self.db.unconfirm_transactions(&mut dbtx, block_id).await?;
                     dbtx.commit().await?;
                     true
