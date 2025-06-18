@@ -27,7 +27,7 @@ jobs:
         uses: catchpoint/workflow-telemetry-action@v2
 
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/build-prerequisites
+      # - uses: ./.github/actions/build-prerequisites
 
       - name: Compile in debug mode
         run: cargo build $CARGOFLAGS_ALL_FEATURES
@@ -103,7 +103,7 @@ jobs:
         uses: catchpoint/workflow-telemetry-action@v2
 
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/build-prerequisites
+      # - uses: ./.github/actions/build-prerequisites
       - uses: ./.github/actions/test-prerequisites
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
