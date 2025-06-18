@@ -160,9 +160,6 @@ jobs:
         uses: catchpoint/workflow-telemetry-action@v2
 
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/install-risc0
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Restore cached build artifacts
         uses: Swatinem/rust-cache@v2
