@@ -374,8 +374,7 @@ pub async fn run_single_deposit<C: CitreaClientT>(
     let movetx = aggregator
         .new_deposit(deposit)
         .await
-        .wrap_err("Error while making a deposit")
-        .expect("failed to make deposit")
+        .wrap_err("Error while making a deposit")?
         .into_inner();
     let move_txid = aggregator
         .send_move_to_vault_tx(SendMoveTxRequest {
