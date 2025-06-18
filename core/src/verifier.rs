@@ -1988,8 +1988,8 @@ where
 
         tracing::debug!("Disprove txid: {:?}", disprove_tx.compute_txid());
 
-        tracing::info!(
-            "Disprove tx created for verifier {:?} with kickoff_data: {:?}, deposit_data: {:?}",
+        tracing::warn!(
+            "Additional disprove tx created for verifier {:?} with kickoff_data: {:?}, deposit_data: {:?}",
             verifier_xonly_pk,
             kickoff_data,
             deposit_data
@@ -2268,8 +2268,8 @@ where
 
         tracing::debug!("Disprove txid: {:?}", disprove_tx.compute_txid());
 
-        tracing::info!(
-            "Disprove tx created for verifier {:?} with kickoff_data: {:?}, deposit_data: {:?}",
+        tracing::warn!(
+            "BitVM disprove tx created for verifier {:?} with kickoff_data: {:?}, deposit_data: {:?}",
             verifier_xonly_pk,
             kickoff_data,
             deposit_data
