@@ -54,6 +54,9 @@ pub struct TestParams {
 
     /// A flag to introduce intentionally inconsistent or invalid data into the BitVM assertions.
     pub corrupted_asserts: bool,
+
+    /// A flag to determine if some blocks should be created to give some funds to the rpc wallet
+    pub generate_to_address: bool,
 }
 
 impl Default for TestParams {
@@ -93,6 +96,7 @@ impl Default for TestParams {
             disrupt_challenge_sending_watchtowers_commit: false,
             operator_forgot_watchtower_challenge: false,
             corrupted_asserts: false,
+            generate_to_address: true,
         }
     }
 }
