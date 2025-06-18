@@ -61,7 +61,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-RELEASE-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-RELEASE-${{ hashFiles('**/Cargo.lock') }}-${{ github.base_ref }}
 
   release_build:
     name: Release | No features | Compile
