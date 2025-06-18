@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"struct":["Aggregator"]};
+window.SIDEBAR_ITEMS = {"struct":["Aggregator","OperatorId","ParticipatingOperators","ParticipatingVerifiers","VerifierId"]};

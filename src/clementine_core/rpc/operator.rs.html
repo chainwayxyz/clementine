@@ -322,7 +322,8 @@
 <a href="#321" id="321">321</a>
 <a href="#322" id="322">322</a>
 <a href="#323" id="323">323</a>
-<a href="#324" id="324">324</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::clementine_operator_server::ClementineOperator;
+<a href="#324" id="324">324</a>
+<a href="#325" id="325">325</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::clementine_operator_server::ClementineOperator;
 <span class="kw">use </span><span class="kw">super</span>::clementine::{
     <span class="self">self</span>, ChallengeAckDigest, DepositParams, DepositSignSession, Empty, FinalizedPayoutParams,
     OperatorKeys, OperatorParams, SchnorrSig, SignedTxWithType, SignedTxsWithType,
@@ -334,6 +335,7 @@
 <span class="kw">use </span><span class="kw">crate</span>::bitvm_client::ClementineBitVMPublicKeys;
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 <span class="kw">use </span><span class="kw">crate</span>::citrea::CitreaClientT;
+<span class="kw">use </span><span class="kw">crate</span>::constants::DEFAULT_CHANNEL_SIZE;
 <span class="kw">use </span><span class="kw">crate</span>::deposit::DepositData;
 <span class="kw">use </span><span class="kw">crate</span>::operator::OperatorServer;
 <span class="kw">use </span><span class="kw">crate</span>::rpc::parser;
@@ -364,7 +366,7 @@
         _request: Request&lt;Empty&gt;,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;Response&lt;<span class="self">Self</span>::GetParamsStream&gt;, Status&gt; {
         <span class="kw">let </span>operator = <span class="self">self</span>.operator.clone();
-        <span class="kw">let </span>(tx, rx) = mpsc::channel(<span class="number">1280</span>);
+        <span class="kw">let </span>(tx, rx) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
         <span class="kw">let </span>out_stream: <span class="self">Self</span>::GetParamsStream = ReceiverStream::new(rx);
 
         <span class="kw">let </span>(<span class="kw-2">mut </span>wpk_receiver, <span class="kw-2">mut </span>signature_receiver) = operator.get_params().<span class="kw">await</span><span class="question-mark">?</span>;
@@ -400,7 +402,7 @@
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         request: Request&lt;DepositSignSession&gt;,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;Response&lt;<span class="self">Self</span>::DepositSignStream&gt;, Status&gt; {
-        <span class="kw">let </span>(tx, rx) = mpsc::channel(<span class="number">1280</span>);
+        <span class="kw">let </span>(tx, rx) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
 
         <span class="kw">let </span>deposit_sign_session = request.into_inner();
         <span class="kw">let </span>deposit_params: DepositParams = deposit_sign_session.try_into()<span class="question-mark">?</span>;

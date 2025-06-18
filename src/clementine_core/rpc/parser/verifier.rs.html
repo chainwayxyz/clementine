@@ -254,9 +254,7 @@
 <a href="#253" id="253">253</a>
 <a href="#254" id="254">254</a>
 <a href="#255" id="255">255</a>
-<a href="#256" id="256">256</a>
-<a href="#257" id="257">257</a>
-<a href="#258" id="258">258</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::ParserError;
+<a href="#256" id="256">256</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::ParserError;
 <span class="kw">use </span><span class="kw">crate</span>::citrea::CitreaClientT;
 <span class="kw">use </span><span class="kw">crate</span>::deposit::DepositData;
 <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
@@ -339,9 +337,7 @@
 <span class="kw">impl </span>From&lt;DepositSignSession&gt; <span class="kw">for </span>VerifierDepositFinalizeParams {
     <span class="kw">fn </span>from(value: DepositSignSession) -&gt; <span class="self">Self </span>{
         VerifierDepositFinalizeParams {
-            params: <span class="prelude-val">Some</span>(
-                verifier_deposit_finalize_params::Params::DepositSignFirstParam(value.clone()),
-            ),
+            params: <span class="prelude-val">Some</span>(verifier_deposit_finalize_params::Params::DepositSignFirstParam(value)),
         }
     }
 }

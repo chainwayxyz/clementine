@@ -549,10 +549,10 @@
 <span class="kw">use </span><span class="kw">super</span>::parser::ParserError;
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 <span class="kw">use </span><span class="kw">crate</span>::citrea::CitreaClientT;
-<span class="kw">use </span><span class="kw">crate</span>::fetch_next_optional_message_from_stream;
 <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::VerifierDepositFinalizeResponse;
 <span class="kw">use </span><span class="kw">crate</span>::utils::get_vergen_response;
 <span class="kw">use </span><span class="kw">crate</span>::verifier::VerifierServer;
+<span class="kw">use crate</span>::{constants, fetch_next_optional_message_from_stream};
 <span class="kw">use crate</span>::{
     fetch_next_message_from_stream,
     rpc::parser::{<span class="self">self</span>},
@@ -748,11 +748,11 @@
         <span class="kw">let </span><span class="kw-2">mut </span>in_stream = req.into_inner();
         <span class="kw">let </span>verifier = <span class="self">self</span>.verifier.clone();
 
-        <span class="kw">let </span>(tx, rx) = mpsc::channel(<span class="number">1280</span>);
+        <span class="kw">let </span>(tx, rx) = mpsc::channel(constants::DEFAULT_CHANNEL_SIZE);
         <span class="kw">let </span>out_stream: <span class="self">Self</span>::DepositSignStream = ReceiverStream::new(rx);
 
         <span class="kw">let </span>(param_tx, <span class="kw-2">mut </span>param_rx) = mpsc::channel(<span class="number">1</span>);
-        <span class="kw">let </span>(agg_nonce_tx, agg_nonce_rx) = mpsc::channel(<span class="number">1280</span>);
+        <span class="kw">let </span>(agg_nonce_tx, agg_nonce_rx) = mpsc::channel(constants::DEFAULT_CHANNEL_SIZE);
 
         <span class="comment">// Send incoming data to deposit sign job.
         </span>tokio::spawn(<span class="kw">async move </span>{
@@ -850,9 +850,9 @@
             <span class="self">self</span>.verifier.signer.public_key
         );
 
-        <span class="kw">let </span>(sig_tx, sig_rx) = mpsc::channel(<span class="number">1280</span>);
+        <span class="kw">let </span>(sig_tx, sig_rx) = mpsc::channel(constants::DEFAULT_CHANNEL_SIZE);
         <span class="kw">let </span>(agg_nonce_tx, agg_nonce_rx) = mpsc::channel(<span class="number">1</span>);
-        <span class="kw">let </span>(operator_sig_tx, operator_sig_rx) = mpsc::channel(<span class="number">1280</span>);
+        <span class="kw">let </span>(operator_sig_tx, operator_sig_rx) = mpsc::channel(constants::DEFAULT_CHANNEL_SIZE);
 
         <span class="kw">let </span>params = <span class="macro">fetch_next_message_from_stream!</span>(in_stream, params)<span class="question-mark">?</span>;
         <span class="kw">let </span>(deposit_data, session_id) = <span class="kw">match </span>params {

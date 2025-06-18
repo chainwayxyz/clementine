@@ -265,7 +265,14 @@
 <a href="#264" id="264">264</a>
 <a href="#265" id="265">265</a>
 <a href="#266" id="266">266</a>
-<a href="#267" id="267">267</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Errors
+<a href="#267" id="267">267</a>
+<a href="#268" id="268">268</a>
+<a href="#269" id="269">269</a>
+<a href="#270" id="270">270</a>
+<a href="#271" id="271">271</a>
+<a href="#272" id="272">272</a>
+<a href="#273" id="273">273</a>
+<a href="#274" id="274">274</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Errors
 //!
 //! This module defines globally shared error messages, the crate-level error wrapper and extension traits for error/results.
 //! Our error paradigm is as follows:
@@ -341,6 +348,7 @@
 <span class="kw">use </span>core::fmt::Debug;
 <span class="kw">use </span>hex::FromHexError;
 <span class="kw">use </span>thiserror::Error;
+<span class="kw">use </span>tonic::Status;
 
 <span class="kw">pub use </span><span class="kw">crate</span>::builder::transaction::TxError;
 
@@ -427,6 +435,8 @@
     </span>AlloySolTypes(<span class="attr">#[from] </span>alloy::sol_types::Error),
     <span class="attr">#[error(<span class="string">"{0}"</span>)]
     </span>CLIDisplayAndExit(StyledStr),
+    <span class="attr">#[error(transparent)]
+    </span>RPC(<span class="attr">#[from] </span>Status),
 
     <span class="comment">// Base wrapper for eyre
     </span><span class="attr">#[error(transparent)]
@@ -487,31 +497,23 @@
 
 <span class="kw">impl </span>From&lt;BridgeError&gt; <span class="kw">for </span>tonic::Status {
     <span class="kw">fn </span>from(val: BridgeError) -&gt; <span class="self">Self </span>{
-        <span class="comment">// TODO: we need a better solution for user-facing errors.
-        // This exposes our internal errors to the user. What we want here is:
-        // 1. We don't want to expose internal errors to the user.
-        // 2. We want lower-level errors to be able to define whether and how they want to be exposed to the user.
-        </span><span class="macro">tracing::error!</span>(
-            <span class="string">"Casting BridgeError to Status message (possibly lossy): {:?}"</span>,
-            val
-        );
-        tonic::Status::from_error(Box::new(val))
+        <span class="kw">let </span>eyre_report = val.into_eyre();
 
-        <span class="comment">// Possible future implementation, requires manually matching all TryInto&lt;Status&gt; types
-        // for err in val.into_eyre().chain() {
-        //     match err.downcast_ref::&lt;BridgeError&gt;() {
-        //         Some(BridgeError::Aggregator(err)) =&gt; {
-        //             if let Ok(status) = err.try_into() {
-        //                 return status;
-        //             }
-        //         }
-        //         Some(_) | None =&gt; {}
-        //     }
-        // }
+        <span class="comment">// eyre::Report can cast any error in the chain to a Status, so we use its downcast method to get the first Status.
+        </span>eyre_report.downcast::&lt;Status&gt;().unwrap_or_else(|report| {
+            <span class="comment">// We don't want this case to happen, all casts to Status should contain a Status that contains a user-facing error message.
+            </span><span class="macro">tracing::error!</span>(
+                <span class="string">"Returning internal error on RPC call, full error: {:?}"</span>,
+                report
+            );
 
-        // tracing::error!("Internal server error: {:?}", val);
-        // tonic::Status::internal("Internal server error.")
-    </span>}
+            <span class="kw">let </span><span class="kw-2">mut </span>status = tonic::Status::internal(report.to_string());
+            status.set_source(Into::into(
+                Into::&lt;Box&lt;<span class="kw">dyn </span>std::error::Error + Send + Sync&gt;&gt;::into(report),
+            ));
+            status
+        })
+    }
 }
 
 <span class="attr">#[cfg(test)]
@@ -530,6 +532,18 @@
                 .to_string(),
             BridgeError::IntConversionError.to_string()
         );
+    }
+
+    <span class="attr">#[test]
+    </span><span class="kw">fn </span>test_status_in_chain_cast_properly() {
+        <span class="kw">let </span>err: BridgeError = <span class="macro">eyre::eyre!</span>(<span class="string">"Some problem"</span>)
+            .wrap_err(tonic::Status::deadline_exceeded(<span class="string">"Some timer expired"</span>))
+            .wrap_err(<span class="string">"Something else went wrong"</span>)
+            .into();
+
+        <span class="kw">let </span>status: Status = err.into_status();
+        <span class="macro">assert_eq!</span>(status.code(), tonic::Code::DeadlineExceeded);
+        <span class="macro">assert_eq!</span>(status.message(), <span class="string">"Some timer expired"</span>);
     }
 }
 </code></pre></div></section></main></body></html>

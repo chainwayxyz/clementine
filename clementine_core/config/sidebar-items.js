@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"mod":["env","protocol"],"struct":["BridgeConfig","TestParams"]};
+window.SIDEBAR_ITEMS = {"mod":["env","protocol"],"struct":["BridgeConfig"]};

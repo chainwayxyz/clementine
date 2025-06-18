@@ -1852,7 +1852,7 @@
 <span class="kw">use </span><span class="kw">crate</span>::task::TaskExt;
 <span class="kw">use </span><span class="kw">crate</span>::utils::Last20Bytes;
 <span class="kw">use </span><span class="kw">crate</span>::utils::{NamedEntity, TxMetadata};
-<span class="kw">use crate</span>::{builder, UTXO};
+<span class="kw">use crate</span>::{builder, constants, UTXO};
 <span class="kw">use </span>bitcoin::consensus::deserialize;
 <span class="kw">use </span>bitcoin::hashes::Hash;
 <span class="kw">use </span>bitcoin::secp256k1::schnorr::Signature;
@@ -2242,7 +2242,7 @@
             .<span class="kw">await</span><span class="question-mark">?</span>;
 
         <span class="kw">let </span><span class="kw-2">mut </span>tweak_cache = TweakCache::default();
-        <span class="kw">let </span>(sig_tx, sig_rx) = mpsc::channel(<span class="number">1280</span>);
+        <span class="kw">let </span>(sig_tx, sig_rx) = mpsc::channel(constants::DEFAULT_CHANNEL_SIZE);
 
         <span class="kw">let </span>deposit_blockhash = <span class="self">self
             </span>.rpc
