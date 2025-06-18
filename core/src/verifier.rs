@@ -1637,6 +1637,13 @@ where
                 );
             }
 
+            tracing::info!(
+                "A new payout tx detected for withdrawal {}, payout txid: {}, operator xonly pk: {:?}",
+                idx,
+                hex::encode(payout_txid),
+                operator_xonly_pk
+            );
+
             payout_txs_and_payer_operator_idx.push((
                 idx,
                 payout_txid,
