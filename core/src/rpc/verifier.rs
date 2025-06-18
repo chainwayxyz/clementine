@@ -6,10 +6,9 @@ use super::clementine::{
 };
 use super::error;
 use super::parser::ParserError;
-use crate::builder::transaction::sign::create_and_sign_txs;
+use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::citrea::CitreaClientT;
 use crate::rpc::clementine::VerifierDepositFinalizeResponse;
-use crate::rpc::parser::parse_transaction_request;
 use crate::utils::get_vergen_response;
 use crate::verifier::VerifierServer;
 use crate::{constants, fetch_next_optional_message_from_stream};
@@ -77,7 +76,7 @@ where
         request: tonic::Request<super::TransactionRequest>,
     ) -> std::result::Result<tonic::Response<super::RawTxWithRbfInfo>, tonic::Status> {
         let transaction_request = request.into_inner();
-        let transaction_data = parse_transaction_request(transaction_request)?;
+        let transaction_data: TransactionRequestData = transaction_request.try_into()?;
 
         let (_tx_type, signed_tx, rbf_info) = self
             .verifier
@@ -469,7 +468,7 @@ where
         request: tonic::Request<super::TransactionRequest>,
     ) -> std::result::Result<tonic::Response<super::SignedTxsWithType>, tonic::Status> {
         let transaction_request = request.into_inner();
-        let transaction_data = parse_transaction_request(transaction_request)?;
+        let transaction_data: TransactionRequestData = transaction_request.try_into()?;
         let raw_txs = create_and_sign_txs(
             self.verifier.db.clone(),
             &self.verifier.signer,
