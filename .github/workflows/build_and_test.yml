@@ -35,7 +35,7 @@ jobs:
           shared-key: ${{ runner.os }}-cargo-DEBUG-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
 
       - name: Compile in debug mode
-        run: CARGO_LOG=cargo::core::compiler::fingerprint=info cargo build $CARGOFLAGS_ALL_FEATURES
+        run: cargo build $CARGOFLAGS_ALL_FEATURES
 
   release_build_all_features:
     name: Release | All features | Compile
@@ -51,7 +51,7 @@ jobs:
           shared-key: ${{ runner.os }}-cargo-RELEASE-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
 
       - name: Compile in release mode
-        run: CARGO_LOG=cargo::core::compiler::fingerprint=info cargo build $CARGOFLAGS_ALL_FEATURES --release
+        run: cargo build $CARGOFLAGS_ALL_FEATURES --release
 
   release_build:
     name: Release | No features | Compile
@@ -104,7 +104,7 @@ jobs:
           shared-key: ${{ runner.os }}-cargo-DEBUG-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
 
       - name: Run tests
-        run: CARGO_LOG=cargo::core::compiler::fingerprint=info cargo test $CARGOFLAGS_ALL_FEATURES
+        run: cargo test $CARGOFLAGS_ALL_FEATURES
 
   release_build_test_all_features:
     name: Release | All features | Test
@@ -143,7 +143,7 @@ jobs:
           shared-key: ${{ runner.os }}-cargo-RELEASE-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
 
       - name: Run tests
-        run: CARGO_LOG=cargo::core::compiler::fingerprint=info  cargo test --release $CARGOFLAGS_ALL_FEATURES
+        run: cargo test --release $CARGOFLAGS_ALL_FEATURES
 
   # Matrix (Standalone) Tests --------------------------------------------------
   standalone_proving_tests:
@@ -166,7 +166,7 @@ jobs:
           shared-key: ${{ runner.os }}-cargo-RELEASE-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
 
       - name: Run tests
-        run: CARGO_LOG=cargo::core::compiler::fingerprint=info cargo test --release -p bridge-circuit-host bridge_circuit_test -- --ignored
+        run: cargo test --release -p bridge-circuit-host bridge_circuit_test -- --ignored
 
   standalone_tests:
     name: Release | All features | Test ${{ matrix.description_suffix }}
@@ -222,7 +222,7 @@ jobs:
           shared-key: ${{ runner.os }}-cargo-RELEASE-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
 
       - name: Run tests
-        run: CARGO_LOG=cargo::core::compiler::fingerprint=info cargo test ${{ matrix.test_script_name }} $CARGOFLAGS_ALL_FEATURES --release -- --ignored
+        run: cargo test ${{ matrix.test_script_name }} $CARGOFLAGS_ALL_FEATURES --release -- --ignored
 
   # Coverage -------------------------------------------------------------------
   coverage:
@@ -264,7 +264,7 @@ jobs:
           shared-key: ${{ runner.os }}-cargo-RELEASE-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
 
       - name: Run coverage
-        run: CARGO_LOG=cargo::core::compiler::fingerprint=info  cargo llvm-cov $CARGOFLAGS_ALL_FEATURES --release --lcov --locked --no-cfg-coverage --output-path lcov.info -j 8
+        run: cargo llvm-cov $CARGOFLAGS_ALL_FEATURES --release --lcov --locked --no-cfg-coverage --output-path lcov.info -j 8
       - name: Upload coverage
         uses: codecov/codecov-action@v4
         with:
