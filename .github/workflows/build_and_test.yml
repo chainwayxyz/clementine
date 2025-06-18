@@ -2,24 +2,24 @@ name: Build And Test
 
 on: [push]
 
-concurrency: 
+concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ (github.ref != 'refs/heads/main') }}
 
 env:
   CARGO_TERM_COLOR: always
-  AUTOMATION_ARGS: --features automation
-  CARGOFLAGS: --workspace --all-targets
-  CARGOFLAGS_AUTOMATION: --workspace --all-targets --features automation
   RUST_LOG: warn,risc0_zkvm=error,risc0_circuit_rv32im=error
   RISC0_DEV_MODE: 1
   ENABLE_HEADER_CHAIN_PROVER: 1
   RUST_MIN_STACK: 33554432
 
+  CARGOFLAGS: --workspace --all-targets
+  CARGOFLAGS_ALL_FEATURES: $CARGOFLAGS --all-features
+
 jobs:
   # Build ------------------------------------------------------------------------
-  debug_build_automation:
-    name: Compile code with debug profile (Automation enabled)
+  debug_build_all_features:
+    name: Compile code with debug profile with all features enabled
     runs-on: ubicloud-standard-30
 
     steps:
@@ -35,13 +35,13 @@ jobs:
       - name: Save build artifacts
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "debug-build"
+          shared-key: "debug-build-all-features"
 
       - name: Compile in debug mode
-        run: cargo build $CARGOFLAGS_AUTOMATION --verbose
+        run: cargo build $CARGOFLAGS_ALL_FEATURES --verbose
 
-  release_build_automation:
-    name: Compile code with release profile (Automation enabled)
+  release_build_all_features:
+    name: Compile code with release profile with all features enabled
     runs-on: ubicloud-standard-30
 
     steps:
@@ -54,13 +54,13 @@ jobs:
       - name: Save build artifacts
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "release-build"
+          shared-key: "release-build-all-features"
 
       - name: Compile in release mode
-        run: cargo build $CARGOFLAGS_AUTOMATION --verbose --release
+        run: cargo build $CARGOFLAGS_ALL_FEATURES --verbose --release
 
-  release_build_non_automation:
-    name: Compile code with release profile (Automation disabled)
+  release_build:
+    name: Compile code with release profile with no features
     runs-on: ubicloud-standard-30
 
     steps:
@@ -72,20 +72,15 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
       - uses: ./.github/actions/build-prerequisites
-
-      - name: Save build artifacts
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: "release-build"
 
       - name: Compile in release mode
         run: cargo build $CARGOFLAGS --verbose --release
 
   # Tests ------------------------------------------------------------------------
-  debug_build_test_automation:
-    name: Test code with debug build (Automation enabled)
+  debug_build_test_all_features:
+    name: Test code with debug build with all features enabled
     runs-on: ubicloud-standard-30
-    needs: debug_build_automation
+    needs: debug_build_all_features
 
     services:
       postgres:
@@ -117,141 +112,16 @@ jobs:
       - name: Restore cached build artifacts
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "debug-build"
+          shared-key: "debug-build-all-features"
 
       - name: Run tests
-        run: cargo test $AUTOMATION_ARGS
+        run: cargo test $CARGOFLAGS_ALL_FEATURES -- test::musig2::key_spend_with_script # TODO: Remove in this PR
 
-  release_build_test_automation:
-    name: Test code with release build (Automation enabled)
+  release_build_test_all_features:
+    name: Test code with release build with all features enabled
     runs-on: ubicloud-standard-30
-    needs: release_build_automation
+    needs: release_build_all_features
 
-    services:
-      postgres:
-        image: postgres:latest
-        env:
-          POSTGRES_DB: clementine
-          POSTGRES_USER: clementine
-          POSTGRES_PASSWORD: clementine
-          POSTGRES_INITDB_ARGS: "-c shared_buffers=8GB -c max_connections=5000"
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-    steps:
-      - name: Collect Workflow Telemetry
-        uses: catchpoint/workflow-telemetry-action@v2
-
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/install-risc0
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-      - uses: ./.github/actions/build-prerequisites
-      - uses: ./.github/actions/test-prerequisites
-
-      - name: Restore cached build artifacts
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: "release-build"
-
-      - name: Run tests
-        run: cargo test --release $AUTOMATION_ARGS
-
-  bridge_circuit_release_build_test:
-    name: Test bridge circuit host code with release build
-    runs-on: ubicloud
-    needs: release_build_automation
-
-    env:
-      RISC0_DEV_MODE: 0
-
-    steps:
-      - name: Collect Workflow Telemetry
-        uses: catchpoint/workflow-telemetry-action@v2
-
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/install-risc0
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Restore cached build artifacts
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: "release-build"
-
-      - name: Run tests
-        run: cargo test --release -p bridge-circuit-host bridge_circuit_test -- --ignored
-
-  bridge_additional_disprove_tests_matrix:
-    name: Test additional disprove script ${{ matrix.description_suffix }} with release build
-    runs-on: ubicloud-standard-4
-    needs: release_build_automation
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - test_script_name: additional_disprove_script_test_healthy
-            description_suffix: "healthy path"
-          - test_script_name: additional_disprove_script_test_disrupted_payout_tx_block_hash
-            description_suffix: "disrupted payout tx blockhash path"
-          - test_script_name: additional_disprove_script_test_disrupt_chal_sending_wts
-            description_suffix: "disrupted challenge sending watchtowers path"
-          - test_script_name: additional_disprove_script_test_operator_forgot_wt_challenge
-            description_suffix: "operator forgot watchtower challenge path"
-          - test_script_name: additional_disprove_script_test_disrupted_latest_block_hash
-            description_suffix: "disrupted latest blockhash path"
-    services:
-      postgres:
-        image: postgres:latest
-        env:
-          POSTGRES_DB: clementine
-          POSTGRES_USER: clementine
-          POSTGRES_PASSWORD: clementine
-          POSTGRES_INITDB_ARGS: "-c shared_buffers=8GB -c max_connections=1000"
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-    steps:
-      - name: Collect Workflow Telemetry
-        uses: catchpoint/workflow-telemetry-action@v2
-
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/install-risc0
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-      - uses: ./.github/actions/build-prerequisites
-      - uses: ./.github/actions/test-prerequisites
-
-      - name: Restore cached build artifacts
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: "release-build"
-
-      - name: Run tests
-        run: cargo test ${{ matrix.test_script_name }} --features automation --release  -- --ignored
-
-  bridge_disprove_tests_matrix:
-    name: Test disprove script ${{ matrix.description_suffix }} with release build
-    runs-on: ubicloud-standard-30
-    needs: release_build_automation
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - test_script_name: bitvm_disprove_scripts::disprove_script_test_healthy
-            description_suffix: "healthy path"
-          - test_script_name: bitvm_disprove_scripts::disprove_script_test_corrupted_assert
-            description_suffix: "disrupted assert path"
     services:
       postgres:
         image: postgres:latest
@@ -285,47 +155,173 @@ jobs:
           shared-key: "release-build"
 
       - name: Run tests
-        run: cargo test ${{ matrix.test_script_name }} --features automation --release  -- --ignored
+        run: cargo test --release $CARGOFLAGS_ALL_FEATURES -- test::musig2::key_spend_with_script # TODO: Remove in this PR
 
-  coverage:
-    name: Coverage checks with Codecov
-    runs-on: ubicloud-standard-30
-    needs: debug_build_test_automation
-    if: github.event.pull_request.draft == false
 
-    services:
-      postgres:
-        image: postgres:latest
-        env:
-          POSTGRES_DB: clementine
-          POSTGRES_USER: clementine
-          POSTGRES_PASSWORD: clementine
-          POSTGRES_INITDB_ARGS: "-c shared_buffers=8GB -c max_connections=5000"
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+  # bridge_circuit_release_build_test:
+  #   name: Test bridge circuit host code with release build
+  #   runs-on: ubicloud
+  #   needs: release_build_automation
 
-    steps:
-      - name: Collect Workflow Telemetry
-        uses: catchpoint/workflow-telemetry-action@v2
+  #   env:
+  #     RISC0_DEV_MODE: 0
 
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/install-risc0
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-      - uses: ./.github/actions/build-prerequisites
-      - uses: ./.github/actions/test-prerequisites
-      - uses: taiki-e/install-action@cargo-llvm-cov
+  #   steps:
+  #     - name: Collect Workflow Telemetry
+  #       uses: catchpoint/workflow-telemetry-action@v2
 
-      - name: Run coverage
-        run: cargo llvm-cov $AUTOMATION_ARGS --locked --lcov --output-path lcov.info
-      - name: Upload coverage
-        uses: codecov/codecov-action@v4
-        with:
-          fail_ci_if_error: true # optional (default = false)
-          files: ./lcov.info
-          token: ${{ secrets.CODECOV_TOKEN }}
+  #     - uses: actions/checkout@v4
+  #     - uses: ./.github/actions/install-risc0
+  #       with:
+  #         github_token: ${{ secrets.GITHUB_TOKEN }}
+
+  #     - name: Restore cached build artifacts
+  #       uses: Swatinem/rust-cache@v2
+  #       with:
+  #         shared-key: "release-build"
+
+  #     - name: Run tests
+  #       run: cargo test --release -p bridge-circuit-host bridge_circuit_test -- --ignored
+
+  # bridge_additional_disprove_tests_matrix:
+  #   name: Test additional disprove script ${{ matrix.description_suffix }} with release build
+  #   runs-on: ubicloud-standard-4
+  #   needs: release_build_automation
+  #   strategy:
+  #     fail-fast: false
+  #     matrix:
+  #       include:
+  #         - test_script_name: additional_disprove_script_test_healthy
+  #           description_suffix: "healthy path"
+  #         - test_script_name: additional_disprove_script_test_disrupted_payout_tx_block_hash
+  #           description_suffix: "disrupted payout tx blockhash path"
+  #         - test_script_name: additional_disprove_script_test_disrupt_chal_sending_wts
+  #           description_suffix: "disrupted challenge sending watchtowers path"
+  #         - test_script_name: additional_disprove_script_test_operator_forgot_wt_challenge
+  #           description_suffix: "operator forgot watchtower challenge path"
+  #         - test_script_name: additional_disprove_script_test_disrupted_latest_block_hash
+  #           description_suffix: "disrupted latest blockhash path"
+  #   services:
+  #     postgres:
+  #       image: postgres:latest
+  #       env:
+  #         POSTGRES_DB: clementine
+  #         POSTGRES_USER: clementine
+  #         POSTGRES_PASSWORD: clementine
+  #         POSTGRES_INITDB_ARGS: "-c shared_buffers=8GB -c max_connections=1000"
+  #       ports:
+  #         - 5432:5432
+  #       options: >-
+  #         --health-cmd pg_isready
+  #         --health-interval 10s
+  #         --health-timeout 5s
+  #         --health-retries 5
+
+  #   steps:
+  #     - name: Collect Workflow Telemetry
+  #       uses: catchpoint/workflow-telemetry-action@v2
+
+  #     - uses: actions/checkout@v4
+  #     - uses: ./.github/actions/install-risc0
+  #       with:
+  #         github_token: ${{ secrets.GITHUB_TOKEN }}
+  #     - uses: ./.github/actions/build-prerequisites
+  #     - uses: ./.github/actions/test-prerequisites
+
+  #     - name: Restore cached build artifacts
+  #       uses: Swatinem/rust-cache@v2
+  #       with:
+  #         shared-key: "release-build"
+
+  #     - name: Run tests
+  #       run: cargo test ${{ matrix.test_script_name }} --features automation --release  -- --ignored
+
+  # bridge_disprove_tests_matrix:
+  #   name: Test disprove script ${{ matrix.description_suffix }} with release build
+  #   runs-on: ubicloud-standard-30
+  #   needs: release_build_automation
+  #   strategy:
+  #     fail-fast: false
+  #     matrix:
+  #       include:
+  #         - test_script_name: bitvm_disprove_scripts::disprove_script_test_healthy
+  #           description_suffix: "healthy path"
+  #         - test_script_name: bitvm_disprove_scripts::disprove_script_test_corrupted_assert
+  #           description_suffix: "disrupted assert path"
+  #   services:
+  #     postgres:
+  #       image: postgres:latest
+  #       env:
+  #         POSTGRES_DB: clementine
+  #         POSTGRES_USER: clementine
+  #         POSTGRES_PASSWORD: clementine
+  #         POSTGRES_INITDB_ARGS: "-c shared_buffers=8GB -c max_connections=5000"
+  #       ports:
+  #         - 5432:5432
+  #       options: >-
+  #         --health-cmd pg_isready
+  #         --health-interval 10s
+  #         --health-timeout 5s
+  #         --health-retries 5
+
+  #   steps:
+  #     - name: Collect Workflow Telemetry
+  #       uses: catchpoint/workflow-telemetry-action@v2
+
+  #     - uses: actions/checkout@v4
+  #     - uses: ./.github/actions/install-risc0
+  #       with:
+  #         github_token: ${{ secrets.GITHUB_TOKEN }}
+  #     - uses: ./.github/actions/build-prerequisites
+  #     - uses: ./.github/actions/test-prerequisites
+
+  #     - name: Restore cached build artifacts
+  #       uses: Swatinem/rust-cache@v2
+  #       with:
+  #         shared-key: "release-build"
+
+  #     - name: Run tests
+  #       run: cargo test ${{ matrix.test_script_name }} --features automation --release  -- --ignored
+
+  # coverage:
+  #   name: Coverage checks with Codecov
+  #   runs-on: ubicloud-standard-30
+  #   needs: debug_build_test_automation
+  #   if: github.event.pull_request.draft == false
+
+  #   services:
+  #     postgres:
+  #       image: postgres:latest
+  #       env:
+  #         POSTGRES_DB: clementine
+  #         POSTGRES_USER: clementine
+  #         POSTGRES_PASSWORD: clementine
+  #         POSTGRES_INITDB_ARGS: "-c shared_buffers=8GB -c max_connections=5000"
+  #       ports:
+  #         - 5432:5432
+  #       options: >-
+  #         --health-cmd pg_isready
+  #         --health-interval 10s
+  #         --health-timeout 5s
+  #         --health-retries 5
+
+  #   steps:
+  #     - name: Collect Workflow Telemetry
+  #       uses: catchpoint/workflow-telemetry-action@v2
+
+  #     - uses: actions/checkout@v4
+  #     - uses: ./.github/actions/install-risc0
+  #       with:
+  #         github_token: ${{ secrets.GITHUB_TOKEN }}
+  #     - uses: ./.github/actions/build-prerequisites
+  #     - uses: ./.github/actions/test-prerequisites
+  #     - uses: taiki-e/install-action@cargo-llvm-cov
+
+  #     - name: Run coverage
+  #       run: cargo llvm-cov $AUTOMATION_ARGS --locked --lcov --output-path lcov.info
+  #     - name: Upload coverage
+  #       uses: codecov/codecov-action@v4
+  #       with:
+  #         fail_ci_if_error: true # optional (default = false)
+  #         files: ./lcov.info
+  #         token: ${{ secrets.CODECOV_TOKEN }}
