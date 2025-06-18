@@ -366,8 +366,6 @@ pub fn create_operator_sighash_stream(
                     let sighashes = txhandler.calculate_shared_txins_sighash(EntityType::OperatorDeposit, partial)?;
                     sum += sighashes.len();
                     for sighash in sighashes {
-                        let txid = txhandler.get_cached_tx().compute_txid();
-                        tracing::warn!("txid: {:?}, sighash: {:?}", txid, sighash);
                         yield sighash;
                     }
                 }
@@ -390,7 +388,7 @@ mod tests {
     use crate::{
         bitvm_client::SECP,
         config::protocol::ProtocolParamset,
-        deposit::{Actors, DepositInfo},
+        deposit::{Actors, DepositInfo, OperatorData},
         extended_rpc::ExtendedRpc,
         test::common::{
             citrea::MockCitreaClient, create_regtest_rpc, create_test_config_with_thread_name,
@@ -412,12 +410,16 @@ mod tests {
         deposit_info: DepositInfo,
         deposit_blockhash: BlockHash,
         move_txid: Txid,
+        operator_data: OperatorData,
     }
 
     #[tokio::test]
     #[ignore = "Run this to generate fresh deposit state data, in case any breaking change occurs to deposits"]
     async fn generate_deposit_state() {
         let mut config = create_test_config_with_thread_name().await;
+        // only run with one operator
+        config.test_params.all_operators_secret_keys.truncate(1);
+
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
 
@@ -435,11 +437,23 @@ mod tests {
             blocks.push(block);
         }
 
+        let op0_config = BridgeConfig {
+            secret_key: config.test_params.all_verifiers_secret_keys[0].clone(),
+            db_name: config.db_name + "0",
+            ..config
+        };
+        let op0_xonly_pk = op0_config.test_params.all_operators_secret_keys[0]
+            .x_only_public_key(&SECP)
+            .0;
+        let db = Database::new(&op0_config).await.unwrap();
+        let operator_data = db.get_operator(None, op0_xonly_pk).await.unwrap().unwrap();
+
         let deposit_state = DepositChainState {
             blocks,
             deposit_blockhash,
             move_txid,
             deposit_info,
+            operator_data,
         };
 
         // save to file
@@ -455,7 +469,7 @@ mod tests {
         let file = File::open(DEPOSIT_STATE_FILE_PATH).unwrap();
         let deposit_state: DepositChainState = bincode::deserialize_from(file).unwrap();
 
-        // submit blocks
+        // submit blocks to current rpc
         for block in &deposit_state.blocks {
             rpc.client.submit_block(block).await.unwrap();
         }
@@ -467,9 +481,15 @@ mod tests {
     /// It is also possible that round tx's are changed, which is a bigger issue that requires additionally the
     /// operators to change too (they need a new collateral). That case is covered in test_round_txids_change test.
     /// Its possible if default config is changed(for example num_verifiers, operators, etc)
+    ///
+    /// This test only uses one operator, because it is hard with current test setup fn's to generate operators with
+    /// different configs (config has the reimburse address and collateral funding outpoint,
+    /// which should be loaded from the saved deposit state)
     #[tokio::test]
     async fn test_bridge_contract_change() {
         let mut config = create_test_config_with_thread_name().await;
+        // only run with one operator
+        config.test_params.all_operators_secret_keys.truncate(1);
 
         // do not generate to address
         config.test_params.generate_to_address = false;
@@ -478,6 +498,17 @@ mod tests {
         let rpc = regtest.rpc().clone();
 
         let deposit_state = load_deposit_state(&rpc).await;
+
+        // set operator reimbursement address and collateral funding outpoint to the ones from the saved deposit state
+        config.operator_reimbursement_address = Some(
+            deposit_state
+                .operator_data
+                .reimburse_addr
+                .as_unchecked()
+                .to_owned(),
+        );
+        config.operator_collateral_funding_outpoint =
+            Some(deposit_state.operator_data.collateral_funding_outpoint);
 
         // after loading generate some funds to rpc wallet
         // needed so that the deposit doesnt crash (I dont know why) due to unsufficient funds
@@ -557,7 +588,6 @@ mod tests {
         );
 
         let operator_sighashes: Vec<_> = operator_streams.try_collect().await.unwrap();
-        tracing::warn!("Operator sighashes: {:?}", operator_sighashes);
         let operator_sighashes = operator_sighashes
             .into_iter()
             .map(|(sighash, info)| sighash.to_byte_array())
@@ -567,10 +597,15 @@ mod tests {
         let nofn_hash = sha256::Hash::hash(&nofn_sighashes.concat());
         let operator_hash = sha256::Hash::hash(&operator_sighashes.concat());
 
-        tracing::warn!("NofN hash string: {:?}", nofn_hash.to_string());
-        tracing::warn!("Operator hash string: {:?}", operator_hash.to_string());
-
-        tracing::warn!("NofN hash: {:?}", nofn_hash);
-        tracing::warn!("Operator hash: {:?}", operator_hash);
+        assert_eq!(
+            nofn_hash.to_string(),
+            "03e127f8719f1563eaef58e4e85a42469e36b347c0943a3f2bc55605793c0e52",
+            "NofN sighashes do not match the previous values"
+        );
+        assert_eq!(
+            operator_hash.to_string(),
+            "e501ca9ba39e3ba3dfd98e3a942d949f980ae61c5701d65972daf2fc3b8d199f",
+            "Operator sighashes do not match the previous values"
+        );
     }
 }
