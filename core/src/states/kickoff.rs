@@ -143,7 +143,7 @@ impl<T: Owner> KickoffStateMachine<T> {
         if matches!(evt, KickoffEvent::SavedToDb) {
             self.dirty = false;
         } else {
-            tracing::debug!(?self.kickoff_data, "Dispatching event {:?}", evt);
+            tracing::trace!(?self.kickoff_data, "Dispatching event {:?}", evt);
             self.dirty = true;
 
             // Remove the matcher corresponding to the event.
@@ -446,11 +446,6 @@ impl<T: Owner> KickoffStateMachine<T> {
         let num_asserts = crate::bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs();
         for assert_idx in 0..num_asserts {
             let mini_assert_vout = UtxoVout::Assert(assert_idx).get_vout();
-            tracing::info!(
-                "Adding matcher for assert {} with vout {}",
-                assert_idx,
-                mini_assert_vout
-            );
             let assert_timeout_txhandler = remove_txhandler_from_map(
                 &mut txhandlers,
                 TransactionType::AssertTimeout(assert_idx),
@@ -550,7 +545,7 @@ impl<T: Owner> KickoffStateMachine<T> {
         self.matchers.insert(
             Matcher::SpentUtxo(OutPoint {
                 txid: round_txid,
-                vout: UtxoVout::BurnConnector.get_vout(),
+                vout: UtxoVout::CollateralInRound.get_vout(),
             }),
             KickoffEvent::BurnConnectorSpent,
         );
