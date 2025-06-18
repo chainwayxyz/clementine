@@ -397,3 +397,13 @@ pub fn create_burn_unused_kickoff_connectors_txhandler(
     ));
     Ok(tx_handler_builder.finalize())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_create_round_nth_txhandler_and_round_txhandlers() {
+        // check if round_nth_txhandler and round_txhandlers are consistent with each other
+    }
+}
