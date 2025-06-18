@@ -34,6 +34,7 @@ use crate::task::manager::BackgroundTaskManager;
 use crate::task::{IntoTask, TaskExt};
 #[cfg(feature = "automation")]
 use crate::tx_sender::{TxSender, TxSenderClient};
+use crate::utils::FeePayingType;
 use crate::utils::NamedEntity;
 use crate::utils::TxMetadata;
 use crate::{musig2, UTXO};
@@ -1996,11 +1997,27 @@ where
 
         let raw_tx = bitcoin::consensus::serialize(&disprove_tx);
 
-        self.rpc
-            .client
-            .send_raw_transaction(&raw_tx)
-            .await
-            .wrap_err("Error sending disprove tx")?;
+        let mut dbtx = self.db.begin_transaction().await?;
+        self.tx_sender
+            .insert_try_to_send(
+                &mut dbtx,
+                Some(TxMetadata {
+                    tx_type: TransactionType::Disprove,
+                    deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
+                    operator_xonly_pk: Some(kickoff_data.operator_xonly_pk),
+                    round_idx: Some(kickoff_data.round_idx),
+                    kickoff_idx: Some(kickoff_data.kickoff_idx),
+                }),
+                &disprove_tx,
+                FeePayingType::CPFP,
+                None,
+                &[],
+                &[],
+                &[],
+                &[],
+            )
+            .await?;
+        dbtx.commit().await?;
         Ok(())
     }
 
@@ -2258,13 +2275,27 @@ where
             deposit_data
         );
 
-        let raw_tx = bitcoin::consensus::serialize(&disprove_tx);
-
-        self.rpc
-            .client
-            .send_raw_transaction(&raw_tx)
-            .await
-            .wrap_err("Error sending disprove tx")?;
+        let mut dbtx = self.db.begin_transaction().await?;
+        self.tx_sender
+            .insert_try_to_send(
+                &mut dbtx,
+                Some(TxMetadata {
+                    tx_type: TransactionType::Disprove,
+                    deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
+                    operator_xonly_pk: Some(kickoff_data.operator_xonly_pk),
+                    round_idx: Some(kickoff_data.round_idx),
+                    kickoff_idx: Some(kickoff_data.kickoff_idx),
+                }),
+                &disprove_tx,
+                FeePayingType::RBF,
+                None,
+                &[],
+                &[],
+                &[],
+                &[],
+            )
+            .await?;
+        dbtx.commit().await?;
         Ok(())
     }
 
