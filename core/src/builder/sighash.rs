@@ -387,13 +387,16 @@ mod tests {
 
     use crate::{
         bitvm_client::SECP,
+        builder::transaction::sign::TransactionRequestData,
         config::protocol::ProtocolParamset,
         deposit::{Actors, DepositInfo, OperatorData},
         extended_rpc::ExtendedRpc,
-        rpc::clementine::clementine_operator_client::ClementineOperatorClient,
+        rpc::clementine::{
+            clementine_operator_client::ClementineOperatorClient, TransactionRequest,
+        },
         test::common::{
             citrea::MockCitreaClient, create_regtest_rpc, create_test_config_with_thread_name,
-            run_single_deposit,
+            run_single_deposit, tx_utils::get_tx_from_signed_txs_with_type,
         },
     };
     use bincode;
@@ -424,10 +427,18 @@ mod tests {
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
 
-        let (_, _, _, _, deposit_info, move_txid, deposit_blockhash, verifiers_public_keys) =
-            run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None)
-                .await
-                .unwrap();
+        let (
+            _,
+            mut operators,
+            _,
+            _,
+            deposit_info,
+            move_txid,
+            deposit_blockhash,
+            verifiers_public_keys,
+        ) = run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None)
+            .await
+            .unwrap();
 
         // get generated blocks
         let height = rpc.get_current_chain_height().await.unwrap();
@@ -446,6 +457,7 @@ mod tests {
         let op0_xonly_pk = op0_config.test_params.all_operators_secret_keys[0]
             .x_only_public_key(&SECP)
             .0;
+
         let db = Database::new(&op0_config).await.unwrap();
         let operator_data = db.get_operator(None, op0_xonly_pk).await.unwrap().unwrap();
 
@@ -477,13 +489,14 @@ mod tests {
         deposit_state
     }
 
-    async fn compute_hash_of_round_txs<T>(
-        mut operator: ClementineOperatorClient<T>,
+    /// Returns the hash of all round txs txids for a given operator.
+    async fn compute_hash_of_round_txs(
+        mut operator: ClementineOperatorClient<tonic::transport::Channel>,
         deposit_outpoint: OutPoint,
         operator_xonly_pk: XOnlyPublicKey,
         deposit_blockhash: bitcoin::BlockHash,
         paramset: &'static ProtocolParamset,
-    ) -> impl Hash {
+    ) -> sha256::Hash {
         let kickoff_utxo = get_kickoff_utxos_to_sign(
             paramset,
             operator_xonly_pk,
@@ -491,20 +504,40 @@ mod tests {
             deposit_outpoint,
         )[0];
 
-        let tx_req = TransactionRequestData {
-            
+        let mut all_round_txids = Vec::new();
+        for i in 0..paramset.num_round_txs {
+            let tx_req = TransactionRequestData {
+                deposit_outpoint,
+                kickoff_data: KickoffData {
+                    operator_xonly_pk,
+                    round_idx: RoundIndex::Round(i),
+                    kickoff_idx: kickoff_utxo as u32,
+                },
+            };
+            let signed_txs = operator
+                .internal_create_signed_txs(TransactionRequest::from(tx_req))
+                .await
+                .unwrap()
+                .into_inner();
+            let round_tx =
+                get_tx_from_signed_txs_with_type(&signed_txs, TransactionType::Round).unwrap();
+            all_round_txids.push(round_tx.compute_txid());
         }
+
+        sha256::Hash::hash(&all_round_txids.concat())
     }
 
     /// Test for checking if the sighash stream is changed due to changes in code.
     /// If this test fails, the code contains breaking changes that needs replacement deposits on deployment.
-    /// It is also possible that round tx's are changed, which is a bigger issue that requires additionally the
-    /// operators to change too (they need a new collateral).
+    /// It is also possible that round tx's are changed, which is a bigger issue. In addition to replacement deposits,
+    /// the collaterals of operators that created at least round 1 are unusable.
+    ///
     /// Its also possible for this test to fail if default config is changed(for example num_verifiers, operators, etc).
     ///
-    /// This test only uses one operator, because it is hard with current test setup fn's to generate operators with
-    /// different configs (config has the reimburse address and collateral funding outpoint,
-    /// which should be loaded from the saved deposit state)
+    /// This test only uses one operator, because it is hard (too much code duplication) with
+    /// current test setup fn's to generate operators with different configs (config has the
+    /// reimburse address and collateral funding outpoint, which should be loaded from the saved
+    /// deposit state)
     #[tokio::test]
     async fn test_bridge_contract_change() {
         let mut config = create_test_config_with_thread_name().await;
@@ -580,6 +613,22 @@ mod tests {
             .map(|sk| sk.x_only_public_key(&SECP).0)
             .collect::<Vec<_>>();
 
+        let round_tx_hash = compute_hash_of_round_txs(
+            operators.swap_remove(0),
+            deposit_info.deposit_outpoint,
+            operators_xonly_pks[0],
+            deposit_blockhash,
+            &op0_config.protocol_paramset(),
+        )
+        .await;
+
+        // If this fails, the round txs are changed.
+        assert_eq!(
+            round_tx_hash.to_string(),
+            "5091c1f7780467abfeb2b104e5ccf9df351e6a78221bf714a5db20c4dbf08e6e".to_string(),
+            "Round tx hash does not match the previous values, round txs are changed"
+        );
+
         let deposit_data = DepositData {
             nofn_xonly_pk: None,
             deposit: deposit_info,
@@ -625,6 +674,7 @@ mod tests {
         let nofn_hash = sha256::Hash::hash(&nofn_sighashes.concat());
         let operator_hash = sha256::Hash::hash(&operator_sighashes.concat());
 
+        // If these fail, the bridge contract is changed.
         assert_eq!(
             nofn_hash.to_string(),
             "03e127f8719f1563eaef58e4e85a42469e36b347c0943a3f2bc55605793c0e52",
