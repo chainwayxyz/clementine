@@ -265,7 +265,7 @@ jobs:
           shared-key: "release-build-all-features"
 
       - name: Run coverage
-        run: cargo llvm-cov $CARGOFLAGS_ALL_FEATURES --release --lcov --no-run --no-cfg-coverage --output-path lcov.info
+        run: cargo llvm-cov $CARGOFLAGS_ALL_FEATURES --release --lcov --locked --no-cfg-coverage --output-path lcov.info -j 8
       - name: Upload coverage
         uses: codecov/codecov-action@v4
         with:
