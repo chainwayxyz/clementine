@@ -489,7 +489,8 @@
 <a href="#488" id="488">488</a>
 <a href="#489" id="489">489</a>
 <a href="#490" id="490">490</a>
-<a href="#491" id="491">491</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Operator Reimburse Transactions
+<a href="#491" id="491">491</a>
+<a href="#492" id="492">492</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Operator Reimburse Transactions
 //!
 //! This module contains the logic for creating operator reimbursement and payout-related transactions in the protocol.
 //! These transactions handle the flow of funds for operator compensation, challenge handling, and user withdrawals.
@@ -794,7 +795,8 @@
         )
         .add_input(
             NormalSignatureKind::KickoffNotFinalized2,
-            ready_to_reimburse_txhandler.get_spendable_output(UtxoVout::BurnConnector)<span class="question-mark">?</span>,
+            ready_to_reimburse_txhandler
+                .get_spendable_output(UtxoVout::CollateralInReadyToReimburse)<span class="question-mark">?</span>,
             builder::script::SpendPath::KeySpend,
             DEFAULT_SEQUENCE,
         )

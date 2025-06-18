@@ -598,7 +598,7 @@
                     NumberedSignatureKind::OperatorChallengeNack3,
                     watchtower_idx <span class="kw">as </span>i32,
                 ),
-                round_txhandler.get_spendable_output(UtxoVout::BurnConnector)<span class="question-mark">?</span>,
+                round_txhandler.get_spendable_output(UtxoVout::CollateralInRound)<span class="question-mark">?</span>,
                 SpendPath::KeySpend,
                 DEFAULT_SEQUENCE,
             )
@@ -688,7 +688,7 @@
         )
         .add_input(
             NormalSignatureKind::Disprove2,
-            round_txhandler.get_spendable_output(UtxoVout::BurnConnector)<span class="question-mark">?</span>,
+            round_txhandler.get_spendable_output(UtxoVout::CollateralInRound)<span class="question-mark">?</span>,
             SpendPath::KeySpend,
             DEFAULT_SEQUENCE,
         )

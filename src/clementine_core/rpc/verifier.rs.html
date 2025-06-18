@@ -539,8 +539,7 @@
 <a href="#538" id="538">538</a>
 <a href="#539" id="539">539</a>
 <a href="#540" id="540">540</a>
-<a href="#541" id="541">541</a>
-<a href="#542" id="542">542</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::{
+<a href="#541" id="541">541</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::{
     <span class="self">self</span>, clementine_verifier_server::ClementineVerifier, Empty, NonceGenRequest, NonceGenResponse,
     OperatorParams, OptimisticPayoutParams, PartialSig, RawTxWithRbfInfo, SignedTxWithType,
     SignedTxsWithType, VergenResponse, VerifierDepositFinalizeParams, VerifierDepositSignParams,
@@ -548,11 +547,10 @@
 };
 <span class="kw">use </span><span class="kw">super</span>::error;
 <span class="kw">use </span><span class="kw">super</span>::parser::ParserError;
-<span class="kw">use </span><span class="kw">crate</span>::builder::transaction::sign::create_and_sign_txs;
+<span class="kw">use </span><span class="kw">crate</span>::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 <span class="kw">use </span><span class="kw">crate</span>::citrea::CitreaClientT;
 <span class="kw">use </span><span class="kw">crate</span>::fetch_next_optional_message_from_stream;
 <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::VerifierDepositFinalizeResponse;
-<span class="kw">use </span><span class="kw">crate</span>::rpc::parser::parse_transaction_request;
 <span class="kw">use </span><span class="kw">crate</span>::utils::get_vergen_response;
 <span class="kw">use </span><span class="kw">crate</span>::verifier::VerifierServer;
 <span class="kw">use crate</span>::{
@@ -619,7 +617,7 @@
         request: tonic::Request&lt;<span class="kw">super</span>::TransactionRequest&gt;,
     ) -&gt; std::result::Result&lt;tonic::Response&lt;<span class="kw">super</span>::RawTxWithRbfInfo&gt;, tonic::Status&gt; {
         <span class="kw">let </span>transaction_request = request.into_inner();
-        <span class="kw">let </span>transaction_data = parse_transaction_request(transaction_request)<span class="question-mark">?</span>;
+        <span class="kw">let </span>transaction_data: TransactionRequestData = transaction_request.try_into()<span class="question-mark">?</span>;
 
         <span class="kw">let </span>(_tx_type, signed_tx, rbf_info) = <span class="self">self
             </span>.verifier
@@ -1011,7 +1009,7 @@
         request: tonic::Request&lt;<span class="kw">super</span>::TransactionRequest&gt;,
     ) -&gt; std::result::Result&lt;tonic::Response&lt;<span class="kw">super</span>::SignedTxsWithType&gt;, tonic::Status&gt; {
         <span class="kw">let </span>transaction_request = request.into_inner();
-        <span class="kw">let </span>transaction_data = parse_transaction_request(transaction_request)<span class="question-mark">?</span>;
+        <span class="kw">let </span>transaction_data: TransactionRequestData = transaction_request.try_into()<span class="question-mark">?</span>;
         <span class="kw">let </span>raw_txs = create_and_sign_txs(
             <span class="self">self</span>.verifier.db.clone(),
             <span class="kw-2">&amp;</span><span class="self">self</span>.verifier.signer,

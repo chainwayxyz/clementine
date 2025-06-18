@@ -2703,7 +2703,9 @@
 <a href="#2702" id="2702">2702</a>
 <a href="#2703" id="2703">2703</a>
 <a href="#2704" id="2704">2704</a>
-<a href="#2705" id="2705">2705</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
+<a href="#2705" id="2705">2705</a>
+<a href="#2706" id="2706">2706</a>
+<a href="#2707" id="2707">2707</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
 <span class="kw">use </span><span class="kw">crate</span>::bitcoin_syncer::{BitcoinSyncer, BlockHandler, FinalizedBlockFetcherTask};
 <span class="kw">use </span><span class="kw">crate</span>::bitvm_client::ClementineBitVMPublicKeys;
 <span class="kw">use </span><span class="kw">crate</span>::builder::address::{create_taproot_address, taproot_builder_with_scripts};
@@ -4342,6 +4344,13 @@
                 );
             }
 
+            <span class="macro">tracing::info!</span>(
+                <span class="string">"A new payout tx detected for withdrawal {}, payout txid: {}, operator xonly pk: {:?}"</span>,
+                idx,
+                hex::encode(payout_txid),
+                operator_xonly_pk
+            );
+
             payout_txs_and_payer_operator_idx.push((
                 idx,
                 payout_txid,
@@ -4981,11 +4990,7 @@
         block_cache: Arc&lt;block_cache::BlockCache&gt;,
         light_client_proof_wait_interval_secs: <span class="prelude-ty">Option</span>&lt;u32&gt;,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
-        <span class="macro">tracing::info!</span>(
-            <span class="string">"Verifier Handling finalized block height: {:?} and block cache height: {:?}"</span>,
-            block_height,
-            block_cache.block_height
-        );
+        <span class="macro">tracing::info!</span>(<span class="string">"Verifier handling finalized block height: {}"</span>, block_height);
 
         <span class="comment">// before a certain number of blocks, citrea doesn't produce proofs (defined in citrea config)
         </span><span class="kw">let </span>max_attempts = light_client_proof_wait_interval_secs.unwrap_or(TEN_MINUTES_IN_SECS);
@@ -5003,7 +5008,7 @@
         <span class="kw">let </span>(l2_height_start, l2_height_end) =
             l2_range_result.expect(<span class="string">"Failed to get citrea l2 height range"</span>);
 
-        <span class="macro">tracing::info!</span>(
+        <span class="macro">tracing::debug!</span>(
             <span class="string">"l2_height_start: {:?}, l2_height_end: {:?}, collecting deposits and withdrawals"</span>,
             l2_height_start,
             l2_height_end
@@ -5016,7 +5021,6 @@
         )
         .<span class="kw">await</span><span class="question-mark">?</span>;
 
-        <span class="macro">tracing::info!</span>(<span class="string">"Getting payout txids for block height: {:?}"</span>, block_height);
         <span class="self">self</span>.update_finalized_payouts(<span class="kw-2">&amp;mut </span>dbtx, block_id, <span class="kw-2">&amp;</span>block_cache)
             .<span class="kw">await</span><span class="question-mark">?</span>;
 

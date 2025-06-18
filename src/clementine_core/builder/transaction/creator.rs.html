@@ -1993,7 +1993,7 @@
         operator_data.xonly_pk,
         RoundTxInput::Prevout(Box::new(
             get_txhandler(<span class="kw-2">&amp;</span>txhandlers, TransactionType::ReadyToReimburse)<span class="question-mark">?
-                </span>.get_spendable_output(UtxoVout::BurnConnector)<span class="question-mark">?</span>,
+                </span>.get_spendable_output(UtxoVout::CollateralInReadyToReimburse)<span class="question-mark">?</span>,
         )),
         kickoff_winternitz_keys.get_keys_for_round(round_idx.next_round())<span class="question-mark">?</span>,
         paramset,
@@ -2067,7 +2067,7 @@
     );
 
     <span class="macro">tracing::debug!</span>(
-        <span class="string">"Deposit constant for {:?}: {:?} - depoist outpoint: {:?}"</span>,
+        <span class="string">"Deposit constant for {:?}: {:?} - deposit outpoint: {:?}"</span>,
         operator_xonly_pk,
         deposit_constant.<span class="number">0</span>,
         deposit_data.get_deposit_outpoint(),
@@ -2350,7 +2350,7 @@
                 operator_data.xonly_pk,
                 RoundTxInput::Prevout(Box::new(
                     prev_ready_to_reimburse_txhandler
-                        .get_spendable_output(UtxoVout::BurnConnector)<span class="question-mark">?</span>,
+                        .get_spendable_output(UtxoVout::CollateralInReadyToReimburse)<span class="question-mark">?</span>,
                 )),
                 kickoff_winternitz_keys.get_keys_for_round(round_idx)<span class="question-mark">?</span>,
                 paramset,

@@ -322,8 +322,7 @@
 <a href="#321" id="321">321</a>
 <a href="#322" id="322">322</a>
 <a href="#323" id="323">323</a>
-<a href="#324" id="324">324</a>
-<a href="#325" id="325">325</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::clementine_operator_server::ClementineOperator;
+<a href="#324" id="324">324</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::clementine_operator_server::ClementineOperator;
 <span class="kw">use </span><span class="kw">super</span>::clementine::{
     <span class="self">self</span>, ChallengeAckDigest, DepositParams, DepositSignSession, Empty, FinalizedPayoutParams,
     OperatorKeys, OperatorParams, SchnorrSig, SignedTxWithType, SignedTxsWithType,
@@ -333,12 +332,11 @@
 <span class="kw">use </span><span class="kw">super</span>::error::<span class="kw-2">*</span>;
 <span class="kw">use </span><span class="kw">super</span>::parser::ParserError;
 <span class="kw">use </span><span class="kw">crate</span>::bitvm_client::ClementineBitVMPublicKeys;
-<span class="kw">use </span><span class="kw">crate</span>::builder::transaction::sign::create_and_sign_txs;
+<span class="kw">use </span><span class="kw">crate</span>::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 <span class="kw">use </span><span class="kw">crate</span>::citrea::CitreaClientT;
 <span class="kw">use </span><span class="kw">crate</span>::deposit::DepositData;
 <span class="kw">use </span><span class="kw">crate</span>::operator::OperatorServer;
 <span class="kw">use </span><span class="kw">crate</span>::rpc::parser;
-<span class="kw">use </span><span class="kw">crate</span>::rpc::parser::parse_transaction_request;
 <span class="kw">use </span><span class="kw">crate</span>::utils::get_vergen_response;
 <span class="kw">use </span>bitcoin::hashes::Hash;
 <span class="kw">use </span>bitcoin::{BlockHash, OutPoint};
@@ -493,7 +491,7 @@
         request: Request&lt;TransactionRequest&gt;,
     ) -&gt; std::result::Result&lt;tonic::Response&lt;<span class="kw">super</span>::SignedTxsWithType&gt;, tonic::Status&gt; {
         <span class="kw">let </span>tx_req = request.into_inner();
-        <span class="kw">let </span>tx_req_data = parse_transaction_request(tx_req)<span class="question-mark">?</span>;
+        <span class="kw">let </span>tx_req_data: TransactionRequestData = tx_req.try_into()<span class="question-mark">?</span>;
 
         <span class="kw">let </span>raw_txs = <span class="self">self
             </span>.operator
@@ -555,7 +553,7 @@
         request: tonic::Request&lt;<span class="kw">super</span>::TransactionRequest&gt;,
     ) -&gt; std::result::Result&lt;tonic::Response&lt;<span class="kw">super</span>::SignedTxsWithType&gt;, tonic::Status&gt; {
         <span class="kw">let </span>transaction_request = request.into_inner();
-        <span class="kw">let </span>transaction_data = parse_transaction_request(transaction_request)<span class="question-mark">?</span>;
+        <span class="kw">let </span>transaction_data: TransactionRequestData = transaction_request.try_into()<span class="question-mark">?</span>;
         <span class="kw">let </span>raw_txs = create_and_sign_txs(
             <span class="self">self</span>.operator.db.clone(),
             <span class="kw-2">&amp;</span><span class="self">self</span>.operator.signer,

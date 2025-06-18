@@ -346,10 +346,7 @@
 <a href="#345" id="345">345</a>
 <a href="#346" id="346">346</a>
 <a href="#347" id="347">347</a>
-<a href="#348" id="348">348</a>
-<a href="#349" id="349">349</a>
-<a href="#350" id="350">350</a>
-<a href="#351" id="351">351</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Transaction Input Types and Utilities
+<a href="#348" id="348">348</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Transaction Input Types and Utilities
 //!
 //! This module defines types and utilities for representing and handling transaction inputs used in [`TxHandler`].
 //! It provides abstractions for spendable inputs, input errors, correctness checks, supporting Taproot and script path spends.
@@ -417,8 +414,6 @@
     </span>Disprove,
     <span class="doccomment">/// The vout of the latest blockhash utxo in KickoffTx
     </span>LatestBlockhash,
-    <span class="doccomment">/// The vout of the burn connector utxo in RoundTx and ReimburseTx
-    </span>BurnConnector,
     <span class="doccomment">/// The vout of the deposited btc utxo in MoveTx
     </span>DepositInMove,
     <span class="doccomment">/// The vout of the reimburse connector utxo in RoundTx
@@ -449,7 +444,6 @@
             UtxoVout::ReimburseInKickoff =&gt; <span class="number">2</span>,
             UtxoVout::Disprove =&gt; <span class="number">3</span>,
             UtxoVout::LatestBlockhash =&gt; <span class="number">4</span>,
-            UtxoVout::BurnConnector =&gt; <span class="number">0</span>,
             UtxoVout::ReimburseInRound(idx, paramset) =&gt; {
                 (paramset.num_kickoffs_per_round + idx + <span class="number">1</span>) <span class="kw">as </span>u32
             }

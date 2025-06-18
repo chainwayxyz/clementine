@@ -397,7 +397,9 @@
 <a href="#396" id="396">396</a>
 <a href="#397" id="397">397</a>
 <a href="#398" id="398">398</a>
-<a href="#399" id="399">399</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Collaterals
+<a href="#399" id="399">399</a>
+<a href="#400" id="400">400</a>
+<a href="#401" id="401">401</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Collaterals
 //!
 //! This module contains the logic for creating the `round_tx`, `ready_to_reimburse_tx`,
 //! and `unspent_kickoff_tx` transactions. These transactions are used to control the sequence of transactions
@@ -584,7 +586,7 @@
                 )
                 .add_input(
                     (NumberedSignatureKind::AssertTimeout3, idx <span class="kw">as </span>i32),
-                    round_txhandler.get_spendable_output(UtxoVout::BurnConnector)<span class="question-mark">?</span>,
+                    round_txhandler.get_spendable_output(UtxoVout::CollateralInRound)<span class="question-mark">?</span>,
                     SpendPath::KeySpend,
                     DEFAULT_SEQUENCE,
                 )
@@ -647,7 +649,8 @@
         round_txhandler = create_round_txhandler(
             operator_xonly_pk,
             RoundTxInput::Prevout(Box::new(
-                ready_to_reimburse_txhandler.get_spendable_output(UtxoVout::BurnConnector)<span class="question-mark">?</span>,
+                ready_to_reimburse_txhandler
+                    .get_spendable_output(UtxoVout::CollateralInReadyToReimburse)<span class="question-mark">?</span>,
             )),
             pubkeys.get_keys_for_round(round_idx)<span class="question-mark">?</span>,
             paramset,
@@ -679,7 +682,7 @@
     operator_xonly_pk: XOnlyPublicKey,
     paramset: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>ProtocolParamset,
 ) -&gt; <span class="prelude-ty">Result</span>&lt;TxHandler, BridgeError&gt; {
-    <span class="kw">let </span>prevout = round_txhandler.get_spendable_output(UtxoVout::BurnConnector)<span class="question-mark">?</span>;
+    <span class="kw">let </span>prevout = round_txhandler.get_spendable_output(UtxoVout::CollateralInRound)<span class="question-mark">?</span>;
     <span class="kw">let </span>prev_value = prevout.get_prevout().value;
 
     <span class="prelude-val">Ok</span>(TxHandlerBuilder::new(TransactionType::ReadyToReimburse)
@@ -731,7 +734,8 @@
                 .with_version(Version::non_standard(<span class="number">3</span>))
                 .add_input(
                     (NumberedSignatureKind::UnspentKickoff1, idx <span class="kw">as </span>i32),
-                    ready_to_reimburse_txhandler.get_spendable_output(UtxoVout::BurnConnector)<span class="question-mark">?</span>,
+                    ready_to_reimburse_txhandler
+                        .get_spendable_output(UtxoVout::CollateralInReadyToReimburse)<span class="question-mark">?</span>,
                     SpendPath::KeySpend,
                     DEFAULT_SEQUENCE,
                 )

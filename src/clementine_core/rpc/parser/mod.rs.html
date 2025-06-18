@@ -594,7 +594,18 @@
 <a href="#593" id="593">593</a>
 <a href="#594" id="594">594</a>
 <a href="#595" id="595">595</a>
-<a href="#596" id="596">596</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::{
+<a href="#596" id="596">596</a>
+<a href="#597" id="597">597</a>
+<a href="#598" id="598">598</a>
+<a href="#599" id="599">599</a>
+<a href="#600" id="600">600</a>
+<a href="#601" id="601">601</a>
+<a href="#602" id="602">602</a>
+<a href="#603" id="603">603</a>
+<a href="#604" id="604">604</a>
+<a href="#605" id="605">605</a>
+<a href="#606" id="606">606</a>
+<a href="#607" id="607">607</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::{
     <span class="self">self</span>, DepositParams, FeeType, Outpoint, RawSignedTx, RbfSigningInfoRpc, SchnorrSig,
     TransactionRequest, WinternitzPubkey,
 };
@@ -1078,22 +1089,33 @@
 }
 
 <span class="attr">#[allow(clippy::result_large_err)]
-</span><span class="kw">pub fn </span>parse_transaction_request(
-    request: TransactionRequest,
-) -&gt; <span class="prelude-ty">Result</span>&lt;TransactionRequestData, Status&gt; {
-    <span class="kw">let </span>deposit_outpoint: OutPoint = request
-        .deposit_outpoint
-        .ok_or(Status::invalid_argument(<span class="string">"No deposit params received"</span>))<span class="question-mark">?
-        </span>.try_into()<span class="question-mark">?</span>;
+</span><span class="kw">impl </span>TryFrom&lt;TransactionRequest&gt; <span class="kw">for </span>TransactionRequestData {
+    <span class="kw">type </span>Error = Status;
 
-    <span class="kw">let </span>kickoff_id = request
-        .kickoff_id
-        .ok_or(Status::invalid_argument(<span class="string">"No kickoff params received"</span>))<span class="question-mark">?</span>;
+    <span class="kw">fn </span>try_from(request: TransactionRequest) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="self">Self</span>, <span class="self">Self</span>::Error&gt; {
+        <span class="kw">let </span>deposit_outpoint: OutPoint = request
+            .deposit_outpoint
+            .ok_or(Status::invalid_argument(<span class="string">"No deposit params received"</span>))<span class="question-mark">?
+            </span>.try_into()<span class="question-mark">?</span>;
 
-    <span class="prelude-val">Ok</span>(TransactionRequestData {
-        deposit_outpoint,
-        kickoff_data: kickoff_id.try_into()<span class="question-mark">?</span>,
-    })
+        <span class="kw">let </span>kickoff_id = request
+            .kickoff_id
+            .ok_or(Status::invalid_argument(<span class="string">"No kickoff params received"</span>))<span class="question-mark">?</span>;
+
+        <span class="prelude-val">Ok</span>(TransactionRequestData {
+            deposit_outpoint,
+            kickoff_data: kickoff_id.try_into()<span class="question-mark">?</span>,
+        })
+    }
+}
+
+<span class="kw">impl </span>From&lt;TransactionRequestData&gt; <span class="kw">for </span>TransactionRequest {
+    <span class="kw">fn </span>from(value: TransactionRequestData) -&gt; <span class="self">Self </span>{
+        TransactionRequest {
+            deposit_outpoint: <span class="prelude-val">Some</span>(value.deposit_outpoint.into()),
+            kickoff_id: <span class="prelude-val">Some</span>(value.kickoff_data.into()),
+        }
+    }
 }
 
 <span class="kw">impl </span>TryFrom&lt;clementine::KickoffId&gt; <span class="kw">for </span><span class="kw">crate</span>::deposit::KickoffData {

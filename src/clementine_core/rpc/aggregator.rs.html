@@ -2050,7 +2050,7 @@
                 <span class="macro">format!</span>(<span class="string">"Failed to aggregate nonces for sighash with info: {siginfo:?}"</span>)
             })<span class="question-mark">?</span>;
 
-        <span class="macro">tracing::debug!</span>(
+        <span class="macro">tracing::trace!</span>(
             <span class="string">"Received nonces for signature id {:?} in nonce_aggregator"</span>,
             siginfo.signature_id
         );
@@ -2065,7 +2065,7 @@
                 stream_name: <span class="string">"nonce_aggregator"</span>.to_string(),
             })<span class="question-mark">?</span>;
 
-        <span class="macro">tracing::debug!</span>(
+        <span class="macro">tracing::trace!</span>(
             <span class="string">"Sent nonces for signature id {:?} in nonce_aggregator"</span>,
             siginfo.signature_id
         );
@@ -2090,7 +2090,7 @@
     .<span class="kw">await
     </span>.wrap_err(<span class="string">"Failed to aggregate nonces for the move tx"</span>)<span class="question-mark">?</span>;
 
-    <span class="macro">tracing::debug!</span>(<span class="string">"Received nonces for movetx in nonce_aggregator"</span>);
+    <span class="macro">tracing::trace!</span>(<span class="string">"Received nonces for movetx in nonce_aggregator"</span>);
 
     <span class="comment">// TODO: consider spawn_blocking here
     </span><span class="kw">let </span>move_tx_agg_nonce = aggregate_nonces(pub_nonces.iter().collect::&lt;Vec&lt;<span class="kw">_</span>&gt;&gt;().as_slice());
@@ -2129,7 +2129,7 @@
     <span class="kw">while let </span><span class="prelude-val">Some</span>(queue_item) = agg_nonce_receiver.recv().<span class="kw">await </span>{
         sig_count += <span class="number">1</span>;
 
-        <span class="macro">tracing::debug!</span>(
+        <span class="macro">tracing::trace!</span>(
             <span class="string">"Received aggregated nonce {} in nonce_distributor"</span>,
             sig_count
         );
@@ -2159,7 +2159,7 @@
         .<span class="kw">await
         </span>.wrap_err(<span class="string">"Failed to send aggregated nonces to verifiers"</span>)<span class="question-mark">?</span>;
 
-        <span class="macro">tracing::debug!</span>(
+        <span class="macro">tracing::trace!</span>(
             <span class="string">"Sent aggregated nonce {} to verifiers in nonce_distributor"</span>,
             sig_count
         );
@@ -2190,7 +2190,7 @@
         ))
         .<span class="kw">await</span><span class="question-mark">?</span>;
 
-        <span class="macro">tracing::debug!</span>(
+        <span class="macro">tracing::trace!</span>(
             <span class="string">"Received partial signature {} from verifiers in nonce_distributor"</span>,
             sig_count
         );
@@ -2204,7 +2204,7 @@
                 })
             })<span class="question-mark">?</span>;
 
-        <span class="macro">tracing::debug!</span>(
+        <span class="macro">tracing::trace!</span>(
             <span class="string">"Sent partial signature {} to signature_aggregator in nonce_distributor"</span>,
             sig_count
         );
@@ -2222,7 +2222,7 @@
     <span class="kw">let </span><span class="kw-2">mut </span>sig_count = <span class="number">0</span>;
     <span class="kw">while let </span><span class="prelude-val">Some</span>((partial_sigs, queue_item)) = partial_sig_receiver.recv().<span class="kw">await </span>{
         sig_count += <span class="number">1</span>;
-        <span class="macro">tracing::debug!</span>(
+        <span class="macro">tracing::trace!</span>(
             <span class="string">"Received partial signatures {} in signature_aggregator"</span>,
             sig_count
         );
@@ -2245,7 +2245,7 @@
                     stream_name: <span class="string">"final_sig_sender"</span>.into(),
                 })
             })<span class="question-mark">?</span>;
-        <span class="macro">tracing::debug!</span>(
+        <span class="macro">tracing::trace!</span>(
             <span class="string">"Sent aggregated signature {} to signature_distributor in signature_aggregator"</span>,
             sig_count
         );
@@ -2265,7 +2265,7 @@
     <span class="kw">let </span><span class="kw-2">mut </span>sig_count = <span class="number">0</span>;
     <span class="kw">while let </span><span class="prelude-val">Some</span>(queue_item) = final_sig_receiver.recv().<span class="kw">await </span>{
         sig_count += <span class="number">1</span>;
-        <span class="macro">tracing::debug!</span>(<span class="string">"Received signature {} in signature_distributor"</span>, sig_count);
+        <span class="macro">tracing::trace!</span>(<span class="string">"Received signature {} in signature_distributor"</span>, sig_count);
         <span class="kw">let </span>final_params = VerifierDepositFinalizeParams {
             params: <span class="prelude-val">Some</span>(Params::SchnorrSig(queue_item.final_sig)),
         };
@@ -2284,7 +2284,7 @@
         .<span class="kw">await
         </span>.wrap_err(<span class="string">"Failed to send final signatures to verifiers"</span>)<span class="question-mark">?</span>;
 
-        <span class="macro">tracing::debug!</span>(
+        <span class="macro">tracing::trace!</span>(
             <span class="string">"Sent signature {} to verifiers in signature_distributor"</span>,
             sig_count
         );

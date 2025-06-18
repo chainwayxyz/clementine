@@ -526,7 +526,8 @@
 <a href="#525" id="525">525</a>
 <a href="#526" id="526">526</a>
 <a href="#527" id="527">527</a>
-<a href="#528" id="528">528</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Transaction Signing Utilities
+<a href="#528" id="528">528</a>
+<a href="#529" id="529">529</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Transaction Signing Utilities
 //!
 //! This module provides logic signing the transactions used in the Clementine bridge.
 
@@ -708,7 +709,8 @@
             }
             <span class="prelude-val">Err</span>(e) =&gt; {
                 <span class="macro">tracing::trace!</span>(
-                    <span class="string">"Couldn't sign transaction {:?} in create_and_sign_all_txs: {:?}"</span>,
+                    <span class="string">"Couldn't sign transaction {:?} in create_and_sign_all_txs: {:?}. 
+                    This might be normal if the transaction is not needed to be/cannot be signed."</span>,
                     tx_type,
                     e
                 );
@@ -1026,7 +1028,7 @@
         <span class="kw">let </span>block_hash_last_20 = block_hash[block_hash.len() - <span class="number">20</span>..].to_vec();
 
         <span class="macro">tracing::info!</span>(
-            <span class="string">"Creating latest blockhash tx with block hash: {:?}"</span>,
+            <span class="string">"Creating latest blockhash tx with block hash's last 20 bytes: {:?}"</span>,
             block_hash_last_20
         );
         <span class="self">self</span>.signer.tx_sign_winternitz(
