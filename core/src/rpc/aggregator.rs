@@ -119,7 +119,7 @@ async fn nonce_aggregator(
                 format!("Failed to aggregate nonces for sighash with info: {siginfo:?}")
             })?;
 
-        tracing::debug!(
+        tracing::trace!(
             "Received nonces for signature id {:?} in nonce_aggregator",
             siginfo.signature_id
         );
@@ -134,7 +134,7 @@ async fn nonce_aggregator(
                 stream_name: "nonce_aggregator".to_string(),
             })?;
 
-        tracing::debug!(
+        tracing::trace!(
             "Sent nonces for signature id {:?} in nonce_aggregator",
             siginfo.signature_id
         );
@@ -159,7 +159,7 @@ async fn nonce_aggregator(
     .await
     .wrap_err("Failed to aggregate nonces for the move tx")?;
 
-    tracing::debug!("Received nonces for movetx in nonce_aggregator");
+    tracing::trace!("Received nonces for movetx in nonce_aggregator");
 
     // TODO: consider spawn_blocking here
     let move_tx_agg_nonce = aggregate_nonces(pub_nonces.iter().collect::<Vec<_>>().as_slice());
@@ -198,7 +198,7 @@ async fn nonce_distributor(
     while let Some(queue_item) = agg_nonce_receiver.recv().await {
         sig_count += 1;
 
-        tracing::debug!(
+        tracing::trace!(
             "Received aggregated nonce {} in nonce_distributor",
             sig_count
         );
@@ -228,7 +228,7 @@ async fn nonce_distributor(
         .await
         .wrap_err("Failed to send aggregated nonces to verifiers")?;
 
-        tracing::debug!(
+        tracing::trace!(
             "Sent aggregated nonce {} to verifiers in nonce_distributor",
             sig_count
         );
@@ -259,7 +259,7 @@ async fn nonce_distributor(
         ))
         .await?;
 
-        tracing::debug!(
+        tracing::trace!(
             "Received partial signature {} from verifiers in nonce_distributor",
             sig_count
         );
@@ -273,7 +273,7 @@ async fn nonce_distributor(
                 })
             })?;
 
-        tracing::debug!(
+        tracing::trace!(
             "Sent partial signature {} to signature_aggregator in nonce_distributor",
             sig_count
         );
@@ -291,7 +291,7 @@ async fn signature_aggregator(
     let mut sig_count = 0;
     while let Some((partial_sigs, queue_item)) = partial_sig_receiver.recv().await {
         sig_count += 1;
-        tracing::debug!(
+        tracing::trace!(
             "Received partial signatures {} in signature_aggregator",
             sig_count
         );
@@ -314,7 +314,7 @@ async fn signature_aggregator(
                     stream_name: "final_sig_sender".into(),
                 })
             })?;
-        tracing::debug!(
+        tracing::trace!(
             "Sent aggregated signature {} to signature_distributor in signature_aggregator",
             sig_count
         );
@@ -334,7 +334,7 @@ async fn signature_distributor(
     let mut sig_count = 0;
     while let Some(queue_item) = final_sig_receiver.recv().await {
         sig_count += 1;
-        tracing::debug!("Received signature {} in signature_distributor", sig_count);
+        tracing::trace!("Received signature {} in signature_distributor", sig_count);
         let final_params = VerifierDepositFinalizeParams {
             params: Some(Params::SchnorrSig(queue_item.final_sig)),
         };
@@ -353,7 +353,7 @@ async fn signature_distributor(
         .await
         .wrap_err("Failed to send final signatures to verifiers")?;
 
-        tracing::debug!(
+        tracing::trace!(
             "Sent signature {} to verifiers in signature_distributor",
             sig_count
         );

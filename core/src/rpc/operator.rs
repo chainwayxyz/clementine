@@ -8,12 +8,11 @@ use super::clementine::{
 use super::error::*;
 use super::parser::ParserError;
 use crate::bitvm_client::ClementineBitVMPublicKeys;
-use crate::builder::transaction::sign::create_and_sign_txs;
+use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::citrea::CitreaClientT;
 use crate::deposit::DepositData;
 use crate::operator::OperatorServer;
 use crate::rpc::parser;
-use crate::rpc::parser::parse_transaction_request;
 use crate::utils::get_vergen_response;
 use bitcoin::hashes::Hash;
 use bitcoin::{BlockHash, OutPoint};
@@ -168,7 +167,7 @@ where
         request: Request<TransactionRequest>,
     ) -> std::result::Result<tonic::Response<super::SignedTxsWithType>, tonic::Status> {
         let tx_req = request.into_inner();
-        let tx_req_data = parse_transaction_request(tx_req)?;
+        let tx_req_data: TransactionRequestData = tx_req.try_into()?;
 
         let raw_txs = self
             .operator
@@ -230,7 +229,7 @@ where
         request: tonic::Request<super::TransactionRequest>,
     ) -> std::result::Result<tonic::Response<super::SignedTxsWithType>, tonic::Status> {
         let transaction_request = request.into_inner();
-        let transaction_data = parse_transaction_request(transaction_request)?;
+        let transaction_data: TransactionRequestData = transaction_request.try_into()?;
         let raw_txs = create_and_sign_txs(
             self.operator.db.clone(),
             &self.operator.signer,
