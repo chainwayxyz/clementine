@@ -2000,7 +2000,7 @@ where
             .client
             .send_raw_transaction(&raw_tx)
             .await
-            .wrap_err("Error sending disprove tx")?;
+            .wrap_err("Error sending disprove tx - additional")?;
         Ok(())
     }
 
