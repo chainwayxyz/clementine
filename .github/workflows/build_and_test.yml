@@ -27,9 +27,9 @@ jobs:
         uses: catchpoint/workflow-telemetry-action@v2
 
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/install-risc0
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+      # - uses: ./.github/actions/install-risc0
+      #   with:
+      #     github_token: ${{ secrets.GITHUB_TOKEN }}
       - uses: ./.github/actions/build-prerequisites
 
       # - name: Save build artifacts
@@ -55,18 +55,18 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/install-risc0
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+      # - uses: ./.github/actions/install-risc0
+      #   with:
+      #     github_token: ${{ secrets.GITHUB_TOKEN }}
       - uses: ./.github/actions/build-prerequisites
+
+      - name: Compile in release mode
+        run: cargo build $CARGOFLAGS_ALL_FEATURES --verbose --release
 
       - name: Save build artifacts
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: "release-build-all-features"
-
-      - name: Compile in release mode
-        run: cargo build $CARGOFLAGS_ALL_FEATURES --verbose --release
 
   release_build:
     name: Release | No features | Compile
@@ -77,9 +77,9 @@ jobs:
         uses: catchpoint/workflow-telemetry-action@v2
 
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/install-risc0
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+      # - uses: ./.github/actions/install-risc0
+      #   with:
+      #     github_token: ${{ secrets.GITHUB_TOKEN }}
       - uses: ./.github/actions/build-prerequisites
 
       - name: Compile in release mode
