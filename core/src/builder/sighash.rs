@@ -390,6 +390,7 @@ mod tests {
         config::protocol::ProtocolParamset,
         deposit::{Actors, DepositInfo, OperatorData},
         extended_rpc::ExtendedRpc,
+        rpc::clementine::clementine_operator_client::ClementineOperatorClient,
         test::common::{
             citrea::MockCitreaClient, create_regtest_rpc, create_test_config_with_thread_name,
             run_single_deposit,
@@ -476,11 +477,30 @@ mod tests {
         deposit_state
     }
 
+    async fn compute_hash_of_round_txs<T>(
+        mut operator: ClementineOperatorClient<T>,
+        deposit_outpoint: OutPoint,
+        operator_xonly_pk: XOnlyPublicKey,
+        deposit_blockhash: bitcoin::BlockHash,
+        paramset: &'static ProtocolParamset,
+    ) -> impl Hash {
+        let kickoff_utxo = get_kickoff_utxos_to_sign(
+            paramset,
+            operator_xonly_pk,
+            deposit_blockhash,
+            deposit_outpoint,
+        )[0];
+
+        let tx_req = TransactionRequestData {
+            
+        }
+    }
+
     /// Test for checking if the sighash stream is changed due to changes in code.
     /// If this test fails, the code contains breaking changes that needs replacement deposits on deployment.
     /// It is also possible that round tx's are changed, which is a bigger issue that requires additionally the
-    /// operators to change too (they need a new collateral). That case is covered in test_round_txids_change test.
-    /// Its possible if default config is changed(for example num_verifiers, operators, etc)
+    /// operators to change too (they need a new collateral).
+    /// Its also possible for this test to fail if default config is changed(for example num_verifiers, operators, etc).
     ///
     /// This test only uses one operator, because it is hard with current test setup fn's to generate operators with
     /// different configs (config has the reimburse address and collateral funding outpoint,
@@ -549,8 +569,8 @@ mod tests {
 
         let op0_config = BridgeConfig {
             secret_key: config.test_params.all_verifiers_secret_keys[0].clone(),
-            db_name: config.db_name + "0",
-            ..config
+            db_name: config.db_name.clone() + "0",
+            ..config.clone()
         };
 
         let operators_xonly_pks = op0_config
