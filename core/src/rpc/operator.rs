@@ -8,12 +8,12 @@ use super::clementine::{
 use super::error::*;
 use super::parser::ParserError;
 use crate::bitvm_client::ClementineBitVMPublicKeys;
-use crate::builder::transaction::sign::create_and_sign_txs;
+use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::citrea::CitreaClientT;
+use crate::constants::DEFAULT_CHANNEL_SIZE;
 use crate::deposit::DepositData;
 use crate::operator::OperatorServer;
 use crate::rpc::parser;
-use crate::rpc::parser::parse_transaction_request;
 use crate::utils::get_vergen_response;
 use bitcoin::hashes::Hash;
 use bitcoin::{BlockHash, OutPoint};
@@ -41,7 +41,7 @@ where
         _request: Request<Empty>,
     ) -> Result<Response<Self::GetParamsStream>, Status> {
         let operator = self.operator.clone();
-        let (tx, rx) = mpsc::channel(1280);
+        let (tx, rx) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
         let out_stream: Self::GetParamsStream = ReceiverStream::new(rx);
 
         let (mut wpk_receiver, mut signature_receiver) = operator.get_params().await?;
@@ -77,7 +77,7 @@ where
         &self,
         request: Request<DepositSignSession>,
     ) -> Result<Response<Self::DepositSignStream>, Status> {
-        let (tx, rx) = mpsc::channel(1280);
+        let (tx, rx) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
 
         let deposit_sign_session = request.into_inner();
         let deposit_params: DepositParams = deposit_sign_session.try_into()?;
@@ -168,7 +168,7 @@ where
         request: Request<TransactionRequest>,
     ) -> std::result::Result<tonic::Response<super::SignedTxsWithType>, tonic::Status> {
         let tx_req = request.into_inner();
-        let tx_req_data = parse_transaction_request(tx_req)?;
+        let tx_req_data: TransactionRequestData = tx_req.try_into()?;
 
         let raw_txs = self
             .operator
@@ -230,7 +230,7 @@ where
         request: tonic::Request<super::TransactionRequest>,
     ) -> std::result::Result<tonic::Response<super::SignedTxsWithType>, tonic::Status> {
         let transaction_request = request.into_inner();
-        let transaction_data = parse_transaction_request(transaction_request)?;
+        let transaction_data: TransactionRequestData = transaction_request.try_into()?;
         let raw_txs = create_and_sign_txs(
             self.operator.db.clone(),
             &self.operator.signer,

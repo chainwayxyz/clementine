@@ -28,7 +28,7 @@ use crate::task::payout_checker::{PayoutCheckerTask, PAYOUT_CHECKER_POLL_DELAY};
 use crate::task::TaskExt;
 use crate::utils::Last20Bytes;
 use crate::utils::{NamedEntity, TxMetadata};
-use crate::{builder, UTXO};
+use crate::{builder, constants, UTXO};
 use bitcoin::consensus::deserialize;
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
@@ -418,7 +418,7 @@ where
             .await?;
 
         let mut tweak_cache = TweakCache::default();
-        let (sig_tx, sig_rx) = mpsc::channel(1280);
+        let (sig_tx, sig_rx) = mpsc::channel(constants::DEFAULT_CHANNEL_SIZE);
 
         let deposit_blockhash = self
             .rpc
@@ -1364,6 +1364,11 @@ where
             .take(hcp_height as usize + 1) // height 0 included
             .map(|(block_hash, _)| block_hash.to_byte_array())
             .collect::<Vec<_>>();
+
+        tracing::debug!(
+            "Genesis height - Before SPV: {},",
+            self.config.protocol_paramset().genesis_height
+        );
 
         let spv = create_spv(
             payout_tx.clone(),

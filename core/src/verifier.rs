@@ -22,7 +22,7 @@ use crate::builder::transaction::{create_round_txhandlers, KickoffWinternitzKeys
 use crate::citrea::CitreaClientT;
 use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
-use crate::constants::{NON_EPHEMERAL_ANCHOR_AMOUNT, TEN_MINUTES_IN_SECS};
+use crate::constants::{self, NON_EPHEMERAL_ANCHOR_AMOUNT, TEN_MINUTES_IN_SECS};
 use crate::database::{Database, DatabaseTransaction};
 use crate::deposit::{DepositData, KickoffData, OperatorData};
 use crate::errors::{BridgeError, TxError};
@@ -565,7 +565,7 @@ where
             .await?;
 
         let verifier = self.clone();
-        let (partial_sig_tx, partial_sig_rx) = mpsc::channel(1280);
+        let (partial_sig_tx, partial_sig_rx) = mpsc::channel(constants::DEFAULT_CHANNEL_SIZE);
         let verifier_index = deposit_data.get_verifier_index(&self.signer.public_key)?;
         let verifiers_public_keys = deposit_data.get_verifiers();
 
@@ -1637,6 +1637,13 @@ where
                 );
             }
 
+            tracing::info!(
+                "A new payout tx detected for withdrawal {}, payout txid: {}, operator xonly pk: {:?}",
+                idx,
+                hex::encode(payout_txid),
+                operator_xonly_pk
+            );
+
             payout_txs_and_payer_operator_idx.push((
                 idx,
                 payout_txid,
@@ -2000,7 +2007,7 @@ where
             .client
             .send_raw_transaction(&raw_tx)
             .await
-            .wrap_err("Error sending disprove tx")?;
+            .wrap_err("Error sending disprove tx - additional")?;
         Ok(())
     }
 
@@ -2276,11 +2283,7 @@ where
         block_cache: Arc<block_cache::BlockCache>,
         light_client_proof_wait_interval_secs: Option<u32>,
     ) -> Result<(), BridgeError> {
-        tracing::info!(
-            "Verifier Handling finalized block height: {:?} and block cache height: {:?}",
-            block_height,
-            block_cache.block_height
-        );
+        tracing::info!("Verifier handling finalized block height: {}", block_height);
 
         // before a certain number of blocks, citrea doesn't produce proofs (defined in citrea config)
         let max_attempts = light_client_proof_wait_interval_secs.unwrap_or(TEN_MINUTES_IN_SECS);
@@ -2298,7 +2301,7 @@ where
         let (l2_height_start, l2_height_end) =
             l2_range_result.expect("Failed to get citrea l2 height range");
 
-        tracing::info!(
+        tracing::debug!(
             "l2_height_start: {:?}, l2_height_end: {:?}, collecting deposits and withdrawals",
             l2_height_start,
             l2_height_end
@@ -2311,7 +2314,6 @@ where
         )
         .await?;
 
-        tracing::info!("Getting payout txids for block height: {:?}", block_height);
         self.update_finalized_payouts(&mut dbtx, block_id, &block_cache)
             .await?;
 
