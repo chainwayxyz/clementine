@@ -479,11 +479,6 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             }
 
             if !all_errors.is_empty() {
-                tracing::error!(
-                    "Multiple errors occurred during state processing: owner: {:?}, errors: {:?}",
-                    self.context.owner_type,
-                    all_errors
-                );
                 // revert state machines to the saved state as the content of the machines might be changed before the error occurred
                 self.kickoff_machines = kickoff_machines_checkpoint;
                 self.round_machines = round_machines_checkpoint;
