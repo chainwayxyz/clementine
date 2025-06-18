@@ -19,7 +19,7 @@ env:
 jobs:
   # Build ------------------------------------------------------------------------
   debug_build_all_features:
-    name: Compile code with debug profile with all features enabled
+    name: Debug | All features | Compile
     runs-on: ubicloud-standard-30
 
     steps:
@@ -32,16 +32,25 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
       - uses: ./.github/actions/build-prerequisites
 
-      - name: Save build artifacts
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: "debug-build-all-features"
+      # - name: Save build artifacts
+      #   uses: Swatinem/rust-cache@v2
+      #   with:
+      #     shared-key: "debug-build-all-features"
 
       - name: Compile in debug mode
         run: cargo build $CARGOFLAGS_ALL_FEATURES --verbose
 
+      - name: Cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
   release_build_all_features:
-    name: Compile code with release profile with all features enabled
+    name: Release | All features | Compile
     runs-on: ubicloud-standard-30
 
     steps:
@@ -60,7 +69,7 @@ jobs:
         run: cargo build $CARGOFLAGS_ALL_FEATURES --verbose --release
 
   release_build:
-    name: Compile code with release profile with no features
+    name: Release | No features | Compile
     runs-on: ubicloud-standard-30
 
     steps:
@@ -78,7 +87,7 @@ jobs:
 
   # Tests ------------------------------------------------------------------------
   debug_build_test_all_features:
-    name: Test code with debug build with all features enabled
+    name: Debug | All features | Test
     runs-on: ubicloud-standard-30
     needs: debug_build_all_features
 
@@ -109,16 +118,25 @@ jobs:
       - uses: ./.github/actions/build-prerequisites
       - uses: ./.github/actions/test-prerequisites
 
-      - name: Restore cached build artifacts
-        uses: Swatinem/rust-cache@v2
+      # - name: Restore cached build artifacts
+      #   uses: Swatinem/rust-cache@v2
+      #   with:
+      #     shared-key: "debug-build-all-features"
+
+      - name: Cache
+        uses: actions/cache/restore@v4
         with:
-          shared-key: "debug-build-all-features"
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Run tests
         run: cargo test $CARGOFLAGS_ALL_FEATURES -- test::musig2::key_spend_with_script # TODO: Remove in this PR
 
   release_build_test_all_features:
-    name: Test code with release build with all features enabled
+    name: Release | All features | Test
     runs-on: ubicloud-standard-30
     needs: release_build_all_features
 
