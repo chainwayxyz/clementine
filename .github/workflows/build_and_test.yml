@@ -106,10 +106,10 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Restore cached build artifacts
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: "debug-build-all-features"
+      # - name: Restore cached build artifacts
+      #   uses: Swatinem/rust-cache@v2
+      #   with:
+      #     shared-key: "debug-build-all-features"
 
       - name: Run tests
         run: cargo test $CARGOFLAGS_ALL_FEATURES
@@ -252,7 +252,7 @@ jobs:
     name: Release | All features | Coverage
     runs-on: ubicloud-standard-30
     needs: release_build_all_features
-    if: github.event.pull_request.draft == false
+    if: github.ref_name == 'main' || (github.event_name == 'pull_request' && !github.event.pull_request.draft)
 
     services:
       postgres:
@@ -281,15 +281,15 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
       - uses: taiki-e/install-action@cargo-llvm-cov
 
-      # - uses: actions/cache@v4
-      #   with:
-      #     path: |
-      #       ~/.cargo/bin/
-      #       ~/.cargo/registry/index/
-      #       ~/.cargo/registry/cache/
-      #       ~/.cargo/git/db/
-      #       target/
-      #     key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Run coverage
         run: cargo llvm-cov $CARGOFLAGS_ALL_FEATURES --release --lcov --locked --no-cfg-coverage --output-path lcov.info -j 8
