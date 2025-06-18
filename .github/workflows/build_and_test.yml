@@ -228,9 +228,9 @@ jobs:
 
   # Coverage -------------------------------------------------------------------
   coverage:
-    name: Coverage checks with Codecov
+    name: Release | All features | Coverage
     runs-on: ubicloud-standard-30
-    needs: debug_build_all_features
+    needs: release_build_all_features
     if: github.event.pull_request.draft == false
 
     services:
