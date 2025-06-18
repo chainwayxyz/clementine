@@ -32,3 +32,9 @@ runs:
     - name: Add bitcoin to path
       shell: bash
       run: echo "$PWD/bitcoin-29.0/bin" >> $GITHUB_PATH
+
+    - name: Install risc0
+      shell: bash
+      uses: ./.github/actions/install-risc0
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
