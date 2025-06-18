@@ -18,7 +18,6 @@ use eyre::Context;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EntityType {
     OperatorDeposit,
-    Watchtower,
     VerifierDeposit,
     OperatorSetup,
 }

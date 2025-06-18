@@ -34,7 +34,7 @@ use crate::operator::RoundIndex;
 use crate::rpc::clementine::tagged_signature::SignatureId;
 use crate::rpc::clementine::NormalSignatureKind;
 use async_stream::try_stream;
-use bitcoin::hashes::Hash;
+use bitcoin::hashes::{sha256, Hash};
 use bitcoin::{TapNodeHash, TapSighash, XOnlyPublicKey};
 use futures_core::stream::Stream;
 
@@ -366,6 +366,8 @@ pub fn create_operator_sighash_stream(
                     let sighashes = txhandler.calculate_shared_txins_sighash(EntityType::OperatorDeposit, partial)?;
                     sum += sighashes.len();
                     for sighash in sighashes {
+                        let txid = txhandler.get_cached_tx().compute_txid();
+                        tracing::warn!("txid: {:?}, sighash: {:?}", txid, sighash);
                         yield sighash;
                     }
                 }
@@ -378,5 +380,197 @@ pub fn create_operator_sighash_stream(
             // collect the last ready_to_reimburse txhandler for the next round
             txhandler_cache.store_for_next_round()?;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs::File;
+
+    use crate::{
+        bitvm_client::SECP,
+        config::protocol::ProtocolParamset,
+        deposit::{Actors, DepositInfo},
+        extended_rpc::ExtendedRpc,
+        test::common::{
+            citrea::MockCitreaClient, create_regtest_rpc, create_test_config_with_thread_name,
+            run_single_deposit,
+        },
+    };
+    use bincode;
+    use bitcoin::{Block, BlockHash, OutPoint, Txid};
+    use bitcoincore_rpc::RpcApi;
+    use futures_util::stream::TryStreamExt;
+
+    use super::*;
+
+    pub const DEPOSIT_STATE_FILE_PATH: &str = "src/test/data/deposit_state.bincode";
+
+    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+    struct DepositChainState {
+        blocks: Vec<Block>,
+        deposit_info: DepositInfo,
+        deposit_blockhash: BlockHash,
+        move_txid: Txid,
+    }
+
+    #[tokio::test]
+    #[ignore = "Run this to generate fresh deposit state data, in case any breaking change occurs to deposits"]
+    async fn generate_deposit_state() {
+        let mut config = create_test_config_with_thread_name().await;
+        let regtest = create_regtest_rpc(&mut config).await;
+        let rpc = regtest.rpc().clone();
+
+        let (_, _, _, _, deposit_info, move_txid, deposit_blockhash, verifiers_public_keys) =
+            run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None)
+                .await
+                .unwrap();
+
+        // get generated blocks
+        let height = rpc.get_current_chain_height().await.unwrap();
+        let mut blocks = Vec::new();
+        for i in 1..=height {
+            let (blockhash, _) = rpc.get_block_info_by_height(i as u64).await.unwrap();
+            let block = rpc.client.get_block(&blockhash).await.unwrap();
+            blocks.push(block);
+        }
+
+        let deposit_state = DepositChainState {
+            blocks,
+            deposit_blockhash,
+            move_txid,
+            deposit_info,
+        };
+
+        // save to file
+        let file = File::create(DEPOSIT_STATE_FILE_PATH).unwrap();
+        bincode::serialize_into(file, &deposit_state).unwrap();
+    }
+
+    async fn load_deposit_state(rpc: &ExtendedRpc) -> DepositChainState {
+        tracing::warn!(
+            "Current chain height: {}",
+            rpc.get_current_chain_height().await.unwrap()
+        );
+        let file = File::open(DEPOSIT_STATE_FILE_PATH).unwrap();
+        let deposit_state: DepositChainState = bincode::deserialize_from(file).unwrap();
+
+        // submit blocks
+        for block in &deposit_state.blocks {
+            rpc.client.submit_block(block).await.unwrap();
+        }
+        deposit_state
+    }
+
+    /// Test for checking if the sighash stream is changed due to changes in code.
+    /// If this test fails, the code contains breaking changes that needs replacement deposits on deployment.
+    /// It is also possible that round tx's are changed, which is a bigger issue that requires additionally the
+    /// operators to change too (they need a new collateral). That case is covered in test_round_txids_change test.
+    /// Its possible if default config is changed(for example num_verifiers, operators, etc)
+    #[tokio::test]
+    async fn test_bridge_contract_change() {
+        let mut config = create_test_config_with_thread_name().await;
+
+        // do not generate to address
+        config.test_params.generate_to_address = false;
+
+        let regtest = create_regtest_rpc(&mut config).await;
+        let rpc = regtest.rpc().clone();
+
+        let deposit_state = load_deposit_state(&rpc).await;
+
+        // after loading generate some funds to rpc wallet
+        // needed so that the deposit doesnt crash (I dont know why) due to unsufficient funds
+        let address = rpc
+            .client
+            .get_new_address(None, None)
+            .await
+            .expect("Failed to get new address");
+
+        rpc.client
+            .generate_to_address(105, address.assume_checked_ref())
+            .await
+            .expect("Failed to generate blocks");
+
+        let (_, _, _, _, deposit_info, move_txid, deposit_blockhash, verifiers_public_keys) =
+            run_single_deposit::<MockCitreaClient>(
+                &mut config,
+                rpc.clone(),
+                None,
+                Some(deposit_state.deposit_info.deposit_outpoint),
+            )
+            .await
+            .unwrap();
+
+        // sanity checks, these should be equal if the deposit state saved is still valid
+        // if not a new deposit state needs to be generated
+        assert_eq!(move_txid, deposit_state.move_txid);
+        assert_eq!(deposit_blockhash, deposit_state.deposit_blockhash);
+        assert_eq!(deposit_info, deposit_state.deposit_info);
+
+        let op0_config = BridgeConfig {
+            secret_key: config.test_params.all_verifiers_secret_keys[0].clone(),
+            db_name: config.db_name + "0",
+            ..config
+        };
+
+        let operators_xonly_pks = op0_config
+            .test_params
+            .all_operators_secret_keys
+            .iter()
+            .map(|sk| sk.x_only_public_key(&SECP).0)
+            .collect::<Vec<_>>();
+
+        let deposit_data = DepositData {
+            nofn_xonly_pk: None,
+            deposit: deposit_info,
+            actors: Actors {
+                verifiers: verifiers_public_keys,
+                watchtowers: vec![],
+                operators: operators_xonly_pks.clone(),
+            },
+            security_council: op0_config.security_council.clone(),
+        };
+
+        let db = Database::new(&op0_config).await.unwrap();
+
+        let sighash_stream = create_nofn_sighash_stream(
+            db.clone(),
+            op0_config.clone(),
+            deposit_data.clone(),
+            deposit_blockhash,
+            true,
+        );
+
+        let nofn_sighashes: Vec<_> = sighash_stream.try_collect().await.unwrap();
+        let nofn_sighashes = nofn_sighashes
+            .into_iter()
+            .map(|(sighash, info)| sighash.to_byte_array())
+            .collect::<Vec<_>>();
+
+        let operator_streams = create_operator_sighash_stream(
+            db.clone(),
+            operators_xonly_pks[0],
+            op0_config.clone(),
+            deposit_data.clone(),
+            deposit_blockhash,
+        );
+
+        let operator_sighashes: Vec<_> = operator_streams.try_collect().await.unwrap();
+        tracing::warn!("Operator sighashes: {:?}", operator_sighashes);
+        let operator_sighashes = operator_sighashes
+            .into_iter()
+            .map(|(sighash, info)| sighash.to_byte_array())
+            .collect::<Vec<_>>();
+
+        // Hash the vectors
+        let nofn_hash = sha256::Hash::hash(&nofn_sighashes.concat());
+        let operator_hash = sha256::Hash::hash(&operator_sighashes.concat());
+
+        tracing::warn!("NofN hash string: {:?}", nofn_hash.to_string());
+        tracing::warn!("Operator hash string: {:?}", operator_hash.to_string());
+
+        tracing::warn!("NofN hash: {:?}", nofn_hash);
+        tracing::warn!("Operator hash: {:?}", operator_hash);
     }
 }
