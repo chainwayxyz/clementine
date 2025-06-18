@@ -219,8 +219,10 @@ pub async fn run_multiple_deposits<C: CitreaClientT>(
         Vec<ClementineOperatorClient<Channel>>,
         ClementineAggregatorClient<Channel>,
         ActorsCleanup,
-        Vec<OutPoint>,
+        Vec<DepositInfo>,
         Vec<Txid>,
+        Vec<BlockHash>,
+        Vec<PublicKey>,
     ),
     BridgeError,
 > {
@@ -242,8 +244,9 @@ pub async fn run_multiple_deposits<C: CitreaClientT>(
 
     let (deposit_address, _) =
         get_deposit_address(config, evm_address, verifiers_public_keys.clone())?;
-    let mut deposit_outpoints = Vec::new();
     let mut move_txids = Vec::new();
+    let mut deposit_blockhashes = Vec::new();
+    let mut deposit_infos = Vec::new();
 
     for _ in 0..count {
         let deposit_outpoint: OutPoint = rpc
@@ -258,6 +261,8 @@ pub async fn run_multiple_deposits<C: CitreaClientT>(
                 recovery_taproot_address: actor.address.as_unchecked().to_owned(),
             }),
         };
+
+        deposit_infos.push(deposit_info.clone());
 
         let deposit: Deposit = deposit_info.into();
 
@@ -294,7 +299,8 @@ pub async fn run_multiple_deposits<C: CitreaClientT>(
         )
         .await?;
 
-        deposit_outpoints.push(deposit_outpoint);
+        let deposit_blockhash = rpc.get_blockhash_of_tx(&deposit_outpoint.txid).await?;
+        deposit_blockhashes.push(deposit_blockhash);
         move_txids.push(move_txid);
     }
 
@@ -303,8 +309,10 @@ pub async fn run_multiple_deposits<C: CitreaClientT>(
         operators,
         aggregator,
         cleanup,
-        deposit_outpoints,
+        deposit_infos,
         move_txids,
+        deposit_blockhashes,
+        verifiers_public_keys,
     ))
 }
 

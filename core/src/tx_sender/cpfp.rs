@@ -51,7 +51,7 @@ impl TxSender {
         total_fee_payer_amount: Amount,
         fee_payer_utxos_len: usize,
     ) -> Result<()> {
-        tracing::info!(
+        tracing::debug!(
             "Creating fee payer UTXO for txid {} with bump id {}",
             &tx.compute_txid().to_string(),
             bumped_id
@@ -124,7 +124,7 @@ impl TxSender {
         fee_rate: FeeRate,
         change_address: Address,
     ) -> Result<Transaction> {
-        tracing::info!(
+        tracing::debug!(
             "Creating child tx with {} fee payer utxos",
             fee_payer_utxos.len()
         );
@@ -211,7 +211,7 @@ impl TxSender {
         fee_rate: FeeRate,
         fee_payer_utxos: Vec<SpendableTxIn>,
     ) -> Result<Vec<Transaction>> {
-        tracing::info!(
+        tracing::debug!(
             "Creating package with {} fee payer utxos",
             fee_payer_utxos.len()
         );
@@ -298,7 +298,7 @@ impl TxSender {
             .map_to_eyre()?;
 
         for (id, fee_payer_txid, vout, amount) in bumpable_fee_payer_txs {
-            tracing::info!(
+            tracing::debug!(
                 "Bumping fee for fee payer tx {} with bumped tx {} for fee rate {}",
                 fee_payer_txid,
                 bumped_id,

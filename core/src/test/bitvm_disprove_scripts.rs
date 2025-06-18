@@ -540,7 +540,7 @@ impl DisproveTest {
 
         let burn_connector = OutPoint {
             txid: round_txid,
-            vout: UtxoVout::BurnConnector.get_vout(),
+            vout: UtxoVout::CollateralInRound.get_vout(),
         };
 
         let disprove_tx = rpc.client.get_raw_transaction(&txid, None).await?;
