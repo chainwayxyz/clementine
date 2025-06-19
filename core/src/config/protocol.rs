@@ -274,8 +274,36 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     ],
     header_chain_proof_batch_size: 100,
     bridge_circuit_method_id_constant: [
-        135, 127, 96, 197, 209, 59, 13, 243, 184, 10, 25, 163, 197, 237, 43, 164, 90, 184, 43, 190,
-        122, 88, 234, 82, 78, 92, 249, 255, 206, 153, 87, 255,
+        86, 86, 202, 134, 213, 147, 193, 178, 220, 184, 201, 146, 216, 140, 178, 160, 167, 17, 27,
+        158, 75, 204, 46, 254, 203, 12, 116, 198, 137, 52, 161, 196,
     ],
     bridge_nonstandard: true,
 };
+
+#[cfg(test)]
+mod tests {
+    use bridge_circuit_host::utils::calculate_succinct_output_prefix;
+    use risc0_zkvm::compute_image_id;
+
+    use super::*;
+
+    #[test]
+    fn test_calculate_succinct_output_prefix() {
+        let regtest_bridge_elf =
+            include_bytes!("../../../risc0-circuits/elfs/regtest-bridge-circuit-guest.bin");
+        let regtest_bridge_circuit_method_id =
+            compute_image_id(regtest_bridge_elf).expect("should compute image id");
+        let calculated_bridge_circuit_constant =
+            calculate_succinct_output_prefix(regtest_bridge_circuit_method_id.as_bytes());
+
+        let bridge_circuit_constant = REGTEST_PARAMSET.bridge_circuit_method_id_constant;
+
+        assert_eq!(
+            calculated_bridge_circuit_constant,
+            bridge_circuit_constant,
+            "You forgot to update bridge_circuit_constant with the new method id. Please change it in these places: Here, core/src/cli.rs, core/src/config/protocol.rs, core/src/test/data/protocol_paramset.toml. The expected value is: {:?}, hex format: {:?}",
+            calculated_bridge_circuit_constant,
+            hex::encode(calculated_bridge_circuit_constant)
+        );
+    }
+}
