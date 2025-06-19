@@ -1878,6 +1878,8 @@ where
                 .into());
             }
             operator_acks_vec[*idx] = Some(pre_image);
+
+            tracing::warn!("Operator ack for idx {}", idx);
         }
 
         let latest_blockhash: Vec<Vec<u8>> = latest_blockhash
@@ -1917,6 +1919,18 @@ where
         );
 
         tracing::warn!("Payout blockhash: {:?}", payout_blockhash_new);
+
+        tracing::warn!("Latest blockhash: {:?}", latest_blockhash_new);
+
+        tracing::warn!(
+            "Challenge sending watchtowers signature: {:?}",
+            challenge_sending_watchtowers_signature
+        );
+
+        tracing::warn!(
+            "G16 public input signature: {:?}",
+            g16_public_input_signature
+        );
 
         let additional_disprove_witness = validate_assertions_for_additional_script(
             additional_disprove_script.clone(),
