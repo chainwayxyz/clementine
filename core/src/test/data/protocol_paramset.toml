@@ -24,4 +24,4 @@ genesis_height = 0
 genesis_chain_state_hash = [95,115,2,173,22,200,189,158,242,243,190,0,200,25,154,134,249,224,186,134,20,132,171,180,175,95,126,69,127,140,34,22]
 header_chain_proof_batch_size = 100
 bridge_circuit_method_id_constant = [135, 127, 96, 197, 209, 59, 13, 243, 184, 10, 25, 163, 197, 237, 43, 164, 90, 184, 43, 190, 122, 88, 234, 82, 78, 92, 249, 255, 206, 153, 87, 255]
-bridge_nonstandard = false
+bridge_nonstandard = true

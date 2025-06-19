@@ -881,6 +881,7 @@ mod tests {
                     "-txindex=1",
                     "-fallbackfee=0.000001",
                     "-rpcallowip=0.0.0.0/0",
+                    "-dustrelayfee=0",
                 ],
                 ..Default::default()
             }
