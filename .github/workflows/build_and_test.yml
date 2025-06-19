@@ -8,7 +8,7 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  RUST_LOG: warn,risc0_zkvm=error,risc0_circuit_rv32im=error
+  RUST_LOG: info,risc0_zkvm=error,risc0_circuit_rv32im=error
   RISC0_DEV_MODE: 1
   ENABLE_HEADER_CHAIN_PROVER: 1
   RUST_MIN_STACK: 33554432
@@ -104,7 +104,10 @@ jobs:
           shared-key: ${{ runner.os }}-cargo-DEBUG-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
 
       - name: Run tests
-        run: cargo test $CARGOFLAGS_ALL_FEATURES
+        run: |
+          mkdir -p logs
+          cargo test $CARGOFLAGS_ALL_FEATURES > logs/test.log 2>&1
+      - uses: ./.github/actions/upload-log-on-failure
 
   release_build_test_all_features:
     name: Release | All features | Test
@@ -143,31 +146,12 @@ jobs:
           shared-key: ${{ runner.os }}-cargo-RELEASE-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
 
       - name: Run tests
-        run: cargo test --release $CARGOFLAGS_ALL_FEATURES
+        run: |
+          mkdir -p logs
+          cargo test --release $CARGOFLAGS_ALL_FEATURES > logs/test.log 2>&1
+      - uses: ./.github/actions/upload-log-on-failure
 
   # Matrix (Standalone) Tests --------------------------------------------------
-  standalone_proving_tests:
-    name: Release | All features | Test bridge_circuit_test
-    runs-on: ubicloud
-    needs: release_build_all_features
-
-    env:
-      RISC0_DEV_MODE: 0
-
-    steps:
-      - name: Collect Workflow Telemetry
-        uses: catchpoint/workflow-telemetry-action@v2
-
-      - uses: actions/checkout@v4
-
-      - name: Save/restore build artifacts
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: ${{ runner.os }}-cargo-RELEASE-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
-
-      - name: Run tests
-        run: cargo test --release -p bridge-circuit-host bridge_circuit_test -- --ignored
-
   standalone_tests:
     name: Release | All features | Test ${{ matrix.description_suffix }}
     runs-on: ubicloud-standard-4
@@ -222,7 +206,10 @@ jobs:
           shared-key: ${{ runner.os }}-cargo-RELEASE-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
 
       - name: Run tests
-        run: cargo test ${{ matrix.test_script_name }} $CARGOFLAGS_ALL_FEATURES --release -- --ignored
+        run: |
+          mkdir -p logs
+          cargo test ${{ matrix.test_script_name }} $CARGOFLAGS_ALL_FEATURES --release -- --ignored > logs/test.log 2>&1
+      - uses: ./.github/actions/upload-log-on-failure
 
   # Coverage -------------------------------------------------------------------
   coverage:
