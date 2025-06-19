@@ -237,8 +237,8 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
             sequencer.client.send_publish_batch_request().await.unwrap();
         }
-        
-        // Wait for the deposit to be processed. 
+
+        // Wait for the deposit to be processed.
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
         // After the deposit, the balance should be non-zero.
