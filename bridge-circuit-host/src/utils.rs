@@ -5,13 +5,6 @@ use risc0_zkvm::{sha::Digestible, SuccinctReceiptVerifierParameters, SystemState
 use sha2::{Digest, Sha256};
 use std::str::FromStr;
 
-pub fn reverse_bits_and_copy(input: &[u8], output: &mut [u8]) {
-    for i in 0..8 {
-        let temp = u32::from_be_bytes(input[4 * i..4 * i + 4].try_into().unwrap()).reverse_bits();
-        output[4 * i..4 * i + 4].copy_from_slice(&temp.to_le_bytes());
-    }
-}
-
 /// This is the test Verifying Key of the STARK-to-BitVM2 Groth16 proof Circom circuit.
 pub fn get_ark_verifying_key() -> ark_groth16::VerifyingKey<Bn254> {
     let alpha_g1 = G1Affine::new(
@@ -272,7 +265,16 @@ pub fn calculate_succinct_output_prefix(method_id: &[u8]) -> [u8; 32] {
 
 #[cfg(test)]
 mod tests {
+    use circuits_lib::common::constants::{
+        MAINNET_HEADER_CHAIN_METHOD_ID, REGTEST_HEADER_CHAIN_METHOD_ID,
+        SIGNET_HEADER_CHAIN_METHOD_ID, TESTNET4_HEADER_CHAIN_METHOD_ID,
+    };
     use risc0_zkvm::compute_image_id;
+
+    use crate::bridge_circuit_host::{
+        MAINNET_HEADER_CHAIN_ELF, REGTEST_HEADER_CHAIN_ELF, SIGNET_HEADER_CHAIN_ELF,
+        TESTNET4_HEADER_CHAIN_ELF,
+    };
 
     use super::*;
 
@@ -288,5 +290,40 @@ mod tests {
             [135, 127, 96, 197, 209, 59, 13, 243, 184, 10, 25, 163, 197, 237, 43, 164, 90, 184, 43, 190, 122, 88, 234, 82, 78, 92, 249, 255, 206, 153, 87, 255]
         , "You forgot to update bridge_circuit_constant with the new method id. Please change it in these places: Here, core/src/cli.rs, core/src/config/prototcol.rs, core/src/test/data/protocol_paramset.toml"
         );
+    }
+
+    #[test]
+    fn test_header_chain_method_ids() {
+        let networks = [
+            (
+                MAINNET_HEADER_CHAIN_ELF,
+                MAINNET_HEADER_CHAIN_METHOD_ID,
+                "mainnet",
+            ),
+            (
+                TESTNET4_HEADER_CHAIN_ELF,
+                TESTNET4_HEADER_CHAIN_METHOD_ID,
+                "testnet4",
+            ),
+            (
+                SIGNET_HEADER_CHAIN_ELF,
+                SIGNET_HEADER_CHAIN_METHOD_ID,
+                "signet",
+            ),
+            (
+                REGTEST_HEADER_CHAIN_ELF,
+                REGTEST_HEADER_CHAIN_METHOD_ID,
+                "regtest",
+            ),
+        ];
+
+        for (elf, method_id, network) in networks.into_iter() {
+            let header_chain_circuit_method_id = compute_image_id(elf);
+            assert_eq!(
+                header_chain_circuit_method_id.expect("should compute image id").as_words(),
+                method_id,
+                "Header chain method ID mismatch for {network}, please update the constant here: circuits-lib/src/common/constants.rs",
+            );
+        }
     }
 }
