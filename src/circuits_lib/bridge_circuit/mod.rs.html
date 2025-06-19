@@ -1280,7 +1280,54 @@
 <a href="#1279" id="1279">1279</a>
 <a href="#1280" id="1280">1280</a>
 <a href="#1281" id="1281">1281</a>
-<a href="#1282" id="1282">1282</a></pre></div><pre class="rust"><code><span class="kw">pub mod </span>constants;
+<a href="#1282" id="1282">1282</a>
+<a href="#1283" id="1283">1283</a>
+<a href="#1284" id="1284">1284</a>
+<a href="#1285" id="1285">1285</a>
+<a href="#1286" id="1286">1286</a>
+<a href="#1287" id="1287">1287</a>
+<a href="#1288" id="1288">1288</a>
+<a href="#1289" id="1289">1289</a>
+<a href="#1290" id="1290">1290</a>
+<a href="#1291" id="1291">1291</a>
+<a href="#1292" id="1292">1292</a>
+<a href="#1293" id="1293">1293</a>
+<a href="#1294" id="1294">1294</a>
+<a href="#1295" id="1295">1295</a>
+<a href="#1296" id="1296">1296</a>
+<a href="#1297" id="1297">1297</a>
+<a href="#1298" id="1298">1298</a>
+<a href="#1299" id="1299">1299</a>
+<a href="#1300" id="1300">1300</a>
+<a href="#1301" id="1301">1301</a>
+<a href="#1302" id="1302">1302</a>
+<a href="#1303" id="1303">1303</a>
+<a href="#1304" id="1304">1304</a>
+<a href="#1305" id="1305">1305</a>
+<a href="#1306" id="1306">1306</a>
+<a href="#1307" id="1307">1307</a>
+<a href="#1308" id="1308">1308</a>
+<a href="#1309" id="1309">1309</a>
+<a href="#1310" id="1310">1310</a>
+<a href="#1311" id="1311">1311</a>
+<a href="#1312" id="1312">1312</a>
+<a href="#1313" id="1313">1313</a>
+<a href="#1314" id="1314">1314</a>
+<a href="#1315" id="1315">1315</a>
+<a href="#1316" id="1316">1316</a>
+<a href="#1317" id="1317">1317</a>
+<a href="#1318" id="1318">1318</a>
+<a href="#1319" id="1319">1319</a>
+<a href="#1320" id="1320">1320</a>
+<a href="#1321" id="1321">1321</a>
+<a href="#1322" id="1322">1322</a>
+<a href="#1323" id="1323">1323</a>
+<a href="#1324" id="1324">1324</a>
+<a href="#1325" id="1325">1325</a>
+<a href="#1326" id="1326">1326</a>
+<a href="#1327" id="1327">1327</a>
+<a href="#1328" id="1328">1328</a>
+<a href="#1329" id="1329">1329</a></pre></div><pre class="rust"><code><span class="kw">pub mod </span>constants;
 <span class="kw">pub mod </span>groth16;
 <span class="kw">pub mod </span>groth16_verifier;
 <span class="kw">pub mod </span>lc_proof;
@@ -1528,7 +1575,7 @@
 /// will be skipped gracefully without causing the function to panic.
 </span><span class="kw">pub fn </span>verify_watchtower_challenges(circuit_input: <span class="kw-2">&amp;</span>BridgeCircuitInput) -&gt; WatchtowerChallengeSet {
     <span class="kw">let </span><span class="kw-2">mut </span>challenge_sending_watchtowers: [u8; <span class="number">20</span>] = [<span class="number">0u8</span>; <span class="number">20</span>];
-    <span class="kw">let </span><span class="kw-2">mut </span>watchtower_challenges_outputs: Vec&lt;[TxOut; <span class="number">3</span>]&gt; = <span class="macro">vec!</span>[];
+    <span class="kw">let </span><span class="kw-2">mut </span>watchtower_challenges_outputs: Vec&lt;Vec&lt;TxOut&gt;&gt; = <span class="macro">vec!</span>[];
 
     <span class="kw">let </span>kickoff_txid = circuit_input.kickoff_tx.compute_txid();
 
@@ -1674,16 +1721,10 @@
             .verify_prehash(sighash.as_byte_array(), <span class="kw-2">&amp;</span>signature)
             .is_ok()
         {
-            <span class="comment">// TODO: CHECK IF THIS IS CORRECT
-            </span>challenge_sending_watchtowers[(watchtower_input.watchtower_idx <span class="kw">as </span>usize) / <span class="number">8</span>] |=
+            challenge_sending_watchtowers[(watchtower_input.watchtower_idx <span class="kw">as </span>usize) / <span class="number">8</span>] |=
                 <span class="number">1 </span>&lt;&lt; (watchtower_input.watchtower_idx % <span class="number">8</span>);
-            <span class="kw">if </span>watchtower_input.watchtower_challenge_tx.output.len() &gt;= <span class="number">3 </span>{
-                watchtower_challenges_outputs.push([
-                    watchtower_input.watchtower_challenge_tx.output[<span class="number">0</span>].clone(),
-                    watchtower_input.watchtower_challenge_tx.output[<span class="number">1</span>].clone(),
-                    watchtower_input.watchtower_challenge_tx.output[<span class="number">2</span>].clone(),
-                ]);
-            }
+            watchtower_challenges_outputs
+                .push(watchtower_input.watchtower_challenge_tx.output.clone());
         }
     }
 
@@ -1709,11 +1750,20 @@
 ///
 /// # Notes
 ///
-/// - Skips over any challenge with invalid encoding, invalid signature, or improper structure.
-/// - Each watchtower challenge is expected to contain exactly 3 outputs:
-///     - First two should be P2TR outputs containing the compressed Groth16 proof parts.
-///     - Third must be an OP_RETURN containing the rest of the proof and the total work value.
-/// - The function sorts valid commitments by total work and verifies the highest one using a Groth16 verifier.
+/// - The function robustly skips over any challenges that are malformed, have invalid signatures,
+///   or do not adhere to the expected transaction output structure.
+/// - Each watchtower challenge transaction is expected to contain one of two distinct output structures:
+///     - **Single Output Format:** A single `OP_RETURN` script containing a total of 144 bytes.
+///       This includes the entire 128-byte compressed Groth16 proof followed by the 16-byte `total_work` value.
+///     - **Three Output Format:**
+///         - The first two outputs **must** be P2TR (Pay-to-Taproot) outputs. These two outputs
+///           collectively contain the first 64 bytes of the compressed Groth16 proof parts
+///           (32 bytes from each P2TR output).
+///         - The third output **must** be an `OP_RETURN` script, containing the remaining 64 bytes
+///           of the compressed Groth16 proof and the 16-byte `total_work` value.
+/// - Valid commitments are sorted in descending order by their `total_work` value. The Groth16
+///   verifier is then applied sequentially to these sorted commitments, and the first successfully
+///   verified `total_work` is selected as the maximum verified work.
 </span><span class="kw">pub fn </span>total_work_and_watchtower_flags(
     circuit_input: <span class="kw-2">&amp;</span>BridgeCircuitInput,
     work_only_image_id: <span class="kw-2">&amp;</span>[u8; <span class="number">32</span>],
@@ -1723,34 +1773,63 @@
     <span class="kw">let </span><span class="kw-2">mut </span>valid_watchtower_challenge_commitments: Vec&lt;WatchTowerChallengeTxCommitment&gt; = <span class="macro">vec!</span>[];
 
     <span class="kw">for </span>outputs <span class="kw">in </span>watchtower_challenge_set.challenge_outputs {
-        <span class="kw">if </span>!outputs[<span class="number">0</span>].script_pubkey.is_p2tr()
-            || !outputs[<span class="number">1</span>].script_pubkey.is_p2tr()
-            || !outputs[<span class="number">2</span>].script_pubkey.is_op_return()
-        {
-            <span class="kw">continue</span>;
+        <span class="kw">let </span>compressed_g16_proof: [u8; <span class="number">128</span>];
+        <span class="kw">let </span>total_work: [u8; <span class="number">16</span>];
+
+        <span class="kw">match </span>outputs.as_slice() {
+            <span class="comment">// Single OP_RETURN output with 144 bytes
+            </span>[op_return_output] <span class="kw">if </span>op_return_output.script_pubkey.is_op_return() =&gt; {
+                <span class="comment">// If the first output is OP_RETURN, we expect a single output with 144 bytes
+                </span><span class="kw">let </span><span class="prelude-val">Some</span>(<span class="prelude-val">Ok</span>(whole_output)) = parse_op_return_data(<span class="kw-2">&amp;</span>outputs[<span class="number">2</span>].script_pubkey)
+                    .map(TryInto::&lt;[u8; <span class="number">144</span>]&gt;::try_into)
+                <span class="kw">else </span>{
+                    <span class="kw">continue</span>;
+                };
+                compressed_g16_proof = whole_output[<span class="number">0</span>..<span class="number">128</span>]
+                    .try_into()
+                    .expect(<span class="string">"Cannot fail: slicing 128 bytes from 144-byte array"</span>);
+                total_work = borsh::from_slice(<span class="kw-2">&amp;</span>whole_output[<span class="number">128</span>..<span class="number">144</span>])
+                    .expect(<span class="string">"Cannot fail: deserializing 16 bytes from a 16-byte slice"</span>);
+            }
+            [out1, out2, out3, ..]
+                <span class="kw">if </span>out1.script_pubkey.is_p2tr()
+                    &amp;&amp; out2.script_pubkey.is_p2tr()
+                    &amp;&amp; out3.script_pubkey.is_op_return() =&gt;
+            {
+                <span class="comment">// Otherwise we expect the first two outputs to be P2TR, third output to be OP_RETURN
+                </span><span class="kw">if </span>!outputs[<span class="number">0</span>].script_pubkey.is_p2tr()
+                    || !outputs[<span class="number">1</span>].script_pubkey.is_p2tr()
+                    || !outputs[<span class="number">2</span>].script_pubkey.is_op_return()
+                {
+                    <span class="kw">continue</span>;
+                }
+
+                <span class="kw">let </span>first_output: [u8; <span class="number">32</span>] = outputs[<span class="number">0</span>].script_pubkey.to_bytes()[<span class="number">2</span>..]
+                    .try_into()
+                    .expect(<span class="string">"Cannot fail: slicing 32 bytes from P2TR output"</span>);
+                <span class="kw">let </span>second_output: [u8; <span class="number">32</span>] = outputs[<span class="number">1</span>].script_pubkey.to_bytes()[<span class="number">2</span>..]
+                    .try_into()
+                    .expect(<span class="string">"Cannot fail: slicing 32 bytes from P2TR output"</span>);
+
+                <span class="kw">let </span><span class="prelude-val">Some</span>(<span class="prelude-val">Ok</span>(third_output)) = parse_op_return_data(<span class="kw-2">&amp;</span>outputs[<span class="number">2</span>].script_pubkey)
+                    .map(TryInto::&lt;[u8; <span class="number">80</span>]&gt;::try_into)
+                <span class="kw">else </span>{
+                    <span class="kw">continue</span>;
+                };
+
+                compressed_g16_proof =
+                    [<span class="kw-2">&amp;</span>first_output[..], <span class="kw-2">&amp;</span>second_output[..], <span class="kw-2">&amp;</span>third_output[<span class="number">0</span>..<span class="number">64</span>]]
+                        .concat()
+                        .try_into()
+                        .expect(<span class="string">"Cannot fail: concatenating and converting to 128-byte array"</span>);
+
+                <span class="comment">// Borsh deserialization of the final 16 bytes is functionally redundant in this context,
+                // as it does not alter the byte content. It is retained here for consistency and defensive safety.
+                </span>total_work = borsh::from_slice(<span class="kw-2">&amp;</span>third_output[<span class="number">64</span>..])
+                    .expect(<span class="string">"Cannot fail: deserializing 16 bytes from 16-byte slice"</span>);
+            }
+            <span class="kw">_ </span>=&gt; <span class="kw">continue</span>,
         }
-
-        <span class="kw">let </span>first_output: [u8; <span class="number">32</span>] = outputs[<span class="number">0</span>].script_pubkey.to_bytes()[<span class="number">2</span>..]
-            .try_into()
-            .expect(<span class="string">"Cannot fail"</span>);
-        <span class="kw">let </span>second_output: [u8; <span class="number">32</span>] = outputs[<span class="number">1</span>].script_pubkey.to_bytes()[<span class="number">2</span>..]
-            .try_into()
-            .expect(<span class="string">"Cannot fail"</span>);
-
-        <span class="kw">let </span><span class="prelude-val">Some</span>(<span class="prelude-val">Ok</span>(third_output)) =
-            parse_op_return_data(<span class="kw-2">&amp;</span>outputs[<span class="number">2</span>].script_pubkey).map(TryInto::&lt;[u8; <span class="number">80</span>]&gt;::try_into)
-        <span class="kw">else </span>{
-            <span class="kw">continue</span>;
-        };
-
-        <span class="kw">let </span>compressed_g16_proof: [u8; <span class="number">128</span>] = [<span class="kw-2">&amp;</span>first_output, <span class="kw-2">&amp;</span>second_output, <span class="kw-2">&amp;</span>third_output[<span class="number">0</span>..<span class="number">64</span>]]
-            .concat()
-            .try_into()
-            .expect(<span class="string">"Cannot fail"</span>);
-
-        <span class="comment">// Borsh deserialization of the final 16 bytes is functionally redundant in this context,
-        // as it does not alter the byte content. It is retained here for consistency and defensive safety.
-        </span><span class="kw">let </span>total_work: [u8; <span class="number">16</span>] = borsh::from_slice(<span class="kw-2">&amp;</span>third_output[<span class="number">64</span>..]).expect(<span class="string">"Cannot fail"</span>);
 
         <span class="kw">let </span>commitment = WatchTowerChallengeTxCommitment {
             compressed_g16_proof,
@@ -1760,26 +1839,24 @@
         valid_watchtower_challenge_commitments.push(commitment);
     }
 
-    <span class="comment">// TODO: UPDATE THIS PART ACCORDING TO ENDIANNESS
-    </span>valid_watchtower_challenge_commitments.sort_by(|a, b| b.total_work.cmp(<span class="kw-2">&amp;</span>a.total_work));
+    valid_watchtower_challenge_commitments.sort_by(|a, b| b.total_work.cmp(<span class="kw-2">&amp;</span>a.total_work));
 
-    <span class="kw">let </span><span class="kw-2">mut </span>total_work = [<span class="number">0u8</span>; <span class="number">16</span>];
+    <span class="kw">let </span><span class="kw-2">mut </span>total_work_result = [<span class="number">0u8</span>; <span class="number">16</span>];
 
     <span class="kw">for </span>commitment <span class="kw">in </span>valid_watchtower_challenge_commitments {
-        <span class="comment">// Grooth16 verification of work only circuit
-        </span><span class="kw">if </span>convert_to_groth16_and_verify(
+        <span class="kw">if </span>convert_to_groth16_and_verify(
             <span class="kw-2">&amp;</span>commitment.compressed_g16_proof,
             commitment.total_work,
             work_only_image_id,
             circuit_input.hcp.genesis_state_hash,
         ) {
-            total_work = commitment.total_work;
+            total_work_result = commitment.total_work;
             <span class="kw">break</span>;
         }
     }
 
     (
-        TotalWork(total_work),
+        TotalWork(total_work_result),
         ChallengeSendingWatchtowers(watchtower_challenge_set.challenge_senders),
     )
 }
@@ -2114,7 +2191,7 @@
         sighash::Annex,
         taproot::TAPROOT_ANNEX_PREFIX,
         transaction::Version,
-        ScriptBuf, Transaction, TxIn, Txid, Witness,
+        Amount, ScriptBuf, Transaction, TxIn, Txid, Witness,
     };
     <span class="kw">use </span>lazy_static::lazy_static;
     <span class="kw">use </span>risc0_zkvm::compute_image_id;
@@ -2560,6 +2637,23 @@
         </span>xonly_pk
             .verify_prehash(sighash.as_byte_array(), <span class="kw-2">&amp;</span>signature)
             .expect(<span class="string">"Signature verification failed"</span>);
+    }
+
+    <span class="attr">#[test]
+    </span><span class="kw">fn </span>test_parsing_op_return_data_144_bytes() {
+        <span class="kw">let </span>op_return_data = <span class="string">"6a4c90000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"</span>;
+        <span class="kw">let </span>txout = TxOut {
+            value: Amount::from_sat(<span class="number">0</span>),
+            script_pubkey: ScriptBuf::from(hex::decode(op_return_data).unwrap()),
+        };
+        <span class="macro">assert!</span>(
+            txout.script_pubkey.is_op_return(),
+            <span class="string">"Script is not OP_RETURN"
+        </span>);
+        <span class="kw">let </span>parsed_data =
+            parse_op_return_data(<span class="kw-2">&amp;</span>txout.script_pubkey).expect(<span class="string">"Failed to parse OP_RETURN data"</span>);
+        <span class="macro">assert_eq!</span>(parsed_data.len(), <span class="number">144</span>, <span class="string">"Parsed data length is not correct"</span>);
+        <span class="macro">assert_eq!</span>(parsed_data, [<span class="number">0u8</span>; <span class="number">144</span>], <span class="string">"Parsed data is not correct"</span>);
     }
 }
 </code></pre></div></section></main></body></html>

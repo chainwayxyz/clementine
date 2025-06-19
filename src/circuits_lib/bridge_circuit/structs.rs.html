@@ -921,7 +921,7 @@
 <span class="attr">#[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug)]
 </span><span class="kw">pub struct </span>WatchtowerChallengeSet {
     <span class="kw">pub </span>challenge_senders: [u8; <span class="number">20</span>],
-    <span class="kw">pub </span>challenge_outputs: Vec&lt;[TxOut; <span class="number">3</span>]&gt;,
+    <span class="kw">pub </span>challenge_outputs: Vec&lt;Vec&lt;TxOut&gt;&gt;,
 }
 
 <span class="kw">fn </span>serialize_txout&lt;W: borsh::io::Write&gt;(txout: <span class="kw-2">&amp;</span>TxOut, writer: <span class="kw-2">&amp;mut </span>W) -&gt; borsh::io::Result&lt;()&gt; {
