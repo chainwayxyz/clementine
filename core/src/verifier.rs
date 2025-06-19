@@ -22,7 +22,7 @@ use crate::builder::transaction::{create_round_txhandlers, KickoffWinternitzKeys
 use crate::citrea::CitreaClientT;
 use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
-use crate::constants::{NON_EPHEMERAL_ANCHOR_AMOUNT, TEN_MINUTES_IN_SECS};
+use crate::constants::{self, NON_EPHEMERAL_ANCHOR_AMOUNT, TEN_MINUTES_IN_SECS};
 use crate::database::{Database, DatabaseTransaction};
 use crate::deposit::{DepositData, KickoffData, OperatorData};
 use crate::errors::{BridgeError, TxError};
@@ -566,7 +566,7 @@ where
             .await?;
 
         let verifier = self.clone();
-        let (partial_sig_tx, partial_sig_rx) = mpsc::channel(1280);
+        let (partial_sig_tx, partial_sig_rx) = mpsc::channel(constants::DEFAULT_CHANNEL_SIZE);
         let verifier_index = deposit_data.get_verifier_index(&self.signer.public_key)?;
         let verifiers_public_keys = deposit_data.get_verifiers();
 

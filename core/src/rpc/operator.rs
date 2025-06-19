@@ -10,6 +10,7 @@ use super::parser::ParserError;
 use crate::bitvm_client::ClementineBitVMPublicKeys;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::citrea::CitreaClientT;
+use crate::constants::DEFAULT_CHANNEL_SIZE;
 use crate::deposit::DepositData;
 use crate::operator::OperatorServer;
 use crate::rpc::parser;
@@ -40,7 +41,7 @@ where
         _request: Request<Empty>,
     ) -> Result<Response<Self::GetParamsStream>, Status> {
         let operator = self.operator.clone();
-        let (tx, rx) = mpsc::channel(1280);
+        let (tx, rx) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
         let out_stream: Self::GetParamsStream = ReceiverStream::new(rx);
 
         let (mut wpk_receiver, mut signature_receiver) = operator.get_params().await?;
@@ -76,7 +77,7 @@ where
         &self,
         request: Request<DepositSignSession>,
     ) -> Result<Response<Self::DepositSignStream>, Status> {
-        let (tx, rx) = mpsc::channel(1280);
+        let (tx, rx) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
 
         let deposit_sign_session = request.into_inner();
         let deposit_params: DepositParams = deposit_sign_session.try_into()?;
