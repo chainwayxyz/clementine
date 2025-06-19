@@ -2016,7 +2016,7 @@ where
                     kickoff_idx: Some(kickoff_data.kickoff_idx),
                 }),
                 &disprove_tx,
-                FeePayingType::CPFP,
+                FeePayingType::RBF,
                 None,
                 &[],
                 &[],

@@ -219,7 +219,6 @@ impl TxSenderClient {
             | TransactionType::UnspentKickoff(_)
             | TransactionType::Payout
             | TransactionType::MoveToVault
-            | TransactionType::Disprove
             | TransactionType::BurnUnusedKickoffConnectors
             | TransactionType::KickoffNotFinalized
             | TransactionType::MiniAssert(_)
@@ -244,7 +243,9 @@ impl TxSenderClient {
                 )
                 .await
             }
-            TransactionType::Challenge | TransactionType::WatchtowerChallenge(_) => {
+            TransactionType::Challenge
+            | TransactionType::WatchtowerChallenge(_)
+            | TransactionType::Disprove => {
                 self.insert_try_to_send(
                     dbtx,
                     tx_metadata,
