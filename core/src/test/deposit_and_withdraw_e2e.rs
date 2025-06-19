@@ -55,8 +55,6 @@ use eyre::Context;
 use once_cell::sync::{Lazy, OnceCell};
 use std::time::Duration;
 
-pub static PROTOCOL_PARAMSET: OnceCell<ProtocolParamset> = OnceCell::new();
-
 #[derive(PartialEq)]
 pub enum CitreaDepositAndWithdrawE2EVariant {
     GenesisHeightZero,
@@ -162,11 +160,10 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             let paramset = ProtocolParamset {
                 genesis_height,
                 genesis_chain_state_hash,
-                ..Default::default()
+                ..ProtocolParamset::default()
             };
 
-            PROTOCOL_PARAMSET.set(paramset).unwrap();
-            config.protocol_paramset = &PROTOCOL_PARAMSET.get().unwrap();
+            config.protocol_paramset = Box::leak(Box::new(paramset));
         }
 
         let block_count = da.get_block_count().await?;
