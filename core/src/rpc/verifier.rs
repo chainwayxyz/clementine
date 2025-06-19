@@ -6,20 +6,19 @@ use super::clementine::{
 };
 use super::error;
 use super::parser::ParserError;
-use crate::builder::transaction::sign::create_and_sign_txs;
+use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::citrea::CitreaClientT;
-use crate::fetch_next_optional_message_from_stream;
 use crate::rpc::clementine::VerifierDepositFinalizeResponse;
-use crate::rpc::parser::parse_transaction_request;
 use crate::utils::get_vergen_response;
 use crate::verifier::VerifierServer;
+use crate::{constants, fetch_next_optional_message_from_stream};
 use crate::{
     fetch_next_message_from_stream,
     rpc::parser::{self},
 };
 use bitcoin::Witness;
 use clementine::verifier_deposit_finalize_params::Params;
-use secp256k1::musig::MusigAggNonce;
+use secp256k1::musig::AggregatedNonce;
 use tokio::sync::mpsc::{self, error::SendError};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{async_trait, Request, Response, Status, Streaming};
@@ -38,8 +37,14 @@ where
         request: Request<OptimisticPayoutParams>,
     ) -> Result<Response<PartialSig>, Status> {
         let params = request.into_inner();
-        let agg_nonce = MusigAggNonce::from_slice(params.agg_nonce.as_slice())
-            .map_err(|e| Status::invalid_argument(format!("Invalid musigagg nonce: {}", e)))?;
+        let agg_nonce = AggregatedNonce::from_byte_array(
+            params
+                .agg_nonce
+                .as_slice()
+                .try_into()
+                .map_err(|_| Status::invalid_argument("agg_nonce must be exactly 66 bytes"))?,
+        )
+        .map_err(|e| Status::invalid_argument(format!("Invalid musigagg nonce: {}", e)))?;
         let nonce_session_id = params
             .nonce_gen
             .ok_or(Status::invalid_argument(
@@ -71,7 +76,7 @@ where
         request: tonic::Request<super::TransactionRequest>,
     ) -> std::result::Result<tonic::Response<super::RawTxWithRbfInfo>, tonic::Status> {
         let transaction_request = request.into_inner();
-        let transaction_data = parse_transaction_request(transaction_request)?;
+        let transaction_data: TransactionRequestData = transaction_request.try_into()?;
 
         let (_tx_type, signed_tx, rbf_info) = self
             .verifier
@@ -202,11 +207,11 @@ where
         let mut in_stream = req.into_inner();
         let verifier = self.verifier.clone();
 
-        let (tx, rx) = mpsc::channel(1280);
+        let (tx, rx) = mpsc::channel(constants::DEFAULT_CHANNEL_SIZE);
         let out_stream: Self::DepositSignStream = ReceiverStream::new(rx);
 
         let (param_tx, mut param_rx) = mpsc::channel(1);
-        let (agg_nonce_tx, agg_nonce_rx) = mpsc::channel(1280);
+        let (agg_nonce_tx, agg_nonce_rx) = mpsc::channel(constants::DEFAULT_CHANNEL_SIZE);
 
         // Send incoming data to deposit sign job.
         tokio::spawn(async move {
@@ -230,8 +235,12 @@ where
             {
                 let agg_nonce = match result {
                     clementine::verifier_deposit_sign_params::Params::AggNonce(agg_nonce) => {
-                        MusigAggNonce::from_slice(agg_nonce.as_slice())
-                            .map_err(|_| ParserError::RPCParamMalformed("AggNonce".to_string()))?
+                        AggregatedNonce::from_byte_array(
+                            agg_nonce.as_slice().try_into().map_err(|_| {
+                                ParserError::RPCParamMalformed("AggNonce".to_string())
+                            })?,
+                        )
+                        .map_err(|_| ParserError::RPCParamMalformed("AggNonce".to_string()))?
                     }
                     _ => return Err(Status::invalid_argument("Expected AggNonce")),
                 };
@@ -300,9 +309,9 @@ where
             self.verifier.signer.public_key
         );
 
-        let (sig_tx, sig_rx) = mpsc::channel(1280);
+        let (sig_tx, sig_rx) = mpsc::channel(constants::DEFAULT_CHANNEL_SIZE);
         let (agg_nonce_tx, agg_nonce_rx) = mpsc::channel(1);
-        let (operator_sig_tx, operator_sig_rx) = mpsc::channel(1280);
+        let (operator_sig_tx, operator_sig_rx) = mpsc::channel(constants::DEFAULT_CHANNEL_SIZE);
 
         let params = fetch_next_message_from_stream!(in_stream, params)?;
         let (deposit_data, session_id) = match params {
@@ -459,7 +468,7 @@ where
         request: tonic::Request<super::TransactionRequest>,
     ) -> std::result::Result<tonic::Response<super::SignedTxsWithType>, tonic::Status> {
         let transaction_request = request.into_inner();
-        let transaction_data = parse_transaction_request(transaction_request)?;
+        let transaction_data: TransactionRequestData = transaction_request.try_into()?;
         let raw_txs = create_and_sign_txs(
             self.verifier.db.clone(),
             &self.verifier.signer,

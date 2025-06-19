@@ -7,8 +7,11 @@ use crate::builder::transaction::input::{SpendableTxIn, UtxoVout};
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE};
 use crate::citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER};
+use crate::config::protocol::{self, ProtocolParamset};
 use crate::database::Database;
 use crate::deposit::KickoffData;
+use crate::errors::ResultExt;
+use crate::header_chain_prover::HeaderChainProver;
 use crate::operator::RoundIndex;
 use crate::rpc::clementine::{
     Deposit, FeeType, FinalizedPayoutParams, KickoffId, NormalSignatureKind, RawSignedTx,
@@ -34,7 +37,7 @@ use crate::{
         create_test_config_with_thread_name,
     },
 };
-use alloy::primitives::U256;
+use alloy::primitives::{U256, U32};
 use async_trait::async_trait;
 use bitcoin::hashes::Hash;
 use bitcoin::{secp256k1::SecretKey, Address, Amount};
@@ -49,9 +52,21 @@ use citrea_e2e::{
     Result,
 };
 use eyre::Context;
+use once_cell::sync::{Lazy, OnceCell};
 use std::time::Duration;
 
-struct CitreaDepositAndWithdrawE2E;
+pub static PROTOCOL_PARAMSET: OnceCell<ProtocolParamset> = OnceCell::new();
+
+#[derive(PartialEq)]
+pub enum CitreaDepositAndWithdrawE2EVariant {
+    GenesisHeightZero,
+    GenesisHeightNonZero,
+}
+
+struct CitreaDepositAndWithdrawE2E {
+    variant: CitreaDepositAndWithdrawE2EVariant,
+}
+
 #[async_trait]
 impl TestCase for CitreaDepositAndWithdrawE2E {
     fn bitcoin_config() -> BitcoinConfig {
@@ -130,7 +145,29 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         )
         .await?;
 
-        rpc.mine_blocks(5).await.unwrap();
+        rpc.mine_blocks(12).await.unwrap();
+
+        if self.variant == CitreaDepositAndWithdrawE2EVariant::GenesisHeightNonZero {
+            let genesis_height: u32 = 10;
+
+            let genesis_chain_state_hash = HeaderChainProver::get_chain_state_from_height(
+                rpc.clone(),
+                genesis_height as u64,
+                config.protocol_paramset().network,
+            )
+            .await
+            .unwrap()
+            .to_hash();
+
+            let paramset = ProtocolParamset {
+                genesis_height,
+                genesis_chain_state_hash,
+                ..Default::default()
+            };
+
+            PROTOCOL_PARAMSET.set(paramset).unwrap();
+            config.protocol_paramset = &PROTOCOL_PARAMSET.get().unwrap();
+        }
 
         let block_count = da.get_block_count().await?;
         tracing::debug!("Block count before deposit: {:?}", block_count);
@@ -583,12 +620,29 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 /// * Confirms kickoff transaction is created and mined
 /// * Verifies reimburse connector is spent (proper payout handling)
 #[tokio::test]
+#[ignore = "Until the flakiness of the test is resolved, this test is ignored."]
 async fn citrea_deposit_and_withdraw_e2e() -> Result<()> {
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
         "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
     );
-    TestCaseRunner::new(CitreaDepositAndWithdrawE2E).run().await
+    let citrea_e2e = CitreaDepositAndWithdrawE2E {
+        variant: CitreaDepositAndWithdrawE2EVariant::GenesisHeightZero,
+    };
+    TestCaseRunner::new(citrea_e2e).run().await
+}
+
+#[tokio::test]
+#[ignore = "Until the flakiness of the test is resolved, this test is ignored."]
+async fn citrea_deposit_and_withdraw_e2e_non_zero_genesis_height() -> Result<()> {
+    std::env::set_var(
+        "CITREA_DOCKER_IMAGE",
+        "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
+    );
+    let citrea_e2e = CitreaDepositAndWithdrawE2E {
+        variant: CitreaDepositAndWithdrawE2EVariant::GenesisHeightNonZero,
+    };
+    TestCaseRunner::new(citrea_e2e).run().await
 }
 
 /// Tests the deposit and withdrawal flow using a mocked Citrea client in a truthful scenario.

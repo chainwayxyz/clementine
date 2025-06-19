@@ -1,6 +1,5 @@
 pub mod constants;
 pub mod hashes;
-pub mod utils;
 pub mod zkvm;
 
 pub const NETWORK_TYPE: &str = {

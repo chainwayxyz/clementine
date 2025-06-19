@@ -121,20 +121,9 @@ pub fn stark_to_bitvm2_g16(
     seal_json["control_root"] = vec![a0_dec, a1_dec].into();
     std::fs::write(seal_path, serde_json::to_string_pretty(&seal_json).unwrap()).unwrap();
 
-    let pull_status = Command::new("docker")
-        .arg("pull")
-        .arg("ozancw/risc0-to-bitvm2-groth16-prover:latest")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .status()
-        .expect("Failed to execute docker pull");
-
-    if !pull_status.success() {
-        panic!("docker pull failed with status: {}", pull_status);
-    }
-
     let output = Command::new("docker")
         .arg("run")
+        .arg("--pull=always")
         .arg("--rm")
         .arg("--platform=linux/amd64") // Force linux/amd64 platform
         .arg("-v")
@@ -145,14 +134,13 @@ pub fn stark_to_bitvm2_g16(
         .output()
         .unwrap();
 
-    println!("Output: {:?}", output);
-
     if !output.status.success() {
-        eprintln!(
-            "docker returned failure exit code: {:?}",
-            output.status.code()
+        panic!(
+            "STARK to SNARK prover docker image returned failure: {:?}",
+            output
         );
     }
+
     println!("proof_path: {:?}", proof_path);
     let proof_content = std::fs::read_to_string(proof_path).unwrap();
     let output_content_dec = std::fs::read_to_string(output_path).unwrap();
@@ -518,7 +506,7 @@ pub fn stark_to_bitvm2_g16_dev_mode(
 
     // Step 2: Convert the decimal string to BigUint and then to hexadecimal
     let output_content_hex = BigUint::from_str_radix(output_str, 10)
-        .unwrap()
+        .expect("always decimal")
         .to_str_radix(16);
 
     // If the length of the hexadecimal string is odd, add a leading zero
@@ -530,8 +518,15 @@ pub fn stark_to_bitvm2_g16_dev_mode(
 
     // Step 3: Decode the hexadecimal string to a byte vector
     let output_byte_vec = hex::decode(&output_content_hex).unwrap();
-    // let output_byte_vec = hex::decode(output_hex).unwrap();
-    let output_bytes: [u8; 31] = output_byte_vec.as_slice().try_into().unwrap();
+    // Create our target 31-byte array, initialized to all zeros.
+    let mut output_bytes = [0u8; 31];
+
+    // Calculate the starting position in the destination array.
+    // This ensures the bytes are right-aligned, effectively padding with leading zeros.
+    let start_index = 31 - output_byte_vec.len();
+
+    // Copy the decoded bytes from the vector into the correct slice of the array.
+    output_bytes[start_index..].copy_from_slice(&output_byte_vec);
     (proof_json.try_into().unwrap(), output_bytes)
 }
 

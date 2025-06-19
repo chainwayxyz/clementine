@@ -146,7 +146,8 @@ pub async fn create_and_sign_txs(
     let mut tweak_cache = TweakCache::default();
 
     for (tx_type, mut txhandler) in txhandlers.into_iter() {
-        let _ = signer.tx_sign_and_fill_sigs(&mut txhandler, &signatures, Some(&mut tweak_cache));
+        let result =
+            signer.tx_sign_and_fill_sigs(&mut txhandler, &signatures, Some(&mut tweak_cache));
 
         if let TransactionType::OperatorChallengeAck(watchtower_idx) = tx_type {
             let path = WinternitzDerivationPath::ChallengeAckHash(
@@ -179,7 +180,8 @@ pub async fn create_and_sign_txs(
             }
             Err(e) => {
                 tracing::trace!(
-                    "Couldn't sign transaction {:?} in create_and_sign_all_txs: {:?}",
+                    "Couldn't sign transaction {:?} in create_and_sign_all_txs: {:?}. 
+                    This might be normal if the transaction is not needed to be/cannot be signed.",
                     tx_type,
                     e
                 );
@@ -223,7 +225,7 @@ where
             ))?
             .1;
 
-        let context = ContractContext::new_context_for_asserts(
+        let context = ContractContext::new_context_with_signer(
             transaction_data.kickoff_data,
             deposit_data.clone(),
             self.config.protocol_paramset(),
@@ -373,7 +375,7 @@ where
             .ok_or(BridgeError::DepositNotFound(assert_data.deposit_outpoint))?
             .1;
 
-        let context = ContractContext::new_context_for_asserts(
+        let context = ContractContext::new_context_with_signer(
             assert_data.kickoff_data,
             deposit_data.clone(),
             self.config.protocol_paramset(),
@@ -404,7 +406,9 @@ where
                 assert_data.deposit_outpoint,
                 self.config.protocol_paramset(),
             );
-            let dummy_data: Vec<(Vec<u8>, WinternitzDerivationPath)> = derivations
+            // Combine data to be committed with the corresponding bitvm derivation path (needed to regenerate the winternitz secret keys
+            // to sign the transaction)
+            let winternitz_data: Vec<(Vec<u8>, WinternitzDerivationPath)> = derivations
                 .iter()
                 .zip(commit_data[idx].iter())
                 .map(|(derivation, commit_data)| match derivation {
@@ -415,7 +419,7 @@ where
                 })
                 .collect();
             self.signer
-                .tx_sign_winternitz(&mut mini_assert_txhandler, &dummy_data)?;
+                .tx_sign_winternitz(&mut mini_assert_txhandler, &winternitz_data)?;
             signed_txhandlers.push(mini_assert_txhandler.promote()?);
         }
 
@@ -452,7 +456,7 @@ where
             .ok_or(BridgeError::DepositNotFound(assert_data.deposit_outpoint))?
             .1;
 
-        let context = ContractContext::new_context_for_asserts(
+        let context = ContractContext::new_context_with_signer(
             assert_data.kickoff_data,
             deposit_data,
             self.config.protocol_paramset(),
@@ -495,7 +499,7 @@ where
         let block_hash_last_20 = block_hash[block_hash.len() - 20..].to_vec();
 
         tracing::info!(
-            "Creating latest blockhash tx with block hash: {:?}",
+            "Creating latest blockhash tx with block hash's last 20 bytes: {:?}",
             block_hash_last_20
         );
         self.signer.tx_sign_winternitz(

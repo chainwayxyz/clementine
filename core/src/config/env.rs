@@ -132,12 +132,12 @@ impl BridgeConfig {
             operator_reimbursement_address,
             operator_collateral_funding_outpoint,
             bitcoin_rpc_url: read_string_from_env("BITCOIN_RPC_URL")?,
-            bitcoin_rpc_user: read_string_from_env("BITCOIN_RPC_USER")?,
-            bitcoin_rpc_password: read_string_from_env("BITCOIN_RPC_PASSWORD")?,
+            bitcoin_rpc_user: read_string_from_env("BITCOIN_RPC_USER")?.into(),
+            bitcoin_rpc_password: read_string_from_env("BITCOIN_RPC_PASSWORD")?.into(),
             db_host: read_string_from_env("DB_HOST")?,
             db_port: read_string_from_env_then_parse::<usize>("DB_PORT")?,
-            db_user: read_string_from_env("DB_USER")?,
-            db_password: read_string_from_env("DB_PASSWORD")?,
+            db_user: read_string_from_env("DB_USER")?.into(),
+            db_password: read_string_from_env("DB_PASSWORD")?.into(),
             db_name: read_string_from_env("DB_NAME")?,
             citrea_rpc_url: read_string_from_env("CITREA_RPC_URL")?,
             citrea_light_client_prover_url: read_string_from_env("CITREA_LIGHT_CLIENT_PROVER_URL")?,
@@ -167,6 +167,8 @@ impl BridgeConfig {
 
 #[cfg(test)]
 mod tests {
+    use secrecy::ExposeSecret;
+
     use crate::config::{
         protocol::{ProtocolParamset, REGTEST_PARAMSET},
         BridgeConfig,
@@ -197,12 +199,18 @@ mod tests {
             );
         }
         std::env::set_var("BITCOIN_RPC_URL", &default_config.bitcoin_rpc_url);
-        std::env::set_var("BITCOIN_RPC_USER", &default_config.bitcoin_rpc_user);
-        std::env::set_var("BITCOIN_RPC_PASSWORD", &default_config.bitcoin_rpc_password);
+        std::env::set_var(
+            "BITCOIN_RPC_USER",
+            &default_config.bitcoin_rpc_user.expose_secret(),
+        );
+        std::env::set_var(
+            "BITCOIN_RPC_PASSWORD",
+            &default_config.bitcoin_rpc_password.expose_secret(),
+        );
         std::env::set_var("DB_HOST", default_config.db_host.clone());
         std::env::set_var("DB_PORT", default_config.db_port.to_string());
-        std::env::set_var("DB_USER", default_config.db_user.clone());
-        std::env::set_var("DB_PASSWORD", &default_config.db_password);
+        std::env::set_var("DB_USER", &default_config.db_user.expose_secret());
+        std::env::set_var("DB_PASSWORD", &default_config.db_password.expose_secret());
         std::env::set_var("DB_NAME", &default_config.db_name);
         std::env::set_var("CITREA_RPC_URL", &default_config.citrea_rpc_url);
         std::env::set_var(

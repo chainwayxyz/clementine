@@ -31,6 +31,7 @@
 
 use super::script::{CheckSig, Multisig, SpendableScript};
 use super::script::{ReplacementDepositScript, SpendPath};
+use crate::builder::address::calculate_taproot_leaf_depths;
 use crate::builder::script::OtherSpendable;
 use crate::builder::transaction::challenge::*;
 use crate::builder::transaction::input::SpendableTxIn;
@@ -575,24 +576,54 @@ pub fn create_replacement_deposit_txhandler(
 pub fn create_disprove_taproot_output(
     operator_timeout_script: Arc<dyn SpendableScript>,
     additional_script: ScriptBuf,
-    disprove_root_hash: HiddenNode,
+    disprove_path: DisprovePath,
     amount: Amount,
     network: bitcoin::Network,
 ) -> UnspentTxOut {
     use crate::bitvm_client::{SECP, UNSPENDABLE_XONLY_PUBKEY};
     use bitcoin::taproot::{TapNodeHash, TaprootBuilder};
 
-    let builder = TaprootBuilder::new()
-        .add_leaf(1, operator_timeout_script.to_script_buf())
-        .expect("empty taptree will accept a script node")
-        .add_leaf(2, additional_script.clone())
-        .expect("taptree with one node will accept a node at depth 2")
-        .add_hidden_node(2, TapNodeHash::from_byte_array(*disprove_root_hash))
-        .expect("taptree with two nodes will accept a node at depth 2");
+    let mut scripts: Vec<ScriptBuf> = vec![additional_script.clone()];
+
+    let builder = match disprove_path.clone() {
+        DisprovePath::Scripts(extra_scripts) => {
+            let mut builder = TaprootBuilder::new();
+
+            builder = builder
+                .add_leaf(1, operator_timeout_script.to_script_buf())
+                .expect("add operator timeout script")
+                .add_leaf(2, additional_script)
+                .expect("add additional script");
+
+            // 1. Calculate depths. This is cheap and doesn't need ownership of scripts.
+            let depths = calculate_taproot_leaf_depths(extra_scripts.len());
+
+            // 2. Zip depths with an iterator over the scripts.
+            //    We clone the `script` inside the loop because the builder needs an owned value.
+            //    This is more efficient than cloning the whole Vec upfront.
+            for (depth, script) in depths.into_iter().zip(extra_scripts.iter()) {
+                let main_tree_depth = 2 + depth;
+                builder = builder
+                    .add_leaf(main_tree_depth, script.clone())
+                    .expect("add inlined disprove script");
+            }
+
+            // 3. Now, move the original `extra_scripts` into `scripts.extend`. No clone needed.
+            scripts.extend(extra_scripts);
+            builder
+        }
+        DisprovePath::HiddenNode(root_hash) => TaprootBuilder::new()
+            .add_leaf(1, operator_timeout_script.to_script_buf())
+            .expect("empty taptree will accept a script node")
+            .add_leaf(2, additional_script)
+            .expect("taptree with one node will accept a node at depth 2")
+            .add_hidden_node(2, TapNodeHash::from_byte_array(*root_hash))
+            .expect("taptree with two nodes will accept a node at depth 2"),
+    };
 
     let taproot_spend_info = builder
         .finalize(&SECP, *UNSPENDABLE_XONLY_PUBKEY)
-        .expect("cannot fail since it is a valid taptree");
+        .expect("valid taptree");
 
     let address = Address::p2tr(
         &SECP,
@@ -601,15 +632,20 @@ pub fn create_disprove_taproot_output(
         network,
     );
 
+    let mut spendable_scripts: Vec<Arc<dyn SpendableScript>> = vec![operator_timeout_script];
+    let other_spendable_scripts: Vec<Arc<dyn SpendableScript>> = scripts
+        .into_iter()
+        .map(|script| Arc::new(OtherSpendable::new(script)) as Arc<dyn SpendableScript>)
+        .collect();
+
+    spendable_scripts.extend(other_spendable_scripts);
+
     UnspentTxOut::new(
         TxOut {
             value: amount,
             script_pubkey: address.script_pubkey(),
         },
-        vec![
-            operator_timeout_script.clone(),
-            Arc::new(OtherSpendable::new(additional_script)),
-        ],
+        spendable_scripts,
         Some(taproot_spend_info),
     )
 }

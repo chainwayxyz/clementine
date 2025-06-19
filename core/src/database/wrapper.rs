@@ -187,8 +187,30 @@ impl_text_wrapper_default!(PublicKeyDB, PublicKey);
 impl_text_wrapper_default!(XOnlyPublicKeyDB, XOnlyPublicKey);
 
 impl_bytea_wrapper_default!(SignatureDB, schnorr::Signature);
-impl_bytea_wrapper_default!(MusigPubNonceDB, musig::MusigPubNonce);
-impl_bytea_wrapper_default!(MusigAggNonceDB, musig::MusigAggNonce);
+
+impl_bytea_wrapper_custom!(
+    MusigPubNonceDB,
+    musig::PublicNonce,
+    |pub_nonce: &musig::PublicNonce| pub_nonce.serialize(),
+    |x: &[u8]| -> Result<musig::PublicNonce, BoxDynError> {
+        let arr: &[u8; 66] = x
+            .try_into()
+            .map_err(|_| eyre!("Expected 66 bytes for PublicNonce"))?;
+        Ok(musig::PublicNonce::from_byte_array(arr)?)
+    }
+);
+
+impl_bytea_wrapper_custom!(
+    MusigAggNonceDB,
+    musig::AggregatedNonce,
+    |pub_nonce: &musig::AggregatedNonce| pub_nonce.serialize(),
+    |x: &[u8]| -> Result<musig::AggregatedNonce, BoxDynError> {
+        let arr: &[u8; 66] = x
+            .try_into()
+            .map_err(|_| eyre!("Expected 66 bytes for AggregatedNonce"))?;
+        Ok(musig::AggregatedNonce::from_byte_array(arr)?)
+    }
+);
 
 impl_text_wrapper_custom!(
     AddressDB,
@@ -289,6 +311,7 @@ mod tests {
     use crate::{
         bitvm_client::{self, SECP},
         database::Database,
+        musig2,
         rpc::clementine::TaggedSignature,
         test::common::*,
         EVMAddress,
@@ -296,8 +319,13 @@ mod tests {
     use bitcoin::{
         block::{self, Version},
         hashes::Hash,
-        secp256k1::schnorr::Signature,
+        key::Keypair,
+        secp256k1::{schnorr::Signature, SecretKey},
         Amount, BlockHash, CompactTarget, OutPoint, ScriptBuf, TxMerkleNode, TxOut, Txid,
+    };
+    use secp256k1::{
+        musig::{AggregatedNonce, PublicNonce},
+        SECP256K1,
     };
     use sqlx::{Executor, Type};
 
@@ -533,6 +561,46 @@ mod tests {
             blockheader,
             "blockheader",
             "TEXT"
+        );
+    }
+
+    #[tokio::test]
+    async fn musigpubnoncedb_encode_decode_invariant() {
+        assert_eq!(
+            MusigPubNonceDB::type_info(),
+            sqlx::postgres::PgTypeInfo::with_name("BYTEA")
+        );
+
+        let kp = Keypair::from_secret_key(&SECP, &SecretKey::from_slice(&[1u8; 32]).unwrap());
+        let (_sec_nonce, pub_nonce) =
+            musig2::nonce_pair(&kp, &mut secp256k1::rand::thread_rng()).unwrap();
+        let public_nonce = MusigPubNonceDB(pub_nonce);
+        test_encode_decode_invariant!(
+            MusigPubNonceDB,
+            PublicNonce,
+            public_nonce,
+            "public_nonce",
+            "BYTEA"
+        );
+    }
+
+    #[tokio::test]
+    async fn musigaggnoncedb_encode_decode_invariant() {
+        assert_eq!(
+            MusigAggNonceDB::type_info(),
+            sqlx::postgres::PgTypeInfo::with_name("BYTEA")
+        );
+
+        let kp = Keypair::from_secret_key(&SECP, &SecretKey::from_slice(&[1u8; 32]).unwrap());
+        let (_sec_nonce, pub_nonce) =
+            musig2::nonce_pair(&kp, &mut secp256k1::rand::thread_rng()).unwrap();
+        let aggregated_nonce = MusigAggNonceDB(AggregatedNonce::new(SECP256K1, &[&pub_nonce]));
+        test_encode_decode_invariant!(
+            MusigAggNonceDB,
+            AggregatedNonce,
+            aggregated_nonce,
+            "aggregated_nonce",
+            "BYTEA"
         );
     }
 }

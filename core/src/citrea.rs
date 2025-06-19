@@ -153,7 +153,7 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
         &self,
         from_height: u64,
         to_height: u64,
-    ) -> Result<Vec<(Txid, Txid)>, BridgeError>;
+    ) -> Result<Vec<(u32, Txid)>, BridgeError>;
 
     async fn check_nofn_correctness(
         &self,
@@ -517,7 +517,7 @@ impl CitreaClientT for CitreaClient {
         &self,
         from_height: u64,
         to_height: u64,
-    ) -> Result<Vec<(Txid, Txid)>, BridgeError> {
+    ) -> Result<Vec<(u32, Txid)>, BridgeError> {
         let mut replacement_move_txids = vec![];
 
         // get logs
@@ -527,19 +527,18 @@ impl CitreaClientT for CitreaClient {
         for log in logs {
             let replacement_raw_data = &log.data().data;
 
-            let old_move_txid = DepositReplaced::abi_decode_data(replacement_raw_data, false)
+            let idx = DepositReplaced::abi_decode_data(replacement_raw_data, false)
                 .wrap_err("Failed to decode replacement deposit data")?
-                .1;
+                .0;
             let new_move_txid = DepositReplaced::abi_decode_data(replacement_raw_data, false)
                 .wrap_err("Failed to decode replacement deposit data")?
                 .2;
 
-            let old_move_txid = Txid::from_slice(old_move_txid.as_ref())
-                .wrap_err("Failed to convert old move txid to Txid")?;
+            let idx = u32::try_from(idx).wrap_err("Failed to convert idx to u32")?;
             let new_move_txid = Txid::from_slice(new_move_txid.as_ref())
                 .wrap_err("Failed to convert new move txid to Txid")?;
 
-            replacement_move_txids.push((old_move_txid, new_move_txid));
+            replacement_move_txids.push((idx, new_move_txid));
         }
 
         Ok(replacement_move_txids)

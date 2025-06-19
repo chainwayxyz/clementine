@@ -28,7 +28,7 @@ use crate::task::payout_checker::{PayoutCheckerTask, PAYOUT_CHECKER_POLL_DELAY};
 use crate::task::TaskExt;
 use crate::utils::Last20Bytes;
 use crate::utils::{NamedEntity, TxMetadata};
-use crate::{builder, UTXO};
+use crate::{builder, constants, UTXO};
 use bitcoin::consensus::deserialize;
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
@@ -418,7 +418,7 @@ where
             .await?;
 
         let mut tweak_cache = TweakCache::default();
-        let (sig_tx, sig_rx) = mpsc::channel(1280);
+        let (sig_tx, sig_rx) = mpsc::channel(constants::DEFAULT_CHANNEL_SIZE);
 
         let deposit_blockhash = self
             .rpc
@@ -1365,6 +1365,11 @@ where
             .map(|(block_hash, _)| block_hash.to_byte_array())
             .collect::<Vec<_>>();
 
+        tracing::debug!(
+            "Genesis height - Before SPV: {},",
+            self.config.protocol_paramset().genesis_height
+        );
+
         let spv = create_spv(
             payout_tx.clone(),
             &blockhashes_serialized,
@@ -1464,6 +1469,17 @@ where
             )
             .map_err(|e| eyre::eyre!("Failed to generate assertions: {}", e))?
         };
+
+        #[cfg(test)]
+        let mut asserts = asserts;
+
+        #[cfg(test)]
+        {
+            if self.config.test_params.corrupted_asserts {
+                tracing::info!("Disrupting asserts commit in send_asserts");
+                asserts.0[0][0] ^= 0x01;
+            }
+        }
 
         let assert_txs = self
             .create_assert_commitment_txs(

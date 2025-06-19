@@ -366,9 +366,9 @@ mod tests {
     use crate::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind};
     use crate::task::{IntoTask, TaskExt};
     use crate::{database::Database, test::common::*};
+    use bitcoin::secp256k1::rand;
     use bitcoin::secp256k1::SecretKey;
     use bitcoin::transaction::Version;
-    use secp256k1::rand;
     use std::result::Result;
     use std::sync::Arc;
     use std::time::Duration;

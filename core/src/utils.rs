@@ -3,13 +3,21 @@ use crate::errors::BridgeError;
 use crate::operator::RoundIndex;
 use crate::rpc::clementine::VergenResponse;
 use bitcoin::{OutPoint, TapNodeHash, XOnlyPublicKey};
+use eyre::Context as _;
+use futures::future::try_join_all;
 use http::HeaderValue;
 use serde::{Deserialize, Serialize};
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
+use std::future::Future;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::{Context, Poll};
+use std::time::Duration;
+use tokio::time::timeout;
+use tonic::Status;
 use tower::{Layer, Service};
 use tracing::level_filters::LevelFilter;
+use tracing::{debug_span, Instrument};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::{fmt, EnvFilter, Registry};
 
@@ -38,6 +46,8 @@ pub fn initialize_logger(level: Option<LevelFilter>) -> Result<(), BridgeError> 
         .with_target(true)
         // .with_current_span(true)
         // .with_span_list(true)
+        // To see how long each span takes, uncomment this.
+        // .with_span_events(FmtSpan::CLOSE)
         .json();
 
     // Standard human-readable layer for non-JSON output
@@ -46,6 +56,8 @@ pub fn initialize_logger(level: Option<LevelFilter>) -> Result<(), BridgeError> 
         // .with_timer(time::UtcTime::rfc_3339())
         .with_file(true)
         .with_line_number(true)
+        // To see how long each span takes, uncomment this.
+        // .with_span_events(FmtSpan::CLOSE)
         .with_target(true);
 
     let filter = match level {
@@ -387,4 +399,101 @@ impl Last20Bytes for [u8; 32] {
         result.copy_from_slice(&self[12..32]);
         result
     }
+}
+
+/// Wraps a future with a timeout, returning a `Status::deadline_exceeded` gRPC error
+/// if the future does not complete within the specified duration.
+///
+/// This is useful for enforcing timeouts on individual asynchronous operations,
+/// especially those involving network requests, to prevent them from hanging indefinitely.
+///
+/// # Arguments
+///
+/// * `duration`: The maximum `Duration` to wait for the future to complete.
+/// * `description`: A string slice describing the operation, used in the timeout error message.
+/// * `future`: The `Future` to execute. The future should return a `Result<T, BridgeError>`.
+///
+/// # Returns
+///
+/// Returns `Ok(T)` if the future completes successfully within the time limit.
+/// Returns `Err(BridgeError)` if the future returns an error or if it times out.
+/// A timeout results in a `BridgeError` that wraps a `tonic::Status::deadline_exceeded`.
+pub async fn timed_request<F, T>(
+    duration: Duration,
+    description: &str,
+    future: F,
+) -> Result<T, BridgeError>
+where
+    F: Future<Output = Result<T, BridgeError>>,
+{
+    timeout(duration, future)
+        .instrument(debug_span!("timed_request", description = description))
+        .await
+        .map_err(|_| Status::deadline_exceeded(format!("{} timed out", description)))?
+}
+
+/// Concurrently executes a collection of futures, applying a timeout to each one individually.
+/// If any future fails or times out, the entire operation is aborted and an error is returned.
+///
+/// This utility is an extension of `futures::future::try_join_all` with added per-future
+/// timeout logic and improved error reporting using optional IDs.
+///
+/// # Type Parameters
+///
+/// * `I`: An iterator that yields futures.
+/// * `T`: The success type of the futures.
+/// * `D`: A type that can be displayed, used for identifying futures in error messages.
+///
+/// # Arguments
+///
+/// * `duration`: The timeout `Duration` applied to each individual future in the iterator.
+/// * `description`: A string slice describing the collective operation, used in timeout error messages.
+/// * `ids`: An optional `Vec<D>` of identifiers corresponding to each future. If provided,
+///   these IDs are used in error messages to specify which future failed or timed out.
+/// * `iter`: An iterator producing the futures to be executed.
+///
+/// # Returns
+///
+/// Returns `Ok(Vec<T>)` containing the results of all futures if they all complete successfully.
+/// Returns `Err(BridgeError)` if any future returns an error or times out.
+/// The error will be contextualized with the operation description and the specific future's ID if available.
+pub async fn timed_try_join_all<I, T, D>(
+    duration: Duration,
+    description: &str,
+    ids: Option<Vec<D>>,
+    iter: I,
+) -> Result<Vec<T>, BridgeError>
+where
+    D: Display,
+    I: IntoIterator,
+    I::Item: Future<Output = Result<T, BridgeError>>,
+{
+    let ids = Arc::new(ids);
+    try_join_all(iter.into_iter().enumerate().map(|item| {
+        let ids = ids.clone();
+        async move {
+            let id = Option::as_ref(&ids).map(|ids| ids.get(item.0)).flatten();
+
+            timeout(duration, item.1)
+                .await
+                .map_err(|_| {
+                    Status::deadline_exceeded(format!(
+                        "{} (id: {}) timed out",
+                        description,
+                        id.map(|id| id.to_string())
+                            .unwrap_or_else(|| "n/a".to_string())
+                    ))
+                })?
+                // Add the id to the error chain for easier debugging for other errors.
+                .wrap_err_with(|| {
+                    format!(
+                        "Failed to join {}",
+                        id.map(ToString::to_string).unwrap_or_else(|| "n/a".into())
+                    )
+                })
+                .map_err(Into::into)
+        }
+    }))
+    .instrument(debug_span!("timed_try_join_all", description = description))
+    .await
 }
