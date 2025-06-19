@@ -170,7 +170,7 @@ jobs:
 
   standalone_tests:
     name: Release | All features | Test ${{ matrix.description_suffix }}
-    runs-on: ubicloud-standard-8
+    runs-on: ubicloud-standard-4
     needs: release_build_all_features
     strategy:
       fail-fast: false
