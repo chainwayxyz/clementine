@@ -160,6 +160,7 @@ impl Database {
         }
     }
 
+    /// Returns the maximum height of the canonical blocks in the database.
     pub async fn get_max_height(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
@@ -175,7 +176,17 @@ impl Database {
             .map_err(Into::into)
     }
 
-    /// Gets the block hashes that have height bigger then the given height and deletes them.
+    /// Marks blocks with height bigger than the given height as non-canonical.
+    ///
+    /// # Parameters
+    ///
+    /// - `tx`: Optional transaction to use for the query.
+    /// - `height`: Heigth to start marking blocks as such (not inclusive).
+    ///
+    /// # Returns
+    ///
+    /// - [`Vec<u32>`]: List of block ids that were marked as non-canonical in
+    ///   ascending order.
     pub async fn set_non_canonical_block_hashes(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
@@ -604,6 +615,7 @@ mod tests {
         let heights = [1, 2, 3, 4, 5];
         let mut last_hash = prev_block_hash;
 
+        // Save some initial blocks.
         let mut block_ids = Vec::new();
         for height in heights {
             let block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([height as u8; 32]));
@@ -615,12 +627,13 @@ mod tests {
             last_hash = block_hash;
         }
 
-        // Mark blocks above height 2 as non-canonical
+        // Mark blocks above height 2 as non-canonical.
         let non_canonical_blocks = db
             .set_non_canonical_block_hashes(Some(&mut dbtx), 2)
             .await
             .unwrap();
-        assert_eq!(non_canonical_blocks.len(), 3); // blocks at height 3, 4, and 5
+        assert_eq!(non_canonical_blocks.len(), 3);
+        assert_eq!(non_canonical_blocks, vec![3, 4, 5]);
 
         // Verify blocks above height 2 are not returned
         for height in heights {
