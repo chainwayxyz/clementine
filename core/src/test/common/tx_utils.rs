@@ -13,6 +13,7 @@ use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
 use citrea_e2e::config::LightClientProverConfig;
 use citrea_e2e::node::Node;
 use eyre::{bail, Context, Result};
+use tokio::time::sleep;
 
 use super::{mine_once_after_in_mempool, poll_until_condition};
 
@@ -46,7 +47,7 @@ pub async fn ensure_outpoint_spent_while_waiting_for_light_client_sync(
         Ok(val) => val.is_some(),
     } {
         // Mine more blocks and wait longer between checks
-        let block_count = rpc.client.get_blockchain_info().await?.blocks;
+        let block_count = retry_get_block_count(&rpc, 5, Duration::from_millis(300)).await?;
 
         let mut total_retry = 0;
         while let Err(e) = lc_prover
@@ -76,6 +77,31 @@ pub async fn ensure_outpoint_spent_while_waiting_for_light_client_sync(
         .await?;
 
     Ok(())
+}
+
+pub async fn retry_get_block_count(
+    rpc: &ExtendedRpc,
+    retries: usize,
+    delay: Duration,
+) -> Result<u64> {
+    for attempt in 0..retries {
+        match rpc.client.get_blockchain_info().await {
+            Ok(info) => return Ok(info.blocks),
+            Err(e) if attempt + 1 < retries => {
+                tracing::warn!(
+                    "Retry {}/{} failed to get block count: {}. Retrying after {:?}...",
+                    attempt + 1,
+                    retries,
+                    e,
+                    delay
+                );
+                sleep(delay).await;
+            }
+            Err(e) => return Err(eyre::Error::new(e).wrap_err("Failed to get block count")),
+        }
+    }
+
+    unreachable!("retry loop should either return Ok or Err")
 }
 
 pub async fn get_txid_where_utxo_is_spent_while_waiting_for_light_client_sync(
