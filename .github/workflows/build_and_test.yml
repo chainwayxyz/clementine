@@ -2,24 +2,24 @@ name: Build And Test
 
 on: [push]
 
-concurrency: 
+concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ (github.ref != 'refs/heads/main') }}
 
 env:
   CARGO_TERM_COLOR: always
-  AUTOMATION_ARGS: --features automation
-  CARGOFLAGS: --workspace --all-targets
-  CARGOFLAGS_AUTOMATION: --workspace --all-targets --features automation
   RUST_LOG: warn,risc0_zkvm=error,risc0_circuit_rv32im=error
   RISC0_DEV_MODE: 1
   ENABLE_HEADER_CHAIN_PROVER: 1
   RUST_MIN_STACK: 33554432
 
+  CARGOFLAGS: --workspace --all-targets
+  CARGOFLAGS_ALL_FEATURES: --workspace --all-targets --all-features
+
 jobs:
-  # Build ------------------------------------------------------------------------
-  debug_build_automation:
-    name: Compile code with debug profile (Automation enabled)
+  # Build ----------------------------------------------------------------------
+  debug_build_all_features:
+    name: Debug | All features | Compile
     runs-on: ubicloud-standard-30
 
     steps:
@@ -27,40 +27,34 @@ jobs:
         uses: catchpoint/workflow-telemetry-action@v2
 
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/install-risc0
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
       - uses: ./.github/actions/build-prerequisites
 
-      - name: Save build artifacts
+      - name: Save/restore build artifacts
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "debug-build"
+          shared-key: ${{ runner.os }}-cargo-DEBUG-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
 
       - name: Compile in debug mode
-        run: cargo build $CARGOFLAGS_AUTOMATION --verbose
+        run: cargo build $CARGOFLAGS_ALL_FEATURES
 
-  release_build_automation:
-    name: Compile code with release profile (Automation enabled)
+  release_build_all_features:
+    name: Release | All features | Compile
     runs-on: ubicloud-standard-30
 
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/install-risc0
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
       - uses: ./.github/actions/build-prerequisites
 
-      - name: Save build artifacts
+      - name: Save/restore build artifacts
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "release-build"
+          shared-key: ${{ runner.os }}-cargo-RELEASE-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
 
       - name: Compile in release mode
-        run: cargo build $CARGOFLAGS_AUTOMATION --verbose --release
+        run: cargo build $CARGOFLAGS_ALL_FEATURES --release
 
-  release_build_non_automation:
-    name: Compile code with release profile (Automation disabled)
+  release_build:
+    name: Release | No features | Compile
     runs-on: ubicloud-standard-30
 
     steps:
@@ -68,24 +62,15 @@ jobs:
         uses: catchpoint/workflow-telemetry-action@v2
 
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/install-risc0
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-      - uses: ./.github/actions/build-prerequisites
-
-      - name: Save build artifacts
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: "release-build"
 
       - name: Compile in release mode
-        run: cargo build $CARGOFLAGS --verbose --release
+        run: cargo build $CARGOFLAGS --release
 
-  # Tests ------------------------------------------------------------------------
-  debug_build_test_automation:
-    name: Test code with debug build (Automation enabled)
+  # Full Tests -----------------------------------------------------------------
+  debug_build_test_all_features:
+    name: Debug | All features | Test
     runs-on: ubicloud-standard-30
-    needs: debug_build_automation
+    needs: debug_build_all_features
 
     services:
       postgres:
@@ -108,24 +93,23 @@ jobs:
         uses: catchpoint/workflow-telemetry-action@v2
 
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/install-risc0
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
       - uses: ./.github/actions/build-prerequisites
       - uses: ./.github/actions/test-prerequisites
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Restore cached build artifacts
+      - name: Save/restore build artifacts
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "debug-build"
+          shared-key: ${{ runner.os }}-cargo-DEBUG-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
 
       - name: Run tests
-        run: cargo test $AUTOMATION_ARGS
+        run: cargo test $CARGOFLAGS_ALL_FEATURES
 
-  release_build_test_automation:
-    name: Test code with release build (Automation enabled)
+  release_build_test_all_features:
+    name: Release | All features | Test
     runs-on: ubicloud-standard-30
-    needs: release_build_automation
+    needs: release_build_all_features
 
     services:
       postgres:
@@ -148,24 +132,24 @@ jobs:
         uses: catchpoint/workflow-telemetry-action@v2
 
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/install-risc0
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
       - uses: ./.github/actions/build-prerequisites
       - uses: ./.github/actions/test-prerequisites
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Restore cached build artifacts
+      - name: Save/restore build artifacts
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "release-build"
+          shared-key: ${{ runner.os }}-cargo-RELEASE-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
 
       - name: Run tests
-        run: cargo test --release $AUTOMATION_ARGS
+        run: cargo test --release $CARGOFLAGS_ALL_FEATURES
 
-  bridge_circuit_release_build_test:
-    name: Test bridge circuit host code with release build
+  # Matrix (Standalone) Tests --------------------------------------------------
+  standalone_proving_tests:
+    name: Release | All features | Test bridge_circuit_test
     runs-on: ubicloud
-    needs: release_build_automation
+    needs: release_build_all_features
 
     env:
       RISC0_DEV_MODE: 0
@@ -175,22 +159,19 @@ jobs:
         uses: catchpoint/workflow-telemetry-action@v2
 
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/install-risc0
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Restore cached build artifacts
+      - name: Save/restore build artifacts
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "release-build"
+          shared-key: ${{ runner.os }}-cargo-RELEASE-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
 
       - name: Run tests
         run: cargo test --release -p bridge-circuit-host bridge_circuit_test -- --ignored
 
-  bridge_additional_disprove_tests_matrix:
-    name: Test additional disprove script ${{ matrix.description_suffix }} with release build
+  standalone_tests:
+    name: Release | All features | Test ${{ matrix.description_suffix }}
     runs-on: ubicloud-standard-4
-    needs: release_build_automation
+    needs: release_build_all_features
     strategy:
       fail-fast: false
       matrix:
@@ -205,6 +186,10 @@ jobs:
             description_suffix: "operator forgot watchtower challenge path"
           - test_script_name: additional_disprove_script_test_disrupted_latest_block_hash
             description_suffix: "disrupted latest blockhash path"
+          - test_script_name: bitvm_disprove_scripts::disprove_script_test_healthy
+            description_suffix: "healthy path"
+          - test_script_name: bitvm_disprove_scripts::disprove_script_test_corrupted_assert
+            description_suffix: "disrupted assert path"
     services:
       postgres:
         image: postgres:latest
@@ -226,72 +211,25 @@ jobs:
         uses: catchpoint/workflow-telemetry-action@v2
 
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/install-risc0
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
       - uses: ./.github/actions/build-prerequisites
       - uses: ./.github/actions/test-prerequisites
-
-      - name: Restore cached build artifacts
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: "release-build"
-
-      - name: Run tests
-        run: cargo test ${{ matrix.test_script_name }} --features automation --release  -- --ignored
-
-  bridge_disprove_tests_matrix:
-    name: Test disprove script ${{ matrix.description_suffix }} with release build
-    runs-on: ubicloud-standard-30
-    needs: release_build_automation
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - test_script_name: bitvm_disprove_scripts::disprove_script_test_healthy
-            description_suffix: "healthy path"
-          - test_script_name: bitvm_disprove_scripts::disprove_script_test_corrupted_assert
-            description_suffix: "disrupted assert path"
-    services:
-      postgres:
-        image: postgres:latest
-        env:
-          POSTGRES_DB: clementine
-          POSTGRES_USER: clementine
-          POSTGRES_PASSWORD: clementine
-          POSTGRES_INITDB_ARGS: "-c shared_buffers=8GB -c max_connections=5000"
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-    steps:
-      - name: Collect Workflow Telemetry
-        uses: catchpoint/workflow-telemetry-action@v2
-
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/install-risc0
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-      - uses: ./.github/actions/build-prerequisites
-      - uses: ./.github/actions/test-prerequisites
 
-      - name: Restore cached build artifacts
+      - name: Save/restore build artifacts
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "release-build"
+          shared-key: ${{ runner.os }}-cargo-RELEASE-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
 
       - name: Run tests
-        run: cargo test ${{ matrix.test_script_name }} --features automation --release  -- --ignored
+        run: cargo test ${{ matrix.test_script_name }} $CARGOFLAGS_ALL_FEATURES --release -- --ignored
 
+  # Coverage -------------------------------------------------------------------
   coverage:
-    name: Coverage checks with Codecov
+    name: Release | All features | Coverage
     runs-on: ubicloud-standard-30
-    needs: debug_build_test_automation
-    if: github.event.pull_request.draft == false
+    needs: release_build_all_features
+    if: github.ref_name == 'main' || (github.event_name == 'pull_request' && !github.event.pull_request.draft)
 
     services:
       postgres:
@@ -314,15 +252,19 @@ jobs:
         uses: catchpoint/workflow-telemetry-action@v2
 
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/install-risc0
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
       - uses: ./.github/actions/build-prerequisites
       - uses: ./.github/actions/test-prerequisites
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
       - uses: taiki-e/install-action@cargo-llvm-cov
 
+      - name: Save/restore build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ runner.os }}-cargo-RELEASE-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
+
       - name: Run coverage
-        run: cargo llvm-cov $AUTOMATION_ARGS --locked --lcov --output-path lcov.info
+        run: cargo llvm-cov $CARGOFLAGS_ALL_FEATURES --release --lcov --locked --no-cfg-coverage --output-path lcov.info -j 8
       - name: Upload coverage
         uses: codecov/codecov-action@v4
         with:
