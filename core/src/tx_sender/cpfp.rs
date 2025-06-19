@@ -293,7 +293,7 @@ impl TxSender {
     async fn bump_fees_of_fee_payer_txs(&self, bumped_id: u32, fee_rate: FeeRate) -> Result<()> {
         let bumpable_fee_payer_txs = self
             .db
-            .get_bumpable_fee_payer_txs(None, bumped_id)
+            .get_unconfirmed_fee_payer_txs(None, bumped_id)
             .await
             .map_to_eyre()?;
 
@@ -381,7 +381,7 @@ impl TxSender {
     ) -> Result<()> {
         let unconfirmed_fee_payer_utxos = self
             .db
-            .get_bumpable_fee_payer_txs(None, try_to_send_id)
+            .get_unconfirmed_fee_payer_txs(None, try_to_send_id)
             .await
             .map_to_eyre()?;
 
