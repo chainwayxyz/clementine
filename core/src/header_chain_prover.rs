@@ -387,7 +387,7 @@ impl HeaderChainProver {
             _ => Err(BridgeError::UnsupportedNetwork.into_eyre())?,
         };
 
-        tracing::warn!("Starting proving HCP work only proof");
+        tracing::warn!("Starting proving HCP work only proof for creating a watchtower challenge");
         let receipt = if !is_dev_mode() {
             prover
                 .prove_with_opts(env, elf, &ProverOpts::groth16())
@@ -401,7 +401,7 @@ impl HeaderChainProver {
             let journal = stark_receipt.journal.bytes.clone();
             dev_stark_to_risc0_g16(stark_receipt, &journal)?
         };
-        tracing::warn!("HCP work only proof proof generated");
+        tracing::warn!("HCP work only proof proof generated for creating a watchtower challenge");
         let work_output: WorkOnlyCircuitOutput = borsh::from_slice(&receipt.journal.bytes)
             .wrap_err(HeaderChainProverError::ProverDeSerializationError)?;
 
