@@ -672,6 +672,18 @@ pub async fn create_txhandlers(
         context.paramset.genesis_chain_state_hash,
     );
 
+    tracing::warn!(
+        "Create txhandlers - Genesis height: {:?}, operator_xonly_pk: {:?}, move_txid: {:?}, round_txid: {:?}, vout: {:?}, watchtower_challenge_start_idx: {:?}, genesis_chain_state_hash: {:?}, deposit_constant: {:?}",
+        context.paramset.genesis_height,
+        operator_xonly_pk,
+        move_txid,
+        round_txid,
+        vout,
+        watchtower_challenge_start_idx,
+        context.paramset.genesis_chain_state_hash,
+        deposit_constant.0,
+    );
+
     tracing::debug!(
         "Deposit constant for {:?}: {:?} - deposit outpoint: {:?}",
         operator_xonly_pk,
@@ -684,6 +696,9 @@ pub async fn create_txhandlers(
         .get(kickoff_data.kickoff_idx as usize)
         .ok_or(TxError::IndexOverflow)?
         .clone();
+
+    tracing::warn! {"Payout tx blockhash pk: {:?}",
+    payout_tx_blockhash_pk};
 
     let additional_disprove_script = db_cache
         .get_replaceable_additional_disprove_script()

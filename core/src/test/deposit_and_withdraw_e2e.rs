@@ -620,7 +620,6 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 /// * Confirms kickoff transaction is created and mined
 /// * Verifies reimburse connector is spent (proper payout handling)
 #[tokio::test]
-#[ignore = "Until the flakiness of the test is resolved, this test is ignored."]
 async fn citrea_deposit_and_withdraw_e2e() -> Result<()> {
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
@@ -633,7 +632,6 @@ async fn citrea_deposit_and_withdraw_e2e() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore = "Until the flakiness of the test is resolved, this test is ignored."]
 async fn citrea_deposit_and_withdraw_e2e_non_zero_genesis_height() -> Result<()> {
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",

@@ -1904,6 +1904,20 @@ where
             payout_blockhash_new.push(element);
         }
 
+        tracing::warn!(
+            "Verify additional disprove conditions - Genesis height: {:?}, operator_xonly_pk: {:?}, move_txid: {:?}, round_txid: {:?}, vout: {:?}, watchtower_challenge_start_idx: {:?}, genesis_chain_state_hash: {:?}, deposit_constant: {:?}",
+            self.config.protocol_paramset.genesis_height,
+            kickoff_data.operator_xonly_pk,
+            move_txid,
+            round_txid,
+            vout,
+            watchtower_challenge_start_idx,
+            self.config.protocol_paramset.genesis_chain_state_hash,
+            deposit_constant
+        );
+
+        tracing::warn!("Payout blockhash: {:?}", payout_blockhash_new);
+
         let additional_disprove_witness = validate_assertions_for_additional_script(
             additional_disprove_script.clone(),
             g16_public_input_signature.clone(),
