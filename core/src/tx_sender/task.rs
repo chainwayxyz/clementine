@@ -18,7 +18,7 @@ use super::TxSender;
 const POLL_DELAY: Duration = if cfg!(test) {
     Duration::from_millis(100)
 } else {
-    Duration::from_secs(1)
+    Duration::from_secs(30)
 };
 #[derive(Debug)]
 pub struct TxSenderTask {
@@ -54,15 +54,24 @@ impl Task for TxSenderTask {
                         .ok_or(eyre::eyre!("Block not found in TxSenderTask".to_string(),))?
                         .1;
 
-                    tracing::info!("TXSENDER: Confirmed transactions for block {}", block_id);
+                    tracing::info!(
+                        "TXSENDER: Confirmed transactions for new block with height {} and internal block id {}",
+                        self.current_tip_height, block_id
+                    );
                     dbtx.commit().await?;
                     true
                 }
                 BitcoinSyncerEvent::ReorgedBlock(block_id) => {
-                    tracing::info!("TXSENDER: Unconfirming transactions for block {}", block_id);
+                    let height = self
+                    .db
+                    .get_block_info_from_id(Some(&mut dbtx), block_id)
+                    .await?
+                    .ok_or(eyre::eyre!("Block not found in TxSenderTask".to_string(),))?
+                    .1;
+                    tracing::info!("TXSENDER: Reorged block with height {} detected, unconfirming transactions for block with internal block id {}", height, block_id);
                     self.db.unconfirm_transactions(&mut dbtx, block_id).await?;
                     dbtx.commit().await?;
-                    false
+                    true
                 }
             })
         }

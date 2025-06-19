@@ -185,7 +185,7 @@ pub fn create_assert_timeout_txhandlers(
                 )
                 .add_input(
                     (NumberedSignatureKind::AssertTimeout3, idx as i32),
-                    round_txhandler.get_spendable_output(UtxoVout::BurnConnector)?,
+                    round_txhandler.get_spendable_output(UtxoVout::CollateralInRound)?,
                     SpendPath::KeySpend,
                     DEFAULT_SEQUENCE,
                 )
@@ -248,7 +248,8 @@ pub fn create_round_nth_txhandler(
         round_txhandler = create_round_txhandler(
             operator_xonly_pk,
             RoundTxInput::Prevout(Box::new(
-                ready_to_reimburse_txhandler.get_spendable_output(UtxoVout::BurnConnector)?,
+                ready_to_reimburse_txhandler
+                    .get_spendable_output(UtxoVout::CollateralInReadyToReimburse)?,
             )),
             pubkeys.get_keys_for_round(round_idx)?,
             paramset,
@@ -280,7 +281,7 @@ pub fn create_ready_to_reimburse_txhandler(
     operator_xonly_pk: XOnlyPublicKey,
     paramset: &'static ProtocolParamset,
 ) -> Result<TxHandler, BridgeError> {
-    let prevout = round_txhandler.get_spendable_output(UtxoVout::BurnConnector)?;
+    let prevout = round_txhandler.get_spendable_output(UtxoVout::CollateralInRound)?;
     let prev_value = prevout.get_prevout().value;
 
     Ok(TxHandlerBuilder::new(TransactionType::ReadyToReimburse)
@@ -332,7 +333,8 @@ pub fn create_unspent_kickoff_txhandlers(
                 .with_version(Version::non_standard(3))
                 .add_input(
                     (NumberedSignatureKind::UnspentKickoff1, idx as i32),
-                    ready_to_reimburse_txhandler.get_spendable_output(UtxoVout::BurnConnector)?,
+                    ready_to_reimburse_txhandler
+                        .get_spendable_output(UtxoVout::CollateralInReadyToReimburse)?,
                     SpendPath::KeySpend,
                     DEFAULT_SEQUENCE,
                 )
