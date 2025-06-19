@@ -403,7 +403,7 @@ mod tests {
         env::set_var("NUM_KICKOFFS_PER_ROUND", "10");
         env::set_var("NUM_SIGNED_KICKOFFS", "2");
         env::set_var("BRIDGE_AMOUNT", "1000000000");
-        env::set_var("KICKOFF_AMOUNT", "55000");
+        env::set_var("KICKOFF_AMOUNT", "0");
         env::set_var("OPERATOR_CHALLENGE_AMOUNT", "200000000");
         env::set_var("COLLATERAL_FUNDING_AMOUNT", "99000000");
         env::set_var("KICKOFF_BLOCKHASH_COMMIT_LENGTH", "40");
@@ -430,7 +430,7 @@ mod tests {
             "BRIDGE_CIRCUIT_METHOD_ID_CONSTANT",
             "877F60C5D13B0DF3B80A19A3C5ED2BA45AB82BBE7A58EA524E5CF9FFCE9957FF",
         );
-        env::set_var("BRIDGE_NONSTANDARD", "false");
+        env::set_var("BRIDGE_NONSTANDARD", "true");
     }
 
     // Helper to clean up all environment variables

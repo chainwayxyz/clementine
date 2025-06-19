@@ -250,7 +250,7 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     num_kickoffs_per_round: 10,
     num_signed_kickoffs: 2,
     bridge_amount: Amount::from_sat(1_000_000_000),
-    kickoff_amount: Amount::from_sat(55000),
+    kickoff_amount: Amount::from_sat(0),
     operator_challenge_amount: Amount::from_sat(200_000_000),
     collateral_funding_amount: Amount::from_sat(99_000_000),
     watchtower_challenge_bytes: 144,
