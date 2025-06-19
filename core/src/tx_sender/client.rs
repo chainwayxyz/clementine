@@ -1,3 +1,8 @@
+//! # Transaction Sender Client
+//!
+//! This module is provides a client which is responsible for inserting
+//! transactions into the sending queue.
+
 use super::Result;
 use super::{ActivatedWithOutpoint, ActivatedWithTxid};
 use crate::builder::transaction::input::UtxoVout;
@@ -36,7 +41,7 @@ impl TxSenderClient {
     /// It then persists this information in the database via `db.save_tx` and related functions.
     /// The actual sending logic (CPFP/RBF) is handled later by the `TxSender` task loop.
     ///
-    /// # Default activation and cancellation conditions
+    /// # Default Activation and Cancellation Conditions
     ///
     /// By default, this function automatically adds cancellation conditions for all outpoints
     /// spent by the `signed_tx` itself. If `signed_tx` confirms, these input outpoints
@@ -56,7 +61,8 @@ impl TxSenderClient {
     /// * `activate_outpoints` - Outpoints that are prerequisites for this tx, potentially with a relative timelock.
     ///
     /// # Returns
-    /// The database ID (`try_to_send_id`) assigned to this send attempt.
+    ///
+    /// - [`u32`]: The database ID (`try_to_send_id`) assigned to this send attempt.
     #[tracing::instrument(err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE), skip_all, fields(?tx_metadata, consumer = self.tx_sender_consumer_id))]
     pub async fn insert_try_to_send(
         &self,
@@ -70,12 +76,15 @@ impl TxSenderClient {
         activate_txids: &[ActivatedWithTxid],
         activate_outpoints: &[ActivatedWithOutpoint],
     ) -> Result<u32> {
+        let txid = signed_tx.compute_txid();
+
         tracing::debug!(
-            "{} added tx {:?}",
+            "{} added tx {} with txid {} to the queue",
             self.tx_sender_consumer_id,
             tx_metadata
                 .map(|data| format!("{:?}", data.tx_type))
                 .unwrap_or("N/A".to_string()),
+            txid
         );
 
         let txid = signed_tx.compute_txid();
@@ -174,7 +183,7 @@ impl TxSenderClient {
 
     /// Adds a transaction to the sending queue based on its type and configuration.
     ///
-    /// This is a higher-level wrapper around `insert_try_to_send`. It determines the
+    /// This is a higher-level wrapper around [`Self::insert_try_to_send`]. It determines the
     /// appropriate `FeePayingType` (CPFP or RBF) and any specific cancellation or activation
     /// dependencies based on the `tx_type` and `config`.
     ///
@@ -193,7 +202,8 @@ impl TxSenderClient {
     /// * `config` - Bridge configuration providing parameters like finality depth.
     ///
     /// # Returns
-    /// The database ID (`try_to_send_id`) assigned to this send attempt.
+    ///
+    /// - [`u32`]: The database ID (`try_to_send_id`) assigned to this send attempt.
     pub async fn add_tx_to_queue<'a>(
         &'a self,
         dbtx: DatabaseTransaction<'a, '_>,

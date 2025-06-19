@@ -1,11 +1,40 @@
-use bitcoin::taproot::TaprootSpendInfo;
-use bitcoin::TapNodeHash;
-use bitcoin::XOnlyPublicKey;
-use eyre::OptionExt;
-
-use bitcoin::{Amount, FeeRate, OutPoint, Transaction, TxOut, Txid, Weight};
-use bitcoincore_rpc::{json::EstimateMode, RpcApi};
-use serde::{Deserialize, Serialize};
+//! # Transaction Sender
+//!
+//! Transaction sender is responsible for sending Bitcoin transactions, bumping
+//! fees and making sure that transactions are finalized until the deadline, all
+//! in background.
+//!
+//! ## Concepts
+//!
+//! ### Transaction/UTXO Activation and Cancelation
+//!
+//! Transactions and UTXOs can be marked as active, non-active or cancelled.
+//!
+//! Transactions/UTXOS that are marked as active are candidate transactions for
+//! transaction sender. Non-active transactions/UTXOS on the other hand are, not
+//! yet processed by the transaction sender.
+//!
+//! If a transaction/UTXO is marked as cancelled, it can't be used in
+//! transaction sender anymore. Spent transactions/UTXOs are examples for that.
+//!
+//! An active transaction can be send if its UTXOs are also marked as active
+//! and doesn't have any cancelled UTXO bounds which is specified when the send
+//! transaction call is issued.
+//!
+//! ### Confirmed and Unconfirmed Blocks
+//!
+//! Blocks are marked as confirmed when they are confirmed in the Bitcoin. And
+//! if a reorg happens, the blocks are marked as unconfirmed.
+//!
+//! After a block is confirmed, all of the transactions and UTXOs in that block
+//! gets assigned with the corresponding block id. Similarly, when a block is
+//! unconfirmed, all of the transactions and UTXOs in that block gets their
+//! block id removed.
+//!
+//! ## Debugging Transaction Sender
+//!
+//! There are several database tables that saves the transaction states. Please
+//! look for [`core/src/database/tx_sender.rs`] for more information.
 
 use crate::config::protocol::ProtocolParamset;
 use crate::errors::ResultExt;
@@ -17,6 +46,13 @@ use crate::{
     extended_rpc::ExtendedRpc,
     utils::TxMetadata,
 };
+use bitcoin::taproot::TaprootSpendInfo;
+use bitcoin::TapNodeHash;
+use bitcoin::XOnlyPublicKey;
+use bitcoin::{Amount, FeeRate, OutPoint, Transaction, TxOut, Txid, Weight};
+use bitcoincore_rpc::{json::EstimateMode, RpcApi};
+use eyre::OptionExt;
+use serde::{Deserialize, Serialize};
 
 #[cfg(test)]
 use std::env;
@@ -237,18 +273,15 @@ impl TxSender {
         FeeRate::from_sat_per_vb_unchecked((btc_per_kvb * 100000.0) as u64)
     }
 
-    /// The main loop for processing transactions requiring fee bumps or initial sending.
-    ///
-    /// Fetches transactions from the database that are eligible to be sent or bumped
-    /// based on the `new_fee_rate` and `current_tip_height`.
+    /// Fetches transactions that are eligible to be sent or bumped from
+    /// database based on the given fee rate and tip height. Then, places a send
+    /// transaction request to the Bitcoin based on the fee strategy.
     ///
     /// For each eligible transaction (`id`):
-    /// 1.  **Bump Fee Payers:** Calls `bump_fees_of_fee_payer_txs` to ensure any associated,
-    ///     unconfirmed fee payer UTXOs (used for CPFP) are themselves confirmed.
-    /// 2.  **Send/Bump Main Tx:** Calls `send_tx` to either perform RBF or CPFP on the main
+    ///
+    /// 1.  **Send/Bump Main Tx:** Calls `send_tx` to either perform RBF or CPFP on the main
     ///     transaction (`id`) using the `new_fee_rate`.
-    /// 3.  **Handle Errors:**
-    ///     - `UnconfirmedFeePayerUTXOsLeft`: Skips the current tx, waiting for fee payers to confirm.
+    /// 2.  **Handle Errors:**    ///     - `UnconfirmedFeePayerUTXOsLeft`: Skips the current tx, waiting for fee payers to confirm.
     ///     - `InsufficientFeePayerAmount`: Calls `create_fee_payer_utxo` to provision more funds
     ///       for a future CPFP attempt.
     ///     - Other errors are logged.
@@ -262,7 +295,6 @@ impl TxSender {
         new_fee_rate: FeeRate,
         current_tip_height: u32,
     ) -> Result<()> {
-        // tracing::info!("Trying to send unconfirmed txs with new fee rate: {new_fee_rate:?}, current tip height: {current_tip_height:?}");
         let txs = self
             .db
             .get_sendable_txs(None, new_fee_rate, current_tip_height)
@@ -302,7 +334,7 @@ impl TxSender {
             if let Some(block_id) = seen_block_id {
                 tracing::debug!(
                     try_to_send_id = id,
-                    "Transaction confirmed in block {}",
+                    "Transaction already confirmed in block with block id of {}",
                     block_id
                 );
 

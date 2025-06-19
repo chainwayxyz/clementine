@@ -1,13 +1,23 @@
-use eyre::eyre;
-use std::env;
+//! # Child Pays For Parent (CPFP) Transactions
+//!
+//! This module implements the Child Pays For Parent (CPFP) strategy for sending
+//! Bitcoin transactions with transaction sender.
+//!
+//! ## Child Transaction Details
+//!
+//! A child transaction is created to pay for the fees of a parent transaction.
+//! They must be submitted together as a package for Bitcoin nodes to accept
+//! them.
+//!
+//! ### Fee Payer Transactions/UTXOs
+//!
+//! Child transaction needs to spend an UTXO for the fees. But because of the
+//! TRUC rules (https://github.com/bitcoin/bips/blob/master/bip-0431.mediawiki#specification),
+//! a third transaction can't be put into the package. So, a so called "fee
+//! payer" transaction must be send and confirmed before the CPFP package is
+//! send.
 
-use bitcoin::{
-    transaction::Version, Address, Amount, FeeRate, OutPoint, Transaction, TxOut, Weight,
-};
-use bitcoincore_rpc::PackageSubmissionResult;
-use bitcoincore_rpc::{PackageTransactionResult, RpcApi};
-use eyre::Context;
-
+use super::{Result, SendTxError, TxMetadata, TxSender};
 use crate::errors::{ErrorExt, ResultExt};
 use crate::extended_rpc::BitcoinRPCError;
 use crate::utils::FeePayingType;
@@ -23,11 +33,18 @@ use crate::{
     constants::MIN_TAPROOT_AMOUNT,
     rpc::clementine::NormalSignatureKind,
 };
-
-use super::{Result, SendTxError, TxMetadata, TxSender};
+use bitcoin::{
+    transaction::Version, Address, Amount, FeeRate, OutPoint, Transaction, TxOut, Weight,
+};
+use bitcoincore_rpc::PackageSubmissionResult;
+use bitcoincore_rpc::{PackageTransactionResult, RpcApi};
+use eyre::eyre;
+use eyre::Context;
+use std::env;
 
 impl TxSender {
-    /// Creates and broadcasts a new "fee payer" UTXO to be used for CPFP.
+    /// Creates and broadcasts a new "fee payer" UTXO to be used for CPFP
+    /// transactions.
     ///
     /// This function is called when a CPFP attempt fails due to insufficient funds
     /// in the existing confirmed fee payer UTXOs associated with a transaction (`bumped_id`).
@@ -203,8 +220,9 @@ impl TxSender {
     /// the child transaction using `create_child_tx`.
     ///
     /// # Returns
-    /// A `Vec` containing the parent transaction followed by the child transaction,
-    /// ready for submission via the `submitpackage` RPC.
+    ///
+    /// - [`Vec<Transaction>`]: Parent transaction followed by the child
+    ///   transaction.
     fn create_package(
         &self,
         tx: Transaction,
@@ -248,7 +266,9 @@ impl TxSender {
     /// spent by a CPFP child transaction.
     ///
     /// # Returns
-    /// A `Vec` of `SpendableTxIn`, ready to be included as inputs in the CPFP child tx.
+    ///
+    /// - [`Vec<SpendableTxIn>`]: [`SpendableTxIn`]s of the confirmed fee payer
+    ///   UTXOs that are ready to be included as inputs in the CPFP child tx.
     async fn get_confirmed_fee_payer_utxos(
         &self,
         try_to_send_id: u32,
@@ -290,7 +310,11 @@ impl TxSender {
     /// * `bumped_id` - The database ID of the parent transaction whose fee payer UTXOs need bumping.
     /// * `fee_rate` - The target fee rate for bumping the fee payer transactions.
     #[tracing::instrument(skip_all, fields(sender = self.btc_syncer_consumer_id, bumped_id, fee_rate))]
-    async fn bump_fees_of_fee_payer_txs(&self, bumped_id: u32, fee_rate: FeeRate) -> Result<()> {
+    async fn bump_fees_of_unconfirmed_fee_payer_txs(
+        &self,
+        bumped_id: u32,
+        fee_rate: FeeRate,
+    ) -> Result<()> {
         let bumpable_fee_payer_txs = self
             .db
             .get_unconfirmed_fee_payer_txs(None, bumped_id)
@@ -316,6 +340,11 @@ impl TxSender {
                             .save_fee_payer_tx(None, bumped_id, new_txid, vout, amount, Some(id))
                             .await
                             .map_to_eyre()?;
+                    } else {
+                        tracing::warn!(
+                            "Fee payer tx {} has enough fee, no need to bump",
+                            fee_payer_txid
+                        );
                     }
                 }
                 Err(e) => {
@@ -353,7 +382,7 @@ impl TxSender {
     ///
     /// # Logic:
     /// 1.  **Check Unconfirmed Fee Payers:** Ensures no unconfirmed fee payer UTXOs exist
-    ///     for this `try_to_send_id`. If they do, returns `UnconfirmedFeePayerUTXOsLeft`
+    ///     for this `try_to_send_id`. If they do, returns [`SendTxError::UnconfirmedFeePayerUTXOsLeft`]
     ///     as they need to confirm before being spendable by the child.
     /// 2.  **Get Confirmed Fee Payers:** Retrieves the available confirmed fee payer UTXOs.
     /// 3.  **Create Package:** Calls `create_package` to build the `vec![parent_tx, child_tx]`.
@@ -403,6 +432,7 @@ impl TxSender {
                 )
                 .await;
 
+            // TODO: Doc states that SendTxError::UnconfirmedFeePayerUTXOsLeft should be returned.
             return Ok(());
         }
 

@@ -1,10 +1,13 @@
-use std::time::Duration;
+//! # Transaction Sender Task
+//!
+//! This module provides [`Task`] implementation for [`TxSender`].
+//!
+//! This task will fetch block events from Bitcoin Syncer and confirms or
+//! unconfirms transaction based on the event. Finally, it will try to send
+//! candidate transactions.
 
-use bitcoin::FeeRate;
-use tonic::async_trait;
-
+use super::TxSender;
 use crate::errors::ResultExt;
-
 use crate::task::{IgnoreError, WithDelay};
 use crate::{
     bitcoin_syncer::BitcoinSyncerEvent,
@@ -12,8 +15,9 @@ use crate::{
     errors::BridgeError,
     task::{IntoTask, Task, TaskExt},
 };
-
-use super::TxSender;
+use bitcoin::FeeRate;
+use std::time::Duration;
+use tonic::async_trait;
 
 const POLL_DELAY: Duration = if cfg!(test) {
     Duration::from_millis(100)
