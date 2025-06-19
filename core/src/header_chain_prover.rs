@@ -701,10 +701,9 @@ impl HeaderChainProver {
             .prove_and_save_block(current_block_hash, block_headers, prev_proof)
             .await?;
         tracing::info!(
-            "Receipt for block with hash {:?} and height with: {:?}: {:?}",
+            "Header chain proof generated for block with hash {:?} and height {}",
             current_block_hash,
             current_block_height,
-            receipt
         );
 
         Ok(Some(receipt))

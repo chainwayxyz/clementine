@@ -2354,6 +2354,7 @@ where
                 .await?;
             while let Some(_) = header_chain_prover.prove_if_ready().await? {
                 // Continue until prove_if_ready returns None
+                // If it doesn't return None, it means next batch_size amount of blocks were proven
             }
         }
 
