@@ -107,7 +107,7 @@ jobs:
         run: |
           mkdir -p logs
           echo "Starting tests..." > logs/test.log
-          cargo test $CARGOFLAGS_ALL_FEATURES 2>&1 | tee logs/test.log
+          cargo test $CARGOFLAGS_ALL_FEATURES >> logs/test.log 2>&1
           exit ${PIPESTATUS[0]}
 
       - name: Upload logs/test.log if failed
@@ -158,7 +158,7 @@ jobs:
         run: |
           mkdir -p logs
           echo "Starting tests..." > logs/test.log
-          cargo test --release $CARGOFLAGS_ALL_FEATURES 2>&1 | tee logs/test.log
+          cargo test --release $CARGOFLAGS_ALL_FEATURES >> logs/test.log 2>&1
           exit ${PIPESTATUS[0]}
 
       - name: Upload logs/test.log if failed
@@ -227,7 +227,7 @@ jobs:
         run: |
           mkdir -p logs
           echo "Starting tests..." > logs/test.log
-          cargo test ${{ matrix.test_script_name }} $CARGOFLAGS_ALL_FEATURES --release -- --ignored 2>&1 | tee logs/test.log
+          cargo test ${{ matrix.test_script_name }} $CARGOFLAGS_ALL_FEATURES --release -- --ignored >> logs/test.log 2>&1
           exit ${PIPESTATUS[0]}
 
       - name: Upload logs/test.log if failed
