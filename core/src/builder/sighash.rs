@@ -538,6 +538,9 @@ mod tests {
     /// current test setup fn's to generate operators with different configs (config has the
     /// reimburse address and collateral funding outpoint, which should be loaded from the saved
     /// deposit state)
+    ///
+    /// To make the test work if breaking changes are expected, run generate_deposit_state() test again then
+    /// run the test_bridge_contract_change tests and replace the assert_eq!() with the new values until it works.
     #[tokio::test]
     async fn test_bridge_contract_change() {
         let mut config = create_test_config_with_thread_name().await;
@@ -625,7 +628,7 @@ mod tests {
         // If this fails, the round txs are changed.
         assert_eq!(
             round_tx_hash.to_string(),
-            "5091c1f7780467abfeb2b104e5ccf9df351e6a78221bf714a5db20c4dbf08e6e".to_string(),
+            "d62339182876371afdc882ff693c56697cc005e01ece4abe8b229934c8091a0a".to_string(),
             "Round tx hash does not match the previous values, round txs are changed"
         );
 
@@ -677,12 +680,12 @@ mod tests {
         // If these fail, the bridge contract is changed.
         assert_eq!(
             nofn_hash.to_string(),
-            "03e127f8719f1563eaef58e4e85a42469e36b347c0943a3f2bc55605793c0e52",
+            "dee911de41c6aad9564a86cef36a86fbd0fcfdfdad0f58206d5543accb42f513",
             "NofN sighashes do not match the previous values"
         );
         assert_eq!(
             operator_hash.to_string(),
-            "e501ca9ba39e3ba3dfd98e3a942d949f980ae61c5701d65972daf2fc3b8d199f",
+            "7c1777f0be9559ce777472da4a8d718b6b49c927dcf93393f1387bc4f27822ce",
             "Operator sighashes do not match the previous values"
         );
     }

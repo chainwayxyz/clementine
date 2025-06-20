@@ -38,6 +38,9 @@ pub struct TestParams {
     /// A flag to introduce intentionally inconsistent or invalid data into the BitVM assertions.
     pub corrupted_asserts: bool,
 
+    /// A flag to generate blocks to the address of the wallet.
+    pub generate_to_address: bool,
+
     #[serde(default)]
     pub timeout_params: TimeoutTestParams,
 }
@@ -170,6 +173,7 @@ impl Default for TestParams {
             operator_forgot_watchtower_challenge: false,
             corrupted_asserts: false,
             timeout_params: TimeoutTestParams::default(),
+            generate_to_address: true,
         }
     }
 }
