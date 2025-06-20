@@ -107,6 +107,7 @@ jobs:
         continue-on-error: true
         run: |
           mkdir -p logs
+          echo "Starting tests..." > logs/test.log
           cargo test $CARGOFLAGS_ALL_FEATURES > logs/test.log 2>&1
       - uses: ./.github/actions/upload-log-on-failure
         if: always()
@@ -151,6 +152,7 @@ jobs:
         continue-on-error: true
         run: |
           mkdir -p logs
+          echo "Starting tests..." > logs/test.log
           cargo test --release $CARGOFLAGS_ALL_FEATURES > logs/test.log 2>&1
       - uses: ./.github/actions/upload-log-on-failure
         if: always()  
@@ -213,6 +215,7 @@ jobs:
         continue-on-error: true
         run: |
           mkdir -p logs
+          echo "Starting tests..." > logs/test.log
           cargo test ${{ matrix.test_script_name }} $CARGOFLAGS_ALL_FEATURES --release -- --ignored > logs/test.log 2>&1
       - uses: ./.github/actions/upload-log-on-failure
         if: always()

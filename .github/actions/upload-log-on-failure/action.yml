@@ -10,3 +10,4 @@ runs:
       with:
         name: test-log-${{ github.job }}
         path: logs/test.log
+        if-no-files-found: warn
