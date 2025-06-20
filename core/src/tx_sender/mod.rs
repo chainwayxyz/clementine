@@ -194,6 +194,7 @@ impl TxSender {
             // Assumes it replaces a tx of similar structure but potentially different inputs/fees.
             // Simplified calculation used here needs verification.
             FeePayingType::RBF => Weight::from_wu_usize(230 * num_fee_payer_utxos + 172), // TODO: Verify WU for RBF structure
+            FeePayingType::AlreadyFunded => Weight::from_wu_usize(0),
         };
 
         // Calculate total weight for fee calculation.
@@ -204,6 +205,7 @@ impl TxSender {
                 child_tx_weight.to_vbytes_ceil() + parent_tx_weight.to_vbytes_ceil(),
             ),
             FeePayingType::RBF => child_tx_weight + parent_tx_weight, // Should likely just be the RBF tx weight? Check RBF rules.
+            FeePayingType::AlreadyFunded => parent_tx_weight,
         };
 
         fee_rate
@@ -321,6 +323,9 @@ impl TxSender {
                     self.send_rbf_tx(id, tx, tx_metadata, new_fee_rate, rbf_signing_info)
                         .await
                 }
+                FeePayingType::AlreadyFunded => {
+                    self.send_already_funded_tx(id, tx, tx_metadata).await
+                }
             };
 
             if let Err(e) = result {
@@ -333,6 +338,52 @@ impl TxSender {
 
     pub fn client(&self) -> TxSenderClient {
         TxSenderClient::new(self.db.clone(), self.btc_syncer_consumer_id.clone())
+    }
+
+    #[tracing::instrument(skip_all, fields(sender = self.btc_syncer_consumer_id, try_to_send_id, tx_meta=?tx_metadata))]
+    pub(super) async fn send_already_funded_tx(
+        &self,
+        try_to_send_id: u32,
+        tx: Transaction,
+        tx_metadata: Option<TxMetadata>,
+    ) -> Result<()> {
+        match self.rpc.client.send_raw_transaction(&tx).await {
+            Ok(sent_txid) => {
+                tracing::debug!(
+                    try_to_send_id,
+                    "Successfully sent already funded tx with txid {}",
+                    sent_txid
+                );
+                let _ = self
+                    .db
+                    .update_tx_debug_sending_state(
+                        try_to_send_id,
+                        "already_funded_send_success",
+                        true,
+                    )
+                    .await;
+            }
+            Err(e) => {
+                tracing::error!(
+                    "Failed to send already funded tx with try_to_send_id: {:?} and metadata: {:?}",
+                    try_to_send_id,
+                    tx_metadata
+                );
+                let err_msg = format!("send_raw_transaction error for already funded tx: {}", e);
+                log_error_for_tx!(self.db, try_to_send_id, err_msg);
+                let _ = self
+                    .db
+                    .update_tx_debug_sending_state(
+                        try_to_send_id,
+                        "already_funded_send_failed",
+                        true,
+                    )
+                    .await;
+                return Err(SendTxError::Other(eyre::eyre!(e)));
+            }
+        };
+
+        Ok(())
     }
 }
 
@@ -452,7 +503,7 @@ mod tests {
 
         let version = match fee_paying_type {
             FeePayingType::CPFP => Version::non_standard(3),
-            FeePayingType::RBF => Version::TWO,
+            FeePayingType::RBF | FeePayingType::AlreadyFunded => Version::TWO,
         };
 
         let mut txhandler = TxHandlerBuilder::new(TransactionType::Dummy)
@@ -466,6 +517,9 @@ mod tests {
                         NormalSignatureKind::Challenge.into()
                     }
                     FeePayingType::RBF => (NumberedSignatureKind::WatchtowerChallenge, 0i32).into(),
+                    FeePayingType::AlreadyFunded => {
+                        unreachable!("AlreadyFunded should not be used for bumpable txs")
+                    }
                 },
                 SpendableTxIn::new(
                     outpoint,

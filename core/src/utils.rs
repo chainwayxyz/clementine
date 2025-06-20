@@ -375,6 +375,8 @@ pub enum FeePayingType {
     /// version that includes a higher fee. The original transaction must signal
     /// RBF enablement (e.g., via nSequence). Bitcoin Core's `bumpfee` RPC is often used.
     RBF,
+    /// The transaction has already been funded. Currently used for disprove tx as it has operator's collateral as input.
+    AlreadyFunded,
 }
 
 /// Information to re-sign an RBF transaction.
