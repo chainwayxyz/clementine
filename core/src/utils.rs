@@ -548,6 +548,7 @@ mod tests {
     use tracing::level_filters::LevelFilter;
 
     #[test]
+    #[ignore = "This test changes environment variables so it should not be run in CI since it might affect other tests."]
     fn test_ci_logging_setup() {
         // Create a temporary file for testing
         let temp_file = NamedTempFile::new().expect("Failed to create temp file");
