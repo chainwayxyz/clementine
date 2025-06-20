@@ -1655,26 +1655,17 @@ mod states {
                         .get_deposit_data_with_kickoff_txid(None, txid)
                         .await?;
                     if let Some((deposit_data, kickoff_data)) = kickoff_data {
-                        let kickoff_finalizer = OutPoint {
-                            txid,
-                            vout: UtxoVout::KickoffFinalizer.get_vout(),
-                        };
-                        // add kickoff machine if there is a new kickoff
-                        // do not add if kickoff finalizer is already spent => kickoff is finished
-                        // this can happen if we are resyncing
-                        if !self.rpc.is_utxo_spent(&kickoff_finalizer).await? {
-                            let mut dbtx = self.db.begin_transaction().await?;
-                            StateManager::<Self>::dispatch_new_kickoff_machine(
-                                self.db.clone(),
-                                &mut dbtx,
-                                kickoff_data,
-                                block_height,
-                                deposit_data,
-                                witness,
-                            )
-                            .await?;
-                            dbtx.commit().await?;
-                        }
+                        let mut dbtx = self.db.begin_transaction().await?;
+                        StateManager::<Self>::dispatch_new_kickoff_machine(
+                            self.db.clone(),
+                            &mut dbtx,
+                            kickoff_data,
+                            block_height,
+                            deposit_data,
+                            witness,
+                        )
+                        .await?;
+                        dbtx.commit().await?;
                     }
                     Ok(DutyResult::Handled)
                 }
