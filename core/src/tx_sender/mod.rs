@@ -403,6 +403,7 @@ mod tests {
     use crate::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind};
     use crate::task::{IntoTask, TaskExt};
     use crate::{database::Database, test::common::*};
+    use bitcoin::hashes::Hash;
     use bitcoin::secp256k1::rand;
     use bitcoin::secp256k1::SecretKey;
     use bitcoin::transaction::Version;
@@ -741,5 +742,73 @@ mod tests {
             .send_raw_transaction(will_successful_handler.get_cached_tx())
             .await
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_send_already_funded_tx() -> Result<(), BridgeError> {
+        // Initialize RPC, tx_sender and other components
+        let mut config = create_test_config_with_thread_name().await;
+        let rpc = create_regtest_rpc(&mut config).await;
+
+        let (tx_sender, btc_sender, rpc, db, signer, network) =
+            create_tx_sender(rpc.rpc().clone()).await;
+        let pair = btc_sender.into_task().cancelable_loop();
+        pair.0.into_bg();
+
+        // Create a transaction that doesnt need funding
+        let tx = rbf::tests::create_rbf_tx(&rpc, &signer, network, false).await?;
+
+        // Insert the transaction into the database
+        let mut dbtx = db.begin_transaction().await?;
+        let try_to_send_id = tx_sender
+            .client()
+            .insert_try_to_send(
+                &mut dbtx,
+                None, // No metadata
+                &tx,
+                FeePayingType::AlreadyFunded,
+                None,
+                &[], // No cancel outpoints
+                &[], // No cancel txids
+                &[], // No activate txids
+                &[], // No activate outpoints
+            )
+            .await?;
+        dbtx.commit().await?;
+
+        // Get the current fee rate and increase it for RBF
+        let current_fee_rate = tx_sender._get_fee_rate().await?;
+
+        // Test send_rbf_tx
+        tx_sender
+            .send_already_funded_tx(try_to_send_id, tx.clone(), None)
+            .await
+            .expect("Already funded should succeed");
+
+        tx_sender
+            .send_already_funded_tx(try_to_send_id, tx.clone(), None)
+            .await
+            .expect("Should not return error if sent again");
+
+        // Verify that the transaction was fee-bumped
+        let tx_debug_info = tx_sender
+            .client()
+            .debug_tx(try_to_send_id)
+            .await
+            .expect("Transaction should be have debug info");
+
+        // Get the actual transaction from the mempool
+        rpc.get_tx_of_txid(&bitcoin::Txid::from_byte_array(
+            tx_debug_info.txid.unwrap().txid.try_into().unwrap(),
+        ))
+        .await
+        .expect("Transaction should be in mempool");
+
+        tx_sender
+            .send_already_funded_tx(try_to_send_id, tx.clone(), None)
+            .await
+            .expect("Should not return error if sent again but still in mempool");
+
+        Ok(())
     }
 }
