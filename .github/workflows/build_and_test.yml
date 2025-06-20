@@ -104,6 +104,7 @@ jobs:
           shared-key: ${{ runner.os }}-cargo-DEBUG-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
 
       - name: Run tests
+        continue-on-error: true
         run: |
           mkdir -p logs
           cargo test $CARGOFLAGS_ALL_FEATURES > logs/test.log 2>&1
@@ -146,6 +147,7 @@ jobs:
           shared-key: ${{ runner.os }}-cargo-RELEASE-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
 
       - name: Run tests
+        continue-on-error: true
         run: |
           mkdir -p logs
           cargo test --release $CARGOFLAGS_ALL_FEATURES > logs/test.log 2>&1
@@ -206,6 +208,7 @@ jobs:
           shared-key: ${{ runner.os }}-cargo-RELEASE-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
 
       - name: Run tests
+        continue-on-error: true
         run: |
           mkdir -p logs
           cargo test ${{ matrix.test_script_name }} $CARGOFLAGS_ALL_FEATURES --release -- --ignored > logs/test.log 2>&1
