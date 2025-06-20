@@ -1737,6 +1737,8 @@ where
         operator_acks: &HashMap<usize, Witness>,
         txhandlers: &BTreeMap<TransactionType, TxHandler>,
     ) -> Result<Option<bitcoin::Witness>, BridgeError> {
+        use bitvm::clementine::additional_disprove::debug_assertions_for_additional_script;
+
         use crate::builder::transaction::ReimburseDbCache;
 
         let mut reimburse_db_cache = ReimburseDbCache::new_for_deposit(
@@ -1933,6 +1935,20 @@ where
             latest_blockhash_new.clone(),
             challenge_sending_watchtowers_signature.clone(),
             operator_acks_vec,
+        );
+
+        let debug_additional_disprove_script = debug_assertions_for_additional_script(
+            additional_disprove_script.clone(),
+            g16_public_input_signature.clone(),
+            payout_blockhash_new.clone(),
+            latest_blockhash_new.clone(),
+            challenge_sending_watchtowers_signature.clone(),
+            operator_acks_vec,
+        );
+        
+        tracing::info!(
+            "Debug additional disprove script: {:?}",
+            debug_additional_disprove_script
         );
 
         tracing::info!(
