@@ -17,6 +17,8 @@ mod additional_disprove_scripts;
 mod bitvm_disprove_scripts;
 mod bitvm_script;
 
+mod citrea_duplicate_deposit_test;
+
 use ctor::ctor;
 
 #[ctor]
