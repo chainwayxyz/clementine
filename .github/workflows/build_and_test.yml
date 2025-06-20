@@ -74,7 +74,7 @@ jobs:
     needs: debug_build_all_features
 
     env:
-      INFO_LOG_FILE: test-logs/debug/debug-all-features-test.log
+      INFO_LOG_FILE: ${{ github.workspace }}/test-logs/debug/debug-all-features-test.log
 
     services:
       postgres:
@@ -127,7 +127,7 @@ jobs:
     needs: release_build_all_features
 
     env:
-      INFO_LOG_FILE: test-logs/release/release-all-features-test.log
+      INFO_LOG_FILE: ${{ github.workspace }}/test-logs/release/release-all-features-test.log
 
     services:
       postgres:
@@ -181,7 +181,7 @@ jobs:
     needs: release_build_all_features
 
     env:
-      INFO_LOG_FILE: test-logs/standalone/standalone-${{ matrix.test_name }}-test.log
+      INFO_LOG_FILE: ${{ github.workspace }}/test-logs/standalone/standalone-${{ matrix.test_name }}-test.log
 
     strategy:
       fail-fast: false
@@ -262,7 +262,7 @@ jobs:
     if: github.ref_name == 'main' || (github.event_name == 'pull_request' && !github.event.pull_request.draft)
 
     env:
-      INFO_LOG_FILE: test-logs/coverage/coverage-test.log
+      INFO_LOG_FILE: ${{ github.workspace }}/test-logs/coverage/coverage-test.log
 
     services:
       postgres:
