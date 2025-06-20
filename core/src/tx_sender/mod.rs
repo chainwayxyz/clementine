@@ -546,12 +546,19 @@ mod tests {
             async || {
                 rpc.mine_blocks(1).await.unwrap();
 
-                let tx_result = rpc
+                match rpc
                     .client
                     .get_raw_transaction_info(&tx.compute_txid(), None)
-                    .await;
-
-                Ok(tx_result.is_ok() && tx_result.unwrap().confirmations.unwrap() > 0)
+                    .await
+                {
+                    Ok(tx_result) => {
+                        if let Some(conf) = tx_result.confirmations {
+                            return Ok(conf > 0);
+                        }
+                        Ok(false)
+                    }
+                    Err(_) => Ok(false),
+                }
             },
             Some(Duration::from_secs(30)),
             Some(Duration::from_millis(100)),

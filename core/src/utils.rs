@@ -7,7 +7,9 @@ use eyre::Context as _;
 use futures::future::try_join_all;
 use http::HeaderValue;
 use serde::{Deserialize, Serialize};
+use std::env;
 use std::fmt::{Debug, Display};
+use std::fs::File;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -17,9 +19,9 @@ use tokio::time::timeout;
 use tonic::Status;
 use tower::{Layer, Service};
 use tracing::level_filters::LevelFilter;
-use tracing::{debug_span, Instrument};
+use tracing::{debug_span, Instrument, Subscriber};
 use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::{fmt, EnvFilter, Registry};
+use tracing_subscriber::{fmt, EnvFilter, Layer as TracingLayer, Registry};
 
 /// Initializes `tracing` as the logger.
 ///
@@ -35,30 +37,10 @@ use tracing_subscriber::{fmt, EnvFilter, Registry};
 /// Returns `Err` if `tracing` can't be initialized. Multiple subscription error
 /// is emitted and will return `Ok(())`.
 pub fn initialize_logger(level: Option<LevelFilter>) -> Result<(), BridgeError> {
-    // Configure JSON formatting with additional fields
-    let json_layer = fmt::layer::<Registry>()
-        .with_test_writer()
-        // .with_timer(time::UtcTime::rfc_3339())
-        .with_file(true)
-        .with_line_number(true)
-        .with_thread_ids(true)
-        .with_thread_names(true)
-        .with_target(true)
-        // .with_current_span(true)
-        // .with_span_list(true)
-        // To see how long each span takes, uncomment this.
-        // .with_span_events(FmtSpan::CLOSE)
-        .json();
-
-    // Standard human-readable layer for non-JSON output
-    let standard_layer = fmt::layer()
-        .with_test_writer()
-        // .with_timer(time::UtcTime::rfc_3339())
-        .with_file(true)
-        .with_line_number(true)
-        // To see how long each span takes, uncomment this.
-        // .with_span_events(FmtSpan::CLOSE)
-        .with_target(true);
+    let is_ci = std::env::var("IS_CI")
+        .map(|v| v == "true" || v == "1")
+        .unwrap_or(false);
+    let info_log_file = std::env::var("INFO_LOG_FILE").ok();
 
     let filter = match level {
         Some(level) => EnvFilter::builder()
@@ -67,7 +49,66 @@ pub fn initialize_logger(level: Option<LevelFilter>) -> Result<(), BridgeError> 
         None => EnvFilter::from_default_env(),
     };
 
-    // Try to initialize tracing, depending on the `JSON_LOGS` env var
+    if is_ci {
+        let console_layer = fmt::layer()
+            .with_writer(std::io::stdout)
+            .with_file(true)
+            .with_line_number(true)
+            .with_target(true)
+            .with_filter(LevelFilter::WARN)
+            .boxed();
+
+        let mut layers = vec![console_layer];
+
+        if let Some(file_path) = info_log_file {
+            let file =
+                File::create(file_path).map_err(|e| BridgeError::ConfigError(e.to_string()))?;
+
+            let file_layer = fmt::layer()
+                .with_writer(file)
+                .with_ansi(false)
+                .with_file(true)
+                .with_line_number(true)
+                .with_target(true)
+                .with_thread_ids(true)
+                .with_thread_names(true)
+                .with_filter(LevelFilter::INFO)
+                .boxed();
+
+            layers.push(file_layer);
+        }
+
+        let subscriber = Registry::default().with(layers);
+
+        let res = tracing::subscriber::set_global_default(subscriber);
+        if let Err(e) = res {
+            if e.to_string() != "a global default trace dispatcher has already been set" {
+                return Err(BridgeError::ConfigError(e.to_string()));
+            }
+            tracing::info!("Tracing is already initialized, skipping without errors...");
+            return Ok(());
+        }
+
+        tracing::info!("Tracing initialized for CI environment successfully.");
+
+        return Ok(());
+    }
+
+    let json_layer = fmt::layer::<Registry>()
+        .with_test_writer()
+        .with_file(true)
+        .with_line_number(true)
+        .with_thread_ids(true)
+        .with_thread_names(true)
+        .with_target(true)
+        .json();
+
+    let standard_layer = fmt::layer()
+        .with_test_writer()
+        .with_file(true)
+        .with_line_number(true)
+        .with_target(true);
+
     let res = if std::env::var("JSON_LOGS").is_ok() {
         tracing_subscriber::util::SubscriberInitExt::try_init(
             tracing_subscriber::registry().with(json_layer).with(filter),
@@ -496,4 +537,60 @@ where
     }))
     .instrument(debug_span!("timed_try_join_all", description = description))
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::io::Read;
+    use tempfile::NamedTempFile;
+    use tracing::level_filters::LevelFilter;
+
+    #[test]
+    #[ignore = "This test changes environment variables so it should not be run in CI since it might affect other tests."]
+    fn test_ci_logging_setup() {
+        // Create a temporary file for testing
+        let temp_file = NamedTempFile::new().expect("Failed to create temp file");
+        let temp_path = temp_file.path().to_string_lossy().to_string();
+
+        std::env::set_var("IS_CI", "true");
+        std::env::set_var("INFO_LOG_FILE", &temp_path);
+
+        let result = initialize_logger(Some(LevelFilter::DEBUG));
+        assert!(result.is_ok(), "Logger initialization should succeed");
+
+        tracing::error!("Test error message");
+        tracing::warn!("Test warn message");
+        tracing::info!("Test info message");
+        tracing::debug!("Test debug message");
+
+        std::thread::sleep(std::time::Duration::from_millis(100));
+
+        let mut file_contents = String::new();
+        let mut file = fs::File::open(&temp_path).expect("Failed to open log file");
+        file.read_to_string(&mut file_contents)
+            .expect("Failed to read log file");
+
+        assert!(
+            file_contents.contains("Test error message"),
+            "Error message should be in file"
+        );
+        assert!(
+            file_contents.contains("Test warn message"),
+            "Warn message should be in file"
+        );
+        assert!(
+            file_contents.contains("Test info message"),
+            "Info message should be in file"
+        );
+
+        assert!(
+            !file_contents.contains("Test debug message"),
+            "Debug message should not be in file"
+        );
+
+        std::env::remove_var("IS_CI");
+        std::env::remove_var("INFO_LOG_FILE");
+    }
 }

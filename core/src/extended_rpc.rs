@@ -49,6 +49,9 @@ type Result<T> = std::result::Result<T, BitcoinRPCError>;
 pub struct ExtendedRpc {
     pub url: String,
     pub client: Arc<Client>,
+
+    #[cfg(test)]
+    cached_mining_address: Arc<tokio::sync::RwLock<Option<String>>>,
 }
 
 impl std::fmt::Debug for ExtendedRpc {
@@ -90,6 +93,8 @@ impl ExtendedRpc {
         Ok(Self {
             url,
             client: Arc::new(rpc),
+            #[cfg(test)]
+            cached_mining_address: Arc::new(tokio::sync::RwLock::new(None)),
         })
     }
 
@@ -477,18 +482,79 @@ impl ExtendedRpc {
     /// - [`Vec<BlockHash>`]: A vector of block hashes for the newly mined blocks.
     #[cfg(test)]
     pub async fn mine_blocks(&self, block_num: u64) -> Result<Vec<BlockHash>> {
-        let new_address = self
-            .client
-            .get_new_address(None, None)
-            .await
-            .wrap_err("Failed to get new address")?
-            .assume_checked();
+        use std::time::Duration;
+        use tokio::time::sleep;
 
-        Ok(self
+        if block_num == 0 {
+            return Ok(vec![]);
+        }
+
+        let max_attempts = 5;
+
+        for attempt in 1..=max_attempts {
+            match self.try_mine(block_num).await {
+                Ok(blocks) => return Ok(blocks),
+                Err(e) => {
+                    if attempt == max_attempts {
+                        return Err(eyre::Report::from(e)
+                            .wrap_err("Failed to mine blocks after maximum attempts")
+                            .into());
+                    }
+                    let delay = Duration::from_millis(100 * 2u64.pow(attempt));
+                    eprintln!(
+                        "Retry {}/{}: {}. Retrying in {:?}",
+                        attempt, max_attempts, e, delay
+                    );
+                    sleep(delay).await;
+                }
+            }
+        }
+
+        unreachable!()
+    }
+
+    #[cfg(test)]
+    async fn try_mine(&self, block_num: u64) -> Result<Vec<BlockHash>> {
+        let address = {
+            let read = self.cached_mining_address.read().await;
+            if let Some(addr) = &*read {
+                addr.clone()
+            } else {
+                drop(read);
+                let new_addr = self
+                    .client
+                    .get_new_address(None, None)
+                    .await
+                    .wrap_err("Failed to get new address")?
+                    .assume_checked()
+                    .to_string();
+                let mut write = self.cached_mining_address.write().await;
+                if let Some(addr) = &*write {
+                    addr.clone()
+                } else {
+                    let new_addr = self
+                        .client
+                        .get_new_address(None, None)
+                        .await
+                        .wrap_err("Failed to get new address")?
+                        .assume_checked()
+                        .to_string();
+                    *write = Some(new_addr.clone());
+                    new_addr
+                }
+            }
+        };
+
+        let address = Address::from_str(&address)
+            .wrap_err("Invalid address format")?
+            .assume_checked();
+        let blocks = self
             .client
-            .generate_to_address(block_num, &new_address)
+            .generate_to_address(block_num, &address)
             .await
-            .wrap_err("Failed to generate to address")?)
+            .wrap_err("Failed to generate to address")?;
+
+        Ok(blocks)
     }
 
     /// Gets the number of transactions in the mempool.
@@ -708,6 +774,8 @@ impl ExtendedRpc {
         Ok(Self {
             url: self.url.clone(),
             client: self.client.clone(),
+            #[cfg(test)]
+            cached_mining_address: self.cached_mining_address.clone(),
         })
     }
 }
