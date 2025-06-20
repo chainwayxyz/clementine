@@ -117,12 +117,11 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 
     async fn run_test(&mut self, f: &mut TestFramework) -> Result<()> {
         tracing::info!("Starting Citrea");
-        
+
         let (sequencer, _full_node, lc_prover, batch_prover, da) =
             citrea::start_citrea(Self::sequencer_config(), f)
                 .await
                 .unwrap();
-
 
         let mut config = create_test_config_with_thread_name().await;
 

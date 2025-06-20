@@ -996,7 +996,7 @@ async fn additional_disprove_script_test_healthy() -> Result<()> {
 #[ignore = "This test is too slow, run separately"]
 async fn additional_disprove_script_test_disrupted_payout_tx_block_hash() -> Result<()> {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
-        .expect("Failed to initialize logger");    
+        .expect("Failed to initialize logger");
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
         "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",

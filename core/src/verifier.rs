@@ -1879,7 +1879,7 @@ where
             }
             operator_acks_vec[*idx] = Some(pre_image);
 
-            tracing::warn!("Operator ack for idx {}", idx);
+            tracing::info!("Operator ack for idx {}", idx);
         }
 
         let latest_blockhash: Vec<Vec<u8>> = latest_blockhash
@@ -1906,7 +1906,7 @@ where
             payout_blockhash_new.push(element);
         }
 
-        tracing::warn!(
+        tracing::info!(
             "Verify additional disprove conditions - Genesis height: {:?}, operator_xonly_pk: {:?}, move_txid: {:?}, round_txid: {:?}, vout: {:?}, watchtower_challenge_start_idx: {:?}, genesis_chain_state_hash: {:?}, deposit_constant: {:?}",
             self.config.protocol_paramset.genesis_height,
             kickoff_data.operator_xonly_pk,
@@ -1918,17 +1918,11 @@ where
             deposit_constant
         );
 
-        tracing::warn!("Payout blockhash: {:?}", payout_blockhash_new);
-
-        tracing::warn!("Latest blockhash: {:?}", latest_blockhash_new);
-
-        tracing::warn!(
-            "Challenge sending watchtowers signature: {:?}",
-            challenge_sending_watchtowers_signature
-        );
-
-        tracing::warn!(
-            "G16 public input signature: {:?}",
+        tracing::info!(
+            "Payout blockhash: {:?}\nLatest blockhash: {:?}\nChallenge sending watchtowers signature: {:?}\nG16 public input signature: {:?}",
+            payout_blockhash_new,
+            latest_blockhash_new,
+            challenge_sending_watchtowers_signature,
             g16_public_input_signature
         );
 

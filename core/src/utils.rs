@@ -49,11 +49,7 @@ pub fn initialize_logger(level: Option<LevelFilter>) -> Result<(), BridgeError> 
         None => EnvFilter::from_default_env(),
     };
 
-    println!("Initializing tracing subscriber with filter:");
-
     if is_ci {
-        println!("Running in CI mode, setting up tracing subscriber...");
-
         let console_layer = fmt::layer()
             .with_writer(std::io::stdout)
             .with_file(true)
@@ -89,11 +85,11 @@ pub fn initialize_logger(level: Option<LevelFilter>) -> Result<(), BridgeError> 
             if e.to_string() != "a global default trace dispatcher has already been set" {
                 return Err(BridgeError::ConfigError(e.to_string()));
             }
-            println!("Tracing is already initialized, skipping without errors...");
+            tracing::info!("Tracing is already initialized, skipping without errors...");
             return Ok(());
         }
 
-        println!("Tracing subscriber initialized successfully.");
+        tracing::info!("Tracing initialized for CI environment successfully.");
 
         return Ok(());
     }
@@ -543,7 +539,6 @@ where
     .await
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -573,13 +568,26 @@ mod tests {
 
         let mut file_contents = String::new();
         let mut file = fs::File::open(&temp_path).expect("Failed to open log file");
-        file.read_to_string(&mut file_contents).expect("Failed to read log file");
+        file.read_to_string(&mut file_contents)
+            .expect("Failed to read log file");
 
-        assert!(file_contents.contains("Test error message"), "Error message should be in file");
-        assert!(file_contents.contains("Test warn message"), "Warn message should be in file");
-        assert!(file_contents.contains("Test info message"), "Info message should be in file");
+        assert!(
+            file_contents.contains("Test error message"),
+            "Error message should be in file"
+        );
+        assert!(
+            file_contents.contains("Test warn message"),
+            "Warn message should be in file"
+        );
+        assert!(
+            file_contents.contains("Test info message"),
+            "Info message should be in file"
+        );
 
-        assert!(!file_contents.contains("Test debug message"), "Debug message should not be in file");
+        assert!(
+            !file_contents.contains("Test debug message"),
+            "Debug message should not be in file"
+        );
 
         std::env::remove_var("IS_CI");
         std::env::remove_var("INFO_LOG_FILE");
