@@ -14,6 +14,7 @@ use super::input::SpendableTxIn;
 use super::input::UtxoVout;
 use super::op_return_txout;
 use super::txhandler::DEFAULT_SEQUENCE;
+use super::HiddenNode;
 use super::Signed;
 use super::TransactionType;
 use super::TxError;
@@ -39,6 +40,12 @@ use std::sync::Arc;
 pub enum AssertScripts<'a> {
     AssertScriptTapNodeHash(&'a [[u8; 32]]),
     AssertSpendableScript(Vec<Arc<dyn SpendableScript>>),
+}
+
+#[derive(Debug, Clone)]
+pub enum DisprovePath<'a> {
+    Scripts(Vec<ScriptBuf>),
+    HiddenNode(HiddenNode<'a>),
 }
 
 /// Creates a [`TxHandler`] for the `kickoff_tx`.
@@ -83,7 +90,7 @@ pub fn create_kickoff_txhandler(
     deposit_data: &mut DepositData,
     operator_xonly_pk: XOnlyPublicKey,
     assert_scripts: AssertScripts,
-    disprove_root_hash: &[u8; 32],
+    disprove_path: DisprovePath,
     additional_disprove_script: Vec<u8>,
     latest_blockhash_script: AssertScripts,
     operator_unlock_hashes: &[[u8; 20]],
@@ -144,7 +151,7 @@ pub fn create_kickoff_txhandler(
     builder = builder.add_output(super::create_disprove_taproot_output(
         operator_5week,
         additional_disprove_script.clone(),
-        disprove_root_hash,
+        disprove_path,
         paramset.default_utxo_amount(),
         paramset.network,
     ));
@@ -296,7 +303,8 @@ pub fn create_kickoff_not_finalized_txhandler(
         )
         .add_input(
             NormalSignatureKind::KickoffNotFinalized2,
-            ready_to_reimburse_txhandler.get_spendable_output(UtxoVout::BurnConnector)?,
+            ready_to_reimburse_txhandler
+                .get_spendable_output(UtxoVout::CollateralInReadyToReimburse)?,
             builder::script::SpendPath::KeySpend,
             DEFAULT_SEQUENCE,
         )

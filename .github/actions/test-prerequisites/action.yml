@@ -15,28 +15,29 @@ runs:
     - name: Download bitvm cache bin
       shell: bash
       run: wget https://static.testnet.citrea.xyz/common/bitvm_cache_v3.bin -O core/bitvm_cache.bin
+    - name: Download bitvm cache dev bin
+      shell: bash
+      run: wget https://static.testnet.citrea.xyz/common/bitvm_cache_dev.bin -O core/bitvm_cache_dev.bin
+
     - name: Download Bitcoin
       shell: bash
       run: wget https://bitcoincore.org/bin/bitcoin-core-29.0/bitcoin-29.0-x86_64-linux-gnu.tar.gz
     - name: Unpack Bitcoin
       shell: bash
       run: tar -xzvf bitcoin-29.0-x86_64-linux-gnu.tar.gz
-
     - name: Set executable permissions
       shell: bash
       run: chmod +x bitcoin-29.0/bin/*
-
     - name: Add bitcoin to path
       shell: bash
       run: echo "$PWD/bitcoin-29.0/bin" >> $GITHUB_PATH
 
-    - name: Install cargo-risczero
-      uses: taiki-e/install-action@v2
-      with:
-        tool: cargo-risczero@1.2
-
-    - name: Install risc0-zkvm toolchain
+    - name: Install risc0
       shell: bash
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}
-      run: cargo risczero install --version r0.1.85.0
+      run: |
+        curl -L https://risczero.com/install | bash
+        export PATH="$PATH:$HOME/.risc0/bin"
+        rzup install
+        rzup install rust 1.85.0

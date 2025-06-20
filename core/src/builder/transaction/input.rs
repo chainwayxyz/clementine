@@ -66,8 +66,6 @@ pub enum UtxoVout {
     Disprove,
     /// The vout of the latest blockhash utxo in KickoffTx
     LatestBlockhash,
-    /// The vout of the burn connector utxo in RoundTx and ReimburseTx
-    BurnConnector,
     /// The vout of the deposited btc utxo in MoveTx
     DepositInMove,
     /// The vout of the reimburse connector utxo in RoundTx
@@ -98,7 +96,6 @@ impl UtxoVout {
             UtxoVout::ReimburseInKickoff => 2,
             UtxoVout::Disprove => 3,
             UtxoVout::LatestBlockhash => 4,
-            UtxoVout::BurnConnector => 0,
             UtxoVout::ReimburseInRound(idx, paramset) => {
                 (paramset.num_kickoffs_per_round + idx + 1) as u32
             }

@@ -23,7 +23,7 @@ use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::PublicKey;
 use bitcoin::XOnlyPublicKey;
 use eyre::Context;
-use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce};
+use secp256k1::musig::{AggregatedNonce, PartialSignature, PublicNonce};
 use tonic::Status;
 
 impl<C> TryFrom<&Verifier<C>> for VerifierParams
@@ -81,9 +81,7 @@ impl From<DepositSignSession> for VerifierDepositSignParams {
 impl From<DepositSignSession> for VerifierDepositFinalizeParams {
     fn from(value: DepositSignSession) -> Self {
         VerifierDepositFinalizeParams {
-            params: Some(
-                verifier_deposit_finalize_params::Params::DepositSignFirstParam(value.clone()),
-            ),
+            params: Some(verifier_deposit_finalize_params::Params::DepositSignFirstParam(value)),
         }
     }
 }
@@ -106,8 +104,8 @@ impl From<NonceGenFirstResponse> for NonceGenResponse {
     }
 }
 
-impl From<&MusigPubNonce> for NonceGenResponse {
-    fn from(value: &MusigPubNonce) -> Self {
+impl From<&PublicNonce> for NonceGenResponse {
+    fn from(value: &PublicNonce) -> Self {
         NonceGenResponse {
             response: Some(nonce_gen_response::Response::PubNonce(
                 value.serialize().to_vec(),
@@ -116,8 +114,8 @@ impl From<&MusigPubNonce> for NonceGenResponse {
     }
 }
 
-impl From<MusigPartialSignature> for PartialSig {
-    fn from(value: MusigPartialSignature) -> Self {
+impl From<PartialSignature> for PartialSig {
+    fn from(value: PartialSignature) -> Self {
         PartialSig {
             partial_sig: value.serialize().to_vec(),
         }
@@ -145,14 +143,17 @@ pub fn parse_deposit_sign_session(
 }
 
 #[allow(clippy::result_large_err)]
-pub fn parse_partial_sigs(
-    partial_sigs: Vec<Vec<u8>>,
-) -> Result<Vec<MusigPartialSignature>, Status> {
+pub fn parse_partial_sigs(partial_sigs: Vec<Vec<u8>>) -> Result<Vec<PartialSignature>, Status> {
     partial_sigs
         .iter()
         .enumerate()
         .map(|(idx, sig)| {
-            MusigPartialSignature::from_slice(sig).map_err(|e| {
+            PartialSignature::from_byte_array(
+                &sig.as_slice()
+                    .try_into()
+                    .map_err(|_| Status::invalid_argument("PartialSignature must be 32 bytes"))?,
+            )
+            .map_err(|e| {
                 error::invalid_argument(
                     "partial_sig",
                     format!("Verifier {idx} returned an invalid partial signature").as_str(),
@@ -204,13 +205,18 @@ pub async fn parse_next_deposit_finalize_param_schnorr_sig(
 
 pub async fn parse_deposit_finalize_param_move_tx_agg_nonce(
     stream: &mut tonic::Streaming<VerifierDepositFinalizeParams>,
-) -> Result<MusigAggNonce, Status> {
+) -> Result<AggregatedNonce, Status> {
     let sig = fetch_next_message_from_stream!(stream, params)?;
 
     match sig {
         verifier_deposit_finalize_params::Params::MoveTxAggNonce(aggnonce) => {
-            Ok(MusigAggNonce::from_slice(&aggnonce)
-                .map_err(invalid_argument("MusigAggNonce", "failed to parse"))?)
+            let arr: [u8; 66] = aggnonce
+                .as_slice()
+                .try_into()
+                .map_err(|_| Status::invalid_argument("AggregatedNonce must be 66 bytes"))?;
+
+            Ok(AggregatedNonce::from_byte_array(&arr)
+                .map_err(invalid_argument("AggregatedNonce", "failed to parse"))?)
         }
         _ => Err(Status::internal("Expected FinalSig 2")),
     }
@@ -218,13 +224,18 @@ pub async fn parse_deposit_finalize_param_move_tx_agg_nonce(
 
 pub async fn parse_deposit_finalize_param_emergency_stop_agg_nonce(
     stream: &mut tonic::Streaming<VerifierDepositFinalizeParams>,
-) -> Result<MusigAggNonce, Status> {
+) -> Result<AggregatedNonce, Status> {
     let sig = fetch_next_message_from_stream!(stream, params)?;
 
     match sig {
         verifier_deposit_finalize_params::Params::EmergencyStopAggNonce(aggnonce) => {
-            Ok(MusigAggNonce::from_slice(&aggnonce)
-                .map_err(invalid_argument("MusigAggNonce", "failed to parse"))?)
+            Ok(AggregatedNonce::from_byte_array(
+                &aggnonce
+                    .as_slice()
+                    .try_into()
+                    .map_err(|_| Status::invalid_argument("AggregatedNonce must be 66 bytes"))?,
+            )
+            .map_err(invalid_argument("AggregatedNonce", "failed to parse"))?)
         }
         _ => Err(Status::internal("Expected FinalSig 2")),
     }

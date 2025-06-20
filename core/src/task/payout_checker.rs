@@ -50,6 +50,12 @@ where
         let (citrea_idx, move_to_vault_txid, payout_tx_blockhash) =
             unhandled_payout.expect("Must be Some");
 
+        tracing::info!(
+            "Unhandled payout found for withdrawal {}, move_txid: {}",
+            citrea_idx,
+            move_to_vault_txid
+        );
+
         let deposit_data = self
             .db
             .get_deposit_data_with_move_tx(Some(&mut dbtx), move_to_vault_txid)

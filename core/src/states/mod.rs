@@ -163,7 +163,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             return Ok(());
         };
 
-        tracing::warn!("Loading state machines from block height {}", block_height);
+        tracing::info!("Loading state machines from block height {}", block_height);
 
         // Load kickoff machines
         let kickoff_machines = self
@@ -240,7 +240,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                     self.round_machines.push(initialized);
                 }
                 Err(e) => {
-                    tracing::warn!(
+                    tracing::error!(
                         "Failed to deserialize round machine with operator index {:?}: {}",
                         operator_xonly_pk,
                         e
@@ -479,11 +479,6 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             }
 
             if !all_errors.is_empty() {
-                tracing::warn!(
-                    "Multiple errors occurred during state processing: owner: {:?}, errors: {:?}",
-                    self.context.owner_type,
-                    all_errors
-                );
                 // revert state machines to the saved state as the content of the machines might be changed before the error occurred
                 self.kickoff_machines = kickoff_machines_checkpoint;
                 self.round_machines = round_machines_checkpoint;

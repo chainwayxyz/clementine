@@ -26,6 +26,7 @@ use crate::actor::Actor;
 use crate::bitvm_client::ClementineBitVMPublicKeys;
 use crate::builder;
 use crate::builder::script::{SpendableScript, TimelockScript, WinternitzCommit};
+use crate::builder::transaction::operator_reimburse::DisprovePath;
 use crate::builder::transaction::{
     create_assert_timeout_txhandlers, create_challenge_timeout_txhandler, create_kickoff_txhandler,
     create_mini_asserts, create_round_txhandler, create_unspent_kickoff_txhandlers, AssertScripts,
@@ -422,7 +423,7 @@ impl ContractContext {
 
     /// Contains all necessary context for creating txhandlers for a specific operator, kickoff utxo, and a deposit
     /// Additionally holds signer of an actor that can generate the actual winternitz public keys.
-    pub fn new_context_for_asserts(
+    pub fn new_context_with_signer(
         kickoff_data: KickoffData,
         deposit_data: DepositData,
         paramset: &'static ProtocolParamset,
@@ -598,7 +599,7 @@ pub async fn create_txhandlers(
         operator_data.xonly_pk,
         RoundTxInput::Prevout(Box::new(
             get_txhandler(&txhandlers, TransactionType::ReadyToReimburse)?
-                .get_spendable_output(UtxoVout::BurnConnector)?,
+                .get_spendable_output(UtxoVout::CollateralInReadyToReimburse)?,
         )),
         kickoff_winternitz_keys.get_keys_for_round(round_idx.next_round())?,
         paramset,
@@ -672,7 +673,7 @@ pub async fn create_txhandlers(
     );
 
     tracing::debug!(
-        "Deposit constant for {:?}: {:?} - depoist outpoint: {:?}",
+        "Deposit constant for {:?}: {:?} - deposit outpoint: {:?}",
         operator_xonly_pk,
         deposit_constant.0,
         deposit_data.get_deposit_outpoint(),
@@ -696,6 +697,16 @@ pub async fn create_txhandlers(
     );
     let disprove_root_hash = *db_cache.get_bitvm_disprove_root_hash().await?;
     let latest_blockhash_root_hash = *db_cache.get_latest_blockhash_root_hash().await?;
+
+    let disprove_path = if transaction_type == TransactionType::Disprove {
+        let actor = context.signer.clone().ok_or(TxError::InsufficientContext)?;
+        let bitvm_pks =
+            actor.generate_bitvm_pks_for_deposit(deposit_data.get_deposit_outpoint(), paramset)?;
+        let disprove_scripts = bitvm_pks.get_g16_verifier_disprove_scripts();
+        DisprovePath::Scripts(disprove_scripts)
+    } else {
+        DisprovePath::HiddenNode(&disprove_root_hash)
+    };
 
     let kickoff_txhandler = if matches!(
         transaction_type,
@@ -725,7 +736,7 @@ pub async fn create_txhandlers(
             &mut deposit_data,
             operator_data.xonly_pk,
             AssertScripts::AssertSpendableScript(assert_scripts),
-            &disprove_root_hash,
+            disprove_path,
             additional_disprove_script.clone(),
             AssertScripts::AssertSpendableScript(vec![latest_blockhash_script]),
             &public_hashes,
@@ -756,7 +767,7 @@ pub async fn create_txhandlers(
             &mut deposit_data,
             operator_data.xonly_pk,
             AssertScripts::AssertScriptTapNodeHash(db_cache.get_bitvm_assert_hash().await?),
-            &disprove_root_hash,
+            disprove_path,
             additional_disprove_script.clone(),
             AssertScripts::AssertScriptTapNodeHash(&[latest_blockhash_root_hash]),
             &public_hashes,
@@ -893,19 +904,17 @@ pub async fn create_txhandlers(
     );
 
     match transaction_type {
-        TransactionType::AllNeededForDeposit => {
+        TransactionType::AllNeededForDeposit | TransactionType::Disprove => {
             let disprove_txhandler = builder::transaction::create_disprove_txhandler(
                 get_txhandler(&txhandlers, TransactionType::Kickoff)?,
                 get_txhandler(&txhandlers, TransactionType::Round)?,
                 paramset,
             )?;
+
             txhandlers.insert(
                 disprove_txhandler.get_transaction_type(),
                 disprove_txhandler,
             );
-        }
-        TransactionType::Disprove => {
-            // TODO: if TransactionType::Disprove, we need to add the actual disprove script here because requester wants to disprove the withdrawal
         }
         _ => {}
     }
@@ -947,7 +956,7 @@ pub fn create_round_txhandlers(
                 operator_data.xonly_pk,
                 RoundTxInput::Prevout(Box::new(
                     prev_ready_to_reimburse_txhandler
-                        .get_spendable_output(UtxoVout::BurnConnector)?,
+                        .get_spendable_output(UtxoVout::CollateralInReadyToReimburse)?,
                 )),
                 kickoff_winternitz_keys.get_keys_for_round(round_idx)?,
                 paramset,

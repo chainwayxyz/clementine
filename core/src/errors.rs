@@ -74,6 +74,7 @@ use clap::builder::StyledStr;
 use core::fmt::Debug;
 use hex::FromHexError;
 use thiserror::Error;
+use tonic::Status;
 
 pub use crate::builder::transaction::TxError;
 
@@ -160,6 +161,8 @@ pub enum BridgeError {
     AlloySolTypes(#[from] alloy::sol_types::Error),
     #[error("{0}")]
     CLIDisplayAndExit(StyledStr),
+    #[error(transparent)]
+    RPC(#[from] Status),
 
     // Base wrapper for eyre
     #[error(transparent)]
@@ -220,30 +223,22 @@ impl<U: Sized, T: Into<BridgeError>> ResultExt for Result<U, T> {
 
 impl From<BridgeError> for tonic::Status {
     fn from(val: BridgeError) -> Self {
-        // TODO: we need a better solution for user-facing errors.
-        // This exposes our internal errors to the user. What we want here is:
-        // 1. We don't want to expose internal errors to the user.
-        // 2. We want lower-level errors to be able to define whether and how they want to be exposed to the user.
-        tracing::error!(
-            "Casting BridgeError to Status message (possibly lossy): {:?}",
-            val
-        );
-        tonic::Status::from_error(Box::new(val))
+        let eyre_report = val.into_eyre();
 
-        // Possible future implementation, requires manually matching all TryInto<Status> types
-        // for err in val.into_eyre().chain() {
-        //     match err.downcast_ref::<BridgeError>() {
-        //         Some(BridgeError::Aggregator(err)) => {
-        //             if let Ok(status) = err.try_into() {
-        //                 return status;
-        //             }
-        //         }
-        //         Some(_) | None => {}
-        //     }
-        // }
+        // eyre::Report can cast any error in the chain to a Status, so we use its downcast method to get the first Status.
+        eyre_report.downcast::<Status>().unwrap_or_else(|report| {
+            // We don't want this case to happen, all casts to Status should contain a Status that contains a user-facing error message.
+            tracing::error!(
+                "Returning internal error on RPC call, full error: {:?}",
+                report
+            );
 
-        // tracing::error!("Internal server error: {:?}", val);
-        // tonic::Status::internal("Internal server error.")
+            let mut status = tonic::Status::internal(report.to_string());
+            status.set_source(Into::into(
+                Into::<Box<dyn std::error::Error + Send + Sync>>::into(report),
+            ));
+            status
+        })
     }
 }
 
@@ -263,5 +258,17 @@ mod tests {
                 .to_string(),
             BridgeError::IntConversionError.to_string()
         );
+    }
+
+    #[test]
+    fn test_status_in_chain_cast_properly() {
+        let err: BridgeError = eyre::eyre!("Some problem")
+            .wrap_err(tonic::Status::deadline_exceeded("Some timer expired"))
+            .wrap_err("Something else went wrong")
+            .into();
+
+        let status: Status = err.into_status();
+        assert_eq!(status.code(), tonic::Code::DeadlineExceeded);
+        assert_eq!(status.message(), "Some timer expired");
     }
 }

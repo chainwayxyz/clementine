@@ -112,9 +112,8 @@ pub fn update_config_with_citrea_e2e_values(
     sequencer: &citrea_e2e::node::Node<SequencerConfig>,
     light_client_prover: Option<(&str, u16)>,
 ) {
-    config.bitcoin_rpc_password = da.config.rpc_password.clone();
-    config.bitcoin_rpc_user = da.config.rpc_user.clone();
-    config.bitcoin_rpc_password = da.config.rpc_password.clone();
+    config.bitcoin_rpc_user = da.config.rpc_user.clone().into();
+    config.bitcoin_rpc_password = da.config.rpc_password.clone().into();
     config.bitcoin_rpc_url = format!(
         "http://127.0.0.1:{}/wallet/{}",
         da.config.rpc_port,

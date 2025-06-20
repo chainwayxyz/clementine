@@ -30,6 +30,7 @@ use crate::utils::FeePayingType;
 use crate::EVMAddress;
 use bitcoin::hashes::Hash;
 use bitcoin::key::Keypair;
+use bitcoin::secp256k1::rand;
 use bitcoin::secp256k1::Message;
 use bitcoin::secp256k1::PublicKey;
 use bitcoin::XOnlyPublicKey;
@@ -37,7 +38,6 @@ use bitcoin::{taproot, BlockHash, OutPoint, Transaction, Txid, Witness};
 use bitcoincore_rpc::RpcApi;
 use citrea::MockCitreaClient;
 use eyre::Context;
-use secp256k1::rand;
 pub use setup_utils::*;
 use tonic::transport::Channel;
 use tonic::Request;
@@ -219,8 +219,10 @@ pub async fn run_multiple_deposits<C: CitreaClientT>(
         Vec<ClementineOperatorClient<Channel>>,
         ClementineAggregatorClient<Channel>,
         ActorsCleanup,
-        Vec<OutPoint>,
+        Vec<DepositInfo>,
         Vec<Txid>,
+        Vec<BlockHash>,
+        Vec<PublicKey>,
     ),
     BridgeError,
 > {
@@ -242,8 +244,9 @@ pub async fn run_multiple_deposits<C: CitreaClientT>(
 
     let (deposit_address, _) =
         get_deposit_address(config, evm_address, verifiers_public_keys.clone())?;
-    let mut deposit_outpoints = Vec::new();
     let mut move_txids = Vec::new();
+    let mut deposit_blockhashes = Vec::new();
+    let mut deposit_infos = Vec::new();
 
     for _ in 0..count {
         let deposit_outpoint: OutPoint = rpc
@@ -258,6 +261,8 @@ pub async fn run_multiple_deposits<C: CitreaClientT>(
                 recovery_taproot_address: actor.address.as_unchecked().to_owned(),
             }),
         };
+
+        deposit_infos.push(deposit_info.clone());
 
         let deposit: Deposit = deposit_info.into();
 
@@ -294,7 +299,8 @@ pub async fn run_multiple_deposits<C: CitreaClientT>(
         )
         .await?;
 
-        deposit_outpoints.push(deposit_outpoint);
+        let deposit_blockhash = rpc.get_blockhash_of_tx(&deposit_outpoint.txid).await?;
+        deposit_blockhashes.push(deposit_blockhash);
         move_txids.push(move_txid);
     }
 
@@ -303,8 +309,10 @@ pub async fn run_multiple_deposits<C: CitreaClientT>(
         operators,
         aggregator,
         cleanup,
-        deposit_outpoints,
+        deposit_infos,
         move_txids,
+        deposit_blockhashes,
+        verifiers_public_keys,
     ))
 }
 
@@ -366,8 +374,7 @@ pub async fn run_single_deposit<C: CitreaClientT>(
     let movetx = aggregator
         .new_deposit(deposit)
         .await
-        .wrap_err("Error while making a deposit")
-        .expect("failed to make deposit")
+        .wrap_err("Error while making a deposit")?
         .into_inner();
     let move_txid = aggregator
         .send_move_to_vault_tx(SendMoveTxRequest {
@@ -379,7 +386,7 @@ pub async fn run_single_deposit<C: CitreaClientT>(
         .into_inner()
         .try_into()?;
 
-    mine_once_after_in_mempool(&rpc, move_txid, Some("Move tx"), None).await?;
+    mine_once_after_in_mempool(&rpc, move_txid, Some("Move tx"), Some(180)).await?;
 
     // let transaction = rpc
     //     .client
@@ -482,14 +489,9 @@ fn sign_nofn_deposit_tx(
         })
         .collect::<Vec<_>>();
 
-    let final_signature = aggregate_partial_signatures(
-        &verifiers_public_keys.clone(),
-        None,
-        agg_nonce,
-        &partial_sigs,
-        msg,
-    )
-    .unwrap();
+    let final_signature =
+        aggregate_partial_signatures(verifiers_public_keys, None, agg_nonce, &partial_sigs, msg)
+            .unwrap();
 
     let final_taproot_sig = taproot::Signature {
         signature: final_signature,

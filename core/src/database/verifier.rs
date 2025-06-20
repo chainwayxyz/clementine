@@ -84,34 +84,22 @@ impl Database {
     pub async fn set_replacement_deposit_move_txid(
         &self,
         tx: DatabaseTransaction<'_, '_>,
-        old_move_txid: Txid,
+        idx: u32,
         new_move_txid: Txid,
     ) -> Result<(), BridgeError> {
-        // check if new move txid is already in the database
-        let query = sqlx::query_as::<_, (i32,)>(
-            "SELECT COUNT(*) FROM withdrawals WHERE move_to_vault_txid = $1",
-        )
-        .bind(TxidDB(new_move_txid))
-        .fetch_one(tx.deref_mut())
-        .await?;
-
-        if query.0 > 0 {
-            return Ok(());
-        }
-
         let query = sqlx::query(
             "UPDATE withdrawals
              SET move_to_vault_txid = $2
-             WHERE move_to_vault_txid = $1
+             WHERE idx = $1
              RETURNING idx",
         )
-        .bind(TxidDB(old_move_txid))
+        .bind(i32::try_from(idx).wrap_err("Failed to convert idx to i32")?)
         .bind(TxidDB(new_move_txid))
         .fetch_optional(tx.deref_mut())
         .await?;
 
         if query.is_none() {
-            return Err(eyre::eyre!("Old move txid not found: {}", old_move_txid).into());
+            return Err(eyre::eyre!("Replacement move txid not found: {}", idx).into());
         }
         Ok(())
     }
