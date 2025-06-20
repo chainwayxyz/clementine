@@ -553,7 +553,7 @@ impl AdditionalDisproveTest {
         );
 
         assert_eq!(
-            disprove_tx.input[0].witness.len(), 560
+            disprove_tx.input[0].witness.len(), 560,
             "Additional disprove tx input witness length is not 560 bytes"
         );
 
@@ -628,7 +628,7 @@ impl AdditionalDisproveTest {
         );
 
         assert_eq!(
-            disprove_tx.input[0].witness.len(), 560
+            disprove_tx.input[0].witness.len(), 560,
             "Additional disprove tx input witness length is not 560 bytes"
         );
 
@@ -708,7 +708,7 @@ impl AdditionalDisproveTest {
         );
 
         assert_eq!(
-            disprove_tx.input[0].witness.len(), 560
+            disprove_tx.input[0].witness.len(), 560,
             "Additional disprove tx input witness length is not 560 bytes"
         );
 
@@ -783,7 +783,7 @@ impl AdditionalDisproveTest {
         );
 
         assert_eq!(
-            disprove_tx.input[0].witness.len(), 560
+            disprove_tx.input[0].witness.len(), 560,
             "Additional disprove tx input witness length is not 560 bytes"
         );
 
