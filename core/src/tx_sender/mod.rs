@@ -774,7 +774,7 @@ mod tests {
         let pair = btc_sender.into_task().cancelable_loop();
         pair.0.into_bg();
 
-        // Create a transaction that doesnt need funding
+        // Create a transaction that doesn't need funding
         let tx = rbf::tests::create_rbf_tx(&rpc, &signer, network, false).await?;
 
         // Insert the transaction into the database
