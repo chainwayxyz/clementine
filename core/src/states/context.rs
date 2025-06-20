@@ -78,7 +78,8 @@ pub enum Duty {
         latest_blockhash: Witness,
     },
     /// This duty is only sent if a kickoff was challenged.
-    /// This duty is sent after some time (paramset.time_to_disprove number of blocks) passes after a kickoff was sent to chain.
+    /// This duty is sent after all asserts and latest blockhash commit are finalized on chain, and all watchtower challenge
+    /// utxos are spent.
     /// It denotes to the owner that it is time to send a disprove to the corresponding kickoff.
     /// It includes the operator asserts, operator acks and the payout blockhash so that they can be used in the disprove tx if the proof
     /// is invalid.

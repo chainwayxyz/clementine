@@ -403,7 +403,7 @@ mod tests {
         env::set_var("NUM_KICKOFFS_PER_ROUND", "10");
         env::set_var("NUM_SIGNED_KICKOFFS", "2");
         env::set_var("BRIDGE_AMOUNT", "1000000000");
-        env::set_var("KICKOFF_AMOUNT", "55000");
+        env::set_var("KICKOFF_AMOUNT", "0");
         env::set_var("OPERATOR_CHALLENGE_AMOUNT", "200000000");
         env::set_var("COLLATERAL_FUNDING_AMOUNT", "99000000");
         env::set_var("KICKOFF_BLOCKHASH_COMMIT_LENGTH", "40");
@@ -417,7 +417,6 @@ mod tests {
         env::set_var("OPERATOR_REIMBURSE_TIMELOCK", "12");
         env::set_var("WATCHTOWER_CHALLENGE_TIMEOUT_TIMELOCK", "288");
         env::set_var("TIME_TO_SEND_WATCHTOWER_CHALLENGE", "216");
-        env::set_var("TIME_TO_DISPROVE", "648");
         env::set_var("LATEST_BLOCKHASH_TIMEOUT_TIMELOCK", "360");
         env::set_var("FINALITY_DEPTH", "1");
         env::set_var("START_HEIGHT", "8148");
@@ -431,7 +430,7 @@ mod tests {
             "BRIDGE_CIRCUIT_METHOD_ID_CONSTANT",
             "5656ca86d593c1b2dcb8c992d88cb2a0a7111b9e4bcc2efecb0c74c68934a1c4",
         );
-        env::set_var("BRIDGE_NONSTANDARD", "false");
+        env::set_var("BRIDGE_NONSTANDARD", "true");
     }
 
     // Helper to clean up all environment variables
@@ -482,7 +481,6 @@ mod tests {
         env::remove_var("OPERATOR_REIMBURSE_TIMELOCK");
         env::remove_var("WATCHTOWER_CHALLENGE_TIMEOUT_TIMELOCK");
         env::remove_var("TIME_TO_SEND_WATCHTOWER_CHALLENGE");
-        env::remove_var("TIME_TO_DISPROVE");
         env::remove_var("FINALITY_DEPTH");
         env::remove_var("START_HEIGHT");
         env::remove_var("HEADER_CHAIN_PROOF_BATCH_SIZE");

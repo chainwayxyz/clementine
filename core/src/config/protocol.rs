@@ -113,8 +113,6 @@ pub struct ProtocolParamset {
     pub watchtower_challenge_timeout_timelock: u16,
     /// Time to wait after a kickoff to send a watchtower challenge
     pub time_to_send_watchtower_challenge: u16,
-    /// Time to wait before trying to disprove (so that you collect all operator challenge acks before disproving)
-    pub time_to_disprove: u16,
     /// Amount of depth a block should have from the current head to be considered finalized
     pub finality_depth: u32,
     /// start height to sync the chain from, i.e. the height bridge was deployed
@@ -127,7 +125,7 @@ pub struct ProtocolParamset {
     pub header_chain_proof_batch_size: u32,
     /// Bridge circuit method id
     pub bridge_circuit_method_id_constant: [u8; 32],
-    /// Denotes if the bridge is non-standard, i.e. uses 0 sat outputs
+    /// Denotes if the bridge is non-standard, i.e. uses 0 sat outputs for round tx (except collateral) and kickoff outputs
     pub bridge_nonstandard: bool,
 }
 
@@ -188,7 +186,6 @@ impl ProtocolParamset {
             time_to_send_watchtower_challenge: read_string_from_env_then_parse::<u16>(
                 "TIME_TO_SEND_WATCHTOWER_CHALLENGE",
             )?,
-            time_to_disprove: read_string_from_env_then_parse::<u16>("TIME_TO_DISPROVE")?,
             finality_depth: read_string_from_env_then_parse::<u32>("FINALITY_DEPTH")?,
             start_height: read_string_from_env_then_parse::<u32>("START_HEIGHT")?,
             genesis_height: read_string_from_env_then_parse::<u32>("GENESIS_HEIGHT")?,
@@ -253,7 +250,7 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     num_kickoffs_per_round: 10,
     num_signed_kickoffs: 2,
     bridge_amount: Amount::from_sat(1_000_000_000),
-    kickoff_amount: Amount::from_sat(55000),
+    kickoff_amount: Amount::from_sat(0),
     operator_challenge_amount: Amount::from_sat(200_000_000),
     collateral_funding_amount: Amount::from_sat(99_000_000),
     watchtower_challenge_bytes: 144,
@@ -267,7 +264,6 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     operator_reimburse_timelock: 2,
     watchtower_challenge_timeout_timelock: 4 * BLOCKS_PER_HOUR * 2,
     time_to_send_watchtower_challenge: 4 * BLOCKS_PER_HOUR * 3 / 2,
-    time_to_disprove: 4 * BLOCKS_PER_HOUR * 4 + 4 * BLOCKS_PER_HOUR / 2,
     latest_blockhash_timeout_timelock: 4 * BLOCKS_PER_HOUR * 5 / 2,
     finality_depth: 1,
     start_height: 190,
@@ -281,7 +277,7 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
         86, 86, 202, 134, 213, 147, 193, 178, 220, 184, 201, 146, 216, 140, 178, 160, 167, 17, 27,
         158, 75, 204, 46, 254, 203, 12, 116, 198, 137, 52, 161, 196,
     ],
-    bridge_nonstandard: false,
+    bridge_nonstandard: true,
 };
 
 #[cfg(test)]

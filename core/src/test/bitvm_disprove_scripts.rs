@@ -633,6 +633,7 @@ impl TestCase for DisproveTest {
                 "-limitancestorsize=1010",
                 "-limitdescendantsize=1010",
                 "-acceptnonstdtxn=1",
+                "-dustrelayfee=0",
             ],
             ..Default::default()
         }

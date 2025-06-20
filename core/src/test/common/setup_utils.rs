@@ -135,7 +135,8 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
     ];
 
     if config.protocol_paramset().bridge_nonstandard {
-        // allow 0 sat outputs in regtest
+        // allow 0 sat non-ephemeral outputs in regtest by not considering them as dust
+        // https://github.com/bitcoin/bitcoin/blob/master/src/policy/policy.cpp
         args.push("-dustrelayfee=0".to_string());
     }
 
