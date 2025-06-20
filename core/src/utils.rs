@@ -53,7 +53,7 @@ pub fn initialize_logger(level: Option<LevelFilter>) -> Result<(), BridgeError> 
 
     if is_ci {
         println!("Running in CI mode, setting up tracing subscriber...");
-        
+
         let console_layer = fmt::layer()
             .with_writer(std::io::stdout)
             .with_file(true)
@@ -65,9 +65,9 @@ pub fn initialize_logger(level: Option<LevelFilter>) -> Result<(), BridgeError> 
         let mut layers = vec![console_layer];
 
         if let Some(file_path) = info_log_file {
-            let file = File::create(file_path)
-                .map_err(|e| BridgeError::ConfigError(e.to_string()))?;
-            
+            let file =
+                File::create(file_path).map_err(|e| BridgeError::ConfigError(e.to_string()))?;
+
             let file_layer = fmt::layer()
                 .with_writer(file)
                 .with_ansi(false)
@@ -78,7 +78,7 @@ pub fn initialize_logger(level: Option<LevelFilter>) -> Result<(), BridgeError> 
                 .with_thread_names(true)
                 .with_filter(LevelFilter::INFO)
                 .boxed();
-            
+
             layers.push(file_layer);
         }
 
@@ -89,8 +89,10 @@ pub fn initialize_logger(level: Option<LevelFilter>) -> Result<(), BridgeError> 
             if e.to_string() != "a global default trace dispatcher has already been set" {
                 return Err(BridgeError::ConfigError(e.to_string()));
             }
-            tracing::trace!("Tracing is already initialized, skipping without errors...");
+            println!("Tracing is already initialized, skipping without errors...");
         }
+
+        println!("Tracing subscriber initialized successfully.");
 
         return Ok(());
     }
@@ -538,4 +540,47 @@ where
     }))
     .instrument(debug_span!("timed_try_join_all", description = description))
     .await
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::io::Read;
+    use tempfile::NamedTempFile;
+    use tracing::level_filters::LevelFilter;
+
+    #[test]
+    fn test_ci_logging_setup() {
+        // Create a temporary file for testing
+        let temp_file = NamedTempFile::new().expect("Failed to create temp file");
+        let temp_path = temp_file.path().to_string_lossy().to_string();
+
+        std::env::set_var("IS_CI", "true");
+        std::env::set_var("INFO_LOG_FILE", &temp_path);
+
+        let result = initialize_logger(Some(LevelFilter::DEBUG));
+        assert!(result.is_ok(), "Logger initialization should succeed");
+
+        tracing::error!("Test error message");
+        tracing::warn!("Test warn message");
+        tracing::info!("Test info message");
+        tracing::debug!("Test debug message");
+
+        std::thread::sleep(std::time::Duration::from_millis(100));
+
+        let mut file_contents = String::new();
+        let mut file = fs::File::open(&temp_path).expect("Failed to open log file");
+        file.read_to_string(&mut file_contents).expect("Failed to read log file");
+
+        assert!(file_contents.contains("Test error message"), "Error message should be in file");
+        assert!(file_contents.contains("Test warn message"), "Warn message should be in file");
+        assert!(file_contents.contains("Test info message"), "Info message should be in file");
+
+        assert!(!file_contents.contains("Test debug message"), "Debug message should not be in file");
+
+        std::env::remove_var("IS_CI");
+        std::env::remove_var("INFO_LOG_FILE");
+    }
 }
