@@ -90,6 +90,7 @@ pub fn initialize_logger(level: Option<LevelFilter>) -> Result<(), BridgeError> 
                 return Err(BridgeError::ConfigError(e.to_string()));
             }
             println!("Tracing is already initialized, skipping without errors...");
+            return Ok(());
         }
 
         println!("Tracing subscriber initialized successfully.");

@@ -22,7 +22,7 @@ use crate::test::common::tx_utils::{
 use crate::test::common::{
     generate_withdrawal_transaction_and_signature, mine_once_after_in_mempool, run_single_deposit,
 };
-use crate::utils::{FeePayingType, TxMetadata};
+use crate::utils::{initialize_logger, FeePayingType, TxMetadata};
 use crate::{
     extended_rpc::ExtendedRpc,
     test::common::{
@@ -937,6 +937,8 @@ impl TestCase for AdditionalDisproveTest {
 #[tokio::test]
 #[ignore = "This test is too slow, run separately"]
 async fn additional_disprove_script_test_disrupted_latest_block_hash() -> Result<()> {
+    initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
+        .expect("Failed to initialize logger");
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
         "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
@@ -964,6 +966,8 @@ async fn additional_disprove_script_test_disrupted_latest_block_hash() -> Result
 #[tokio::test]
 #[ignore = "This test is too slow, run separately"]
 async fn additional_disprove_script_test_healthy() -> Result<()> {
+    initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
+        .expect("Failed to initialize logger");
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
         "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
@@ -991,6 +995,8 @@ async fn additional_disprove_script_test_healthy() -> Result<()> {
 #[tokio::test]
 #[ignore = "This test is too slow, run separately"]
 async fn additional_disprove_script_test_disrupted_payout_tx_block_hash() -> Result<()> {
+    initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
+        .expect("Failed to initialize logger");    
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
         "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
@@ -1018,6 +1024,8 @@ async fn additional_disprove_script_test_disrupted_payout_tx_block_hash() -> Res
 #[tokio::test]
 #[ignore = "This test is too slow, run separately"]
 async fn additional_disprove_script_test_disrupt_chal_sending_wts() -> Result<()> {
+    initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
+        .expect("Failed to initialize logger");
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
         "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
@@ -1045,6 +1053,8 @@ async fn additional_disprove_script_test_disrupt_chal_sending_wts() -> Result<()
 #[tokio::test]
 #[ignore = "This test is too slow, run separately"]
 async fn additional_disprove_script_test_operator_forgot_wt_challenge() -> Result<()> {
+    initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
+        .expect("Failed to initialize logger");
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
         "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",

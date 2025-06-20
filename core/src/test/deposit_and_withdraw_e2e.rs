@@ -28,7 +28,7 @@ use crate::test::common::{
     create_regtest_rpc, generate_withdrawal_transaction_and_signature, mine_once_after_in_mempool,
     poll_get, poll_until_condition, run_single_deposit,
 };
-use crate::utils::{FeePayingType, TxMetadata};
+use crate::utils::{initialize_logger, FeePayingType, TxMetadata};
 use crate::UTXO;
 use crate::{
     extended_rpc::ExtendedRpc,
@@ -117,12 +117,15 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 
     async fn run_test(&mut self, f: &mut TestFramework) -> Result<()> {
         tracing::info!("Starting Citrea");
+        
         let (sequencer, _full_node, lc_prover, batch_prover, da) =
             citrea::start_citrea(Self::sequencer_config(), f)
                 .await
                 .unwrap();
 
+
         let mut config = create_test_config_with_thread_name().await;
+
         let lc_prover = lc_prover.unwrap();
         let batch_prover = batch_prover.unwrap();
 
@@ -622,6 +625,8 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 /// * Verifies reimburse connector is spent (proper payout handling)
 #[tokio::test]
 async fn citrea_deposit_and_withdraw_e2e() -> Result<()> {
+    initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
+        .expect("Failed to initialize logger");
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
         "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
@@ -634,6 +639,8 @@ async fn citrea_deposit_and_withdraw_e2e() -> Result<()> {
 
 #[tokio::test]
 async fn citrea_deposit_and_withdraw_e2e_non_zero_genesis_height() -> Result<()> {
+    initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
+        .expect("Failed to initialize logger");
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
         "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",

@@ -12,6 +12,7 @@ env:
   RISC0_DEV_MODE: 1
   ENABLE_HEADER_CHAIN_PROVER: 1
   RUST_MIN_STACK: 33554432
+  IS_CI: 1
 
   CARGOFLAGS: --workspace --all-targets
   CARGOFLAGS_ALL_FEATURES: --workspace --all-targets --all-features
@@ -72,6 +73,9 @@ jobs:
     runs-on: ubicloud-standard-30
     needs: debug_build_all_features
 
+    env:
+      INFO_LOG_FILE: test-logs/debug/debug-all-features-test.log
+
     services:
       postgres:
         image: postgres:latest
@@ -97,6 +101,9 @@ jobs:
       - uses: ./.github/actions/test-prerequisites
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create test log directories
+        run: mkdir -p test-logs/debug
 
       - name: Save/restore build artifacts
         uses: Swatinem/rust-cache@v2
@@ -106,10 +113,21 @@ jobs:
       - name: Run tests
         run: cargo test $CARGOFLAGS_ALL_FEATURES
 
+      - name: Upload test logs
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-test-logs
+          path: test-logs/debug/
+          retention-days: 7
+
   release_build_test_all_features:
     name: Release | All features | Test
     runs-on: ubicloud-standard-30
     needs: release_build_all_features
+
+    env:
+      INFO_LOG_FILE: test-logs/release/release-all-features-test.log
 
     services:
       postgres:
@@ -137,6 +155,9 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Create test log directories
+        run: mkdir -p test-logs/release
+
       - name: Save/restore build artifacts
         uses: Swatinem/rust-cache@v2
         with:
@@ -145,29 +166,49 @@ jobs:
       - name: Run tests
         run: cargo test --release $CARGOFLAGS_ALL_FEATURES
 
+      - name: Upload test logs
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-test-logs
+          path: test-logs/release/
+          retention-days: 7
+
   # Matrix (Standalone) Tests --------------------------------------------------
   standalone_tests:
     name: Release | All features | Test ${{ matrix.description_suffix }}
     runs-on: ubicloud-standard-4
     needs: release_build_all_features
+
+    env:
+      INFO_LOG_FILE: test-logs/standalone/standalone-${{ matrix.test_name }}-test.log
+
     strategy:
       fail-fast: false
       matrix:
         include:
           - test_script_name: additional_disprove_script_test_healthy
             description_suffix: "healthy path"
+            test_name: "additional-healthy"
           - test_script_name: additional_disprove_script_test_disrupted_payout_tx_block_hash
             description_suffix: "disrupted payout tx blockhash path"
+            test_name: "additional-disrupted-payout"
           - test_script_name: additional_disprove_script_test_disrupt_chal_sending_wts
             description_suffix: "disrupted challenge sending watchtowers path"
+            test_name: "additional-disrupted-challenge"
           - test_script_name: additional_disprove_script_test_operator_forgot_wt_challenge
             description_suffix: "operator forgot watchtower challenge path"
+            test_name: "additional-forgot-challenge"
           - test_script_name: additional_disprove_script_test_disrupted_latest_block_hash
             description_suffix: "disrupted latest blockhash path"
+            test_name: "additional-disrupted-blockhash"
           - test_script_name: bitvm_disprove_scripts::disprove_script_test_healthy
             description_suffix: "healthy path"
+            test_name: "bitvm-healthy"
           - test_script_name: bitvm_disprove_scripts::disprove_script_test_corrupted_assert
             description_suffix: "disrupted assert path"
+            test_name: "bitvm-corrupted-assert"
+
     services:
       postgres:
         image: postgres:latest
@@ -194,6 +235,9 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Create test log directories
+        run: mkdir -p test-logs/standalone
+
       - name: Save/restore build artifacts
         uses: Swatinem/rust-cache@v2
         with:
@@ -202,12 +246,23 @@ jobs:
       - name: Run tests
         run: cargo test ${{ matrix.test_script_name }} $CARGOFLAGS_ALL_FEATURES --release -- --ignored
 
+      - name: Upload test logs
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: standalone-test-logs-${{ matrix.test_name }}
+          path: test-logs/standalone/
+          retention-days: 7
+
   # Coverage -------------------------------------------------------------------
   coverage:
     name: Release | All features | Coverage
     runs-on: ubicloud-standard-30
     needs: release_build_all_features
     if: github.ref_name == 'main' || (github.event_name == 'pull_request' && !github.event.pull_request.draft)
+
+    env:
+      INFO_LOG_FILE: test-logs/coverage/coverage-test.log
 
     services:
       postgres:
@@ -236,6 +291,9 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
       - uses: taiki-e/install-action@cargo-llvm-cov
 
+      - name: Create test log directories
+        run: mkdir -p test-logs/coverage
+
       - name: Save/restore build artifacts
         uses: Swatinem/rust-cache@v2
         with:
@@ -243,9 +301,18 @@ jobs:
 
       - name: Run coverage
         run: cargo llvm-cov $CARGOFLAGS_ALL_FEATURES --release --lcov --locked --no-cfg-coverage --output-path lcov.info -j 8
+
       - name: Upload coverage
         uses: codecov/codecov-action@v4
         with:
           fail_ci_if_error: true # optional (default = false)
           files: ./lcov.info
           token: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Upload test logs
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-test-logs
+          path: test-logs/coverage/
+          retention-days: 7

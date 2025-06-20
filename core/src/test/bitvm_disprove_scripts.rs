@@ -19,7 +19,7 @@ use crate::test::common::tx_utils::{
 use crate::test::common::{
     generate_withdrawal_transaction_and_signature, mine_once_after_in_mempool, run_single_deposit,
 };
-use crate::utils::{FeePayingType, TxMetadata};
+use crate::utils::{initialize_logger, FeePayingType, TxMetadata};
 use crate::{
     builder::transaction::TransactionType,
     citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER},
@@ -710,6 +710,8 @@ impl TestCase for DisproveTest {
 #[tokio::test]
 #[ignore = "This test is too slow, run separately"]
 async fn disprove_script_test_healthy() -> Result<()> {
+    initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
+        .expect("Failed to initialize logger");
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
         "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
@@ -737,6 +739,8 @@ async fn disprove_script_test_healthy() -> Result<()> {
 #[tokio::test]
 #[ignore = "This test is too slow, run separately"]
 async fn disprove_script_test_corrupted_assert() -> Result<()> {
+    initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
+        .expect("Failed to initialize logger");
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
         "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
