@@ -7,7 +7,9 @@ use eyre::Context as _;
 use futures::future::try_join_all;
 use http::HeaderValue;
 use serde::{Deserialize, Serialize};
+use std::env;
 use std::fmt::{Debug, Display};
+use std::fs::File;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -17,9 +19,9 @@ use tokio::time::timeout;
 use tonic::Status;
 use tower::{Layer, Service};
 use tracing::level_filters::LevelFilter;
-use tracing::{debug_span, Instrument};
+use tracing::{debug_span, Instrument, Subscriber};
 use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::{fmt, EnvFilter, Registry};
+use tracing_subscriber::{fmt, EnvFilter, Layer as TracingLayer, Registry};
 
 /// Initializes `tracing` as the logger.
 ///
@@ -35,30 +37,10 @@ use tracing_subscriber::{fmt, EnvFilter, Registry};
 /// Returns `Err` if `tracing` can't be initialized. Multiple subscription error
 /// is emitted and will return `Ok(())`.
 pub fn initialize_logger(level: Option<LevelFilter>) -> Result<(), BridgeError> {
-    // Configure JSON formatting with additional fields
-    let json_layer = fmt::layer::<Registry>()
-        .with_test_writer()
-        // .with_timer(time::UtcTime::rfc_3339())
-        .with_file(true)
-        .with_line_number(true)
-        .with_thread_ids(true)
-        .with_thread_names(true)
-        .with_target(true)
-        // .with_current_span(true)
-        // .with_span_list(true)
-        // To see how long each span takes, uncomment this.
-        // .with_span_events(FmtSpan::CLOSE)
-        .json();
-
-    // Standard human-readable layer for non-JSON output
-    let standard_layer = fmt::layer()
-        .with_test_writer()
-        // .with_timer(time::UtcTime::rfc_3339())
-        .with_file(true)
-        .with_line_number(true)
-        // To see how long each span takes, uncomment this.
-        // .with_span_events(FmtSpan::CLOSE)
-        .with_target(true);
+    let is_ci = std::env::var("IS_CI")
+        .map(|v| v == "true" || v == "1")
+        .unwrap_or(false);
+    let info_log_file = std::env::var("INFO_LOG_FILE").ok();
 
     let filter = match level {
         Some(level) => EnvFilter::builder()
@@ -67,7 +49,67 @@ pub fn initialize_logger(level: Option<LevelFilter>) -> Result<(), BridgeError> 
         None => EnvFilter::from_default_env(),
     };
 
-    // Try to initialize tracing, depending on the `JSON_LOGS` env var
+    println!("Initializing tracing subscriber with filter:");
+
+    if is_ci {
+        println!("Running in CI mode, setting up tracing subscriber...");
+        
+        let console_layer = fmt::layer()
+            .with_writer(std::io::stdout)
+            .with_file(true)
+            .with_line_number(true)
+            .with_target(true)
+            .with_filter(LevelFilter::WARN)
+            .boxed();
+
+        let mut layers = vec![console_layer];
+
+        if let Some(file_path) = info_log_file {
+            let file = File::create(file_path)
+                .map_err(|e| BridgeError::ConfigError(e.to_string()))?;
+            
+            let file_layer = fmt::layer()
+                .with_writer(file)
+                .with_ansi(false)
+                .with_file(true)
+                .with_line_number(true)
+                .with_target(true)
+                .with_thread_ids(true)
+                .with_thread_names(true)
+                .with_filter(LevelFilter::INFO)
+                .boxed();
+            
+            layers.push(file_layer);
+        }
+
+        let subscriber = Registry::default().with(layers);
+
+        let res = tracing::subscriber::set_global_default(subscriber);
+        if let Err(e) = res {
+            if e.to_string() != "a global default trace dispatcher has already been set" {
+                return Err(BridgeError::ConfigError(e.to_string()));
+            }
+            tracing::trace!("Tracing is already initialized, skipping without errors...");
+        }
+
+        return Ok(());
+    }
+
+    let json_layer = fmt::layer::<Registry>()
+        .with_test_writer()
+        .with_file(true)
+        .with_line_number(true)
+        .with_thread_ids(true)
+        .with_thread_names(true)
+        .with_target(true)
+        .json();
+
+    let standard_layer = fmt::layer()
+        .with_test_writer()
+        .with_file(true)
+        .with_line_number(true)
+        .with_target(true);
+
     let res = if std::env::var("JSON_LOGS").is_ok() {
         tracing_subscriber::util::SubscriberInitExt::try_init(
             tracing_subscriber::registry().with(json_layer).with(filter),
