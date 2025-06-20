@@ -125,7 +125,7 @@ pub struct ProtocolParamset {
     pub header_chain_proof_batch_size: u32,
     /// Bridge circuit method id
     pub bridge_circuit_method_id_constant: [u8; 32],
-    /// Denotes if the bridge is non-standard, i.e. uses 0 sat outputs
+    /// Denotes if the bridge is non-standard, i.e. uses 0 sat outputs for round tx (except collateral) and kickoff outputs
     pub bridge_nonstandard: bool,
 }
 
