@@ -340,6 +340,25 @@ impl TxSender {
         TxSenderClient::new(self.db.clone(), self.btc_syncer_consumer_id.clone())
     }
 
+    /// Sends a transaction that is already fully funded and signed.
+    ///
+    /// This function is used for transactions that do not require fee bumping strategies
+    /// like RBF or CPFP. The transaction is submitted directly to the Bitcoin network
+    /// without any modifications.
+    ///
+    /// # Arguments
+    /// * `try_to_send_id` - The database ID tracking this send attempt.
+    /// * `tx` - The fully funded and signed transaction ready for broadcast.
+    /// * `tx_metadata` - Optional metadata associated with the transaction for debugging.
+    ///
+    /// # Behavior
+    /// 1. Attempts to broadcast the transaction using `send_raw_transaction` RPC.
+    /// 2. Updates the database with success/failure state for debugging purposes.
+    /// 3. Logs appropriate messages for monitoring and troubleshooting.
+    ///
+    /// # Returns
+    /// * `Ok(())` - If the transaction was successfully broadcast.
+    /// * `Err(SendTxError)` - If the broadcast failed.
     #[tracing::instrument(skip_all, fields(sender = self.btc_syncer_consumer_id, try_to_send_id, tx_meta=?tx_metadata))]
     pub(super) async fn send_already_funded_tx(
         &self,
