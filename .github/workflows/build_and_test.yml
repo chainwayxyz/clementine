@@ -109,6 +109,7 @@ jobs:
           mkdir -p logs
           cargo test $CARGOFLAGS_ALL_FEATURES > logs/test.log 2>&1
       - uses: ./.github/actions/upload-log-on-failure
+        if: always()
 
   release_build_test_all_features:
     name: Release | All features | Test
@@ -152,6 +153,7 @@ jobs:
           mkdir -p logs
           cargo test --release $CARGOFLAGS_ALL_FEATURES > logs/test.log 2>&1
       - uses: ./.github/actions/upload-log-on-failure
+        if: always()  
 
   # Matrix (Standalone) Tests --------------------------------------------------
   standalone_tests:
@@ -213,6 +215,7 @@ jobs:
           mkdir -p logs
           cargo test ${{ matrix.test_script_name }} $CARGOFLAGS_ALL_FEATURES --release -- --ignored > logs/test.log 2>&1
       - uses: ./.github/actions/upload-log-on-failure
+        if: always()
 
   # Coverage -------------------------------------------------------------------
   coverage:
