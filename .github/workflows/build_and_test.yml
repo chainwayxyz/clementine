@@ -104,13 +104,19 @@ jobs:
           shared-key: ${{ runner.os }}-cargo-DEBUG-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
 
       - name: Run tests
-        continue-on-error: true
         run: |
           mkdir -p logs
           echo "Starting tests..." > logs/test.log
-          cargo test $CARGOFLAGS_ALL_FEATURES > logs/test.log 2>&1
-      - uses: ./.github/actions/upload-log-on-failure
-        if: always()
+          cargo test $CARGOFLAGS_ALL_FEATURES 2>&1 | tee logs/test.log
+          exit ${PIPESTATUS[0]}
+
+      - name: Upload logs/test.log if failed
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-log-${{ github.job }}
+          path: logs/test.log
+          if-no-files-found: warn
 
   release_build_test_all_features:
     name: Release | All features | Test
@@ -149,13 +155,19 @@ jobs:
           shared-key: ${{ runner.os }}-cargo-RELEASE-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
 
       - name: Run tests
-        continue-on-error: true
         run: |
           mkdir -p logs
           echo "Starting tests..." > logs/test.log
-          cargo test --release $CARGOFLAGS_ALL_FEATURES > logs/test.log 2>&1
-      - uses: ./.github/actions/upload-log-on-failure
-        if: always()  
+          cargo test --release $CARGOFLAGS_ALL_FEATURES 2>&1 | tee logs/test.log
+          exit ${PIPESTATUS[0]}
+
+      - name: Upload logs/test.log if failed
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-log-${{ github.job }}
+          path: logs/test.log
+          if-no-files-found: warn
 
   # Matrix (Standalone) Tests --------------------------------------------------
   standalone_tests:
@@ -212,13 +224,19 @@ jobs:
           shared-key: ${{ runner.os }}-cargo-RELEASE-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
 
       - name: Run tests
-        continue-on-error: true
         run: |
           mkdir -p logs
           echo "Starting tests..." > logs/test.log
-          cargo test ${{ matrix.test_script_name }} $CARGOFLAGS_ALL_FEATURES --release -- --ignored > logs/test.log 2>&1
-      - uses: ./.github/actions/upload-log-on-failure
-        if: always()
+          cargo test ${{ matrix.test_script_name }} $CARGOFLAGS_ALL_FEATURES --release -- --ignored 2>&1 | tee logs/test.log
+          exit ${PIPESTATUS[0]}
+
+      - name: Upload logs/test.log if failed
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-log-${{ github.job }}
+          path: logs/test.log
+          if-no-files-found: warn
 
   # Coverage -------------------------------------------------------------------
   coverage:
