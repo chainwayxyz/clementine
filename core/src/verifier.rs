@@ -1934,7 +1934,7 @@ where
             payout_blockhash_new.clone(),
             latest_blockhash_new.clone(),
             challenge_sending_watchtowers_signature.clone(),
-            operator_acks_vec,
+            operator_acks_vec.clone(),
         );
 
         let debug_additional_disprove_script = debug_assertions_for_additional_script(
@@ -1945,7 +1945,7 @@ where
             challenge_sending_watchtowers_signature.clone(),
             operator_acks_vec,
         );
-        
+
         tracing::info!(
             "Debug additional disprove script: {:?}",
             debug_additional_disprove_script
