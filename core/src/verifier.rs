@@ -2006,8 +2006,11 @@ where
 
         let mut dbtx = self.db.begin_transaction().await?;
         self.tx_sender
-            .insert_try_to_send(
+            .add_tx_to_queue(
                 &mut dbtx,
+                TransactionType::Disprove,
+                &disprove_tx,
+                &[],
                 Some(TxMetadata {
                     tx_type: TransactionType::Disprove,
                     deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
@@ -2015,13 +2018,8 @@ where
                     round_idx: Some(kickoff_data.round_idx),
                     kickoff_idx: Some(kickoff_data.kickoff_idx),
                 }),
-                &disprove_tx,
-                FeePayingType::RBF,
+                &self.config,
                 None,
-                &[],
-                &[],
-                &[],
-                &[],
             )
             .await?;
         dbtx.commit().await?;
@@ -2284,8 +2282,11 @@ where
 
         let mut dbtx = self.db.begin_transaction().await?;
         self.tx_sender
-            .insert_try_to_send(
+            .add_tx_to_queue(
                 &mut dbtx,
+                TransactionType::Disprove,
+                &disprove_tx,
+                &[],
                 Some(TxMetadata {
                     tx_type: TransactionType::Disprove,
                     deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
@@ -2293,13 +2294,8 @@ where
                     round_idx: Some(kickoff_data.round_idx),
                     kickoff_idx: Some(kickoff_data.kickoff_idx),
                 }),
-                &disprove_tx,
-                FeePayingType::RBF,
+                &self.config,
                 None,
-                &[],
-                &[],
-                &[],
-                &[],
             )
             .await?;
         dbtx.commit().await?;

@@ -190,6 +190,7 @@ impl From<FeePayingType> for FeeType {
         match value {
             FeePayingType::CPFP => FeeType::Cpfp,
             FeePayingType::RBF => FeeType::Rbf,
+            FeePayingType::AlreadyFunded => FeeType::AlreadyFunded,
         }
     }
 }
@@ -201,6 +202,7 @@ impl TryFrom<FeeType> for FeePayingType {
         match value {
             FeeType::Cpfp => Ok(FeePayingType::CPFP),
             FeeType::Rbf => Ok(FeePayingType::RBF),
+            FeeType::AlreadyFunded => Ok(FeePayingType::AlreadyFunded),
             _ => Err(Status::invalid_argument("Invalid FeeType variant")),
         }
     }

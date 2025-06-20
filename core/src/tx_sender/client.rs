@@ -243,9 +243,7 @@ impl TxSenderClient {
                 )
                 .await
             }
-            TransactionType::Challenge
-            | TransactionType::WatchtowerChallenge(_)
-            | TransactionType::Disprove => {
+            TransactionType::Challenge | TransactionType::WatchtowerChallenge(_) => {
                 self.insert_try_to_send(
                     dbtx,
                     tx_metadata,
@@ -320,6 +318,20 @@ impl TxSenderClient {
                 )
                 .await
             }
+            TransactionType::Disprove => {
+                self.insert_try_to_send(
+                    dbtx,
+                    tx_metadata,
+                    signed_tx,
+                    FeePayingType::AlreadyFunded,
+                    rbf_info,
+                    &[],
+                    &[],
+                    &[],
+                    &[],
+                )
+                .await
+            }
             TransactionType::AllNeededForDeposit | TransactionType::YieldKickoffTxid => {
                 unreachable!()
             }
@@ -378,7 +390,7 @@ impl TxSenderClient {
             .collect::<Result<Vec<_>>>()?;
 
         let txid = match fee_paying_type {
-            FeePayingType::CPFP => tx.compute_txid(),
+            FeePayingType::CPFP | FeePayingType::AlreadyFunded => tx.compute_txid(),
             FeePayingType::RBF => self
                 .db
                 .get_last_rbf_txid(None, id)

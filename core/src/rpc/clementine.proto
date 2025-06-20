@@ -142,6 +142,7 @@ enum FeeType {
   UNSPECIFIED = 0;
   CPFP = 1;
   RBF = 2;
+  ALREADY_FUNDED = 3;
 }
 
 enum NormalTransactionId {
