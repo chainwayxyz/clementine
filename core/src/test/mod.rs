@@ -34,6 +34,8 @@ mod watchtower_challenge;
 #[cfg(feature = "integration-tests")]
 mod bitvm_script;
 
+mod citrea_duplicate_deposit_test;
+
 use ctor::ctor;
 
 #[ctor]

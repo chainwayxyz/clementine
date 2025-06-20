@@ -34,12 +34,12 @@ rand_chacha = "0.9.0"
 secrecy = { version = "0.10.0", features = ["serde"] }
 
 # Citrea dependencies
-citrea-e2e = { git = "https://github.com/chainwayxyz/citrea-e2e", rev = "d45a29afa4de9d7e00dad9e8d9c59f95fe22e557" }
-sov-rollup-interface = { git = "https://github.com/chainwayxyz/citrea.git", rev = "b1fbe83fdd60d29", features = [
+citrea-e2e = { git = "https://github.com/chainwayxyz/citrea-e2e", rev = "b962a48" }
+sov-rollup-interface = { git = "https://github.com/chainwayxyz/citrea.git", rev = "8b2d582", features = [
   "native",
 ] }
 
-citrea-sov-rollup-interface = { git = "https://github.com/chainwayxyz/citrea", tag = "v0.7.0", package = "sov-rollup-interface" }
+citrea-sov-rollup-interface = { git = "https://github.com/chainwayxyz/citrea", rev = "8b2d582", package = "sov-rollup-interface" }
 
 # bitcoin
 bitcoin = { version = "0.32.5", features = ["serde", "base64"] }
