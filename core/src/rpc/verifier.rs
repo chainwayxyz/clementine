@@ -8,10 +8,10 @@ use super::error;
 use super::parser::ParserError;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::citrea::CitreaClientT;
-use crate::fetch_next_optional_message_from_stream;
 use crate::rpc::clementine::VerifierDepositFinalizeResponse;
 use crate::utils::get_vergen_response;
 use crate::verifier::VerifierServer;
+use crate::{constants, fetch_next_optional_message_from_stream};
 use crate::{
     fetch_next_message_from_stream,
     rpc::parser::{self},
@@ -207,11 +207,11 @@ where
         let mut in_stream = req.into_inner();
         let verifier = self.verifier.clone();
 
-        let (tx, rx) = mpsc::channel(1280);
+        let (tx, rx) = mpsc::channel(constants::DEFAULT_CHANNEL_SIZE);
         let out_stream: Self::DepositSignStream = ReceiverStream::new(rx);
 
         let (param_tx, mut param_rx) = mpsc::channel(1);
-        let (agg_nonce_tx, agg_nonce_rx) = mpsc::channel(1280);
+        let (agg_nonce_tx, agg_nonce_rx) = mpsc::channel(constants::DEFAULT_CHANNEL_SIZE);
 
         // Send incoming data to deposit sign job.
         tokio::spawn(async move {
@@ -309,9 +309,9 @@ where
             self.verifier.signer.public_key
         );
 
-        let (sig_tx, sig_rx) = mpsc::channel(1280);
+        let (sig_tx, sig_rx) = mpsc::channel(constants::DEFAULT_CHANNEL_SIZE);
         let (agg_nonce_tx, agg_nonce_rx) = mpsc::channel(1);
-        let (operator_sig_tx, operator_sig_rx) = mpsc::channel(1280);
+        let (operator_sig_tx, operator_sig_rx) = mpsc::channel(constants::DEFAULT_CHANNEL_SIZE);
 
         let params = fetch_next_message_from_stream!(in_stream, params)?;
         let (deposit_data, session_id) = match params {

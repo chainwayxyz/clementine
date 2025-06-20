@@ -25,81 +25,11 @@ use std::{fs::File, io::Read, path::PathBuf};
 pub mod env;
 pub mod protocol;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct TestParams {
-    /// Controls whether the state manager component is initialized and run as part of the test setup.
-    /// Allows for testing components in isolation from the state manager.
-    pub should_run_state_manager: bool,
+#[cfg(test)]
+mod test;
 
-    /// Contains the secret keys for all simulated verifier nodes in the test environment.
-    pub all_verifiers_secret_keys: Vec<SecretKey>,
-
-    /// Contains the secret keys for all simulated operator nodes in the test.
-    pub all_operators_secret_keys: Vec<SecretKey>,
-
-    /// A fault injection flag. If true, an operator will intentionally commit to an incorrect latest block hash.
-    /// This is used to test if verifiers can correctly detect and handle this invalid commitment.
-    pub disrupt_latest_block_hash_commit: bool,
-
-    /// A fault injection flag. If true, simulates an operator committing to an invalid block hash
-    /// for the payout transaction.
-    pub disrupt_payout_tx_block_hash_commit: bool,
-
-    /// A fault injection flag for challenge sending watchtowers detection. When enabled, simulates an operator
-    /// sending a corrupted or invalid commitment to watchtowers who has sent challenges.
-    pub disrupt_challenge_sending_watchtowers_commit: bool,
-
-    /// Simulates a scenario where an operator fails to include a watchtower, who has sent a challenge,
-    pub operator_forgot_watchtower_challenge: bool,
-
-    /// A flag to introduce intentionally inconsistent or invalid data into the BitVM assertions.
-    pub corrupted_asserts: bool,
-
-    /// A flag to determine if some blocks should be created to give some funds to the rpc wallet
-    pub generate_to_address: bool,
-}
-
-impl Default for TestParams {
-    fn default() -> Self {
-        Self {
-            should_run_state_manager: true,
-            all_verifiers_secret_keys: vec![
-                SecretKey::from_str(
-                    "1111111111111111111111111111111111111111111111111111111111111111",
-                )
-                .expect("known valid input"),
-                SecretKey::from_str(
-                    "2222222222222222222222222222222222222222222222222222222222222222",
-                )
-                .expect("known valid input"),
-                SecretKey::from_str(
-                    "3333333333333333333333333333333333333333333333333333333333333333",
-                )
-                .expect("known valid input"),
-                SecretKey::from_str(
-                    "4444444444444444444444444444444444444444444444444444444444444444",
-                )
-                .expect("known valid input"),
-            ],
-            all_operators_secret_keys: vec![
-                SecretKey::from_str(
-                    "1111111111111111111111111111111111111111111111111111111111111111",
-                )
-                .expect("known valid input"),
-                SecretKey::from_str(
-                    "2222222222222222222222222222222222222222222222222222222222222222",
-                )
-                .expect("known valid input"),
-            ],
-            disrupt_latest_block_hash_commit: false,
-            disrupt_payout_tx_block_hash_commit: false,
-            disrupt_challenge_sending_watchtowers_commit: false,
-            operator_forgot_watchtower_challenge: false,
-            corrupted_asserts: false,
-            generate_to_address: true,
-        }
-    }
-}
+#[cfg(test)]
+pub use test::*;
 
 /// Configuration options for any Clementine target (tests, binaries etc.).
 #[derive(Debug, Clone, Deserialize)]
@@ -199,7 +129,7 @@ pub struct BridgeConfig {
 
     #[cfg(test)]
     #[serde(skip)]
-    pub test_params: TestParams,
+    pub test_params: test::TestParams,
 }
 
 impl BridgeConfig {
@@ -343,7 +273,7 @@ impl Default for BridgeConfig {
             client_verification: true,
 
             #[cfg(test)]
-            test_params: TestParams::default(),
+            test_params: test::TestParams::default(),
         }
     }
 }

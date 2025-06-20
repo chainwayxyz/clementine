@@ -249,6 +249,25 @@ impl ExtendedRpc {
             if !is_round_tx_on_chain {
                 break;
             }
+            let block_hash = self.get_blockhash_of_tx(&round_txid).await?;
+            let block_height = self
+                .client
+                .get_block_info(&block_hash)
+                .await
+                .wrap_err(format!(
+                    "Failed to get block info for block hash {}",
+                    block_hash
+                ))?
+                .height;
+            if block_height < paramset.start_height as usize {
+                tracing::warn!(
+                    "Collateral utxo of operator {:?} is spent in a block before paramset start height: {} < {}",
+                    operator_data,
+                    block_height,
+                    paramset.start_height
+                );
+                return Ok(false);
+            }
             current_collateral_outpoint = OutPoint {
                 txid: round_txid,
                 vout: UtxoVout::CollateralInRound.get_vout(),
@@ -877,6 +896,7 @@ mod tests {
                     "-txindex=1",
                     "-fallbackfee=0.000001",
                     "-rpcallowip=0.0.0.0/0",
+                    "-dustrelayfee=0",
                 ],
                 ..Default::default()
             }
