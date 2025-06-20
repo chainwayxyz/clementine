@@ -549,7 +549,12 @@ impl AdditionalDisproveTest {
 
         assert!(
             disprove_tx.input[1].previous_output == burn_connector,
-            "Disprove tx input does not match burn connector outpoint"
+            "Additional disprove tx input does not match burn connector outpoint"
+        );
+
+        assert_eq!(
+            disprove_tx.input[0].witness.len(), 560
+            "Additional disprove tx input witness length is not 560 bytes"
         );
 
         tracing::info!("Disprove transaction is onchain");
@@ -619,7 +624,12 @@ impl AdditionalDisproveTest {
 
         assert!(
             disprove_tx.input[1].previous_output == burn_connector,
-            "Disprove tx input does not match burn connector outpoint"
+            "Additional disprove tx input does not match burn connector outpoint"
+        );
+
+        assert_eq!(
+            disprove_tx.input[0].witness.len(), 560
+            "Additional disprove tx input witness length is not 560 bytes"
         );
 
         tracing::info!("Disprove transaction is onchain");
@@ -694,7 +704,12 @@ impl AdditionalDisproveTest {
 
         assert!(
             disprove_tx.input[1].previous_output == burn_connector,
-            "Disprove tx input does not match burn connector outpoint"
+            "Additional disprove tx input does not match burn connector outpoint"
+        );
+
+        assert_eq!(
+            disprove_tx.input[0].witness.len(), 560
+            "Additional disprove tx input witness length is not 560 bytes"
         );
 
         tracing::info!("Disprove transaction is onchain");
@@ -764,7 +779,12 @@ impl AdditionalDisproveTest {
 
         assert!(
             disprove_tx.input[1].previous_output == burn_connector,
-            "Disprove tx input does not match burn connector outpoint"
+            "Additional disprove tx input does not match burn connector outpoint"
+        );
+
+        assert_eq!(
+            disprove_tx.input[0].witness.len(), 560
+            "Additional disprove tx input witness length is not 560 bytes"
         );
 
         tracing::info!("Disprove transaction is onchain");
