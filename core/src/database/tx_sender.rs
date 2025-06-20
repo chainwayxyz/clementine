@@ -581,7 +581,7 @@ impl Database {
 
                     UNION
 
-                    -- Transactions with outpoint activations that aren't active yet
+                    -- Transactions with outpoint activations that aren't active yet (not seen or timelock not passed)
                     SELECT DISTINCT
                         activate_outpoint.activated_id AS tx_id
                     FROM
@@ -595,7 +595,7 @@ impl Database {
 
                 -- Transactions with cancelled conditions
                 cancelled_txs AS (
-                    -- Transactions with cancelled outpoints
+                    -- Transactions with cancelled outpoints (not seen)
                     SELECT DISTINCT
                         cancelled_id AS tx_id
                     FROM
@@ -605,7 +605,7 @@ impl Database {
 
                     UNION
 
-                    -- Transactions with cancelled txids
+                    -- Transactions with cancelled txids (not seen)
                     SELECT DISTINCT
                         cancelled_id AS tx_id
                     FROM

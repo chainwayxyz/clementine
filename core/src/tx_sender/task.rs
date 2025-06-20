@@ -24,6 +24,7 @@ const POLL_DELAY: Duration = if cfg!(test) {
 } else {
     Duration::from_secs(30)
 };
+
 #[derive(Debug)]
 pub struct TxSenderTask {
     db: Database,
@@ -35,6 +36,7 @@ pub struct TxSenderTask {
 impl Task for TxSenderTask {
     type Output = bool;
 
+    #[tracing::instrument(skip(self), name = "tx_sender_task")]
     async fn run_once(&mut self) -> std::result::Result<Self::Output, BridgeError> {
         let mut dbtx = self.db.begin_transaction().await.map_to_eyre()?;
 
@@ -46,34 +48,42 @@ impl Task for TxSenderTask {
             else {
                 return Ok(false);
             };
+            tracing::info!("Received Bitcoin syncer event: {:?}", event);
 
-            tracing::info!("TXSENDER: Event: {:?}", event);
             Ok::<_, BridgeError>(match event {
                 BitcoinSyncerEvent::NewBlock(block_id) => {
-                    self.db.confirm_transactions(&mut dbtx, block_id).await?;
                     self.current_tip_height = self
                         .db
                         .get_block_info_from_id(Some(&mut dbtx), block_id)
                         .await?
-                        .ok_or(eyre::eyre!("Block not found in TxSenderTask".to_string(),))?
+                        .ok_or(eyre::eyre!("Block not found in TxSenderTask"))?
                         .1;
-
                     tracing::info!(
-                        "TXSENDER: Confirmed transactions for new block with height {} and internal block id {}",
-                        self.current_tip_height, block_id
+                        height = self.current_tip_height,
+                        block_id = %block_id,
+                        "Block mined, confirming transactions..."
                     );
+
+                    self.db.confirm_transactions(&mut dbtx, block_id).await?;
+
                     dbtx.commit().await?;
                     true
                 }
                 BitcoinSyncerEvent::ReorgedBlock(block_id) => {
                     let height = self
-                    .db
-                    .get_block_info_from_id(Some(&mut dbtx), block_id)
-                    .await?
-                    .ok_or(eyre::eyre!("Block not found in TxSenderTask".to_string(),))?
-                    .1;
-                    tracing::info!("TXSENDER: Reorged block with height {} detected, unconfirming transactions for block with internal block id {}", height, block_id);
+                        .db
+                        .get_block_info_from_id(Some(&mut dbtx), block_id)
+                        .await?
+                        .ok_or(eyre::eyre!("Block not found in TxSenderTask"))?
+                        .1;
+                    tracing::info!(
+                        height = height,
+                        block_id = %block_id,
+                        "Reorged happened, unconfirming transactions..."
+                    );
+
                     self.db.unconfirm_transactions(&mut dbtx, block_id).await?;
+
                     dbtx.commit().await?;
                     true
                 }
@@ -81,11 +91,13 @@ impl Task for TxSenderTask {
         }
         .await?;
 
+        // If there is a block update, it is possible that there are more.
+        // Before sending, fetch all events and process them without waiting.
         if is_block_update {
-            // Pull in all block updates before trying to send.
             return Ok(true);
         }
 
+        // TODO: Get actual fee rate.
         // tracing::info!("TXSENDER: Getting fee rate");
         // let fee_rate_result = self.inner.get_fee_rate().await;
         // tracing::info!("TXSENDER: Fee rate result: {:?}", fee_rate_result);

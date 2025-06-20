@@ -37,9 +37,9 @@ impl TxSenderClient {
     /// Saves a transaction to the database queue for sending/fee bumping.
     ///
     /// This function determines the initial parameters for a transaction send attempt,
-    /// including its `FeePayingType`, associated metadata, and dependencies (cancellations/activations).
-    /// It then persists this information in the database via `db.save_tx` and related functions.
-    /// The actual sending logic (CPFP/RBF) is handled later by the `TxSender` task loop.
+    /// including its [`FeePayingType`], associated metadata, and dependencies (cancellations/activations).
+    /// It then persists this information in the database via [`Database::save_tx`] and related functions.
+    /// The actual sending logic (CPFP/RBF) is handled later by the transaction sender's task loop.
     ///
     /// # Default Activation and Cancellation Conditions
     ///
