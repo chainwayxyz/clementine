@@ -96,17 +96,25 @@ pub fn initialize_logger(level: Option<LevelFilter>) -> Result<(), BridgeError> 
 
     let json_layer = fmt::layer::<Registry>()
         .with_test_writer()
+        // .with_timer(time::UtcTime::rfc_3339())
         .with_file(true)
         .with_line_number(true)
         .with_thread_ids(true)
         .with_thread_names(true)
         .with_target(true)
         .json();
+        // .with_current_span(true)z
+        // .with_span_list(true)
+        // To see how long each span takes, uncomment this.
+        // .with_span_events(FmtSpan::CLOSE)
 
     let standard_layer = fmt::layer()
         .with_test_writer()
+        // .with_timer(time::UtcTime::rfc_3339())   
         .with_file(true)
         .with_line_number(true)
+        // To see how long each span takes, uncomment this.
+        // .with_span_events(FmtSpan::CLOSE)
         .with_target(true);
 
     let res = if std::env::var("JSON_LOGS").is_ok() {
