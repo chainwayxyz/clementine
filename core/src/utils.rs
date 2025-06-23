@@ -19,7 +19,7 @@ use tokio::time::timeout;
 use tonic::Status;
 use tower::{Layer, Service};
 use tracing::level_filters::LevelFilter;
-use tracing::{debug_span, Instrument};
+use tracing::{debug_span, Instrument, Subscriber};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::{fmt, EnvFilter, Layer as TracingLayer, Registry};
 
@@ -40,59 +40,76 @@ pub fn initialize_logger(level: Option<LevelFilter>) -> Result<(), BridgeError> 
     let is_ci = std::env::var("IS_CI")
         .map(|v| v == "true" || v == "1")
         .unwrap_or(false);
-    let info_log_file = std::env::var("INFO_LOG_FILE").ok();
-
-    let filter = match level {
-        Some(level) => EnvFilter::builder()
-            .with_default_directive(level.into())
-            .from_env_lossy(),
-        None => EnvFilter::from_default_env(),
-    };
 
     if is_ci {
-        let console_layer = fmt::layer()
-            .with_writer(std::io::stdout)
-            .with_file(true)
-            .with_line_number(true)
-            .with_target(true)
-            .with_filter(LevelFilter::WARN)
-            .boxed();
-
-        let mut layers = vec![console_layer];
-
+        let info_log_file = std::env::var("INFO_LOG_FILE").ok();
         if let Some(file_path) = info_log_file {
-            let file =
-                File::create(file_path).map_err(|e| BridgeError::ConfigError(e.to_string()))?;
-
-            let file_layer = fmt::layer()
-                .with_writer(file)
-                .with_ansi(false)
-                .with_file(true)
-                .with_line_number(true)
-                .with_target(true)
-                .with_thread_ids(true)
-                .with_thread_names(true)
-                .with_filter(LevelFilter::INFO)
-                .boxed();
-
-            layers.push(file_layer);
+            let subscriber = env_subscriber_with_file(&file_path)?;
+            try_set_global_subscriber(subscriber)?;
+        } else {
+            tracing::warn!("IS_CI is set but INFO_LOG_FILE is missing, only console logs will be used.");
+            let subscriber = env_subscriber_to_human(level);
+            try_set_global_subscriber(subscriber)?;
         }
-
-        let subscriber = Registry::default().with(layers);
-
-        let res = tracing::subscriber::set_global_default(subscriber);
-        if let Err(e) = res {
-            if e.to_string() != "a global default trace dispatcher has already been set" {
-                return Err(BridgeError::ConfigError(e.to_string()));
-            }
-            tracing::info!("Tracing is already initialized, skipping without errors...");
-            return Ok(());
-        }
-
-        tracing::info!("Tracing initialized for CI environment successfully.");
-
-        return Ok(());
+    } else {
+        let subscriber: Box<dyn Subscriber + Send + Sync> = if is_json_logs() {
+            Box::new(env_subscriber_to_json(level))
+        } else {
+            Box::new(env_subscriber_to_human(level))
+        };
+        try_set_global_subscriber(subscriber)?;
     }
+
+    tracing::info!("Tracing initialized successfully.");
+    Ok(())
+}
+
+fn try_set_global_subscriber<S>(subscriber: S) -> Result<(), BridgeError>
+where
+    S: Subscriber + Send + Sync + 'static,
+{
+    match tracing::subscriber::set_global_default(subscriber) {
+        Ok(_) => Ok(()),
+        Err(e) if e.to_string() == "a global default trace dispatcher has already been set" => {
+            tracing::info!("Tracing is already initialized, skipping without errors...");
+            Ok(())
+        }
+        Err(e) => Err(BridgeError::ConfigError(e.to_string())),
+    }
+}
+
+fn env_subscriber_with_file(path: &str) -> Result<Box<dyn Subscriber + Send + Sync>, BridgeError> {
+    let file = File::create(path).map_err(|e| BridgeError::ConfigError(e.to_string()))?;
+
+    let file_layer = fmt::layer()
+        .with_writer(file)
+        .with_ansi(false)
+        .with_file(true)
+        .with_line_number(true)
+        .with_target(true)
+        .with_thread_ids(true)
+        .with_thread_names(true)
+        .with_filter(LevelFilter::INFO)
+        .boxed();
+
+    let console_layer = fmt::layer()
+        .with_writer(std::io::stdout)
+        .with_file(true)
+        .with_line_number(true)
+        .with_target(true)
+        .with_filter(LevelFilter::WARN)
+        .boxed();
+
+    let filter = EnvFilter::from_default_env();
+
+    Ok(Box::new(Registry::default().with(filter).with(file_layer).with(console_layer)))
+}
+
+fn env_subscriber_to_json(level: Option<LevelFilter>) -> Box<dyn Subscriber + Send + Sync> {
+    let filter = match level {
+        Some(lvl) => EnvFilter::builder().with_default_directive(lvl.into()).from_env_lossy(),
+        None => EnvFilter::from_default_env(),
+    };
 
     let json_layer = fmt::layer::<Registry>()
         .with_test_writer()
@@ -108,6 +125,15 @@ pub fn initialize_logger(level: Option<LevelFilter>) -> Result<(), BridgeError> 
         // To see how long each span takes, uncomment this.
         // .with_span_events(FmtSpan::CLOSE)
 
+    Box::new(tracing_subscriber::registry().with(json_layer).with(filter))
+}
+
+fn env_subscriber_to_human(level: Option<LevelFilter>) -> Box<dyn Subscriber + Send + Sync> {
+    let filter = match level {
+        Some(lvl) => EnvFilter::builder().with_default_directive(lvl.into()).from_env_lossy(),
+        None => EnvFilter::from_default_env(),
+    };
+
     let standard_layer = fmt::layer()
         .with_test_writer()
         // .with_timer(time::UtcTime::rfc_3339())   
@@ -117,29 +143,13 @@ pub fn initialize_logger(level: Option<LevelFilter>) -> Result<(), BridgeError> 
         // .with_span_events(FmtSpan::CLOSE)
         .with_target(true);
 
-    let res = if std::env::var("JSON_LOGS").is_ok() {
-        tracing_subscriber::util::SubscriberInitExt::try_init(
-            tracing_subscriber::registry().with(json_layer).with(filter),
-        )
-    } else {
-        tracing_subscriber::util::SubscriberInitExt::try_init(
-            tracing_subscriber::registry()
-                .with(standard_layer)
-                .with(filter),
-        )
-    };
+    Box::new(tracing_subscriber::registry().with(standard_layer).with(filter))
+}
 
-    if let Err(e) = res {
-        // If it failed because of a re-initialization, do not care about
-        // the error.
-        if e.to_string() != "a global default trace dispatcher has already been set" {
-            return Err(BridgeError::ConfigError(e.to_string()));
-        }
-
-        tracing::trace!("Tracing is already initialized, skipping without errors...");
-    };
-
-    Ok(())
+fn is_json_logs() -> bool {
+    std::env::var("LOG_FORMAT")
+        .map(|v| v.eq_ignore_ascii_case("json"))
+        .unwrap_or(false)
 }
 
 pub fn get_vergen_response() -> VergenResponse {
