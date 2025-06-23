@@ -320,7 +320,7 @@ pub async fn run_single_deposit<C: CitreaClientT>(
     config: &mut BridgeConfig,
     rpc: ExtendedRpc,
     evm_address: Option<EVMAddress>,
-    deposit_outpoint: Option<OutPoint>,
+    deposit_outpoint: Option<OutPoint>, // if a deposit outpoint is provided, it will be used instead of creating a new one
 ) -> Result<
     (
         Vec<ClementineVerifierClient<Channel>>,
