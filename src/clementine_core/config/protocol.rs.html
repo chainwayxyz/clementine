@@ -307,11 +307,7 @@
 <a href="#306" id="306">306</a>
 <a href="#307" id="307">307</a>
 <a href="#308" id="308">308</a>
-<a href="#309" id="309">309</a>
-<a href="#310" id="310">310</a>
-<a href="#311" id="311">311</a>
-<a href="#312" id="312">312</a>
-<a href="#313" id="313">313</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::config::env::read_string_from_env_then_parse;
+<a href="#309" id="309">309</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::config::env::read_string_from_env_then_parse;
 <span class="kw">use </span><span class="kw">crate</span>::constants::{MIN_TAPROOT_AMOUNT, NON_EPHEMERAL_ANCHOR_AMOUNT};
 <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
 <span class="kw">use </span>bitcoin::{Amount, Network};
@@ -426,8 +422,6 @@
     </span><span class="kw">pub </span>watchtower_challenge_timeout_timelock: u16,
     <span class="doccomment">/// Time to wait after a kickoff to send a watchtower challenge
     </span><span class="kw">pub </span>time_to_send_watchtower_challenge: u16,
-    <span class="doccomment">/// Time to wait before trying to disprove (so that you collect all operator challenge acks before disproving)
-    </span><span class="kw">pub </span>time_to_disprove: u16,
     <span class="doccomment">/// Amount of depth a block should have from the current head to be considered finalized
     </span><span class="kw">pub </span>finality_depth: u32,
     <span class="doccomment">/// start height to sync the chain from, i.e. the height bridge was deployed
@@ -440,7 +434,7 @@
     </span><span class="kw">pub </span>header_chain_proof_batch_size: u32,
     <span class="doccomment">/// Bridge circuit method id
     </span><span class="kw">pub </span>bridge_circuit_method_id_constant: [u8; <span class="number">32</span>],
-    <span class="doccomment">/// Denotes if the bridge is non-standard, i.e. uses 0 sat outputs
+    <span class="doccomment">/// Denotes if the bridge is non-standard, i.e. uses 0 sat outputs for round tx (except collateral) and kickoff outputs
     </span><span class="kw">pub </span>bridge_nonstandard: bool,
 }
 
@@ -501,7 +495,6 @@
             time_to_send_watchtower_challenge: read_string_from_env_then_parse::&lt;u16&gt;(
                 <span class="string">"TIME_TO_SEND_WATCHTOWER_CHALLENGE"</span>,
             )<span class="question-mark">?</span>,
-            time_to_disprove: read_string_from_env_then_parse::&lt;u16&gt;(<span class="string">"TIME_TO_DISPROVE"</span>)<span class="question-mark">?</span>,
             finality_depth: read_string_from_env_then_parse::&lt;u32&gt;(<span class="string">"FINALITY_DEPTH"</span>)<span class="question-mark">?</span>,
             start_height: read_string_from_env_then_parse::&lt;u32&gt;(<span class="string">"START_HEIGHT"</span>)<span class="question-mark">?</span>,
             genesis_height: read_string_from_env_then_parse::&lt;u32&gt;(<span class="string">"GENESIS_HEIGHT"</span>)<span class="question-mark">?</span>,
@@ -566,7 +559,7 @@
     num_kickoffs_per_round: <span class="number">10</span>,
     num_signed_kickoffs: <span class="number">2</span>,
     bridge_amount: Amount::from_sat(<span class="number">1_000_000_000</span>),
-    kickoff_amount: Amount::from_sat(<span class="number">55000</span>),
+    kickoff_amount: Amount::from_sat(<span class="number">0</span>),
     operator_challenge_amount: Amount::from_sat(<span class="number">200_000_000</span>),
     collateral_funding_amount: Amount::from_sat(<span class="number">99_000_000</span>),
     watchtower_challenge_bytes: <span class="number">144</span>,
@@ -580,7 +573,6 @@
     operator_reimburse_timelock: <span class="number">2</span>,
     watchtower_challenge_timeout_timelock: <span class="number">4 </span>* BLOCKS_PER_HOUR * <span class="number">2</span>,
     time_to_send_watchtower_challenge: <span class="number">4 </span>* BLOCKS_PER_HOUR * <span class="number">3 </span>/ <span class="number">2</span>,
-    time_to_disprove: <span class="number">4 </span>* BLOCKS_PER_HOUR * <span class="number">4 </span>+ <span class="number">4 </span>* BLOCKS_PER_HOUR / <span class="number">2</span>,
     latest_blockhash_timeout_timelock: <span class="number">4 </span>* BLOCKS_PER_HOUR * <span class="number">5 </span>/ <span class="number">2</span>,
     finality_depth: <span class="number">1</span>,
     start_height: <span class="number">190</span>,
@@ -594,7 +586,7 @@
         <span class="number">86</span>, <span class="number">86</span>, <span class="number">202</span>, <span class="number">134</span>, <span class="number">213</span>, <span class="number">147</span>, <span class="number">193</span>, <span class="number">178</span>, <span class="number">220</span>, <span class="number">184</span>, <span class="number">201</span>, <span class="number">146</span>, <span class="number">216</span>, <span class="number">140</span>, <span class="number">178</span>, <span class="number">160</span>, <span class="number">167</span>, <span class="number">17</span>, <span class="number">27</span>,
         <span class="number">158</span>, <span class="number">75</span>, <span class="number">204</span>, <span class="number">46</span>, <span class="number">254</span>, <span class="number">203</span>, <span class="number">12</span>, <span class="number">116</span>, <span class="number">198</span>, <span class="number">137</span>, <span class="number">52</span>, <span class="number">161</span>, <span class="number">196</span>,
     ],
-    bridge_nonstandard: <span class="bool-val">false</span>,
+    bridge_nonstandard: <span class="bool-val">true</span>,
 };
 
 <span class="attr">#[cfg(test)]

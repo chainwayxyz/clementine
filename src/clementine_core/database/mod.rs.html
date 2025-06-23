@@ -302,9 +302,9 @@
         <span class="kw">let </span>url = Database::get_postgresql_database_url(config);
         <span class="kw">let </span>url = Url::parse(<span class="kw-2">&amp;</span>url).wrap_err(<span class="string">"Failed to parse database URL"</span>)<span class="question-mark">?</span>;
         <span class="kw">let </span><span class="kw-2">mut </span>opt = PgConnectOptions::from_url(<span class="kw-2">&amp;</span>url).map_err(BridgeError::DatabaseError)<span class="question-mark">?</span>;
-        opt = opt.log_slow_statements(log::LevelFilter::Warn, Duration::from_secs(<span class="number">3</span>));
+        opt = opt.log_slow_statements(log::LevelFilter::Debug, Duration::from_secs(<span class="number">3</span>));
 
-        <span class="kw">let </span>opts = sqlx::postgres::PgPoolOptions::new();
+        <span class="kw">let </span>opts = sqlx::postgres::PgPoolOptions::new().acquire_slow_level(log::LevelFilter::Debug);
 
         <span class="attr">#[cfg(test)]
         </span><span class="kw">let </span>opts = <span class="kw">if </span>config.test_params.timeout_params.any_timeout() {

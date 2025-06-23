@@ -953,7 +953,27 @@
 <a href="#952" id="952">952</a>
 <a href="#953" id="953">953</a>
 <a href="#954" id="954">954</a>
-<a href="#955" id="955">955</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Bitcoin Extended RPC Interface
+<a href="#955" id="955">955</a>
+<a href="#956" id="956">956</a>
+<a href="#957" id="957">957</a>
+<a href="#958" id="958">958</a>
+<a href="#959" id="959">959</a>
+<a href="#960" id="960">960</a>
+<a href="#961" id="961">961</a>
+<a href="#962" id="962">962</a>
+<a href="#963" id="963">963</a>
+<a href="#964" id="964">964</a>
+<a href="#965" id="965">965</a>
+<a href="#966" id="966">966</a>
+<a href="#967" id="967">967</a>
+<a href="#968" id="968">968</a>
+<a href="#969" id="969">969</a>
+<a href="#970" id="970">970</a>
+<a href="#971" id="971">971</a>
+<a href="#972" id="972">972</a>
+<a href="#973" id="973">973</a>
+<a href="#974" id="974">974</a>
+<a href="#975" id="975">975</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Bitcoin Extended RPC Interface
 //!
 //! Extended RPC interface communicates with the Bitcoin node. It features some
 //! common wrappers around typical RPC operations as well as direct
@@ -1188,6 +1208,25 @@
             <span class="kw">let </span>is_round_tx_on_chain = <span class="self">self</span>.is_tx_on_chain(<span class="kw-2">&amp;</span>round_txid).<span class="kw">await</span><span class="question-mark">?</span>;
             <span class="kw">if </span>!is_round_tx_on_chain {
                 <span class="kw">break</span>;
+            }
+            <span class="kw">let </span>block_hash = <span class="self">self</span>.get_blockhash_of_tx(<span class="kw-2">&amp;</span>round_txid).<span class="kw">await</span><span class="question-mark">?</span>;
+            <span class="kw">let </span>block_height = <span class="self">self
+                </span>.client
+                .get_block_info(<span class="kw-2">&amp;</span>block_hash)
+                .<span class="kw">await
+                </span>.wrap_err(<span class="macro">format!</span>(
+                    <span class="string">"Failed to get block info for block hash {}"</span>,
+                    block_hash
+                ))<span class="question-mark">?
+                </span>.height;
+            <span class="kw">if </span>block_height &lt; paramset.start_height <span class="kw">as </span>usize {
+                <span class="macro">tracing::warn!</span>(
+                    <span class="string">"Collateral utxo of operator {:?} is spent in a block before paramset start height: {} &lt; {}"</span>,
+                    operator_data,
+                    block_height,
+                    paramset.start_height
+                );
+                <span class="kw">return </span><span class="prelude-val">Ok</span>(<span class="bool-val">false</span>);
             }
             current_collateral_outpoint = OutPoint {
                 txid: round_txid,
@@ -1817,6 +1856,7 @@
                     <span class="string">"-txindex=1"</span>,
                     <span class="string">"-fallbackfee=0.000001"</span>,
                     <span class="string">"-rpcallowip=0.0.0.0/0"</span>,
+                    <span class="string">"-dustrelayfee=0"</span>,
                 ],
                 ..Default::default()
             }

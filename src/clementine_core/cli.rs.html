@@ -597,9 +597,7 @@
 <a href="#596" id="596">596</a>
 <a href="#597" id="597">597</a>
 <a href="#598" id="598">598</a>
-<a href="#599" id="599">599</a>
-<a href="#600" id="600">600</a>
-<a href="#601" id="601">601</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Command Line Interface
+<a href="#599" id="599">599</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Command Line Interface
 //!
 //! This module defines command line interface for server binaries. `Clap` is used
 //! for easy generation of help messages and handling arguments.
@@ -1004,7 +1002,7 @@
         env::set_var(<span class="string">"NUM_KICKOFFS_PER_ROUND"</span>, <span class="string">"10"</span>);
         env::set_var(<span class="string">"NUM_SIGNED_KICKOFFS"</span>, <span class="string">"2"</span>);
         env::set_var(<span class="string">"BRIDGE_AMOUNT"</span>, <span class="string">"1000000000"</span>);
-        env::set_var(<span class="string">"KICKOFF_AMOUNT"</span>, <span class="string">"55000"</span>);
+        env::set_var(<span class="string">"KICKOFF_AMOUNT"</span>, <span class="string">"0"</span>);
         env::set_var(<span class="string">"OPERATOR_CHALLENGE_AMOUNT"</span>, <span class="string">"200000000"</span>);
         env::set_var(<span class="string">"COLLATERAL_FUNDING_AMOUNT"</span>, <span class="string">"99000000"</span>);
         env::set_var(<span class="string">"KICKOFF_BLOCKHASH_COMMIT_LENGTH"</span>, <span class="string">"40"</span>);
@@ -1018,7 +1016,6 @@
         env::set_var(<span class="string">"OPERATOR_REIMBURSE_TIMELOCK"</span>, <span class="string">"12"</span>);
         env::set_var(<span class="string">"WATCHTOWER_CHALLENGE_TIMEOUT_TIMELOCK"</span>, <span class="string">"288"</span>);
         env::set_var(<span class="string">"TIME_TO_SEND_WATCHTOWER_CHALLENGE"</span>, <span class="string">"216"</span>);
-        env::set_var(<span class="string">"TIME_TO_DISPROVE"</span>, <span class="string">"648"</span>);
         env::set_var(<span class="string">"LATEST_BLOCKHASH_TIMEOUT_TIMELOCK"</span>, <span class="string">"360"</span>);
         env::set_var(<span class="string">"FINALITY_DEPTH"</span>, <span class="string">"1"</span>);
         env::set_var(<span class="string">"START_HEIGHT"</span>, <span class="string">"8148"</span>);
@@ -1032,7 +1029,7 @@
             <span class="string">"BRIDGE_CIRCUIT_METHOD_ID_CONSTANT"</span>,
             <span class="string">"5656ca86d593c1b2dcb8c992d88cb2a0a7111b9e4bcc2efecb0c74c68934a1c4"</span>,
         );
-        env::set_var(<span class="string">"BRIDGE_NONSTANDARD"</span>, <span class="string">"false"</span>);
+        env::set_var(<span class="string">"BRIDGE_NONSTANDARD"</span>, <span class="string">"true"</span>);
     }
 
     <span class="comment">// Helper to clean up all environment variables
@@ -1083,7 +1080,6 @@
         env::remove_var(<span class="string">"OPERATOR_REIMBURSE_TIMELOCK"</span>);
         env::remove_var(<span class="string">"WATCHTOWER_CHALLENGE_TIMEOUT_TIMELOCK"</span>);
         env::remove_var(<span class="string">"TIME_TO_SEND_WATCHTOWER_CHALLENGE"</span>);
-        env::remove_var(<span class="string">"TIME_TO_DISPROVE"</span>);
         env::remove_var(<span class="string">"FINALITY_DEPTH"</span>);
         env::remove_var(<span class="string">"START_HEIGHT"</span>);
         env::remove_var(<span class="string">"HEADER_CHAIN_PROOF_BATCH_SIZE"</span>);

@@ -605,7 +605,9 @@
 <a href="#604" id="604">604</a>
 <a href="#605" id="605">605</a>
 <a href="#606" id="606">606</a>
-<a href="#607" id="607">607</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::{
+<a href="#607" id="607">607</a>
+<a href="#608" id="608">608</a>
+<a href="#609" id="609">609</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::{
     <span class="self">self</span>, DepositParams, FeeType, Outpoint, RawSignedTx, RbfSigningInfoRpc, SchnorrSig,
     TransactionRequest, WinternitzPubkey,
 };
@@ -797,6 +799,7 @@
         <span class="kw">match </span>value {
             FeePayingType::CPFP =&gt; FeeType::Cpfp,
             FeePayingType::RBF =&gt; FeeType::Rbf,
+            FeePayingType::NoFunding =&gt; FeeType::NoFunding,
         }
     }
 }
@@ -808,6 +811,7 @@
         <span class="kw">match </span>value {
             FeeType::Cpfp =&gt; <span class="prelude-val">Ok</span>(FeePayingType::CPFP),
             FeeType::Rbf =&gt; <span class="prelude-val">Ok</span>(FeePayingType::RBF),
+            FeeType::NoFunding =&gt; <span class="prelude-val">Ok</span>(FeePayingType::NoFunding),
             <span class="kw">_ </span>=&gt; <span class="prelude-val">Err</span>(Status::invalid_argument(<span class="string">"Invalid FeeType variant"</span>)),
         }
     }

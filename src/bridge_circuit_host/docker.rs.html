@@ -546,7 +546,63 @@
 <a href="#545" id="545">545</a>
 <a href="#546" id="546">546</a>
 <a href="#547" id="547">547</a>
-<a href="#548" id="548">548</a></pre></div><pre class="rust"><code><span class="kw">use </span>hex::ToHex;
+<a href="#548" id="548">548</a>
+<a href="#549" id="549">549</a>
+<a href="#550" id="550">550</a>
+<a href="#551" id="551">551</a>
+<a href="#552" id="552">552</a>
+<a href="#553" id="553">553</a>
+<a href="#554" id="554">554</a>
+<a href="#555" id="555">555</a>
+<a href="#556" id="556">556</a>
+<a href="#557" id="557">557</a>
+<a href="#558" id="558">558</a>
+<a href="#559" id="559">559</a>
+<a href="#560" id="560">560</a>
+<a href="#561" id="561">561</a>
+<a href="#562" id="562">562</a>
+<a href="#563" id="563">563</a>
+<a href="#564" id="564">564</a>
+<a href="#565" id="565">565</a>
+<a href="#566" id="566">566</a>
+<a href="#567" id="567">567</a>
+<a href="#568" id="568">568</a>
+<a href="#569" id="569">569</a>
+<a href="#570" id="570">570</a>
+<a href="#571" id="571">571</a>
+<a href="#572" id="572">572</a>
+<a href="#573" id="573">573</a>
+<a href="#574" id="574">574</a>
+<a href="#575" id="575">575</a>
+<a href="#576" id="576">576</a>
+<a href="#577" id="577">577</a>
+<a href="#578" id="578">578</a>
+<a href="#579" id="579">579</a>
+<a href="#580" id="580">580</a>
+<a href="#581" id="581">581</a>
+<a href="#582" id="582">582</a>
+<a href="#583" id="583">583</a>
+<a href="#584" id="584">584</a>
+<a href="#585" id="585">585</a>
+<a href="#586" id="586">586</a>
+<a href="#587" id="587">587</a>
+<a href="#588" id="588">588</a>
+<a href="#589" id="589">589</a>
+<a href="#590" id="590">590</a>
+<a href="#591" id="591">591</a>
+<a href="#592" id="592">592</a>
+<a href="#593" id="593">593</a>
+<a href="#594" id="594">594</a>
+<a href="#595" id="595">595</a>
+<a href="#596" id="596">596</a>
+<a href="#597" id="597">597</a>
+<a href="#598" id="598">598</a>
+<a href="#599" id="599">599</a>
+<a href="#600" id="600">600</a>
+<a href="#601" id="601">601</a>
+<a href="#602" id="602">602</a>
+<a href="#603" id="603">603</a>
+<a href="#604" id="604">604</a></pre></div><pre class="rust"><code><span class="kw">use </span>hex::ToHex;
 <span class="kw">use </span>num_bigint::BigUint;
 <span class="kw">use </span>num_traits::Num;
 <span class="kw">use </span>risc0_groth16::{to_json, ProofJson, Seal};
@@ -563,57 +619,68 @@
     process::{Command, Stdio},
 };
 
+<span class="kw">use </span>eyre::{eyre, ContextCompat, <span class="prelude-ty">Result</span>, WrapErr};
 <span class="kw">use </span>tempfile::tempdir;
+<span class="kw">use </span>tracing;
 
 <span class="doccomment">/// Convert a STARK proof to a SNARK proof. Taken from risc0-groth16 and modified slightly.
 </span><span class="kw">pub fn </span>stark_to_bitvm2_g16(
     succinct_receipt: SuccinctReceipt&lt;ReceiptClaim&gt;,
     journal: <span class="kw-2">&amp;</span>[u8],
-) -&gt; (Seal, [u8; <span class="number">31</span>]) {
-    <span class="kw">let </span>ident_receipt = risc0_zkvm::recursion::identity_p254(<span class="kw-2">&amp;</span>succinct_receipt).unwrap();
+) -&gt; <span class="prelude-ty">Result</span>&lt;(Seal, [u8; <span class="number">31</span>])&gt; {
+    <span class="kw">let </span>ident_receipt = risc0_zkvm::recursion::identity_p254(<span class="kw-2">&amp;</span>succinct_receipt)
+        .map_err(|e| <span class="macro">eyre!</span>(<span class="string">"Failed to create identity receipt: {:?}"</span>, e))<span class="question-mark">?</span>;
     <span class="kw">let </span>identity_p254_seal_bytes = ident_receipt.get_seal_bytes();
-    <span class="kw">let </span>receipt_claim = succinct_receipt.claim.value().unwrap();
-    <span class="macro">println!</span>(<span class="string">"Journal for stark_to_bitvm2_g16: {:?}"</span>, journal);
+    <span class="kw">let </span>receipt_claim = succinct_receipt
+        .claim
+        .value()
+        .wrap_err(<span class="string">"Failed to get receipt claim value"</span>)<span class="question-mark">?</span>;
+    <span class="macro">tracing::debug!</span>(<span class="string">"Journal for stark_to_bitvm2_g16: {:?}"</span>, journal);
 
     <span class="comment">// This part is from risc0-groth16
     </span><span class="kw">if </span>!is_x86_architecture() {
-        <span class="macro">panic!</span>(<span class="string">"stark_to_snark is only supported on x86 architecture."</span>)
+        <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre!</span>(
+            <span class="string">"stark_to_snark is only supported on x86 architecture"
+        </span>));
     }
     <span class="kw">if </span>!is_docker_installed() {
-        <span class="macro">panic!</span>(<span class="string">"Please install docker first."</span>)
-    }
+        <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre!</span>(<span class="string">"Please install docker first"</span>)); <span class="comment">// Maybe check this at startup...
+    </span>}
 
-    <span class="kw">let </span>tmp_dir = tempdir().unwrap();
-    <span class="kw">let </span>work_dir = std::env::var(<span class="string">"RISC0_WORK_DIR"</span>);
-    <span class="kw">let </span>work_dir = work_dir.as_ref().map(Path::new).unwrap_or(tmp_dir.path());
-    <span class="macro">println!</span>(<span class="string">"work_dir: {:?}"</span>, work_dir);
-    std::fs::write(work_dir.join(<span class="string">"seal.r0"</span>), identity_p254_seal_bytes.clone()).unwrap();
+    <span class="kw">let </span>tmp_dir = tempdir().wrap_err(<span class="string">"Failed to create temporary directory"</span>)<span class="question-mark">?</span>;
+    <span class="kw">let </span>work_var = std::env::var(<span class="string">"RISC0_WORK_DIR"</span>).ok();
+    <span class="kw">let </span>work_dir = work_var.as_ref().map(Path::new).unwrap_or(tmp_dir.path());
+    <span class="macro">tracing::debug!</span>(<span class="string">"work_dir: {:?}"</span>, work_dir);
+
+    std::fs::write(work_dir.join(<span class="string">"seal.r0"</span>), identity_p254_seal_bytes.clone())
+        .wrap_err(<span class="string">"Failed to write seal file"</span>)<span class="question-mark">?</span>;
     <span class="kw">let </span>seal_path = work_dir.join(<span class="string">"input.json"</span>);
     <span class="kw">let </span>proof_path = work_dir.join(<span class="string">"proof.json"</span>);
     <span class="kw">let </span>output_path = work_dir.join(<span class="string">"public.json"</span>);
     <span class="kw">let </span><span class="kw-2">mut </span>seal_json = Vec::new();
-    to_json(<span class="kw-2">&amp;*</span>identity_p254_seal_bytes, <span class="kw-2">&amp;mut </span>seal_json).unwrap();
-    std::fs::write(seal_path.clone(), seal_json).unwrap();
+    to_json(<span class="kw-2">&amp;*</span>identity_p254_seal_bytes, <span class="kw-2">&amp;mut </span>seal_json)
+        .map_err(|e| <span class="macro">eyre!</span>(<span class="string">"Failed to convert seal to JSON: {:?}"</span>, e))<span class="question-mark">?</span>;
+    std::fs::write(seal_path.clone(), seal_json).wrap_err(<span class="string">"Failed to write seal JSON"</span>)<span class="question-mark">?</span>;
 
     <span class="kw">let </span>pre_state: risc0_zkvm::MaybePruned&lt;SystemState&gt; = receipt_claim.clone().pre;
-    <span class="macro">println!</span>(<span class="string">"pre_state: {:?}"</span>, pre_state);
+    <span class="macro">tracing::debug!</span>(<span class="string">"pre_state: {:?}"</span>, pre_state);
     <span class="kw">let </span>pre_state_digest: Digest = pre_state.clone().digest();
-    <span class="macro">println!</span>(<span class="string">"pre_state_digest: {:?}"</span>, pre_state_digest);
+    <span class="macro">tracing::debug!</span>(<span class="string">"pre_state_digest: {:?}"</span>, pre_state_digest);
     <span class="kw">let </span>pre_state_digest_bits: Vec&lt;String&gt; = pre_state_digest
         .as_bytes()
         .iter()
         .flat_map(|<span class="kw-2">&amp;</span>byte| (<span class="number">0</span>..<span class="number">8</span>).rev().map(<span class="kw">move </span>|i| ((byte &gt;&gt; i) &amp; <span class="number">1</span>).to_string()))
         .collect();
-    <span class="macro">println!</span>(<span class="string">"pre_state_digest_bits: {:?}"</span>, pre_state_digest_bits);
+    <span class="macro">tracing::debug!</span>(<span class="string">"pre_state_digest_bits: {:?}"</span>, pre_state_digest_bits);
     <span class="kw">let </span>post_state: risc0_zkvm::MaybePruned&lt;SystemState&gt; = receipt_claim.clone().post;
-    <span class="macro">println!</span>(<span class="string">"post_state: {:?}"</span>, post_state);
+    <span class="macro">tracing::debug!</span>(<span class="string">"post_state: {:?}"</span>, post_state);
     <span class="kw">let </span>post_state_digest: Digest = post_state.clone().digest();
     <span class="kw">let </span>post_state_digest_bits: Vec&lt;String&gt; = post_state_digest
         .as_bytes()
         .iter()
         .flat_map(|<span class="kw-2">&amp;</span>byte| (<span class="number">0</span>..<span class="number">8</span>).rev().map(<span class="kw">move </span>|i| ((byte &gt;&gt; i) &amp; <span class="number">1</span>).to_string()))
         .collect();
-    <span class="macro">println!</span>(<span class="string">"post_state_digest_bits: {:?}"</span>, post_state_digest_bits);
+    <span class="macro">tracing::debug!</span>(<span class="string">"post_state_digest_bits: {:?}"</span>, post_state_digest_bits);
 
     <span class="kw">let </span><span class="kw-2">mut </span>journal_bits = Vec::new();
     <span class="kw">for </span>byte <span class="kw">in </span>journal {
@@ -621,53 +688,61 @@
             journal_bits.push((byte &gt;&gt; (<span class="number">7 </span>- i)) &amp; <span class="number">1</span>);
         }
     }
-    <span class="macro">println!</span>(<span class="string">"journal_bits len: {:?}"</span>, journal_bits.len());
+    <span class="macro">tracing::debug!</span>(<span class="string">"journal_bits len: {:?}"</span>, journal_bits.len());
 
     <span class="kw">let </span>succinct_verifier_params = SuccinctReceiptVerifierParameters::default();
-    <span class="macro">println!</span>(<span class="string">"Succinct verifier params: {:?}"</span>, succinct_verifier_params);
+    <span class="macro">tracing::debug!</span>(<span class="string">"Succinct verifier params: {:?}"</span>, succinct_verifier_params);
     <span class="kw">let </span>succinct_control_root = succinct_verifier_params.control_root;
-    <span class="macro">println!</span>(<span class="string">"Succinct control root: {:?}"</span>, succinct_control_root);
-    <span class="kw">let </span><span class="kw-2">mut </span>succinct_control_root_bytes: [u8; <span class="number">32</span>] =
-        succinct_control_root.as_bytes().try_into().unwrap();
+    <span class="macro">tracing::debug!</span>(<span class="string">"Succinct control root: {:?}"</span>, succinct_control_root);
+    <span class="kw">let </span><span class="kw-2">mut </span>succinct_control_root_bytes: [u8; <span class="number">32</span>] = succinct_control_root
+        .as_bytes()
+        .try_into()
+        .wrap_err(<span class="string">"Failed to convert succinct control root to 32 bytes"</span>)<span class="question-mark">?</span>;
     succinct_control_root_bytes.reverse();
     <span class="kw">let </span>succinct_control_root_bytes: String = succinct_control_root_bytes.encode_hex();
     <span class="kw">let </span>a1_str = succinct_control_root_bytes[<span class="number">0</span>..<span class="number">32</span>].to_string();
     <span class="kw">let </span>a0_str = succinct_control_root_bytes[<span class="number">32</span>..<span class="number">64</span>].to_string();
-    <span class="macro">println!</span>(<span class="string">"Succinct control root a0: {:?}"</span>, a0_str);
-    <span class="macro">println!</span>(<span class="string">"Succinct control root a1: {:?}"</span>, a1_str);
-    <span class="kw">let </span>a0_dec = to_decimal(<span class="kw-2">&amp;</span>a0_str).unwrap();
-    <span class="kw">let </span>a1_dec = to_decimal(<span class="kw-2">&amp;</span>a1_str).unwrap();
-    <span class="macro">println!</span>(<span class="string">"Succinct control root a0 dec: {:?}"</span>, a0_dec);
-    <span class="macro">println!</span>(<span class="string">"Succinct control root a1 dec: {:?}"</span>, a1_dec);
-    <span class="macro">println!</span>(<span class="string">"CONTROL_ID: {:?}"</span>, ident_receipt.control_id);
+    <span class="macro">tracing::debug!</span>(<span class="string">"Succinct control root a0: {:?}"</span>, a0_str);
+    <span class="macro">tracing::debug!</span>(<span class="string">"Succinct control root a1: {:?}"</span>, a1_str);
+    <span class="kw">let </span>a0_dec = to_decimal(<span class="kw-2">&amp;</span>a0_str)
+        .ok_or_else(|| <span class="macro">eyre!</span>(<span class="string">"Failed to convert succinct control root a0 to decimal"</span>))<span class="question-mark">?</span>;
+    <span class="kw">let </span>a1_dec = to_decimal(<span class="kw-2">&amp;</span>a1_str)
+        .ok_or_else(|| <span class="macro">eyre!</span>(<span class="string">"Failed to convert succinct control root a1 to decimal"</span>))<span class="question-mark">?</span>;
+    <span class="macro">tracing::debug!</span>(<span class="string">"Succinct control root a0 dec: {:?}"</span>, a0_dec);
+    <span class="macro">tracing::debug!</span>(<span class="string">"Succinct control root a1 dec: {:?}"</span>, a1_dec);
+    <span class="macro">tracing::debug!</span>(<span class="string">"CONTROL_ID: {:?}"</span>, ident_receipt.control_id);
     <span class="kw">let </span><span class="kw-2">mut </span>id_bn254_fr_bits: Vec&lt;String&gt; = ident_receipt
         .control_id
         .as_bytes()
         .iter()
         .flat_map(|<span class="kw-2">&amp;</span>byte| (<span class="number">0</span>..<span class="number">8</span>).rev().map(<span class="kw">move </span>|i| ((byte &gt;&gt; i) &amp; <span class="number">1</span>).to_string()))
         .collect();
-    <span class="macro">println!</span>(<span class="string">"id_bn254_fr_bits: {:?}"</span>, id_bn254_fr_bits);
+    <span class="macro">tracing::debug!</span>(<span class="string">"id_bn254_fr_bits: {:?}"</span>, id_bn254_fr_bits);
 
     <span class="comment">// remove 248th and 249th bits
     </span>id_bn254_fr_bits.remove(<span class="number">248</span>);
     id_bn254_fr_bits.remove(<span class="number">248</span>);
 
-    <span class="macro">println!</span>(
+    <span class="macro">tracing::debug!</span>(
         <span class="string">"id_bn254_fr_bits after removing 2 extra bits: {:?}"</span>,
         id_bn254_fr_bits
     );
 
     <span class="kw">let </span><span class="kw-2">mut </span>seal_json: Value = {
-        <span class="kw">let </span>file_content = fs::read_to_string(<span class="kw-2">&amp;</span>seal_path).unwrap();
-        serde_json::from_str(<span class="kw-2">&amp;</span>file_content).unwrap()
-    };
+        <span class="kw">let </span>file_content = fs::read_to_string(<span class="kw-2">&amp;</span>seal_path).wrap_err(<span class="string">"Failed to read seal file"</span>)<span class="question-mark">?</span>;
+        serde_json::from_str(<span class="kw-2">&amp;</span>file_content).wrap_err(<span class="string">"Failed to parse seal JSON"</span>)<span class="question-mark">?
+    </span>};
 
     seal_json[<span class="string">"journal_digest_bits"</span>] = journal_bits.into();
     seal_json[<span class="string">"pre_state_digest_bits"</span>] = pre_state_digest_bits.into();
     seal_json[<span class="string">"post_state_digest_bits"</span>] = post_state_digest_bits.into();
     seal_json[<span class="string">"id_bn254_fr_bits"</span>] = id_bn254_fr_bits.into();
     seal_json[<span class="string">"control_root"</span>] = <span class="macro">vec!</span>[a0_dec, a1_dec].into();
-    std::fs::write(seal_path, serde_json::to_string_pretty(<span class="kw-2">&amp;</span>seal_json).unwrap()).unwrap();
+    std::fs::write(
+        seal_path,
+        serde_json::to_string_pretty(<span class="kw-2">&amp;</span>seal_json).wrap_err(<span class="string">"Failed to write updated seal JSON"</span>)<span class="question-mark">?</span>,
+    )
+    .wrap_err(<span class="string">"Failed to write seal file"</span>)<span class="question-mark">?</span>;
 
     <span class="kw">let </span>output = Command::new(<span class="string">"docker"</span>)
         .arg(<span class="string">"run"</span>)
@@ -680,28 +755,33 @@
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
-        .unwrap();
+        .wrap_err(<span class="string">"Failed to execute docker command"</span>)<span class="question-mark">?</span>;
 
     <span class="kw">if </span>!output.status.success() {
-        <span class="macro">panic!</span>(
+        <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre!</span>(
             <span class="string">"STARK to SNARK prover docker image returned failure: {:?}"</span>,
             output
-        );
+        ));
     }
 
-    <span class="macro">println!</span>(<span class="string">"proof_path: {:?}"</span>, proof_path);
-    <span class="kw">let </span>proof_content = std::fs::read_to_string(proof_path).unwrap();
-    <span class="kw">let </span>output_content_dec = std::fs::read_to_string(output_path).unwrap();
-    <span class="kw">let </span>proof_json: ProofJson = serde_json::from_str(<span class="kw-2">&amp;</span>proof_content).unwrap();
-    <span class="comment">// let output_json: Value = serde_json::from_str(&amp;output_content).unwrap();
-    // Convert output_content_dec from decimal to hex
-    </span><span class="kw">let </span>parsed_json: Value = serde_json::from_str(<span class="kw-2">&amp;</span>output_content_dec).unwrap();
-    <span class="kw">let </span>output_str = parsed_json[<span class="number">0</span>].as_str().unwrap(); <span class="comment">// Extracts the string from the JSON array
+    <span class="macro">tracing::debug!</span>(<span class="string">"proof_path: {:?}"</span>, proof_path);
+    <span class="kw">let </span>proof_content =
+        std::fs::read_to_string(proof_path).wrap_err(<span class="string">"Failed to read proof file"</span>)<span class="question-mark">?</span>;
+    <span class="kw">let </span>output_content_dec =
+        std::fs::read_to_string(output_path).wrap_err(<span class="string">"Failed to read output file"</span>)<span class="question-mark">?</span>;
+    <span class="kw">let </span>proof_json: ProofJson =
+        serde_json::from_str(<span class="kw-2">&amp;</span>proof_content).wrap_err(<span class="string">"Failed to parse proof JSON"</span>)<span class="question-mark">?</span>;
 
-    // Step 2: Convert the decimal string to BigUint and then to hexadecimal
+    <span class="kw">let </span>parsed_json: Value =
+        serde_json::from_str(<span class="kw-2">&amp;</span>output_content_dec).wrap_err(<span class="string">"Failed to parse output JSON"</span>)<span class="question-mark">?</span>;
+    <span class="kw">let </span>output_str = parsed_json[<span class="number">0</span>]
+        .as_str()
+        .ok_or_else(|| <span class="macro">eyre!</span>(<span class="string">"Failed to get output string from JSON"</span>))<span class="question-mark">?</span>;
+
+    <span class="comment">// Step 2: Convert the decimal string to BigUint and then to hexadecimal
     </span><span class="kw">let </span>output_content_hex = BigUint::from_str_radix(output_str, <span class="number">10</span>)
-        .unwrap()
-        .to_str_radix(<span class="number">16</span>);
+        .wrap_err(<span class="string">"Failed to parse decimal string"</span>)<span class="question-mark">?
+        </span>.to_str_radix(<span class="number">16</span>);
 
     <span class="comment">// If the length of the hexadecimal string is odd, add a leading zero
     </span><span class="kw">let </span>output_content_hex = <span class="kw">if </span>output_content_hex.len() % <span class="number">2 </span>== <span class="number">0 </span>{
@@ -711,10 +791,19 @@
     };
 
     <span class="comment">// Step 3: Decode the hexadecimal string to a byte vector
-    </span><span class="kw">let </span>output_byte_vec = hex::decode(<span class="kw-2">&amp;</span>output_content_hex).unwrap();
-    <span class="comment">// let output_byte_vec = hex::decode(output_hex).unwrap();
-    </span><span class="kw">let </span>output_bytes: [u8; <span class="number">31</span>] = output_byte_vec.as_slice().try_into().unwrap();
-    (proof_json.try_into().unwrap(), output_bytes)
+    </span><span class="kw">let </span>output_byte_vec =
+        hex::decode(<span class="kw-2">&amp;</span>output_content_hex).wrap_err(<span class="string">"Failed to decode hex string"</span>)<span class="question-mark">?</span>;
+    <span class="kw">let </span>output_bytes: [u8; <span class="number">31</span>] = output_byte_vec
+        .as_slice()
+        .try_into()
+        .wrap_err(<span class="string">"Failed to convert output bytes to array"</span>)<span class="question-mark">?</span>;
+
+    <span class="prelude-val">Ok</span>((
+        proof_json
+            .try_into()
+            .map_err(|e| <span class="macro">eyre!</span>(<span class="string">"Failed to convert proof JSON to Seal: {:?}"</span>, e))<span class="question-mark">?</span>,
+        output_bytes,
+    ))
 }
 
 <span class="kw">const </span>ID_BN254_FR_BITS: [<span class="kw-2">&amp;</span>str; <span class="number">254</span>] = [
@@ -734,30 +823,30 @@
     <span class="string">"0"</span>, <span class="string">"0"</span>, <span class="string">"0"</span>, <span class="string">"0"</span>, <span class="string">"1"</span>, <span class="string">"0"</span>, <span class="string">"0"</span>,
 ];
 
-<span class="kw">pub fn </span>dev_stark_to_risc0_g16(
-    <span class="comment">// succinct_receipt: SuccinctReceipt&lt;ReceiptClaim&gt;,
-    </span>receipt: Receipt,
-    journal: <span class="kw-2">&amp;</span>[u8],
-) -&gt; Receipt {
-    <span class="comment">// let ident_receipt = risc0_zkvm::recursion::identity_p254(&amp;succinct_receipt).unwrap();
-    // let identity_p254_seal_bytes = ident_receipt.get_seal_bytes();
-    // let receipt_claim = succinct_receipt.claim.value().unwrap();
-    </span><span class="kw">let </span>identity_p254_seal_bytes = <span class="macro">vec!</span>[<span class="number">0u8</span>; <span class="number">222668</span>];
-    <span class="kw">let </span>receipt_claim = receipt.claim().unwrap().value().unwrap();
+<span class="kw">pub fn </span>dev_stark_to_risc0_g16(receipt: Receipt, journal: <span class="kw-2">&amp;</span>[u8]) -&gt; <span class="prelude-ty">Result</span>&lt;Receipt&gt; {
+    <span class="kw">let </span>identity_p254_seal_bytes = <span class="macro">vec!</span>[<span class="number">0u8</span>; <span class="number">222668</span>];
+    <span class="kw">let </span>receipt_claim = receipt
+        .claim()
+        .wrap_err(<span class="string">"Failed to get receipt claim"</span>)<span class="question-mark">?
+        </span>.value()
+        .wrap_err(<span class="string">"Failed to get receipt claim value"</span>)<span class="question-mark">?</span>;
 
     <span class="comment">// This part is from risc0-groth16
     </span><span class="kw">if </span>!is_x86_architecture() {
-        <span class="macro">panic!</span>(<span class="string">"stark_to_snark is only supported on x86 architecture."</span>)
+        <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre!</span>(
+            <span class="string">"stark_to_snark is only supported on x86 architecture"
+        </span>));
     }
     <span class="kw">if </span>!is_docker_installed() {
-        <span class="macro">panic!</span>(<span class="string">"Please install docker first."</span>)
+        <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre!</span>(<span class="string">"Please install docker first"</span>));
     }
 
-    <span class="kw">let </span>tmp_dir = tempdir().unwrap();
-    <span class="kw">let </span>work_dir = std::env::var(<span class="string">"RISC0_WORK_DIR"</span>);
-    <span class="kw">let </span>work_dir = work_dir.as_ref().map(Path::new).unwrap_or(tmp_dir.path());
-    <span class="macro">println!</span>(<span class="string">"work_dir: {:?}"</span>, work_dir);
-    std::fs::write(work_dir.join(<span class="string">"seal.r0"</span>), identity_p254_seal_bytes.clone()).unwrap();
+    <span class="kw">let </span>tmp_dir = tempdir().wrap_err(<span class="string">"Failed to create temporary directory"</span>)<span class="question-mark">?</span>;
+    <span class="kw">let </span>work_var = std::env::var(<span class="string">"RISC0_WORK_DIR"</span>).ok();
+    <span class="kw">let </span>work_dir = work_var.as_ref().map(Path::new).unwrap_or(tmp_dir.path());
+    <span class="macro">tracing::debug!</span>(<span class="string">"work_dir: {:?}"</span>, work_dir);
+    std::fs::write(work_dir.join(<span class="string">"seal.r0"</span>), identity_p254_seal_bytes.clone())
+        .wrap_err(<span class="string">"Failed to write seal file"</span>)<span class="question-mark">?</span>;
     <span class="kw">let </span>seal_path = work_dir.join(<span class="string">"input.json"</span>);
     <span class="kw">let </span>proof_path = work_dir.join(<span class="string">"proof.json"</span>);
     <span class="kw">let </span>_output_path = work_dir.join(<span class="string">"public.json"</span>);
@@ -766,24 +855,24 @@
     // std::fs::write(seal_path.clone(), seal_json).unwrap();
 
     </span><span class="kw">let </span>pre_state: risc0_zkvm::MaybePruned&lt;SystemState&gt; = receipt_claim.clone().pre;
-    <span class="macro">println!</span>(<span class="string">"pre_state: {:?}"</span>, pre_state);
+    <span class="macro">tracing::debug!</span>(<span class="string">"pre_state: {:?}"</span>, pre_state);
     <span class="kw">let </span>pre_state_digest: Digest = pre_state.clone().digest();
-    <span class="macro">println!</span>(<span class="string">"pre_state_digest: {:?}"</span>, pre_state_digest);
+    <span class="macro">tracing::debug!</span>(<span class="string">"pre_state_digest: {:?}"</span>, pre_state_digest);
     <span class="kw">let </span>pre_state_digest_bits: Vec&lt;String&gt; = pre_state_digest
         .as_bytes()
         .iter()
         .flat_map(|<span class="kw-2">&amp;</span>byte| (<span class="number">0</span>..<span class="number">8</span>).rev().map(<span class="kw">move </span>|i| ((byte &gt;&gt; i) &amp; <span class="number">1</span>).to_string()))
         .collect();
-    <span class="macro">println!</span>(<span class="string">"pre_state_digest_bits: {:?}"</span>, pre_state_digest_bits);
+    <span class="macro">tracing::debug!</span>(<span class="string">"pre_state_digest_bits: {:?}"</span>, pre_state_digest_bits);
     <span class="kw">let </span>post_state: risc0_zkvm::MaybePruned&lt;SystemState&gt; = receipt_claim.clone().post;
-    <span class="macro">println!</span>(<span class="string">"post_state: {:?}"</span>, post_state);
+    <span class="macro">tracing::debug!</span>(<span class="string">"post_state: {:?}"</span>, post_state);
     <span class="kw">let </span>post_state_digest: Digest = post_state.clone().digest();
     <span class="kw">let </span>post_state_digest_bits: Vec&lt;String&gt; = post_state_digest
         .as_bytes()
         .iter()
         .flat_map(|<span class="kw-2">&amp;</span>byte| (<span class="number">0</span>..<span class="number">8</span>).rev().map(<span class="kw">move </span>|i| ((byte &gt;&gt; i) &amp; <span class="number">1</span>).to_string()))
         .collect();
-    <span class="macro">println!</span>(<span class="string">"post_state_digest_bits: {:?}"</span>, post_state_digest_bits);
+    <span class="macro">tracing::debug!</span>(<span class="string">"post_state_digest_bits: {:?}"</span>, post_state_digest_bits);
 
     <span class="kw">let </span>journal_digest: Digest = journal.digest();
 
@@ -793,24 +882,28 @@
             journal_digest_bits.push((byte &gt;&gt; (<span class="number">7 </span>- i)) &amp; <span class="number">1</span>);
         }
     }
-    <span class="macro">println!</span>(<span class="string">"journal_bits len: {:?}"</span>, journal_digest_bits.len());
+    <span class="macro">tracing::debug!</span>(<span class="string">"journal_bits len: {:?}"</span>, journal_digest_bits.len());
 
     <span class="kw">let </span>succinct_verifier_params = SuccinctReceiptVerifierParameters::default();
-    <span class="macro">println!</span>(<span class="string">"Succinct verifier params: {:?}"</span>, succinct_verifier_params);
+    <span class="macro">tracing::debug!</span>(<span class="string">"Succinct verifier params: {:?}"</span>, succinct_verifier_params);
     <span class="kw">let </span>succinct_control_root = succinct_verifier_params.control_root;
-    <span class="macro">println!</span>(<span class="string">"Succinct control root: {:?}"</span>, succinct_control_root);
-    <span class="kw">let </span><span class="kw-2">mut </span>succinct_control_root_bytes: [u8; <span class="number">32</span>] =
-        succinct_control_root.as_bytes().try_into().unwrap();
+    <span class="macro">tracing::debug!</span>(<span class="string">"Succinct control root: {:?}"</span>, succinct_control_root);
+    <span class="kw">let </span><span class="kw-2">mut </span>succinct_control_root_bytes: [u8; <span class="number">32</span>] = succinct_control_root
+        .as_bytes()
+        .try_into()
+        .wrap_err(<span class="string">"Failed to convert succinct control root to 32 bytes"</span>)<span class="question-mark">?</span>;
     succinct_control_root_bytes.reverse();
     <span class="kw">let </span>succinct_control_root_bytes: String = succinct_control_root_bytes.encode_hex();
     <span class="kw">let </span>a1_str = succinct_control_root_bytes[<span class="number">0</span>..<span class="number">32</span>].to_string();
     <span class="kw">let </span>a0_str = succinct_control_root_bytes[<span class="number">32</span>..<span class="number">64</span>].to_string();
-    <span class="macro">println!</span>(<span class="string">"Succinct control root a0: {:?}"</span>, a0_str);
-    <span class="macro">println!</span>(<span class="string">"Succinct control root a1: {:?}"</span>, a1_str);
-    <span class="kw">let </span>a0_dec = to_decimal(<span class="kw-2">&amp;</span>a0_str).unwrap();
-    <span class="kw">let </span>a1_dec = to_decimal(<span class="kw-2">&amp;</span>a1_str).unwrap();
-    <span class="macro">println!</span>(<span class="string">"Succinct control root a0 dec: {:?}"</span>, a0_dec);
-    <span class="macro">println!</span>(<span class="string">"Succinct control root a1 dec: {:?}"</span>, a1_dec);
+    <span class="macro">tracing::debug!</span>(<span class="string">"Succinct control root a0: {:?}"</span>, a0_str);
+    <span class="macro">tracing::debug!</span>(<span class="string">"Succinct control root a1: {:?}"</span>, a1_str);
+    <span class="kw">let </span>a0_dec = to_decimal(<span class="kw-2">&amp;</span>a0_str)
+        .ok_or_else(|| <span class="macro">eyre!</span>(<span class="string">"Failed to convert succinct control root a0 to decimal"</span>))<span class="question-mark">?</span>;
+    <span class="kw">let </span>a1_dec = to_decimal(<span class="kw-2">&amp;</span>a1_str)
+        .ok_or_else(|| <span class="macro">eyre!</span>(<span class="string">"Failed to convert succinct control root a1 to decimal"</span>))<span class="question-mark">?</span>;
+    <span class="macro">tracing::debug!</span>(<span class="string">"Succinct control root a0 dec: {:?}"</span>, a0_dec);
+    <span class="macro">tracing::debug!</span>(<span class="string">"Succinct control root a1 dec: {:?}"</span>, a1_dec);
     <span class="comment">// println!("CONTROL_ID: {:?}", ident_receipt.control_id);
     // let mut id_bn254_fr_bits: Vec&lt;String&gt; = ident_receipt
     //     .control_id
@@ -845,10 +938,16 @@
     seal_json[<span class="string">"post_state_digest_bits"</span>] = post_state_digest_bits.into();
     seal_json[<span class="string">"id_bn254_fr_bits"</span>] = id_bn254_fr_bits.into();
     seal_json[<span class="string">"control_root"</span>] = <span class="macro">vec!</span>[a0_dec, a1_dec].into();
-    std::fs::write(seal_path, serde_json::to_string_pretty(<span class="kw-2">&amp;</span>seal_json).unwrap()).unwrap();
+    std::fs::write(
+        seal_path,
+        serde_json::to_string_pretty(<span class="kw-2">&amp;</span>seal_json)
+            .wrap_err(<span class="string">"Failed to convert seal JSON to string"</span>)<span class="question-mark">?</span>,
+    )
+    .wrap_err(<span class="string">"Failed to write seal file"</span>)<span class="question-mark">?</span>;
 
     <span class="kw">let </span>output = Command::new(<span class="string">"docker"</span>)
         .arg(<span class="string">"run"</span>)
+        .arg(<span class="string">"--pull=always"</span>)
         .arg(<span class="string">"--rm"</span>)
         .arg(<span class="string">"--platform=linux/amd64"</span>) <span class="comment">// Force linux/amd64 platform
         </span>.arg(<span class="string">"-v"</span>)
@@ -857,20 +956,22 @@
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
-        .unwrap();
-
-    <span class="macro">println!</span>(<span class="string">"Output: {:?}"</span>, output);
+        .wrap_err(<span class="string">"Failed to execute docker command"</span>)<span class="question-mark">?</span>;
 
     <span class="kw">if </span>!output.status.success() {
-        <span class="macro">eprintln!</span>(
-            <span class="string">"docker returned failure exit code: {:?}"</span>,
-            output.status.code()
-        );
+        <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre!</span>(
+            <span class="string">"STARK to SNARK prover docker image returned failure: {:?}"</span>,
+            output
+        ));
     }
-    <span class="macro">println!</span>(<span class="string">"proof_path: {:?}"</span>, proof_path);
-    <span class="kw">let </span>contents = std::fs::read_to_string(proof_path).unwrap();
-    <span class="kw">let </span>proof_json: ProofJson = serde_json::from_str(<span class="kw-2">&amp;</span>contents).unwrap();
-    <span class="kw">let </span>seal: Seal = proof_json.try_into().unwrap();
+
+    <span class="macro">tracing::debug!</span>(<span class="string">"proof_path: {:?}"</span>, proof_path);
+    <span class="kw">let </span>contents = std::fs::read_to_string(proof_path).wrap_err(<span class="string">"Failed to read proof file"</span>)<span class="question-mark">?</span>;
+    <span class="kw">let </span>proof_json: ProofJson =
+        serde_json::from_str(<span class="kw-2">&amp;</span>contents).wrap_err(<span class="string">"Failed to parse proof JSON"</span>)<span class="question-mark">?</span>;
+    <span class="kw">let </span>seal: Seal = proof_json
+        .try_into()
+        .map_err(|e| <span class="macro">eyre!</span>(<span class="string">"Failed to convert proof JSON to Seal: {:?}"</span>, e))<span class="question-mark">?</span>;
     <span class="kw">let </span>g16_verifier_params = Groth16ReceiptVerifierParameters::default(); <span class="comment">// This is incorrect, but should not matter as it is not used.
     </span><span class="kw">let </span>g16_receipt = Groth16Receipt::new(
         seal.to_vec(),
@@ -878,8 +979,7 @@
         g16_verifier_params.digest(),
     );
     <span class="kw">let </span>inner_receipt = InnerReceipt::Groth16(g16_receipt);
-    <span class="kw">let </span>receipt: Receipt = Receipt::new(inner_receipt, journal.to_vec());
-    receipt
+    <span class="prelude-val">Ok</span>(Receipt::new(inner_receipt, journal.to_vec()))
 }
 
 <span class="kw">const </span>ID_BN254_FR_BITS_DEV_BRIDGE: [<span class="kw-2">&amp;</span>str; <span class="number">254</span>] = [
@@ -899,30 +999,33 @@
     <span class="string">"0"</span>, <span class="string">"0"</span>, <span class="string">"0"</span>, <span class="string">"0"</span>, <span class="string">"1"</span>, <span class="string">"0"</span>, <span class="string">"0"</span>,
 ];
 
-<span class="kw">pub fn </span>stark_to_bitvm2_g16_dev_mode(
-    <span class="comment">// succinct_receipt: SuccinctReceipt&lt;ReceiptClaim&gt;,
-    </span>receipt: Receipt,
-    journal: <span class="kw-2">&amp;</span>[u8],
-) -&gt; (Seal, [u8; <span class="number">31</span>]) {
+<span class="kw">pub fn </span>stark_to_bitvm2_g16_dev_mode(receipt: Receipt, journal: <span class="kw-2">&amp;</span>[u8]) -&gt; <span class="prelude-ty">Result</span>&lt;(Seal, [u8; <span class="number">31</span>])&gt; {
     <span class="comment">// let ident_receipt = risc0_zkvm::recursion::identity_p254(&amp;succinct_receipt).unwrap();
     // let identity_p254_seal_bytes = ident_receipt.get_seal_bytes();
-    // let receipt_claim = succinct_receipt.claim.value().unwrap();
+    // let receipt_claim = succinct_receipt.claim.value().unwrap()
     </span><span class="kw">let </span>identity_p254_seal_bytes = <span class="macro">vec!</span>[<span class="number">0u8</span>; <span class="number">222668</span>];
-    <span class="kw">let </span>receipt_claim = receipt.claim().unwrap().value().unwrap();
+    <span class="kw">let </span>receipt_claim = receipt
+        .claim()
+        .wrap_err(<span class="string">"Failed to get receipt claim"</span>)<span class="question-mark">?
+        </span>.value()
+        .wrap_err(<span class="string">"Failed to get receipt claim value"</span>)<span class="question-mark">?</span>;
 
     <span class="comment">// This part is from risc0-groth16
     </span><span class="kw">if </span>!is_x86_architecture() {
-        <span class="macro">panic!</span>(<span class="string">"stark_to_snark is only supported on x86 architecture."</span>)
+        <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre!</span>(
+            <span class="string">"stark_to_snark is only supported on x86 architecture"
+        </span>));
     }
     <span class="kw">if </span>!is_docker_installed() {
-        <span class="macro">panic!</span>(<span class="string">"Please install docker first."</span>)
+        <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre!</span>(<span class="string">"Please install docker first"</span>));
     }
 
-    <span class="kw">let </span>tmp_dir = tempdir().unwrap();
-    <span class="kw">let </span>work_dir = std::env::var(<span class="string">"RISC0_WORK_DIR"</span>);
-    <span class="kw">let </span>work_dir = work_dir.as_ref().map(Path::new).unwrap_or(tmp_dir.path());
-    <span class="macro">println!</span>(<span class="string">"work_dir: {:?}"</span>, work_dir);
-    std::fs::write(work_dir.join(<span class="string">"seal.r0"</span>), identity_p254_seal_bytes.clone()).unwrap();
+    <span class="kw">let </span>tmp_dir = tempdir().wrap_err(<span class="string">"Failed to create temporary directory"</span>)<span class="question-mark">?</span>;
+    <span class="kw">let </span>work_var = std::env::var(<span class="string">"RISC0_WORK_DIR"</span>).ok();
+    <span class="kw">let </span>work_dir = work_var.as_ref().map(Path::new).unwrap_or(tmp_dir.path());
+    <span class="macro">tracing::debug!</span>(<span class="string">"work_dir: {:?}"</span>, work_dir);
+    std::fs::write(work_dir.join(<span class="string">"seal.r0"</span>), identity_p254_seal_bytes.clone())
+        .wrap_err(<span class="string">"Failed to write seal file"</span>)<span class="question-mark">?</span>;
     <span class="kw">let </span>seal_path = work_dir.join(<span class="string">"input.json"</span>);
     <span class="kw">let </span>proof_path = work_dir.join(<span class="string">"proof.json"</span>);
     <span class="kw">let </span>output_path = work_dir.join(<span class="string">"public.json"</span>);
@@ -931,24 +1034,24 @@
     // std::fs::write(seal_path.clone(), seal_json).unwrap();
 
     </span><span class="kw">let </span>pre_state: risc0_zkvm::MaybePruned&lt;SystemState&gt; = receipt_claim.clone().pre;
-    <span class="macro">println!</span>(<span class="string">"pre_state: {:?}"</span>, pre_state);
+    <span class="macro">tracing::debug!</span>(<span class="string">"pre_state: {:?}"</span>, pre_state);
     <span class="kw">let </span>pre_state_digest: Digest = pre_state.clone().digest();
-    <span class="macro">println!</span>(<span class="string">"pre_state_digest: {:?}"</span>, pre_state_digest);
+    <span class="macro">tracing::debug!</span>(<span class="string">"pre_state_digest: {:?}"</span>, pre_state_digest);
     <span class="kw">let </span>pre_state_digest_bits: Vec&lt;String&gt; = pre_state_digest
         .as_bytes()
         .iter()
         .flat_map(|<span class="kw-2">&amp;</span>byte| (<span class="number">0</span>..<span class="number">8</span>).rev().map(<span class="kw">move </span>|i| ((byte &gt;&gt; i) &amp; <span class="number">1</span>).to_string()))
         .collect();
-    <span class="macro">println!</span>(<span class="string">"pre_state_digest_bits: {:?}"</span>, pre_state_digest_bits);
+    <span class="macro">tracing::debug!</span>(<span class="string">"pre_state_digest_bits: {:?}"</span>, pre_state_digest_bits);
     <span class="kw">let </span>post_state: risc0_zkvm::MaybePruned&lt;SystemState&gt; = receipt_claim.clone().post;
-    <span class="macro">println!</span>(<span class="string">"post_state: {:?}"</span>, post_state);
+    <span class="macro">tracing::debug!</span>(<span class="string">"post_state: {:?}"</span>, post_state);
     <span class="kw">let </span>post_state_digest: Digest = post_state.clone().digest();
     <span class="kw">let </span>post_state_digest_bits: Vec&lt;String&gt; = post_state_digest
         .as_bytes()
         .iter()
         .flat_map(|<span class="kw-2">&amp;</span>byte| (<span class="number">0</span>..<span class="number">8</span>).rev().map(<span class="kw">move </span>|i| ((byte &gt;&gt; i) &amp; <span class="number">1</span>).to_string()))
         .collect();
-    <span class="macro">println!</span>(<span class="string">"post_state_digest_bits: {:?}"</span>, post_state_digest_bits);
+    <span class="macro">tracing::debug!</span>(<span class="string">"post_state_digest_bits: {:?}"</span>, post_state_digest_bits);
 
     <span class="kw">let </span><span class="kw-2">mut </span>journal_bits = Vec::new();
     <span class="kw">for </span>byte <span class="kw">in </span>journal {
@@ -956,24 +1059,28 @@
             journal_bits.push((byte &gt;&gt; (<span class="number">7 </span>- i)) &amp; <span class="number">1</span>);
         }
     }
-    <span class="macro">println!</span>(<span class="string">"journal_bits len: {:?}"</span>, journal_bits.len());
+    <span class="macro">tracing::debug!</span>(<span class="string">"journal_bits len: {:?}"</span>, journal_bits.len());
 
     <span class="kw">let </span>succinct_verifier_params = SuccinctReceiptVerifierParameters::default();
-    <span class="macro">println!</span>(<span class="string">"Succinct verifier params: {:?}"</span>, succinct_verifier_params);
+    <span class="macro">tracing::debug!</span>(<span class="string">"Succinct verifier params: {:?}"</span>, succinct_verifier_params);
     <span class="kw">let </span>succinct_control_root = succinct_verifier_params.control_root;
-    <span class="macro">println!</span>(<span class="string">"Succinct control root: {:?}"</span>, succinct_control_root);
-    <span class="kw">let </span><span class="kw-2">mut </span>succinct_control_root_bytes: [u8; <span class="number">32</span>] =
-        succinct_control_root.as_bytes().try_into().unwrap();
+    <span class="macro">tracing::debug!</span>(<span class="string">"Succinct control root: {:?}"</span>, succinct_control_root);
+    <span class="kw">let </span><span class="kw-2">mut </span>succinct_control_root_bytes: [u8; <span class="number">32</span>] = succinct_control_root
+        .as_bytes()
+        .try_into()
+        .wrap_err(<span class="string">"Failed to convert succinct control root to 32 bytes"</span>)<span class="question-mark">?</span>;
     succinct_control_root_bytes.reverse();
     <span class="kw">let </span>succinct_control_root_bytes: String = succinct_control_root_bytes.encode_hex();
     <span class="kw">let </span>a1_str = succinct_control_root_bytes[<span class="number">0</span>..<span class="number">32</span>].to_string();
     <span class="kw">let </span>a0_str = succinct_control_root_bytes[<span class="number">32</span>..<span class="number">64</span>].to_string();
-    <span class="macro">println!</span>(<span class="string">"Succinct control root a0: {:?}"</span>, a0_str);
-    <span class="macro">println!</span>(<span class="string">"Succinct control root a1: {:?}"</span>, a1_str);
-    <span class="kw">let </span>a0_dec = to_decimal(<span class="kw-2">&amp;</span>a0_str).unwrap();
-    <span class="kw">let </span>a1_dec = to_decimal(<span class="kw-2">&amp;</span>a1_str).unwrap();
-    <span class="macro">println!</span>(<span class="string">"Succinct control root a0 dec: {:?}"</span>, a0_dec);
-    <span class="macro">println!</span>(<span class="string">"Succinct control root a1 dec: {:?}"</span>, a1_dec);
+    <span class="macro">tracing::debug!</span>(<span class="string">"Succinct control root a0: {:?}"</span>, a0_str);
+    <span class="macro">tracing::debug!</span>(<span class="string">"Succinct control root a1: {:?}"</span>, a1_str);
+    <span class="kw">let </span>a0_dec = to_decimal(<span class="kw-2">&amp;</span>a0_str)
+        .ok_or_else(|| <span class="macro">eyre!</span>(<span class="string">"Failed to convert succinct control root a0 to decimal"</span>))<span class="question-mark">?</span>;
+    <span class="kw">let </span>a1_dec = to_decimal(<span class="kw-2">&amp;</span>a1_str)
+        .ok_or_else(|| <span class="macro">eyre!</span>(<span class="string">"Failed to convert succinct control root a1 to decimal"</span>))<span class="question-mark">?</span>;
+    <span class="macro">tracing::debug!</span>(<span class="string">"Succinct control root a0 dec: {:?}"</span>, a0_dec);
+    <span class="macro">tracing::debug!</span>(<span class="string">"Succinct control root a1 dec: {:?}"</span>, a1_dec);
     <span class="comment">// println!("CONTROL_ID: {:?}", ident_receipt.control_id);
     // let mut id_bn254_fr_bits: Vec&lt;String&gt; = ident_receipt
     //     .control_id
@@ -1008,22 +1115,16 @@
     seal_json[<span class="string">"post_state_digest_bits"</span>] = post_state_digest_bits.into();
     seal_json[<span class="string">"id_bn254_fr_bits"</span>] = id_bn254_fr_bits.into();
     seal_json[<span class="string">"control_root"</span>] = <span class="macro">vec!</span>[a0_dec, a1_dec].into();
-    std::fs::write(seal_path, serde_json::to_string_pretty(<span class="kw-2">&amp;</span>seal_json).unwrap()).unwrap();
-
-    <span class="kw">let </span>pull_status = Command::new(<span class="string">"docker"</span>)
-        .arg(<span class="string">"pull"</span>)
-        .arg(<span class="string">"ozancw/dev-risc0-to-bitvm2-groth16-prover:latest"</span>)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .status()
-        .expect(<span class="string">"Failed to execute docker pull"</span>);
-
-    <span class="kw">if </span>!pull_status.success() {
-        <span class="macro">panic!</span>(<span class="string">"docker pull failed with status: {}"</span>, pull_status);
-    }
+    std::fs::write(
+        seal_path,
+        serde_json::to_string_pretty(<span class="kw-2">&amp;</span>seal_json)
+            .wrap_err(<span class="string">"Failed to convert seal JSON to string"</span>)<span class="question-mark">?</span>,
+    )
+    .wrap_err(<span class="string">"Failed to write seal file"</span>)<span class="question-mark">?</span>;
 
     <span class="kw">let </span>output = Command::new(<span class="string">"docker"</span>)
         .arg(<span class="string">"run"</span>)
+        .arg(<span class="string">"--pull=always"</span>)
         .arg(<span class="string">"--rm"</span>)
         .arg(<span class="string">"--platform=linux/amd64"</span>) <span class="comment">// Force linux/amd64 platform
         </span>.arg(<span class="string">"-v"</span>)
@@ -1032,30 +1133,35 @@
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
-        .unwrap();
-
-    <span class="macro">println!</span>(<span class="string">"Output: {:?}"</span>, output);
+        .wrap_err(<span class="string">"Failed to execute docker command"</span>)<span class="question-mark">?</span>;
 
     <span class="kw">if </span>!output.status.success() {
-        <span class="macro">eprintln!</span>(
-            <span class="string">"docker returned failure exit code: {:?}"</span>,
-            output.status.code()
-        );
+        <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre!</span>(
+            <span class="string">"STARK to SNARK prover docker image returned failure: {:?}"</span>,
+            output
+        ));
     }
-    <span class="macro">println!</span>(<span class="string">"proof_path: {:?}"</span>, proof_path);
-    <span class="kw">let </span>proof_content = std::fs::read_to_string(proof_path).unwrap();
-    <span class="kw">let </span>output_content_dec = std::fs::read_to_string(output_path).unwrap();
-    <span class="macro">println!</span>(<span class="string">"output content: {:?}"</span>, output_content_dec);
-    <span class="kw">let </span>proof_json: ProofJson = serde_json::from_str(<span class="kw-2">&amp;</span>proof_content).unwrap();
+
+    <span class="macro">tracing::debug!</span>(<span class="string">"proof_path: {:?}"</span>, proof_path);
+    <span class="kw">let </span>proof_content =
+        std::fs::read_to_string(proof_path).wrap_err(<span class="string">"Failed to read proof file"</span>)<span class="question-mark">?</span>;
+    <span class="kw">let </span>output_content_dec =
+        std::fs::read_to_string(output_path).wrap_err(<span class="string">"Failed to read output file"</span>)<span class="question-mark">?</span>;
+    <span class="macro">tracing::debug!</span>(<span class="string">"output content: {:?}"</span>, output_content_dec);
+    <span class="kw">let </span>proof_json: ProofJson =
+        serde_json::from_str(<span class="kw-2">&amp;</span>proof_content).wrap_err(<span class="string">"Failed to parse proof JSON"</span>)<span class="question-mark">?</span>;
     <span class="comment">// let output_json: Value = serde_json::from_str(&amp;output_content).unwrap();
     // Convert output_content_dec from decimal to hex
-    </span><span class="kw">let </span>parsed_json: Value = serde_json::from_str(<span class="kw-2">&amp;</span>output_content_dec).unwrap();
-    <span class="kw">let </span>output_str = parsed_json[<span class="number">0</span>].as_str().unwrap(); <span class="comment">// Extracts the string from the JSON array
+    </span><span class="kw">let </span>parsed_json: Value =
+        serde_json::from_str(<span class="kw-2">&amp;</span>output_content_dec).wrap_err(<span class="string">"Failed to parse output JSON"</span>)<span class="question-mark">?</span>;
+    <span class="kw">let </span>output_str = parsed_json[<span class="number">0</span>]
+        .as_str()
+        .wrap_err(<span class="string">"Failed to get output string from JSON"</span>)<span class="question-mark">?</span>; <span class="comment">// Extracts the string from the JSON array
 
     // Step 2: Convert the decimal string to BigUint and then to hexadecimal
     </span><span class="kw">let </span>output_content_hex = BigUint::from_str_radix(output_str, <span class="number">10</span>)
-        .expect(<span class="string">"always decimal"</span>)
-        .to_str_radix(<span class="number">16</span>);
+        .wrap_err(<span class="string">"Failed to parse decimal string"</span>)<span class="question-mark">?
+        </span>.to_str_radix(<span class="number">16</span>);
 
     <span class="comment">// If the length of the hexadecimal string is odd, add a leading zero
     </span><span class="kw">let </span>output_content_hex = <span class="kw">if </span>output_content_hex.len() % <span class="number">2 </span>== <span class="number">0 </span>{
@@ -1065,7 +1171,8 @@
     };
 
     <span class="comment">// Step 3: Decode the hexadecimal string to a byte vector
-    </span><span class="kw">let </span>output_byte_vec = hex::decode(<span class="kw-2">&amp;</span>output_content_hex).unwrap();
+    </span><span class="kw">let </span>output_byte_vec =
+        hex::decode(<span class="kw-2">&amp;</span>output_content_hex).wrap_err(<span class="string">"Failed to decode hex string"</span>)<span class="question-mark">?</span>;
     <span class="comment">// Create our target 31-byte array, initialized to all zeros.
     </span><span class="kw">let </span><span class="kw-2">mut </span>output_bytes = [<span class="number">0u8</span>; <span class="number">31</span>];
 
@@ -1075,7 +1182,12 @@
 
     <span class="comment">// Copy the decoded bytes from the vector into the correct slice of the array.
     </span>output_bytes[start_index..].copy_from_slice(<span class="kw-2">&amp;</span>output_byte_vec);
-    (proof_json.try_into().unwrap(), output_bytes)
+    <span class="prelude-val">Ok</span>((
+        proof_json
+            .try_into()
+            .map_err(|e| <span class="macro">eyre!</span>(<span class="string">"Failed to convert proof JSON to Seal: {:?}"</span>, e))<span class="question-mark">?</span>,
+        output_bytes,
+    ))
 }
 
 <span class="kw">fn </span>is_docker_installed() -&gt; bool {

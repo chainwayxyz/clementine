@@ -1239,8 +1239,7 @@
 <a href="#1238" id="1238">1238</a>
 <a href="#1239" id="1239">1239</a>
 <a href="#1240" id="1240">1240</a>
-<a href="#1241" id="1241">1241</a>
-<a href="#1242" id="1242">1242</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Header Chain Prover
+<a href="#1241" id="1241">1241</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Header Chain Prover
 //!
 //! This module contains utilities for proving Bitcoin block headers. This
 //! module must be fed with new blocks via the database. Later, it can check if
@@ -1629,7 +1628,7 @@
             <span class="kw">_ </span>=&gt; <span class="prelude-val">Err</span>(BridgeError::UnsupportedNetwork.into_eyre())<span class="question-mark">?</span>,
         };
 
-        <span class="macro">tracing::warn!</span>(<span class="string">"Starting proving HCP work only proof"</span>);
+        <span class="macro">tracing::warn!</span>(<span class="string">"Starting proving HCP work only proof for creating a watchtower challenge"</span>);
         <span class="kw">let </span>receipt = <span class="kw">if </span>!is_dev_mode() {
             prover
                 .prove_with_opts(env, elf, <span class="kw-2">&amp;</span>ProverOpts::groth16())
@@ -1641,9 +1640,9 @@
                 .map_err(|e| <span class="macro">eyre::eyre!</span>(e))<span class="question-mark">?
                 </span>.receipt;
             <span class="kw">let </span>journal = stark_receipt.journal.bytes.clone();
-            dev_stark_to_risc0_g16(stark_receipt, <span class="kw-2">&amp;</span>journal)
-        };
-        <span class="macro">tracing::warn!</span>(<span class="string">"HCP work only proof proof generated"</span>);
+            dev_stark_to_risc0_g16(stark_receipt, <span class="kw-2">&amp;</span>journal)<span class="question-mark">?
+        </span>};
+        <span class="macro">tracing::warn!</span>(<span class="string">"HCP work only proof proof generated for creating a watchtower challenge"</span>);
         <span class="kw">let </span>work_output: WorkOnlyCircuitOutput = borsh::from_slice(<span class="kw-2">&amp;</span>receipt.journal.bytes)
             .wrap_err(HeaderChainProverError::ProverDeSerializationError)<span class="question-mark">?</span>;
 
@@ -1943,10 +1942,9 @@
             </span>.prove_and_save_block(current_block_hash, block_headers, prev_proof)
             .<span class="kw">await</span><span class="question-mark">?</span>;
         <span class="macro">tracing::info!</span>(
-            <span class="string">"Receipt for block with hash {:?} and height with: {:?}: {:?}"</span>,
+            <span class="string">"Header chain proof generated for block with hash {:?} and height {}"</span>,
             current_block_hash,
             current_block_height,
-            receipt
         );
 
         <span class="prelude-val">Ok</span>(<span class="prelude-val">Some</span>(receipt))

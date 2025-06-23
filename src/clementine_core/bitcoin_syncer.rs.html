@@ -928,7 +928,7 @@
 <span class="kw">const </span>POLL_DELAY: Duration = <span class="kw">if </span><span class="macro">cfg!</span>(test) {
     Duration::from_millis(<span class="number">100</span>)
 } <span class="kw">else </span>{
-    Duration::from_secs(<span class="number">1</span>)
+    Duration::from_secs(<span class="number">30</span>)
 };
 
 <span class="doccomment">/// Represents basic information of a Bitcoin block.

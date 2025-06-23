@@ -2705,7 +2705,39 @@
 <a href="#2704" id="2704">2704</a>
 <a href="#2705" id="2705">2705</a>
 <a href="#2706" id="2706">2706</a>
-<a href="#2707" id="2707">2707</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
+<a href="#2707" id="2707">2707</a>
+<a href="#2708" id="2708">2708</a>
+<a href="#2709" id="2709">2709</a>
+<a href="#2710" id="2710">2710</a>
+<a href="#2711" id="2711">2711</a>
+<a href="#2712" id="2712">2712</a>
+<a href="#2713" id="2713">2713</a>
+<a href="#2714" id="2714">2714</a>
+<a href="#2715" id="2715">2715</a>
+<a href="#2716" id="2716">2716</a>
+<a href="#2717" id="2717">2717</a>
+<a href="#2718" id="2718">2718</a>
+<a href="#2719" id="2719">2719</a>
+<a href="#2720" id="2720">2720</a>
+<a href="#2721" id="2721">2721</a>
+<a href="#2722" id="2722">2722</a>
+<a href="#2723" id="2723">2723</a>
+<a href="#2724" id="2724">2724</a>
+<a href="#2725" id="2725">2725</a>
+<a href="#2726" id="2726">2726</a>
+<a href="#2727" id="2727">2727</a>
+<a href="#2728" id="2728">2728</a>
+<a href="#2729" id="2729">2729</a>
+<a href="#2730" id="2730">2730</a>
+<a href="#2731" id="2731">2731</a>
+<a href="#2732" id="2732">2732</a>
+<a href="#2733" id="2733">2733</a>
+<a href="#2734" id="2734">2734</a>
+<a href="#2735" id="2735">2735</a>
+<a href="#2736" id="2736">2736</a>
+<a href="#2737" id="2737">2737</a>
+<a href="#2738" id="2738">2738</a>
+<a href="#2739" id="2739">2739</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
 <span class="kw">use </span><span class="kw">crate</span>::bitcoin_syncer::{BitcoinSyncer, BlockHandler, FinalizedBlockFetcherTask};
 <span class="kw">use </span><span class="kw">crate</span>::bitvm_client::ClementineBitVMPublicKeys;
 <span class="kw">use </span><span class="kw">crate</span>::builder::address::{create_taproot_address, taproot_builder_with_scripts};
@@ -2741,6 +2773,7 @@
 <span class="kw">use </span><span class="kw">crate</span>::task::{IntoTask, TaskExt};
 <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
 </span><span class="kw">use </span><span class="kw">crate</span>::tx_sender::{TxSender, TxSenderClient};
+<span class="kw">use </span><span class="kw">crate</span>::utils::FeePayingType;
 <span class="kw">use </span><span class="kw">crate</span>::utils::NamedEntity;
 <span class="kw">use </span><span class="kw">crate</span>::utils::TxMetadata;
 <span class="kw">use crate</span>::{musig2, UTXO};
@@ -2857,7 +2890,8 @@
                     config.protocol_paramset().start_height,
                     verifier.clone(),
                 )
-                .with_delay(Duration::from_secs(<span class="number">1</span>)),
+                .into_buffered_errors(<span class="number">50</span>)
+                .with_delay(Duration::from_secs(<span class="number">60</span>)),
             );
         }
 
@@ -4297,7 +4331,6 @@
         block_id: u32,
         block_cache: <span class="kw-2">&amp;</span>block_cache::BlockCache,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
-        <span class="macro">tracing::info!</span>(<span class="string">"Updating finalized payouts for block: {:?}"</span>, block_id);
         <span class="kw">let </span>payout_txids = <span class="self">self
             </span>.db
             .get_payout_txs_for_withdrawal_utxos(<span class="prelude-val">Some</span>(dbtx), block_id)
@@ -4701,8 +4734,8 @@
 
         <span class="macro">tracing::debug!</span>(<span class="string">"Disprove txid: {:?}"</span>, disprove_tx.compute_txid());
 
-        <span class="macro">tracing::info!</span>(
-            <span class="string">"Disprove tx created for verifier {:?} with kickoff_data: {:?}, deposit_data: {:?}"</span>,
+        <span class="macro">tracing::warn!</span>(
+            <span class="string">"Additional disprove tx created for verifier {:?} with kickoff_data: {:?}, deposit_data: {:?}"</span>,
             verifier_xonly_pk,
             kickoff_data,
             deposit_data
@@ -4710,11 +4743,25 @@
 
         <span class="kw">let </span>raw_tx = bitcoin::consensus::serialize(<span class="kw-2">&amp;</span>disprove_tx);
 
-        <span class="self">self</span>.rpc
-            .client
-            .send_raw_transaction(<span class="kw-2">&amp;</span>raw_tx)
-            .<span class="kw">await
-            </span>.wrap_err(<span class="string">"Error sending disprove tx - additional"</span>)<span class="question-mark">?</span>;
+        <span class="kw">let </span><span class="kw-2">mut </span>dbtx = <span class="self">self</span>.db.begin_transaction().<span class="kw">await</span><span class="question-mark">?</span>;
+        <span class="self">self</span>.tx_sender
+            .add_tx_to_queue(
+                <span class="kw-2">&amp;mut </span>dbtx,
+                TransactionType::Disprove,
+                <span class="kw-2">&amp;</span>disprove_tx,
+                <span class="kw-2">&amp;</span>[],
+                <span class="prelude-val">Some</span>(TxMetadata {
+                    tx_type: TransactionType::Disprove,
+                    deposit_outpoint: <span class="prelude-val">Some</span>(deposit_data.get_deposit_outpoint()),
+                    operator_xonly_pk: <span class="prelude-val">Some</span>(kickoff_data.operator_xonly_pk),
+                    round_idx: <span class="prelude-val">Some</span>(kickoff_data.round_idx),
+                    kickoff_idx: <span class="prelude-val">Some</span>(kickoff_data.kickoff_idx),
+                }),
+                <span class="kw-2">&amp;</span><span class="self">self</span>.config,
+                <span class="prelude-val">None</span>,
+            )
+            .<span class="kw">await</span><span class="question-mark">?</span>;
+        dbtx.commit().<span class="kw">await</span><span class="question-mark">?</span>;
         <span class="prelude-val">Ok</span>(())
     }
 
@@ -4965,20 +5012,32 @@
 
         <span class="macro">tracing::debug!</span>(<span class="string">"Disprove txid: {:?}"</span>, disprove_tx.compute_txid());
 
-        <span class="macro">tracing::info!</span>(
-            <span class="string">"Disprove tx created for verifier {:?} with kickoff_data: {:?}, deposit_data: {:?}"</span>,
+        <span class="macro">tracing::warn!</span>(
+            <span class="string">"BitVM disprove tx created for verifier {:?} with kickoff_data: {:?}, deposit_data: {:?}"</span>,
             verifier_xonly_pk,
             kickoff_data,
             deposit_data
         );
 
-        <span class="kw">let </span>raw_tx = bitcoin::consensus::serialize(<span class="kw-2">&amp;</span>disprove_tx);
-
-        <span class="self">self</span>.rpc
-            .client
-            .send_raw_transaction(<span class="kw-2">&amp;</span>raw_tx)
-            .<span class="kw">await
-            </span>.wrap_err(<span class="string">"Error sending disprove tx"</span>)<span class="question-mark">?</span>;
+        <span class="kw">let </span><span class="kw-2">mut </span>dbtx = <span class="self">self</span>.db.begin_transaction().<span class="kw">await</span><span class="question-mark">?</span>;
+        <span class="self">self</span>.tx_sender
+            .add_tx_to_queue(
+                <span class="kw-2">&amp;mut </span>dbtx,
+                TransactionType::Disprove,
+                <span class="kw-2">&amp;</span>disprove_tx,
+                <span class="kw-2">&amp;</span>[],
+                <span class="prelude-val">Some</span>(TxMetadata {
+                    tx_type: TransactionType::Disprove,
+                    deposit_outpoint: <span class="prelude-val">Some</span>(deposit_data.get_deposit_outpoint()),
+                    operator_xonly_pk: <span class="prelude-val">Some</span>(kickoff_data.operator_xonly_pk),
+                    round_idx: <span class="prelude-val">Some</span>(kickoff_data.round_idx),
+                    kickoff_idx: <span class="prelude-val">Some</span>(kickoff_data.kickoff_idx),
+                }),
+                <span class="kw-2">&amp;</span><span class="self">self</span>.config,
+                <span class="prelude-val">None</span>,
+            )
+            .<span class="kw">await</span><span class="question-mark">?</span>;
+        dbtx.commit().<span class="kw">await</span><span class="question-mark">?</span>;
         <span class="prelude-val">Ok</span>(())
     }
 
@@ -5028,7 +5087,10 @@
             header_chain_prover
                 .save_unproven_block_cache(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx), <span class="kw-2">&amp;</span>block_cache)
                 .<span class="kw">await</span><span class="question-mark">?</span>;
-            header_chain_prover.prove_if_ready().<span class="kw">await</span><span class="question-mark">?</span>;
+            <span class="kw">while let </span><span class="prelude-val">Some</span>(<span class="kw">_</span>) = header_chain_prover.prove_if_ready().<span class="kw">await</span><span class="question-mark">? </span>{
+                <span class="comment">// Continue until prove_if_ready returns None
+                // If it doesn't return None, it means next batch_size amount of blocks were proven
+            </span>}
         }
 
         <span class="prelude-val">Ok</span>(())
@@ -5228,9 +5290,11 @@
                             kickoff_data,
                             deposit_data.get_deposit_outpoint()
                         );
+                        <span class="kw">let </span><span class="kw-2">mut </span>dbtx = <span class="self">self</span>.db.begin_transaction().<span class="kw">await</span><span class="question-mark">?</span>;
                         <span class="comment">// add kickoff machine if there is a new kickoff
-                        </span><span class="kw">let </span><span class="kw-2">mut </span>dbtx = <span class="self">self</span>.db.begin_transaction().<span class="kw">await</span><span class="question-mark">?</span>;
-                        StateManager::&lt;<span class="self">Self</span>&gt;::dispatch_new_kickoff_machine(
+                        // do not add if kickoff finalizer is already spent =&gt; kickoff is finished
+                        // this can happen if we are resyncing
+                        </span>StateManager::&lt;<span class="self">Self</span>&gt;::dispatch_new_kickoff_machine(
                             <span class="self">self</span>.db.clone(),
                             <span class="kw-2">&amp;mut </span>dbtx,
                             kickoff_data,

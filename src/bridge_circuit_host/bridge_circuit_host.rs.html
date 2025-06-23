@@ -508,7 +508,21 @@
 <a href="#507" id="507">507</a>
 <a href="#508" id="508">508</a>
 <a href="#509" id="509">509</a>
-<a href="#510" id="510">510</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::docker::{stark_to_bitvm2_g16, stark_to_bitvm2_g16_dev_mode};
+<a href="#510" id="510">510</a>
+<a href="#511" id="511">511</a>
+<a href="#512" id="512">512</a>
+<a href="#513" id="513">513</a>
+<a href="#514" id="514">514</a>
+<a href="#515" id="515">515</a>
+<a href="#516" id="516">516</a>
+<a href="#517" id="517">517</a>
+<a href="#518" id="518">518</a>
+<a href="#519" id="519">519</a>
+<a href="#520" id="520">520</a>
+<a href="#521" id="521">521</a>
+<a href="#522" id="522">522</a>
+<a href="#523" id="523">523</a>
+<a href="#524" id="524">524</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::docker::{stark_to_bitvm2_g16, stark_to_bitvm2_g16_dev_mode};
 <span class="kw">use </span><span class="kw">crate</span>::structs::{
     BridgeCircuitBitvmInputs, BridgeCircuitHostParams, SuccinctBridgeCircuitPublicInputs,
 };
@@ -521,6 +535,7 @@
 <span class="kw">use </span>circuits_lib::bridge_circuit::spv::SPV;
 <span class="kw">use </span>circuits_lib::bridge_circuit::structs::WorkOnlyCircuitInput;
 <span class="kw">use </span>circuits_lib::bridge_circuit::transaction::CircuitTransaction;
+<span class="kw">use </span>eyre::{eyre, <span class="prelude-ty">Result</span>, WrapErr};
 
 <span class="kw">use </span>circuits_lib::common::constants::{
     MAINNET_HEADER_CHAIN_METHOD_ID, REGTEST_HEADER_CHAIN_METHOD_ID, SIGNET_HEADER_CHAIN_METHOD_ID,
@@ -560,39 +575,40 @@
 ///
 /// # Returns
 ///
-/// Returns a tuple consisting of:
+/// Returns a Result containing a tuple consisting of:
 /// - `ark_groth16::Proof&lt;Bn254&gt;`: The final Groth16 proof.
 /// - `[u8; 31]`: The Groth16 output.
 /// - `BridgeCircuitBitvmInputs`: The structured inputs for the Bridge Circuit BitVM.
 ///
-/// # Panics
+/// # Errors
 ///
-/// This function will panic if:
+/// This function will return an error if:
 /// - The number of watchtowers does not match expectations.
 /// - The header chain proof output differs from the expected value.
 /// - Light client proof verification fails.
 /// - SPV verification fails.
 /// - The journal hash does not match the expected hash.
+/// - Any serialization/deserialization operation fails.
+/// - The network is unsupported.
 ///
 </span><span class="kw">pub fn </span>prove_bridge_circuit(
     bridge_circuit_host_params: BridgeCircuitHostParams,
     bridge_circuit_elf: <span class="kw-2">&amp;</span>[u8],
-) -&gt; (
+) -&gt; <span class="prelude-ty">Result</span>&lt;(
     ark_groth16::Proof&lt;Bn254&gt;,
     [u8; <span class="number">31</span>],
     BridgeCircuitBitvmInputs,
-) {
+)&gt; {
     <span class="macro">tracing::info!</span>(<span class="string">"Starting bridge circuit proof generation"</span>);
     <span class="kw">let </span>bridge_circuit_input = bridge_circuit_host_params
         .clone()
         .into_bridge_circuit_input();
 
-    <span class="kw">let </span>header_chain_proof_output_serialized =
-        borsh::to_vec(<span class="kw-2">&amp;</span>bridge_circuit_input.hcp).expect(<span class="string">"Could not serialize header chain output"</span>);
+    <span class="kw">let </span>header_chain_proof_output_serialized = borsh::to_vec(<span class="kw-2">&amp;</span>bridge_circuit_input.hcp)
+        .wrap_err(<span class="string">"Could not serialize header chain output"</span>)<span class="question-mark">?</span>;
 
     <span class="kw">if </span>bridge_circuit_input.lcp.lc_journal != bridge_circuit_host_params.lcp_receipt.journal.bytes {
-        <span class="macro">tracing::error!</span>(<span class="string">"Light client proof output mismatch"</span>);
-        <span class="macro">panic!</span>(<span class="string">"Light client proof output mismatch"</span>);
+        <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre!</span>(<span class="string">"Light client proof output mismatch"</span>));
     }
 
     <span class="comment">// if bridge_circuit_host_params.lcp_receipt.verify(LC_IMAGE_ID).is_err()
@@ -604,8 +620,7 @@
     </span><span class="kw">if </span>header_chain_proof_output_serialized
         != bridge_circuit_host_params.headerchain_receipt.journal.bytes
     {
-        <span class="macro">tracing::error!</span>(<span class="string">"Header chain proof output mismatch"</span>);
-        <span class="macro">panic!</span>(<span class="string">"Header chain proof output mismatch"</span>);
+        <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre!</span>(<span class="string">"Header chain proof output mismatch"</span>));
     }
 
     <span class="kw">let </span>header_chain_method_id = <span class="kw">match </span>bridge_circuit_host_params.network {
@@ -613,7 +628,7 @@
         bitcoin::Network::Testnet4 =&gt; TESTNET4_HEADER_CHAIN_METHOD_ID,
         bitcoin::Network::Signet =&gt; SIGNET_HEADER_CHAIN_METHOD_ID,
         bitcoin::Network::Regtest =&gt; REGTEST_HEADER_CHAIN_METHOD_ID,
-        <span class="kw">_ </span>=&gt; <span class="macro">panic!</span>(<span class="string">"Unsupported network"</span>),
+        <span class="kw">_ </span>=&gt; <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre!</span>(<span class="string">"Unsupported network"</span>)),
     };
 
     <span class="comment">// Check for headerchain receipt
@@ -622,8 +637,7 @@
         .verify(header_chain_method_id)
         .is_err()
     {
-        <span class="macro">tracing::error!</span>(<span class="string">"Header chain receipt verification failed"</span>);
-        <span class="macro">panic!</span>(<span class="string">"Header chain receipt verification failed"</span>);
+        <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre!</span>(<span class="string">"Header chain receipt verification failed"</span>));
     }
 
     <span class="comment">// SPV verification
@@ -634,8 +648,7 @@
             .block_hashes_mmr
             .clone(),
     ) {
-        <span class="macro">tracing::error!</span>(<span class="string">"SPV verification failed"</span>);
-        <span class="macro">panic!</span>(<span class="string">"SPV verification failed"</span>);
+        <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre!</span>(<span class="string">"SPV verification failed"</span>));
     }
 
     <span class="kw">let </span>public_inputs: SuccinctBridgeCircuitPublicInputs =
@@ -644,51 +657,66 @@
     <span class="kw">let </span>journal_hash = public_inputs.host_journal_hash();
 
     <span class="kw">let </span><span class="kw-2">mut </span>binding = ExecutorEnv::builder();
-    <span class="kw">let </span>env = binding.write_slice(<span class="kw-2">&amp;</span>borsh::to_vec(<span class="kw-2">&amp;</span>bridge_circuit_input).unwrap());
-    <span class="comment">// let env = env.add_assumption(bridge_circuit_host_params.lcp_receipt);
-    </span><span class="kw">let </span>env = env.add_assumption(bridge_circuit_host_params.headerchain_receipt);
-    <span class="kw">let </span>env = env.build().unwrap();
+    <span class="kw">let </span>env = binding
+        .write_slice(
+            <span class="kw-2">&amp;</span>borsh::to_vec(<span class="kw-2">&amp;</span>bridge_circuit_input)
+                .wrap_err(<span class="string">"Failed to serialize bridge circuit input"</span>)<span class="question-mark">?</span>,
+        )
+        .add_assumption(bridge_circuit_host_params.headerchain_receipt)
+        .build()
+        .map_err(|e| <span class="macro">eyre!</span>(<span class="string">"Failed to build execution environment: {}"</span>, e))<span class="question-mark">?</span>;
     <span class="kw">let </span>prover = default_prover();
 
     <span class="macro">tracing::info!</span>(<span class="string">"Checks complete, proving bridge circuit"</span>);
 
     <span class="kw">let </span>succinct_receipt = prover
         .prove_with_opts(env, bridge_circuit_elf, <span class="kw-2">&amp;</span>ProverOpts::succinct())
-        .unwrap()
-        .receipt;
+        .map_err(|e| <span class="macro">eyre!</span>(<span class="string">"Failed to generate bridge circuit proof: {}"</span>, e))<span class="question-mark">?
+        </span>.receipt;
 
     <span class="macro">tracing::info!</span>(<span class="string">"Bridge circuit proof generated"</span>);
 
-    <span class="kw">let </span>succinct_receipt_journal: [u8; <span class="number">32</span>] =
-        succinct_receipt.clone().journal.bytes.try_into().unwrap();
+    <span class="kw">let </span>succinct_receipt_journal: [u8; <span class="number">32</span>] = succinct_receipt
+        .clone()
+        .journal
+        .bytes
+        .try_into()
+        .map_err(|e| <span class="macro">eyre!</span>(<span class="string">"Failed to convert receipt journal bytes to array: {:?}"</span>, e))<span class="question-mark">?</span>;
 
     <span class="kw">if </span><span class="kw-2">*</span>journal_hash.as_bytes() != succinct_receipt_journal {
-        <span class="macro">panic!</span>(<span class="string">"Journal hash mismatch"</span>);
+        <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre!</span>(<span class="string">"Journal hash mismatch"</span>));
     }
 
-    <span class="kw">let </span>bridge_circuit_method_id = compute_image_id(bridge_circuit_elf).unwrap();
+    <span class="kw">let </span>bridge_circuit_method_id = compute_image_id(bridge_circuit_elf)
+        .map_err(|e| <span class="macro">eyre!</span>(<span class="string">"Failed to compute image ID: {}"</span>, e))<span class="question-mark">?</span>;
     <span class="kw">let </span>combined_method_id_constant =
         calculate_succinct_output_prefix(bridge_circuit_method_id.as_bytes());
     <span class="kw">let </span>(g16_proof, g16_output) = <span class="kw">if </span>is_dev_mode() {
-        stark_to_bitvm2_g16_dev_mode(succinct_receipt, <span class="kw-2">&amp;</span>succinct_receipt_journal)
-    } <span class="kw">else </span>{
+        stark_to_bitvm2_g16_dev_mode(succinct_receipt, <span class="kw-2">&amp;</span>succinct_receipt_journal)<span class="question-mark">?
+    </span>} <span class="kw">else </span>{
         stark_to_bitvm2_g16(
-            succinct_receipt.inner.succinct().unwrap().clone(),
+            succinct_receipt
+                .inner
+                .succinct()
+                .wrap_err(<span class="string">"Failed to get succinct receipt"</span>)<span class="question-mark">?
+                </span>.clone(),
             <span class="kw-2">&amp;</span>succinct_receipt_journal,
-        )
-    };
+        )<span class="question-mark">?
+    </span>};
 
     <span class="macro">tracing::info!</span>(<span class="string">"Bridge circuit Groth16 proof generated"</span>);
 
     <span class="kw">let </span>risc0_g16_seal_vec = g16_proof.to_vec();
-    <span class="kw">let </span>risc0_g16_256 = risc0_g16_seal_vec[<span class="number">0</span>..<span class="number">256</span>].try_into().unwrap();
+    <span class="kw">let </span>risc0_g16_256 = risc0_g16_seal_vec[<span class="number">0</span>..<span class="number">256</span>]
+        .try_into()
+        .wrap_err(<span class="string">"Failed to convert groth16 seal to array"</span>)<span class="question-mark">?</span>;
     <span class="kw">let </span>circuit_g16_proof = CircuitGroth16Proof::from_seal(risc0_g16_256);
     <span class="kw">let </span>ark_groth16_proof: ark_groth16::Proof&lt;Bn254&gt; = circuit_g16_proof.into();
 
     <span class="kw">let </span>deposit_constant = public_inputs.deposit_constant.<span class="number">0</span>;
     <span class="macro">tracing::debug!</span>(<span class="string">"Deposit constant - circuit: {:?}"</span>, deposit_constant);
 
-    (
+    <span class="prelude-val">Ok</span>((
         ark_groth16_proof,
         g16_output,
         BridgeCircuitBitvmInputs {
@@ -698,7 +726,7 @@
             deposit_constant: public_inputs.deposit_constant.<span class="number">0</span>,
             combined_method_id: combined_method_id_constant,
         },
-    )
+    ))
 }
 
 <span class="doccomment">/// Constructs an SPV (Simplified Payment Verification) proof.

@@ -497,7 +497,10 @@
 <a href="#496" id="496">496</a>
 <a href="#497" id="497">497</a>
 <a href="#498" id="498">498</a>
-<a href="#499" id="499">499</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::builder::transaction::TransactionType;
+<a href="#499" id="499">499</a>
+<a href="#500" id="500">500</a>
+<a href="#501" id="501">501</a>
+<a href="#502" id="502">502</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::builder::transaction::TransactionType;
 <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
 <span class="kw">use </span><span class="kw">crate</span>::operator::RoundIndex;
 <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::VergenResponse;
@@ -874,6 +877,9 @@
     /// version that includes a higher fee. The original transaction must signal
     /// RBF enablement (e.g., via nSequence). Bitcoin Core's `bumpfee` RPC is often used.
     </span>RBF,
+    <span class="doccomment">/// The transaction has already been funded and no fee is needed.
+    /// Currently used for disprove tx as it has operator's collateral as input.
+    </span>NoFunding,
 }
 
 <span class="doccomment">/// Information to re-sign an RBF transaction.
