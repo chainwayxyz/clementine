@@ -19,7 +19,7 @@ use tokio::time::timeout;
 use tonic::Status;
 use tower::{Layer, Service};
 use tracing::level_filters::LevelFilter;
-use tracing::{debug_span, Instrument, Subscriber};
+use tracing::{debug_span, Instrument};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::{fmt, EnvFilter, Layer as TracingLayer, Registry};
 
