@@ -194,6 +194,7 @@ impl TxSender {
             // Assumes it replaces a tx of similar structure but potentially different inputs/fees.
             // Simplified calculation used here needs verification.
             FeePayingType::RBF => Weight::from_wu_usize(230 * num_fee_payer_utxos + 172), // TODO: Verify WU for RBF structure
+            FeePayingType::NoFunding => Weight::from_wu_usize(0),
         };
 
         // Calculate total weight for fee calculation.
@@ -204,6 +205,7 @@ impl TxSender {
                 child_tx_weight.to_vbytes_ceil() + parent_tx_weight.to_vbytes_ceil(),
             ),
             FeePayingType::RBF => child_tx_weight + parent_tx_weight, // Should likely just be the RBF tx weight? Check RBF rules.
+            FeePayingType::NoFunding => parent_tx_weight,
         };
 
         fee_rate
@@ -321,6 +323,7 @@ impl TxSender {
                     self.send_rbf_tx(id, tx, tx_metadata, new_fee_rate, rbf_signing_info)
                         .await
                 }
+                FeePayingType::NoFunding => self.send_no_funding_tx(id, tx, tx_metadata).await,
             };
 
             if let Err(e) = result {
@@ -333,6 +336,63 @@ impl TxSender {
 
     pub fn client(&self) -> TxSenderClient {
         TxSenderClient::new(self.db.clone(), self.btc_syncer_consumer_id.clone())
+    }
+
+    /// Sends a transaction that is already fully funded and signed.
+    ///
+    /// This function is used for transactions that do not require fee bumping strategies
+    /// like RBF or CPFP. The transaction is submitted directly to the Bitcoin network
+    /// without any modifications.
+    ///
+    /// # Arguments
+    /// * `try_to_send_id` - The database ID tracking this send attempt.
+    /// * `tx` - The fully funded and signed transaction ready for broadcast.
+    /// * `tx_metadata` - Optional metadata associated with the transaction for debugging.
+    ///
+    /// # Behavior
+    /// 1. Attempts to broadcast the transaction using `send_raw_transaction` RPC.
+    /// 2. Updates the database with success/failure state for debugging purposes.
+    /// 3. Logs appropriate messages for monitoring and troubleshooting.
+    ///
+    /// # Returns
+    /// * `Ok(())` - If the transaction was successfully broadcast.
+    /// * `Err(SendTxError)` - If the broadcast failed.
+    #[tracing::instrument(skip_all, fields(sender = self.btc_syncer_consumer_id, try_to_send_id, tx_meta=?tx_metadata))]
+    pub(super) async fn send_no_funding_tx(
+        &self,
+        try_to_send_id: u32,
+        tx: Transaction,
+        tx_metadata: Option<TxMetadata>,
+    ) -> Result<()> {
+        match self.rpc.client.send_raw_transaction(&tx).await {
+            Ok(sent_txid) => {
+                tracing::debug!(
+                    try_to_send_id,
+                    "Successfully sent no funding tx with txid {}",
+                    sent_txid
+                );
+                let _ = self
+                    .db
+                    .update_tx_debug_sending_state(try_to_send_id, "no_funding_send_success", true)
+                    .await;
+            }
+            Err(e) => {
+                tracing::error!(
+                    "Failed to send no funding tx with try_to_send_id: {:?} and metadata: {:?}",
+                    try_to_send_id,
+                    tx_metadata
+                );
+                let err_msg = format!("send_raw_transaction error for no funding tx: {}", e);
+                log_error_for_tx!(self.db, try_to_send_id, err_msg);
+                let _ = self
+                    .db
+                    .update_tx_debug_sending_state(try_to_send_id, "no_funding_send_failed", true)
+                    .await;
+                return Err(SendTxError::Other(eyre::eyre!(e)));
+            }
+        };
+
+        Ok(())
     }
 }
 
@@ -352,6 +412,7 @@ mod tests {
     use crate::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind};
     use crate::task::{IntoTask, TaskExt};
     use crate::{database::Database, test::common::*};
+    use bitcoin::hashes::Hash;
     use bitcoin::secp256k1::rand;
     use bitcoin::secp256k1::SecretKey;
     use bitcoin::transaction::Version;
@@ -452,7 +513,7 @@ mod tests {
 
         let version = match fee_paying_type {
             FeePayingType::CPFP => Version::non_standard(3),
-            FeePayingType::RBF => Version::TWO,
+            FeePayingType::RBF | FeePayingType::NoFunding => Version::TWO,
         };
 
         let mut txhandler = TxHandlerBuilder::new(TransactionType::Dummy)
@@ -466,6 +527,9 @@ mod tests {
                         NormalSignatureKind::Challenge.into()
                     }
                     FeePayingType::RBF => (NumberedSignatureKind::WatchtowerChallenge, 0i32).into(),
+                    FeePayingType::NoFunding => {
+                        unreachable!("AlreadyFunded should not be used for bumpable txs")
+                    }
                 },
                 SpendableTxIn::new(
                     outpoint,
@@ -687,5 +751,73 @@ mod tests {
             .send_raw_transaction(will_successful_handler.get_cached_tx())
             .await
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_send_no_funding_tx() -> Result<(), BridgeError> {
+        // Initialize RPC, tx_sender and other components
+        let mut config = create_test_config_with_thread_name().await;
+        let rpc = create_regtest_rpc(&mut config).await;
+
+        let (tx_sender, btc_sender, rpc, db, signer, network) =
+            create_tx_sender(rpc.rpc().clone()).await;
+        let pair = btc_sender.into_task().cancelable_loop();
+        pair.0.into_bg();
+
+        // Create a transaction that doesn't need funding
+        let tx = rbf::tests::create_rbf_tx(&rpc, &signer, network, false).await?;
+
+        // Insert the transaction into the database
+        let mut dbtx = db.begin_transaction().await?;
+        let try_to_send_id = tx_sender
+            .client()
+            .insert_try_to_send(
+                &mut dbtx,
+                None, // No metadata
+                &tx,
+                FeePayingType::NoFunding,
+                None,
+                &[], // No cancel outpoints
+                &[], // No cancel txids
+                &[], // No activate txids
+                &[], // No activate outpoints
+            )
+            .await?;
+        dbtx.commit().await?;
+
+        // Get the current fee rate and increase it for RBF
+        let current_fee_rate = tx_sender._get_fee_rate().await?;
+
+        // Test send_rbf_tx
+        tx_sender
+            .send_no_funding_tx(try_to_send_id, tx.clone(), None)
+            .await
+            .expect("Already funded should succeed");
+
+        tx_sender
+            .send_no_funding_tx(try_to_send_id, tx.clone(), None)
+            .await
+            .expect("Should not return error if sent again");
+
+        // Verify that the transaction was fee-bumped
+        let tx_debug_info = tx_sender
+            .client()
+            .debug_tx(try_to_send_id)
+            .await
+            .expect("Transaction should be have debug info");
+
+        // Get the actual transaction from the mempool
+        rpc.get_tx_of_txid(&bitcoin::Txid::from_byte_array(
+            tx_debug_info.txid.unwrap().txid.try_into().unwrap(),
+        ))
+        .await
+        .expect("Transaction should be in mempool");
+
+        tx_sender
+            .send_no_funding_tx(try_to_send_id, tx.clone(), None)
+            .await
+            .expect("Should not return error if sent again but still in mempool");
+
+        Ok(())
     }
 }

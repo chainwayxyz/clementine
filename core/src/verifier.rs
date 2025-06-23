@@ -151,7 +151,8 @@ where
                     config.protocol_paramset().start_height,
                     verifier.clone(),
                 )
-                .with_delay(Duration::from_secs(1)),
+                .into_buffered_errors(50)
+                .with_delay(Duration::from_secs(60)),
             );
         }
 
@@ -1591,7 +1592,6 @@ where
         block_id: u32,
         block_cache: &block_cache::BlockCache,
     ) -> Result<(), BridgeError> {
-        tracing::info!("Updating finalized payouts for block: {:?}", block_id);
         let payout_txids = self
             .db
             .get_payout_txs_for_withdrawal_utxos(Some(dbtx), block_id)
@@ -2006,8 +2006,11 @@ where
 
         let mut dbtx = self.db.begin_transaction().await?;
         self.tx_sender
-            .insert_try_to_send(
+            .add_tx_to_queue(
                 &mut dbtx,
+                TransactionType::Disprove,
+                &disprove_tx,
+                &[],
                 Some(TxMetadata {
                     tx_type: TransactionType::Disprove,
                     deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
@@ -2015,13 +2018,8 @@ where
                     round_idx: Some(kickoff_data.round_idx),
                     kickoff_idx: Some(kickoff_data.kickoff_idx),
                 }),
-                &disprove_tx,
-                FeePayingType::RBF,
+                &self.config,
                 None,
-                &[],
-                &[],
-                &[],
-                &[],
             )
             .await?;
         dbtx.commit().await?;
@@ -2284,8 +2282,11 @@ where
 
         let mut dbtx = self.db.begin_transaction().await?;
         self.tx_sender
-            .insert_try_to_send(
+            .add_tx_to_queue(
                 &mut dbtx,
+                TransactionType::Disprove,
+                &disprove_tx,
+                &[],
                 Some(TxMetadata {
                     tx_type: TransactionType::Disprove,
                     deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
@@ -2293,13 +2294,8 @@ where
                     round_idx: Some(kickoff_data.round_idx),
                     kickoff_idx: Some(kickoff_data.kickoff_idx),
                 }),
-                &disprove_tx,
-                FeePayingType::RBF,
+                &self.config,
                 None,
-                &[],
-                &[],
-                &[],
-                &[],
             )
             .await?;
         dbtx.commit().await?;
@@ -2555,25 +2551,19 @@ mod states {
                             kickoff_data,
                             deposit_data.get_deposit_outpoint()
                         );
-                        let kickoff_finalizer = OutPoint {
-                            txid,
-                            vout: UtxoVout::KickoffFinalizer.get_vout(),
-                        };
                         let mut dbtx = self.db.begin_transaction().await?;
                         // add kickoff machine if there is a new kickoff
                         // do not add if kickoff finalizer is already spent => kickoff is finished
                         // this can happen if we are resyncing
-                        if !self.rpc.is_utxo_spent(&kickoff_finalizer).await? {
-                            StateManager::<Self>::dispatch_new_kickoff_machine(
-                                self.db.clone(),
-                                &mut dbtx,
-                                kickoff_data,
-                                block_height,
-                                deposit_data.clone(),
-                                witness.clone(),
-                            )
-                            .await?;
-                        }
+                        StateManager::<Self>::dispatch_new_kickoff_machine(
+                            self.db.clone(),
+                            &mut dbtx,
+                            kickoff_data,
+                            block_height,
+                            deposit_data.clone(),
+                            witness.clone(),
+                        )
+                        .await?;
                         challenged = self
                             .handle_kickoff(
                                 &mut dbtx,
