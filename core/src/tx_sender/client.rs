@@ -243,9 +243,7 @@ impl TxSenderClient {
                 )
                 .await
             }
-            TransactionType::Challenge
-            | TransactionType::WatchtowerChallenge(_)
-            | TransactionType::Disprove => {
+            TransactionType::Challenge | TransactionType::WatchtowerChallenge(_) => {
                 self.insert_try_to_send(
                     dbtx,
                     tx_metadata,
