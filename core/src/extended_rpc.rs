@@ -532,14 +532,8 @@ impl ExtendedRpc {
                 addr.clone()
             } else {
                 drop(read);
-                let new_addr = self
-                    .client
-                    .get_new_address(None, None)
-                    .await
-                    .wrap_err("Failed to get new address")?
-                    .assume_checked()
-                    .to_string();
                 let mut write = self.cached_mining_address.write().await;
+                
                 if let Some(addr) = &*write {
                     addr.clone()
                 } else {
