@@ -2006,7 +2006,7 @@ where
         tracing::debug!("Disprove txid: {:?}", disprove_tx.compute_txid());
 
         tracing::info!(
-            "Disprove tx created for verifier {:?} with kickoff_data: {:?}, deposit_data: {:?}",
+            "Additional disprove tx created for verifier {:?} with kickoff_data: {:?}, deposit_data: {:?}",
             verifier_xonly_pk,
             kickoff_data,
             deposit_data

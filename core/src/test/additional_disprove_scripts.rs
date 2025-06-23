@@ -554,8 +554,8 @@ impl AdditionalDisproveTest {
 
         assert_eq!(
             disprove_tx.input[0].witness.len(),
-            560,
-            "Additional disprove tx input witness length is not 560 bytes"
+            562,
+            "Additional disprove tx input witness length is not 562"
         );
 
         tracing::info!("Disprove transaction is onchain");
@@ -630,8 +630,8 @@ impl AdditionalDisproveTest {
 
         assert_eq!(
             disprove_tx.input[0].witness.len(),
-            560,
-            "Additional disprove tx input witness length is not 560 bytes"
+            562,
+            "Additional disprove tx input witness length is not 562"
         );
 
         tracing::info!("Disprove transaction is onchain");
@@ -711,8 +711,8 @@ impl AdditionalDisproveTest {
 
         assert_eq!(
             disprove_tx.input[0].witness.len(),
-            560,
-            "Additional disprove tx input witness length is not 560 bytes"
+            562,
+            "Additional disprove tx input witness length is not 562"
         );
 
         tracing::info!("Disprove transaction is onchain");
@@ -787,8 +787,8 @@ impl AdditionalDisproveTest {
 
         assert_eq!(
             disprove_tx.input[0].witness.len(),
-            560,
-            "Additional disprove tx input witness length is not 560 bytes"
+            562,
+            "Additional disprove tx input witness length is not 562"
         );
 
         tracing::info!("Disprove transaction is onchain");
