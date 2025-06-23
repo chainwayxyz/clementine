@@ -81,7 +81,25 @@ where
 }
 
 fn env_subscriber_with_file(path: &str) -> Result<Box<dyn Subscriber + Send + Sync>, BridgeError> {
+    if let Some(parent_dir) = std::path::Path::new(path).parent() {
+        std::fs::create_dir_all(parent_dir).map_err(|e| {
+            BridgeError::ConfigError(format!(
+                "Failed to create log directory '{}': {}",
+                parent_dir.display(),
+                e
+            ))
+        })?;
+    }
+
     let file = File::create(path).map_err(|e| BridgeError::ConfigError(e.to_string()))?;
+
+    let file_filter = EnvFilter::from_default_env()
+        .add_directive("info".parse().expect("It should parse info level"))
+        .add_directive("ci=debug".parse().expect("It should parse ci debug level"));
+
+    let console_filter = EnvFilter::builder()
+        .with_default_directive(LevelFilter::WARN.into())
+        .parse_lossy(""); // Parse an empty string to use the default filter, this prevents overriding the default filter with env vars.
 
     let file_layer = fmt::layer()
         .with_writer(file)
@@ -91,7 +109,7 @@ fn env_subscriber_with_file(path: &str) -> Result<Box<dyn Subscriber + Send + Sy
         .with_target(true)
         .with_thread_ids(true)
         .with_thread_names(true)
-        .with_filter(LevelFilter::INFO)
+        .with_filter(file_filter)
         .boxed();
 
     let console_layer = fmt::layer()
@@ -99,16 +117,11 @@ fn env_subscriber_with_file(path: &str) -> Result<Box<dyn Subscriber + Send + Sy
         .with_file(true)
         .with_line_number(true)
         .with_target(true)
-        .with_filter(LevelFilter::WARN)
+        .with_filter(console_filter)
         .boxed();
 
-    let filter = EnvFilter::from_default_env();
-
     Ok(Box::new(
-        Registry::default()
-            .with(filter)
-            .with(file_layer)
-            .with(console_layer),
+        Registry::default().with(file_layer).with(console_layer),
     ))
 }
 
@@ -583,7 +596,6 @@ mod tests {
     #[test]
     #[ignore = "This test changes environment variables so it should not be run in CI since it might affect other tests."]
     fn test_ci_logging_setup() {
-        // Create a temporary file for testing
         let temp_file = NamedTempFile::new().expect("Failed to create temp file");
         let temp_path = temp_file.path().to_string_lossy().to_string();
 
@@ -596,6 +608,7 @@ mod tests {
         tracing::error!("Test error message");
         tracing::warn!("Test warn message");
         tracing::info!("Test info message");
+        tracing::debug!(target: "ci", "Test CI debug message");
         tracing::debug!("Test debug message");
 
         std::thread::sleep(std::time::Duration::from_millis(100));
@@ -616,6 +629,11 @@ mod tests {
         assert!(
             file_contents.contains("Test info message"),
             "Info message should be in file"
+        );
+
+        assert!(
+            file_contents.contains("Test CI debug message"),
+            "Debug message for CI should be in file"
         );
 
         assert!(

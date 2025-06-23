@@ -176,6 +176,7 @@ pub fn prove_bridge_circuit(
     let ark_groth16_proof: ark_groth16::Proof<Bn254> = circuit_g16_proof.into();
 
     tracing::debug!(
+        target: "ci",
         "Circuit debug info:\n\
         - Combined method ID constant: {:?}\n\
         - Payout tx block hash: {:?}\n\
