@@ -533,7 +533,7 @@ impl ExtendedRpc {
             } else {
                 drop(read);
                 let mut write = self.cached_mining_address.write().await;
-                
+
                 if let Some(addr) = &*write {
                     addr.clone()
                 } else {
