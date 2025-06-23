@@ -47,7 +47,9 @@ pub fn initialize_logger(level: Option<LevelFilter>) -> Result<(), BridgeError> 
             let subscriber = env_subscriber_with_file(&file_path)?;
             try_set_global_subscriber(subscriber)?;
         } else {
-            tracing::warn!("IS_CI is set but INFO_LOG_FILE is missing, only console logs will be used.");
+            tracing::warn!(
+                "IS_CI is set but INFO_LOG_FILE is missing, only console logs will be used."
+            );
             let subscriber = env_subscriber_to_human(level);
             try_set_global_subscriber(subscriber)?;
         }
@@ -102,12 +104,19 @@ fn env_subscriber_with_file(path: &str) -> Result<Box<dyn Subscriber + Send + Sy
 
     let filter = EnvFilter::from_default_env();
 
-    Ok(Box::new(Registry::default().with(filter).with(file_layer).with(console_layer)))
+    Ok(Box::new(
+        Registry::default()
+            .with(filter)
+            .with(file_layer)
+            .with(console_layer),
+    ))
 }
 
 fn env_subscriber_to_json(level: Option<LevelFilter>) -> Box<dyn Subscriber + Send + Sync> {
     let filter = match level {
-        Some(lvl) => EnvFilter::builder().with_default_directive(lvl.into()).from_env_lossy(),
+        Some(lvl) => EnvFilter::builder()
+            .with_default_directive(lvl.into())
+            .from_env_lossy(),
         None => EnvFilter::from_default_env(),
     };
 
@@ -120,30 +129,36 @@ fn env_subscriber_to_json(level: Option<LevelFilter>) -> Box<dyn Subscriber + Se
         .with_thread_names(true)
         .with_target(true)
         .json();
-        // .with_current_span(true)z
-        // .with_span_list(true)
-        // To see how long each span takes, uncomment this.
-        // .with_span_events(FmtSpan::CLOSE)
+    // .with_current_span(true)z
+    // .with_span_list(true)
+    // To see how long each span takes, uncomment this.
+    // .with_span_events(FmtSpan::CLOSE)
 
     Box::new(tracing_subscriber::registry().with(json_layer).with(filter))
 }
 
 fn env_subscriber_to_human(level: Option<LevelFilter>) -> Box<dyn Subscriber + Send + Sync> {
     let filter = match level {
-        Some(lvl) => EnvFilter::builder().with_default_directive(lvl.into()).from_env_lossy(),
+        Some(lvl) => EnvFilter::builder()
+            .with_default_directive(lvl.into())
+            .from_env_lossy(),
         None => EnvFilter::from_default_env(),
     };
 
     let standard_layer = fmt::layer()
         .with_test_writer()
-        // .with_timer(time::UtcTime::rfc_3339())   
+        // .with_timer(time::UtcTime::rfc_3339())
         .with_file(true)
         .with_line_number(true)
         // To see how long each span takes, uncomment this.
         // .with_span_events(FmtSpan::CLOSE)
         .with_target(true);
 
-    Box::new(tracing_subscriber::registry().with(standard_layer).with(filter))
+    Box::new(
+        tracing_subscriber::registry()
+            .with(standard_layer)
+            .with(filter),
+    )
 }
 
 fn is_json_logs() -> bool {
