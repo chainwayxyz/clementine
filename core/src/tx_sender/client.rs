@@ -219,7 +219,6 @@ impl TxSenderClient {
             | TransactionType::UnspentKickoff(_)
             | TransactionType::Payout
             | TransactionType::MoveToVault
-            | TransactionType::Disprove
             | TransactionType::BurnUnusedKickoffConnectors
             | TransactionType::KickoffNotFinalized
             | TransactionType::MiniAssert(_)
@@ -319,6 +318,20 @@ impl TxSenderClient {
                 )
                 .await
             }
+            TransactionType::Disprove => {
+                self.insert_try_to_send(
+                    dbtx,
+                    tx_metadata,
+                    signed_tx,
+                    FeePayingType::NoFunding,
+                    rbf_info,
+                    &[],
+                    &[],
+                    &[],
+                    &[],
+                )
+                .await
+            }
             TransactionType::AllNeededForDeposit | TransactionType::YieldKickoffTxid => {
                 unreachable!()
             }
@@ -377,7 +390,7 @@ impl TxSenderClient {
             .collect::<Result<Vec<_>>>()?;
 
         let txid = match fee_paying_type {
-            FeePayingType::CPFP => tx.compute_txid(),
+            FeePayingType::CPFP | FeePayingType::NoFunding => tx.compute_txid(),
             FeePayingType::RBF => self
                 .db
                 .get_last_rbf_txid(None, id)
