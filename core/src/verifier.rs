@@ -151,7 +151,8 @@ where
                     config.protocol_paramset().start_height,
                     verifier.clone(),
                 )
-                .with_delay(Duration::from_secs(1)),
+                .into_buffered_errors(50)
+                .with_delay(Duration::from_secs(60)),
             );
         }
 
