@@ -468,18 +468,18 @@ impl ExtendedRpc {
         Ok(res.is_none())
     }
 
-    /// Mines a specified number of blocks to a new address.
+    /// Attempts to mine the specified number of blocks and returns their hashes.
     ///
-    /// This is a test-only function that generates blocks and it will only work
-    /// on regtest.
+    /// This test-only async function will mine `block_num` blocks on the Bitcoin regtest network
+    /// using a cached mining address or a newly generated one. It retries up to 5 times on failure
+    /// with exponential backoff.
     ///
     /// # Parameters
-    ///
-    /// * `block_num`: The number of blocks to mine
+    /// - `block_num`: The number of blocks to mine.
     ///
     /// # Returns
-    ///
-    /// - [`Vec<BlockHash>`]: A vector of block hashes for the newly mined blocks.
+    /// - `Ok(Vec<BlockHash>)`: A vector of block hashes for the mined blocks.
+    /// - `Err`: If mining fails after all retry attempts.
     #[cfg(test)]
     pub async fn mine_blocks(&self, block_num: u64) -> Result<Vec<BlockHash>> {
         use std::time::Duration;
@@ -513,6 +513,17 @@ impl ExtendedRpc {
         unreachable!()
     }
 
+    /// Internal helper that performs the actual block mining logic.
+    ///
+    /// It uses a cached mining address if available, otherwise it generates and caches
+    /// a new one. It then uses the address to mine `block_num` blocks.
+    ///
+    /// # Parameters
+    /// - `block_num`: The number of blocks to mine.
+    ///
+    /// # Returns
+    /// - `Ok(Vec<BlockHash>)`: The list of block hashes.
+    /// - `Err`: If the client fails to get a new address or mine the blocks.
     #[cfg(test)]
     async fn try_mine(&self, block_num: u64) -> Result<Vec<BlockHash>> {
         let address = {

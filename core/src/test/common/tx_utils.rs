@@ -79,6 +79,23 @@ pub async fn ensure_outpoint_spent_while_waiting_for_light_client_sync(
     Ok(())
 }
 
+/// Attempts to retrieve the current block count with retry logic.
+///
+/// This async function queries the blockchain info from the given RPC client,
+/// retrying up to `retries` times with a fixed `delay` between attempts in case of failure.
+///
+/// # Parameters
+/// - `rpc`: Reference to the `ExtendedRpc` containing the RPC client.
+/// - `retries`: Maximum number of retry attempts.
+/// - `delay`: Duration to wait between retries.
+///
+/// # Returns
+/// - `Ok(u64)`: The current block count if successful.
+/// - `Err`: The final error after exhausting all retries.
+///
+/// # Panics
+/// This function will panic with `unreachable!()` if the retry loop completes without returning.
+/// In practice, this should never happen due to the early return on success or final failure.
 pub async fn retry_get_block_count(
     rpc: &ExtendedRpc,
     retries: usize,
