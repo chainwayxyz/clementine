@@ -1,22 +1,19 @@
+use super::{log_error_for_tx, Result, SendTxError, TxMetadata, TxSender};
+use crate::builder::{self};
+use crate::utils::RbfSigningInfo;
 use bitcoin::script::Instruction;
 use bitcoin::sighash::{Prevouts, SighashCache};
 use bitcoin::taproot::{self};
+use bitcoin::{consensus, Address, Amount, FeeRate, Transaction};
 use bitcoin::{Psbt, TapSighashType, TxOut, Txid, Witness};
 use bitcoincore_rpc::json::{
     BumpFeeOptions, BumpFeeResult, CreateRawTransactionInput, FinalizePsbtResult,
     WalletCreateFundedPsbtOutput, WalletCreateFundedPsbtOutputs, WalletCreateFundedPsbtResult,
 };
-use eyre::{eyre, OptionExt};
-use std::str::FromStr;
-
-use bitcoin::{consensus, Address, Amount, FeeRate, Transaction};
 use bitcoincore_rpc::RpcApi;
 use eyre::Context;
-
-use crate::builder::{self};
-
-use super::{log_error_for_tx, Result, SendTxError, TxMetadata, TxSender};
-use crate::utils::RbfSigningInfo;
+use eyre::{eyre, OptionExt};
+use std::str::FromStr;
 
 impl TxSender {
     /// Calculates the appropriate fee rate for a Replace-By-Fee (RBF) transaction.
