@@ -195,13 +195,13 @@ jobs:
             test_name: "additional-disrupted-payout"
           - test_script_name: additional_disprove_script_test_disrupt_chal_sending_wts
             description_suffix: "disrupted challenge sending watchtowers path"
-            test_name: "additional-disrupted-challenge"
+            test_name: "additional-disrupted-chal-sending-wts"
           - test_script_name: additional_disprove_script_test_operator_forgot_wt_challenge
             description_suffix: "operator forgot watchtower challenge path"
             test_name: "additional-forgot-challenge"
           - test_script_name: additional_disprove_script_test_disrupted_latest_block_hash
             description_suffix: "disrupted latest blockhash path"
-            test_name: "additional-disrupted-blockhash"
+            test_name: "additional-disrupted-latest-blockhash"
           - test_script_name: bitvm_disprove_scripts::disprove_script_test_healthy
             description_suffix: "healthy path"
             test_name: "bitvm-healthy"
