@@ -141,7 +141,7 @@ DO $$ BEGIN IF NOT EXISTS (
     SELECT 1
     FROM pg_type
     WHERE typname = 'fee_paying_type'
-) THEN CREATE TYPE fee_paying_type AS ENUM ('cpfp', 'rbf');
+) THEN CREATE TYPE fee_paying_type AS ENUM ('cpfp', 'rbf', 'nofunding');
 END IF;
 END $$;
 -- Table to store txs that needs to be fee bumped
