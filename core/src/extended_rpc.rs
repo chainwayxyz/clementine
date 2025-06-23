@@ -501,9 +501,12 @@ impl ExtendedRpc {
                             .into());
                     }
                     let delay = Duration::from_millis(100 * 2u64.pow(attempt));
-                    eprintln!(
+                    tracing::debug!(
                         "Retry {}/{}: {}. Retrying in {:?}",
-                        attempt, max_attempts, e, delay
+                        attempt,
+                        max_attempts,
+                        e,
+                        delay
                     );
                     sleep(delay).await;
                 }
