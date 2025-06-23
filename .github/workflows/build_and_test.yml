@@ -177,7 +177,7 @@ jobs:
   # Matrix (Standalone) Tests --------------------------------------------------
   standalone_tests:
     name: Release | All features | Test ${{ matrix.description_suffix }}
-    runs-on: ubicloud-standard-4
+    runs-on: ubicloud-standard-8
     needs: release_build_all_features
 
     env:
@@ -188,26 +188,26 @@ jobs:
       matrix:
         include:
           - test_script_name: additional_disprove_script_test_healthy
-            description_suffix: "healthy path"
+            description_suffix: "Add. disprove healthy path"
             test_name: "additional-healthy"
           - test_script_name: additional_disprove_script_test_disrupted_payout_tx_block_hash
-            description_suffix: "disrupted payout tx blockhash path"
+            description_suffix: "Add. disprove disrupted payout tx blockhash path"
             test_name: "additional-disrupted-payout"
           - test_script_name: additional_disprove_script_test_disrupt_chal_sending_wts
-            description_suffix: "disrupted challenge sending watchtowers path"
+            description_suffix: "Add. disprove disrupted challenge sending watchtowers path"
             test_name: "additional-disrupted-chal-sending-wts"
           - test_script_name: additional_disprove_script_test_operator_forgot_wt_challenge
-            description_suffix: "operator forgot watchtower challenge path"
+            description_suffix: "Add. disprove operator forgot watchtower challenge path"
             test_name: "additional-forgot-challenge"
           - test_script_name: additional_disprove_script_test_disrupted_latest_block_hash
-            description_suffix: "disrupted latest blockhash path"
+            description_suffix: "Add. disprove disrupted latest blockhash path"
             test_name: "additional-disrupted-latest-blockhash"
           - test_script_name: bitvm_disprove_scripts::disprove_script_test_healthy
-            description_suffix: "healthy path"
-            test_name: "bitvm-healthy"
+            description_suffix: "Disprove healthy path"
+            test_name: "disprove-healthy"
           - test_script_name: bitvm_disprove_scripts::disprove_script_test_corrupted_assert
-            description_suffix: "disrupted assert path"
-            test_name: "bitvm-corrupted-assert"
+            description_suffix: "Disprove disrupted assert path"
+            test_name: "disprove-corrupted-assert"
 
     services:
       postgres:
