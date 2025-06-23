@@ -691,7 +691,18 @@
 <a href="#690" id="690">690</a>
 <a href="#691" id="691">691</a>
 <a href="#692" id="692">692</a>
-<a href="#693" id="693">693</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::WinternitzDerivationPath;
+<a href="#693" id="693">693</a>
+<a href="#694" id="694">694</a>
+<a href="#695" id="695">695</a>
+<a href="#696" id="696">696</a>
+<a href="#697" id="697">697</a>
+<a href="#698" id="698">698</a>
+<a href="#699" id="699">699</a>
+<a href="#700" id="700">700</a>
+<a href="#701" id="701">701</a>
+<a href="#702" id="702">702</a>
+<a href="#703" id="703">703</a>
+<a href="#704" id="704">704</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::WinternitzDerivationPath;
 <span class="kw">use </span><span class="kw">crate</span>::builder::address::taproot_builder_with_scripts;
 <span class="kw">use </span><span class="kw">crate</span>::builder::script::{SpendableScript, WinternitzCommit};
 
@@ -712,7 +723,7 @@
 <span class="kw">use </span>std::fs;
 
 <span class="kw">use </span>std::str::FromStr;
-<span class="kw">use </span>std::sync::Arc;
+<span class="kw">use </span>std::sync::{Arc, OnceLock};
 <span class="kw">use </span>std::time::Instant;
 
 <span class="macro">lazy_static::lazy_static!</span> {
@@ -737,38 +748,49 @@
         XOnlyPublicKey::from_str(<span class="string">"50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0"</span>).expect(<span class="string">"this key is valid"</span>);
 }
 
-<span class="comment">// lazy_static::lazy_static! {
-//     pub static ref ALL_BITVM_INTERMEDIATE_VARIABLES: BTreeMap&lt;String, usize&gt; = BridgeAssigner::default().all_intermediate_variable();
-// }
-</span><span class="macro">lazy_static::lazy_static!</span> {
-    <span class="kw">pub static </span><span class="kw-2">ref </span>BITVM_CACHE: BitvmCache = {
-        <span class="kw">let </span>start = Instant::now();
+<span class="doccomment">/// Global BitVM cache wrapped in a OnceLock.
+///
+/// # Usage
+/// Use with `BITVM_CACHE.get_or_init(load_or_generate_bitvm_cache)` to get the cache or optionally load it.
+/// The cache will be initialized from a file, and if that fails, the fresh data will be generated.
+</span><span class="kw">pub static </span>BITVM_CACHE: OnceLock&lt;BitvmCache&gt; = OnceLock::new();
 
-        <span class="kw">let </span>bitvm_cache = {
-            <span class="kw">let </span>cache_path = <span class="kw">if </span><span class="macro">cfg!</span>(test) &amp;&amp; is_dev_mode() {
-                <span class="string">"bitvm_cache_dev.bin"</span>.to_string()
-            } <span class="kw">else </span>{
-                std::env::var(<span class="string">"BITVM_CACHE_PATH"</span>).unwrap_or_else(|<span class="kw">_</span>| <span class="string">"bitvm_cache.bin"</span>.to_string())
-            };
-            <span class="macro">tracing::info!</span>(<span class="string">"Loading BitVM cache from file: {}"</span>, cache_path);
-            <span class="kw">match </span>BitvmCache::load_from_file(<span class="kw-2">&amp;</span>cache_path) {
-                <span class="prelude-val">Ok</span>(cache) =&gt; {
-                    <span class="macro">tracing::info!</span>(<span class="string">"Loaded BitVM cache from file"</span>);
-                    cache
-                }
-                <span class="prelude-val">Err</span>(<span class="kw">_</span>) =&gt; {
-                    <span class="macro">tracing::info!</span>(<span class="string">"No BitVM cache found, generating fresh data"</span>);
-                    <span class="kw">let </span>fresh_data = generate_fresh_data();
-                    <span class="kw">if let </span><span class="prelude-val">Err</span>(e) = fresh_data.save_to_file(<span class="kw-2">&amp;</span>cache_path) {
-                        <span class="macro">tracing::error!</span>(<span class="string">"Failed to save BitVM cache to file: {}"</span>, e);
-                    }
-                    fresh_data
-                }
-            }
-        };
-        <span class="macro">println!</span>(<span class="string">"BitVM initialization took: {:?}"</span>, start.elapsed());
-        bitvm_cache
+<span class="kw">pub fn </span>load_or_generate_bitvm_cache() -&gt; BitvmCache {
+    <span class="kw">let </span>start = Instant::now();
+
+    <span class="kw">let </span>cache_path = <span class="kw">if </span><span class="macro">cfg!</span>(test) &amp;&amp; is_dev_mode() {
+        <span class="string">"bitvm_cache_dev.bin"</span>.to_string()
+    } <span class="kw">else </span>{
+        std::env::var(<span class="string">"BITVM_CACHE_PATH"</span>).unwrap_or_else(|<span class="kw">_</span>| <span class="string">"bitvm_cache.bin"</span>.to_string())
     };
+
+    <span class="kw">let </span>bitvm_cache = {
+        <span class="macro">tracing::debug!</span>(<span class="string">"Attempting to load BitVM cache from file: {}"</span>, cache_path);
+
+        <span class="kw">match </span>BitvmCache::load_from_file(<span class="kw-2">&amp;</span>cache_path) {
+            <span class="prelude-val">Ok</span>(cache) =&gt; {
+                <span class="macro">tracing::debug!</span>(<span class="string">"Loaded BitVM cache from file"</span>);
+
+                cache
+            }
+            <span class="prelude-val">Err</span>(<span class="kw">_</span>) =&gt; {
+                <span class="macro">tracing::info!</span>(<span class="string">"No BitVM cache found, generating fresh data"</span>);
+
+                <span class="kw">let </span>fresh_data = generate_fresh_data();
+
+                <span class="kw">if let </span><span class="prelude-val">Err</span>(e) = fresh_data.save_to_file(<span class="kw-2">&amp;</span>cache_path) {
+                    <span class="macro">tracing::error!</span>(
+                        <span class="string">"Failed to save freshly generated BitVM cache to file: {}"</span>,
+                        e
+                    );
+                }
+                fresh_data
+            }
+        }
+    };
+
+    <span class="macro">tracing::debug!</span>(<span class="string">"BitVM initialization took: {:?}"</span>, start.elapsed());
+    bitvm_cache
 }
 
 <span class="attr">#[derive(BorshSerialize, BorshDeserialize, Debug)]
@@ -1278,7 +1300,7 @@
     <span class="kw">let </span>start = Instant::now();
     <span class="macro">tracing::info!</span>(<span class="string">"Starting script replacement"</span>);
 
-    <span class="kw">let </span>cache = <span class="kw-2">&amp;*</span>BITVM_CACHE;
+    <span class="kw">let </span>cache = BITVM_CACHE.get_or_init(load_or_generate_bitvm_cache);
     <span class="kw">let </span><span class="kw-2">mut </span>result: Vec&lt;Vec&lt;u8&gt;&gt; = cache.disprove_scripts.clone();
     <span class="kw">let </span>replacement_places = <span class="kw-2">&amp;</span>cache.replacement_places;
 
