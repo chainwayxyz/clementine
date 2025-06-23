@@ -263,6 +263,26 @@ impl TxSender {
                 )
                 .map_err(|e| eyre!("Failed to calculate sighash: {}", e))?;
 
+            #[cfg(test)]
+            let mut sighash = sighash;
+
+            #[cfg(test)]
+            {
+                use bitcoin::sighash::Annex;
+                // This should provide the Sighash for the key spend
+                let annex_bytes = rbf_signing_info.annex.clone().unwrap();
+                let annex = Annex::new(&annex_bytes).unwrap();
+                sighash = sighash_cache
+                    .taproot_signature_hash(
+                        input_index,
+                        &Prevouts::All(&prevouts),
+                        Some(annex),
+                        None,
+                        tap_sighash_type,
+                    )
+                    .map_err(|e| eyre!("Failed to calculate sighash with annex: {}", e))?;
+            }
+
             // Sign the sighash with our signer
             let signature = self
                 .signer
@@ -282,6 +302,15 @@ impl TxSender {
             decoded_psbt.inputs[input_index].final_script_witness =
                 Some(Witness::from_slice(&[signature.serialize()]));
 
+            #[cfg(test)]
+            {
+                let mut witness = Witness::from_slice(&[signature.serialize()]);
+                witness.push(&[80u8; 10000]);
+                decoded_psbt.inputs[input_index].final_script_witness = Some(witness);
+                if rbf_signing_info.annex.is_some() {
+                    tracing::info!("Decoded PSBT: {:?}", decoded_psbt);
+                }
+            }
             // Serialize the signed PSBT back to base64
             Ok(decoded_psbt.to_string())
         } else {
@@ -1030,6 +1059,8 @@ mod tests {
                 Some(RbfSigningInfo {
                     vout: 0,
                     tweak_merkle_root: None,
+                    #[cfg(test)]
+                    annex: None,
                 }),
                 &[], // No cancel outpoints
                 &[], // No cancel txids
@@ -1052,6 +1083,8 @@ mod tests {
                 Some(RbfSigningInfo {
                     vout: 0,
                     tweak_merkle_root: None,
+                    #[cfg(test)]
+                    annex: None,
                 }),
             )
             .await
@@ -1100,6 +1133,8 @@ mod tests {
                 Some(RbfSigningInfo {
                     vout: 0,
                     tweak_merkle_root: None,
+                    #[cfg(test)]
+                    annex: None,
                 }),
                 &[], // No cancel outpoints
                 &[], // No cancel txids
@@ -1122,6 +1157,8 @@ mod tests {
                 Some(RbfSigningInfo {
                     vout: 0,
                     tweak_merkle_root: None,
+                    #[cfg(test)]
+                    annex: None,
                 }),
             )
             .await
@@ -1253,6 +1290,8 @@ mod tests {
                 Some(RbfSigningInfo {
                     vout: 0,
                     tweak_merkle_root: None,
+                    #[cfg(test)]
+                    annex: None,
                 }),
             )
             .await
@@ -1287,6 +1326,8 @@ mod tests {
                 Some(RbfSigningInfo {
                     vout: 0,
                     tweak_merkle_root: None,
+                    #[cfg(test)]
+                    annex: None,
                 }),
             )
             .await
@@ -1332,6 +1373,8 @@ mod tests {
                 Some(RbfSigningInfo {
                     vout: 0,
                     tweak_merkle_root: None,
+                    #[cfg(test)]
+                    annex: None,
                 }),
                 &[],
                 &[],

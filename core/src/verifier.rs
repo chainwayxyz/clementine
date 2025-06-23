@@ -10,6 +10,8 @@ use crate::builder::script::{
 use crate::builder::sighash::{
     create_nofn_sighash_stream, create_operator_sighash_stream, PartialSignatureInfo, SignatureInfo,
 };
+#[cfg(test)]
+use crate::builder::transaction::challenge;
 use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::input::UtxoVout;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
@@ -1474,6 +1476,15 @@ where
                 &commit_data,
             )
             .await?;
+
+        #[cfg(test)]
+        let mut challenge_tx = challenge_tx;
+
+        #[cfg(test)]
+        {
+            let witness = Witness::from_slice(&[[80u8; 10000]]);
+            challenge_tx.input[0].witness = witness;
+        }
 
         #[cfg(feature = "automation")]
         {

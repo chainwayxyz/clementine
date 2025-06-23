@@ -266,6 +266,8 @@ where
             RbfSigningInfo {
                 vout: 0,
                 tweak_merkle_root: merkle_root,
+                #[cfg(test)]
+                annex: Some(vec![80u8; 10000]),
             },
         ))
     }

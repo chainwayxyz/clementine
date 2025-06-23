@@ -157,6 +157,7 @@ pub fn prove_bridge_circuit(
     let prover = default_prover();
 
     tracing::info!("Checks complete, proving bridge circuit");
+    tracing::info!("Bridge circuit input: {:?}", bridge_circuit_input);
 
     let succinct_receipt = prover
         .prove_with_opts(env, bridge_circuit_elf, &ProverOpts::succinct())

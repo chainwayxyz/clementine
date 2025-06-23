@@ -388,6 +388,8 @@ pub enum FeePayingType {
 pub struct RbfSigningInfo {
     pub vout: u32,
     pub tweak_merkle_root: Option<TapNodeHash>,
+    #[cfg(test)]
+    pub annex: Option<Vec<u8>>,
 }
 pub trait Last20Bytes {
     fn last_20_bytes(self) -> [u8; 20];

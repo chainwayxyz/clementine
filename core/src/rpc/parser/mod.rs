@@ -130,6 +130,8 @@ impl TryFrom<RbfSigningInfoRpc> for RbfSigningInfo {
                 )
             },
             vout: value.vout,
+            #[cfg(test)]
+            annex: None,
         })
     }
 }
