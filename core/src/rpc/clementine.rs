@@ -677,7 +677,7 @@ pub enum FeeType {
     Unspecified = 0,
     Cpfp = 1,
     Rbf = 2,
-    AlreadyFunded = 3,
+    NoFunding = 3,
 }
 impl FeeType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -689,7 +689,7 @@ impl FeeType {
             Self::Unspecified => "UNSPECIFIED",
             Self::Cpfp => "CPFP",
             Self::Rbf => "RBF",
-            Self::AlreadyFunded => "ALREADY_FUNDED",
+            Self::NoFunding => "NO_FUNDING",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -698,7 +698,7 @@ impl FeeType {
             "UNSPECIFIED" => Some(Self::Unspecified),
             "CPFP" => Some(Self::Cpfp),
             "RBF" => Some(Self::Rbf),
-            "ALREADY_FUNDED" => Some(Self::AlreadyFunded),
+            "NO_FUNDING" => Some(Self::NoFunding),
             _ => None,
         }
     }

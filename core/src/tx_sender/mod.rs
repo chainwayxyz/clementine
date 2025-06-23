@@ -194,7 +194,7 @@ impl TxSender {
             // Assumes it replaces a tx of similar structure but potentially different inputs/fees.
             // Simplified calculation used here needs verification.
             FeePayingType::RBF => Weight::from_wu_usize(230 * num_fee_payer_utxos + 172), // TODO: Verify WU for RBF structure
-            FeePayingType::AlreadyFunded => Weight::from_wu_usize(0),
+            FeePayingType::NoFunding => Weight::from_wu_usize(0),
         };
 
         // Calculate total weight for fee calculation.
@@ -205,7 +205,7 @@ impl TxSender {
                 child_tx_weight.to_vbytes_ceil() + parent_tx_weight.to_vbytes_ceil(),
             ),
             FeePayingType::RBF => child_tx_weight + parent_tx_weight, // Should likely just be the RBF tx weight? Check RBF rules.
-            FeePayingType::AlreadyFunded => parent_tx_weight,
+            FeePayingType::NoFunding => parent_tx_weight,
         };
 
         fee_rate
@@ -323,9 +323,7 @@ impl TxSender {
                     self.send_rbf_tx(id, tx, tx_metadata, new_fee_rate, rbf_signing_info)
                         .await
                 }
-                FeePayingType::AlreadyFunded => {
-                    self.send_already_funded_tx(id, tx, tx_metadata).await
-                }
+                FeePayingType::NoFunding => self.send_no_funding_tx(id, tx, tx_metadata).await,
             };
 
             if let Err(e) = result {
@@ -360,7 +358,7 @@ impl TxSender {
     /// * `Ok(())` - If the transaction was successfully broadcast.
     /// * `Err(SendTxError)` - If the broadcast failed.
     #[tracing::instrument(skip_all, fields(sender = self.btc_syncer_consumer_id, try_to_send_id, tx_meta=?tx_metadata))]
-    pub(super) async fn send_already_funded_tx(
+    pub(super) async fn send_no_funding_tx(
         &self,
         try_to_send_id: u32,
         tx: Transaction,
@@ -370,33 +368,25 @@ impl TxSender {
             Ok(sent_txid) => {
                 tracing::debug!(
                     try_to_send_id,
-                    "Successfully sent already funded tx with txid {}",
+                    "Successfully sent no funding tx with txid {}",
                     sent_txid
                 );
                 let _ = self
                     .db
-                    .update_tx_debug_sending_state(
-                        try_to_send_id,
-                        "already_funded_send_success",
-                        true,
-                    )
+                    .update_tx_debug_sending_state(try_to_send_id, "no_funding_send_success", true)
                     .await;
             }
             Err(e) => {
                 tracing::error!(
-                    "Failed to send already funded tx with try_to_send_id: {:?} and metadata: {:?}",
+                    "Failed to send no funding tx with try_to_send_id: {:?} and metadata: {:?}",
                     try_to_send_id,
                     tx_metadata
                 );
-                let err_msg = format!("send_raw_transaction error for already funded tx: {}", e);
+                let err_msg = format!("send_raw_transaction error for no funding tx: {}", e);
                 log_error_for_tx!(self.db, try_to_send_id, err_msg);
                 let _ = self
                     .db
-                    .update_tx_debug_sending_state(
-                        try_to_send_id,
-                        "already_funded_send_failed",
-                        true,
-                    )
+                    .update_tx_debug_sending_state(try_to_send_id, "no_funding_send_failed", true)
                     .await;
                 return Err(SendTxError::Other(eyre::eyre!(e)));
             }
@@ -523,7 +513,7 @@ mod tests {
 
         let version = match fee_paying_type {
             FeePayingType::CPFP => Version::non_standard(3),
-            FeePayingType::RBF | FeePayingType::AlreadyFunded => Version::TWO,
+            FeePayingType::RBF | FeePayingType::NoFunding => Version::TWO,
         };
 
         let mut txhandler = TxHandlerBuilder::new(TransactionType::Dummy)
@@ -537,7 +527,7 @@ mod tests {
                         NormalSignatureKind::Challenge.into()
                     }
                     FeePayingType::RBF => (NumberedSignatureKind::WatchtowerChallenge, 0i32).into(),
-                    FeePayingType::AlreadyFunded => {
+                    FeePayingType::NoFunding => {
                         unreachable!("AlreadyFunded should not be used for bumpable txs")
                     }
                 },
@@ -764,7 +754,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_send_already_funded_tx() -> Result<(), BridgeError> {
+    async fn test_send_no_funding_tx() -> Result<(), BridgeError> {
         // Initialize RPC, tx_sender and other components
         let mut config = create_test_config_with_thread_name().await;
         let rpc = create_regtest_rpc(&mut config).await;
@@ -785,7 +775,7 @@ mod tests {
                 &mut dbtx,
                 None, // No metadata
                 &tx,
-                FeePayingType::AlreadyFunded,
+                FeePayingType::NoFunding,
                 None,
                 &[], // No cancel outpoints
                 &[], // No cancel txids
@@ -800,12 +790,12 @@ mod tests {
 
         // Test send_rbf_tx
         tx_sender
-            .send_already_funded_tx(try_to_send_id, tx.clone(), None)
+            .send_no_funding_tx(try_to_send_id, tx.clone(), None)
             .await
             .expect("Already funded should succeed");
 
         tx_sender
-            .send_already_funded_tx(try_to_send_id, tx.clone(), None)
+            .send_no_funding_tx(try_to_send_id, tx.clone(), None)
             .await
             .expect("Should not return error if sent again");
 
@@ -824,7 +814,7 @@ mod tests {
         .expect("Transaction should be in mempool");
 
         tx_sender
-            .send_already_funded_tx(try_to_send_id, tx.clone(), None)
+            .send_no_funding_tx(try_to_send_id, tx.clone(), None)
             .await
             .expect("Should not return error if sent again but still in mempool");
 
