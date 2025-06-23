@@ -277,7 +277,7 @@ async fn fetch_new_blocks(
             .client
             .get_block_header(&prev_block_hash)
             .await
-            .wrap_err("")?;
+            .wrap_err("Failed to get block header")?;
         let new_height = new_blocks.last().expect("new_blocks is empty").height - 1;
         new_blocks.push(BlockInfo {
             hash: prev_block_hash,
