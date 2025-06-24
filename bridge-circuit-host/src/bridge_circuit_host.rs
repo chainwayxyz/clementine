@@ -87,6 +87,9 @@ pub fn prove_bridge_circuit(
         return Err(eyre!("Light client proof output mismatch"));
     }
 
+    tracing::debug!(target: "ci", "Watchtower challenges: {:?}",
+        bridge_circuit_input.watchtower_inputs);
+
     // if bridge_circuit_host_params.lcp_receipt.verify(LC_IMAGE_ID).is_err()
     // {
     //     panic!("Light client proof receipt verification failed");
