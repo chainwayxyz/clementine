@@ -263,6 +263,26 @@ impl TxSender {
                 )
                 .map_err(|e| eyre!("Failed to calculate sighash: {}", e))?;
 
+            // #[cfg(test)]
+            // let mut sighash = sighash;
+
+            // #[cfg(test)]
+            // {
+            //     use bitcoin::sighash::Annex;
+            //     // This should provide the Sighash for the key spend
+            //     let annex_bytes = rbf_signing_info.annex.clone().unwrap();
+            //     let annex = Annex::new(&annex_bytes).unwrap();
+            //     sighash = sighash_cache
+            //         .taproot_signature_hash(
+            //             input_index,
+            //             &Prevouts::All(&prevouts),
+            //             Some(annex),
+            //             None,
+            //             tap_sighash_type,
+            //         )
+            //         .map_err(|e| eyre!("Failed to calculate sighash with annex: {}", e))?;
+            // }
+
             #[cfg(test)]
             let mut sighash = sighash;
 
@@ -270,17 +290,18 @@ impl TxSender {
             {
                 use bitcoin::sighash::Annex;
                 // This should provide the Sighash for the key spend
-                let annex_bytes = rbf_signing_info.annex.clone().unwrap();
-                let annex = Annex::new(&annex_bytes).unwrap();
-                sighash = sighash_cache
-                    .taproot_signature_hash(
-                        input_index,
-                        &Prevouts::All(&prevouts),
-                        Some(annex),
-                        None,
-                        tap_sighash_type,
-                    )
-                    .map_err(|e| eyre!("Failed to calculate sighash with annex: {}", e))?;
+                if let Some(ref annex_bytes) = rbf_signing_info.annex {
+                    let annex = Annex::new(&annex_bytes).unwrap();
+                    sighash = sighash_cache
+                        .taproot_signature_hash(
+                            input_index,
+                            &Prevouts::All(&prevouts),
+                            Some(annex),
+                            None,
+                            tap_sighash_type,
+                        )
+                        .map_err(|e| eyre!("Failed to calculate sighash with annex: {}", e))?;
+                }
             }
 
             // Sign the sighash with our signer
