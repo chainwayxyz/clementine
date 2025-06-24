@@ -8,7 +8,7 @@ use crate::errors::BridgeError;
 use crate::utils::NamedEntity;
 
 use super::manager::BackgroundTaskManager;
-use super::{CancelableResult, Task, TaskExt};
+use super::{CancelableResult, Task, TaskExt, TaskVariant};
 
 // A simple counter task that increments a counter each time it runs
 #[derive(Debug, Clone)]
@@ -45,6 +45,7 @@ impl CounterTask {
 #[tonic::async_trait]
 impl Task for CounterTask {
     type Output = bool;
+    const VARIANT: TaskVariant = TaskVariant::Dummy;
 
     async fn run_once(&mut self) -> Result<Self::Output, BridgeError> {
         if self.should_error && self.one_time_fix_at != Some(*self.counter.lock().await) {
@@ -77,6 +78,7 @@ impl SleepTask {
 #[tonic::async_trait]
 impl Task for SleepTask {
     type Output = bool;
+    const VARIANT: TaskVariant = TaskVariant::Dummy;
 
     async fn run_once(&mut self) -> Result<Self::Output, BridgeError> {
         sleep(self.duration).await;

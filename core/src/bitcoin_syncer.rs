@@ -8,7 +8,7 @@ use crate::{
     database::{Database, DatabaseTransaction},
     errors::BridgeError,
     extended_rpc::ExtendedRpc,
-    task::{IntoTask, Task, TaskExt, WithDelay},
+    task::{IntoTask, Task, TaskExt, TaskVariant, WithDelay},
 };
 use bitcoin::{block::Header, BlockHash, OutPoint};
 use bitcoincore_rpc::RpcApi;
@@ -402,6 +402,7 @@ impl IntoTask for BitcoinSyncer {
 #[async_trait]
 impl Task for BitcoinSyncerTask {
     type Output = bool;
+    const VARIANT: TaskVariant = TaskVariant::BitcoinSyncer;
 
     async fn run_once(&mut self) -> Result<Self::Output, BridgeError> {
         tracing::debug!("BitcoinSyncer: Fetching new blocks");
@@ -487,6 +488,7 @@ impl<H: BlockHandler> FinalizedBlockFetcherTask<H> {
 #[async_trait]
 impl<H: BlockHandler> Task for FinalizedBlockFetcherTask<H> {
     type Output = bool;
+    const VARIANT: TaskVariant = TaskVariant::FinalizedBlockFetcher;
 
     async fn run_once(&mut self) -> Result<Self::Output, BridgeError> {
         let mut dbtx = self.db.begin_transaction().await?;
