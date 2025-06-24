@@ -16,8 +16,9 @@ pub(crate) trait BlockMatcher {
 pub enum Matcher {
     SentTx(Txid),
     SpentUtxo(OutPoint),
-    /// This matcher is used to determine an outpoint was spent, but the tx that spent is does not have any of the txids.
-    /// It is used either to detect timeouts (like AssertTimeout) or exit from the protocol (like when Operator sends its collateral back to its wallet).
+    /// This matcher is used to determine that an outpoint was spent, but the txid of the tx that spent the outpoint
+    /// is not equal to any of the txids in the vector.
+    /// It is used either to detect timeouts (like AssertTimeout) or exit from the protocol (like when Operator sends its collateral back to its wallet, instead of using it for the next round).
     SpentUtxoButNotTxid(OutPoint, Vec<Txid>),
     BlockHeight(u32),
 }
