@@ -1225,8 +1225,6 @@ mod tests {
                 Ok(verifier
                     .verifier
                     .header_chain_prover
-                    .as_ref()
-                    .unwrap()
                     .db
                     .get_block_proof_by_hash(None, hash)
                     .await
