@@ -1189,7 +1189,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "Header chain prover is ignored"]
+    #[cfg(feature = "automation")]
     async fn verifier_new_check_header_chain_proof() {
         let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;

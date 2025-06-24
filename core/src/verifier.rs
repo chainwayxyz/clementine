@@ -2738,6 +2738,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(feature = "automation")]
     async fn test_database_operations_idempotency() {
         let mut config = create_test_config_with_thread_name().await;
         let _regtest = create_regtest_rpc(&mut config).await;
