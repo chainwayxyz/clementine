@@ -263,26 +263,6 @@ impl TxSender {
                 )
                 .map_err(|e| eyre!("Failed to calculate sighash: {}", e))?;
 
-            // #[cfg(test)]
-            // let mut sighash = sighash;
-
-            // #[cfg(test)]
-            // {
-            //     use bitcoin::sighash::Annex;
-            //     // This should provide the Sighash for the key spend
-            //     let annex_bytes = rbf_signing_info.annex.clone().unwrap();
-            //     let annex = Annex::new(&annex_bytes).unwrap();
-            //     sighash = sighash_cache
-            //         .taproot_signature_hash(
-            //             input_index,
-            //             &Prevouts::All(&prevouts),
-            //             Some(annex),
-            //             None,
-            //             tap_sighash_type,
-            //         )
-            //         .map_err(|e| eyre!("Failed to calculate sighash with annex: {}", e))?;
-            // }
-
             #[cfg(test)]
             let mut sighash = sighash;
 
@@ -325,10 +305,9 @@ impl TxSender {
 
             #[cfg(test)]
             {
-                let mut witness = Witness::from_slice(&[signature.serialize()]);
-                witness.push(&[80u8; 10000]);
-                decoded_psbt.inputs[input_index].final_script_witness = Some(witness);
-                if rbf_signing_info.annex.is_some() {
+                if let Some(ref annex_bytes) = rbf_signing_info.annex {
+                    let mut witness = Witness::from_slice(&[signature.serialize()]);
+                    witness.push(annex_bytes);
                     tracing::info!("Decoded PSBT: {:?}", decoded_psbt);
                 }
             }
