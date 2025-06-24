@@ -195,7 +195,7 @@ where
         // track the operator's round state
         #[cfg(feature = "automation")]
         {
-            // wont start a new state machine if one for the operator already exists
+            // Will not start a new state machine if one for the operator already exists.
             self.operator.track_rounds().await?;
             tracing::info!("Operator round state tracked");
         }
