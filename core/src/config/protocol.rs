@@ -283,7 +283,23 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
 #[cfg(test)]
 mod tests {
     use bridge_circuit_host::utils::calculate_succinct_output_prefix;
+    use circuits_lib::{
+        bridge_circuit::constants::{
+            MAINNET_WORK_ONLY_METHOD_ID, REGTEST_WORK_ONLY_METHOD_ID, SIGNET_WORK_ONLY_METHOD_ID,
+            TESTNET4_WORK_ONLY_METHOD_ID,
+        },
+        common::constants::{
+            MAINNET_HEADER_CHAIN_METHOD_ID, REGTEST_HEADER_CHAIN_METHOD_ID,
+            SIGNET_HEADER_CHAIN_METHOD_ID, TESTNET4_HEADER_CHAIN_METHOD_ID,
+        },
+    };
     use risc0_zkvm::compute_image_id;
+
+    use bridge_circuit_host::bridge_circuit_host::{
+        MAINNET_HEADER_CHAIN_ELF, MAINNET_WORK_ONLY_ELF, REGTEST_HEADER_CHAIN_ELF,
+        REGTEST_WORK_ONLY_ELF, SIGNET_HEADER_CHAIN_ELF, SIGNET_WORK_ONLY_ELF,
+        TESTNET4_HEADER_CHAIN_ELF, TESTNET4_WORK_ONLY_ELF,
+    };
 
     use super::*;
 
@@ -293,17 +309,77 @@ mod tests {
             include_bytes!("../../../risc0-circuits/elfs/regtest-bridge-circuit-guest.bin");
         let regtest_bridge_circuit_method_id =
             compute_image_id(regtest_bridge_elf).expect("should compute image id");
-        let calculated_bridge_circuit_constant =
-            calculate_succinct_output_prefix(regtest_bridge_circuit_method_id.as_bytes());
-
-        let bridge_circuit_constant = REGTEST_PARAMSET.bridge_circuit_method_id_constant;
-
+        let result = calculate_succinct_output_prefix(regtest_bridge_circuit_method_id.as_bytes());
         assert_eq!(
-            calculated_bridge_circuit_constant,
-            bridge_circuit_constant,
-            "You forgot to update bridge_circuit_constant with the new method id. Please change it in these places: Here, core/src/cli.rs, core/src/config/protocol.rs, core/src/test/data/protocol_paramset.toml. The expected value is: {:?}, hex format: {:?}",
-            calculated_bridge_circuit_constant,
-            hex::encode(calculated_bridge_circuit_constant)
+            result,
+            [95, 28, 139, 248, 149, 5, 244, 240, 242, 144, 129, 98, 138, 83, 145, 129, 158, 234, 155, 107, 76, 40, 168, 209, 26, 140, 68, 65, 89, 99, 178, 124]
+        , "You forgot to update bridge_circuit_constant with the new method id. Please change it in these places: Here, core/src/cli.rs, core/src/config/protocol.rs, core/src/test/data/protocol_paramset.toml"
         );
+    }
+
+    #[test]
+    fn test_header_chain_method_ids() {
+        let networks = [
+            (
+                MAINNET_HEADER_CHAIN_ELF,
+                MAINNET_HEADER_CHAIN_METHOD_ID,
+                "mainnet",
+            ),
+            (
+                TESTNET4_HEADER_CHAIN_ELF,
+                TESTNET4_HEADER_CHAIN_METHOD_ID,
+                "testnet4",
+            ),
+            (
+                SIGNET_HEADER_CHAIN_ELF,
+                SIGNET_HEADER_CHAIN_METHOD_ID,
+                "signet",
+            ),
+            (
+                REGTEST_HEADER_CHAIN_ELF,
+                REGTEST_HEADER_CHAIN_METHOD_ID,
+                "regtest",
+            ),
+        ];
+
+        for (elf, method_id, network) in networks.into_iter() {
+            let header_chain_circuit_method_id = compute_image_id(elf);
+            assert_eq!(
+                header_chain_circuit_method_id.expect("should compute image id").as_words(),
+                method_id,
+                "Header chain method ID mismatch for {network}, please update the constant here: circuits-lib/src/common/constants.rs",
+            );
+        }
+    }
+
+    #[test]
+    fn test_work_only_method_ids() {
+        let networks = [
+            (
+                MAINNET_WORK_ONLY_ELF,
+                MAINNET_WORK_ONLY_METHOD_ID,
+                "mainnet",
+            ),
+            (
+                TESTNET4_WORK_ONLY_ELF,
+                TESTNET4_WORK_ONLY_METHOD_ID,
+                "testnet4",
+            ),
+            (SIGNET_WORK_ONLY_ELF, SIGNET_WORK_ONLY_METHOD_ID, "signet"),
+            (
+                REGTEST_WORK_ONLY_ELF,
+                REGTEST_WORK_ONLY_METHOD_ID,
+                "regtest",
+            ),
+        ];
+
+        for (elf, method_id, network) in networks.into_iter() {
+            let work_only_circuit_method_id = compute_image_id(elf);
+            assert_eq!(
+                work_only_circuit_method_id.expect("should compute image id").as_bytes(),
+                method_id,
+                "Work only method ID mismatch for {network}, please update the constant here: circuits-lib/src/bridge_circuit/constants.rs",
+            );
+        }
     }
 }
