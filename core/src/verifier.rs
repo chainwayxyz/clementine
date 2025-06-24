@@ -1749,6 +1749,8 @@ where
         operator_acks: &HashMap<usize, Witness>,
         txhandlers: &BTreeMap<TransactionType, TxHandler>,
     ) -> Result<Option<bitcoin::Witness>, BridgeError> {
+        use bitvm::clementine::additional_disprove::debug_assertions_for_additional_script;
+
         use crate::builder::transaction::ReimburseDbCache;
 
         let mut reimburse_db_cache = ReimburseDbCache::new_for_deposit(
@@ -1890,6 +1892,8 @@ where
                 .into());
             }
             operator_acks_vec[*idx] = Some(pre_image);
+
+            tracing::debug!(target: "ci", "Operator ack for idx {}", idx);
         }
 
         let latest_blockhash: Vec<Vec<u8>> = latest_blockhash
@@ -1916,13 +1920,49 @@ where
             payout_blockhash_new.push(element);
         }
 
+        tracing::debug!(
+            target: "ci",
+            "Verify additional disprove conditions - Genesis height: {:?}, operator_xonly_pk: {:?}, move_txid: {:?}, round_txid: {:?}, vout: {:?}, watchtower_challenge_start_idx: {:?}, genesis_chain_state_hash: {:?}, deposit_constant: {:?}",
+            self.config.protocol_paramset.genesis_height,
+            kickoff_data.operator_xonly_pk,
+            move_txid,
+            round_txid,
+            vout,
+            watchtower_challenge_start_idx,
+            self.config.protocol_paramset.genesis_chain_state_hash,
+            deposit_constant
+        );
+
+        tracing::debug!(
+            target: "ci",
+            "Payout blockhash: {:?}\nLatest blockhash: {:?}\nChallenge sending watchtowers signature: {:?}\nG16 public input signature: {:?}",
+            payout_blockhash_new,
+            latest_blockhash_new,
+            challenge_sending_watchtowers_signature,
+            g16_public_input_signature
+        );
+
         let additional_disprove_witness = validate_assertions_for_additional_script(
             additional_disprove_script.clone(),
             g16_public_input_signature.clone(),
             payout_blockhash_new.clone(),
             latest_blockhash_new.clone(),
             challenge_sending_watchtowers_signature.clone(),
+            operator_acks_vec.clone(),
+        );
+
+        let debug_additional_disprove_script = debug_assertions_for_additional_script(
+            additional_disprove_script.clone(),
+            g16_public_input_signature.clone(),
+            payout_blockhash_new.clone(),
+            latest_blockhash_new.clone(),
+            challenge_sending_watchtowers_signature.clone(),
             operator_acks_vec,
+        );
+
+        tracing::info!(
+            "Debug additional disprove script: {:?}",
+            debug_additional_disprove_script
         );
 
         tracing::info!(

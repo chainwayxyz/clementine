@@ -103,6 +103,9 @@ pub fn prove_bridge_circuit(
         return Err(eyre!("Light client proof output mismatch"));
     }
 
+    tracing::debug!(target: "ci", "Watchtower challenges: {:?}",
+        bridge_circuit_input.watchtower_inputs);
+
     // if bridge_circuit_host_params.lcp_receipt.verify(LC_IMAGE_ID).is_err()
     // {
     //     panic!("Light client proof receipt verification failed");
@@ -206,8 +209,20 @@ pub fn prove_bridge_circuit(
     let circuit_g16_proof = CircuitGroth16Proof::from_seal(risc0_g16_256);
     let ark_groth16_proof: ark_groth16::Proof<Bn254> = circuit_g16_proof.into();
 
-    let deposit_constant = public_inputs.deposit_constant.0;
-    tracing::debug!("Deposit constant - circuit: {:?}", deposit_constant);
+    tracing::debug!(
+        target: "ci",
+        "Circuit debug info:\n\
+        - Combined method ID constant: {:?}\n\
+        - Payout tx block hash: {:?}\n\
+        - Latest block hash: {:?}\n\
+        - Challenge sending watchtowers: {:?}\n\
+        - Deposit constant: {:?}",
+        combined_method_id_constant,
+        public_inputs.payout_tx_block_hash.0,
+        public_inputs.latest_block_hash.0,
+        public_inputs.challenge_sending_watchtowers.0,
+        public_inputs.deposit_constant.0
+    );
 
     Ok((
         ark_groth16_proof,
