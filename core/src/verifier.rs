@@ -31,6 +31,7 @@ use crate::header_chain_prover::{HeaderChainProver, HeaderChainProverError};
 use crate::operator::RoundIndex;
 use crate::rpc::clementine::{NormalSignatureKind, OperatorKeys, TaggedSignature};
 use crate::task::manager::BackgroundTaskManager;
+use crate::task::status_monitor::{TaskStatusMonitorTask, TASK_STATUS_MONITOR_POLL_DELAY};
 use crate::task::{IntoTask, TaskExt};
 #[cfg(feature = "automation")]
 use crate::tx_sender::{TxSender, TxSenderClient};
@@ -179,6 +180,13 @@ where
         .await?;
 
         tasks.loop_and_monitor(syncer.into_task(), self.background_tasks.clone());
+
+        // run task status monitor
+        tasks.loop_and_monitor(
+            TaskStatusMonitorTask::new(self.background_tasks.clone())
+                .with_delay(TASK_STATUS_MONITOR_POLL_DELAY),
+            self.background_tasks.clone(),
+        );
 
         Ok(())
     }

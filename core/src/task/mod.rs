@@ -9,6 +9,7 @@ use crate::errors::BridgeError;
 
 pub mod manager;
 pub mod payout_checker;
+pub mod status_monitor;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TaskVariant {
@@ -17,7 +18,11 @@ pub enum TaskVariant {
     FinalizedBlockFetcher,
     TxSender,
     BitcoinSyncer,
-    Dummy,
+    TaskStatusMonitor,
+    #[cfg(test)]
+    Counter,
+    #[cfg(test)]
+    Sleep,
 }
 
 /// Task trait defining the core behavior for cancelable background tasks

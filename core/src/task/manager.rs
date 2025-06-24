@@ -25,7 +25,7 @@ pub struct BackgroundTaskManager<T: NamedEntity + Send + 'static> {
     abort_handles: HashMap<TaskVariant, AbortHandle>,
     /// Cancellation senders for tasks
     cancel_txs: HashMap<TaskVariant, oneshot::Sender<()>>,
-    status: HashMap<TaskVariant, TaskStatus>,
+    pub(crate) tasks_status: HashMap<TaskVariant, TaskStatus>,
     phantom: PhantomData<T>,
 }
 
@@ -34,7 +34,7 @@ impl<T: NamedEntity + Send + 'static> Default for BackgroundTaskManager<T> {
         Self {
             abort_handles: HashMap::new(),
             cancel_txs: HashMap::new(),
-            status: HashMap::new(),
+            tasks_status: HashMap::new(),
             phantom: PhantomData,
         }
     }
@@ -74,21 +74,21 @@ impl<T: NamedEntity + Send + 'static> BackgroundTaskManager<T> {
 
             let mut tasks = tasks.lock().await;
             tasks
-                .status
+                .tasks_status
                 .insert(task_variant, TaskStatus::NotRunning(exit_reason));
         });
     }
 
     /// Checks if a task is running
     fn is_task_running(&self, variant: TaskVariant) -> bool {
-        self.status
+        self.tasks_status
             .get(&variant)
             .unwrap_or(&TaskStatus::NotRunning("".to_string()))
             == &TaskStatus::Running
     }
 
     pub fn get_task_status(&self, variant: TaskVariant) -> Option<TaskStatus> {
-        self.status.get(&variant).cloned()
+        self.tasks_status.get(&variant).cloned()
     }
 
     /// Wraps the task in a cancelable loop and spawns it in the background with built-in monitoring.
@@ -117,7 +117,7 @@ impl<T: NamedEntity + Send + 'static> BackgroundTaskManager<T> {
 
         self.abort_handles.insert(variant, abort_handle);
         self.cancel_txs.insert(variant, cancel_tx);
-        self.status.insert(variant, TaskStatus::Running);
+        self.tasks_status.insert(variant, TaskStatus::Running);
     }
 
     /// Abort all tasks by dropping their cancellation senders

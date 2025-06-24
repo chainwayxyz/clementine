@@ -39,8 +39,18 @@ where
         &self,
         _request: tonic::Request<super::Empty>,
     ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status> {
-        self.start_background_tasks().await?;
-        Ok(tonic::Response::new(super::Empty {}))
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(60),
+            self.start_background_tasks(),
+        )
+        .await;
+        match result {
+            Ok(Ok(_)) => Ok(tonic::Response::new(super::Empty {})),
+            Ok(Err(e)) => Err(e.into()),
+            Err(_) => Err(tonic::Status::deadline_exceeded(
+                "Timed out while restarting background tasks. Recommended to restart the operator manually.",
+            )),
+        }
     }
 
     #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]

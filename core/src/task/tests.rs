@@ -46,7 +46,7 @@ impl CounterTask {
 #[tonic::async_trait]
 impl Task for CounterTask {
     type Output = bool;
-    const VARIANT: TaskVariant = TaskVariant::Dummy;
+    const VARIANT: TaskVariant = TaskVariant::Counter;
 
     async fn run_once(&mut self) -> Result<Self::Output, BridgeError> {
         if self.should_error && self.one_time_fix_at != Some(*self.counter.lock().await) {
@@ -79,7 +79,7 @@ impl SleepTask {
 #[tonic::async_trait]
 impl Task for SleepTask {
     type Output = bool;
-    const VARIANT: TaskVariant = TaskVariant::Dummy;
+    const VARIANT: TaskVariant = TaskVariant::Sleep;
 
     async fn run_once(&mut self) -> Result<Self::Output, BridgeError> {
         sleep(self.duration).await;
@@ -350,15 +350,6 @@ async fn test_task_manager_abort() {
 
     // Abort all tasks
     manager_inner.abort_all();
-
-    // check if it is set as not running
-    drop(manager_inner);
-    tokio::time::sleep(Duration::from_secs(5)).await;
-    let mut manager_inner = manager.lock().await;
-    assert!(matches!(
-        manager_inner.get_task_status(TaskVariant::Dummy),
-        Some(TaskStatus::NotRunning(_))
-    ));
 }
 
 #[tokio::test]
@@ -368,7 +359,7 @@ async fn test_task_manager_timeout() {
 
     // Add a task that sleeps for a long time
     let task = SleepTask::new(Duration::from_secs(10));
-    manager_inner.loop_and_monitor(task, manager.clone());
+    manager_inner.loop_and_monitor(task.clone(), manager.clone());
 
     // Graceful shutdown with short timeout should abort the task
     let start = Instant::now();
@@ -379,13 +370,50 @@ async fn test_task_manager_timeout() {
 
     // Should timeout and abort quickly
     assert!(elapsed < Duration::from_secs(1));
+}
 
-    // check if it is set as not running
+#[tokio::test]
+async fn test_task_manager_abort_and_restart() {
+    let counter = Arc::new(Mutex::new(0));
+    let mut manager = Arc::new(Mutex::new(BackgroundTaskManager::<TestOwner>::default()));
+    let mut manager_inner = manager.lock().await;
+
+    // Add a task that sleeps for a long time
+    let sleep_task = SleepTask::new(Duration::from_secs(10));
+    manager_inner.loop_and_monitor(sleep_task.clone(), manager.clone());
+
+    // Start a counter task too
+    let counter_task = CounterTask::new(Arc::clone(&counter), 100);
+    manager_inner.loop_and_monitor(counter_task.clone(), manager.clone());
+
+    // Sleep for a short time to let tasks start
+    sleep(Duration::from_millis(100)).await;
+
+    // Abort all tasks
+    manager_inner.abort_all();
+
+    // check tasks are set as not running
     drop(manager_inner);
+
+    let variants = [TaskVariant::Counter, TaskVariant::Sleep];
     tokio::time::sleep(Duration::from_secs(5)).await;
     let mut manager_inner = manager.lock().await;
-    assert!(matches!(
-        manager_inner.get_task_status(TaskVariant::Dummy),
-        Some(TaskStatus::NotRunning(_))
-    ));
+    for variant in variants {
+        assert!(matches!(
+            manager_inner.get_task_status(variant),
+            Some(TaskStatus::NotRunning(_))
+        ));
+    }
+
+    // check if restart works
+    manager_inner.loop_and_monitor(sleep_task.clone(), manager.clone());
+    manager_inner.loop_and_monitor(counter_task.clone(), manager.clone());
+
+    // check if they are running
+    for variant in variants {
+        assert!(matches!(
+            manager_inner.get_task_status(variant),
+            Some(TaskStatus::Running)
+        ));
+    }
 }

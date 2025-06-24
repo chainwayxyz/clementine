@@ -26,6 +26,7 @@ use crate::extended_rpc::ExtendedRpc;
 use crate::header_chain_prover::HeaderChainProver;
 use crate::task::manager::BackgroundTaskManager;
 use crate::task::payout_checker::{PayoutCheckerTask, PAYOUT_CHECKER_POLL_DELAY};
+use crate::task::status_monitor::{TaskStatusMonitorTask, TASK_STATUS_MONITOR_POLL_DELAY};
 use crate::task::TaskExt;
 use crate::utils::Last20Bytes;
 use crate::utils::{NamedEntity, TxMetadata};
@@ -198,6 +199,14 @@ where
             self.operator.track_rounds().await?;
             tracing::info!("Operator round state tracked");
         }
+
+        // run task status monitor
+        tasks.loop_and_monitor(
+            TaskStatusMonitorTask::new(self.background_tasks.clone())
+                .with_delay(TASK_STATUS_MONITOR_POLL_DELAY),
+            self.background_tasks.clone(),
+        );
+
         Ok(())
     }
 
