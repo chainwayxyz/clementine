@@ -256,9 +256,36 @@ where
             watchtower_index,
             commit_data,
             self.config.protocol_paramset(),
+            #[cfg(test)]
+            &self.config.test_params,
         )?;
 
         let merkle_root = watchtower_challenge_txhandler.get_merkle_root_of_txin(0)?;
+
+        #[cfg(test)]
+        let mut annex: Option<Vec<u8>> = None;
+
+        // #[cfg(test)]
+        // let mut additional_op_return = None;
+
+        #[cfg(test)]
+        {
+            if self.config.test_params.use_small_annex {
+                annex = Some(vec![80u8; 10000]);
+            } else if self.config.test_params.use_large_annex {
+                annex = Some(vec![80u8; 3990000]);
+            } else if self.config.test_params.use_large_annex_and_output {
+                annex = Some(vec![80u8; 3000000]);
+                // let mut op_return_vec: Vec<u8> = vec![0x6a, 0xa8, 0xcc, 0x03, 0x00];
+                // op_return_vec.extend_from_slice(&[0u8; 249000]);
+                // additional_op_return = Some(op_return_vec);
+            }
+            // else if self.config.test_params.use_large_output {
+            //     let mut op_return_vec: Vec<u8> = vec![0x6a, 0x58, 0x3e, 0x0f, 0x00];
+            //     op_return_vec.extend_from_slice(&[0u8; 999000]);
+            //     additional_op_return = Some(op_return_vec);
+            // }
+        }
 
         Ok((
             TransactionType::WatchtowerChallenge(watchtower_index),
@@ -267,7 +294,9 @@ where
                 vout: 0,
                 tweak_merkle_root: merkle_root,
                 #[cfg(test)]
-                annex: Some(vec![80u8; 10000]),
+                annex,
+                // #[cfg(test)]
+                // additional_op_return,
             },
         ))
     }
