@@ -408,6 +408,13 @@ mod tests {
 
     pub const DEPOSIT_STATE_FILE_PATH: &str = "src/test/data/deposit_state.bincode";
 
+    /// State of the chain and the deposit generated in generate_deposit_state() test.
+    /// Contains:
+    /// - Blocks: All blocks from height 1 until the chain tip.
+    /// - Deposit info: Deposit info of the deposit that were signed.
+    /// - Deposit blockhash: Block hash of the deposit outpoint.
+    /// - Move txid: Move to vault txid of the deposit.
+    /// - Operator data: Operator data of the single operator that were used in the deposit.
     #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
     struct DepositChainState {
         blocks: Vec<Block>,
