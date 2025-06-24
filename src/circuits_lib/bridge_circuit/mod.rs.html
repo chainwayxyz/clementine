@@ -1319,15 +1319,7 @@
 <a href="#1318" id="1318">1318</a>
 <a href="#1319" id="1319">1319</a>
 <a href="#1320" id="1320">1320</a>
-<a href="#1321" id="1321">1321</a>
-<a href="#1322" id="1322">1322</a>
-<a href="#1323" id="1323">1323</a>
-<a href="#1324" id="1324">1324</a>
-<a href="#1325" id="1325">1325</a>
-<a href="#1326" id="1326">1326</a>
-<a href="#1327" id="1327">1327</a>
-<a href="#1328" id="1328">1328</a>
-<a href="#1329" id="1329">1329</a></pre></div><pre class="rust"><code><span class="kw">pub mod </span>constants;
+<a href="#1321" id="1321">1321</a></pre></div><pre class="rust"><code><span class="kw">pub mod </span>constants;
 <span class="kw">pub mod </span>groth16;
 <span class="kw">pub mod </span>groth16_verifier;
 <span class="kw">pub mod </span>lc_proof;
@@ -1778,7 +1770,7 @@
 
         <span class="kw">match </span>outputs.as_slice() {
             <span class="comment">// Single OP_RETURN output with 144 bytes
-            </span>[op_return_output] <span class="kw">if </span>op_return_output.script_pubkey.is_op_return() =&gt; {
+            </span>[op_return_output, ..] <span class="kw">if </span>op_return_output.script_pubkey.is_op_return() =&gt; {
                 <span class="comment">// If the first output is OP_RETURN, we expect a single output with 144 bytes
                 </span><span class="kw">let </span><span class="prelude-val">Some</span>(<span class="prelude-val">Ok</span>(whole_output)) = parse_op_return_data(<span class="kw-2">&amp;</span>outputs[<span class="number">2</span>].script_pubkey)
                     .map(TryInto::&lt;[u8; <span class="number">144</span>]&gt;::try_into)
@@ -1796,23 +1788,15 @@
                     &amp;&amp; out2.script_pubkey.is_p2tr()
                     &amp;&amp; out3.script_pubkey.is_op_return() =&gt;
             {
-                <span class="comment">// Otherwise we expect the first two outputs to be P2TR, third output to be OP_RETURN
-                </span><span class="kw">if </span>!outputs[<span class="number">0</span>].script_pubkey.is_p2tr()
-                    || !outputs[<span class="number">1</span>].script_pubkey.is_p2tr()
-                    || !outputs[<span class="number">2</span>].script_pubkey.is_op_return()
-                {
-                    <span class="kw">continue</span>;
-                }
-
-                <span class="kw">let </span>first_output: [u8; <span class="number">32</span>] = outputs[<span class="number">0</span>].script_pubkey.to_bytes()[<span class="number">2</span>..]
+                <span class="kw">let </span>first_output: [u8; <span class="number">32</span>] = out1.script_pubkey.to_bytes()[<span class="number">2</span>..]
                     .try_into()
                     .expect(<span class="string">"Cannot fail: slicing 32 bytes from P2TR output"</span>);
-                <span class="kw">let </span>second_output: [u8; <span class="number">32</span>] = outputs[<span class="number">1</span>].script_pubkey.to_bytes()[<span class="number">2</span>..]
+                <span class="kw">let </span>second_output: [u8; <span class="number">32</span>] = out2.script_pubkey.to_bytes()[<span class="number">2</span>..]
                     .try_into()
                     .expect(<span class="string">"Cannot fail: slicing 32 bytes from P2TR output"</span>);
 
-                <span class="kw">let </span><span class="prelude-val">Some</span>(<span class="prelude-val">Ok</span>(third_output)) = parse_op_return_data(<span class="kw-2">&amp;</span>outputs[<span class="number">2</span>].script_pubkey)
-                    .map(TryInto::&lt;[u8; <span class="number">80</span>]&gt;::try_into)
+                <span class="kw">let </span><span class="prelude-val">Some</span>(<span class="prelude-val">Ok</span>(third_output)) =
+                    parse_op_return_data(<span class="kw-2">&amp;</span>out3.script_pubkey).map(TryInto::&lt;[u8; <span class="number">80</span>]&gt;::try_into)
                 <span class="kw">else </span>{
                     <span class="kw">continue</span>;
                 };
