@@ -16,9 +16,9 @@ pub(crate) trait BlockMatcher {
 pub enum Matcher {
     SentTx(Txid),
     SpentUtxo(OutPoint),
-    /// This matcher is used to determine an outpoint was spent, but the tx that spent is does not have the txid.
+    /// This matcher is used to determine an outpoint was spent, but the tx that spent is does not have any of the txids.
     /// It is used either to detect timeouts (like AssertTimeout) or exit from the protocol (like when Operator sends its collateral back to its wallet).
-    SpentUtxoButNotTxid(OutPoint, Txid),
+    SpentUtxoButNotTxid(OutPoint, Vec<Txid>),
     BlockHeight(u32),
 }
 
@@ -57,8 +57,9 @@ impl Matcher {
             Matcher::BlockHeight(height) if *height <= block.block_height => {
                 Some(MatcherOrd::BlockHeight)
             }
-            Matcher::SpentUtxoButNotTxid(outpoint, txid)
-                if block.is_utxo_spent(outpoint) && !block.contains_txid(txid) =>
+            Matcher::SpentUtxoButNotTxid(outpoint, txids)
+                if block.is_utxo_spent(outpoint)
+                    && !txids.iter().any(|txid| block.contains_txid(txid)) =>
             {
                 Some(MatcherOrd::TxIndex(
                     *block.spent_utxos.get(outpoint).expect("utxo is in cache"),
