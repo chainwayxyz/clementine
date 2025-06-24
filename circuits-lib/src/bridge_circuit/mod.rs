@@ -449,7 +449,7 @@ pub fn total_work_and_watchtower_flags(
 
         match outputs.as_slice() {
             // Single OP_RETURN output with 144 bytes
-            [op_return_output] if op_return_output.script_pubkey.is_op_return() => {
+            [op_return_output, ..] if op_return_output.script_pubkey.is_op_return() => {
                 // If the first output is OP_RETURN, we expect a single output with 144 bytes
                 let Some(Ok(whole_output)) = parse_op_return_data(&outputs[2].script_pubkey)
                     .map(TryInto::<[u8; 144]>::try_into)
@@ -467,23 +467,15 @@ pub fn total_work_and_watchtower_flags(
                     && out2.script_pubkey.is_p2tr()
                     && out3.script_pubkey.is_op_return() =>
             {
-                // Otherwise we expect the first two outputs to be P2TR, third output to be OP_RETURN
-                if !outputs[0].script_pubkey.is_p2tr()
-                    || !outputs[1].script_pubkey.is_p2tr()
-                    || !outputs[2].script_pubkey.is_op_return()
-                {
-                    continue;
-                }
-
-                let first_output: [u8; 32] = outputs[0].script_pubkey.to_bytes()[2..]
+                let first_output: [u8; 32] = out1.script_pubkey.to_bytes()[2..]
                     .try_into()
                     .expect("Cannot fail: slicing 32 bytes from P2TR output");
-                let second_output: [u8; 32] = outputs[1].script_pubkey.to_bytes()[2..]
+                let second_output: [u8; 32] = out2.script_pubkey.to_bytes()[2..]
                     .try_into()
                     .expect("Cannot fail: slicing 32 bytes from P2TR output");
 
-                let Some(Ok(third_output)) = parse_op_return_data(&outputs[2].script_pubkey)
-                    .map(TryInto::<[u8; 80]>::try_into)
+                let Some(Ok(third_output)) =
+                    parse_op_return_data(&out3.script_pubkey).map(TryInto::<[u8; 80]>::try_into)
                 else {
                     continue;
                 };
