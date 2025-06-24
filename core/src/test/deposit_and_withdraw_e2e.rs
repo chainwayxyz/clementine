@@ -9,13 +9,13 @@ use crate::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQ
 use crate::citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER};
 use crate::config::protocol::{self, ProtocolParamset};
 use crate::database::Database;
-use crate::deposit::KickoffData;
+use crate::deposit::{self, BaseDepositData, DepositInfo, DepositType, KickoffData};
 use crate::errors::ResultExt;
 use crate::header_chain_prover::HeaderChainProver;
 use crate::operator::RoundIndex;
 use crate::rpc::clementine::{
-    Deposit, FeeType, FinalizedPayoutParams, KickoffId, NormalSignatureKind, RawSignedTx,
-    SendTxRequest, TransactionRequest, WithdrawParams,
+    Deposit, Empty, FeeType, FinalizedPayoutParams, KickoffId, NormalSignatureKind, RawSignedTx,
+    SendMoveTxRequest, SendTxRequest, TransactionRequest, WithdrawParams,
 };
 use crate::test::common::citrea::{get_citrea_safe_withdraw_params, MockCitreaClient, SECRET_KEYS};
 use crate::test::common::tx_utils::get_tx_from_signed_txs_with_type;
@@ -25,11 +25,11 @@ use crate::test::common::tx_utils::{
     get_txid_where_utxo_is_spent, mine_once_after_outpoint_spent_in_mempool,
 };
 use crate::test::common::{
-    create_regtest_rpc, generate_withdrawal_transaction_and_signature, mine_once_after_in_mempool,
-    poll_get, poll_until_condition, run_single_deposit,
+    create_actors, create_regtest_rpc, generate_withdrawal_transaction_and_signature,
+    get_deposit_address, mine_once_after_in_mempool, poll_get, poll_until_condition,
+    run_single_deposit,
 };
 use crate::utils::{FeePayingType, TxMetadata};
-use crate::UTXO;
 use crate::{
     extended_rpc::ExtendedRpc,
     test::common::{
@@ -37,11 +37,12 @@ use crate::{
         create_test_config_with_thread_name,
     },
 };
+use crate::{EVMAddress, UTXO};
 use alloy::primitives::{U256, U32};
 use async_trait::async_trait;
 use bitcoin::hashes::Hash;
 use bitcoin::{secp256k1::SecretKey, Address, Amount};
-use bitcoin::{OutPoint, Transaction, TxOut, Txid};
+use bitcoin::{OutPoint, PublicKey, Transaction, TxOut, Txid};
 use bitcoincore_rpc::RpcApi;
 use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
 use citrea_e2e::config::{BatchProverConfig, LightClientProverConfig};
@@ -52,8 +53,10 @@ use citrea_e2e::{
     Result,
 };
 use eyre::Context;
+use futures::future::try_join_all;
 use once_cell::sync::{Lazy, OnceCell};
 use std::time::Duration;
+use tonic::Request;
 
 pub static PROTOCOL_PARAMSET: OnceCell<ProtocolParamset> = OnceCell::new();
 
@@ -1541,4 +1544,87 @@ async fn mock_citrea_run_malicious_after_exit() {
     let tx = rpc.get_tx_of_txid(&challenge_spent_txid).await.unwrap();
 
     assert!(tx.output[0].value != config.protocol_paramset().operator_challenge_amount);
+}
+
+#[tokio::test]
+async fn concurrent_double_deposit() {
+    let mut config = create_test_config_with_thread_name().await;
+    let regtest = create_regtest_rpc(&mut config).await;
+    let rpc = regtest.rpc().clone();
+    let mut citrea_client = MockCitreaClient::new(
+        config.citrea_rpc_url.clone(),
+        "".to_string(),
+        config.citrea_chain_id,
+        None,
+    )
+    .await
+    .unwrap();
+
+    let (verifiers, operators, mut aggregator, cleanup) =
+        create_actors::<MockCitreaClient>(&mut config).await;
+    let mut aggregator_2 = aggregator.clone();
+
+    let evm_address = EVMAddress([1u8; 20]);
+    let actor = Actor::new(
+        config.secret_key,
+        config.winternitz_secret_key,
+        config.protocol_paramset().network,
+    );
+
+    let verifiers_public_keys: Vec<bitcoin::secp256k1::PublicKey> = aggregator
+        .setup(Request::new(Empty {}))
+        .await
+        .unwrap()
+        .into_inner()
+        .try_into()
+        .unwrap();
+
+    let (deposit_address, _) =
+        get_deposit_address(&config, evm_address, verifiers_public_keys.clone()).unwrap();
+    let deposit_outpoint = rpc
+        .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
+        .await
+        .unwrap();
+
+    mine_once_after_in_mempool(&rpc, deposit_outpoint.txid, Some("Deposit outpoint"), None)
+        .await
+        .unwrap();
+    let deposit_blockhash = rpc
+        .get_blockhash_of_tx(&deposit_outpoint.txid)
+        .await
+        .unwrap();
+
+    let deposit_info = DepositInfo {
+        deposit_outpoint,
+        deposit_type: DepositType::BaseDeposit(BaseDepositData {
+            evm_address,
+            recovery_taproot_address: actor.address.as_unchecked().to_owned(),
+        }),
+    };
+
+    let deposit: Deposit = deposit_info.clone().into();
+
+    let move_txs = try_join_all(vec![
+        aggregator.new_deposit(deposit.clone()),
+        aggregator_2.new_deposit(deposit.clone()),
+    ])
+    .await
+    .unwrap();
+    let decoded_move_txs = move_txs
+        .into_iter()
+        .map(|encoded_move_tx| encoded_move_tx.into_inner())
+        .collect::<Vec<_>>();
+    assert_eq!(decoded_move_txs.len(), 2, "Expected two move transactions");
+    assert_eq!(decoded_move_txs[0].raw_tx, decoded_move_txs[1].raw_tx);
+
+    let request = SendMoveTxRequest {
+        deposit_outpoint: Some(deposit_outpoint.into()),
+        raw_tx: Some(decoded_move_txs[0].clone()),
+    };
+    let send_move_tx_results = try_join_all(vec![
+        aggregator.send_move_to_vault_tx(request.clone()),
+        aggregator_2.send_move_to_vault_tx(request),
+    ])
+    .await;
+    println!("Send move tx results: {:#?}", send_move_tx_results);
 }
