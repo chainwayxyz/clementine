@@ -373,7 +373,7 @@ impl BridgeCircuitInput {
 #[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug)]
 pub struct WatchtowerChallengeSet {
     pub challenge_senders: [u8; 20],
-    pub challenge_outputs: Vec<[TxOut; 3]>,
+    pub challenge_outputs: Vec<Vec<TxOut>>,
 }
 
 fn serialize_txout<W: borsh::io::Write>(txout: &TxOut, writer: &mut W) -> borsh::io::Result<()> {

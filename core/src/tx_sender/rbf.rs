@@ -871,7 +871,7 @@ impl TxSender {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::super::tests::*;
     use super::*;
     use crate::actor::Actor;
@@ -896,7 +896,7 @@ mod tests {
     use std::result::Result;
     use std::time::Duration;
 
-    async fn create_rbf_tx(
+    pub async fn create_rbf_tx(
         rpc: &ExtendedRpc,
         signer: &Actor,
         network: bitcoin::Network,

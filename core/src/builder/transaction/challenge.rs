@@ -322,7 +322,7 @@ pub fn create_disprove_txhandler(
             DEFAULT_SEQUENCE,
         )
         .add_output(UnspentTxOut::from_partial(
-            builder::transaction::anchor_output(paramset.anchor_amount()),
+            builder::transaction::non_ephemeral_anchor_output(), // must be non-ephemeral, because tx is v2
         ))
         .finalize())
 }
