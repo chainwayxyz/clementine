@@ -10,7 +10,7 @@ use crate::errors::BridgeError;
 pub mod manager;
 pub mod payout_checker;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TaskVariant {
     PayoutChecker,
     StateManager,

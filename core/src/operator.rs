@@ -2,6 +2,7 @@ use ark_ff::PrimeField;
 use circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
 use risc0_zkvm::is_dev_mode;
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::actor::{Actor, TweakCache, WinternitzDerivationPath};
@@ -47,7 +48,7 @@ use bridge_circuit_host::bridge_circuit_host::{
 use bridge_circuit_host::structs::{BridgeCircuitHostParams, WatchtowerContext};
 use bridge_circuit_host::utils::{get_ark_verifying_key, get_ark_verifying_key_dev_mode_bridge};
 use eyre::{Context, OptionExt};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Mutex};
 use tokio_stream::StreamExt;
 
 #[cfg(feature = "automation")]
@@ -117,7 +118,7 @@ impl RoundIndex {
 
 pub struct OperatorServer<C: CitreaClientT> {
     pub operator: Operator<C>,
-    background_tasks: BackgroundTaskManager<Operator<C>>,
+    background_tasks: Arc<Mutex<BackgroundTaskManager<Operator<C>>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -140,19 +141,31 @@ where
 {
     pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
         let operator = Operator::new(config.clone()).await?;
-        let mut background_tasks = BackgroundTaskManager::default();
+        let background_tasks = Arc::new(Mutex::new(BackgroundTaskManager::default()));
+
+        Ok(Self {
+            operator,
+            background_tasks,
+        })
+    }
+
+    /// Starts the background tasks for the operator.
+    /// If called multiple times, it will restart only the tasks that are not already running.
+    pub async fn start_background_tasks(&self) -> Result<(), BridgeError> {
+        let mut tasks = self.background_tasks.lock().await;
 
         // initialize and run state manager
         #[cfg(feature = "automation")]
         {
-            let paramset = config.protocol_paramset();
+            let paramset = self.operator.config.protocol_paramset();
             let state_manager =
-                StateManager::new(operator.db.clone(), operator.clone(), paramset).await?;
+                StateManager::new(self.operator.db.clone(), self.operator.clone(), paramset)
+                    .await?;
 
             let should_run_state_mgr = {
                 #[cfg(test)]
                 {
-                    config.test_params.should_run_state_manager
+                    self.operator.config.test_params.should_run_state_manager
                 }
                 #[cfg(not(test))]
                 {
@@ -161,15 +174,19 @@ where
             };
 
             if should_run_state_mgr {
-                background_tasks.loop_and_monitor(state_manager.block_fetcher_task().await?);
-                background_tasks.loop_and_monitor(state_manager.into_task());
+                tasks.loop_and_monitor(
+                    state_manager.block_fetcher_task().await?,
+                    self.background_tasks.clone(),
+                );
+                tasks.loop_and_monitor(state_manager.into_task(), self.background_tasks.clone());
             }
         }
 
         // run payout checker task
-        background_tasks.loop_and_monitor(
-            PayoutCheckerTask::new(operator.db.clone(), operator.clone())
+        tasks.loop_and_monitor(
+            PayoutCheckerTask::new(self.operator.db.clone(), self.operator.clone())
                 .with_delay(PAYOUT_CHECKER_POLL_DELAY),
+            self.background_tasks.clone(),
         );
 
         tracing::info!("Payout checker task started");
@@ -177,20 +194,16 @@ where
         // track the operator's round state
         #[cfg(feature = "automation")]
         {
-            operator.track_rounds().await?;
+            // wont start a new state machine if one for the operator already exists
+            self.operator.track_rounds().await?;
             tracing::info!("Operator round state tracked");
         }
-
-        Ok(Self {
-            operator,
-            background_tasks,
-        })
+        Ok(())
     }
 
     pub async fn shutdown(&mut self) {
-        self.background_tasks
-            .graceful_shutdown_with_timeout(Duration::from_secs(10))
-            .await;
+        let mut tasks = self.background_tasks.lock().await;
+        tasks.graceful_shutdown().await;
     }
 }
 

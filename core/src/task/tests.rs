@@ -5,6 +5,7 @@ use tokio::sync::Mutex;
 use tokio::time::sleep;
 
 use crate::errors::BridgeError;
+use crate::task::manager::TaskStatus;
 use crate::utils::NamedEntity;
 
 use super::manager::BackgroundTaskManager;
@@ -313,11 +314,12 @@ async fn test_map() {
 #[tokio::test]
 async fn test_task_manager() {
     let counter = Arc::new(Mutex::new(0));
-    let mut manager = BackgroundTaskManager::<TestOwner>::default();
+    let mut manager = Arc::new(Mutex::new(BackgroundTaskManager::<TestOwner>::default()));
+    let mut manager_inner = manager.lock().await;
 
     // Add a task that increments the counter 5 times
     let task = CounterTask::new(Arc::clone(&counter), 5);
-    manager.loop_and_monitor(task);
+    manager_inner.loop_and_monitor(task, manager.clone());
 
     // Sleep to give the task time to run
     sleep(Duration::from_millis(500)).await;
@@ -326,44 +328,64 @@ async fn test_task_manager() {
     assert_eq!(*counter.lock().await, 5);
 
     // Graceful shutdown should allow the task to complete
-    manager.graceful_shutdown().await;
+    manager_inner.graceful_shutdown().await;
 }
 
 #[tokio::test]
 async fn test_task_manager_abort() {
     let counter = Arc::new(Mutex::new(0));
-    let mut manager = BackgroundTaskManager::<TestOwner>::default();
+    let mut manager = Arc::new(Mutex::new(BackgroundTaskManager::<TestOwner>::default()));
+    let mut manager_inner = manager.lock().await;
 
     // Add a task that sleeps for a long time
     let task = SleepTask::new(Duration::from_secs(10));
-    manager.loop_and_monitor(task);
+    manager_inner.loop_and_monitor(task, manager.clone());
 
     // Start a counter task too
     let task = CounterTask::new(Arc::clone(&counter), 100);
-    manager.loop_and_monitor(task);
+    manager_inner.loop_and_monitor(task, manager.clone());
 
     // Sleep for a short time to let tasks start
     sleep(Duration::from_millis(100)).await;
 
     // Abort all tasks
-    manager.abort_all();
+    manager_inner.abort_all();
+
+    // check if it is set as not running
+    drop(manager_inner);
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    let mut manager_inner = manager.lock().await;
+    assert!(matches!(
+        manager_inner.get_task_status(TaskVariant::Dummy),
+        Some(TaskStatus::NotRunning(_))
+    ));
 }
 
 #[tokio::test]
 async fn test_task_manager_timeout() {
-    let mut manager = BackgroundTaskManager::<TestOwner>::default();
+    let mut manager = Arc::new(Mutex::new(BackgroundTaskManager::<TestOwner>::default()));
+    let mut manager_inner = manager.lock().await;
 
     // Add a task that sleeps for a long time
     let task = SleepTask::new(Duration::from_secs(10));
-    manager.loop_and_monitor(task);
+    manager_inner.loop_and_monitor(task, manager.clone());
 
     // Graceful shutdown with short timeout should abort the task
     let start = Instant::now();
-    manager
+    manager_inner
         .graceful_shutdown_with_timeout(Duration::from_millis(200))
         .await;
     let elapsed = start.elapsed();
 
     // Should timeout and abort quickly
     assert!(elapsed < Duration::from_secs(1));
+
+    // check if it is set as not running
+    drop(manager_inner);
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    let mut manager_inner = manager.lock().await;
+    assert!(matches!(
+        manager_inner.get_task_status(TaskVariant::Dummy),
+        Some(TaskStatus::NotRunning(_))
+    ));
 }

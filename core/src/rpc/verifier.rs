@@ -32,6 +32,14 @@ where
         Ok(Response::new(get_vergen_response()))
     }
 
+    async fn restart_background_tasks(
+        &self,
+        _request: tonic::Request<super::Empty>,
+    ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status> {
+        self.start_background_tasks().await?;
+        Ok(tonic::Response::new(super::Empty {}))
+    }
+
     async fn optimistic_payout_sign(
         &self,
         request: Request<OptimisticPayoutParams>,

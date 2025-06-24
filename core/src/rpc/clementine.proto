@@ -328,6 +328,9 @@ service ClementineOperator {
   // - Operator burn Schnorr signature
   rpc DepositSign(DepositSignSession) returns (stream SchnorrSig) {}
 
+  // Restarts the background tasks for the operator.
+  rpc RestartBackgroundTasks(Empty) returns (Empty) {}
+
   // Prepares a withdrawal if it's profitable and previous sequential_collateral_tx's timelock
   // has ended, by paying for the withdrawal and locking the current sequential_collateral_tx.
   rpc Withdraw(WithdrawParams)
@@ -534,6 +537,8 @@ service ClementineVerifier {
   // Debug a transaction by retrieving its current state and history
   rpc DebugTx(TxDebugRequest) returns (TxDebugInfo) {}
 
+  // Restarts the background tasks for the verifier.
+  rpc RestartBackgroundTasks(Empty) returns (Empty) {}
 
   // Checks if the kickoff tx is malicious and if so, try to send all necessary txs to punish the operator
   rpc InternalHandleKickoff(Txid) returns (Empty) {}
