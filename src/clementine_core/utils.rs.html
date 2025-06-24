@@ -500,7 +500,155 @@
 <a href="#499" id="499">499</a>
 <a href="#500" id="500">500</a>
 <a href="#501" id="501">501</a>
-<a href="#502" id="502">502</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::builder::transaction::TransactionType;
+<a href="#502" id="502">502</a>
+<a href="#503" id="503">503</a>
+<a href="#504" id="504">504</a>
+<a href="#505" id="505">505</a>
+<a href="#506" id="506">506</a>
+<a href="#507" id="507">507</a>
+<a href="#508" id="508">508</a>
+<a href="#509" id="509">509</a>
+<a href="#510" id="510">510</a>
+<a href="#511" id="511">511</a>
+<a href="#512" id="512">512</a>
+<a href="#513" id="513">513</a>
+<a href="#514" id="514">514</a>
+<a href="#515" id="515">515</a>
+<a href="#516" id="516">516</a>
+<a href="#517" id="517">517</a>
+<a href="#518" id="518">518</a>
+<a href="#519" id="519">519</a>
+<a href="#520" id="520">520</a>
+<a href="#521" id="521">521</a>
+<a href="#522" id="522">522</a>
+<a href="#523" id="523">523</a>
+<a href="#524" id="524">524</a>
+<a href="#525" id="525">525</a>
+<a href="#526" id="526">526</a>
+<a href="#527" id="527">527</a>
+<a href="#528" id="528">528</a>
+<a href="#529" id="529">529</a>
+<a href="#530" id="530">530</a>
+<a href="#531" id="531">531</a>
+<a href="#532" id="532">532</a>
+<a href="#533" id="533">533</a>
+<a href="#534" id="534">534</a>
+<a href="#535" id="535">535</a>
+<a href="#536" id="536">536</a>
+<a href="#537" id="537">537</a>
+<a href="#538" id="538">538</a>
+<a href="#539" id="539">539</a>
+<a href="#540" id="540">540</a>
+<a href="#541" id="541">541</a>
+<a href="#542" id="542">542</a>
+<a href="#543" id="543">543</a>
+<a href="#544" id="544">544</a>
+<a href="#545" id="545">545</a>
+<a href="#546" id="546">546</a>
+<a href="#547" id="547">547</a>
+<a href="#548" id="548">548</a>
+<a href="#549" id="549">549</a>
+<a href="#550" id="550">550</a>
+<a href="#551" id="551">551</a>
+<a href="#552" id="552">552</a>
+<a href="#553" id="553">553</a>
+<a href="#554" id="554">554</a>
+<a href="#555" id="555">555</a>
+<a href="#556" id="556">556</a>
+<a href="#557" id="557">557</a>
+<a href="#558" id="558">558</a>
+<a href="#559" id="559">559</a>
+<a href="#560" id="560">560</a>
+<a href="#561" id="561">561</a>
+<a href="#562" id="562">562</a>
+<a href="#563" id="563">563</a>
+<a href="#564" id="564">564</a>
+<a href="#565" id="565">565</a>
+<a href="#566" id="566">566</a>
+<a href="#567" id="567">567</a>
+<a href="#568" id="568">568</a>
+<a href="#569" id="569">569</a>
+<a href="#570" id="570">570</a>
+<a href="#571" id="571">571</a>
+<a href="#572" id="572">572</a>
+<a href="#573" id="573">573</a>
+<a href="#574" id="574">574</a>
+<a href="#575" id="575">575</a>
+<a href="#576" id="576">576</a>
+<a href="#577" id="577">577</a>
+<a href="#578" id="578">578</a>
+<a href="#579" id="579">579</a>
+<a href="#580" id="580">580</a>
+<a href="#581" id="581">581</a>
+<a href="#582" id="582">582</a>
+<a href="#583" id="583">583</a>
+<a href="#584" id="584">584</a>
+<a href="#585" id="585">585</a>
+<a href="#586" id="586">586</a>
+<a href="#587" id="587">587</a>
+<a href="#588" id="588">588</a>
+<a href="#589" id="589">589</a>
+<a href="#590" id="590">590</a>
+<a href="#591" id="591">591</a>
+<a href="#592" id="592">592</a>
+<a href="#593" id="593">593</a>
+<a href="#594" id="594">594</a>
+<a href="#595" id="595">595</a>
+<a href="#596" id="596">596</a>
+<a href="#597" id="597">597</a>
+<a href="#598" id="598">598</a>
+<a href="#599" id="599">599</a>
+<a href="#600" id="600">600</a>
+<a href="#601" id="601">601</a>
+<a href="#602" id="602">602</a>
+<a href="#603" id="603">603</a>
+<a href="#604" id="604">604</a>
+<a href="#605" id="605">605</a>
+<a href="#606" id="606">606</a>
+<a href="#607" id="607">607</a>
+<a href="#608" id="608">608</a>
+<a href="#609" id="609">609</a>
+<a href="#610" id="610">610</a>
+<a href="#611" id="611">611</a>
+<a href="#612" id="612">612</a>
+<a href="#613" id="613">613</a>
+<a href="#614" id="614">614</a>
+<a href="#615" id="615">615</a>
+<a href="#616" id="616">616</a>
+<a href="#617" id="617">617</a>
+<a href="#618" id="618">618</a>
+<a href="#619" id="619">619</a>
+<a href="#620" id="620">620</a>
+<a href="#621" id="621">621</a>
+<a href="#622" id="622">622</a>
+<a href="#623" id="623">623</a>
+<a href="#624" id="624">624</a>
+<a href="#625" id="625">625</a>
+<a href="#626" id="626">626</a>
+<a href="#627" id="627">627</a>
+<a href="#628" id="628">628</a>
+<a href="#629" id="629">629</a>
+<a href="#630" id="630">630</a>
+<a href="#631" id="631">631</a>
+<a href="#632" id="632">632</a>
+<a href="#633" id="633">633</a>
+<a href="#634" id="634">634</a>
+<a href="#635" id="635">635</a>
+<a href="#636" id="636">636</a>
+<a href="#637" id="637">637</a>
+<a href="#638" id="638">638</a>
+<a href="#639" id="639">639</a>
+<a href="#640" id="640">640</a>
+<a href="#641" id="641">641</a>
+<a href="#642" id="642">642</a>
+<a href="#643" id="643">643</a>
+<a href="#644" id="644">644</a>
+<a href="#645" id="645">645</a>
+<a href="#646" id="646">646</a>
+<a href="#647" id="647">647</a>
+<a href="#648" id="648">648</a>
+<a href="#649" id="649">649</a>
+<a href="#650" id="650">650</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::builder::transaction::TransactionType;
 <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
 <span class="kw">use </span><span class="kw">crate</span>::operator::RoundIndex;
 <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::VergenResponse;
@@ -509,7 +657,9 @@
 <span class="kw">use </span>futures::future::try_join_all;
 <span class="kw">use </span>http::HeaderValue;
 <span class="kw">use </span>serde::{Deserialize, Serialize};
+<span class="kw">use </span>std::env;
 <span class="kw">use </span>std::fmt::{Debug, Display};
+<span class="kw">use </span>std::fs::File;
 <span class="kw">use </span>std::future::Future;
 <span class="kw">use </span>std::pin::Pin;
 <span class="kw">use </span>std::sync::Arc;
@@ -519,9 +669,9 @@
 <span class="kw">use </span>tonic::Status;
 <span class="kw">use </span>tower::{Layer, Service};
 <span class="kw">use </span>tracing::level_filters::LevelFilter;
-<span class="kw">use </span>tracing::{debug_span, Instrument};
+<span class="kw">use </span>tracing::{debug_span, Instrument, Subscriber};
 <span class="kw">use </span>tracing_subscriber::layer::SubscriberExt;
-<span class="kw">use </span>tracing_subscriber::{fmt, EnvFilter, Registry};
+<span class="kw">use </span>tracing_subscriber::{fmt, EnvFilter, Layer <span class="kw">as </span>TracingLayer, Registry};
 
 <span class="doccomment">/// Initializes `tracing` as the logger.
 ///
@@ -537,8 +687,103 @@
 /// Returns `Err` if `tracing` can't be initialized. Multiple subscription error
 /// is emitted and will return `Ok(())`.
 </span><span class="kw">pub fn </span>initialize_logger(level: <span class="prelude-ty">Option</span>&lt;LevelFilter&gt;) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
-    <span class="comment">// Configure JSON formatting with additional fields
-    </span><span class="kw">let </span>json_layer = fmt::layer::&lt;Registry&gt;()
+    <span class="kw">let </span>is_ci = std::env::var(<span class="string">"CI"</span>)
+        .map(|v| v == <span class="string">"true" </span>|| v == <span class="string">"1"</span>)
+        .unwrap_or(<span class="bool-val">false</span>);
+
+    <span class="kw">if </span>is_ci {
+        <span class="kw">let </span>info_log_file = std::env::var(<span class="string">"INFO_LOG_FILE"</span>).ok();
+        <span class="kw">if let </span><span class="prelude-val">Some</span>(file_path) = info_log_file {
+            <span class="kw">let </span>subscriber = env_subscriber_with_file(<span class="kw-2">&amp;</span>file_path)<span class="question-mark">?</span>;
+            try_set_global_subscriber(subscriber)<span class="question-mark">?</span>;
+        } <span class="kw">else </span>{
+            <span class="macro">tracing::warn!</span>(
+                <span class="string">"CI is set but INFO_LOG_FILE is missing, only console logs will be used."
+            </span>);
+            <span class="kw">let </span>subscriber = env_subscriber_to_human(level);
+            try_set_global_subscriber(subscriber)<span class="question-mark">?</span>;
+        }
+    } <span class="kw">else </span>{
+        <span class="kw">let </span>subscriber: Box&lt;<span class="kw">dyn </span>Subscriber + Send + Sync&gt; = <span class="kw">if </span>is_json_logs() {
+            Box::new(env_subscriber_to_json(level))
+        } <span class="kw">else </span>{
+            Box::new(env_subscriber_to_human(level))
+        };
+        try_set_global_subscriber(subscriber)<span class="question-mark">?</span>;
+    }
+
+    <span class="macro">tracing::info!</span>(<span class="string">"Tracing initialized successfully."</span>);
+    <span class="prelude-val">Ok</span>(())
+}
+
+<span class="kw">fn </span>try_set_global_subscriber&lt;S&gt;(subscriber: S) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt;
+<span class="kw">where
+    </span>S: Subscriber + Send + Sync + <span class="lifetime">'static</span>,
+{
+    <span class="kw">match </span>tracing::subscriber::set_global_default(subscriber) {
+        <span class="prelude-val">Ok</span>(<span class="kw">_</span>) =&gt; <span class="prelude-val">Ok</span>(()),
+        <span class="prelude-val">Err</span>(e) <span class="kw">if </span>e.to_string() == <span class="string">"a global default trace dispatcher has already been set" </span>=&gt; {
+            <span class="macro">tracing::info!</span>(<span class="string">"Tracing is already initialized, skipping without errors..."</span>);
+            <span class="prelude-val">Ok</span>(())
+        }
+        <span class="prelude-val">Err</span>(e) =&gt; <span class="prelude-val">Err</span>(BridgeError::ConfigError(e.to_string())),
+    }
+}
+
+<span class="kw">fn </span>env_subscriber_with_file(path: <span class="kw-2">&amp;</span>str) -&gt; <span class="prelude-ty">Result</span>&lt;Box&lt;<span class="kw">dyn </span>Subscriber + Send + Sync&gt;, BridgeError&gt; {
+    <span class="kw">if let </span><span class="prelude-val">Some</span>(parent_dir) = std::path::Path::new(path).parent() {
+        std::fs::create_dir_all(parent_dir).map_err(|e| {
+            BridgeError::ConfigError(<span class="macro">format!</span>(
+                <span class="string">"Failed to create log directory '{}': {}"</span>,
+                parent_dir.display(),
+                e
+            ))
+        })<span class="question-mark">?</span>;
+    }
+
+    <span class="kw">let </span>file = File::create(path).map_err(|e| BridgeError::ConfigError(e.to_string()))<span class="question-mark">?</span>;
+
+    <span class="kw">let </span>file_filter = EnvFilter::from_default_env()
+        .add_directive(<span class="string">"info"</span>.parse().expect(<span class="string">"It should parse info level"</span>))
+        .add_directive(<span class="string">"ci=debug"</span>.parse().expect(<span class="string">"It should parse ci debug level"</span>));
+
+    <span class="kw">let </span>console_filter = EnvFilter::builder()
+        .with_default_directive(LevelFilter::WARN.into())
+        .from_env_lossy();
+
+    <span class="kw">let </span>file_layer = fmt::layer()
+        .with_writer(file)
+        .with_ansi(<span class="bool-val">false</span>)
+        .with_file(<span class="bool-val">true</span>)
+        .with_line_number(<span class="bool-val">true</span>)
+        .with_target(<span class="bool-val">true</span>)
+        .with_thread_ids(<span class="bool-val">true</span>)
+        .with_thread_names(<span class="bool-val">true</span>)
+        .with_filter(file_filter)
+        .boxed();
+
+    <span class="kw">let </span>console_layer = fmt::layer()
+        .with_writer(std::io::stdout)
+        .with_file(<span class="bool-val">true</span>)
+        .with_line_number(<span class="bool-val">true</span>)
+        .with_target(<span class="bool-val">true</span>)
+        .with_filter(console_filter)
+        .boxed();
+
+    <span class="prelude-val">Ok</span>(Box::new(
+        Registry::default().with(file_layer).with(console_layer),
+    ))
+}
+
+<span class="kw">fn </span>env_subscriber_to_json(level: <span class="prelude-ty">Option</span>&lt;LevelFilter&gt;) -&gt; Box&lt;<span class="kw">dyn </span>Subscriber + Send + Sync&gt; {
+    <span class="kw">let </span>filter = <span class="kw">match </span>level {
+        <span class="prelude-val">Some</span>(lvl) =&gt; EnvFilter::builder()
+            .with_default_directive(lvl.into())
+            .from_env_lossy(),
+        <span class="prelude-val">None </span>=&gt; EnvFilter::from_default_env(),
+    };
+
+    <span class="kw">let </span>json_layer = fmt::layer::&lt;Registry&gt;()
         .with_test_writer()
         <span class="comment">// .with_timer(time::UtcTime::rfc_3339())
         </span>.with_file(<span class="bool-val">true</span>)
@@ -546,14 +791,24 @@
         .with_thread_ids(<span class="bool-val">true</span>)
         .with_thread_names(<span class="bool-val">true</span>)
         .with_target(<span class="bool-val">true</span>)
-        <span class="comment">// .with_current_span(true)
-        // .with_span_list(true)
-        // To see how long each span takes, uncomment this.
-        // .with_span_events(FmtSpan::CLOSE)
-        </span>.json();
+        .json();
+    <span class="comment">// .with_current_span(true)z
+    // .with_span_list(true)
+    // To see how long each span takes, uncomment this.
+    // .with_span_events(FmtSpan::CLOSE)
 
-    <span class="comment">// Standard human-readable layer for non-JSON output
-    </span><span class="kw">let </span>standard_layer = fmt::layer()
+    </span>Box::new(tracing_subscriber::registry().with(json_layer).with(filter))
+}
+
+<span class="kw">fn </span>env_subscriber_to_human(level: <span class="prelude-ty">Option</span>&lt;LevelFilter&gt;) -&gt; Box&lt;<span class="kw">dyn </span>Subscriber + Send + Sync&gt; {
+    <span class="kw">let </span>filter = <span class="kw">match </span>level {
+        <span class="prelude-val">Some</span>(lvl) =&gt; EnvFilter::builder()
+            .with_default_directive(lvl.into())
+            .from_env_lossy(),
+        <span class="prelude-val">None </span>=&gt; EnvFilter::from_default_env(),
+    };
+
+    <span class="kw">let </span>standard_layer = fmt::layer()
         .with_test_writer()
         <span class="comment">// .with_timer(time::UtcTime::rfc_3339())
         </span>.with_file(<span class="bool-val">true</span>)
@@ -562,37 +817,17 @@
         // .with_span_events(FmtSpan::CLOSE)
         </span>.with_target(<span class="bool-val">true</span>);
 
-    <span class="kw">let </span>filter = <span class="kw">match </span>level {
-        <span class="prelude-val">Some</span>(level) =&gt; EnvFilter::builder()
-            .with_default_directive(level.into())
-            .from_env_lossy(),
-        <span class="prelude-val">None </span>=&gt; EnvFilter::from_default_env(),
-    };
+    Box::new(
+        tracing_subscriber::registry()
+            .with(standard_layer)
+            .with(filter),
+    )
+}
 
-    <span class="comment">// Try to initialize tracing, depending on the `JSON_LOGS` env var
-    </span><span class="kw">let </span>res = <span class="kw">if </span>std::env::var(<span class="string">"JSON_LOGS"</span>).is_ok() {
-        tracing_subscriber::util::SubscriberInitExt::try_init(
-            tracing_subscriber::registry().with(json_layer).with(filter),
-        )
-    } <span class="kw">else </span>{
-        tracing_subscriber::util::SubscriberInitExt::try_init(
-            tracing_subscriber::registry()
-                .with(standard_layer)
-                .with(filter),
-        )
-    };
-
-    <span class="kw">if let </span><span class="prelude-val">Err</span>(e) = res {
-        <span class="comment">// If it failed because of a re-initialization, do not care about
-        // the error.
-        </span><span class="kw">if </span>e.to_string() != <span class="string">"a global default trace dispatcher has already been set" </span>{
-            <span class="kw">return </span><span class="prelude-val">Err</span>(BridgeError::ConfigError(e.to_string()));
-        }
-
-        <span class="macro">tracing::trace!</span>(<span class="string">"Tracing is already initialized, skipping without errors..."</span>);
-    };
-
-    <span class="prelude-val">Ok</span>(())
+<span class="kw">fn </span>is_json_logs() -&gt; bool {
+    std::env::var(<span class="string">"LOG_FORMAT"</span>)
+        .map(|v| v.eq_ignore_ascii_case(<span class="string">"json"</span>))
+        .unwrap_or(<span class="bool-val">false</span>)
 }
 
 <span class="kw">pub fn </span>get_vergen_response() -&gt; VergenResponse {
@@ -1002,4 +1237,65 @@
     .instrument(<span class="macro">debug_span!</span>(<span class="string">"timed_try_join_all"</span>, description = description))
     .<span class="kw">await
 </span>}
+
+<span class="attr">#[cfg(test)]
+</span><span class="kw">mod </span>tests {
+    <span class="kw">use super</span>::<span class="kw-2">*</span>;
+    <span class="kw">use </span>std::fs;
+    <span class="kw">use </span>std::io::Read;
+    <span class="kw">use </span>tempfile::NamedTempFile;
+    <span class="kw">use </span>tracing::level_filters::LevelFilter;
+
+    <span class="attr">#[test]
+    #[ignore = <span class="string">"This test changes environment variables so it should not be run in CI since it might affect other tests."</span>]
+    </span><span class="kw">fn </span>test_ci_logging_setup() {
+        <span class="kw">let </span>temp_file = NamedTempFile::new().expect(<span class="string">"Failed to create temp file"</span>);
+        <span class="kw">let </span>temp_path = temp_file.path().to_string_lossy().to_string();
+
+        std::env::set_var(<span class="string">"CI"</span>, <span class="string">"true"</span>);
+        std::env::set_var(<span class="string">"INFO_LOG_FILE"</span>, <span class="kw-2">&amp;</span>temp_path);
+
+        <span class="kw">let </span>result = initialize_logger(<span class="prelude-val">Some</span>(LevelFilter::DEBUG));
+        <span class="macro">assert!</span>(result.is_ok(), <span class="string">"Logger initialization should succeed"</span>);
+
+        <span class="macro">tracing::error!</span>(<span class="string">"Test error message"</span>);
+        <span class="macro">tracing::warn!</span>(<span class="string">"Test warn message"</span>);
+        <span class="macro">tracing::info!</span>(<span class="string">"Test info message"</span>);
+        <span class="macro">tracing::debug!</span>(target: <span class="string">"ci"</span>, <span class="string">"Test CI debug message"</span>);
+        <span class="macro">tracing::debug!</span>(<span class="string">"Test debug message"</span>);
+
+        std::thread::sleep(std::time::Duration::from_millis(<span class="number">100</span>));
+
+        <span class="kw">let </span><span class="kw-2">mut </span>file_contents = String::new();
+        <span class="kw">let </span><span class="kw-2">mut </span>file = fs::File::open(<span class="kw-2">&amp;</span>temp_path).expect(<span class="string">"Failed to open log file"</span>);
+        file.read_to_string(<span class="kw-2">&amp;mut </span>file_contents)
+            .expect(<span class="string">"Failed to read log file"</span>);
+
+        <span class="macro">assert!</span>(
+            file_contents.contains(<span class="string">"Test error message"</span>),
+            <span class="string">"Error message should be in file"
+        </span>);
+        <span class="macro">assert!</span>(
+            file_contents.contains(<span class="string">"Test warn message"</span>),
+            <span class="string">"Warn message should be in file"
+        </span>);
+        <span class="macro">assert!</span>(
+            file_contents.contains(<span class="string">"Test info message"</span>),
+            <span class="string">"Info message should be in file"
+        </span>);
+
+        <span class="macro">assert!</span>(
+            file_contents.contains(<span class="string">"Test CI debug message"</span>),
+            <span class="string">"Debug message for CI should be in file"
+        </span>);
+
+        <span class="macro">assert!</span>(
+            !file_contents.contains(<span class="string">"Test debug message"</span>),
+            <span class="string">"Debug message should not be in file"
+        </span>);
+
+        std::env::remove_var(<span class="string">"CI"</span>);
+        std::env::remove_var(<span class="string">"INFO_LOG_FILE"</span>);
+    }
+}
 </code></pre></div></section></main></body></html>

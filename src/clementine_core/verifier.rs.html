@@ -2737,7 +2737,47 @@
 <a href="#2736" id="2736">2736</a>
 <a href="#2737" id="2737">2737</a>
 <a href="#2738" id="2738">2738</a>
-<a href="#2739" id="2739">2739</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
+<a href="#2739" id="2739">2739</a>
+<a href="#2740" id="2740">2740</a>
+<a href="#2741" id="2741">2741</a>
+<a href="#2742" id="2742">2742</a>
+<a href="#2743" id="2743">2743</a>
+<a href="#2744" id="2744">2744</a>
+<a href="#2745" id="2745">2745</a>
+<a href="#2746" id="2746">2746</a>
+<a href="#2747" id="2747">2747</a>
+<a href="#2748" id="2748">2748</a>
+<a href="#2749" id="2749">2749</a>
+<a href="#2750" id="2750">2750</a>
+<a href="#2751" id="2751">2751</a>
+<a href="#2752" id="2752">2752</a>
+<a href="#2753" id="2753">2753</a>
+<a href="#2754" id="2754">2754</a>
+<a href="#2755" id="2755">2755</a>
+<a href="#2756" id="2756">2756</a>
+<a href="#2757" id="2757">2757</a>
+<a href="#2758" id="2758">2758</a>
+<a href="#2759" id="2759">2759</a>
+<a href="#2760" id="2760">2760</a>
+<a href="#2761" id="2761">2761</a>
+<a href="#2762" id="2762">2762</a>
+<a href="#2763" id="2763">2763</a>
+<a href="#2764" id="2764">2764</a>
+<a href="#2765" id="2765">2765</a>
+<a href="#2766" id="2766">2766</a>
+<a href="#2767" id="2767">2767</a>
+<a href="#2768" id="2768">2768</a>
+<a href="#2769" id="2769">2769</a>
+<a href="#2770" id="2770">2770</a>
+<a href="#2771" id="2771">2771</a>
+<a href="#2772" id="2772">2772</a>
+<a href="#2773" id="2773">2773</a>
+<a href="#2774" id="2774">2774</a>
+<a href="#2775" id="2775">2775</a>
+<a href="#2776" id="2776">2776</a>
+<a href="#2777" id="2777">2777</a>
+<a href="#2778" id="2778">2778</a>
+<a href="#2779" id="2779">2779</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
 <span class="kw">use </span><span class="kw">crate</span>::bitcoin_syncer::{BitcoinSyncer, BlockHandler, FinalizedBlockFetcherTask};
 <span class="kw">use </span><span class="kw">crate</span>::bitvm_client::ClementineBitVMPublicKeys;
 <span class="kw">use </span><span class="kw">crate</span>::builder::address::{create_taproot_address, taproot_builder_with_scripts};
@@ -4477,6 +4517,8 @@
         operator_acks: <span class="kw-2">&amp;</span>HashMap&lt;usize, Witness&gt;,
         txhandlers: <span class="kw-2">&amp;</span>BTreeMap&lt;TransactionType, TxHandler&gt;,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;bitcoin::Witness&gt;, BridgeError&gt; {
+        <span class="kw">use </span>bitvm::clementine::additional_disprove::debug_assertions_for_additional_script;
+
         <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::ReimburseDbCache;
 
         <span class="kw">let </span><span class="kw-2">mut </span>reimburse_db_cache = ReimburseDbCache::new_for_deposit(
@@ -4618,6 +4660,8 @@
                 .into());
             }
             operator_acks_vec[<span class="kw-2">*</span>idx] = <span class="prelude-val">Some</span>(pre_image);
+
+            <span class="macro">tracing::debug!</span>(target: <span class="string">"ci"</span>, <span class="string">"Operator ack for idx {}"</span>, idx);
         }
 
         <span class="kw">let </span>latest_blockhash: Vec&lt;Vec&lt;u8&gt;&gt; = latest_blockhash
@@ -4644,13 +4688,49 @@
             payout_blockhash_new.push(element);
         }
 
+        <span class="macro">tracing::debug!</span>(
+            target: <span class="string">"ci"</span>,
+            <span class="string">"Verify additional disprove conditions - Genesis height: {:?}, operator_xonly_pk: {:?}, move_txid: {:?}, round_txid: {:?}, vout: {:?}, watchtower_challenge_start_idx: {:?}, genesis_chain_state_hash: {:?}, deposit_constant: {:?}"</span>,
+            <span class="self">self</span>.config.protocol_paramset.genesis_height,
+            kickoff_data.operator_xonly_pk,
+            move_txid,
+            round_txid,
+            vout,
+            watchtower_challenge_start_idx,
+            <span class="self">self</span>.config.protocol_paramset.genesis_chain_state_hash,
+            deposit_constant
+        );
+
+        <span class="macro">tracing::debug!</span>(
+            target: <span class="string">"ci"</span>,
+            <span class="string">"Payout blockhash: {:?}\nLatest blockhash: {:?}\nChallenge sending watchtowers signature: {:?}\nG16 public input signature: {:?}"</span>,
+            payout_blockhash_new,
+            latest_blockhash_new,
+            challenge_sending_watchtowers_signature,
+            g16_public_input_signature
+        );
+
         <span class="kw">let </span>additional_disprove_witness = validate_assertions_for_additional_script(
             additional_disprove_script.clone(),
             g16_public_input_signature.clone(),
             payout_blockhash_new.clone(),
             latest_blockhash_new.clone(),
             challenge_sending_watchtowers_signature.clone(),
+            operator_acks_vec.clone(),
+        );
+
+        <span class="kw">let </span>debug_additional_disprove_script = debug_assertions_for_additional_script(
+            additional_disprove_script.clone(),
+            g16_public_input_signature.clone(),
+            payout_blockhash_new.clone(),
+            latest_blockhash_new.clone(),
+            challenge_sending_watchtowers_signature.clone(),
             operator_acks_vec,
+        );
+
+        <span class="macro">tracing::info!</span>(
+            <span class="string">"Debug additional disprove script: {:?}"</span>,
+            debug_additional_disprove_script
         );
 
         <span class="macro">tracing::info!</span>(

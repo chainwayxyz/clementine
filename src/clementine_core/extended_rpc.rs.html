@@ -973,7 +973,83 @@
 <a href="#972" id="972">972</a>
 <a href="#973" id="973">973</a>
 <a href="#974" id="974">974</a>
-<a href="#975" id="975">975</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Bitcoin Extended RPC Interface
+<a href="#975" id="975">975</a>
+<a href="#976" id="976">976</a>
+<a href="#977" id="977">977</a>
+<a href="#978" id="978">978</a>
+<a href="#979" id="979">979</a>
+<a href="#980" id="980">980</a>
+<a href="#981" id="981">981</a>
+<a href="#982" id="982">982</a>
+<a href="#983" id="983">983</a>
+<a href="#984" id="984">984</a>
+<a href="#985" id="985">985</a>
+<a href="#986" id="986">986</a>
+<a href="#987" id="987">987</a>
+<a href="#988" id="988">988</a>
+<a href="#989" id="989">989</a>
+<a href="#990" id="990">990</a>
+<a href="#991" id="991">991</a>
+<a href="#992" id="992">992</a>
+<a href="#993" id="993">993</a>
+<a href="#994" id="994">994</a>
+<a href="#995" id="995">995</a>
+<a href="#996" id="996">996</a>
+<a href="#997" id="997">997</a>
+<a href="#998" id="998">998</a>
+<a href="#999" id="999">999</a>
+<a href="#1000" id="1000">1000</a>
+<a href="#1001" id="1001">1001</a>
+<a href="#1002" id="1002">1002</a>
+<a href="#1003" id="1003">1003</a>
+<a href="#1004" id="1004">1004</a>
+<a href="#1005" id="1005">1005</a>
+<a href="#1006" id="1006">1006</a>
+<a href="#1007" id="1007">1007</a>
+<a href="#1008" id="1008">1008</a>
+<a href="#1009" id="1009">1009</a>
+<a href="#1010" id="1010">1010</a>
+<a href="#1011" id="1011">1011</a>
+<a href="#1012" id="1012">1012</a>
+<a href="#1013" id="1013">1013</a>
+<a href="#1014" id="1014">1014</a>
+<a href="#1015" id="1015">1015</a>
+<a href="#1016" id="1016">1016</a>
+<a href="#1017" id="1017">1017</a>
+<a href="#1018" id="1018">1018</a>
+<a href="#1019" id="1019">1019</a>
+<a href="#1020" id="1020">1020</a>
+<a href="#1021" id="1021">1021</a>
+<a href="#1022" id="1022">1022</a>
+<a href="#1023" id="1023">1023</a>
+<a href="#1024" id="1024">1024</a>
+<a href="#1025" id="1025">1025</a>
+<a href="#1026" id="1026">1026</a>
+<a href="#1027" id="1027">1027</a>
+<a href="#1028" id="1028">1028</a>
+<a href="#1029" id="1029">1029</a>
+<a href="#1030" id="1030">1030</a>
+<a href="#1031" id="1031">1031</a>
+<a href="#1032" id="1032">1032</a>
+<a href="#1033" id="1033">1033</a>
+<a href="#1034" id="1034">1034</a>
+<a href="#1035" id="1035">1035</a>
+<a href="#1036" id="1036">1036</a>
+<a href="#1037" id="1037">1037</a>
+<a href="#1038" id="1038">1038</a>
+<a href="#1039" id="1039">1039</a>
+<a href="#1040" id="1040">1040</a>
+<a href="#1041" id="1041">1041</a>
+<a href="#1042" id="1042">1042</a>
+<a href="#1043" id="1043">1043</a>
+<a href="#1044" id="1044">1044</a>
+<a href="#1045" id="1045">1045</a>
+<a href="#1046" id="1046">1046</a>
+<a href="#1047" id="1047">1047</a>
+<a href="#1048" id="1048">1048</a>
+<a href="#1049" id="1049">1049</a>
+<a href="#1050" id="1050">1050</a>
+<a href="#1051" id="1051">1051</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Bitcoin Extended RPC Interface
 //!
 //! Extended RPC interface communicates with the Bitcoin node. It features some
 //! common wrappers around typical RPC operations as well as direct
@@ -1024,6 +1100,9 @@
 </span><span class="kw">pub struct </span>ExtendedRpc {
     <span class="kw">pub </span>url: String,
     <span class="kw">pub </span>client: Arc&lt;Client&gt;,
+
+    <span class="attr">#[cfg(test)]
+    </span>cached_mining_address: Arc&lt;tokio::sync::RwLock&lt;<span class="prelude-ty">Option</span>&lt;String&gt;&gt;&gt;,
 }
 
 <span class="kw">impl </span>std::fmt::Debug <span class="kw">for </span>ExtendedRpc {
@@ -1065,6 +1144,8 @@
         <span class="prelude-val">Ok</span>(<span class="self">Self </span>{
             url,
             client: Arc::new(rpc),
+            <span class="attr">#[cfg(test)]
+            </span>cached_mining_address: Arc::new(tokio::sync::RwLock::new(<span class="prelude-val">None</span>)),
         })
     }
 
@@ -1457,32 +1538,101 @@
         <span class="prelude-val">Ok</span>(res.is_none())
     }
 
-    <span class="doccomment">/// Mines a specified number of blocks to a new address.
+    <span class="doccomment">/// Attempts to mine the specified number of blocks and returns their hashes.
     ///
-    /// This is a test-only function that generates blocks and it will only work
-    /// on regtest.
+    /// This test-only async function will mine `block_num` blocks on the Bitcoin regtest network
+    /// using a cached mining address or a newly generated one. It retries up to 5 times on failure
+    /// with exponential backoff.
     ///
     /// # Parameters
-    ///
-    /// * `block_num`: The number of blocks to mine
+    /// - `block_num`: The number of blocks to mine.
     ///
     /// # Returns
-    ///
-    /// - [`Vec&lt;BlockHash&gt;`]: A vector of block hashes for the newly mined blocks.
+    /// - `Ok(Vec&lt;BlockHash&gt;)`: A vector of block hashes for the mined blocks.
+    /// - `Err`: If mining fails after all retry attempts.
     </span><span class="attr">#[cfg(test)]
     </span><span class="kw">pub async fn </span>mine_blocks(<span class="kw-2">&amp;</span><span class="self">self</span>, block_num: u64) -&gt; <span class="prelude-ty">Result</span>&lt;Vec&lt;BlockHash&gt;&gt; {
-        <span class="kw">let </span>new_address = <span class="self">self
-            </span>.client
-            .get_new_address(<span class="prelude-val">None</span>, <span class="prelude-val">None</span>)
-            .<span class="kw">await
-            </span>.wrap_err(<span class="string">"Failed to get new address"</span>)<span class="question-mark">?
-            </span>.assume_checked();
+        <span class="kw">use </span>std::time::Duration;
+        <span class="kw">use </span>tokio::time::sleep;
 
-        <span class="prelude-val">Ok</span>(<span class="self">self
+        <span class="kw">if </span>block_num == <span class="number">0 </span>{
+            <span class="kw">return </span><span class="prelude-val">Ok</span>(<span class="macro">vec!</span>[]);
+        }
+
+        <span class="kw">let </span>max_attempts = <span class="number">5</span>;
+
+        <span class="kw">for </span>attempt <span class="kw">in </span><span class="number">1</span>..=max_attempts {
+            <span class="kw">match </span><span class="self">self</span>.try_mine(block_num).<span class="kw">await </span>{
+                <span class="prelude-val">Ok</span>(blocks) =&gt; <span class="kw">return </span><span class="prelude-val">Ok</span>(blocks),
+                <span class="prelude-val">Err</span>(e) =&gt; {
+                    <span class="kw">if </span>attempt == max_attempts {
+                        <span class="kw">return </span><span class="prelude-val">Err</span>(eyre::Report::from(e)
+                            .wrap_err(<span class="string">"Failed to mine blocks after maximum attempts"</span>)
+                            .into());
+                    }
+                    <span class="kw">let </span>delay = Duration::from_millis(<span class="number">100 </span>* <span class="number">2u64</span>.pow(attempt));
+                    <span class="macro">tracing::debug!</span>(
+                        <span class="string">"Retry {}/{}: {}. Retrying in {:?}"</span>,
+                        attempt,
+                        max_attempts,
+                        e,
+                        delay
+                    );
+                    sleep(delay).<span class="kw">await</span>;
+                }
+            }
+        }
+
+        <span class="macro">unreachable!</span>()
+    }
+
+    <span class="doccomment">/// Internal helper that performs the actual block mining logic.
+    ///
+    /// It uses a cached mining address if available, otherwise it generates and caches
+    /// a new one. It then uses the address to mine `block_num` blocks.
+    ///
+    /// # Parameters
+    /// - `block_num`: The number of blocks to mine.
+    ///
+    /// # Returns
+    /// - `Ok(Vec&lt;BlockHash&gt;)`: The list of block hashes.
+    /// - `Err`: If the client fails to get a new address or mine the blocks.
+    </span><span class="attr">#[cfg(test)]
+    </span><span class="kw">async fn </span>try_mine(<span class="kw-2">&amp;</span><span class="self">self</span>, block_num: u64) -&gt; <span class="prelude-ty">Result</span>&lt;Vec&lt;BlockHash&gt;&gt; {
+        <span class="kw">let </span>address = {
+            <span class="kw">let </span>read = <span class="self">self</span>.cached_mining_address.read().<span class="kw">await</span>;
+            <span class="kw">if let </span><span class="prelude-val">Some</span>(addr) = <span class="kw-2">&amp;*</span>read {
+                addr.clone()
+            } <span class="kw">else </span>{
+                drop(read);
+                <span class="kw">let </span><span class="kw-2">mut </span>write = <span class="self">self</span>.cached_mining_address.write().<span class="kw">await</span>;
+
+                <span class="kw">if let </span><span class="prelude-val">Some</span>(addr) = <span class="kw-2">&amp;*</span>write {
+                    addr.clone()
+                } <span class="kw">else </span>{
+                    <span class="kw">let </span>new_addr = <span class="self">self
+                        </span>.client
+                        .get_new_address(<span class="prelude-val">None</span>, <span class="prelude-val">None</span>)
+                        .<span class="kw">await
+                        </span>.wrap_err(<span class="string">"Failed to get new address"</span>)<span class="question-mark">?
+                        </span>.assume_checked()
+                        .to_string();
+                    <span class="kw-2">*</span>write = <span class="prelude-val">Some</span>(new_addr.clone());
+                    new_addr
+                }
+            }
+        };
+
+        <span class="kw">let </span>address = Address::from_str(<span class="kw-2">&amp;</span>address)
+            .wrap_err(<span class="string">"Invalid address format"</span>)<span class="question-mark">?
+            </span>.assume_checked();
+        <span class="kw">let </span>blocks = <span class="self">self
             </span>.client
-            .generate_to_address(block_num, <span class="kw-2">&amp;</span>new_address)
+            .generate_to_address(block_num, <span class="kw-2">&amp;</span>address)
             .<span class="kw">await
-            </span>.wrap_err(<span class="string">"Failed to generate to address"</span>)<span class="question-mark">?</span>)
+            </span>.wrap_err(<span class="string">"Failed to generate to address"</span>)<span class="question-mark">?</span>;
+
+        <span class="prelude-val">Ok</span>(blocks)
     }
 
     <span class="doccomment">/// Gets the number of transactions in the mempool.
@@ -1702,6 +1852,8 @@
         <span class="prelude-val">Ok</span>(<span class="self">Self </span>{
             url: <span class="self">self</span>.url.clone(),
             client: <span class="self">self</span>.client.clone(),
+            <span class="attr">#[cfg(test)]
+            </span>cached_mining_address: <span class="self">self</span>.cached_mining_address.clone(),
         })
     }
 }
