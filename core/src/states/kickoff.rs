@@ -457,7 +457,7 @@ impl<T: Owner> KickoffStateMachine<T> {
                         txid: kickoff_txid,
                         vout: mini_assert_vout,
                     },
-                    *assert_timeout_txid,
+                    vec![*assert_timeout_txid],
                 ),
                 KickoffEvent::OperatorAssertSent {
                     assert_outpoint: OutPoint {
@@ -477,7 +477,10 @@ impl<T: Owner> KickoffStateMachine<T> {
             vout: UtxoVout::LatestBlockhash.get_vout(),
         };
         self.matchers.insert(
-            Matcher::SpentUtxoButNotTxid(latest_blockhash_outpoint, *latest_blockhash_timeout_txid),
+            Matcher::SpentUtxoButNotTxid(
+                latest_blockhash_outpoint,
+                vec![*latest_blockhash_timeout_txid],
+            ),
             KickoffEvent::LatestBlockHashSent {
                 latest_blockhash_outpoint,
             },
@@ -503,7 +506,7 @@ impl<T: Owner> KickoffStateMachine<T> {
                         txid: kickoff_txid,
                         vout: watchtower_challenge_vout,
                     },
-                    *watchtower_timeout_txid,
+                    vec![*watchtower_timeout_txid],
                 ),
                 KickoffEvent::WatchtowerChallengeSent {
                     watchtower_idx,
@@ -527,7 +530,7 @@ impl<T: Owner> KickoffStateMachine<T> {
                         txid: kickoff_txid,
                         vout: operator_challenge_ack_vout,
                     },
-                    *operator_challenge_nack_txid,
+                    vec![*operator_challenge_nack_txid, *watchtower_timeout_txid],
                 ),
                 KickoffEvent::OperatorChallengeAckSent {
                     watchtower_idx,
@@ -567,7 +570,7 @@ impl<T: Owner> KickoffStateMachine<T> {
                     txid: kickoff_txid,
                     vout: UtxoVout::Challenge.get_vout(),
                 },
-                *challenge_timeout_txid,
+                vec![*challenge_timeout_txid],
             ),
             KickoffEvent::Challenged,
         );
