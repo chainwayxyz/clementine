@@ -294,7 +294,7 @@ mod tests {
         let result = calculate_succinct_output_prefix(regtest_bridge_circuit_method_id.as_bytes());
         assert_eq!(
             result,
-            [135, 127, 96, 197, 209, 59, 13, 243, 184, 10, 25, 163, 197, 237, 43, 164, 90, 184, 43, 190, 122, 88, 234, 82, 78, 92, 249, 255, 206, 153, 87, 255]
+            [95, 28, 139, 248, 149, 5, 244, 240, 242, 144, 129, 98, 138, 83, 145, 129, 158, 234, 155, 107, 76, 40, 168, 209, 26, 140, 68, 65, 89, 99, 178, 124]
         , "You forgot to update bridge_circuit_constant with the new method id. Please change it in these places: Here, core/src/cli.rs, core/src/config/protocol.rs, core/src/test/data/protocol_paramset.toml"
         );
     }
