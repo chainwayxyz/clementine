@@ -37,7 +37,7 @@ use tracing_subscriber::{fmt, EnvFilter, Layer as TracingLayer, Registry};
 /// Returns `Err` if `tracing` can't be initialized. Multiple subscription error
 /// is emitted and will return `Ok(())`.
 pub fn initialize_logger(level: Option<LevelFilter>) -> Result<(), BridgeError> {
-    let is_ci = std::env::var("IS_CI")
+    let is_ci = std::env::var("CI")
         .map(|v| v == "true" || v == "1")
         .unwrap_or(false);
 
@@ -48,7 +48,7 @@ pub fn initialize_logger(level: Option<LevelFilter>) -> Result<(), BridgeError> 
             try_set_global_subscriber(subscriber)?;
         } else {
             tracing::warn!(
-                "IS_CI is set but INFO_LOG_FILE is missing, only console logs will be used."
+                "CI is set but INFO_LOG_FILE is missing, only console logs will be used."
             );
             let subscriber = env_subscriber_to_human(level);
             try_set_global_subscriber(subscriber)?;
@@ -99,7 +99,7 @@ fn env_subscriber_with_file(path: &str) -> Result<Box<dyn Subscriber + Send + Sy
 
     let console_filter = EnvFilter::builder()
         .with_default_directive(LevelFilter::WARN.into())
-        .parse_lossy(""); // Parse an empty string to use the default filter, this prevents overriding the default filter with env vars.
+        .from_env_lossy();
 
     let file_layer = fmt::layer()
         .with_writer(file)
@@ -602,7 +602,7 @@ mod tests {
         let temp_file = NamedTempFile::new().expect("Failed to create temp file");
         let temp_path = temp_file.path().to_string_lossy().to_string();
 
-        std::env::set_var("IS_CI", "true");
+        std::env::set_var("CI", "true");
         std::env::set_var("INFO_LOG_FILE", &temp_path);
 
         let result = initialize_logger(Some(LevelFilter::DEBUG));
@@ -644,7 +644,7 @@ mod tests {
             "Debug message should not be in file"
         );
 
-        std::env::remove_var("IS_CI");
+        std::env::remove_var("CI");
         std::env::remove_var("INFO_LOG_FILE");
     }
 }

@@ -12,7 +12,6 @@ env:
   RISC0_DEV_MODE: 1
   ENABLE_HEADER_CHAIN_PROVER: 1
   RUST_MIN_STACK: 33554432
-  IS_CI: 1
 
   CARGOFLAGS: --workspace --all-targets
   CARGOFLAGS_ALL_FEATURES: --workspace --all-targets --all-features
