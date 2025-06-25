@@ -541,7 +541,7 @@ mod tests {
     /// Checks if get_kickoff_utxos_to_sign returns the same values as before.
     /// This test should never fail, do not make changes to code that changes the result of
     /// get_kickoff_utxos_to_sign, as doing so will invalidate all past deposits.
-    async fn test_get_kickoff_utxos_to_sign() {
+    async fn test_get_kickoff_utxos_to_sign_consistency() {
         let config = create_test_config_with_thread_name().await;
         let mut paramset = config.protocol_paramset().clone();
         paramset.num_kickoffs_per_round = 2000;

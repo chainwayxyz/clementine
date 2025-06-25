@@ -57,7 +57,7 @@ Before compiling Clementine:
 
 Before running Clementine:
 
-1. Install and configure a Bitcoin node (at least v28.0)
+1. Install and configure a Bitcoin node (at least v29.0)
 2. Install and configure PostgreSQL
 3. Set `RUST_MIN_STACK` to at least 33554432
 
@@ -102,6 +102,7 @@ The [`.env.example`] file can be taken as a reference for this matter.
 Clementine uses the following logic to determine the configuration source:
 
 1. **Main Configuration**:
+
    - If `READ_CONFIG_FROM_ENV=1` or `READ_CONFIG_FROM_ENV=on`, configuration is read from environment variables
    - If `READ_CONFIG_FROM_ENV=0` or `READ_CONFIG_FROM_ENV=off` or not set, configuration is read from the specified config file
 
@@ -282,7 +283,7 @@ Each script should have a name and comment inside that explain its purpose.
 
 ### TLS Certificates
 
-- Keep private keys (*.key) secure and don't commit them to version control
+- Keep private keys (\*.key) secure and don't commit them to version control
 - In production, use properly signed certificates from a trusted CA
 - Rotate certificates regularly
 - Consider using distinct client certificates for different clients/services
