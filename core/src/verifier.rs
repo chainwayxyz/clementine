@@ -221,6 +221,7 @@ where
             sessions: HashMap::new(),
         };
 
+        // TODO: Removing index causes to remove the index from the tx_sender handle as well
         #[cfg(feature = "automation")]
         let tx_sender = TxSenderClient::new(db.clone(), "verifier_".to_string());
 
