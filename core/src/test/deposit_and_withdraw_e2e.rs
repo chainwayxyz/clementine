@@ -17,7 +17,9 @@ use crate::rpc::clementine::{
     Deposit, Empty, FeeType, FinalizedPayoutParams, KickoffId, NormalSignatureKind, RawSignedTx,
     SendMoveTxRequest, SendTxRequest, TransactionRequest, WithdrawParams,
 };
-use crate::test::common::citrea::{get_citrea_safe_withdraw_params, MockCitreaClient, SECRET_KEYS};
+use crate::test::common::citrea::{
+    get_citrea_safe_withdraw_params, make_withdrawal, MockCitreaClient, SECRET_KEYS,
+};
 use crate::test::common::tx_utils::get_tx_from_signed_txs_with_type;
 use crate::test::common::tx_utils::{
     create_tx_sender, ensure_outpoint_spent,
@@ -55,6 +57,7 @@ use citrea_e2e::{
 use eyre::Context;
 use futures::future::try_join_all;
 use once_cell::sync::{Lazy, OnceCell};
+use serde::Serialize;
 use statig::Response::Transition;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -1627,7 +1630,7 @@ impl TestCase for ConcurrentDeposits {
         )
         .await?;
 
-        let (verifiers, operators, mut aggregator, cleanup) =
+        let (verifiers, mut operators, mut aggregator, cleanup) =
             create_actors::<MockCitreaClient>(&mut config).await;
         let mut aggregator_2 = aggregator.clone();
 
@@ -1781,6 +1784,56 @@ impl TestCase for ConcurrentDeposits {
             None,
             None,
         );
+
+        let (withdrawal_utxo, payout_txout, sig) =
+            make_withdrawal(&rpc, &config, sequencer, lc_prover, batch_prover, da).await?;
+
+        let mut operator_clone = operators[0].clone();
+        let rpc_clone = rpc.clone();
+        poll_until_condition(
+            async move || {
+                let withdrawal_response = operator_clone
+                    .withdraw(WithdrawParams {
+                        withdrawal_id: 0,
+                        input_signature: sig.serialize().to_vec(),
+                        input_outpoint: Some(withdrawal_utxo.into()),
+                        output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
+                        output_amount: payout_txout.value.to_sat(),
+                    })
+                    .await;
+
+                tracing::debug!("Withdrawal response: {:?}", withdrawal_response);
+
+                let payout_txid = match withdrawal_response {
+                    Ok(withdrawal_response) => {
+                        tracing::info!("Withdrawal response: {:?}", withdrawal_response);
+                        Txid::from_byte_array(
+                            withdrawal_response
+                                .into_inner()
+                                .txid
+                                .unwrap()
+                                .txid
+                                .try_into()
+                                .unwrap(),
+                        )
+                    }
+                    Err(e) => {
+                        tracing::info!("Withdrawal error: {:?}", e);
+                        return Ok(false);
+                    }
+                };
+                tracing::info!("Payout txid: {:?}", payout_txid);
+                mine_once_after_in_mempool(&rpc_clone, payout_txid, Some("Payout tx"), None)
+                    .await?;
+
+                Ok(true)
+            },
+            None,
+            None,
+        )
+        .await;
+
+        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
 
         Ok(())
     }
