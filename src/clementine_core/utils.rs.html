@@ -763,7 +763,7 @@
         .boxed();
 
     <span class="kw">let </span>console_layer = fmt::layer()
-        .with_writer(std::io::stdout)
+        .with_test_writer()
         .with_file(<span class="bool-val">true</span>)
         .with_line_number(<span class="bool-val">true</span>)
         .with_target(<span class="bool-val">true</span>)
