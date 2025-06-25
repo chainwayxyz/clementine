@@ -110,7 +110,7 @@ jobs:
           shared-key: ${{ runner.os }}-cargo-DEBUG-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
 
       - name: Run tests
-        run: cargo test $CARGOFLAGS_ALL_FEATURES
+        run: cargo nextest run $CARGOFLAGS_ALL_FEATURES
 
       - name: Upload test logs
         if: failure() || cancelled() # Only upload logs if the tests fail or are cancelled
@@ -163,7 +163,7 @@ jobs:
           shared-key: ${{ runner.os }}-cargo-RELEASE-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
 
       - name: Run tests
-        run: cargo test --release $CARGOFLAGS_ALL_FEATURES
+        run: cargo nextest run --release $CARGOFLAGS_ALL_FEATURES
 
       - name: Upload test logs
         if: failure() || cancelled() # Only upload logs if the tests fail or are cancelled
@@ -243,7 +243,7 @@ jobs:
           shared-key: ${{ runner.os }}-cargo-RELEASE-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
 
       - name: Run tests
-        run: cargo test ${{ matrix.test_script_name }} $CARGOFLAGS_ALL_FEATURES --release -- --ignored
+        run: cargo nextest run ${{ matrix.test_script_name }} $CARGOFLAGS_ALL_FEATURES --release -- --ignored
 
       - name: Upload test logs
         if: failure() || cancelled() # Only upload logs if the tests fail or are cancelled

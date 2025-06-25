@@ -623,6 +623,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 /// * Confirms kickoff transaction is created and mined
 /// * Verifies reimburse connector is spent (proper payout handling)
 #[tokio::test]
+#[ignore = "This test is too slow, run separately"]
 async fn citrea_deposit_and_withdraw_e2e() -> Result<()> {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
@@ -637,6 +638,7 @@ async fn citrea_deposit_and_withdraw_e2e() -> Result<()> {
 }
 
 #[tokio::test]
+#[ignore = "This test is too slow, run separately"]
 async fn citrea_deposit_and_withdraw_e2e_non_zero_genesis_height() -> Result<()> {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
