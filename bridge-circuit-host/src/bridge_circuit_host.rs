@@ -1,5 +1,3 @@
-use std::io::Write;
-
 use crate::docker::{stark_to_bitvm2_g16, stark_to_bitvm2_g16_dev_mode};
 use crate::structs::{
     BridgeCircuitBitvmInputs, BridgeCircuitHostParams, SuccinctBridgeCircuitPublicInputs,
@@ -153,17 +151,6 @@ pub fn prove_bridge_circuit(
 
     let journal_hash = public_inputs.host_journal_hash();
 
-    let input_serialized = borsh::to_vec(&bridge_circuit_input)
-        .wrap_err("Failed to serialize public inputs for bridge circuit")?;
-
-    tracing::info!("Serialized bridge circuit input: {:?}", input_serialized);
-
-    // Now write this to a file
-    let mut file = std::fs::File::create("challenge_tx_with_annex.bin")
-        .wrap_err("Failed to create bridge circuit input file")?;
-    file.write_all(&input_serialized)
-        .wrap_err("Failed to write bridge circuit input to file")?;
-
     let mut binding = ExecutorEnv::builder();
     let env = binding
         .write_slice(
@@ -176,7 +163,6 @@ pub fn prove_bridge_circuit(
     let prover = default_prover();
 
     tracing::info!("Checks complete, proving bridge circuit");
-    tracing::info!("Bridge circuit input: {:?}", bridge_circuit_input);
 
     let succinct_receipt = prover
         .prove_with_opts(env, bridge_circuit_elf, &ProverOpts::succinct())

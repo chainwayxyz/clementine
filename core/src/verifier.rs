@@ -1479,15 +1479,6 @@ where
             )
             .await?;
 
-        // #[cfg(test)]
-        // let mut challenge_tx = challenge_tx;
-
-        // #[cfg(test)]
-        // {
-        //     let witness = Witness::from_slice(&[[80u8; 10000]]);
-        //     challenge_tx.input[0].witness = witness;
-        // }
-
         #[cfg(feature = "automation")]
         {
             let mut dbtx = self.db.begin_transaction().await?;

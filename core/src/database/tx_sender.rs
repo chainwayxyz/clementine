@@ -1104,7 +1104,6 @@ mod tests {
             vout: 123,
             tweak_merkle_root: Some(TapNodeHash::all_zeros()),
             annex: None,
-            // additional_op_return: None,
         });
         let id = db
             .save_tx(None, None, &tx, FeePayingType::CPFP, txid, rbfinfo.clone())

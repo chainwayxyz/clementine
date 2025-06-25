@@ -875,7 +875,6 @@ impl TestCase for AdditionalDisproveTest {
                 "-fallbackfee=0.000001",
                 "-rpcallowip=0.0.0.0/0",
                 "-dustrelayfee=0",
-                "-acceptnonstdtxn=1",
             ],
             ..Default::default()
         }
