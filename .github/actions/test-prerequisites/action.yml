@@ -41,3 +41,7 @@ runs:
         export PATH="$PATH:$HOME/.risc0/bin"
         rzup install
         rzup install rust 1.85.0
+
+    - name: Install nextest
+      shell: bash
+      run: cargo install cargo-nextest --locked
