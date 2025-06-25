@@ -309,11 +309,16 @@ mod tests {
             include_bytes!("../../../risc0-circuits/elfs/regtest-bridge-circuit-guest.bin");
         let regtest_bridge_circuit_method_id =
             compute_image_id(regtest_bridge_elf).expect("should compute image id");
-        let result = calculate_succinct_output_prefix(regtest_bridge_circuit_method_id.as_bytes());
+        let calculated_bridge_circuit_constant =
+            calculate_succinct_output_prefix(regtest_bridge_circuit_method_id.as_bytes());
+
+        let bridge_circuit_constant = REGTEST_PARAMSET.bridge_circuit_method_id_constant;
         assert_eq!(
-            result,
-            [95, 28, 139, 248, 149, 5, 244, 240, 242, 144, 129, 98, 138, 83, 145, 129, 158, 234, 155, 107, 76, 40, 168, 209, 26, 140, 68, 65, 89, 99, 178, 124]
-        , "You forgot to update bridge_circuit_constant with the new method id. Please change it in these places: Here, core/src/cli.rs, core/src/config/protocol.rs, core/src/test/data/protocol_paramset.toml"
+            calculated_bridge_circuit_constant,
+            bridge_circuit_constant,
+            "You forgot to update bridge_circuit_constant with the new method id. Please change it in these places: Here, core/src/cli.rs, core/src/config/protocol.rs, core/src/test/data/protocol_paramset.toml. The expected value is: {:?}, hex format: {:?}",
+            calculated_bridge_circuit_constant,
+            hex::encode(calculated_bridge_circuit_constant)
         );
     }
 
