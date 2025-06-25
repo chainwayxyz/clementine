@@ -10,6 +10,8 @@ use crate::builder::script::{
 use crate::builder::sighash::{
     create_nofn_sighash_stream, create_operator_sighash_stream, PartialSignatureInfo, SignatureInfo,
 };
+#[cfg(test)]
+use crate::builder::transaction::challenge;
 use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::input::UtxoVout;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
