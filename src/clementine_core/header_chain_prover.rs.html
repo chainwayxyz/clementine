@@ -1226,20 +1226,7 @@
 <a href="#1225" id="1225">1225</a>
 <a href="#1226" id="1226">1226</a>
 <a href="#1227" id="1227">1227</a>
-<a href="#1228" id="1228">1228</a>
-<a href="#1229" id="1229">1229</a>
-<a href="#1230" id="1230">1230</a>
-<a href="#1231" id="1231">1231</a>
-<a href="#1232" id="1232">1232</a>
-<a href="#1233" id="1233">1233</a>
-<a href="#1234" id="1234">1234</a>
-<a href="#1235" id="1235">1235</a>
-<a href="#1236" id="1236">1236</a>
-<a href="#1237" id="1237">1237</a>
-<a href="#1238" id="1238">1238</a>
-<a href="#1239" id="1239">1239</a>
-<a href="#1240" id="1240">1240</a>
-<a href="#1241" id="1241">1241</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Header Chain Prover
+<a href="#1228" id="1228">1228</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Header Chain Prover
 //!
 //! This module contains utilities for proving Bitcoin block headers. This
 //! module must be fed with new blocks via the database. Later, it can check if
@@ -1257,6 +1244,11 @@
 <span class="kw">use </span>bitcoin::block::Header;
 <span class="kw">use </span>bitcoin::{hashes::Hash, BlockHash, Network};
 <span class="kw">use </span>bitcoincore_rpc::RpcApi;
+<span class="kw">use </span>bridge_circuit_host::bridge_circuit_host::{
+    MAINNET_HEADER_CHAIN_ELF, MAINNET_WORK_ONLY_ELF, REGTEST_HEADER_CHAIN_ELF,
+    REGTEST_WORK_ONLY_ELF, SIGNET_HEADER_CHAIN_ELF, SIGNET_WORK_ONLY_ELF,
+    TESTNET4_HEADER_CHAIN_ELF, TESTNET4_WORK_ONLY_ELF,
+};
 <span class="kw">use </span>bridge_circuit_host::docker::dev_stark_to_risc0_g16;
 <span class="kw">use </span>circuits_lib::bridge_circuit::structs::{WorkOnlyCircuitInput, WorkOnlyCircuitOutput};
 <span class="kw">use </span>circuits_lib::header_chain::mmr_guest::MMRGuest;
@@ -1274,41 +1266,23 @@
 };
 <span class="kw">use </span>thiserror::Error;
 
-<span class="comment">// Prepare prover binaries and calculate their image ids, before anything else.
-</span><span class="kw">const </span>MAINNET_ELF: <span class="kw-2">&amp;</span>[u8] =
-    <span class="macro">include_bytes!</span>(<span class="string">"../../risc0-circuits/elfs/mainnet-header-chain-guest.bin"</span>);
-<span class="kw">const </span>TESTNET4_ELF: <span class="kw-2">&amp;</span>[u8] =
-    <span class="macro">include_bytes!</span>(<span class="string">"../../risc0-circuits/elfs/testnet4-header-chain-guest.bin"</span>);
-<span class="kw">const </span>SIGNET_ELF: <span class="kw-2">&amp;</span>[u8] = <span class="macro">include_bytes!</span>(<span class="string">"../../risc0-circuits/elfs/signet-header-chain-guest.bin"</span>);
-<span class="kw">const </span>REGTEST_ELF: <span class="kw-2">&amp;</span>[u8] =
-    <span class="macro">include_bytes!</span>(<span class="string">"../../risc0-circuits/elfs/regtest-header-chain-guest.bin"</span>);
-
-<span class="kw">const </span>MAINNET_WORK_ONLY_ELF: <span class="kw-2">&amp;</span>[u8] =
-    <span class="macro">include_bytes!</span>(<span class="string">"../../risc0-circuits/elfs/mainnet-work-only-guest.bin"</span>);
-<span class="kw">const </span>TESTNET4_WORK_ONLY_ELF: <span class="kw-2">&amp;</span>[u8] =
-    <span class="macro">include_bytes!</span>(<span class="string">"../../risc0-circuits/elfs/testnet4-work-only-guest.bin"</span>);
-<span class="kw">const </span>SIGNET_WORK_ONLY_ELF: <span class="kw-2">&amp;</span>[u8] =
-    <span class="macro">include_bytes!</span>(<span class="string">"../../risc0-circuits/elfs/signet-work-only-guest.bin"</span>);
-<span class="kw">const </span>REGTEST_WORK_ONLY_ELF: <span class="kw-2">&amp;</span>[u8] =
-    <span class="macro">include_bytes!</span>(<span class="string">"../../risc0-circuits/elfs/regtest-work-only-guest.bin"</span>);
-
 <span class="macro">lazy_static!</span> {
-    <span class="kw">static </span><span class="kw-2">ref </span>MAINNET_IMAGE_ID: [u32; <span class="number">8</span>] = compute_image_id(MAINNET_ELF)
+    <span class="kw">static </span><span class="kw-2">ref </span>MAINNET_IMAGE_ID: [u32; <span class="number">8</span>] = compute_image_id(MAINNET_HEADER_CHAIN_ELF)
         .expect(<span class="string">"hardcoded ELF is valid"</span>)
         .as_words()
         .try_into()
         .expect(<span class="string">"hardcoded ELF is valid"</span>);
-    <span class="kw">static </span><span class="kw-2">ref </span>TESTNET4_IMAGE_ID: [u32; <span class="number">8</span>] = compute_image_id(TESTNET4_ELF)
+    <span class="kw">static </span><span class="kw-2">ref </span>TESTNET4_IMAGE_ID: [u32; <span class="number">8</span>] = compute_image_id(TESTNET4_HEADER_CHAIN_ELF)
         .expect(<span class="string">"hardcoded ELF is valid"</span>)
         .as_words()
         .try_into()
         .expect(<span class="string">"hardcoded ELF is valid"</span>);
-    <span class="kw">static </span><span class="kw-2">ref </span>SIGNET_IMAGE_ID: [u32; <span class="number">8</span>] = compute_image_id(SIGNET_ELF)
+    <span class="kw">static </span><span class="kw-2">ref </span>SIGNET_IMAGE_ID: [u32; <span class="number">8</span>] = compute_image_id(SIGNET_HEADER_CHAIN_ELF)
         .expect(<span class="string">"hardcoded ELF is valid"</span>)
         .as_words()
         .try_into()
         .expect(<span class="string">"hardcoded ELF is valid"</span>);
-    <span class="kw">static </span><span class="kw-2">ref </span>REGTEST_IMAGE_ID: [u32; <span class="number">8</span>] = compute_image_id(REGTEST_ELF)
+    <span class="kw">static </span><span class="kw-2">ref </span>REGTEST_IMAGE_ID: [u32; <span class="number">8</span>] = compute_image_id(REGTEST_HEADER_CHAIN_ELF)
         .expect(<span class="string">"hardcoded ELF is valid"</span>)
         .as_words()
         .try_into()
@@ -1752,11 +1726,11 @@
         <span class="kw">let </span>prover = risc0_zkvm::default_prover();
 
         <span class="kw">let </span>elf = <span class="kw">match </span>network {
-            Network::Bitcoin =&gt; MAINNET_ELF,
-            Network::Testnet =&gt; TESTNET4_ELF,
-            Network::Testnet4 =&gt; TESTNET4_ELF,
-            Network::Signet =&gt; SIGNET_ELF,
-            Network::Regtest =&gt; REGTEST_ELF,
+            Network::Bitcoin =&gt; MAINNET_HEADER_CHAIN_ELF,
+            Network::Testnet =&gt; TESTNET4_HEADER_CHAIN_ELF,
+            Network::Testnet4 =&gt; TESTNET4_HEADER_CHAIN_ELF,
+            Network::Signet =&gt; SIGNET_HEADER_CHAIN_ELF,
+            Network::Regtest =&gt; REGTEST_HEADER_CHAIN_ELF,
             <span class="kw">_ </span>=&gt; <span class="prelude-val">Err</span>(BridgeError::UnsupportedNetwork.into_eyre())<span class="question-mark">?</span>,
         };
 

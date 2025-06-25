@@ -262,26 +262,12 @@
 <a href="#261" id="261">261</a>
 <a href="#262" id="262">262</a>
 <a href="#263" id="263">263</a>
-<a href="#264" id="264">264</a>
-<a href="#265" id="265">265</a>
-<a href="#266" id="266">266</a>
-<a href="#267" id="267">267</a>
-<a href="#268" id="268">268</a>
-<a href="#269" id="269">269</a>
-<a href="#270" id="270">270</a>
-<a href="#271" id="271">271</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_bn254::{Bn254, Fq, Fq2, G1Affine, G2Affine};
+<a href="#264" id="264">264</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_bn254::{Bn254, Fq, Fq2, G1Affine, G2Affine};
 <span class="kw">use </span>ark_groth16::VerifyingKey;
 <span class="kw">use </span>risc0_circuit_recursion::control_id::BN254_IDENTITY_CONTROL_ID;
 <span class="kw">use </span>risc0_zkvm::{sha::Digestible, SuccinctReceiptVerifierParameters, SystemState};
 <span class="kw">use </span>sha2::{Digest, Sha256};
 <span class="kw">use </span>std::str::FromStr;
-
-<span class="kw">pub fn </span>reverse_bits_and_copy(input: <span class="kw-2">&amp;</span>[u8], output: <span class="kw-2">&amp;mut </span>[u8]) {
-    <span class="kw">for </span>i <span class="kw">in </span><span class="number">0</span>..<span class="number">8 </span>{
-        <span class="kw">let </span>temp = u32::from_be_bytes(input[<span class="number">4 </span>* i..<span class="number">4 </span>* i + <span class="number">4</span>].try_into().unwrap()).reverse_bits();
-        output[<span class="number">4 </span>* i..<span class="number">4 </span>* i + <span class="number">4</span>].copy_from_slice(<span class="kw-2">&amp;</span>temp.to_le_bytes());
-    }
-}
 
 <span class="doccomment">/// This is the test Verifying Key of the STARK-to-BitVM2 Groth16 proof Circom circuit.
 </span><span class="kw">pub fn </span>get_ark_verifying_key() -&gt; ark_groth16::VerifyingKey&lt;Bn254&gt; {

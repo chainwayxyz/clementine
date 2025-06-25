@@ -527,7 +527,28 @@
 <a href="#526" id="526">526</a>
 <a href="#527" id="527">527</a>
 <a href="#528" id="528">528</a>
-<a href="#529" id="529">529</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Transaction Signing Utilities
+<a href="#529" id="529">529</a>
+<a href="#530" id="530">530</a>
+<a href="#531" id="531">531</a>
+<a href="#532" id="532">532</a>
+<a href="#533" id="533">533</a>
+<a href="#534" id="534">534</a>
+<a href="#535" id="535">535</a>
+<a href="#536" id="536">536</a>
+<a href="#537" id="537">537</a>
+<a href="#538" id="538">538</a>
+<a href="#539" id="539">539</a>
+<a href="#540" id="540">540</a>
+<a href="#541" id="541">541</a>
+<a href="#542" id="542">542</a>
+<a href="#543" id="543">543</a>
+<a href="#544" id="544">544</a>
+<a href="#545" id="545">545</a>
+<a href="#546" id="546">546</a>
+<a href="#547" id="547">547</a>
+<a href="#548" id="548">548</a>
+<a href="#549" id="549">549</a>
+<a href="#550" id="550">550</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Transaction Signing Utilities
 //!
 //! This module provides logic signing the transactions used in the Clementine bridge.
 
@@ -785,9 +806,28 @@
             watchtower_index,
             commit_data,
             <span class="self">self</span>.config.protocol_paramset(),
+            <span class="attr">#[cfg(test)]
+            </span><span class="kw-2">&amp;</span><span class="self">self</span>.config.test_params,
         )<span class="question-mark">?</span>;
 
         <span class="kw">let </span>merkle_root = watchtower_challenge_txhandler.get_merkle_root_of_txin(<span class="number">0</span>)<span class="question-mark">?</span>;
+
+        <span class="attr">#[cfg(test)]
+        </span><span class="kw">let </span><span class="kw-2">mut </span>annex: <span class="prelude-ty">Option</span>&lt;Vec&lt;u8&gt;&gt; = <span class="prelude-val">None</span>;
+
+        <span class="comment">// #[cfg(test)]
+        // let mut additional_op_return = None;
+
+        </span><span class="attr">#[cfg(test)]
+        </span>{
+            <span class="kw">if </span><span class="self">self</span>.config.test_params.use_small_annex {
+                annex = <span class="prelude-val">Some</span>(<span class="macro">vec!</span>[<span class="number">80u8</span>; <span class="number">10000</span>]);
+            } <span class="kw">else if </span><span class="self">self</span>.config.test_params.use_large_annex {
+                annex = <span class="prelude-val">Some</span>(<span class="macro">vec!</span>[<span class="number">80u8</span>; <span class="number">3990000</span>]);
+            } <span class="kw">else if </span><span class="self">self</span>.config.test_params.use_large_annex_and_output {
+                annex = <span class="prelude-val">Some</span>(<span class="macro">vec!</span>[<span class="number">80u8</span>; <span class="number">3000000</span>]);
+            }
+        }
 
         <span class="prelude-val">Ok</span>((
             TransactionType::WatchtowerChallenge(watchtower_index),
@@ -795,6 +835,8 @@
             RbfSigningInfo {
                 vout: <span class="number">0</span>,
                 tweak_merkle_root: merkle_root,
+                <span class="attr">#[cfg(test)]
+                </span>annex,
             },
         ))
     }

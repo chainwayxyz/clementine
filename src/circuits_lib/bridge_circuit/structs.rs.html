@@ -546,7 +546,16 @@
 <a href="#545" id="545">545</a>
 <a href="#546" id="546">546</a>
 <a href="#547" id="547">547</a>
-<a href="#548" id="548">548</a></pre></div><pre class="rust"><code><span class="kw">use </span>std::ops::{Deref, DerefMut};
+<a href="#548" id="548">548</a>
+<a href="#549" id="549">549</a>
+<a href="#550" id="550">550</a>
+<a href="#551" id="551">551</a>
+<a href="#552" id="552">552</a>
+<a href="#553" id="553">553</a>
+<a href="#554" id="554">554</a>
+<a href="#555" id="555">555</a>
+<a href="#556" id="556">556</a>
+<a href="#557" id="557">557</a></pre></div><pre class="rust"><code><span class="kw">use </span>std::ops::{Deref, DerefMut};
 
 <span class="kw">use </span><span class="kw">crate</span>::common::constants::MAX_NUMBER_OF_WATCHTOWERS;
 <span class="kw">use </span>bitcoin::{
@@ -822,7 +831,16 @@
         <span class="kw">let </span><span class="kw-2">mut </span>watchtower_challenge_tx = CircuitTransaction::from(watchtower_tx);
 
         <span class="kw">let </span>watchtower_challenge_annex: <span class="prelude-ty">Option</span>&lt;Annex&gt; = {
-            <span class="kw">if let </span><span class="prelude-val">Some</span>(last_witness_element) = watchtower_challenge_tx.input
+            <span class="comment">// If there are at most one element in the witness, then there are no annexes
+            </span><span class="kw">if </span>watchtower_challenge_tx.input[watchtower_challenge_input_idx <span class="kw">as </span>usize]
+                .witness
+                .len()
+                &lt;= <span class="number">1
+            </span>{
+                <span class="prelude-val">None
+            </span>}
+            <span class="comment">// Otherwise, if the last element starts with 0x50, then it is an Annex
+            </span><span class="kw">else if let </span><span class="prelude-val">Some</span>(last_witness_element) = watchtower_challenge_tx.input
                 [watchtower_challenge_input_idx <span class="kw">as </span>usize]
                 .witness
                 .last()

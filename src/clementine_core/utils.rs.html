@@ -648,7 +648,9 @@
 <a href="#647" id="647">647</a>
 <a href="#648" id="648">648</a>
 <a href="#649" id="649">649</a>
-<a href="#650" id="650">650</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::builder::transaction::TransactionType;
+<a href="#650" id="650">650</a>
+<a href="#651" id="651">651</a>
+<a href="#652" id="652">652</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::builder::transaction::TransactionType;
 <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
 <span class="kw">use </span><span class="kw">crate</span>::operator::RoundIndex;
 <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::VergenResponse;
@@ -1128,6 +1130,8 @@
 </span><span class="kw">pub struct </span>RbfSigningInfo {
     <span class="kw">pub </span>vout: u32,
     <span class="kw">pub </span>tweak_merkle_root: <span class="prelude-ty">Option</span>&lt;TapNodeHash&gt;,
+    <span class="attr">#[cfg(test)]
+    </span><span class="kw">pub </span>annex: <span class="prelude-ty">Option</span>&lt;Vec&lt;u8&gt;&gt;,
 }
 <span class="kw">pub trait </span>Last20Bytes {
     <span class="kw">fn </span>last_20_bytes(<span class="self">self</span>) -&gt; [u8; <span class="number">20</span>];

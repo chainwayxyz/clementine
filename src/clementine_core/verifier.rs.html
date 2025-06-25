@@ -2777,7 +2777,9 @@
 <a href="#2776" id="2776">2776</a>
 <a href="#2777" id="2777">2777</a>
 <a href="#2778" id="2778">2778</a>
-<a href="#2779" id="2779">2779</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
+<a href="#2779" id="2779">2779</a>
+<a href="#2780" id="2780">2780</a>
+<a href="#2781" id="2781">2781</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
 <span class="kw">use </span><span class="kw">crate</span>::bitcoin_syncer::{BitcoinSyncer, BlockHandler, FinalizedBlockFetcherTask};
 <span class="kw">use </span><span class="kw">crate</span>::bitvm_client::ClementineBitVMPublicKeys;
 <span class="kw">use </span><span class="kw">crate</span>::builder::address::{create_taproot_address, taproot_builder_with_scripts};
@@ -2789,6 +2791,8 @@
 <span class="kw">use </span><span class="kw">crate</span>::builder::sighash::{
     create_nofn_sighash_stream, create_operator_sighash_stream, PartialSignatureInfo, SignatureInfo,
 };
+<span class="attr">#[cfg(test)]
+</span><span class="kw">use </span><span class="kw">crate</span>::builder::transaction::challenge;
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::deposit_signature_owner::EntityType;
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::input::UtxoVout;
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};

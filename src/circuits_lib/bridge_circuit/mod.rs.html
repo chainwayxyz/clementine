@@ -1319,7 +1319,8 @@
 <a href="#1318" id="1318">1318</a>
 <a href="#1319" id="1319">1319</a>
 <a href="#1320" id="1320">1320</a>
-<a href="#1321" id="1321">1321</a></pre></div><pre class="rust"><code><span class="kw">pub mod </span>constants;
+<a href="#1321" id="1321">1321</a>
+<a href="#1322" id="1322">1322</a></pre></div><pre class="rust"><code><span class="kw">pub mod </span>constants;
 <span class="kw">pub mod </span>groth16;
 <span class="kw">pub mod </span>groth16_verifier;
 <span class="kw">pub mod </span>lc_proof;
@@ -1490,7 +1491,8 @@
         input.hcp.genesis_state_hash,
     );
 
-    <span class="kw">let </span>latest_blockhash: LatestBlockhash = input.hcp.chain_state.best_block_hash[<span class="number">12</span>..<span class="number">32</span>]
+    <span class="comment">// In the future this will be fetched from the LC proof
+    </span><span class="kw">let </span>latest_blockhash: LatestBlockhash = input.hcp.chain_state.best_block_hash[<span class="number">12</span>..<span class="number">32</span>]
         .try_into()
         .unwrap();
     <span class="kw">let </span>payout_tx_blockhash: PayoutTxBlockhash = input.payout_spv.block_header.compute_block_hash()
@@ -2181,11 +2183,11 @@
     <span class="kw">use </span>risc0_zkvm::compute_image_id;
     <span class="kw">use </span>std::io::Cursor;
 
-    <span class="kw">const </span>WORK_ONLY_ELF: <span class="kw-2">&amp;</span>[u8] =
+    <span class="kw">const </span>TESTNET4_WORK_ONLY_ELF: <span class="kw-2">&amp;</span>[u8] =
         <span class="macro">include_bytes!</span>(<span class="string">"../../../risc0-circuits/elfs/testnet4-work-only-guest.bin"</span>);
 
     <span class="macro">lazy_static!</span> {
-        <span class="kw">static </span><span class="kw-2">ref </span>WORK_ONLY_IMAGE_ID: [u8; <span class="number">32</span>] = compute_image_id(WORK_ONLY_ELF)
+        <span class="kw">static </span><span class="kw-2">ref </span>TESTNET4_WORK_ONLY_IMAGE_ID: [u8; <span class="number">32</span>] = compute_image_id(TESTNET4_WORK_ONLY_ELF)
             .expect(<span class="string">"Elf must be valid"</span>)
             .as_bytes()
             .try_into()
@@ -2278,7 +2280,7 @@
         <span class="kw">let </span>(input, <span class="kw">_</span>) = total_work_and_watchtower_flags_setup();
 
         <span class="kw">let </span>(total_work, challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(<span class="kw-2">&amp;</span>input, <span class="kw-2">&amp;</span>WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(<span class="kw-2">&amp;</span>input, <span class="kw-2">&amp;</span>TESTNET4_WORK_ONLY_IMAGE_ID);
 
         <span class="kw">let </span>expected_challenge_sending_watchtowers =
             [<span class="number">64</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>];
@@ -2307,7 +2309,7 @@
         input.watchtower_inputs[<span class="number">0</span>].watchtower_challenge_witness = CircuitWitness(new_witness);
 
         <span class="kw">let </span>(total_work, challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(<span class="kw-2">&amp;</span>input, <span class="kw-2">&amp;</span>WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(<span class="kw-2">&amp;</span>input, <span class="kw-2">&amp;</span>TESTNET4_WORK_ONLY_IMAGE_ID);
 
         <span class="macro">assert_eq!</span>(<span class="kw-2">*</span>total_work, [<span class="number">0u8</span>; <span class="number">16</span>], <span class="string">"Total work is not correct"</span>);
         <span class="macro">assert_eq!</span>(
@@ -2338,7 +2340,7 @@
         });
 
         <span class="kw">let </span>(total_work, challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(<span class="kw-2">&amp;</span>input, <span class="kw-2">&amp;</span>WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(<span class="kw-2">&amp;</span>input, <span class="kw-2">&amp;</span>TESTNET4_WORK_ONLY_IMAGE_ID);
 
         <span class="macro">assert_eq!</span>(<span class="kw-2">*</span>total_work, [<span class="number">0u8</span>; <span class="number">16</span>], <span class="string">"Total work is not correct"</span>);
         <span class="macro">assert_eq!</span>(
@@ -2364,7 +2366,7 @@
         </span>input.watchtower_inputs[<span class="number">0</span>].watchtower_challenge_input_idx = <span class="number">0</span>;
 
         <span class="kw">let </span>(_total_work, _challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(<span class="kw-2">&amp;</span>input, <span class="kw-2">&amp;</span>WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(<span class="kw-2">&amp;</span>input, <span class="kw-2">&amp;</span>TESTNET4_WORK_ONLY_IMAGE_ID);
     }
 
     <span class="attr">#[test]
@@ -2379,7 +2381,7 @@
         input.watchtower_inputs[<span class="number">0</span>].watchtower_challenge_witness = CircuitWitness(invalid_witness);
 
         <span class="kw">let </span>(_total_work, _challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(<span class="kw-2">&amp;</span>input, <span class="kw-2">&amp;</span>WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(<span class="kw-2">&amp;</span>input, <span class="kw-2">&amp;</span>TESTNET4_WORK_ONLY_IMAGE_ID);
     }
 
     <span class="attr">#[test]
@@ -2392,7 +2394,7 @@
         input.all_tweaked_watchtower_pubkeys[watch_tower_idx] = [<span class="number">0u8</span>; <span class="number">32</span>];
 
         <span class="kw">let </span>(_total_work, _challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(<span class="kw-2">&amp;</span>input, <span class="kw-2">&amp;</span>WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(<span class="kw-2">&amp;</span>input, <span class="kw-2">&amp;</span>TESTNET4_WORK_ONLY_IMAGE_ID);
     }
 
     <span class="attr">#[test]
@@ -2404,7 +2406,7 @@
         </span>input.watchtower_inputs[<span class="number">0</span>].watchtower_challenge_input_idx = <span class="number">160</span>;
 
         <span class="kw">let </span>(_total_work, _challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(<span class="kw-2">&amp;</span>input, <span class="kw-2">&amp;</span>WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(<span class="kw-2">&amp;</span>input, <span class="kw-2">&amp;</span>TESTNET4_WORK_ONLY_IMAGE_ID);
     }
 
     <span class="attr">#[test]
@@ -2416,7 +2418,7 @@
         </span>input.watchtower_inputs[<span class="number">0</span>].watchtower_challenge_input_idx = <span class="number">10</span>;
 
         <span class="kw">let </span>(_total_work, _challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(<span class="kw-2">&amp;</span>input, <span class="kw-2">&amp;</span>WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(<span class="kw-2">&amp;</span>input, <span class="kw-2">&amp;</span>TESTNET4_WORK_ONLY_IMAGE_ID);
     }
 
     <span class="attr">#[test]
@@ -2430,7 +2432,7 @@
         </span>input.watchtower_inputs[<span class="number">0</span>].watchtower_challenge_witness = CircuitWitness(invalid_witness);
 
         <span class="kw">let </span>(_total_work, _challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(<span class="kw-2">&amp;</span>input, <span class="kw-2">&amp;</span>WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(<span class="kw-2">&amp;</span>input, <span class="kw-2">&amp;</span>TESTNET4_WORK_ONLY_IMAGE_ID);
     }
 
     <span class="attr">#[test]
@@ -2444,7 +2446,7 @@
         input.watchtower_inputs[<span class="number">0</span>].watchtower_challenge_witness = CircuitWitness(invalid_witness);
 
         <span class="kw">let </span>(_total_work, _challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(<span class="kw-2">&amp;</span>input, <span class="kw-2">&amp;</span>WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(<span class="kw-2">&amp;</span>input, <span class="kw-2">&amp;</span>TESTNET4_WORK_ONLY_IMAGE_ID);
     }
 
     <span class="attr">#[test]
@@ -2458,7 +2460,7 @@
         </span>input.watchtower_inputs[<span class="number">0</span>].watchtower_challenge_witness = CircuitWitness(invalid_witness);
 
         <span class="kw">let </span>(_total_work, _challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(<span class="kw-2">&amp;</span>input, <span class="kw-2">&amp;</span>WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(<span class="kw-2">&amp;</span>input, <span class="kw-2">&amp;</span>TESTNET4_WORK_ONLY_IMAGE_ID);
     }
 
     <span class="attr">#[test]

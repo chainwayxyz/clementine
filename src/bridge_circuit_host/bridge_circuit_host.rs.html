@@ -537,7 +537,17 @@
 <a href="#536" id="536">536</a>
 <a href="#537" id="537">537</a>
 <a href="#538" id="538">538</a>
-<a href="#539" id="539">539</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::docker::{stark_to_bitvm2_g16, stark_to_bitvm2_g16_dev_mode};
+<a href="#539" id="539">539</a>
+<a href="#540" id="540">540</a>
+<a href="#541" id="541">541</a>
+<a href="#542" id="542">542</a>
+<a href="#543" id="543">543</a>
+<a href="#544" id="544">544</a>
+<a href="#545" id="545">545</a>
+<a href="#546" id="546">546</a>
+<a href="#547" id="547">547</a>
+<a href="#548" id="548">548</a>
+<a href="#549" id="549">549</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::docker::{stark_to_bitvm2_g16, stark_to_bitvm2_g16_dev_mode};
 <span class="kw">use </span><span class="kw">crate</span>::structs::{
     BridgeCircuitBitvmInputs, BridgeCircuitHostParams, SuccinctBridgeCircuitPublicInputs,
 };
@@ -571,10 +581,26 @@
 <span class="kw">pub const </span>SIGNET_BRIDGE_CIRCUIT_ELF: <span class="kw-2">&amp;</span>[u8] =
     <span class="macro">include_bytes!</span>(<span class="string">"../../risc0-circuits/elfs/signet-bridge-circuit-guest.bin"</span>);
 
-<span class="kw">const </span>_BRIDGE_CIRCUIT_ELF: <span class="kw-2">&amp;</span>[u8] =
-    <span class="macro">include_bytes!</span>(<span class="string">"../../risc0-circuits/elfs/testnet4-bridge-circuit-guest.bin"</span>);
-<span class="kw">const </span>TESTNET4_WORK_ONLY_ELF: <span class="kw-2">&amp;</span>[u8] =
+<span class="kw">pub const </span>TESTNET4_HEADER_CHAIN_GUEST_ELF: <span class="kw-2">&amp;</span>[u8] =
+    <span class="macro">include_bytes!</span>(<span class="string">"../../risc0-circuits/elfs/testnet4-header-chain-guest.bin"</span>);
+
+<span class="kw">pub const </span>MAINNET_HEADER_CHAIN_ELF: <span class="kw-2">&amp;</span>[u8] =
+    <span class="macro">include_bytes!</span>(<span class="string">"../../risc0-circuits/elfs/mainnet-header-chain-guest.bin"</span>);
+<span class="kw">pub const </span>TESTNET4_HEADER_CHAIN_ELF: <span class="kw-2">&amp;</span>[u8] =
+    <span class="macro">include_bytes!</span>(<span class="string">"../../risc0-circuits/elfs/testnet4-header-chain-guest.bin"</span>);
+<span class="kw">pub const </span>SIGNET_HEADER_CHAIN_ELF: <span class="kw-2">&amp;</span>[u8] =
+    <span class="macro">include_bytes!</span>(<span class="string">"../../risc0-circuits/elfs/signet-header-chain-guest.bin"</span>);
+<span class="kw">pub const </span>REGTEST_HEADER_CHAIN_ELF: <span class="kw-2">&amp;</span>[u8] =
+    <span class="macro">include_bytes!</span>(<span class="string">"../../risc0-circuits/elfs/regtest-header-chain-guest.bin"</span>);
+
+<span class="kw">pub const </span>MAINNET_WORK_ONLY_ELF: <span class="kw-2">&amp;</span>[u8] =
+    <span class="macro">include_bytes!</span>(<span class="string">"../../risc0-circuits/elfs/mainnet-work-only-guest.bin"</span>);
+<span class="kw">pub const </span>TESTNET4_WORK_ONLY_ELF: <span class="kw-2">&amp;</span>[u8] =
     <span class="macro">include_bytes!</span>(<span class="string">"../../risc0-circuits/elfs/testnet4-work-only-guest.bin"</span>);
+<span class="kw">pub const </span>SIGNET_WORK_ONLY_ELF: <span class="kw-2">&amp;</span>[u8] =
+    <span class="macro">include_bytes!</span>(<span class="string">"../../risc0-circuits/elfs/signet-work-only-guest.bin"</span>);
+<span class="kw">pub const </span>REGTEST_WORK_ONLY_ELF: <span class="kw-2">&amp;</span>[u8] =
+    <span class="macro">include_bytes!</span>(<span class="string">"../../risc0-circuits/elfs/regtest-work-only-guest.bin"</span>);
 
 <span class="doccomment">/// Generates a Groth16 proof for the Bridge Circuit after performing sanity checks.
 ///
@@ -867,13 +893,7 @@
     <span class="comment">// const TEST_BRIDGE_CIRCUIT_ELF: &amp;[u8] =
     //     include_bytes!("../../risc0-circuits/elfs/test-testnet4-bridge-circuit-guest.bin");
 
-    </span><span class="kw">const </span>TESTNET4_HEADER_CHAIN_GUEST_ELF: <span class="kw-2">&amp;</span>[u8] =
-        <span class="macro">include_bytes!</span>(<span class="string">"../../risc0-circuits/elfs/testnet4-header-chain-guest.bin"</span>);
-
-    <span class="kw">const </span>TESTNET4_WORK_ONLY_ELF: <span class="kw-2">&amp;</span>[u8] =
-        <span class="macro">include_bytes!</span>(<span class="string">"../../risc0-circuits/elfs/testnet4-work-only-guest.bin"</span>);
-
-    <span class="kw">use </span>borsh::BorshDeserialize;
+    </span><span class="kw">use </span>borsh::BorshDeserialize;
     <span class="kw">use </span>circuits_lib::{
         bridge_circuit::structs::WorkOnlyCircuitOutput,
         common::zkvm::ZkvmHost,
