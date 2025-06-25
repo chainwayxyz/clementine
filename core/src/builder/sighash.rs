@@ -408,7 +408,8 @@ mod tests {
 
     use super::*;
 
-    pub const DEPOSIT_STATE_FILE_PATH: &str = "src/test/data/deposit_state.bincode";
+    pub const DEPOSIT_STATE_FILE_PATH_DEBUG: &str = "src/test/data/deposit_state_debug.bincode";
+    pub const DEPOSIT_STATE_FILE_PATH_RELEASE: &str = "src/test/data/deposit_state_release.bincode";
 
     /// State of the chain and the deposit generated in generate_deposit_state() test.
     /// Contains:
@@ -511,8 +512,13 @@ mod tests {
             operator_sighash_hash,
         };
 
+        #[cfg(debug_assertions)]
+        let file_path = DEPOSIT_STATE_FILE_PATH_DEBUG;
+        #[cfg(not(debug_assertions))]
+        let file_path = DEPOSIT_STATE_FILE_PATH_RELEASE;
+
         // save to file
-        let file = File::create(DEPOSIT_STATE_FILE_PATH).unwrap();
+        let file = File::create(file_path).unwrap();
         bincode::serialize_into(file, &deposit_state).unwrap();
     }
 
@@ -521,7 +527,12 @@ mod tests {
             "Current chain height: {}",
             rpc.get_current_chain_height().await.unwrap()
         );
-        let file = File::open(DEPOSIT_STATE_FILE_PATH).unwrap();
+        #[cfg(debug_assertions)]
+        let file_path = DEPOSIT_STATE_FILE_PATH_DEBUG;
+        #[cfg(not(debug_assertions))]
+        let file_path = DEPOSIT_STATE_FILE_PATH_RELEASE;
+
+        let file = File::open(file_path).unwrap();
         let deposit_state: DepositChainState = bincode::deserialize_from(file).unwrap();
 
         // submit blocks to current rpc
@@ -637,8 +648,9 @@ mod tests {
     /// reimburse address and collateral funding outpoint, which should be loaded from the saved
     /// deposit state)
     ///
-    /// To make the test work if breaking changes are expected, run generate_deposit_state() test again,
-    /// it will get updated with the current values.
+    /// To make the test work if breaking changes are expected, run generate_deposit_state() test again
+    /// (with both debug and release), it will get updated with the current values.
+    /// Discussion: Compiling locally on release takes too long, maybe just test this on debug?
     #[tokio::test]
     async fn test_bridge_contract_change() {
         let mut config = create_test_config_with_thread_name().await;
