@@ -34,7 +34,7 @@ use crate::operator::RoundIndex;
 use crate::rpc::clementine::tagged_signature::SignatureId;
 use crate::rpc::clementine::NormalSignatureKind;
 use async_stream::try_stream;
-use bitcoin::hashes::{sha256, Hash};
+use bitcoin::hashes::Hash;
 use bitcoin::{TapNodeHash, TapSighash, XOnlyPublicKey};
 use futures_core::stream::Stream;
 
@@ -400,6 +400,8 @@ mod tests {
         },
     };
     use bincode;
+    use bitcoin::hashes::sha256;
+    use bitcoin::secp256k1::PublicKey;
     use bitcoin::{Block, BlockHash, OutPoint, Txid};
     use bitcoincore_rpc::RpcApi;
     use futures_util::stream::TryStreamExt;
@@ -415,6 +417,9 @@ mod tests {
     /// - Deposit blockhash: Block hash of the deposit outpoint.
     /// - Move txid: Move to vault txid of the deposit.
     /// - Operator data: Operator data of the single operator that were used in the deposit.
+    /// - Round tx txid hash: Hash of all round tx txids of the operator.
+    /// - Nofn sighash hash: Hash of all nofn sighashes of the deposit.
+    /// - Operator sighash hash: Hash of all operator sighashes of the deposit.
     #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
     struct DepositChainState {
         blocks: Vec<Block>,
@@ -422,6 +427,9 @@ mod tests {
         deposit_blockhash: BlockHash,
         move_txid: Txid,
         operator_data: OperatorData,
+        round_tx_txid_hash: sha256::Hash,
+        nofn_sighash_hash: sha256::Hash,
+        operator_sighash_hash: sha256::Hash,
     }
 
     #[tokio::test]
@@ -435,10 +443,10 @@ mod tests {
         let rpc = regtest.rpc().clone();
 
         let (
-            _,
+            _verifiers,
             mut operators,
-            _,
-            _,
+            _aggregator,
+            _cleanup,
             deposit_info,
             move_txid,
             deposit_blockhash,
@@ -461,12 +469,36 @@ mod tests {
             db_name: config.db_name + "0",
             ..config
         };
-        let op0_xonly_pk = op0_config.test_params.all_operators_secret_keys[0]
-            .x_only_public_key(&SECP)
-            .0;
+
+        let operators_xonly_pks = op0_config
+            .test_params
+            .all_operators_secret_keys
+            .iter()
+            .map(|sk| sk.x_only_public_key(&SECP).0)
+            .collect::<Vec<_>>();
+
+        let op0_xonly_pk = operators_xonly_pks[0];
 
         let db = Database::new(&op0_config).await.unwrap();
         let operator_data = db.get_operator(None, op0_xonly_pk).await.unwrap().unwrap();
+
+        let (nofn_sighash_hash, operator_sighash_hash) = calculate_hash_of_sighashes(
+            deposit_info.clone(),
+            verifiers_public_keys,
+            operators_xonly_pks.clone(),
+            op0_config.clone(),
+            deposit_blockhash,
+        )
+        .await;
+
+        let round_tx_txid_hash = compute_hash_of_round_txs(
+            operators.swap_remove(0),
+            deposit_info.deposit_outpoint,
+            operators_xonly_pks[0],
+            deposit_blockhash,
+            &op0_config.protocol_paramset(),
+        )
+        .await;
 
         let deposit_state = DepositChainState {
             blocks,
@@ -474,6 +506,9 @@ mod tests {
             move_txid,
             deposit_info,
             operator_data,
+            round_tx_txid_hash,
+            nofn_sighash_hash,
+            operator_sighash_hash,
         };
 
         // save to file
@@ -534,6 +569,62 @@ mod tests {
         sha256::Hash::hash(&all_round_txids.concat())
     }
 
+    /// Calculates the hash of all nofn and operator sighashes for a given deposit.
+    async fn calculate_hash_of_sighashes(
+        deposit_info: DepositInfo,
+        verifiers_public_keys: Vec<PublicKey>,
+        operators_xonly_pks: Vec<XOnlyPublicKey>,
+        op0_config: BridgeConfig,
+        deposit_blockhash: bitcoin::BlockHash,
+    ) -> (sha256::Hash, sha256::Hash) {
+        let deposit_data = DepositData {
+            nofn_xonly_pk: None,
+            deposit: deposit_info,
+            actors: Actors {
+                verifiers: verifiers_public_keys,
+                watchtowers: vec![],
+                operators: operators_xonly_pks.clone(),
+            },
+            security_council: op0_config.security_council.clone(),
+        };
+
+        let db = Database::new(&op0_config).await.unwrap();
+
+        let sighash_stream = create_nofn_sighash_stream(
+            db.clone(),
+            op0_config.clone(),
+            deposit_data.clone(),
+            deposit_blockhash,
+            true,
+        );
+
+        let nofn_sighashes: Vec<_> = sighash_stream.try_collect().await.unwrap();
+        let nofn_sighashes = nofn_sighashes
+            .into_iter()
+            .map(|(sighash, info)| sighash.to_byte_array())
+            .collect::<Vec<_>>();
+
+        let operator_streams = create_operator_sighash_stream(
+            db.clone(),
+            operators_xonly_pks[0],
+            op0_config.clone(),
+            deposit_data.clone(),
+            deposit_blockhash,
+        );
+
+        let operator_sighashes: Vec<_> = operator_streams.try_collect().await.unwrap();
+        let operator_sighashes = operator_sighashes
+            .into_iter()
+            .map(|(sighash, info)| sighash.to_byte_array())
+            .collect::<Vec<_>>();
+
+        // Hash the vectors
+        let nofn_hash = sha256::Hash::hash(&nofn_sighashes.concat());
+        let operator_hash = sha256::Hash::hash(&operator_sighashes.concat());
+
+        (nofn_hash, operator_hash)
+    }
+
     /// Test for checking if the sighash stream is changed due to changes in code.
     /// If this test fails, the code contains breaking changes that needs replacement deposits on deployment.
     /// It is also possible that round tx's are changed, which is a bigger issue. In addition to replacement deposits,
@@ -546,8 +637,8 @@ mod tests {
     /// reimburse address and collateral funding outpoint, which should be loaded from the saved
     /// deposit state)
     ///
-    /// To make the test work if breaking changes are expected, run generate_deposit_state() test again then
-    /// run the test_bridge_contract_change tests and replace the assert_eq!() with the new values until it works.
+    /// To make the test work if breaking changes are expected, run generate_deposit_state() test again,
+    /// it will get updated with the current values.
     #[tokio::test]
     async fn test_bridge_contract_change() {
         let mut config = create_test_config_with_thread_name().await;
@@ -634,65 +725,26 @@ mod tests {
 
         // If this fails, the round txs are changed.
         assert_eq!(
-            round_tx_hash.to_string(),
-            "d62339182876371afdc882ff693c56697cc005e01ece4abe8b229934c8091a0a".to_string(),
+            round_tx_hash, deposit_state.round_tx_txid_hash,
             "Round tx hash does not match the previous values, round txs are changed"
         );
 
-        let deposit_data = DepositData {
-            nofn_xonly_pk: None,
-            deposit: deposit_info,
-            actors: Actors {
-                verifiers: verifiers_public_keys,
-                watchtowers: vec![],
-                operators: operators_xonly_pks.clone(),
-            },
-            security_council: op0_config.security_council.clone(),
-        };
-
-        let db = Database::new(&op0_config).await.unwrap();
-
-        let sighash_stream = create_nofn_sighash_stream(
-            db.clone(),
-            op0_config.clone(),
-            deposit_data.clone(),
+        let (nofn_hash, operator_hash) = calculate_hash_of_sighashes(
+            deposit_info,
+            verifiers_public_keys,
+            operators_xonly_pks,
+            op0_config,
             deposit_blockhash,
-            true,
-        );
-
-        let nofn_sighashes: Vec<_> = sighash_stream.try_collect().await.unwrap();
-        let nofn_sighashes = nofn_sighashes
-            .into_iter()
-            .map(|(sighash, info)| sighash.to_byte_array())
-            .collect::<Vec<_>>();
-
-        let operator_streams = create_operator_sighash_stream(
-            db.clone(),
-            operators_xonly_pks[0],
-            op0_config.clone(),
-            deposit_data.clone(),
-            deposit_blockhash,
-        );
-
-        let operator_sighashes: Vec<_> = operator_streams.try_collect().await.unwrap();
-        let operator_sighashes = operator_sighashes
-            .into_iter()
-            .map(|(sighash, info)| sighash.to_byte_array())
-            .collect::<Vec<_>>();
-
-        // Hash the vectors
-        let nofn_hash = sha256::Hash::hash(&nofn_sighashes.concat());
-        let operator_hash = sha256::Hash::hash(&operator_sighashes.concat());
+        )
+        .await;
 
         // If these fail, the bridge contract is changed.
         assert_eq!(
-            nofn_hash.to_string(),
-            "dee911de41c6aad9564a86cef36a86fbd0fcfdfdad0f58206d5543accb42f513",
+            nofn_hash, deposit_state.nofn_sighash_hash,
             "NofN sighashes do not match the previous values"
         );
         assert_eq!(
-            operator_hash.to_string(),
-            "7c1777f0be9559ce777472da4a8d718b6b49c927dcf93393f1387bc4f27822ce",
+            operator_hash, deposit_state.operator_sighash_hash,
             "Operator sighashes do not match the previous values"
         );
     }
