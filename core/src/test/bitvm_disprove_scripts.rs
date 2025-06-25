@@ -48,6 +48,7 @@ use citrea_e2e::{
 };
 use prost::Message;
 use tonic::transport::Channel;
+
 pub enum DisproveTestVariant {
     HealthyState,
     CorruptedAssert,

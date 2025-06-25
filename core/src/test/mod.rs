@@ -15,6 +15,10 @@ mod additional_disprove_scripts;
 
 #[cfg(feature = "automation")]
 mod bitvm_disprove_scripts;
+
+#[cfg(feature = "automation")]
+mod watchtower_challenge;
+
 mod bitvm_script;
 
 use ctor::ctor;
