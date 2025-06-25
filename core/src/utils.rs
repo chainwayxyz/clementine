@@ -113,7 +113,7 @@ fn env_subscriber_with_file(path: &str) -> Result<Box<dyn Subscriber + Send + Sy
         .boxed();
 
     let console_layer = fmt::layer()
-        .with_writer(std::io::stdout)
+        .with_test_writer()
         .with_file(true)
         .with_line_number(true)
         .with_target(true)
