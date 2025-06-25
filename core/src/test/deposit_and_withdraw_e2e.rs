@@ -55,7 +55,9 @@ use citrea_e2e::{
 use eyre::Context;
 use futures::future::try_join_all;
 use once_cell::sync::{Lazy, OnceCell};
+use statig::Response::Transition;
 use std::time::Duration;
+use tokio::time::sleep;
 use tonic::Request;
 
 pub static PROTOCOL_PARAMSET: OnceCell<ProtocolParamset> = OnceCell::new();
@@ -1546,85 +1548,249 @@ async fn mock_citrea_run_malicious_after_exit() {
     assert!(tx.output[0].value != config.protocol_paramset().operator_challenge_amount);
 }
 
+struct ConcurrentDeposits;
+#[async_trait]
+impl TestCase for ConcurrentDeposits {
+    fn bitcoin_config() -> BitcoinConfig {
+        BitcoinConfig {
+            extra_args: vec![
+                "-txindex=1",
+                "-fallbackfee=0.000001",
+                "-rpcallowip=0.0.0.0/0",
+                "-dustrelayfee=0",
+            ],
+            ..Default::default()
+        }
+    }
+
+    fn test_config() -> TestCaseConfig {
+        TestCaseConfig {
+            with_sequencer: true,
+            with_batch_prover: true,
+            with_light_client_prover: true,
+            with_full_node: true,
+            docker: TestCaseDockerConfig {
+                bitcoin: true,
+                citrea: true,
+            },
+            ..Default::default()
+        }
+    }
+
+    fn sequencer_config() -> SequencerConfig {
+        SequencerConfig {
+            bridge_initialize_params: get_bridge_params(),
+            ..Default::default()
+        }
+    }
+
+    fn batch_prover_config() -> BatchProverConfig {
+        BatchProverConfig {
+            enable_recovery: false,
+            ..Default::default()
+        }
+    }
+
+    fn light_client_prover_config() -> LightClientProverConfig {
+        LightClientProverConfig {
+            enable_recovery: false,
+            initial_da_height: 60,
+            ..Default::default()
+        }
+    }
+
+    async fn run_test(&mut self, f: &mut TestFramework) -> Result<()> {
+        tracing::info!("Starting Citrea");
+        let (sequencer, _full_node, lc_prover, batch_prover, da) =
+            citrea::start_citrea(Self::sequencer_config(), f)
+                .await
+                .unwrap();
+
+        let mut config = create_test_config_with_thread_name().await;
+        let lc_prover = lc_prover.unwrap();
+        let batch_prover = batch_prover.unwrap();
+
+        citrea::update_config_with_citrea_e2e_values(
+            &mut config,
+            da,
+            sequencer,
+            Some((
+                lc_prover.config.rollup.rpc.bind_host.as_str(),
+                lc_prover.config.rollup.rpc.bind_port,
+            )),
+        );
+
+        let rpc = ExtendedRpc::connect(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        )
+        .await?;
+
+        let (verifiers, operators, mut aggregator, cleanup) =
+            create_actors::<MockCitreaClient>(&mut config).await;
+        let mut aggregator_2 = aggregator.clone();
+
+        let evm_address = EVMAddress([1u8; 20]);
+        let actor = Actor::new(
+            config.secret_key,
+            config.winternitz_secret_key,
+            config.protocol_paramset().network,
+        );
+
+        let initial_balance =
+            citrea::eth_get_balance(sequencer.client.http_client().clone(), evm_address)
+                .await
+                .unwrap();
+
+        let verifiers_public_keys: Vec<bitcoin::secp256k1::PublicKey> = aggregator
+            .setup(Request::new(Empty {}))
+            .await
+            .unwrap()
+            .into_inner()
+            .try_into()
+            .unwrap();
+
+        let (deposit_address, _) =
+            get_deposit_address(&config, evm_address, verifiers_public_keys.clone()).unwrap();
+        let deposit_outpoint = rpc
+            .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
+            .await
+            .unwrap();
+
+        mine_once_after_in_mempool(&rpc, deposit_outpoint.txid, Some("Deposit outpoint"), None)
+            .await
+            .unwrap();
+        let deposit_blockhash = rpc
+            .get_blockhash_of_tx(&deposit_outpoint.txid)
+            .await
+            .unwrap();
+
+        let deposit_info = DepositInfo {
+            deposit_outpoint,
+            deposit_type: DepositType::BaseDeposit(BaseDepositData {
+                evm_address,
+                recovery_taproot_address: actor.address.as_unchecked().to_owned(),
+            }),
+        };
+
+        let deposit: Deposit = deposit_info.clone().into();
+
+        let move_txs = try_join_all(vec![
+            aggregator.new_deposit(deposit.clone()),
+            aggregator_2.new_deposit(deposit.clone()),
+        ])
+        .await
+        .unwrap();
+        let request = SendMoveTxRequest {
+            deposit_outpoint: Some(deposit_outpoint.into()),
+            raw_tx: Some(move_txs[0].get_ref().clone()),
+        };
+
+        let decoded_move_txs: Vec<Transaction> = move_txs
+            .into_iter()
+            .map(|encoded_move_tx| {
+                let raw_tx_bytes = encoded_move_tx.into_inner().raw_tx;
+                bitcoin::consensus::deserialize(&raw_tx_bytes).unwrap()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(decoded_move_txs.len(), 2, "Expected two move transactions");
+        assert_eq!(
+            decoded_move_txs[0].input[0].previous_output,
+            decoded_move_txs[1].input[0].previous_output
+        );
+        assert_eq!(decoded_move_txs[0].output, decoded_move_txs[1].output);
+        assert_eq!(decoded_move_txs[0].version, decoded_move_txs[1].version);
+
+        let send_move_tx_results = try_join_all(vec![
+            aggregator.send_move_to_vault_tx(request.clone()),
+            aggregator_2.send_move_to_vault_tx(request),
+        ])
+        .await
+        .unwrap();
+        let move_txids: Vec<Txid> = send_move_tx_results
+            .into_iter()
+            .map(|result| result.into_inner().try_into().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(move_txids.len(), 2, "Expected two move transaction IDs");
+        assert_eq!(
+            move_txids[0], move_txids[1],
+            "Expected the same move transaction ID for both deposits"
+        );
+
+        poll_until_condition(
+            async || {
+                // Send deposit to Citrea
+                let move_txid = move_txids[0];
+                let tx = rpc.client.get_raw_transaction(&move_txid, None).await?;
+                let tx_info = rpc
+                    .client
+                    .get_raw_transaction_info(&move_txid, None)
+                    .await?;
+                let block = rpc.client.get_block(&tx_info.blockhash.unwrap()).await?;
+                let block_height =
+                    rpc.client.get_block_info(&block.block_hash()).await?.height as u64;
+
+                citrea::wait_until_lc_contract_updated(
+                    sequencer.client.http_client(),
+                    block_height,
+                )
+                .await
+                .unwrap();
+
+                // Without a deposit, the balance should be 0.
+                assert_eq!(
+                    citrea::eth_get_balance(
+                        sequencer.client.http_client().clone(),
+                        crate::EVMAddress([1; 20]),
+                    )
+                    .await
+                    .unwrap(),
+                    0
+                );
+
+                tracing::debug!("Depositing to Citrea...");
+
+                citrea::deposit(
+                    &rpc,
+                    sequencer.client.http_client().clone(),
+                    block,
+                    block_height.try_into().unwrap(),
+                    tx,
+                )
+                .await?;
+                for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
+                    sequencer.client.send_publish_batch_request().await.unwrap();
+                }
+
+                // After the deposit, the balance should be non-zero.
+                assert_ne!(
+                    citrea::eth_get_balance(
+                        sequencer.client.http_client().clone(),
+                        crate::EVMAddress([1; 20]),
+                    )
+                    .await
+                    .unwrap(),
+                    0
+                );
+
+                tracing::debug!("Deposit operations are successful.");
+
+                Ok(true)
+            },
+            None,
+            None,
+        );
+
+        Ok(())
+    }
+}
+
 #[tokio::test]
-async fn concurrent_double_deposit() {
-    let mut config = create_test_config_with_thread_name().await;
-    let regtest = create_regtest_rpc(&mut config).await;
-    let rpc = regtest.rpc().clone();
-    let mut citrea_client = MockCitreaClient::new(
-        config.citrea_rpc_url.clone(),
-        "".to_string(),
-        config.citrea_chain_id,
-        None,
-    )
-    .await
-    .unwrap();
-
-    let (verifiers, operators, mut aggregator, cleanup) =
-        create_actors::<MockCitreaClient>(&mut config).await;
-    let mut aggregator_2 = aggregator.clone();
-
-    let evm_address = EVMAddress([1u8; 20]);
-    let actor = Actor::new(
-        config.secret_key,
-        config.winternitz_secret_key,
-        config.protocol_paramset().network,
+async fn concurrent_deposits() -> Result<()> {
+    std::env::set_var(
+        "CITREA_DOCKER_IMAGE",
+        "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
     );
-
-    let verifiers_public_keys: Vec<bitcoin::secp256k1::PublicKey> = aggregator
-        .setup(Request::new(Empty {}))
-        .await
-        .unwrap()
-        .into_inner()
-        .try_into()
-        .unwrap();
-
-    let (deposit_address, _) =
-        get_deposit_address(&config, evm_address, verifiers_public_keys.clone()).unwrap();
-    let deposit_outpoint = rpc
-        .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
-        .await
-        .unwrap();
-
-    mine_once_after_in_mempool(&rpc, deposit_outpoint.txid, Some("Deposit outpoint"), None)
-        .await
-        .unwrap();
-    let deposit_blockhash = rpc
-        .get_blockhash_of_tx(&deposit_outpoint.txid)
-        .await
-        .unwrap();
-
-    let deposit_info = DepositInfo {
-        deposit_outpoint,
-        deposit_type: DepositType::BaseDeposit(BaseDepositData {
-            evm_address,
-            recovery_taproot_address: actor.address.as_unchecked().to_owned(),
-        }),
-    };
-
-    let deposit: Deposit = deposit_info.clone().into();
-
-    let move_txs = try_join_all(vec![
-        aggregator.new_deposit(deposit.clone()),
-        aggregator_2.new_deposit(deposit.clone()),
-    ])
-    .await
-    .unwrap();
-    let decoded_move_txs = move_txs
-        .into_iter()
-        .map(|encoded_move_tx| encoded_move_tx.into_inner())
-        .collect::<Vec<_>>();
-    assert_eq!(decoded_move_txs.len(), 2, "Expected two move transactions");
-    assert_eq!(decoded_move_txs[0].raw_tx, decoded_move_txs[1].raw_tx);
-
-    let request = SendMoveTxRequest {
-        deposit_outpoint: Some(deposit_outpoint.into()),
-        raw_tx: Some(decoded_move_txs[0].clone()),
-    };
-    let send_move_tx_results = try_join_all(vec![
-        aggregator.send_move_to_vault_tx(request.clone()),
-        aggregator_2.send_move_to_vault_tx(request),
-    ])
-    .await;
-    println!("Send move tx results: {:#?}", send_move_tx_results);
+    TestCaseRunner::new(ConcurrentDeposits).run().await
 }
