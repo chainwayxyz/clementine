@@ -1224,9 +1224,7 @@
 <a href="#1223" id="1223">1223</a>
 <a href="#1224" id="1224">1224</a>
 <a href="#1225" id="1225">1225</a>
-<a href="#1226" id="1226">1226</a>
-<a href="#1227" id="1227">1227</a>
-<a href="#1228" id="1228">1228</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Header Chain Prover
+<a href="#1226" id="1226">1226</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Header Chain Prover
 //!
 //! This module contains utilities for proving Bitcoin block headers. This
 //! module must be fed with new blocks via the database. Later, it can check if
@@ -2404,7 +2402,7 @@
     }
 
     <span class="attr">#[tokio::test]
-    #[ignore = <span class="string">"Header chain prover is ignored"</span>]
+    #[cfg(feature = <span class="string">"automation"</span>)]
     </span><span class="kw">async fn </span>verifier_new_check_header_chain_proof() {
         <span class="kw">let </span><span class="kw-2">mut </span>config = create_test_config_with_thread_name().<span class="kw">await</span>;
         <span class="kw">let </span>regtest = create_regtest_rpc(<span class="kw-2">&amp;mut </span>config).<span class="kw">await</span>;
@@ -2440,8 +2438,6 @@
                 <span class="prelude-val">Ok</span>(verifier
                     .verifier
                     .header_chain_prover
-                    .as_ref()
-                    .unwrap()
                     .db
                     .get_block_proof_by_hash(<span class="prelude-val">None</span>, hash)
                     .<span class="kw">await

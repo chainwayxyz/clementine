@@ -2779,7 +2779,11 @@
 <a href="#2778" id="2778">2778</a>
 <a href="#2779" id="2779">2779</a>
 <a href="#2780" id="2780">2780</a>
-<a href="#2781" id="2781">2781</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
+<a href="#2781" id="2781">2781</a>
+<a href="#2782" id="2782">2782</a>
+<a href="#2783" id="2783">2783</a>
+<a href="#2784" id="2784">2784</a>
+<a href="#2785" id="2785">2785</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
 <span class="kw">use </span><span class="kw">crate</span>::bitcoin_syncer::{BitcoinSyncer, BlockHandler, FinalizedBlockFetcherTask};
 <span class="kw">use </span><span class="kw">crate</span>::bitvm_client::ClementineBitVMPublicKeys;
 <span class="kw">use </span><span class="kw">crate</span>::builder::address::{create_taproot_address, taproot_builder_with_scripts};
@@ -2966,7 +2970,8 @@
     <span class="kw">pub</span>(<span class="kw">crate</span>) nonces: Arc&lt;tokio::sync::Mutex&lt;AllSessions&gt;&gt;,
     <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
     </span><span class="kw">pub </span>tx_sender: TxSenderClient,
-    <span class="kw">pub </span>header_chain_prover: <span class="prelude-ty">Option</span>&lt;HeaderChainProver&gt;,
+    <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
+    </span><span class="kw">pub </span>header_chain_prover: HeaderChainProver,
     <span class="kw">pub </span>citrea_client: C,
 }
 
@@ -3007,11 +3012,8 @@
         </span><span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
         </span><span class="kw">let </span>tx_sender = TxSenderClient::new(db.clone(), <span class="string">"verifier_"</span>.to_string());
 
-        <span class="kw">let </span>header_chain_prover = <span class="kw">if </span>std::env::var(<span class="string">"ENABLE_HEADER_CHAIN_PROVER"</span>).is_ok() {
-            <span class="prelude-val">Some</span>(HeaderChainProver::new(<span class="kw-2">&amp;</span>config, rpc.clone()).<span class="kw">await</span><span class="question-mark">?</span>)
-        } <span class="kw">else </span>{
-            <span class="prelude-val">None
-        </span>};
+        <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
+        </span><span class="kw">let </span>header_chain_prover = HeaderChainProver::new(<span class="kw-2">&amp;</span>config, rpc.clone()).<span class="kw">await</span><span class="question-mark">?</span>;
 
         <span class="kw">let </span>verifier = Verifier {
             rpc,
@@ -3021,7 +3023,8 @@
             nonces: Arc::new(tokio::sync::Mutex::new(all_sessions)),
             <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
             </span>tx_sender,
-            header_chain_prover,
+            <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
+            </span>header_chain_prover,
             citrea_client,
         };
         <span class="prelude-val">Ok</span>(verifier)
@@ -4179,18 +4182,20 @@
         <span class="prelude-val">Ok</span>(<span class="bool-val">true</span>)
     }
 
-    <span class="kw">async fn </span>send_watchtower_challenge(
+    <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
+    </span><span class="kw">async fn </span>send_watchtower_challenge(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         kickoff_data: KickoffData,
         deposit_data: DepositData,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
-        <span class="kw">let </span>hcp_prover = <span class="self">self
+        <span class="kw">let </span>current_tip_hcp = <span class="self">self
             </span>.header_chain_prover
-            .as_ref()
-            .ok_or(HeaderChainProverError::HeaderChainProverNotInitialized)<span class="question-mark">?</span>;
-        <span class="kw">let </span>current_tip_hcp = hcp_prover.get_tip_header_chain_proof().<span class="kw">await</span><span class="question-mark">?</span>;
+            .get_tip_header_chain_proof()
+            .<span class="kw">await</span><span class="question-mark">?</span>;
 
-        <span class="kw">let </span>(work_only_proof, work_output) = hcp_prover.prove_work_only(current_tip_hcp.<span class="number">0</span>)<span class="question-mark">?</span>;
+        <span class="kw">let </span>(work_only_proof, work_output) = <span class="self">self
+            </span>.header_chain_prover
+            .prove_work_only(current_tip_hcp.<span class="number">0</span>)<span class="question-mark">?</span>;
 
         <span class="attr">#[cfg(test)]
         </span>{
@@ -5167,11 +5172,13 @@
         <span class="self">self</span>.update_finalized_payouts(<span class="kw-2">&amp;mut </span>dbtx, block_id, <span class="kw-2">&amp;</span>block_cache)
             .<span class="kw">await</span><span class="question-mark">?</span>;
 
-        <span class="kw">if let </span><span class="prelude-val">Some</span>(header_chain_prover) = <span class="kw-2">&amp;</span><span class="self">self</span>.header_chain_prover {
-            header_chain_prover
+        <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
+        </span>{
+            <span class="comment">// Save unproven block cache to the database
+            </span><span class="self">self</span>.header_chain_prover
                 .save_unproven_block_cache(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx), <span class="kw-2">&amp;</span>block_cache)
                 .<span class="kw">await</span><span class="question-mark">?</span>;
-            <span class="kw">while let </span><span class="prelude-val">Some</span>(<span class="kw">_</span>) = header_chain_prover.prove_if_ready().<span class="kw">await</span><span class="question-mark">? </span>{
+            <span class="kw">while let </span><span class="prelude-val">Some</span>(<span class="kw">_</span>) = <span class="self">self</span>.header_chain_prover.prove_if_ready().<span class="kw">await</span><span class="question-mark">? </span>{
                 <span class="comment">// Continue until prove_if_ready returns None
                 // If it doesn't return None, it means next batch_size amount of blocks were proven
             </span>}
@@ -5519,6 +5526,7 @@
     }
 
     <span class="attr">#[tokio::test]
+    #[cfg(feature = <span class="string">"automation"</span>)]
     </span><span class="kw">async fn </span>test_database_operations_idempotency() {
         <span class="kw">let </span><span class="kw-2">mut </span>config = create_test_config_with_thread_name().<span class="kw">await</span>;
         <span class="kw">let </span>_regtest = create_regtest_rpc(<span class="kw-2">&amp;mut </span>config).<span class="kw">await</span>;
@@ -5528,36 +5536,36 @@
             </span>.unwrap();
 
         <span class="comment">// Test header chain prover save operation idempotency
-        </span><span class="kw">if let </span><span class="prelude-val">Some</span>(<span class="kw-2">ref </span>header_chain_prover) = verifier.header_chain_prover {
-            <span class="kw">let </span>test_block = Block {
-                header: bitcoin::block::Header {
-                    version: bitcoin::block::Version::ONE,
-                    prev_blockhash: bitcoin::BlockHash::all_zeros(),
-                    merkle_root: bitcoin::TxMerkleNode::all_zeros(),
-                    time: <span class="number">1234567890</span>,
-                    bits: bitcoin::CompactTarget::from_consensus(<span class="number">0x207fffff</span>),
-                    nonce: <span class="number">12345</span>,
-                },
-                txdata: <span class="macro">vec!</span>[], <span class="comment">// empty transactions
-            </span>};
-            <span class="kw">let </span>block_cache = block_cache::BlockCache::from_block(<span class="kw-2">&amp;</span>test_block, <span class="number">100u32</span>);
+        </span><span class="kw">let </span>test_block = Block {
+            header: bitcoin::block::Header {
+                version: bitcoin::block::Version::ONE,
+                prev_blockhash: bitcoin::BlockHash::all_zeros(),
+                merkle_root: bitcoin::TxMerkleNode::all_zeros(),
+                time: <span class="number">1234567890</span>,
+                bits: bitcoin::CompactTarget::from_consensus(<span class="number">0x207fffff</span>),
+                nonce: <span class="number">12345</span>,
+            },
+            txdata: <span class="macro">vec!</span>[], <span class="comment">// empty transactions
+        </span>};
+        <span class="kw">let </span>block_cache = block_cache::BlockCache::from_block(<span class="kw-2">&amp;</span>test_block, <span class="number">100u32</span>);
 
-            <span class="comment">// First save
-            </span><span class="kw">let </span><span class="kw-2">mut </span>dbtx1 = verifier.db.begin_transaction().<span class="kw">await</span>.unwrap();
-            <span class="kw">let </span>result1 = header_chain_prover
-                .save_unproven_block_cache(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx1), <span class="kw-2">&amp;</span>block_cache)
-                .<span class="kw">await</span>;
-            <span class="macro">assert!</span>(result1.is_ok(), <span class="string">"First save should succeed"</span>);
-            dbtx1.commit().<span class="kw">await</span>.unwrap();
+        <span class="comment">// First save
+        </span><span class="kw">let </span><span class="kw-2">mut </span>dbtx1 = verifier.db.begin_transaction().<span class="kw">await</span>.unwrap();
+        <span class="kw">let </span>result1 = verifier
+            .header_chain_prover
+            .save_unproven_block_cache(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx1), <span class="kw-2">&amp;</span>block_cache)
+            .<span class="kw">await</span>;
+        <span class="macro">assert!</span>(result1.is_ok(), <span class="string">"First save should succeed"</span>);
+        dbtx1.commit().<span class="kw">await</span>.unwrap();
 
-            <span class="comment">// Second save with same data should be idempotent
-            </span><span class="kw">let </span><span class="kw-2">mut </span>dbtx2 = verifier.db.begin_transaction().<span class="kw">await</span>.unwrap();
-            <span class="kw">let </span>result2 = header_chain_prover
-                .save_unproven_block_cache(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx2), <span class="kw-2">&amp;</span>block_cache)
-                .<span class="kw">await</span>;
-            <span class="macro">assert!</span>(result2.is_ok(), <span class="string">"Second save should succeed (idempotent)"</span>);
-            dbtx2.commit().<span class="kw">await</span>.unwrap();
-        }
+        <span class="comment">// Second save with same data should be idempotent
+        </span><span class="kw">let </span><span class="kw-2">mut </span>dbtx2 = verifier.db.begin_transaction().<span class="kw">await</span>.unwrap();
+        <span class="kw">let </span>result2 = verifier
+            .header_chain_prover
+            .save_unproven_block_cache(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx2), <span class="kw-2">&amp;</span>block_cache)
+            .<span class="kw">await</span>;
+        <span class="macro">assert!</span>(result2.is_ok(), <span class="string">"Second save should succeed (idempotent)"</span>);
+        dbtx2.commit().<span class="kw">await</span>.unwrap();
     }
 }
 </code></pre></div></section></main></body></html>
