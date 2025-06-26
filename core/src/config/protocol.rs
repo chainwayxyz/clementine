@@ -274,23 +274,23 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     ],
     header_chain_proof_batch_size: 100,
     bridge_circuit_method_id_constant: [
-        206, 73, 98, 246, 196, 46, 49, 227, 140, 218, 4, 132, 110, 242, 228, 164, 19, 124, 248,
-        249, 177, 237, 229, 57, 5, 198, 0, 2, 0, 0, 87, 230,
+        122, 210, 204, 155, 203, 206, 216, 8, 126, 117, 61, 91, 47, 85, 69, 147, 68, 196, 156, 234,
+        75, 17, 119, 195, 91, 121, 62, 254, 13, 195, 48, 238,
     ],
     bridge_nonstandard: true,
 };
 
 pub const SIGNET_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [
-    3, 27, 138, 231, 23, 225, 120, 79, 74, 2, 62, 19, 251, 54, 28, 20, 229, 19, 6, 22, 224, 65, 96,
-    122, 218, 129, 198, 51, 206, 157, 170, 123,
+    52, 23, 169, 35, 5, 10, 197, 40, 135, 145, 196, 190, 148, 7, 127, 52, 246, 105, 197, 227, 140,
+    51, 204, 184, 180, 238, 95, 34, 11, 203, 120, 57,
 ];
 pub const MAINNET_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [
-    141, 131, 96, 215, 4, 182, 189, 3, 213, 14, 113, 124, 89, 142, 183, 138, 60, 55, 247, 164, 44,
-    131, 43, 92, 170, 251, 76, 101, 234, 136, 185, 249,
+    2, 86, 35, 236, 99, 172, 34, 193, 71, 224, 59, 102, 246, 94, 242, 12, 11, 64, 209, 82, 76, 148,
+    53, 214, 23, 144, 71, 198, 174, 225, 174, 96,
 ];
 pub const TESTNET4_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [
-    3, 225, 100, 109, 30, 121, 142, 111, 224, 171, 89, 84, 210, 107, 177, 155, 231, 33, 198, 117,
-    104, 174, 62, 62, 218, 0, 114, 103, 228, 235, 245, 64,
+    245, 159, 161, 38, 62, 12, 230, 118, 90, 195, 152, 119, 78, 162, 58, 39, 81, 76, 177, 139, 97,
+    96, 170, 31, 131, 123, 90, 255, 185, 72, 65, 25,
 ];
 
 #[cfg(test)]
@@ -449,11 +449,14 @@ mod tests {
         ];
 
         for (elf, method_id, network) in networks.into_iter() {
-            let work_only_circuit_method_id = compute_image_id(elf);
+            let work_only_circuit_method_id =
+                compute_image_id(elf).expect("should compute image id");
+            let current_method_id = work_only_circuit_method_id.as_bytes();
             assert_eq!(
-                work_only_circuit_method_id.expect("should compute image id").as_bytes(),
+                current_method_id,
                 method_id,
-                "Work only method ID mismatch for {network}, please update the constant here: circuits-lib/src/bridge_circuit/constants.rs",
+                "Work only method ID mismatch for {network}, please update the constant here: circuits-lib/src/bridge_circuit/constants.rs. Hex format of correct value: {:?}",
+                hex::encode(current_method_id)
             );
         }
     }
