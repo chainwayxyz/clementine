@@ -696,6 +696,7 @@ async fn multiple_deposits_for_operator() {
         .unwrap();
 }
 
+#[cfg(feature = "integration-tests")]
 #[tokio::test]
 async fn test_regtest_create_and_connect() {
     let mut config = create_test_config_with_thread_name().await;

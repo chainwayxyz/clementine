@@ -57,7 +57,7 @@ Before compiling Clementine:
 
 Before running Clementine:
 
-1. Install and configure a Bitcoin node (at least v28.0)
+1. Install and configure a Bitcoin node (at least v29.0)
 2. Install and configure PostgreSQL
 3. Set `RUST_MIN_STACK` to at least 33554432
 
@@ -268,6 +268,14 @@ To run all tests:
 
 ```sh
 cargo test --all-features
+```
+
+Also, due to the test directory hierarchy, unit and integration tests can be
+run separately:
+
+```sh
+cargo test_unit
+cargo test_integration
 ```
 
 #### Helper Scripts
