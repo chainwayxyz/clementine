@@ -274,23 +274,23 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     ],
     header_chain_proof_batch_size: 100,
     bridge_circuit_method_id_constant: [
-        106, 158, 148, 189, 109, 168, 65, 39, 73, 217, 118, 34, 15, 112, 71, 100, 57, 44, 221, 139,
-        217, 193, 126, 188, 221, 211, 43, 248, 65, 26, 36, 84,
+        206, 73, 98, 246, 196, 46, 49, 227, 140, 218, 4, 132, 110, 242, 228, 164, 19, 124, 248,
+        249, 177, 237, 229, 57, 5, 198, 0, 2, 0, 0, 87, 230,
     ],
     bridge_nonstandard: true,
 };
 
 pub const SIGNET_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [
-    152, 255, 208, 77, 244, 221, 66, 202, 31, 49, 48, 233, 10, 144, 81, 146, 87, 101, 43, 47, 174,
-    199, 238, 26, 72, 8, 64, 255, 177, 28, 102, 62,
+    3, 27, 138, 231, 23, 225, 120, 79, 74, 2, 62, 19, 251, 54, 28, 20, 229, 19, 6, 22, 224, 65, 96,
+    122, 218, 129, 198, 51, 206, 157, 170, 123,
 ];
 pub const MAINNET_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [
-    185, 108, 51, 68, 210, 7, 124, 168, 128, 25, 180, 245, 48, 162, 34, 154, 0, 157, 108, 215, 178,
-    225, 163, 254, 99, 232, 188, 239, 105, 238, 246, 207,
+    141, 131, 96, 215, 4, 182, 189, 3, 213, 14, 113, 124, 89, 142, 183, 138, 60, 55, 247, 164, 44,
+    131, 43, 92, 170, 251, 76, 101, 234, 136, 185, 249,
 ];
 pub const TESTNET4_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [
-    155, 117, 143, 51, 117, 75, 44, 187, 17, 118, 170, 222, 152, 85, 162, 23, 114, 181, 225, 167,
-    65, 121, 68, 12, 165, 254, 208, 124, 24, 200, 190, 123,
+    3, 225, 100, 109, 30, 121, 142, 111, 224, 171, 89, 84, 210, 107, 177, 155, 231, 33, 198, 117,
+    104, 174, 62, 62, 218, 0, 114, 103, 228, 235, 245, 64,
 ];
 
 #[cfg(test)]
@@ -317,70 +317,78 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_calculate_succinct_output_prefix() {
+    fn test_regtest_bridge_circuit_constant() {
         let regtest_bridge_elf =
             include_bytes!("../../../risc0-circuits/elfs/regtest-bridge-circuit-guest.bin");
-        let signet_bridge_elf =
-            include_bytes!("../../../risc0-circuits/elfs/signet-bridge-circuit-guest.bin");
-        let mainnet_bridge_elf =
-            include_bytes!("../../../risc0-circuits/elfs/mainnet-bridge-circuit-guest.bin");
-        let testnet4_bridge_elf =
-            include_bytes!("../../../risc0-circuits/elfs/testnet4-bridge-circuit-guest.bin");
         let regtest_bridge_circuit_method_id =
             compute_image_id(regtest_bridge_elf).expect("should compute image id");
         let calculated_regtest_bridge_circuit_constant =
             calculate_succinct_output_prefix(regtest_bridge_circuit_method_id.as_bytes());
 
-        let signet_bridge_circuit_method_id =
-            compute_image_id(signet_bridge_elf).expect("should compute image id");
-        let calculated_signet_bridge_circuit_constant =
-            calculate_succinct_output_prefix(signet_bridge_circuit_method_id.as_bytes());
-        let mainnet_bridge_circuit_method_id =
-            compute_image_id(mainnet_bridge_elf).expect("should compute image id");
-        let calculated_mainnet_bridge_circuit_constant =
-            calculate_succinct_output_prefix(mainnet_bridge_circuit_method_id.as_bytes());
-        let testnet4_bridge_circuit_method_id =
-            compute_image_id(testnet4_bridge_elf).expect("should compute image id");
-        let calculated_testnet4_bridge_circuit_constant =
-            calculate_succinct_output_prefix(testnet4_bridge_circuit_method_id.as_bytes());
-
         let regtest_bridge_circuit_constant = REGTEST_PARAMSET.bridge_circuit_method_id_constant;
         assert_eq!(
             calculated_regtest_bridge_circuit_constant,
             regtest_bridge_circuit_constant,
-            "You forgot to update bridge_circuit_constant with the new method id. Please change it in these places: Here, core/src/cli.rs, core/src/config/protocol.rs, core/src/test/data/protocol_paramset.toml. The expected value is: {:?}, hex format: {:?}",
+            "You forgot to update regtest bridge_circuit_constant with the new method id. Please change it in these places: core/src/cli.rs, core/src/config/protocol.rs, core/src/test/data/protocol_paramset.toml. The expected value is: {:?}, hex format: {:?}",
             calculated_regtest_bridge_circuit_constant,
             hex::encode(calculated_regtest_bridge_circuit_constant)
         );
+    }
 
-        let signet_bridge_circuit_constant = SIGNET_BRIDGE_CIRCUIT_CONSTANT;
-
-        assert_eq!(
-            calculated_signet_bridge_circuit_constant,
-            signet_bridge_circuit_constant,
-            "You forgot to update bridge_circuit_constant with the new method id. Please change it in these places: Here, core/src/cli.rs, core/src/config/protocol.rs, core/src/test/data/protocol_paramset.toml. The expected value is: {:?}, hex format: {:?}",
-            calculated_signet_bridge_circuit_constant,
-            hex::encode(calculated_signet_bridge_circuit_constant)
-        );
+        #[test]
+    fn test_mainnet_bridge_circuit_constant() {
+        let mainnet_bridge_elf =
+            include_bytes!("../../../risc0-circuits/elfs/mainnet-bridge-circuit-guest.bin");
+        let mainnet_bridge_circuit_method_id =
+            compute_image_id(mainnet_bridge_elf).expect("should compute image id");
+        let calculated_mainnet_bridge_circuit_constant =
+            calculate_succinct_output_prefix(mainnet_bridge_circuit_method_id.as_bytes());
 
         let mainnet_bridge_circuit_constant = MAINNET_BRIDGE_CIRCUIT_CONSTANT;
-
         assert_eq!(
             calculated_mainnet_bridge_circuit_constant,
             mainnet_bridge_circuit_constant,
-            "You forgot to update bridge_circuit_constant with the new method id. Please change it in these places: Here, core/src/cli.rs, core/src/config/protocol.rs, core/src/test/data/protocol_paramset.toml. The expected value is: {:?}, hex format: {:?}",
+            "You forgot to update mainnet bridge_circuit_constant with the new method id. Please change it in these places: core/src/config/protocol.rs. The expected value is: {:?}, hex format: {:?}",
             calculated_mainnet_bridge_circuit_constant,
             hex::encode(calculated_mainnet_bridge_circuit_constant)
         );
+    }
 
+    #[test]
+    fn test_testnet4_bridge_circuit_constant() {
+        let testnet4_bridge_elf =
+            include_bytes!("../../../risc0-circuits/elfs/testnet4-bridge-circuit-guest.bin");
+        let testnet4_bridge_circuit_method_id =
+            compute_image_id(testnet4_bridge_elf).expect("should compute image id");
+        let calculated_testnet4_bridge_circuit_constant =
+            calculate_succinct_output_prefix(testnet4_bridge_circuit_method_id.as_bytes());
+            
         let testnet4_bridge_circuit_constant = TESTNET4_BRIDGE_CIRCUIT_CONSTANT;
-
         assert_eq!(
             calculated_testnet4_bridge_circuit_constant,
             testnet4_bridge_circuit_constant,
-            "You forgot to update bridge_circuit_constant with the new method id. Please change it in these places: Here, core/src/cli.rs, core/src/config/protocol.rs, core/src/test/data/protocol_paramset.toml. The expected value is: {:?}, hex format: {:?}",
+            "You forgot to update testnet4 bridge_circuit_constant with the new method id. Please change it in these places: core/src/config/protocol.rs. The expected value is: {:?}, hex format: {:?}",
             calculated_testnet4_bridge_circuit_constant,
             hex::encode(calculated_testnet4_bridge_circuit_constant)
+        );
+    }
+
+    #[test]
+    fn test_signet_bridge_circuit_constant() {
+        let signet_bridge_elf =
+            include_bytes!("../../../risc0-circuits/elfs/signet-bridge-circuit-guest.bin");
+        let signet_bridge_circuit_method_id =
+            compute_image_id(signet_bridge_elf).expect("should compute image id");
+        let calculated_signet_bridge_circuit_constant =
+            calculate_succinct_output_prefix(signet_bridge_circuit_method_id.as_bytes());
+
+        let signet_bridge_circuit_constant = SIGNET_BRIDGE_CIRCUIT_CONSTANT;
+        assert_eq!(
+            calculated_signet_bridge_circuit_constant,
+            signet_bridge_circuit_constant,
+            "You forgot to update signet bridge_circuit_constant with the new method id. Please change it in these places: core/src/config/protocol.rs. The expected value is: {:?}, hex format: {:?}",
+            calculated_signet_bridge_circuit_constant,
+            hex::encode(calculated_signet_bridge_circuit_constant)
         );
     }
 

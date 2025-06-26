@@ -29,9 +29,7 @@ impl SPV {
 
     pub fn verify(&self, mmr_guest: MMRGuest) -> bool {
         let txid: [u8; 32] = self.transaction.txid();
-        println!("txid: {:?}", txid);
         let block_merkle_root = self.block_inclusion_proof.get_root(txid);
-        println!("block_merkle_root: {:?}", block_merkle_root);
         assert_eq!(block_merkle_root, self.block_header.merkle_root);
         let block_hash = self.block_header.compute_block_hash();
         mmr_guest.verify_proof(block_hash, &self.mmr_inclusion_proof)
@@ -102,15 +100,12 @@ mod tests {
             .collect::<Vec<CircuitBlockHeader>>();
         let txs = MAINNET_BLOCK_TRANSACTIONS
             .iter()
-            .map(|tx| {
-                println!("{:?}", tx);
-                CircuitTransaction(bitcoin::consensus::deserialize(tx).unwrap())
-            })
+            .map(|tx| CircuitTransaction(bitcoin::consensus::deserialize(tx).unwrap()))
             .collect::<Vec<CircuitTransaction>>();
         let mut bitcoin_merkle_proofs: Vec<BlockInclusionProof> = vec![];
         for tx in txs.iter() {
             let txid = tx.txid();
-            println!("txid: {:?}", txid);
+            tracing::debug!("txid: {:?}", txid);
             let bitcoin_merkle_tree = BitcoinMerkleTree::new(vec![txid]);
             let bitcoin_merkle_proof = bitcoin_merkle_tree.generate_proof(0);
             assert!(verify_merkle_proof(
