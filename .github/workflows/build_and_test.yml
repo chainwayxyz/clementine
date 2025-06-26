@@ -109,9 +109,9 @@ jobs:
           shared-key: ${{ runner.os }}-cargo-DEBUG-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
 
       - name: Run unit tests
-        run: make test_unit
+        run: cargo test_unit
       - name: Run integration tests
-        run: make test_integration
+        run: cargo test_integration
 
       - name: Upload test logs
         if: failure() || cancelled() # Only upload logs if the tests fail or are cancelled
@@ -164,9 +164,9 @@ jobs:
           shared-key: ${{ runner.os }}-cargo-RELEASE-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
 
       - name: Run unit tests
-        run: make test_unit
+        run: cargo test_unit
       - name: Run integration tests
-        run: make test_integration
+        run: cargo test_integration
 
       - name: Upload test logs
         if: failure() || cancelled() # Only upload logs if the tests fail or are cancelled
