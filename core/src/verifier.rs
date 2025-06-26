@@ -87,7 +87,7 @@ pub struct AllSessions {
 
 pub struct VerifierServer<C: CitreaClientT> {
     pub verifier: Verifier<C>,
-    background_tasks: Arc<Mutex<BackgroundTaskManager<Verifier<C>>>>,
+    background_tasks: BackgroundTaskManager<Verifier<C>>,
 }
 
 impl<C> VerifierServer<C>
@@ -97,7 +97,7 @@ where
     pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
         let verifier = Verifier::new(config.clone()).await?;
         let db = verifier.db.clone();
-        let mut background_tasks = Arc::new(Mutex::new(BackgroundTaskManager::default()));
+        let mut background_tasks = BackgroundTaskManager::default();
 
         Ok(VerifierServer {
             verifier,
@@ -108,8 +108,6 @@ where
     /// Starts the background tasks for the verifier.
     /// If called multiple times, it will restart only the tasks that are not already running.
     pub async fn start_background_tasks(&self) -> Result<(), BridgeError> {
-        let mut tasks = self.background_tasks.lock().await;
-
         let rpc = ExtendedRpc::connect(
             self.verifier.config.bitcoin_rpc_url.clone(),
             self.verifier.config.bitcoin_rpc_user.clone(),
@@ -129,7 +127,9 @@ where
                 self.verifier.config.protocol_paramset(),
             );
 
-            tasks.loop_and_monitor(tx_sender.into_task(), self.background_tasks.clone());
+            self.background_tasks
+                .loop_and_monitor(tx_sender.into_task())
+                .await;
             let state_manager = crate::states::StateManager::new(
                 self.verifier.db.clone(),
                 self.verifier.clone(),
@@ -149,27 +149,29 @@ where
             };
 
             if should_run_state_mgr {
-                tasks.loop_and_monitor(
-                    state_manager.block_fetcher_task().await?,
-                    self.background_tasks.clone(),
-                );
-                tasks.loop_and_monitor(state_manager.into_task(), self.background_tasks.clone());
+                self.background_tasks
+                    .loop_and_monitor(state_manager.block_fetcher_task().await?)
+                    .await;
+                self.background_tasks
+                    .loop_and_monitor(state_manager.into_task())
+                    .await;
             }
         }
         #[cfg(not(feature = "automation"))]
         {
-            tasks.loop_and_monitor(
-                FinalizedBlockFetcherTask::new(
-                    self.verifier.db.clone(),
-                    "verifier".to_string(),
-                    self.verifier.config.protocol_paramset(),
-                    self.verifier.config.protocol_paramset().start_height,
-                    self.verifier.clone(),
+            self.background_tasks
+                .loop_and_monitor(
+                    FinalizedBlockFetcherTask::new(
+                        self.verifier.db.clone(),
+                        "verifier".to_string(),
+                        self.verifier.config.protocol_paramset(),
+                        self.verifier.config.protocol_paramset().start_height,
+                        self.verifier.clone(),
+                    )
+                    .into_buffered_errors(50)
+                    .with_delay(Duration::from_secs(60)),
                 )
-                .into_buffered_errors(50)
-                .with_delay(Duration::from_secs(60)),
-                self.background_tasks.clone(),
-            );
+                .await;
         }
 
         let syncer = BitcoinSyncer::new(
@@ -179,27 +181,20 @@ where
         )
         .await?;
 
-        tasks.loop_and_monitor(syncer.into_task(), self.background_tasks.clone());
-
-        // run task status monitor
-        tasks.loop_and_monitor(
-            TaskStatusMonitorTask::new(self.background_tasks.clone())
-                .with_delay(TASK_STATUS_MONITOR_POLL_DELAY),
-            self.background_tasks.clone(),
-        );
+        self.background_tasks
+            .loop_and_monitor(syncer.into_task())
+            .await;
 
         Ok(())
     }
 
     pub async fn get_current_status(&self) -> Result<StoppedTasks, BridgeError> {
-        let mut tasks = self.background_tasks.lock().await;
-        let stopped_tasks = tasks.get_stopped_tasks();
+        let stopped_tasks = self.background_tasks.get_stopped_tasks().await;
         Ok(stopped_tasks)
     }
 
     pub async fn shutdown(&mut self) {
-        let mut tasks = self.background_tasks.lock().await;
-        tasks.graceful_shutdown().await;
+        self.background_tasks.graceful_shutdown().await;
     }
 }
 

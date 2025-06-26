@@ -1,3 +1,4 @@
+use super::status_monitor::{TaskStatusMonitorTask, TASK_STATUS_MONITOR_POLL_DELAY};
 use super::{IntoTask, Task, TaskExt, TaskVariant};
 use crate::errors::BridgeError;
 use crate::rpc::clementine::StoppedTasks;
@@ -7,7 +8,7 @@ use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{oneshot, Mutex};
+use tokio::sync::{oneshot, Mutex, RwLock};
 use tokio::task::{AbortHandle, JoinHandle};
 use tokio::time::sleep;
 
@@ -17,25 +18,22 @@ pub enum TaskStatus {
     NotRunning(String),
 }
 
+pub type TaskRegistry =
+    HashMap<TaskVariant, (TaskStatus, AbortHandle, Option<oneshot::Sender<()>>)>;
+
 /// A background task manager that can hold and manage multiple tasks When
 /// dropped, it will abort all tasks. Graceful shutdown can be performed with
 /// `graceful_shutdown`
 #[derive(Debug)]
 pub struct BackgroundTaskManager<T: NamedEntity + Send + 'static> {
-    /// Task handles for spawned tasks
-    abort_handles: HashMap<TaskVariant, AbortHandle>,
-    /// Cancellation senders for tasks
-    cancel_txs: HashMap<TaskVariant, oneshot::Sender<()>>,
-    pub(crate) tasks_status: HashMap<TaskVariant, TaskStatus>,
+    pub(crate) task_registry: Arc<RwLock<TaskRegistry>>,
     phantom: PhantomData<T>,
 }
 
 impl<T: NamedEntity + Send + 'static> Default for BackgroundTaskManager<T> {
     fn default() -> Self {
         Self {
-            abort_handles: HashMap::new(),
-            cancel_txs: HashMap::new(),
-            tasks_status: HashMap::new(),
+            task_registry: Arc::new(RwLock::new(HashMap::new())),
             phantom: PhantomData,
         }
     }
@@ -46,7 +44,7 @@ impl<T: NamedEntity + Send + 'static> BackgroundTaskManager<T> {
         &self,
         handle: JoinHandle<Result<(), BridgeError>>,
         task_variant: TaskVariant,
-        tasks: Arc<Mutex<Self>>,
+        task_registry: Arc<RwLock<TaskRegistry>>,
     ) {
         tokio::spawn(async move {
             let exit_reason = match handle.await {
@@ -73,24 +71,34 @@ impl<T: NamedEntity + Send + 'static> BackgroundTaskManager<T> {
                 }
             };
 
-            let mut tasks = tasks.lock().await;
-            tasks
-                .tasks_status
-                .insert(task_variant, TaskStatus::NotRunning(exit_reason));
+            let mut task_registry = task_registry.write().await;
+            let current_status = task_registry.remove(&task_variant);
+            match current_status {
+                Some((_, abort_handle, cancel_tx)) => {
+                    task_registry.insert(
+                        task_variant,
+                        (TaskStatus::NotRunning(exit_reason), abort_handle, cancel_tx),
+                    );
+                }
+                _ => {}
+            }
         });
     }
 
     /// Checks if a task is running
-    fn is_task_running(&self, variant: TaskVariant) -> bool {
-        self.tasks_status
+    async fn is_task_running(&self, variant: TaskVariant) -> bool {
+        self.task_registry
+            .read()
+            .await
             .get(&variant)
-            .unwrap_or(&TaskStatus::NotRunning("".to_string()))
-            == &TaskStatus::Running
+            .map(|(status, _, _)| status == &TaskStatus::Running)
+            .unwrap_or(false)
     }
 
-    pub fn get_stopped_tasks(&self) -> StoppedTasks {
+    pub async fn get_stopped_tasks(&self) -> StoppedTasks {
         let mut stopped_tasks = vec![];
-        for (variant, status) in &self.tasks_status {
+        let task_registry = self.task_registry.read().await;
+        for (variant, (status, _, _)) in task_registry.iter() {
             match status {
                 TaskStatus::Running => {}
                 TaskStatus::NotRunning(reason) => {
@@ -101,14 +109,16 @@ impl<T: NamedEntity + Send + 'static> BackgroundTaskManager<T> {
         StoppedTasks { stopped_tasks }
     }
 
-    pub fn get_task_status(&self, variant: TaskVariant) -> Option<TaskStatus> {
-        self.tasks_status.get(&variant).cloned()
+    pub async fn get_task_status(&self, variant: TaskVariant) -> Option<TaskStatus> {
+        self.task_registry
+            .read()
+            .await
+            .get(&variant)
+            .map(|(status, _, _)| status.clone())
     }
 
-    /// Wraps the task in a cancelable loop and spawns it in the background with built-in monitoring.
-    ///
-    /// If required, polling should be added **before** a call to this function via `task.into_polling()`
-    pub fn loop_and_monitor<S, U: IntoTask<Task = S>>(&mut self, task: U, tasks: Arc<Mutex<Self>>)
+    /// Wraps the task in a cancelable loop and spawns it, registers it in the task registry.
+    async fn start_and_register_task<S, U: IntoTask<Task = S>>(&self, task: U)
     where
         S: Task + Sized + std::fmt::Debug,
         <S as Task>::Output: Into<bool>,
@@ -122,29 +132,59 @@ impl<T: NamedEntity + Send + 'static> BackgroundTaskManager<T> {
         let variant = S::VARIANT;
 
         // do not start the same task if it is already running
-        if self.is_task_running(variant) {
+        if self.is_task_running(variant).await {
             tracing::debug!("Task {:?} is already running, skipping", variant);
             return;
         }
 
-        self.monitor_spawned_task(bg_task, variant, tasks);
+        self.monitor_spawned_task(bg_task, variant, self.task_registry.clone());
 
-        self.abort_handles.insert(variant, abort_handle);
-        self.cancel_txs.insert(variant, cancel_tx);
-        self.tasks_status.insert(variant, TaskStatus::Running);
+        self.task_registry.write().await.insert(
+            variant,
+            (TaskStatus::Running, abort_handle, Some(cancel_tx)),
+        );
+    }
+
+    /// Wraps the task in a cancelable loop and spawns it in the background with built-in monitoring.
+    ///
+    /// If required, polling should be added **before** a call to this function via `task.into_polling()`
+    pub async fn loop_and_monitor<S, U: IntoTask<Task = S>>(&self, task: U)
+    where
+        S: Task + Sized + std::fmt::Debug,
+        <S as Task>::Output: Into<bool>,
+    {
+        self.start_and_register_task(task).await;
+
+        // start the monitoring task if it is not running
+        if !self.is_task_running(TaskVariant::TaskStatusMonitor).await {
+            self.start_and_register_task(
+                TaskStatusMonitorTask::new(self.task_registry.clone())
+                    .with_delay(TASK_STATUS_MONITOR_POLL_DELAY),
+            )
+            .await;
+        }
+    }
+
+    /// Sends cancel signals to all tasks that have a cancel_tx
+    async fn send_cancel_signals(&self) {
+        let mut task_registry = self.task_registry.write().await;
+        for (variant, (status, abort_handle, cancel_tx)) in task_registry.iter_mut() {
+            let oneshot_tx = cancel_tx.take();
+            if let Some(oneshot_tx) = oneshot_tx {
+                oneshot_tx.send(());
+            }
+        }
     }
 
     /// Abort all tasks by dropping their cancellation senders
-    pub fn abort_all(&mut self) {
-        // Dropping the cancel_txs will trigger cancellation
-        self.cancel_txs.clear();
+    pub async fn abort_all(&mut self) {
+        self.send_cancel_signals().await;
 
         // Also abort the tasks directly for immediate effect
-        for (variant, handle) in &self.abort_handles {
-            handle.abort();
+        let mut task_registry = self.task_registry.write().await;
+        for (variant, (status, abort_handle, cancel_tx)) in task_registry.iter_mut() {
+            abort_handle.abort();
         }
-
-        self.abort_handles.clear();
     }
 
     /// Graceful shutdown of all tasks
@@ -154,18 +194,19 @@ impl<T: NamedEntity + Send + 'static> BackgroundTaskManager<T> {
     /// timeout. The function polls tasks until they are finished with a 100ms
     /// poll interval.
     pub async fn graceful_shutdown(&mut self) {
-        self.cancel_txs.clear();
+        self.send_cancel_signals().await;
 
-        let handles = std::mem::take(&mut self.abort_handles);
-
-        join_all(handles.into_iter().map(|(variant, handle)| async move {
-            loop {
-                if handle.is_finished() {
-                    break;
+        let mut task_registry = self.task_registry.write().await;
+        join_all(task_registry.iter_mut().map(
+            |(variant, (status, abort_handle, cancel_tx))| async move {
+                loop {
+                    if abort_handle.is_finished() {
+                        break;
+                    }
+                    sleep(Duration::from_millis(100)).await;
                 }
-                sleep(Duration::from_millis(100)).await;
-            }
-        }))
+            },
+        ))
         .await;
     }
 

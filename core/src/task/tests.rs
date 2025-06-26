@@ -314,12 +314,11 @@ async fn test_map() {
 #[tokio::test]
 async fn test_task_manager() {
     let counter = Arc::new(Mutex::new(0));
-    let mut manager = Arc::new(Mutex::new(BackgroundTaskManager::<TestOwner>::default()));
-    let mut manager_inner = manager.lock().await;
+    let mut manager = BackgroundTaskManager::<TestOwner>::default();
 
     // Add a task that increments the counter 5 times
     let task = CounterTask::new(Arc::clone(&counter), 5);
-    manager_inner.loop_and_monitor(task, manager.clone());
+    manager.loop_and_monitor(task.clone()).await;
 
     // Sleep to give the task time to run
     sleep(Duration::from_millis(500)).await;
@@ -328,42 +327,40 @@ async fn test_task_manager() {
     assert_eq!(*counter.lock().await, 5);
 
     // Graceful shutdown should allow the task to complete
-    manager_inner.graceful_shutdown().await;
+    manager.graceful_shutdown().await;
 }
 
 #[tokio::test]
 async fn test_task_manager_abort() {
     let counter = Arc::new(Mutex::new(0));
-    let mut manager = Arc::new(Mutex::new(BackgroundTaskManager::<TestOwner>::default()));
-    let mut manager_inner = manager.lock().await;
+    let mut manager = BackgroundTaskManager::<TestOwner>::default();
 
     // Add a task that sleeps for a long time
     let task = SleepTask::new(Duration::from_secs(10));
-    manager_inner.loop_and_monitor(task, manager.clone());
+    manager.loop_and_monitor(task.clone()).await;
 
     // Start a counter task too
     let task = CounterTask::new(Arc::clone(&counter), 100);
-    manager_inner.loop_and_monitor(task, manager.clone());
+    manager.loop_and_monitor(task.clone()).await;
 
     // Sleep for a short time to let tasks start
     sleep(Duration::from_millis(100)).await;
 
     // Abort all tasks
-    manager_inner.abort_all();
+    manager.abort_all().await;
 }
 
 #[tokio::test]
 async fn test_task_manager_timeout() {
-    let mut manager = Arc::new(Mutex::new(BackgroundTaskManager::<TestOwner>::default()));
-    let mut manager_inner = manager.lock().await;
+    let mut manager = BackgroundTaskManager::<TestOwner>::default();
 
     // Add a task that sleeps for a long time
     let task = SleepTask::new(Duration::from_secs(10));
-    manager_inner.loop_and_monitor(task.clone(), manager.clone());
+    manager.loop_and_monitor(task.clone()).await;
 
     // Graceful shutdown with short timeout should abort the task
     let start = Instant::now();
-    manager_inner
+    manager
         .graceful_shutdown_with_timeout(Duration::from_millis(200))
         .await;
     let elapsed = start.elapsed();
@@ -375,44 +372,40 @@ async fn test_task_manager_timeout() {
 #[tokio::test]
 async fn test_task_manager_abort_and_restart() {
     let counter = Arc::new(Mutex::new(0));
-    let mut manager = Arc::new(Mutex::new(BackgroundTaskManager::<TestOwner>::default()));
-    let mut manager_inner = manager.lock().await;
+    let mut manager = BackgroundTaskManager::<TestOwner>::default();
 
     // Add a task that sleeps for a long time
     let sleep_task = SleepTask::new(Duration::from_secs(10));
-    manager_inner.loop_and_monitor(sleep_task.clone(), manager.clone());
+    manager.loop_and_monitor(sleep_task.clone()).await;
 
     // Start a counter task too
     let counter_task = CounterTask::new(Arc::clone(&counter), 100);
-    manager_inner.loop_and_monitor(counter_task.clone(), manager.clone());
+    manager.loop_and_monitor(counter_task.clone()).await;
 
     // Sleep for a short time to let tasks start
     sleep(Duration::from_millis(100)).await;
 
     // Abort all tasks
-    manager_inner.abort_all();
+    manager.abort_all().await;
 
     // check tasks are set as not running
-    drop(manager_inner);
-
     let variants = [TaskVariant::Counter, TaskVariant::Sleep];
     tokio::time::sleep(Duration::from_secs(5)).await;
-    let mut manager_inner = manager.lock().await;
     for variant in variants {
         assert!(matches!(
-            manager_inner.get_task_status(variant),
+            manager.get_task_status(variant).await,
             Some(TaskStatus::NotRunning(_))
         ));
     }
 
     // check if restart works
-    manager_inner.loop_and_monitor(sleep_task.clone(), manager.clone());
-    manager_inner.loop_and_monitor(counter_task.clone(), manager.clone());
+    manager.loop_and_monitor(sleep_task.clone()).await;
+    manager.loop_and_monitor(counter_task.clone()).await;
 
     // check if they are running
     for variant in variants {
         assert!(matches!(
-            manager_inner.get_task_status(variant),
+            manager.get_task_status(variant).await,
             Some(TaskStatus::Running)
         ));
     }

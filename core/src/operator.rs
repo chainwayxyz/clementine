@@ -120,7 +120,7 @@ impl RoundIndex {
 
 pub struct OperatorServer<C: CitreaClientT> {
     pub operator: Operator<C>,
-    background_tasks: Arc<Mutex<BackgroundTaskManager<Operator<C>>>>,
+    background_tasks: BackgroundTaskManager<Operator<C>>,
 }
 
 #[derive(Debug, Clone)]
@@ -143,7 +143,7 @@ where
 {
     pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
         let operator = Operator::new(config.clone()).await?;
-        let background_tasks = Arc::new(Mutex::new(BackgroundTaskManager::default()));
+        let background_tasks = BackgroundTaskManager::default();
 
         Ok(Self {
             operator,
@@ -154,8 +154,6 @@ where
     /// Starts the background tasks for the operator.
     /// If called multiple times, it will restart only the tasks that are not already running.
     pub async fn start_background_tasks(&self) -> Result<(), BridgeError> {
-        let mut tasks = self.background_tasks.lock().await;
-
         // initialize and run state manager
         #[cfg(feature = "automation")]
         {
@@ -176,20 +174,22 @@ where
             };
 
             if should_run_state_mgr {
-                tasks.loop_and_monitor(
-                    state_manager.block_fetcher_task().await?,
-                    self.background_tasks.clone(),
-                );
-                tasks.loop_and_monitor(state_manager.into_task(), self.background_tasks.clone());
+                self.background_tasks
+                    .loop_and_monitor(state_manager.block_fetcher_task().await?)
+                    .await;
+                self.background_tasks
+                    .loop_and_monitor(state_manager.into_task())
+                    .await;
             }
         }
 
         // run payout checker task
-        tasks.loop_and_monitor(
-            PayoutCheckerTask::new(self.operator.db.clone(), self.operator.clone())
-                .with_delay(PAYOUT_CHECKER_POLL_DELAY),
-            self.background_tasks.clone(),
-        );
+        self.background_tasks
+            .loop_and_monitor(
+                PayoutCheckerTask::new(self.operator.db.clone(), self.operator.clone())
+                    .with_delay(PAYOUT_CHECKER_POLL_DELAY),
+            )
+            .await;
 
         tracing::info!("Payout checker task started");
 
@@ -201,25 +201,16 @@ where
             tracing::info!("Operator round state tracked");
         }
 
-        // run task status monitor
-        tasks.loop_and_monitor(
-            TaskStatusMonitorTask::new(self.background_tasks.clone())
-                .with_delay(TASK_STATUS_MONITOR_POLL_DELAY),
-            self.background_tasks.clone(),
-        );
-
         Ok(())
     }
 
     pub async fn get_current_status(&self) -> Result<StoppedTasks, BridgeError> {
-        let mut tasks = self.background_tasks.lock().await;
-        let stopped_tasks = tasks.get_stopped_tasks();
+        let stopped_tasks = self.background_tasks.get_stopped_tasks().await;
         Ok(stopped_tasks)
     }
 
     pub async fn shutdown(&mut self) {
-        let mut tasks = self.background_tasks.lock().await;
-        tasks.graceful_shutdown().await;
+        self.background_tasks.graceful_shutdown().await;
     }
 }
 
