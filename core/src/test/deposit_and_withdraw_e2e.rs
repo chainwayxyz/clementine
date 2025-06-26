@@ -8,6 +8,7 @@ use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE};
 use crate::citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER};
 use crate::config::protocol::{self, ProtocolParamset};
+use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::deposit::{self, BaseDepositData, DepositInfo, DepositType, KickoffData};
 use crate::errors::ResultExt;
@@ -57,6 +58,7 @@ use eyre::Context;
 use futures::future::join_all;
 use futures::future::try_join_all;
 use once_cell::sync::{Lazy, OnceCell};
+use secp256k1::SECP256K1;
 use serde::Serialize;
 use sha2::digest::generic_array::sequence;
 use statig::Response::Transition;
@@ -1718,7 +1720,7 @@ impl TestCase for ConcurrentDepositsAndWithdrawals {
             )
             .await;
         }
-        rpc.mine_blocks(7).await.unwrap();
+        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
 
         for (i, txid) in move_txids.iter().enumerate() {
             let rpc = rpc.clone();
@@ -1729,12 +1731,18 @@ impl TestCase for ConcurrentDepositsAndWithdrawals {
 
             poll_until_condition(
                 async move || {
+                    if rpc.client.get_mempool_entry(&txid).await.is_ok() {
+                        return Err(eyre::eyre!(
+                            "Txid {:?} still in mempool after mining!",
+                            txid
+                        ));
+                    }
+
                     let tx = rpc.client.get_raw_transaction(&txid, None).await?;
                     let tx_info = rpc.client.get_raw_transaction_info(&txid, None).await?;
                     let block = rpc.client.get_block(&tx_info.blockhash.unwrap()).await?;
                     let block_height =
                         rpc.client.get_block_info(&block.block_hash()).await?.height as u64;
-                    println!("Block height: {:?}", block_height);
 
                     citrea::wait_until_lc_contract_updated(
                         sequencer_client.http_client(),
@@ -1786,103 +1794,40 @@ impl TestCase for ConcurrentDepositsAndWithdrawals {
                 None,
                 None,
             )
-            .await;
+            .await?;
         }
 
-        // let (withdrawal_utxo, payout_txout, sig) =
-        //     make_withdrawal(&rpc, &config, sequencer, lc_prover, batch_prover, da).await?;
+        let mut operator0s = (0..count).map(|_| operators[0].clone()).collect::<Vec<_>>();
+        let mut withdrawal_requests = Vec::new();
+        for (i, mut operator) in operator0s.iter_mut().enumerate() {
+            let (withdrawal_utxo, payout_txout, sig) =
+                make_withdrawal(&rpc, &config, sequencer, lc_prover, batch_prover, da).await?;
 
-        // let mut operator_0 = operators[0].clone();
-        // let mut operator_1 = operators[1].clone();
-        // let rpc_clone = rpc.clone();
-        // poll_until_condition(
-        //     async move || {
-        //         let withdrawal_futures = vec![
-        //             operator_0.withdraw(WithdrawParams {
-        //                 withdrawal_id: 0,
-        //                 input_signature: sig.serialize().to_vec(),
-        //                 input_outpoint: Some(withdrawal_utxo.into()),
-        //                 output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
-        //                 output_amount: payout_txout.value.to_sat(),
-        //             }),
-        //             operator_1.withdraw(WithdrawParams {
-        //                 withdrawal_id: 0,
-        //                 input_signature: sig.serialize().to_vec(),
-        //                 input_outpoint: Some(withdrawal_utxo.into()),
-        //                 output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
-        //                 output_amount: payout_txout.value.to_sat(),
-        //             }),
-        //         ];
+            withdrawal_requests.push(operator.withdraw(WithdrawParams {
+                withdrawal_id: i as u32,
+                input_signature: sig.serialize().to_vec(),
+                input_outpoint: Some(withdrawal_utxo.into()),
+                output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
+                output_amount: payout_txout.value.to_sat(),
+            }));
+        }
 
-        //         let withdrawal_responses = join_all(withdrawal_futures).await;
-        //         println!("Withdrawal responses: {:?}", withdrawal_responses);
+        let withdrawal_txids: Vec<Txid> = try_join_all(withdrawal_requests)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|encoded_withdrawal_tx| {
+                encoded_withdrawal_tx
+                    .into_inner()
+                    .txid
+                    .unwrap()
+                    .try_into()
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+        println!("Withdrawal txids: {:?}", withdrawal_txids);
 
-        //         Ok(withdrawal_responses
-        //             .into_iter()
-        //             .find_map(|res: Result<Response<WithdrawResponse>, tonic::Status>| {
-        //                 match res {
-        //                     Ok(response) => {
-        //                         let withdrawal_response = response.into_inner();
-        //                         let payout_txid = Txid::from_byte_array(
-        //                             withdrawal_response.txid.unwrap().txid.try_into().unwrap(),
-        //                         );
-        //                         println!("Payout txid: {:?}", payout_txid);
-        //                         // Note: This is a sync context, so you can't .await here.
-        //                         // If you need to await, you must refactor this logic.
-        //                         // For now, just return Some(true) to satisfy the type checker.
-        //                         Some(true)
-        //                     }
-        //                     Err(e) => {
-        //                         println!("Withdrawal error: {:?}", e);
-        //                         None
-        //                     }
-        //                 }
-        //             })
-        //             .unwrap_or_else(|| false))
-        //         // Ok(false)
-
-        //         // let withdrawal_response = operator_0
-        //         //     .withdraw(WithdrawParams {
-        //         //         withdrawal_id: 0,
-        //         //         input_signature: sig.serialize().to_vec(),
-        //         //         input_outpoint: Some(withdrawal_utxo.into()),
-        //         //         output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
-        //         //         output_amount: payout_txout.value.to_sat(),
-        //         //     })
-        //         //     .await;
-
-        //         // let withdrawal_response = match withdrawal_responses {
-        //         //     Ok(responses) => responses,
-        //         //     Err(e) => {
-        //         //         tracing::error!("Withdrawal error: {:?}", e);
-        //         //         return Ok(false);
-        //         //     }
-        //         // };
-        //         // tracing::debug!("Withdrawal response: {:?}", withdrawal_responses);
-        //         // let withdrawal_response = withdrawal_responses[0];
-
-        //         // let payout_txid = Txid::from_byte_array(
-        //         //     withdrawal_response
-        //         //         .into_inner()
-        //         //         .txid
-        //         //         .unwrap()
-        //         //         .txid
-        //         //         .try_into()
-        //         //         .unwrap(),
-        //         // );
-
-        //         // tracing::info!("Payout txid: {:?}", payout_txid);
-        //         // mine_once_after_in_mempool(&rpc_clone, payout_txid, Some("Payout tx"), None)
-        //         //     .await?;
-
-        //         // Ok(true)
-        //     },
-        //     None,
-        //     None,
-        // )
-        // .await?;
-
-        // rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
+        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
 
         Ok(())
     }

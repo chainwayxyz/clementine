@@ -97,11 +97,9 @@ pub async fn make_withdrawal(
     batch_prover: &Node<BatchProverConfig>,
     da: &BitcoinNode,
 ) -> citrea_e2e::Result<(OutPoint, TxOut, schnorr::Signature)> {
-    // This can be made a parameter if needed.
-    let user_sk = SecretKey::from_slice(&[13u8; 32]).unwrap();
     let withdrawal_address = Address::p2tr(
         &SECP,
-        user_sk.x_only_public_key(&SECP).0,
+        config.secret_key.x_only_public_key(&SECP).0,
         None,
         config.protocol_paramset().network,
     );
