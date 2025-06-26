@@ -14,8 +14,8 @@ use circuits_lib::{
     },
     header_chain::BlockHeaderCircuitOutput,
 };
-use risc0_zkvm::Receipt;
 use eyre::Result;
+use risc0_zkvm::Receipt;
 
 use crate::utils::get_ark_verifying_key;
 use thiserror::Error;
@@ -187,8 +187,9 @@ impl BridgeCircuitHostParams {
             get_all_pubkeys(&kickoff_tx, watchtower_challenge_connector_start_idx)?;
 
         let storage_proof_utxo: EIP1186StorageProof =
-            serde_json::from_str(&storage_proof.storage_proof_utxo)
-                .map_err(|e| BridgeCircuitHostParamsError::StorageProofDeserializationError(e.to_string()))?;
+            serde_json::from_str(&storage_proof.storage_proof_utxo).map_err(|e| {
+                BridgeCircuitHostParamsError::StorageProofDeserializationError(e.to_string())
+            })?;
 
         let wd_txid_bytes: [u8; 32] = storage_proof_utxo.value.to_be_bytes();
 
@@ -400,12 +401,14 @@ impl SuccinctBridgeCircuitPublicInputs {
     /// - Block hash extraction fails
     /// - Deposit constant calculation fails
     /// - Watchtower challenge verification fails
-    pub fn new(bridge_circuit_input: BridgeCircuitInput) -> Result<Self, BridgeCircuitHostParamsError> {
+    pub fn new(
+        bridge_circuit_input: BridgeCircuitInput,
+    ) -> Result<Self, BridgeCircuitHostParamsError> {
         let latest_block_hash: LatestBlockhash =
             bridge_circuit_input.hcp.chain_state.best_block_hash[12..32]
                 .try_into()
                 .map_err(|_| BridgeCircuitHostParamsError::InvalidKickoffTx)?;
-        
+
         let payout_tx_block_hash: PayoutTxBlockhash = bridge_circuit_input
             .payout_spv
             .block_header
@@ -459,13 +462,20 @@ impl SuccinctBridgeCircuitPublicInputs {
 /// - Storage proof deserialization fails
 /// - Operator public key parsing fails
 /// - Round transaction ID validation fails
-fn host_deposit_constant(input: &BridgeCircuitInput) -> Result<DepositConstant, BridgeCircuitHostParamsError> {
-    let last_output = input.payout_spv.transaction.output.last()
+fn host_deposit_constant(
+    input: &BridgeCircuitInput,
+) -> Result<DepositConstant, BridgeCircuitHostParamsError> {
+    let last_output = input
+        .payout_spv
+        .transaction
+        .output
+        .last()
         .ok_or(BridgeCircuitHostParamsError::MissingKickoffOutputs)?;
 
     let deposit_storage_proof: EIP1186StorageProof =
-        serde_json::from_str(&input.sp.storage_proof_deposit_txid)
-            .map_err(|e| BridgeCircuitHostParamsError::StorageProofDeserializationError(e.to_string()))?;
+        serde_json::from_str(&input.sp.storage_proof_deposit_txid).map_err(|e| {
+            BridgeCircuitHostParamsError::StorageProofDeserializationError(e.to_string())
+        })?;
 
     let round_txid = input.kickoff_tx.input[0]
         .previous_output
@@ -592,7 +602,10 @@ impl BridgeCircuitBitvmInputs {
     /// - Proof verification fails
     /// - Public input calculation fails
     /// - Verifying key retrieval fails
-    pub fn verify_bridge_circuit(&self, proof: ark_groth16::Proof<Bn254>) -> Result<bool, BridgeCircuitHostParamsError> {
+    pub fn verify_bridge_circuit(
+        &self,
+        proof: ark_groth16::Proof<Bn254>,
+    ) -> Result<bool, BridgeCircuitHostParamsError> {
         let mut hasher = blake3::Hasher::new();
         hasher.update(&self.payout_tx_block_hash);
         hasher.update(&self.latest_block_hash);
