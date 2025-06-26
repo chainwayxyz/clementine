@@ -57,7 +57,7 @@ Before compiling Clementine:
 
 Before running Clementine:
 
-1. Install and configure a Bitcoin node (at least v28.0)
+1. Install and configure a Bitcoin node (at least v29.0)
 2. Install and configure PostgreSQL
 3. Set `RUST_MIN_STACK` to at least 33554432
 
