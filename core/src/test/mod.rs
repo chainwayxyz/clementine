@@ -1,3 +1,7 @@
+//! Note to developer: Guard the new integration test files with the
+//! `#[cfg(feature = "integration-tests")]` attribute (see #testing-clementine
+//! in [`super`]).
+
 pub mod common;
 #[cfg(all(feature = "automation", feature = "integration-tests"))]
 mod deposit_and_withdraw_e2e;
