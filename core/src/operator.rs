@@ -1377,7 +1377,7 @@ where
             payout_block_height,
             self.config.protocol_paramset().genesis_height,
             payout_tx_index as u32,
-        );
+        )?;
         tracing::info!("Calculated spv proof in send_asserts");
 
         let mut wt_contexts = Vec::new();

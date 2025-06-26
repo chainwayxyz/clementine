@@ -1976,6 +1976,7 @@ dependencies = [
  "borsh",
  "crypto-bigint",
  "derive_more 1.0.0",
+ "eyre",
  "hex",
  "hex-literal",
  "itertools 0.14.0",
@@ -1992,6 +1993,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "sov-rollup-interface 0.7.0",
+ "tracing",
 ]
 
 [[package]]

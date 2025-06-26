@@ -124,7 +124,7 @@ mod tests {
             mmr_native.append(header.compute_block_hash());
             mmr_guest.append(header.compute_block_hash());
             for j in 0..i {
-                let (mmr_leaf, mmr_proof) = mmr_native.generate_proof(j as u32);
+                let (mmr_leaf, mmr_proof) = mmr_native.generate_proof(j as u32).unwrap();
                 assert!(mmr_native.verify_proof(mmr_leaf, &mmr_proof));
                 assert_eq!(mmr_leaf, block_headers[j].compute_block_hash());
                 let spv = SPV::new(
