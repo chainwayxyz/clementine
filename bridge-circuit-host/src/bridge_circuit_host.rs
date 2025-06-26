@@ -153,7 +153,7 @@ pub fn prove_bridge_circuit(
     }
 
     let public_inputs: SuccinctBridgeCircuitPublicInputs =
-        SuccinctBridgeCircuitPublicInputs::new(bridge_circuit_input.clone());
+        SuccinctBridgeCircuitPublicInputs::new(bridge_circuit_input.clone())?;
 
     let journal_hash = public_inputs.host_journal_hash();
 
