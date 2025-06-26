@@ -1,7 +1,8 @@
 test_unit:
-	cargo test --all-features
+	cargo test --features automation
 
 test_integration:
+	cargo test --package clementine-core --lib --all-features -- test::common --show-output
 	cargo test --package clementine-core --lib --all-features -- test::deposit_and_withdraw_e2e --show-output
 	cargo test --package clementine-core --lib --all-features -- test::full_flow --show-output
 	cargo test --package clementine-core --lib --all-features -- test::musig2 --show-output
@@ -12,3 +13,4 @@ test_integration:
 	cargo test --package clementine-core --lib --all-features -- test::additional_disprove_scripts --show-output
 	cargo test --package clementine-core --lib --all-features -- test::bitvm_disprove_scripts --show-output
 	cargo test --package clementine-core --lib --all-features -- test::watchtower_challenge --show-output
+	cargo test --package clementine-core --lib --all-features -- test::bitvm_scripts --show-output

@@ -1,34 +1,33 @@
 pub mod common;
-#[cfg(feature = "automation")]
-#[ignore]
+#[cfg(all(feature = "automation", feature = "integration-tests"))]
 mod deposit_and_withdraw_e2e;
-#[cfg(feature = "automation")]
-#[ignore]
+#[cfg(all(feature = "automation", feature = "integration-tests"))]
 mod full_flow;
-#[ignore]
+
+#[cfg(feature = "integration-tests")]
 mod musig2;
-#[ignore]
+
+#[cfg(feature = "integration-tests")]
 mod rpc_auth;
-#[cfg(feature = "automation")]
-#[ignore]
+#[cfg(all(feature = "automation", feature = "integration-tests"))]
 mod state_manager;
-#[ignore]
+
+#[cfg(feature = "integration-tests")]
 mod taproot;
-#[ignore]
+
+#[cfg(feature = "integration-tests")]
 mod withdraw;
 
-#[cfg(feature = "automation")]
-#[ignore]
+#[cfg(all(feature = "automation", feature = "integration-tests"))]
 mod additional_disprove_scripts;
 
-#[cfg(feature = "automation")]
-#[ignore]
+#[cfg(all(feature = "automation", feature = "integration-tests"))]
 mod bitvm_disprove_scripts;
 
-#[cfg(feature = "automation")]
-#[ignore]
+#[cfg(all(feature = "automation", feature = "integration-tests"))]
 mod watchtower_challenge;
 
+#[cfg(feature = "integration-tests")]
 mod bitvm_script;
 
 use ctor::ctor;

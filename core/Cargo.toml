@@ -6,6 +6,7 @@ rust-version = "1.85.0"
 
 [features]
 automation = []
+integration-tests = ["automation"]
 
 [build-dependencies]
 tonic-build = "0.12"
