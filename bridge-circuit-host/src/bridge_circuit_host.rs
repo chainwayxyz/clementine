@@ -32,10 +32,26 @@ pub const MAINNET_BRIDGE_CIRCUIT_ELF: &[u8] =
 pub const SIGNET_BRIDGE_CIRCUIT_ELF: &[u8] =
     include_bytes!("../../risc0-circuits/elfs/signet-bridge-circuit-guest.bin");
 
-const _BRIDGE_CIRCUIT_ELF: &[u8] =
-    include_bytes!("../../risc0-circuits/elfs/testnet4-bridge-circuit-guest.bin");
-const TESTNET4_WORK_ONLY_ELF: &[u8] =
+pub const TESTNET4_HEADER_CHAIN_GUEST_ELF: &[u8] =
+    include_bytes!("../../risc0-circuits/elfs/testnet4-header-chain-guest.bin");
+
+pub const MAINNET_HEADER_CHAIN_ELF: &[u8] =
+    include_bytes!("../../risc0-circuits/elfs/mainnet-header-chain-guest.bin");
+pub const TESTNET4_HEADER_CHAIN_ELF: &[u8] =
+    include_bytes!("../../risc0-circuits/elfs/testnet4-header-chain-guest.bin");
+pub const SIGNET_HEADER_CHAIN_ELF: &[u8] =
+    include_bytes!("../../risc0-circuits/elfs/signet-header-chain-guest.bin");
+pub const REGTEST_HEADER_CHAIN_ELF: &[u8] =
+    include_bytes!("../../risc0-circuits/elfs/regtest-header-chain-guest.bin");
+
+pub const MAINNET_WORK_ONLY_ELF: &[u8] =
+    include_bytes!("../../risc0-circuits/elfs/mainnet-work-only-guest.bin");
+pub const TESTNET4_WORK_ONLY_ELF: &[u8] =
     include_bytes!("../../risc0-circuits/elfs/testnet4-work-only-guest.bin");
+pub const SIGNET_WORK_ONLY_ELF: &[u8] =
+    include_bytes!("../../risc0-circuits/elfs/signet-work-only-guest.bin");
+pub const REGTEST_WORK_ONLY_ELF: &[u8] =
+    include_bytes!("../../risc0-circuits/elfs/regtest-work-only-guest.bin");
 
 /// Generates a Groth16 proof for the Bridge Circuit after performing sanity checks.
 ///
@@ -327,12 +343,6 @@ mod tests {
 
     // const TEST_BRIDGE_CIRCUIT_ELF: &[u8] =
     //     include_bytes!("../../risc0-circuits/elfs/test-testnet4-bridge-circuit-guest.bin");
-
-    const TESTNET4_HEADER_CHAIN_GUEST_ELF: &[u8] =
-        include_bytes!("../../risc0-circuits/elfs/testnet4-header-chain-guest.bin");
-
-    const TESTNET4_WORK_ONLY_ELF: &[u8] =
-        include_bytes!("../../risc0-circuits/elfs/testnet4-work-only-guest.bin");
 
     use borsh::BorshDeserialize;
     use circuits_lib::{

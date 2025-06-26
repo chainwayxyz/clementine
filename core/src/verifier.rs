@@ -10,6 +10,8 @@ use crate::builder::script::{
 use crate::builder::sighash::{
     create_nofn_sighash_stream, create_operator_sighash_stream, PartialSignatureInfo, SignatureInfo,
 };
+#[cfg(test)]
+use crate::builder::transaction::challenge;
 use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::input::UtxoVout;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
@@ -183,7 +185,8 @@ pub struct Verifier<C: CitreaClientT> {
     pub(crate) nonces: Arc<tokio::sync::Mutex<AllSessions>>,
     #[cfg(feature = "automation")]
     pub tx_sender: TxSenderClient,
-    pub header_chain_prover: Option<HeaderChainProver>,
+    #[cfg(feature = "automation")]
+    pub header_chain_prover: HeaderChainProver,
     pub citrea_client: C,
 }
 
@@ -224,11 +227,8 @@ where
         #[cfg(feature = "automation")]
         let tx_sender = TxSenderClient::new(db.clone(), "verifier_".to_string());
 
-        let header_chain_prover = if std::env::var("ENABLE_HEADER_CHAIN_PROVER").is_ok() {
-            Some(HeaderChainProver::new(&config, rpc.clone()).await?)
-        } else {
-            None
-        };
+        #[cfg(feature = "automation")]
+        let header_chain_prover = HeaderChainProver::new(&config, rpc.clone()).await?;
 
         let verifier = Verifier {
             rpc,
@@ -238,6 +238,7 @@ where
             nonces: Arc::new(tokio::sync::Mutex::new(all_sessions)),
             #[cfg(feature = "automation")]
             tx_sender,
+            #[cfg(feature = "automation")]
             header_chain_prover,
             citrea_client,
         };
@@ -1396,18 +1397,20 @@ where
         Ok(true)
     }
 
+    #[cfg(feature = "automation")]
     async fn send_watchtower_challenge(
         &self,
         kickoff_data: KickoffData,
         deposit_data: DepositData,
     ) -> Result<(), BridgeError> {
-        let hcp_prover = self
+        let current_tip_hcp = self
             .header_chain_prover
-            .as_ref()
-            .ok_or(HeaderChainProverError::HeaderChainProverNotInitialized)?;
-        let current_tip_hcp = hcp_prover.get_tip_header_chain_proof().await?;
+            .get_tip_header_chain_proof()
+            .await?;
 
-        let (work_only_proof, work_output) = hcp_prover.prove_work_only(current_tip_hcp.0)?;
+        let (work_only_proof, work_output) = self
+            .header_chain_prover
+            .prove_work_only(current_tip_hcp.0)?;
 
         #[cfg(test)]
         {
@@ -2384,11 +2387,13 @@ where
         self.update_finalized_payouts(&mut dbtx, block_id, &block_cache)
             .await?;
 
-        if let Some(header_chain_prover) = &self.header_chain_prover {
-            header_chain_prover
+        #[cfg(feature = "automation")]
+        {
+            // Save unproven block cache to the database
+            self.header_chain_prover
                 .save_unproven_block_cache(Some(&mut dbtx), &block_cache)
                 .await?;
-            while let Some(_) = header_chain_prover.prove_if_ready().await? {
+            while let Some(_) = self.header_chain_prover.prove_if_ready().await? {
                 // Continue until prove_if_ready returns None
                 // If it doesn't return None, it means next batch_size amount of blocks were proven
             }
@@ -2736,6 +2741,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(feature = "automation")]
     async fn test_database_operations_idempotency() {
         let mut config = create_test_config_with_thread_name().await;
         let _regtest = create_regtest_rpc(&mut config).await;
@@ -2745,35 +2751,35 @@ mod tests {
             .unwrap();
 
         // Test header chain prover save operation idempotency
-        if let Some(ref header_chain_prover) = verifier.header_chain_prover {
-            let test_block = Block {
-                header: bitcoin::block::Header {
-                    version: bitcoin::block::Version::ONE,
-                    prev_blockhash: bitcoin::BlockHash::all_zeros(),
-                    merkle_root: bitcoin::TxMerkleNode::all_zeros(),
-                    time: 1234567890,
-                    bits: bitcoin::CompactTarget::from_consensus(0x207fffff),
-                    nonce: 12345,
-                },
-                txdata: vec![], // empty transactions
-            };
-            let block_cache = block_cache::BlockCache::from_block(&test_block, 100u32);
+        let test_block = Block {
+            header: bitcoin::block::Header {
+                version: bitcoin::block::Version::ONE,
+                prev_blockhash: bitcoin::BlockHash::all_zeros(),
+                merkle_root: bitcoin::TxMerkleNode::all_zeros(),
+                time: 1234567890,
+                bits: bitcoin::CompactTarget::from_consensus(0x207fffff),
+                nonce: 12345,
+            },
+            txdata: vec![], // empty transactions
+        };
+        let block_cache = block_cache::BlockCache::from_block(&test_block, 100u32);
 
-            // First save
-            let mut dbtx1 = verifier.db.begin_transaction().await.unwrap();
-            let result1 = header_chain_prover
-                .save_unproven_block_cache(Some(&mut dbtx1), &block_cache)
-                .await;
-            assert!(result1.is_ok(), "First save should succeed");
-            dbtx1.commit().await.unwrap();
+        // First save
+        let mut dbtx1 = verifier.db.begin_transaction().await.unwrap();
+        let result1 = verifier
+            .header_chain_prover
+            .save_unproven_block_cache(Some(&mut dbtx1), &block_cache)
+            .await;
+        assert!(result1.is_ok(), "First save should succeed");
+        dbtx1.commit().await.unwrap();
 
-            // Second save with same data should be idempotent
-            let mut dbtx2 = verifier.db.begin_transaction().await.unwrap();
-            let result2 = header_chain_prover
-                .save_unproven_block_cache(Some(&mut dbtx2), &block_cache)
-                .await;
-            assert!(result2.is_ok(), "Second save should succeed (idempotent)");
-            dbtx2.commit().await.unwrap();
-        }
+        // Second save with same data should be idempotent
+        let mut dbtx2 = verifier.db.begin_transaction().await.unwrap();
+        let result2 = verifier
+            .header_chain_prover
+            .save_unproven_block_cache(Some(&mut dbtx2), &block_cache)
+            .await;
+        assert!(result2.is_ok(), "Second save should succeed (idempotent)");
+        dbtx2.commit().await.unwrap();
     }
 }

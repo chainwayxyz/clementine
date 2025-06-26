@@ -257,9 +257,28 @@ where
             watchtower_index,
             commit_data,
             self.config.protocol_paramset(),
+            #[cfg(test)]
+            &self.config.test_params,
         )?;
 
         let merkle_root = watchtower_challenge_txhandler.get_merkle_root_of_txin(0)?;
+
+        #[cfg(test)]
+        let mut annex: Option<Vec<u8>> = None;
+
+        // #[cfg(test)]
+        // let mut additional_op_return = None;
+
+        #[cfg(test)]
+        {
+            if self.config.test_params.use_small_annex {
+                annex = Some(vec![80u8; 10000]);
+            } else if self.config.test_params.use_large_annex {
+                annex = Some(vec![80u8; 3990000]);
+            } else if self.config.test_params.use_large_annex_and_output {
+                annex = Some(vec![80u8; 3000000]);
+            }
+        }
 
         Ok((
             TransactionType::WatchtowerChallenge(watchtower_index),
@@ -267,6 +286,8 @@ where
             RbfSigningInfo {
                 vout: 0,
                 tweak_merkle_root: merkle_root,
+                #[cfg(test)]
+                annex,
             },
         ))
     }

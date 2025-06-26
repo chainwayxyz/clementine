@@ -41,6 +41,18 @@ pub struct TestParams {
     /// A flag to generate blocks to the address of the wallet.
     pub generate_to_address: bool,
 
+    /// A flag to indicate whether to use small annexes in the watchtower challenge transactions.
+    pub use_small_annex: bool,
+
+    /// A flag to indicate whether to use large annexes in the watchtower challenge transactions.
+    pub use_large_annex: bool,
+
+    /// A flag to indicate whether to use large outputs in the watchtower challenge transactions.
+    pub use_large_output: bool,
+
+    /// A flag to indicate whether to use large annexes and outputs in the watchtower challenge transactions.
+    pub use_large_annex_and_output: bool,
+
     #[serde(default)]
     pub timeout_params: TimeoutTestParams,
 }
@@ -172,6 +184,10 @@ impl Default for TestParams {
             disrupt_challenge_sending_watchtowers_commit: false,
             operator_forgot_watchtower_challenge: false,
             corrupted_asserts: false,
+            use_small_annex: false,
+            use_large_annex: false,
+            use_large_output: false,
+            use_large_annex_and_output: false,
             timeout_params: TimeoutTestParams::default(),
             generate_to_address: true,
         }

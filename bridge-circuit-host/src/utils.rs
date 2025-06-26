@@ -5,13 +5,6 @@ use risc0_zkvm::{sha::Digestible, SuccinctReceiptVerifierParameters, SystemState
 use sha2::{Digest, Sha256};
 use std::str::FromStr;
 
-pub fn reverse_bits_and_copy(input: &[u8], output: &mut [u8]) {
-    for i in 0..8 {
-        let temp = u32::from_be_bytes(input[4 * i..4 * i + 4].try_into().unwrap()).reverse_bits();
-        output[4 * i..4 * i + 4].copy_from_slice(&temp.to_le_bytes());
-    }
-}
-
 /// This is the test Verifying Key of the STARK-to-BitVM2 Groth16 proof Circom circuit.
 pub fn get_ark_verifying_key() -> ark_groth16::VerifyingKey<Bn254> {
     let alpha_g1 = G1Affine::new(
