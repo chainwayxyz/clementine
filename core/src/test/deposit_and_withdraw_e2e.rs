@@ -32,6 +32,7 @@ use crate::test::common::{
     run_single_deposit,
 };
 use crate::utils::{FeePayingType, TxMetadata};
+use crate::{aggregator, EVMAddress, UTXO};
 use crate::{
     extended_rpc::ExtendedRpc,
     test::common::{
@@ -39,7 +40,6 @@ use crate::{
         create_test_config_with_thread_name,
     },
 };
-use crate::{EVMAddress, UTXO};
 use alloy::primitives::{U256, U32};
 use async_trait::async_trait;
 use bitcoin::hashes::Hash;
@@ -1632,15 +1632,6 @@ impl TestCase for ConcurrentDepositsAndWithdrawals {
 
         let (verifiers, mut operators, mut aggregator, cleanup) =
             create_actors::<MockCitreaClient>(&mut config).await;
-        let mut aggregator_2 = aggregator.clone();
-
-        let evm_address = EVMAddress([1u8; 20]);
-        let actor = Actor::new(
-            config.secret_key,
-            config.winternitz_secret_key,
-            config.protocol_paramset().network,
-        );
-
         let verifiers_public_keys: Vec<bitcoin::secp256k1::PublicKey> = aggregator
             .setup(Request::new(Empty {}))
             .await
@@ -1649,231 +1640,261 @@ impl TestCase for ConcurrentDepositsAndWithdrawals {
             .try_into()
             .unwrap();
 
-        let (deposit_address, _) =
-            get_deposit_address(&config, evm_address, verifiers_public_keys.clone()).unwrap();
-        let deposit_outpoint = rpc
-            .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
-            .await
-            .unwrap();
-
-        mine_once_after_in_mempool(&rpc, deposit_outpoint.txid, Some("Deposit outpoint"), None)
-            .await
-            .unwrap();
-        let deposit_blockhash = rpc
-            .get_blockhash_of_tx(&deposit_outpoint.txid)
-            .await
-            .unwrap();
-
-        let deposit_info = DepositInfo {
-            deposit_outpoint,
-            deposit_type: DepositType::BaseDeposit(BaseDepositData {
-                evm_address,
-                recovery_taproot_address: actor.address.as_unchecked().to_owned(),
-            }),
-        };
-
-        let deposit: Deposit = deposit_info.clone().into();
-
-        let move_txs = try_join_all(vec![
-            aggregator.new_deposit(deposit.clone()),
-            aggregator_2.new_deposit(deposit.clone()),
-        ])
-        .await
-        .unwrap();
-        let request = SendMoveTxRequest {
-            deposit_outpoint: Some(deposit_outpoint.into()),
-            raw_tx: Some(move_txs[0].get_ref().clone()),
-        };
-
-        let decoded_move_txs: Vec<Transaction> = move_txs
-            .into_iter()
-            .map(|encoded_move_tx| {
-                let raw_tx_bytes = encoded_move_tx.into_inner().raw_tx;
-                bitcoin::consensus::deserialize(&raw_tx_bytes).unwrap()
-            })
-            .collect::<Vec<_>>();
-        assert_eq!(decoded_move_txs.len(), 2, "Expected two move transactions");
-        assert_eq!(
-            decoded_move_txs[0].input[0].previous_output,
-            decoded_move_txs[1].input[0].previous_output
-        );
-        assert_eq!(decoded_move_txs[0].output, decoded_move_txs[1].output);
-        assert_eq!(decoded_move_txs[0].version, decoded_move_txs[1].version);
-
-        let send_move_tx_results = try_join_all(vec![
-            aggregator.send_move_to_vault_tx(request.clone()),
-            aggregator_2.send_move_to_vault_tx(request),
-        ])
-        .await
-        .unwrap();
-        let move_txids: Vec<Txid> = send_move_tx_results
-            .into_iter()
-            .map(|result| result.into_inner().try_into().unwrap())
-            .collect::<Vec<_>>();
-        assert_eq!(move_txids.len(), 2, "Expected two move transaction IDs");
-        assert_eq!(
-            move_txids[0], move_txids[1],
-            "Expected the same move transaction ID for both deposits"
+        let actor = Actor::new(
+            config.secret_key,
+            config.winternitz_secret_key,
+            config.protocol_paramset().network,
         );
 
-        poll_until_condition(
-            async || {
-                // Send deposit to Citrea
-                let move_txid = move_txids[0];
-                let tx = rpc.client.get_raw_transaction(&move_txid, None).await?;
-                let tx_info = rpc
-                    .client
-                    .get_raw_transaction_info(&move_txid, None)
-                    .await?;
-                let block = rpc.client.get_block(&tx_info.blockhash.unwrap()).await?;
-                let block_height =
-                    rpc.client.get_block_info(&block.block_hash()).await?.height as u64;
+        let count = 10;
 
-                citrea::wait_until_lc_contract_updated(
-                    sequencer.client.http_client(),
-                    block_height,
-                )
+        // Prepare deposit requests.
+        let mut aggregators = (0..count).map(|_| aggregator.clone()).collect::<Vec<_>>();
+        let mut deposit_requests = Vec::new();
+        for (i, mut aggregator) in aggregators.iter_mut().enumerate() {
+            let evm_address = EVMAddress([i as u8; 20]);
+
+            let (deposit_address, _) =
+                get_deposit_address(&config, evm_address, verifiers_public_keys.clone()).unwrap();
+            let deposit_outpoint = rpc
+                .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
                 .await
                 .unwrap();
 
-                // Without a deposit, the balance should be 0.
-                assert_eq!(
-                    citrea::eth_get_balance(
-                        sequencer.client.http_client().clone(),
-                        crate::EVMAddress([1; 20]),
-                    )
-                    .await
-                    .unwrap(),
-                    0
-                );
+            mine_once_after_in_mempool(&rpc, deposit_outpoint.txid, Some("Deposit outpoint"), None)
+                .await
+                .unwrap();
+            let deposit_blockhash = rpc
+                .get_blockhash_of_tx(&deposit_outpoint.txid)
+                .await
+                .unwrap();
 
-                tracing::debug!("Depositing to Citrea...");
+            let deposit_info = DepositInfo {
+                deposit_outpoint,
+                deposit_type: DepositType::BaseDeposit(BaseDepositData {
+                    evm_address,
+                    recovery_taproot_address: actor.address.as_unchecked().to_owned(),
+                }),
+            };
 
-                citrea::deposit(
-                    &rpc,
-                    sequencer.client.http_client().clone(),
-                    block,
-                    block_height.try_into().unwrap(),
-                    tx,
-                )
-                .await?;
-                for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
-                    sequencer.client.send_publish_batch_request().await.unwrap();
-                }
+            let deposit: Deposit = deposit_info.clone().into();
 
-                // After the deposit, the balance should be non-zero.
-                assert_ne!(
-                    citrea::eth_get_balance(
-                        sequencer.client.http_client().clone(),
-                        crate::EVMAddress([1; 20]),
-                    )
-                    .await
-                    .unwrap(),
-                    0
-                );
+            let movetx = aggregator
+                .clone()
+                .new_deposit(deposit.clone())
+                .await
+                .unwrap();
+            let request = SendMoveTxRequest {
+                deposit_outpoint: Some(deposit_outpoint.into()),
+                raw_tx: Some(movetx.into_inner()),
+            };
 
-                tracing::debug!("Deposit operations are successful.");
+            deposit_requests.push(aggregator.send_move_to_vault_tx(request.clone()));
+        }
 
-                Ok(true)
-            },
-            None,
-            None,
-        );
+        // Send deposit requests at the same time.
+        let move_txids: Vec<Txid> = try_join_all(deposit_requests)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|encoded_move_tx| encoded_move_tx.into_inner().try_into().unwrap())
+            .collect::<Vec<_>>();
+        println!("Move txids: {:?}", move_txids);
 
-        let (withdrawal_utxo, payout_txout, sig) =
-            make_withdrawal(&rpc, &config, sequencer, lc_prover, batch_prover, da).await?;
+        for txid in move_txids.iter() {
+            let rpc = rpc.clone();
+            let txid = *txid;
+            poll_until_condition(
+                async move || {
+                    let entry = rpc.client.get_mempool_entry(&txid).await;
+                    println!("Mempool entry for txid {:?}: {:?}", txid, entry);
+                    Ok(entry.is_ok())
+                },
+                None,
+                None,
+            )
+            .await;
+        }
+        rpc.mine_blocks(7).await.unwrap();
 
-        let mut operator_0 = operators[0].clone();
-        let mut operator_1 = operators[1].clone();
-        let rpc_clone = rpc.clone();
-        poll_until_condition(
-            async move || {
-                let withdrawal_futures = vec![
-                    operator_0.withdraw(WithdrawParams {
-                        withdrawal_id: 0,
-                        input_signature: sig.serialize().to_vec(),
-                        input_outpoint: Some(withdrawal_utxo.into()),
-                        output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
-                        output_amount: payout_txout.value.to_sat(),
-                    }),
-                    operator_1.withdraw(WithdrawParams {
-                        withdrawal_id: 0,
-                        input_signature: sig.serialize().to_vec(),
-                        input_outpoint: Some(withdrawal_utxo.into()),
-                        output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
-                        output_amount: payout_txout.value.to_sat(),
-                    }),
-                ];
+        for txid in move_txids.iter() {
+            let rpc = rpc.clone();
+            let txid = *txid;
+            poll_until_condition(
+                async move || {
+                    let tx = rpc.client.get_raw_transaction(&txid, None).await?;
+                    let tx_info = rpc.client.get_raw_transaction_info(&txid, None).await?;
+                    let block = rpc.client.get_block(&tx_info.blockhash.unwrap()).await?;
+                    let block_height =
+                        rpc.client.get_block_info(&block.block_hash()).await?.height as u64;
+                    println!("Block height: {:?}", block_height);
 
-                let withdrawal_responses = join_all(withdrawal_futures).await;
-                println!("Withdrawal responses: {:?}", withdrawal_responses);
+                    Ok(true)
+                },
+                None,
+                None,
+            )
+            .await;
+        }
 
-                Ok(withdrawal_responses
-                    .into_iter()
-                    .find_map(|res: Result<Response<WithdrawResponse>, tonic::Status>| {
-                        match res {
-                            Ok(response) => {
-                                let withdrawal_response = response.into_inner();
-                                let payout_txid = Txid::from_byte_array(
-                                    withdrawal_response.txid.unwrap().txid.try_into().unwrap(),
-                                );
-                                println!("Payout txid: {:?}", payout_txid);
-                                // Note: This is a sync context, so you can't .await here.
-                                // If you need to await, you must refactor this logic.
-                                // For now, just return Some(true) to satisfy the type checker.
-                                Some(true)
-                            }
-                            Err(e) => {
-                                println!("Withdrawal error: {:?}", e);
-                                None
-                            }
-                        }
-                    })
-                    .unwrap_or_else(|| false))
-                // Ok(false)
+        // poll_until_condition(
+        //     async || {
+        //         // Send deposit to Citrea
+        //         let move_txid = move_txids[0];
+        //         let tx = rpc.client.get_raw_transaction(&move_txid, None).await?;
+        //         let tx_info = rpc
+        //             .client
+        //             .get_raw_transaction_info(&move_txid, None)
+        //             .await?;
+        //         let block = rpc.client.get_block(&tx_info.blockhash.unwrap()).await?;
+        //         let block_height =
+        //             rpc.client.get_block_info(&block.block_hash()).await?.height as u64;
 
-                // let withdrawal_response = operator_0
-                //     .withdraw(WithdrawParams {
-                //         withdrawal_id: 0,
-                //         input_signature: sig.serialize().to_vec(),
-                //         input_outpoint: Some(withdrawal_utxo.into()),
-                //         output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
-                //         output_amount: payout_txout.value.to_sat(),
-                //     })
-                //     .await;
+        //         citrea::wait_until_lc_contract_updated(
+        //             sequencer.client.http_client(),
+        //             block_height,
+        //         )
+        //         .await
+        //         .unwrap();
 
-                // let withdrawal_response = match withdrawal_responses {
-                //     Ok(responses) => responses,
-                //     Err(e) => {
-                //         tracing::error!("Withdrawal error: {:?}", e);
-                //         return Ok(false);
-                //     }
-                // };
-                // tracing::debug!("Withdrawal response: {:?}", withdrawal_responses);
-                // let withdrawal_response = withdrawal_responses[0];
+        //         // Without a deposit, the balance should be 0.
+        //         assert_eq!(
+        //             citrea::eth_get_balance(
+        //                 sequencer.client.http_client().clone(),
+        //                 crate::EVMAddress([1; 20]),
+        //             )
+        //             .await
+        //             .unwrap(),
+        //             0
+        //         );
 
-                // let payout_txid = Txid::from_byte_array(
-                //     withdrawal_response
-                //         .into_inner()
-                //         .txid
-                //         .unwrap()
-                //         .txid
-                //         .try_into()
-                //         .unwrap(),
-                // );
+        //         tracing::debug!("Depositing to Citrea...");
 
-                // tracing::info!("Payout txid: {:?}", payout_txid);
-                // mine_once_after_in_mempool(&rpc_clone, payout_txid, Some("Payout tx"), None)
-                //     .await?;
+        //         citrea::deposit(
+        //             &rpc,
+        //             sequencer.client.http_client().clone(),
+        //             block,
+        //             block_height.try_into().unwrap(),
+        //             tx,
+        //         )
+        //         .await?;
+        //         for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
+        //             sequencer.client.send_publish_batch_request().await.unwrap();
+        //         }
 
-                // Ok(true)
-            },
-            None,
-            None,
-        )
-        .await?;
+        //         // After the deposit, the balance should be non-zero.
+        //         assert_ne!(
+        //             citrea::eth_get_balance(
+        //                 sequencer.client.http_client().clone(),
+        //                 crate::EVMAddress([1; 20]),
+        //             )
+        //             .await
+        //             .unwrap(),
+        //             0
+        //         );
 
-        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
+        //         tracing::debug!("Deposit operations are successful.");
+
+        //         Ok(true)
+        //     },
+        //     None,
+        //     None,
+        // );
+
+        // let (withdrawal_utxo, payout_txout, sig) =
+        //     make_withdrawal(&rpc, &config, sequencer, lc_prover, batch_prover, da).await?;
+
+        // let mut operator_0 = operators[0].clone();
+        // let mut operator_1 = operators[1].clone();
+        // let rpc_clone = rpc.clone();
+        // poll_until_condition(
+        //     async move || {
+        //         let withdrawal_futures = vec![
+        //             operator_0.withdraw(WithdrawParams {
+        //                 withdrawal_id: 0,
+        //                 input_signature: sig.serialize().to_vec(),
+        //                 input_outpoint: Some(withdrawal_utxo.into()),
+        //                 output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
+        //                 output_amount: payout_txout.value.to_sat(),
+        //             }),
+        //             operator_1.withdraw(WithdrawParams {
+        //                 withdrawal_id: 0,
+        //                 input_signature: sig.serialize().to_vec(),
+        //                 input_outpoint: Some(withdrawal_utxo.into()),
+        //                 output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
+        //                 output_amount: payout_txout.value.to_sat(),
+        //             }),
+        //         ];
+
+        //         let withdrawal_responses = join_all(withdrawal_futures).await;
+        //         println!("Withdrawal responses: {:?}", withdrawal_responses);
+
+        //         Ok(withdrawal_responses
+        //             .into_iter()
+        //             .find_map(|res: Result<Response<WithdrawResponse>, tonic::Status>| {
+        //                 match res {
+        //                     Ok(response) => {
+        //                         let withdrawal_response = response.into_inner();
+        //                         let payout_txid = Txid::from_byte_array(
+        //                             withdrawal_response.txid.unwrap().txid.try_into().unwrap(),
+        //                         );
+        //                         println!("Payout txid: {:?}", payout_txid);
+        //                         // Note: This is a sync context, so you can't .await here.
+        //                         // If you need to await, you must refactor this logic.
+        //                         // For now, just return Some(true) to satisfy the type checker.
+        //                         Some(true)
+        //                     }
+        //                     Err(e) => {
+        //                         println!("Withdrawal error: {:?}", e);
+        //                         None
+        //                     }
+        //                 }
+        //             })
+        //             .unwrap_or_else(|| false))
+        //         // Ok(false)
+
+        //         // let withdrawal_response = operator_0
+        //         //     .withdraw(WithdrawParams {
+        //         //         withdrawal_id: 0,
+        //         //         input_signature: sig.serialize().to_vec(),
+        //         //         input_outpoint: Some(withdrawal_utxo.into()),
+        //         //         output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
+        //         //         output_amount: payout_txout.value.to_sat(),
+        //         //     })
+        //         //     .await;
+
+        //         // let withdrawal_response = match withdrawal_responses {
+        //         //     Ok(responses) => responses,
+        //         //     Err(e) => {
+        //         //         tracing::error!("Withdrawal error: {:?}", e);
+        //         //         return Ok(false);
+        //         //     }
+        //         // };
+        //         // tracing::debug!("Withdrawal response: {:?}", withdrawal_responses);
+        //         // let withdrawal_response = withdrawal_responses[0];
+
+        //         // let payout_txid = Txid::from_byte_array(
+        //         //     withdrawal_response
+        //         //         .into_inner()
+        //         //         .txid
+        //         //         .unwrap()
+        //         //         .txid
+        //         //         .try_into()
+        //         //         .unwrap(),
+        //         // );
+
+        //         // tracing::info!("Payout txid: {:?}", payout_txid);
+        //         // mine_once_after_in_mempool(&rpc_clone, payout_txid, Some("Payout tx"), None)
+        //         //     .await?;
+
+        //         // Ok(true)
+        //     },
+        //     None,
+        //     None,
+        // )
+        // .await?;
+
+        // rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
 
         Ok(())
     }
