@@ -81,18 +81,17 @@ pub async fn fetch_light_client_proof(
     let raw_proof = response["proof"]
         .as_str()
         .ok_or_else(|| eyre::eyre!("Proof field is missing or not a string"))?;
-    
+
     let proof_str = raw_proof
         .strip_prefix("0x")
         .ok_or_else(|| eyre::eyre!("Invalid proof format: missing 0x prefix"))?
         .to_string();
 
-    let bytes = decode(proof_str)
-        .wrap_err("Failed to decode hex proof")?;
-    
-    let decoded: InnerReceipt = bincode::deserialize(&bytes)
-        .wrap_err("Failed to deserialize proof")?;
-    
+    let bytes = decode(proof_str).wrap_err("Failed to decode hex proof")?;
+
+    let decoded: InnerReceipt =
+        bincode::deserialize(&bytes).wrap_err("Failed to deserialize proof")?;
+
     let receipt = receipt_from_inner(decoded)?;
 
     let l2_height = response["lightClientProofOutput"]["lastL2Height"]

@@ -1,6 +1,6 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use serde::{Deserialize, Serialize};
 use eyre::{eyre, Result};
+use serde::{Deserialize, Serialize};
 
 use crate::common::hashes::hash_pair;
 
@@ -68,9 +68,13 @@ impl MMRNative {
             return Err(eyre!("MMR is empty"));
         }
         if self.nodes[0].len() <= index as usize {
-            return Err(eyre!("Index out of bounds: {} >= {}", index, self.nodes[0].len()));
+            return Err(eyre!(
+                "Index out of bounds: {} >= {}",
+                index,
+                self.nodes[0].len()
+            ));
         }
-        
+
         let mut proof: Vec<[u8; 32]> = vec![];
         let mut current_index = index;
         let mut current_level = 0;
@@ -165,8 +169,8 @@ impl MMRInclusionProof {
 
 #[cfg(test)]
 mod tests {
-    use crate::header_chain::mmr_guest::MMRGuest;
     use super::MMRNative;
+    use crate::header_chain::mmr_guest::MMRGuest;
 
     #[test]
     fn test_mmr_native_fail_empty() {
@@ -182,7 +186,10 @@ mod tests {
         mmr.append([0; 32]);
         let result = mmr.generate_proof(1);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Index out of bounds"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Index out of bounds"));
     }
 
     #[test]
@@ -229,7 +236,7 @@ mod tests {
             // assert_eq!(
             //     root_native, root_guest,
             //     "Roots do not match after adding leaf {}",
-            //     i 
+            //     i
             // );
 
             for j in 0..=i {

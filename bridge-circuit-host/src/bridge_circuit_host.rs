@@ -166,7 +166,7 @@ pub fn prove_bridge_circuit(
         .add_assumption(bridge_circuit_host_params.headerchain_receipt)
         .build()
         .map_err(|e| eyre!("Failed to build execution environment: {}", e))?;
-     
+
     let prover = default_prover();
 
     tracing::info!("Checks complete, proving bridge circuit");
@@ -191,7 +191,7 @@ pub fn prove_bridge_circuit(
 
     let bridge_circuit_method_id = compute_image_id(bridge_circuit_elf)
         .map_err(|e| eyre!("Failed to compute bridge circuit image ID: {}", e))?;
-        
+
     let combined_method_id_constant =
         calculate_succinct_output_prefix(bridge_circuit_method_id.as_bytes());
     let (g16_proof, g16_output) = if is_dev_mode() {
@@ -246,8 +246,8 @@ pub fn prove_bridge_circuit(
 
 /// Constructs an SPV (Simplified Payment Verification) proof.
 ///
-/// This function processes block headers, constructs an MMR (Merkle Mountain Range) 
-/// for block header commitment, and generates a Merkle proof for the payout transaction's 
+/// This function processes block headers, constructs an MMR (Merkle Mountain Range)
+/// for block header commitment, and generates a Merkle proof for the payout transaction's
 /// inclusion in the block.
 ///
 /// # Arguments
@@ -292,7 +292,7 @@ pub fn create_spv(
             genesis_block_height
         ));
     }
-    
+
     if payment_tx_index as usize >= payment_block.txdata.len() {
         return Err(eyre!(
             "Payment transaction index ({}) out of bounds (block has {} transactions)",
@@ -359,23 +359,19 @@ pub fn prove_work_only_header_chain_proof(
         .add_assumption(receipt)
         .write_slice(&borsh::to_vec(&input).wrap_err("Failed to serialize input")?)
         .build()
-        .map_err(|e| {
-            eyre!("Failed to build execution environment: {}", e)
-        })?;
+        .map_err(|e| eyre!("Failed to build execution environment: {}", e))?;
     let prover = default_prover();
-    
+
     Ok(prover
         .prove_with_opts(env, TESTNET4_WORK_ONLY_ELF, &ProverOpts::groth16())
-        .map_err(|e| {
-            eyre!("Failed to generate work only header chain proof: {}", e)
-        })?
+        .map_err(|e| eyre!("Failed to generate work only header chain proof: {}", e))?
         .receipt)
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::mock_zkvm::MockZkvmHost;
     use super::*;
+    use crate::mock_zkvm::MockZkvmHost;
 
     const TESTNET4_HEADER_CHAIN_GUEST_ELF: &[u8] =
         include_bytes!("../../risc0-circuits/elfs/testnet4-header-chain-guest.bin");
