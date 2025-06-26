@@ -1,7 +1,7 @@
 //! # Common Utilities for Integration Tests
 use std::path::Path;
 use std::process::Command;
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use crate::actor::Actor;
@@ -722,32 +722,35 @@ async fn test_regtest_create_and_connect() {
     assert_eq!(height, new_rpc_height);
 }
 
+static TEST_CERTS_LOCK: OnceLock<Result<(), std::io::Error>> = OnceLock::new();
+
 /// Ensures that TLS certificates exist for tests.
-/// This will run the certificate generation script if certificates don't exist.
-pub fn ensure_test_certificates() -> Result<(), std::io::Error> {
-    static GENERATE_LOCK: Mutex<()> = Mutex::new(());
-
+/// This will run the certificate generation script ONCE if certificates don't exist.
+pub fn ensure_test_certificates() -> eyre::Result<()> {
     while !Path::new("./certs/ca/ca.pem").exists() {
-        if let Ok(_lock) = GENERATE_LOCK.lock() {
-            println!("Generating TLS certificates for tests...");
+        TEST_CERTS_LOCK
+            .get_or_init(|| -> Result<(), std::io::Error> {
+                println!("Generating TLS certificates for tests...");
 
-            let output = Command::new("sh")
-                .arg("-c")
-                .arg("cd .. && ./scripts/generate_certs.sh")
-                .output()?;
+                let output = Command::new("sh")
+                    .arg("-c")
+                    .arg("cd .. && ./scripts/generate_certs.sh")
+                    .output()?;
 
-            if !output.status.success() {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                eprintln!("Failed to generate certificates: {}", stderr);
-                return Err(std::io::Error::other(format!(
-                    "Certificate generation failed: {}",
-                    stderr
-                )));
-            }
+                if !output.status.success() {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    eprintln!("Failed to generate certificates: {}", stderr);
+                    return Err(std::io::Error::other(format!(
+                        "Certificate generation failed: {}",
+                        stderr
+                    )));
+                }
 
-            println!("TLS certificates generated successfully");
-            break;
-        }
+                println!("TLS certificates generated successfully");
+                Ok(())
+            })
+            .as_ref() // Need to ref and clone the error as it's behind &'static
+            .map_err(|e| eyre::eyre!("Failed to generate certificates: {e:?}"))?;
     }
 
     Ok(())
