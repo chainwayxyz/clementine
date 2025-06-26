@@ -79,7 +79,7 @@ jmt = "0.11.0"
 derive_more = { version = "1.0.0", features = ["display"] }
 blake3 = "1.6.1"
 itertools = "0.14.0"
-bitvm = { git = "https://github.com/chainwayxyz/BitVM", rev = "0b15c5e7b6b4c16beda365d8c19825867666f712" }
+bitvm = { git = "https://github.com/chainwayxyz/BitVM", rev = "898618219c07e84f57d9727283fa8abbe3823eaf" }
 
 ark-groth16 = { version = "0.5.0", default-features = false }
 ark-serialize = "0.5.0"
