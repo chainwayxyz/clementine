@@ -270,7 +270,7 @@ To run all tests:
 cargo test --all-features
 ```
 
-Also, due to the test directory hieararchy, unit and integration tests can be
+Also, due to the test directory hierarchy, unit and integration tests can be
 run separately:
 
 ```sh
