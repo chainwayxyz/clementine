@@ -1,5 +1,6 @@
 use super::{IntoTask, Task, TaskExt, TaskVariant};
 use crate::errors::BridgeError;
+use crate::rpc::clementine::StoppedTasks;
 use crate::utils::NamedEntity;
 use futures::future::join_all;
 use std::collections::HashMap;
@@ -85,6 +86,19 @@ impl<T: NamedEntity + Send + 'static> BackgroundTaskManager<T> {
             .get(&variant)
             .unwrap_or(&TaskStatus::NotRunning("".to_string()))
             == &TaskStatus::Running
+    }
+
+    pub fn get_stopped_tasks(&self) -> StoppedTasks {
+        let mut stopped_tasks = vec![];
+        for (variant, status) in &self.tasks_status {
+            match status {
+                TaskStatus::Running => {}
+                TaskStatus::NotRunning(reason) => {
+                    stopped_tasks.push(format!("{:?}: {}", variant, reason));
+                }
+            }
+        }
+        StoppedTasks { stopped_tasks }
     }
 
     pub fn get_task_status(&self, variant: TaskVariant) -> Option<TaskStatus> {

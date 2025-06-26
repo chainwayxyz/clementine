@@ -289,6 +289,37 @@ message XOnlyPublicKeyRpc {
   bytes xonly_public_key = 1;
 }
 
+message StoppedTasks {
+  repeated string stopped_tasks = 1;
+}
+
+message EntityError {
+  string error = 1;
+}
+
+enum Entities {
+  ENTITY_UNKNOWN = 0;
+  OPERATOR = 1;
+  VERIFIER = 2;
+}
+
+message EntityInfo {
+  Entities entity = 1;
+  string ip = 2;
+}
+
+message EntityStatus {
+  EntityInfo entity_info = 1;
+  oneof status {
+    StoppedTasks stopped_tasks = 2;
+    EntityError error = 3;
+  }
+}
+
+message EntitiesStatus {
+  repeated EntityStatus entities_status = 1;
+}
+
 // An operator is responsible for paying withdrawals. It has an unique ID and
 // chain of UTXOs named `round_txs`. An operator also runs a verifier. These are
 // connected to the same database and both have access to watchtowers'
@@ -315,6 +346,9 @@ service ClementineOperator {
   //
   // Used by aggregator inside new_deposit
   rpc GetDepositKeys(DepositParams) returns (OperatorKeys) {}
+
+  // Returns the current status of tasks running on the operator.
+  rpc GetCurrentStatus(Empty) returns (StoppedTasks) {}
 
   // Signs everything that includes Operator's burn connector.
   //
@@ -543,6 +577,9 @@ service ClementineVerifier {
   // Checks if the kickoff tx is malicious and if so, try to send all necessary txs to punish the operator
   rpc InternalHandleKickoff(Txid) returns (Empty) {}
 
+  // Returns the current status of tasks running on the verifier.
+  rpc GetCurrentStatus(Empty) returns (StoppedTasks) {}
+
   // 1. Signs all tx's it can according to given transaction type (use it with AllNeededForDeposit to get almost all tx's)
   // 2. Creates the transactions denoted by the deposit and operator_idx, round_idx, and kickoff_idx.
   // 3. It will create the transaction and sign it with the operator's private key and/or saved nofn signatures.
@@ -611,6 +648,10 @@ message SendMoveTxRequest {
   Outpoint deposit_outpoint = 2;
 }
 
+message GetEntitiesStatusRequest {
+  bool restart_tasks = 1;
+}
+
 service ClementineAggregator {
   rpc GetNofnAggregatedXonlyPk(Empty) returns (NofnResponse) {}
 
@@ -646,6 +687,10 @@ service ClementineAggregator {
   rpc InternalSendTx(SendTxRequest) returns (Empty) {}
 
   rpc SendMoveToVaultTx(SendMoveTxRequest) returns (Txid) {}
+
+  // Returns the current status of tasks running on the operators/verifiers.
+  // If restart_tasks is true, it will restart the tasks on the entities if they are stopped.
+  rpc GetEntitiesStatus(GetEntitiesStatusRequest) returns (EntitiesStatus) {}
 
   // Creates an emergency stop tx that won't be broadcasted.
   // Tx will have around 3 sats/vbyte fee.

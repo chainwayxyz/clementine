@@ -297,6 +297,45 @@ pub struct XOnlyPublicKeyRpc {
     pub xonly_public_key: ::prost::alloc::vec::Vec<u8>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct StoppedTasks {
+    #[prost(string, repeated, tag = "1")]
+    pub stopped_tasks: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct EntityError {
+    #[prost(string, tag = "1")]
+    pub error: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct EntityInfo {
+    #[prost(enumeration = "Entities", tag = "1")]
+    pub entity: i32,
+    #[prost(string, tag = "2")]
+    pub ip: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct EntityStatus {
+    #[prost(message, optional, tag = "1")]
+    pub entity_info: ::core::option::Option<EntityInfo>,
+    #[prost(oneof = "entity_status::Status", tags = "2, 3")]
+    pub status: ::core::option::Option<entity_status::Status>,
+}
+/// Nested message and enum types in `EntityStatus`.
+pub mod entity_status {
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Status {
+        #[prost(message, tag = "2")]
+        StoppedTasks(super::StoppedTasks),
+        #[prost(message, tag = "3")]
+        Error(super::EntityError),
+    }
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct EntitiesStatus {
+    #[prost(message, repeated, tag = "1")]
+    pub entities_status: ::prost::alloc::vec::Vec<EntityStatus>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct VerifierParams {
     #[prost(bytes = "vec", tag = "1")]
     pub public_key: ::prost::alloc::vec::Vec<u8>,
@@ -527,6 +566,11 @@ pub struct SendMoveTxRequest {
     pub raw_tx: ::core::option::Option<RawSignedTx>,
     #[prost(message, optional, tag = "2")]
     pub deposit_outpoint: ::core::option::Option<Outpoint>,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct GetEntitiesStatusRequest {
+    #[prost(bool, tag = "1")]
+    pub restart_tasks: bool,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -834,6 +878,35 @@ impl NumberedTransactionType {
         }
     }
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum Entities {
+    EntityUnknown = 0,
+    Operator = 1,
+    Verifier = 2,
+}
+impl Entities {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::EntityUnknown => "ENTITY_UNKNOWN",
+            Self::Operator => "OPERATOR",
+            Self::Verifier => "VERIFIER",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "ENTITY_UNKNOWN" => Some(Self::EntityUnknown),
+            "OPERATOR" => Some(Self::Operator),
+            "VERIFIER" => Some(Self::Verifier),
+            _ => None,
+        }
+    }
+}
 /// Generated client implementations.
 pub mod clementine_operator_client {
     #![allow(
@@ -1015,6 +1088,30 @@ pub mod clementine_operator_client {
             req.extensions_mut()
                 .insert(
                     GrpcMethod::new("clementine.ClementineOperator", "GetDepositKeys"),
+                );
+            self.inner.unary(req, path, codec).await
+        }
+        /// Returns the current status of tasks running on the operator.
+        pub async fn get_current_status(
+            &mut self,
+            request: impl tonic::IntoRequest<super::Empty>,
+        ) -> std::result::Result<tonic::Response<super::StoppedTasks>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/clementine.ClementineOperator/GetCurrentStatus",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new("clementine.ClementineOperator", "GetCurrentStatus"),
                 );
             self.inner.unary(req, path, codec).await
         }
@@ -1656,6 +1753,30 @@ pub mod clementine_verifier_client {
                 );
             self.inner.unary(req, path, codec).await
         }
+        /// Returns the current status of tasks running on the verifier.
+        pub async fn get_current_status(
+            &mut self,
+            request: impl tonic::IntoRequest<super::Empty>,
+        ) -> std::result::Result<tonic::Response<super::StoppedTasks>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/clementine.ClementineVerifier/GetCurrentStatus",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new("clementine.ClementineVerifier", "GetCurrentStatus"),
+                );
+            self.inner.unary(req, path, codec).await
+        }
         /// 1. Signs all tx's it can according to given transaction type (use it with AllNeededForDeposit to get almost all tx's)
         /// 2. Creates the transactions denoted by the deposit and operator_idx, round_idx, and kickoff_idx.
         /// 3. It will create the transaction and sign it with the operator's private key and/or saved nofn signatures.
@@ -2033,6 +2154,34 @@ pub mod clementine_aggregator_client {
                 );
             self.inner.unary(req, path, codec).await
         }
+        /// Returns the current status of tasks running on the operators/verifiers.
+        /// If restart_tasks is true, it will restart the tasks on the entities if they are stopped.
+        pub async fn get_entities_status(
+            &mut self,
+            request: impl tonic::IntoRequest<super::GetEntitiesStatusRequest>,
+        ) -> std::result::Result<tonic::Response<super::EntitiesStatus>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/clementine.ClementineAggregator/GetEntitiesStatus",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "clementine.ClementineAggregator",
+                        "GetEntitiesStatus",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
         /// Creates an emergency stop tx that won't be broadcasted.
         /// Tx will have around 3 sats/vbyte fee.
         /// Set add_anchor to true to add an anchor output for cpfp..
@@ -2138,6 +2287,11 @@ pub mod clementine_operator_server {
             &self,
             request: tonic::Request<super::DepositParams>,
         ) -> std::result::Result<tonic::Response<super::OperatorKeys>, tonic::Status>;
+        /// Returns the current status of tasks running on the operator.
+        async fn get_current_status(
+            &self,
+            request: tonic::Request<super::Empty>,
+        ) -> std::result::Result<tonic::Response<super::StoppedTasks>, tonic::Status>;
         /// Server streaming response type for the DepositSign method.
         type DepositSignStream: tonic::codegen::tokio_stream::Stream<
                 Item = std::result::Result<super::SchnorrSig, tonic::Status>,
@@ -2444,6 +2598,53 @@ pub mod clementine_operator_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = GetDepositKeysSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/clementine.ClementineOperator/GetCurrentStatus" => {
+                    #[allow(non_camel_case_types)]
+                    struct GetCurrentStatusSvc<T: ClementineOperator>(pub Arc<T>);
+                    impl<T: ClementineOperator> tonic::server::UnaryService<super::Empty>
+                    for GetCurrentStatusSvc<T> {
+                        type Response = super::StoppedTasks;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::Empty>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as ClementineOperator>::get_current_status(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = GetCurrentStatusSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
@@ -3025,6 +3226,11 @@ pub mod clementine_verifier_server {
             &self,
             request: tonic::Request<super::Txid>,
         ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
+        /// Returns the current status of tasks running on the verifier.
+        async fn get_current_status(
+            &self,
+            request: tonic::Request<super::Empty>,
+        ) -> std::result::Result<tonic::Response<super::StoppedTasks>, tonic::Status>;
         /// 1. Signs all tx's it can according to given transaction type (use it with AllNeededForDeposit to get almost all tx's)
         /// 2. Creates the transactions denoted by the deposit and operator_idx, round_idx, and kickoff_idx.
         /// 3. It will create the transaction and sign it with the operator's private key and/or saved nofn signatures.
@@ -3605,6 +3811,53 @@ pub mod clementine_verifier_server {
                     };
                     Box::pin(fut)
                 }
+                "/clementine.ClementineVerifier/GetCurrentStatus" => {
+                    #[allow(non_camel_case_types)]
+                    struct GetCurrentStatusSvc<T: ClementineVerifier>(pub Arc<T>);
+                    impl<T: ClementineVerifier> tonic::server::UnaryService<super::Empty>
+                    for GetCurrentStatusSvc<T> {
+                        type Response = super::StoppedTasks;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::Empty>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as ClementineVerifier>::get_current_status(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = GetCurrentStatusSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
                 "/clementine.ClementineVerifier/InternalCreateSignedTxs" => {
                     #[allow(non_camel_case_types)]
                     struct InternalCreateSignedTxsSvc<T: ClementineVerifier>(pub Arc<T>);
@@ -3853,6 +4106,12 @@ pub mod clementine_aggregator_server {
             &self,
             request: tonic::Request<super::SendMoveTxRequest>,
         ) -> std::result::Result<tonic::Response<super::Txid>, tonic::Status>;
+        /// Returns the current status of tasks running on the operators/verifiers.
+        /// If restart_tasks is true, it will restart the tasks on the entities if they are stopped.
+        async fn get_entities_status(
+            &self,
+            request: tonic::Request<super::GetEntitiesStatusRequest>,
+        ) -> std::result::Result<tonic::Response<super::EntitiesStatus>, tonic::Status>;
         /// Creates an emergency stop tx that won't be broadcasted.
         /// Tx will have around 3 sats/vbyte fee.
         /// Set add_anchor to true to add an anchor output for cpfp..
@@ -4262,6 +4521,55 @@ pub mod clementine_aggregator_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = SendMoveToVaultTxSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/clementine.ClementineAggregator/GetEntitiesStatus" => {
+                    #[allow(non_camel_case_types)]
+                    struct GetEntitiesStatusSvc<T: ClementineAggregator>(pub Arc<T>);
+                    impl<
+                        T: ClementineAggregator,
+                    > tonic::server::UnaryService<super::GetEntitiesStatusRequest>
+                    for GetEntitiesStatusSvc<T> {
+                        type Response = super::EntitiesStatus;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::GetEntitiesStatusRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as ClementineAggregator>::get_entities_status(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = GetEntitiesStatusSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

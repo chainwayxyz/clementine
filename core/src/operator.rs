@@ -24,6 +24,7 @@ use crate::deposit::{DepositData, KickoffData, OperatorData};
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::header_chain_prover::HeaderChainProver;
+use crate::rpc::clementine::StoppedTasks;
 use crate::task::manager::BackgroundTaskManager;
 use crate::task::payout_checker::{PayoutCheckerTask, PAYOUT_CHECKER_POLL_DELAY};
 use crate::task::status_monitor::{TaskStatusMonitorTask, TASK_STATUS_MONITOR_POLL_DELAY};
@@ -208,6 +209,12 @@ where
         );
 
         Ok(())
+    }
+
+    pub async fn get_current_status(&self) -> Result<StoppedTasks, BridgeError> {
+        let mut tasks = self.background_tasks.lock().await;
+        let stopped_tasks = tasks.get_stopped_tasks();
+        Ok(stopped_tasks)
     }
 
     pub async fn shutdown(&mut self) {

@@ -29,7 +29,7 @@ use crate::errors::{BridgeError, TxError};
 use crate::extended_rpc::ExtendedRpc;
 use crate::header_chain_prover::{HeaderChainProver, HeaderChainProverError};
 use crate::operator::RoundIndex;
-use crate::rpc::clementine::{NormalSignatureKind, OperatorKeys, TaggedSignature};
+use crate::rpc::clementine::{NormalSignatureKind, OperatorKeys, StoppedTasks, TaggedSignature};
 use crate::task::manager::BackgroundTaskManager;
 use crate::task::status_monitor::{TaskStatusMonitorTask, TASK_STATUS_MONITOR_POLL_DELAY};
 use crate::task::{IntoTask, TaskExt};
@@ -189,6 +189,12 @@ where
         );
 
         Ok(())
+    }
+
+    pub async fn get_current_status(&self) -> Result<StoppedTasks, BridgeError> {
+        let mut tasks = self.background_tasks.lock().await;
+        let stopped_tasks = tasks.get_stopped_tasks();
+        Ok(stopped_tasks)
     }
 
     pub async fn shutdown(&mut self) {
