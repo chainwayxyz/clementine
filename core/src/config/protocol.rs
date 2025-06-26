@@ -335,7 +335,7 @@ mod tests {
         );
     }
 
-        #[test]
+    #[test]
     fn test_mainnet_bridge_circuit_constant() {
         let mainnet_bridge_elf =
             include_bytes!("../../../risc0-circuits/elfs/mainnet-bridge-circuit-guest.bin");
@@ -362,7 +362,7 @@ mod tests {
             compute_image_id(testnet4_bridge_elf).expect("should compute image id");
         let calculated_testnet4_bridge_circuit_constant =
             calculate_succinct_output_prefix(testnet4_bridge_circuit_method_id.as_bytes());
-            
+
         let testnet4_bridge_circuit_constant = TESTNET4_BRIDGE_CIRCUIT_CONSTANT;
         assert_eq!(
             calculated_testnet4_bridge_circuit_constant,
