@@ -189,7 +189,11 @@
 <a href="#188" id="188">188</a>
 <a href="#189" id="189">189</a>
 <a href="#190" id="190">190</a>
-<a href="#191" id="191">191</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Clementine 🍊
+<a href="#191" id="191">191</a>
+<a href="#192" id="192">192</a>
+<a href="#193" id="193">193</a>
+<a href="#194" id="194">194</a>
+<a href="#195" id="195">195</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Clementine 🍊
 //!
 //! Clementine is Citrea's BitVM-based, trust-minimized two-way peg program.
 //! Please refer to the [whitepaper](https://citrea.xyz/clementine_whitepaper.pdf)
@@ -294,6 +298,10 @@
 //!
 //! Please refer to the [`test`](test) module to check what utilities are
 //! available for testing and how to use them.
+//!
+//! Also, if a new integration test file is added, it should be guarded by the
+//! `#[cfg(feature = "integration-tests")]` attribute. This ensures that the
+//! integration and unit tests can be run separately.
 
 </span><span class="attr">#![allow(clippy::too_many_arguments)]
 #![allow(warnings)]
