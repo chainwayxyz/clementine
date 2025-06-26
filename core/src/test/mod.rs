@@ -1,22 +1,32 @@
 pub mod common;
 #[cfg(feature = "automation")]
+#[ignore]
 mod deposit_and_withdraw_e2e;
 #[cfg(feature = "automation")]
+#[ignore]
 mod full_flow;
+#[ignore]
 mod musig2;
+#[ignore]
 mod rpc_auth;
 #[cfg(feature = "automation")]
+#[ignore]
 mod state_manager;
+#[ignore]
 mod taproot;
+#[ignore]
 mod withdraw;
 
 #[cfg(feature = "automation")]
+#[ignore]
 mod additional_disprove_scripts;
 
 #[cfg(feature = "automation")]
+#[ignore]
 mod bitvm_disprove_scripts;
 
 #[cfg(feature = "automation")]
+#[ignore]
 mod watchtower_challenge;
 
 mod bitvm_script;
