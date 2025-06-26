@@ -247,7 +247,7 @@ impl MockCitreaClient {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "integration-tests"))]
 mod tests {
     use crate::{citrea::CitreaClientT, test::common::create_test_config_with_thread_name};
     use bitcoin::hashes::Hash;

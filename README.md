@@ -271,6 +271,14 @@ To run all tests:
 cargo test --all-features
 ```
 
+Also, due to the test directory hierarchy, unit and integration tests can be
+run separately:
+
+```sh
+cargo test_unit
+cargo test_integration
+```
+
 #### Helper Scripts
 
 There are handful amount of scripts in [scripts](scripts) directory. Most of
