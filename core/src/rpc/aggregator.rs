@@ -858,65 +858,75 @@ impl ClementineAggregator for Aggregator {
 
         let operator_clients = self.get_operator_clients();
         let verifier_clients = self.get_verifier_clients();
-        let mut operator_status = join_all(operator_clients.iter().map(|client| {
-            let mut client = client.clone();
-            async move {
-                let response = client.get_current_status(Request::new(Empty {})).await;
-                super::EntityStatus {
-                    entity_info: Some(super::EntityInfo {
-                        entity: super::Entities::Operator as i32,
-                        ip: "".to_string(),
-                    }),
-                    status: match response {
-                        Ok(response) => {
-                            if restart_tasks {
-                                client
-                                    .restart_background_tasks(Request::new(Empty {}))
-                                    .await;
-                            }
-                            Some(super::clementine::entity_status::Status::StoppedTasks(
-                                response.into_inner(),
-                            ))
-                        }
-                        Err(e) => Some(super::clementine::entity_status::Status::Error(
-                            super::EntityError {
-                                error: e.to_string(),
+        let mut operator_status = join_all(
+            operator_clients
+                .iter()
+                .zip(self.get_operator_keys().iter())
+                .map(|(client, key)| {
+                    let mut client = client.clone();
+                    async move {
+                        let response = client.get_current_status(Request::new(Empty {})).await;
+                        super::EntityStatus {
+                            entity_info: Some(super::EntityInfo {
+                                entity: super::Entities::Operator as i32,
+                                id: key.to_string(),
+                            }),
+                            status: match response {
+                                Ok(response) => {
+                                    if restart_tasks {
+                                        client
+                                            .restart_background_tasks(Request::new(Empty {}))
+                                            .await;
+                                    }
+                                    Some(super::clementine::entity_status::Status::StoppedTasks(
+                                        response.into_inner(),
+                                    ))
+                                }
+                                Err(e) => Some(super::clementine::entity_status::Status::Error(
+                                    super::EntityError {
+                                        error: e.to_string(),
+                                    },
+                                )),
                             },
-                        )),
-                    },
-                }
-            }
-        }))
+                        }
+                    }
+                }),
+        )
         .await;
-        let verifier_status = join_all(verifier_clients.iter().map(|client| {
-            let mut client = client.clone();
-            async move {
-                let response = client.get_current_status(Request::new(Empty {})).await;
-                super::EntityStatus {
-                    entity_info: Some(super::EntityInfo {
-                        entity: super::Entities::Verifier as i32,
-                        ip: "".to_string(),
-                    }),
-                    status: match response {
-                        Ok(response) => {
-                            if restart_tasks {
-                                client
-                                    .restart_background_tasks(Request::new(Empty {}))
-                                    .await;
-                            }
-                            Some(super::clementine::entity_status::Status::StoppedTasks(
-                                response.into_inner(),
-                            ))
-                        }
-                        Err(e) => Some(super::clementine::entity_status::Status::Error(
-                            super::EntityError {
-                                error: e.to_string(),
+        let verifier_status = join_all(
+            verifier_clients
+                .iter()
+                .zip(self.get_verifier_keys().iter())
+                .map(|(client, key)| {
+                    let mut client = client.clone();
+                    async move {
+                        let response = client.get_current_status(Request::new(Empty {})).await;
+                        super::EntityStatus {
+                            entity_info: Some(super::EntityInfo {
+                                entity: super::Entities::Verifier as i32,
+                                id: key.to_string(),
+                            }),
+                            status: match response {
+                                Ok(response) => {
+                                    if restart_tasks {
+                                        client
+                                            .restart_background_tasks(Request::new(Empty {}))
+                                            .await;
+                                    }
+                                    Some(super::clementine::entity_status::Status::StoppedTasks(
+                                        response.into_inner(),
+                                    ))
+                                }
+                                Err(e) => Some(super::clementine::entity_status::Status::Error(
+                                    super::EntityError {
+                                        error: e.to_string(),
+                                    },
+                                )),
                             },
-                        )),
-                    },
-                }
-            }
-        }))
+                        }
+                    }
+                }),
+        )
         .await;
 
         operator_status.extend(verifier_status.into_iter());

@@ -311,7 +311,7 @@ pub struct EntityInfo {
     #[prost(enumeration = "Entities", tag = "1")]
     pub entity: i32,
     #[prost(string, tag = "2")]
-    pub ip: ::prost::alloc::string::String,
+    pub id: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct EntityStatus {

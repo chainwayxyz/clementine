@@ -305,7 +305,7 @@ enum Entities {
 
 message EntityInfo {
   Entities entity = 1;
-  string ip = 2;
+  string id = 2;
 }
 
 message EntityStatus {
