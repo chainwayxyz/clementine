@@ -3,7 +3,7 @@ use alloy_primitives::U256;
 use alloy_rpc_client::RpcClient;
 use alloy_rpc_types::EIP1186AccountProofResponse;
 use circuits_lib::bridge_circuit::structs::{LightClientProof, StorageProof};
-use eyre::bail;
+use eyre::{bail, Context};
 use hex::decode;
 use risc0_zkvm::{InnerReceipt, Receipt};
 use serde_json::json;
@@ -38,13 +38,14 @@ const CONTRACT_ADDRESS: &str = "0x3100000000000000000000000000000000000002";
 ///   - `LightClientProof`: The extracted proof with journal bytes and L2 height.
 ///   - `Receipt`: The transaction receipt parsed from the proof.
 ///
-/// # Panics
-/// This function will panic if:
-/// * The RPC response does not contain a valid `"proof"` string.
+/// # Errors
+/// Returns an error if:
+/// * The RPC request fails.
+/// * The response does not contain a valid `"proof"` field.
 /// * The proof is not a valid hex string.
 /// * The proof cannot be deserialized into `InnerReceipt`.
 /// * The receipt cannot be extracted from the `InnerReceipt`.
-/// * The RPC response does not contain a valid `"lastL2Height"` string.
+/// * The response does not contain a valid `"lastL2Height"` field.
 ///
 /// Example:
 /// ```rust, ignore
@@ -68,29 +69,35 @@ const CONTRACT_ADDRESS: &str = "0x3100000000000000000000000000000000000002";
 pub async fn fetch_light_client_proof(
     l1_height: u32,
     client: RpcClient,
-) -> Result<(LightClientProof, Receipt), ()> {
+) -> eyre::Result<(LightClientProof, Receipt)> {
     let request = json!({
         "l1_height": l1_height
     });
 
     let response: serde_json::Value = client
         .request("lightClientProver_getLightClientProofByL1Height", request)
-        .await
-        .unwrap();
+        .await?;
 
-    let raw_proof = response["proof"].as_str().expect("Proof is missing");
+    let raw_proof = response["proof"]
+        .as_str()
+        .ok_or_else(|| eyre::eyre!("Proof field is missing or not a string"))?;
+    
     let proof_str = raw_proof
         .strip_prefix("0x")
-        .expect("Invalid proof format")
+        .ok_or_else(|| eyre::eyre!("Invalid proof format: missing 0x prefix"))?
         .to_string();
 
-    let bytes = decode(proof_str).expect("Invalid hex");
-    let decoded: InnerReceipt = bincode::deserialize(&bytes).expect("Failed to deserialize");
-    let receipt = receipt_from_inner(decoded).expect("Failed to create receipt");
+    let bytes = decode(proof_str)
+        .wrap_err("Failed to decode hex proof")?;
+    
+    let decoded: InnerReceipt = bincode::deserialize(&bytes)
+        .wrap_err("Failed to deserialize proof")?;
+    
+    let receipt = receipt_from_inner(decoded)?;
 
     let l2_height = response["lightClientProofOutput"]["lastL2Height"]
         .as_str()
-        .expect("l2 height is not a string");
+        .ok_or_else(|| eyre::eyre!("lastL2Height field is missing or not a string"))?;
 
     Ok((
         LightClientProof {
@@ -115,10 +122,11 @@ pub async fn fetch_light_client_proof(
 /// Returns a `StorageProof` struct containing serialized storage proofs for the UTXO and deposit index.
 ///
 /// # Errors
-/// * This function will panic if:
-///   * `keccak256(UTXOS_STORAGE_INDEX)` does not return a valid 32-byte slice.
-///   * The RPC request to `eth_getProof` fails.
-///   * The response from the RPC call cannot be deserialized into an `EIP1186AccountProofResponse`.
+/// Returns an error if:
+/// * The RPC request to `eth_getProof` fails.
+/// * The response from the RPC call cannot be deserialized into an `EIP1186AccountProofResponse`.
+/// * Storage proof serialization fails.
+/// * Invalid slice lengths are encountered during address calculations.
 ///
 /// Example:
 /// ```rust,ignore
@@ -135,7 +143,6 @@ pub async fn fetch_light_client_proof(
 ///     let storage_proof = fetch_storage_proof(
 ///         &"0xabc".to_string(),
 ///         37,
-///         hex!("BB25103468A467382ED9F585129AD40331B54425155D6F0FAE8C799391EE2E7F"),
 ///         citrea_rpc_client,
 ///     )
 ///     .await;
@@ -152,7 +159,7 @@ pub async fn fetch_storage_proof(
     let storage_address_wd_utxo_bytes = keccak256(UTXOS_STORAGE_INDEX);
     let storage_address_wd_utxo: U256 = U256::from_be_bytes(
         <[u8; 32]>::try_from(&storage_address_wd_utxo_bytes[..])
-            .expect("Slice with incorrect length"),
+            .wrap_err("Invalid UTXOS_STORAGE_INDEX slice length")?,
     );
 
     // Storage key address calculation UTXO
@@ -170,7 +177,7 @@ pub async fn fetch_storage_proof(
     let storage_address_deposit_bytes = keccak256(DEPOSIT_STORAGE_INDEX);
     let storage_address_deposit: U256 = U256::from_be_bytes(
         <[u8; 32]>::try_from(&storage_address_deposit_bytes[..])
-            .expect("Slice with incorrect length"),
+            .wrap_err("Invalid DEPOSIT_STORAGE_INDEX slice length")?,
     );
 
     let storage_key_deposit: alloy_primitives::Uint<256, 4> =
@@ -192,11 +199,16 @@ pub async fn fetch_storage_proof(
 
     let response: EIP1186AccountProofResponse = serde_json::from_value(response)?;
 
+    if response.storage_proof.len() < 3 {
+        return Err(eyre::eyre!(
+            "Expected at least 3 storage proofs, got {}",
+            response.storage_proof.len()
+        ));
+    }
+
     let serialized_utxo = serde_json::to_string(&response.storage_proof[0])?;
-
-    let serialized_vout = serde_json::to_string(&response.storage_proof[1]).unwrap();
-
-    let serialized_deposit = serde_json::to_string(&response.storage_proof[2]).unwrap();
+    let serialized_vout = serde_json::to_string(&response.storage_proof[1])?;
+    let serialized_deposit = serde_json::to_string(&response.storage_proof[2])?;
 
     Ok(StorageProof {
         storage_proof_utxo: serialized_utxo,
