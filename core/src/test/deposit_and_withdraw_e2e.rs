@@ -58,6 +58,7 @@ use futures::future::join_all;
 use futures::future::try_join_all;
 use once_cell::sync::{Lazy, OnceCell};
 use serde::Serialize;
+use sha2::digest::generic_array::sequence;
 use statig::Response::Transition;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -1647,15 +1648,17 @@ impl TestCase for ConcurrentDepositsAndWithdrawals {
         );
 
         let count = 10;
+        let evm_addresses = (0..count)
+            .map(|i| EVMAddress([i as u8; 20]))
+            .collect::<Vec<_>>();
 
         // Prepare deposit requests.
         let mut aggregators = (0..count).map(|_| aggregator.clone()).collect::<Vec<_>>();
         let mut deposit_requests = Vec::new();
         for (i, mut aggregator) in aggregators.iter_mut().enumerate() {
-            let evm_address = EVMAddress([i as u8; 20]);
-
             let (deposit_address, _) =
-                get_deposit_address(&config, evm_address, verifiers_public_keys.clone()).unwrap();
+                get_deposit_address(&config, evm_addresses[i], verifiers_public_keys.clone())
+                    .unwrap();
             let deposit_outpoint = rpc
                 .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
                 .await
@@ -1672,7 +1675,7 @@ impl TestCase for ConcurrentDepositsAndWithdrawals {
             let deposit_info = DepositInfo {
                 deposit_outpoint,
                 deposit_type: DepositType::BaseDeposit(BaseDepositData {
-                    evm_address,
+                    evm_address: evm_addresses[i],
                     recovery_taproot_address: actor.address.as_unchecked().to_owned(),
                 }),
             };
@@ -1717,9 +1720,13 @@ impl TestCase for ConcurrentDepositsAndWithdrawals {
         }
         rpc.mine_blocks(7).await.unwrap();
 
-        for txid in move_txids.iter() {
+        for (i, txid) in move_txids.iter().enumerate() {
             let rpc = rpc.clone();
             let txid = *txid;
+            let sequencer_client = sequencer.client.clone();
+            let max_l2_blocks_per_commitment = sequencer.config.node.max_l2_blocks_per_commitment;
+            let evm_address = evm_addresses[i].clone();
+
             poll_until_condition(
                 async move || {
                     let tx = rpc.client.get_raw_transaction(&txid, None).await?;
@@ -1729,6 +1736,51 @@ impl TestCase for ConcurrentDepositsAndWithdrawals {
                         rpc.client.get_block_info(&block.block_hash()).await?.height as u64;
                     println!("Block height: {:?}", block_height);
 
+                    citrea::wait_until_lc_contract_updated(
+                        sequencer_client.http_client(),
+                        block_height,
+                    )
+                    .await
+                    .unwrap();
+
+                    // Without a deposit, the balance should be 0.
+                    assert_eq!(
+                        citrea::eth_get_balance(
+                            sequencer_client.http_client().clone(),
+                            evm_address.clone(),
+                        )
+                        .await
+                        .unwrap(),
+                        0
+                    );
+
+                    tracing::debug!("Depositing to Citrea...");
+
+                    citrea::deposit(
+                        &rpc,
+                        sequencer_client.http_client().clone(),
+                        block,
+                        block_height.try_into().unwrap(),
+                        tx,
+                    )
+                    .await?;
+                    for _ in 0..max_l2_blocks_per_commitment {
+                        sequencer_client.send_publish_batch_request().await.unwrap();
+                    }
+
+                    // After the deposit, the balance should be non-zero.
+                    assert_ne!(
+                        citrea::eth_get_balance(
+                            sequencer_client.http_client().clone(),
+                            evm_address.clone(),
+                        )
+                        .await
+                        .unwrap(),
+                        0
+                    );
+
+                    tracing::debug!("Deposit operations are successful.");
+
                     Ok(true)
                 },
                 None,
@@ -1736,70 +1788,6 @@ impl TestCase for ConcurrentDepositsAndWithdrawals {
             )
             .await;
         }
-
-        // poll_until_condition(
-        //     async || {
-        //         // Send deposit to Citrea
-        //         let move_txid = move_txids[0];
-        //         let tx = rpc.client.get_raw_transaction(&move_txid, None).await?;
-        //         let tx_info = rpc
-        //             .client
-        //             .get_raw_transaction_info(&move_txid, None)
-        //             .await?;
-        //         let block = rpc.client.get_block(&tx_info.blockhash.unwrap()).await?;
-        //         let block_height =
-        //             rpc.client.get_block_info(&block.block_hash()).await?.height as u64;
-
-        //         citrea::wait_until_lc_contract_updated(
-        //             sequencer.client.http_client(),
-        //             block_height,
-        //         )
-        //         .await
-        //         .unwrap();
-
-        //         // Without a deposit, the balance should be 0.
-        //         assert_eq!(
-        //             citrea::eth_get_balance(
-        //                 sequencer.client.http_client().clone(),
-        //                 crate::EVMAddress([1; 20]),
-        //             )
-        //             .await
-        //             .unwrap(),
-        //             0
-        //         );
-
-        //         tracing::debug!("Depositing to Citrea...");
-
-        //         citrea::deposit(
-        //             &rpc,
-        //             sequencer.client.http_client().clone(),
-        //             block,
-        //             block_height.try_into().unwrap(),
-        //             tx,
-        //         )
-        //         .await?;
-        //         for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
-        //             sequencer.client.send_publish_batch_request().await.unwrap();
-        //         }
-
-        //         // After the deposit, the balance should be non-zero.
-        //         assert_ne!(
-        //             citrea::eth_get_balance(
-        //                 sequencer.client.http_client().clone(),
-        //                 crate::EVMAddress([1; 20]),
-        //             )
-        //             .await
-        //             .unwrap(),
-        //             0
-        //         );
-
-        //         tracing::debug!("Deposit operations are successful.");
-
-        //         Ok(true)
-        //     },
-        //     None,
-        //     None,
-        // );
 
         // let (withdrawal_utxo, payout_txout, sig) =
         //     make_withdrawal(&rpc, &config, sequencer, lc_prover, batch_prover, da).await?;
