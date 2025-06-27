@@ -471,6 +471,20 @@ impl DisproveTest {
         .await
         .unwrap();
 
+        let last_assert_utxo = OutPoint {
+            txid: kickoff_txid,
+            vout: UtxoVout::Assert(ClementineBitVMPublicKeys::number_of_assert_txs() - 1)
+                .get_vout(),
+        };
+
+        ensure_outpoint_spent_while_waiting_for_light_client_sync(
+            &rpc,
+            lc_prover,
+            last_assert_utxo,
+        )
+        .await
+        .unwrap();
+
         // Create assert transactions for operator 0
         let assert_txs = operators[0]
             .internal_create_assert_commitment_txs(base_tx_req)
