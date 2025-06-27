@@ -17,7 +17,11 @@ jobs:
       - name: Get changed files
         id: files
         run: |
-          echo "CHANGED=$(git diff --name-only ${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }})" >> $GITHUB_OUTPUT
+          {
+            echo "CHANGED<<EOF"
+            git diff --name-only ${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
 
       - name: Check for deposit state changes
         id: check
