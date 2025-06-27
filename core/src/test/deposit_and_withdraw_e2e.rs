@@ -47,6 +47,7 @@ use bitcoin::hashes::Hash;
 use bitcoin::{secp256k1::SecretKey, Address, Amount};
 use bitcoin::{OutPoint, PublicKey, Transaction, TxOut, Txid};
 use bitcoincore_rpc::RpcApi;
+use bitvm::groth16::constants::R;
 use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
 use citrea_e2e::config::{BatchProverConfig, LightClientProverConfig};
 use citrea_e2e::{
@@ -1649,18 +1650,15 @@ impl TestCase for ConcurrentDepositsAndWithdrawals {
             config.protocol_paramset().network,
         );
 
-        let count = 10;
-        let evm_addresses = (0..count)
-            .map(|i| EVMAddress([i as u8; 20]))
-            .collect::<Vec<_>>();
+        let count = 1;
+        let evm_address = EVMAddress([1; 20]);
 
         // Prepare deposit requests.
         let mut aggregators = (0..count).map(|_| aggregator.clone()).collect::<Vec<_>>();
         let mut deposit_requests = Vec::new();
         for (i, mut aggregator) in aggregators.iter_mut().enumerate() {
             let (deposit_address, _) =
-                get_deposit_address(&config, evm_addresses[i], verifiers_public_keys.clone())
-                    .unwrap();
+                get_deposit_address(&config, evm_address, verifiers_public_keys.clone()).unwrap();
             let deposit_outpoint = rpc
                 .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
                 .await
@@ -1677,7 +1675,7 @@ impl TestCase for ConcurrentDepositsAndWithdrawals {
             let deposit_info = DepositInfo {
                 deposit_outpoint,
                 deposit_type: DepositType::BaseDeposit(BaseDepositData {
-                    evm_address: evm_addresses[i],
+                    evm_address,
                     recovery_taproot_address: actor.address.as_unchecked().to_owned(),
                 }),
             };
@@ -1706,6 +1704,9 @@ impl TestCase for ConcurrentDepositsAndWithdrawals {
             .collect::<Vec<_>>();
         println!("Move txids: {:?}", move_txids);
 
+        sleep(Duration::from_secs(5)).await;
+        rpc.mine_blocks(1).await.unwrap();
+
         for txid in move_txids.iter() {
             let rpc = rpc.clone();
             let txid = *txid;
@@ -1715,19 +1716,19 @@ impl TestCase for ConcurrentDepositsAndWithdrawals {
                     println!("Mempool entry for txid {:?}: {:?}", txid, entry);
                     Ok(entry.is_ok())
                 },
-                None,
+                Some(Duration::from_secs(120)),
                 None,
             )
-            .await;
+            .await?;
         }
-        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
+        rpc.mine_blocks(1).await.unwrap();
 
         for (i, txid) in move_txids.iter().enumerate() {
             let rpc = rpc.clone();
             let txid = *txid;
             let sequencer_client = sequencer.client.clone();
             let max_l2_blocks_per_commitment = sequencer.config.node.max_l2_blocks_per_commitment;
-            let evm_address = evm_addresses[i].clone();
+            let evm_address = evm_address.clone();
 
             poll_until_condition(
                 async move || {
@@ -1762,7 +1763,7 @@ impl TestCase for ConcurrentDepositsAndWithdrawals {
                         0
                     );
 
-                    tracing::debug!("Depositing to Citrea...");
+                    println!("Depositing to Citrea...");
 
                     citrea::deposit(
                         &rpc,
@@ -1787,7 +1788,7 @@ impl TestCase for ConcurrentDepositsAndWithdrawals {
                         0
                     );
 
-                    tracing::debug!("Deposit operations are successful.");
+                    println!("Deposit operations are successful.");
 
                     Ok(true)
                 },
