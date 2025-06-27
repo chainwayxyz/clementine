@@ -341,6 +341,12 @@ impl DisproveTest {
 
         rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
 
+        let finalized_height = da.get_finalized_height(None).await.unwrap();
+
+        tracing::info!("Finalized height: {:?}", finalized_height);
+        lc_prover.wait_for_l1_height(finalized_height, None).await?;
+        tracing::info!("Waited for L1 height {}", finalized_height);
+
         // wait until payout part is not null
         while db
             .get_first_unhandled_payout_by_operator_xonly_pk(None, op0_xonly_pk)
@@ -463,13 +469,9 @@ impl DisproveTest {
             vout: UtxoVout::Assert(0).get_vout(),
         };
 
-        ensure_outpoint_spent_while_waiting_for_light_client_sync(
-            &rpc,
-            lc_prover,
-            first_assert_utxo,
-        )
-        .await
-        .unwrap();
+        ensure_outpoint_spent(&rpc, lc_prover, first_assert_utxo)
+            .await
+            .unwrap();
 
         let last_assert_utxo = OutPoint {
             txid: kickoff_txid,
@@ -477,13 +479,9 @@ impl DisproveTest {
                 .get_vout(),
         };
 
-        ensure_outpoint_spent_while_waiting_for_light_client_sync(
-            &rpc,
-            lc_prover,
-            last_assert_utxo,
-        )
-        .await
-        .unwrap();
+        ensure_outpoint_spent(&rpc, lc_prover, last_assert_utxo)
+            .await
+            .unwrap();
 
         // Create assert transactions for operator 0
         let assert_txs = operators[0]
