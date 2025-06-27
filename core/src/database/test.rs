@@ -6,7 +6,7 @@ use crate::{
     execute_query_with_tx,
 };
 use bitcoin::{Amount, FeeRate, Txid};
-use eyre::Context;
+use eyre::{Context, ContextCompat};
 
 impl Database {
     pub async fn get_fee_payer_utxos_for_tx(
@@ -151,7 +151,7 @@ impl Database {
                 let block_height = match sqlx::query_scalar::<_, i32>(
                     "SELECT height FROM bitcoin_syncer WHERE id = $1",
                 )
-                .bind(seen_block_id.unwrap())
+                .bind(seen_block_id.expect("it is unwrapped"))
                 .fetch_one(&self.connection)
                 .await
                 {
@@ -202,7 +202,7 @@ impl Database {
                 let block_height = match sqlx::query_scalar::<_, i32>(
                     "SELECT height FROM bitcoin_syncer WHERE id = $1",
                 )
-                .bind(seen_block_id.unwrap())
+                .bind(seen_block_id.expect("it is unwrapped"))
                 .fetch_one(&self.connection)
                 .await
                 {
