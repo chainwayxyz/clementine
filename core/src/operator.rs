@@ -28,7 +28,7 @@ use crate::task::payout_checker::{PayoutCheckerTask, PAYOUT_CHECKER_POLL_DELAY};
 use crate::task::TaskExt;
 use crate::utils::Last20Bytes;
 use crate::utils::{NamedEntity, TxMetadata};
-use crate::{builder, UTXO};
+use crate::{builder, constants, UTXO};
 use bitcoin::consensus::deserialize;
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
@@ -418,7 +418,7 @@ where
             .await?;
 
         let mut tweak_cache = TweakCache::default();
-        let (sig_tx, sig_rx) = mpsc::channel(1280);
+        let (sig_tx, sig_rx) = mpsc::channel(constants::DEFAULT_CHANNEL_SIZE);
 
         let deposit_blockhash = self
             .rpc
@@ -1361,7 +1361,7 @@ where
 
         let blockhashes_serialized: Vec<[u8; 32]> = block_hashes
             .iter()
-            .take(hcp_height as usize + 1) // height 0 included
+            .take(latest_blockhash_index + 1) // get all blocks up to and including latest_blockhash
             .map(|(block_hash, _)| block_hash.to_byte_array())
             .collect::<Vec<_>>();
 
@@ -1427,7 +1427,7 @@ where
         };
         tracing::info!("Starting proving bridge circuit to send asserts");
         let (g16_proof, g16_output, public_inputs) =
-            prove_bridge_circuit(bridge_circuit_host_params, bridge_circuit_elf);
+            prove_bridge_circuit(bridge_circuit_host_params, bridge_circuit_elf)?;
         tracing::info!("Proved bridge circuit in send_asserts");
         let public_input_scalar = ark_bn254::Fr::from_be_bytes_mod_order(&g16_output);
 
@@ -1581,6 +1581,7 @@ where
 #[cfg(feature = "automation")]
 mod states {
     use super::*;
+    use crate::builder::transaction::input::UtxoVout;
     use crate::builder::transaction::{
         create_txhandlers, ContractContext, ReimburseDbCache, TransactionType, TxHandler,
         TxHandlerCache,
@@ -1654,7 +1655,6 @@ mod states {
                         .get_deposit_data_with_kickoff_txid(None, txid)
                         .await?;
                     if let Some((deposit_data, kickoff_data)) = kickoff_data {
-                        // add kickoff machine if there is a new kickoff
                         let mut dbtx = self.db.begin_transaction().await?;
                         StateManager::<Self>::dispatch_new_kickoff_machine(
                             self.db.clone(),

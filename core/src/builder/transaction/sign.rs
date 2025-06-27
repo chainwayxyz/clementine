@@ -180,7 +180,8 @@ pub async fn create_and_sign_txs(
             }
             Err(e) => {
                 tracing::trace!(
-                    "Couldn't sign transaction {:?} in create_and_sign_all_txs: {:?}",
+                    "Couldn't sign transaction {:?} in create_and_sign_all_txs: {:?}. 
+                    This might be normal if the transaction is not needed to be/cannot be signed.",
                     tx_type,
                     e
                 );
@@ -255,9 +256,28 @@ where
             watchtower_index,
             commit_data,
             self.config.protocol_paramset(),
+            #[cfg(test)]
+            &self.config.test_params,
         )?;
 
         let merkle_root = watchtower_challenge_txhandler.get_merkle_root_of_txin(0)?;
+
+        #[cfg(test)]
+        let mut annex: Option<Vec<u8>> = None;
+
+        // #[cfg(test)]
+        // let mut additional_op_return = None;
+
+        #[cfg(test)]
+        {
+            if self.config.test_params.use_small_annex {
+                annex = Some(vec![80u8; 10000]);
+            } else if self.config.test_params.use_large_annex {
+                annex = Some(vec![80u8; 3990000]);
+            } else if self.config.test_params.use_large_annex_and_output {
+                annex = Some(vec![80u8; 3000000]);
+            }
+        }
 
         Ok((
             TransactionType::WatchtowerChallenge(watchtower_index),
@@ -265,6 +285,8 @@ where
             RbfSigningInfo {
                 vout: 0,
                 tweak_merkle_root: merkle_root,
+                #[cfg(test)]
+                annex,
             },
         ))
     }
@@ -498,7 +520,7 @@ where
         let block_hash_last_20 = block_hash[block_hash.len() - 20..].to_vec();
 
         tracing::info!(
-            "Creating latest blockhash tx with block hash: {:?}",
+            "Creating latest blockhash tx with block hash's last 20 bytes: {:?}",
             block_hash_last_20
         );
         self.signer.tx_sign_winternitz(

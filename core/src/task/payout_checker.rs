@@ -8,7 +8,7 @@ use super::Task;
 pub const PAYOUT_CHECKER_POLL_DELAY: Duration = if cfg!(test) {
     Duration::from_millis(200)
 } else {
-    Duration::from_secs(1)
+    Duration::from_secs(60)
 };
 
 #[derive(Debug, Clone)]
@@ -50,6 +50,12 @@ where
         let (citrea_idx, move_to_vault_txid, payout_tx_blockhash) =
             unhandled_payout.expect("Must be Some");
 
+        tracing::info!(
+            "Unhandled payout found for withdrawal {}, move_txid: {}",
+            citrea_idx,
+            move_to_vault_txid
+        );
+
         let deposit_data = self
             .db
             .get_deposit_data_with_move_tx(Some(&mut dbtx), move_to_vault_txid)
@@ -79,6 +85,6 @@ where
 
         dbtx.commit().await?;
 
-        Ok(false)
+        Ok(true)
     }
 }

@@ -29,7 +29,7 @@ use crate::test::common::{
     create_regtest_rpc, generate_withdrawal_transaction_and_signature, mine_once_after_in_mempool,
     poll_get, poll_until_condition, run_single_deposit,
 };
-use crate::utils::{FeePayingType, TxMetadata};
+use crate::utils::{initialize_logger, FeePayingType, TxMetadata};
 use crate::UTXO;
 use crate::{
     extended_rpc::ExtendedRpc,
@@ -55,8 +55,6 @@ use citrea_e2e::{
 use eyre::Context;
 use once_cell::sync::{Lazy, OnceCell};
 use std::time::Duration;
-
-pub static PROTOCOL_PARAMSET: OnceCell<ProtocolParamset> = OnceCell::new();
 
 #[derive(PartialEq)]
 pub enum CitreaDepositAndWithdrawE2EVariant {
@@ -120,6 +118,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 
     async fn run_test(&mut self, f: &mut TestFramework) -> Result<()> {
         tracing::info!("Starting Citrea");
+
         let (sequencer, _full_node, lc_prover, batch_prover, da) =
             citrea::start_citrea(Self::sequencer_config(), f)
                 .await
@@ -164,11 +163,10 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             let paramset = ProtocolParamset {
                 genesis_height,
                 genesis_chain_state_hash,
-                ..Default::default()
+                ..ProtocolParamset::default()
             };
 
-            PROTOCOL_PARAMSET.set(paramset).unwrap();
-            config.protocol_paramset = &PROTOCOL_PARAMSET.get().unwrap();
+            config.protocol_paramset = Box::leak(Box::new(paramset));
         }
 
         let block_count = da.get_block_count().await?;
@@ -233,9 +231,13 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             tx,
         )
         .await?;
+
         for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
             sequencer.client.send_publish_batch_request().await.unwrap();
         }
+
+        // Wait for the deposit to be processed.
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
         // After the deposit, the balance should be non-zero.
         assert_ne!(
@@ -618,6 +620,8 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 /// * Verifies reimburse connector is spent (proper payout handling)
 #[tokio::test]
 async fn citrea_deposit_and_withdraw_e2e() -> Result<()> {
+    initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
+        .expect("Failed to initialize logger");
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
         "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
@@ -630,6 +634,8 @@ async fn citrea_deposit_and_withdraw_e2e() -> Result<()> {
 
 #[tokio::test]
 async fn citrea_deposit_and_withdraw_e2e_non_zero_genesis_height() -> Result<()> {
+    initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
+        .expect("Failed to initialize logger");
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
         "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",

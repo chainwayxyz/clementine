@@ -20,7 +20,7 @@ use super::{context::Owner, StateManager};
 const POLL_DELAY: Duration = if cfg!(test) {
     Duration::from_millis(100)
 } else {
-    Duration::from_secs(1)
+    Duration::from_secs(30)
 };
 
 /// Block handler that sends events to a PostgreSQL message queue

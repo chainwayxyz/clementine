@@ -6,6 +6,7 @@ use serde_with::serde_as;
 use statig::prelude::*;
 
 use crate::{
+    bitvm_client::ClementineBitVMPublicKeys,
     builder::transaction::{
         input::UtxoVout, remove_txhandler_from_map, ContractContext, TransactionType,
     },
@@ -48,8 +49,6 @@ pub enum KickoffEvent {
     // TODO: add warnings
     // ChallengeTimeoutNotSent,
     TimeToSendWatchtowerChallenge,
-    TimeToSendVerifierDisprove,
-    TimeToSendOperatorAsserts, // unused for now, asserts are directly sent after latest blockhash is committed
     /// Special event that is used to indicate that the state machine has been saved to the database and the dirty flag should be reset
     SavedToDb,
 }
@@ -144,7 +143,7 @@ impl<T: Owner> KickoffStateMachine<T> {
         if matches!(evt, KickoffEvent::SavedToDb) {
             self.dirty = false;
         } else {
-            tracing::debug!(?self.kickoff_data, "Dispatching event {:?}", evt);
+            tracing::trace!(?self.kickoff_data, "Dispatching event {:?}", evt);
             self.dirty = true;
 
             // Remove the matcher corresponding to the event.
@@ -155,7 +154,7 @@ impl<T: Owner> KickoffStateMachine<T> {
         }
     }
 
-    async fn check_if_time_to_commit_latest_blockhash(&mut self, context: &mut StateContext<T>) {
+    async fn commit_latest_blockhash_if_ready(&mut self, context: &mut StateContext<T>) {
         context
             .capture_error(async |context| {
                 {
@@ -182,6 +181,15 @@ impl<T: Owner> KickoffStateMachine<T> {
                 .wrap_err(self.kickoff_meta("on check_if_time_to_commit_latest_blockhash"))
             })
             .await;
+    }
+
+    async fn disprove_if_ready(&mut self, context: &mut StateContext<T>) {
+        if (self.operator_asserts.len() == ClementineBitVMPublicKeys::number_of_assert_txs()
+            && self.latest_blockhash != Witness::default()
+            && self.spent_watchtower_utxos.len() == self.deposit_data.get_num_watchtowers())
+        {
+            self.send_disprove(context).await;
+        }
     }
 
     async fn send_operator_asserts(&mut self, context: &mut StateContext<T>) {
@@ -273,12 +281,6 @@ impl<T: Owner> KickoffStateMachine<T> {
                         ),
                         KickoffEvent::TimeToSendWatchtowerChallenge,
                     );
-                    self.matchers.insert(
-                        Matcher::BlockHeight(
-                            self.kickoff_height + context.paramset.time_to_disprove as u32,
-                        ),
-                        KickoffEvent::TimeToSendVerifierDisprove,
-                    );
                     Ok::<(), BridgeError>(())
                 }
                 .wrap_err(self.kickoff_meta("on_kickoff_started_entry"))
@@ -300,14 +302,9 @@ impl<T: Owner> KickoffStateMachine<T> {
             | KickoffEvent::BurnConnectorSpent
             | KickoffEvent::WatchtowerChallengeTimeoutSent { .. }
             | KickoffEvent::LatestBlockHashSent { .. }
-            | KickoffEvent::SavedToDb
-            | KickoffEvent::TimeToSendOperatorAsserts => Super,
+            | KickoffEvent::SavedToDb => Super,
             KickoffEvent::TimeToSendWatchtowerChallenge => {
                 self.send_watchtower_challenge(context).await;
-                Handled
-            }
-            KickoffEvent::TimeToSendVerifierDisprove => {
-                self.send_disprove(context).await;
                 Handled
             }
             _ => {
@@ -337,7 +334,8 @@ impl<T: Owner> KickoffStateMachine<T> {
                 // save challenge witness
                 self.watchtower_challenges
                     .insert(*watchtower_idx, tx.clone());
-                self.check_if_time_to_commit_latest_blockhash(context).await;
+                self.commit_latest_blockhash_if_ready(context).await;
+                self.disprove_if_ready(context).await;
                 Handled
             }
             KickoffEvent::OperatorAssertSent {
@@ -350,6 +348,7 @@ impl<T: Owner> KickoffStateMachine<T> {
                     .expect("Assert outpoint that got matched should be in block");
                 // save assert witness
                 self.operator_asserts.insert(*assert_idx, witness);
+                self.disprove_if_ready(context).await;
                 Handled
             }
             KickoffEvent::OperatorChallengeAckSent {
@@ -375,7 +374,7 @@ impl<T: Owner> KickoffStateMachine<T> {
             }
             KickoffEvent::WatchtowerChallengeTimeoutSent { watchtower_idx } => {
                 self.spent_watchtower_utxos.insert(*watchtower_idx);
-                self.check_if_time_to_commit_latest_blockhash(context).await;
+                self.commit_latest_blockhash_if_ready(context).await;
                 Handled
             }
             KickoffEvent::LatestBlockHashSent {
@@ -389,10 +388,7 @@ impl<T: Owner> KickoffStateMachine<T> {
                 self.latest_blockhash = witness;
                 // can start sending asserts as latest blockhash is committed and finalized
                 self.send_operator_asserts(context).await;
-                Handled
-            }
-            KickoffEvent::TimeToSendOperatorAsserts => {
-                self.send_operator_asserts(context).await;
+                self.disprove_if_ready(context).await;
                 Handled
             }
             KickoffEvent::SavedToDb => Handled,
@@ -421,8 +417,7 @@ impl<T: Owner> KickoffStateMachine<T> {
             | KickoffEvent::BurnConnectorSpent
             | KickoffEvent::WatchtowerChallengeTimeoutSent { .. }
             | KickoffEvent::LatestBlockHashSent { .. }
-            | KickoffEvent::SavedToDb
-            | KickoffEvent::TimeToSendOperatorAsserts => Super,
+            | KickoffEvent::SavedToDb => Super,
             _ => {
                 self.unhandled_event(context, event).await;
                 Handled
@@ -451,11 +446,6 @@ impl<T: Owner> KickoffStateMachine<T> {
         let num_asserts = crate::bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs();
         for assert_idx in 0..num_asserts {
             let mini_assert_vout = UtxoVout::Assert(assert_idx).get_vout();
-            tracing::info!(
-                "Adding matcher for assert {} with vout {}",
-                assert_idx,
-                mini_assert_vout
-            );
             let assert_timeout_txhandler = remove_txhandler_from_map(
                 &mut txhandlers,
                 TransactionType::AssertTimeout(assert_idx),
@@ -467,7 +457,7 @@ impl<T: Owner> KickoffStateMachine<T> {
                         txid: kickoff_txid,
                         vout: mini_assert_vout,
                     },
-                    *assert_timeout_txid,
+                    vec![*assert_timeout_txid],
                 ),
                 KickoffEvent::OperatorAssertSent {
                     assert_outpoint: OutPoint {
@@ -487,7 +477,10 @@ impl<T: Owner> KickoffStateMachine<T> {
             vout: UtxoVout::LatestBlockhash.get_vout(),
         };
         self.matchers.insert(
-            Matcher::SpentUtxoButNotTxid(latest_blockhash_outpoint, *latest_blockhash_timeout_txid),
+            Matcher::SpentUtxoButNotTxid(
+                latest_blockhash_outpoint,
+                vec![*latest_blockhash_timeout_txid],
+            ),
             KickoffEvent::LatestBlockHashSent {
                 latest_blockhash_outpoint,
             },
@@ -513,7 +506,7 @@ impl<T: Owner> KickoffStateMachine<T> {
                         txid: kickoff_txid,
                         vout: watchtower_challenge_vout,
                     },
-                    *watchtower_timeout_txid,
+                    vec![*watchtower_timeout_txid],
                 ),
                 KickoffEvent::WatchtowerChallengeSent {
                     watchtower_idx,
@@ -537,7 +530,7 @@ impl<T: Owner> KickoffStateMachine<T> {
                         txid: kickoff_txid,
                         vout: operator_challenge_ack_vout,
                     },
-                    *operator_challenge_nack_txid,
+                    vec![*operator_challenge_nack_txid, *watchtower_timeout_txid],
                 ),
                 KickoffEvent::OperatorChallengeAckSent {
                     watchtower_idx,
@@ -555,7 +548,7 @@ impl<T: Owner> KickoffStateMachine<T> {
         self.matchers.insert(
             Matcher::SpentUtxo(OutPoint {
                 txid: round_txid,
-                vout: UtxoVout::BurnConnector.get_vout(),
+                vout: UtxoVout::CollateralInRound.get_vout(),
             }),
             KickoffEvent::BurnConnectorSpent,
         );
@@ -577,7 +570,7 @@ impl<T: Owner> KickoffStateMachine<T> {
                     txid: kickoff_txid,
                     vout: UtxoVout::Challenge.get_vout(),
                 },
-                *challenge_timeout_txid,
+                vec![*challenge_timeout_txid],
             ),
             KickoffEvent::Challenged,
         );

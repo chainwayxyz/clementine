@@ -81,9 +81,7 @@ impl From<DepositSignSession> for VerifierDepositSignParams {
 impl From<DepositSignSession> for VerifierDepositFinalizeParams {
     fn from(value: DepositSignSession) -> Self {
         VerifierDepositFinalizeParams {
-            params: Some(
-                verifier_deposit_finalize_params::Params::DepositSignFirstParam(value.clone()),
-            ),
+            params: Some(verifier_deposit_finalize_params::Params::DepositSignFirstParam(value)),
         }
     }
 }

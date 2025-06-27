@@ -118,7 +118,7 @@ impl<T: Owner> RoundStateMachine<T> {
         if matches!(evt, RoundEvent::SavedToDb) {
             self.dirty = false;
         } else {
-            tracing::debug!(?self.operator_data, "Dispatching event {:?}", evt);
+            tracing::trace!(?self.operator_data, "Dispatching event {:?}", evt);
             self.dirty = true;
 
             // Remove the matcher corresponding to the event.
@@ -180,7 +180,7 @@ impl<T: Owner> RoundStateMachine<T> {
                     self.matchers.insert(
                         matcher::Matcher::SpentUtxoButNotTxid(
                             self.operator_data.collateral_funding_outpoint,
-                            *round_txid,
+                            vec![*round_txid],
                         ),
                         RoundEvent::OperatorExit,
                     );
@@ -343,7 +343,7 @@ impl<T: Owner> RoundStateMachine<T> {
                                     *round_txhandler.get_txid(),
                                     UtxoVout::CollateralInRound.get_vout(),
                                 ),
-                                *ready_to_reimburse_txhandler.get_txid(),
+                                vec![*ready_to_reimburse_txhandler.get_txid()],
                             ),
                             RoundEvent::OperatorExit,
                         );
@@ -440,7 +440,7 @@ impl<T: Owner> RoundStateMachine<T> {
                                 *current_ready_to_reimburse_txid,
                                 UtxoVout::CollateralInReadyToReimburse.get_vout(),
                             ),
-                            *next_round_txid,
+                            vec![*next_round_txid],
                         ),
                         RoundEvent::OperatorExit,
                     );

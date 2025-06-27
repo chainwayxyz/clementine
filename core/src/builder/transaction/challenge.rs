@@ -47,6 +47,7 @@ pub fn create_watchtower_challenge_txhandler(
     watchtower_idx: usize,
     commit_data: &[u8],
     paramset: &'static ProtocolParamset,
+    #[cfg(test)] test_params: &crate::config::TestParams,
 ) -> Result<TxHandler, BridgeError> {
     if commit_data.len() != paramset.watchtower_challenge_bytes {
         return Err(TxError::IncorrectWatchtowerChallengeDataLength.into());
@@ -86,6 +87,27 @@ pub fn create_watchtower_challenge_txhandler(
         let remaining_data = PushBytesBuf::try_from(commit_data[current_idx..].to_vec())
             .wrap_err("Failed to create pushbytesbuf for watchtower challenge op_return")?;
         builder = builder.add_output(UnspentTxOut::from_partial(op_return_txout(remaining_data)));
+    }
+
+    #[cfg(test)]
+    {
+        if test_params.use_large_annex_and_output {
+            let mut op_return_vec: Vec<u8> = vec![0x6a, 0xa8, 0xcc, 0x03, 0x00];
+            op_return_vec.extend_from_slice(&[0u8; 249000]);
+            let additional_op_return_txout = TxOut {
+                value: Amount::from_sat(0),
+                script_pubkey: ScriptBuf::from_bytes(op_return_vec),
+            };
+            builder = builder.add_output(UnspentTxOut::from_partial(additional_op_return_txout));
+        } else if test_params.use_large_output {
+            let mut op_return_vec: Vec<u8> = vec![0x6a, 0x58, 0x3e, 0x0f, 0x00];
+            op_return_vec.extend_from_slice(&[0u8; 999000]);
+            let additional_op_return_txout = TxOut {
+                value: Amount::from_sat(0),
+                script_pubkey: ScriptBuf::from_bytes(op_return_vec),
+            };
+            builder = builder.add_output(UnspentTxOut::from_partial(additional_op_return_txout));
+        }
     }
 
     Ok(builder.finalize())
@@ -205,7 +227,7 @@ pub fn create_operator_challenge_nack_txhandler(
                     NumberedSignatureKind::OperatorChallengeNack3,
                     watchtower_idx as i32,
                 ),
-                round_txhandler.get_spendable_output(UtxoVout::BurnConnector)?,
+                round_txhandler.get_spendable_output(UtxoVout::CollateralInRound)?,
                 SpendPath::KeySpend,
                 DEFAULT_SEQUENCE,
             )
@@ -295,12 +317,12 @@ pub fn create_disprove_txhandler(
         )
         .add_input(
             NormalSignatureKind::Disprove2,
-            round_txhandler.get_spendable_output(UtxoVout::BurnConnector)?,
+            round_txhandler.get_spendable_output(UtxoVout::CollateralInRound)?,
             SpendPath::KeySpend,
             DEFAULT_SEQUENCE,
         )
         .add_output(UnspentTxOut::from_partial(
-            builder::transaction::anchor_output(paramset.anchor_amount()),
+            builder::transaction::non_ephemeral_anchor_output(), // must be non-ephemeral, because tx is v2
         ))
         .finalize())
 }
