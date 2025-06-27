@@ -1,6 +1,12 @@
 name: Check Test Coverage
 
-on: [push]
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    types:
+      - ready_for_review
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -17,7 +23,7 @@ env:
 
 jobs:
   coverage:
-    name: Release | All features | Coverage
+    name: Run coverage tests and upload results to Codecov
     runs-on: ubicloud-standard-30
 
     env:
