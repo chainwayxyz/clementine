@@ -320,6 +320,7 @@ pub async fn run_single_deposit<C: CitreaClientT>(
     config: &mut BridgeConfig,
     rpc: ExtendedRpc,
     evm_address: Option<EVMAddress>,
+    deposit_outpoint: Option<OutPoint>, // if a deposit outpoint is provided, it will be used instead of creating a new one
 ) -> Result<
     (
         Vec<ClementineVerifierClient<Channel>>,
@@ -352,13 +353,19 @@ pub async fn run_single_deposit<C: CitreaClientT>(
     let setup_elapsed = setup_start.elapsed();
     tracing::info!("Setup completed in: {:?}", setup_elapsed);
 
-    let (deposit_address, _) =
-        get_deposit_address(config, evm_address, verifiers_public_keys.clone())?;
-    let deposit_outpoint = rpc
-        .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
-        .await?;
+    let deposit_outpoint = match deposit_outpoint {
+        Some(outpoint) => outpoint,
+        None => {
+            let (deposit_address, _) =
+                get_deposit_address(config, evm_address, verifiers_public_keys.clone())?;
+            let outpoint = rpc
+                .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
+                .await?;
+            mine_once_after_in_mempool(&rpc, outpoint.txid, Some("Deposit outpoint"), None).await?;
+            outpoint
+        }
+    };
 
-    mine_once_after_in_mempool(&rpc, deposit_outpoint.txid, Some("Deposit outpoint"), None).await?;
     let deposit_blockhash = rpc.get_blockhash_of_tx(&deposit_outpoint.txid).await?;
 
     let deposit_info = DepositInfo {
@@ -386,7 +393,9 @@ pub async fn run_single_deposit<C: CitreaClientT>(
         .into_inner()
         .try_into()?;
 
-    mine_once_after_in_mempool(&rpc, move_txid, Some("Move tx"), Some(180)).await?;
+    if !rpc.is_tx_on_chain(&move_txid).await? {
+        mine_once_after_in_mempool(&rpc, move_txid, Some("Move tx"), Some(180)).await?;
+    }
 
     // let transaction = rpc
     //     .client
@@ -544,7 +553,7 @@ pub async fn run_replacement_deposit(
         move_txid,
         _,
         verifiers_public_keys,
-    ) = run_single_deposit::<MockCitreaClient>(config, rpc.clone(), evm_address).await?;
+    ) = run_single_deposit::<MockCitreaClient>(config, rpc.clone(), evm_address, None).await?;
 
     let nofn_xonly_pk =
         bitcoin::XOnlyPublicKey::from_musig2_pks(verifiers_public_keys.clone(), None)?;
@@ -680,7 +689,7 @@ async fn test_deposit() {
     let mut config = create_test_config_with_thread_name().await;
     let regtest = create_regtest_rpc(&mut config).await;
     let rpc = regtest.rpc().clone();
-    let _ = run_single_deposit::<MockCitreaClient>(&mut config, rpc, None)
+    let _ = run_single_deposit::<MockCitreaClient>(&mut config, rpc, None, None)
         .await
         .unwrap();
 }

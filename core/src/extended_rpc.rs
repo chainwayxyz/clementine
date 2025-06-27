@@ -29,6 +29,7 @@ use secrecy::SecretString;
 use std::str::FromStr;
 use std::sync::Arc;
 
+use crate::builder::address::create_taproot_address;
 use crate::builder::transaction::create_round_txhandlers;
 use crate::builder::transaction::input::UtxoVout;
 use crate::builder::transaction::KickoffWinternitzKeys;
@@ -175,11 +176,11 @@ impl ExtendedRpc {
                 "Failed to find collateral utxo in chain for outpoint {:?}",
                 operator_data.collateral_funding_outpoint
             ))?;
-        let input_amount = match tx
+        let collateral_outpoint = match tx
             .output
             .get(operator_data.collateral_funding_outpoint.vout as usize)
         {
-            Some(output) => output.value,
+            Some(output) => output,
             None => {
                 tracing::warn!(
                     "No output at index {} for txid {} while checking for collateral existence",
@@ -189,12 +190,26 @@ impl ExtendedRpc {
                 return Ok(false);
             }
         };
-        if input_amount != paramset.collateral_funding_amount {
+
+        if collateral_outpoint.value != paramset.collateral_funding_amount {
             tracing::error!(
                 "Collateral amount for collateral {:?} is not correct: expected {}, got {}",
                 operator_data.collateral_funding_outpoint,
                 paramset.collateral_funding_amount,
-                input_amount
+                collateral_outpoint.value
+            );
+            return Ok(false);
+        }
+
+        let operator_tpr_address =
+            create_taproot_address(&[], Some(operator_data.xonly_pk), paramset.network).0;
+
+        if collateral_outpoint.script_pubkey != operator_tpr_address.script_pubkey() {
+            tracing::error!(
+                "Collateral script pubkey for collateral {:?} is not correct: expected {}, got {}",
+                operator_data.collateral_funding_outpoint,
+                operator_tpr_address.script_pubkey(),
+                collateral_outpoint.script_pubkey
             );
             return Ok(false);
         }

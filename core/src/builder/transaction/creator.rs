@@ -1297,7 +1297,7 @@ mod tests {
         let WithProcessCleanup(_, ref rpc, _, _) = create_regtest_rpc(&mut config).await;
 
         let (verifiers, operators, _, _cleanup, deposit_params, _, deposit_blockhash, _) =
-            run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None)
+            run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None)
                 .await
                 .unwrap();
 
