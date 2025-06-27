@@ -493,7 +493,7 @@ mod tests {
         .await;
 
         let round_tx_txid_hash = compute_hash_of_round_txs(
-            operators.swap_remove(0),
+            operators.remove(0),
             deposit_info.deposit_outpoint,
             operators_xonly_pks[0],
             deposit_blockhash,
@@ -523,7 +523,7 @@ mod tests {
     }
 
     async fn load_deposit_state(rpc: &ExtendedRpc) -> DepositChainState {
-        tracing::warn!(
+        tracing::debug!(
             "Current chain height: {}",
             rpc.get_current_chain_height().await.unwrap()
         );
@@ -727,7 +727,7 @@ mod tests {
             .collect::<Vec<_>>();
 
         let round_tx_hash = compute_hash_of_round_txs(
-            operators.swap_remove(0),
+            operators.remove(0),
             deposit_info.deposit_outpoint,
             operators_xonly_pks[0],
             deposit_blockhash,

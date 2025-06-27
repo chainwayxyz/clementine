@@ -353,16 +353,17 @@ pub async fn run_single_deposit<C: CitreaClientT>(
     let setup_elapsed = setup_start.elapsed();
     tracing::info!("Setup completed in: {:?}", setup_elapsed);
 
-    let deposit_outpoint = if let Some(outpoint) = deposit_outpoint {
-        outpoint
-    } else {
-        let (deposit_address, _) =
-            get_deposit_address(config, evm_address, verifiers_public_keys.clone())?;
-        let outpoint = rpc
-            .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
-            .await?;
-        mine_once_after_in_mempool(&rpc, outpoint.txid, Some("Deposit outpoint"), None).await?;
-        outpoint
+    let deposit_outpoint = match deposit_outpoint {
+        Some(outpoint) => outpoint,
+        None => {
+            let (deposit_address, _) =
+                get_deposit_address(config, evm_address, verifiers_public_keys.clone())?;
+            let outpoint = rpc
+                .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
+                .await?;
+            mine_once_after_in_mempool(&rpc, outpoint.txid, Some("Deposit outpoint"), None).await?;
+            outpoint
+        }
     };
 
     let deposit_blockhash = rpc.get_blockhash_of_tx(&deposit_outpoint.txid).await?;
