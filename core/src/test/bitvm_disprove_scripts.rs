@@ -13,7 +13,7 @@ use crate::test::common::citrea::{get_citrea_safe_withdraw_params, SECRET_KEYS};
 use crate::test::common::tx_utils::{
     create_tx_sender, ensure_outpoint_spent,
     ensure_outpoint_spent_while_waiting_for_light_client_sync, get_tx_from_signed_txs_with_type,
-    get_txid_where_utxo_is_spent_while_waiting_for_light_client_sync,
+    get_txid_where_utxo_is_spent, get_txid_where_utxo_is_spent_while_waiting_for_light_client_sync,
     mine_once_after_outpoint_spent_in_mempool,
 };
 use crate::test::common::{
@@ -341,12 +341,6 @@ impl DisproveTest {
 
         rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
 
-        let finalized_height = da.get_finalized_height(None).await.unwrap();
-
-        tracing::info!("Finalized height: {:?}", finalized_height);
-        lc_prover.wait_for_l1_height(finalized_height, None).await?;
-        tracing::info!("Waited for L1 height {}", finalized_height);
-
         // wait until payout part is not null
         while db
             .get_first_unhandled_payout_by_operator_xonly_pk(None, op0_xonly_pk)
@@ -469,9 +463,13 @@ impl DisproveTest {
             vout: UtxoVout::Assert(0).get_vout(),
         };
 
-        ensure_outpoint_spent(&rpc, first_assert_utxo)
-            .await
-            .unwrap();
+        ensure_outpoint_spent_while_waiting_for_light_client_sync(
+            &rpc,
+            lc_prover,
+            first_assert_utxo,
+        )
+        .await
+        .unwrap();
 
         let last_assert_utxo = OutPoint {
             txid: kickoff_txid,
@@ -479,7 +477,13 @@ impl DisproveTest {
                 .get_vout(),
         };
 
-        ensure_outpoint_spent(&rpc, last_assert_utxo).await.unwrap();
+        ensure_outpoint_spent_while_waiting_for_light_client_sync(
+            &rpc,
+            lc_prover,
+            last_assert_utxo,
+        )
+        .await
+        .unwrap();
 
         // Create assert transactions for operator 0
         let assert_txs = operators[0]

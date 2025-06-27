@@ -303,7 +303,7 @@ pub async fn ensure_outpoint_spent(
     } {
         rpc.mine_blocks(1).await?;
 
-        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         timeout_counter -= 1;
 
         if timeout_counter == 0 {
