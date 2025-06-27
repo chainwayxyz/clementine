@@ -292,26 +292,31 @@ pub async fn ensure_outpoint_spent(
     rpc: &ExtendedRpc,
     outpoint: OutPoint,
 ) -> Result<(), eyre::Error> {
-    poll_until_condition(
-        async || {
-            rpc.mine_blocks(1).await?;
-            rpc.is_utxo_spent(&outpoint).await.map_err(Into::into)
-        },
-        Some(Duration::from_secs(500)),
-        None,
-    )
-    .await
-    .wrap_err_with(|| {
-        format!(
-            "Timed out while waiting for outpoint {:?} to be spent",
-            outpoint
-        )
-    })?;
-
-    rpc.client
+    let mut timeout_counter = 500;
+    while match rpc
+        .client
         .get_tx_out(&outpoint.txid, outpoint.vout, Some(false))
         .await
-        .wrap_err("Failed to find txout in RPC after outpoint was spent")?;
+    {
+        Err(_) => true,
+        Ok(val) => val.is_some(),
+    } {
+        rpc.mine_blocks(1).await?;
+
+        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+        timeout_counter -= 1;
+
+        if timeout_counter == 0 {
+            bail!(
+                "timeout while waiting for outpoint {:?} to be spent",
+                outpoint
+            );
+        }
+    }
+    rpc.client
+        .get_tx_out(&outpoint.txid, outpoint.vout, Some(false))
+        .await?;
+
     Ok(())
 }
 
