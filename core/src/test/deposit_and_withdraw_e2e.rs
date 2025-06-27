@@ -1721,7 +1721,11 @@ impl TestCase for ConcurrentDepositsAndWithdrawals {
             )
             .await?;
         }
-        rpc.mine_blocks(1).await.unwrap();
+
+        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
+        for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
+            sequencer.client.send_publish_batch_request().await.unwrap();
+        }
 
         for (i, txid) in move_txids.iter().enumerate() {
             let rpc = rpc.clone();
@@ -1765,19 +1769,28 @@ impl TestCase for ConcurrentDepositsAndWithdrawals {
 
                     println!("Depositing to Citrea...");
 
-                    citrea::deposit(
+                    let deposit_result = citrea::deposit(
                         &rpc,
                         sequencer_client.http_client().clone(),
                         block,
                         block_height.try_into().unwrap(),
                         tx,
                     )
-                    .await?;
+                    .await;
+                    if deposit_result.is_err() {
+                        println!(
+                            "Failed to deposit txid {:?}: {:?}",
+                            txid,
+                            deposit_result.err()
+                        );
+                        return Ok(false);
+                    }
                     for _ in 0..max_l2_blocks_per_commitment {
                         sequencer_client.send_publish_batch_request().await.unwrap();
                     }
 
                     // After the deposit, the balance should be non-zero.
+                    sleep(Duration::from_secs(5)).await;
                     assert_ne!(
                         citrea::eth_get_balance(
                             sequencer_client.http_client().clone(),
@@ -1805,7 +1818,7 @@ impl TestCase for ConcurrentDepositsAndWithdrawals {
                 make_withdrawal(&rpc, &config, sequencer, lc_prover, batch_prover, da).await?;
 
             withdrawal_requests.push(operator.withdraw(WithdrawParams {
-                withdrawal_id: i as u32,
+                withdrawal_id: 0,
                 input_signature: sig.serialize().to_vec(),
                 input_outpoint: Some(withdrawal_utxo.into()),
                 output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
