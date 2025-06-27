@@ -1,6 +1,6 @@
 use super::common::citrea::get_bridge_params;
 use super::common::ActorsCleanup;
-use crate::bitvm_client::SECP;
+use crate::bitvm_client::{ClementineBitVMPublicKeys, SECP};
 use crate::builder::transaction::input::UtxoVout;
 use crate::config::BridgeConfig;
 use crate::database::Database;
@@ -478,8 +478,7 @@ impl DisproveTest {
             .into_inner();
 
         // check if asserts were sent due to challenge
-        let operator_assert_txids = (0
-            ..bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs())
+        let operator_assert_txids = (0..ClementineBitVMPublicKeys::number_of_assert_txs())
             .map(|i| {
                 let assert_tx =
                     get_tx_from_signed_txs_with_type(&assert_txs, TransactionType::MiniAssert(i))
