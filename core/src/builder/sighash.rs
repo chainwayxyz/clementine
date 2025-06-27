@@ -433,6 +433,8 @@ mod tests {
         operator_sighash_hash: sha256::Hash,
     }
 
+    /// To make the test_bridge_contract_change test work if breaking changes are expected, run this test again
+    /// (with both debug and release), the states will get updated with the current values.
     #[tokio::test]
     #[ignore = "Run this to generate fresh deposit state data, in case any breaking change occurs to deposits"]
     async fn generate_deposit_state() {
@@ -650,7 +652,6 @@ mod tests {
     ///
     /// To make the test work if breaking changes are expected, run generate_deposit_state() test again
     /// (with both debug and release), it will get updated with the current values.
-    /// Discussion: Compiling locally on release takes too long, maybe just test this on debug?
     #[tokio::test]
     async fn test_bridge_contract_change() {
         let mut config = create_test_config_with_thread_name().await;
