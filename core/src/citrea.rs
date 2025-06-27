@@ -279,6 +279,16 @@ impl CitreaClientT for CitreaClient {
         let response: EIP1186AccountProofResponse = serde_json::from_value(response)
             .wrap_err("Failed to deserialize EIP1186AccountProofResponse")?;
 
+        // It does not seem possible to get a storage proof with less than 3 items. But still
+        // we check it to avoid panics.
+        if response.storage_proof.len() < 3 {
+            return Err(eyre::eyre!(
+                "Expected at least 3 storage proofs, got {}",
+                response.storage_proof.len()
+            )
+            .into());
+        }
+
         let serialized_utxo = serde_json::to_string(&response.storage_proof[0])
             .wrap_err("Failed to serialize storage proof utxo")?;
 

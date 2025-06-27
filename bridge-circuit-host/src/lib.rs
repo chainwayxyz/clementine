@@ -1,8 +1,5 @@
-use alloy::primitives::keccak256;
-use alloy_primitives::U256;
 use alloy_rpc_client::RpcClient;
-use alloy_rpc_types::EIP1186AccountProofResponse;
-use circuits_lib::bridge_circuit::structs::{LightClientProof, StorageProof};
+use circuits_lib::bridge_circuit::structs::LightClientProof;
 use eyre::{bail, Context};
 use hex::decode;
 use risc0_zkvm::{InnerReceipt, Receipt};
@@ -13,14 +10,6 @@ pub mod docker;
 pub mod mock_zkvm;
 pub mod structs;
 pub mod utils;
-
-const UTXOS_STORAGE_INDEX: [u8; 32] =
-    hex_literal::hex!("0000000000000000000000000000000000000000000000000000000000000007");
-
-const DEPOSIT_STORAGE_INDEX: [u8; 32] =
-    hex_literal::hex!("0000000000000000000000000000000000000000000000000000000000000008");
-
-const CONTRACT_ADDRESS: &str = "0x3100000000000000000000000000000000000002";
 
 /// Fetches the light client proof for a given L1 block height.
 ///
