@@ -227,6 +227,105 @@ pub async fn mine_once_after_in_mempool(
     Ok(tx_block_height.height)
 }
 
+pub async fn run_multiple_deposits<C: CitreaClientT>(
+    config: &mut BridgeConfig,
+    rpc: ExtendedRpc,
+    count: usize,
+) -> Result<
+    (
+        Vec<ClementineVerifierClient<Channel>>,
+        Vec<ClementineOperatorClient<Channel>>,
+        ClementineAggregatorClient<Channel>,
+        ActorsCleanup,
+        Vec<OutPoint>,
+        Vec<Txid>,
+    ),
+    BridgeError,
+> {
+    let (verifiers, operators, mut aggregator, cleanup) = create_actors::<C>(config).await;
+
+    let evm_address = EVMAddress([1u8; 20]);
+    let actor = Actor::new(
+        config.secret_key,
+        config.winternitz_secret_key,
+        config.protocol_paramset().network,
+    );
+
+    let verifiers_public_keys: Vec<PublicKey> = aggregator
+        .setup(Request::new(Empty {}))
+        .await
+        .wrap_err("Can't setup aggregator")?
+        .into_inner()
+        .try_into()?;
+
+    let (deposit_address, _) =
+        get_deposit_address(config, evm_address, verifiers_public_keys.clone())?;
+    let mut deposit_outpoints = Vec::new();
+    let mut move_txids = Vec::new();
+
+    for _ in 0..count {
+        let deposit_outpoint: OutPoint = rpc
+            .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
+            .await?;
+        rpc.mine_blocks(18).await?;
+
+        let deposit_info = DepositInfo {
+            deposit_outpoint,
+            deposit_type: DepositType::BaseDeposit(BaseDepositData {
+                evm_address,
+                recovery_taproot_address: actor.address.as_unchecked().to_owned(),
+            }),
+        };
+
+        let deposit: Deposit = deposit_info.into();
+
+        let movetx = aggregator
+            .new_deposit(deposit)
+            .await
+            .wrap_err("Error while making a deposit")?
+            .into_inner();
+        let move_txid = aggregator
+            .send_move_to_vault_tx(SendMoveTxRequest {
+                deposit_outpoint: Some(deposit_outpoint.into()),
+                raw_tx: Some(movetx),
+            })
+            .await
+            .expect("failed to send movetx")
+            .into_inner()
+            .try_into()?;
+        rpc.mine_blocks(1).await?;
+
+        let _tx = poll_get(
+            async || {
+                rpc.mine_blocks(1).await?;
+
+                let tx_result = rpc.client.get_raw_transaction_info(&move_txid, None).await;
+
+                let _ = tx_result.as_ref().inspect_err(|e| {
+                    tracing::info!("Waiting for transaction to be on-chain: {}", e);
+                });
+
+                Ok(tx_result.ok())
+            },
+            None,
+            None,
+        )
+        .await?;
+
+        deposit_outpoints.push(deposit_outpoint);
+        move_txids.push(move_txid);
+    }
+
+    Ok((
+        verifiers,
+        operators,
+        aggregator,
+        cleanup,
+        deposit_outpoints,
+        move_txids,
+    ))
+}
+
 /// Creates a user deposit transaction and makes a new deposit call to
 /// Clementine via aggregator.
 ///
@@ -252,7 +351,7 @@ pub async fn mine_once_after_in_mempool(
 pub async fn run_single_deposit<C: CitreaClientT>(
     config: &mut BridgeConfig,
     rpc: ExtendedRpc,
-    user_evm_address: Option<EVMAddress>,
+    evm_address: Option<EVMAddress>,
 ) -> Result<
     (
         Vec<ClementineVerifierClient<Channel>>,
@@ -273,7 +372,7 @@ pub async fn run_single_deposit<C: CitreaClientT>(
     })
     .await?;
 
-    let user_evm_address = user_evm_address.unwrap_or(EVMAddress([1u8; 20]));
+    let user_evm_address = evm_address.unwrap_or(EVMAddress([1u8; 20]));
     let actor = Actor::new(
         config.secret_key,
         config.winternitz_secret_key,
