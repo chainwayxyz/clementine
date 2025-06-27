@@ -380,7 +380,7 @@ pub async fn run_single_deposit<C: CitreaClientT>(
     })
     .await?;
 
-    let user_evm_address = evm_address.unwrap_or(EVMAddress([1u8; 20]));
+    let evm_address = evm_address.unwrap_or(EVMAddress([1u8; 20]));
     let actor = Actor::new(
         config.secret_key,
         config.winternitz_secret_key,
@@ -398,7 +398,7 @@ pub async fn run_single_deposit<C: CitreaClientT>(
     tracing::info!("Setup completed in: {:?}", setup_elapsed);
 
     let (deposit_address, _) =
-        get_deposit_address(config, user_evm_address, verifiers_public_keys.clone())?;
+        get_deposit_address(config, evm_address, verifiers_public_keys.clone())?;
     let deposit_outpoint = rpc
         .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
         .await?;
@@ -409,7 +409,7 @@ pub async fn run_single_deposit<C: CitreaClientT>(
     let deposit_info = DepositInfo {
         deposit_outpoint,
         deposit_type: DepositType::BaseDeposit(BaseDepositData {
-            evm_address: user_evm_address,
+            evm_address,
             recovery_taproot_address: actor.address.as_unchecked().to_owned(),
         }),
     };
@@ -744,6 +744,7 @@ mod tests {
             .unwrap();
     }
 
+    #[cfg(feature = "integration_tests")]
     #[tokio::test]
     async fn mine_once_after_in_mempool() {
         let mut config = create_test_config_with_thread_name().await;
