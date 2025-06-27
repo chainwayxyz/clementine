@@ -471,19 +471,29 @@ impl DisproveTest {
         .await
         .unwrap();
 
+        // Create assert transactions for operator 0
         let assert_txs = operators[0]
             .internal_create_assert_commitment_txs(base_tx_req)
             .await?
             .into_inner();
 
-        let assert_tx =
-            get_tx_from_signed_txs_with_type(&assert_txs, TransactionType::MiniAssert(0)).unwrap();
-        let txid = assert_tx.compute_txid();
-
-        assert!(
-            rpc.is_tx_on_chain(&txid).await.unwrap(),
-            "Mini assert 0 was not found in the chain",
-        );
+        // check if asserts were sent due to challenge
+        let operator_assert_txids = (0
+            ..bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs())
+            .map(|i| {
+                let assert_tx =
+                    get_tx_from_signed_txs_with_type(&assert_txs, TransactionType::MiniAssert(i))
+                        .unwrap();
+                assert_tx.compute_txid()
+            })
+            .collect::<Vec<Txid>>();
+        for (idx, txid) in operator_assert_txids.into_iter().enumerate() {
+            assert!(
+                rpc.is_tx_on_chain(&txid).await.unwrap(),
+                "Mini assert {} was not found in the chain",
+                idx
+            );
+        }
 
         Ok((kickoff_tx, rpc, verifiers, operators, aggregator, cleanup))
     }
@@ -500,6 +510,8 @@ impl DisproveTest {
 
         let mut config = create_test_config_with_thread_name().await;
         config.test_params.corrupted_asserts = true;
+        // only verifier 0 will send disprove transactions
+        config.test_params.verifier_do_not_send_disprove_indexes = Some(vec![1, 2, 3]);
 
         citrea::update_config_with_citrea_e2e_values(
             &mut config,
@@ -569,6 +581,8 @@ impl DisproveTest {
         let batch_prover = batch_prover.unwrap();
 
         let mut config = create_test_config_with_thread_name().await;
+        // only verifier 0 will send disprove transactions
+        config.test_params.verifier_do_not_send_disprove_indexes = Some(vec![1, 2, 3]);
 
         citrea::update_config_with_citrea_e2e_values(
             &mut config,

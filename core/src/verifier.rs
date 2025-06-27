@@ -2496,6 +2496,25 @@ mod states {
                     payout_blockhash,
                     latest_blockhash,
                 } => {
+                    #[cfg(test)]
+                    {
+                        if let Some(do_not_send_disprove_indexes) = self
+                            .config
+                            .test_params
+                            .verifier_do_not_send_disprove_indexes
+                            .clone()
+                        {
+                            if do_not_send_disprove_indexes.contains(
+                                &deposit_data.get_verifier_index(&self.signer.public_key)?,
+                            ) {
+                                tracing::info!(
+                                    "Verifier {:?} is configured to not send disprove transactions",
+                                    verifier_xonly_pk
+                                );
+                                return Ok(DutyResult::Handled);
+                            }
+                        }
+                    }
                     let context = ContractContext::new_context_with_signer(
                         kickoff_data,
                         deposit_data.clone(),
