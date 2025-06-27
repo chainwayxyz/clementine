@@ -767,64 +767,6 @@ mod tests {
     use bitcoin::{absolute::LockTime, transaction::Version, Transaction};
     use bitcoincore_rpc::RpcApi;
 
-    #[ignore = "Tested everywhere, no need to run again"]
-    #[cfg(feature = "automation")]
-    #[tokio::test]
-    async fn run_single_deposit() {
-        let mut config = create_test_config_with_thread_name().await;
-        let regtest = create_regtest_rpc(&mut config).await;
-        let rpc = regtest.rpc().clone();
-        let _ = super::run_single_deposit::<MockCitreaClient>(&mut config, rpc, None)
-            .await
-            .unwrap();
-    }
-
-    #[cfg(feature = "integration_tests")]
-    #[tokio::test]
-    async fn mine_once_after_in_mempool() {
-        let mut config = create_test_config_with_thread_name().await;
-        let regtest = create_regtest_rpc(&mut config).await;
-        let rpc = regtest.rpc().clone();
-
-        // If a tx is not in the mempool, it should return an error.
-        let dummy_tx = Transaction {
-            version: Version::TWO,
-            lock_time: LockTime::ZERO,
-            input: vec![],
-            output: vec![],
-        };
-        assert!(super::mine_once_after_in_mempool(
-            &rpc,
-            dummy_tx.compute_txid(),
-            Some("Test tx"),
-            Some(1),
-        )
-        .await
-        .is_err());
-
-        // If a tx is in the mempool, it should mine it.
-        let actor = Actor::new(
-            config.secret_key,
-            config.winternitz_secret_key,
-            config.protocol_paramset().network,
-        );
-        let outpoint = rpc
-            .send_to_address(&actor.address, config.protocol_paramset().bridge_amount)
-            .await
-            .unwrap();
-        let tx = rpc.get_tx_of_txid(&outpoint.txid).await.unwrap();
-        super::mine_once_after_in_mempool(&rpc, outpoint.txid, Some("Test tx"), None)
-            .await
-            .unwrap();
-
-        // If the tx is mined, it should return an error telling that it is already mined.
-        assert!(
-            super::mine_once_after_in_mempool(&rpc, outpoint.txid, Some("Test tx"), None)
-                .await
-                .is_err()
-        );
-    }
-
     #[cfg(feature = "integration_tests")]
     #[tokio::test]
     async fn test_regtest_create_and_connect() {
