@@ -106,7 +106,6 @@ pub async fn fetch_light_client_proof(
     ))
 }
 
-
 /// Converts an `InnerReceipt` into a `Receipt`, ensuring all required fields are present.
 ///
 /// # Arguments
