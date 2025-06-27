@@ -30,7 +30,7 @@ use crate::deposit::{DepositData, KickoffData, OperatorData};
 use crate::errors::{BridgeError, TxError};
 use crate::extended_rpc::ExtendedRpc;
 use crate::header_chain_prover::{HeaderChainProver, HeaderChainProverError};
-use crate::operator::RoundIndex;
+use crate::operator::{self, RoundIndex};
 use crate::rpc::clementine::{NormalSignatureKind, OperatorKeys, TaggedSignature};
 use crate::task::manager::BackgroundTaskManager;
 use crate::task::{IntoTask, TaskExt};
@@ -327,7 +327,7 @@ where
     async fn is_deposit_valid(&self, deposit_data: &mut DepositData) -> Result<bool, BridgeError> {
         // check if security council is the same as in our config
         if deposit_data.security_council != self.config.security_council {
-            tracing::warn!(
+            tracing::error!(
                 "Security council in deposit is not the same as in the config, expected {:?}, got {:?}",
                 self.config.security_council,
                 deposit_data.security_council
@@ -336,17 +336,16 @@ where
         }
         let operator_xonly_pks = deposit_data.get_operators();
         // check if all operators that still have collateral are in the deposit
-        let are_all_operators_in_deposit = self.db.get_operators(None).await?;
-        for (xonly_pk, reimburse_addr, collateral_funding_outpoint) in are_all_operators_in_deposit
-        {
+        let operators_in_db = self.db.get_operators(None).await?;
+        for (xonly_pk, reimburse_addr, collateral_funding_outpoint) in operators_in_db.iter() {
             let operator_data = OperatorData {
-                xonly_pk,
-                collateral_funding_outpoint,
-                reimburse_addr,
+                xonly_pk: *xonly_pk,
+                collateral_funding_outpoint: *collateral_funding_outpoint,
+                reimburse_addr: reimburse_addr.clone(),
             };
             let kickoff_wpks = self
                 .db
-                .get_operator_kickoff_winternitz_public_keys(None, xonly_pk)
+                .get_operator_kickoff_winternitz_public_keys(None, *xonly_pk)
                 .await?;
             let kickoff_wpks = KickoffWinternitzKeys::new(
                 kickoff_wpks,
@@ -362,18 +361,31 @@ where
                 )
                 .await?;
             // if operator is not in deposit but its collateral is still on chain, return false
-            if !operator_xonly_pks.contains(&xonly_pk) && is_collateral_usable {
-                tracing::warn!(
+            if !operator_xonly_pks.contains(xonly_pk) && is_collateral_usable {
+                tracing::error!(
                     "Operator {:?} is is still in protocol but not in the deposit",
                     xonly_pk
                 );
                 return Ok(false);
             }
             // if operator is in deposit, but the collateral is not usable, return false
-            if operator_xonly_pks.contains(&xonly_pk) && !is_collateral_usable {
-                tracing::warn!(
+            if operator_xonly_pks.contains(xonly_pk) && !is_collateral_usable {
+                tracing::error!(
                     "Operator {:?} is in the deposit but its collateral is spent, operator cannot fulfill withdrawals anymore",
                     xonly_pk
+                );
+                return Ok(false);
+            }
+        }
+        // check if there are any operators in the deposit that are not in the DB.
+        for op_xonly_pk in operator_xonly_pks {
+            if !operators_in_db
+                .iter()
+                .any(|(xonly_pk, _, _)| xonly_pk == &op_xonly_pk)
+            {
+                tracing::error!(
+                    "Operator {:?} is in the deposit but not in the DB, cannot sign deposit",
+                    op_xonly_pk
                 );
                 return Ok(false);
             }
@@ -407,7 +419,7 @@ where
                 deposit_outpoint.vout
             ))?;
         if deposit_txout.value != self.config.protocol_paramset().bridge_amount {
-            tracing::warn!(
+            tracing::error!(
                 "Deposit amount is not correct, expected {}, got {}",
                 self.config.protocol_paramset().bridge_amount,
                 deposit_txout.value
@@ -415,7 +427,7 @@ where
             return Ok(false);
         }
         if deposit_txout.script_pubkey != deposit_txout_pubkey {
-            tracing::warn!(
+            tracing::error!(
                 "Deposit script pubkey in deposit outpoint does not match the deposit data, expected {:?}, got {:?}",
                 deposit_txout_pubkey,
                 deposit_txout.script_pubkey
