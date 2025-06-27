@@ -433,8 +433,9 @@ mod tests {
         operator_sighash_hash: sha256::Hash,
     }
 
-    /// To make the test_bridge_contract_change test work if breaking changes are expected, run this test again
+    /// To make the [`test_bridge_contract_change`] test work if breaking changes are expected, run this test again
     /// (with both debug and release), the states will get updated with the current values.
+    /// Read [`test_bridge_contract_change`] test doc for more details.
     #[tokio::test]
     #[ignore = "Run this to generate fresh deposit state data, in case any breaking change occurs to deposits"]
     async fn generate_deposit_state() {
