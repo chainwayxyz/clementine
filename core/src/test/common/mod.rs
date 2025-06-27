@@ -58,7 +58,7 @@ pub mod tx_utils;
 #[cfg(feature = "automation")]
 use crate::test::common::tx_utils::wait_for_fee_payer_utxos_to_be_in_mempool;
 #[cfg(feature = "automation")]
-use tx_utils::{confirm_fee_payer_utxos, create_tx_sender, get_txid_where_utxo_is_spent};
+use tx_utils::{create_tx_sender, get_txid_where_utxo_is_spent};
 
 /// Generate a random XOnlyPublicKey
 pub fn generate_random_xonly_pk() -> XOnlyPublicKey {
@@ -431,7 +431,8 @@ pub async fn run_single_deposit<C: CitreaClientT>(
         .into_inner()
         .try_into()?;
 
-    confirm_fee_payer_utxos(&rpc, aggregator_db.clone(), move_txid).await?;
+    wait_for_fee_payer_utxos_to_be_in_mempool(&rpc, aggregator_db, move_txid).await?;
+    rpc.mine_blocks(1).await?;
     mine_once_after_in_mempool(&rpc, move_txid, Some("Move tx"), Some(180)).await?;
 
     // Uncomment below to debug the move tx.

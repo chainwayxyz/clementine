@@ -394,14 +394,3 @@ pub async fn wait_for_fee_payer_utxos_to_be_in_mempool(
 
     Ok(())
 }
-
-/// Finds fee payer utxos for a transaction and confirms them.
-#[cfg(feature = "automation")]
-pub async fn confirm_fee_payer_utxos(rpc: &ExtendedRpc, db: Database, txid: Txid) -> Result<()> {
-    wait_for_fee_payer_utxos_to_be_in_mempool(rpc, db, txid).await?;
-
-    rpc.mine_blocks(1).await?;
-    tracing::debug!("Fee payer utxos are confirmed!");
-
-    Ok(())
-}

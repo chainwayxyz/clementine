@@ -19,11 +19,13 @@ use crate::rpc::clementine::{
     SendTxRequest, TransactionRequest, WithdrawParams,
 };
 use crate::test::common::citrea::{get_citrea_safe_withdraw_params, MockCitreaClient, SECRET_KEYS};
-use crate::test::common::tx_utils::get_tx_from_signed_txs_with_type;
 use crate::test::common::tx_utils::{
-    confirm_fee_payer_utxos, create_tx_sender, ensure_outpoint_spent,
+    create_tx_sender, ensure_outpoint_spent,
     ensure_outpoint_spent_while_waiting_for_light_client_sync, ensure_tx_onchain,
     get_txid_where_utxo_is_spent, mine_once_after_outpoint_spent_in_mempool,
+};
+use crate::test::common::tx_utils::{
+    get_tx_from_signed_txs_with_type, wait_for_fee_payer_utxos_to_be_in_mempool,
 };
 use crate::test::common::{
     create_regtest_rpc, generate_withdrawal_transaction_and_signature, mine_once_after_in_mempool,
@@ -1286,9 +1288,10 @@ async fn mock_citrea_run_malicious() {
         .try_into()
         .unwrap();
 
-    confirm_fee_payer_utxos(&rpc, db.clone(), kickoff_txid_2)
+    wait_for_fee_payer_utxos_to_be_in_mempool(&rpc, db, kickoff_txid_2)
         .await
         .unwrap();
+    rpc.mine_blocks(1).await.unwrap();
     let _kickoff_block_height2 =
         mine_once_after_in_mempool(&rpc, kickoff_txid_2, Some("Kickoff tx2"), Some(1800))
             .await
