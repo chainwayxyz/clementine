@@ -30,7 +30,7 @@ use crate::deposit::{DepositData, KickoffData, OperatorData};
 use crate::errors::{BridgeError, TxError};
 use crate::extended_rpc::ExtendedRpc;
 use crate::header_chain_prover::{HeaderChainProver, HeaderChainProverError};
-use crate::operator::{self, RoundIndex};
+use crate::operator::RoundIndex;
 use crate::rpc::clementine::{NormalSignatureKind, OperatorKeys, TaggedSignature};
 use crate::task::manager::BackgroundTaskManager;
 use crate::task::{IntoTask, TaskExt};
