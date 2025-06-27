@@ -434,6 +434,41 @@ pub async fn run_single_deposit<C: CitreaClientT>(
     confirm_fee_payer_utxos(&rpc, aggregator_db.clone(), move_txid).await?;
     mine_once_after_in_mempool(&rpc, move_txid, Some("Move tx"), Some(180)).await?;
 
+    // Uncomment below to debug the move tx.
+    // let transaction = rpc
+    //     .client
+    //     .get_raw_transaction(&move_txid, None)
+    //     .await
+    //     .expect("a");
+    // let tx_info: bitcoincore_rpc::json::GetRawTransactionResult = rpc
+    //     .client
+    //     .get_raw_transaction_info(&move_txid, None)
+    //     .await
+    //     .expect("a");
+    // let block: bitcoincore_rpc::json::GetBlockResult = rpc
+    //     .client
+    //     .get_block_info(&tx_info.blockhash.unwrap())
+    //     .await
+    //     .expect("a");
+    // let block_height = block.height;
+    // let block = rpc
+    //     .client
+    //     .get_block(&tx_info.blockhash.unwrap())
+    //     .await
+    //     .expect("a");
+    // let transaction_params = get_citrea_deposit_params(
+    //     &rpc,
+    //     transaction.clone(),
+    //     block,
+    //     block_height as u32,
+    //     move_txid,
+    // ).await?;
+    // println!("Move tx Transaction params: {:?}", transaction_params);
+    // println!(
+    //     "Move tx: {:?}",
+    //     hex::encode(bitcoin::consensus::serialize(&transaction))
+    // );
+
     Ok((
         verifiers,
         operators,
