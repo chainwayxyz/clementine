@@ -1778,11 +1778,8 @@ dependencies = [
 name = "bridge-circuit-host"
 version = "0.1.0"
 dependencies = [
- "alloy",
- "alloy-primitives",
  "alloy-rpc-client",
  "alloy-rpc-types",
- "alloy-rpc-types-eth",
  "ark-bn254",
  "ark-crypto-primitives",
  "ark-ec",
