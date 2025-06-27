@@ -1145,6 +1145,14 @@ where
         keys: OperatorKeys,
         operator_xonly_pk: XOnlyPublicKey,
     ) -> Result<(), BridgeError> {
+        self.citrea_client
+            .check_nofn_correctness(deposit_data.get_nofn_xonly_pk()?)
+            .await?;
+
+        if !self.is_deposit_valid(&mut deposit_data).await? {
+            return Err(BridgeError::InvalidDeposit);
+        }
+
         self.db
             .set_deposit_data(None, &mut deposit_data, self.config.protocol_paramset())
             .await?;
