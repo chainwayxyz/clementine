@@ -50,6 +50,9 @@ pub struct TestParams {
     /// A flag to indicate whether to use large annexes and outputs in the watchtower challenge transactions.
     pub use_large_annex_and_output: bool,
 
+    /// A list of verifier indexes that should not attempt to send disprove transactions.
+    pub verifier_do_not_send_disprove_indexes: Option<Vec<usize>>,
+
     #[serde(default)]
     pub timeout_params: TimeoutTestParams,
 }
@@ -186,6 +189,7 @@ impl Default for TestParams {
             use_large_output: false,
             use_large_annex_and_output: false,
             timeout_params: TimeoutTestParams::default(),
+            verifier_do_not_send_disprove_indexes: None,
         }
     }
 }
