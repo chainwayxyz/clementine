@@ -5,7 +5,7 @@ use tonic::async_trait;
 
 use crate::errors::ResultExt;
 
-use crate::task::{IgnoreError, WithDelay};
+use crate::task::{IgnoreError, TaskVariant, WithDelay};
 use crate::{
     bitcoin_syncer::BitcoinSyncerEvent,
     database::Database,
@@ -30,6 +30,7 @@ pub struct TxSenderTask {
 #[async_trait]
 impl Task for TxSenderTask {
     type Output = bool;
+    const VARIANT: TaskVariant = TaskVariant::TxSender;
 
     async fn run_once(&mut self) -> std::result::Result<Self::Output, BridgeError> {
         let mut dbtx = self.db.begin_transaction().await.map_to_eyre()?;

@@ -31,8 +31,9 @@ use crate::errors::{BridgeError, TxError};
 use crate::extended_rpc::ExtendedRpc;
 use crate::header_chain_prover::{HeaderChainProver, HeaderChainProverError};
 use crate::operator::RoundIndex;
-use crate::rpc::clementine::{NormalSignatureKind, OperatorKeys, TaggedSignature};
+use crate::rpc::clementine::{NormalSignatureKind, OperatorKeys, StoppedTasks, TaggedSignature};
 use crate::task::manager::BackgroundTaskManager;
+use crate::task::status_monitor::{TaskStatusMonitorTask, TASK_STATUS_MONITOR_POLL_DELAY};
 use crate::task::{IntoTask, TaskExt};
 #[cfg(feature = "automation")]
 use crate::tx_sender::{TxSender, TxSenderClient};
@@ -70,7 +71,7 @@ use std::collections::{HashMap, HashSet};
 use std::pin::pin;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Mutex};
 use tokio_stream::StreamExt;
 use tonic::async_trait;
 
@@ -100,10 +101,19 @@ where
         let db = verifier.db.clone();
         let mut background_tasks = BackgroundTaskManager::default();
 
+        Ok(VerifierServer {
+            verifier,
+            background_tasks,
+        })
+    }
+
+    /// Starts the background tasks for the verifier.
+    /// If called multiple times, it will restart only the tasks that are not already running.
+    pub async fn start_background_tasks(&self) -> Result<(), BridgeError> {
         let rpc = ExtendedRpc::connect(
-            config.bitcoin_rpc_url.clone(),
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
+            self.verifier.config.bitcoin_rpc_url.clone(),
+            self.verifier.config.bitcoin_rpc_user.clone(),
+            self.verifier.config.bitcoin_rpc_password.clone(),
         )
         .await?;
 
@@ -112,25 +122,27 @@ where
         {
             // TODO: Removing index causes to remove the index from the tx_sender handle as well
             let tx_sender = TxSender::new(
-                verifier.signer.clone(),
+                self.verifier.signer.clone(),
                 rpc.clone(),
-                verifier.db.clone(),
+                self.verifier.db.clone(),
                 "verifier_".to_string(),
-                config.protocol_paramset(),
+                self.verifier.config.protocol_paramset(),
             );
 
-            background_tasks.loop_and_monitor(tx_sender.into_task());
+            self.background_tasks
+                .loop_and_monitor(tx_sender.into_task())
+                .await;
             let state_manager = crate::states::StateManager::new(
-                db.clone(),
-                verifier.clone(),
-                config.protocol_paramset(),
+                self.verifier.db.clone(),
+                self.verifier.clone(),
+                self.verifier.config.protocol_paramset(),
             )
             .await?;
 
             let should_run_state_mgr = {
                 #[cfg(test)]
                 {
-                    config.test_params.should_run_state_manager
+                    self.verifier.config.test_params.should_run_state_manager
                 }
                 #[cfg(not(test))]
                 {
@@ -139,39 +151,52 @@ where
             };
 
             if should_run_state_mgr {
-                background_tasks.loop_and_monitor(state_manager.block_fetcher_task().await?);
-                background_tasks.loop_and_monitor(state_manager.into_task());
+                self.background_tasks
+                    .loop_and_monitor(state_manager.block_fetcher_task().await?)
+                    .await;
+                self.background_tasks
+                    .loop_and_monitor(state_manager.into_task())
+                    .await;
             }
         }
         #[cfg(not(feature = "automation"))]
         {
-            background_tasks.loop_and_monitor(
-                FinalizedBlockFetcherTask::new(
-                    db.clone(),
-                    "verifier".to_string(),
-                    config.protocol_paramset(),
-                    config.protocol_paramset().start_height,
-                    verifier.clone(),
+            self.background_tasks
+                .loop_and_monitor(
+                    FinalizedBlockFetcherTask::new(
+                        self.verifier.db.clone(),
+                        "verifier".to_string(),
+                        self.verifier.config.protocol_paramset(),
+                        self.verifier.config.protocol_paramset().start_height,
+                        self.verifier.clone(),
+                    )
+                    .into_buffered_errors(50)
+                    .with_delay(Duration::from_secs(60)),
                 )
-                .into_buffered_errors(50)
-                .with_delay(Duration::from_secs(60)),
-            );
+                .await;
         }
 
-        let syncer = BitcoinSyncer::new(db, rpc, config.protocol_paramset()).await?;
+        let syncer = BitcoinSyncer::new(
+            self.verifier.db.clone(),
+            rpc,
+            self.verifier.config.protocol_paramset(),
+        )
+        .await?;
 
-        background_tasks.loop_and_monitor(syncer.into_task());
+        self.background_tasks
+            .loop_and_monitor(syncer.into_task())
+            .await;
 
-        Ok(VerifierServer {
-            verifier,
-            background_tasks,
-        })
+        Ok(())
+    }
+
+    pub async fn get_current_status(&self) -> Result<StoppedTasks, BridgeError> {
+        let stopped_tasks = self.background_tasks.get_stopped_tasks().await;
+        Ok(stopped_tasks)
     }
 
     pub async fn shutdown(&mut self) {
-        self.background_tasks
-            .graceful_shutdown_with_timeout(Duration::from_secs(10))
-            .await;
+        self.background_tasks.graceful_shutdown().await;
     }
 }
 
