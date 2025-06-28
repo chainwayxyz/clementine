@@ -91,7 +91,7 @@ impl BridgeCircuitHostParams {
     ///
     /// * `kickoff_tx` - The kickoff transaction
     /// * `spv` - Simplified Payment Verification proof for the payout transaction
-    /// * `block_header_circuit_output` - Output from the block header circuit
+    /// * `block_header_circuit_output` - Output from the header chain circuit
     /// * `headerchain_receipt` - Receipt from the header chain proof
     /// * `light_client_proof` - Light client proof for validation
     /// * `lcp_receipt` - Receipt from the light client proof
@@ -514,7 +514,7 @@ fn host_deposit_constant(
 /// Inputs required for BitVM2 bridge circuit verification.
 ///
 /// This struct contains all the inputs needed to verify a bridge circuit proof
-/// in the BitVM2 system, including block hashes, watchtower data, and method IDs.
+/// in the BitVM2, including block hashes, watchtower data, and method IDs.
 #[derive(Debug, Clone, Copy)]
 pub struct BridgeCircuitBitvmInputs {
     pub payout_tx_block_hash: [u8; 20],
@@ -530,7 +530,7 @@ impl BridgeCircuitBitvmInputs {
     /// # Arguments
     ///
     /// * `payout_tx_block_hash` - Hash of the block containing the payout transaction
-    /// * `latest_block_hash` - Hash of the latest block in the chain
+    /// * `latest_block_hash` - Hash of the latest block in the header chain proof provided by the operator
     /// * `challenge_sending_watchtowers` - Hash representing watchtowers that sent challenges
     /// * `deposit_constant` - Constant value representing the deposit
     /// * `combined_method_id` - Combined method ID for the circuit
