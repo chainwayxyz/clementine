@@ -391,13 +391,6 @@ mod tests {
 
     const TESTNET4_HEADERS: &[u8] = include_bytes!("../bin-files/testnet4-headers.bin");
 
-    #[tokio::test]
-    #[ignore = "This test is too slow and only runs in x86_64."]
-    async fn bridge_circuit_test() {
-        // Test implementation would go here
-        // This test is currently disabled but structure is preserved
-    }
-
     #[test]
     fn test_header_chain_circuit() {
         let value = option_env!("BITCOIN_NETWORK");
