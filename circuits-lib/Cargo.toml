@@ -30,6 +30,9 @@ once_cell = { workspace = true }
 hex-literal = { workspace = true }
 jmt = { workspace = true }
 
+eyre = { workspace = true }
+tracing = { workspace = true }
+
 alloy-primitives = { workspace = true, features = ["serde"] }
 alloy-rpc-types = { workspace = true }
 

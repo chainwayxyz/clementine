@@ -65,8 +65,6 @@ impl MMRGuest {
 
     /// Verifies an inclusion proof against the current MMR root
     pub fn verify_proof(&self, leaf: [u8; 32], mmr_proof: &MMRInclusionProof) -> bool {
-        println!("GUEST: mmr_proof: {:?}", mmr_proof);
-        println!("GUEST: leaf: {:?}", leaf);
         // let (subroot_idx, subtree_size, internal_idx) = self.get_helpers_from_index(index);
         let mut current_hash = leaf;
         for i in 0..mmr_proof.inclusion_proof.len() {
@@ -77,8 +75,6 @@ impl MMRGuest {
                 current_hash = hash_pair(sibling, current_hash);
             }
         }
-        println!("GUEST: calculated subroot: {:?}", current_hash);
-        println!("GUEST: subroots: {:?}", self.subroots);
         self.subroots[mmr_proof.subroot_idx] == current_hash
         // let mut preimage: Vec<u8> = vec![];
         // for i in 0..subroot_idx {
