@@ -359,7 +359,8 @@ pub async fn wait_for_fee_payer_utxos_to_be_in_mempool(
     poll_until_condition(
         async move || {
             let tx_id = db.get_id_from_txid(None, txid).await?.unwrap();
-            let fee_payer_utxos = db.get_bumpable_fee_payer_txs(None, tx_id).await?;
+            tracing::debug!("Waiting for fee payer utxos for tx_id: {:?}", tx_id);
+            let fee_payer_utxos = db.get_fee_payer_utxos_for_tx(None, tx_id).await?;
             tracing::debug!(
                 "For TXID {:?}, fee payer utxos: {:?}",
                 txid,
@@ -372,13 +373,12 @@ pub async fn wait_for_fee_payer_utxos_to_be_in_mempool(
             }
 
             for fee_payer in fee_payer_utxos.iter() {
-                let entry = rpc_clone.client.get_mempool_entry(&fee_payer.1).await;
+                let entry = rpc_clone.client.get_mempool_entry(&fee_payer.0).await;
 
                 if entry.is_err() {
                     tracing::error!(
-                        "Fee payer utxo with id of {} and txid of {} is not in mempool: {:?}",
+                        "Fee payer utxo with txid of {} is not in mempool: {:?}",
                         fee_payer.0,
-                        fee_payer.1,
                         entry
                     );
                     return Ok(false);
