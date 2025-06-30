@@ -43,7 +43,7 @@ impl Task for TxSenderTask {
                 return Ok(false);
             };
 
-            tracing::info!("TXSENDER: Event: {:?}", event);
+            tracing::debug!("TXSENDER: Event: {:?}", event);
             Ok::<_, BridgeError>(match event {
                 BitcoinSyncerEvent::NewBlock(block_id) => {
                     self.db.confirm_transactions(&mut dbtx, block_id).await?;

@@ -49,6 +49,9 @@ type Result<T> = std::result::Result<T, BitcoinRPCError>;
 pub struct ExtendedRpc {
     pub url: String,
     pub client: Arc<Client>,
+
+    #[cfg(test)]
+    cached_mining_address: Arc<tokio::sync::RwLock<Option<String>>>,
 }
 
 impl std::fmt::Debug for ExtendedRpc {
@@ -90,6 +93,8 @@ impl ExtendedRpc {
         Ok(Self {
             url,
             client: Arc::new(rpc),
+            #[cfg(test)]
+            cached_mining_address: Arc::new(tokio::sync::RwLock::new(None)),
         })
     }
 
@@ -233,6 +238,25 @@ impl ExtendedRpc {
             let is_round_tx_on_chain = self.is_tx_on_chain(&round_txid).await?;
             if !is_round_tx_on_chain {
                 break;
+            }
+            let block_hash = self.get_blockhash_of_tx(&round_txid).await?;
+            let block_height = self
+                .client
+                .get_block_info(&block_hash)
+                .await
+                .wrap_err(format!(
+                    "Failed to get block info for block hash {}",
+                    block_hash
+                ))?
+                .height;
+            if block_height < paramset.start_height as usize {
+                tracing::warn!(
+                    "Collateral utxo of operator {:?} is spent in a block before paramset start height: {} < {}",
+                    operator_data,
+                    block_height,
+                    paramset.start_height
+                );
+                return Ok(false);
             }
             current_collateral_outpoint = OutPoint {
                 txid: round_txid,
@@ -463,32 +487,101 @@ impl ExtendedRpc {
         Ok(res.is_none())
     }
 
-    /// Mines a specified number of blocks to a new address.
+    /// Attempts to mine the specified number of blocks and returns their hashes.
     ///
-    /// This is a test-only function that generates blocks and it will only work
-    /// on regtest.
+    /// This test-only async function will mine `block_num` blocks on the Bitcoin regtest network
+    /// using a cached mining address or a newly generated one. It retries up to 5 times on failure
+    /// with exponential backoff.
     ///
     /// # Parameters
-    ///
-    /// * `block_num`: The number of blocks to mine
+    /// - `block_num`: The number of blocks to mine.
     ///
     /// # Returns
-    ///
-    /// - [`Vec<BlockHash>`]: A vector of block hashes for the newly mined blocks.
+    /// - `Ok(Vec<BlockHash>)`: A vector of block hashes for the mined blocks.
+    /// - `Err`: If mining fails after all retry attempts.
     #[cfg(test)]
     pub async fn mine_blocks(&self, block_num: u64) -> Result<Vec<BlockHash>> {
-        let new_address = self
-            .client
-            .get_new_address(None, None)
-            .await
-            .wrap_err("Failed to get new address")?
-            .assume_checked();
+        use std::time::Duration;
+        use tokio::time::sleep;
 
-        Ok(self
+        if block_num == 0 {
+            return Ok(vec![]);
+        }
+
+        let max_attempts = 5;
+
+        for attempt in 1..=max_attempts {
+            match self.try_mine(block_num).await {
+                Ok(blocks) => return Ok(blocks),
+                Err(e) => {
+                    if attempt == max_attempts {
+                        return Err(eyre::Report::from(e)
+                            .wrap_err("Failed to mine blocks after maximum attempts")
+                            .into());
+                    }
+                    let delay = Duration::from_millis(100 * 2u64.pow(attempt));
+                    tracing::debug!(
+                        "Retry {}/{}: {}. Retrying in {:?}",
+                        attempt,
+                        max_attempts,
+                        e,
+                        delay
+                    );
+                    sleep(delay).await;
+                }
+            }
+        }
+
+        unreachable!()
+    }
+
+    /// Internal helper that performs the actual block mining logic.
+    ///
+    /// It uses a cached mining address if available, otherwise it generates and caches
+    /// a new one. It then uses the address to mine `block_num` blocks.
+    ///
+    /// # Parameters
+    /// - `block_num`: The number of blocks to mine.
+    ///
+    /// # Returns
+    /// - `Ok(Vec<BlockHash>)`: The list of block hashes.
+    /// - `Err`: If the client fails to get a new address or mine the blocks.
+    #[cfg(test)]
+    async fn try_mine(&self, block_num: u64) -> Result<Vec<BlockHash>> {
+        let address = {
+            let read = self.cached_mining_address.read().await;
+            if let Some(addr) = &*read {
+                addr.clone()
+            } else {
+                drop(read);
+                let mut write = self.cached_mining_address.write().await;
+
+                if let Some(addr) = &*write {
+                    addr.clone()
+                } else {
+                    let new_addr = self
+                        .client
+                        .get_new_address(None, None)
+                        .await
+                        .wrap_err("Failed to get new address")?
+                        .assume_checked()
+                        .to_string();
+                    *write = Some(new_addr.clone());
+                    new_addr
+                }
+            }
+        };
+
+        let address = Address::from_str(&address)
+            .wrap_err("Invalid address format")?
+            .assume_checked();
+        let blocks = self
             .client
-            .generate_to_address(block_num, &new_address)
+            .generate_to_address(block_num, &address)
             .await
-            .wrap_err("Failed to generate to address")?)
+            .wrap_err("Failed to generate to address")?;
+
+        Ok(blocks)
     }
 
     /// Gets the number of transactions in the mempool.
@@ -708,6 +801,8 @@ impl ExtendedRpc {
         Ok(Self {
             url: self.url.clone(),
             client: self.client.clone(),
+            #[cfg(test)]
+            cached_mining_address: self.cached_mining_address.clone(),
         })
     }
 }
@@ -862,6 +957,7 @@ mod tests {
                     "-txindex=1",
                     "-fallbackfee=0.000001",
                     "-rpcallowip=0.0.0.0/0",
+                    "-dustrelayfee=0",
                 ],
                 ..Default::default()
             }

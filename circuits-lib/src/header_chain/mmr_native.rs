@@ -1,4 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
+use eyre::{eyre, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::common::hashes::hash_pair;
@@ -62,13 +63,18 @@ impl MMRNative {
     }
 
     /// Generates a proof for a given index. Returns the leaf as well.
-    pub fn generate_proof(&self, index: u32) -> ([u8; 32], MMRInclusionProof) {
+    pub fn generate_proof(&self, index: u32) -> Result<([u8; 32], MMRInclusionProof)> {
         if self.nodes[0].is_empty() {
-            panic!("MMR is empty");
+            return Err(eyre!("MMR is empty"));
         }
         if self.nodes[0].len() <= index as usize {
-            panic!("Index out of bounds");
+            return Err(eyre!(
+                "Index out of bounds: {} >= {}",
+                index,
+                self.nodes[0].len()
+            ));
         }
+
         let mut proof: Vec<[u8; 32]> = vec![];
         let mut current_index = index;
         let mut current_level = 0;
@@ -89,7 +95,7 @@ impl MMRNative {
         // let subroot = self.nodes[current_level][current_index as usize];
         // proof.extend(self.get_subroot_helpers(subroot));
         let mmr_proof = MMRInclusionProof::new(subroot_idx, internal_idx, proof);
-        (self.nodes[0][index as usize], mmr_proof)
+        Ok((self.nodes[0][index as usize], mmr_proof))
     }
 
     /// Given an index, returns the subroot index (which subtree the index is in), subtree size, and internal index (of the subtree that the index belongs to).
@@ -110,13 +116,13 @@ impl MMRNative {
 
     /// Verifies an inclusion proof against the current MMR root.
     pub fn verify_proof(&self, leaf: [u8; 32], mmr_proof: &MMRInclusionProof) -> bool {
-        println!("NATIVE: inclusion_proof: {:?}", mmr_proof);
-        println!("NATIVE: leaf: {:?}", leaf);
+        tracing::debug!("NATIVE: inclusion_proof: {:?}", mmr_proof);
+        tracing::debug!("NATIVE: leaf: {:?}", leaf);
         // let (subroot_idx, subtree_size, internal_idx) = self.get_helpers_from_index(index);
         let subroot = mmr_proof.get_subroot(leaf);
-        println!("NATIVE: calculated_subroot: {:?}", subroot);
+        tracing::debug!("NATIVE: calculated_subroot: {:?}", subroot);
         let subroots = self.get_subroots();
-        println!("NATIVE: subroots: {:?}", subroots);
+        tracing::debug!("NATIVE: subroots: {:?}", subroots);
         subroots[mmr_proof.subroot_idx] == subroot
         // let mut preimage: Vec<u8> = vec![];
         // for i in 0..subroot_idx {
@@ -148,7 +154,6 @@ impl MMRInclusionProof {
     }
 
     pub fn get_subroot(&self, leaf: [u8; 32]) -> [u8; 32] {
-        // let (subroot_idx, subtree_size, internal_idx) = mmr_guest.get_helpers_from_index(index);
         let mut current_hash = leaf;
         for i in 0..self.inclusion_proof.len() {
             let sibling = self.inclusion_proof[i];
@@ -164,31 +169,27 @@ impl MMRInclusionProof {
 
 #[cfg(test)]
 mod tests {
+    use super::MMRNative;
     use crate::header_chain::mmr_guest::MMRGuest;
 
-    use super::MMRNative;
-
     #[test]
-    #[should_panic(expected = "MMR is empty")]
-    fn test_mmr_native_fail_0() {
+    fn test_mmr_native_fail_empty() {
         let mmr = MMRNative::new();
-        // let root = mmr.get_root();
-        // let (leaf, proof, index) = mmr.generate_proof(0);
-        let (_leaf, _mmr_proof) = mmr.generate_proof(0);
-        // assert_eq!(mmr.get_root(), root);
-        // assert_eq!(mmr.verify_proof(leaf, &proof, index), true);
+        let result = mmr.generate_proof(0);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().to_string(), "MMR is empty");
     }
 
     #[test]
-    #[should_panic(expected = "Index out of bounds")]
-    fn test_mmr_native_fail_1() {
+    fn test_mmr_native_fail_out_of_bounds() {
         let mut mmr = MMRNative::new();
         mmr.append([0; 32]);
-        // let root = mmr.get_root();
-        // let (leaf, proof, index) = mmr.generate_proof(1);
-        let (_leaf, _mmr_proof) = mmr.generate_proof(1);
-        // assert_eq!(mmr.get_root(), root);
-        // assert_eq!(mmr.verify_proof(leaf, &proof, index), true);
+        let result = mmr.generate_proof(1);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Index out of bounds"));
     }
 
     #[test]
@@ -203,7 +204,7 @@ mod tests {
             mmr.append(leaf);
 
             for j in 0..=i {
-                let (leaf, mmr_proof) = mmr.generate_proof(j);
+                let (leaf, mmr_proof) = mmr.generate_proof(j).unwrap();
                 assert!(mmr.verify_proof(leaf, &mmr_proof));
             }
         }
@@ -239,7 +240,7 @@ mod tests {
             // );
 
             for j in 0..=i {
-                let (leaf, mmr_proof) = mmr_native.generate_proof(j);
+                let (leaf, mmr_proof) = mmr_native.generate_proof(j).unwrap();
                 assert!(
                     mmr_native.verify_proof(leaf, &mmr_proof),
                     "Failed to verify proof for leaf {} in native MMR",

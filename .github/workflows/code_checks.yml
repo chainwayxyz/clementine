@@ -2,12 +2,11 @@ name: Code Checks
 
 on: [push]
 
-concurrency: 
+concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ (github.ref != 'refs/heads/main') }}
 
 env:
-  AUTOMATION_ARGS: --features automation
   CARGO_TERM_COLOR: always
   RUST_LOG: warn,risc0_zkvm=error,risc0_circuit_rv32im=error
   RISC0_DEV_MODE: 1
@@ -20,9 +19,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/install-risc0
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
       - name: Run Cargo fmt
         run: cargo fmt --check
 
@@ -35,7 +31,7 @@ jobs:
       - name: Install cargo-clippy
         run: rustup component add --toolchain 1.85-x86_64-unknown-linux-gnu clippy
       - name: Run Cargo clippy
-        run: cargo clippy --no-deps --all-targets $AUTOMATION_ARGS -- -Dwarnings
+        run: cargo clippy --no-deps --all-targets --all-features -- -Dwarnings
 
   udeps:
     name: Check unused dependencies
@@ -43,9 +39,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/install-risc0
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Toolchain
         uses: actions-rs/toolchain@v1
@@ -59,7 +52,7 @@ jobs:
         uses: aig787/cargo-udeps-action@v1
         with:
           version: "latest"
-          args: "--workspace --all-features --all-targets ${{ env.AUTOMATION_ARGS }}"
+          args: "--workspace --all-features --all-targets"
 
   docs:
     name: Check documentation build

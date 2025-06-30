@@ -19,10 +19,7 @@ ark-serialize = { workspace = true }
 ark-relations = { workspace = true }
 ark-groth16 = { workspace = true }
 
-alloy = { workspace = true, features = ["provider-http", "serde"]}
 alloy-rpc-types = { workspace = true }
-alloy-primitives = { workspace = true, features = ["serde"] }
-alloy-rpc-types-eth = { workspace = true, features = ["serde"] } 
 alloy-rpc-client = { workspace = true }
 
 serde = { workspace = true }
