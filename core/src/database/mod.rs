@@ -22,6 +22,8 @@ mod header_chain_prover;
 mod operator;
 #[cfg(feature = "automation")]
 mod state_machine;
+#[cfg(all(test, feature = "automation"))]
+mod test;
 #[cfg(feature = "automation")]
 mod tx_sender;
 mod verifier;
