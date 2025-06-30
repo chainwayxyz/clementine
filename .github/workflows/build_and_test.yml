@@ -189,9 +189,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - test_script_name: additional_disprove_script_test_healthy
-            description_suffix: "Add. disprove healthy path"
-            test_name: "additional-healthy"
           - test_script_name: additional_disprove_script_test_disrupted_payout_tx_block_hash
             description_suffix: "Add. disprove disrupted payout tx blockhash path"
             test_name: "additional-disrupted-payout"
@@ -210,6 +207,9 @@ jobs:
           - test_script_name: bitvm_disprove_scripts::disprove_script_test_corrupted_assert
             description_suffix: "Disprove disrupted assert path"
             test_name: "disprove-corrupted-assert"
+          - test_script_name: bitvm_disprove_scripts::citrea_deposit_and_withdraw_e2e_non_zero_genesis_height
+            description_suffix: "E2E non-zero genesis height"
+            test_name: "citrea-deposit-and-withdraw-non-zero-genesis-height"
 
     services:
       postgres:
