@@ -2519,21 +2519,12 @@ mod states {
                 } => {
                     #[cfg(test)]
                     {
-                        if let Some(do_not_send_disprove_indexes) = self
+                        if !self
                             .config
                             .test_params
-                            .verifier_do_not_send_disprove_indexes
-                            .clone()
+                            .should_disprove(self.signer.public_key, &deposit_data)?
                         {
-                            if do_not_send_disprove_indexes.contains(
-                                &deposit_data.get_verifier_index(&self.signer.public_key)?,
-                            ) {
-                                tracing::info!(
-                                    "Verifier {:?} is configured to not send disprove transactions",
-                                    verifier_xonly_pk
-                                );
-                                return Ok(DutyResult::Handled);
-                            }
+                            return Ok(DutyResult::Handled);
                         }
                     }
                     let context = ContractContext::new_context_with_signer(
