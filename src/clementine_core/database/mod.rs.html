@@ -232,7 +232,10 @@
 <a href="#231" id="231">231</a>
 <a href="#232" id="232">232</a>
 <a href="#233" id="233">233</a>
-<a href="#234" id="234">234</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Database Operations
+<a href="#234" id="234">234</a>
+<a href="#235" id="235">235</a>
+<a href="#236" id="236">236</a>
+<a href="#237" id="237">237</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Database Operations
 //!
 //! Database crate provides functions that adds/reads values from PostgreSQL
 //! database.
@@ -302,7 +305,10 @@
         <span class="kw">let </span>url = Database::get_postgresql_database_url(config);
         <span class="kw">let </span>url = Url::parse(<span class="kw-2">&amp;</span>url).wrap_err(<span class="string">"Failed to parse database URL"</span>)<span class="question-mark">?</span>;
         <span class="kw">let </span><span class="kw-2">mut </span>opt = PgConnectOptions::from_url(<span class="kw-2">&amp;</span>url).map_err(BridgeError::DatabaseError)<span class="question-mark">?</span>;
-        opt = opt.log_slow_statements(log::LevelFilter::Debug, Duration::from_secs(<span class="number">3</span>));
+        <span class="comment">// Change default sqlx warnings from Warn to Debug
+        // These logs really clutter our CI logs, and they were never useful.
+        // But in the future if we fix slow statements (if they are actually a problem?), we can revert this.
+        </span>opt = opt.log_slow_statements(log::LevelFilter::Debug, Duration::from_secs(<span class="number">3</span>));
 
         <span class="kw">let </span>opts = sqlx::postgres::PgPoolOptions::new().acquire_slow_level(log::LevelFilter::Debug);
 

@@ -2710,7 +2710,7 @@
         <span class="kw">let </span>WithProcessCleanup(<span class="kw">_</span>, <span class="kw-2">ref </span>rpc, <span class="kw">_</span>, <span class="kw">_</span>) = create_regtest_rpc(<span class="kw-2">&amp;mut </span>config).<span class="kw">await</span>;
 
         <span class="kw">let </span>(verifiers, operators, <span class="kw">_</span>, _cleanup, deposit_params, <span class="kw">_</span>, deposit_blockhash, <span class="kw">_</span>) =
-            run_single_deposit::&lt;MockCitreaClient&gt;(<span class="kw-2">&amp;mut </span>config, rpc.clone(), <span class="prelude-val">None</span>)
+            run_single_deposit::&lt;MockCitreaClient&gt;(<span class="kw-2">&amp;mut </span>config, rpc.clone(), <span class="prelude-val">None</span>, <span class="prelude-val">None</span>)
                 .<span class="kw">await
                 </span>.unwrap();
 

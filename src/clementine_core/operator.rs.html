@@ -1822,7 +1822,11 @@
 <a href="#1821" id="1821">1821</a>
 <a href="#1822" id="1822">1822</a>
 <a href="#1823" id="1823">1823</a>
-<a href="#1824" id="1824">1824</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_ff::PrimeField;
+<a href="#1824" id="1824">1824</a>
+<a href="#1825" id="1825">1825</a>
+<a href="#1826" id="1826">1826</a>
+<a href="#1827" id="1827">1827</a>
+<a href="#1828" id="1828">1828</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_ff::PrimeField;
 <span class="kw">use </span>circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
 <span class="kw">use </span>risc0_zkvm::is_dev_mode;
 <span class="kw">use </span>std::collections::HashMap;
@@ -2090,15 +2094,19 @@
                             .get_tx_of_txid(<span class="kw-2">&amp;</span>outpoint.txid)
                             .<span class="kw">await
                             </span>.wrap_err(<span class="string">"Failed to get collateral funding tx"</span>)<span class="question-mark">?</span>;
-                        <span class="kw">let </span>collateral_value = collateral_tx
+                        <span class="kw">let </span>collateral_txout = collateral_tx
                             .output
                             .get(outpoint.vout <span class="kw">as </span>usize)
-                            .ok_or_eyre(<span class="string">"Invalid vout index for collateral funding tx"</span>)<span class="question-mark">?
-                            </span>.value;
-                        <span class="kw">if </span>collateral_value != config.protocol_paramset().collateral_funding_amount
+                            .ok_or_eyre(<span class="string">"Invalid vout index for collateral funding tx"</span>)<span class="question-mark">?</span>;
+                        <span class="kw">if </span>collateral_txout.value
+                            != config.protocol_paramset().collateral_funding_amount
                         {
                             <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(<span class="string">"Operator collateral funding outpoint given in config has a different amount than the one specified in config..
-                                Bridge collateral funnding amount: {:?}, Amount in given outpoint: {:?}"</span>, config.protocol_paramset().collateral_funding_amount, collateral_value).into());
+                                Bridge collateral funding amount: {:?}, Amount in given outpoint: {:?}"</span>, config.protocol_paramset().collateral_funding_amount, collateral_txout.value).into());
+                        }
+                        <span class="kw">if </span>collateral_txout.script_pubkey != signer.address.script_pubkey() {
+                            <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(<span class="string">"Operator collateral funding outpoint given in config has a different script pubkey than the pubkey matching to the operator's   secret key. Script pubkey should correspond to taproot address with no scripts and internal key equal to the operator's xonly public key.
+                                Script pubkey in given outpoint: {:?}, Script pubkey should be: {:?}"</span>, collateral_txout.script_pubkey, signer.address.script_pubkey()).into());
                         }
                         <span class="kw-2">*</span>outpoint
                     }
