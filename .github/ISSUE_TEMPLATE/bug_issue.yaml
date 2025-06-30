@@ -5,6 +5,9 @@ labels: []
 
 body:
   - type: markdown
+    attributes:
+      value: |
+        Please fill out the following sections to help us reproduce and fix the bug.
 
   - type: textarea
     id: expected-behavior
