@@ -127,7 +127,7 @@ where
         let (withdrawal_id, input_signature, input_outpoint, output_script_pubkey, output_amount) =
             parser::operator::parse_withdrawal_sig_params(request.into_inner()).await?;
 
-        // try to fullfill withdrawal only if automation is enabled
+        // try to fulfill withdrawal only if automation is enabled
         #[cfg(feature = "automation")]
         {
             let withdrawal_txid = self
