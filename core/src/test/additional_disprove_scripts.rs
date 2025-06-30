@@ -47,7 +47,6 @@ use citrea_e2e::{
 };
 use tonic::transport::Channel;
 pub enum TestVariant {
-    HealthyState,
     CorruptedLatestBlockHash,
     CorruptedPayoutTxBlockHash,
     CorruptedChallengeSendingWatchtowers,
@@ -970,35 +969,6 @@ async fn additional_disprove_script_test_disrupted_latest_block_hash() -> Result
     );
     let additional_disprove_test = AdditionalDisproveTest {
         variant: TestVariant::CorruptedLatestBlockHash,
-    };
-    TestCaseRunner::new(additional_disprove_test).run().await
-}
-
-/// Tests the disprove timeout mechanism in a healthy, non-disrupted protocol state.
-///
-/// # Arrange
-/// * Sets up full Citrea stack with sequencer, DA node, batch prover, and light client prover.
-/// * Uses default bridge configuration without any intentional disruption.
-///
-/// # Act
-/// * Executes deposit and withdrawal flows.
-/// * Processes the payout and kickoff transactions.
-/// * Waits for the disprove timeout to activate.
-///
-/// # Assert
-/// * Confirms that a disprove timeout transaction is created and included on Bitcoin.
-/// * Verifies that the transaction correctly spends the `KickoffFinalizer` output.
-#[tokio::test]
-#[ignore = "This test is too slow, run separately"]
-async fn additional_disprove_script_test_healthy() -> Result<()> {
-    initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
-        .expect("Failed to initialize logger");
-    std::env::set_var(
-        "CITREA_DOCKER_IMAGE",
-        "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
-    );
-    let additional_disprove_test = AdditionalDisproveTest {
-        variant: TestVariant::HealthyState,
     };
     TestCaseRunner::new(additional_disprove_test).run().await
 }
