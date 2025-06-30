@@ -106,7 +106,7 @@ impl WatchtowerChallengeTxTest {
             move_txid,
             _deposit_blockhash,
             verifiers_public_keys,
-        ) = run_single_deposit::<CitreaClient>(&mut config, rpc.clone(), None).await?;
+        ) = run_single_deposit::<CitreaClient>(&mut config, rpc.clone(), None, None).await?;
 
         tracing::debug!(
             "Deposit ending block_height: {:?}",

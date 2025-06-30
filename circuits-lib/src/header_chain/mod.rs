@@ -246,7 +246,6 @@ impl ChainState {
     }
 
     pub fn apply_blocks(&mut self, block_headers: Vec<CircuitBlockHeader>) {
-        println!("Network type: {:?}", NETWORK_TYPE);
         let mut current_target_bytes = if IS_REGTEST {
             NETWORK_CONSTANTS.max_target.to_be_bytes()
         } else {
