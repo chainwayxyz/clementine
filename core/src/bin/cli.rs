@@ -1159,19 +1159,8 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
 
             for (i, result) in withdraw_responses.iter().enumerate() {
                 match &result.result {
-                    Some(clementine_core::rpc::clementine::withdraw_result::Result::Success(
-                        success,
-                    )) => {
-                        let txid = bitcoin::Txid::from_byte_array(
-                            success
-                                .txid
-                                .clone()
-                                .expect("Failed to get txid")
-                                .txid
-                                .try_into()
-                                .expect("Failed to convert txid to array"),
-                        );
-                        println!("Operator {}: Withdrawal successful, txid: {}", i, txid);
+                    Some(clementine_core::rpc::clementine::withdraw_result::Result::Success(_)) => {
+                        println!("Operator {}: Withdrawal accepted", i);
                     }
                     Some(clementine_core::rpc::clementine::withdraw_result::Result::Error(
                         error,

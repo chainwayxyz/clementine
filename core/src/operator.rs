@@ -532,7 +532,7 @@ where
         in_outpoint: OutPoint,
         out_script_pubkey: ScriptBuf,
         out_amount: Amount,
-    ) -> Result<Txid, BridgeError> {
+    ) -> Result<(), BridgeError> {
         tracing::info!(
             "Withdrawing with index: {}, in_signature: {}, in_outpoint: {:?}, out_script_pubkey: {}, out_amount: {}",
             withdrawal_index,
@@ -614,47 +614,29 @@ where
         )
         .wrap_err("Failed to verify signature received from user for payout txin")?;
 
-        let funded_tx = self
-            .rpc
-            .client
-            .fund_raw_transaction(
-                payout_txhandler.get_cached_tx(),
-                Some(&bitcoincore_rpc::json::FundRawTransactionOptions {
-                    add_inputs: Some(true),
-                    change_address: None,
-                    change_position: Some(1),
-                    change_type: None,
-                    include_watching: None,
-                    lock_unspents: None,
-                    fee_rate: None,
-                    subtract_fee_from_outputs: None,
-                    replaceable: None,
-                    conf_target: None,
-                    estimate_mode: None,
+        // send payout tx using RBF
+        let payout_tx = payout_txhandler.get_cached_tx();
+        let mut dbtx = self.db.begin_transaction().await?;
+        self.tx_sender
+            .add_tx_to_queue(
+                &mut dbtx,
+                TransactionType::Payout,
+                payout_tx,
+                &[],
+                Some(TxMetadata {
+                    tx_type: TransactionType::Payout,
+                    operator_xonly_pk: Some(self.signer.xonly_public_key),
+                    round_idx: None,
+                    kickoff_idx: None,
+                    deposit_outpoint: None,
                 }),
+                &self.config,
                 None,
             )
-            .await
-            .wrap_err("Failed to fund raw transaction")?
-            .hex;
+            .await?;
+        dbtx.commit().await?;
 
-        let signed_tx: Transaction = deserialize(
-            &self
-                .rpc
-                .client
-                .sign_raw_transaction_with_wallet(&funded_tx, None, None)
-                .await
-                .wrap_err("Failed to sign funded tx through bitcoin RPC")?
-                .hex,
-        )
-        .wrap_err("Failed to deserialize signed tx")?;
-
-        Ok(self
-            .rpc
-            .client
-            .send_raw_transaction(&signed_tx)
-            .await
-            .wrap_err("Failed to send transaction to signed tx")?)
+        Ok(())
     }
 
     /// Generates Winternitz public keys for every  BitVM assert tx for a deposit.
