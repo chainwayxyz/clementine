@@ -652,7 +652,9 @@ mod tests {
     /// deposit state)
     ///
     /// To make the test work if breaking changes are expected, run generate_deposit_state() test again
-    /// (with both debug and release), it will get updated with the current values.
+    /// (with both debug and release), it will get updated with the current values. Run following commands:
+    /// debug: cargo test --all-features generate_deposit_state -- --ignored
+    /// release: cargo test --all-features --release generate_deposit_state -- --ignored
     #[tokio::test]
     async fn test_bridge_contract_change() {
         let mut config = create_test_config_with_thread_name().await;
