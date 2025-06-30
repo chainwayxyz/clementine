@@ -523,7 +523,7 @@ impl DisproveTest {
 
         let mut config = create_test_config_with_thread_name().await;
         config.test_params.corrupted_asserts = true;
-        // only verifier 0 will send disprove transactions
+        // only verifiers 0 and 1 will send disprove transactions
         config.test_params.verifier_do_not_send_disprove_indexes = Some(vec![2, 3]);
 
         citrea::update_config_with_citrea_e2e_values(
@@ -594,7 +594,7 @@ impl DisproveTest {
         let batch_prover = batch_prover.unwrap();
 
         let mut config = create_test_config_with_thread_name().await;
-        // only verifier 0 will send disprove transactions
+        // only verifiers 0 and 1 will send disprove transactions
         config.test_params.verifier_do_not_send_disprove_indexes = Some(vec![2, 3]);
 
         citrea::update_config_with_citrea_e2e_values(
