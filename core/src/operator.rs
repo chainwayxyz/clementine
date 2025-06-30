@@ -286,15 +286,19 @@ where
                             .get_tx_of_txid(&outpoint.txid)
                             .await
                             .wrap_err("Failed to get collateral funding tx")?;
-                        let collateral_value = collateral_tx
+                        let collateral_txout = collateral_tx
                             .output
                             .get(outpoint.vout as usize)
-                            .ok_or_eyre("Invalid vout index for collateral funding tx")?
-                            .value;
-                        if collateral_value != config.protocol_paramset().collateral_funding_amount
+                            .ok_or_eyre("Invalid vout index for collateral funding tx")?;
+                        if collateral_txout.value
+                            != config.protocol_paramset().collateral_funding_amount
                         {
                             return Err(eyre::eyre!("Operator collateral funding outpoint given in config has a different amount than the one specified in config..
-                                Bridge collateral funnding amount: {:?}, Amount in given outpoint: {:?}", config.protocol_paramset().collateral_funding_amount, collateral_value).into());
+                                Bridge collateral funding amount: {:?}, Amount in given outpoint: {:?}", config.protocol_paramset().collateral_funding_amount, collateral_txout.value).into());
+                        }
+                        if collateral_txout.script_pubkey != signer.address.script_pubkey() {
+                            return Err(eyre::eyre!("Operator collateral funding outpoint given in config has a different script pubkey than the pubkey matching to the operator's   secret key. Script pubkey should correspond to taproot address with no scripts and internal key equal to the operator's xonly public key.
+                                Script pubkey in given outpoint: {:?}, Script pubkey should be: {:?}", collateral_txout.script_pubkey, signer.address.script_pubkey()).into());
                         }
                         *outpoint
                     }
@@ -1397,7 +1401,7 @@ where
             payout_block_height,
             self.config.protocol_paramset().genesis_height,
             payout_tx_index as u32,
-        );
+        )?;
         tracing::info!("Calculated spv proof in send_asserts");
 
         let mut wt_contexts = Vec::new();

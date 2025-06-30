@@ -1730,7 +1730,7 @@ mod tests {
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc();
 
-        run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None).await?;
+        run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None).await?;
 
         Ok(())
     }
