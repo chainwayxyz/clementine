@@ -61,7 +61,7 @@ pub struct TestParams {
 }
 
 impl TestParams {
-    /// Returns true if the verifier should attempt tosend a disprove transaction, false otherwise.
+    /// Returns true if the verifier should attempt to send a disprove transaction, false otherwise.
     pub fn should_disprove(
         &self,
         verifier_pk: &PublicKey,
