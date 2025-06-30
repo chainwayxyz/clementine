@@ -2804,7 +2804,17 @@
 <a href="#2803" id="2803">2803</a>
 <a href="#2804" id="2804">2804</a>
 <a href="#2805" id="2805">2805</a>
-<a href="#2806" id="2806">2806</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
+<a href="#2806" id="2806">2806</a>
+<a href="#2807" id="2807">2807</a>
+<a href="#2808" id="2808">2808</a>
+<a href="#2809" id="2809">2809</a>
+<a href="#2810" id="2810">2810</a>
+<a href="#2811" id="2811">2811</a>
+<a href="#2812" id="2812">2812</a>
+<a href="#2813" id="2813">2813</a>
+<a href="#2814" id="2814">2814</a>
+<a href="#2815" id="2815">2815</a>
+<a href="#2816" id="2816">2816</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
 <span class="kw">use </span><span class="kw">crate</span>::bitcoin_syncer::{BitcoinSyncer, BlockHandler, FinalizedBlockFetcherTask};
 <span class="kw">use </span><span class="kw">crate</span>::bitvm_client::ClementineBitVMPublicKeys;
 <span class="kw">use </span><span class="kw">crate</span>::builder::address::{create_taproot_address, taproot_builder_with_scripts};
@@ -5323,6 +5333,16 @@
                     payout_blockhash,
                     latest_blockhash,
                 } =&gt; {
+                    <span class="attr">#[cfg(test)]
+                    </span>{
+                        <span class="kw">if </span>!<span class="self">self
+                            </span>.config
+                            .test_params
+                            .should_disprove(<span class="kw-2">&amp;</span><span class="self">self</span>.signer.public_key, <span class="kw-2">&amp;</span>deposit_data)<span class="question-mark">?
+                        </span>{
+                            <span class="kw">return </span><span class="prelude-val">Ok</span>(DutyResult::Handled);
+                        }
+                    }
                     <span class="kw">let </span>context = ContractContext::new_context_with_signer(
                         kickoff_data,
                         deposit_data.clone(),
