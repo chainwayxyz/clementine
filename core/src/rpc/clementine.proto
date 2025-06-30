@@ -297,27 +297,36 @@ message EntityError {
   string error = 1;
 }
 
+message EntityStatus {
+  bool automation = 1;
+  optional string wallet_balance = 2;
+  optional int32 tx_sender_synced_height = 3;
+  optional int32 finalized_synced_height = 4;
+  optional int32 hcp_last_proven_height = 5;
+  StoppedTasks stopped_tasks = 6;
+}
+
 enum Entities {
   ENTITY_UNKNOWN = 0;
   OPERATOR = 1;
   VERIFIER = 2;
 }
 
-message EntityInfo {
+message EntityId {
   Entities entity = 1;
   string id = 2;
 }
 
-message EntityStatus {
-  EntityInfo entity_info = 1;
+message EntityStatusWithId {
+  EntityId entity_id = 1;
   oneof status {
-    StoppedTasks stopped_tasks = 2;
+    EntityStatus entity_status = 2;
     EntityError error = 3;
   }
 }
 
 message EntitiesStatus {
-  repeated EntityStatus entities_status = 1;
+  repeated EntityStatusWithId entities_status = 1;
 }
 
 // An operator is responsible for paying withdrawals. It has an unique ID and
@@ -347,8 +356,8 @@ service ClementineOperator {
   // Used by aggregator inside new_deposit
   rpc GetDepositKeys(DepositParams) returns (OperatorKeys) {}
 
-  // Returns the current status of tasks running on the operator.
-  rpc GetCurrentStatus(Empty) returns (StoppedTasks) {}
+  // Returns the current status of tasks running on the operator and their last synced heights.
+  rpc GetCurrentStatus(Empty) returns (EntityStatus) {}
 
   // Signs everything that includes Operator's burn connector.
   //
@@ -577,8 +586,8 @@ service ClementineVerifier {
   // Checks if the kickoff tx is malicious and if so, try to send all necessary txs to punish the operator
   rpc InternalHandleKickoff(Txid) returns (Empty) {}
 
-  // Returns the current status of tasks running on the verifier.
-  rpc GetCurrentStatus(Empty) returns (StoppedTasks) {}
+  // Returns the current status of tasks running on the verifier and their last synced heights.
+  rpc GetCurrentStatus(Empty) returns (EntityStatus) {}
 
   // 1. Signs all tx's it can according to given transaction type (use it with AllNeededForDeposit to get almost all tx's)
   // 2. Creates the transactions denoted by the deposit and operator_idx, round_idx, and kickoff_idx.

@@ -866,8 +866,8 @@ impl ClementineAggregator for Aggregator {
                     let mut client = client.clone();
                     async move {
                         let response = client.get_current_status(Request::new(Empty {})).await;
-                        super::EntityStatus {
-                            entity_info: Some(super::EntityInfo {
+                        super::EntityStatusWithId {
+                            entity_id: Some(super::EntityId {
                                 entity: super::Entities::Operator as i32,
                                 id: key.to_string(),
                             }),
@@ -878,11 +878,11 @@ impl ClementineAggregator for Aggregator {
                                             .restart_background_tasks(Request::new(Empty {}))
                                             .await;
                                     }
-                                    Some(super::clementine::entity_status::Status::StoppedTasks(
+                                    Some(super::clementine::entity_status_with_id::Status::EntityStatus(
                                         response.into_inner(),
                                     ))
                                 }
-                                Err(e) => Some(super::clementine::entity_status::Status::Error(
+                                Err(e) => Some(super::clementine::entity_status_with_id::Status::Error(
                                     super::EntityError {
                                         error: e.to_string(),
                                     },
@@ -901,8 +901,8 @@ impl ClementineAggregator for Aggregator {
                     let mut client = client.clone();
                     async move {
                         let response = client.get_current_status(Request::new(Empty {})).await;
-                        super::EntityStatus {
-                            entity_info: Some(super::EntityInfo {
+                        super::EntityStatusWithId {
+                            entity_id: Some(super::EntityId {
                                 entity: super::Entities::Verifier as i32,
                                 id: key.to_string(),
                             }),
@@ -913,11 +913,11 @@ impl ClementineAggregator for Aggregator {
                                             .restart_background_tasks(Request::new(Empty {}))
                                             .await;
                                     }
-                                    Some(super::clementine::entity_status::Status::StoppedTasks(
+                                    Some(super::clementine::entity_status_with_id::Status::EntityStatus(
                                         response.into_inner(),
                                     ))
                                 }
-                                Err(e) => Some(super::clementine::entity_status::Status::Error(
+                                Err(e) => Some(super::clementine::entity_status_with_id::Status::Error(
                                     super::EntityError {
                                         error: e.to_string(),
                                     },
@@ -2299,7 +2299,7 @@ mod tests {
             .filter(|entity| {
                 matches!(
                     entity.status,
-                    Some(clementine::entity_status::Status::Error(_))
+                    Some(clementine::entity_status_with_id::Status::Error(_))
                 )
             })
             .count();

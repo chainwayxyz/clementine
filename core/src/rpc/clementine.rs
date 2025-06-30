@@ -307,25 +307,40 @@ pub struct EntityError {
     pub error: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct EntityInfo {
+pub struct EntityStatus {
+    #[prost(bool, tag = "1")]
+    pub automation: bool,
+    #[prost(string, optional, tag = "2")]
+    pub wallet_balance: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(int32, optional, tag = "3")]
+    pub tx_sender_synced_height: ::core::option::Option<i32>,
+    #[prost(int32, optional, tag = "4")]
+    pub finalized_synced_height: ::core::option::Option<i32>,
+    #[prost(int32, optional, tag = "5")]
+    pub hcp_last_proven_height: ::core::option::Option<i32>,
+    #[prost(message, optional, tag = "6")]
+    pub stopped_tasks: ::core::option::Option<StoppedTasks>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct EntityId {
     #[prost(enumeration = "Entities", tag = "1")]
     pub entity: i32,
     #[prost(string, tag = "2")]
     pub id: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct EntityStatus {
+pub struct EntityStatusWithId {
     #[prost(message, optional, tag = "1")]
-    pub entity_info: ::core::option::Option<EntityInfo>,
-    #[prost(oneof = "entity_status::Status", tags = "2, 3")]
-    pub status: ::core::option::Option<entity_status::Status>,
+    pub entity_id: ::core::option::Option<EntityId>,
+    #[prost(oneof = "entity_status_with_id::Status", tags = "2, 3")]
+    pub status: ::core::option::Option<entity_status_with_id::Status>,
 }
-/// Nested message and enum types in `EntityStatus`.
-pub mod entity_status {
+/// Nested message and enum types in `EntityStatusWithId`.
+pub mod entity_status_with_id {
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Status {
         #[prost(message, tag = "2")]
-        StoppedTasks(super::StoppedTasks),
+        EntityStatus(super::EntityStatus),
         #[prost(message, tag = "3")]
         Error(super::EntityError),
     }
@@ -333,7 +348,7 @@ pub mod entity_status {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct EntitiesStatus {
     #[prost(message, repeated, tag = "1")]
-    pub entities_status: ::prost::alloc::vec::Vec<EntityStatus>,
+    pub entities_status: ::prost::alloc::vec::Vec<EntityStatusWithId>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct VerifierParams {
@@ -1091,11 +1106,11 @@ pub mod clementine_operator_client {
                 );
             self.inner.unary(req, path, codec).await
         }
-        /// Returns the current status of tasks running on the operator.
+        /// Returns the current status of tasks running on the operator and their last synced heights.
         pub async fn get_current_status(
             &mut self,
             request: impl tonic::IntoRequest<super::Empty>,
-        ) -> std::result::Result<tonic::Response<super::StoppedTasks>, tonic::Status> {
+        ) -> std::result::Result<tonic::Response<super::EntityStatus>, tonic::Status> {
             self.inner
                 .ready()
                 .await
@@ -1753,11 +1768,11 @@ pub mod clementine_verifier_client {
                 );
             self.inner.unary(req, path, codec).await
         }
-        /// Returns the current status of tasks running on the verifier.
+        /// Returns the current status of tasks running on the verifier and their last synced heights.
         pub async fn get_current_status(
             &mut self,
             request: impl tonic::IntoRequest<super::Empty>,
-        ) -> std::result::Result<tonic::Response<super::StoppedTasks>, tonic::Status> {
+        ) -> std::result::Result<tonic::Response<super::EntityStatus>, tonic::Status> {
             self.inner
                 .ready()
                 .await
@@ -2287,11 +2302,11 @@ pub mod clementine_operator_server {
             &self,
             request: tonic::Request<super::DepositParams>,
         ) -> std::result::Result<tonic::Response<super::OperatorKeys>, tonic::Status>;
-        /// Returns the current status of tasks running on the operator.
+        /// Returns the current status of tasks running on the operator and their last synced heights.
         async fn get_current_status(
             &self,
             request: tonic::Request<super::Empty>,
-        ) -> std::result::Result<tonic::Response<super::StoppedTasks>, tonic::Status>;
+        ) -> std::result::Result<tonic::Response<super::EntityStatus>, tonic::Status>;
         /// Server streaming response type for the DepositSign method.
         type DepositSignStream: tonic::codegen::tokio_stream::Stream<
                 Item = std::result::Result<super::SchnorrSig, tonic::Status>,
@@ -2618,7 +2633,7 @@ pub mod clementine_operator_server {
                     struct GetCurrentStatusSvc<T: ClementineOperator>(pub Arc<T>);
                     impl<T: ClementineOperator> tonic::server::UnaryService<super::Empty>
                     for GetCurrentStatusSvc<T> {
-                        type Response = super::StoppedTasks;
+                        type Response = super::EntityStatus;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
@@ -3226,11 +3241,11 @@ pub mod clementine_verifier_server {
             &self,
             request: tonic::Request<super::Txid>,
         ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
-        /// Returns the current status of tasks running on the verifier.
+        /// Returns the current status of tasks running on the verifier and their last synced heights.
         async fn get_current_status(
             &self,
             request: tonic::Request<super::Empty>,
-        ) -> std::result::Result<tonic::Response<super::StoppedTasks>, tonic::Status>;
+        ) -> std::result::Result<tonic::Response<super::EntityStatus>, tonic::Status>;
         /// 1. Signs all tx's it can according to given transaction type (use it with AllNeededForDeposit to get almost all tx's)
         /// 2. Creates the transactions denoted by the deposit and operator_idx, round_idx, and kickoff_idx.
         /// 3. It will create the transaction and sign it with the operator's private key and/or saved nofn signatures.
@@ -3816,7 +3831,7 @@ pub mod clementine_verifier_server {
                     struct GetCurrentStatusSvc<T: ClementineVerifier>(pub Arc<T>);
                     impl<T: ClementineVerifier> tonic::server::UnaryService<super::Empty>
                     for GetCurrentStatusSvc<T> {
-                        type Response = super::StoppedTasks;
+                        type Response = super::EntityStatus;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
