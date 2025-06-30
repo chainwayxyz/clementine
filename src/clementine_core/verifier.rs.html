@@ -2783,7 +2783,28 @@
 <a href="#2782" id="2782">2782</a>
 <a href="#2783" id="2783">2783</a>
 <a href="#2784" id="2784">2784</a>
-<a href="#2785" id="2785">2785</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
+<a href="#2785" id="2785">2785</a>
+<a href="#2786" id="2786">2786</a>
+<a href="#2787" id="2787">2787</a>
+<a href="#2788" id="2788">2788</a>
+<a href="#2789" id="2789">2789</a>
+<a href="#2790" id="2790">2790</a>
+<a href="#2791" id="2791">2791</a>
+<a href="#2792" id="2792">2792</a>
+<a href="#2793" id="2793">2793</a>
+<a href="#2794" id="2794">2794</a>
+<a href="#2795" id="2795">2795</a>
+<a href="#2796" id="2796">2796</a>
+<a href="#2797" id="2797">2797</a>
+<a href="#2798" id="2798">2798</a>
+<a href="#2799" id="2799">2799</a>
+<a href="#2800" id="2800">2800</a>
+<a href="#2801" id="2801">2801</a>
+<a href="#2802" id="2802">2802</a>
+<a href="#2803" id="2803">2803</a>
+<a href="#2804" id="2804">2804</a>
+<a href="#2805" id="2805">2805</a>
+<a href="#2806" id="2806">2806</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
 <span class="kw">use </span><span class="kw">crate</span>::bitcoin_syncer::{BitcoinSyncer, BlockHandler, FinalizedBlockFetcherTask};
 <span class="kw">use </span><span class="kw">crate</span>::bitvm_client::ClementineBitVMPublicKeys;
 <span class="kw">use </span><span class="kw">crate</span>::builder::address::{create_taproot_address, taproot_builder_with_scripts};
@@ -3112,29 +3133,28 @@
     </span><span class="kw">async fn </span>is_deposit_valid(<span class="kw-2">&amp;</span><span class="self">self</span>, deposit_data: <span class="kw-2">&amp;mut </span>DepositData) -&gt; <span class="prelude-ty">Result</span>&lt;bool, BridgeError&gt; {
         <span class="comment">// check if security council is the same as in our config
         </span><span class="kw">if </span>deposit_data.security_council != <span class="self">self</span>.config.security_council {
-            <span class="macro">tracing::warn!</span>(
+            <span class="macro">tracing::error!</span>(
                 <span class="string">"Security council in deposit is not the same as in the config, expected {:?}, got {:?}"</span>,
                 <span class="self">self</span>.config.security_council,
                 deposit_data.security_council
             );
             <span class="kw">return </span><span class="prelude-val">Ok</span>(<span class="bool-val">false</span>);
         }
-        <span class="kw">let </span>operator_xonly_pks = deposit_data.get_operators();
+        <span class="kw">let </span>operators_in_deposit = deposit_data.get_operators();
         <span class="comment">// check if all operators that still have collateral are in the deposit
-        </span><span class="kw">let </span>are_all_operators_in_deposit = <span class="self">self</span>.db.get_operators(<span class="prelude-val">None</span>).<span class="kw">await</span><span class="question-mark">?</span>;
-        <span class="kw">for </span>(xonly_pk, reimburse_addr, collateral_funding_outpoint) <span class="kw">in </span>are_all_operators_in_deposit
-        {
+        </span><span class="kw">let </span>operators_in_db = <span class="self">self</span>.db.get_operators(<span class="prelude-val">None</span>).<span class="kw">await</span><span class="question-mark">?</span>;
+        <span class="kw">for </span>(xonly_pk, reimburse_addr, collateral_funding_outpoint) <span class="kw">in </span>operators_in_db.iter() {
             <span class="kw">let </span>operator_data = OperatorData {
-                xonly_pk,
-                collateral_funding_outpoint,
-                reimburse_addr,
+                xonly_pk: <span class="kw-2">*</span>xonly_pk,
+                collateral_funding_outpoint: <span class="kw-2">*</span>collateral_funding_outpoint,
+                reimburse_addr: reimburse_addr.clone(),
             };
-            <span class="kw">let </span>kickoff_wpks = <span class="self">self
+            <span class="kw">let </span>kickoff_winternitz_pks = <span class="self">self
                 </span>.db
-                .get_operator_kickoff_winternitz_public_keys(<span class="prelude-val">None</span>, xonly_pk)
+                .get_operator_kickoff_winternitz_public_keys(<span class="prelude-val">None</span>, <span class="kw-2">*</span>xonly_pk)
                 .<span class="kw">await</span><span class="question-mark">?</span>;
             <span class="kw">let </span>kickoff_wpks = KickoffWinternitzKeys::new(
-                kickoff_wpks,
+                kickoff_winternitz_pks,
                 <span class="self">self</span>.config.protocol_paramset().num_kickoffs_per_round,
                 <span class="self">self</span>.config.protocol_paramset().num_round_txs,
             );
@@ -3147,18 +3167,31 @@
                 )
                 .<span class="kw">await</span><span class="question-mark">?</span>;
             <span class="comment">// if operator is not in deposit but its collateral is still on chain, return false
-            </span><span class="kw">if </span>!operator_xonly_pks.contains(<span class="kw-2">&amp;</span>xonly_pk) &amp;&amp; is_collateral_usable {
-                <span class="macro">tracing::warn!</span>(
+            </span><span class="kw">if </span>!operators_in_deposit.contains(xonly_pk) &amp;&amp; is_collateral_usable {
+                <span class="macro">tracing::error!</span>(
                     <span class="string">"Operator {:?} is is still in protocol but not in the deposit"</span>,
                     xonly_pk
                 );
                 <span class="kw">return </span><span class="prelude-val">Ok</span>(<span class="bool-val">false</span>);
             }
             <span class="comment">// if operator is in deposit, but the collateral is not usable, return false
-            </span><span class="kw">if </span>operator_xonly_pks.contains(<span class="kw-2">&amp;</span>xonly_pk) &amp;&amp; !is_collateral_usable {
-                <span class="macro">tracing::warn!</span>(
+            </span><span class="kw">if </span>operators_in_deposit.contains(xonly_pk) &amp;&amp; !is_collateral_usable {
+                <span class="macro">tracing::error!</span>(
                     <span class="string">"Operator {:?} is in the deposit but its collateral is spent, operator cannot fulfill withdrawals anymore"</span>,
                     xonly_pk
+                );
+                <span class="kw">return </span><span class="prelude-val">Ok</span>(<span class="bool-val">false</span>);
+            }
+        }
+        <span class="comment">// check if there are any operators in the deposit that are not in the DB.
+        </span><span class="kw">for </span>operator_xonly_pk <span class="kw">in </span>operators_in_deposit {
+            <span class="kw">if </span>!operators_in_db
+                .iter()
+                .any(|(xonly_pk, <span class="kw">_</span>, <span class="kw">_</span>)| xonly_pk == <span class="kw-2">&amp;</span>operator_xonly_pk)
+            {
+                <span class="macro">tracing::error!</span>(
+                    <span class="string">"Operator {:?} is in the deposit but not in the DB, cannot sign deposit"</span>,
+                    operator_xonly_pk
                 );
                 <span class="kw">return </span><span class="prelude-val">Ok</span>(<span class="bool-val">false</span>);
             }
@@ -3169,7 +3202,8 @@
             </span>.into_iter()
             .map(|s| s.to_script_buf())
             .collect();
-        <span class="kw">let </span>deposit_txout_pubkey = create_taproot_address(
+        <span class="comment">// what the deposit scriptpubkey is in the deposit_outpoint should be according to the deposit data
+        </span><span class="kw">let </span>expected_scriptpubkey = create_taproot_address(
             <span class="kw-2">&amp;</span>deposit_scripts,
             <span class="prelude-val">None</span>,
             <span class="self">self</span>.config.protocol_paramset().network,
@@ -3183,7 +3217,7 @@
             .get_tx_of_txid(<span class="kw-2">&amp;</span>deposit_txid)
             .<span class="kw">await
             </span>.wrap_err(<span class="string">"Deposit tx could not be found on chain"</span>)<span class="question-mark">?</span>;
-        <span class="kw">let </span>deposit_txout = deposit_tx
+        <span class="kw">let </span>deposit_txout_in_chain = deposit_tx
             .output
             .get(deposit_outpoint.vout <span class="kw">as </span>usize)
             .ok_or(<span class="macro">eyre::eyre!</span>(
@@ -3191,19 +3225,19 @@
                 deposit_txid,
                 deposit_outpoint.vout
             ))<span class="question-mark">?</span>;
-        <span class="kw">if </span>deposit_txout.value != <span class="self">self</span>.config.protocol_paramset().bridge_amount {
-            <span class="macro">tracing::warn!</span>(
+        <span class="kw">if </span>deposit_txout_in_chain.value != <span class="self">self</span>.config.protocol_paramset().bridge_amount {
+            <span class="macro">tracing::error!</span>(
                 <span class="string">"Deposit amount is not correct, expected {}, got {}"</span>,
                 <span class="self">self</span>.config.protocol_paramset().bridge_amount,
-                deposit_txout.value
+                deposit_txout_in_chain.value
             );
             <span class="kw">return </span><span class="prelude-val">Ok</span>(<span class="bool-val">false</span>);
         }
-        <span class="kw">if </span>deposit_txout.script_pubkey != deposit_txout_pubkey {
-            <span class="macro">tracing::warn!</span>(
+        <span class="kw">if </span>deposit_txout_in_chain.script_pubkey != expected_scriptpubkey {
+            <span class="macro">tracing::error!</span>(
                 <span class="string">"Deposit script pubkey in deposit outpoint does not match the deposit data, expected {:?}, got {:?}"</span>,
-                deposit_txout_pubkey,
-                deposit_txout.script_pubkey
+                expected_scriptpubkey,
+                deposit_txout_in_chain.script_pubkey
             );
             <span class="kw">return </span><span class="prelude-val">Ok</span>(<span class="bool-val">false</span>);
         }
@@ -3918,6 +3952,14 @@
         keys: OperatorKeys,
         operator_xonly_pk: XOnlyPublicKey,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
+        <span class="self">self</span>.citrea_client
+            .check_nofn_correctness(deposit_data.get_nofn_xonly_pk()<span class="question-mark">?</span>)
+            .<span class="kw">await</span><span class="question-mark">?</span>;
+
+        <span class="kw">if </span>!<span class="self">self</span>.is_deposit_valid(<span class="kw-2">&amp;mut </span>deposit_data).<span class="kw">await</span><span class="question-mark">? </span>{
+            <span class="kw">return </span><span class="prelude-val">Err</span>(BridgeError::InvalidDeposit);
+        }
+
         <span class="self">self</span>.db
             .set_deposit_data(<span class="prelude-val">None</span>, <span class="kw-2">&amp;mut </span>deposit_data, <span class="self">self</span>.config.protocol_paramset())
             .<span class="kw">await</span><span class="question-mark">?</span>;
