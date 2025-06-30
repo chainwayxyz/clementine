@@ -57,7 +57,7 @@ async fn base_setup(
         _move_txid,
         deposit_blockhash,
         _verifiers_public_keys,
-    ) = run_single_deposit::<MockCitreaClient>(config, rpc.clone(), None).await?;
+    ) = run_single_deposit::<MockCitreaClient>(config, rpc.clone(), None, None).await?;
     let deposit_outpoint = deposit_info.deposit_outpoint;
 
     let mut tx_senders = Vec::new();
@@ -135,7 +135,7 @@ pub async fn run_operator_end_round(
         move_txid,
         _deposit_blockhash,
         _verifiers_public_keys,
-    ) = run_single_deposit::<MockCitreaClient>(config, rpc.clone(), None).await?;
+    ) = run_single_deposit::<MockCitreaClient>(config, rpc.clone(), None, None).await?;
     let deposit_outpoint = deposit_info.deposit_outpoint;
 
     let kickoff_txid = operators[0]
