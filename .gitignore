@@ -17,5 +17,6 @@ lcov.json
 .docker/
 .idea/
 logs
+out.json*
 
 core/certs/
