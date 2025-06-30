@@ -334,7 +334,7 @@ where
             );
             return Ok(false);
         }
-        let operator_xonly_pks = deposit_data.get_operators();
+        let operators_in_deposit = deposit_data.get_operators();
         // check if all operators that still have collateral are in the deposit
         let operators_in_db = self.db.get_operators(None).await?;
         for (xonly_pk, reimburse_addr, collateral_funding_outpoint) in operators_in_db.iter() {
@@ -343,12 +343,12 @@ where
                 collateral_funding_outpoint: *collateral_funding_outpoint,
                 reimburse_addr: reimburse_addr.clone(),
             };
-            let kickoff_wpks = self
+            let kickoff_winternitz_pks = self
                 .db
                 .get_operator_kickoff_winternitz_public_keys(None, *xonly_pk)
                 .await?;
             let kickoff_wpks = KickoffWinternitzKeys::new(
-                kickoff_wpks,
+                kickoff_winternitz_pks,
                 self.config.protocol_paramset().num_kickoffs_per_round,
                 self.config.protocol_paramset().num_round_txs,
             );
@@ -361,7 +361,7 @@ where
                 )
                 .await?;
             // if operator is not in deposit but its collateral is still on chain, return false
-            if !operator_xonly_pks.contains(xonly_pk) && is_collateral_usable {
+            if !operators_in_deposit.contains(xonly_pk) && is_collateral_usable {
                 tracing::error!(
                     "Operator {:?} is is still in protocol but not in the deposit",
                     xonly_pk
@@ -369,7 +369,7 @@ where
                 return Ok(false);
             }
             // if operator is in deposit, but the collateral is not usable, return false
-            if operator_xonly_pks.contains(xonly_pk) && !is_collateral_usable {
+            if operators_in_deposit.contains(xonly_pk) && !is_collateral_usable {
                 tracing::error!(
                     "Operator {:?} is in the deposit but its collateral is spent, operator cannot fulfill withdrawals anymore",
                     xonly_pk
@@ -378,14 +378,14 @@ where
             }
         }
         // check if there are any operators in the deposit that are not in the DB.
-        for op_xonly_pk in operator_xonly_pks {
+        for operator_xonly_pk in operators_in_deposit {
             if !operators_in_db
                 .iter()
-                .any(|(xonly_pk, _, _)| xonly_pk == &op_xonly_pk)
+                .any(|(xonly_pk, _, _)| xonly_pk == &operator_xonly_pk)
             {
                 tracing::error!(
                     "Operator {:?} is in the deposit but not in the DB, cannot sign deposit",
-                    op_xonly_pk
+                    operator_xonly_pk
                 );
                 return Ok(false);
             }
@@ -396,7 +396,8 @@ where
             .into_iter()
             .map(|s| s.to_script_buf())
             .collect();
-        let deposit_txout_pubkey = create_taproot_address(
+        // what the deposit scriptpubkey is in the deposit_outpoint should be according to the deposit data
+        let expected_scriptpubkey = create_taproot_address(
             &deposit_scripts,
             None,
             self.config.protocol_paramset().network,
@@ -410,7 +411,7 @@ where
             .get_tx_of_txid(&deposit_txid)
             .await
             .wrap_err("Deposit tx could not be found on chain")?;
-        let deposit_txout = deposit_tx
+        let deposit_txout_in_chain = deposit_tx
             .output
             .get(deposit_outpoint.vout as usize)
             .ok_or(eyre::eyre!(
@@ -418,19 +419,19 @@ where
                 deposit_txid,
                 deposit_outpoint.vout
             ))?;
-        if deposit_txout.value != self.config.protocol_paramset().bridge_amount {
+        if deposit_txout_in_chain.value != self.config.protocol_paramset().bridge_amount {
             tracing::error!(
                 "Deposit amount is not correct, expected {}, got {}",
                 self.config.protocol_paramset().bridge_amount,
-                deposit_txout.value
+                deposit_txout_in_chain.value
             );
             return Ok(false);
         }
-        if deposit_txout.script_pubkey != deposit_txout_pubkey {
+        if deposit_txout_in_chain.script_pubkey != expected_scriptpubkey {
             tracing::error!(
                 "Deposit script pubkey in deposit outpoint does not match the deposit data, expected {:?}, got {:?}",
-                deposit_txout_pubkey,
-                deposit_txout.script_pubkey
+                expected_scriptpubkey,
+                deposit_txout_in_chain.script_pubkey
             );
             return Ok(false);
         }
