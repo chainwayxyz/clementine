@@ -187,7 +187,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             move_txid,
             _deposit_blockhash,
             verifiers_public_keys,
-        ) = run_single_deposit::<CitreaClient>(&mut config, rpc.clone(), None).await?;
+        ) = run_single_deposit::<CitreaClient>(&mut config, rpc.clone(), None, None).await?;
         tracing::info!(
             "Deposit ending block_height: {:?}",
             rpc.client.get_block_count().await?
@@ -695,7 +695,7 @@ async fn mock_citrea_run_truthful() {
         move_txid,
         _deposit_blockhash,
         verifiers_public_keys,
-    ) = run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None)
+    ) = run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None)
         .await
         .unwrap();
 
@@ -962,7 +962,7 @@ async fn mock_citrea_run_truthful_opt_payout() {
         move_txid,
         _deposit_blockhash,
         _verifiers_public_keys,
-    ) = run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None)
+    ) = run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None)
         .await
         .unwrap();
 
@@ -1147,7 +1147,7 @@ async fn mock_citrea_run_malicious() {
         move_txid,
         _deposit_blockhash,
         _,
-    ) = run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None)
+    ) = run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None)
         .await
         .unwrap();
     let db = Database::new(&BridgeConfig {
@@ -1362,7 +1362,7 @@ async fn mock_citrea_run_malicious_after_exit() {
         move_txid,
         _deposit_blockhash,
         verifier_pks,
-    ) = run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None)
+    ) = run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None)
         .await
         .unwrap();
     let db = Database::new(&BridgeConfig {

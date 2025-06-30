@@ -38,6 +38,9 @@ pub struct TestParams {
     /// A flag to introduce intentionally inconsistent or invalid data into the BitVM assertions.
     pub corrupted_asserts: bool,
 
+    /// A flag to generate blocks to the address of the wallet.
+    pub generate_to_address: bool,
+
     /// A flag to indicate whether to use small annexes in the watchtower challenge transactions.
     pub use_small_annex: bool,
 
@@ -186,6 +189,7 @@ impl Default for TestParams {
             use_large_output: false,
             use_large_annex_and_output: false,
             timeout_params: TimeoutTestParams::default(),
+            generate_to_address: true,
         }
     }
 }

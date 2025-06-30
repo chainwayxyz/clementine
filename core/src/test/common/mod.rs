@@ -360,6 +360,7 @@ pub async fn run_single_deposit<C: CitreaClientT>(
     config: &mut BridgeConfig,
     rpc: ExtendedRpc,
     evm_address: Option<EVMAddress>,
+    deposit_outpoint: Option<OutPoint>, // if a deposit outpoint is provided, it will be used instead of creating a new one
 ) -> Result<
     (
         Vec<ClementineVerifierClient<Channel>>,
@@ -397,13 +398,19 @@ pub async fn run_single_deposit<C: CitreaClientT>(
     let setup_elapsed = setup_start.elapsed();
     tracing::info!("Setup completed in: {:?}", setup_elapsed);
 
-    let (deposit_address, _) =
-        get_deposit_address(config, evm_address, verifiers_public_keys.clone())?;
-    let deposit_outpoint = rpc
-        .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
-        .await?;
+    let deposit_outpoint = match deposit_outpoint {
+        Some(outpoint) => outpoint,
+        None => {
+            let (deposit_address, _) =
+                get_deposit_address(config, evm_address, verifiers_public_keys.clone())?;
+            let outpoint = rpc
+                .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
+                .await?;
+            mine_once_after_in_mempool(&rpc, outpoint.txid, Some("Deposit outpoint"), None).await?;
+            outpoint
+        }
+    };
 
-    mine_once_after_in_mempool(&rpc, deposit_outpoint.txid, Some("Deposit outpoint"), None).await?;
     let deposit_blockhash = rpc.get_blockhash_of_tx(&deposit_outpoint.txid).await?;
 
     let deposit_info = DepositInfo {
@@ -433,7 +440,9 @@ pub async fn run_single_deposit<C: CitreaClientT>(
 
     wait_for_fee_payer_utxos_to_be_in_mempool(&rpc, aggregator_db, move_txid).await?;
     rpc.mine_blocks(1).await?;
-    mine_once_after_in_mempool(&rpc, move_txid, Some("Move tx"), Some(180)).await?;
+    if !rpc.is_tx_on_chain(&move_txid).await? {
+        mine_once_after_in_mempool(&rpc, move_txid, Some("Move tx"), Some(180)).await?;
+    }
 
     // Uncomment below to debug the move tx.
     // let transaction = rpc
@@ -587,8 +596,7 @@ pub async fn run_replacement_deposit(
         move_txid,
         _,
         verifiers_public_keys,
-    ) = run_single_deposit::<MockCitreaClient>(config, rpc.clone(), evm_address).await?;
-    tracing::info!("First deposit move txid: {}", move_txid);
+    ) = run_single_deposit::<MockCitreaClient>(config, rpc.clone(), evm_address, None).await?;
 
     let actor = Actor::new(
         config.secret_key,
