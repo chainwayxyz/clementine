@@ -2522,7 +2522,7 @@ mod states {
                         if !self
                             .config
                             .test_params
-                            .should_disprove(self.signer.public_key, &deposit_data)?
+                            .should_disprove(&self.signer.public_key, &deposit_data)?
                         {
                             return Ok(DutyResult::Handled);
                         }

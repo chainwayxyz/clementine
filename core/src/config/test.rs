@@ -64,10 +64,10 @@ impl TestParams {
     /// Returns true if the verifier should attempt tosend a disprove transaction, false otherwise.
     pub fn should_disprove(
         &self,
-        verifier_pk: PublicKey,
+        verifier_pk: &PublicKey,
         deposit_data: &DepositData,
     ) -> eyre::Result<bool> {
-        let verifier_idx = deposit_data.get_verifier_index(&verifier_pk)?;
+        let verifier_idx = deposit_data.get_verifier_index(verifier_pk)?;
         Ok(self
             .verifier_do_not_send_disprove_indexes
             .as_ref()
