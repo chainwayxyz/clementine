@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["fetch_light_client_proof","fetch_storage_proof","receipt_from_inner"],"mod":["bridge_circuit_host","config","docker","mock_zkvm","structs","utils"]};
+window.SIDEBAR_ITEMS = {"fn":["fetch_light_client_proof","receipt_from_inner"],"mod":["bridge_circuit_host","docker","mock_zkvm","structs","utils"]};

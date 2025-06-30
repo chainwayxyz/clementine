@@ -420,7 +420,226 @@
 <a href="#419" id="419">419</a>
 <a href="#420" id="420">420</a>
 <a href="#421" id="421">421</a>
-<a href="#422" id="422">422</a></pre></div><pre class="rust"><code><span class="kw">use </span>alloy_rpc_types::EIP1186StorageProof;
+<a href="#422" id="422">422</a>
+<a href="#423" id="423">423</a>
+<a href="#424" id="424">424</a>
+<a href="#425" id="425">425</a>
+<a href="#426" id="426">426</a>
+<a href="#427" id="427">427</a>
+<a href="#428" id="428">428</a>
+<a href="#429" id="429">429</a>
+<a href="#430" id="430">430</a>
+<a href="#431" id="431">431</a>
+<a href="#432" id="432">432</a>
+<a href="#433" id="433">433</a>
+<a href="#434" id="434">434</a>
+<a href="#435" id="435">435</a>
+<a href="#436" id="436">436</a>
+<a href="#437" id="437">437</a>
+<a href="#438" id="438">438</a>
+<a href="#439" id="439">439</a>
+<a href="#440" id="440">440</a>
+<a href="#441" id="441">441</a>
+<a href="#442" id="442">442</a>
+<a href="#443" id="443">443</a>
+<a href="#444" id="444">444</a>
+<a href="#445" id="445">445</a>
+<a href="#446" id="446">446</a>
+<a href="#447" id="447">447</a>
+<a href="#448" id="448">448</a>
+<a href="#449" id="449">449</a>
+<a href="#450" id="450">450</a>
+<a href="#451" id="451">451</a>
+<a href="#452" id="452">452</a>
+<a href="#453" id="453">453</a>
+<a href="#454" id="454">454</a>
+<a href="#455" id="455">455</a>
+<a href="#456" id="456">456</a>
+<a href="#457" id="457">457</a>
+<a href="#458" id="458">458</a>
+<a href="#459" id="459">459</a>
+<a href="#460" id="460">460</a>
+<a href="#461" id="461">461</a>
+<a href="#462" id="462">462</a>
+<a href="#463" id="463">463</a>
+<a href="#464" id="464">464</a>
+<a href="#465" id="465">465</a>
+<a href="#466" id="466">466</a>
+<a href="#467" id="467">467</a>
+<a href="#468" id="468">468</a>
+<a href="#469" id="469">469</a>
+<a href="#470" id="470">470</a>
+<a href="#471" id="471">471</a>
+<a href="#472" id="472">472</a>
+<a href="#473" id="473">473</a>
+<a href="#474" id="474">474</a>
+<a href="#475" id="475">475</a>
+<a href="#476" id="476">476</a>
+<a href="#477" id="477">477</a>
+<a href="#478" id="478">478</a>
+<a href="#479" id="479">479</a>
+<a href="#480" id="480">480</a>
+<a href="#481" id="481">481</a>
+<a href="#482" id="482">482</a>
+<a href="#483" id="483">483</a>
+<a href="#484" id="484">484</a>
+<a href="#485" id="485">485</a>
+<a href="#486" id="486">486</a>
+<a href="#487" id="487">487</a>
+<a href="#488" id="488">488</a>
+<a href="#489" id="489">489</a>
+<a href="#490" id="490">490</a>
+<a href="#491" id="491">491</a>
+<a href="#492" id="492">492</a>
+<a href="#493" id="493">493</a>
+<a href="#494" id="494">494</a>
+<a href="#495" id="495">495</a>
+<a href="#496" id="496">496</a>
+<a href="#497" id="497">497</a>
+<a href="#498" id="498">498</a>
+<a href="#499" id="499">499</a>
+<a href="#500" id="500">500</a>
+<a href="#501" id="501">501</a>
+<a href="#502" id="502">502</a>
+<a href="#503" id="503">503</a>
+<a href="#504" id="504">504</a>
+<a href="#505" id="505">505</a>
+<a href="#506" id="506">506</a>
+<a href="#507" id="507">507</a>
+<a href="#508" id="508">508</a>
+<a href="#509" id="509">509</a>
+<a href="#510" id="510">510</a>
+<a href="#511" id="511">511</a>
+<a href="#512" id="512">512</a>
+<a href="#513" id="513">513</a>
+<a href="#514" id="514">514</a>
+<a href="#515" id="515">515</a>
+<a href="#516" id="516">516</a>
+<a href="#517" id="517">517</a>
+<a href="#518" id="518">518</a>
+<a href="#519" id="519">519</a>
+<a href="#520" id="520">520</a>
+<a href="#521" id="521">521</a>
+<a href="#522" id="522">522</a>
+<a href="#523" id="523">523</a>
+<a href="#524" id="524">524</a>
+<a href="#525" id="525">525</a>
+<a href="#526" id="526">526</a>
+<a href="#527" id="527">527</a>
+<a href="#528" id="528">528</a>
+<a href="#529" id="529">529</a>
+<a href="#530" id="530">530</a>
+<a href="#531" id="531">531</a>
+<a href="#532" id="532">532</a>
+<a href="#533" id="533">533</a>
+<a href="#534" id="534">534</a>
+<a href="#535" id="535">535</a>
+<a href="#536" id="536">536</a>
+<a href="#537" id="537">537</a>
+<a href="#538" id="538">538</a>
+<a href="#539" id="539">539</a>
+<a href="#540" id="540">540</a>
+<a href="#541" id="541">541</a>
+<a href="#542" id="542">542</a>
+<a href="#543" id="543">543</a>
+<a href="#544" id="544">544</a>
+<a href="#545" id="545">545</a>
+<a href="#546" id="546">546</a>
+<a href="#547" id="547">547</a>
+<a href="#548" id="548">548</a>
+<a href="#549" id="549">549</a>
+<a href="#550" id="550">550</a>
+<a href="#551" id="551">551</a>
+<a href="#552" id="552">552</a>
+<a href="#553" id="553">553</a>
+<a href="#554" id="554">554</a>
+<a href="#555" id="555">555</a>
+<a href="#556" id="556">556</a>
+<a href="#557" id="557">557</a>
+<a href="#558" id="558">558</a>
+<a href="#559" id="559">559</a>
+<a href="#560" id="560">560</a>
+<a href="#561" id="561">561</a>
+<a href="#562" id="562">562</a>
+<a href="#563" id="563">563</a>
+<a href="#564" id="564">564</a>
+<a href="#565" id="565">565</a>
+<a href="#566" id="566">566</a>
+<a href="#567" id="567">567</a>
+<a href="#568" id="568">568</a>
+<a href="#569" id="569">569</a>
+<a href="#570" id="570">570</a>
+<a href="#571" id="571">571</a>
+<a href="#572" id="572">572</a>
+<a href="#573" id="573">573</a>
+<a href="#574" id="574">574</a>
+<a href="#575" id="575">575</a>
+<a href="#576" id="576">576</a>
+<a href="#577" id="577">577</a>
+<a href="#578" id="578">578</a>
+<a href="#579" id="579">579</a>
+<a href="#580" id="580">580</a>
+<a href="#581" id="581">581</a>
+<a href="#582" id="582">582</a>
+<a href="#583" id="583">583</a>
+<a href="#584" id="584">584</a>
+<a href="#585" id="585">585</a>
+<a href="#586" id="586">586</a>
+<a href="#587" id="587">587</a>
+<a href="#588" id="588">588</a>
+<a href="#589" id="589">589</a>
+<a href="#590" id="590">590</a>
+<a href="#591" id="591">591</a>
+<a href="#592" id="592">592</a>
+<a href="#593" id="593">593</a>
+<a href="#594" id="594">594</a>
+<a href="#595" id="595">595</a>
+<a href="#596" id="596">596</a>
+<a href="#597" id="597">597</a>
+<a href="#598" id="598">598</a>
+<a href="#599" id="599">599</a>
+<a href="#600" id="600">600</a>
+<a href="#601" id="601">601</a>
+<a href="#602" id="602">602</a>
+<a href="#603" id="603">603</a>
+<a href="#604" id="604">604</a>
+<a href="#605" id="605">605</a>
+<a href="#606" id="606">606</a>
+<a href="#607" id="607">607</a>
+<a href="#608" id="608">608</a>
+<a href="#609" id="609">609</a>
+<a href="#610" id="610">610</a>
+<a href="#611" id="611">611</a>
+<a href="#612" id="612">612</a>
+<a href="#613" id="613">613</a>
+<a href="#614" id="614">614</a>
+<a href="#615" id="615">615</a>
+<a href="#616" id="616">616</a>
+<a href="#617" id="617">617</a>
+<a href="#618" id="618">618</a>
+<a href="#619" id="619">619</a>
+<a href="#620" id="620">620</a>
+<a href="#621" id="621">621</a>
+<a href="#622" id="622">622</a>
+<a href="#623" id="623">623</a>
+<a href="#624" id="624">624</a>
+<a href="#625" id="625">625</a>
+<a href="#626" id="626">626</a>
+<a href="#627" id="627">627</a>
+<a href="#628" id="628">628</a>
+<a href="#629" id="629">629</a>
+<a href="#630" id="630">630</a>
+<a href="#631" id="631">631</a>
+<a href="#632" id="632">632</a>
+<a href="#633" id="633">633</a>
+<a href="#634" id="634">634</a>
+<a href="#635" id="635">635</a>
+<a href="#636" id="636">636</a>
+<a href="#637" id="637">637</a>
+<a href="#638" id="638">638</a>
+<a href="#639" id="639">639</a>
+<a href="#640" id="640">640</a>
+<a href="#641" id="641">641</a></pre></div><pre class="rust"><code><span class="kw">use </span>alloy_rpc_types::EIP1186StorageProof;
 <span class="kw">use </span>ark_bn254::Bn254;
 <span class="kw">use </span>ark_ff::PrimeField;
 <span class="kw">use </span>bitcoin::{hashes::Hash, Network, Transaction, Txid, XOnlyPublicKey};
@@ -436,6 +655,7 @@
     },
     header_chain::BlockHeaderCircuitOutput,
 };
+<span class="kw">use </span>eyre::Result;
 <span class="kw">use </span>risc0_zkvm::Receipt;
 
 <span class="kw">use </span><span class="kw">crate</span>::utils::get_ark_verifying_key;
@@ -444,7 +664,11 @@
 <span class="kw">const </span>OP_RETURN_OUTPUT: usize = <span class="number">1</span>;
 <span class="kw">const </span>ANCHOR_OUTPUT: usize = <span class="number">1</span>;
 
-<span class="attr">#[derive(Debug, Clone)]
+<span class="doccomment">/// Parameters required for bridge circuit proof generation.
+///
+/// This struct contains all the necessary inputs and proofs required to generate
+/// a bridge circuit proof, including transactions, receipts, and cryptographic proofs.
+</span><span class="attr">#[derive(Debug, Clone)]
 </span><span class="kw">pub struct </span>BridgeCircuitHostParams {
     <span class="kw">pub </span>kickoff_tx: Transaction,
     <span class="kw">pub </span>spv: SPV,
@@ -460,7 +684,8 @@
     <span class="kw">pub </span>payout_input_index: u16,
 }
 
-<span class="attr">#[derive(Debug, Clone, Error)]
+<span class="doccomment">/// Errors that can occur when constructing or validating bridge circuit host parameters.
+</span><span class="attr">#[derive(Debug, Clone, Error)]
 </span><span class="kw">pub enum </span>BridgeCircuitHostParamsError {
     <span class="attr">#[error(<span class="string">"Invalid kickoff transaction"</span>)]
     </span>InvalidKickoffTx,
@@ -486,10 +711,38 @@
     </span>PayoutInputIndexTooLarge(usize),
     <span class="attr">#[error(<span class="string">"Invalid kickoff transaction vout"</span>)]
     </span>KickOffTxInvalidVout,
+    <span class="attr">#[error(<span class="string">"Failed to deserialize storage proof: {0}"</span>)]
+    </span>StorageProofDeserializationError(String),
+    <span class="attr">#[error(<span class="string">"Failed to parse operator public key"</span>)]
+    </span>InvalidOperatorPubkey,
+    <span class="attr">#[error(<span class="string">"Kickoff transaction missing outputs"</span>)]
+    </span>MissingKickoffOutputs,
+    <span class="attr">#[error(<span class="string">"Invalid deposit storage proof"</span>)]
+    </span>InvalidDepositStorageProof,
+    <span class="attr">#[error(<span class="string">"Round transaction ID mismatch"</span>)]
+    </span>RoundTxidMismatch,
+    <span class="attr">#[error(<span class="string">"Failed to verify bridge circuit proof"</span>)]
+    </span>ProofVerificationFailed,
 }
 
 <span class="kw">impl </span>BridgeCircuitHostParams {
-    <span class="attr">#[allow(clippy::too_many_arguments)]
+    <span class="doccomment">/// Creates a new instance of BridgeCircuitHostParams.
+    ///
+    /// # Arguments
+    ///
+    /// * `kickoff_tx` - The kickoff transaction
+    /// * `spv` - Simplified Payment Verification proof for the payout transaction
+    /// * `block_header_circuit_output` - Output from the header chain circuit
+    /// * `headerchain_receipt` - Receipt from the header chain proof
+    /// * `light_client_proof` - Light client proof for validation
+    /// * `lcp_receipt` - Receipt from the light client proof
+    /// * `storage_proof` - Storage proof from the blockchain (l2) state
+    /// * `network` - Bitcoin network (mainnet, testnet, etc.)
+    /// * `watchtower_inputs` - Inputs including details about watchtower challenge transactions
+    /// * `all_tweaked_watchtower_pubkeys` - All tweaked watchtower public keys
+    /// * `watchtower_challenge_connector_start_idx` - Starting index for watchtower challenge connectors on kickoff tx
+    /// * `payout_input_index` - Index of the payout input in the transaction
+    </span><span class="attr">#[allow(clippy::too_many_arguments)]
     </span><span class="kw">pub fn </span>new(
         kickoff_tx: Transaction,
         spv: SPV,
@@ -520,7 +773,36 @@
         }
     }
 
-    <span class="attr">#[allow(clippy::too_many_arguments)]
+    <span class="doccomment">/// Creates a new instance of BridgeCircuitHostParams with watchtower transactions.
+    ///
+    /// This method automatically derives several parameters from the provided watchtower contexts
+    /// and validates the inputs before construction.
+    ///
+    /// # Arguments
+    ///
+    /// * `kickoff_tx` - The kickoff transaction
+    /// * `spv` - Simplified Payment Verification proof for the payout transaction
+    /// * `headerchain_receipt` - Receipt from the header chain proof
+    /// * `light_client_proof` - Light client proof for validation
+    /// * `lcp_receipt` - Receipt from the light client proof
+    /// * `storage_proof` - Storage proof from the blockchain (l2) state
+    /// * `network` - Bitcoin network
+    /// * `watchtower_contexts` - Contexts containing watchtower transactions and transactions that includes prevouts
+    /// * `watchtower_challenge_connector_start_idx` - Starting index for watchtower challenge connectors on kickoff tx
+    ///
+    /// # Returns
+    ///
+    /// Returns a `Result` containing the constructed `BridgeCircuitHostParams` or an error.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if:
+    /// - Watchtower input generation fails
+    /// - Header chain receipt journal deserialization fails
+    /// - Public key extraction from kickoff transaction fails
+    /// - Storage proof deserialization fails
+    /// - Payout input index calculation fails
+    </span><span class="attr">#[allow(clippy::too_many_arguments)]
     </span><span class="kw">pub fn </span>new_with_wt_tx(
         kickoff_tx: Transaction,
         spv: SPV,
@@ -546,8 +828,9 @@
             get_all_pubkeys(<span class="kw-2">&amp;</span>kickoff_tx, watchtower_challenge_connector_start_idx)<span class="question-mark">?</span>;
 
         <span class="kw">let </span>storage_proof_utxo: EIP1186StorageProof =
-            serde_json::from_str(<span class="kw-2">&amp;</span>storage_proof.storage_proof_utxo)
-                .expect(<span class="string">"Failed to deserialize UTXO storage proof"</span>);
+            serde_json::from_str(<span class="kw-2">&amp;</span>storage_proof.storage_proof_utxo).map_err(|e| {
+                BridgeCircuitHostParamsError::StorageProofDeserializationError(e.to_string())
+            })<span class="question-mark">?</span>;
 
         <span class="kw">let </span>wd_txid_bytes: [u8; <span class="number">32</span>] = storage_proof_utxo.value.to_be_bytes();
 
@@ -572,7 +855,15 @@
         })
     }
 
-    <span class="kw">pub fn </span>into_bridge_circuit_input(<span class="self">self</span>) -&gt; BridgeCircuitInput {
+    <span class="doccomment">/// Converts the host parameters into bridge circuit input format.
+    ///
+    /// This method transforms the host parameters into the format required by the bridge circuit,
+    /// serializing public keys and organizing the data appropriately.
+    ///
+    /// # Returns
+    ///
+    /// Returns a `BridgeCircuitInput` containing all the necessary data for circuit execution.
+    </span><span class="kw">pub fn </span>into_bridge_circuit_input(<span class="self">self</span>) -&gt; BridgeCircuitInput {
         <span class="kw">let </span>BridgeCircuitHostParams {
             kickoff_tx,
             spv,
@@ -607,7 +898,23 @@
     }
 }
 
-<span class="kw">fn </span>get_payout_input_index(
+<span class="doccomment">/// Finds the index of the payout input in the payout transaction based on the withdrawal transaction ID.
+///
+/// # Arguments
+///
+/// * `wd_txid` - The withdrawal transaction ID to search for
+/// * `payout_tx` - The payout transaction to search within
+///
+/// # Returns
+///
+/// Returns a `Result` containing the input index as `u16` or an error.
+///
+/// # Errors
+///
+/// This function will return an error if:
+/// - The withdrawal transaction ID is not found in any input
+/// - The input index is too large to fit in a `u16`
+</span><span class="kw">fn </span>get_payout_input_index(
     wd_txid: Txid,
     payout_tx: <span class="kw-2">&amp;</span>Transaction,
 ) -&gt; <span class="prelude-ty">Result</span>&lt;u16, BridgeCircuitHostParamsError&gt; {
@@ -622,7 +929,22 @@
     <span class="prelude-val">Err</span>(BridgeCircuitHostParamsError::PayoutInputIndexNotFound)
 }
 
-<span class="kw">fn </span>get_wt_inputs(
+<span class="doccomment">/// Generates watchtower inputs from watchtower contexts.
+///
+/// # Arguments
+///
+/// * `kickoff_tx_id` - The transaction ID of the kickoff transaction
+/// * `watchtower_contexts` - Array of watchtower contexts containing transactions
+/// * `watchtower_challenge_connector_start_idx` - Starting index for watchtower challenge connectors on kickoff tx
+///
+/// # Returns
+///
+/// Returns a `Result` containing a vector of `WatchtowerInput` or an error.
+///
+/// # Errors
+///
+/// This function will return an error if any watchtower input generation fails.
+</span><span class="kw">fn </span>get_wt_inputs(
     kickoff_tx_id: Txid,
     watchtower_contexts: <span class="kw-2">&amp;</span>[WatchtowerContext],
     watchtower_challenge_connector_start_idx: u16,
@@ -641,7 +963,24 @@
         .collect()
 }
 
-<span class="kw">pub fn </span>get_all_pubkeys(
+<span class="doccomment">/// Extracts all tweaked watchtower public keys from a kickoff transaction.
+///
+/// # Arguments
+///
+/// * `kickoff_tx` - The kickoff transaction containing watchtower public keys in its outputs
+/// * `watchtower_challenge_connector_start_idx` - Starting index for watchtower challenge connectors on kickoff tx
+///
+/// # Returns
+///
+/// Returns a `Result` containing a vector of `XOnlyPublicKey` or an error.
+///
+/// # Errors
+///
+/// This function will return an error if:
+/// - The kickoff transaction has insufficient outputs
+/// - Any public key extraction fails
+/// - The transaction structure is invalid
+</span><span class="kw">pub fn </span>get_all_pubkeys(
     kickoff_tx: <span class="kw-2">&amp;</span>Transaction,
     watchtower_challenge_connector_start_idx: u16,
 ) -&gt; <span class="prelude-ty">Result</span>&lt;Vec&lt;XOnlyPublicKey&gt;, BridgeCircuitHostParamsError&gt; {
@@ -667,12 +1006,17 @@
     <span class="prelude-val">Ok</span>(all_tweaked_watchtower_pubkeys)
 }
 
-<span class="kw">pub struct </span>WatchtowerContext {
+<span class="doccomment">/// Context containing watchtower transaction and transactions that include prevouts.
+</span><span class="kw">pub struct </span>WatchtowerContext {
     <span class="kw">pub </span>watchtower_tx: Transaction,
     <span class="kw">pub </span>prevout_txs: Vec&lt;Transaction&gt;,
 }
 
-<span class="attr">#[derive(Debug, Clone)]
+<span class="doccomment">/// Public inputs for the succinct bridge circuit.
+///
+/// This struct contains all the public inputs that are committed after hashing to in the bridge circuit proof,
+/// including block hashes, watchtower challenges, and deposit constants.
+</span><span class="attr">#[derive(Debug, Clone)]
 </span><span class="kw">pub struct </span>SuccinctBridgeCircuitPublicInputs {
     <span class="kw">pub </span>bridge_circuit_input: BridgeCircuitInput,
     <span class="kw">pub </span>challenge_sending_watchtowers: ChallengeSendingWatchtowers,
@@ -682,22 +1026,41 @@
 }
 
 <span class="kw">impl </span>SuccinctBridgeCircuitPublicInputs {
-    <span class="kw">pub fn </span>new(bridge_circuit_input: BridgeCircuitInput) -&gt; <span class="self">Self </span>{
+    <span class="doccomment">/// Creates new succinct bridge circuit public inputs from bridge circuit input.
+    ///
+    /// # Arguments
+    ///
+    /// * `bridge_circuit_input` - The bridge circuit input containing all necessary data
+    ///
+    /// # Returns
+    ///
+    /// Returns a new instance of `SuccinctBridgeCircuitPublicInputs`.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if:
+    /// - Block hash extraction fails
+    /// - Deposit constant calculation fails
+    /// - Watchtower challenge verification fails
+    </span><span class="kw">pub fn </span>new(
+        bridge_circuit_input: BridgeCircuitInput,
+    ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="self">Self</span>, BridgeCircuitHostParamsError&gt; {
         <span class="kw">let </span>latest_block_hash: LatestBlockhash =
             bridge_circuit_input.hcp.chain_state.best_block_hash[<span class="number">12</span>..<span class="number">32</span>]
                 .try_into()
-                .unwrap();
+                .map_err(|<span class="kw">_</span>| BridgeCircuitHostParamsError::InvalidKickoffTx)<span class="question-mark">?</span>;
+
         <span class="kw">let </span>payout_tx_block_hash: PayoutTxBlockhash = bridge_circuit_input
             .payout_spv
             .block_header
             .compute_block_hash()[<span class="number">12</span>..<span class="number">32</span>]
             .try_into()
-            .unwrap();
+            .map_err(|<span class="kw">_</span>| BridgeCircuitHostParamsError::InvalidKickoffTx)<span class="question-mark">?</span>;
 
-        <span class="kw">let </span>deposit_constant = host_deposit_constant(<span class="kw-2">&amp;</span>bridge_circuit_input);
+        <span class="kw">let </span>deposit_constant = host_deposit_constant(<span class="kw-2">&amp;</span>bridge_circuit_input)<span class="question-mark">?</span>;
         <span class="kw">let </span>watchtower_challenge_set = verify_watchtower_challenges(<span class="kw-2">&amp;</span>bridge_circuit_input);
 
-        <span class="self">Self </span>{
+        <span class="prelude-val">Ok</span>(<span class="self">Self </span>{
             bridge_circuit_input,
             challenge_sending_watchtowers: ChallengeSendingWatchtowers(
                 watchtower_challenge_set.challenge_senders,
@@ -705,10 +1068,15 @@
             deposit_constant,
             payout_tx_block_hash,
             latest_block_hash,
-        }
+        })
     }
 
-    <span class="kw">pub fn </span>host_journal_hash(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; blake3::Hash {
+    <span class="doccomment">/// Calculates the host journal hash for the bridge circuit.
+    ///
+    /// # Returns
+    ///
+    /// Returns a `blake3::Hash` representing the journal hash.
+    </span><span class="kw">pub fn </span>host_journal_hash(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; blake3::Hash {
         journal_hash(
             <span class="self">self</span>.payout_tx_block_hash,
             <span class="self">self</span>.latest_block_hash,
@@ -718,13 +1086,37 @@
     }
 }
 
-<span class="kw">fn </span>host_deposit_constant(input: <span class="kw-2">&amp;</span>BridgeCircuitInput) -&gt; DepositConstant {
-    <span class="comment">// operator_id
-    </span><span class="kw">let </span>last_output = input.payout_spv.transaction.output.last().unwrap();
+<span class="doccomment">/// Calculates the deposit constant from bridge circuit input.
+///
+/// # Arguments
+///
+/// * `input` - The bridge circuit input containing deposit information
+///
+/// # Returns
+///
+/// Returns a `Result` containing the `DepositConstant` or an error.
+///
+/// # Errors
+///
+/// This function will return an error if:
+/// - Transaction output is missing
+/// - Storage proof deserialization fails
+/// - Operator public key parsing fails
+/// - Round transaction ID validation fails
+</span><span class="kw">fn </span>host_deposit_constant(
+    input: <span class="kw-2">&amp;</span>BridgeCircuitInput,
+) -&gt; <span class="prelude-ty">Result</span>&lt;DepositConstant, BridgeCircuitHostParamsError&gt; {
+    <span class="kw">let </span>last_output = input
+        .payout_spv
+        .transaction
+        .output
+        .last()
+        .ok_or(BridgeCircuitHostParamsError::MissingKickoffOutputs)<span class="question-mark">?</span>;
 
     <span class="kw">let </span>deposit_storage_proof: EIP1186StorageProof =
-        serde_json::from_str(<span class="kw-2">&amp;</span>input.sp.storage_proof_deposit_txid)
-            .expect(<span class="string">"Failed to deserialize deposit storage proof"</span>);
+        serde_json::from_str(<span class="kw-2">&amp;</span>input.sp.storage_proof_deposit_txid).map_err(|e| {
+            BridgeCircuitHostParamsError::StorageProofDeserializationError(e.to_string())
+        })<span class="question-mark">?</span>;
 
     <span class="kw">let </span>round_txid = input.kickoff_tx.input[<span class="number">0</span>]
         .previous_output
@@ -737,19 +1129,19 @@
         .to_byte_array()
         != round_txid
     {
-        <span class="macro">panic!</span>(<span class="string">"Kickoff transaction input does not match the expected round txid"</span>);
+        <span class="kw">return </span><span class="prelude-val">Err</span>(BridgeCircuitHostParamsError::RoundTxidMismatch);
     }
 
     <span class="kw">let </span>kickff_round_vout = input.kickoff_tx.input[<span class="number">0</span>].previous_output.vout;
 
     <span class="kw">let </span>operator_xonlypk: [u8; <span class="number">32</span>] = parse_op_return_data(<span class="kw-2">&amp;</span>last_output.script_pubkey)
-        .expect(<span class="string">"Failed to get operator xonlypk"</span>)
-        .try_into()
-        .expect(<span class="string">"Invalid operator xonlypk"</span>);
+        .ok_or(BridgeCircuitHostParamsError::InvalidOperatorPubkey)<span class="question-mark">?
+        </span>.try_into()
+        .map_err(|<span class="kw">_</span>| BridgeCircuitHostParamsError::InvalidOperatorPubkey)<span class="question-mark">?</span>;
 
     <span class="kw">let </span>deposit_value_bytes: [u8; <span class="number">32</span>] = deposit_storage_proof.value.to_be_bytes::&lt;<span class="number">32</span>&gt;();
 
-    deposit_constant(
+    <span class="prelude-val">Ok</span>(deposit_constant(
         operator_xonlypk,
         input.watchtower_challenge_connector_start_idx,
         <span class="kw-2">&amp;</span>input.all_tweaked_watchtower_pubkeys,
@@ -757,10 +1149,13 @@
         round_txid,
         kickff_round_vout,
         input.hcp.genesis_state_hash,
-    )
+    ))
 }
 
-<span class="comment">// Convert to unit type all fields of the struct
+<span class="doccomment">/// Inputs required for BitVM2 bridge circuit verification.
+///
+/// This struct contains all the inputs needed to verify a bridge circuit proof
+/// in the BitVM2, including block hashes, watchtower data, and method IDs.
 </span><span class="attr">#[derive(Debug, Clone, Copy)]
 </span><span class="kw">pub struct </span>BridgeCircuitBitvmInputs {
     <span class="kw">pub </span>payout_tx_block_hash: [u8; <span class="number">20</span>],
@@ -771,7 +1166,20 @@
 }
 
 <span class="kw">impl </span>BridgeCircuitBitvmInputs {
-    <span class="kw">pub fn </span>new(
+    <span class="doccomment">/// Creates a new instance of BridgeCircuitBitvmInputs.
+    ///
+    /// # Arguments
+    ///
+    /// * `payout_tx_block_hash` - Hash of the block containing the payout transaction
+    /// * `latest_block_hash` - Hash of the latest block in the header chain proof provided by the operator
+    /// * `challenge_sending_watchtowers` - Hash representing watchtowers that sent challenges
+    /// * `deposit_constant` - Constant value representing the deposit
+    /// * `combined_method_id` - Combined method ID for the circuit
+    ///
+    /// # Returns
+    ///
+    /// Returns a new instance of `BridgeCircuitBitvmInputs`.
+    </span><span class="kw">pub fn </span>new(
         payout_tx_block_hash: [u8; <span class="number">20</span>],
         latest_block_hash: [u8; <span class="number">20</span>],
         challenge_sending_watchtowers: [u8; <span class="number">20</span>],
@@ -787,7 +1195,15 @@
         }
     }
 
-    <span class="kw">pub fn </span>calculate_groth16_public_input(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; blake3::Hash {
+    <span class="doccomment">/// Calculates the Groth16 public input for the bridge circuit.
+    ///
+    /// This method computes the public input hash used in Groth16 proof verification
+    /// by combining all the input data in a specific order.
+    ///
+    /// # Returns
+    ///
+    /// Returns a `blake3::Hash` representing the public input.
+    </span><span class="kw">pub fn </span>calculate_groth16_public_input(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; blake3::Hash {
         <span class="kw">let </span>concatenated_data = [
             <span class="self">self</span>.payout_tx_block_hash,
             <span class="self">self</span>.latest_block_hash,
@@ -808,7 +1224,29 @@
         blake3::hash(<span class="kw-2">&amp;</span>concat_input)
     }
 
-    <span class="kw">pub fn </span>verify_bridge_circuit(<span class="kw-2">&amp;</span><span class="self">self</span>, proof: ark_groth16::Proof&lt;Bn254&gt;) -&gt; bool {
+    <span class="doccomment">/// Verifies a bridge circuit Groth16 proof.
+    ///
+    /// This method verifies that a given Groth16 proof is valid for this bridge circuit
+    /// by computing the expected public input and verifying the proof against it.
+    ///
+    /// # Arguments
+    ///
+    /// * `proof` - The Groth16 proof to verify
+    ///
+    /// # Returns
+    ///
+    /// Returns a `Result` containing `true` if the proof is valid, or an error if verification fails.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if:
+    /// - Proof verification fails
+    /// - Public input calculation fails
+    /// - Verifying key retrieval fails
+    </span><span class="kw">pub fn </span>verify_bridge_circuit(
+        <span class="kw-2">&amp;</span><span class="self">self</span>,
+        proof: ark_groth16::Proof&lt;Bn254&gt;,
+    ) -&gt; <span class="prelude-ty">Result</span>&lt;bool, BridgeCircuitHostParamsError&gt; {
         <span class="kw">let </span><span class="kw-2">mut </span>hasher = blake3::Hasher::new();
         hasher.update(<span class="kw-2">&amp;</span><span class="self">self</span>.payout_tx_block_hash);
         hasher.update(<span class="kw-2">&amp;</span><span class="self">self</span>.latest_block_hash);
@@ -839,7 +1277,7 @@
             <span class="kw-2">&amp;</span>proof,
             <span class="kw-2">&amp;</span>[public_input_scalar],
         )
-        .unwrap()
+        .map_err(|<span class="kw">_</span>| BridgeCircuitHostParamsError::ProofVerificationFailed)
     }
 }
 </code></pre></div></section></main></body></html>

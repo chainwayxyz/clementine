@@ -450,7 +450,18 @@
 <a href="#449" id="449">449</a>
 <a href="#450" id="450">450</a>
 <a href="#451" id="451">451</a>
-<a href="#452" id="452">452</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::config::env::read_string_from_env_then_parse;
+<a href="#452" id="452">452</a>
+<a href="#453" id="453">453</a>
+<a href="#454" id="454">454</a>
+<a href="#455" id="455">455</a>
+<a href="#456" id="456">456</a>
+<a href="#457" id="457">457</a>
+<a href="#458" id="458">458</a>
+<a href="#459" id="459">459</a>
+<a href="#460" id="460">460</a>
+<a href="#461" id="461">461</a>
+<a href="#462" id="462">462</a>
+<a href="#463" id="463">463</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::config::env::read_string_from_env_then_parse;
 <span class="kw">use </span><span class="kw">crate</span>::constants::{MIN_TAPROOT_AMOUNT, NON_EPHEMERAL_ANCHOR_AMOUNT};
 <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
 <span class="kw">use </span>bitcoin::{Amount, Network};
@@ -726,23 +737,23 @@
     ],
     header_chain_proof_batch_size: <span class="number">100</span>,
     bridge_circuit_method_id_constant: [
-        <span class="number">106</span>, <span class="number">158</span>, <span class="number">148</span>, <span class="number">189</span>, <span class="number">109</span>, <span class="number">168</span>, <span class="number">65</span>, <span class="number">39</span>, <span class="number">73</span>, <span class="number">217</span>, <span class="number">118</span>, <span class="number">34</span>, <span class="number">15</span>, <span class="number">112</span>, <span class="number">71</span>, <span class="number">100</span>, <span class="number">57</span>, <span class="number">44</span>, <span class="number">221</span>, <span class="number">139</span>,
-        <span class="number">217</span>, <span class="number">193</span>, <span class="number">126</span>, <span class="number">188</span>, <span class="number">221</span>, <span class="number">211</span>, <span class="number">43</span>, <span class="number">248</span>, <span class="number">65</span>, <span class="number">26</span>, <span class="number">36</span>, <span class="number">84</span>,
+        <span class="number">122</span>, <span class="number">210</span>, <span class="number">204</span>, <span class="number">155</span>, <span class="number">203</span>, <span class="number">206</span>, <span class="number">216</span>, <span class="number">8</span>, <span class="number">126</span>, <span class="number">117</span>, <span class="number">61</span>, <span class="number">91</span>, <span class="number">47</span>, <span class="number">85</span>, <span class="number">69</span>, <span class="number">147</span>, <span class="number">68</span>, <span class="number">196</span>, <span class="number">156</span>, <span class="number">234</span>,
+        <span class="number">75</span>, <span class="number">17</span>, <span class="number">119</span>, <span class="number">195</span>, <span class="number">91</span>, <span class="number">121</span>, <span class="number">62</span>, <span class="number">254</span>, <span class="number">13</span>, <span class="number">195</span>, <span class="number">48</span>, <span class="number">238</span>,
     ],
     bridge_nonstandard: <span class="bool-val">true</span>,
 };
 
 <span class="kw">pub const </span>SIGNET_BRIDGE_CIRCUIT_CONSTANT: [u8; <span class="number">32</span>] = [
-    <span class="number">152</span>, <span class="number">255</span>, <span class="number">208</span>, <span class="number">77</span>, <span class="number">244</span>, <span class="number">221</span>, <span class="number">66</span>, <span class="number">202</span>, <span class="number">31</span>, <span class="number">49</span>, <span class="number">48</span>, <span class="number">233</span>, <span class="number">10</span>, <span class="number">144</span>, <span class="number">81</span>, <span class="number">146</span>, <span class="number">87</span>, <span class="number">101</span>, <span class="number">43</span>, <span class="number">47</span>, <span class="number">174</span>,
-    <span class="number">199</span>, <span class="number">238</span>, <span class="number">26</span>, <span class="number">72</span>, <span class="number">8</span>, <span class="number">64</span>, <span class="number">255</span>, <span class="number">177</span>, <span class="number">28</span>, <span class="number">102</span>, <span class="number">62</span>,
+    <span class="number">52</span>, <span class="number">23</span>, <span class="number">169</span>, <span class="number">35</span>, <span class="number">5</span>, <span class="number">10</span>, <span class="number">197</span>, <span class="number">40</span>, <span class="number">135</span>, <span class="number">145</span>, <span class="number">196</span>, <span class="number">190</span>, <span class="number">148</span>, <span class="number">7</span>, <span class="number">127</span>, <span class="number">52</span>, <span class="number">246</span>, <span class="number">105</span>, <span class="number">197</span>, <span class="number">227</span>, <span class="number">140</span>,
+    <span class="number">51</span>, <span class="number">204</span>, <span class="number">184</span>, <span class="number">180</span>, <span class="number">238</span>, <span class="number">95</span>, <span class="number">34</span>, <span class="number">11</span>, <span class="number">203</span>, <span class="number">120</span>, <span class="number">57</span>,
 ];
 <span class="kw">pub const </span>MAINNET_BRIDGE_CIRCUIT_CONSTANT: [u8; <span class="number">32</span>] = [
-    <span class="number">185</span>, <span class="number">108</span>, <span class="number">51</span>, <span class="number">68</span>, <span class="number">210</span>, <span class="number">7</span>, <span class="number">124</span>, <span class="number">168</span>, <span class="number">128</span>, <span class="number">25</span>, <span class="number">180</span>, <span class="number">245</span>, <span class="number">48</span>, <span class="number">162</span>, <span class="number">34</span>, <span class="number">154</span>, <span class="number">0</span>, <span class="number">157</span>, <span class="number">108</span>, <span class="number">215</span>, <span class="number">178</span>,
-    <span class="number">225</span>, <span class="number">163</span>, <span class="number">254</span>, <span class="number">99</span>, <span class="number">232</span>, <span class="number">188</span>, <span class="number">239</span>, <span class="number">105</span>, <span class="number">238</span>, <span class="number">246</span>, <span class="number">207</span>,
+    <span class="number">2</span>, <span class="number">86</span>, <span class="number">35</span>, <span class="number">236</span>, <span class="number">99</span>, <span class="number">172</span>, <span class="number">34</span>, <span class="number">193</span>, <span class="number">71</span>, <span class="number">224</span>, <span class="number">59</span>, <span class="number">102</span>, <span class="number">246</span>, <span class="number">94</span>, <span class="number">242</span>, <span class="number">12</span>, <span class="number">11</span>, <span class="number">64</span>, <span class="number">209</span>, <span class="number">82</span>, <span class="number">76</span>, <span class="number">148</span>,
+    <span class="number">53</span>, <span class="number">214</span>, <span class="number">23</span>, <span class="number">144</span>, <span class="number">71</span>, <span class="number">198</span>, <span class="number">174</span>, <span class="number">225</span>, <span class="number">174</span>, <span class="number">96</span>,
 ];
 <span class="kw">pub const </span>TESTNET4_BRIDGE_CIRCUIT_CONSTANT: [u8; <span class="number">32</span>] = [
-    <span class="number">155</span>, <span class="number">117</span>, <span class="number">143</span>, <span class="number">51</span>, <span class="number">117</span>, <span class="number">75</span>, <span class="number">44</span>, <span class="number">187</span>, <span class="number">17</span>, <span class="number">118</span>, <span class="number">170</span>, <span class="number">222</span>, <span class="number">152</span>, <span class="number">85</span>, <span class="number">162</span>, <span class="number">23</span>, <span class="number">114</span>, <span class="number">181</span>, <span class="number">225</span>, <span class="number">167</span>,
-    <span class="number">65</span>, <span class="number">121</span>, <span class="number">68</span>, <span class="number">12</span>, <span class="number">165</span>, <span class="number">254</span>, <span class="number">208</span>, <span class="number">124</span>, <span class="number">24</span>, <span class="number">200</span>, <span class="number">190</span>, <span class="number">123</span>,
+    <span class="number">245</span>, <span class="number">159</span>, <span class="number">161</span>, <span class="number">38</span>, <span class="number">62</span>, <span class="number">12</span>, <span class="number">230</span>, <span class="number">118</span>, <span class="number">90</span>, <span class="number">195</span>, <span class="number">152</span>, <span class="number">119</span>, <span class="number">78</span>, <span class="number">162</span>, <span class="number">58</span>, <span class="number">39</span>, <span class="number">81</span>, <span class="number">76</span>, <span class="number">177</span>, <span class="number">139</span>, <span class="number">97</span>,
+    <span class="number">96</span>, <span class="number">170</span>, <span class="number">31</span>, <span class="number">131</span>, <span class="number">123</span>, <span class="number">90</span>, <span class="number">255</span>, <span class="number">185</span>, <span class="number">72</span>, <span class="number">65</span>, <span class="number">25</span>,
 ];
 
 <span class="attr">#[cfg(test)]
@@ -769,70 +780,78 @@
     <span class="kw">use super</span>::<span class="kw-2">*</span>;
 
     <span class="attr">#[test]
-    </span><span class="kw">fn </span>test_calculate_succinct_output_prefix() {
+    </span><span class="kw">fn </span>test_regtest_bridge_circuit_constant() {
         <span class="kw">let </span>regtest_bridge_elf =
             <span class="macro">include_bytes!</span>(<span class="string">"../../../risc0-circuits/elfs/regtest-bridge-circuit-guest.bin"</span>);
-        <span class="kw">let </span>signet_bridge_elf =
-            <span class="macro">include_bytes!</span>(<span class="string">"../../../risc0-circuits/elfs/signet-bridge-circuit-guest.bin"</span>);
-        <span class="kw">let </span>mainnet_bridge_elf =
-            <span class="macro">include_bytes!</span>(<span class="string">"../../../risc0-circuits/elfs/mainnet-bridge-circuit-guest.bin"</span>);
-        <span class="kw">let </span>testnet4_bridge_elf =
-            <span class="macro">include_bytes!</span>(<span class="string">"../../../risc0-circuits/elfs/testnet4-bridge-circuit-guest.bin"</span>);
         <span class="kw">let </span>regtest_bridge_circuit_method_id =
             compute_image_id(regtest_bridge_elf).expect(<span class="string">"should compute image id"</span>);
         <span class="kw">let </span>calculated_regtest_bridge_circuit_constant =
             calculate_succinct_output_prefix(regtest_bridge_circuit_method_id.as_bytes());
 
-        <span class="kw">let </span>signet_bridge_circuit_method_id =
-            compute_image_id(signet_bridge_elf).expect(<span class="string">"should compute image id"</span>);
-        <span class="kw">let </span>calculated_signet_bridge_circuit_constant =
-            calculate_succinct_output_prefix(signet_bridge_circuit_method_id.as_bytes());
+        <span class="kw">let </span>regtest_bridge_circuit_constant = REGTEST_PARAMSET.bridge_circuit_method_id_constant;
+        <span class="macro">assert_eq!</span>(
+            calculated_regtest_bridge_circuit_constant,
+            regtest_bridge_circuit_constant,
+            <span class="string">"You forgot to update regtest bridge_circuit_constant with the new method id. Please change it in these places: core/src/cli.rs, core/src/config/protocol.rs, core/src/test/data/protocol_paramset.toml. The expected value is: {:?}, hex format: {:?}"</span>,
+            calculated_regtest_bridge_circuit_constant,
+            hex::encode(calculated_regtest_bridge_circuit_constant)
+        );
+    }
+
+    <span class="attr">#[test]
+    </span><span class="kw">fn </span>test_mainnet_bridge_circuit_constant() {
+        <span class="kw">let </span>mainnet_bridge_elf =
+            <span class="macro">include_bytes!</span>(<span class="string">"../../../risc0-circuits/elfs/mainnet-bridge-circuit-guest.bin"</span>);
         <span class="kw">let </span>mainnet_bridge_circuit_method_id =
             compute_image_id(mainnet_bridge_elf).expect(<span class="string">"should compute image id"</span>);
         <span class="kw">let </span>calculated_mainnet_bridge_circuit_constant =
             calculate_succinct_output_prefix(mainnet_bridge_circuit_method_id.as_bytes());
+
+        <span class="kw">let </span>mainnet_bridge_circuit_constant = MAINNET_BRIDGE_CIRCUIT_CONSTANT;
+        <span class="macro">assert_eq!</span>(
+            calculated_mainnet_bridge_circuit_constant,
+            mainnet_bridge_circuit_constant,
+            <span class="string">"You forgot to update mainnet bridge_circuit_constant with the new method id. Please change it in these places: core/src/config/protocol.rs. The expected value is: {:?}, hex format: {:?}"</span>,
+            calculated_mainnet_bridge_circuit_constant,
+            hex::encode(calculated_mainnet_bridge_circuit_constant)
+        );
+    }
+
+    <span class="attr">#[test]
+    </span><span class="kw">fn </span>test_testnet4_bridge_circuit_constant() {
+        <span class="kw">let </span>testnet4_bridge_elf =
+            <span class="macro">include_bytes!</span>(<span class="string">"../../../risc0-circuits/elfs/testnet4-bridge-circuit-guest.bin"</span>);
         <span class="kw">let </span>testnet4_bridge_circuit_method_id =
             compute_image_id(testnet4_bridge_elf).expect(<span class="string">"should compute image id"</span>);
         <span class="kw">let </span>calculated_testnet4_bridge_circuit_constant =
             calculate_succinct_output_prefix(testnet4_bridge_circuit_method_id.as_bytes());
 
-        <span class="kw">let </span>regtest_bridge_circuit_constant = REGTEST_PARAMSET.bridge_circuit_method_id_constant;
-        <span class="macro">assert_eq!</span>(
-            calculated_regtest_bridge_circuit_constant,
-            regtest_bridge_circuit_constant,
-            <span class="string">"You forgot to update bridge_circuit_constant with the new method id. Please change it in these places: Here, core/src/cli.rs, core/src/config/protocol.rs, core/src/test/data/protocol_paramset.toml. The expected value is: {:?}, hex format: {:?}"</span>,
-            calculated_regtest_bridge_circuit_constant,
-            hex::encode(calculated_regtest_bridge_circuit_constant)
-        );
-
-        <span class="kw">let </span>signet_bridge_circuit_constant = SIGNET_BRIDGE_CIRCUIT_CONSTANT;
-
-        <span class="macro">assert_eq!</span>(
-            calculated_signet_bridge_circuit_constant,
-            signet_bridge_circuit_constant,
-            <span class="string">"You forgot to update bridge_circuit_constant with the new method id. Please change it in these places: Here, core/src/cli.rs, core/src/config/protocol.rs, core/src/test/data/protocol_paramset.toml. The expected value is: {:?}, hex format: {:?}"</span>,
-            calculated_signet_bridge_circuit_constant,
-            hex::encode(calculated_signet_bridge_circuit_constant)
-        );
-
-        <span class="kw">let </span>mainnet_bridge_circuit_constant = MAINNET_BRIDGE_CIRCUIT_CONSTANT;
-
-        <span class="macro">assert_eq!</span>(
-            calculated_mainnet_bridge_circuit_constant,
-            mainnet_bridge_circuit_constant,
-            <span class="string">"You forgot to update bridge_circuit_constant with the new method id. Please change it in these places: Here, core/src/cli.rs, core/src/config/protocol.rs, core/src/test/data/protocol_paramset.toml. The expected value is: {:?}, hex format: {:?}"</span>,
-            calculated_mainnet_bridge_circuit_constant,
-            hex::encode(calculated_mainnet_bridge_circuit_constant)
-        );
-
         <span class="kw">let </span>testnet4_bridge_circuit_constant = TESTNET4_BRIDGE_CIRCUIT_CONSTANT;
-
         <span class="macro">assert_eq!</span>(
             calculated_testnet4_bridge_circuit_constant,
             testnet4_bridge_circuit_constant,
-            <span class="string">"You forgot to update bridge_circuit_constant with the new method id. Please change it in these places: Here, core/src/cli.rs, core/src/config/protocol.rs, core/src/test/data/protocol_paramset.toml. The expected value is: {:?}, hex format: {:?}"</span>,
+            <span class="string">"You forgot to update testnet4 bridge_circuit_constant with the new method id. Please change it in these places: core/src/config/protocol.rs. The expected value is: {:?}, hex format: {:?}"</span>,
             calculated_testnet4_bridge_circuit_constant,
             hex::encode(calculated_testnet4_bridge_circuit_constant)
+        );
+    }
+
+    <span class="attr">#[test]
+    </span><span class="kw">fn </span>test_signet_bridge_circuit_constant() {
+        <span class="kw">let </span>signet_bridge_elf =
+            <span class="macro">include_bytes!</span>(<span class="string">"../../../risc0-circuits/elfs/signet-bridge-circuit-guest.bin"</span>);
+        <span class="kw">let </span>signet_bridge_circuit_method_id =
+            compute_image_id(signet_bridge_elf).expect(<span class="string">"should compute image id"</span>);
+        <span class="kw">let </span>calculated_signet_bridge_circuit_constant =
+            calculate_succinct_output_prefix(signet_bridge_circuit_method_id.as_bytes());
+
+        <span class="kw">let </span>signet_bridge_circuit_constant = SIGNET_BRIDGE_CIRCUIT_CONSTANT;
+        <span class="macro">assert_eq!</span>(
+            calculated_signet_bridge_circuit_constant,
+            signet_bridge_circuit_constant,
+            <span class="string">"You forgot to update signet bridge_circuit_constant with the new method id. Please change it in these places: core/src/config/protocol.rs. The expected value is: {:?}, hex format: {:?}"</span>,
+            calculated_signet_bridge_circuit_constant,
+            hex::encode(calculated_signet_bridge_circuit_constant)
         );
     }
 
@@ -893,11 +912,14 @@
         ];
 
         <span class="kw">for </span>(elf, method_id, network) <span class="kw">in </span>networks.into_iter() {
-            <span class="kw">let </span>work_only_circuit_method_id = compute_image_id(elf);
+            <span class="kw">let </span>work_only_circuit_method_id =
+                compute_image_id(elf).expect(<span class="string">"should compute image id"</span>);
+            <span class="kw">let </span>current_method_id = work_only_circuit_method_id.as_bytes();
             <span class="macro">assert_eq!</span>(
-                work_only_circuit_method_id.expect(<span class="string">"should compute image id"</span>).as_bytes(),
+                current_method_id,
                 method_id,
-                <span class="string">"Work only method ID mismatch for {network}, please update the constant here: circuits-lib/src/bridge_circuit/constants.rs"</span>,
+                <span class="string">"Work only method ID mismatch for {network}, please update the constant here: circuits-lib/src/bridge_circuit/constants.rs. Hex format of correct value: {:?}"</span>,
+                hex::encode(current_method_id)
             );
         }
     }

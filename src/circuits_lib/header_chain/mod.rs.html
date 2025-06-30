@@ -1124,8 +1124,7 @@
 <a href="#1123" id="1123">1123</a>
 <a href="#1124" id="1124">1124</a>
 <a href="#1125" id="1125">1125</a>
-<a href="#1126" id="1126">1126</a>
-<a href="#1127" id="1127">1127</a></pre></div><pre class="rust"><code><span class="comment">// Implementation of this module is inspired by the Bitcoin Core source code and from here:
+<a href="#1126" id="1126">1126</a></pre></div><pre class="rust"><code><span class="comment">// Implementation of this module is inspired by the Bitcoin Core source code and from here:
 // https://github.com/ZeroSync/header_chain/tree/master/program/src/block_header.
 
 </span><span class="kw">use </span>std::cmp::Ordering;
@@ -1373,7 +1372,6 @@
     }
 
     <span class="kw">pub fn </span>apply_blocks(<span class="kw-2">&amp;mut </span><span class="self">self</span>, block_headers: Vec&lt;CircuitBlockHeader&gt;) {
-        <span class="macro">println!</span>(<span class="string">"Network type: {:?}"</span>, NETWORK_TYPE);
         <span class="kw">let </span><span class="kw-2">mut </span>current_target_bytes = <span class="kw">if </span>IS_REGTEST {
             NETWORK_CONSTANTS.max_target.to_be_bytes()
         } <span class="kw">else </span>{

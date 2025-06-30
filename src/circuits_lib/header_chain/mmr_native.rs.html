@@ -254,7 +254,9 @@
 <a href="#253" id="253">253</a>
 <a href="#254" id="254">254</a>
 <a href="#255" id="255">255</a>
-<a href="#256" id="256">256</a></pre></div><pre class="rust"><code><span class="kw">use </span>borsh::{BorshDeserialize, BorshSerialize};
+<a href="#256" id="256">256</a>
+<a href="#257" id="257">257</a></pre></div><pre class="rust"><code><span class="kw">use </span>borsh::{BorshDeserialize, BorshSerialize};
+<span class="kw">use </span>eyre::{eyre, <span class="prelude-ty">Result</span>};
 <span class="kw">use </span>serde::{Deserialize, Serialize};
 
 <span class="kw">use </span><span class="kw">crate</span>::common::hashes::hash_pair;
@@ -318,13 +320,18 @@
     }
 
     <span class="doccomment">/// Generates a proof for a given index. Returns the leaf as well.
-    </span><span class="kw">pub fn </span>generate_proof(<span class="kw-2">&amp;</span><span class="self">self</span>, index: u32) -&gt; ([u8; <span class="number">32</span>], MMRInclusionProof) {
+    </span><span class="kw">pub fn </span>generate_proof(<span class="kw-2">&amp;</span><span class="self">self</span>, index: u32) -&gt; <span class="prelude-ty">Result</span>&lt;([u8; <span class="number">32</span>], MMRInclusionProof)&gt; {
         <span class="kw">if </span><span class="self">self</span>.nodes[<span class="number">0</span>].is_empty() {
-            <span class="macro">panic!</span>(<span class="string">"MMR is empty"</span>);
+            <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre!</span>(<span class="string">"MMR is empty"</span>));
         }
         <span class="kw">if </span><span class="self">self</span>.nodes[<span class="number">0</span>].len() &lt;= index <span class="kw">as </span>usize {
-            <span class="macro">panic!</span>(<span class="string">"Index out of bounds"</span>);
+            <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre!</span>(
+                <span class="string">"Index out of bounds: {} &gt;= {}"</span>,
+                index,
+                <span class="self">self</span>.nodes[<span class="number">0</span>].len()
+            ));
         }
+
         <span class="kw">let </span><span class="kw-2">mut </span>proof: Vec&lt;[u8; <span class="number">32</span>]&gt; = <span class="macro">vec!</span>[];
         <span class="kw">let </span><span class="kw-2">mut </span>current_index = index;
         <span class="kw">let </span><span class="kw-2">mut </span>current_level = <span class="number">0</span>;
@@ -345,7 +352,7 @@
         <span class="comment">// let subroot = self.nodes[current_level][current_index as usize];
         // proof.extend(self.get_subroot_helpers(subroot));
         </span><span class="kw">let </span>mmr_proof = MMRInclusionProof::new(subroot_idx, internal_idx, proof);
-        (<span class="self">self</span>.nodes[<span class="number">0</span>][index <span class="kw">as </span>usize], mmr_proof)
+        <span class="prelude-val">Ok</span>((<span class="self">self</span>.nodes[<span class="number">0</span>][index <span class="kw">as </span>usize], mmr_proof))
     }
 
     <span class="doccomment">/// Given an index, returns the subroot index (which subtree the index is in), subtree size, and internal index (of the subtree that the index belongs to).
@@ -366,13 +373,13 @@
 
     <span class="doccomment">/// Verifies an inclusion proof against the current MMR root.
     </span><span class="kw">pub fn </span>verify_proof(<span class="kw-2">&amp;</span><span class="self">self</span>, leaf: [u8; <span class="number">32</span>], mmr_proof: <span class="kw-2">&amp;</span>MMRInclusionProof) -&gt; bool {
-        <span class="macro">println!</span>(<span class="string">"NATIVE: inclusion_proof: {:?}"</span>, mmr_proof);
-        <span class="macro">println!</span>(<span class="string">"NATIVE: leaf: {:?}"</span>, leaf);
+        <span class="macro">tracing::debug!</span>(<span class="string">"NATIVE: inclusion_proof: {:?}"</span>, mmr_proof);
+        <span class="macro">tracing::debug!</span>(<span class="string">"NATIVE: leaf: {:?}"</span>, leaf);
         <span class="comment">// let (subroot_idx, subtree_size, internal_idx) = self.get_helpers_from_index(index);
         </span><span class="kw">let </span>subroot = mmr_proof.get_subroot(leaf);
-        <span class="macro">println!</span>(<span class="string">"NATIVE: calculated_subroot: {:?}"</span>, subroot);
+        <span class="macro">tracing::debug!</span>(<span class="string">"NATIVE: calculated_subroot: {:?}"</span>, subroot);
         <span class="kw">let </span>subroots = <span class="self">self</span>.get_subroots();
-        <span class="macro">println!</span>(<span class="string">"NATIVE: subroots: {:?}"</span>, subroots);
+        <span class="macro">tracing::debug!</span>(<span class="string">"NATIVE: subroots: {:?}"</span>, subroots);
         subroots[mmr_proof.subroot_idx] == subroot
         <span class="comment">// let mut preimage: Vec&lt;u8&gt; = vec![];
         // for i in 0..subroot_idx {
@@ -404,8 +411,7 @@
     }
 
     <span class="kw">pub fn </span>get_subroot(<span class="kw-2">&amp;</span><span class="self">self</span>, leaf: [u8; <span class="number">32</span>]) -&gt; [u8; <span class="number">32</span>] {
-        <span class="comment">// let (subroot_idx, subtree_size, internal_idx) = mmr_guest.get_helpers_from_index(index);
-        </span><span class="kw">let </span><span class="kw-2">mut </span>current_hash = leaf;
+        <span class="kw">let </span><span class="kw-2">mut </span>current_hash = leaf;
         <span class="kw">for </span>i <span class="kw">in </span><span class="number">0</span>..<span class="self">self</span>.inclusion_proof.len() {
             <span class="kw">let </span>sibling = <span class="self">self</span>.inclusion_proof[i];
             <span class="kw">if </span><span class="self">self</span>.internal_idx &amp; (<span class="number">1 </span>&lt;&lt; i) == <span class="number">0 </span>{
@@ -420,32 +426,28 @@
 
 <span class="attr">#[cfg(test)]
 </span><span class="kw">mod </span>tests {
+    <span class="kw">use </span><span class="kw">super</span>::MMRNative;
     <span class="kw">use </span><span class="kw">crate</span>::header_chain::mmr_guest::MMRGuest;
 
-    <span class="kw">use </span><span class="kw">super</span>::MMRNative;
-
     <span class="attr">#[test]
-    #[should_panic(expected = <span class="string">"MMR is empty"</span>)]
-    </span><span class="kw">fn </span>test_mmr_native_fail_0() {
+    </span><span class="kw">fn </span>test_mmr_native_fail_empty() {
         <span class="kw">let </span>mmr = MMRNative::new();
-        <span class="comment">// let root = mmr.get_root();
-        // let (leaf, proof, index) = mmr.generate_proof(0);
-        </span><span class="kw">let </span>(_leaf, _mmr_proof) = mmr.generate_proof(<span class="number">0</span>);
-        <span class="comment">// assert_eq!(mmr.get_root(), root);
-        // assert_eq!(mmr.verify_proof(leaf, &amp;proof, index), true);
-    </span>}
+        <span class="kw">let </span>result = mmr.generate_proof(<span class="number">0</span>);
+        <span class="macro">assert!</span>(result.is_err());
+        <span class="macro">assert_eq!</span>(result.unwrap_err().to_string(), <span class="string">"MMR is empty"</span>);
+    }
 
     <span class="attr">#[test]
-    #[should_panic(expected = <span class="string">"Index out of bounds"</span>)]
-    </span><span class="kw">fn </span>test_mmr_native_fail_1() {
+    </span><span class="kw">fn </span>test_mmr_native_fail_out_of_bounds() {
         <span class="kw">let </span><span class="kw-2">mut </span>mmr = MMRNative::new();
         mmr.append([<span class="number">0</span>; <span class="number">32</span>]);
-        <span class="comment">// let root = mmr.get_root();
-        // let (leaf, proof, index) = mmr.generate_proof(1);
-        </span><span class="kw">let </span>(_leaf, _mmr_proof) = mmr.generate_proof(<span class="number">1</span>);
-        <span class="comment">// assert_eq!(mmr.get_root(), root);
-        // assert_eq!(mmr.verify_proof(leaf, &amp;proof, index), true);
-    </span>}
+        <span class="kw">let </span>result = mmr.generate_proof(<span class="number">1</span>);
+        <span class="macro">assert!</span>(result.is_err());
+        <span class="macro">assert!</span>(result
+            .unwrap_err()
+            .to_string()
+            .contains(<span class="string">"Index out of bounds"</span>));
+    }
 
     <span class="attr">#[test]
     </span><span class="kw">fn </span>test_mmr_native() {
@@ -459,7 +461,7 @@
             mmr.append(leaf);
 
             <span class="kw">for </span>j <span class="kw">in </span><span class="number">0</span>..=i {
-                <span class="kw">let </span>(leaf, mmr_proof) = mmr.generate_proof(j);
+                <span class="kw">let </span>(leaf, mmr_proof) = mmr.generate_proof(j).unwrap();
                 <span class="macro">assert!</span>(mmr.verify_proof(leaf, <span class="kw-2">&amp;</span>mmr_proof));
             }
         }
@@ -495,7 +497,7 @@
             // );
 
             </span><span class="kw">for </span>j <span class="kw">in </span><span class="number">0</span>..=i {
-                <span class="kw">let </span>(leaf, mmr_proof) = mmr_native.generate_proof(j);
+                <span class="kw">let </span>(leaf, mmr_proof) = mmr_native.generate_proof(j).unwrap();
                 <span class="macro">assert!</span>(
                     mmr_native.verify_proof(leaf, <span class="kw-2">&amp;</span>mmr_proof),
                     <span class="string">"Failed to verify proof for leaf {} in native MMR"</span>,

@@ -133,12 +133,7 @@
 <a href="#132" id="132">132</a>
 <a href="#133" id="133">133</a>
 <a href="#134" id="134">134</a>
-<a href="#135" id="135">135</a>
-<a href="#136" id="136">136</a>
-<a href="#137" id="137">137</a>
-<a href="#138" id="138">138</a>
-<a href="#139" id="139">139</a>
-<a href="#140" id="140">140</a></pre></div><pre class="rust"><code><span class="kw">use </span>borsh::{BorshDeserialize, BorshSerialize};
+<a href="#135" id="135">135</a></pre></div><pre class="rust"><code><span class="kw">use </span>borsh::{BorshDeserialize, BorshSerialize};
 
 <span class="kw">use </span><span class="kw">crate</span>::header_chain::{mmr_guest::MMRGuest, mmr_native::MMRInclusionProof, CircuitBlockHeader};
 
@@ -169,9 +164,7 @@
 
     <span class="kw">pub fn </span>verify(<span class="kw-2">&amp;</span><span class="self">self</span>, mmr_guest: MMRGuest) -&gt; bool {
         <span class="kw">let </span>txid: [u8; <span class="number">32</span>] = <span class="self">self</span>.transaction.txid();
-        <span class="macro">println!</span>(<span class="string">"txid: {:?}"</span>, txid);
         <span class="kw">let </span>block_merkle_root = <span class="self">self</span>.block_inclusion_proof.get_root(txid);
-        <span class="macro">println!</span>(<span class="string">"block_merkle_root: {:?}"</span>, block_merkle_root);
         <span class="macro">assert_eq!</span>(block_merkle_root, <span class="self">self</span>.block_header.merkle_root);
         <span class="kw">let </span>block_hash = <span class="self">self</span>.block_header.compute_block_hash();
         mmr_guest.verify_proof(block_hash, <span class="kw-2">&amp;</span><span class="self">self</span>.mmr_inclusion_proof)
@@ -242,15 +235,12 @@
             .collect::&lt;Vec&lt;CircuitBlockHeader&gt;&gt;();
         <span class="kw">let </span>txs = MAINNET_BLOCK_TRANSACTIONS
             .iter()
-            .map(|tx| {
-                <span class="macro">println!</span>(<span class="string">"{:?}"</span>, tx);
-                CircuitTransaction(bitcoin::consensus::deserialize(tx).unwrap())
-            })
+            .map(|tx| CircuitTransaction(bitcoin::consensus::deserialize(tx).unwrap()))
             .collect::&lt;Vec&lt;CircuitTransaction&gt;&gt;();
         <span class="kw">let </span><span class="kw-2">mut </span>bitcoin_merkle_proofs: Vec&lt;BlockInclusionProof&gt; = <span class="macro">vec!</span>[];
         <span class="kw">for </span>tx <span class="kw">in </span>txs.iter() {
             <span class="kw">let </span>txid = tx.txid();
-            <span class="macro">println!</span>(<span class="string">"txid: {:?}"</span>, txid);
+            <span class="macro">tracing::debug!</span>(<span class="string">"txid: {:?}"</span>, txid);
             <span class="kw">let </span>bitcoin_merkle_tree = BitcoinMerkleTree::new(<span class="macro">vec!</span>[txid]);
             <span class="kw">let </span>bitcoin_merkle_proof = bitcoin_merkle_tree.generate_proof(<span class="number">0</span>);
             <span class="macro">assert!</span>(verify_merkle_proof(
@@ -264,7 +254,7 @@
             mmr_native.append(header.compute_block_hash());
             mmr_guest.append(header.compute_block_hash());
             <span class="kw">for </span>j <span class="kw">in </span><span class="number">0</span>..i {
-                <span class="kw">let </span>(mmr_leaf, mmr_proof) = mmr_native.generate_proof(j <span class="kw">as </span>u32);
+                <span class="kw">let </span>(mmr_leaf, mmr_proof) = mmr_native.generate_proof(j <span class="kw">as </span>u32).unwrap();
                 <span class="macro">assert!</span>(mmr_native.verify_proof(mmr_leaf, <span class="kw-2">&amp;</span>mmr_proof));
                 <span class="macro">assert_eq!</span>(mmr_leaf, block_headers[j].compute_block_hash());
                 <span class="kw">let </span>spv = SPV::new(

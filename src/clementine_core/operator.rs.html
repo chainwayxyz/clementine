@@ -3201,7 +3201,7 @@
             payout_block_height,
             <span class="self">self</span>.config.protocol_paramset().genesis_height,
             payout_tx_index <span class="kw">as </span>u32,
-        );
+        )<span class="question-mark">?</span>;
         <span class="macro">tracing::info!</span>(<span class="string">"Calculated spv proof in send_asserts"</span>);
 
         <span class="kw">let </span><span class="kw-2">mut </span>wt_contexts = Vec::new();
