@@ -42,6 +42,7 @@ use crate::{
     },
 };
 use alloy::primitives::{U256, U32};
+use alloy::rpc::types::request;
 use async_trait::async_trait;
 use bitcoin::hashes::Hash;
 use bitcoin::{secp256k1::SecretKey, Address, Amount};
@@ -1811,37 +1812,68 @@ impl TestCase for ConcurrentDepositsAndWithdrawals {
             .await?;
         }
 
-        let mut operator0s = (0..count).map(|_| operators[0].clone()).collect::<Vec<_>>();
-        let mut withdrawal_requests = Vec::new();
-        for (i, mut operator) in operator0s.iter_mut().enumerate() {
+        let mut sigs = Vec::new();
+        let mut withdrawal_utxos = Vec::new();
+        let mut payout_txouts = Vec::new();
+        for _ in 0..count {
             let (withdrawal_utxo, payout_txout, sig) =
                 make_withdrawal(&rpc, &config, sequencer, lc_prover, batch_prover, da).await?;
-
-            withdrawal_requests.push(operator.withdraw(WithdrawParams {
-                withdrawal_id: 0,
-                input_signature: sig.serialize().to_vec(),
-                input_outpoint: Some(withdrawal_utxo.into()),
-                output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
-                output_amount: payout_txout.value.to_sat(),
-            }));
+            withdrawal_utxos.push(withdrawal_utxo);
+            payout_txouts.push(payout_txout);
+            sigs.push(sig);
         }
 
-        let withdrawal_txids: Vec<Txid> = try_join_all(withdrawal_requests)
-            .await
-            .unwrap()
-            .into_iter()
-            .map(|encoded_withdrawal_tx| {
-                encoded_withdrawal_tx
-                    .into_inner()
-                    .txid
-                    .unwrap()
-                    .try_into()
-                    .unwrap()
-            })
-            .collect::<Vec<_>>();
-        println!("Withdrawal txids: {:?}", withdrawal_txids);
-
+        sleep(Duration::from_secs(5)).await;
         rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
+
+        poll_until_condition(
+            {
+                let operators = operators.clone();
+                let sigs = sigs.clone();
+                let withdrawal_utxos = withdrawal_utxos.clone();
+                let payout_txouts = payout_txouts.clone();
+                let mut operator0s = (0..count).map(|_| operators[0].clone()).collect::<Vec<_>>();
+
+                async move || {
+                    let mut withdrawal_requests = Vec::new();
+
+                    for (i, mut operator) in operator0s.iter_mut().enumerate() {
+                        withdrawal_requests.push(operator.withdraw(WithdrawParams {
+                            withdrawal_id: 0,
+                            input_signature: sigs[i].serialize().to_vec(),
+                            input_outpoint: Some(withdrawal_utxos[i].into()),
+                            output_script_pubkey: payout_txouts[i].script_pubkey.to_bytes(),
+                            output_amount: payout_txouts[i].value.to_sat(),
+                        }));
+                    }
+
+                    let withdrawal_txids = match try_join_all(withdrawal_requests).await {
+                        Ok(txids) => txids,
+                        Err(_) => return Ok(false),
+                    };
+
+                    let withdrawal_txids: Vec<Txid> = withdrawal_txids
+                        .into_iter()
+                        .map(|encoded_withdrawal_tx| {
+                            encoded_withdrawal_tx
+                                .into_inner()
+                                .txid
+                                .unwrap()
+                                .try_into()
+                                .unwrap()
+                        })
+                        .collect::<Vec<_>>();
+                    println!("Withdrawal txids: {:?}", withdrawal_txids);
+
+                    Ok(true)
+                }
+            },
+            None,
+            None,
+        )
+        .await?;
+
+        // rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
 
         Ok(())
     }

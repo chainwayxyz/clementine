@@ -97,9 +97,10 @@ pub async fn make_withdrawal(
     batch_prover: &Node<BatchProverConfig>,
     da: &BitcoinNode,
 ) -> citrea_e2e::Result<(OutPoint, TxOut, schnorr::Signature)> {
+    let user_sk = SecretKey::from_slice(&[13u8; 32]).unwrap();
     let withdrawal_address = Address::p2tr(
         &SECP,
-        config.secret_key.x_only_public_key(&SECP).0,
+        user_sk.x_only_public_key(&SECP).0,
         None,
         config.protocol_paramset().network,
     );
@@ -121,7 +122,7 @@ pub async fn make_withdrawal(
 
     // Wait for TXs to be on-chain (CPFP etc.).
     rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
-    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    // tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
     for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
         sequencer.client.send_publish_batch_request().await.unwrap();
@@ -140,10 +141,10 @@ pub async fn make_withdrawal(
     .await
     .unwrap();
 
-    println!("Params: {:?}", params);
+    tracing::info!("Params: {:?}", params);
 
     let withdrawal_utxo = withdrawal_utxo_with_txout.outpoint;
-    println!("Created withdrawal UTXO: {:?}", withdrawal_utxo);
+    tracing::debug!("Created withdrawal UTXO: {:?}", withdrawal_utxo);
 
     let citrea_client = CitreaClient::new(
         config.citrea_rpc_url.clone(),
@@ -163,13 +164,13 @@ pub async fn make_withdrawal(
         .send()
         .await
         .unwrap();
-    println!("Withdrawal TX sent in Citrea");
+    tracing::debug!("Withdrawal TX sent in Citrea");
 
     // 1. force sequencer to commit
     for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
         sequencer.client.send_publish_batch_request().await.unwrap();
     }
-    println!("Publish batch request sent");
+    tracing::debug!("Publish batch request sent");
 
     let receipt = citrea_withdrawal_tx.get_receipt().await.unwrap();
     println!("Citrea withdrawal tx receipt: {:?}", receipt);
@@ -195,9 +196,9 @@ pub async fn make_withdrawal(
 
     let finalized_height = da.get_finalized_height(None).await.unwrap();
 
-    println!("Finalized height: {:?}", finalized_height);
+    tracing::info!("Finalized height: {:?}", finalized_height);
     lc_prover.wait_for_l1_height(finalized_height, None).await?;
-    println!("Waited for L1 height {}", finalized_height);
+    tracing::info!("Waited for L1 height {}", finalized_height);
 
     rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
 
