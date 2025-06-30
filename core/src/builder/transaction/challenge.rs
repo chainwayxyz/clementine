@@ -53,7 +53,7 @@ pub fn create_watchtower_challenge_txhandler(
         return Err(TxError::IncorrectWatchtowerChallengeDataLength.into());
     }
     let mut builder = TxHandlerBuilder::new(TransactionType::WatchtowerChallenge(watchtower_idx))
-        .with_version(Version::non_standard(3))
+        .with_version(Version::non_standard(2))
         .add_input(
             (
                 NumberedSignatureKind::WatchtowerChallenge,
@@ -92,21 +92,41 @@ pub fn create_watchtower_challenge_txhandler(
     #[cfg(test)]
     {
         if test_params.use_large_annex_and_output {
-            let mut op_return_vec: Vec<u8> = vec![0x6a, 0xa8, 0xcc, 0x03, 0x00];
-            op_return_vec.extend_from_slice(&[0u8; 249000]);
-            let additional_op_return_txout = TxOut {
-                value: Amount::from_sat(0),
-                script_pubkey: ScriptBuf::from_bytes(op_return_vec),
-            };
-            builder = builder.add_output(UnspentTxOut::from_partial(additional_op_return_txout));
+            for i in 0..2300 {
+                let mut test_taproot_address: [u8; 32] = [0; 32];
+                let num_to_use: u32 = 30000 + i;
+                let num_to_use_bytes = num_to_use.to_le_bytes();
+                // Last 4 bytes of test_taproot_address will be used to differentiate the outputs
+                test_taproot_address[28..32].copy_from_slice(&num_to_use_bytes);
+                let mut additional_taproot_script_vec = vec![0x51, 0x20];
+                additional_taproot_script_vec.extend_from_slice(&test_taproot_address);
+                let additional_taproot_script =
+                    ScriptBuf::from_bytes(additional_taproot_script_vec);
+                let additional_taproot_txout = TxOut {
+                    value: MIN_TAPROOT_AMOUNT,
+                    script_pubkey: additional_taproot_script,
+                };
+                builder = builder.add_output(UnspentTxOut::from_partial(additional_taproot_txout));
+            }
+            tracing::warn!("Using large annex and output");
         } else if test_params.use_large_output {
-            let mut op_return_vec: Vec<u8> = vec![0x6a, 0x58, 0x3e, 0x0f, 0x00];
-            op_return_vec.extend_from_slice(&[0u8; 999000]);
-            let additional_op_return_txout = TxOut {
-                value: Amount::from_sat(0),
-                script_pubkey: ScriptBuf::from_bytes(op_return_vec),
-            };
-            builder = builder.add_output(UnspentTxOut::from_partial(additional_op_return_txout));
+            for i in 0..2300 {
+                let mut test_taproot_address: [u8; 32] = [0; 32];
+                let num_to_use: u32 = 30000 + i;
+                let num_to_use_bytes = num_to_use.to_le_bytes();
+                // Last 4 bytes of test_taproot_address will be used to differentiate the outputs
+                test_taproot_address[28..32].copy_from_slice(&num_to_use_bytes);
+                let mut additional_taproot_script_vec = vec![0x51, 0x20];
+                additional_taproot_script_vec.extend_from_slice(&test_taproot_address);
+                let additional_taproot_script =
+                    ScriptBuf::from_bytes(additional_taproot_script_vec);
+                let additional_taproot_txout = TxOut {
+                    value: MIN_TAPROOT_AMOUNT,
+                    script_pubkey: additional_taproot_script,
+                };
+                builder = builder.add_output(UnspentTxOut::from_partial(additional_taproot_txout));
+            }
+            tracing::warn!("Using large output");
         }
     }
 

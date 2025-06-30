@@ -1061,6 +1061,8 @@ pub mod tests {
                     tweak_merkle_root: None,
                     #[cfg(test)]
                     annex: None,
+                    #[cfg(test)]
+                    additional_taproot_output_count: None,
                 }),
                 &[], // No cancel outpoints
                 &[], // No cancel txids
@@ -1085,6 +1087,8 @@ pub mod tests {
                     tweak_merkle_root: None,
                     #[cfg(test)]
                     annex: None,
+                    #[cfg(test)]
+                    additional_taproot_output_count: None,
                 }),
             )
             .await
@@ -1135,6 +1139,8 @@ pub mod tests {
                     tweak_merkle_root: None,
                     #[cfg(test)]
                     annex: None,
+                    #[cfg(test)]
+                    additional_taproot_output_count: None,
                 }),
                 &[], // No cancel outpoints
                 &[], // No cancel txids
@@ -1159,6 +1165,8 @@ pub mod tests {
                     tweak_merkle_root: None,
                     #[cfg(test)]
                     annex: None,
+                    #[cfg(test)]
+                    additional_taproot_output_count: None,
                 }),
             )
             .await
@@ -1292,6 +1300,8 @@ pub mod tests {
                     tweak_merkle_root: None,
                     #[cfg(test)]
                     annex: None,
+                    #[cfg(test)]
+                    additional_taproot_output_count: None,
                 }),
             )
             .await
@@ -1328,6 +1338,8 @@ pub mod tests {
                     tweak_merkle_root: None,
                     #[cfg(test)]
                     annex: None,
+                    #[cfg(test)]
+                    additional_taproot_output_count: None,
                 }),
             )
             .await
@@ -1375,6 +1387,8 @@ pub mod tests {
                     tweak_merkle_root: None,
                     #[cfg(test)]
                     annex: None,
+                    #[cfg(test)]
+                    additional_taproot_output_count: None,
                 }),
                 &[],
                 &[],

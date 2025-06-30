@@ -346,7 +346,7 @@ mod tests {
 
     use borsh::BorshDeserialize;
     use circuits_lib::{
-        bridge_circuit::structs::WorkOnlyCircuitOutput,
+        bridge_circuit::structs::{BridgeCircuitInput, WorkOnlyCircuitOutput},
         common::zkvm::ZkvmHost,
         header_chain::{
             header_chain_circuit, BlockHeaderCircuitOutput, ChainState, CircuitBlockHeader,
@@ -545,5 +545,170 @@ mod tests {
 
         let circuit_g16_proof = CircuitGroth16Proof::from_seal(&seal);
         println!("Circuit G16 proof: {:?}", circuit_g16_proof);
+    }
+
+    #[test]
+    fn test_bridge_circuit_with_annex() {
+        // Set the RISC0_DEV_MODE environment variable to "1"
+        std::env::set_var("RISC0_DEV_MODE", "1");
+
+        let input_bytes: &[u8] = include_bytes!("../bin-files/challenge_tx_with_annex.bin");
+        let mut bridge_circuit_input: BridgeCircuitInput = borsh::from_slice(input_bytes)
+            .expect("Failed to deserialize BridgeCircuitInput from file");
+
+        // Now add the removed witness element back to the watchtower inputs
+        for watchtower_input in &mut bridge_circuit_input.watchtower_inputs {
+            println!(
+                "Watchtower input witness len: {:?}",
+                watchtower_input.watchtower_challenge_witness.len()
+            );
+            println!(
+                "Watchtower input witness: {:?}",
+                watchtower_input.watchtower_challenge_witness
+            );
+            watchtower_input
+                .watchtower_challenge_witness
+                .push([0x80; 10000]);
+            println!(
+                "Watchtower input witness len after: {:?}",
+                watchtower_input.watchtower_challenge_witness.len()
+            );
+        }
+
+        let assumption_bytes: &[u8] =
+            include_bytes!("../bin-files/challenge_tx_with_annex_hcp_receipt.bin");
+        let assumption: Receipt =
+            borsh::from_slice(assumption_bytes).expect("Failed to deserialize Receipt from file");
+        let mut binding = ExecutorEnv::builder();
+        let env = binding
+            .write_slice(&borsh::to_vec(&bridge_circuit_input).unwrap())
+            .add_assumption(assumption)
+            .build()
+            .unwrap();
+        let prover = default_prover();
+        let receipt = prover
+            .prove_with_opts(env, REGTEST_BRIDGE_CIRCUIT_ELF, &ProverOpts::succinct())
+            .expect("Failed to prove bridge circuit with annex")
+            .receipt;
+        println!("Receipt: {:?}", receipt);
+    }
+
+    #[test]
+    fn test_bridge_circuit_with_large_input() {
+        // Set the RISC0_DEV_MODE environment variable to "1"
+        std::env::set_var("RISC0_DEV_MODE", "1");
+
+        let input_bytes: &[u8] = include_bytes!("../bin-files/challenge_tx_with_large_input.bin");
+        let mut bridge_circuit_input: BridgeCircuitInput = borsh::from_slice(input_bytes)
+            .expect("Failed to deserialize BridgeCircuitInput from file");
+
+        // Now add the removed witness element back to the watchtower inputs
+        for watchtower_input in &mut bridge_circuit_input.watchtower_inputs {
+            println!(
+                "Watchtower input witness len: {:?}",
+                watchtower_input.watchtower_challenge_witness.len()
+            );
+            println!(
+                "Watchtower input witness: {:?}",
+                watchtower_input.watchtower_challenge_witness
+            );
+            watchtower_input
+                .watchtower_challenge_witness
+                .push([0x80; 3999000]);
+            println!(
+                "Watchtower input witness len after: {:?}",
+                watchtower_input.watchtower_challenge_witness.len()
+            );
+        }
+
+        let assumption_bytes: &[u8] =
+            include_bytes!("../bin-files/challenge_tx_with_large_input_hcp_receipt.bin");
+        let assumption: Receipt =
+            borsh::from_slice(assumption_bytes).expect("Failed to deserialize Receipt from file");
+        let mut binding = ExecutorEnv::builder();
+        let env = binding
+            .write_slice(&borsh::to_vec(&bridge_circuit_input).unwrap())
+            .add_assumption(assumption)
+            .build()
+            .unwrap();
+        let prover = default_prover();
+        let receipt = prover
+            .prove_with_opts(env, REGTEST_BRIDGE_CIRCUIT_ELF, &ProverOpts::succinct())
+            .expect("Failed to prove bridge circuit with large input")
+            .receipt;
+        println!("Receipt: {:?}", receipt);
+    }
+
+    #[test]
+    fn test_bridge_circuit_with_large_output() {
+        // Set the RISC0_DEV_MODE environment variable to "1"
+        std::env::set_var("RISC0_DEV_MODE", "1");
+
+        let input_bytes: &[u8] = include_bytes!("../bin-files/challenge_tx_with_large_output.bin");
+        let assumption_bytes: &[u8] =
+            include_bytes!("../bin-files/challenge_tx_with_large_output_hcp_receipt.bin");
+        let bridge_circuit_input: BridgeCircuitInput = borsh::from_slice(input_bytes)
+            .expect("Failed to deserialize BridgeCircuitInput from file");
+        let assumption: Receipt =
+            borsh::from_slice(assumption_bytes).expect("Failed to deserialize Receipt from file");
+        let mut binding = ExecutorEnv::builder();
+        let env = binding
+            .write_slice(&borsh::to_vec(&bridge_circuit_input).unwrap())
+            .add_assumption(assumption)
+            .build()
+            .unwrap();
+        let prover = default_prover();
+        let receipt = prover
+            .prove_with_opts(env, REGTEST_BRIDGE_CIRCUIT_ELF, &ProverOpts::succinct())
+            .expect("Failed to prove bridge circuit with large output")
+            .receipt;
+        println!("Receipt: {:?}", receipt);
+    }
+
+    #[test]
+    fn test_bridge_circuit_with_large_input_and_output() {
+        // Set the RISC0_DEV_MODE environment variable to "1"
+        std::env::set_var("RISC0_DEV_MODE", "1");
+
+        let input_bytes: &[u8] =
+            include_bytes!("../bin-files/challenge_tx_with_large_input_and_output.bin");
+        let mut bridge_circuit_input: BridgeCircuitInput = borsh::from_slice(input_bytes)
+            .expect("Failed to deserialize BridgeCircuitInput from file");
+
+        // Now add the removed witness element back to the watchtower inputs
+        for watchtower_input in &mut bridge_circuit_input.watchtower_inputs {
+            println!(
+                "Watchtower input witness len: {:?}",
+                watchtower_input.watchtower_challenge_witness.len()
+            );
+            println!(
+                "Watchtower input witness: {:?}",
+                watchtower_input.watchtower_challenge_witness
+            );
+            watchtower_input
+                .watchtower_challenge_witness
+                .push([0x80; 3000000]);
+            println!(
+                "Watchtower input witness len after: {:?}",
+                watchtower_input.watchtower_challenge_witness.len()
+            );
+        }
+
+        let assumption_bytes: &[u8] =
+            include_bytes!("../bin-files/challenge_tx_with_large_input_and_output_hcp_receipt.bin");
+        let assumption: Receipt =
+            borsh::from_slice(assumption_bytes).expect("Failed to deserialize Receipt from file");
+        let mut binding = ExecutorEnv::builder();
+        let env = binding
+            .write_slice(&borsh::to_vec(&bridge_circuit_input).unwrap())
+            .add_assumption(assumption)
+            .build()
+            .unwrap();
+        let prover = default_prover();
+        let receipt = prover
+            .prove_with_opts(env, REGTEST_BRIDGE_CIRCUIT_ELF, &ProverOpts::succinct())
+            .expect("Failed to prove bridge circuit with large input and output")
+            .receipt;
+        println!("Receipt: {:?}", receipt);
     }
 }
