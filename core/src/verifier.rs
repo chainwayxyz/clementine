@@ -2517,6 +2517,16 @@ mod states {
                     payout_blockhash,
                     latest_blockhash,
                 } => {
+                    #[cfg(test)]
+                    {
+                        if !self
+                            .config
+                            .test_params
+                            .should_disprove(&self.signer.public_key, &deposit_data)?
+                        {
+                            return Ok(DutyResult::Handled);
+                        }
+                    }
                     let context = ContractContext::new_context_with_signer(
                         kickoff_data,
                         deposit_data.clone(),

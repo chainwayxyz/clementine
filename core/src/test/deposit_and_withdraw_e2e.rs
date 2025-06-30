@@ -621,6 +621,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 /// * Confirms kickoff transaction is created and mined
 /// * Verifies reimburse connector is spent (proper payout handling)
 #[tokio::test]
+#[ignore = "This test does the same thing as disprove_script_test_healthy"]
 async fn citrea_deposit_and_withdraw_e2e() -> Result<()> {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
@@ -635,6 +636,7 @@ async fn citrea_deposit_and_withdraw_e2e() -> Result<()> {
 }
 
 #[tokio::test]
+#[ignore = "Run in standalone VM in CI"]
 async fn citrea_deposit_and_withdraw_e2e_non_zero_genesis_height() -> Result<()> {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");

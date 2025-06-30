@@ -1,9 +1,9 @@
 use crate::bitvm_client::UNSPENDABLE_XONLY_PUBKEY;
-use crate::deposit::SecurityCouncil;
+use crate::deposit::{DepositData, SecurityCouncil};
 use crate::errors::BridgeError;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::secp256k1::SecretKey;
-use bitcoin::{Address, Amount, OutPoint};
+use bitcoin::{secp256k1::PublicKey, Address, Amount, OutPoint};
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use std::{fs::File, io::Read, path::PathBuf};
@@ -53,8 +53,26 @@ pub struct TestParams {
     /// A flag to indicate whether to use large annexes and outputs in the watchtower challenge transactions.
     pub use_large_annex_and_output: bool,
 
+    /// A list of verifier indexes that should not attempt to send disprove transactions.
+    pub verifier_do_not_send_disprove_indexes: Option<Vec<usize>>,
+
     #[serde(default)]
     pub timeout_params: TimeoutTestParams,
+}
+
+impl TestParams {
+    /// Returns true if the verifier should attempt to send a disprove transaction, false otherwise.
+    pub fn should_disprove(
+        &self,
+        verifier_pk: &PublicKey,
+        deposit_data: &DepositData,
+    ) -> eyre::Result<bool> {
+        let verifier_idx = deposit_data.get_verifier_index(verifier_pk)?;
+        Ok(self
+            .verifier_do_not_send_disprove_indexes
+            .as_ref()
+            .map_or(true, |indexes| !indexes.contains(&verifier_idx)))
+    }
 }
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -189,6 +207,7 @@ impl Default for TestParams {
             use_large_output: false,
             use_large_annex_and_output: false,
             timeout_params: TimeoutTestParams::default(),
+            verifier_do_not_send_disprove_indexes: None,
             generate_to_address: true,
         }
     }
