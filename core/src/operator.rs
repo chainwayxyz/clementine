@@ -525,6 +525,7 @@ where
     /// # Returns
     ///
     /// - [`Txid`]: Payout transaction's txid
+    #[cfg(feature = "automation")]
     pub async fn withdraw(
         &self,
         withdrawal_index: u32,

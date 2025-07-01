@@ -1,9 +1,11 @@
 use super::clementine::clementine_operator_server::ClementineOperator;
+#[cfg(not(feature = "automation"))]
+use super::clementine::WithdrawErrorResponse;
 use super::clementine::{
     self, ChallengeAckDigest, DepositParams, DepositSignSession, Empty, FinalizedPayoutParams,
     OperatorKeys, OperatorParams, SchnorrSig, SignedTxWithType, SignedTxsWithType,
-    TransactionRequest, VergenResponse, WithdrawParams, WithdrawResult, WithdrawalFinalizedParams,
-    XOnlyPublicKeyRpc,
+    TransactionRequest, VergenResponse, WithdrawParams, WithdrawResult, WithdrawSuccess,
+    WithdrawalFinalizedParams, XOnlyPublicKeyRpc,
 };
 use super::error::*;
 use super::parser::ParserError;
@@ -13,7 +15,6 @@ use crate::citrea::CitreaClientT;
 use crate::constants::DEFAULT_CHANNEL_SIZE;
 use crate::deposit::DepositData;
 use crate::operator::OperatorServer;
-use crate::rpc::clementine::WithdrawSuccess;
 use crate::rpc::parser;
 use crate::utils::get_vergen_response;
 use bitcoin::hashes::Hash;
@@ -152,9 +153,8 @@ where
         Ok(Response::new(WithdrawResult {
             result: Some(clementine::withdraw_result::Result::Error(
                 WithdrawErrorResponse {
-                    error_message:
-                        "Automation is not enabled. Operator will not fulfill withdrawals."
-                            .to_string(),
+                    error: "Automation is not enabled. Operator will not fulfill withdrawals."
+                        .to_string(),
                 },
             )),
         }))
