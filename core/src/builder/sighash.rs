@@ -396,7 +396,7 @@ mod tests {
         },
         test::common::{
             citrea::MockCitreaClient, create_regtest_rpc, create_test_config_with_thread_name,
-            run_single_deposit, tx_utils::get_tx_from_signed_txs_with_type,
+            tx_utils::get_tx_from_signed_txs_with_type,
         },
     };
     use bincode;
@@ -436,9 +436,12 @@ mod tests {
     /// To make the [`test_bridge_contract_change`] test work if breaking changes are expected, run this test again
     /// (with both debug and release), the states will get updated with the current values.
     /// Read [`test_bridge_contract_change`] test doc for more details.
+    #[cfg(feature = "automation")]
     #[tokio::test]
     #[ignore = "Run this to generate fresh deposit state data, in case any breaking change occurs to deposits"]
     async fn generate_deposit_state() {
+        use crate::test::common::run_single_deposit;
+
         let mut config = create_test_config_with_thread_name().await;
         // only run with one operator
         config.test_params.all_operators_secret_keys.truncate(1);
@@ -655,8 +658,11 @@ mod tests {
     /// (with both debug and release), it will get updated with the current values. Run following commands:
     /// debug: cargo test --all-features generate_deposit_state -- --ignored
     /// release: cargo test --all-features --release generate_deposit_state -- --ignored
+    #[cfg(feature = "automation")]
     #[tokio::test]
     async fn test_bridge_contract_change() {
+        use crate::test::common::run_single_deposit;
+
         let mut config = create_test_config_with_thread_name().await;
         // only run with one operator
         config.test_params.all_operators_secret_keys.truncate(1);

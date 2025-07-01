@@ -1291,6 +1291,7 @@ mod tests {
         try_join_all(verifier_task_handles).await.unwrap();
     }
 
+    #[cfg(feature = "automation")]
     #[tokio::test(flavor = "multi_thread")]
     async fn test_deposit_and_sign_txs() {
         let mut config = create_test_config_with_thread_name().await;
