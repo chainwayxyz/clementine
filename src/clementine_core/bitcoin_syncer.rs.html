@@ -926,7 +926,7 @@
 <span class="kw">use </span>tonic::async_trait;
 
 <span class="kw">const </span>POLL_DELAY: Duration = <span class="kw">if </span><span class="macro">cfg!</span>(test) {
-    Duration::from_millis(<span class="number">100</span>)
+    Duration::from_millis(<span class="number">250</span>)
 } <span class="kw">else </span>{
     Duration::from_secs(<span class="number">30</span>)
 };

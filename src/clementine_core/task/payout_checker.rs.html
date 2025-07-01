@@ -96,7 +96,7 @@
 <span class="kw">use </span><span class="kw">super</span>::Task;
 
 <span class="kw">pub const </span>PAYOUT_CHECKER_POLL_DELAY: Duration = <span class="kw">if </span><span class="macro">cfg!</span>(test) {
-    Duration::from_millis(<span class="number">200</span>)
+    Duration::from_millis(<span class="number">250</span>)
 } <span class="kw">else </span>{
     Duration::from_secs(<span class="number">60</span>)
 };
