@@ -310,16 +310,22 @@ pub struct EntityError {
 pub struct EntityStatus {
     #[prost(bool, tag = "1")]
     pub automation: bool,
-    #[prost(string, optional, tag = "2")]
-    pub wallet_balance: ::core::option::Option<::prost::alloc::string::String>,
-    #[prost(int32, optional, tag = "3")]
-    pub tx_sender_synced_height: ::core::option::Option<i32>,
-    #[prost(int32, optional, tag = "4")]
-    pub finalized_synced_height: ::core::option::Option<i32>,
-    #[prost(int32, optional, tag = "5")]
-    pub hcp_last_proven_height: ::core::option::Option<i32>,
+    #[prost(string, tag = "2")]
+    pub wallet_balance: ::prost::alloc::string::String,
+    #[prost(uint32, tag = "3")]
+    pub tx_sender_synced_height: u32,
+    #[prost(uint32, tag = "4")]
+    pub finalized_synced_height: u32,
+    #[prost(uint32, tag = "5")]
+    pub hcp_last_proven_height: u32,
     #[prost(message, optional, tag = "6")]
     pub stopped_tasks: ::core::option::Option<StoppedTasks>,
+    #[prost(uint32, tag = "7")]
+    pub rpc_tip_height: u32,
+    #[prost(uint32, tag = "8")]
+    pub bitcoin_syncer_synced_height: u32,
+    #[prost(uint32, tag = "9")]
+    pub state_manager_next_height: u32,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct EntityId {
@@ -342,7 +348,7 @@ pub mod entity_status_with_id {
         #[prost(message, tag = "2")]
         EntityStatus(super::EntityStatus),
         #[prost(message, tag = "3")]
-        Error(super::EntityError),
+        EntityError(super::EntityError),
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]

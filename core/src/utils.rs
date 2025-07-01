@@ -408,7 +408,7 @@ where
     }
 }
 
-/// A trait for entities that have a name, operator, watchtower, verifier, etc.
+/// A trait for entities that have a name, operator, verifier, etc.
 /// Used to distinguish between state machines with different owners in the database,
 /// and to provide a human-readable name for the entity for task names.
 pub trait NamedEntity {
@@ -416,8 +416,14 @@ pub trait NamedEntity {
     /// state machines with different owners in the database.
     ///
     /// ## Example
-    /// "operator", "watchtower", "verifier", "user"
+    /// "operator", "verifier", "user"
     const ENTITY_NAME: &'static str;
+
+    /// Consumer ID for the tx sender task.
+    const TX_SENDER_CONSUMER_ID: &'static str;
+
+    /// Consumer ID for the finalized block task.
+    const FINALIZED_BLOCK_CONSUMER_ID: &'static str;
 }
 
 #[derive(Copy, Clone, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]

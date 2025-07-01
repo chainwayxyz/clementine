@@ -299,11 +299,14 @@ message EntityError {
 
 message EntityStatus {
   bool automation = 1;
-  optional string wallet_balance = 2;
-  optional int32 tx_sender_synced_height = 3;
-  optional int32 finalized_synced_height = 4;
-  optional int32 hcp_last_proven_height = 5;
+  string wallet_balance = 2;
+  uint32 tx_sender_synced_height = 3;
+  uint32 finalized_synced_height = 4;
+  uint32 hcp_last_proven_height = 5;
   StoppedTasks stopped_tasks = 6;
+  uint32 rpc_tip_height = 7;
+  uint32 bitcoin_syncer_synced_height = 8;
+  uint32 state_manager_next_height = 9;
 }
 
 enum Entities {
@@ -321,7 +324,7 @@ message EntityStatusWithId {
   EntityId entity_id = 1;
   oneof status {
     EntityStatus entity_status = 2;
-    EntityError error = 3;
+    EntityError entity_error = 3;
   }
 }
 

@@ -344,8 +344,8 @@ where
     async fn get_current_status(
         &self,
         _request: Request<Empty>,
-    ) -> Result<Response<clementine::StoppedTasks>, Status> {
-        let task_status = self.get_current_status().await?;
-        Ok(Response::new(task_status))
+    ) -> Result<Response<clementine::EntityStatus>, Status> {
+        let status = self.get_current_status().await?;
+        Ok(Response::new(status))
     }
 }

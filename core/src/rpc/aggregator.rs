@@ -882,7 +882,7 @@ impl ClementineAggregator for Aggregator {
                                         response.into_inner(),
                                     ))
                                 }
-                                Err(e) => Some(super::clementine::entity_status_with_id::Status::Error(
+                                Err(e) => Some(super::clementine::entity_status_with_id::Status::EntityError(
                                     super::EntityError {
                                         error: e.to_string(),
                                     },
@@ -917,7 +917,7 @@ impl ClementineAggregator for Aggregator {
                                         response.into_inner(),
                                     ))
                                 }
-                                Err(e) => Some(super::clementine::entity_status_with_id::Status::Error(
+                                Err(e) => Some(super::clementine::entity_status_with_id::Status::EntityError(
                                     super::EntityError {
                                         error: e.to_string(),
                                     },
@@ -2299,7 +2299,7 @@ mod tests {
             .filter(|entity| {
                 matches!(
                     entity.status,
-                    Some(clementine::entity_status_with_id::Status::Error(_))
+                    Some(clementine::entity_status_with_id::Status::EntityError(_))
                 )
             })
             .count();

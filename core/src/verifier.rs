@@ -31,9 +31,12 @@ use crate::errors::{BridgeError, TxError};
 use crate::extended_rpc::ExtendedRpc;
 use crate::header_chain_prover::{HeaderChainProver, HeaderChainProverError};
 use crate::operator::RoundIndex;
-use crate::rpc::clementine::{NormalSignatureKind, OperatorKeys, StoppedTasks, TaggedSignature};
+use crate::rpc::clementine::{
+    EntityStatus, NormalSignatureKind, OperatorKeys, StoppedTasks, TaggedSignature,
+};
 use crate::task::manager::BackgroundTaskManager;
 use crate::task::status_monitor::{TaskStatusMonitorTask, TASK_STATUS_MONITOR_POLL_DELAY};
+use crate::task::sync_status::get_sync_status;
 use crate::task::{IntoTask, TaskExt};
 #[cfg(feature = "automation")]
 use crate::tx_sender::{TxSender, TxSenderClient};
@@ -125,7 +128,7 @@ where
                 self.verifier.signer.clone(),
                 rpc.clone(),
                 self.verifier.db.clone(),
-                "verifier_".to_string(),
+                Verifier::<C>::TX_SENDER_CONSUMER_ID.to_string(),
                 self.verifier.config.protocol_paramset(),
             );
 
@@ -165,13 +168,13 @@ where
                 .loop_and_monitor(
                     FinalizedBlockFetcherTask::new(
                         self.verifier.db.clone(),
-                        "verifier".to_string(),
+                        Verifier::<C>::FINALIZED_BLOCK_CONSUMER_ID.to_string(),
                         self.verifier.config.protocol_paramset(),
                         self.verifier.config.protocol_paramset().start_height,
                         self.verifier.clone(),
                     )
                     .into_buffered_errors(50)
-                    .with_delay(Duration::from_secs(60)),
+                    .with_delay(crate::bitcoin_syncer::BTC_SYNCER_POLL_DELAY),
                 )
                 .await;
         }
@@ -190,9 +193,27 @@ where
         Ok(())
     }
 
-    pub async fn get_current_status(&self) -> Result<StoppedTasks, BridgeError> {
+    pub async fn get_current_status(&self) -> Result<EntityStatus, BridgeError> {
         let stopped_tasks = self.background_tasks.get_stopped_tasks().await;
-        Ok(stopped_tasks)
+        #[cfg(feature = "automation")]
+        let automation_enabled = true;
+        #[cfg(not(feature = "automation"))]
+        let automation_enabled = false;
+
+        let sync_status =
+            get_sync_status::<Verifier<C>>(&self.verifier.db, &self.verifier.rpc).await?;
+
+        Ok(EntityStatus {
+            automation: automation_enabled,
+            wallet_balance: sync_status.wallet_balance,
+            tx_sender_synced_height: sync_status.tx_sender_synced_height.unwrap_or(0),
+            finalized_synced_height: sync_status.finalized_synced_height.unwrap_or(0),
+            hcp_last_proven_height: sync_status.hcp_last_proven_height.unwrap_or(0),
+            rpc_tip_height: sync_status.rpc_tip_height,
+            bitcoin_syncer_synced_height: sync_status.btc_syncer_synced_height.unwrap_or(0),
+            stopped_tasks: Some(stopped_tasks),
+            state_manager_next_height: sync_status.state_manager_next_height.unwrap_or(0),
+        })
     }
 
     pub async fn shutdown(&mut self) {
@@ -250,7 +271,7 @@ where
 
         // TODO: Removing index causes to remove the index from the tx_sender handle as well
         #[cfg(feature = "automation")]
-        let tx_sender = TxSenderClient::new(db.clone(), "verifier_".to_string());
+        let tx_sender = TxSenderClient::new(db.clone(), Self::TX_SENDER_CONSUMER_ID.to_string());
 
         #[cfg(feature = "automation")]
         let header_chain_prover = HeaderChainProver::new(&config, rpc.clone()).await?;
@@ -2479,6 +2500,8 @@ where
     C: CitreaClientT,
 {
     const ENTITY_NAME: &'static str = "verifier";
+    const TX_SENDER_CONSUMER_ID: &'static str = "verifier_tx_sender";
+    const FINALIZED_BLOCK_CONSUMER_ID: &'static str = "verifier_finalized_block_fetcher";
 }
 
 #[cfg(feature = "automation")]

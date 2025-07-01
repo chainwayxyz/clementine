@@ -24,10 +24,11 @@ use crate::deposit::{DepositData, KickoffData, OperatorData};
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::header_chain_prover::HeaderChainProver;
-use crate::rpc::clementine::StoppedTasks;
+use crate::rpc::clementine::{EntityStatus, StoppedTasks};
 use crate::task::manager::BackgroundTaskManager;
 use crate::task::payout_checker::{PayoutCheckerTask, PAYOUT_CHECKER_POLL_DELAY};
 use crate::task::status_monitor::{TaskStatusMonitorTask, TASK_STATUS_MONITOR_POLL_DELAY};
+use crate::task::sync_status::get_sync_status;
 use crate::task::TaskExt;
 use crate::utils::Last20Bytes;
 use crate::utils::{NamedEntity, TxMetadata};
@@ -204,9 +205,27 @@ where
         Ok(())
     }
 
-    pub async fn get_current_status(&self) -> Result<StoppedTasks, BridgeError> {
+    pub async fn get_current_status(&self) -> Result<EntityStatus, BridgeError> {
         let stopped_tasks = self.background_tasks.get_stopped_tasks().await;
-        Ok(stopped_tasks)
+        #[cfg(feature = "automation")]
+        let automation_enabled = true;
+        #[cfg(not(feature = "automation"))]
+        let automation_enabled = false;
+
+        let sync_status =
+            get_sync_status::<Operator<C>>(&self.operator.db, &self.operator.rpc).await?;
+
+        Ok(EntityStatus {
+            automation: automation_enabled,
+            wallet_balance: sync_status.wallet_balance,
+            tx_sender_synced_height: sync_status.tx_sender_synced_height.unwrap_or(0),
+            finalized_synced_height: sync_status.finalized_synced_height.unwrap_or(0),
+            hcp_last_proven_height: sync_status.hcp_last_proven_height.unwrap_or(0),
+            rpc_tip_height: sync_status.rpc_tip_height,
+            bitcoin_syncer_synced_height: sync_status.btc_syncer_synced_height.unwrap_or(0),
+            stopped_tasks: Some(stopped_tasks),
+            state_manager_next_height: sync_status.state_manager_next_height.unwrap_or(0),
+        })
     }
 
     pub async fn shutdown(&mut self) {
@@ -235,10 +254,7 @@ where
         .await?;
 
         #[cfg(feature = "automation")]
-        let tx_sender = TxSenderClient::new(
-            db.clone(),
-            format!("operator_{:?}", signer.xonly_public_key).to_string(),
-        );
+        let tx_sender = TxSenderClient::new(db.clone(), Self::TX_SENDER_CONSUMER_ID.to_string());
 
         if config.operator_withdrawal_fee_sats.is_none() {
             return Err(eyre::eyre!("Operator withdrawal fee is not set").into());
@@ -1600,6 +1616,9 @@ where
     C: CitreaClientT,
 {
     const ENTITY_NAME: &'static str = "operator";
+    // operators use their verifier's tx sender
+    const TX_SENDER_CONSUMER_ID: &'static str = "verifier_tx_sender";
+    const FINALIZED_BLOCK_CONSUMER_ID: &'static str = "operator_finalized_block_fetcher";
 }
 
 #[cfg(feature = "automation")]

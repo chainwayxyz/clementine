@@ -93,7 +93,7 @@ impl<T: Owner + std::fmt::Debug + 'static> BlockFetcherTask<T> {
 
         Ok(crate::bitcoin_syncer::FinalizedBlockFetcherTask::new(
             db,
-            queue_name,
+            T::FINALIZED_BLOCK_CONSUMER_ID.to_string(),
             paramset,
             next_height,
             handler,
@@ -201,6 +201,8 @@ mod tests {
 
     impl NamedEntity for MockHandler {
         const ENTITY_NAME: &'static str = "MockHandler";
+        const TX_SENDER_CONSUMER_ID: &'static str = "mock_tx_sender";
+        const FINALIZED_BLOCK_CONSUMER_ID: &'static str = "mock_finalized_block";
     }
 
     #[async_trait]
