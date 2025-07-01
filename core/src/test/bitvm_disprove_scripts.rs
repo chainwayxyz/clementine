@@ -579,6 +579,17 @@ impl DisproveTest {
             "Disprove tx input does not match burn connector outpoint"
         );
 
+        let CONTROL_BLOCK_LENGTH = 1 + 32 + 32 * 11; // 385 - Length of the control block in the disprove script
+
+        let witness = &disprove_tx.input[0].witness;
+        let control_block = &witness[witness.len() - 1];
+
+        assert_eq!(
+            control_block.len(),
+            CONTROL_BLOCK_LENGTH,
+            "Control block length does not match expected length"
+        );
+
         tracing::info!("Disprove transaction is onchain");
         Ok(())
     }
