@@ -18,9 +18,7 @@ use crate::rpc::clementine::{
     Deposit, Empty, FeeType, FinalizedPayoutParams, KickoffId, NormalSignatureKind, RawSignedTx,
     SendMoveTxRequest, SendTxRequest, TransactionRequest, WithdrawParams, WithdrawResponse,
 };
-use crate::test::common::citrea::{
-    get_citrea_safe_withdraw_params, make_withdrawal, MockCitreaClient, SECRET_KEYS,
-};
+use crate::test::common::citrea::{get_citrea_safe_withdraw_params, MockCitreaClient, SECRET_KEYS};
 use crate::test::common::tx_utils::{
     create_tx_sender, ensure_outpoint_spent,
     ensure_outpoint_spent_while_waiting_for_light_client_sync, ensure_tx_onchain,
