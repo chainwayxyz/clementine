@@ -41,25 +41,25 @@ pub fn initialize_logger(level: Option<LevelFilter>) -> Result<(), BridgeError> 
         .map(|v| v == "true" || v == "1")
         .unwrap_or(false);
 
+    // Initialize color-eyre for better error handling and backtraces
+    let _ = color_eyre::install();
+
     if is_ci {
         let info_log_file = std::env::var("INFO_LOG_FILE").ok();
         if let Some(file_path) = info_log_file {
-            let subscriber = env_subscriber_with_file(&file_path)?;
-            try_set_global_subscriber(subscriber)?;
+            try_set_global_subscriber(env_subscriber_with_file(&file_path)?)?;
         } else {
             tracing::warn!(
                 "CI is set but INFO_LOG_FILE is missing, only console logs will be used."
             );
-            let subscriber = env_subscriber_to_human(level);
-            try_set_global_subscriber(subscriber)?;
+            try_set_global_subscriber(env_subscriber_to_human(level))?;
         }
     } else {
-        let subscriber: Box<dyn Subscriber + Send + Sync> = if is_json_logs() {
-            Box::new(env_subscriber_to_json(level))
+        if is_json_logs() {
+            try_set_global_subscriber(env_subscriber_to_json(level))?;
         } else {
-            Box::new(env_subscriber_to_human(level))
-        };
-        try_set_global_subscriber(subscriber)?;
+            try_set_global_subscriber(env_subscriber_to_human(level))?;
+        }
     }
 
     tracing::info!("Tracing initialized successfully.");
