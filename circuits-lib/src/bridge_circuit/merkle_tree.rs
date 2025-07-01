@@ -18,17 +18,13 @@ impl BitcoinMerkleTree {
     /// Constructs a standard Bitcoin Merkle tree.
     /// Leaf nodes are transaction IDs (txids), which are double-SHA256 hashes of transaction data.
     /// Internal nodes are formed by `DSHA256(LeftChildHash || RightChildHash)`.
-    pub fn new(transactions: Vec<[u8; 32]>) -> Self {
-        if transactions.len() == 1 {
+    pub fn new(txids: Vec<[u8; 32]>) -> Self {
+        if txids.len() == 1 {
             // root is the coinbase txid
-            return BitcoinMerkleTree {
-                nodes: vec![transactions],
-            };
+            return BitcoinMerkleTree { nodes: vec![txids] };
         }
 
-        let mut tree = BitcoinMerkleTree {
-            nodes: vec![transactions],
-        };
+        let mut tree = BitcoinMerkleTree { nodes: vec![txids] };
 
         // Construct the tree
         let mut curr_level_offset: usize = 1;
@@ -120,15 +116,12 @@ impl BitcoinMerkleTree {
         // Construct the tree
         let mut curr_level_offset: usize = 1;
         let mut prev_level_size = tree.nodes[0].len();
-        let mut prev_level_index_offset = 0;
         let mut preimage: [u8; 64] = [0; 64]; // Preimage for SHA256(SHA256(LeftChild) || SHA256(RightChild))
         while prev_level_size > 1 {
             tree.nodes.push(vec![]);
             for i in 0..(prev_level_size / 2) {
-                let left_child_node =
-                    tree.nodes[curr_level_offset - 1][prev_level_index_offset + i * 2];
-                let right_child_node =
-                    tree.nodes[curr_level_offset - 1][prev_level_index_offset + i * 2 + 1];
+                let left_child_node = tree.nodes[curr_level_offset - 1][i * 2];
+                let right_child_node = tree.nodes[curr_level_offset - 1][i * 2 + 1];
 
                 if left_child_node == right_child_node {
                     // This check is also present in the mid-state tree construction.
@@ -146,8 +139,7 @@ impl BitcoinMerkleTree {
             // Handle odd number of nodes at the previous level by duplicating the last node's hash processing
             if prev_level_size % 2 == 1 {
                 let mut preimage: [u8; 64] = [0; 64];
-                let last_node = tree.nodes[curr_level_offset - 1]
-                    [prev_level_index_offset + prev_level_size - 1];
+                let last_node = tree.nodes[curr_level_offset - 1][prev_level_size - 1];
                 // Preimage: SHA256(LastNode) || SHA256(LastNode)
                 preimage[..32].copy_from_slice(&calculate_sha256(&last_node));
                 preimage[32..].copy_from_slice(&calculate_sha256(&last_node));
@@ -156,7 +148,6 @@ impl BitcoinMerkleTree {
             }
             curr_level_offset += 1;
             prev_level_size = prev_level_size.div_ceil(2);
-            prev_level_index_offset = 0;
         }
         tree
     }
@@ -166,6 +157,7 @@ impl BitcoinMerkleTree {
         let mut path = vec![];
         let mut level = 0;
         let mut i = index;
+
         while level < self.nodes.len() as u32 - 1 {
             if i % 2 == 1 {
                 // Current node is a right child, sibling is to the left
@@ -188,7 +180,7 @@ impl BitcoinMerkleTree {
         BlockInclusionProof::new(idx, path)
     }
 
-    /// Calculates the Bitcoin Merkle root from a leaf's transaction ID (mid_state_txid) and its inclusion proof
+    /// Calculates the Bitcoin Merkle root from a leaf's transaction ID (`txid`) and its inclusion proof
     /// derived from a "mid-state" Merkle tree. This function is central to secure SPV.
     ///
     /// The `inclusion_proof` contains sibling nodes from the "mid-state" Merkle tree.
@@ -222,24 +214,24 @@ impl BlockInclusionProof {
         BlockInclusionProof { idx, merkle_proof }
     }
 
-    /// Calculates the Merkle root given a leaf transaction ID (`txid`, which is a `mid_state_txid`)
+    /// Calculates the Merkle root given a leaf transaction mid-state-ID (`mid_state_txid`)
     /// and the Merkle proof path (sibling nodes from the "mid-state" tree).
     ///
     /// The core of the SPV security enhancement is here:
     /// Each `merkle_proof` element (a sibling node from the mid-state tree) is first hashed
     /// with `calculate_sha256`. This transformed hash is then used in the standard Bitcoin
-    /// Merkle combination step (`calculate_double_sha256`).
+    /// Merkle combination step but with single hash (`calculate_sha256`).
     ///
     /// If `leaf` is the current hash and `P_mid_state` is a sibling from the proof path:
-    /// `next_hash = DSHA256(leaf || SHA256(P_mid_state))` (or reversed order).
+    /// `next_hash = DSHA256(SHA256(leaf) || SHA256(P_mid_state))` (or reversed order).
     ///
     /// This ensures that elements from the mid-state tree's structure are treated distinctly
     /// from the leaf transaction IDs, preventing cross-interpretation and related attacks.
     /// The final hash should be the main Bitcoin block Merkle root.
-    pub fn get_root(&self, txid: [u8; 32]) -> [u8; 32] {
-        // txid is the leaf (e.g., mid_state_txid)
+    pub fn get_root(&self, mid_state_txid: [u8; 32]) -> [u8; 32] {
+        // mid_state_txid is the leaf but the transaction is hashed with SHA256, not DSHA256.
         let mut preimage: [u8; 64] = [0; 64];
-        let mut combined_hash: [u8; 32] = txid; // Start with the leaf txid
+        let mut combined_hash: [u8; 32] = mid_state_txid;
         let mut index = self.idx;
         let mut level: u32 = 0;
         while level < self.merkle_proof.len() as u32 {
@@ -248,22 +240,24 @@ impl BlockInclusionProof {
             // Secure SPV step: transform the mid-state sibling node by SHA256-ing it
             // before using it in the double-SHA256 combination.
             let processed_sibling_hash = calculate_sha256(&mid_state_sibling_node);
+            let processed_combined_hash = calculate_sha256(&combined_hash);
 
             if index % 2 == 0 {
                 // `combined_hash` is the left child
-                preimage[..32].copy_from_slice(&combined_hash);
+                preimage[..32].copy_from_slice(&processed_combined_hash);
                 preimage[32..].copy_from_slice(&processed_sibling_hash); // Use the SHA256'd mid-state sibling
-                combined_hash = calculate_double_sha256(&preimage);
+                combined_hash = calculate_sha256(&preimage);
             } else {
                 // `combined_hash` is the right child
+                if processed_sibling_hash == processed_combined_hash {}
                 preimage[..32].copy_from_slice(&processed_sibling_hash); // Use the SHA256'd mid-state sibling
-                preimage[32..].copy_from_slice(&combined_hash);
-                combined_hash = calculate_double_sha256(&preimage);
+                preimage[32..].copy_from_slice(&processed_combined_hash);
+                combined_hash = calculate_sha256(&preimage);
             }
             level += 1;
             index /= 2;
         }
-        combined_hash // This should be the Bitcoin block's Merkle root
+        calculate_sha256(&combined_hash) // This should be the Bitcoin block's Merkle root
     }
 }
 
@@ -287,8 +281,10 @@ pub fn verify_merkle_proof(
 #[cfg(test)]
 mod tests {
 
+    use bitcoin::absolute::LockTime;
     use bitcoin::hashes::Hash;
-    use bitcoin::Block;
+    use bitcoin::transaction::Version;
+    use bitcoin::{Block, Transaction};
 
     use crate::bridge_circuit::transaction::CircuitTransaction;
 
@@ -303,7 +299,6 @@ mod tests {
             .map(|tx| CircuitTransaction(tx.clone()))
             .collect();
         let txid_vec: Vec<[u8; 32]> = tx_vec.iter().map(|tx| tx.txid()).collect();
-        let txid_0 = txid_vec[0];
         let merkle_tree = BitcoinMerkleTree::new(txid_vec);
         let merkle_root = merkle_tree.root();
         assert_eq!(
@@ -311,13 +306,18 @@ mod tests {
             block.header.merkle_root.as_raw_hash().to_byte_array()
         );
         let mid_state_merkle_tree = BitcoinMerkleTree::new_mid_state(&tx_vec);
-        let merkle_root = calculate_sha256(&mid_state_merkle_tree.root());
+        let mid_state_txid_0 = tx_vec[0].mid_state_txid();
+        let merkle_root_from_mid_state = calculate_sha256(&mid_state_merkle_tree.root());
         assert_eq!(
-            merkle_root,
+            merkle_root_from_mid_state,
             block.header.merkle_root.as_raw_hash().to_byte_array()
         );
         let merkle_proof_0 = mid_state_merkle_tree.generate_proof(0);
-        assert!(verify_merkle_proof(txid_0, &merkle_proof_0, merkle_root));
+        assert!(verify_merkle_proof(
+            mid_state_txid_0,
+            &merkle_proof_0,
+            merkle_root
+        ));
     }
 
     #[test]
@@ -329,7 +329,6 @@ mod tests {
             .map(|tx| CircuitTransaction(tx.clone()))
             .collect();
         let txid_vec: Vec<[u8; 32]> = tx_vec.iter().map(|tx| tx.txid()).collect();
-        let txid_vec_clone = txid_vec.clone();
         let merkle_tree = BitcoinMerkleTree::new(txid_vec);
         let merkle_root = merkle_tree.root();
         assert_eq!(
@@ -342,9 +341,14 @@ mod tests {
             mid_state_merkle_root,
             block.header.merkle_root.as_raw_hash().to_byte_array()
         );
-        for (i, txid) in txid_vec_clone.into_iter().enumerate() {
+        for (i, tx) in tx_vec.into_iter().enumerate() {
+            let mid_state_txid = tx.mid_state_txid();
             let merkle_proof_i = mid_state_merkle_tree.generate_proof(i as u32);
-            assert!(verify_merkle_proof(txid, &merkle_proof_i, merkle_root));
+            assert!(verify_merkle_proof(
+                mid_state_txid,
+                &merkle_proof_i,
+                merkle_root
+            ));
         }
     }
 
@@ -371,5 +375,79 @@ mod tests {
             [6u8; 32],
         ];
         let _malicious_merkle_tree = BitcoinMerkleTree::new(malicious_tx_vec);
+    }
+
+    #[test]
+    /// a b c
+    /// but try to cheat and say c is index 3
+    #[should_panic(expected = "Merkle proof is invalid: left hash matches combined hash")]
+    fn test_merkle_root_with_proof_wrong_idx_a() {
+        let mut transactions: Vec<CircuitTransaction> = vec![];
+        for i in 0u8..3u8 {
+            let tx = Transaction {
+                version: Version::non_standard(i as i32),
+                lock_time: LockTime::ZERO,
+                input: vec![],
+                output: vec![],
+            };
+            transactions.push(CircuitTransaction(tx));
+        }
+        let mut tx_hashes: Vec<[u8; 32]> = vec![];
+        for tx in transactions.iter() {
+            tx_hashes.push(tx.txid());
+        }
+        let tree = BitcoinMerkleTree::new(tx_hashes.clone());
+        let mid_state_tree = BitcoinMerkleTree::new_mid_state(&transactions);
+        let tree_root = tree.root();
+        let mid_state_root = mid_state_tree.root();
+        assert_eq!(tree_root, calculate_sha256(&mid_state_root));
+        let proof = mid_state_tree.generate_proof(2);
+        assert!(verify_merkle_proof(
+            transactions[2].mid_state_txid(),
+            &proof,
+            tree_root
+        ));
+
+        // Now try to cheat and say c is at index 3
+        let idx_path = mid_state_tree.get_idx_path(2); // Get from real index 2
+        let false_proof = BlockInclusionProof::new(3, idx_path);
+        verify_merkle_proof(transactions[2].mid_state_txid(), &false_proof, tree_root);
+    }
+
+    #[test]
+    /// a b c d e f
+    /// but try to cheat and say e is index 6
+    #[should_panic(expected = "Merkle proof is invalid: left hash matches combined hash")]
+    fn test_merkle_root_with_proof_wrong_idx_b() {
+        let mut transactions: Vec<CircuitTransaction> = vec![];
+        for i in 0u8..6u8 {
+            let tx = Transaction {
+                version: Version::non_standard(i as i32),
+                lock_time: LockTime::ZERO,
+                input: vec![],
+                output: vec![],
+            };
+            transactions.push(CircuitTransaction(tx));
+        }
+        let mut tx_hashes: Vec<[u8; 32]> = vec![];
+        for tx in transactions.iter() {
+            tx_hashes.push(tx.txid());
+        }
+        let tree = BitcoinMerkleTree::new(tx_hashes.clone());
+        let mid_state_tree = BitcoinMerkleTree::new_mid_state(&transactions);
+        let tree_root = tree.root();
+        let mid_state_root = mid_state_tree.root();
+        assert_eq!(tree_root, calculate_sha256(&mid_state_root));
+        let proof = mid_state_tree.generate_proof(4);
+        assert!(verify_merkle_proof(
+            transactions[4].mid_state_txid(),
+            &proof,
+            tree_root
+        ));
+
+        // Now try to cheat and say e is at index 6
+        let idx_path = mid_state_tree.get_idx_path(4); // Get from real index 4
+        let false_proof = BlockInclusionProof::new(6, idx_path);
+        verify_merkle_proof(transactions[4].mid_state_txid(), &false_proof, tree_root);
     }
 }

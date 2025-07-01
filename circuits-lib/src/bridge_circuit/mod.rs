@@ -276,6 +276,13 @@ pub fn verify_watchtower_challenges(circuit_input: &BridgeCircuitInput) -> Watch
         let input = watchtower_input.watchtower_challenge_tx.input[watchtower_input_idx].clone();
 
         let (sighash_type, sig_bytes): (TapSighashType, [u8; 64]) = {
+            // Enforce the witness to be only 1 element, which is the signature
+            if watchtower_input.watchtower_challenge_witness.0.len() != 1 {
+                panic!(
+                    "Invalid witness length, expected 1 element, watchtower index: {}",
+                    watchtower_input.watchtower_idx
+                );
+            }
             let signature = watchtower_input.watchtower_challenge_witness.0.to_vec()[0].clone();
 
             if signature.len() == 64 {

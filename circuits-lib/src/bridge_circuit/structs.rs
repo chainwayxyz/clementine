@@ -317,11 +317,20 @@ impl WatchtowerInput {
             }
         });
 
-        let watchtower_challenge_witness = CircuitWitness::from(
-            watchtower_challenge_tx.input[watchtower_challenge_input_idx as usize]
-                .witness
-                .clone(),
-        );
+        // Get the first witness item, returning an error if it doesn't exist.
+        let Some(signature) = watchtower_challenge_tx.input
+            [watchtower_challenge_input_idx as usize]
+            .witness
+            .nth(0)
+        else {
+            return Err("Watchtower challenge input witness is empty");
+        };
+
+        // The rest of the logic proceeds with the guaranteed `signature`.
+        let mut witness = Witness::new();
+        witness.push(signature);
+
+        let watchtower_challenge_witness = CircuitWitness::from(witness);
 
         for input in &mut watchtower_challenge_tx.input {
             input.witness.clear();
