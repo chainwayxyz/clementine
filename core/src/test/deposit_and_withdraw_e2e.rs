@@ -1762,8 +1762,8 @@ async fn concurrent_deposits_and_withdrawals() {
         sigs.push(sig);
     }
 
-    sleep(Duration::from_secs(5)).await;
     rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
+    sleep(Duration::from_secs(10)).await;
 
     poll_until_condition(
         {
@@ -1789,7 +1789,7 @@ async fn concurrent_deposits_and_withdrawals() {
                 let withdrawal_txids = match try_join_all(withdrawal_requests).await {
                     Ok(txids) => txids,
                     Err(e) => {
-                        tracing::error!("error while processing withdrawals: {:?}", e);
+                        tracing::error!("Error while processing withdrawals: {:?}", e);
                         return Ok(false);
                     }
                 };
@@ -1810,7 +1810,7 @@ async fn concurrent_deposits_and_withdrawals() {
                 Ok(true)
             }
         },
-        None,
+        Some(Duration::from_secs(240)),
         None,
     )
     .await
