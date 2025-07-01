@@ -9,8 +9,8 @@ use crate::errors::BridgeError;
 
 pub mod manager;
 pub mod payout_checker;
-pub mod sync_status;
 pub mod status_monitor;
+pub mod sync_status;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TaskVariant {
