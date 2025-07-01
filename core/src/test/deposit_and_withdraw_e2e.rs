@@ -1586,7 +1586,7 @@ async fn concurrent_deposits_and_withdrawals() {
         config.protocol_paramset().network,
     );
 
-    let count = 1;
+    let count = 10;
     let evm_address = EVMAddress([1; 20]);
 
     // Prepare deposit requests.
@@ -1742,8 +1742,6 @@ async fn concurrent_deposits_and_withdrawals() {
             .insert_withdrawal_utxo(current_block_height + 1, withdrawal_utxo)
             .await;
 
-        // let (withdrawal_utxo, payout_txout, sig) =
-        //     make_withdrawal(&rpc, &config, sequencer, lc_prover, batch_prover, da).await?;
         withdrawal_utxos.push(withdrawal_utxo);
         payout_txouts.push(payout_txout);
         sigs.push(sig);
@@ -1765,7 +1763,7 @@ async fn concurrent_deposits_and_withdrawals() {
 
                 for (i, mut operator) in operator0s.iter_mut().enumerate() {
                     withdrawal_requests.push(operator.withdraw(WithdrawParams {
-                        withdrawal_id: 0,
+                        withdrawal_id: i as u32,
                         input_signature: sigs[i].serialize().to_vec(),
                         input_outpoint: Some(withdrawal_utxos[i].into()),
                         output_script_pubkey: payout_txouts[i].script_pubkey.to_bytes(),
@@ -1775,7 +1773,10 @@ async fn concurrent_deposits_and_withdrawals() {
 
                 let withdrawal_txids = match try_join_all(withdrawal_requests).await {
                     Ok(txids) => txids,
-                    Err(_) => return Ok(false),
+                    Err(e) => {
+                        tracing::error!("error while processing withdrawals: {:?}", e);
+                        return Ok(false);
+                    }
                 };
 
                 let withdrawal_txids: Vec<Txid> = withdrawal_txids
