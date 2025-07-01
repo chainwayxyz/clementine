@@ -303,7 +303,8 @@ pub fn create_kickoff_not_finalized_txhandler(
         )
         .add_input(
             NormalSignatureKind::KickoffNotFinalized2,
-            ready_to_reimburse_txhandler.get_spendable_output(UtxoVout::BurnConnector)?,
+            ready_to_reimburse_txhandler
+                .get_spendable_output(UtxoVout::CollateralInReadyToReimburse)?,
             builder::script::SpendPath::KeySpend,
             DEFAULT_SEQUENCE,
         )

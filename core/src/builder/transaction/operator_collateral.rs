@@ -185,7 +185,7 @@ pub fn create_assert_timeout_txhandlers(
                 )
                 .add_input(
                     (NumberedSignatureKind::AssertTimeout3, idx as i32),
-                    round_txhandler.get_spendable_output(UtxoVout::BurnConnector)?,
+                    round_txhandler.get_spendable_output(UtxoVout::CollateralInRound)?,
                     SpendPath::KeySpend,
                     DEFAULT_SEQUENCE,
                 )
@@ -248,7 +248,8 @@ pub fn create_round_nth_txhandler(
         round_txhandler = create_round_txhandler(
             operator_xonly_pk,
             RoundTxInput::Prevout(Box::new(
-                ready_to_reimburse_txhandler.get_spendable_output(UtxoVout::BurnConnector)?,
+                ready_to_reimburse_txhandler
+                    .get_spendable_output(UtxoVout::CollateralInReadyToReimburse)?,
             )),
             pubkeys.get_keys_for_round(round_idx)?,
             paramset,
@@ -280,7 +281,7 @@ pub fn create_ready_to_reimburse_txhandler(
     operator_xonly_pk: XOnlyPublicKey,
     paramset: &'static ProtocolParamset,
 ) -> Result<TxHandler, BridgeError> {
-    let prevout = round_txhandler.get_spendable_output(UtxoVout::BurnConnector)?;
+    let prevout = round_txhandler.get_spendable_output(UtxoVout::CollateralInRound)?;
     let prev_value = prevout.get_prevout().value;
 
     Ok(TxHandlerBuilder::new(TransactionType::ReadyToReimburse)
@@ -332,7 +333,8 @@ pub fn create_unspent_kickoff_txhandlers(
                 .with_version(Version::non_standard(3))
                 .add_input(
                     (NumberedSignatureKind::UnspentKickoff1, idx as i32),
-                    ready_to_reimburse_txhandler.get_spendable_output(UtxoVout::BurnConnector)?,
+                    ready_to_reimburse_txhandler
+                        .get_spendable_output(UtxoVout::CollateralInReadyToReimburse)?,
                     SpendPath::KeySpend,
                     DEFAULT_SEQUENCE,
                 )
@@ -396,4 +398,72 @@ pub fn create_burn_unused_kickoff_connectors_txhandler(
         builder::transaction::anchor_output(paramset.anchor_amount()),
     ));
     Ok(tx_handler_builder.finalize())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use crate::config::protocol::REGTEST_PARAMSET;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn test_create_round_nth_txhandler_and_round_txhandlers() {
+        // check if round_nth_txhandler and round_txhandlers are consistent with each other
+        let op_xonly_pk = XOnlyPublicKey::from_str(
+            "50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0",
+        )
+        .expect("this key is valid");
+        let paramset = &REGTEST_PARAMSET;
+        let input_outpoint = OutPoint::new(bitcoin::Txid::all_zeros(), 0);
+        let input_amount = Amount::from_sat(10000000000);
+        let mut prev_ready_to_reimburse_txhandler: Option<TxHandler> = None;
+        let pubkeys = KickoffWinternitzKeys::new(
+            vec![vec![[0u8; 20]; 44]; paramset.num_round_txs * paramset.num_kickoffs_per_round],
+            paramset.num_round_txs,
+            paramset.num_kickoffs_per_round,
+        );
+
+        let mut round_tx_input = RoundTxInput::Collateral(input_outpoint, input_amount);
+
+        for i in 0..paramset.num_round_txs {
+            let (round_nth_txhandler, ready_to_reimburse_nth_txhandler) =
+                create_round_nth_txhandler(
+                    op_xonly_pk,
+                    input_outpoint,
+                    input_amount,
+                    RoundIndex::Round(i),
+                    &pubkeys,
+                    &paramset,
+                )
+                .unwrap();
+
+            let round_txhandler = create_round_txhandler(
+                op_xonly_pk,
+                round_tx_input,
+                pubkeys.get_keys_for_round(RoundIndex::Round(i)).unwrap(),
+                &paramset,
+            )
+            .unwrap();
+
+            let ready_to_reimburse_txhandler =
+                create_ready_to_reimburse_txhandler(&round_txhandler, op_xonly_pk, &paramset)
+                    .unwrap();
+
+            assert_eq!(round_nth_txhandler.get_txid(), round_txhandler.get_txid());
+            assert_eq!(
+                ready_to_reimburse_nth_txhandler.get_txid(),
+                ready_to_reimburse_txhandler.get_txid()
+            );
+
+            prev_ready_to_reimburse_txhandler = Some(ready_to_reimburse_txhandler);
+            round_tx_input = RoundTxInput::Prevout(Box::new(
+                prev_ready_to_reimburse_txhandler
+                    .unwrap()
+                    .get_spendable_output(UtxoVout::CollateralInReadyToReimburse)
+                    .unwrap(),
+            ));
+        }
+    }
 }

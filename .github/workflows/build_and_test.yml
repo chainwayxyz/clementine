@@ -2,24 +2,23 @@ name: Build And Test
 
 on: [push]
 
-concurrency: 
+concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ (github.ref != 'refs/heads/main') }}
 
 env:
   CARGO_TERM_COLOR: always
-  AUTOMATION_ARGS: --features automation
-  CARGOFLAGS: --workspace --all-targets
-  CARGOFLAGS_AUTOMATION: --workspace --all-targets --features automation
   RUST_LOG: warn,risc0_zkvm=error,risc0_circuit_rv32im=error
   RISC0_DEV_MODE: 1
-  ENABLE_HEADER_CHAIN_PROVER: 1
   RUST_MIN_STACK: 33554432
 
+  CARGOFLAGS: --workspace --all-targets
+  CARGOFLAGS_ALL_FEATURES: --workspace --all-targets --all-features
+
 jobs:
-  # Build ------------------------------------------------------------------------
-  debug_build_automation:
-    name: Compile code with debug profile (Automation enabled)
+  # Build ----------------------------------------------------------------------
+  debug_build_all_features:
+    name: Debug | All features | Compile
     runs-on: ubicloud-standard-30
 
     steps:
@@ -27,40 +26,34 @@ jobs:
         uses: catchpoint/workflow-telemetry-action@v2
 
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/install-risc0
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
       - uses: ./.github/actions/build-prerequisites
 
-      - name: Save build artifacts
+      - name: Save/restore build artifacts
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "debug-build"
+          shared-key: ${{ runner.os }}-cargo-DEBUG-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
 
       - name: Compile in debug mode
-        run: cargo build $CARGOFLAGS_AUTOMATION --verbose
+        run: cargo build $CARGOFLAGS_ALL_FEATURES
 
-  release_build_automation:
-    name: Compile code with release profile (Automation enabled)
+  release_build_all_features:
+    name: Release | All features | Compile
     runs-on: ubicloud-standard-30
 
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/install-risc0
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
       - uses: ./.github/actions/build-prerequisites
 
-      - name: Save build artifacts
+      - name: Save/restore build artifacts
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "release-build"
+          shared-key: ${{ runner.os }}-cargo-RELEASE-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
 
       - name: Compile in release mode
-        run: cargo build $CARGOFLAGS_AUTOMATION --verbose --release
+        run: cargo build $CARGOFLAGS_ALL_FEATURES --release
 
-  release_build_non_automation:
-    name: Compile code with release profile (Automation disabled)
+  release_build:
+    name: Release | No features | Compile
     runs-on: ubicloud-standard-30
 
     steps:
@@ -68,143 +61,156 @@ jobs:
         uses: catchpoint/workflow-telemetry-action@v2
 
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/install-risc0
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-      - uses: ./.github/actions/build-prerequisites
-
-      - name: Save build artifacts
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: "release-build"
 
       - name: Compile in release mode
-        run: cargo build $CARGOFLAGS --verbose --release
+        run: cargo build $CARGOFLAGS --release
 
-  # Tests ------------------------------------------------------------------------
-  debug_build_test_automation:
-    name: Test code with debug build (Automation enabled)
+  # Full Tests -----------------------------------------------------------------
+  debug_build_test_all_features:
+    name: Debug | All features | Test
     runs-on: ubicloud-standard-30
-    needs: debug_build_automation
-
-    services:
-      postgres:
-        image: postgres:latest
-        env:
-          POSTGRES_DB: clementine
-          POSTGRES_USER: clementine
-          POSTGRES_PASSWORD: clementine
-          POSTGRES_INITDB_ARGS: "-c shared_buffers=8GB -c max_connections=5000"
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-    steps:
-      - name: Collect Workflow Telemetry
-        uses: catchpoint/workflow-telemetry-action@v2
-
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/install-risc0
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-      - uses: ./.github/actions/build-prerequisites
-      - uses: ./.github/actions/test-prerequisites
-
-      - name: Restore cached build artifacts
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: "debug-build"
-
-      - name: Run tests
-        run: cargo test $AUTOMATION_ARGS
-
-  release_build_test_automation:
-    name: Test code with release build (Automation enabled)
-    runs-on: ubicloud-standard-30
-    needs: release_build_automation
-
-    services:
-      postgres:
-        image: postgres:latest
-        env:
-          POSTGRES_DB: clementine
-          POSTGRES_USER: clementine
-          POSTGRES_PASSWORD: clementine
-          POSTGRES_INITDB_ARGS: "-c shared_buffers=8GB -c max_connections=5000"
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-    steps:
-      - name: Collect Workflow Telemetry
-        uses: catchpoint/workflow-telemetry-action@v2
-
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/install-risc0
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-      - uses: ./.github/actions/build-prerequisites
-      - uses: ./.github/actions/test-prerequisites
-
-      - name: Restore cached build artifacts
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: "release-build"
-
-      - name: Run tests
-        run: cargo test --release $AUTOMATION_ARGS
-
-  bridge_circuit_release_build_test:
-    name: Test bridge circuit host code with release build
-    runs-on: ubicloud
-    needs: release_build_automation
+    needs: debug_build_all_features
 
     env:
-      RISC0_DEV_MODE: 0
+      INFO_LOG_FILE: ${{ github.workspace }}/test-logs/debug/debug-all-features-test.log
+
+    services:
+      postgres:
+        image: postgres:latest
+        env:
+          POSTGRES_DB: clementine
+          POSTGRES_USER: clementine
+          POSTGRES_PASSWORD: clementine
+          POSTGRES_INITDB_ARGS: "-c shared_buffers=8GB -c max_connections=5000"
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
       - name: Collect Workflow Telemetry
         uses: catchpoint/workflow-telemetry-action@v2
 
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/install-risc0
+      - uses: ./.github/actions/build-prerequisites
+      - uses: ./.github/actions/test-prerequisites
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Restore cached build artifacts
+      - name: Create test log directories
+        run: mkdir -p test-logs/debug
+
+      - name: Save/restore build artifacts
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "release-build"
+          shared-key: ${{ runner.os }}-cargo-DEBUG-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
 
-      - name: Run tests
-        run: cargo test --release -p bridge-circuit-host bridge_circuit_test -- --ignored
+      - name: Run unit tests
+        run: cargo test_unit
+      - name: Run integration tests
+        run: cargo test_integration
 
-  bridge_additional_disprove_tests_matrix:
-    name: Test additional disprove script ${{ matrix.description_suffix }} with release build
-    runs-on: ubicloud-standard-4
-    needs: release_build_automation
+      - name: Upload test logs
+        if: failure() || cancelled() # Only upload logs if the tests fail or are cancelled
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-test-logs
+          path: test-logs/debug/
+          retention-days: 7
+
+  release_build_test_all_features:
+    name: Release | All features | Test
+    runs-on: ubicloud-standard-30
+    needs: release_build_all_features
+
+    env:
+      INFO_LOG_FILE: ${{ github.workspace }}/test-logs/release/release-all-features-test.log
+
+    services:
+      postgres:
+        image: postgres:latest
+        env:
+          POSTGRES_DB: clementine
+          POSTGRES_USER: clementine
+          POSTGRES_PASSWORD: clementine
+          POSTGRES_INITDB_ARGS: "-c shared_buffers=8GB -c max_connections=5000"
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Collect Workflow Telemetry
+        uses: catchpoint/workflow-telemetry-action@v2
+
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/build-prerequisites
+      - uses: ./.github/actions/test-prerequisites
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create test log directories
+        run: mkdir -p test-logs/release
+
+      - name: Save/restore build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ runner.os }}-cargo-RELEASE-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
+
+      - name: Run unit tests
+        run: cargo test_unit
+      - name: Run integration tests
+        run: cargo test_integration
+
+      - name: Upload test logs
+        if: failure() || cancelled() # Only upload logs if the tests fail or are cancelled
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-test-logs
+          path: test-logs/release/
+          retention-days: 7
+
+  # Matrix (Standalone) Tests --------------------------------------------------
+  standalone_tests:
+    name: Release | All features | Test ${{ matrix.description_suffix }}
+    runs-on: ubicloud-standard-8
+    needs: release_build_all_features
+
+    env:
+      INFO_LOG_FILE: ${{ github.workspace }}/test-logs/standalone/standalone-${{ matrix.test_name }}-test.log
+
     strategy:
       fail-fast: false
       matrix:
         include:
-          - test_script_name: additional_disprove_script_test_healthy
-            description_suffix: "healthy path"
           - test_script_name: additional_disprove_script_test_disrupted_payout_tx_block_hash
-            description_suffix: "disrupted payout tx blockhash path"
+            description_suffix: "Add. disprove disrupted payout tx blockhash path"
+            test_name: "additional-disrupted-payout"
           - test_script_name: additional_disprove_script_test_disrupt_chal_sending_wts
-            description_suffix: "disrupted challenge sending watchtowers path"
+            description_suffix: "Add. disprove disrupted challenge sending watchtowers path"
+            test_name: "additional-disrupted-chal-sending-wts"
           - test_script_name: additional_disprove_script_test_operator_forgot_wt_challenge
-            description_suffix: "operator forgot watchtower challenge path"
+            description_suffix: "Add. disprove operator forgot watchtower challenge path"
+            test_name: "additional-forgot-challenge"
           - test_script_name: additional_disprove_script_test_disrupted_latest_block_hash
-            description_suffix: "disrupted latest blockhash path"
+            description_suffix: "Add. disprove disrupted latest blockhash path"
+            test_name: "additional-disrupted-latest-blockhash"
+          - test_script_name: bitvm_disprove_scripts::disprove_script_test_healthy
+            description_suffix: "Disprove healthy path"
+            test_name: "disprove-healthy"
+          - test_script_name: bitvm_disprove_scripts::disprove_script_test_corrupted_assert
+            description_suffix: "Disprove disrupted assert path"
+            test_name: "disprove-corrupted-assert"
+          - test_script_name: bitvm_disprove_scripts::citrea_deposit_and_withdraw_e2e_non_zero_genesis_height
+            description_suffix: "E2E non-zero genesis height"
+            test_name: "citrea-deposit-and-withdraw-non-zero-genesis-height"
+
     services:
       postgres:
         image: postgres:latest
@@ -226,106 +232,93 @@ jobs:
         uses: catchpoint/workflow-telemetry-action@v2
 
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/install-risc0
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
       - uses: ./.github/actions/build-prerequisites
       - uses: ./.github/actions/test-prerequisites
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Restore cached build artifacts
+      - name: Create test log directories
+        run: mkdir -p test-logs/standalone
+
+      - name: Save/restore build artifacts
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "release-build"
+          shared-key: ${{ runner.os }}-cargo-RELEASE-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
 
       - name: Run tests
-        run: cargo test ${{ matrix.test_script_name }} --features automation --release  -- --ignored
+        run: cargo test ${{ matrix.test_script_name }} $CARGOFLAGS_ALL_FEATURES --release -- --ignored
 
-  bridge_disprove_tests_matrix:
-    name: Test disprove script ${{ matrix.description_suffix }} with release build
-    runs-on: ubicloud-standard-30
-    needs: release_build_automation
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - test_script_name: bitvm_disprove_scripts::disprove_script_test_healthy
-            description_suffix: "healthy path"
-          - test_script_name: bitvm_disprove_scripts::disprove_script_test_corrupted_assert
-            description_suffix: "disrupted assert path"
-    services:
-      postgres:
-        image: postgres:latest
-        env:
-          POSTGRES_DB: clementine
-          POSTGRES_USER: clementine
-          POSTGRES_PASSWORD: clementine
-          POSTGRES_INITDB_ARGS: "-c shared_buffers=8GB -c max_connections=5000"
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-    steps:
-      - name: Collect Workflow Telemetry
-        uses: catchpoint/workflow-telemetry-action@v2
-
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/install-risc0
+      - name: Upload test logs
+        if: failure() || cancelled() # Only upload logs if the tests fail or are cancelled
+        uses: actions/upload-artifact@v4
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-      - uses: ./.github/actions/build-prerequisites
-      - uses: ./.github/actions/test-prerequisites
+          name: standalone-test-logs-${{ matrix.test_name }}
+          path: test-logs/standalone/
+          retention-days: 7
 
-      - name: Restore cached build artifacts
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: "release-build"
+  # Coverage -------------------------------------------------------------------
 
-      - name: Run tests
-        run: cargo test ${{ matrix.test_script_name }} --features automation --release  -- --ignored
+  # TODO: Coverage fails on debug and never finished on release. Fix this.
+  # Debug fail example: https://github.com/chainwayxyz/clementine/actions/runs/15879411921/job/44776576078
+  # Release fail example: https://github.com/chainwayxyz/clementine/actions/runs/15904689027/job/44857185740
 
-  coverage:
-    name: Coverage checks with Codecov
-    runs-on: ubicloud-standard-30
-    needs: debug_build_test_automation
-    if: github.event.pull_request.draft == false
+  # coverage:
+  #   name: Release | All features | Coverage
+  #   runs-on: ubicloud-standard-30
+  #   needs: release_build_all_features
+  #   if: github.ref_name == 'main' || (github.event_name == 'pull_request' && !github.event.pull_request.draft)
 
-    services:
-      postgres:
-        image: postgres:latest
-        env:
-          POSTGRES_DB: clementine
-          POSTGRES_USER: clementine
-          POSTGRES_PASSWORD: clementine
-          POSTGRES_INITDB_ARGS: "-c shared_buffers=8GB -c max_connections=5000"
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+  #   env:
+  #     INFO_LOG_FILE: ${{ github.workspace }}/test-logs/coverage/coverage-test.log
 
-    steps:
-      - name: Collect Workflow Telemetry
-        uses: catchpoint/workflow-telemetry-action@v2
+  #   services:
+  #     postgres:
+  #       image: postgres:latest
+  #       env:
+  #         POSTGRES_DB: clementine
+  #         POSTGRES_USER: clementine
+  #         POSTGRES_PASSWORD: clementine
+  #         POSTGRES_INITDB_ARGS: "-c shared_buffers=8GB -c max_connections=5000"
+  #       ports:
+  #         - 5432:5432
+  #       options: >-
+  #         --health-cmd pg_isready
+  #         --health-interval 10s
+  #         --health-timeout 5s
+  #         --health-retries 5
+  #   steps:
+  #     - name: Collect Workflow Telemetry
+  #       uses: catchpoint/workflow-telemetry-action@v2
 
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/install-risc0
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-      - uses: ./.github/actions/build-prerequisites
-      - uses: ./.github/actions/test-prerequisites
-      - uses: taiki-e/install-action@cargo-llvm-cov
+  #     - uses: actions/checkout@v4
+  #     - uses: ./.github/actions/build-prerequisites
+  #     - uses: ./.github/actions/test-prerequisites
+  #       with:
+  #         github_token: ${{ secrets.GITHUB_TOKEN }}
+  #     - uses: taiki-e/install-action@cargo-llvm-cov
 
-      - name: Run coverage
-        run: cargo llvm-cov $AUTOMATION_ARGS --locked --lcov --output-path lcov.info
-      - name: Upload coverage
-        uses: codecov/codecov-action@v4
-        with:
-          fail_ci_if_error: true # optional (default = false)
-          files: ./lcov.info
-          token: ${{ secrets.CODECOV_TOKEN }}
+  #     - name: Create test log directories
+  #       run: mkdir -p test-logs/coverage
+
+  #     - name: Save/restore build artifacts
+  #       uses: Swatinem/rust-cache@v2
+  #       with:
+  #         shared-key: ${{ runner.os }}-cargo-RELEASE-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
+
+  #     - name: Run coverage
+  #       run: cargo llvm-cov $CARGOFLAGS_ALL_FEATURES --release --lcov --locked --output-path lcov.info -- --test-threads 6
+
+  #     - name: Upload coverage
+  #       uses: codecov/codecov-action@v4
+  #       with:
+  #         fail_ci_if_error: true # optional (default = false)
+  #         files: ./lcov.info
+  #         token: ${{ secrets.CODECOV_TOKEN }}
+
+  #     - name: Upload test logs
+  #       if: failure() || cancelled() # Only upload logs if the tests fail or are cancelled
+  #       uses: actions/upload-artifact@v4
+  #       with:
+  #         name: coverage-test-logs
+  #         path: test-logs/coverage/
+  #         retention-days: 7

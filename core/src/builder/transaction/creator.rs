@@ -599,7 +599,7 @@ pub async fn create_txhandlers(
         operator_data.xonly_pk,
         RoundTxInput::Prevout(Box::new(
             get_txhandler(&txhandlers, TransactionType::ReadyToReimburse)?
-                .get_spendable_output(UtxoVout::BurnConnector)?,
+                .get_spendable_output(UtxoVout::CollateralInReadyToReimburse)?,
         )),
         kickoff_winternitz_keys.get_keys_for_round(round_idx.next_round())?,
         paramset,
@@ -673,7 +673,20 @@ pub async fn create_txhandlers(
     );
 
     tracing::debug!(
-        "Deposit constant for {:?}: {:?} - depoist outpoint: {:?}",
+        target: "ci",
+        "Create txhandlers - Genesis height: {:?}, operator_xonly_pk: {:?}, move_txid: {:?}, round_txid: {:?}, vout: {:?}, watchtower_challenge_start_idx: {:?}, genesis_chain_state_hash: {:?}, deposit_constant: {:?}",
+        context.paramset.genesis_height,
+        operator_xonly_pk,
+        move_txid,
+        round_txid,
+        vout,
+        watchtower_challenge_start_idx,
+        context.paramset.genesis_chain_state_hash,
+        deposit_constant.0,
+    );
+
+    tracing::debug!(
+        "Deposit constant for {:?}: {:?} - deposit outpoint: {:?}",
         operator_xonly_pk,
         deposit_constant.0,
         deposit_data.get_deposit_outpoint(),
@@ -684,6 +697,12 @@ pub async fn create_txhandlers(
         .get(kickoff_data.kickoff_idx as usize)
         .ok_or(TxError::IndexOverflow)?
         .clone();
+
+    tracing::debug!(
+        target: "ci",
+        "Payout tx blockhash pk: {:?}",
+        payout_tx_blockhash_pk
+    );
 
     let additional_disprove_script = db_cache
         .get_replaceable_additional_disprove_script()
@@ -956,7 +975,7 @@ pub fn create_round_txhandlers(
                 operator_data.xonly_pk,
                 RoundTxInput::Prevout(Box::new(
                     prev_ready_to_reimburse_txhandler
-                        .get_spendable_output(UtxoVout::BurnConnector)?,
+                        .get_spendable_output(UtxoVout::CollateralInReadyToReimburse)?,
                 )),
                 kickoff_winternitz_keys.get_keys_for_round(round_idx)?,
                 paramset,
@@ -1272,13 +1291,14 @@ mod tests {
         try_join_all(verifier_task_handles).await.unwrap();
     }
 
+    #[cfg(feature = "automation")]
     #[tokio::test(flavor = "multi_thread")]
     async fn test_deposit_and_sign_txs() {
         let mut config = create_test_config_with_thread_name().await;
         let WithProcessCleanup(_, ref rpc, _, _) = create_regtest_rpc(&mut config).await;
 
         let (verifiers, operators, _, _cleanup, deposit_params, _, deposit_blockhash, _) =
-            run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None)
+            run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None)
                 .await
                 .unwrap();
 

@@ -3,15 +3,25 @@ use crate::errors::BridgeError;
 use crate::operator::RoundIndex;
 use crate::rpc::clementine::VergenResponse;
 use bitcoin::{OutPoint, TapNodeHash, XOnlyPublicKey};
+use eyre::Context as _;
+use futures::future::try_join_all;
 use http::HeaderValue;
 use serde::{Deserialize, Serialize};
-use std::fmt::Debug;
+use std::env;
+use std::fmt::{Debug, Display};
+use std::fs::File;
+use std::future::Future;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::{Context, Poll};
+use std::time::Duration;
+use tokio::time::timeout;
+use tonic::Status;
 use tower::{Layer, Service};
 use tracing::level_filters::LevelFilter;
+use tracing::{debug_span, Instrument, Subscriber};
 use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::{fmt, EnvFilter, Registry};
+use tracing_subscriber::{fmt, EnvFilter, Layer as TracingLayer, Registry};
 
 /// Initializes `tracing` as the logger.
 ///
@@ -27,7 +37,102 @@ use tracing_subscriber::{fmt, EnvFilter, Registry};
 /// Returns `Err` if `tracing` can't be initialized. Multiple subscription error
 /// is emitted and will return `Ok(())`.
 pub fn initialize_logger(level: Option<LevelFilter>) -> Result<(), BridgeError> {
-    // Configure JSON formatting with additional fields
+    let is_ci = std::env::var("CI")
+        .map(|v| v == "true" || v == "1")
+        .unwrap_or(false);
+
+    if is_ci {
+        let info_log_file = std::env::var("INFO_LOG_FILE").ok();
+        if let Some(file_path) = info_log_file {
+            let subscriber = env_subscriber_with_file(&file_path)?;
+            try_set_global_subscriber(subscriber)?;
+        } else {
+            tracing::warn!(
+                "CI is set but INFO_LOG_FILE is missing, only console logs will be used."
+            );
+            let subscriber = env_subscriber_to_human(level);
+            try_set_global_subscriber(subscriber)?;
+        }
+    } else {
+        let subscriber: Box<dyn Subscriber + Send + Sync> = if is_json_logs() {
+            Box::new(env_subscriber_to_json(level))
+        } else {
+            Box::new(env_subscriber_to_human(level))
+        };
+        try_set_global_subscriber(subscriber)?;
+    }
+
+    tracing::info!("Tracing initialized successfully.");
+    Ok(())
+}
+
+fn try_set_global_subscriber<S>(subscriber: S) -> Result<(), BridgeError>
+where
+    S: Subscriber + Send + Sync + 'static,
+{
+    match tracing::subscriber::set_global_default(subscriber) {
+        Ok(_) => Ok(()),
+        Err(e) if e.to_string() == "a global default trace dispatcher has already been set" => {
+            tracing::info!("Tracing is already initialized, skipping without errors...");
+            Ok(())
+        }
+        Err(e) => Err(BridgeError::ConfigError(e.to_string())),
+    }
+}
+
+fn env_subscriber_with_file(path: &str) -> Result<Box<dyn Subscriber + Send + Sync>, BridgeError> {
+    if let Some(parent_dir) = std::path::Path::new(path).parent() {
+        std::fs::create_dir_all(parent_dir).map_err(|e| {
+            BridgeError::ConfigError(format!(
+                "Failed to create log directory '{}': {}",
+                parent_dir.display(),
+                e
+            ))
+        })?;
+    }
+
+    let file = File::create(path).map_err(|e| BridgeError::ConfigError(e.to_string()))?;
+
+    let file_filter = EnvFilter::from_default_env()
+        .add_directive("info".parse().expect("It should parse info level"))
+        .add_directive("ci=debug".parse().expect("It should parse ci debug level"));
+
+    let console_filter = EnvFilter::builder()
+        .with_default_directive(LevelFilter::WARN.into())
+        .from_env_lossy();
+
+    let file_layer = fmt::layer()
+        .with_writer(file)
+        .with_ansi(false)
+        .with_file(true)
+        .with_line_number(true)
+        .with_target(true)
+        .with_thread_ids(true)
+        .with_thread_names(true)
+        .with_filter(file_filter)
+        .boxed();
+
+    let console_layer = fmt::layer()
+        .with_test_writer()
+        .with_file(true)
+        .with_line_number(true)
+        .with_target(true)
+        .with_filter(console_filter)
+        .boxed();
+
+    Ok(Box::new(
+        Registry::default().with(file_layer).with(console_layer),
+    ))
+}
+
+fn env_subscriber_to_json(level: Option<LevelFilter>) -> Box<dyn Subscriber + Send + Sync> {
+    let filter = match level {
+        Some(lvl) => EnvFilter::builder()
+            .with_default_directive(lvl.into())
+            .from_env_lossy(),
+        None => EnvFilter::from_default_env(),
+    };
+
     let json_layer = fmt::layer::<Registry>()
         .with_test_writer()
         // .with_timer(time::UtcTime::rfc_3339())
@@ -36,49 +141,43 @@ pub fn initialize_logger(level: Option<LevelFilter>) -> Result<(), BridgeError> 
         .with_thread_ids(true)
         .with_thread_names(true)
         .with_target(true)
-        // .with_current_span(true)
-        // .with_span_list(true)
         .json();
+    // .with_current_span(true)z
+    // .with_span_list(true)
+    // To see how long each span takes, uncomment this.
+    // .with_span_events(FmtSpan::CLOSE)
 
-    // Standard human-readable layer for non-JSON output
+    Box::new(tracing_subscriber::registry().with(json_layer).with(filter))
+}
+
+fn env_subscriber_to_human(level: Option<LevelFilter>) -> Box<dyn Subscriber + Send + Sync> {
+    let filter = match level {
+        Some(lvl) => EnvFilter::builder()
+            .with_default_directive(lvl.into())
+            .from_env_lossy(),
+        None => EnvFilter::from_default_env(),
+    };
+
     let standard_layer = fmt::layer()
         .with_test_writer()
         // .with_timer(time::UtcTime::rfc_3339())
         .with_file(true)
         .with_line_number(true)
+        // To see how long each span takes, uncomment this.
+        // .with_span_events(FmtSpan::CLOSE)
         .with_target(true);
 
-    let filter = match level {
-        Some(level) => EnvFilter::builder()
-            .with_default_directive(level.into())
-            .from_env_lossy(),
-        None => EnvFilter::from_default_env(),
-    };
+    Box::new(
+        tracing_subscriber::registry()
+            .with(standard_layer)
+            .with(filter),
+    )
+}
 
-    // Try to initialize tracing, depending on the `JSON_LOGS` env var
-    let res = if std::env::var("JSON_LOGS").is_ok() {
-        tracing_subscriber::util::SubscriberInitExt::try_init(
-            tracing_subscriber::registry().with(json_layer).with(filter),
-        )
-    } else {
-        tracing_subscriber::util::SubscriberInitExt::try_init(
-            tracing_subscriber::registry()
-                .with(standard_layer)
-                .with(filter),
-        )
-    };
-
-    if let Err(e) = res {
-        // If it failed because of a re-initialization, do not care about
-        // the error.
-        if e.to_string() != "a global default trace dispatcher has already been set" {
-            return Err(BridgeError::ConfigError(e.to_string()));
-        }
-
-        tracing::trace!("Tracing is already initialized, skipping without errors...");
-    };
-
-    Ok(())
+fn is_json_logs() -> bool {
+    std::env::var("LOG_FORMAT")
+        .map(|v| v.eq_ignore_ascii_case("json"))
+        .unwrap_or(false)
 }
 
 pub fn get_vergen_response() -> VergenResponse {
@@ -363,6 +462,9 @@ pub enum FeePayingType {
     /// version that includes a higher fee. The original transaction must signal
     /// RBF enablement (e.g., via nSequence). Bitcoin Core's `bumpfee` RPC is often used.
     RBF,
+    /// The transaction has already been funded and no fee is needed.
+    /// Currently used for disprove tx as it has operator's collateral as input.
+    NoFunding,
 }
 
 /// Information to re-sign an RBF transaction.
@@ -376,6 +478,8 @@ pub enum FeePayingType {
 pub struct RbfSigningInfo {
     pub vout: u32,
     pub tweak_merkle_root: Option<TapNodeHash>,
+    #[cfg(test)]
+    pub annex: Option<Vec<u8>>,
 }
 pub trait Last20Bytes {
     fn last_20_bytes(self) -> [u8; 20];
@@ -386,5 +490,163 @@ impl Last20Bytes for [u8; 32] {
         let mut result = [0u8; 20];
         result.copy_from_slice(&self[12..32]);
         result
+    }
+}
+
+/// Wraps a future with a timeout, returning a `Status::deadline_exceeded` gRPC error
+/// if the future does not complete within the specified duration.
+///
+/// This is useful for enforcing timeouts on individual asynchronous operations,
+/// especially those involving network requests, to prevent them from hanging indefinitely.
+///
+/// # Arguments
+///
+/// * `duration`: The maximum `Duration` to wait for the future to complete.
+/// * `description`: A string slice describing the operation, used in the timeout error message.
+/// * `future`: The `Future` to execute. The future should return a `Result<T, BridgeError>`.
+///
+/// # Returns
+///
+/// Returns `Ok(T)` if the future completes successfully within the time limit.
+/// Returns `Err(BridgeError)` if the future returns an error or if it times out.
+/// A timeout results in a `BridgeError` that wraps a `tonic::Status::deadline_exceeded`.
+pub async fn timed_request<F, T>(
+    duration: Duration,
+    description: &str,
+    future: F,
+) -> Result<T, BridgeError>
+where
+    F: Future<Output = Result<T, BridgeError>>,
+{
+    timeout(duration, future)
+        .instrument(debug_span!("timed_request", description = description))
+        .await
+        .map_err(|_| Status::deadline_exceeded(format!("{} timed out", description)))?
+}
+
+/// Concurrently executes a collection of futures, applying a timeout to each one individually.
+/// If any future fails or times out, the entire operation is aborted and an error is returned.
+///
+/// This utility is an extension of `futures::future::try_join_all` with added per-future
+/// timeout logic and improved error reporting using optional IDs.
+///
+/// # Type Parameters
+///
+/// * `I`: An iterator that yields futures.
+/// * `T`: The success type of the futures.
+/// * `D`: A type that can be displayed, used for identifying futures in error messages.
+///
+/// # Arguments
+///
+/// * `duration`: The timeout `Duration` applied to each individual future in the iterator.
+/// * `description`: A string slice describing the collective operation, used in timeout error messages.
+/// * `ids`: An optional `Vec<D>` of identifiers corresponding to each future. If provided,
+///   these IDs are used in error messages to specify which future failed or timed out.
+/// * `iter`: An iterator producing the futures to be executed.
+///
+/// # Returns
+///
+/// Returns `Ok(Vec<T>)` containing the results of all futures if they all complete successfully.
+/// Returns `Err(BridgeError)` if any future returns an error or times out.
+/// The error will be contextualized with the operation description and the specific future's ID if available.
+pub async fn timed_try_join_all<I, T, D>(
+    duration: Duration,
+    description: &str,
+    ids: Option<Vec<D>>,
+    iter: I,
+) -> Result<Vec<T>, BridgeError>
+where
+    D: Display,
+    I: IntoIterator,
+    I::Item: Future<Output = Result<T, BridgeError>>,
+{
+    let ids = Arc::new(ids);
+    try_join_all(iter.into_iter().enumerate().map(|item| {
+        let ids = ids.clone();
+        async move {
+            let id = Option::as_ref(&ids).map(|ids| ids.get(item.0)).flatten();
+
+            timeout(duration, item.1)
+                .await
+                .map_err(|_| {
+                    Status::deadline_exceeded(format!(
+                        "{} (id: {}) timed out",
+                        description,
+                        id.map(|id| id.to_string())
+                            .unwrap_or_else(|| "n/a".to_string())
+                    ))
+                })?
+                // Add the id to the error chain for easier debugging for other errors.
+                .wrap_err_with(|| {
+                    format!(
+                        "Failed to join {}",
+                        id.map(ToString::to_string).unwrap_or_else(|| "n/a".into())
+                    )
+                })
+                .map_err(Into::into)
+        }
+    }))
+    .instrument(debug_span!("timed_try_join_all", description = description))
+    .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::io::Read;
+    use tempfile::NamedTempFile;
+    use tracing::level_filters::LevelFilter;
+
+    #[test]
+    #[ignore = "This test changes environment variables so it should not be run in CI since it might affect other tests."]
+    fn test_ci_logging_setup() {
+        let temp_file = NamedTempFile::new().expect("Failed to create temp file");
+        let temp_path = temp_file.path().to_string_lossy().to_string();
+
+        std::env::set_var("CI", "true");
+        std::env::set_var("INFO_LOG_FILE", &temp_path);
+
+        let result = initialize_logger(Some(LevelFilter::DEBUG));
+        assert!(result.is_ok(), "Logger initialization should succeed");
+
+        tracing::error!("Test error message");
+        tracing::warn!("Test warn message");
+        tracing::info!("Test info message");
+        tracing::debug!(target: "ci", "Test CI debug message");
+        tracing::debug!("Test debug message");
+
+        std::thread::sleep(std::time::Duration::from_millis(100));
+
+        let mut file_contents = String::new();
+        let mut file = fs::File::open(&temp_path).expect("Failed to open log file");
+        file.read_to_string(&mut file_contents)
+            .expect("Failed to read log file");
+
+        assert!(
+            file_contents.contains("Test error message"),
+            "Error message should be in file"
+        );
+        assert!(
+            file_contents.contains("Test warn message"),
+            "Warn message should be in file"
+        );
+        assert!(
+            file_contents.contains("Test info message"),
+            "Info message should be in file"
+        );
+
+        assert!(
+            file_contents.contains("Test CI debug message"),
+            "Debug message for CI should be in file"
+        );
+
+        assert!(
+            !file_contents.contains("Test debug message"),
+            "Debug message should not be in file"
+        );
+
+        std::env::remove_var("CI");
+        std::env::remove_var("INFO_LOG_FILE");
     }
 }

@@ -1,4 +1,8 @@
-use super::common::{create_actors, create_test_config_with_thread_name, tx_utils::*};
+//! # Flow Tests
+//!
+//! This module contains tests that simulate typical flows of Clementine.
+
+use super::common::{create_test_config_with_thread_name, tx_utils::*};
 use crate::actor::Actor;
 use crate::bitvm_client::{self};
 use crate::builder::transaction::input::UtxoVout;
@@ -13,16 +17,12 @@ use crate::operator::RoundIndex;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
 use crate::rpc::clementine::SendMoveTxRequest;
-use crate::rpc::clementine::{
-    Deposit, Empty, FinalizedPayoutParams, SignedTxsWithType, TransactionRequest,
-};
+use crate::rpc::clementine::{Empty, FinalizedPayoutParams, SignedTxsWithType, TransactionRequest};
 use crate::test::common::citrea::MockCitreaClient;
 use crate::test::common::*;
 use crate::tx_sender::TxSenderClient;
 use crate::utils::RbfSigningInfo;
-use crate::EVMAddress;
 use bitcoin::hashes::Hash;
-use bitcoin::secp256k1::PublicKey;
 use bitcoin::{OutPoint, Transaction, Txid, XOnlyPublicKey};
 use bitcoincore_rpc::RpcApi;
 use eyre::{Context, Result};
@@ -30,6 +30,7 @@ use tonic::Request;
 
 const BLOCKS_PER_DAY: u64 = 144;
 
+/// Makes a deposit and returns the necessary clients and parameters for further testing.
 async fn base_setup(
     config: &mut BridgeConfig,
     rpc: &ExtendedRpc,
@@ -47,17 +48,17 @@ async fn base_setup(
     ),
     eyre::Error,
 > {
-    tracing::info!("Setting up environment and actors");
-    let (verifiers, mut operators, mut aggregator, cleanup) =
-        create_actors::<MockCitreaClient>(config).await;
-
-    tracing::info!("Setting up aggregator");
-    let verifiers_public_keys: Vec<PublicKey> = aggregator
-        .setup(Request::new(Empty {}))
-        .await?
-        .into_inner()
-        .try_into()
-        .unwrap();
+    let (
+        verifiers,
+        mut operators,
+        mut _aggregator,
+        cleanup,
+        deposit_info,
+        _move_txid,
+        deposit_blockhash,
+        _verifiers_public_keys,
+    ) = run_single_deposit::<MockCitreaClient>(config, rpc.clone(), None, None).await?;
+    let deposit_outpoint = deposit_info.deposit_outpoint;
 
     let mut tx_senders = Vec::new();
     for i in 0..verifiers.len() {
@@ -69,57 +70,11 @@ async fn base_setup(
         let tx_sender_db = Database::new(&verifier_config)
             .await
             .expect("failed to create database");
+
         let tx_sender = TxSenderClient::new(tx_sender_db.clone(), format!("full_flow_{}", i));
         tx_senders.push(tx_sender);
     }
-    let evm_address = EVMAddress([1u8; 20]);
-    let (deposit_address, _) =
-        get_deposit_address(config, evm_address, verifiers_public_keys.clone())?;
-    tracing::info!("Generated deposit address: {}", deposit_address);
-    let recovery_taproot_address = Actor::new(
-        config.secret_key,
-        config.winternitz_secret_key,
-        config.protocol_paramset().network,
-    )
-    .address;
-    let withdrawal_amount = config.protocol_paramset().bridge_amount.to_sat()
-        - (2 * config
-            .operator_withdrawal_fee_sats
-            .expect("exists in test config")
-            .to_sat());
-    tracing::info!("Withdrawal amount set to: {} sats", withdrawal_amount);
-    tracing::info!("Making deposit transaction");
-    let deposit_outpoint = rpc
-        .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
-        .await?;
-    rpc.mine_blocks(18).await?;
-    tracing::info!("Deposit transaction mined: {}", deposit_outpoint);
 
-    let deposit_info = DepositInfo {
-        deposit_outpoint: deposit_outpoint.clone(),
-        deposit_type: DepositType::BaseDeposit(BaseDepositData {
-            evm_address,
-            recovery_taproot_address: recovery_taproot_address.as_unchecked().to_owned(),
-        }),
-    };
-
-    let dep_params: Deposit = deposit_info.clone().into();
-
-    tracing::info!("Creating move transaction");
-    let raw_move_tx = aggregator.new_deposit(dep_params).await?.into_inner();
-
-    let move_txid: Txid = aggregator
-        .send_move_to_vault_tx(Request::new(SendMoveTxRequest {
-            raw_tx: Some(raw_move_tx),
-            deposit_outpoint: Some(deposit_outpoint.into()),
-        }))
-        .await?
-        .into_inner()
-        .try_into()
-        .unwrap();
-
-    ensure_tx_onchain(rpc, move_txid).await?;
-    tracing::info!("Move transaction sent: {:x?}", move_txid);
     let op0_xonly_pk = Actor::new(
         config
             .test_params
@@ -131,7 +86,6 @@ async fn base_setup(
         config.protocol_paramset().network,
     )
     .xonly_public_key;
-    let deposit_blockhash = rpc.get_blockhash_of_tx(&deposit_outpoint.txid).await?;
     let kickoff_idx = get_kickoff_utxos_to_sign(
         config.protocol_paramset(),
         op0_xonly_pk,
@@ -153,6 +107,7 @@ async fn base_setup(
         .internal_create_signed_txs(base_tx_req.clone())
         .await?
         .into_inner();
+
     Ok((
         operators,
         verifiers,
@@ -167,72 +122,21 @@ async fn base_setup(
 }
 
 pub async fn run_operator_end_round(
-    config: BridgeConfig,
+    config: &mut BridgeConfig,
     rpc: ExtendedRpc,
     is_challenge: bool,
 ) -> Result<()> {
-    // Setup environment and actors
-    tracing::info!("Setting up environment and actors");
-    let (mut verifiers, mut operators, mut aggregator, _cleanup) =
-        create_actors::<MockCitreaClient>(&config).await;
-
-    // Setup Aggregator
-    tracing::info!("Setting up aggregator");
-    let verifiers_public_keys: Vec<PublicKey> = aggregator
-        .setup(Request::new(Empty {}))
-        .await?
-        .into_inner()
-        .try_into()
-        .unwrap();
-
-    let evm_address = EVMAddress([1u8; 20]);
-    let (deposit_address, _) =
-        get_deposit_address(&config, evm_address, verifiers_public_keys.clone())?;
-    tracing::info!("Generated deposit address: {}", deposit_address);
-
-    let recovery_taproot_address = Actor::new(
-        config.secret_key,
-        config.winternitz_secret_key,
-        config.protocol_paramset().network,
-    )
-    .address;
-
-    // Make Deposit
-    tracing::info!("Making deposit transaction");
-    let deposit_outpoint = rpc
-        .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
-        .await?;
-    rpc.mine_blocks(18).await?;
-    tracing::info!("Deposit transaction mined: {}", deposit_outpoint);
-
-    let deposit_info = DepositInfo {
-        deposit_outpoint: deposit_outpoint.clone(),
-        deposit_type: DepositType::BaseDeposit(BaseDepositData {
-            evm_address,
-            recovery_taproot_address: recovery_taproot_address.as_unchecked().to_owned(),
-        }),
-    };
-
-    let dep_params: Deposit = deposit_info.into();
-
-    tracing::info!("Creating move transaction");
-    let raw_move_tx = aggregator.new_deposit(dep_params).await?.into_inner();
-    let move_txid = aggregator
-        .send_move_to_vault_tx(SendMoveTxRequest {
-            deposit_outpoint: Some(deposit_outpoint.into()),
-            raw_tx: Some(raw_move_tx),
-        })
-        .await?
-        .into_inner()
-        .try_into()
-        .unwrap();
-
-    tracing::info!(
-        "Move transaction sent, waiting for on-chain confirmation: {:x?}",
-        move_txid
-    );
-
-    ensure_tx_onchain(&rpc, move_txid).await?;
+    let (
+        mut verifiers,
+        mut operators,
+        mut _aggregator,
+        _cleanup,
+        deposit_info,
+        move_txid,
+        _deposit_blockhash,
+        _verifiers_public_keys,
+    ) = run_single_deposit::<MockCitreaClient>(config, rpc.clone(), None, None).await?;
+    let deposit_outpoint = deposit_info.deposit_outpoint;
 
     let kickoff_txid = operators[0]
         .internal_finalized_payout(FinalizedPayoutParams {
@@ -269,6 +173,7 @@ pub async fn run_operator_end_round(
         }
     };
     ensure_outpoint_spent(&rpc, wait_to_be_spent).await?;
+
     Ok(())
 }
 
@@ -778,110 +683,6 @@ pub async fn run_bad_path_3(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
     Ok(())
 }
 
-// After a challenge, state machine should automatically send:
-// Watchtower challenges and operator asserts
-pub async fn run_challenge_with_state_machine(
-    config: &mut BridgeConfig,
-    rpc: ExtendedRpc,
-) -> Result<()> {
-    let (
-        mut operators,
-        _verifiers,
-        tx_senders,
-        _deposit_info,
-        _kickoff_idx,
-        base_tx_req,
-        all_txs,
-        _cleanup,
-        _op0_xonly_pk,
-    ) = base_setup(config, &rpc).await?;
-
-    let tx_sender = tx_senders[0].clone();
-
-    // Send Round Transaction
-    tracing::info!("Sending round transaction");
-    send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Round).await?;
-
-    // Send Kickoff Transaction
-    tracing::info!("Sending kickoff transaction");
-    send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Kickoff).await?;
-
-    // Send Challenge Transaction
-    send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Challenge).await?;
-
-    let kickoff_tx = get_tx_from_signed_txs_with_type(&all_txs, TxType::Kickoff)?;
-    let kickoff_txid = kickoff_tx.compute_txid();
-
-    let watchtower_challenge_utxos = (0.._verifiers.len()).map(|i| OutPoint {
-        txid: kickoff_txid,
-        vout: UtxoVout::WatchtowerChallenge(i).get_vout(),
-    });
-
-    let watchtower_challenge_timeout_txids = (0.._verifiers.len())
-        .map(|i| {
-            let wtc =
-                get_tx_from_signed_txs_with_type(&all_txs, TxType::WatchtowerChallengeTimeout(i))
-                    .unwrap();
-            wtc.compute_txid()
-        })
-        .collect::<Vec<Txid>>();
-
-    // wait for necessary amount of blocks
-    rpc.mine_blocks(config.protocol_paramset().time_to_send_watchtower_challenge as u64)
-        .await?;
-
-    tracing::info!("Checking if watchtower challenge utxos were spent");
-    // check if watchtower challenge utxos were spent
-    for outpoint in watchtower_challenge_utxos {
-        ensure_outpoint_spent(&rpc, outpoint).await?;
-    }
-
-    tracing::info!("Checking if watchtower challenge timeouts were not sent");
-    // check if watchtower challenge timeouts were not sent
-    for txid in watchtower_challenge_timeout_txids {
-        assert!(!rpc.is_tx_on_chain(&txid).await?);
-    }
-
-    let latest_blockhash_outpoint = OutPoint {
-        txid: kickoff_txid,
-        vout: UtxoVout::LatestBlockhash.get_vout(),
-    };
-
-    ensure_outpoint_spent(&rpc, latest_blockhash_outpoint).await?;
-
-    // check if latest blockhash timeout was not sent
-    let latest_blockhash_timeout_txid =
-        get_tx_from_signed_txs_with_type(&all_txs, TxType::LatestBlockhashTimeout)?.compute_txid();
-    assert!(!rpc.is_tx_on_chain(&latest_blockhash_timeout_txid).await?);
-
-    // check if operator asserts are sent by state machine
-    // Get deposit data and kickoff ID for assert creation
-
-    // Create assert transactions for operator 0
-    let assert_txs = operators[0]
-        .internal_create_assert_commitment_txs(base_tx_req)
-        .await?
-        .into_inner();
-
-    let operator_assert_txids =
-        (0..bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs())
-            .map(|i| {
-                let assert_tx =
-                    get_tx_from_signed_txs_with_type(&assert_txs, TxType::MiniAssert(i)).unwrap();
-                assert_tx.compute_txid()
-            })
-            .collect::<Vec<Txid>>();
-
-    tracing::warn!("Checking if operator asserts were sent");
-    // check if operator asserts were sent
-    for (idx, txid) in operator_assert_txids.into_iter().enumerate() {
-        tracing::warn!("operator assert {} ensure onchain", idx);
-        ensure_tx_onchain(&rpc, txid).await?;
-    }
-
-    Ok(())
-}
-
 // Operator successfully sends challenge timeout for one deposit, but doesn't
 // spend its remaining kickoffs, state machine should automatically send any
 // unspent kickoff connector tx to burn operators collateral
@@ -1021,7 +822,9 @@ mod tests {
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
 
-        run_operator_end_round(config, rpc, false).await.unwrap();
+        run_operator_end_round(&mut config, rpc, false)
+            .await
+            .unwrap();
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -1031,17 +834,7 @@ mod tests {
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
 
-        run_operator_end_round(config, rpc, true).await.unwrap();
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    #[ignore = "Tested/will be tested in mock_citrea_run_malicious"]
-    async fn test_challenge_with_state_machine() {
-        let mut config = create_test_config_with_thread_name().await;
-        let regtest = create_regtest_rpc(&mut config).await;
-        let rpc = regtest.rpc().clone();
-
-        run_challenge_with_state_machine(&mut config, rpc)
+        run_operator_end_round(&mut config, rpc, true)
             .await
             .unwrap();
     }

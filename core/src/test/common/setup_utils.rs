@@ -135,7 +135,8 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
     ];
 
     if config.protocol_paramset().bridge_nonstandard {
-        // allow 0 sat outputs in regtest
+        // allow 0 sat non-ephemeral outputs in regtest by not considering them as dust
+        // https://github.com/bitcoin/bitcoin/blob/master/src/policy/policy.cpp
         args.push("-dustrelayfee=0".to_string());
     }
 
@@ -204,11 +205,14 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
         .get_new_address(None, None)
         .await
         .expect("Failed to get new address");
-    client
-        .client
-        .generate_to_address(201, address.assume_checked_ref())
-        .await
-        .expect("Failed to generate blocks");
+
+    if config.test_params.generate_to_address {
+        client
+            .client
+            .generate_to_address(201, address.assume_checked_ref())
+            .await
+            .expect("Failed to generate blocks");
+    }
 
     WithProcessCleanup(Some(process), client.clone(), log_file, bitcoin_rpc_debug)
 }

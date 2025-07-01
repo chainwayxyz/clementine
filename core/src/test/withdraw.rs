@@ -3,6 +3,7 @@ use crate::bitvm_client::SECP;
 use crate::citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER};
 use crate::test::common::citrea::SECRET_KEYS;
 use crate::test::common::generate_withdrawal_transaction_and_signature;
+use crate::utils::initialize_logger;
 use crate::{
     extended_rpc::ExtendedRpc,
     test::common::{
@@ -32,6 +33,7 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
                 "-txindex=1",
                 "-fallbackfee=0.000001",
                 "-rpcallowip=0.0.0.0/0",
+                "-dustrelayfee=0",
             ],
             ..Default::default()
         }
@@ -158,6 +160,8 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
 
 #[tokio::test]
 async fn citrea_withdraw_and_get_utxo() -> Result<()> {
+    initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
+        .expect("Failed to initialize logger");
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
         "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
