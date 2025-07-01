@@ -41,7 +41,7 @@ thiserror = { workspace = true }
 eyre = { workspace = true }
 once_cell = { workspace = true }
 
-circuits-lib = { path = "../circuits-lib", features = ["not_patched"] }
+circuits-lib = { path = "../circuits-lib" }
 
 
 
