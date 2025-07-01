@@ -1502,17 +1502,15 @@ impl ClementineAggregator for Aggregator {
         Ok(Response::new(AggregatorWithdrawResponse {
             withdraw_responses: responses
                 .into_iter()
-                .map(|r| clementine::WithdrawResult {
-                    result: Some(match r {
-                        Ok(response) => {
-                            clementine::withdraw_result::Result::Success(response.into_inner())
-                        }
-                        Err(e) => clementine::withdraw_result::Result::Error(
+                .map(|r| match r {
+                    Ok(response) => response.into_inner(),
+                    Err(e) => clementine::WithdrawResult {
+                        result: Some(clementine::withdraw_result::Result::Error(
                             clementine::WithdrawErrorResponse {
                                 error: e.to_string(),
                             },
-                        ),
-                    }),
+                        )),
+                    },
                 })
                 .collect(),
         }))

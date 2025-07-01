@@ -259,9 +259,7 @@ message WithdrawParams {
   uint64 output_amount = 5;
 }
 
-message WithdrawResponse {
-  // The withdrawal transaction's txid
-  Txid txid = 1;
+message WithdrawSuccess {
 }
 
 message WithdrawErrorResponse {
@@ -270,7 +268,7 @@ message WithdrawErrorResponse {
 
 message WithdrawResult {
   oneof result {
-    WithdrawResponse success = 1;
+    WithdrawSuccess success = 1;
     WithdrawErrorResponse error = 2;
   }
 }
@@ -331,21 +329,7 @@ service ClementineOperator {
   // Prepares a withdrawal if it's profitable and previous sequential_collateral_tx's timelock
   // has ended, by paying for the withdrawal and locking the current sequential_collateral_tx.
   rpc Withdraw(WithdrawParams)
-    returns (WithdrawResponse) {}
-
-  // Checks if a withdrawal is finalized.
-  //
-  // Steps:
-  //
-  // 1. Calculate move_txid and check if the withdrawal idx matches it
-  // 2. Check if it is proved on citrea
-  // 3. Send operator_take_txs
-  //
-  // # Parameters
-  //
-  // - withdrawal_id: Withdrawal's ID
-  // - deposit_outpoint: Withdrawal's deposit UTXO
-  rpc WithdrawalFinalized(WithdrawalFinalizedParams) returns (Empty) {}
+    returns (WithdrawResult) {}
 
   // Signs all tx's it can according to given transaction type (use it with AllNeededForDeposit to get almost all tx's)
   // Creates the transactions denoted by the deposit and operator_idx, round_idx, and kickoff_idx.
