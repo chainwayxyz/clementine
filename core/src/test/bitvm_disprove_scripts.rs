@@ -1,6 +1,6 @@
 use super::common::citrea::get_bridge_params;
 use super::common::ActorsCleanup;
-use crate::bitvm_client::SECP;
+use crate::bitvm_client::{ClementineBitVMPublicKeys, SECP};
 use crate::builder::transaction::input::UtxoVout;
 use crate::config::BridgeConfig;
 use crate::database::Database;
@@ -11,15 +11,15 @@ use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient
 use crate::rpc::clementine::{TransactionRequest, WithdrawParams};
 use crate::test::common::citrea::{get_citrea_safe_withdraw_params, SECRET_KEYS};
 use crate::test::common::tx_utils::{
-    create_tx_sender, ensure_outpoint_spent_while_waiting_for_light_client_sync,
-    get_tx_from_signed_txs_with_type,
-    get_txid_where_utxo_is_spent_while_waiting_for_light_client_sync,
+    create_tx_sender, ensure_outpoint_spent,
+    ensure_outpoint_spent_while_waiting_for_light_client_sync, get_tx_from_signed_txs_with_type,
+    get_txid_where_utxo_is_spent, get_txid_where_utxo_is_spent_while_waiting_for_light_client_sync,
     mine_once_after_outpoint_spent_in_mempool,
 };
 use crate::test::common::{
     generate_withdrawal_transaction_and_signature, mine_once_after_in_mempool, run_single_deposit,
 };
-use crate::utils::{FeePayingType, TxMetadata};
+use crate::utils::{initialize_logger, FeePayingType, TxMetadata};
 use crate::{
     builder::transaction::TransactionType,
     citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER},
@@ -48,6 +48,7 @@ use citrea_e2e::{
 };
 use prost::Message;
 use tonic::transport::Channel;
+
 pub enum DisproveTestVariant {
     HealthyState,
     CorruptedAssert,
@@ -103,7 +104,7 @@ impl DisproveTest {
             move_txid,
             _deposit_blockhash,
             verifiers_public_keys,
-        ) = run_single_deposit::<CitreaClient>(&mut config, rpc.clone(), None).await?;
+        ) = run_single_deposit::<CitreaClient>(&mut config, rpc.clone(), None, None).await?;
 
         tracing::debug!(
             "Deposit ending block_height: {:?}",
@@ -155,6 +156,9 @@ impl DisproveTest {
         for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
             sequencer.client.send_publish_batch_request().await.unwrap();
         }
+
+        // Wait for the deposit to be processed.
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
         // After the deposit, the balance should be non-zero.
         assert_ne!(
@@ -467,19 +471,42 @@ impl DisproveTest {
         .await
         .unwrap();
 
+        let last_assert_utxo = OutPoint {
+            txid: kickoff_txid,
+            vout: UtxoVout::Assert(ClementineBitVMPublicKeys::number_of_assert_txs() - 1)
+                .get_vout(),
+        };
+
+        ensure_outpoint_spent_while_waiting_for_light_client_sync(
+            &rpc,
+            lc_prover,
+            last_assert_utxo,
+        )
+        .await
+        .unwrap();
+
+        // Create assert transactions for operator 0
         let assert_txs = operators[0]
             .internal_create_assert_commitment_txs(base_tx_req)
             .await?
             .into_inner();
 
-        let assert_tx =
-            get_tx_from_signed_txs_with_type(&assert_txs, TransactionType::MiniAssert(0)).unwrap();
-        let txid = assert_tx.compute_txid();
-
-        assert!(
-            rpc.is_tx_on_chain(&txid).await.unwrap(),
-            "Mini assert 0 was not found in the chain",
-        );
+        // check if asserts were sent due to challenge
+        let operator_assert_txids = (0..ClementineBitVMPublicKeys::number_of_assert_txs())
+            .map(|i| {
+                let assert_tx =
+                    get_tx_from_signed_txs_with_type(&assert_txs, TransactionType::MiniAssert(i))
+                        .unwrap();
+                assert_tx.compute_txid()
+            })
+            .collect::<Vec<Txid>>();
+        for (idx, txid) in operator_assert_txids.into_iter().enumerate() {
+            assert!(
+                rpc.is_tx_on_chain(&txid).await.unwrap(),
+                "Mini assert {} was not found in the chain",
+                idx
+            );
+        }
 
         Ok((kickoff_tx, rpc, verifiers, operators, aggregator, cleanup))
     }
@@ -496,6 +523,8 @@ impl DisproveTest {
 
         let mut config = create_test_config_with_thread_name().await;
         config.test_params.corrupted_asserts = true;
+        // only verifiers 0 and 1 will send disprove transactions
+        config.test_params.verifier_do_not_send_disprove_indexes = Some(vec![2, 3]);
 
         citrea::update_config_with_citrea_e2e_values(
             &mut config,
@@ -550,6 +579,17 @@ impl DisproveTest {
             "Disprove tx input does not match burn connector outpoint"
         );
 
+        let CONTROL_BLOCK_LENGTH = 1 + 32 + 32 * 11; // 385 - Length of the control block in the disprove script
+
+        let witness = &disprove_tx.input[0].witness;
+        let control_block = &witness[witness.len() - 1];
+
+        assert_eq!(
+            control_block.len(),
+            CONTROL_BLOCK_LENGTH,
+            "Control block length does not match expected length"
+        );
+
         tracing::info!("Disprove transaction is onchain");
         Ok(())
     }
@@ -565,6 +605,8 @@ impl DisproveTest {
         let batch_prover = batch_prover.unwrap();
 
         let mut config = create_test_config_with_thread_name().await;
+        // only verifiers 0 and 1 will send disprove transactions
+        config.test_params.verifier_do_not_send_disprove_indexes = Some(vec![2, 3]);
 
         citrea::update_config_with_citrea_e2e_values(
             &mut config,
@@ -708,6 +750,8 @@ impl TestCase for DisproveTest {
 #[tokio::test]
 #[ignore = "This test is too slow, run separately"]
 async fn disprove_script_test_healthy() -> Result<()> {
+    initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
+        .expect("Failed to initialize logger");
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
         "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
@@ -735,6 +779,8 @@ async fn disprove_script_test_healthy() -> Result<()> {
 #[tokio::test]
 #[ignore = "This test is too slow, run separately"]
 async fn disprove_script_test_corrupted_assert() -> Result<()> {
+    initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
+        .expect("Failed to initialize logger");
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
         "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",

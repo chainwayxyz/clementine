@@ -274,36 +274,190 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     ],
     header_chain_proof_batch_size: 100,
     bridge_circuit_method_id_constant: [
-        86, 86, 202, 134, 213, 147, 193, 178, 220, 184, 201, 146, 216, 140, 178, 160, 167, 17, 27,
-        158, 75, 204, 46, 254, 203, 12, 116, 198, 137, 52, 161, 196,
+        122, 210, 204, 155, 203, 206, 216, 8, 126, 117, 61, 91, 47, 85, 69, 147, 68, 196, 156, 234,
+        75, 17, 119, 195, 91, 121, 62, 254, 13, 195, 48, 238,
     ],
     bridge_nonstandard: true,
 };
 
+pub const SIGNET_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [
+    52, 23, 169, 35, 5, 10, 197, 40, 135, 145, 196, 190, 148, 7, 127, 52, 246, 105, 197, 227, 140,
+    51, 204, 184, 180, 238, 95, 34, 11, 203, 120, 57,
+];
+pub const MAINNET_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [
+    2, 86, 35, 236, 99, 172, 34, 193, 71, 224, 59, 102, 246, 94, 242, 12, 11, 64, 209, 82, 76, 148,
+    53, 214, 23, 144, 71, 198, 174, 225, 174, 96,
+];
+pub const TESTNET4_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [
+    245, 159, 161, 38, 62, 12, 230, 118, 90, 195, 152, 119, 78, 162, 58, 39, 81, 76, 177, 139, 97,
+    96, 170, 31, 131, 123, 90, 255, 185, 72, 65, 25,
+];
+
 #[cfg(test)]
 mod tests {
     use bridge_circuit_host::utils::calculate_succinct_output_prefix;
+    use circuits_lib::{
+        bridge_circuit::constants::{
+            MAINNET_WORK_ONLY_METHOD_ID, REGTEST_WORK_ONLY_METHOD_ID, SIGNET_WORK_ONLY_METHOD_ID,
+            TESTNET4_WORK_ONLY_METHOD_ID,
+        },
+        common::constants::{
+            MAINNET_HEADER_CHAIN_METHOD_ID, REGTEST_HEADER_CHAIN_METHOD_ID,
+            SIGNET_HEADER_CHAIN_METHOD_ID, TESTNET4_HEADER_CHAIN_METHOD_ID,
+        },
+    };
     use risc0_zkvm::compute_image_id;
+
+    use bridge_circuit_host::bridge_circuit_host::{
+        MAINNET_HEADER_CHAIN_ELF, MAINNET_WORK_ONLY_ELF, REGTEST_HEADER_CHAIN_ELF,
+        REGTEST_WORK_ONLY_ELF, SIGNET_HEADER_CHAIN_ELF, SIGNET_WORK_ONLY_ELF,
+        TESTNET4_HEADER_CHAIN_ELF, TESTNET4_WORK_ONLY_ELF,
+    };
 
     use super::*;
 
     #[test]
-    fn test_calculate_succinct_output_prefix() {
+    fn test_regtest_bridge_circuit_constant() {
         let regtest_bridge_elf =
             include_bytes!("../../../risc0-circuits/elfs/regtest-bridge-circuit-guest.bin");
         let regtest_bridge_circuit_method_id =
             compute_image_id(regtest_bridge_elf).expect("should compute image id");
-        let calculated_bridge_circuit_constant =
+        let calculated_regtest_bridge_circuit_constant =
             calculate_succinct_output_prefix(regtest_bridge_circuit_method_id.as_bytes());
 
-        let bridge_circuit_constant = REGTEST_PARAMSET.bridge_circuit_method_id_constant;
-
+        let regtest_bridge_circuit_constant = REGTEST_PARAMSET.bridge_circuit_method_id_constant;
         assert_eq!(
-            calculated_bridge_circuit_constant,
-            bridge_circuit_constant,
-            "You forgot to update bridge_circuit_constant with the new method id. Please change it in these places: Here, core/src/cli.rs, core/src/config/protocol.rs, core/src/test/data/protocol_paramset.toml. The expected value is: {:?}, hex format: {:?}",
-            calculated_bridge_circuit_constant,
-            hex::encode(calculated_bridge_circuit_constant)
+            calculated_regtest_bridge_circuit_constant,
+            regtest_bridge_circuit_constant,
+            "You forgot to update regtest bridge_circuit_constant with the new method id. Please change it in these places: core/src/cli.rs, core/src/config/protocol.rs, core/src/test/data/protocol_paramset.toml. The expected value is: {:?}, hex format: {:?}",
+            calculated_regtest_bridge_circuit_constant,
+            hex::encode(calculated_regtest_bridge_circuit_constant)
         );
+    }
+
+    #[test]
+    fn test_mainnet_bridge_circuit_constant() {
+        let mainnet_bridge_elf =
+            include_bytes!("../../../risc0-circuits/elfs/mainnet-bridge-circuit-guest.bin");
+        let mainnet_bridge_circuit_method_id =
+            compute_image_id(mainnet_bridge_elf).expect("should compute image id");
+        let calculated_mainnet_bridge_circuit_constant =
+            calculate_succinct_output_prefix(mainnet_bridge_circuit_method_id.as_bytes());
+
+        let mainnet_bridge_circuit_constant = MAINNET_BRIDGE_CIRCUIT_CONSTANT;
+        assert_eq!(
+            calculated_mainnet_bridge_circuit_constant,
+            mainnet_bridge_circuit_constant,
+            "You forgot to update mainnet bridge_circuit_constant with the new method id. Please change it in these places: core/src/config/protocol.rs. The expected value is: {:?}, hex format: {:?}",
+            calculated_mainnet_bridge_circuit_constant,
+            hex::encode(calculated_mainnet_bridge_circuit_constant)
+        );
+    }
+
+    #[test]
+    fn test_testnet4_bridge_circuit_constant() {
+        let testnet4_bridge_elf =
+            include_bytes!("../../../risc0-circuits/elfs/testnet4-bridge-circuit-guest.bin");
+        let testnet4_bridge_circuit_method_id =
+            compute_image_id(testnet4_bridge_elf).expect("should compute image id");
+        let calculated_testnet4_bridge_circuit_constant =
+            calculate_succinct_output_prefix(testnet4_bridge_circuit_method_id.as_bytes());
+
+        let testnet4_bridge_circuit_constant = TESTNET4_BRIDGE_CIRCUIT_CONSTANT;
+        assert_eq!(
+            calculated_testnet4_bridge_circuit_constant,
+            testnet4_bridge_circuit_constant,
+            "You forgot to update testnet4 bridge_circuit_constant with the new method id. Please change it in these places: core/src/config/protocol.rs. The expected value is: {:?}, hex format: {:?}",
+            calculated_testnet4_bridge_circuit_constant,
+            hex::encode(calculated_testnet4_bridge_circuit_constant)
+        );
+    }
+
+    #[test]
+    fn test_signet_bridge_circuit_constant() {
+        let signet_bridge_elf =
+            include_bytes!("../../../risc0-circuits/elfs/signet-bridge-circuit-guest.bin");
+        let signet_bridge_circuit_method_id =
+            compute_image_id(signet_bridge_elf).expect("should compute image id");
+        let calculated_signet_bridge_circuit_constant =
+            calculate_succinct_output_prefix(signet_bridge_circuit_method_id.as_bytes());
+
+        let signet_bridge_circuit_constant = SIGNET_BRIDGE_CIRCUIT_CONSTANT;
+        assert_eq!(
+            calculated_signet_bridge_circuit_constant,
+            signet_bridge_circuit_constant,
+            "You forgot to update signet bridge_circuit_constant with the new method id. Please change it in these places: core/src/config/protocol.rs. The expected value is: {:?}, hex format: {:?}",
+            calculated_signet_bridge_circuit_constant,
+            hex::encode(calculated_signet_bridge_circuit_constant)
+        );
+    }
+
+    #[test]
+    fn test_header_chain_method_ids() {
+        let networks = [
+            (
+                MAINNET_HEADER_CHAIN_ELF,
+                MAINNET_HEADER_CHAIN_METHOD_ID,
+                "mainnet",
+            ),
+            (
+                TESTNET4_HEADER_CHAIN_ELF,
+                TESTNET4_HEADER_CHAIN_METHOD_ID,
+                "testnet4",
+            ),
+            (
+                SIGNET_HEADER_CHAIN_ELF,
+                SIGNET_HEADER_CHAIN_METHOD_ID,
+                "signet",
+            ),
+            (
+                REGTEST_HEADER_CHAIN_ELF,
+                REGTEST_HEADER_CHAIN_METHOD_ID,
+                "regtest",
+            ),
+        ];
+
+        for (elf, method_id, network) in networks.into_iter() {
+            let header_chain_circuit_method_id = compute_image_id(elf);
+            assert_eq!(
+                header_chain_circuit_method_id.expect("should compute image id").as_words(),
+                method_id,
+                "Header chain method ID mismatch for {network}, please update the constant here: circuits-lib/src/common/constants.rs",
+            );
+        }
+    }
+
+    #[test]
+    fn test_work_only_method_ids() {
+        let networks = [
+            (
+                MAINNET_WORK_ONLY_ELF,
+                MAINNET_WORK_ONLY_METHOD_ID,
+                "mainnet",
+            ),
+            (
+                TESTNET4_WORK_ONLY_ELF,
+                TESTNET4_WORK_ONLY_METHOD_ID,
+                "testnet4",
+            ),
+            (SIGNET_WORK_ONLY_ELF, SIGNET_WORK_ONLY_METHOD_ID, "signet"),
+            (
+                REGTEST_WORK_ONLY_ELF,
+                REGTEST_WORK_ONLY_METHOD_ID,
+                "regtest",
+            ),
+        ];
+
+        for (elf, method_id, network) in networks.into_iter() {
+            let work_only_circuit_method_id =
+                compute_image_id(elf).expect("should compute image id");
+            let current_method_id = work_only_circuit_method_id.as_bytes();
+            assert_eq!(
+                current_method_id,
+                method_id,
+                "Work only method ID mismatch for {network}, please update the constant here: circuits-lib/src/bridge_circuit/constants.rs. Hex format of correct value: {:?}",
+                hex::encode(current_method_id)
+            );
+        }
     }
 }

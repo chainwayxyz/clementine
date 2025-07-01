@@ -22,6 +22,8 @@ mod header_chain_prover;
 mod operator;
 #[cfg(feature = "automation")]
 mod state_machine;
+#[cfg(all(test, feature = "automation"))]
+mod test;
 #[cfg(feature = "automation")]
 mod tx_sender;
 mod verifier;
@@ -68,6 +70,9 @@ impl Database {
         let url = Database::get_postgresql_database_url(config);
         let url = Url::parse(&url).wrap_err("Failed to parse database URL")?;
         let mut opt = PgConnectOptions::from_url(&url).map_err(BridgeError::DatabaseError)?;
+        // Change default sqlx warnings from Warn to Debug
+        // These logs really clutter our CI logs, and they were never useful.
+        // But in the future if we fix slow statements (if they are actually a problem?), we can revert this.
         opt = opt.log_slow_statements(log::LevelFilter::Debug, Duration::from_secs(3));
 
         let opts = sqlx::postgres::PgPoolOptions::new().acquire_slow_level(log::LevelFilter::Debug);

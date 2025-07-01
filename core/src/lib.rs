@@ -103,6 +103,10 @@
 //!
 //! Please refer to the [`test`](test) module to check what utilities are
 //! available for testing and how to use them.
+//!
+//! Also, if a new integration test file is added, it should be guarded by the
+//! `#[cfg(feature = "integration-tests")]` attribute. This ensures that the
+//! integration and unit tests can be run separately.
 
 #![allow(clippy::too_many_arguments)]
 #![allow(warnings)]

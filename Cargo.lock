@@ -1616,7 +1616,7 @@ dependencies = [
 [[package]]
 name = "bitvm"
 version = "0.1.0"
-source = "git+https://github.com/chainwayxyz/BitVM?rev=0b15c5e7b6b4c16beda365d8c19825867666f712#0b15c5e7b6b4c16beda365d8c19825867666f712"
+source = "git+https://github.com/chainwayxyz/BitVM?rev=898618219c07e84f57d9727283fa8abbe3823eaf#898618219c07e84f57d9727283fa8abbe3823eaf"
 dependencies = [
  "ark-bn254",
  "ark-crypto-primitives",
@@ -1778,11 +1778,8 @@ dependencies = [
 name = "bridge-circuit-host"
 version = "0.1.0"
 dependencies = [
- "alloy",
- "alloy-primitives",
  "alloy-rpc-client",
  "alloy-rpc-types",
- "alloy-rpc-types-eth",
  "ark-bn254",
  "ark-crypto-primitives",
  "ark-ec",
@@ -1976,6 +1973,7 @@ dependencies = [
  "borsh",
  "crypto-bigint",
  "derive_more 1.0.0",
+ "eyre",
  "hex",
  "hex-literal",
  "itertools 0.14.0",
@@ -1992,6 +1990,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "sov-rollup-interface 0.7.0",
+ "tracing",
 ]
 
 [[package]]
