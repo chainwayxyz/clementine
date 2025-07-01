@@ -106,12 +106,13 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
     /// A tuple, wrapped around a [`Some`] if present:
     ///
     /// - [`u64`]: Last L2 block height.
+    /// - [`[u8; 32]`]: L2 state root.
     ///
     /// If not present, [`None`] is returned.
     async fn get_light_client_proof(
         &self,
         l1_height: u64,
-    ) -> Result<Option<(LightClientProof, Receipt, u64)>, BridgeError>;
+    ) -> Result<Option<(LightClientProof, Receipt, u64, [u8; 32])>, BridgeError>;
 
     /// Returns the L2 block height range for the given L1 block height.
     ///
@@ -449,7 +450,7 @@ impl CitreaClientT for CitreaClient {
     async fn get_light_client_proof(
         &self,
         l1_height: u64,
-    ) -> Result<Option<(LightClientProof, Receipt, u64)>, BridgeError> {
+    ) -> Result<Option<(LightClientProof, Receipt, u64, [u8; 32])>, BridgeError> {
         let proof_result = self
             .light_client_prover_client
             .get_light_client_proof_by_l1_height(l1_height)
@@ -470,6 +471,7 @@ impl CitreaClientT for CitreaClient {
             let l2_height = u64::try_from(proof_result.light_client_proof_output.last_l2_height)
                 .wrap_err("Failed to convert l2 height to u64")?;
             let hex_l2_str = format!("0x{:x}", l2_height);
+            let state_root = proof_result.light_client_proof_output.l2_state_root;
 
             Some((
                 LightClientProof {
@@ -478,6 +480,7 @@ impl CitreaClientT for CitreaClient {
                 },
                 receipt,
                 l2_height,
+                state_root,
             ))
         } else {
             None
@@ -519,6 +522,28 @@ impl CitreaClientT for CitreaClient {
 
         let l2_height_end: u64 = proof_current.2;
         let l2_height_start: u64 = proof_previous.2;
+
+        let state_root = self
+            .client
+            .get_l2_block_by_number(alloy::primitives::U64::from(block_height))
+            .await
+            .wrap_err("Error while fetching L2 block")?
+            .ok_or(eyre::eyre!(
+                "L2 block not found for block height: {}",
+                block_height
+            ))?
+            .header
+            .state_root;
+
+        if proof_current.3 != state_root && proof_previous.3 != state_root {
+            return Err(eyre::eyre!(
+                "State root mismatch for block height: {}. Expected: {:?}, got (current, previous): {:?}",
+                block_height,
+                state_root,
+                (proof_current.3, proof_previous.3)
+            )
+            .into());
+        }
 
         Ok((l2_height_start, l2_height_end))
     }
@@ -587,6 +612,16 @@ trait LightClientProverRpc {
         &self,
         l1_height: u64,
     ) -> RpcResult<Option<sov_rollup_interface::rpc::LightClientProofResponse>>;
+}
+
+#[rpc(client, namespace = "ledger")]
+trait LedgerRpc {
+    #[method(name = "getL2BlockByNumber")]
+    #[blocking]
+    fn get_l2_block_by_number(
+        &self,
+        number: alloy::primitives::U64,
+    ) -> RpcResult<Option<sov_rollup_interface::rpc::block::L2BlockResponse>>;
 }
 
 #[rpc(client, namespace = "eth")]

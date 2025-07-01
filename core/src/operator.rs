@@ -1271,7 +1271,7 @@ where
         let payout_tx = &payout_block.txdata[payout_tx_index];
         tracing::debug!("Calculated payout tx in send_asserts: {:?}", payout_tx);
 
-        let (light_client_proof, lcp_receipt, l2_height) = self
+        let (light_client_proof, lcp_receipt, l2_height, _) = self
             .citrea_client
             .get_light_client_proof(payout_block_height as u64)
             .await

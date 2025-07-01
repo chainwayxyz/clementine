@@ -178,7 +178,7 @@ impl CitreaClientT for MockCitreaClient {
     async fn get_light_client_proof(
         &self,
         l1_height: u64,
-    ) -> Result<Option<(LightClientProof, Receipt, u64)>, BridgeError> {
+    ) -> Result<Option<(LightClientProof, Receipt, u64, [u8; 32])>, BridgeError> {
         Ok(Some((
             LightClientProof {
                 lc_journal: vec![],
@@ -189,6 +189,7 @@ impl CitreaClientT for MockCitreaClient {
             ))
             .wrap_err("Couldn't create mock receipt")?,
             l1_height,
+            [0; 32],
         )))
     }
 
