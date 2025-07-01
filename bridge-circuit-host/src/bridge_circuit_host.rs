@@ -23,6 +23,9 @@ use risc0_zkvm::{compute_image_id, default_prover, is_dev_mode, ExecutorEnv, Pro
 pub const REGTEST_BRIDGE_CIRCUIT_ELF: &[u8] =
     include_bytes!("../../risc0-circuits/elfs/regtest-bridge-circuit-guest.bin");
 
+pub const REGTEST_BRIDGE_CIRCUIT_ELF_TEST: &[u8] =
+    include_bytes!("../../risc0-circuits/elfs/test-regtest-bridge-circuit-guest.bin");
+
 pub const TESTNET4_BRIDGE_CIRCUIT_ELF: &[u8] =
     include_bytes!("../../risc0-circuits/elfs/testnet4-bridge-circuit-guest.bin");
 

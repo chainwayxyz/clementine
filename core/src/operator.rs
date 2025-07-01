@@ -42,7 +42,7 @@ use bitvm::chunk::api::generate_assertions;
 use bitvm::signatures::winternitz;
 use bridge_circuit_host::bridge_circuit_host::{
     create_spv, prove_bridge_circuit, MAINNET_BRIDGE_CIRCUIT_ELF, REGTEST_BRIDGE_CIRCUIT_ELF,
-    SIGNET_BRIDGE_CIRCUIT_ELF, TESTNET4_BRIDGE_CIRCUIT_ELF,
+    REGTEST_BRIDGE_CIRCUIT_ELF_TEST, SIGNET_BRIDGE_CIRCUIT_ELF, TESTNET4_BRIDGE_CIRCUIT_ELF,
 };
 use bridge_circuit_host::structs::{BridgeCircuitHostParams, WatchtowerContext};
 use bridge_circuit_host::utils::{get_ark_verifying_key, get_ark_verifying_key_dev_mode_bridge};
@@ -1420,7 +1420,13 @@ where
             bitcoin::Network::Bitcoin => MAINNET_BRIDGE_CIRCUIT_ELF,
             bitcoin::Network::Testnet4 => TESTNET4_BRIDGE_CIRCUIT_ELF,
             bitcoin::Network::Signet => SIGNET_BRIDGE_CIRCUIT_ELF,
-            bitcoin::Network::Regtest => REGTEST_BRIDGE_CIRCUIT_ELF,
+            bitcoin::Network::Regtest => {
+                if cfg!(test) {
+                    REGTEST_BRIDGE_CIRCUIT_ELF_TEST
+                } else {
+                    REGTEST_BRIDGE_CIRCUIT_ELF
+                }
+            }
             _ => {
                 return Err(eyre::eyre!(
                     "Unsupported network {:?} in send_asserts",
