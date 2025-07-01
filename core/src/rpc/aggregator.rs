@@ -872,21 +872,18 @@ impl ClementineAggregator for Aggregator {
                                 id: key.to_string(),
                             }),
                             status: match response {
-                                Ok(response) => {
-                                    if restart_tasks {
-                                        client
-                                            .restart_background_tasks(Request::new(Empty {}))
-                                            .await;
-                                    }
-                                    Some(super::clementine::entity_status_with_id::Status::EntityStatus(
+                                Ok(response) => Some(
+                                    super::clementine::entity_status_with_id::Status::EntityStatus(
                                         response.into_inner(),
-                                    ))
-                                }
-                                Err(e) => Some(super::clementine::entity_status_with_id::Status::EntityError(
-                                    super::EntityError {
-                                        error: e.to_string(),
-                                    },
-                                )),
+                                    ),
+                                ),
+                                Err(e) => Some(
+                                    super::clementine::entity_status_with_id::Status::EntityError(
+                                        super::EntityError {
+                                            error: e.to_string(),
+                                        },
+                                    ),
+                                ),
                             },
                         }
                     }
@@ -907,21 +904,18 @@ impl ClementineAggregator for Aggregator {
                                 id: key.to_string(),
                             }),
                             status: match response {
-                                Ok(response) => {
-                                    if restart_tasks {
-                                        client
-                                            .restart_background_tasks(Request::new(Empty {}))
-                                            .await;
-                                    }
-                                    Some(super::clementine::entity_status_with_id::Status::EntityStatus(
+                                Ok(response) => Some(
+                                    super::clementine::entity_status_with_id::Status::EntityStatus(
                                         response.into_inner(),
-                                    ))
-                                }
-                                Err(e) => Some(super::clementine::entity_status_with_id::Status::EntityError(
-                                    super::EntityError {
-                                        error: e.to_string(),
-                                    },
-                                )),
+                                    ),
+                                ),
+                                Err(e) => Some(
+                                    super::clementine::entity_status_with_id::Status::EntityError(
+                                        super::EntityError {
+                                            error: e.to_string(),
+                                        },
+                                    ),
+                                ),
                             },
                         }
                     }
@@ -930,6 +924,32 @@ impl ClementineAggregator for Aggregator {
         .await;
 
         operator_status.extend(verifier_status.into_iter());
+
+        // try to restart background tasks if needed
+        if restart_tasks {
+            let operator_tasks = operator_clients.iter().map(|client| {
+                let mut client = client.clone();
+                async move {
+                    client
+                        .restart_background_tasks(Request::new(Empty {}))
+                        .await
+                }
+            });
+
+            let verifier_tasks = verifier_clients.iter().map(|client| {
+                let mut client = client.clone();
+                async move {
+                    client
+                        .restart_background_tasks(Request::new(Empty {}))
+                        .await
+                }
+            });
+
+            futures::try_join!(
+                futures::future::try_join_all(operator_tasks),
+                futures::future::try_join_all(verifier_tasks)
+            )?;
+        }
 
         Ok(Response::new(EntitiesStatus {
             entities_status: operator_status,

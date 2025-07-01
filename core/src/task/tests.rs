@@ -349,7 +349,7 @@ async fn test_task_manager_abort() {
     sleep(Duration::from_millis(100)).await;
 
     // Abort all tasks
-    manager.abort_all().await;
+    manager.abort_all();
 }
 
 #[tokio::test]
@@ -388,7 +388,7 @@ async fn test_task_manager_abort_and_restart() {
     sleep(Duration::from_millis(100)).await;
 
     // Abort all tasks
-    manager.abort_all().await;
+    manager.abort_all();
 
     // check tasks are set as not running
     let variants = [TaskVariant::Counter, TaskVariant::Sleep];

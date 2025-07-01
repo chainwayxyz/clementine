@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{oneshot, Mutex, RwLock};
+use tokio::sync::{oneshot, RwLock};
 use tokio::task::{AbortHandle, JoinHandle};
 use tokio::time::sleep;
 
@@ -177,13 +177,13 @@ impl<T: NamedEntity + Send + 'static> BackgroundTaskManager<T> {
     }
 
     /// Abort all tasks by dropping their cancellation senders
-    pub async fn abort_all(&mut self) {
-        self.send_cancel_signals().await;
-
-        // Also abort the tasks directly for immediate effect
-        let mut task_registry = self.task_registry.write().await;
-        for (variant, (status, abort_handle, cancel_tx)) in task_registry.iter_mut() {
-            abort_handle.abort();
+    pub fn abort_all(&mut self) {
+        // only one thread must have &mut self, so lock should be able to be acquired
+        if let Ok(task_registry) = self.task_registry.try_read() {
+            for (_, (_, abort_handle, cancel_tx)) in task_registry.iter() {
+                abort_handle.abort();
+            }
+            return;
         }
     }
 
