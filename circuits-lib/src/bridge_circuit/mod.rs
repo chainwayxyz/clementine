@@ -211,6 +211,7 @@ fn convert_to_groth16_and_verify(
     image_id: &[u8; 32],
     genesis_state_hash: [u8; 32],
 ) -> bool {
+    print!("Converting compressed Groth16 proof to seal and verifying... ");
     let seal = match CircuitGroth16Proof::from_compressed(compressed_proof) {
         Ok(seal) => seal,
         Err(_) => return false,
@@ -514,6 +515,11 @@ pub fn total_work_and_watchtower_flags(
             work_only_image_id,
             circuit_input.hcp.genesis_state_hash,
         ) {
+            print!("Valid watchtower challenge commitment found: ");
+            println!(
+                "Total Work: {:?}, Compressed G16 Proof: {:?}",
+                commitment.total_work, commitment.compressed_g16_proof
+            );
             total_work_result = commitment.total_work;
             break;
         }
