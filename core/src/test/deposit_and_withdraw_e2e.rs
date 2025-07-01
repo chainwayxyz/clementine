@@ -68,8 +68,6 @@ use std::time::Duration;
 use tokio::time::sleep;
 use tonic::{Request, Response, Status};
 
-pub static PROTOCOL_PARAMSET: OnceCell<ProtocolParamset> = OnceCell::new();
-
 #[derive(PartialEq)]
 pub enum CitreaDepositAndWithdrawE2EVariant {
     GenesisHeightZero,
