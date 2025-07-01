@@ -1,8 +1,12 @@
-//! # Common Utilities for Integration Tests
-use std::path::Path;
-use std::process::Command;
-use std::sync::Mutex;
-use std::time::Duration;
+//! # Common Utilities for Tests
+//!
+//! This module provides all the common utilities needed in unit and integration
+//! tests, including:
+//!
+//! - Setting up databases, servers
+//! - Creating test configurations
+//! - Making common operetions like deposits
+//! - Communicating with Citrea
 
 use crate::actor::Actor;
 use crate::bitvm_client::SECP;
@@ -12,6 +16,7 @@ use crate::builder::transaction::input::UtxoVout;
 use crate::builder::transaction::{create_replacement_deposit_txhandler, TxHandler};
 use crate::citrea::CitreaClientT;
 use crate::config::BridgeConfig;
+use crate::database::Database;
 use crate::deposit::{
     BaseDepositData, DepositInfo, DepositType, ReplacementDepositData, SecurityCouncil,
 };
@@ -39,6 +44,10 @@ use bitcoincore_rpc::RpcApi;
 use citrea::MockCitreaClient;
 use eyre::Context;
 pub use setup_utils::*;
+use std::path::Path;
+use std::process::Command;
+use std::sync::Mutex;
+use std::time::Duration;
 use tonic::transport::Channel;
 use tonic::Request;
 
@@ -46,6 +55,8 @@ pub mod citrea;
 mod setup_utils;
 pub mod tx_utils;
 
+#[cfg(feature = "automation")]
+use crate::test::common::tx_utils::wait_for_fee_payer_utxos_to_be_in_mempool;
 #[cfg(feature = "automation")]
 use tx_utils::{create_tx_sender, get_txid_where_utxo_is_spent};
 
@@ -55,6 +66,7 @@ pub fn generate_random_xonly_pk() -> XOnlyPublicKey {
         .generate_keypair(&mut rand::thread_rng())
         .1
         .x_only_public_key();
+
     pubkey
 }
 
@@ -150,14 +162,20 @@ pub async fn mine_once_after_in_mempool(
     let start = std::time::Instant::now();
     let tx_name = tx_name.unwrap_or("Unnamed tx");
 
+    if rpc
+        .client
+        .get_transaction(&txid, None)
+        .await
+        .is_ok_and(|tx| tx.info.blockhash.is_some())
+    {
+        return Err(eyre::eyre!("{} is already mined", tx_name).into());
+    }
+
     loop {
         if start.elapsed() > std::time::Duration::from_secs(timeout) {
-            return Err(eyre::eyre!(
-                "{} did not land onchain within {} seconds",
-                tx_name,
-                timeout
-            )
-            .into());
+            return Err(
+                eyre::eyre!("{} didn't hit mempool within {} seconds", tx_name, timeout).into(),
+            );
         }
 
         if rpc.client.get_mempool_entry(&txid).await.is_ok() {
@@ -316,6 +334,28 @@ pub async fn run_multiple_deposits<C: CitreaClientT>(
     ))
 }
 
+/// Creates a user deposit transaction and makes a new deposit call to
+/// Clementine via aggregator.
+///
+/// # Parameters
+///
+/// - `user_evm_address` [`EVMAddress`]: Optional EVM address to use for the
+///   deposit. If not provided, a default address is used.
+///
+/// # Returns
+///
+/// A big tuple, containing:
+///
+/// - Server clients:
+///    - [`ClementineVerifierClient`]: A vector of verifier clients.
+///    - [`ClementineOperatorClient`]: A vector of operator clients.
+///    - [`ClementineAggregatorClient`]: The aggregator client.
+///    - [`ActorsCleanup`]: Cleanup handle for the servers. Must not be dropped.
+/// - [`DepositInfo`]: Information about the deposit.
+/// - [`Txid`]: TXID of the move transaction.
+/// - [`BlockHash`]: Block hash of the block where the user deposit was mined.
+/// - [`Vec<PublicKey>`]: Public keys of the verifiers used in the deposit.
+#[cfg(feature = "automation")]
 pub async fn run_single_deposit<C: CitreaClientT>(
     config: &mut BridgeConfig,
     rpc: ExtendedRpc,
@@ -335,6 +375,11 @@ pub async fn run_single_deposit<C: CitreaClientT>(
     BridgeError,
 > {
     let (verifiers, operators, mut aggregator, cleanup) = create_actors::<C>(config).await;
+    let aggregator_db = Database::new(&BridgeConfig {
+        db_name: config.db_name.clone() + "0",
+        ..config.clone()
+    })
+    .await?;
 
     let evm_address = evm_address.unwrap_or(EVMAddress([1u8; 20]));
     let actor = Actor::new(
@@ -394,9 +439,12 @@ pub async fn run_single_deposit<C: CitreaClientT>(
         .try_into()?;
 
     if !rpc.is_tx_on_chain(&move_txid).await? {
+        wait_for_fee_payer_utxos_to_be_in_mempool(&rpc, aggregator_db, move_txid).await?;
+        rpc.mine_blocks(1).await?;
         mine_once_after_in_mempool(&rpc, move_txid, Some("Move tx"), Some(180)).await?;
     }
 
+    // Uncomment below to debug the move tx.
     // let transaction = rpc
     //     .client
     //     .get_raw_transaction(&move_txid, None)
@@ -539,11 +587,6 @@ pub async fn run_replacement_deposit(
     ),
     BridgeError,
 > {
-    let actor = Actor::new(
-        config.secret_key,
-        config.winternitz_secret_key,
-        config.protocol_paramset().network,
-    );
     let (
         verifiers,
         operators,
@@ -555,10 +598,13 @@ pub async fn run_replacement_deposit(
         verifiers_public_keys,
     ) = run_single_deposit::<MockCitreaClient>(config, rpc.clone(), evm_address, None).await?;
 
+    let actor = Actor::new(
+        config.secret_key,
+        config.winternitz_secret_key,
+        config.protocol_paramset().network,
+    );
     let nofn_xonly_pk =
         bitcoin::XOnlyPublicKey::from_musig2_pks(verifiers_public_keys.clone(), None)?;
-
-    tracing::info!("First deposit move txid: {}", move_txid);
 
     let (addr, _) = create_taproot_address(
         &[
@@ -625,8 +671,13 @@ pub async fn run_replacement_deposit(
         .await
         .unwrap();
     db_commit.commit().await?;
-    // sleep 3 seconds so that tx_sender can send the fee_payer_tx to the mempool
-    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+
+    wait_for_fee_payer_utxos_to_be_in_mempool(
+        &rpc,
+        tx_sender_db.clone(),
+        replacement_deposit_tx.compute_txid(),
+    )
+    .await?;
 
     let replacement_deposit_txid = get_txid_where_utxo_is_spent(
         &rpc,
@@ -683,55 +734,6 @@ pub async fn run_replacement_deposit(
     ))
 }
 
-#[ignore = "Tested everywhere, no need to run again"]
-#[tokio::test]
-async fn test_deposit() {
-    let mut config = create_test_config_with_thread_name().await;
-    let regtest = create_regtest_rpc(&mut config).await;
-    let rpc = regtest.rpc().clone();
-    let _ = run_single_deposit::<MockCitreaClient>(&mut config, rpc, None, None)
-        .await
-        .unwrap();
-}
-
-#[ignore = "Tested everywhere, no need to run again"]
-#[tokio::test]
-async fn multiple_deposits_for_operator() {
-    let mut config = create_test_config_with_thread_name().await;
-    let regtest = create_regtest_rpc(&mut config).await;
-    let rpc = regtest.rpc().clone();
-    let _ = run_multiple_deposits::<MockCitreaClient>(&mut config, rpc, 2)
-        .await
-        .unwrap();
-}
-
-#[cfg(feature = "integration-tests")]
-#[tokio::test]
-async fn test_regtest_create_and_connect() {
-    let mut config = create_test_config_with_thread_name().await;
-
-    let regtest = create_regtest_rpc(&mut config).await;
-
-    let macro_rpc = regtest.rpc();
-    let rpc = ExtendedRpc::connect(
-        config.bitcoin_rpc_url.clone(),
-        config.bitcoin_rpc_user.clone(),
-        config.bitcoin_rpc_password.clone(),
-    )
-    .await
-    .unwrap();
-
-    macro_rpc.mine_blocks(1).await.unwrap();
-    let height = macro_rpc.client.get_block_count().await.unwrap();
-    let new_rpc_height = rpc.client.get_block_count().await.unwrap();
-    assert_eq!(height, new_rpc_height);
-
-    rpc.mine_blocks(1).await.unwrap();
-    let new_rpc_height = rpc.client.get_block_count().await.unwrap();
-    let height = macro_rpc.client.get_block_count().await.unwrap();
-    assert_eq!(height, new_rpc_height);
-}
-
 /// Ensures that TLS certificates exist for tests.
 /// This will run the certificate generation script if certificates don't exist.
 pub fn ensure_test_certificates() -> Result<(), std::io::Error> {
@@ -761,4 +763,43 @@ pub fn ensure_test_certificates() -> Result<(), std::io::Error> {
     }
 
     Ok(())
+}
+
+mod tests {
+    use crate::{
+        actor::Actor,
+        extended_rpc::ExtendedRpc,
+        test::common::{
+            citrea::MockCitreaClient, create_regtest_rpc, create_test_config_with_thread_name,
+        },
+    };
+    use bitcoin::{absolute::LockTime, transaction::Version, Transaction};
+    use bitcoincore_rpc::RpcApi;
+
+    #[cfg(feature = "integration_tests")]
+    #[tokio::test]
+    async fn test_regtest_create_and_connect() {
+        let mut config = create_test_config_with_thread_name().await;
+
+        let regtest = create_regtest_rpc(&mut config).await;
+
+        let macro_rpc = regtest.rpc();
+        let rpc = ExtendedRpc::connect(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        )
+        .await
+        .unwrap();
+
+        macro_rpc.mine_blocks(1).await.unwrap();
+        let height = macro_rpc.client.get_block_count().await.unwrap();
+        let new_rpc_height = rpc.client.get_block_count().await.unwrap();
+        assert_eq!(height, new_rpc_height);
+
+        rpc.mine_blocks(1).await.unwrap();
+        let new_rpc_height = rpc.client.get_block_count().await.unwrap();
+        let height = macro_rpc.client.get_block_count().await.unwrap();
+        assert_eq!(height, new_rpc_height);
+    }
 }
