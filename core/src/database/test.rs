@@ -13,8 +13,8 @@ impl Database {
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         tx_id: u32,
-    ) -> Result<Vec<(Txid, u32, Amount, bool)>, BridgeError> {
-        let query = sqlx::query_as::<_, (TxidDB, i32, i64, Option<i32>)>(
+    ) -> Result<Vec<(Txid, u32, Amount)>, BridgeError> {
+        let query = sqlx::query_as::<_, (TxidDB, i32, i64)>(
             r#"
             SELECT fee_payer_txid, vout, amount
             FROM tx_sender_fee_payer_utxos
@@ -23,19 +23,18 @@ impl Database {
         )
         .bind(i32::try_from(tx_id).wrap_err("Failed to convert tx_id to i32")?);
 
-        let results: Vec<(TxidDB, i32, i64, Option<i32>)> =
+        let results: Vec<(TxidDB, i32, i64)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
 
         results
             .iter()
-            .map(|(fee_payer_txid, vout, amount, confirmed)| {
+            .map(|(fee_payer_txid, vout, amount)| {
                 Ok((
                     fee_payer_txid.0,
                     u32::try_from(*vout).wrap_err("Failed to convert vout to u32")?,
                     Amount::from_sat(
                         u64::try_from(*amount).wrap_err("Failed to convert amount to u64")?,
                     ),
-                    confirmed.is_some(),
                 ))
             })
             .collect::<Result<Vec<_>, BridgeError>>()
