@@ -2165,7 +2165,14 @@
 <a href="#2164" id="2164">2164</a>
 <a href="#2165" id="2165">2165</a>
 <a href="#2166" id="2166">2166</a>
-<a href="#2167" id="2167">2167</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::{
+<a href="#2167" id="2167">2167</a>
+<a href="#2168" id="2168">2168</a>
+<a href="#2169" id="2169">2169</a>
+<a href="#2170" id="2170">2170</a>
+<a href="#2171" id="2171">2171</a>
+<a href="#2172" id="2172">2172</a>
+<a href="#2173" id="2173">2173</a>
+<a href="#2174" id="2174">2174</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::{
     clementine_aggregator_server::ClementineAggregator, verifier_deposit_finalize_params,
     DepositParams, Empty, VerifierDepositFinalizeParams,
 };
@@ -3803,7 +3810,8 @@
     <span class="kw">use </span>tokio::time::sleep;
     <span class="kw">use </span>tonic::Status;
 
-    <span class="kw">async fn </span>perform_deposit(<span class="kw-2">mut </span>config: BridgeConfig) -&gt; <span class="prelude-ty">Result</span>&lt;(), Status&gt; {
+    <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
+    </span><span class="kw">async fn </span>perform_deposit(<span class="kw-2">mut </span>config: BridgeConfig) -&gt; <span class="prelude-ty">Result</span>&lt;(), Status&gt; {
         <span class="kw">let </span>regtest = create_regtest_rpc(<span class="kw-2">&amp;mut </span>config).<span class="kw">await</span>;
         <span class="kw">let </span>rpc = regtest.rpc();
 
@@ -4219,7 +4227,8 @@
         .unwrap();
     }
 
-    <span class="attr">#[tokio::test]
+    <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
+    #[tokio::test]
     #[ignore = <span class="string">"This test does not work"</span>]
     </span><span class="kw">async fn </span>aggregator_deposit_finalize_verifier_timeout() {
         <span class="kw">let </span><span class="kw-2">mut </span>config = create_test_config_with_thread_name().<span class="kw">await</span>;
@@ -4237,7 +4246,8 @@
         );
     }
 
-    <span class="attr">#[tokio::test]
+    <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
+    #[tokio::test]
     </span><span class="kw">async fn </span>aggregator_deposit_key_distribution_verifier_timeout() {
         <span class="kw">let </span><span class="kw-2">mut </span>config = create_test_config_with_thread_name().<span class="kw">await</span>;
         config
@@ -4256,7 +4266,8 @@
         );
     }
 
-    <span class="attr">#[tokio::test]
+    <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
+    #[tokio::test]
     </span><span class="kw">async fn </span>aggregator_deposit_key_distribution_operator_timeout() {
         <span class="kw">let </span><span class="kw-2">mut </span>config = create_test_config_with_thread_name().<span class="kw">await</span>;
         config
@@ -4275,7 +4286,8 @@
         );
     }
 
-    <span class="attr">#[tokio::test]
+    <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
+    #[tokio::test]
     </span><span class="kw">async fn </span>aggregator_deposit_nonce_stream_creation_verifier_timeout() {
         <span class="kw">let </span><span class="kw-2">mut </span>config = create_test_config_with_thread_name().<span class="kw">await</span>;
         config
@@ -4294,7 +4306,8 @@
         );
     }
 
-    <span class="attr">#[tokio::test]
+    <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
+    #[tokio::test]
     </span><span class="kw">async fn </span>aggregator_deposit_partial_sig_stream_creation_timeout() {
         <span class="kw">let </span><span class="kw-2">mut </span>config = create_test_config_with_thread_name().<span class="kw">await</span>;
         config
@@ -4313,7 +4326,8 @@
         );
     }
 
-    <span class="attr">#[tokio::test]
+    <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
+    #[tokio::test]
     </span><span class="kw">async fn </span>aggregator_deposit_operator_sig_collection_operator_timeout() {
         <span class="kw">let </span><span class="kw-2">mut </span>config = create_test_config_with_thread_name().<span class="kw">await</span>;
         config
