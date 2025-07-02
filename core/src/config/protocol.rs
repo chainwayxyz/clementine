@@ -292,7 +292,11 @@ pub const REGTEST_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [
 #[cfg(test)]
 mod tests {
     use bridge_circuit_host::{
-        bridge_circuit_host::{MAINNET_BRIDGE_CIRCUIT_ELF, REGTEST_BRIDGE_CIRCUIT_ELF, SIGNET_BRIDGE_CIRCUIT_ELF, TESTNET4_BRIDGE_CIRCUIT_ELF}, utils::calculate_succinct_output_prefix,
+        bridge_circuit_host::{
+            MAINNET_BRIDGE_CIRCUIT_ELF, REGTEST_BRIDGE_CIRCUIT_ELF, SIGNET_BRIDGE_CIRCUIT_ELF,
+            TESTNET4_BRIDGE_CIRCUIT_ELF,
+        },
+        utils::calculate_succinct_output_prefix,
     };
     use circuits_lib::{
         bridge_circuit::constants::{
