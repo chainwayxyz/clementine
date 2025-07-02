@@ -409,7 +409,7 @@ async fn signature_distributor(
 /// # Returns
 ///
 /// - Vec<[`clementine::NonceGenFirstResponse`]>: First response from each verifier
-/// - Vec<BoxStream<Result<[`MusigPubNonce`], BridgeError>>>: Stream of nonces from each verifier
+/// - Vec<BoxStream<Result<[`PublicNonce`], BridgeError>>>: Stream of nonces from each verifier
 async fn create_nonce_streams(
     verifiers: ParticipatingVerifiers,
     num_nonces: u32,
