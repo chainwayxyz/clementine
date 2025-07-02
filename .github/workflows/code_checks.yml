@@ -1,6 +1,12 @@
 name: Code Checks
 
-on: [push]
+on:
+  push:
+    branches:
+      - main
+      - "releases/*"
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -15,7 +21,7 @@ env:
 jobs:
   formatting:
     name: Check formatting
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
 
     steps:
       - uses: actions/checkout@v4
@@ -24,7 +30,7 @@ jobs:
 
   linting:
     name: Check linting
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
 
     steps:
       - uses: actions/checkout@v4
@@ -35,7 +41,7 @@ jobs:
 
   udeps:
     name: Check unused dependencies
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
 
     steps:
       - uses: actions/checkout@v4
@@ -56,7 +62,7 @@ jobs:
 
   docs:
     name: Check documentation build
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
 
     steps:
       - uses: actions/checkout@v4
@@ -65,7 +71,7 @@ jobs:
 
   codespell:
     name: Check spelling
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
     if: github.event.pull_request.draft == false
     steps:
       - uses: actions/checkout@v4
