@@ -29,8 +29,8 @@ runs:
     - uses: actions/checkout@v4
     - uses: ./.github/actions/build-prerequisites
     - uses: ./.github/actions/test-prerequisites
-      with:
-        github_token: ${{ secrets.GITHUB_TOKEN }}
+      env:
+        GITHUB_TOKEN: ${{ inputs.github_token }}
 
     - name: Create test log directories
       shell: bash

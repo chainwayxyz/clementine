@@ -96,6 +96,8 @@ jobs:
 
       - name: test
         uses: ./.github/actions/debug-tests
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload test logs
         if: failure() || cancelled() # Only upload logs if the tests fail or are cancelled
