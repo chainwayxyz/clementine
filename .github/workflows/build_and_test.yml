@@ -82,9 +82,25 @@ jobs:
     if: ${{ github.event.pull_request.draft }}
     # needs: debug_build_all_features
 
+    services:
+      postgres:
+        image: postgres:latest
+        env:
+          POSTGRES_DB: clementine
+          POSTGRES_USER: clementine
+          POSTGRES_PASSWORD: clementine
+          POSTGRES_INITDB_ARGS: "-c shared_buffers=8GB -c max_connections=5000"
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
-      - name: Collect Workflow Telemetry
-        uses: catchpoint/workflow-telemetry-action@v2
+      # - name: Collect Workflow Telemetry
+      #   uses: catchpoint/workflow-telemetry-action@v2
 
       - uses: actions/checkout@v4
       # - uses: ./.github/actions/build-prerequisites
@@ -99,13 +115,13 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload test logs
-        if: failure() || cancelled() # Only upload logs if the tests fail or are cancelled
-        uses: actions/upload-artifact@v4
-        with:
-          name: debug-test-logs
-          path: test-logs/debug/
-          retention-days: 7
+      # - name: Upload test logs
+      #   if: failure() || cancelled() # Only upload logs if the tests fail or are cancelled
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: debug-test-logs
+      #     path: test-logs/debug/
+      #     retention-days: 7
 
   debug_build_test_all_features:
     name: Debug | All features | Test
