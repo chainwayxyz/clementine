@@ -32,7 +32,10 @@ use crate::builder::transaction::{
     create_mini_asserts, create_round_txhandler, create_unspent_kickoff_txhandlers, AssertScripts,
     TransactionType, TxHandler,
 };
-use crate::config::protocol::ProtocolParamset;
+use crate::config::protocol::{
+    ProtocolParamset, MAINNET_BRIDGE_CIRCUIT_CONSTANT, REGTEST_BRIDGE_CIRCUIT_CONSTANT,
+    SIGNET_BRIDGE_CIRCUIT_CONSTANT, TESTNET4_BRIDGE_CIRCUIT_CONSTANT,
+};
 use crate::database::Database;
 use crate::deposit::{DepositData, KickoffData, OperatorData};
 use crate::errors::{BridgeError, TxError};
@@ -296,7 +299,13 @@ impl ReimburseDbCache {
         let bitvm_keys = ClementineBitVMPublicKeys::from_flattened_vec(&bitvm_wpks);
 
         let script = create_additional_replacable_disprove_script_with_dummy(
-            self.paramset.bridge_circuit_method_id_constant,
+            match self.paramset.network {
+                bitcoin::Network::Regtest => REGTEST_BRIDGE_CIRCUIT_CONSTANT,
+                bitcoin::Network::Bitcoin => MAINNET_BRIDGE_CIRCUIT_CONSTANT,
+                bitcoin::Network::Testnet4 => TESTNET4_BRIDGE_CIRCUIT_CONSTANT,
+                bitcoin::Network::Signet => SIGNET_BRIDGE_CIRCUIT_CONSTANT,
+                _ => return Err(BridgeError::UnsupportedNetwork),
+            },
             bitvm_keys.bitvm_pks.0[0].to_vec(),
             bitvm_keys.latest_blockhash_pk.to_vec(),
             bitvm_keys.challenge_sending_watchtowers_pk.to_vec(),
