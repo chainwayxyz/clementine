@@ -1571,7 +1571,7 @@ async fn mock_citrea_run_malicious_after_exit() {
     assert!(tx.output[0].value != config.protocol_paramset().operator_challenge_amount);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn concurrent_deposits_and_withdrawals() {
     let mut config = create_test_config_with_thread_name().await;
     let regtest = create_regtest_rpc(&mut config).await;
@@ -1604,9 +1604,10 @@ async fn concurrent_deposits_and_withdrawals() {
     let count = 10;
     let evm_address = EVMAddress([1; 20]);
 
-    // Prepare deposit requests.
+    // Create move txs.
     let mut aggregators = (0..count).map(|_| aggregator.clone()).collect::<Vec<_>>();
-    let mut deposit_requests = Vec::new();
+    let mut move_tx_requests = Vec::new();
+    let mut deposit_outpoints = Vec::new();
     for (i, mut aggregator) in aggregators.iter_mut().enumerate() {
         let (deposit_address, _) =
             get_deposit_address(&config, evm_address, verifiers_public_keys.clone()).unwrap();
@@ -1614,6 +1615,7 @@ async fn concurrent_deposits_and_withdrawals() {
             .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
             .await
             .unwrap();
+        deposit_outpoints.push(deposit_outpoint.clone());
 
         mine_once_after_in_mempool(&rpc, deposit_outpoint.txid, Some("Deposit outpoint"), None)
             .await
@@ -1630,17 +1632,27 @@ async fn concurrent_deposits_and_withdrawals() {
                 recovery_taproot_address: actor.address.as_unchecked().to_owned(),
             }),
         };
+        println!(
+            "Creating move tx for deposit outpoint: {:?}",
+            deposit_info.deposit_outpoint
+        );
 
         let deposit: Deposit = deposit_info.clone().into();
+        move_tx_requests.push(aggregator.new_deposit(deposit.clone()));
+    }
+    let move_txs = try_join_all(move_tx_requests)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|encoded_move_tx| encoded_move_tx.into_inner())
+        .collect::<Vec<_>>();
+    println!("Move txs created: {:?}", move_txs);
 
-        let movetx = aggregator
-            .clone()
-            .new_deposit(deposit.clone())
-            .await
-            .unwrap();
+    let mut deposit_requests = Vec::new();
+    for (i, mut aggregator) in aggregators.iter_mut().enumerate() {
         let request = SendMoveTxRequest {
-            deposit_outpoint: Some(deposit_outpoint.into()),
-            raw_tx: Some(movetx.into_inner()),
+            deposit_outpoint: Some(deposit_outpoints[i].into()),
+            raw_tx: Some(move_txs[i].clone()),
         };
 
         deposit_requests.push(aggregator.send_move_to_vault_tx(request.clone()));
