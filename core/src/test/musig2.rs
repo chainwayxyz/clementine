@@ -53,7 +53,7 @@ fn get_nonces(
 ) -> Result<(Vec<MuSigNoncePair>, AggregatedNonce), BridgeError> {
     let nonce_pairs: Vec<MuSigNoncePair> = verifiers_secret_public_keys
         .iter()
-        .map(|kp| nonce_pair(kp, &mut secp256k1::rand::thread_rng()))
+        .map(|kp| nonce_pair(kp, &mut secp256k1::rand::rng()))
         .collect::<Result<Vec<MuSigNoncePair>, _>>()?;
 
     let agg_nonce = aggregate_nonces(

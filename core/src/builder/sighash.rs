@@ -383,8 +383,7 @@ pub fn create_operator_sighash_stream(
 
 #[cfg(test)]
 mod tests {
-    use std::fs::File;
-
+    use super::*;
     use crate::{
         bitvm_client::SECP,
         builder::transaction::sign::TransactionRequestData,
@@ -405,10 +404,10 @@ mod tests {
     use bitcoin::{Block, BlockHash, OutPoint, Txid};
     use bitcoincore_rpc::RpcApi;
     use futures_util::stream::TryStreamExt;
-
-    use super::*;
+    use std::fs::File;
 
     pub const DEPOSIT_STATE_FILE_PATH_DEBUG: &str = "src/test/data/deposit_state_debug.bincode";
+    #[cfg(not(debug_assertions))]
     pub const DEPOSIT_STATE_FILE_PATH_RELEASE: &str = "src/test/data/deposit_state_release.bincode";
 
     /// State of the chain and the deposit generated in generate_deposit_state() test.

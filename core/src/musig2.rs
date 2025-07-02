@@ -191,7 +191,7 @@ pub fn aggregate_partial_signatures(
 /// <https://medium.com/blockstream/musig-dn-schnorr-multisignatures-with-verifiably-deterministic-nonces-27424b5df9d6#e3b6>.
 pub fn nonce_pair(
     keypair: &Keypair,
-    mut rng: &mut impl Rng,
+    _rng: &mut impl Rng,
 ) -> Result<(SecretNonce, PublicNonce), BridgeError> {
     let musig_session_sec_rand = SessionSecretRand::new();
 
@@ -269,7 +269,7 @@ mod tests {
 
         for _ in 0..num_signers {
             let key_pair = Keypair::new(&SECP, &mut bitcoin::secp256k1::rand::thread_rng());
-            let nonce_pair = nonce_pair(&key_pair, &mut secp256k1::rand::thread_rng()).unwrap();
+            let nonce_pair = nonce_pair(&key_pair, &mut secp256k1::rand::rng()).unwrap();
 
             key_pairs.push(key_pair);
             nonce_pairs.push(nonce_pair);

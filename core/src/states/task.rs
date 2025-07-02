@@ -56,16 +56,6 @@ impl BlockHandler for QueueBlockHandler {
 /// A task that fetches new blocks from Bitcoin and adds them to the state management queue
 #[derive(Debug)]
 pub struct BlockFetcherTask<T: Owner + std::fmt::Debug + 'static> {
-    /// The database to fetch events from
-    db: Database,
-    /// Queue for sending events
-    queue: PGMQueueExt,
-    /// Queue name for this owner type
-    queue_name: String,
-    /// The next height to process
-    next_height: u32,
-    /// Protocol parameters
-    paramset: &'static ProtocolParamset,
     /// Owner type marker
     _phantom: std::marker::PhantomData<T>,
 }
