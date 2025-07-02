@@ -46,7 +46,7 @@ jobs:
 
   release_build:
     name: Release | No features | Compile
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
     if: ${{ !github.event.pull_request.draft }}
 
     steps:
