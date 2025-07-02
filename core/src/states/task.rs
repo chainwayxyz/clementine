@@ -62,7 +62,7 @@ pub struct BlockFetcherTask<T: Owner + std::fmt::Debug + 'static> {
 
 impl<T: Owner + std::fmt::Debug + 'static> BlockFetcherTask<T> {
     /// Creates a new block fetcher task
-    pub async fn new(
+    pub async fn new_finalized_block_fetcher_task(
         next_height: u32,
         db: Database,
         paramset: &'static ProtocolParamset,
@@ -159,11 +159,13 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
     pub async fn block_fetcher_task(
         &self,
     ) -> Result<WithDelay<impl Task<Output = bool> + std::fmt::Debug>, BridgeError> {
-        Ok(
-            BlockFetcherTask::<T>::new(self.next_height_to_process, self.db.clone(), self.paramset)
-                .await?
-                .with_delay(POLL_DELAY),
+        Ok(BlockFetcherTask::<T>::new_finalized_block_fetcher_task(
+            self.next_height_to_process,
+            self.db.clone(),
+            self.paramset,
         )
+        .await?
+        .with_delay(POLL_DELAY))
     }
 }
 

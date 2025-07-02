@@ -445,7 +445,7 @@ mod tests {
             .unwrap();
 
             let ready_to_reimburse_txhandler =
-                create_ready_to_reimburse_txhandler(&round_txhandler, op_xonly_pk, &paramset)
+                create_ready_to_reimburse_txhandler(&round_txhandler, op_xonly_pk, paramset)
                     .unwrap();
 
             assert_eq!(round_nth_txhandler.get_txid(), round_txhandler.get_txid());
