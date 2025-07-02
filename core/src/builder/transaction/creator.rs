@@ -296,7 +296,7 @@ impl ReimburseDbCache {
         let bitvm_keys = ClementineBitVMPublicKeys::from_flattened_vec(&bitvm_wpks);
 
         let script = create_additional_replacable_disprove_script_with_dummy(
-            self.paramset.bridge_circuit_method_id_constant,
+            *self.paramset.bridge_circuit_constant()?,
             bitvm_keys.bitvm_pks.0[0].to_vec(),
             bitvm_keys.latest_blockhash_pk.to_vec(),
             bitvm_keys.challenge_sending_watchtowers_pk.to_vec(),

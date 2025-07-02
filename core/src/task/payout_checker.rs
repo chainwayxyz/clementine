@@ -6,7 +6,7 @@ use crate::{citrea::CitreaClientT, database::Database, errors::BridgeError, oper
 use super::{Task, TaskVariant};
 
 pub const PAYOUT_CHECKER_POLL_DELAY: Duration = if cfg!(test) {
-    Duration::from_millis(200)
+    Duration::from_millis(250)
 } else {
     Duration::from_secs(60)
 };

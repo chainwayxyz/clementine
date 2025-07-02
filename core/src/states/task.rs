@@ -18,7 +18,7 @@ use crate::{
 use super::{context::Owner, StateManager};
 
 const POLL_DELAY: Duration = if cfg!(test) {
-    Duration::from_millis(100)
+    Duration::from_millis(250)
 } else {
     Duration::from_secs(30)
 };
