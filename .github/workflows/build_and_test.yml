@@ -67,7 +67,7 @@ jobs:
 
   release_build:
     name: Release | No features | Compile
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
     if: ${{ !github.event.pull_request.draft }}
 
     steps:
@@ -83,7 +83,7 @@ jobs:
   # Full Tests -----------------------------------------------------------------
   debug_build_test_all_features_pre_review:
     name: Debug | All features | Pre-review Tests
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
     if: ${{ github.event.pull_request.draft }}
 
     env:
