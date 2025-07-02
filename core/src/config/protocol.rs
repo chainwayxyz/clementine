@@ -217,6 +217,16 @@ impl ProtocolParamset {
             NON_EPHEMERAL_ANCHOR_AMOUNT
         }
     }
+
+    pub fn bridge_circuit_constant(&self) -> Result<&[u8; 32], BridgeError> {
+        match self.network {
+            Network::Regtest => Ok(&REGTEST_BRIDGE_CIRCUIT_CONSTANT),
+            Network::Bitcoin => Ok(&MAINNET_BRIDGE_CIRCUIT_CONSTANT),
+            Network::Testnet4 => Ok(&TESTNET4_BRIDGE_CIRCUIT_CONSTANT),
+            Network::Signet => Ok(&SIGNET_BRIDGE_CIRCUIT_CONSTANT),
+            _ => return Err(BridgeError::UnsupportedNetwork),
+        }
+    }
 }
 
 fn convert_hex_string_to_bytes(hex: &str) -> Result<[u8; 32], BridgeError> {
