@@ -65,6 +65,7 @@ jobs:
   release_build:
     name: Release | No features | Compile
     runs-on: ubuntu-latest
+    if: ${{ !github.event.pull_request.draft }}
 
     steps:
       - name: Collect Workflow Telemetry
@@ -76,11 +77,13 @@ jobs:
         run: cargo build $CARGOFLAGS --release
 
   # Full Tests -----------------------------------------------------------------
-  debug_build_test_pre_review:
-    name: draft tests
+  debug_build_test_all_features_pre_review:
+    name: Debug | All features | Pre-review Tests
     runs-on: ubuntu-latest
     if: ${{ github.event.pull_request.draft }}
-    # needs: debug_build_all_features
+
+    env:
+      INFO_LOG_FILE: ${{ github.workspace }}/test-logs/debug/debug-all-features-test-pre-review.log
 
     services:
       postgres:
@@ -99,31 +102,35 @@ jobs:
           --health-retries 5
 
     steps:
-      # - name: Collect Workflow Telemetry
-      #   uses: catchpoint/workflow-telemetry-action@v2
+      - name: Collect Workflow Telemetry
+        uses: catchpoint/workflow-telemetry-action@v2
 
       - uses: actions/checkout@v4
       - uses: ./.github/actions/build-prerequisites
       - uses: ./.github/actions/test-prerequisites
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-      # - uses: ./.github/actions/build-prerequisites
 
-      # - name: Save/restore build artifacts
-      #   uses: Swatinem/rust-cache@v2
-      #   with:
-      #     shared-key: ${{ runner.os }}-cargo-DEBUG-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
+      - name: Create test log directories
+        run: mkdir -p test-logs/debug-pre-review
 
-      - name: test
-        uses: ./.github/actions/debug-tests
+      - name: Save/restore build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ runner.os }}-cargo-DEBUG-PRE-REVIEW-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
 
-      # - name: Upload test logs
-      #   if: failure() || cancelled() # Only upload logs if the tests fail or are cancelled
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: debug-test-logs
-      #     path: test-logs/debug/
-      #     retention-days: 7
+      - name: Run unit tests
+        run: cargo test_unit
+      - name: Run integration tests
+        run: cargo test_integration
+
+      - name: Upload test logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-test-logs
+          path: test-logs/release/
+          retention-days: 7
 
   debug_build_test_all_features:
     name: Debug | All features | Test
@@ -174,7 +181,7 @@ jobs:
         run: cargo test_integration
 
       - name: Upload test logs
-        if: failure() || cancelled() # Only upload logs if the tests fail or are cancelled
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: debug-test-logs
@@ -230,7 +237,7 @@ jobs:
         run: cargo test_integration
 
       - name: Upload test logs
-        if: failure() || cancelled() # Only upload logs if the tests fail or are cancelled
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: release-test-logs
@@ -311,7 +318,7 @@ jobs:
         run: cargo test ${{ matrix.test_script_name }} $CARGOFLAGS_ALL_FEATURES --release -- --ignored
 
       - name: Upload test logs
-        if: failure() || cancelled() # Only upload logs if the tests fail or are cancelled
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: standalone-test-logs-${{ matrix.test_name }}
@@ -378,7 +385,7 @@ jobs:
   #         token: ${{ secrets.CODECOV_TOKEN }}
 
   #     - name: Upload test logs
-  #       if: failure() || cancelled() # Only upload logs if the tests fail or are cancelled
+  #       if: failure()
   #       uses: actions/upload-artifact@v4
   #       with:
   #         name: coverage-test-logs
