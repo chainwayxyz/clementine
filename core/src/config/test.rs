@@ -67,7 +67,7 @@ impl TestParams {
         Ok(self
             .verifier_do_not_send_disprove_indexes
             .as_ref()
-            .map_or(true, |indexes| !indexes.contains(&verifier_idx)))
+            .is_none_or(|indexes| !indexes.contains(&verifier_idx)))
     }
 }
 

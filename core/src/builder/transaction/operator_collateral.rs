@@ -432,7 +432,7 @@ mod tests {
                     input_amount,
                     RoundIndex::Round(i),
                     &pubkeys,
-                    &paramset,
+                    paramset,
                 )
                 .unwrap();
 
@@ -440,7 +440,7 @@ mod tests {
                 op_xonly_pk,
                 round_tx_input,
                 pubkeys.get_keys_for_round(RoundIndex::Round(i)).unwrap(),
-                &paramset,
+                paramset,
             )
             .unwrap();
 
@@ -454,10 +454,9 @@ mod tests {
                 ready_to_reimburse_txhandler.get_txid()
             );
 
-            let prev_ready_to_reimburse_txhandler = Some(ready_to_reimburse_txhandler);
+            let prev_ready_to_reimburse_txhandler = ready_to_reimburse_txhandler;
             round_tx_input = RoundTxInput::Prevout(Box::new(
                 prev_ready_to_reimburse_txhandler
-                    .unwrap()
                     .get_spendable_output(UtxoVout::CollateralInReadyToReimburse)
                     .unwrap(),
             ));

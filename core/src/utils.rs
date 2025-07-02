@@ -563,7 +563,7 @@ where
     try_join_all(iter.into_iter().enumerate().map(|item| {
         let ids = ids.clone();
         async move {
-            let id = Option::as_ref(&ids).map(|ids| ids.get(item.0)).flatten();
+            let id = Option::as_ref(&ids).and_then(|ids| ids.get(item.0));
 
             timeout(duration, item.1)
                 .await

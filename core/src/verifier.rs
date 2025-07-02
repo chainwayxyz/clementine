@@ -1031,6 +1031,7 @@ where
         Ok((move_tx_partial_sig, emergency_stop_partial_sig))
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn sign_optimistic_payout(
         &self,
         nonce_session_id: u32,
@@ -1746,6 +1747,7 @@ where
     /// - `Ok(None)` if the operator's claims are valid under this specific challenge, and no disprove is possible.
     /// - `Err(BridgeError)` if any error occurs during script reconstruction or validation.
     #[cfg(feature = "automation")]
+    #[allow(clippy::too_many_arguments)]
     async fn verify_additional_disprove_conditions(
         &self,
         deposit_data: &mut DepositData,
@@ -2406,7 +2408,7 @@ where
             self.header_chain_prover
                 .save_unproven_block_cache(Some(&mut dbtx), &block_cache)
                 .await?;
-            while let Some(_) = self.header_chain_prover.prove_if_ready().await? {
+            while (self.header_chain_prover.prove_if_ready().await?).is_some() {
                 // Continue until prove_if_ready returns None
                 // If it doesn't return None, it means next batch_size amount of blocks were proven
             }

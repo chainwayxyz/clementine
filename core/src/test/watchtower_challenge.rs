@@ -47,10 +47,10 @@ use citrea_e2e::{
 use tonic::transport::Channel;
 
 pub enum ChallengeTxTestVariant {
-    ChallengeTxWithAnnex,
-    ChallengeTxLargeInput,
-    ChallengeTxLargeOutput,
-    ChallengeTxLargeInputAndOutput,
+    WithAnnex,
+    LargeInput,
+    LargeOutput,
+    LargeInputAndOutput,
 }
 
 struct WatchtowerChallengeTxTest {
@@ -667,19 +667,19 @@ impl TestCase for WatchtowerChallengeTxTest {
 
     async fn run_test(&mut self, f: &mut TestFramework) -> Result<()> {
         match self.variant {
-            ChallengeTxTestVariant::ChallengeTxWithAnnex => {
+            ChallengeTxTestVariant::WithAnnex => {
                 tracing::info!("Running healthy state test");
                 self.challenge_tx_with_annex(f).await?;
             }
-            ChallengeTxTestVariant::ChallengeTxLargeInput => {
+            ChallengeTxTestVariant::LargeInput => {
                 tracing::info!("Running disrupted operator BitVM assert test");
                 self.challenge_tx_with_large_input(f).await?;
             }
-            ChallengeTxTestVariant::ChallengeTxLargeOutput => {
+            ChallengeTxTestVariant::LargeOutput => {
                 tracing::info!("Running challenge tx with large output test");
                 self.challenge_tx_with_large_output(f).await?;
             }
-            ChallengeTxTestVariant::ChallengeTxLargeInputAndOutput => {
+            ChallengeTxTestVariant::LargeInputAndOutput => {
                 tracing::info!("Running challenge tx with large input and output test");
                 self.challenge_tx_with_large_input_and_output(f).await?;
             }
@@ -697,7 +697,7 @@ async fn challenge_tx_with_annex() -> Result<()> {
         "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
     );
     let watchtower_challenge_tx_variant = WatchtowerChallengeTxTest {
-        variant: ChallengeTxTestVariant::ChallengeTxWithAnnex,
+        variant: ChallengeTxTestVariant::WithAnnex,
     };
     TestCaseRunner::new(watchtower_challenge_tx_variant)
         .run()
@@ -712,7 +712,7 @@ async fn challenge_tx_with_large_input() -> Result<()> {
         "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
     );
     let watchtower_challenge_tx_variant = WatchtowerChallengeTxTest {
-        variant: ChallengeTxTestVariant::ChallengeTxLargeInput,
+        variant: ChallengeTxTestVariant::LargeInput,
     };
     TestCaseRunner::new(watchtower_challenge_tx_variant)
         .run()
@@ -727,7 +727,7 @@ async fn challenge_tx_with_large_output() -> Result<()> {
         "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
     );
     let watchtower_challenge_tx_variant = WatchtowerChallengeTxTest {
-        variant: ChallengeTxTestVariant::ChallengeTxLargeOutput,
+        variant: ChallengeTxTestVariant::LargeOutput,
     };
     TestCaseRunner::new(watchtower_challenge_tx_variant)
         .run()
@@ -742,7 +742,7 @@ async fn challenge_tx_with_large_input_and_output() -> Result<()> {
         "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
     );
     let watchtower_challenge_tx_variant = WatchtowerChallengeTxTest {
-        variant: ChallengeTxTestVariant::ChallengeTxLargeInputAndOutput,
+        variant: ChallengeTxTestVariant::LargeInputAndOutput,
     };
     TestCaseRunner::new(watchtower_challenge_tx_variant)
         .run()

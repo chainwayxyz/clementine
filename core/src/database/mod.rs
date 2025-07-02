@@ -153,9 +153,9 @@ impl Database {
     /// the given configuration.
     pub fn get_postgresql_url(config: &BridgeConfig) -> String {
         "postgresql://".to_owned()
-            + &config.db_user.expose_secret()
+            + config.db_user.expose_secret()
             + ":"
-            + &config.db_password.expose_secret()
+            + config.db_password.expose_secret()
             + "@"
             + &config.db_host
             + ":"

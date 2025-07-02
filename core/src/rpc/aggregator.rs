@@ -1207,6 +1207,7 @@ impl ClementineAggregator for Aggregator {
             let deposit_sign_param: VerifierDepositSignParams =
                     deposit_sign_session.clone().into();
 
+        #[allow(clippy::unused_enumerate_index)]
             let partial_sig_streams = timed_try_join_all(
                 PARTIAL_SIG_STREAM_CREATION_TIMEOUT,
                 "Partial signature stream creation",
@@ -1245,6 +1246,7 @@ impl ClementineAggregator for Aggregator {
             .await?;
 
             // Set up deposit finalization streams
+        #[allow(clippy::unused_enumerate_index)]
             let deposit_finalize_streams = verifiers.clients().into_iter().enumerate().map(
                     |(_idx, mut verifier)| {
                         let (tx, rx) = tokio::sync::mpsc::channel(num_required_nonces as usize + 1);
@@ -1354,7 +1356,6 @@ impl ClementineAggregator for Aggregator {
                             deposit_sign_session,
                         )
                         .await
-                        .map_err(Into::into)
                     },
                 )
                 .await

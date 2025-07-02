@@ -92,7 +92,7 @@ impl ParticipatingVerifiers {
     }
 
     pub fn ids(&self) -> Vec<VerifierId> {
-        self.0.iter().map(|(_, id)| id.clone()).collect()
+        self.0.iter().map(|(_, id)| *id).collect()
     }
 }
 
@@ -120,7 +120,7 @@ impl ParticipatingOperators {
     }
 
     pub fn ids(&self) -> Vec<OperatorId> {
-        self.0.iter().map(|(_, id)| id.clone()).collect()
+        self.0.iter().map(|(_, id)| *id).collect()
     }
 }
 
@@ -244,6 +244,7 @@ impl Aggregator {
         tracing::info!("Starting operator key collection");
         #[cfg(test)]
         let timeout_params = self.config.test_params.timeout_params;
+        #[allow(clippy::unused_enumerate_index)]
         let get_operators_keys_handle = tokio::spawn(timed_try_join_all(
             OPERATOR_GET_KEYS_TIMEOUT,
             "Operator key collection",
@@ -298,6 +299,7 @@ impl Aggregator {
 
         #[cfg(test)]
         let timeout_params = self.config.test_params.timeout_params;
+        #[allow(clippy::unused_enumerate_index)]
         let distribute_operators_keys_handle = tokio::spawn(timed_try_join_all(
             VERIFIER_SEND_KEYS_TIMEOUT,
             "Verifier key distribution",

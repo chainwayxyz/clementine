@@ -100,7 +100,7 @@ impl KickoffWinternitzKeys {
         if round_idx == RoundIndex::Collateral || round_idx.to_index() > self.num_rounds + 1 {
             return Err(TxError::InvalidRoundIndex(round_idx));
         }
-        let start_idx = (round_idx.to_index() as usize)
+        let start_idx = (round_idx.to_index())
             .checked_sub(1) // 0th round is the collateral, there are no keys for the 0th round
             .ok_or(TxError::IndexOverflow)?
             .checked_mul(self.num_kickoffs_per_round)

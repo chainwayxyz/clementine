@@ -471,7 +471,7 @@ mod tests {
         }
 
         let op0_config = BridgeConfig {
-            secret_key: config.test_params.all_verifiers_secret_keys[0].clone(),
+            secret_key: config.test_params.all_verifiers_secret_keys[0],
             db_name: config.db_name + "0",
             ..config
         };
@@ -502,7 +502,7 @@ mod tests {
             deposit_info.deposit_outpoint,
             operators_xonly_pks[0],
             deposit_blockhash,
-            &op0_config.protocol_paramset(),
+            op0_config.protocol_paramset(),
         )
         .await;
 
@@ -723,7 +723,7 @@ mod tests {
         assert_eq!(deposit_info, deposit_state.deposit_info);
 
         let op0_config = BridgeConfig {
-            secret_key: config.test_params.all_verifiers_secret_keys[0].clone(),
+            secret_key: config.test_params.all_verifiers_secret_keys[0],
             db_name: config.db_name.clone() + "0",
             ..config.clone()
         };
@@ -740,7 +740,7 @@ mod tests {
             deposit_info.deposit_outpoint,
             operators_xonly_pks[0],
             deposit_blockhash,
-            &op0_config.protocol_paramset(),
+            op0_config.protocol_paramset(),
         )
         .await;
 
