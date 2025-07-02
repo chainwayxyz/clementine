@@ -7,7 +7,6 @@ use eyre::Context as _;
 use futures::future::try_join_all;
 use http::HeaderValue;
 use serde::{Deserialize, Serialize};
-use std::env;
 use std::fmt::{Debug, Display};
 use std::fs::File;
 use std::future::Future;

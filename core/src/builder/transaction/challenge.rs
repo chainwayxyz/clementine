@@ -305,7 +305,7 @@ pub fn create_operator_challenge_ack_txhandler(
 pub fn create_disprove_txhandler(
     kickoff_txhandler: &TxHandler,
     round_txhandler: &TxHandler,
-    paramset: &'static ProtocolParamset,
+    _paramset: &'static ProtocolParamset,
 ) -> Result<TxHandler, BridgeError> {
     Ok(TxHandlerBuilder::new(TransactionType::Disprove)
         .with_version(Version::TWO)

@@ -1,12 +1,8 @@
-use crate::bitvm_client::UNSPENDABLE_XONLY_PUBKEY;
-use crate::deposit::{DepositData, SecurityCouncil};
-use crate::errors::BridgeError;
-use bitcoin::address::NetworkUnchecked;
+use crate::deposit::DepositData;
+use bitcoin::secp256k1::PublicKey;
 use bitcoin::secp256k1::SecretKey;
-use bitcoin::{secp256k1::PublicKey, Address, Amount, OutPoint};
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
-use std::{fs::File, io::Read, path::PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TestParams {

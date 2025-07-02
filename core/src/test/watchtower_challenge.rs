@@ -12,9 +12,7 @@ use crate::rpc::clementine::{TransactionRequest, WithdrawParams};
 use crate::test::common::citrea::{get_citrea_safe_withdraw_params, SECRET_KEYS};
 use crate::test::common::tx_utils::{
     create_tx_sender, ensure_outpoint_spent_while_waiting_for_light_client_sync,
-    get_tx_from_signed_txs_with_type,
-    get_txid_where_utxo_is_spent_while_waiting_for_light_client_sync,
-    mine_once_after_outpoint_spent_in_mempool,
+    get_tx_from_signed_txs_with_type, mine_once_after_outpoint_spent_in_mempool,
 };
 use crate::test::common::{
     generate_withdrawal_transaction_and_signature, mine_once_after_in_mempool, run_single_deposit,
@@ -46,7 +44,6 @@ use citrea_e2e::{
     test_case::{TestCase, TestCaseRunner},
     Result,
 };
-use prost::Message;
 use tonic::transport::Channel;
 
 pub enum ChallengeTxTestVariant {
@@ -510,7 +507,7 @@ impl WatchtowerChallengeTxTest {
             )),
         );
 
-        let (kickoff_tx, rpc, _verifiers, _operators, _aggregator, _cleanup) = self
+        let _unused = self
             .common_test_setup(config, lc_prover, batch_prover, da, sequencer)
             .await?;
 
@@ -542,7 +539,7 @@ impl WatchtowerChallengeTxTest {
             )),
         );
 
-        let (kickoff_tx, rpc, _verifiers, _operators, _aggregator, _cleanup) = self
+        let _unused = self
             .common_test_setup(config, lc_prover, batch_prover, da, sequencer)
             .await?;
 
@@ -574,7 +571,7 @@ impl WatchtowerChallengeTxTest {
             )),
         );
 
-        let (kickoff_tx, rpc, _verifiers, _operators, _aggregator, _cleanup) = self
+        let _unused = self
             .common_test_setup(config, lc_prover, batch_prover, da, sequencer)
             .await?;
 
@@ -606,7 +603,7 @@ impl WatchtowerChallengeTxTest {
             )),
         );
 
-        let (kickoff_tx, rpc, _verifiers, _operators, _aggregator, _cleanup) = self
+        let _unused = self
             .common_test_setup(config, lc_prover, batch_prover, da, sequencer)
             .await?;
 

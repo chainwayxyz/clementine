@@ -1,5 +1,5 @@
 use crate::{
-    bitcoin_syncer::{BitcoinSyncerEvent, BlockHandler, FinalizedBlockFetcherTask},
+    bitcoin_syncer::{BlockHandler, FinalizedBlockFetcherTask},
     database::{Database, DatabaseTransaction},
     task::{BufferedErrors, IntoTask, WithDelay},
 };

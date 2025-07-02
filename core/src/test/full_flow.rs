@@ -4,27 +4,23 @@
 
 use super::common::{create_test_config_with_thread_name, tx_utils::*};
 use crate::actor::Actor;
-use crate::bitvm_client::{self};
-use crate::builder::transaction::input::UtxoVout;
 use crate::builder::transaction::sign::get_kickoff_utxos_to_sign;
 use crate::builder::transaction::TransactionType as TxType;
 use crate::config::protocol::BLOCKS_PER_HOUR;
 use crate::config::BridgeConfig;
 use crate::database::Database;
-use crate::deposit::{BaseDepositData, DepositInfo, DepositType, KickoffData};
+use crate::deposit::{DepositInfo, KickoffData};
 use crate::extended_rpc::ExtendedRpc;
 use crate::operator::RoundIndex;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
-use crate::rpc::clementine::SendMoveTxRequest;
 use crate::rpc::clementine::{Empty, FinalizedPayoutParams, SignedTxsWithType, TransactionRequest};
 use crate::test::common::citrea::MockCitreaClient;
 use crate::test::common::*;
 use crate::tx_sender::TxSenderClient;
 use crate::utils::RbfSigningInfo;
 use bitcoin::hashes::Hash;
-use bitcoin::{OutPoint, Transaction, Txid, XOnlyPublicKey};
-use bitcoincore_rpc::RpcApi;
+use bitcoin::{OutPoint, Txid, XOnlyPublicKey};
 use eyre::{Context, Result};
 use tonic::Request;
 

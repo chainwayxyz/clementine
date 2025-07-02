@@ -618,7 +618,7 @@ mod tests {
         let nofn_sighashes: Vec<_> = sighash_stream.try_collect().await.unwrap();
         let nofn_sighashes = nofn_sighashes
             .into_iter()
-            .map(|(sighash, info)| sighash.to_byte_array())
+            .map(|(sighash, _info)| sighash.to_byte_array())
             .collect::<Vec<_>>();
 
         let operator_streams = create_operator_sighash_stream(
@@ -632,7 +632,7 @@ mod tests {
         let operator_sighashes: Vec<_> = operator_streams.try_collect().await.unwrap();
         let operator_sighashes = operator_sighashes
             .into_iter()
-            .map(|(sighash, info)| sighash.to_byte_array())
+            .map(|(sighash, _info)| sighash.to_byte_array())
             .collect::<Vec<_>>();
 
         // Hash the vectors

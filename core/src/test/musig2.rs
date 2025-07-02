@@ -15,7 +15,6 @@ use crate::{
     config::BridgeConfig,
     musig2::{nonce_pair, partial_sign, MuSigNoncePair},
 };
-use ark_groth16::verifier;
 use bitcoin::key::Keypair;
 use bitcoin::secp256k1::{Message, PublicKey};
 use bitcoin::{hashes::Hash, script, Amount, TapSighashType};
