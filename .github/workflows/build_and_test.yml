@@ -103,6 +103,10 @@ jobs:
       #   uses: catchpoint/workflow-telemetry-action@v2
 
       - uses: actions/checkout@v4
+      - uses: ./.github/actions/build-prerequisites
+      - uses: ./.github/actions/test-prerequisites
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
       # - uses: ./.github/actions/build-prerequisites
 
       # - name: Save/restore build artifacts
@@ -112,8 +116,6 @@ jobs:
 
       - name: test
         uses: ./.github/actions/debug-tests
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
 
       # - name: Upload test logs
       #   if: failure() || cancelled() # Only upload logs if the tests fail or are cancelled

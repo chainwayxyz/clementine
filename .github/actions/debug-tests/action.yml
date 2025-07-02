@@ -1,21 +1,15 @@
 name: Debug Build Unit and Integration Tests
 description: "Runs unit and integration tests for debug builds"
 
-inputs:
-  github_token:
-    description: "GitHub token for authentication"
-    required: true
+# inputs:
+#   github_token:
+#     description: "GitHub token for authentication"
+#     required: true
 
 runs:
   using: "composite"
 
   steps:
-    - uses: actions/checkout@v4
-    - uses: ./.github/actions/build-prerequisites
-    - uses: ./.github/actions/test-prerequisites
-      env:
-        GITHUB_TOKEN: ${{ inputs.github_token }}
-
     - name: Create test log directories
       shell: bash
       run: mkdir -p test-logs/debug
