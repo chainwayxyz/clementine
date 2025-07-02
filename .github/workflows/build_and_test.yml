@@ -23,27 +23,6 @@ env:
 
 jobs:
   # Build ----------------------------------------------------------------------
-  debug_build_all_features:
-    name: Debug | All features | Compile
-    runs-on: ubicloud-standard-30
-    if: ${{ !github.event.pull_request.draft }}
-
-    steps:
-      - uses: catchpoint/workflow-telemetry-action@v2
-        with:
-          comment_on_pr: false
-
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/build-prerequisites
-
-      - name: Save/restore build artifacts
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: ${{ runner.os }}-cargo-DEBUG-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
-
-      - name: Compile in debug mode
-        run: cargo build $CARGOFLAGS_ALL_FEATURES
-
   release_build_all_features:
     name: Release | All features | Compile
     runs-on: ubicloud-standard-30
@@ -81,68 +60,9 @@ jobs:
         run: cargo build $CARGOFLAGS --release
 
   # Full Tests -----------------------------------------------------------------
-  debug_build_test_all_features_pre_review:
-    name: Debug | All features | Pre-review Tests
-    runs-on: ubicloud-standard-2
-    if: ${{ github.event.pull_request.draft }}
-
-    env:
-      INFO_LOG_FILE: ${{ github.workspace }}/test-logs/debug/debug-all-features-test-pre-review.log
-
-    services:
-      postgres:
-        image: postgres:latest
-        env:
-          POSTGRES_DB: clementine
-          POSTGRES_USER: clementine
-          POSTGRES_PASSWORD: clementine
-          POSTGRES_INITDB_ARGS: "-c shared_buffers=8GB -c max_connections=5000"
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-    steps:
-      - name: Collect Workflow Telemetry
-        uses: catchpoint/workflow-telemetry-action@v2
-        with:
-          comment_on_pr: false
-
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/build-prerequisites
-      - uses: ./.github/actions/test-prerequisites
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Create test log directories
-        run: mkdir -p test-logs/debug-pre-review
-
-      - name: Save/restore build artifacts
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: ${{ runner.os }}-cargo-DEBUG-PRE-REVIEW-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
-
-      - name: Run unit tests
-        run: cargo test_unit
-      - name: Run integration tests
-        run: cargo test_integration
-
-      - name: Upload test logs
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-test-logs
-          path: test-logs/release/
-          retention-days: 7
-
   debug_build_test_all_features:
     name: Debug | All features | Test
     runs-on: ubicloud-standard-30
-    if: ${{ !github.event.pull_request.draft }}
-    needs: debug_build_all_features
 
     env:
       INFO_LOG_FILE: ${{ github.workspace }}/test-logs/debug/debug-all-features-test.log
