@@ -31,6 +31,10 @@ jobs:
     if: ${{ !github.event.pull_request.draft }}
 
     steps:
+      - uses: catchpoint/workflow-telemetry-action@v2
+        with:
+          comment_on_pr: false
+
       - uses: actions/checkout@v4
       - uses: ./.github/actions/build-prerequisites
 
@@ -48,6 +52,10 @@ jobs:
     if: ${{ !github.event.pull_request.draft }}
 
     steps:
+      - uses: catchpoint/workflow-telemetry-action@v2
+        with:
+          comment_on_pr: false
+
       - uses: actions/checkout@v4
       - uses: ./.github/actions/build-prerequisites
 
@@ -65,6 +73,10 @@ jobs:
     if: ${{ !github.event.pull_request.draft }}
 
     steps:
+      - uses: catchpoint/workflow-telemetry-action@v2
+        with:
+          comment_on_pr: false
+
       - uses: actions/checkout@v4
 
       - name: Compile in release mode
@@ -98,6 +110,8 @@ jobs:
     steps:
       - name: Collect Workflow Telemetry
         uses: catchpoint/workflow-telemetry-action@v2
+        with:
+          comment_on_pr: false
 
       - uses: actions/checkout@v4
       - uses: ./.github/actions/build-prerequisites
@@ -154,6 +168,8 @@ jobs:
     steps:
       - name: Collect Workflow Telemetry
         uses: catchpoint/workflow-telemetry-action@v2
+        with:
+          comment_on_pr: false
 
       - uses: actions/checkout@v4
       - uses: ./.github/actions/build-prerequisites
@@ -210,6 +226,8 @@ jobs:
     steps:
       - name: Collect Workflow Telemetry
         uses: catchpoint/workflow-telemetry-action@v2
+        with:
+          comment_on_pr: false
 
       - uses: actions/checkout@v4
       - uses: ./.github/actions/build-prerequisites
@@ -293,6 +311,8 @@ jobs:
     steps:
       - name: Collect Workflow Telemetry
         uses: catchpoint/workflow-telemetry-action@v2
+        with:
+          comment_on_pr: false
 
       - uses: actions/checkout@v4
       - uses: ./.github/actions/build-prerequisites
@@ -352,6 +372,8 @@ jobs:
   #   steps:
   #     - name: Collect Workflow Telemetry
   #       uses: catchpoint/workflow-telemetry-action@v2
+  # with:
+  #   comment_on_pr: false
 
   #     - uses: actions/checkout@v4
   #     - uses: ./.github/actions/build-prerequisites
