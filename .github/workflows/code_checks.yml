@@ -21,7 +21,7 @@ env:
 jobs:
   formatting:
     name: Check formatting
-    runs-on: ubicloud-standard-2
+    runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
@@ -30,7 +30,7 @@ jobs:
 
   linting:
     name: Check linting
-    runs-on: ubicloud-standard-2
+    runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
@@ -41,7 +41,7 @@ jobs:
 
   udeps:
     name: Check unused dependencies
-    runs-on: ubicloud-standard-2
+    runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
@@ -62,7 +62,7 @@ jobs:
 
   docs:
     name: Check documentation build
-    runs-on: ubicloud-standard-2
+    runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
@@ -71,7 +71,7 @@ jobs:
 
   codespell:
     name: Check spelling
-    runs-on: ubicloud-standard-2
+    runs-on: ubuntu-latest
     if: github.event.pull_request.draft == false
     steps:
       - uses: actions/checkout@v4

@@ -6,7 +6,7 @@ on:
 
 jobs:
   label:
-    runs-on: ubicloud-standard-2
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout PR
