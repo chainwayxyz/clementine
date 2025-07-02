@@ -1224,7 +1224,14 @@
 <a href="#1223" id="1223">1223</a>
 <a href="#1224" id="1224">1224</a>
 <a href="#1225" id="1225">1225</a>
-<a href="#1226" id="1226">1226</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Header Chain Prover
+<a href="#1226" id="1226">1226</a>
+<a href="#1227" id="1227">1227</a>
+<a href="#1228" id="1228">1228</a>
+<a href="#1229" id="1229">1229</a>
+<a href="#1230" id="1230">1230</a>
+<a href="#1231" id="1231">1231</a>
+<a href="#1232" id="1232">1232</a>
+<a href="#1233" id="1233">1233</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Header Chain Prover
 //!
 //! This module contains utilities for proving Bitcoin block headers. This
 //! module must be fed with new blocks via the database. Later, it can check if
@@ -1431,8 +1438,9 @@
             )
             .<span class="kw">await
             </span>.map_to_eyre()<span class="question-mark">?</span>;
+            <span class="macro">tracing::debug!</span>(<span class="string">"Genesis chain state (verbose): {:?}"</span>, genesis_chain_state); <span class="comment">// Should be debug
 
-            <span class="kw">let </span>genesis_chain_state_hash = genesis_chain_state.to_hash();
+            </span><span class="kw">let </span>genesis_chain_state_hash = genesis_chain_state.to_hash();
             <span class="kw">if </span>genesis_chain_state_hash != config.protocol_paramset().genesis_chain_state_hash {
                 <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(
                     <span class="string">"Genesis chain state hash mismatch: {} != {}"</span>,
@@ -1517,9 +1525,9 @@
 
         <span class="kw">let </span>epoch_start_block_height = height / <span class="number">2016 </span>* <span class="number">2016</span>;
 
-        <span class="kw">let </span>epoch_start_timestamp = <span class="kw">if </span>network == Network::Regtest {
-            <span class="number">0
-        </span>} <span class="kw">else </span>{
+        <span class="kw">let </span>(epoch_start_timestamp, expected_bits) = <span class="kw">if </span>network == Network::Regtest {
+            (<span class="number">0</span>, block_header.bits.to_consensus())
+        } <span class="kw">else </span>{
             <span class="kw">let </span>epoch_start_block_hash = rpc
                 .client
                 .get_block_hash(epoch_start_block_height)
@@ -1536,8 +1544,14 @@
                     <span class="string">"Failed to get block header with block hash {}"</span>,
                     epoch_start_block_hash
                 ))<span class="question-mark">?</span>;
+            <span class="kw">let </span>bits = <span class="kw">if </span>network == Network::Testnet4 {
+                <span class="comment">// Real difficulty will show up at epoch start block no matter what
+                </span>epoch_start_block_header.bits.to_consensus()
+            } <span class="kw">else </span>{
+                block_header.bits.to_consensus()
+            };
 
-            epoch_start_block_header.time
+            (epoch_start_block_header.time, bits)
         };
 
         <span class="kw">let </span>block_info = rpc
@@ -1560,7 +1574,7 @@
             block_height: height <span class="kw">as </span>u32,
             total_work,
             best_block_hash: block_hash.to_byte_array(),
-            current_target_bits: block_header.bits.to_consensus(),
+            current_target_bits: expected_bits,
             epoch_start_time: epoch_start_timestamp,
             prev_11_timestamps: last_11_block_timestamps,
             block_hashes_mmr,
