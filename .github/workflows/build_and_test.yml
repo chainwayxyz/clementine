@@ -64,8 +64,7 @@ jobs:
 
   release_build:
     name: Release | No features | Compile
-    runs-on: ubicloud-standard-30
-    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
 
     steps:
       - name: Collect Workflow Telemetry
@@ -77,6 +76,35 @@ jobs:
         run: cargo build $CARGOFLAGS --release
 
   # Full Tests -----------------------------------------------------------------
+  debug_build_test_pre_review:
+    name: draft tests
+    runs-on: ubuntu-latest
+    if: ${{ github.event.pull_request.draft }}
+    # needs: debug_build_all_features
+
+    steps:
+      - name: Collect Workflow Telemetry
+        uses: catchpoint/workflow-telemetry-action@v2
+
+      - uses: actions/checkout@v4
+      # - uses: ./.github/actions/build-prerequisites
+
+      # - name: Save/restore build artifacts
+      #   uses: Swatinem/rust-cache@v2
+      #   with:
+      #     shared-key: ${{ runner.os }}-cargo-DEBUG-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
+
+      - name: test
+        uses: ./.github/actions/debug-tests
+
+      - name: Upload test logs
+        if: failure() || cancelled() # Only upload logs if the tests fail or are cancelled
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-test-logs
+          path: test-logs/debug/
+          retention-days: 7
+
   debug_build_test_all_features:
     name: Debug | All features | Test
     runs-on: ubicloud-standard-30

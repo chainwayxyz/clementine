@@ -1,0 +1,49 @@
+name: Debug Build Unit and Integration Tests
+description: "Runs unit and integration tests for debug builds"
+
+inputs:
+  github_token:
+    description: "GitHub token for authentication"
+    required: true
+
+runs:
+  using: "composite"
+
+  services:
+    postgres:
+      image: postgres:latest
+      env:
+        POSTGRES_DB: clementine
+        POSTGRES_USER: clementine
+        POSTGRES_PASSWORD: clementine
+        POSTGRES_INITDB_ARGS: "-c shared_buffers=8GB -c max_connections=5000"
+      ports:
+        - 5432:5432
+      options: >-
+        --health-cmd pg_isready
+        --health-interval 10s
+        --health-timeout 5s
+        --health-retries 5
+
+  steps:
+    - uses: actions/checkout@v4
+    - uses: ./.github/actions/build-prerequisites
+    - uses: ./.github/actions/test-prerequisites
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Create test log directories
+      shell: bash
+      run: mkdir -p test-logs/debug
+
+    - name: Save/restore build artifacts
+      uses: Swatinem/rust-cache@v2
+      with:
+        shared-key: ${{ runner.os }}-cargo-DEBUG-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
+
+    - name: Run unit tests
+      shell: bash
+      run: cargo test_unit
+    - name: Run integration tests
+      shell: bash
+      run: cargo test_integration
