@@ -139,8 +139,10 @@ where
         }
         #[cfg(not(feature = "automation"))]
         {
+            use crate::task::TaskExt;
+
             background_tasks.loop_and_monitor(
-                FinalizedBlockFetcherTask::new(
+                crate::bitcoin_syncer::FinalizedBlockFetcherTask::new(
                     db.clone(),
                     "verifier".to_string(),
                     config.protocol_paramset(),
@@ -2420,8 +2422,8 @@ where
 
 // This implementation is only relevant for non-automation mode, where the verifier is run as a standalone process
 #[cfg(not(feature = "automation"))]
-#[async_trait]
-impl<C> BlockHandler for Verifier<C>
+#[async_trait::async_trait]
+impl<C> crate::bitcoin_syncer::BlockHandler for Verifier<C>
 where
     C: CitreaClientT,
 {
