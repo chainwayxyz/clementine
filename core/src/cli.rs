@@ -390,10 +390,6 @@ mod tests {
             "SECURITY_COUNCIL",
             "1:50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0",
         );
-        env::set_var(
-            "BRIDGE_CIRCUIT_METHOD_ID_CONSTANT",
-            "7ad2cc9bcbced8087e753d5b2f55459344c49cea4b1177c35b793efe0dc330ee",
-        );
     }
 
     // Helper to set up all environment variables needed for protocol paramset
@@ -426,10 +422,6 @@ mod tests {
             "5f7302ad16c8bd9ef2f3be00c8199a86f9e0ba861484abb4af5f7e457f8c2216",
         );
         env::set_var("HEADER_CHAIN_PROOF_BATCH_SIZE", "100");
-        env::set_var(
-            "BRIDGE_CIRCUIT_METHOD_ID_CONSTANT",
-            "7ad2cc9bcbced8087e753d5b2f55459344c49cea4b1177c35b793efe0dc330ee",
-        );
         env::set_var("BRIDGE_NONSTANDARD", "true");
     }
 
