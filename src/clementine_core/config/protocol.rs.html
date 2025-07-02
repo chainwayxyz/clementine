@@ -461,7 +461,15 @@
 <a href="#460" id="460">460</a>
 <a href="#461" id="461">461</a>
 <a href="#462" id="462">462</a>
-<a href="#463" id="463">463</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::config::env::read_string_from_env_then_parse;
+<a href="#463" id="463">463</a>
+<a href="#464" id="464">464</a>
+<a href="#465" id="465">465</a>
+<a href="#466" id="466">466</a>
+<a href="#467" id="467">467</a>
+<a href="#468" id="468">468</a>
+<a href="#469" id="469">469</a>
+<a href="#470" id="470">470</a>
+<a href="#471" id="471">471</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::config::env::read_string_from_env_then_parse;
 <span class="kw">use </span><span class="kw">crate</span>::constants::{MIN_TAPROOT_AMOUNT, NON_EPHEMERAL_ANCHOR_AMOUNT};
 <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
 <span class="kw">use </span>bitcoin::{Amount, Network};
@@ -586,8 +594,6 @@
     </span><span class="kw">pub </span>genesis_chain_state_hash: [u8; <span class="number">32</span>],
     <span class="doccomment">/// Batch size of the header chain proofs
     </span><span class="kw">pub </span>header_chain_proof_batch_size: u32,
-    <span class="doccomment">/// Bridge circuit method id
-    </span><span class="kw">pub </span>bridge_circuit_method_id_constant: [u8; <span class="number">32</span>],
     <span class="doccomment">/// Denotes if the bridge is non-standard, i.e. uses 0 sat outputs for round tx (except collateral) and kickoff outputs
     </span><span class="kw">pub </span>bridge_nonstandard: bool,
 }
@@ -661,9 +667,6 @@
             latest_blockhash_timeout_timelock: read_string_from_env_then_parse::&lt;u16&gt;(
                 <span class="string">"LATEST_BLOCKHASH_TIMEOUT_TIMELOCK"</span>,
             )<span class="question-mark">?</span>,
-            bridge_circuit_method_id_constant: convert_hex_string_to_bytes(
-                <span class="kw-2">&amp;</span>read_string_from_env_then_parse::&lt;String&gt;(<span class="string">"BRIDGE_CIRCUIT_METHOD_ID_CONSTANT"</span>)<span class="question-mark">?</span>,
-            )<span class="question-mark">?</span>,
             bridge_nonstandard: read_string_from_env_then_parse::&lt;bool&gt;(<span class="string">"BRIDGE_NONSTANDARD"</span>)<span class="question-mark">?</span>,
         };
 
@@ -683,6 +686,16 @@
             Amount::from_sat(<span class="number">0</span>)
         } <span class="kw">else </span>{
             NON_EPHEMERAL_ANCHOR_AMOUNT
+        }
+    }
+
+    <span class="kw">pub fn </span>bridge_circuit_constant(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="kw-2">&amp;</span>[u8; <span class="number">32</span>], BridgeError&gt; {
+        <span class="kw">match </span><span class="self">self</span>.network {
+            Network::Regtest =&gt; <span class="prelude-val">Ok</span>(<span class="kw-2">&amp;</span>REGTEST_BRIDGE_CIRCUIT_CONSTANT),
+            Network::Bitcoin =&gt; <span class="prelude-val">Ok</span>(<span class="kw-2">&amp;</span>MAINNET_BRIDGE_CIRCUIT_CONSTANT),
+            Network::Testnet4 =&gt; <span class="prelude-val">Ok</span>(<span class="kw-2">&amp;</span>TESTNET4_BRIDGE_CIRCUIT_CONSTANT),
+            Network::Signet =&gt; <span class="prelude-val">Ok</span>(<span class="kw-2">&amp;</span>SIGNET_BRIDGE_CIRCUIT_CONSTANT),
+            <span class="kw">_ </span>=&gt; <span class="kw">return </span><span class="prelude-val">Err</span>(BridgeError::UnsupportedNetwork),
         }
     }
 }
@@ -736,10 +749,6 @@
         <span class="number">134</span>, <span class="number">20</span>, <span class="number">132</span>, <span class="number">171</span>, <span class="number">180</span>, <span class="number">175</span>, <span class="number">95</span>, <span class="number">126</span>, <span class="number">69</span>, <span class="number">127</span>, <span class="number">140</span>, <span class="number">34</span>, <span class="number">22</span>,
     ],
     header_chain_proof_batch_size: <span class="number">100</span>,
-    bridge_circuit_method_id_constant: [
-        <span class="number">122</span>, <span class="number">210</span>, <span class="number">204</span>, <span class="number">155</span>, <span class="number">203</span>, <span class="number">206</span>, <span class="number">216</span>, <span class="number">8</span>, <span class="number">126</span>, <span class="number">117</span>, <span class="number">61</span>, <span class="number">91</span>, <span class="number">47</span>, <span class="number">85</span>, <span class="number">69</span>, <span class="number">147</span>, <span class="number">68</span>, <span class="number">196</span>, <span class="number">156</span>, <span class="number">234</span>,
-        <span class="number">75</span>, <span class="number">17</span>, <span class="number">119</span>, <span class="number">195</span>, <span class="number">91</span>, <span class="number">121</span>, <span class="number">62</span>, <span class="number">254</span>, <span class="number">13</span>, <span class="number">195</span>, <span class="number">48</span>, <span class="number">238</span>,
-    ],
     bridge_nonstandard: <span class="bool-val">true</span>,
 };
 
@@ -756,9 +765,20 @@
     <span class="number">96</span>, <span class="number">170</span>, <span class="number">31</span>, <span class="number">131</span>, <span class="number">123</span>, <span class="number">90</span>, <span class="number">255</span>, <span class="number">185</span>, <span class="number">72</span>, <span class="number">65</span>, <span class="number">25</span>,
 ];
 
+<span class="kw">pub const </span>REGTEST_BRIDGE_CIRCUIT_CONSTANT: [u8; <span class="number">32</span>] = [
+    <span class="number">122</span>, <span class="number">210</span>, <span class="number">204</span>, <span class="number">155</span>, <span class="number">203</span>, <span class="number">206</span>, <span class="number">216</span>, <span class="number">8</span>, <span class="number">126</span>, <span class="number">117</span>, <span class="number">61</span>, <span class="number">91</span>, <span class="number">47</span>, <span class="number">85</span>, <span class="number">69</span>, <span class="number">147</span>, <span class="number">68</span>, <span class="number">196</span>, <span class="number">156</span>, <span class="number">234</span>, <span class="number">75</span>,
+    <span class="number">17</span>, <span class="number">119</span>, <span class="number">195</span>, <span class="number">91</span>, <span class="number">121</span>, <span class="number">62</span>, <span class="number">254</span>, <span class="number">13</span>, <span class="number">195</span>, <span class="number">48</span>, <span class="number">238</span>,
+];
+
 <span class="attr">#[cfg(test)]
 </span><span class="kw">mod </span>tests {
-    <span class="kw">use </span>bridge_circuit_host::utils::calculate_succinct_output_prefix;
+    <span class="kw">use </span>bridge_circuit_host::{
+        bridge_circuit_host::{
+            MAINNET_BRIDGE_CIRCUIT_ELF, REGTEST_BRIDGE_CIRCUIT_ELF, SIGNET_BRIDGE_CIRCUIT_ELF,
+            TESTNET4_BRIDGE_CIRCUIT_ELF,
+        },
+        utils::calculate_succinct_output_prefix,
+    };
     <span class="kw">use </span>circuits_lib::{
         bridge_circuit::constants::{
             MAINNET_WORK_ONLY_METHOD_ID, REGTEST_WORK_ONLY_METHOD_ID, SIGNET_WORK_ONLY_METHOD_ID,
@@ -781,18 +801,17 @@
 
     <span class="attr">#[test]
     </span><span class="kw">fn </span>test_regtest_bridge_circuit_constant() {
-        <span class="kw">let </span>regtest_bridge_elf =
-            <span class="macro">include_bytes!</span>(<span class="string">"../../../risc0-circuits/elfs/regtest-bridge-circuit-guest.bin"</span>);
+        <span class="kw">let </span>regtest_bridge_elf = REGTEST_BRIDGE_CIRCUIT_ELF;
         <span class="kw">let </span>regtest_bridge_circuit_method_id =
             compute_image_id(regtest_bridge_elf).expect(<span class="string">"should compute image id"</span>);
         <span class="kw">let </span>calculated_regtest_bridge_circuit_constant =
             calculate_succinct_output_prefix(regtest_bridge_circuit_method_id.as_bytes());
 
-        <span class="kw">let </span>regtest_bridge_circuit_constant = REGTEST_PARAMSET.bridge_circuit_method_id_constant;
+        <span class="kw">let </span>regtest_bridge_circuit_constant = REGTEST_BRIDGE_CIRCUIT_CONSTANT;
         <span class="macro">assert_eq!</span>(
             calculated_regtest_bridge_circuit_constant,
             regtest_bridge_circuit_constant,
-            <span class="string">"You forgot to update regtest bridge_circuit_constant with the new method id. Please change it in these places: core/src/cli.rs, core/src/config/protocol.rs, core/src/test/data/protocol_paramset.toml. The expected value is: {:?}, hex format: {:?}"</span>,
+            <span class="string">"You forgot to update regtest bridge_circuit_constant with the new method id. Please change it in these places: core/src/config/protocol.rs. The expected value is: {:?}, hex format: {:?}"</span>,
             calculated_regtest_bridge_circuit_constant,
             hex::encode(calculated_regtest_bridge_circuit_constant)
         );
@@ -800,8 +819,7 @@
 
     <span class="attr">#[test]
     </span><span class="kw">fn </span>test_mainnet_bridge_circuit_constant() {
-        <span class="kw">let </span>mainnet_bridge_elf =
-            <span class="macro">include_bytes!</span>(<span class="string">"../../../risc0-circuits/elfs/mainnet-bridge-circuit-guest.bin"</span>);
+        <span class="kw">let </span>mainnet_bridge_elf = MAINNET_BRIDGE_CIRCUIT_ELF;
         <span class="kw">let </span>mainnet_bridge_circuit_method_id =
             compute_image_id(mainnet_bridge_elf).expect(<span class="string">"should compute image id"</span>);
         <span class="kw">let </span>calculated_mainnet_bridge_circuit_constant =
@@ -819,8 +837,7 @@
 
     <span class="attr">#[test]
     </span><span class="kw">fn </span>test_testnet4_bridge_circuit_constant() {
-        <span class="kw">let </span>testnet4_bridge_elf =
-            <span class="macro">include_bytes!</span>(<span class="string">"../../../risc0-circuits/elfs/testnet4-bridge-circuit-guest.bin"</span>);
+        <span class="kw">let </span>testnet4_bridge_elf = TESTNET4_BRIDGE_CIRCUIT_ELF;
         <span class="kw">let </span>testnet4_bridge_circuit_method_id =
             compute_image_id(testnet4_bridge_elf).expect(<span class="string">"should compute image id"</span>);
         <span class="kw">let </span>calculated_testnet4_bridge_circuit_constant =
@@ -838,8 +855,7 @@
 
     <span class="attr">#[test]
     </span><span class="kw">fn </span>test_signet_bridge_circuit_constant() {
-        <span class="kw">let </span>signet_bridge_elf =
-            <span class="macro">include_bytes!</span>(<span class="string">"../../../risc0-circuits/elfs/signet-bridge-circuit-guest.bin"</span>);
+        <span class="kw">let </span>signet_bridge_elf = SIGNET_BRIDGE_CIRCUIT_ELF;
         <span class="kw">let </span>signet_bridge_circuit_method_id =
             compute_image_id(signet_bridge_elf).expect(<span class="string">"should compute image id"</span>);
         <span class="kw">let </span>calculated_signet_bridge_circuit_constant =

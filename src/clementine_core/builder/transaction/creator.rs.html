@@ -1710,7 +1710,7 @@
         <span class="kw">let </span>bitvm_keys = ClementineBitVMPublicKeys::from_flattened_vec(<span class="kw-2">&amp;</span>bitvm_wpks);
 
         <span class="kw">let </span>script = create_additional_replacable_disprove_script_with_dummy(
-            <span class="self">self</span>.paramset.bridge_circuit_method_id_constant,
+            <span class="kw-2">*</span><span class="self">self</span>.paramset.bridge_circuit_constant()<span class="question-mark">?</span>,
             bitvm_keys.bitvm_pks.<span class="number">0</span>[<span class="number">0</span>].to_vec(),
             bitvm_keys.latest_blockhash_pk.to_vec(),
             bitvm_keys.challenge_sending_watchtowers_pk.to_vec(),
