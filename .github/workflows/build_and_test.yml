@@ -1,6 +1,14 @@
 name: Build And Test
 
-on: [push]
+on:
+  push:
+    branches:
+      - main
+      - "releases/*"
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
