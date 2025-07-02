@@ -25,7 +25,7 @@ jobs:
   # Build ----------------------------------------------------------------------
   release_build_all_features:
     name: Release | All features | Compile
-    runs-on: ubicloud-standard-30
+    runs-on: ubicloud-standard-16
     if: ${{ !github.event.pull_request.draft }}
 
     steps:
@@ -62,7 +62,7 @@ jobs:
   # Full Tests -----------------------------------------------------------------
   debug_build_test_all_features:
     name: Debug | All features | Test
-    runs-on: ubicloud-standard-30
+    runs-on: ubicloud-standard-16
 
     env:
       INFO_LOG_FILE: ${{ github.workspace }}/test-logs/debug/debug-all-features-test.log
@@ -118,7 +118,7 @@ jobs:
 
   release_build_test_all_features:
     name: Release | All features | Test
-    runs-on: ubicloud-standard-30
+    runs-on: ubicloud-standard-16
     if: ${{ !github.event.pull_request.draft }}
     needs: release_build_all_features
 
