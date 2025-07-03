@@ -10,12 +10,12 @@ use crate::citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER};
 use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
 use crate::database::Database;
-use crate::deposit::{self, BaseDepositData, DepositInfo, DepositType, KickoffData};
+use crate::deposit::{BaseDepositData, DepositInfo, DepositType, KickoffData};
 use crate::header_chain_prover::HeaderChainProver;
 use crate::operator::RoundIndex;
 use crate::rpc::clementine::{
     Deposit, Empty, FeeType, FinalizedPayoutParams, KickoffId, NormalSignatureKind, RawSignedTx,
-    SendMoveTxRequest, SendTxRequest, TransactionRequest, WithdrawParams, WithdrawResponse,
+    SendMoveTxRequest, SendTxRequest, TransactionRequest, WithdrawParams,
 };
 use crate::test::common::citrea::{get_citrea_safe_withdraw_params, MockCitreaClient, SECRET_KEYS};
 use crate::test::common::tx_utils::{
@@ -32,7 +32,6 @@ use crate::test::common::{
     run_single_deposit,
 };
 use crate::utils::{initialize_logger, FeePayingType, TxMetadata};
-use crate::{aggregator, EVMAddress, UTXO};
 use crate::{
     extended_rpc::ExtendedRpc,
     test::common::{
@@ -40,14 +39,13 @@ use crate::{
         create_test_config_with_thread_name,
     },
 };
+use crate::{EVMAddress, UTXO};
 use alloy::primitives::U256;
-use alloy::rpc::types::request;
 use async_trait::async_trait;
 use bitcoin::hashes::Hash;
 use bitcoin::{secp256k1::SecretKey, Address, Amount};
-use bitcoin::{OutPoint, PublicKey, Transaction, TxOut, Txid};
+use bitcoin::{OutPoint, Transaction, TxOut, Txid};
 use bitcoincore_rpc::RpcApi;
-use bitvm::groth16::constants::R;
 use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
 use citrea_e2e::config::{BatchProverConfig, LightClientProverConfig};
 use citrea_e2e::{
@@ -56,15 +54,10 @@ use citrea_e2e::{
     test_case::{TestCase, TestCaseRunner},
 };
 use eyre::Context;
-use futures::future::join_all;
 use futures::future::try_join_all;
-use secp256k1::SECP256K1;
-use serde::Serialize;
-use sha2::digest::generic_array::sequence;
-use statig::Response::Transition;
 use std::time::Duration;
 use tokio::time::sleep;
-use tonic::{Request, Response, Status};
+use tonic::Request;
 
 #[derive(PartialEq)]
 pub enum CitreaDepositAndWithdrawE2EVariant {
@@ -352,7 +345,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         // tracing::debug!("Publish batch request sent");
 
         // let receipt = citrea_withdrawal_tx.get_receipt().await.unwrap();
-        // println!("Citrea withdrawal tx receipt: {:?}", receipt);
+        // tracing::debug!("Citrea withdrawal tx receipt: {:?}", receipt);
 
         let citrea_withdrawal_tx = citrea_client
             .contract
@@ -372,7 +365,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         tracing::debug!("Publish batch request sent");
 
         let receipt = citrea_withdrawal_tx.get_receipt().await.unwrap();
-        println!("Citrea withdrawal tx receipt: {:?}", receipt);
+        tracing::debug!("Citrea withdrawal tx receipt: {:?}", receipt);
 
         // 2. wait until 2 commitment txs (commit, reveal) seen from DA to ensure their reveal prefix nonce is found
         da.wait_mempool_len(2, None).await?;
@@ -1577,8 +1570,8 @@ async fn concurrent_deposits_and_withdrawals() {
     .await
     .unwrap();
 
-    let (verifiers, mut operators, mut aggregator, cleanup) =
-        create_actors::<MockCitreaClient>(&mut config).await;
+    let (_verifiers, operators, mut aggregator, _cleanup) =
+        create_actors::<MockCitreaClient>(&config).await;
     let verifiers_public_keys: Vec<bitcoin::secp256k1::PublicKey> = aggregator
         .setup(Request::new(Empty {}))
         .await
@@ -1600,20 +1593,16 @@ async fn concurrent_deposits_and_withdrawals() {
     let mut aggregators = (0..count).map(|_| aggregator.clone()).collect::<Vec<_>>();
     let mut move_tx_requests = Vec::new();
     let mut deposit_outpoints = Vec::new();
-    for (i, mut aggregator) in aggregators.iter_mut().enumerate() {
+    for aggregator in aggregators.iter_mut() {
         let (deposit_address, _) =
             get_deposit_address(&config, evm_address, verifiers_public_keys.clone()).unwrap();
         let deposit_outpoint = rpc
             .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
             .await
             .unwrap();
-        deposit_outpoints.push(deposit_outpoint.clone());
+        deposit_outpoints.push(deposit_outpoint);
 
         mine_once_after_in_mempool(&rpc, deposit_outpoint.txid, Some("Deposit outpoint"), None)
-            .await
-            .unwrap();
-        let deposit_blockhash = rpc
-            .get_blockhash_of_tx(&deposit_outpoint.txid)
             .await
             .unwrap();
 
@@ -1624,7 +1613,7 @@ async fn concurrent_deposits_and_withdrawals() {
                 recovery_taproot_address: actor.address.as_unchecked().to_owned(),
             }),
         };
-        println!(
+        tracing::debug!(
             "Creating move tx for deposit outpoint: {:?}",
             deposit_info.deposit_outpoint
         );
@@ -1638,10 +1627,10 @@ async fn concurrent_deposits_and_withdrawals() {
         .into_iter()
         .map(|encoded_move_tx| encoded_move_tx.into_inner())
         .collect::<Vec<_>>();
-    println!("Move txs created: {:?}", move_txs);
+    tracing::debug!("Move txs created: {:?}", move_txs);
 
     let mut deposit_requests = Vec::new();
-    for (i, mut aggregator) in aggregators.iter_mut().enumerate() {
+    for (i, aggregator) in aggregators.iter_mut().enumerate() {
         let request = SendMoveTxRequest {
             deposit_outpoint: Some(deposit_outpoints[i].into()),
             raw_tx: Some(move_txs[i].clone()),
@@ -1657,7 +1646,7 @@ async fn concurrent_deposits_and_withdrawals() {
         .into_iter()
         .map(|encoded_move_tx| encoded_move_tx.into_inner().try_into().unwrap())
         .collect::<Vec<_>>();
-    println!("Move txids: {:?}", move_txids);
+    tracing::debug!("Move txids: {:?}", move_txids);
 
     sleep(Duration::from_secs(5)).await;
     rpc.mine_blocks(1).await.unwrap();
@@ -1668,7 +1657,7 @@ async fn concurrent_deposits_and_withdrawals() {
         poll_until_condition(
             async move || {
                 let entry = rpc.client.get_mempool_entry(&txid).await;
-                println!("Mempool entry for txid {:?}: {:?}", txid, entry);
+                tracing::debug!("Mempool entry for txid {:?}: {:?}", txid, entry);
                 Ok(entry.is_ok())
             },
             Some(Duration::from_secs(120)),
@@ -1680,10 +1669,9 @@ async fn concurrent_deposits_and_withdrawals() {
 
     rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
 
-    for (i, txid) in move_txids.iter().enumerate() {
+    for txid in move_txids.iter() {
         let rpc = rpc.clone();
         let txid = *txid;
-        let evm_address = evm_address.clone();
         let mut citrea_client = citrea_client.clone();
 
         poll_until_condition(
@@ -1696,19 +1684,15 @@ async fn concurrent_deposits_and_withdrawals() {
                 }
 
                 let tx = rpc.client.get_raw_transaction(&txid, None).await?;
-                let tx_info = rpc.client.get_raw_transaction_info(&txid, None).await?;
-                let block = rpc.client.get_block(&tx_info.blockhash.unwrap()).await?;
-                let block_height =
-                    rpc.client.get_block_info(&block.block_hash()).await?.height as u64;
 
-                println!("Depositing to Citrea...");
+                tracing::debug!("Depositing to Citrea...");
 
                 let current_block_height = rpc.client.get_block_count().await.unwrap();
                 citrea_client
                     .insert_deposit_move_txid(current_block_height + 1, tx.compute_txid())
                     .await;
 
-                println!("Deposit operations are successful.");
+                tracing::debug!("Deposit operations are successful.");
 
                 Ok(true)
             },
@@ -1730,17 +1714,6 @@ async fn concurrent_deposits_and_withdrawals() {
             None,
             config.protocol_paramset().network,
         );
-        let (withdrawal_utxo_with_txout, payout_txout, sig) =
-            generate_withdrawal_transaction_and_signature(
-                &config,
-                &rpc,
-                &withdrawal_address,
-                config.protocol_paramset().bridge_amount
-                    - config
-                        .operator_withdrawal_fee_sats
-                        .unwrap_or(Amount::from_sat(0)),
-            )
-            .await;
 
         let (dust_utxo, payout_txout, sig) = generate_withdrawal_transaction_and_signature(
             &config,
@@ -1780,7 +1753,7 @@ async fn concurrent_deposits_and_withdrawals() {
             async move || {
                 let mut withdrawal_requests = Vec::new();
 
-                for (i, mut operator) in operator0s.iter_mut().enumerate() {
+                for (i, operator) in operator0s.iter_mut().enumerate() {
                     withdrawal_requests.push(operator.withdraw(WithdrawParams {
                         withdrawal_id: i as u32,
                         input_signature: sigs[i].serialize().to_vec(),
@@ -1809,7 +1782,7 @@ async fn concurrent_deposits_and_withdrawals() {
                             .unwrap()
                     })
                     .collect::<Vec<_>>();
-                println!("Withdrawal txids: {:?}", withdrawal_txids);
+                tracing::debug!("Withdrawal txids: {:?}", withdrawal_txids);
 
                 Ok(true)
             }
