@@ -146,7 +146,7 @@ impl TxSender {
             change_position: Some(tx.output.len() as u16), // Add change output at last index (so that SinglePlusAnyoneCanPay signatures stay valid)
             change_type: None,
             include_watching: None,
-            lock_unspent: Some(true),
+            lock_unspent: None,
             // Bitcoincore expects BTC/kvbyte for fee_rate
             fee_rate: Some(
                 adjusted_fee_rate
