@@ -390,10 +390,6 @@ mod tests {
             "SECURITY_COUNCIL",
             "1:50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0",
         );
-        env::set_var(
-            "BRIDGE_CIRCUIT_METHOD_ID_CONSTANT",
-            "877F60C5D13B0DF3B80A19A3C5ED2BA45AB82BBE7A58EA524E5CF9FFCE9957FF",
-        );
     }
 
     // Helper to set up all environment variables needed for protocol paramset
@@ -403,7 +399,7 @@ mod tests {
         env::set_var("NUM_KICKOFFS_PER_ROUND", "10");
         env::set_var("NUM_SIGNED_KICKOFFS", "2");
         env::set_var("BRIDGE_AMOUNT", "1000000000");
-        env::set_var("KICKOFF_AMOUNT", "55000");
+        env::set_var("KICKOFF_AMOUNT", "0");
         env::set_var("OPERATOR_CHALLENGE_AMOUNT", "200000000");
         env::set_var("COLLATERAL_FUNDING_AMOUNT", "99000000");
         env::set_var("KICKOFF_BLOCKHASH_COMMIT_LENGTH", "40");
@@ -417,7 +413,6 @@ mod tests {
         env::set_var("OPERATOR_REIMBURSE_TIMELOCK", "12");
         env::set_var("WATCHTOWER_CHALLENGE_TIMEOUT_TIMELOCK", "288");
         env::set_var("TIME_TO_SEND_WATCHTOWER_CHALLENGE", "216");
-        env::set_var("TIME_TO_DISPROVE", "648");
         env::set_var("LATEST_BLOCKHASH_TIMEOUT_TIMELOCK", "360");
         env::set_var("FINALITY_DEPTH", "1");
         env::set_var("START_HEIGHT", "8148");
@@ -427,11 +422,7 @@ mod tests {
             "5f7302ad16c8bd9ef2f3be00c8199a86f9e0ba861484abb4af5f7e457f8c2216",
         );
         env::set_var("HEADER_CHAIN_PROOF_BATCH_SIZE", "100");
-        env::set_var(
-            "BRIDGE_CIRCUIT_METHOD_ID_CONSTANT",
-            "877F60C5D13B0DF3B80A19A3C5ED2BA45AB82BBE7A58EA524E5CF9FFCE9957FF",
-        );
-        env::set_var("BRIDGE_NONSTANDARD", "false");
+        env::set_var("BRIDGE_NONSTANDARD", "true");
     }
 
     // Helper to clean up all environment variables
@@ -482,7 +473,6 @@ mod tests {
         env::remove_var("OPERATOR_REIMBURSE_TIMELOCK");
         env::remove_var("WATCHTOWER_CHALLENGE_TIMEOUT_TIMELOCK");
         env::remove_var("TIME_TO_SEND_WATCHTOWER_CHALLENGE");
-        env::remove_var("TIME_TO_DISPROVE");
         env::remove_var("FINALITY_DEPTH");
         env::remove_var("START_HEIGHT");
         env::remove_var("HEADER_CHAIN_PROOF_BATCH_SIZE");

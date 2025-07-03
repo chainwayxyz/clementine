@@ -6,9 +6,9 @@ use crate::{citrea::CitreaClientT, database::Database, errors::BridgeError, oper
 use super::Task;
 
 pub const PAYOUT_CHECKER_POLL_DELAY: Duration = if cfg!(test) {
-    Duration::from_millis(200)
+    Duration::from_millis(250)
 } else {
-    Duration::from_secs(1)
+    Duration::from_secs(60)
 };
 
 #[derive(Debug, Clone)]
@@ -85,6 +85,6 @@ where
 
         dbtx.commit().await?;
 
-        Ok(false)
+        Ok(true)
     }
 }

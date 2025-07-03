@@ -7,6 +7,7 @@
 //! Clementine binary should be run multiple times with different arguments.
 
 use clementine_core::{
+    bitvm_client::{load_or_generate_bitvm_cache, BITVM_CACHE},
     citrea::CitreaClient,
     cli::{self, get_cli_config},
     database::Database,
@@ -18,6 +19,10 @@ use clementine_core::{
 #[tokio::main]
 async fn main() {
     let (config, args) = get_cli_config();
+
+    // Load the BitVM cache on startup.
+    tracing::info!("Loading BitVM cache...");
+    BITVM_CACHE.get_or_init(load_or_generate_bitvm_cache);
 
     Database::run_schema_script(&config, args.actor == cli::Actors::Verifier)
         .await

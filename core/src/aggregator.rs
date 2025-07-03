@@ -1,4 +1,3 @@
-use crate::bitvm_client::{SECP, UNSPENDABLE_XONLY_PUBKEY};
 use crate::constants::{OPERATOR_GET_KEYS_TIMEOUT, VERIFIER_SEND_KEYS_TIMEOUT};
 use crate::deposit::DepositData;
 use crate::extended_rpc::ExtendedRpc;
@@ -24,10 +23,7 @@ use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::{schnorr, Message, PublicKey};
 use bitcoin::XOnlyPublicKey;
 use eyre::Context;
-use futures_util::future::try_join_all;
 use secp256k1::musig::{AggregatedNonce, PartialSignature};
-use std::time::Duration;
-use tokio::time::timeout;
 use tonic::Status;
 use tracing::{debug_span, Instrument};
 
@@ -96,7 +92,7 @@ impl ParticipatingVerifiers {
     }
 
     pub fn ids(&self) -> Vec<VerifierId> {
-        self.0.iter().map(|(_, id)| id.clone()).collect()
+        self.0.iter().map(|(_, id)| *id).collect()
     }
 }
 
@@ -124,7 +120,7 @@ impl ParticipatingOperators {
     }
 
     pub fn ids(&self) -> Vec<OperatorId> {
-        self.0.iter().map(|(_, id)| id.clone()).collect()
+        self.0.iter().map(|(_, id)| *id).collect()
     }
 }
 
@@ -243,12 +239,12 @@ impl Aggregator {
         let operator_clients = operators.clients();
 
         let operator_xonly_pks = deposit_data.get_operators();
-        let num_operators = deposit_data.get_num_operators();
         let deposit = deposit_params.clone();
 
         tracing::info!("Starting operator key collection");
         #[cfg(test)]
         let timeout_params = self.config.test_params.timeout_params;
+        #[allow(clippy::unused_enumerate_index)]
         let get_operators_keys_handle = tokio::spawn(timed_try_join_all(
             OPERATOR_GET_KEYS_TIMEOUT,
             "Operator key collection",
@@ -257,13 +253,13 @@ impl Aggregator {
                 .into_iter()
                 .zip(operator_xonly_pks.into_iter())
                 .enumerate()
-                .map(move |(idx, (mut operator_client, operator_xonly_pk))| {
+                .map(move |(_idx, (mut operator_client, operator_xonly_pk))| {
                     let deposit_params = deposit.clone();
                     let tx = operator_keys_tx.clone();
                     async move {
                         #[cfg(test)]
                         timeout_params
-                            .hook_timeout_key_collection_operator(idx)
+                            .hook_timeout_key_collection_operator(_idx)
                             .await;
 
                         let operator_keys = operator_client
@@ -303,6 +299,7 @@ impl Aggregator {
 
         #[cfg(test)]
         let timeout_params = self.config.test_params.timeout_params;
+        #[allow(clippy::unused_enumerate_index)]
         let distribute_operators_keys_handle = tokio::spawn(timed_try_join_all(
             VERIFIER_SEND_KEYS_TIMEOUT,
             "Verifier key distribution",
@@ -313,10 +310,10 @@ impl Aggregator {
                 .zip(verifier_ids)
                 .enumerate()
                 .map(
-                    move |(idx, ((mut verifier, mut rx), verifier_id))| async move {
+                    move |(_idx, ((mut verifier, mut rx), verifier_id))| async move {
                         #[cfg(test)]
                         timeout_params
-                            .hook_timeout_key_distribution_verifier(idx)
+                            .hook_timeout_key_distribution_verifier(_idx)
                             .await;
 
                         // Only wait for expected number of messages
@@ -382,7 +379,7 @@ impl Aggregator {
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    async fn aggregate_move_partial_sigs(
+    async fn _aggregate_move_partial_sigs(
         &self,
         deposit_data: &mut DepositData,
         agg_nonce: &AggregatedNonce,

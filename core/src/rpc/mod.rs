@@ -49,7 +49,7 @@ impl From<(NumberedSignatureKind, i32)> for SignatureId {
 ///
 /// # Returns
 ///
-/// - [`CLIENT`]: [`tonic`] gRPC client.
+/// - `CLIENT`: [`tonic`] gRPC client.
 pub async fn get_clients<CLIENT, F>(
     endpoints: Vec<String>,
     connect: F,

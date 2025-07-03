@@ -5,7 +5,7 @@ on:
     tags:
       - "v*.*.*"
 
-concurrency: 
+concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ (github.ref != 'refs/heads/main') }}
 
@@ -28,7 +28,7 @@ jobs:
           rustup default 1.85.0
 
       - name: Install risc0
-        uses: ./.github/actions/install-risc0
+        uses: ./.github/actions/test-prerequisites
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
 

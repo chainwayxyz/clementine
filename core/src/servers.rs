@@ -15,7 +15,6 @@ use crate::{config::BridgeConfig, errors};
 use errors::BridgeError;
 use eyre::Context;
 use rustls_pki_types::pem::PemObject;
-use std::thread;
 use tokio::sync::oneshot;
 use tonic::server::NamedService;
 use tonic::service::interceptor::InterceptedService;
@@ -25,12 +24,6 @@ use tonic::transport::{Certificate, CertificateDer, Identity, ServerTlsConfig};
 use crate::test::common::ensure_test_certificates;
 
 pub type ServerFuture = dyn futures::Future<Output = Result<(), tonic::transport::Error>>;
-
-#[tracing::instrument(ret(level = tracing::Level::TRACE))]
-fn is_test_env() -> bool {
-    // if thread name is not main then it is a test
-    thread::current().name().unwrap_or_default() != "main"
-}
 
 /// Represents a network address that can be either TCP or Unix socket
 #[derive(Debug, Clone)]

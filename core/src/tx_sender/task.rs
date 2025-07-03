@@ -16,7 +16,7 @@ use crate::{
 use super::TxSender;
 
 const POLL_DELAY: Duration = if cfg!(test) {
-    Duration::from_millis(100)
+    Duration::from_millis(250)
 } else {
     Duration::from_secs(30)
 };
@@ -43,7 +43,7 @@ impl Task for TxSenderTask {
                 return Ok(false);
             };
 
-            tracing::info!("TXSENDER: Event: {:?}", event);
+            tracing::debug!("TXSENDER: Event: {:?}", event);
             Ok::<_, BridgeError>(match event {
                 BitcoinSyncerEvent::NewBlock(block_id) => {
                     self.db.confirm_transactions(&mut dbtx, block_id).await?;

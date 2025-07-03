@@ -274,7 +274,16 @@ impl WatchtowerInput {
         let mut watchtower_challenge_tx = CircuitTransaction::from(watchtower_tx);
 
         let watchtower_challenge_annex: Option<Annex> = {
-            if let Some(last_witness_element) = watchtower_challenge_tx.input
+            // If there are at most one element in the witness, then there are no annexes
+            if watchtower_challenge_tx.input[watchtower_challenge_input_idx as usize]
+                .witness
+                .len()
+                <= 1
+            {
+                None
+            }
+            // Otherwise, if the last element starts with 0x50, then it is an Annex
+            else if let Some(last_witness_element) = watchtower_challenge_tx.input
                 [watchtower_challenge_input_idx as usize]
                 .witness
                 .last()
@@ -373,7 +382,7 @@ impl BridgeCircuitInput {
 #[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug)]
 pub struct WatchtowerChallengeSet {
     pub challenge_senders: [u8; 20],
-    pub challenge_outputs: Vec<[TxOut; 3]>,
+    pub challenge_outputs: Vec<Vec<TxOut>>,
 }
 
 fn serialize_txout<W: borsh::io::Write>(txout: &TxOut, writer: &mut W) -> borsh::io::Result<()> {

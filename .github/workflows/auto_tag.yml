@@ -1,0 +1,41 @@
+name: Label PR on Breaking Change
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  label:
+    runs-on: ubicloud-standard-2
+
+    steps:
+      - name: Checkout PR
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get changed files
+        id: files
+        run: |
+          {
+            echo "CHANGED<<EOF"
+            git diff --name-only ${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
+
+      - name: Check for deposit state changes
+        id: check
+        run: |
+          echo "${{ steps.files.outputs.CHANGED }}" | grep -E '^core/src/test/data/deposit_state_' && echo "match=true" >> $GITHUB_OUTPUT || echo "match=false" >> $GITHUB_OUTPUT
+
+      - name: Add label
+        if: steps.check.outputs.match == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.addLabels({
+              issue_number: context.payload.pull_request.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: ['F-deposit-replace-needed']
+            })
