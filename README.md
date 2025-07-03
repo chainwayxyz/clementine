@@ -184,6 +184,12 @@ A server's log level can be specified with `--verbose` flag:
 ./target/release/clementine-core operator --config /path/to/config.toml --verbose 5 # Logs everything
 ```
 
+Setting `RUST_LIB_BACKTRACE` to `full` will enable full backtraces for errors
+
+```sh
+RUST_LIB_BACKTRACE=full ./target/release/clementine-core operator --config /path/to/config.toml
+```
+
 For more information, use `--help` flag:
 
 ```sh

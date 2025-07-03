@@ -41,6 +41,11 @@ pub fn initialize_logger(level: Option<LevelFilter>) -> Result<(), BridgeError> 
         .map(|v| v == "true" || v == "1")
         .unwrap_or(false);
 
+    if cfg!(test) {
+        // Enable full backtraces for tests
+        std::env::set_var("RUST_LIB_BACKTRACE", "full");
+    }
+
     // Initialize color-eyre for better error handling and backtraces
     let _ = color_eyre::install();
 
