@@ -281,6 +281,39 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     bridge_nonstandard: true,
 };
 
+pub const TESTNET4_TEST_PARAMSET: ProtocolParamset = ProtocolParamset {
+    network: Network::Testnet4,
+    num_round_txs: 2,
+    num_kickoffs_per_round: 10,
+    num_signed_kickoffs: 2,
+    bridge_amount: Amount::from_sat(1_000_000),
+    kickoff_amount: Amount::from_sat(0),
+    operator_challenge_amount: Amount::from_sat(200_000),
+    collateral_funding_amount: Amount::from_sat(99_000),
+    watchtower_challenge_bytes: 144,
+    kickoff_blockhash_commit_length: 40,
+    winternitz_log_d: WINTERNITZ_LOG_D,
+    user_takes_after: 200,
+    operator_challenge_timeout_timelock: 4 * BLOCKS_PER_HOUR,
+    operator_challenge_nack_timelock: 4 * BLOCKS_PER_HOUR * 3,
+    disprove_timeout_timelock: 4 * BLOCKS_PER_HOUR * 5,
+    assert_timeout_timelock: 4 * BLOCKS_PER_HOUR * 4,
+    operator_reimburse_timelock: 2,
+    watchtower_challenge_timeout_timelock: 4 * BLOCKS_PER_HOUR * 2,
+    time_to_send_watchtower_challenge: 4 * BLOCKS_PER_HOUR * 3 / 2,
+    latest_blockhash_timeout_timelock: 4 * BLOCKS_PER_HOUR * 5 / 2,
+    finality_depth: 1,
+    start_height: 89250,
+    genesis_height: 89250,
+    genesis_chain_state_hash: [
+        0xf8, 0x6a, 0x6f, 0x2d, 0xe1, 0xfc, 0x31, 0xfc, 0xf0, 0x18, 0x5c, 0x2a, 0x73, 0x17, 0x63,
+        0x39, 0x71, 0x58, 0xd0, 0x74, 0x10, 0xea, 0x3e, 0xab, 0x61, 0xc4, 0x4c, 0x5c, 0x6b, 0x05,
+        0x4a, 0xfd,
+    ],
+    header_chain_proof_batch_size: 100,
+    bridge_nonstandard: true,
+};
+
 pub const SIGNET_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [
     52, 23, 169, 35, 5, 10, 197, 40, 135, 145, 196, 190, 148, 7, 127, 52, 246, 105, 197, 227, 140,
     51, 204, 184, 180, 238, 95, 34, 11, 203, 120, 57,

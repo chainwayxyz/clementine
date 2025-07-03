@@ -330,7 +330,7 @@ impl TxSender {
                 _ if self.paramset.network == bitcoin::Network::Testnet4
                     && self.is_bridge_tx_nonstandard(&tx) =>
                 {
-                    self.send_testnet4_nonstandard_tx(&tx).await
+                    self.send_testnet4_nonstandard_tx(&tx, id).await
                 }
                 FeePayingType::CPFP => self.send_cpfp_tx(id, tx, tx_metadata, new_fee_rate).await,
                 FeePayingType::RBF => {
