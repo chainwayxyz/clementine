@@ -1,6 +1,4 @@
 BEGIN;
--- Table to store the public keys of the verifiers
-create table if not exists verifier_public_keys (public_key text primary key not null);
 create table if not exists operators (
     xonly_pk text primary key not null,
     wallet_reimburse_address text not null,
@@ -38,7 +36,6 @@ create table if not exists operator_winternitz_public_keys (
     xonly_pk text primary key not null,
     winternitz_public_keys bytea not null
 );
-
 -- Verifier table of operators Winternitz public keys for every kickoff utxo for committing bitvm inputs
 create table if not exists operator_bitvm_winternitz_public_keys (
     xonly_pk text not null,
@@ -46,7 +43,6 @@ create table if not exists operator_bitvm_winternitz_public_keys (
     bitvm_winternitz_public_keys bytea not null,
     primary key (xonly_pk, deposit_id)
 );
-
 create table if not exists deposits (
     deposit_id serial primary key,
     deposit_outpoint text unique not null check (
@@ -145,7 +141,7 @@ DO $$ BEGIN IF NOT EXISTS (
     SELECT 1
     FROM pg_type
     WHERE typname = 'fee_paying_type'
-) THEN CREATE TYPE fee_paying_type AS ENUM ('cpfp', 'rbf');
+) THEN CREATE TYPE fee_paying_type AS ENUM ('cpfp', 'rbf', 'nofunding');
 END IF;
 END $$;
 -- Table to store txs that needs to be fee bumped
@@ -378,12 +374,10 @@ CREATE TABLE IF NOT EXISTS tx_sender_debug_sending_state (
 );
 -- Index for faster queries
 CREATE INDEX IF NOT EXISTS tx_sender_debug_submission_errors_tx_id_idx ON tx_sender_debug_submission_errors(tx_id);
-
 -- Table to store emergency stop signatures
 CREATE TABLE IF NOT EXISTS emergency_stop_sigs (
     move_txid bytea primary key not null,
     emergency_stop_tx bytea not null,
     created_at timestamp not null default now()
 );
-
 COMMIT;

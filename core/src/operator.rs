@@ -2,6 +2,7 @@ use ark_ff::PrimeField;
 use circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
 use risc0_zkvm::is_dev_mode;
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::actor::{Actor, TweakCache, WinternitzDerivationPath};
@@ -23,8 +24,11 @@ use crate::deposit::{DepositData, KickoffData, OperatorData};
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::header_chain_prover::HeaderChainProver;
+use crate::rpc::clementine::{EntityStatus, StoppedTasks};
 use crate::task::manager::BackgroundTaskManager;
 use crate::task::payout_checker::{PayoutCheckerTask, PAYOUT_CHECKER_POLL_DELAY};
+use crate::task::status_monitor::{TaskStatusMonitorTask, TASK_STATUS_MONITOR_POLL_DELAY};
+use crate::task::sync_status::get_sync_status;
 use crate::task::TaskExt;
 use crate::utils::Last20Bytes;
 use crate::utils::{NamedEntity, TxMetadata};
@@ -47,7 +51,7 @@ use bridge_circuit_host::bridge_circuit_host::{
 use bridge_circuit_host::structs::{BridgeCircuitHostParams, WatchtowerContext};
 use bridge_circuit_host::utils::{get_ark_verifying_key, get_ark_verifying_key_dev_mode_bridge};
 use eyre::{Context, OptionExt};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Mutex};
 use tokio_stream::StreamExt;
 
 #[cfg(feature = "automation")]
@@ -140,19 +144,29 @@ where
 {
     pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
         let operator = Operator::new(config.clone()).await?;
-        let mut background_tasks = BackgroundTaskManager::default();
+        let background_tasks = BackgroundTaskManager::default();
 
+        Ok(Self {
+            operator,
+            background_tasks,
+        })
+    }
+
+    /// Starts the background tasks for the operator.
+    /// If called multiple times, it will restart only the tasks that are not already running.
+    pub async fn start_background_tasks(&self) -> Result<(), BridgeError> {
         // initialize and run state manager
         #[cfg(feature = "automation")]
         {
-            let paramset = config.protocol_paramset();
+            let paramset = self.operator.config.protocol_paramset();
             let state_manager =
-                StateManager::new(operator.db.clone(), operator.clone(), paramset).await?;
+                StateManager::new(self.operator.db.clone(), self.operator.clone(), paramset)
+                    .await?;
 
             let should_run_state_mgr = {
                 #[cfg(test)]
                 {
-                    config.test_params.should_run_state_manager
+                    self.operator.config.test_params.should_run_state_manager
                 }
                 #[cfg(not(test))]
                 {
@@ -161,36 +175,61 @@ where
             };
 
             if should_run_state_mgr {
-                background_tasks.loop_and_monitor(state_manager.block_fetcher_task().await?);
-                background_tasks.loop_and_monitor(state_manager.into_task());
+                self.background_tasks
+                    .loop_and_monitor(state_manager.block_fetcher_task().await?)
+                    .await;
+                self.background_tasks
+                    .loop_and_monitor(state_manager.into_task())
+                    .await;
             }
         }
 
         // run payout checker task
-        background_tasks.loop_and_monitor(
-            PayoutCheckerTask::new(operator.db.clone(), operator.clone())
-                .with_delay(PAYOUT_CHECKER_POLL_DELAY),
-        );
+        self.background_tasks
+            .loop_and_monitor(
+                PayoutCheckerTask::new(self.operator.db.clone(), self.operator.clone())
+                    .with_delay(PAYOUT_CHECKER_POLL_DELAY),
+            )
+            .await;
 
         tracing::info!("Payout checker task started");
 
         // track the operator's round state
         #[cfg(feature = "automation")]
         {
-            operator.track_rounds().await?;
+            // Will not start a new state machine if one for the operator already exists.
+            self.operator.track_rounds().await?;
             tracing::info!("Operator round state tracked");
         }
 
-        Ok(Self {
-            operator,
-            background_tasks,
+        Ok(())
+    }
+
+    pub async fn get_current_status(&self) -> Result<EntityStatus, BridgeError> {
+        let stopped_tasks = self.background_tasks.get_stopped_tasks().await;
+        #[cfg(feature = "automation")]
+        let automation_enabled = true;
+        #[cfg(not(feature = "automation"))]
+        let automation_enabled = false;
+
+        let sync_status =
+            get_sync_status::<Operator<C>>(&self.operator.db, &self.operator.rpc).await?;
+
+        Ok(EntityStatus {
+            automation: automation_enabled,
+            wallet_balance: sync_status.wallet_balance,
+            tx_sender_synced_height: sync_status.tx_sender_synced_height.unwrap_or(0),
+            finalized_synced_height: sync_status.finalized_synced_height.unwrap_or(0),
+            hcp_last_proven_height: sync_status.hcp_last_proven_height.unwrap_or(0),
+            rpc_tip_height: sync_status.rpc_tip_height,
+            bitcoin_syncer_synced_height: sync_status.btc_syncer_synced_height.unwrap_or(0),
+            stopped_tasks: Some(stopped_tasks),
+            state_manager_next_height: sync_status.state_manager_next_height.unwrap_or(0),
         })
     }
 
     pub async fn shutdown(&mut self) {
-        self.background_tasks
-            .graceful_shutdown_with_timeout(Duration::from_secs(10))
-            .await;
+        self.background_tasks.graceful_shutdown().await;
     }
 }
 
@@ -215,10 +254,7 @@ where
         .await?;
 
         #[cfg(feature = "automation")]
-        let tx_sender = TxSenderClient::new(
-            db.clone(),
-            format!("operator_{:?}", signer.xonly_public_key).to_string(),
-        );
+        let tx_sender = TxSenderClient::new(db.clone(), Self::TX_SENDER_CONSUMER_ID.to_string());
 
         if config.operator_withdrawal_fee_sats.is_none() {
             return Err(eyre::eyre!("Operator withdrawal fee is not set").into());
@@ -266,15 +302,19 @@ where
                             .get_tx_of_txid(&outpoint.txid)
                             .await
                             .wrap_err("Failed to get collateral funding tx")?;
-                        let collateral_value = collateral_tx
+                        let collateral_txout = collateral_tx
                             .output
                             .get(outpoint.vout as usize)
-                            .ok_or_eyre("Invalid vout index for collateral funding tx")?
-                            .value;
-                        if collateral_value != config.protocol_paramset().collateral_funding_amount
+                            .ok_or_eyre("Invalid vout index for collateral funding tx")?;
+                        if collateral_txout.value
+                            != config.protocol_paramset().collateral_funding_amount
                         {
                             return Err(eyre::eyre!("Operator collateral funding outpoint given in config has a different amount than the one specified in config..
-                                Bridge collateral funnding amount: {:?}, Amount in given outpoint: {:?}", config.protocol_paramset().collateral_funding_amount, collateral_value).into());
+                                Bridge collateral funding amount: {:?}, Amount in given outpoint: {:?}", config.protocol_paramset().collateral_funding_amount, collateral_txout.value).into());
+                        }
+                        if collateral_txout.script_pubkey != signer.address.script_pubkey() {
+                            return Err(eyre::eyre!("Operator collateral funding outpoint given in config has a different script pubkey than the pubkey matching to the operator's   secret key. Script pubkey should correspond to taproot address with no scripts and internal key equal to the operator's xonly public key.
+                                Script pubkey in given outpoint: {:?}, Script pubkey should be: {:?}", collateral_txout.script_pubkey, signer.address.script_pubkey()).into());
                         }
                         *outpoint
                     }
@@ -1361,7 +1401,7 @@ where
 
         let blockhashes_serialized: Vec<[u8; 32]> = block_hashes
             .iter()
-            .take(hcp_height as usize + 1) // height 0 included
+            .take(latest_blockhash_index + 1) // get all blocks up to and including latest_blockhash
             .map(|(block_hash, _)| block_hash.to_byte_array())
             .collect::<Vec<_>>();
 
@@ -1377,7 +1417,7 @@ where
             payout_block_height,
             self.config.protocol_paramset().genesis_height,
             payout_tx_index as u32,
-        );
+        )?;
         tracing::info!("Calculated spv proof in send_asserts");
 
         let mut wt_contexts = Vec::new();
@@ -1427,7 +1467,7 @@ where
         };
         tracing::info!("Starting proving bridge circuit to send asserts");
         let (g16_proof, g16_output, public_inputs) =
-            prove_bridge_circuit(bridge_circuit_host_params, bridge_circuit_elf);
+            prove_bridge_circuit(bridge_circuit_host_params, bridge_circuit_elf)?;
         tracing::info!("Proved bridge circuit in send_asserts");
         let public_input_scalar = ark_bn254::Fr::from_be_bytes_mod_order(&g16_output);
 
@@ -1576,11 +1616,15 @@ where
     C: CitreaClientT,
 {
     const ENTITY_NAME: &'static str = "operator";
+    // operators use their verifier's tx sender
+    const TX_SENDER_CONSUMER_ID: &'static str = "verifier_tx_sender";
+    const FINALIZED_BLOCK_CONSUMER_ID: &'static str = "operator_finalized_block_fetcher";
 }
 
 #[cfg(feature = "automation")]
 mod states {
     use super::*;
+    use crate::builder::transaction::input::UtxoVout;
     use crate::builder::transaction::{
         create_txhandlers, ContractContext, ReimburseDbCache, TransactionType, TxHandler,
         TxHandlerCache,
@@ -1654,7 +1698,6 @@ mod states {
                         .get_deposit_data_with_kickoff_txid(None, txid)
                         .await?;
                     if let Some((deposit_data, kickoff_data)) = kickoff_data {
-                        // add kickoff machine if there is a new kickoff
                         let mut dbtx = self.db.begin_transaction().await?;
                         StateManager::<Self>::dispatch_new_kickoff_machine(
                             self.db.clone(),

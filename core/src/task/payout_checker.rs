@@ -3,12 +3,12 @@ use tonic::async_trait;
 
 use crate::{citrea::CitreaClientT, database::Database, errors::BridgeError, operator::Operator};
 
-use super::Task;
+use super::{Task, TaskVariant};
 
 pub const PAYOUT_CHECKER_POLL_DELAY: Duration = if cfg!(test) {
-    Duration::from_millis(200)
+    Duration::from_millis(250)
 } else {
-    Duration::from_secs(1)
+    Duration::from_secs(60)
 };
 
 #[derive(Debug, Clone)]
@@ -32,6 +32,7 @@ where
     C: CitreaClientT,
 {
     type Output = bool;
+    const VARIANT: TaskVariant = TaskVariant::PayoutChecker;
 
     async fn run_once(&mut self) -> Result<Self::Output, BridgeError> {
         let mut dbtx = self.db.begin_transaction().await?;
@@ -85,6 +86,6 @@ where
 
         dbtx.commit().await?;
 
-        Ok(false)
+        Ok(true)
     }
 }

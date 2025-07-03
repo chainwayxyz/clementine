@@ -1,20 +1,37 @@
+//! Note to developer: Guard the new integration test files with the
+//! `#[cfg(feature = "integration-tests")]` attribute (see #testing-clementine
+//! in [`super`]).
+
 pub mod common;
-#[cfg(feature = "automation")]
+#[cfg(all(feature = "automation", feature = "integration-tests"))]
 mod deposit_and_withdraw_e2e;
-#[cfg(feature = "automation")]
+#[cfg(all(feature = "automation", feature = "integration-tests"))]
 mod full_flow;
+
+#[cfg(feature = "integration-tests")]
 mod musig2;
+
+#[cfg(feature = "integration-tests")]
 mod rpc_auth;
-#[cfg(feature = "automation")]
+#[cfg(all(feature = "automation", feature = "integration-tests"))]
 mod state_manager;
+
+#[cfg(feature = "integration-tests")]
 mod taproot;
+
+#[cfg(feature = "integration-tests")]
 mod withdraw;
 
-#[cfg(feature = "automation")]
+#[cfg(all(feature = "automation", feature = "integration-tests"))]
 mod additional_disprove_scripts;
 
-#[cfg(feature = "automation")]
+#[cfg(all(feature = "automation", feature = "integration-tests"))]
 mod bitvm_disprove_scripts;
+
+#[cfg(all(feature = "automation", feature = "integration-tests"))]
+mod watchtower_challenge;
+
+#[cfg(feature = "integration-tests")]
 mod bitvm_script;
 
 use ctor::ctor;

@@ -1,5 +1,4 @@
-use std::time::Duration;
-
+use super::{mine_once_after_in_mempool, poll_until_condition};
 use crate::builder::transaction::TransactionType as TxType;
 use crate::config::BridgeConfig;
 use crate::database::Database;
@@ -13,8 +12,8 @@ use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
 use citrea_e2e::config::LightClientProverConfig;
 use citrea_e2e::node::Node;
 use eyre::{bail, Context, Result};
-
-use super::{mine_once_after_in_mempool, poll_until_condition};
+use std::time::Duration;
+use tokio::time::sleep;
 
 pub fn get_tx_from_signed_txs_with_type(
     txs: &SignedTxsWithType,
@@ -46,7 +45,7 @@ pub async fn ensure_outpoint_spent_while_waiting_for_light_client_sync(
         Ok(val) => val.is_some(),
     } {
         // Mine more blocks and wait longer between checks
-        let block_count = rpc.client.get_blockchain_info().await?.blocks;
+        let block_count = retry_get_block_count(&rpc, 5, Duration::from_millis(300)).await?;
 
         let mut total_retry = 0;
         while let Err(e) = lc_prover
@@ -76,6 +75,48 @@ pub async fn ensure_outpoint_spent_while_waiting_for_light_client_sync(
         .await?;
 
     Ok(())
+}
+
+/// Attempts to retrieve the current block count with retry logic.
+///
+/// This async function queries the blockchain info from the given RPC client,
+/// retrying up to `retries` times with a fixed `delay` between attempts in case of failure.
+///
+/// # Parameters
+/// - `rpc`: Reference to the `ExtendedRpc` containing the RPC client.
+/// - `retries`: Maximum number of retry attempts.
+/// - `delay`: Duration to wait between retries.
+///
+/// # Returns
+/// - `Ok(u64)`: The current block count if successful.
+/// - `Err`: The final error after exhausting all retries.
+///
+/// # Panics
+/// This function will panic with `unreachable!()` if the retry loop completes without returning.
+/// In practice, this should never happen due to the early return on success or final failure.
+pub async fn retry_get_block_count(
+    rpc: &ExtendedRpc,
+    retries: usize,
+    delay: Duration,
+) -> Result<u64> {
+    for attempt in 0..retries {
+        match rpc.client.get_blockchain_info().await {
+            Ok(info) => return Ok(info.blocks),
+            Err(e) if attempt + 1 < retries => {
+                tracing::warn!(
+                    "Retry {}/{} failed to get block count: {}. Retrying after {:?}...",
+                    attempt + 1,
+                    retries,
+                    e,
+                    delay
+                );
+                sleep(delay).await;
+            }
+            Err(e) => return Err(eyre::Error::new(e).wrap_err("Failed to get block count")),
+        }
+    }
+
+    unreachable!("retry loop should either return Ok or Err")
 }
 
 pub async fn get_txid_where_utxo_is_spent_while_waiting_for_light_client_sync(
@@ -306,4 +347,50 @@ pub async fn create_tx_sender(
         format!("tx_sender_test_{}", verifier_index),
     );
     Ok((tx_sender, db))
+}
+
+#[cfg(feature = "automation")]
+pub async fn wait_for_fee_payer_utxos_to_be_in_mempool(
+    rpc: &ExtendedRpc,
+    db: Database,
+    txid: Txid,
+) -> Result<(), eyre::Error> {
+    let rpc_clone = rpc.clone();
+    poll_until_condition(
+        async move || {
+            let tx_id = db.get_id_from_txid(None, txid).await?.unwrap();
+            tracing::debug!("Waiting for fee payer utxos for tx_id: {:?}", tx_id);
+            let fee_payer_utxos = db.get_fee_payer_utxos_for_tx(None, tx_id).await?;
+            tracing::debug!(
+                "For TXID {:?}, fee payer utxos: {:?}",
+                txid,
+                fee_payer_utxos
+            );
+
+            if fee_payer_utxos.is_empty() {
+                tracing::error!("No fee payer utxos found in db for txid {}", txid);
+                return Ok(false);
+            }
+
+            for fee_payer in fee_payer_utxos.iter() {
+                let entry = rpc_clone.client.get_mempool_entry(&fee_payer.0).await;
+
+                if entry.is_err() {
+                    tracing::error!(
+                        "Fee payer utxo with txid of {} is not in mempool: {:?}",
+                        fee_payer.0,
+                        entry
+                    );
+                    return Ok(false);
+                }
+            }
+
+            Ok(true)
+        },
+        None,
+        None,
+    )
+    .await?;
+
+    Ok(())
 }

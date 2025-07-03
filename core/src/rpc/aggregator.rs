@@ -3,8 +3,8 @@ use super::clementine::{
     DepositParams, Empty, VerifierDepositFinalizeParams,
 };
 use super::clementine::{
-    AggregatorWithdrawResponse, Deposit, OptimisticPayoutParams, RawSignedTx, VergenResponse,
-    VerifierPublicKeys, WithdrawParams,
+    AggregatorWithdrawResponse, Deposit, EntitiesStatus, GetEntitiesStatusRequest,
+    OptimisticPayoutParams, RawSignedTx, VergenResponse, VerifierPublicKeys, WithdrawParams,
 };
 use crate::aggregator::{ParticipatingOperators, ParticipatingVerifiers};
 use crate::builder::sighash::SignatureInfo;
@@ -43,6 +43,7 @@ use bitcoin::secp256k1::{Message, PublicKey};
 use bitcoin::taproot::Signature as TaprootSignature;
 use bitcoin::{TapSighash, TxOut, Txid, XOnlyPublicKey};
 use eyre::{Context, OptionExt};
+use futures::future::join_all;
 use futures::{
     future::try_join_all,
     stream::{BoxStream, TryStreamExt},
@@ -848,6 +849,113 @@ impl ClementineAggregator for Aggregator {
         Ok(Response::new(get_vergen_response()))
     }
 
+    async fn get_entities_status(
+        &self,
+        request: Request<GetEntitiesStatusRequest>,
+    ) -> Result<Response<EntitiesStatus>, Status> {
+        let request = request.into_inner();
+        let restart_tasks = request.restart_tasks;
+
+        let operator_clients = self.get_operator_clients();
+        let verifier_clients = self.get_verifier_clients();
+        let mut operator_status = join_all(
+            operator_clients
+                .iter()
+                .zip(self.get_operator_keys().iter())
+                .map(|(client, key)| {
+                    let mut client = client.clone();
+                    async move {
+                        let response = client.get_current_status(Request::new(Empty {})).await;
+                        super::EntityStatusWithId {
+                            entity_id: Some(super::EntityId {
+                                entity: super::Entities::Operator as i32,
+                                id: key.to_string(),
+                            }),
+                            status: match response {
+                                Ok(response) => Some(
+                                    super::clementine::entity_status_with_id::Status::EntityStatus(
+                                        response.into_inner(),
+                                    ),
+                                ),
+                                Err(e) => Some(
+                                    super::clementine::entity_status_with_id::Status::EntityError(
+                                        super::EntityError {
+                                            error: e.to_string(),
+                                        },
+                                    ),
+                                ),
+                            },
+                        }
+                    }
+                }),
+        )
+        .await;
+        let verifier_status = join_all(
+            verifier_clients
+                .iter()
+                .zip(self.get_verifier_keys().iter())
+                .map(|(client, key)| {
+                    let mut client = client.clone();
+                    async move {
+                        let response = client.get_current_status(Request::new(Empty {})).await;
+                        super::EntityStatusWithId {
+                            entity_id: Some(super::EntityId {
+                                entity: super::Entities::Verifier as i32,
+                                id: key.to_string(),
+                            }),
+                            status: match response {
+                                Ok(response) => Some(
+                                    super::clementine::entity_status_with_id::Status::EntityStatus(
+                                        response.into_inner(),
+                                    ),
+                                ),
+                                Err(e) => Some(
+                                    super::clementine::entity_status_with_id::Status::EntityError(
+                                        super::EntityError {
+                                            error: e.to_string(),
+                                        },
+                                    ),
+                                ),
+                            },
+                        }
+                    }
+                }),
+        )
+        .await;
+
+        operator_status.extend(verifier_status.into_iter());
+
+        // try to restart background tasks if needed
+        if restart_tasks {
+            let operator_tasks = operator_clients.iter().map(|client| {
+                let mut client = client.clone();
+                async move {
+                    client
+                        .restart_background_tasks(Request::new(Empty {}))
+                        .await
+                }
+            });
+
+            let verifier_tasks = verifier_clients.iter().map(|client| {
+                let mut client = client.clone();
+                async move {
+                    client
+                        .restart_background_tasks(Request::new(Empty {}))
+                        .await
+                }
+            });
+
+            futures::try_join!(
+                futures::future::try_join_all(operator_tasks),
+                futures::future::try_join_all(verifier_tasks)
+            )?;
+        }
+
+        Ok(Response::new(EntitiesStatus {
+            entities_status: operator_status,
+        }))
+    }
+
     async fn optimistic_payout(
         &self,
         request: tonic::Request<super::WithdrawParams>,
@@ -1624,7 +1732,9 @@ mod tests {
     use crate::deposit::{BaseDepositData, DepositInfo, DepositType};
     use crate::errors::BridgeError;
     use crate::musig2::AggregateFromPublicKeys;
-    use crate::rpc::clementine::{self, RawSignedTx, SendMoveTxRequest};
+    use crate::rpc::clementine::{
+        self, EntityStatus, GetEntitiesStatusRequest, RawSignedTx, SendMoveTxRequest,
+    };
     use crate::test::common::citrea::MockCitreaClient;
     use crate::test::common::tx_utils::ensure_tx_onchain;
     use crate::test::common::*;
@@ -1634,13 +1744,14 @@ mod tests {
     use eyre::Context;
     use std::time::Duration;
     use tokio::time::sleep;
-    use tonic::Status;
+    use tonic::{Request, Status};
 
+    #[cfg(feature = "automation")]
     async fn perform_deposit(mut config: BridgeConfig) -> Result<(), Status> {
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc();
 
-        run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None).await?;
+        run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None).await?;
 
         Ok(())
     }
@@ -2052,6 +2163,7 @@ mod tests {
         .unwrap();
     }
 
+    #[cfg(feature = "automation")]
     #[tokio::test]
     #[ignore = "This test does not work"]
     async fn aggregator_deposit_finalize_verifier_timeout() {
@@ -2070,6 +2182,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "automation")]
     #[tokio::test]
     async fn aggregator_deposit_key_distribution_verifier_timeout() {
         let mut config = create_test_config_with_thread_name().await;
@@ -2089,6 +2202,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "automation")]
     #[tokio::test]
     async fn aggregator_deposit_key_distribution_operator_timeout() {
         let mut config = create_test_config_with_thread_name().await;
@@ -2108,6 +2222,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "automation")]
     #[tokio::test]
     async fn aggregator_deposit_nonce_stream_creation_verifier_timeout() {
         let mut config = create_test_config_with_thread_name().await;
@@ -2127,6 +2242,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "automation")]
     #[tokio::test]
     async fn aggregator_deposit_partial_sig_stream_creation_timeout() {
         let mut config = create_test_config_with_thread_name().await;
@@ -2146,6 +2262,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "automation")]
     #[tokio::test]
     async fn aggregator_deposit_operator_sig_collection_operator_timeout() {
         let mut config = create_test_config_with_thread_name().await;
@@ -2163,5 +2280,56 @@ mod tests {
             "Error string was: {}",
             err_string
         );
+    }
+
+    #[tokio::test]
+    async fn aggregator_get_entities_status() {
+        let mut config = create_test_config_with_thread_name().await;
+        let regtest = create_regtest_rpc(&mut config).await;
+
+        let (_verifiers, _operators, mut aggregator, mut cleanup) =
+            create_actors::<MockCitreaClient>(&config).await;
+
+        let status = aggregator
+            .get_entities_status(Request::new(GetEntitiesStatusRequest {
+                restart_tasks: false,
+            }))
+            .await
+            .unwrap()
+            .into_inner();
+
+        tracing::info!("Status: {:?}", status);
+
+        assert_eq!(
+            status.entities_status.len(),
+            config.test_params.all_operators_secret_keys.len()
+                + config.test_params.all_verifiers_secret_keys.len()
+        );
+
+        // close an entity
+        cleanup.0 .0.remove(0).send(()).unwrap();
+
+        let status = aggregator
+            .get_entities_status(Request::new(GetEntitiesStatusRequest {
+                restart_tasks: false,
+            }))
+            .await
+            .unwrap()
+            .into_inner();
+
+        tracing::info!("Status: {:?}", status);
+
+        // count errors
+        let errors = status
+            .entities_status
+            .iter()
+            .filter(|entity| {
+                matches!(
+                    entity.status,
+                    Some(clementine::entity_status_with_id::Status::EntityError(_))
+                )
+            })
+            .count();
+        assert_eq!(errors, 1);
     }
 }

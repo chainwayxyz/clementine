@@ -35,6 +35,24 @@ where
         Ok(Response::new(get_vergen_response()))
     }
 
+    async fn restart_background_tasks(
+        &self,
+        _request: tonic::Request<super::Empty>,
+    ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status> {
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(60),
+            self.start_background_tasks(),
+        )
+        .await;
+        match result {
+            Ok(Ok(_)) => Ok(tonic::Response::new(super::Empty {})),
+            Ok(Err(e)) => Err(e.into()),
+            Err(_) => Err(tonic::Status::deadline_exceeded(
+                "Timed out while restarting background tasks. Recommended to restart the operator manually.",
+            )),
+        }
+    }
+
     #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn get_params(
         &self,
@@ -321,5 +339,13 @@ where
         Ok(Response::new(XOnlyPublicKeyRpc {
             xonly_public_key: xonly_pk.to_vec(),
         }))
+    }
+
+    async fn get_current_status(
+        &self,
+        _request: Request<Empty>,
+    ) -> Result<Response<clementine::EntityStatus>, Status> {
+        let status = self.get_current_status().await?;
+        Ok(Response::new(status))
     }
 }

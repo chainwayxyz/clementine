@@ -16,6 +16,11 @@ use crate::{
 use bitcoin::block::Header;
 use bitcoin::{hashes::Hash, BlockHash, Network};
 use bitcoincore_rpc::RpcApi;
+use bridge_circuit_host::bridge_circuit_host::{
+    MAINNET_HEADER_CHAIN_ELF, MAINNET_WORK_ONLY_ELF, REGTEST_HEADER_CHAIN_ELF,
+    REGTEST_WORK_ONLY_ELF, SIGNET_HEADER_CHAIN_ELF, SIGNET_WORK_ONLY_ELF,
+    TESTNET4_HEADER_CHAIN_ELF, TESTNET4_WORK_ONLY_ELF,
+};
 use bridge_circuit_host::docker::dev_stark_to_risc0_g16;
 use circuits_lib::bridge_circuit::structs::{WorkOnlyCircuitInput, WorkOnlyCircuitOutput};
 use circuits_lib::header_chain::mmr_guest::MMRGuest;
@@ -33,41 +38,23 @@ use std::{
 };
 use thiserror::Error;
 
-// Prepare prover binaries and calculate their image ids, before anything else.
-const MAINNET_ELF: &[u8] =
-    include_bytes!("../../risc0-circuits/elfs/mainnet-header-chain-guest.bin");
-const TESTNET4_ELF: &[u8] =
-    include_bytes!("../../risc0-circuits/elfs/testnet4-header-chain-guest.bin");
-const SIGNET_ELF: &[u8] = include_bytes!("../../risc0-circuits/elfs/signet-header-chain-guest.bin");
-const REGTEST_ELF: &[u8] =
-    include_bytes!("../../risc0-circuits/elfs/regtest-header-chain-guest.bin");
-
-const MAINNET_WORK_ONLY_ELF: &[u8] =
-    include_bytes!("../../risc0-circuits/elfs/mainnet-work-only-guest.bin");
-const TESTNET4_WORK_ONLY_ELF: &[u8] =
-    include_bytes!("../../risc0-circuits/elfs/testnet4-work-only-guest.bin");
-const SIGNET_WORK_ONLY_ELF: &[u8] =
-    include_bytes!("../../risc0-circuits/elfs/signet-work-only-guest.bin");
-const REGTEST_WORK_ONLY_ELF: &[u8] =
-    include_bytes!("../../risc0-circuits/elfs/regtest-work-only-guest.bin");
-
 lazy_static! {
-    static ref MAINNET_IMAGE_ID: [u32; 8] = compute_image_id(MAINNET_ELF)
+    static ref MAINNET_IMAGE_ID: [u32; 8] = compute_image_id(MAINNET_HEADER_CHAIN_ELF)
         .expect("hardcoded ELF is valid")
         .as_words()
         .try_into()
         .expect("hardcoded ELF is valid");
-    static ref TESTNET4_IMAGE_ID: [u32; 8] = compute_image_id(TESTNET4_ELF)
+    static ref TESTNET4_IMAGE_ID: [u32; 8] = compute_image_id(TESTNET4_HEADER_CHAIN_ELF)
         .expect("hardcoded ELF is valid")
         .as_words()
         .try_into()
         .expect("hardcoded ELF is valid");
-    static ref SIGNET_IMAGE_ID: [u32; 8] = compute_image_id(SIGNET_ELF)
+    static ref SIGNET_IMAGE_ID: [u32; 8] = compute_image_id(SIGNET_HEADER_CHAIN_ELF)
         .expect("hardcoded ELF is valid")
         .as_words()
         .try_into()
         .expect("hardcoded ELF is valid");
-    static ref REGTEST_IMAGE_ID: [u32; 8] = compute_image_id(REGTEST_ELF)
+    static ref REGTEST_IMAGE_ID: [u32; 8] = compute_image_id(REGTEST_HEADER_CHAIN_ELF)
         .expect("hardcoded ELF is valid")
         .as_words()
         .try_into()
@@ -218,6 +205,7 @@ impl HeaderChainProver {
             )
             .await
             .map_to_eyre()?;
+            tracing::debug!("Genesis chain state (verbose): {:?}", genesis_chain_state); // Should be debug
 
             let genesis_chain_state_hash = genesis_chain_state.to_hash();
             if genesis_chain_state_hash != config.protocol_paramset().genesis_chain_state_hash {
@@ -304,8 +292,8 @@ impl HeaderChainProver {
 
         let epoch_start_block_height = height / 2016 * 2016;
 
-        let epoch_start_timestamp = if network == Network::Regtest {
-            0
+        let (epoch_start_timestamp, expected_bits) = if network == Network::Regtest {
+            (0, block_header.bits.to_consensus())
         } else {
             let epoch_start_block_hash = rpc
                 .client
@@ -323,8 +311,14 @@ impl HeaderChainProver {
                     "Failed to get block header with block hash {}",
                     epoch_start_block_hash
                 ))?;
+            let bits = if network == Network::Testnet4 {
+                // Real difficulty will show up at epoch start block no matter what
+                epoch_start_block_header.bits.to_consensus()
+            } else {
+                block_header.bits.to_consensus()
+            };
 
-            epoch_start_block_header.time
+            (epoch_start_block_header.time, bits)
         };
 
         let block_info = rpc
@@ -347,7 +341,7 @@ impl HeaderChainProver {
             block_height: height as u32,
             total_work,
             best_block_hash: block_hash.to_byte_array(),
-            current_target_bits: block_header.bits.to_consensus(),
+            current_target_bits: expected_bits,
             epoch_start_time: epoch_start_timestamp,
             prev_11_timestamps: last_11_block_timestamps,
             block_hashes_mmr,
@@ -387,7 +381,7 @@ impl HeaderChainProver {
             _ => Err(BridgeError::UnsupportedNetwork.into_eyre())?,
         };
 
-        tracing::warn!("Starting proving HCP work only proof");
+        tracing::warn!("Starting proving HCP work only proof for creating a watchtower challenge");
         let receipt = if !is_dev_mode() {
             prover
                 .prove_with_opts(env, elf, &ProverOpts::groth16())
@@ -399,9 +393,9 @@ impl HeaderChainProver {
                 .map_err(|e| eyre::eyre!(e))?
                 .receipt;
             let journal = stark_receipt.journal.bytes.clone();
-            dev_stark_to_risc0_g16(stark_receipt, &journal)
+            dev_stark_to_risc0_g16(stark_receipt, &journal)?
         };
-        tracing::warn!("HCP work only proof proof generated");
+        tracing::warn!("HCP work only proof proof generated for creating a watchtower challenge");
         let work_output: WorkOnlyCircuitOutput = borsh::from_slice(&receipt.journal.bytes)
             .wrap_err(HeaderChainProverError::ProverDeSerializationError)?;
 
@@ -511,11 +505,11 @@ impl HeaderChainProver {
         let prover = risc0_zkvm::default_prover();
 
         let elf = match network {
-            Network::Bitcoin => MAINNET_ELF,
-            Network::Testnet => TESTNET4_ELF,
-            Network::Testnet4 => TESTNET4_ELF,
-            Network::Signet => SIGNET_ELF,
-            Network::Regtest => REGTEST_ELF,
+            Network::Bitcoin => MAINNET_HEADER_CHAIN_ELF,
+            Network::Testnet => TESTNET4_HEADER_CHAIN_ELF,
+            Network::Testnet4 => TESTNET4_HEADER_CHAIN_ELF,
+            Network::Signet => SIGNET_HEADER_CHAIN_ELF,
+            Network::Regtest => REGTEST_HEADER_CHAIN_ELF,
             _ => Err(BridgeError::UnsupportedNetwork.into_eyre())?,
         };
 
@@ -701,10 +695,9 @@ impl HeaderChainProver {
             .prove_and_save_block(current_block_hash, block_headers, prev_proof)
             .await?;
         tracing::info!(
-            "Receipt for block with hash {:?} and height with: {:?}: {:?}",
+            "Header chain proof generated for block with hash {:?} and height {}",
             current_block_hash,
             current_block_height,
-            receipt
         );
 
         Ok(Some(receipt))
@@ -1190,7 +1183,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "Header chain prover is ignored"]
+    #[cfg(feature = "automation")]
     async fn verifier_new_check_header_chain_proof() {
         let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
@@ -1211,9 +1204,10 @@ mod tests {
                 .unwrap();
         }
 
-        let verifier = VerifierServer::<MockCitreaClient>::new(config)
+        let mut verifier = VerifierServer::<MockCitreaClient>::new(config)
             .await
             .unwrap();
+        verifier.start_background_tasks().await.unwrap();
         // Make sure enough blocks to prove and is finalized.
         rpc.mine_blocks((batch_size + 10).into()).await.unwrap();
 
@@ -1226,8 +1220,6 @@ mod tests {
                 Ok(verifier
                     .verifier
                     .header_chain_prover
-                    .as_ref()
-                    .unwrap()
                     .db
                     .get_block_proof_by_hash(None, hash)
                     .await
