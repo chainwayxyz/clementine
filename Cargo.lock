@@ -1989,7 +1989,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "sov-rollup-interface 0.7.0",
+ "sov-rollup-interface",
  "tracing",
 ]
 
@@ -6816,27 +6816,8 @@ dependencies = [
 [[package]]
 name = "sov-keys"
 version = "0.7.2"
-source = "git+https://github.com/chainwayxyz/citrea.git?rev=8b2d582#8b2d58228ffe96435c8656521d0be104015d5b3c"
+source = "git+https://github.com/chainwayxyz/citrea.git?rev=e224b8967dcffd2aa0ff52558a090b136cdd56a9#e224b8967dcffd2aa0ff52558a090b136cdd56a9"
 dependencies = [
- "anyhow",
- "borsh",
- "derive_more 1.0.0",
- "digest 0.10.7",
- "hex",
- "k256",
- "rand 0.8.5",
- "schemars 0.8.22",
- "serde",
- "sha2",
- "thiserror 2.0.12",
-]
-
-[[package]]
-name = "sov-keys"
-version = "0.7.0"
-source = "git+https://github.com/chainwayxyz/citrea?tag=v0.7.0#7e2d3c4ec25c282ad36b0f4a44ce53f50b6b9931"
-dependencies = [
- "anyhow",
  "borsh",
  "derive_more 1.0.0",
  "digest 0.10.7",
@@ -6852,7 +6833,7 @@ dependencies = [
 [[package]]
 name = "sov-rollup-interface"
 version = "0.7.2"
-source = "git+https://github.com/chainwayxyz/citrea.git?rev=8b2d582#8b2d58228ffe96435c8656521d0be104015d5b3c"
+source = "git+https://github.com/chainwayxyz/citrea.git?rev=e224b8967dcffd2aa0ff52558a090b136cdd56a9#e224b8967dcffd2aa0ff52558a090b136cdd56a9"
 dependencies = [
  "alloy-primitives",
  "anyhow",
