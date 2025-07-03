@@ -1780,7 +1780,7 @@ async fn concurrent_deposits_and_withdrawals() {
 
             rpc.mine_blocks(1).await?;
             for txid in withdrawal_txids.iter() {
-                if rpc.client.get_mempool_entry(&txid).await.is_ok() {
+                if rpc.client.get_mempool_entry(txid).await.is_ok() {
                     return Err(eyre::eyre!(
                         "Txid {:?} still in mempool after mining!",
                         txid
