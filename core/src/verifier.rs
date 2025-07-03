@@ -591,11 +591,15 @@ where
             .await?;
 
         tokio::spawn(async move {
-            let mut session_map = verifier.nonces.lock().await;
-            let session = session_map
-                .sessions
-                .get_mut(&session_id)
-                .ok_or_else(|| eyre::eyre!("Could not find session id {session_id}"))?;
+            // Take the lock and extract the session before entering the async block
+            // Extract the session and remove it from the map to release the lock early
+            let mut session = {
+                let mut session_map = verifier.nonces.lock().await;
+                session_map
+                    .sessions
+                    .remove(&session_id)
+                    .ok_or_else(|| eyre::eyre!("Could not find session id {session_id}"))?
+            };
             session.nonces.reverse();
 
             let mut nonce_idx: usize = 0;
@@ -659,6 +663,12 @@ where
                     session.nonces.len()
                 ).into());
             }
+
+            let mut session_map = verifier.nonces.lock().await;
+            session_map
+                .sessions
+                .insert(session_id, session)
+                .ok_or_else(|| eyre::eyre!("Could not find session id {session_id}"))?;
 
             Ok::<(), BridgeError>(())
         });
