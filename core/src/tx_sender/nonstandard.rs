@@ -22,11 +22,7 @@ impl TxSender {
     pub fn is_bridge_tx_nonstandard(&self, tx: &Transaction) -> bool {
         // 1. The transaction contains 0 sat outputs. TODO: 0 sat anchor outputs are ok after bitcoin 29.
         // 2. The transaction weight is bigger than 400k
-        tx.output
-					.iter()
-					.any(|output| output.value.to_sat() == 0)
-					|| // 2. The transaction weight is bigger than 400k
-					tx.weight().to_wu() > 400_000
+        tx.output.iter().any(|output| output.value.to_sat() == 0) || tx.weight().to_wu() > 400_000
     }
 
     /// Sends a nonstandard transaction to testnet4 using the mempool.space accelerator.
