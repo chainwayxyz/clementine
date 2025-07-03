@@ -534,8 +534,7 @@ where
         let (sec_nonces, pub_nonces): (Vec<SecretNonce>, Vec<PublicNonce>) = (0..num_nonces)
             .map(|_| {
                 // nonce pair needs keypair and a rng
-                let (sec_nonce, pub_nonce) =
-                    musig2::nonce_pair(&self.signer.keypair, &mut secp256k1::rand::rng())?;
+                let (sec_nonce, pub_nonce) = musig2::nonce_pair(&self.signer.keypair)?;
                 Ok((sec_nonce, pub_nonce))
             })
             .collect::<Result<Vec<(SecretNonce, PublicNonce)>, BridgeError>>()?

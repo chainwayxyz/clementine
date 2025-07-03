@@ -519,7 +519,7 @@ fn sign_nofn_deposit_tx(
 
     let nonce_pairs = kps
         .iter()
-        .map(|kp| nonce_pair(kp, &mut secp256k1::rand::rng()).unwrap())
+        .map(|kp| nonce_pair(kp).unwrap())
         .collect::<Vec<_>>();
 
     let agg_nonce = aggregate_nonces(

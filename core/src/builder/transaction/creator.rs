@@ -927,7 +927,6 @@ pub async fn create_txhandlers(
             let disprove_txhandler = builder::transaction::create_disprove_txhandler(
                 get_txhandler(&txhandlers, TransactionType::Kickoff)?,
                 get_txhandler(&txhandlers, TransactionType::Round)?,
-                paramset,
             )?;
 
             txhandlers.insert(
