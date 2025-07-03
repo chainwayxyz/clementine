@@ -129,6 +129,20 @@ impl CitreaDepositTest {
             sequencer.client.send_publish_batch_request().await.unwrap();
         }
 
+        // sleep 1 second to ensure the deposit is processed
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+
+        // After the deposit, the balance should be non-zero.
+        assert_ne!(
+            citrea::eth_get_balance(
+                sequencer.client.http_client().clone(),
+                crate::EVMAddress([1; 20]),
+            )
+            .await
+            .unwrap(),
+            0
+        );
+
         Ok(())
     }
 
@@ -233,6 +247,21 @@ impl CitreaDepositTest {
         for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
             sequencer.client.send_publish_batch_request().await.unwrap();
         }
+
+
+        // sleep 1 second to ensure the deposit is processed
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        
+        // After the deposit, the balance should be non-zero.
+        assert_ne!(
+            citrea::eth_get_balance(
+                sequencer.client.http_client().clone(),
+                crate::EVMAddress([1; 20]),
+            )
+            .await
+            .unwrap(),
+            0
+        );
 
         Ok(())
     }
