@@ -37,6 +37,7 @@ impl Deref for MoveTxid {
     }
 }
 
+/// Represents a constant value used for each deposit in the bridge circuit.
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, BorshDeserialize, BorshSerialize)]
 pub struct DepositConstant(pub [u8; 32]);
 

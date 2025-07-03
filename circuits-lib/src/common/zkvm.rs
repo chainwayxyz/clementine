@@ -23,7 +23,7 @@ pub trait ZkvmHost {
     /// Adding data to the host
     fn write<T: borsh::BorshSerialize>(&self, value: &T);
 
-    ///
+    /// Adds an assumption to the the guest code to be verified.
     fn add_assumption(&self, proof: Proof);
 
     /// Proves with the given data

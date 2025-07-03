@@ -252,7 +252,9 @@ impl BlockInclusionProof {
                 combined_hash = calculate_sha256(&preimage);
             } else {
                 // `combined_hash` is the right child
-                if processed_sibling_hash == processed_combined_hash {}
+                if processed_sibling_hash == processed_combined_hash {
+                    panic!("Duplicate hashes in the Merkle proof, indicating mutation");
+                }
                 preimage[..32].copy_from_slice(&processed_sibling_hash); // Use the SHA256'd mid-state sibling
                 preimage[32..].copy_from_slice(&processed_combined_hash);
                 combined_hash = calculate_sha256(&preimage);

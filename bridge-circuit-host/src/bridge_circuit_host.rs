@@ -169,14 +169,14 @@ pub fn prove_bridge_circuit(
 
     let prover = default_prover();
 
-    tracing::info!("Checks complete, proving bridge circuit");
+    tracing::info!("Checks complete, proving bridge circuit to generate STARK proof");
 
     let succinct_receipt = prover
         .prove_with_opts(env, bridge_circuit_elf, &ProverOpts::succinct())
         .map_err(|e| eyre!("Failed to generate bridge circuit proof: {}", e))?
         .receipt;
 
-    tracing::info!("Bridge circuit proof generated");
+    tracing::info!("Bridge circuit proof (STARK) generated");
 
     let succinct_receipt_journal: [u8; 32] = succinct_receipt
         .clone()
@@ -207,7 +207,7 @@ pub fn prove_bridge_circuit(
         )?
     };
 
-    tracing::info!("Bridge circuit Groth16 proof generated");
+    tracing::info!("Bridge circuit proof (Groth16) generated");
 
     let risc0_g16_seal_vec = g16_proof.to_vec();
     let risc0_g16_256 = risc0_g16_seal_vec[0..256]

@@ -430,7 +430,7 @@ impl SuccinctBridgeCircuitPublicInputs {
         })
     }
 
-    /// Calculates the host journal hash for the bridge circuit.
+    /// Calculates the host-sode journal hash for the bridge circuit.
     ///
     /// # Returns
     ///

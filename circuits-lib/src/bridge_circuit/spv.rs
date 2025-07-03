@@ -4,6 +4,8 @@ use crate::header_chain::{mmr_guest::MMRGuest, mmr_native::MMRInclusionProof, Ci
 
 use super::{merkle_tree::BlockInclusionProof, transaction::CircuitTransaction};
 
+/// SPV (Simplified Payment Verification) structure that contains
+/// the transaction, block inclusion proof, block header, and MMR inclusion proof.
 #[derive(Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
 pub struct SPV {
     pub transaction: CircuitTransaction,
@@ -27,6 +29,7 @@ impl SPV {
         }
     }
 
+    /// Verifies the SPV proof using the provided MMRGuest.
     pub fn verify(&self, mmr_guest: MMRGuest) -> bool {
         let mid_state_txid: [u8; 32] = self.transaction.mid_state_txid();
         let block_merkle_root = self.block_inclusion_proof.get_root(mid_state_txid);
@@ -107,7 +110,7 @@ mod tests {
             .collect::<Vec<CircuitTransaction>>();
         let mut bitcoin_merkle_proofs: Vec<BlockInclusionProof> = vec![];
         for tx in txs.clone().into_iter() {
-            let bitcoin_merkle_tree = BitcoinMerkleTree::new_mid_state(&vec![tx.clone()]);
+            let bitcoin_merkle_tree = BitcoinMerkleTree::new_mid_state(&[tx.clone()]);
             let bitcoin_merkle_proof = bitcoin_merkle_tree.generate_proof(0);
             assert!(verify_merkle_proof(
                 tx.mid_state_txid(),

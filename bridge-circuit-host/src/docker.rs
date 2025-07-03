@@ -246,9 +246,6 @@ pub fn dev_stark_to_risc0_g16(receipt: Receipt, journal: &[u8]) -> Result<Receip
     let seal_path = work_dir.join("input.json");
     let proof_path = work_dir.join("proof.json");
     let _output_path = work_dir.join("public.json");
-    // let mut seal_json = Vec::new();
-    // to_json(&*identity_p254_seal_bytes, &mut seal_json).unwrap();
-    // std::fs::write(seal_path.clone(), seal_json).unwrap();
 
     let pre_state: risc0_zkvm::MaybePruned<SystemState> = receipt_claim.clone().pre;
     tracing::debug!("pre_state: {:?}", pre_state);
@@ -300,32 +297,11 @@ pub fn dev_stark_to_risc0_g16(receipt: Receipt, journal: &[u8]) -> Result<Receip
         .ok_or_else(|| eyre!("Failed to convert succinct control root a1 to decimal"))?;
     tracing::debug!("Succinct control root a0 dec: {:?}", a0_dec);
     tracing::debug!("Succinct control root a1 dec: {:?}", a1_dec);
-    // println!("CONTROL_ID: {:?}", ident_receipt.control_id);
-    // let mut id_bn254_fr_bits: Vec<String> = ident_receipt
-    //     .control_id
-    //     .as_bytes()
-    //     .iter()
-    //     .flat_map(|&byte| (0..8).rev().map(move |i| ((byte >> i) & 1).to_string()))
-    //     .collect();
-    // println!("id_bn254_fr_bits: {:?}", id_bn254_fr_bits);
-    // // remove 248th and 249th bits
-    // id_bn254_fr_bits.remove(248);
-    // id_bn254_fr_bits.remove(248);
-
-    // println!(
-    //     "id_bn254_fr_bits after removing 2 extra bits: {:?}",
-    //     id_bn254_fr_bits
-    // );
 
     let id_bn254_fr_bits: Vec<String> = ID_BN254_FR_BITS
         .iter()
         .map(|&bit| bit.to_string())
         .collect();
-
-    // let mut seal_json: Value = {
-    //     let file_content = fs::read_to_string(&seal_path).unwrap();
-    //     serde_json::from_str(&file_content).unwrap()
-    // };
 
     let mut seal_json: Value = serde_json::json!({});
 
@@ -396,9 +372,6 @@ const ID_BN254_FR_BITS_DEV_BRIDGE: [&str; 254] = [
 ];
 
 pub fn stark_to_bitvm2_g16_dev_mode(receipt: Receipt, journal: &[u8]) -> Result<(Seal, [u8; 31])> {
-    // let ident_receipt = risc0_zkvm::recursion::identity_p254(&succinct_receipt).unwrap();
-    // let identity_p254_seal_bytes = ident_receipt.get_seal_bytes();
-    // let receipt_claim = succinct_receipt.claim.value().unwrap()
     let identity_p254_seal_bytes = vec![0u8; 222668];
     let receipt_claim = receipt
         .claim()
@@ -425,9 +398,6 @@ pub fn stark_to_bitvm2_g16_dev_mode(receipt: Receipt, journal: &[u8]) -> Result<
     let seal_path = work_dir.join("input.json");
     let proof_path = work_dir.join("proof.json");
     let output_path = work_dir.join("public.json");
-    // let mut seal_json = Vec::new();
-    // to_json(&*identity_p254_seal_bytes, &mut seal_json).unwrap();
-    // std::fs::write(seal_path.clone(), seal_json).unwrap();
 
     let pre_state: risc0_zkvm::MaybePruned<SystemState> = receipt_claim.clone().pre;
     tracing::debug!("pre_state: {:?}", pre_state);
@@ -477,32 +447,11 @@ pub fn stark_to_bitvm2_g16_dev_mode(receipt: Receipt, journal: &[u8]) -> Result<
         .ok_or_else(|| eyre!("Failed to convert succinct control root a1 to decimal"))?;
     tracing::debug!("Succinct control root a0 dec: {:?}", a0_dec);
     tracing::debug!("Succinct control root a1 dec: {:?}", a1_dec);
-    // println!("CONTROL_ID: {:?}", ident_receipt.control_id);
-    // let mut id_bn254_fr_bits: Vec<String> = ident_receipt
-    //     .control_id
-    //     .as_bytes()
-    //     .iter()
-    //     .flat_map(|&byte| (0..8).rev().map(move |i| ((byte >> i) & 1).to_string()))
-    //     .collect();
-    // println!("id_bn254_fr_bits: {:?}", id_bn254_fr_bits);
-    // // remove 248th and 249th bits
-    // id_bn254_fr_bits.remove(248);
-    // id_bn254_fr_bits.remove(248);
-
-    // println!(
-    //     "id_bn254_fr_bits after removing 2 extra bits: {:?}",
-    //     id_bn254_fr_bits
-    // );
 
     let id_bn254_fr_bits: Vec<String> = ID_BN254_FR_BITS_DEV_BRIDGE
         .iter()
         .map(|&bit| bit.to_string())
         .collect();
-
-    // let mut seal_json: Value = {
-    //     let file_content = fs::read_to_string(&seal_path).unwrap();
-    //     serde_json::from_str(&file_content).unwrap()
-    // };
 
     let mut seal_json: Value = serde_json::json!({});
 
@@ -546,7 +495,7 @@ pub fn stark_to_bitvm2_g16_dev_mode(receipt: Receipt, journal: &[u8]) -> Result<
     tracing::debug!("output content: {:?}", output_content_dec);
     let proof_json: ProofJson =
         serde_json::from_str(&proof_content).wrap_err("Failed to parse proof JSON")?;
-    // let output_json: Value = serde_json::from_str(&output_content).unwrap();
+
     // Convert output_content_dec from decimal to hex
     let parsed_json: Value =
         serde_json::from_str(&output_content_dec).wrap_err("Failed to parse output JSON")?;
