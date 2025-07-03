@@ -1556,7 +1556,7 @@ async fn mock_citrea_run_malicious_after_exit() {
     assert!(tx.output[0].value != config.protocol_paramset().operator_challenge_amount);
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn concurrent_deposits_and_withdrawals() {
     let mut config = create_test_config_with_thread_name().await;
     let regtest = create_regtest_rpc(&mut config).await;
