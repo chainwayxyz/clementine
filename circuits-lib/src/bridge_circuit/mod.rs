@@ -474,6 +474,9 @@ pub fn total_work_and_watchtower_flags(
                 total_work = borsh::from_slice(&whole_output[128..144])
                     .expect("Cannot fail: deserializing 16 bytes from a 16-byte slice");
             }
+            // Otherwise, we expect three outputs:
+            // 1. [out1, out2, out3] where out1 and out2 are P2TR outputs
+            //    and out3 is an OP_RETURN output with 80 bytes
             [out1, out2, out3, ..]
                 if out1.script_pubkey.is_p2tr()
                     && out2.script_pubkey.is_p2tr()
@@ -536,6 +539,7 @@ pub fn total_work_and_watchtower_flags(
     )
 }
 
+/// Parses the OP_RETURN data from a Bitcoin script. It retrieves the first data push after an OP_RETURN.
 pub fn parse_op_return_data(script: &Script) -> Option<&[u8]> {
     let mut instructions = script.instructions();
     if let Some(Ok(Instruction::Op(opcodes::all::OP_RETURN))) = instructions.next() {

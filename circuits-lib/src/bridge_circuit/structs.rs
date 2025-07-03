@@ -133,16 +133,6 @@ pub struct StorageProof {
     pub index: u32,                         // For now this is 18, for a specific withdrawal
 }
 
-// #[derive(Clone, Debug, BorshDeserialize, BorshSerialize)]
-// pub struct WatchtowerInputs {
-//     pub watchtower_idxs: Vec<u8>, // Which watchtower this is
-//     pub watchtower_pubkeys: Vec<Vec<u8>>, // We do not know what these will be for sure right now
-//     pub watchtower_challenge_input_idxs: Vec<u8>,
-//     pub watchtower_challenge_utxos: Vec<Vec<Vec<u8>>>, // BridgeCircuitUTXO
-//     pub watchtower_challenge_txs: Vec<Vec<u8>>, // BridgeCircuitTransaction
-//     pub watchtower_challenge_witnesses: Vec<Vec<u8>>, // BridgeCircuitTransactionWitness Vec<Some(Witness)>
-// }
-
 #[derive(Clone, Debug, BorshDeserialize, BorshSerialize)]
 pub struct WatchtowerInput {
     pub watchtower_idx: u16,                           // Which watchtower this is
