@@ -523,6 +523,7 @@ impl Database {
     /// The signatures array is identified by the deposit_outpoint and operator_idx.
     /// For the order of signatures, please check [`crate::builder::sighash::create_nofn_sighash_stream`]
     /// which determines the order of the sighashes that are signed.
+    #[allow(clippy::too_many_arguments)]
     pub async fn set_deposit_signatures(
         &self,
         mut tx: Option<DatabaseTransaction<'_, '_>>,

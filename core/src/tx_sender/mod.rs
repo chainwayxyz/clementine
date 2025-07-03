@@ -1,22 +1,17 @@
-use bitcoin::taproot::TaprootSpendInfo;
-use bitcoin::TapNodeHash;
-use bitcoin::XOnlyPublicKey;
-use eyre::OptionExt;
-
-use bitcoin::{Amount, FeeRate, OutPoint, Transaction, TxOut, Txid, Weight};
-use bitcoincore_rpc::{json::EstimateMode, RpcApi};
-use serde::{Deserialize, Serialize};
-
 use crate::config::protocol::ProtocolParamset;
 use crate::errors::ResultExt;
 use crate::utils::FeePayingType;
 use crate::{
     actor::Actor,
-    builder::{self, transaction::TransactionType},
+    builder::{self},
     database::Database,
     extended_rpc::ExtendedRpc,
     utils::TxMetadata,
 };
+use bitcoin::taproot::TaprootSpendInfo;
+use bitcoin::{Amount, FeeRate, OutPoint, Transaction, TxOut, Txid, Weight};
+use bitcoincore_rpc::{json::EstimateMode, RpcApi};
+use eyre::OptionExt;
 
 #[cfg(test)]
 use std::env;
@@ -793,7 +788,7 @@ mod tests {
         dbtx.commit().await?;
 
         // Get the current fee rate and increase it for RBF
-        let current_fee_rate = tx_sender._get_fee_rate().await?;
+        // let current_fee_rate = tx_sender._get_fee_rate().await?;
 
         // Test send_rbf_tx
         tx_sender

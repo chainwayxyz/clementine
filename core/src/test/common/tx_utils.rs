@@ -45,7 +45,7 @@ pub async fn ensure_outpoint_spent_while_waiting_for_light_client_sync(
         Ok(val) => val.is_some(),
     } {
         // Mine more blocks and wait longer between checks
-        let block_count = retry_get_block_count(&rpc, 5, Duration::from_millis(300)).await?;
+        let block_count = retry_get_block_count(rpc, 5, Duration::from_millis(300)).await?;
 
         let mut total_retry = 0;
         while let Err(e) = lc_prover
