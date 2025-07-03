@@ -56,6 +56,9 @@ pub struct TestParams {
     /// A list of verifier indexes that should not attempt to send disprove transactions.
     pub verifier_do_not_send_disprove_indexes: Option<Vec<usize>>,
 
+    /// A flag to enable data generation for bridge circuit tests (diverse total works).
+    pub generate_diverse_total_works: bool,
+
     #[serde(default)]
     pub timeout_params: TimeoutTestParams,
 }
@@ -209,6 +212,7 @@ impl Default for TestParams {
             timeout_params: TimeoutTestParams::default(),
             verifier_do_not_send_disprove_indexes: None,
             generate_to_address: true,
+            generate_diverse_total_works: false,
         }
     }
 }

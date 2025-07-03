@@ -338,6 +338,25 @@ pub async fn create_actors<C: CitreaClientT>(
             let socket_path = socket_dir.path().join(format!("verifier_{}.sock", i));
             let i = i.to_string();
             let mut config_with_new_db = config.clone();
+
+            #[cfg(test)]
+            {
+                use crate::config::protocol::ProtocolParamset;
+
+                if config.test_params.generate_diverse_total_works {
+                    // Generate a new protocol paramset for each verifier
+                    // to ensure diverse total works.
+                    let mut paramset = config.protocol_paramset().clone();
+                    paramset.time_to_send_watchtower_challenge = paramset
+                        .time_to_send_watchtower_challenge
+                        .checked_add(i.parse::<u16>().expect("Failed to parse i as u16") as u16)
+                        .expect("Failed to add time to send watchtower challenge");
+                    let paramset_ref: &'static ProtocolParamset = Box::leak(Box::new(paramset));
+
+                    config_with_new_db.protocol_paramset = paramset_ref;
+                }
+            }
+
             async move {
                 config_with_new_db.db_name += &i;
                 initialize_database(&config_with_new_db).await;

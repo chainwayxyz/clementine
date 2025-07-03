@@ -1357,10 +1357,23 @@ where
 
         let latest_blockhash = block_hashes[latest_blockhash_index].0;
 
-        let (current_hcp, hcp_height) = self
+        let (current_hcp, _hcp_height) = self
             .header_chain_prover
             .prove_till_hash(latest_blockhash)
             .await?;
+
+        #[cfg(test)]
+        let current_hcp = {
+            if self.config.test_params.generate_diverse_total_works {
+                self.header_chain_prover
+                    .prove_till_hash(payout_block_hash)
+                    .await?
+                    .0
+            } else {
+                current_hcp
+            }
+        };
+
         tracing::info!("Got header chain proof in send_asserts");
 
         let blockhashes_serialized: Vec<[u8; 32]> = block_hashes
@@ -1368,6 +1381,19 @@ where
             .take(latest_blockhash_index + 1) // get all blocks up to and including latest_blockhash
             .map(|(block_hash, _)| block_hash.to_byte_array())
             .collect::<Vec<_>>();
+
+        #[cfg(test)]
+        let blockhashes_serialized = {
+            if self.config.test_params.generate_diverse_total_works {
+                block_hashes
+                    .iter()
+                    .take((payout_block_height + 1) as usize)
+                    .map(|(block_hash, _)| block_hash.to_byte_array())
+                    .collect::<Vec<_>>()
+            } else {
+                blockhashes_serialized
+            }
+        };
 
         tracing::debug!(
             "Genesis height - Before SPV: {},",
@@ -1386,6 +1412,7 @@ where
 
         let mut wt_contexts = Vec::new();
         for (_, tx) in watchtower_challenges.iter() {
+            println!("Watchtower challenge tx: {:?}", tx);
             wt_contexts.push(WatchtowerContext {
                 watchtower_tx: tx.clone(),
                 prevout_txs: self.rpc.get_prevout_txs(tx).await?,
