@@ -1557,6 +1557,7 @@ async fn mock_citrea_run_malicious_after_exit() {
 }
 
 #[tokio::test]
+#[ignore = "Too flaky to run with other tests"]
 async fn concurrent_deposits_and_withdrawals() {
     let mut config = create_test_config_with_thread_name().await;
     let regtest = create_regtest_rpc(&mut config).await;

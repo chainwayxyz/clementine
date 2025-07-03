@@ -209,6 +209,9 @@ jobs:
           - test_script_name: bitvm_disprove_scripts::citrea_deposit_and_withdraw_e2e_non_zero_genesis_height
             description_suffix: "E2E non-zero genesis height"
             test_name: "citrea-deposit-and-withdraw-non-zero-genesis-height"
+          - test_script_name: test::deposit_and_withdraw_e2e::concurrent_deposits_and_withdrawals
+            description_suffix: "Concurrent deposits and withdrawals"
+            test_name: "concurrent-deposits-and-withdrawals"
 
     services:
       postgres:
