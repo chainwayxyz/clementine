@@ -1743,49 +1743,42 @@ async fn concurrent_deposits_and_withdrawals() {
     sleep(Duration::from_secs(10)).await;
 
     poll_until_condition(
-        {
-            let operators = operators.clone();
-            let sigs = sigs.clone();
-            let withdrawal_utxos = withdrawal_utxos.clone();
-            let payout_txouts = payout_txouts.clone();
+        async move || {
             let mut operator0s = (0..count).map(|_| operators[0].clone()).collect::<Vec<_>>();
+            let mut withdrawal_requests = Vec::new();
 
-            async move || {
-                let mut withdrawal_requests = Vec::new();
-
-                for (i, operator) in operator0s.iter_mut().enumerate() {
-                    withdrawal_requests.push(operator.withdraw(WithdrawParams {
-                        withdrawal_id: i as u32,
-                        input_signature: sigs[i].serialize().to_vec(),
-                        input_outpoint: Some(withdrawal_utxos[i].into()),
-                        output_script_pubkey: payout_txouts[i].script_pubkey.to_bytes(),
-                        output_amount: payout_txouts[i].value.to_sat(),
-                    }));
-                }
-
-                let withdrawal_txids = match try_join_all(withdrawal_requests).await {
-                    Ok(txids) => txids,
-                    Err(e) => {
-                        tracing::error!("Error while processing withdrawals: {:?}", e);
-                        return Ok(false);
-                    }
-                };
-
-                let withdrawal_txids: Vec<Txid> = withdrawal_txids
-                    .into_iter()
-                    .map(|encoded_withdrawal_tx| {
-                        encoded_withdrawal_tx
-                            .into_inner()
-                            .txid
-                            .unwrap()
-                            .try_into()
-                            .unwrap()
-                    })
-                    .collect::<Vec<_>>();
-                tracing::debug!("Withdrawal txids: {:?}", withdrawal_txids);
-
-                Ok(true)
+            for (i, operator) in operator0s.iter_mut().enumerate() {
+                withdrawal_requests.push(operator.withdraw(WithdrawParams {
+                    withdrawal_id: i as u32,
+                    input_signature: sigs[i].serialize().to_vec(),
+                    input_outpoint: Some(withdrawal_utxos[i].into()),
+                    output_script_pubkey: payout_txouts[i].script_pubkey.to_bytes(),
+                    output_amount: payout_txouts[i].value.to_sat(),
+                }));
             }
+
+            let withdrawal_txids = match try_join_all(withdrawal_requests).await {
+                Ok(txids) => txids,
+                Err(e) => {
+                    tracing::error!("Error while processing withdrawals: {:?}", e);
+                    return Ok(false);
+                }
+            };
+
+            let withdrawal_txids: Vec<Txid> = withdrawal_txids
+                .into_iter()
+                .map(|encoded_withdrawal_tx| {
+                    encoded_withdrawal_tx
+                        .into_inner()
+                        .txid
+                        .unwrap()
+                        .try_into()
+                        .unwrap()
+                })
+                .collect::<Vec<_>>();
+            tracing::debug!("Withdrawal txids: {:?}", withdrawal_txids);
+
+            Ok(true)
         },
         Some(Duration::from_secs(240)),
         None,
