@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["Actors","ConfigSource"],"fn":["get_cli_config","get_config_source"],"struct":["Args"]};
+window.SIDEBAR_ITEMS = {"enum":["Actors","ConfigSource"],"fn":["get_cli_config","get_cli_config_from_args","get_config_source","parse_from"],"struct":["Args"]};

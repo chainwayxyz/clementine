@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["BridgeCircuitHostParamsError"],"fn":["get_all_pubkeys"],"struct":["BridgeCircuitBitvmInputs","BridgeCircuitHostParams","SuccinctBridgeCircuitPublicInputs","WatchtowerContext"]};
+window.SIDEBAR_ITEMS = {"constant":["ANCHOR_OUTPUT","OP_RETURN_OUTPUT"],"enum":["BridgeCircuitHostParamsError"],"fn":["get_all_pubkeys","get_payout_input_index","get_wt_inputs","host_deposit_constant"],"struct":["BridgeCircuitBitvmInputs","BridgeCircuitHostParams","SuccinctBridgeCircuitPublicInputs","WatchtowerContext"]};

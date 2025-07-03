@@ -280,7 +280,7 @@
 //! 2. The crate-level error wrapper (BridgeError) is used to wrap errors from modules and attach extra context (ie. which module caused the error).
 //! 3. External crate errors are always wrapped by the BridgeError and never by module-level errors.
 //! 4. When using external crates inside modules, extension traits are used to convert external-crate errors into BridgeError. This is further wrapped in an eyre::Report to avoid a circular dependency.
-//! 5. BridgeError can be converted to tonic::Status to be returned to the client. Module-level errors can define Into&lt;Status&gt; to customize the returned status.
+//! 5. BridgeError can be converted to tonic::Status to be returned to the client. Module-level errors can define [`Into&lt;Status&gt;`] to customize the returned status.
 //! 6. BridgeError can be used to share error messages across modules.
 //! 7. When the error cause is not sufficiently explained by the error messages, use `eyre::Context::wrap_err` to add more context. This will not hinder modules that are trying to match the error.
 //!

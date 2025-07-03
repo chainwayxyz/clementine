@@ -2167,12 +2167,7 @@
 <a href="#2166" id="2166">2166</a>
 <a href="#2167" id="2167">2167</a>
 <a href="#2168" id="2168">2168</a>
-<a href="#2169" id="2169">2169</a>
-<a href="#2170" id="2170">2170</a>
-<a href="#2171" id="2171">2171</a>
-<a href="#2172" id="2172">2172</a>
-<a href="#2173" id="2173">2173</a>
-<a href="#2174" id="2174">2174</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::{
+<a href="#2169" id="2169">2169</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::{
     clementine_aggregator_server::ClementineAggregator, verifier_deposit_finalize_params,
     DepositParams, Empty, VerifierDepositFinalizeParams,
 };
@@ -2214,7 +2209,6 @@
 <span class="kw">use </span>bitcoin::hashes::Hash;
 <span class="kw">use </span>bitcoin::secp256k1::schnorr::Signature;
 <span class="kw">use </span>bitcoin::secp256k1::{Message, PublicKey};
-<span class="kw">use </span>bitcoin::taproot::Signature <span class="kw">as </span>TaprootSignature;
 <span class="kw">use </span>bitcoin::{TapSighash, TxOut, Txid, XOnlyPublicKey};
 <span class="kw">use </span>eyre::{Context, OptionExt};
 <span class="kw">use </span>futures::{
@@ -2223,12 +2217,8 @@
     FutureExt, Stream, StreamExt, TryFutureExt,
 };
 <span class="kw">use </span>secp256k1::musig::{AggregatedNonce, PartialSignature, PublicNonce};
-<span class="kw">use </span>std::fmt::Display;
 <span class="kw">use </span>std::future::Future;
-<span class="kw">use </span>std::sync::Arc;
-<span class="kw">use </span>std::time::Duration;
 <span class="kw">use </span>tokio::sync::mpsc::{channel, Receiver, Sender};
-<span class="kw">use </span>tokio::time::timeout;
 <span class="kw">use </span>tonic::{async_trait, Request, Response, Status, Streaming};
 
 <span class="attr">#[derive(Debug, Clone)]
@@ -2588,7 +2578,7 @@
 /// # Returns
 ///
 /// - Vec&lt;[`clementine::NonceGenFirstResponse`]&gt;: First response from each verifier
-/// - Vec&lt;BoxStream&lt;Result&lt;[`MusigPubNonce`], BridgeError&gt;&gt;&gt;: Stream of nonces from each verifier
+/// - Vec&lt;BoxStream&lt;Result&lt;[`PublicNonce`], BridgeError&gt;&gt;&gt;: Stream of nonces from each verifier
 </span><span class="kw">async fn </span>create_nonce_streams(
     verifiers: ParticipatingVerifiers,
     num_nonces: u32,
@@ -3386,11 +3376,12 @@
             <span class="kw">let </span>deposit_sign_param: VerifierDepositSignParams =
                     deposit_sign_session.clone().into();
 
-            <span class="kw">let </span><span class="kw-2">mut </span>partial_sig_streams = timed_try_join_all(
+        <span class="attr">#[allow(clippy::unused_enumerate_index)]
+            </span><span class="kw">let </span>partial_sig_streams = timed_try_join_all(
                 PARTIAL_SIG_STREAM_CREATION_TIMEOUT,
                 <span class="string">"Partial signature stream creation"</span>,
                 <span class="prelude-val">Some</span>(verifiers.ids()),
-                verifiers.clients().into_iter().enumerate().map(|(idx, verifier_client)| {
+                verifiers.clients().into_iter().enumerate().map(|(_idx, verifier_client)| {
                     <span class="kw">let </span><span class="kw-2">mut </span>verifier_client = verifier_client.clone();
                     <span class="attr">#[cfg(test)]
                     </span><span class="kw">let </span>config = <span class="self">self</span>.config.clone();
@@ -3403,7 +3394,7 @@
                         </span>config
                             .test_params
                             .timeout_params
-                            .hook_timeout_partial_sig_stream_creation_verifier(idx)
+                            .hook_timeout_partial_sig_stream_creation_verifier(_idx)
                             .<span class="kw">await</span>;
 
                         <span class="kw">let </span>(tx, rx) = tokio::sync::mpsc::channel(num_required_nonces <span class="kw">as </span>usize + <span class="number">1</span>); <span class="comment">// initial param + num_required_nonces nonces
@@ -3424,8 +3415,9 @@
             .<span class="kw">await</span><span class="question-mark">?</span>;
 
             <span class="comment">// Set up deposit finalization streams
+        </span><span class="attr">#[allow(clippy::unused_enumerate_index)]
             </span><span class="kw">let </span>deposit_finalize_streams = verifiers.clients().into_iter().enumerate().map(
-                    |(idx, <span class="kw-2">mut </span>verifier)| {
+                    |(_idx, <span class="kw-2">mut </span>verifier)| {
                         <span class="kw">let </span>(tx, rx) = tokio::sync::mpsc::channel(num_required_nonces <span class="kw">as </span>usize + <span class="number">1</span>);
                         <span class="kw">let </span>receiver_stream = tokio_stream::wrappers::ReceiverStream::new(rx);
                         <span class="attr">#[cfg(test)]
@@ -3436,7 +3428,7 @@
                             </span>config
                                 .test_params
                                 .timeout_params
-                                .hook_timeout_deposit_finalize_verifier(idx)
+                                .hook_timeout_deposit_finalize_verifier(_idx)
                                 .<span class="kw">await</span>;
 
                             verifier.deposit_finalize(receiver_stream).<span class="kw">await</span>.map_err(BridgeError::from)
@@ -3448,7 +3440,7 @@
 
             <span class="macro">tracing::info!</span>(<span class="string">"Sending deposit finalize streams to verifiers"</span>);
 
-            <span class="kw">let </span>(<span class="kw-2">mut </span>deposit_finalize_futures, deposit_finalize_sender): (Vec&lt;<span class="kw">_</span>&gt;, Vec&lt;<span class="kw">_</span>&gt;) =
+            <span class="kw">let </span>(deposit_finalize_futures, deposit_finalize_sender): (Vec&lt;<span class="kw">_</span>&gt;, Vec&lt;<span class="kw">_</span>&gt;) =
                 deposit_finalize_streams.into_iter().unzip();
 
             <span class="comment">// Send initial finalization params
@@ -3520,7 +3512,6 @@
             <span class="macro">tracing::debug!</span>(<span class="string">"Getting signatures from operators"</span>);
             <span class="comment">// Get sigs from each operator in background
             </span><span class="kw">let </span>operators = <span class="self">self</span>.get_participating_operators(<span class="kw-2">&amp;</span>deposit_data).<span class="kw">await</span><span class="question-mark">?</span>;
-            <span class="kw">let </span>operator_clients = operators.clients();
 
             <span class="kw">let </span>config_clone = <span class="self">self</span>.config.clone();
             <span class="kw">let </span>operator_sigs_fut = tokio::spawn(<span class="kw">async move </span>{
@@ -3534,8 +3525,7 @@
                             deposit_sign_session,
                         )
                         .<span class="kw">await
-                        </span>.map_err(Into::into)
-                    },
+                    </span>},
                 )
                 .<span class="kw">await
             </span>});
@@ -3796,9 +3786,8 @@
     <span class="kw">use </span><span class="kw">crate</span>::actor::Actor;
     <span class="kw">use </span><span class="kw">crate</span>::config::BridgeConfig;
     <span class="kw">use </span><span class="kw">crate</span>::deposit::{BaseDepositData, DepositInfo, DepositType};
-    <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
     <span class="kw">use </span><span class="kw">crate</span>::musig2::AggregateFromPublicKeys;
-    <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::{<span class="self">self</span>, RawSignedTx, SendMoveTxRequest};
+    <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::{<span class="self">self</span>, SendMoveTxRequest};
     <span class="kw">use </span><span class="kw">crate</span>::test::common::citrea::MockCitreaClient;
     <span class="kw">use </span><span class="kw">crate</span>::test::common::tx_utils::ensure_tx_onchain;
     <span class="kw">use </span><span class="kw">crate</span>::test::common::<span class="kw-2">*</span>;
@@ -3815,7 +3804,8 @@
         <span class="kw">let </span>regtest = create_regtest_rpc(<span class="kw-2">&amp;mut </span>config).<span class="kw">await</span>;
         <span class="kw">let </span>rpc = regtest.rpc();
 
-        run_single_deposit::&lt;MockCitreaClient&gt;(<span class="kw-2">&amp;mut </span>config, rpc.clone(), <span class="prelude-val">None</span>, <span class="prelude-val">None</span>).<span class="kw">await</span><span class="question-mark">?</span>;
+        <span class="kw">let </span>_unused =
+            run_single_deposit::&lt;MockCitreaClient&gt;(<span class="kw-2">&amp;mut </span>config, rpc.clone(), <span class="prelude-val">None</span>, <span class="prelude-val">None</span>).<span class="kw">await</span><span class="question-mark">?</span>;
 
         <span class="prelude-val">Ok</span>(())
     }
@@ -3911,7 +3901,7 @@
             .<span class="kw">await
             </span>.unwrap()
             .into_inner();
-        <span class="kw">let </span>movetx_two_txid: bitcoin::Txid = aggregator
+        <span class="kw">let </span>_movetx_two_txid: bitcoin::Txid = aggregator
             .send_move_to_vault_tx(SendMoveTxRequest {
                 deposit_outpoint: <span class="prelude-val">Some</span>(deposit_outpoint.into()),
                 raw_tx: <span class="prelude-val">Some</span>(movetx_two),

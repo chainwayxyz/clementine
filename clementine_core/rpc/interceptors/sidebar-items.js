@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["Interceptors"]};
+window.SIDEBAR_ITEMS = {"enum":["Interceptors"],"fn":["is_internal","only_aggregator_and_self"]};

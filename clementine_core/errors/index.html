@@ -6,7 +6,7 @@ Our error paradigm is as follows:</p>
 <li>The crate-level error wrapper (BridgeError) is used to wrap errors from modules and attach extra context (ie. which module caused the error).</li>
 <li>External crate errors are always wrapped by the BridgeError and never by module-level errors.</li>
 <li>When using external crates inside modules, extension traits are used to convert external-crate errors into BridgeError. This is further wrapped in an eyre::Report to avoid a circular dependency.</li>
-<li>BridgeError can be converted to tonic::Status to be returned to the client. Module-level errors can define Into<Status> to customize the returned status.</li>
+<li>BridgeError can be converted to tonic::Status to be returned to the client. Module-level errors can define <a href="https://doc.rust-lang.org/1.85.1/core/convert/trait.Into.html" title="trait core::convert::Into"><code>Into&lt;Status&gt;</code></a> to customize the returned status.</li>
 <li>BridgeError can be used to share error messages across modules.</li>
 <li>When the error cause is not sufficiently explained by the error messages, use <code>eyre::Context::wrap_err</code> to add more context. This will not hinder modules that are trying to match the error.</li>
 </ol>

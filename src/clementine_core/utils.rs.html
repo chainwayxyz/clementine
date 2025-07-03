@@ -649,8 +649,7 @@
 <a href="#648" id="648">648</a>
 <a href="#649" id="649">649</a>
 <a href="#650" id="650">650</a>
-<a href="#651" id="651">651</a>
-<a href="#652" id="652">652</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::builder::transaction::TransactionType;
+<a href="#651" id="651">651</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::builder::transaction::TransactionType;
 <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
 <span class="kw">use </span><span class="kw">crate</span>::operator::RoundIndex;
 <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::VergenResponse;
@@ -659,7 +658,6 @@
 <span class="kw">use </span>futures::future::try_join_all;
 <span class="kw">use </span>http::HeaderValue;
 <span class="kw">use </span>serde::{Deserialize, Serialize};
-<span class="kw">use </span>std::env;
 <span class="kw">use </span>std::fmt::{Debug, Display};
 <span class="kw">use </span>std::fs::File;
 <span class="kw">use </span>std::future::Future;
@@ -1216,7 +1214,7 @@
     try_join_all(iter.into_iter().enumerate().map(|item| {
         <span class="kw">let </span>ids = ids.clone();
         <span class="kw">async move </span>{
-            <span class="kw">let </span>id = Option::as_ref(<span class="kw-2">&amp;</span>ids).map(|ids| ids.get(item.<span class="number">0</span>)).flatten();
+            <span class="kw">let </span>id = Option::as_ref(<span class="kw-2">&amp;</span>ids).and_then(|ids| ids.get(item.<span class="number">0</span>));
 
             timeout(duration, item.<span class="number">1</span>)
                 .<span class="kw">await

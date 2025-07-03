@@ -463,11 +463,7 @@
 <a href="#462" id="462">462</a>
 <a href="#463" id="463">463</a>
 <a href="#464" id="464">464</a>
-<a href="#465" id="465">465</a>
-<a href="#466" id="466">466</a>
-<a href="#467" id="467">467</a>
-<a href="#468" id="468">468</a>
-<a href="#469" id="469">469</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Collaterals
+<a href="#465" id="465">465</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Collaterals
 //!
 //! This module contains the logic for creating the `round_tx`, `ready_to_reimburse_tx`,
 //! and `unspent_kickoff_tx` transactions. These transactions are used to control the sequence of transactions
@@ -871,11 +867,9 @@
 
 <span class="attr">#[cfg(test)]
 </span><span class="kw">mod </span>tests {
-    <span class="kw">use </span>std::str::FromStr;
-
-    <span class="kw">use </span><span class="kw">crate</span>::config::protocol::REGTEST_PARAMSET;
-
     <span class="kw">use super</span>::<span class="kw-2">*</span>;
+    <span class="kw">use </span><span class="kw">crate</span>::config::protocol::REGTEST_PARAMSET;
+    <span class="kw">use </span>std::str::FromStr;
 
     <span class="attr">#[tokio::test]
     </span><span class="kw">async fn </span>test_create_round_nth_txhandler_and_round_txhandlers() {
@@ -887,7 +881,6 @@
         <span class="kw">let </span>paramset = <span class="kw-2">&amp;</span>REGTEST_PARAMSET;
         <span class="kw">let </span>input_outpoint = OutPoint::new(bitcoin::Txid::all_zeros(), <span class="number">0</span>);
         <span class="kw">let </span>input_amount = Amount::from_sat(<span class="number">10000000000</span>);
-        <span class="kw">let </span><span class="kw-2">mut </span>prev_ready_to_reimburse_txhandler: <span class="prelude-ty">Option</span>&lt;TxHandler&gt; = <span class="prelude-val">None</span>;
         <span class="kw">let </span>pubkeys = KickoffWinternitzKeys::new(
             <span class="macro">vec!</span>[<span class="macro">vec!</span>[[<span class="number">0u8</span>; <span class="number">20</span>]; <span class="number">44</span>]; paramset.num_round_txs * paramset.num_kickoffs_per_round],
             paramset.num_round_txs,
@@ -904,7 +897,7 @@
                     input_amount,
                     RoundIndex::Round(i),
                     <span class="kw-2">&amp;</span>pubkeys,
-                    <span class="kw-2">&amp;</span>paramset,
+                    paramset,
                 )
                 .unwrap();
 
@@ -912,12 +905,12 @@
                 op_xonly_pk,
                 round_tx_input,
                 pubkeys.get_keys_for_round(RoundIndex::Round(i)).unwrap(),
-                <span class="kw-2">&amp;</span>paramset,
+                paramset,
             )
             .unwrap();
 
             <span class="kw">let </span>ready_to_reimburse_txhandler =
-                create_ready_to_reimburse_txhandler(<span class="kw-2">&amp;</span>round_txhandler, op_xonly_pk, <span class="kw-2">&amp;</span>paramset)
+                create_ready_to_reimburse_txhandler(<span class="kw-2">&amp;</span>round_txhandler, op_xonly_pk, paramset)
                     .unwrap();
 
             <span class="macro">assert_eq!</span>(round_nth_txhandler.get_txid(), round_txhandler.get_txid());
@@ -926,10 +919,9 @@
                 ready_to_reimburse_txhandler.get_txid()
             );
 
-            prev_ready_to_reimburse_txhandler = <span class="prelude-val">Some</span>(ready_to_reimburse_txhandler);
+            <span class="kw">let </span>prev_ready_to_reimburse_txhandler = ready_to_reimburse_txhandler;
             round_tx_input = RoundTxInput::Prevout(Box::new(
                 prev_ready_to_reimburse_txhandler
-                    .unwrap()
                     .get_spendable_output(UtxoVout::CollateralInReadyToReimburse)
                     .unwrap(),
             ));

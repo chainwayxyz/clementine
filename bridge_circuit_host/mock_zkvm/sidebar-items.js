@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"struct":["MockZkvmHost"]};
+window.SIDEBAR_ITEMS = {"struct":["MockZkvmHost","ZkvmData"]};

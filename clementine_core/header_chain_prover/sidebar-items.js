@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["HeaderChainProverError"],"struct":["HeaderChainProver"]};
+window.SIDEBAR_ITEMS = {"enum":["HeaderChainProverError"],"struct":["HeaderChainProver","MAINNET_IMAGE_ID","REGTEST_IMAGE_ID","SIGNET_IMAGE_ID","TESTNET4_IMAGE_ID"]};

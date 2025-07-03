@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["VerificationError","WinternitzDerivationPath"],"fn":["verify_schnorr"],"struct":["Actor","TweakCache"]};
+window.SIDEBAR_ITEMS = {"enum":["VerificationError","WinternitzDerivationPath"],"fn":["calc_tweaked_keypair","calc_tweaked_xonly_pk","verify_schnorr"],"struct":["Actor","TweakCache"]};

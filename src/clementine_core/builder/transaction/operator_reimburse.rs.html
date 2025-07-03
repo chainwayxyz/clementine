@@ -490,7 +490,8 @@
 <a href="#489" id="489">489</a>
 <a href="#490" id="490">490</a>
 <a href="#491" id="491">491</a>
-<a href="#492" id="492">492</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Operator Reimburse Transactions
+<a href="#492" id="492">492</a>
+<a href="#493" id="493">493</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Operator Reimburse Transactions
 //!
 //! This module contains the logic for creating operator reimbursement and payout-related transactions in the protocol.
 //! These transactions handle the flow of funds for operator compensation, challenge handling, and user withdrawals.
@@ -575,6 +576,7 @@
 ///
 /// # Returns
 /// A [`TxHandler`] for the kickoff transaction, or a [`BridgeError`] if construction fails.
+</span><span class="attr">#[allow(clippy::too_many_arguments)]
 </span><span class="kw">pub fn </span>create_kickoff_txhandler(
     kickoff_data: KickoffData,
     round_txhandler: <span class="kw-2">&amp;</span>TxHandler,

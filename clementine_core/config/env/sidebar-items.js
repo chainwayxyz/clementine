@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {};
+window.SIDEBAR_ITEMS = {"fn":["read_string_from_env","read_string_from_env_then_parse"]};

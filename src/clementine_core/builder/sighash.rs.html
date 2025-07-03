@@ -770,8 +770,7 @@
 <a href="#769" id="769">769</a>
 <a href="#770" id="770">770</a>
 <a href="#771" id="771">771</a>
-<a href="#772" id="772">772</a>
-<a href="#773" id="773">773</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Sighash Builder
+<a href="#772" id="772">772</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Sighash Builder
 //!
 //! This module provides functions and types for constructing signature hashes (sighashes) for the transactions in the Clementine bridge protocol.
 //! Sighash is the message that is signed by the private key of the signer.
@@ -1156,8 +1155,7 @@
 
 <span class="attr">#[cfg(test)]
 </span><span class="kw">mod </span>tests {
-    <span class="kw">use </span>std::fs::File;
-
+    <span class="kw">use super</span>::<span class="kw-2">*</span>;
     <span class="kw">use crate</span>::{
         bitvm_client::SECP,
         builder::transaction::sign::TransactionRequestData,
@@ -1178,11 +1176,11 @@
     <span class="kw">use </span>bitcoin::{Block, BlockHash, OutPoint, Txid};
     <span class="kw">use </span>bitcoincore_rpc::RpcApi;
     <span class="kw">use </span>futures_util::stream::TryStreamExt;
-
-    <span class="kw">use super</span>::<span class="kw-2">*</span>;
+    <span class="kw">use </span>std::fs::File;
 
     <span class="kw">pub const </span>DEPOSIT_STATE_FILE_PATH_DEBUG: <span class="kw-2">&amp;</span>str = <span class="string">"src/test/data/deposit_state_debug.bincode"</span>;
-    <span class="kw">pub const </span>DEPOSIT_STATE_FILE_PATH_RELEASE: <span class="kw-2">&amp;</span>str = <span class="string">"src/test/data/deposit_state_release.bincode"</span>;
+    <span class="attr">#[cfg(not(debug_assertions))]
+    </span><span class="kw">pub const </span>DEPOSIT_STATE_FILE_PATH_RELEASE: <span class="kw-2">&amp;</span>str = <span class="string">"src/test/data/deposit_state_release.bincode"</span>;
 
     <span class="doccomment">/// State of the chain and the deposit generated in generate_deposit_state() test.
     /// Contains:
@@ -1245,7 +1243,7 @@
         }
 
         <span class="kw">let </span>op0_config = BridgeConfig {
-            secret_key: config.test_params.all_verifiers_secret_keys[<span class="number">0</span>].clone(),
+            secret_key: config.test_params.all_verifiers_secret_keys[<span class="number">0</span>],
             db_name: config.db_name + <span class="string">"0"</span>,
             ..config
         };
@@ -1276,7 +1274,7 @@
             deposit_info.deposit_outpoint,
             operators_xonly_pks[<span class="number">0</span>],
             deposit_blockhash,
-            <span class="kw-2">&amp;</span>op0_config.protocol_paramset(),
+            op0_config.protocol_paramset(),
         )
         .<span class="kw">await</span>;
 
@@ -1391,7 +1389,7 @@
         <span class="kw">let </span>nofn_sighashes: Vec&lt;<span class="kw">_</span>&gt; = sighash_stream.try_collect().<span class="kw">await</span>.unwrap();
         <span class="kw">let </span>nofn_sighashes = nofn_sighashes
             .into_iter()
-            .map(|(sighash, info)| sighash.to_byte_array())
+            .map(|(sighash, _info)| sighash.to_byte_array())
             .collect::&lt;Vec&lt;<span class="kw">_</span>&gt;&gt;();
 
         <span class="kw">let </span>operator_streams = create_operator_sighash_stream(
@@ -1405,7 +1403,7 @@
         <span class="kw">let </span>operator_sighashes: Vec&lt;<span class="kw">_</span>&gt; = operator_streams.try_collect().<span class="kw">await</span>.unwrap();
         <span class="kw">let </span>operator_sighashes = operator_sighashes
             .into_iter()
-            .map(|(sighash, info)| sighash.to_byte_array())
+            .map(|(sighash, _info)| sighash.to_byte_array())
             .collect::&lt;Vec&lt;<span class="kw">_</span>&gt;&gt;();
 
         <span class="comment">// Hash the vectors
@@ -1497,7 +1495,7 @@
         <span class="macro">assert_eq!</span>(deposit_info, deposit_state.deposit_info);
 
         <span class="kw">let </span>op0_config = BridgeConfig {
-            secret_key: config.test_params.all_verifiers_secret_keys[<span class="number">0</span>].clone(),
+            secret_key: config.test_params.all_verifiers_secret_keys[<span class="number">0</span>],
             db_name: config.db_name.clone() + <span class="string">"0"</span>,
             ..config.clone()
         };
@@ -1514,7 +1512,7 @@
             deposit_info.deposit_outpoint,
             operators_xonly_pks[<span class="number">0</span>],
             deposit_blockhash,
-            <span class="kw-2">&amp;</span>op0_config.protocol_paramset(),
+            op0_config.protocol_paramset(),
         )
         .<span class="kw">await</span>;
 

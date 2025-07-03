@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"struct":["CircuitGroth16Proof"]};
+window.SIDEBAR_ITEMS = {"struct":["CircuitGroth16Proof"],"type":["G1","G2"]};

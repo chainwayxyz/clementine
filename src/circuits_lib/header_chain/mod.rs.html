@@ -1255,7 +1255,7 @@
 
 <span class="doccomment">/// An epoch should be two weeks (represented as number of seconds)
 /// seconds/minute * minutes/hour * hours/day * 14 days
-/// For our custom signet, we use 10 seconds block time, see: https://github.com/chainwayxyz/bitcoin/releases/tag/v29-ten-secs-blocktime-tag
+/// For our custom signet, we use 10 seconds block time, see: &lt;https://github.com/chainwayxyz/bitcoin/releases/tag/v29-ten-secs-blocktime-tag&gt;
 </span><span class="kw">const </span>EXPECTED_EPOCH_TIMESPAN: u32 = <span class="kw">match </span><span class="macro">option_env!</span>(<span class="string">"BITCOIN_NETWORK"</span>) {
     <span class="prelude-val">Some</span>(n) <span class="kw">if </span><span class="macro">matches!</span>(n.as_bytes(), <span class="string">b"signet"</span>) =&gt; <span class="number">60 </span>* <span class="number">24 </span>* <span class="number">14</span>,
     <span class="kw">_ </span>=&gt; <span class="number">60 </span>* <span class="number">60 </span>* <span class="number">24 </span>* <span class="number">14</span>,

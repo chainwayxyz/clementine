@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["verify_storage_proofs"]};
+window.SIDEBAR_ITEMS = {"constant":["ADDRESS","DEPOSIT_STORAGE_INDEX","UTXOS_STORAGE_INDEX"],"fn":["storage_verify","verify_storage_proofs"]};

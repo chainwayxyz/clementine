@@ -2809,13 +2809,8 @@
 <a href="#2808" id="2808">2808</a>
 <a href="#2809" id="2809">2809</a>
 <a href="#2810" id="2810">2810</a>
-<a href="#2811" id="2811">2811</a>
-<a href="#2812" id="2812">2812</a>
-<a href="#2813" id="2813">2813</a>
-<a href="#2814" id="2814">2814</a>
-<a href="#2815" id="2815">2815</a>
-<a href="#2816" id="2816">2816</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
-<span class="kw">use </span><span class="kw">crate</span>::bitcoin_syncer::{BitcoinSyncer, BlockHandler, FinalizedBlockFetcherTask};
+<a href="#2811" id="2811">2811</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
+<span class="kw">use </span><span class="kw">crate</span>::bitcoin_syncer::BitcoinSyncer;
 <span class="kw">use </span><span class="kw">crate</span>::bitvm_client::ClementineBitVMPublicKeys;
 <span class="kw">use </span><span class="kw">crate</span>::builder::address::{create_taproot_address, taproot_builder_with_scripts};
 <span class="kw">use </span><span class="kw">crate</span>::builder::block_cache;
@@ -2826,15 +2821,12 @@
 <span class="kw">use </span><span class="kw">crate</span>::builder::sighash::{
     create_nofn_sighash_stream, create_operator_sighash_stream, PartialSignatureInfo, SignatureInfo,
 };
-<span class="attr">#[cfg(test)]
-</span><span class="kw">use </span><span class="kw">crate</span>::builder::transaction::challenge;
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::deposit_signature_owner::EntityType;
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::input::UtxoVout;
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::{
     create_emergency_stop_txhandler, create_move_to_vault_txhandler,
-    create_optimistic_payout_txhandler, create_txhandlers, ContractContext, ReimburseDbCache,
-    TransactionType, TxHandler, TxHandlerCache,
+    create_optimistic_payout_txhandler, TransactionType, TxHandler,
 };
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::{create_round_txhandlers, KickoffWinternitzKeys};
 <span class="kw">use </span><span class="kw">crate</span>::citrea::CitreaClientT;
@@ -2845,14 +2837,13 @@
 <span class="kw">use </span><span class="kw">crate</span>::deposit::{DepositData, KickoffData, OperatorData};
 <span class="kw">use </span><span class="kw">crate</span>::errors::{BridgeError, TxError};
 <span class="kw">use </span><span class="kw">crate</span>::extended_rpc::ExtendedRpc;
-<span class="kw">use </span><span class="kw">crate</span>::header_chain_prover::{HeaderChainProver, HeaderChainProverError};
+<span class="kw">use </span><span class="kw">crate</span>::header_chain_prover::HeaderChainProver;
 <span class="kw">use </span><span class="kw">crate</span>::operator::RoundIndex;
 <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::{NormalSignatureKind, OperatorKeys, TaggedSignature};
 <span class="kw">use </span><span class="kw">crate</span>::task::manager::BackgroundTaskManager;
-<span class="kw">use </span><span class="kw">crate</span>::task::{IntoTask, TaskExt};
+<span class="kw">use </span><span class="kw">crate</span>::task::IntoTask;
 <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
 </span><span class="kw">use </span><span class="kw">crate</span>::tx_sender::{TxSender, TxSenderClient};
-<span class="kw">use </span><span class="kw">crate</span>::utils::FeePayingType;
 <span class="kw">use </span><span class="kw">crate</span>::utils::NamedEntity;
 <span class="kw">use </span><span class="kw">crate</span>::utils::TxMetadata;
 <span class="kw">use crate</span>::{musig2, UTXO};
@@ -2866,7 +2857,6 @@
 <span class="kw">use </span>bitcoin::{Address, Amount, ScriptBuf, Witness, XOnlyPublicKey};
 <span class="kw">use </span>bitcoin::{OutPoint, TxOut};
 <span class="kw">use </span>bitcoin_script::builder::StructuredScript;
-<span class="kw">use </span>bitcoincore_rpc::RpcApi;
 <span class="kw">use </span>bitvm::chunk::api::validate_assertions;
 <span class="kw">use </span>bitvm::clementine::additional_disprove::{
     replace_placeholders_in_script, validate_assertions_for_additional_script,
@@ -2888,7 +2878,6 @@
 <span class="kw">use </span>std::time::Duration;
 <span class="kw">use </span>tokio::sync::mpsc;
 <span class="kw">use </span>tokio_stream::StreamExt;
-<span class="kw">use </span>tonic::async_trait;
 
 <span class="attr">#[derive(Debug)]
 </span><span class="kw">pub struct </span>NonceSession {
@@ -2961,8 +2950,10 @@
         }
         <span class="attr">#[cfg(not(feature = <span class="string">"automation"</span>))]
         </span>{
+            <span class="kw">use </span><span class="kw">crate</span>::task::TaskExt;
+
             background_tasks.loop_and_monitor(
-                FinalizedBlockFetcherTask::new(
+                <span class="kw">crate</span>::bitcoin_syncer::FinalizedBlockFetcherTask::new(
                     db.clone(),
                     <span class="string">"verifier"</span>.to_string(),
                     config.protocol_paramset(),
@@ -3354,8 +3345,7 @@
         <span class="kw">let </span>(sec_nonces, pub_nonces): (Vec&lt;SecretNonce&gt;, Vec&lt;PublicNonce&gt;) = (<span class="number">0</span>..num_nonces)
             .map(|<span class="kw">_</span>| {
                 <span class="comment">// nonce pair needs keypair and a rng
-                </span><span class="kw">let </span>(sec_nonce, pub_nonce) =
-                    musig2::nonce_pair(<span class="kw-2">&amp;</span><span class="self">self</span>.signer.keypair, <span class="kw-2">&amp;mut </span>secp256k1::rand::thread_rng())<span class="question-mark">?</span>;
+                </span><span class="kw">let </span>(sec_nonce, pub_nonce) = musig2::nonce_pair(<span class="kw-2">&amp;</span><span class="self">self</span>.signer.keypair)<span class="question-mark">?</span>;
                 <span class="prelude-val">Ok</span>((sec_nonce, pub_nonce))
             })
             .collect::&lt;<span class="prelude-ty">Result</span>&lt;Vec&lt;(SecretNonce, PublicNonce)&gt;, BridgeError&gt;&gt;()<span class="question-mark">?
@@ -3853,7 +3843,8 @@
         <span class="prelude-val">Ok</span>((move_tx_partial_sig, emergency_stop_partial_sig))
     }
 
-    <span class="kw">pub async fn </span>sign_optimistic_payout(
+    <span class="attr">#[allow(clippy::too_many_arguments)]
+    </span><span class="kw">pub async fn </span>sign_optimistic_payout(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         nonce_session_id: u32,
         agg_nonce: AggregatedNonce,
@@ -4568,6 +4559,7 @@
     /// - `Ok(None)` if the operator's claims are valid under this specific challenge, and no disprove is possible.
     /// - `Err(BridgeError)` if any error occurs during script reconstruction or validation.
     </span><span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
+    #[allow(clippy::too_many_arguments)]
     </span><span class="kw">async fn </span>verify_additional_disprove_conditions(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         deposit_data: <span class="kw-2">&amp;mut </span>DepositData,
@@ -4881,8 +4873,6 @@
             kickoff_data,
             deposit_data
         );
-
-        <span class="kw">let </span>raw_tx = bitcoin::consensus::serialize(<span class="kw-2">&amp;</span>disprove_tx);
 
         <span class="kw">let </span><span class="kw-2">mut </span>dbtx = <span class="self">self</span>.db.begin_transaction().<span class="kw">await</span><span class="question-mark">?</span>;
         <span class="self">self</span>.tx_sender
@@ -5230,7 +5220,7 @@
             </span><span class="self">self</span>.header_chain_prover
                 .save_unproven_block_cache(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx), <span class="kw-2">&amp;</span>block_cache)
                 .<span class="kw">await</span><span class="question-mark">?</span>;
-            <span class="kw">while let </span><span class="prelude-val">Some</span>(<span class="kw">_</span>) = <span class="self">self</span>.header_chain_prover.prove_if_ready().<span class="kw">await</span><span class="question-mark">? </span>{
+            <span class="kw">while </span>(<span class="self">self</span>.header_chain_prover.prove_if_ready().<span class="kw">await</span><span class="question-mark">?</span>).is_some() {
                 <span class="comment">// Continue until prove_if_ready returns None
                 // If it doesn't return None, it means next batch_size amount of blocks were proven
             </span>}
@@ -5242,8 +5232,8 @@
 
 <span class="comment">// This implementation is only relevant for non-automation mode, where the verifier is run as a standalone process
 </span><span class="attr">#[cfg(not(feature = <span class="string">"automation"</span>))]
-#[async_trait]
-</span><span class="kw">impl</span>&lt;C&gt; BlockHandler <span class="kw">for </span>Verifier&lt;C&gt;
+#[async_trait::async_trait]
+</span><span class="kw">impl</span>&lt;C&gt; <span class="kw">crate</span>::bitcoin_syncer::BlockHandler <span class="kw">for </span>Verifier&lt;C&gt;
 <span class="kw">where
     </span>C: CitreaClientT,
 {
@@ -5490,7 +5480,7 @@
 
         <span class="kw">async fn </span>handle_finalized_block(
             <span class="kw-2">&amp;</span><span class="self">self</span>,
-            <span class="kw-2">mut </span>dbtx: DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;,
+            dbtx: DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;,
             block_id: u32,
             block_height: u32,
             block_cache: Arc&lt;block_cache::BlockCache&gt;,

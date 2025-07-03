@@ -389,14 +389,7 @@
 <a href="#388" id="388">388</a>
 <a href="#389" id="389">389</a>
 <a href="#390" id="390">390</a>
-<a href="#391" id="391">391</a>
-<a href="#392" id="392">392</a>
-<a href="#393" id="393">393</a>
-<a href="#394" id="394">394</a>
-<a href="#395" id="395">395</a>
-<a href="#396" id="396">396</a>
-<a href="#397" id="397">397</a>
-<a href="#398" id="398">398</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Servers
+<a href="#391" id="391">391</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Servers
 //!
 //! Utilities for operator and verifier servers.
 </span><span class="kw">use </span><span class="kw">crate</span>::aggregator::Aggregator;
@@ -413,7 +406,6 @@
 <span class="kw">use </span>errors::BridgeError;
 <span class="kw">use </span>eyre::Context;
 <span class="kw">use </span>rustls_pki_types::pem::PemObject;
-<span class="kw">use </span>std::thread;
 <span class="kw">use </span>tokio::sync::oneshot;
 <span class="kw">use </span>tonic::server::NamedService;
 <span class="kw">use </span>tonic::service::interceptor::InterceptedService;
@@ -423,12 +415,6 @@
 </span><span class="kw">use </span><span class="kw">crate</span>::test::common::ensure_test_certificates;
 
 <span class="kw">pub type </span>ServerFuture = <span class="kw">dyn </span>futures::Future&lt;Output = <span class="prelude-ty">Result</span>&lt;(), tonic::transport::Error&gt;&gt;;
-
-<span class="attr">#[tracing::instrument(ret(level = tracing::Level::TRACE))]
-</span><span class="kw">fn </span>is_test_env() -&gt; bool {
-    <span class="comment">// if thread name is not main then it is a test
-    </span>thread::current().name().unwrap_or_default() != <span class="string">"main"
-</span>}
 
 <span class="doccomment">/// Represents a network address that can be either TCP or Unix socket
 </span><span class="attr">#[derive(Debug, Clone)]

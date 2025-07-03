@@ -1824,9 +1824,7 @@
 <a href="#1823" id="1823">1823</a>
 <a href="#1824" id="1824">1824</a>
 <a href="#1825" id="1825">1825</a>
-<a href="#1826" id="1826">1826</a>
-<a href="#1827" id="1827">1827</a>
-<a href="#1828" id="1828">1828</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_ff::PrimeField;
+<a href="#1826" id="1826">1826</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_ff::PrimeField;
 <span class="kw">use </span>circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
 <span class="kw">use </span>risc0_zkvm::is_dev_mode;
 <span class="kw">use </span>std::collections::HashMap;
@@ -1840,8 +1838,7 @@
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::{
     create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler,
-    create_round_txhandlers, create_txhandlers, ContractContext, KickoffWinternitzKeys,
-    ReimburseDbCache, TransactionType, TxHandler, TxHandlerCache,
+    create_round_txhandlers, ContractContext, KickoffWinternitzKeys, TransactionType, TxHandler,
 };
 <span class="kw">use </span><span class="kw">crate</span>::citrea::CitreaClientT;
 <span class="kw">use </span><span class="kw">crate</span>::config::BridgeConfig;
@@ -3185,7 +3182,7 @@
 
         <span class="kw">let </span>latest_blockhash = block_hashes[latest_blockhash_index].<span class="number">0</span>;
 
-        <span class="kw">let </span>(current_hcp, hcp_height) = <span class="self">self
+        <span class="kw">let </span>(current_hcp, _hcp_height) = <span class="self">self
             </span>.header_chain_prover
             .prove_till_hash(latest_blockhash)
             .<span class="kw">await</span><span class="question-mark">?</span>;
@@ -3413,7 +3410,6 @@
 <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
 </span><span class="kw">mod </span>states {
     <span class="kw">use super</span>::<span class="kw-2">*</span>;
-    <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::input::UtxoVout;
     <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::{
         create_txhandlers, ContractContext, ReimburseDbCache, TransactionType, TxHandler,
         TxHandlerCache,

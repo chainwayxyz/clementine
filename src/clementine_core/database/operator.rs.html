@@ -1504,7 +1504,8 @@
 <a href="#1503" id="1503">1503</a>
 <a href="#1504" id="1504">1504</a>
 <a href="#1505" id="1505">1505</a>
-<a href="#1506" id="1506">1506</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Operator Related Database Operations
+<a href="#1506" id="1506">1506</a>
+<a href="#1507" id="1507">1507</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Operator Related Database Operations
 //!
 //! This module includes database functions which are mainly used by an operator.
 
@@ -2029,6 +2030,7 @@
     /// The signatures array is identified by the deposit_outpoint and operator_idx.
     /// For the order of signatures, please check [`crate::builder::sighash::create_nofn_sighash_stream`]
     /// which determines the order of the sighashes that are signed.
+    </span><span class="attr">#[allow(clippy::too_many_arguments)]
     </span><span class="kw">pub async fn </span>set_deposit_signatures(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         <span class="kw-2">mut </span>tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,

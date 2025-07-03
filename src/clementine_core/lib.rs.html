@@ -190,10 +190,7 @@
 <a href="#189" id="189">189</a>
 <a href="#190" id="190">190</a>
 <a href="#191" id="191">191</a>
-<a href="#192" id="192">192</a>
-<a href="#193" id="193">193</a>
-<a href="#194" id="194">194</a>
-<a href="#195" id="195">195</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Clementine 🍊
+<a href="#192" id="192">192</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Clementine 🍊
 //!
 //! Clementine is Citrea's BitVM-based, trust-minimized two-way peg program.
 //! Please refer to the [whitepaper](https://citrea.xyz/clementine_whitepaper.pdf)
@@ -216,10 +213,10 @@
 //! interface for communicating with these servers. It is located in
 //! `bin/cli.rs`.
 //!
-//! The [`cli`](cli) module provides the command-line interface for Clementine.
+//! The [`crate::cli`] module provides the command-line interface for Clementine.
 //! It is used in every binary.
 //!
-//! The [`config`](config) module is also essential for Clementine to operate.
+//! The [`crate::config`] module is also essential for Clementine to operate.
 //! It specifies essential variables for the protocol as well as the user's
 //! environment setup.
 //!
@@ -228,11 +225,11 @@
 //! The core behavior of Clementine's actors is defined in the respective
 //! modules:
 //!
-//! - [`operator`](operator)
-//! - [`verifier`](verifier)
-//! - [`aggregator`](aggregator)
+//! - [`crate::operator`]
+//! - [`crate::verifier`]
+//! - [`crate::aggregator`]
 //!
-//! For all these modules, the [`actor`] module provides common utilities.
+//! For all these modules, the [`crate::actor`] module provides common utilities.
 //!
 //! ### Servers
 //!
@@ -241,42 +238,42 @@
 //!
 //! The main server architecture is defined in the `rpc/clementine.proto` file.
 //! It is compiled to Rust code by the `tonic` library. Server logic for each
-//! actor is defined in the respective server module in the [`rpc`](rpc) module.
+//! actor is defined in the respective server module in the [`crate::rpc`] module.
 //!
 //! ## Building Transactions and Managing Flow with Tasks
 //!
-//! Clementine operates on Bitcoin transactions. The [`builder`](builder) module
+//! Clementine operates on Bitcoin transactions. The [`crate::builder`] module
 //! provides utilities for building Bitcoin transactions based on the
-//! specification (detailed in the whitepaper). The [`builder`](builder) module
+//! specification (detailed in the whitepaper). The [`crate::builder`] module
 //! can create a transaction according to the specification with the required
 //! signatures, addresses, and scripts.
 //!
 //! Clementine requires a few background tasks to be running in order to operate
-//! properly. The task interface is defined in the [`task`](task) module. These
+//! properly. The task interface is defined in the [`crate::task`] module. These
 //! tasks are:
 //!
-//! - The [`bitcoin_syncer`](bitcoin_syncer) module syncs Bitcoin blocks and
+//! - The [`crate::bitcoin_syncer`] module syncs Bitcoin blocks and
 //!   transactions.
-//! - The [`tx_sender`](tx_sender) module sends transactions to the Bitcoin network
+//! - The [`crate::tx_sender`] module sends transactions to the Bitcoin network
 //!   depending on the transaction type.
-//! - The [`states`](states) module provides state machine implementations for
+//! - The [`crate::states`] module provides state machine implementations for
 //!   managing some of the steps in the specification.
 //!
 //! There are other modules that are not tasks, but they are used in the tasks
 //! and are important for the flow of Clementine:
 //!
-//! - The [`header_chain_prover`](header_chain_prover) module accepts Bitcoin block headers
+//! - The [`crate::header_chain_prover`] module accepts Bitcoin block headers
 //!   and prepares proofs for them.
 //!
 //! ### Communicating with the Outside
 //!
 //! Some steps require communicating with external systems:
 //!
-//! - The [`extended_rpc`](extended_rpc) module provides a client that talks with
+//! - The [`crate::extended_rpc`] module provides a client that talks with
 //!   the Bitcoin node.
-//! - The [`citrea`](citrea) module provides a client for interacting with Citrea.
-//! - The [`bitvm_client`](bitvm_client) module provides a client for BitVM.
-//! - The [`database`](database) module provides a database interface for
+//! - The [`crate::citrea`] module provides a client for interacting with Citrea.
+//! - The [`crate::bitvm_client`] module provides a client for BitVM.
+//! - The [`crate::database`] module provides a database interface for
 //!   interacting with the PostgreSQL database.
 //!
 //! ## Development Guidelines
@@ -284,27 +281,24 @@
 //! ### Error Handling
 //!
 //! There are rules about error handling in Clementine. Please refer to the
-//! [`errors`](errors) module for more information.
+//! [`crate::errors`] module for more information.
 //!
 //! ### Testing Clementine
 //!
 //! There are a few quirks about testing Clementine. One of the main ones is
 //! that there is no `tests` directory for integration tests. Rather, there is a
-//! [`test`](test) module, which is compiled only if `test` is enabled by Cargo
+//! [`crate::test`] module, which is compiled only if `test` is enabled by Cargo
 //! (when running `cargo test`). That module provides common utilities for unit
 //! and integration testing, as well as integration tests themselves. This is a
 //! workaround for having common test utilities between unit and integration
 //! tests.
 //!
-//! Please refer to the [`test`](test) module to check what utilities are
+//! Please refer to the [`crate::test`] module to check what utilities are
 //! available for testing and how to use them.
 //!
 //! Also, if a new integration test file is added, it should be guarded by the
 //! `#[cfg(feature = "integration-tests")]` attribute. This ensures that the
 //! integration and unit tests can be run separately.
-
-</span><span class="attr">#![allow(clippy::too_many_arguments)]
-#![allow(warnings)]
 
 </span><span class="kw">use </span>bitcoin::{OutPoint, Txid};
 <span class="kw">use </span>serde::{Deserialize, Serialize};

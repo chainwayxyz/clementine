@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["AggregatorError"]};
+window.SIDEBAR_ITEMS = {"enum":["AggregatorError"],"fn":["collect_and_call","create_nonce_streams","get_next_pub_nonces","nonce_aggregator","nonce_distributor","signature_aggregator","signature_distributor"],"struct":["AggNonceQueueItem","FinalSigQueueItem"]};

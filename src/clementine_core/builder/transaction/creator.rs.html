@@ -1411,8 +1411,7 @@
 <a href="#1410" id="1410">1410</a>
 <a href="#1411" id="1411">1411</a>
 <a href="#1412" id="1412">1412</a>
-<a href="#1413" id="1413">1413</a>
-<a href="#1414" id="1414">1414</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Transaction Handler Creation Logic
+<a href="#1413" id="1413">1413</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Transaction Handler Creation Logic
 //!
 //! This module provides the logic for constructing, caching, and managing transaction handlers (`TxHandler`) for all transaction types in the Clementine bridge.
 //!
@@ -1514,7 +1513,7 @@
         </span><span class="kw">if </span>round_idx == RoundIndex::Collateral || round_idx.to_index() &gt; <span class="self">self</span>.num_rounds + <span class="number">1 </span>{
             <span class="kw">return </span><span class="prelude-val">Err</span>(TxError::InvalidRoundIndex(round_idx));
         }
-        <span class="kw">let </span>start_idx = (round_idx.to_index() <span class="kw">as </span>usize)
+        <span class="kw">let </span>start_idx = (round_idx.to_index())
             .checked_sub(<span class="number">1</span>) <span class="comment">// 0th round is the collateral, there are no keys for the 0th round
             </span>.ok_or(TxError::IndexOverflow)<span class="question-mark">?
             </span>.checked_mul(<span class="self">self</span>.num_kickoffs_per_round)
@@ -2341,7 +2340,6 @@
             <span class="kw">let </span>disprove_txhandler = builder::transaction::create_disprove_txhandler(
                 get_txhandler(<span class="kw-2">&amp;</span>txhandlers, TransactionType::Kickoff)<span class="question-mark">?</span>,
                 get_txhandler(<span class="kw-2">&amp;</span>txhandlers, TransactionType::Round)<span class="question-mark">?</span>,
-                paramset,
             )<span class="question-mark">?</span>;
 
             txhandlers.insert(

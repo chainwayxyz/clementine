@@ -452,11 +452,7 @@
 <a href="#451" id="451">451</a>
 <a href="#452" id="452">452</a>
 <a href="#453" id="453">453</a>
-<a href="#454" id="454">454</a>
-<a href="#455" id="455">455</a>
-<a href="#456" id="456">456</a>
-<a href="#457" id="457">457</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::bitvm_client::{SECP, UNSPENDABLE_XONLY_PUBKEY};
-<span class="kw">use </span><span class="kw">crate</span>::constants::{OPERATOR_GET_KEYS_TIMEOUT, VERIFIER_SEND_KEYS_TIMEOUT};
+<a href="#454" id="454">454</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::constants::{OPERATOR_GET_KEYS_TIMEOUT, VERIFIER_SEND_KEYS_TIMEOUT};
 <span class="kw">use </span><span class="kw">crate</span>::deposit::DepositData;
 <span class="kw">use </span><span class="kw">crate</span>::extended_rpc::ExtendedRpc;
 <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::{DepositParams, OperatorKeysWithDeposit};
@@ -481,10 +477,7 @@
 <span class="kw">use </span>bitcoin::secp256k1::{schnorr, Message, PublicKey};
 <span class="kw">use </span>bitcoin::XOnlyPublicKey;
 <span class="kw">use </span>eyre::Context;
-<span class="kw">use </span>futures_util::future::try_join_all;
 <span class="kw">use </span>secp256k1::musig::{AggregatedNonce, PartialSignature};
-<span class="kw">use </span>std::time::Duration;
-<span class="kw">use </span>tokio::time::timeout;
 <span class="kw">use </span>tonic::Status;
 <span class="kw">use </span>tracing::{debug_span, Instrument};
 
@@ -553,7 +546,7 @@
     }
 
     <span class="kw">pub fn </span>ids(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; Vec&lt;VerifierId&gt; {
-        <span class="self">self</span>.<span class="number">0</span>.iter().map(|(<span class="kw">_</span>, id)| id.clone()).collect()
+        <span class="self">self</span>.<span class="number">0</span>.iter().map(|(<span class="kw">_</span>, id)| <span class="kw-2">*</span>id).collect()
     }
 }
 
@@ -581,7 +574,7 @@
     }
 
     <span class="kw">pub fn </span>ids(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; Vec&lt;OperatorId&gt; {
-        <span class="self">self</span>.<span class="number">0</span>.iter().map(|(<span class="kw">_</span>, id)| id.clone()).collect()
+        <span class="self">self</span>.<span class="number">0</span>.iter().map(|(<span class="kw">_</span>, id)| <span class="kw-2">*</span>id).collect()
     }
 }
 
@@ -700,13 +693,13 @@
         <span class="kw">let </span>operator_clients = operators.clients();
 
         <span class="kw">let </span>operator_xonly_pks = deposit_data.get_operators();
-        <span class="kw">let </span>num_operators = deposit_data.get_num_operators();
         <span class="kw">let </span>deposit = deposit_params.clone();
 
         <span class="macro">tracing::info!</span>(<span class="string">"Starting operator key collection"</span>);
         <span class="attr">#[cfg(test)]
         </span><span class="kw">let </span>timeout_params = <span class="self">self</span>.config.test_params.timeout_params;
-        <span class="kw">let </span>get_operators_keys_handle = tokio::spawn(timed_try_join_all(
+        <span class="attr">#[allow(clippy::unused_enumerate_index)]
+        </span><span class="kw">let </span>get_operators_keys_handle = tokio::spawn(timed_try_join_all(
             OPERATOR_GET_KEYS_TIMEOUT,
             <span class="string">"Operator key collection"</span>,
             <span class="prelude-val">Some</span>(operators.ids()),
@@ -714,13 +707,13 @@
                 .into_iter()
                 .zip(operator_xonly_pks.into_iter())
                 .enumerate()
-                .map(<span class="kw">move </span>|(idx, (<span class="kw-2">mut </span>operator_client, operator_xonly_pk))| {
+                .map(<span class="kw">move </span>|(_idx, (<span class="kw-2">mut </span>operator_client, operator_xonly_pk))| {
                     <span class="kw">let </span>deposit_params = deposit.clone();
                     <span class="kw">let </span>tx = operator_keys_tx.clone();
                     <span class="kw">async move </span>{
                         <span class="attr">#[cfg(test)]
                         </span>timeout_params
-                            .hook_timeout_key_collection_operator(idx)
+                            .hook_timeout_key_collection_operator(_idx)
                             .<span class="kw">await</span>;
 
                         <span class="kw">let </span>operator_keys = operator_client
@@ -760,7 +753,8 @@
 
         <span class="attr">#[cfg(test)]
         </span><span class="kw">let </span>timeout_params = <span class="self">self</span>.config.test_params.timeout_params;
-        <span class="kw">let </span>distribute_operators_keys_handle = tokio::spawn(timed_try_join_all(
+        <span class="attr">#[allow(clippy::unused_enumerate_index)]
+        </span><span class="kw">let </span>distribute_operators_keys_handle = tokio::spawn(timed_try_join_all(
             VERIFIER_SEND_KEYS_TIMEOUT,
             <span class="string">"Verifier key distribution"</span>,
             <span class="prelude-val">Some</span>(verifier_ids.clone()),
@@ -770,10 +764,10 @@
                 .zip(verifier_ids)
                 .enumerate()
                 .map(
-                    <span class="kw">move </span>|(idx, ((<span class="kw-2">mut </span>verifier, <span class="kw-2">mut </span>rx), verifier_id))| <span class="kw">async move </span>{
+                    <span class="kw">move </span>|(_idx, ((<span class="kw-2">mut </span>verifier, <span class="kw-2">mut </span>rx), verifier_id))| <span class="kw">async move </span>{
                         <span class="attr">#[cfg(test)]
                         </span>timeout_params
-                            .hook_timeout_key_distribution_verifier(idx)
+                            .hook_timeout_key_distribution_verifier(_idx)
                             .<span class="kw">await</span>;
 
                         <span class="comment">// Only wait for expected number of messages
@@ -839,7 +833,7 @@
     }
 
     <span class="attr">#[tracing::instrument(skip(<span class="self">self</span>), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    </span><span class="kw">async fn </span>aggregate_move_partial_sigs(
+    </span><span class="kw">async fn </span>_aggregate_move_partial_sigs(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         deposit_data: <span class="kw-2">&amp;mut </span>DepositData,
         agg_nonce: <span class="kw-2">&amp;</span>AggregatedNonce,

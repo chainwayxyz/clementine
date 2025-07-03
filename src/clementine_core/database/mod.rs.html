@@ -392,9 +392,9 @@
     /// the given configuration.
     </span><span class="kw">pub fn </span>get_postgresql_url(config: <span class="kw-2">&amp;</span>BridgeConfig) -&gt; String {
         <span class="string">"postgresql://"</span>.to_owned()
-            + <span class="kw-2">&amp;</span>config.db_user.expose_secret()
+            + config.db_user.expose_secret()
             + <span class="string">":"
-            </span>+ <span class="kw-2">&amp;</span>config.db_password.expose_secret()
+            </span>+ config.db_password.expose_secret()
             + <span class="string">"@"
             </span>+ <span class="kw-2">&amp;</span>config.db_host
             + <span class="string">":"

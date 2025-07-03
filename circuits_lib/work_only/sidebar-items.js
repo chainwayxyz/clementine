@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["work_only_circuit"]};
+window.SIDEBAR_ITEMS = {"constant":["HEADER_CHAIN_METHOD_ID"],"fn":["work_conversion","work_only_circuit"]};

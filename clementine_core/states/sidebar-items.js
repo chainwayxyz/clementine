@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["ContextProcessResult","StateMachineError","SystemEvent"],"mod":["context","event","kickoff","matcher","round","task"],"struct":["StateManager"],"trait":["ContextProcessor"]};

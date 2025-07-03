@@ -781,23 +781,7 @@
 <a href="#780" id="780">780</a>
 <a href="#781" id="781">781</a>
 <a href="#782" id="782">782</a>
-<a href="#783" id="783">783</a>
-<a href="#784" id="784">784</a>
-<a href="#785" id="785">785</a>
-<a href="#786" id="786">786</a>
-<a href="#787" id="787">787</a>
-<a href="#788" id="788">788</a>
-<a href="#789" id="789">789</a>
-<a href="#790" id="790">790</a>
-<a href="#791" id="791">791</a>
-<a href="#792" id="792">792</a>
-<a href="#793" id="793">793</a>
-<a href="#794" id="794">794</a>
-<a href="#795" id="795">795</a>
-<a href="#796" id="796">796</a>
-<a href="#797" id="797">797</a>
-<a href="#798" id="798">798</a>
-<a href="#799" id="799">799</a></pre></div><pre class="rust"><code><span class="doccomment">//! # MuSig2
+<a href="#783" id="783">783</a></pre></div><pre class="rust"><code><span class="doccomment">//! # MuSig2
 //!
 //! Helper functions for the MuSig2 signature scheme.
 
@@ -811,15 +795,10 @@
 <span class="kw">use </span>eyre::Context;
 <span class="kw">use </span>lazy_static::lazy_static;
 <span class="kw">use </span>secp256k1::{
-    ffi::{
-        MusigAggNonce, MusigKeyAggCache, MusigPartialSignature, MusigPubNonce, MusigSecNonce,
-        MusigSession,
-    },
     musig::{
-        new_nonce_pair, AggregatedNonce, AggregatedSignature, KeyAggCache, PartialSignature,
-        PublicNonce, SecretNonce, Session, SessionSecretRand,
+        new_nonce_pair, AggregatedNonce, KeyAggCache, PartialSignature, PublicNonce, SecretNonce,
+        Session, SessionSecretRand,
     },
-    rand::Rng,
     Scalar, SECP256K1,
 };
 <span class="kw">use </span>sha2::{Digest, Sha256};
@@ -992,10 +971,7 @@
 /// DO NOT REUSE the same pair of nonces for multiple transactions. It will cause
 /// you to leak your secret key. For more information. See:
 /// &lt;https://medium.com/blockstream/musig-dn-schnorr-multisignatures-with-verifiably-deterministic-nonces-27424b5df9d6#e3b6&gt;.
-</span><span class="kw">pub fn </span>nonce_pair(
-    keypair: <span class="kw-2">&amp;</span>Keypair,
-    <span class="kw-2">mut </span>rng: <span class="kw-2">&amp;mut </span><span class="kw">impl </span>Rng,
-) -&gt; <span class="prelude-ty">Result</span>&lt;(SecretNonce, PublicNonce), BridgeError&gt; {
+</span><span class="kw">pub fn </span>nonce_pair(keypair: <span class="kw-2">&amp;</span>Keypair) -&gt; <span class="prelude-ty">Result</span>&lt;(SecretNonce, PublicNonce), BridgeError&gt; {
     <span class="kw">let </span>musig_session_sec_rand = SessionSecretRand::new();
 
     <span class="prelude-val">Ok</span>(new_nonce_pair(
@@ -1072,7 +1048,7 @@
 
         <span class="kw">for _ in </span><span class="number">0</span>..num_signers {
             <span class="kw">let </span>key_pair = Keypair::new(<span class="kw-2">&amp;</span>SECP, <span class="kw-2">&amp;mut </span>bitcoin::secp256k1::rand::thread_rng());
-            <span class="kw">let </span>nonce_pair = nonce_pair(<span class="kw-2">&amp;</span>key_pair, <span class="kw-2">&amp;mut </span>secp256k1::rand::thread_rng()).unwrap();
+            <span class="kw">let </span>nonce_pair = nonce_pair(<span class="kw-2">&amp;</span>key_pair).unwrap();
 
             key_pairs.push(key_pair);
             nonce_pairs.push(nonce_pair);
@@ -1084,7 +1060,7 @@
     <span class="attr">#[test]
     </span><span class="kw">fn </span>musig2_raw_without_a_tweak() {
         <span class="kw">let </span>(key_pairs, nonce_pairs) = create_key_and_nonce_pairs(<span class="number">3</span>);
-        <span class="kw">let </span>message = Message::from_digest(secp256k1::rand::thread_rng().gen());
+        <span class="kw">let </span>message = Message::from_digest(secp256k1::rand::rng().random());
 
         <span class="kw">let </span>public_keys = key_pairs
             .iter()
@@ -1135,16 +1111,13 @@
         <span class="kw">let </span>kp_1 = Keypair::new(<span class="kw-2">&amp;</span>SECP, <span class="kw-2">&amp;mut </span>bitcoin::secp256k1::rand::thread_rng());
         <span class="kw">let </span>kp_2 = Keypair::new(<span class="kw-2">&amp;</span>SECP, <span class="kw-2">&amp;mut </span>bitcoin::secp256k1::rand::thread_rng());
 
-        <span class="kw">let </span>message = Message::from_digest(secp256k1::rand::thread_rng().gen());
+        <span class="kw">let </span>message = Message::from_digest(secp256k1::rand::rng().random());
 
         <span class="kw">let </span>pks = <span class="macro">vec!</span>[kp_0.public_key(), kp_1.public_key(), kp_2.public_key()];
 
-        <span class="kw">let </span>(sec_nonce_0, pub_nonce_0) =
-            <span class="kw">super</span>::nonce_pair(<span class="kw-2">&amp;</span>kp_0, <span class="kw-2">&amp;mut </span>secp256k1::rand::thread_rng()).unwrap();
-        <span class="kw">let </span>(sec_nonce_1, pub_nonce_1) =
-            <span class="kw">super</span>::nonce_pair(<span class="kw-2">&amp;</span>kp_1, <span class="kw-2">&amp;mut </span>secp256k1::rand::thread_rng()).unwrap();
-        <span class="kw">let </span>(sec_nonce_2, pub_nonce_2) =
-            <span class="kw">super</span>::nonce_pair(<span class="kw-2">&amp;</span>kp_2, <span class="kw-2">&amp;mut </span>secp256k1::rand::thread_rng()).unwrap();
+        <span class="kw">let </span>(sec_nonce_0, pub_nonce_0) = <span class="kw">super</span>::nonce_pair(<span class="kw-2">&amp;</span>kp_0).unwrap();
+        <span class="kw">let </span>(sec_nonce_1, pub_nonce_1) = <span class="kw">super</span>::nonce_pair(<span class="kw-2">&amp;</span>kp_1).unwrap();
+        <span class="kw">let </span>(sec_nonce_2, pub_nonce_2) = <span class="kw">super</span>::nonce_pair(<span class="kw-2">&amp;</span>kp_2).unwrap();
 
         <span class="kw">let </span>agg_nonce = <span class="kw">super</span>::aggregate_nonces(<span class="kw-2">&amp;</span>[<span class="kw-2">&amp;</span>pub_nonce_0, <span class="kw-2">&amp;</span>pub_nonce_1, <span class="kw-2">&amp;</span>pub_nonce_2]);
 
@@ -1175,8 +1148,8 @@
     <span class="attr">#[test]
     </span><span class="kw">fn </span>musig2_sig_with_tweak() {
         <span class="kw">let </span>(key_pairs, nonce_pairs) = create_key_and_nonce_pairs(<span class="number">3</span>);
-        <span class="kw">let </span>message = Message::from_digest(secp256k1::rand::thread_rng().gen());
-        <span class="kw">let </span>tweak: [u8; <span class="number">32</span>] = secp256k1::rand::thread_rng().gen();
+        <span class="kw">let </span>message = Message::from_digest(secp256k1::rand::rng().random());
+        <span class="kw">let </span>tweak: [u8; <span class="number">32</span>] = secp256k1::rand::rng().random();
 
         <span class="kw">let </span>public_keys = key_pairs
             .iter()
@@ -1237,18 +1210,15 @@
         <span class="kw">let </span>kp_1 = Keypair::new(<span class="kw-2">&amp;</span>SECP, <span class="kw-2">&amp;mut </span>bitcoin::secp256k1::rand::thread_rng());
         <span class="kw">let </span>kp_2 = Keypair::new(<span class="kw-2">&amp;</span>SECP, <span class="kw-2">&amp;mut </span>bitcoin::secp256k1::rand::thread_rng());
 
-        <span class="kw">let </span>message = Message::from_digest(secp256k1::rand::thread_rng().gen::&lt;[u8; <span class="number">32</span>]&gt;());
+        <span class="kw">let </span>message = Message::from_digest(secp256k1::rand::rng().random::&lt;[u8; <span class="number">32</span>]&gt;());
 
-        <span class="kw">let </span>tweak: [u8; <span class="number">32</span>] = secp256k1::rand::thread_rng().gen();
+        <span class="kw">let </span>tweak: [u8; <span class="number">32</span>] = secp256k1::rand::rng().random();
 
         <span class="kw">let </span>pks = <span class="macro">vec!</span>[kp_0.public_key(), kp_1.public_key(), kp_2.public_key()];
 
-        <span class="kw">let </span>(sec_nonce_0, pub_nonce_0) =
-            <span class="kw">super</span>::nonce_pair(<span class="kw-2">&amp;</span>kp_0, <span class="kw-2">&amp;mut </span>secp256k1::rand::thread_rng()).unwrap();
-        <span class="kw">let </span>(sec_nonce_1, pub_nonce_1) =
-            <span class="kw">super</span>::nonce_pair(<span class="kw-2">&amp;</span>kp_1, <span class="kw-2">&amp;mut </span>secp256k1::rand::thread_rng()).unwrap();
-        <span class="kw">let </span>(sec_nonce_2, pub_nonce_2) =
-            <span class="kw">super</span>::nonce_pair(<span class="kw-2">&amp;</span>kp_2, <span class="kw-2">&amp;mut </span>secp256k1::rand::thread_rng()).unwrap();
+        <span class="kw">let </span>(sec_nonce_0, pub_nonce_0) = <span class="kw">super</span>::nonce_pair(<span class="kw-2">&amp;</span>kp_0).unwrap();
+        <span class="kw">let </span>(sec_nonce_1, pub_nonce_1) = <span class="kw">super</span>::nonce_pair(<span class="kw-2">&amp;</span>kp_1).unwrap();
+        <span class="kw">let </span>(sec_nonce_2, pub_nonce_2) = <span class="kw">super</span>::nonce_pair(<span class="kw-2">&amp;</span>kp_2).unwrap();
 
         <span class="kw">let </span>agg_nonce = <span class="kw">super</span>::aggregate_nonces(<span class="kw-2">&amp;</span>[<span class="kw-2">&amp;</span>pub_nonce_0, <span class="kw-2">&amp;</span>pub_nonce_1, <span class="kw-2">&amp;</span>pub_nonce_2]);
 
@@ -1542,7 +1512,7 @@
         <span class="kw">let </span>kp2 = Keypair::new(<span class="kw-2">&amp;</span>SECP, <span class="kw-2">&amp;mut </span>bitcoin::secp256k1::rand::thread_rng());
         <span class="kw">let </span>public_keys = <span class="macro">vec!</span>[kp1.public_key(), kp2.public_key()];
 
-        <span class="kw">let </span>message = Message::from_digest(secp256k1::rand::thread_rng().gen());
+        <span class="kw">let </span>message = Message::from_digest(secp256k1::rand::rng().random());
         <span class="kw">let </span>key_spend_with_script_tweak =
             Musig2Mode::KeySpendWithScript(TapNodeHash::from_slice(<span class="kw-2">&amp;</span>[<span class="number">0x45u8</span>; <span class="number">32</span>]).unwrap());
 
@@ -1550,10 +1520,8 @@
             create_key_agg_cache(public_keys.clone(), <span class="prelude-val">Some</span>(key_spend_with_script_tweak)).unwrap();
         <span class="kw">let </span>agg_pk_script_tweak = from_secp_xonly(key_agg_cache.agg_pk());
 
-        <span class="kw">let </span>(sec_nonce1, pub_nonce1) =
-            nonce_pair(<span class="kw-2">&amp;</span>kp1, <span class="kw-2">&amp;mut </span>secp256k1::rand::thread_rng()).unwrap();
-        <span class="kw">let </span>(sec_nonce2, pub_nonce2) =
-            nonce_pair(<span class="kw-2">&amp;</span>kp2, <span class="kw-2">&amp;mut </span>secp256k1::rand::thread_rng()).unwrap();
+        <span class="kw">let </span>(sec_nonce1, pub_nonce1) = nonce_pair(<span class="kw-2">&amp;</span>kp1).unwrap();
+        <span class="kw">let </span>(sec_nonce2, pub_nonce2) = nonce_pair(<span class="kw-2">&amp;</span>kp2).unwrap();
         <span class="kw">let </span>agg_nonce = aggregate_nonces(<span class="kw-2">&amp;</span>[<span class="kw-2">&amp;</span>pub_nonce1, <span class="kw-2">&amp;</span>pub_nonce2]);
 
         <span class="kw">let </span>partial_sig1 = partial_sign(

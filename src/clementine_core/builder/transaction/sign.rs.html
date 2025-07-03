@@ -614,8 +614,7 @@
 <a href="#613" id="613">613</a>
 <a href="#614" id="614">614</a>
 <a href="#615" id="615">615</a>
-<a href="#616" id="616">616</a>
-<a href="#617" id="617">617</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Transaction Signing Utilities
+<a href="#616" id="616">616</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Transaction Signing Utilities
 //!
 //! This module provides logic signing the transactions used in the Clementine bridge.
 
@@ -764,8 +763,7 @@
     <span class="kw">let </span><span class="kw-2">mut </span>tweak_cache = TweakCache::default();
 
     <span class="kw">for </span>(tx_type, <span class="kw-2">mut </span>txhandler) <span class="kw">in </span>txhandlers.into_iter() {
-        <span class="kw">let </span>result =
-            signer.tx_sign_and_fill_sigs(<span class="kw-2">&amp;mut </span>txhandler, <span class="kw-2">&amp;</span>signatures, <span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>tweak_cache));
+        <span class="kw">let _ </span>= signer.tx_sign_and_fill_sigs(<span class="kw-2">&amp;mut </span>txhandler, <span class="kw-2">&amp;</span>signatures, <span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>tweak_cache));
 
         <span class="kw">if let </span>TransactionType::OperatorChallengeAck(watchtower_idx) = tx_type {
             <span class="kw">let </span>path = WinternitzDerivationPath::ChallengeAckHash(

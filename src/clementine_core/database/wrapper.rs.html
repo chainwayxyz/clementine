@@ -599,12 +599,7 @@
 <a href="#598" id="598">598</a>
 <a href="#599" id="599">599</a>
 <a href="#600" id="600">600</a>
-<a href="#601" id="601">601</a>
-<a href="#602" id="602">602</a>
-<a href="#603" id="603">603</a>
-<a href="#604" id="604">604</a>
-<a href="#605" id="605">605</a>
-<a href="#606" id="606">606</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Type Wrappers for Parsing
+<a href="#601" id="601">601</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Type Wrappers for Parsing
 //!
 //! This module includes wrappers for easy parsing of the foreign types.
 
@@ -929,10 +924,7 @@
         secp256k1::{schnorr::Signature, SecretKey},
         Amount, BlockHash, CompactTarget, OutPoint, ScriptBuf, TxMerkleNode, TxOut, Txid,
     };
-    <span class="kw">use </span>secp256k1::{
-        musig::{AggregatedNonce, PublicNonce},
-        SECP256K1,
-    };
+    <span class="kw">use </span>secp256k1::{musig::AggregatedNonce, SECP256K1};
     <span class="kw">use </span>sqlx::{Executor, Type};
 
     <span class="macro">macro_rules!</span> test_encode_decode_invariant {
@@ -1178,8 +1170,7 @@
         );
 
         <span class="kw">let </span>kp = Keypair::from_secret_key(<span class="kw-2">&amp;</span>SECP, <span class="kw-2">&amp;</span>SecretKey::from_slice(<span class="kw-2">&amp;</span>[<span class="number">1u8</span>; <span class="number">32</span>]).unwrap());
-        <span class="kw">let </span>(_sec_nonce, pub_nonce) =
-            musig2::nonce_pair(<span class="kw-2">&amp;</span>kp, <span class="kw-2">&amp;mut </span>secp256k1::rand::thread_rng()).unwrap();
+        <span class="kw">let </span>(_sec_nonce, pub_nonce) = musig2::nonce_pair(<span class="kw-2">&amp;</span>kp).unwrap();
         <span class="kw">let </span>public_nonce = MusigPubNonceDB(pub_nonce);
         <span class="macro">test_encode_decode_invariant!</span>(
             MusigPubNonceDB,
@@ -1198,8 +1189,7 @@
         );
 
         <span class="kw">let </span>kp = Keypair::from_secret_key(<span class="kw-2">&amp;</span>SECP, <span class="kw-2">&amp;</span>SecretKey::from_slice(<span class="kw-2">&amp;</span>[<span class="number">1u8</span>; <span class="number">32</span>]).unwrap());
-        <span class="kw">let </span>(_sec_nonce, pub_nonce) =
-            musig2::nonce_pair(<span class="kw-2">&amp;</span>kp, <span class="kw-2">&amp;mut </span>secp256k1::rand::thread_rng()).unwrap();
+        <span class="kw">let </span>(_sec_nonce, pub_nonce) = musig2::nonce_pair(<span class="kw-2">&amp;</span>kp).unwrap();
         <span class="kw">let </span>aggregated_nonce = MusigAggNonceDB(AggregatedNonce::new(SECP256K1, <span class="kw-2">&amp;</span>[<span class="kw-2">&amp;</span>pub_nonce]));
         <span class="macro">test_encode_decode_invariant!</span>(
             MusigAggNonceDB,

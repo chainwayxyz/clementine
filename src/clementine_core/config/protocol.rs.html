@@ -695,7 +695,7 @@
             Network::Bitcoin =&gt; <span class="prelude-val">Ok</span>(<span class="kw-2">&amp;</span>MAINNET_BRIDGE_CIRCUIT_CONSTANT),
             Network::Testnet4 =&gt; <span class="prelude-val">Ok</span>(<span class="kw-2">&amp;</span>TESTNET4_BRIDGE_CIRCUIT_CONSTANT),
             Network::Signet =&gt; <span class="prelude-val">Ok</span>(<span class="kw-2">&amp;</span>SIGNET_BRIDGE_CIRCUIT_CONSTANT),
-            <span class="kw">_ </span>=&gt; <span class="kw">return </span><span class="prelude-val">Err</span>(BridgeError::UnsupportedNetwork),
+            <span class="kw">_ </span>=&gt; <span class="prelude-val">Err</span>(BridgeError::UnsupportedNetwork),
         }
     }
 }

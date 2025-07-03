@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["ParserError"],"fn":["get_clients"],"mod":["aggregator","clementine","interceptors","operator","verifier"]};
+window.SIDEBAR_ITEMS = {"enum":["ParserError"],"fn":["get_clients"],"mod":["aggregator","clementine","error","interceptors","operator","parser","verifier"]};

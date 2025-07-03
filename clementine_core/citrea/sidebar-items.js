@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["BRIDGE_CONTRACT_ADDRESS","LIGHT_CLIENT_ADDRESS","SATS_TO_WEI_MULTIPLIER"],"mod":["BRIDGE_CONTRACT","Bridge"],"struct":["CitreaClient"],"trait":["CitreaClientT","CitreaRpcClient","LightClientProverRpcClient"]};
+window.SIDEBAR_ITEMS = {"constant":["BRIDGE_CONTRACT_ADDRESS","DEPOSIT_STORAGE_INDEX","LIGHT_CLIENT_ADDRESS","SATS_TO_WEI_MULTIPLIER","UTXOS_STORAGE_INDEX"],"mod":["BRIDGE_CONTRACT","Bridge"],"struct":["CitreaClient"],"trait":["CitreaClientT","CitreaRpcClient","LightClientProverRpcClient"],"type":["CitreaContract"]};

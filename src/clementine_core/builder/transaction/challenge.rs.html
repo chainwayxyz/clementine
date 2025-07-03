@@ -412,8 +412,7 @@
 <a href="#411" id="411">411</a>
 <a href="#412" id="412">412</a>
 <a href="#413" id="413">413</a>
-<a href="#414" id="414">414</a>
-<a href="#415" id="415">415</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Challenge Transaction Logic
+<a href="#414" id="414">414</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Challenge Transaction Logic
 //!
 //! This module provides functions for constructing and challenge related transactions in the protocol.
 //! The transactions are: Challenge, ChallengeTimeout, OperatorChallengeNack, OperatorChallengeAck, Disprove.
@@ -720,7 +719,6 @@
 </span><span class="kw">pub fn </span>create_disprove_txhandler(
     kickoff_txhandler: <span class="kw-2">&amp;</span>TxHandler,
     round_txhandler: <span class="kw-2">&amp;</span>TxHandler,
-    paramset: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>ProtocolParamset,
 ) -&gt; <span class="prelude-ty">Result</span>&lt;TxHandler, BridgeError&gt; {
     <span class="prelude-val">Ok</span>(TxHandlerBuilder::new(TransactionType::Disprove)
         .with_version(Version::TWO)

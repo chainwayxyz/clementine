@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["dev_stark_to_risc0_g16","stark_to_bitvm2_g16","stark_to_bitvm2_g16_dev_mode","to_decimal"]};
+window.SIDEBAR_ITEMS = {"constant":["ID_BN254_FR_BITS","ID_BN254_FR_BITS_DEV_BRIDGE"],"fn":["dev_stark_to_risc0_g16","is_docker_installed","is_x86_architecture","stark_to_bitvm2_g16","stark_to_bitvm2_g16_dev_mode","to_decimal"]};

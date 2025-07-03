@@ -2001,7 +2001,7 @@
         <span class="kw">let </span>db = Database::new(<span class="kw-2">&amp;</span>config).<span class="kw">await</span>.unwrap();
 
         <span class="comment">// randomly select a number of blocks from 12 to 2116
-        </span><span class="kw">let </span>num_blocks: u64 = rand::thread_rng().gen_range(<span class="number">12</span>..<span class="number">2116</span>);
+        </span><span class="kw">let </span>num_blocks: u64 = rand::rng().random_range(<span class="number">12</span>..<span class="number">2116</span>);
 
         <span class="comment">// Save some initial blocks.
         </span><span class="kw">let </span>headers = mine_and_get_first_n_block_headers(rpc.clone(), db.clone(), num_blocks).<span class="kw">await</span>;
@@ -2045,7 +2045,7 @@
         </span>.unwrap();
 
         <span class="comment">// randomly select a number of blocks from 12 to 2116
-        </span><span class="kw">let </span>num_blocks: u64 = rand::thread_rng().gen_range(<span class="number">12</span>..<span class="number">2116</span>);
+        </span><span class="kw">let </span>num_blocks: u64 = rand::rng().random_range(<span class="number">12</span>..<span class="number">2116</span>);
 
         <span class="comment">// Save some initial blocks.
         </span><span class="kw">let </span><span class="kw-2">mut </span>headers = Vec::new();
