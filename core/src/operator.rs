@@ -12,8 +12,7 @@ use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::builder::transaction::{
     create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler,
-    create_round_txhandlers, create_txhandlers, ContractContext, KickoffWinternitzKeys,
-    ReimburseDbCache, TransactionType, TxHandler, TxHandlerCache,
+    create_round_txhandlers, ContractContext, KickoffWinternitzKeys, TransactionType, TxHandler,
 };
 use crate::citrea::CitreaClientT;
 use crate::config::BridgeConfig;
@@ -1357,7 +1356,7 @@ where
 
         let latest_blockhash = block_hashes[latest_blockhash_index].0;
 
-        let (current_hcp, hcp_height) = self
+        let (current_hcp, _hcp_height) = self
             .header_chain_prover
             .prove_till_hash(latest_blockhash)
             .await?;
@@ -1585,7 +1584,6 @@ where
 #[cfg(feature = "automation")]
 mod states {
     use super::*;
-    use crate::builder::transaction::input::UtxoVout;
     use crate::builder::transaction::{
         create_txhandlers, ContractContext, ReimburseDbCache, TransactionType, TxHandler,
         TxHandlerCache,

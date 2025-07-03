@@ -58,6 +58,7 @@ impl TxSenderClient {
     /// # Returns
     /// The database ID (`try_to_send_id`) assigned to this send attempt.
     #[tracing::instrument(err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE), skip_all, fields(?tx_metadata, consumer = self.tx_sender_consumer_id))]
+    #[allow(clippy::too_many_arguments)]
     pub async fn insert_try_to_send(
         &self,
         dbtx: DatabaseTransaction<'_, '_>,
@@ -194,6 +195,7 @@ impl TxSenderClient {
     ///
     /// # Returns
     /// The database ID (`try_to_send_id`) assigned to this send attempt.
+    #[allow(clippy::too_many_arguments)]
     pub async fn add_tx_to_queue<'a>(
         &'a self,
         dbtx: DatabaseTransaction<'a, '_>,

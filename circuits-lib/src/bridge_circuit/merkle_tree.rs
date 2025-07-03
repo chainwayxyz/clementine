@@ -6,7 +6,7 @@ use crate::common::hashes::{calculate_double_sha256, calculate_sha256};
 use super::transaction::CircuitTransaction;
 
 /// Code is taken from Clementine
-/// https://github.com/chainwayxyz/clementine/blob/b600ea18df72bdc60015ded01b78131b4c9121d7/operator/src/bitcoin_merkle.rs
+/// <https://github.com/chainwayxyz/clementine/blob/b600ea18df72bdc60015ded01b78131b4c9121d7/operator/src/bitcoin_merkle.rs>
 ///
 
 #[derive(Debug, Clone)]
@@ -86,8 +86,8 @@ impl BitcoinMerkleTree {
     /// This structure, when used with the corresponding `calculate_root_with_merkle_proof` (or `BlockInclusionProof::get_root`) method,
     /// helps mitigate vulnerabilities associated with standard Bitcoin Merkle trees in SPV contexts, such as certain forms of hash duplication or ambiguity attacks (e.g., CVE-2012-2459).
     /// Also please check:
-    /// https://bitslog.com/2018/06/09/leaf-node-weakness-in-bitcoin-merkle-tree-design/ with the suggested fix:
-    /// https://bitslog.com/2018/08/21/simple-change-to-the-bitcoin-merkleblock-command-to-protect-from-leaf-node-weakness-in-transaction-merkle-tree/
+    /// <https://bitslog.com/2018/06/09/leaf-node-weakness-in-bitcoin-merkle-tree-design/> with the suggested fix:
+    /// <https://bitslog.com/2018/08/21/simple-change-to-the-bitcoin-merkleblock-command-to-protect-from-leaf-node-weakness-in-transaction-merkle-tree/>
     ///
     /// The leaves of this tree are transaction identifiers (`mid_state_txid()`), typically standard Bitcoin txids (double-SHA256 of the transaction).
     /// The internal nodes of this "mid-state" tree are constructed differently from a standard Bitcoin Merkle tree:
