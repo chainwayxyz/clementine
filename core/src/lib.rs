@@ -109,7 +109,6 @@
 //! integration and unit tests can be run separately.
 
 #![allow(clippy::too_many_arguments)]
-#![allow(warnings)]
 
 use bitcoin::{OutPoint, Txid};
 use serde::{Deserialize, Serialize};
