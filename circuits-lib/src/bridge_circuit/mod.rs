@@ -57,7 +57,7 @@ pub const HEADER_CHAIN_METHOD_ID: [u32; 8] = {
 };
 
 /// Executes the bridge circuit in a zkVM environment, verifying multiple cryptographic proofs
-/// related to watchtower work, SPV, and storage proofs.
+/// related to watchtowers' Bitcoin work, SPV, and storage proofs.
 ///
 /// # Parameters
 ///
@@ -91,7 +91,11 @@ pub const HEADER_CHAIN_METHOD_ID: [u32; 8] = {
 /// - If the withdrawal transaction ID does not match the referenced input in `payout_spv`.
 pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
     let input: BridgeCircuitInput = guest.read_from_host();
-    assert_eq!(HEADER_CHAIN_METHOD_ID, input.hcp.method_id);
+    assert_eq!(
+        HEADER_CHAIN_METHOD_ID, input.hcp.method_id,
+        "Invalid method ID for header chain circuit: expected {:?}, got {:?}",
+        HEADER_CHAIN_METHOD_ID, input.hcp.method_id
+    );
 
     // Verify the HCP
     guest.verify(input.hcp.method_id, &input.hcp);

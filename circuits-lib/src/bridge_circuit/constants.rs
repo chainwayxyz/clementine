@@ -2,6 +2,7 @@ use ark_bn254::Fr;
 use ark_ff::BigInt;
 use hex_literal::hex;
 
+/// Work-only circuit method IDs for different networks.
 pub static MAINNET_WORK_ONLY_METHOD_ID: [u8; 32] =
     hex!("bfbc9b0a0c8af2ea0c2b8e54b0f06b9c7d862dc944ab0d95e7c18308fbc5b793");
 pub static TESTNET4_WORK_ONLY_METHOD_ID: [u8; 32] =

@@ -3,12 +3,16 @@ use std::io::Write;
 use borsh::BorshDeserialize;
 use risc0_zkvm::guest::env::{self};
 
+/// This module defines the traits and structures for zkVM guest and host interactions for convenience.
 pub trait ZkvmGuest {
     fn read_from_host<T: borsh::BorshDeserialize>(&self) -> T;
     fn commit<T: borsh::BorshSerialize>(&self, item: &T);
     fn verify<T: borsh::BorshSerialize>(&self, method_id: [u32; 8], journal: &T);
 }
 
+/// This struct represents a proof that can be used in zkVM interactions.
+/// It contains a method ID and a journal of data that can be used to verify the proof.
+/// Proof itself is not included here, as it is added as an assumption by the host.
 #[derive(Debug, Clone)]
 pub struct Proof {
     pub method_id: [u32; 8],
@@ -16,12 +20,13 @@ pub struct Proof {
 }
 
 pub trait ZkvmHost {
-    // Adding data to the host
+    /// Adding data to the host
     fn write<T: borsh::BorshSerialize>(&self, value: &T);
 
+    ///
     fn add_assumption(&self, proof: Proof);
 
-    // Proves with the given data
+    /// Proves with the given data
     fn prove(&self, elf: &[u32]) -> Proof;
 }
 

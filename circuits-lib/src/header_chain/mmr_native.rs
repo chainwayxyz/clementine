@@ -65,7 +65,7 @@ impl MMRNative {
     /// Generates a proof for a given index. Returns the leaf as well.
     pub fn generate_proof(&self, index: u32) -> Result<([u8; 32], MMRInclusionProof)> {
         if self.nodes[0].is_empty() {
-            return Err(eyre!("MMR is empty"));
+            return Err(eyre!("MMR Native is empty"));
         }
         if self.nodes[0].len() <= index as usize {
             return Err(eyre!(
@@ -92,8 +92,6 @@ impl MMRNative {
             current_level += 1;
         }
         let (subroot_idx, internal_idx) = self.get_helpers_from_index(index);
-        // let subroot = self.nodes[current_level][current_index as usize];
-        // proof.extend(self.get_subroot_helpers(subroot));
         let mmr_proof = MMRInclusionProof::new(subroot_idx, internal_idx, proof);
         Ok((self.nodes[0][index as usize], mmr_proof))
     }
@@ -110,30 +108,14 @@ impl MMRNative {
                 subtree_idx += 1;
             }
         }
-        // (tree_idx, xor_leading_digit, internal_idx)
         (subtree_idx, internal_idx)
     }
 
     /// Verifies an inclusion proof against the current MMR root.
     pub fn verify_proof(&self, leaf: [u8; 32], mmr_proof: &MMRInclusionProof) -> bool {
-        tracing::debug!("NATIVE: inclusion_proof: {:?}", mmr_proof);
-        tracing::debug!("NATIVE: leaf: {:?}", leaf);
-        // let (subroot_idx, subtree_size, internal_idx) = self.get_helpers_from_index(index);
         let subroot = mmr_proof.get_subroot(leaf);
-        tracing::debug!("NATIVE: calculated_subroot: {:?}", subroot);
         let subroots = self.get_subroots();
-        tracing::debug!("NATIVE: subroots: {:?}", subroots);
         subroots[mmr_proof.subroot_idx] == subroot
-        // let mut preimage: Vec<u8> = vec![];
-        // for i in 0..subroot_idx {
-        //     preimage.extend_from_slice(&subroots[i]);
-        // }
-        // preimage.extend_from_slice(&current_hash);
-        // for i in subroot_idx + 1..subroots.len() {
-        //     preimage.extend_from_slice(&subroots[i]);
-        // }
-        // let calculated_root = calculate_sha256(&preimage);
-        // calculated_root == self.get_root()
     }
 }
 

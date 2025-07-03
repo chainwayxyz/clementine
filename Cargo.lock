@@ -1983,7 +1983,6 @@ dependencies = [
  "num-bigint 0.4.6",
  "num-traits",
  "once_cell",
- "ripemd",
  "risc0-groth16",
  "risc0-zkvm",
  "serde",

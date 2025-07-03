@@ -5,10 +5,7 @@ use crate::common::hashes::{calculate_double_sha256, calculate_sha256};
 
 use super::transaction::CircuitTransaction;
 
-/// Code is taken from Clementine
-/// https://github.com/chainwayxyz/clementine/blob/b600ea18df72bdc60015ded01b78131b4c9121d7/operator/src/bitcoin_merkle.rs
-///
-
+/// Represents a Bitcoin Merkle tree.
 #[derive(Debug, Clone)]
 pub struct BitcoinMerkleTree {
     nodes: Vec<Vec<[u8; 32]>>,
@@ -18,6 +15,7 @@ impl BitcoinMerkleTree {
     /// Constructs a standard Bitcoin Merkle tree.
     /// Leaf nodes are transaction IDs (txids), which are double-SHA256 hashes of transaction data.
     /// Internal nodes are formed by `DSHA256(LeftChildHash || RightChildHash)`.
+    /// WARNING! Do not use this tree to generate SPV proofs, as it is vulnerable to certain attacks.
     pub fn new(txids: Vec<[u8; 32]>) -> Self {
         if txids.len() == 1 {
             // root is the coinbase txid
@@ -73,7 +71,7 @@ impl BitcoinMerkleTree {
         tree
     }
 
-    // Returns the Merkle root
+    // Returns the Merkle root. Use this only for Bitcoin merkle tree, not for mid-state trees.
     pub fn root(&self) -> [u8; 32] {
         self.nodes[self.nodes.len() - 1][0]
     }
@@ -85,7 +83,7 @@ impl BitcoinMerkleTree {
     /// https://bitslog.com/2018/06/09/leaf-node-weakness-in-bitcoin-merkle-tree-design/ with the suggested fix:
     /// https://bitslog.com/2018/08/21/simple-change-to-the-bitcoin-merkleblock-command-to-protect-from-leaf-node-weakness-in-transaction-merkle-tree/
     ///
-    /// The leaves of this tree are transaction identifiers (`mid_state_txid()`), typically standard Bitcoin txids (double-SHA256 of the transaction).
+    /// The leaves of this tree are transaction identifiers (`mid_state_txid()`), not typically standard Bitcoin txids (double-SHA256 of the transaction).
     /// The internal nodes of this "mid-state" tree are constructed differently from a standard Bitcoin Merkle tree:
     /// `N_parent = SHA256(SHA256(N_child_left) || SHA256(N_child_right))`
     /// where `N_child_left` and `N_child_right` are nodes from the level below in this mid-state tree.
@@ -100,7 +98,7 @@ impl BitcoinMerkleTree {
     /// as leaf txids or other hash types during verification.
     pub fn new_mid_state(transactions: &[CircuitTransaction]) -> Self {
         if transactions.len() == 1 {
-            // root is the coinbase mid-state txid (which is a standard txid)
+            // root is the coinbase mid-state txid
             return BitcoinMerkleTree {
                 nodes: vec![vec![transactions[0].mid_state_txid()]],
             };
@@ -110,7 +108,7 @@ impl BitcoinMerkleTree {
             transactions.iter().map(|tx| tx.mid_state_txid()).collect();
 
         let mut tree = BitcoinMerkleTree {
-            nodes: vec![mid_state_txids], // Level 0: Leaf nodes (txids)
+            nodes: vec![mid_state_txids], // Level 0: Leaf nodes (mid-state txids)
         };
 
         // Construct the tree
@@ -152,8 +150,12 @@ impl BitcoinMerkleTree {
         tree
     }
 
+    /// Given an index, returns the path of sibling nodes from the "mid-state" Merkle tree.
     fn get_idx_path(&self, index: u32) -> Vec<[u8; 32]> {
-        assert!(index < self.nodes[0].len() as u32, "Index out of bounds");
+        assert!(
+            index < self.nodes[0].len() as u32,
+            "Index out of bounds when trying to get path from mid-state Merkle tree"
+        );
         let mut path = vec![];
         let mut level = 0;
         let mut i = index;
@@ -175,12 +177,13 @@ impl BitcoinMerkleTree {
         path
     }
 
+    /// Generates a Merkle proof for a given index in the "mid-state" Merkle tree.
     pub fn generate_proof(&self, idx: u32) -> BlockInclusionProof {
         let path = self.get_idx_path(idx);
         BlockInclusionProof::new(idx, path)
     }
 
-    /// Calculates the Bitcoin Merkle root from a leaf's transaction ID (`txid`) and its inclusion proof
+    /// Calculates the Bitcoin Merkle root from a leaf's mid-state transaction ID (`mid_state_txid`) and its inclusion proof
     /// derived from a "mid-state" Merkle tree. This function is central to secure SPV.
     ///
     /// The `inclusion_proof` contains sibling nodes from the "mid-state" Merkle tree.
@@ -188,7 +191,7 @@ impl BitcoinMerkleTree {
     /// Each sibling node from the proof path is first hashed with `SHA256` before being
     /// combined with the current hash using the standard Bitcoin `calculate_double_sha256` method.
     ///
-    /// `current_hash = calculate_double_sha256(current_hash || SHA256(sibling_from_mid_state_proof))`
+    /// `current_hash = calculate_sha256(current_hash || SHA256(sibling_from_mid_state_proof))`
     ///
     /// This transformation of sibling proof elements acts as a domain separator,
     /// robustly distinguishing them from leaf transaction IDs. This prevents vulnerabilities where an
@@ -196,7 +199,7 @@ impl BitcoinMerkleTree {
     /// internal node of the mid-state tree, or create other ambiguities that could fool an SPV client.
     /// The final `[u8; 32]` returned should match the block's official Merkle root.
     pub fn calculate_root_with_merkle_proof(
-        mid_state_txid: [u8; 32], // This is the leaf txid (double-SHA256 of transaction)
+        mid_state_txid: [u8; 32], // This is the leaf mid_state_txid (SHA256 of transaction)
         inclusion_proof: BlockInclusionProof,
     ) -> [u8; 32] {
         inclusion_proof.get_root(mid_state_txid)
@@ -214,7 +217,7 @@ impl BlockInclusionProof {
         BlockInclusionProof { idx, merkle_proof }
     }
 
-    /// Calculates the Merkle root given a leaf transaction mid-state-ID (`mid_state_txid`)
+    /// Calculates the Merkle root given a leaf transaction mid-state transaction ID (`mid_state_txid`)
     /// and the Merkle proof path (sibling nodes from the "mid-state" tree).
     ///
     /// The core of the SPV security enhancement is here:
@@ -223,7 +226,7 @@ impl BlockInclusionProof {
     /// Merkle combination step but with single hash (`calculate_sha256`).
     ///
     /// If `leaf` is the current hash and `P_mid_state` is a sibling from the proof path:
-    /// `next_hash = DSHA256(SHA256(leaf) || SHA256(P_mid_state))` (or reversed order).
+    /// `next_hash = SHA256(SHA256(leaf) || SHA256(P_mid_state))` (or reversed order).
     ///
     /// This ensures that elements from the mid-state tree's structure are treated distinctly
     /// from the leaf transaction IDs, preventing cross-interpretation and related attacks.

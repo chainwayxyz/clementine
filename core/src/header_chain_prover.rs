@@ -775,7 +775,7 @@ mod tests {
         .unwrap();
 
         let mut expected_chain_state = ChainState::genesis_state();
-        expected_chain_state.apply_blocks(
+        expected_chain_state.apply_block_headers(
             headers
                 .iter()
                 .map(|header| CircuitBlockHeader::from(*header))
@@ -824,7 +824,7 @@ mod tests {
         .unwrap();
 
         let mut expected_chain_state = ChainState::genesis_state();
-        expected_chain_state.apply_blocks(
+        expected_chain_state.apply_block_headers(
             headers
                 .iter()
                 .map(|header| CircuitBlockHeader::from(*header))

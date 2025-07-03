@@ -51,7 +51,8 @@ pub fn work_only_circuit(guest: &impl ZkvmGuest) {
     let input: WorkOnlyCircuitInput = guest.read_from_host();
     assert_eq!(
         HEADER_CHAIN_METHOD_ID, input.header_chain_circuit_output.method_id,
-        "Invalid header chain method ID"
+        "Invalid method ID for header chain circuit: expected {:?}, got {:?}",
+        HEADER_CHAIN_METHOD_ID, input.header_chain_circuit_output.method_id
     );
     env::verify(
         input.header_chain_circuit_output.method_id,
