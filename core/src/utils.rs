@@ -7,7 +7,6 @@ use eyre::Context as _;
 use futures::future::try_join_all;
 use http::HeaderValue;
 use serde::{Deserialize, Serialize};
-use std::env;
 use std::fmt::{Debug, Display};
 use std::fs::File;
 use std::future::Future;
@@ -569,7 +568,7 @@ where
     try_join_all(iter.into_iter().enumerate().map(|item| {
         let ids = ids.clone();
         async move {
-            let id = Option::as_ref(&ids).map(|ids| ids.get(item.0)).flatten();
+            let id = Option::as_ref(&ids).and_then(|ids| ids.get(item.0));
 
             timeout(duration, item.1)
                 .await
