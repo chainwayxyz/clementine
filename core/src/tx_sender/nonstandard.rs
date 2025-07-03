@@ -1,10 +1,8 @@
 //! TxSender for nonstandard transactions.
 //!
 //! This module contains the logic for sending nonstandard transactions for various bitcoin networks.
-use alloy::transports::http::reqwest;
 use bitcoin::consensus::serialize;
 use bitcoin::Transaction;
-use eyre::{Context, OptionExt};
 use hex;
 use std::collections::HashMap;
 
@@ -57,7 +55,7 @@ impl TxSender {
 
         // first check if the transaction is already submitted to the accelerator
         // TODO: is there a better api for this?? Because right now all previous transactions are returned from API
-        let txid = tx.txid();
+        let txid = tx.compute_txid();
         let response = self
             .http_client
             .get("https://mempool.space/api/v1/services/accelerator/testnet4/accelerations")
@@ -129,8 +127,8 @@ impl TxSender {
             })?;
 
             tracing::info!(
-                txid = %tx.txid(),
-                "Successfully submitted nonstandard transaction to mempool.space testnet4 accelerator: {}",
+                "Successfully submitted nonstandard transaction {:?} to mempool.space testnet4 accelerator: {}",
+                txid,
                 response_text
             );
 
