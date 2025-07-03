@@ -671,11 +671,11 @@ impl TestCase for WatchtowerChallengeTxTest {
     async fn run_test(&mut self, f: &mut TestFramework) -> Result<()> {
         match self.variant {
             ChallengeTxTestVariant::ChallengeTxWithAnnex => {
-                tracing::info!("Running healthy state test");
+                tracing::info!("Running challenge tx with annex test");
                 self.challenge_tx_with_annex(f).await?;
             }
             ChallengeTxTestVariant::ChallengeTxLargeInput => {
-                tracing::info!("Running disrupted operator BitVM assert test");
+                tracing::info!("Running challenge tx with large input test");
                 self.challenge_tx_with_large_input(f).await?;
             }
             ChallengeTxTestVariant::ChallengeTxLargeOutput => {
@@ -739,7 +739,7 @@ async fn challenge_tx_with_large_output() -> Result<()> {
 
 #[tokio::test]
 #[ignore = "This test is too slow, run separately"]
-async fn challenge_tx_with_large_input_and_output() -> Result<()> {
+async fn challenge_tx_with_both_large_input_and_output() -> Result<()> {
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
         "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
