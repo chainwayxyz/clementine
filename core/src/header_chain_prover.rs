@@ -768,7 +768,7 @@ mod tests {
         let db = Database::new(&config).await.unwrap();
 
         // randomly select a number of blocks from 12 to 2116
-        let num_blocks: u64 = rand::thread_rng().gen_range(12..2116);
+        let num_blocks: u64 = rand::rng().random_range(12..2116);
 
         // Save some initial blocks.
         let headers = mine_and_get_first_n_block_headers(rpc.clone(), db.clone(), num_blocks).await;
@@ -812,7 +812,7 @@ mod tests {
         .unwrap();
 
         // randomly select a number of blocks from 12 to 2116
-        let num_blocks: u64 = rand::thread_rng().gen_range(12..2116);
+        let num_blocks: u64 = rand::rng().random_range(12..2116);
 
         // Save some initial blocks.
         let mut headers = Vec::new();

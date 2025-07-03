@@ -1,6 +1,6 @@
 //! # Transaction Output Types and Utilities
 //!
-//! This module defines types and utilities for representing and handling transaction outputs used in [`TxHandler`].
+//! This module defines types and utilities for representing and handling transaction outputs used in [`super::TxHandler`].
 //! Main purpose of it is to store the scripts used in the taproot outputs.
 //!
 

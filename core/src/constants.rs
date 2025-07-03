@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use bitcoin::{Address, Amount, ScriptBuf};
 
 /// The amount of the non-ephemeral P2A anchor output.

@@ -184,9 +184,9 @@ impl<T: Owner> KickoffStateMachine<T> {
     }
 
     async fn disprove_if_ready(&mut self, context: &mut StateContext<T>) {
-        if (self.operator_asserts.len() == ClementineBitVMPublicKeys::number_of_assert_txs()
+        if self.operator_asserts.len() == ClementineBitVMPublicKeys::number_of_assert_txs()
             && self.latest_blockhash != Witness::default()
-            && self.spent_watchtower_utxos.len() == self.deposit_data.get_num_watchtowers())
+            && self.spent_watchtower_utxos.len() == self.deposit_data.get_num_watchtowers()
         {
             self.send_disprove(context).await;
         }

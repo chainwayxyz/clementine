@@ -224,7 +224,7 @@ impl ProtocolParamset {
             Network::Bitcoin => Ok(&MAINNET_BRIDGE_CIRCUIT_CONSTANT),
             Network::Testnet4 => Ok(&TESTNET4_BRIDGE_CIRCUIT_CONSTANT),
             Network::Signet => Ok(&SIGNET_BRIDGE_CIRCUIT_CONSTANT),
-            _ => return Err(BridgeError::UnsupportedNetwork),
+            _ => Err(BridgeError::UnsupportedNetwork),
         }
     }
 }

@@ -39,7 +39,6 @@ use crate::config::protocol::ProtocolParamset;
 use crate::deposit::OperatorData;
 use crate::errors::BridgeError;
 use crate::operator::RoundIndex;
-use secrecy::SecretBox;
 
 type Result<T> = std::result::Result<T, BitcoinRPCError>;
 

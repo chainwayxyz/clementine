@@ -5,7 +5,7 @@ use crate::bitvm_client::{self, ClementineBitVMPublicKeys, SECP};
 use crate::builder::script::SpendPath;
 use crate::builder::sighash::TapTweakData;
 use crate::builder::transaction::input::SpentTxIn;
-use crate::builder::transaction::{SighashCalculator, TransactionType, TxHandler};
+use crate::builder::transaction::{SighashCalculator, TxHandler};
 use crate::config::protocol::ProtocolParamset;
 use crate::errors::{BridgeError, TxError};
 use crate::operator::{PublicHash, RoundIndex};
