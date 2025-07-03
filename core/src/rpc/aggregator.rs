@@ -2278,7 +2278,7 @@ mod tests {
     #[tokio::test]
     async fn aggregator_get_entities_status() {
         let mut config = create_test_config_with_thread_name().await;
-        let regtest = create_regtest_rpc(&mut config).await;
+        let _regtest = create_regtest_rpc(&mut config).await;
 
         let (_verifiers, _operators, mut aggregator, mut cleanup) =
             create_actors::<MockCitreaClient>(&config).await;

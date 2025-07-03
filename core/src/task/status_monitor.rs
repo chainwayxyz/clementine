@@ -1,15 +1,12 @@
 use std::sync::Arc;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::RwLock;
 use tokio::time::Duration;
 use tonic::async_trait;
 
-use crate::{errors::BridgeError, utils::NamedEntity};
+use crate::errors::BridgeError;
 
 use super::manager::TaskRegistry;
-use super::{
-    manager::{BackgroundTaskManager, TaskStatus},
-    Task, TaskVariant,
-};
+use super::{manager::TaskStatus, Task, TaskVariant};
 
 pub const TASK_STATUS_MONITOR_POLL_DELAY: Duration = Duration::from_secs(300);
 
@@ -34,11 +31,8 @@ impl Task for TaskStatusMonitorTask {
     async fn run_once(&mut self) -> Result<Self::Output, BridgeError> {
         let task_registry = self.task_registry.read().await;
         for (task_variant, (task_status, _, _)) in task_registry.iter() {
-            match task_status {
-                TaskStatus::NotRunning(reason) => {
-                    tracing::error!("Task {:?} is not running: {}", task_variant, reason);
-                }
-                _ => {}
+            if let TaskStatus::NotRunning(reason) = task_status {
+                tracing::error!("Task {:?} is not running: {}", task_variant, reason);
             }
         }
         Ok(false)

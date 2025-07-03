@@ -226,7 +226,7 @@ pub async fn create_verifier_grpc_server<C: CitreaClientT>(
     let addr: std::net::SocketAddr = format!("{}:{}", config.host, config.port)
         .parse()
         .wrap_err("Failed to parse address")?;
-    let mut verifier = VerifierServer::<C>::new(config.clone()).await?;
+    let verifier = VerifierServer::<C>::new(config.clone()).await?;
     verifier.start_background_tasks().await?;
     let svc = ClementineVerifierServer::new(verifier);
 
@@ -252,7 +252,7 @@ pub async fn create_operator_grpc_server<C: CitreaClientT>(
         .wrap_err("Failed to parse address")?;
 
     tracing::info!("Creating operator server");
-    let mut operator = OperatorServer::<C>::new(config.clone()).await?;
+    let operator = OperatorServer::<C>::new(config.clone()).await?;
     operator.start_background_tasks().await?;
 
     tracing::info!("Creating ClementineOperatorServer");
@@ -308,7 +308,7 @@ pub async fn create_verifier_unix_server<C: CitreaClientT>(
     .await
     .wrap_err("Failed to connect to Bitcoin RPC")?;
 
-    let mut verifier = VerifierServer::<C>::new(config.clone()).await?;
+    let verifier = VerifierServer::<C>::new(config.clone()).await?;
     verifier.start_background_tasks().await?;
     let svc = ClementineVerifierServer::new(verifier);
 
@@ -344,7 +344,7 @@ pub async fn create_operator_unix_server<C: CitreaClientT>(
     .await
     .wrap_err("Failed to connect to Bitcoin RPC")?;
 
-    let mut operator = OperatorServer::<C>::new(config.clone()).await?;
+    let operator = OperatorServer::<C>::new(config.clone()).await?;
     operator.start_background_tasks().await?;
     let svc = ClementineOperatorServer::new(operator);
 

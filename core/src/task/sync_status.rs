@@ -110,23 +110,21 @@ pub async fn get_sync_status<T: NamedEntity>(
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
-
+    #[cfg(not(feature = "automation"))]
+    use crate::rpc::clementine::Entities;
     use crate::{
-        rpc::clementine::{Entities, GetEntitiesStatusRequest},
+        rpc::clementine::GetEntitiesStatusRequest,
         test::common::{
             citrea::MockCitreaClient, create_actors, create_regtest_rpc,
             create_test_config_with_thread_name,
         },
     };
-
-    use super::*;
+    use std::time::Duration;
 
     #[tokio::test]
     async fn test_get_sync_status() {
         let mut config = create_test_config_with_thread_name().await;
-        let regtest = create_regtest_rpc(&mut config).await;
-        let rpc = regtest.rpc();
+        let _regtest = create_regtest_rpc(&mut config).await;
         let (_, _, mut aggregator, _cleanup) = create_actors::<MockCitreaClient>(&config).await;
         // wait for entities to sync a bit, this might cause flakiness, if so increase sleep time or make it serial
         tokio::time::sleep(Duration::from_secs(40)).await;
@@ -140,13 +138,12 @@ mod tests {
 
         for entity in entities_status.entities_status {
             let status = entity.status.unwrap();
-            let entity_type = Entities::from_i32(entity.entity_id.unwrap().entity).unwrap();
             match status {
                 crate::rpc::clementine::entity_status_with_id::Status::EntityStatus(status) => {
                     tracing::info!("Status: {:#?}", status);
                     #[cfg(feature = "automation")]
                     {
-                        assert!(status.automation == true);
+                        assert!(status.automation);
                         assert!(status.tx_sender_synced_height > 0);
                         assert!(status.finalized_synced_height > 0);
                         assert!(status.hcp_last_proven_height > 0);
@@ -156,8 +153,10 @@ mod tests {
                     }
                     #[cfg(not(feature = "automation"))]
                     {
+                        let entity_type: Entities =
+                            entity.entity_id.unwrap().entity.try_into().unwrap();
                         // tx sender and hcp are not running in non-automation mode
-                        assert!(status.automation == false);
+                        assert!(!status.automation);
                         assert!(status.tx_sender_synced_height == 0);
                         if entity_type == Entities::Verifier {
                             assert!(status.finalized_synced_height > 0);

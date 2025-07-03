@@ -1204,7 +1204,7 @@ mod tests {
                 .unwrap();
         }
 
-        let mut verifier = VerifierServer::<MockCitreaClient>::new(config)
+        let verifier = VerifierServer::<MockCitreaClient>::new(config)
             .await
             .unwrap();
         verifier.start_background_tasks().await.unwrap();

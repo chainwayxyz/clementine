@@ -28,13 +28,10 @@ use crate::errors::{BridgeError, TxError};
 use crate::extended_rpc::ExtendedRpc;
 use crate::header_chain_prover::HeaderChainProver;
 use crate::operator::RoundIndex;
-use crate::rpc::clementine::{
-    EntityStatus, NormalSignatureKind, OperatorKeys, StoppedTasks, TaggedSignature,
-};
+use crate::rpc::clementine::{EntityStatus, NormalSignatureKind, OperatorKeys, TaggedSignature};
 use crate::task::manager::BackgroundTaskManager;
-use crate::task::status_monitor::{TaskStatusMonitorTask, TASK_STATUS_MONITOR_POLL_DELAY};
 use crate::task::sync_status::get_sync_status;
-use crate::task::{IntoTask, TaskExt};
+use crate::task::IntoTask;
 #[cfg(feature = "automation")]
 use crate::tx_sender::{TxSender, TxSenderClient};
 use crate::utils::NamedEntity;
@@ -69,7 +66,7 @@ use std::collections::{HashMap, HashSet};
 use std::pin::pin;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 
 #[derive(Debug)]
@@ -95,8 +92,7 @@ where
 {
     pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
         let verifier = Verifier::new(config.clone()).await?;
-        let db = verifier.db.clone();
-        let mut background_tasks = BackgroundTaskManager::default();
+        let background_tasks = BackgroundTaskManager::default();
 
         Ok(VerifierServer {
             verifier,
@@ -158,6 +154,7 @@ where
         }
         #[cfg(not(feature = "automation"))]
         {
+            use crate::task::TaskExt;
             self.background_tasks
                 .loop_and_monitor(
                     crate::bitcoin_syncer::FinalizedBlockFetcherTask::new(
