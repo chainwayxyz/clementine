@@ -58,12 +58,10 @@ pub fn initialize_logger(level: Option<LevelFilter>) -> Result<(), BridgeError> 
             );
             try_set_global_subscriber(env_subscriber_to_human(level))?;
         }
+    } else if is_json_logs() {
+        try_set_global_subscriber(env_subscriber_to_json(level))?;
     } else {
-        if is_json_logs() {
-            try_set_global_subscriber(env_subscriber_to_json(level))?;
-        } else {
-            try_set_global_subscriber(env_subscriber_to_human(level))?;
-        }
+        try_set_global_subscriber(env_subscriber_to_human(level))?;
     }
 
     tracing::info!("Tracing initialized successfully.");
