@@ -129,7 +129,7 @@ pub const NETWORK_CONSTANTS: NetworkConstants = {
 
 /// An epoch should be two weeks (represented as number of seconds)
 /// seconds/minute * minutes/hour * hours/day * 14 days
-/// For our custom signet, we use 10 seconds block time, see: https://github.com/chainwayxyz/bitcoin/releases/tag/v29-ten-secs-blocktime-tag
+/// For our custom signet, we use 10 seconds block time, see: <https://github.com/chainwayxyz/bitcoin/releases/tag/v29-ten-secs-blocktime-tag>
 const EXPECTED_EPOCH_TIMESPAN: u32 = match option_env!("BITCOIN_NETWORK") {
     Some(n) if matches!(n.as_bytes(), b"signet") => 60 * 24 * 14,
     _ => 60 * 60 * 24 * 14,

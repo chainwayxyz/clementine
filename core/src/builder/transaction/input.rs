@@ -1,6 +1,6 @@
 //! # Transaction Input Types and Utilities
 //!
-//! This module defines types and utilities for representing and handling transaction inputs used in [`TxHandler`].
+//! This module defines types and utilities for representing and handling transaction inputs used in [`super::TxHandler`].
 //! It provides abstractions for spendable inputs, input errors, correctness checks, supporting Taproot and script path spends.
 //!
 

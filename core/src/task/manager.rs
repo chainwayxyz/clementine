@@ -73,14 +73,11 @@ impl<T: NamedEntity + Send + 'static> BackgroundTaskManager<T> {
 
             let mut task_registry = task_registry.write().await;
             let current_status = task_registry.remove(&task_variant);
-            match current_status {
-                Some((_, abort_handle, cancel_tx)) => {
-                    task_registry.insert(
-                        task_variant,
-                        (TaskStatus::NotRunning(exit_reason), abort_handle, cancel_tx),
-                    );
-                }
-                _ => {}
+            if let Some((_, abort_handle, cancel_tx)) = current_status {
+                task_registry.insert(
+                    task_variant,
+                    (TaskStatus::NotRunning(exit_reason), abort_handle, cancel_tx),
+                );
             }
         });
     }
@@ -168,10 +165,11 @@ impl<T: NamedEntity + Send + 'static> BackgroundTaskManager<T> {
     /// Sends cancel signals to all tasks that have a cancel_tx
     async fn send_cancel_signals(&self) {
         let mut task_registry = self.task_registry.write().await;
-        for (variant, (status, abort_handle, cancel_tx)) in task_registry.iter_mut() {
+        for (_, (_, _, cancel_tx)) in task_registry.iter_mut() {
             let oneshot_tx = cancel_tx.take();
             if let Some(oneshot_tx) = oneshot_tx {
-                oneshot_tx.send(());
+                // send can fail, but if it fails the task is likely already finished(?)
+                let _ = oneshot_tx.send(());
             }
         }
     }
@@ -180,10 +178,9 @@ impl<T: NamedEntity + Send + 'static> BackgroundTaskManager<T> {
     pub fn abort_all(&mut self) {
         // only one thread must have &mut self, so lock should be able to be acquired
         if let Ok(task_registry) = self.task_registry.try_read() {
-            for (_, (_, abort_handle, cancel_tx)) in task_registry.iter() {
+            for (_, (_, abort_handle, _)) in task_registry.iter() {
                 abort_handle.abort();
             }
-            return;
         }
     }
 
@@ -197,16 +194,18 @@ impl<T: NamedEntity + Send + 'static> BackgroundTaskManager<T> {
         self.send_cancel_signals().await;
 
         let mut task_registry = self.task_registry.write().await;
-        join_all(task_registry.iter_mut().map(
-            |(variant, (status, abort_handle, cancel_tx))| async move {
-                loop {
-                    if abort_handle.is_finished() {
-                        break;
+        join_all(
+            task_registry
+                .iter_mut()
+                .map(|(_, (_, abort_handle, _))| async move {
+                    loop {
+                        if abort_handle.is_finished() {
+                            break;
+                        }
+                        sleep(Duration::from_millis(100)).await;
                     }
-                    sleep(Duration::from_millis(100)).await;
-                }
-            },
-        ))
+                }),
+        )
         .await;
     }
 

@@ -15,7 +15,6 @@ use crate::{config::BridgeConfig, errors};
 use errors::BridgeError;
 use eyre::Context;
 use rustls_pki_types::pem::PemObject;
-use std::thread;
 use tokio::sync::oneshot;
 use tonic::server::NamedService;
 use tonic::service::interceptor::InterceptedService;
@@ -25,12 +24,6 @@ use tonic::transport::{Certificate, CertificateDer, Identity, ServerTlsConfig};
 use crate::test::common::ensure_test_certificates;
 
 pub type ServerFuture = dyn futures::Future<Output = Result<(), tonic::transport::Error>>;
-
-#[tracing::instrument(ret(level = tracing::Level::TRACE))]
-fn is_test_env() -> bool {
-    // if thread name is not main then it is a test
-    thread::current().name().unwrap_or_default() != "main"
-}
 
 /// Represents a network address that can be either TCP or Unix socket
 #[derive(Debug, Clone)]
@@ -233,7 +226,7 @@ pub async fn create_verifier_grpc_server<C: CitreaClientT>(
     let addr: std::net::SocketAddr = format!("{}:{}", config.host, config.port)
         .parse()
         .wrap_err("Failed to parse address")?;
-    let mut verifier = VerifierServer::<C>::new(config.clone()).await?;
+    let verifier = VerifierServer::<C>::new(config.clone()).await?;
     verifier.start_background_tasks().await?;
     let svc = ClementineVerifierServer::new(verifier);
 
@@ -259,7 +252,7 @@ pub async fn create_operator_grpc_server<C: CitreaClientT>(
         .wrap_err("Failed to parse address")?;
 
     tracing::info!("Creating operator server");
-    let mut operator = OperatorServer::<C>::new(config.clone()).await?;
+    let operator = OperatorServer::<C>::new(config.clone()).await?;
     operator.start_background_tasks().await?;
 
     tracing::info!("Creating ClementineOperatorServer");
@@ -315,7 +308,7 @@ pub async fn create_verifier_unix_server<C: CitreaClientT>(
     .await
     .wrap_err("Failed to connect to Bitcoin RPC")?;
 
-    let mut verifier = VerifierServer::<C>::new(config.clone()).await?;
+    let verifier = VerifierServer::<C>::new(config.clone()).await?;
     verifier.start_background_tasks().await?;
     let svc = ClementineVerifierServer::new(verifier);
 
@@ -351,7 +344,7 @@ pub async fn create_operator_unix_server<C: CitreaClientT>(
     .await
     .wrap_err("Failed to connect to Bitcoin RPC")?;
 
-    let mut operator = OperatorServer::<C>::new(config.clone()).await?;
+    let operator = OperatorServer::<C>::new(config.clone()).await?;
     operator.start_background_tasks().await?;
     let svc = ClementineOperatorServer::new(operator);
 

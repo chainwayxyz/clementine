@@ -7,11 +7,10 @@ use crate::builder::transaction::input::{SpendableTxIn, UtxoVout};
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE};
 use crate::citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER};
-use crate::config::protocol::{self, ProtocolParamset, TESTNET4_TEST_PARAMSET};
+use crate::config::protocol::{ProtocolParamset, TESTNET4_TEST_PARAMSET};
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::deposit::KickoffData;
-use crate::errors::ResultExt;
 use crate::header_chain_prover::HeaderChainProver;
 use crate::operator::RoundIndex;
 use crate::rpc::clementine::{
@@ -40,7 +39,7 @@ use crate::{
         create_test_config_with_thread_name,
     },
 };
-use alloy::primitives::{U256, U32};
+use alloy::primitives::U256;
 use async_trait::async_trait;
 use bitcoin::hashes::Hash;
 use bitcoin::{secp256k1::SecretKey, Address, Amount};
@@ -55,7 +54,6 @@ use citrea_e2e::{
     Result,
 };
 use eyre::Context;
-use once_cell::sync::{Lazy, OnceCell};
 use secrecy::SecretString;
 use std::str::FromStr;
 use std::time::Duration;
@@ -1146,10 +1144,10 @@ async fn testnet4_mock_citrea_run_truthful() {
 
     // wait until the light client prover is synced to the same height
 
-    let challenge_outpoint = OutPoint {
-        txid: kickoff_txid,
-        vout: UtxoVout::Challenge.get_vout(),
-    };
+    // let challenge_outpoint = OutPoint {
+    //     txid: kickoff_txid,
+    //     vout: UtxoVout::Challenge.get_vout(),
+    // };
 
     // tracing::warn!("Waiting for challenge");
     // let challenge_spent_txid = get_txid_where_utxo_is_spent(&rpc, challenge_outpoint)
@@ -1622,12 +1620,6 @@ async fn mock_citrea_run_malicious_after_exit() {
     ) = run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None)
         .await
         .unwrap();
-    let db = Database::new(&BridgeConfig {
-        db_name: config.db_name.clone() + "0",
-        ..config.clone()
-    })
-    .await
-    .expect("failed to create database");
 
     // sleep for 1 second
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;

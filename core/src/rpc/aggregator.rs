@@ -40,7 +40,6 @@ use crate::{
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::{Message, PublicKey};
-use bitcoin::taproot::Signature as TaprootSignature;
 use bitcoin::{TapSighash, TxOut, Txid, XOnlyPublicKey};
 use eyre::{Context, OptionExt};
 use futures::future::join_all;
@@ -50,12 +49,8 @@ use futures::{
     FutureExt, Stream, StreamExt, TryFutureExt,
 };
 use secp256k1::musig::{AggregatedNonce, PartialSignature, PublicNonce};
-use std::fmt::Display;
 use std::future::Future;
-use std::sync::Arc;
-use std::time::Duration;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
-use tokio::time::timeout;
 use tonic::{async_trait, Request, Response, Status, Streaming};
 
 #[derive(Debug, Clone)]
@@ -415,7 +410,7 @@ async fn signature_distributor(
 /// # Returns
 ///
 /// - Vec<[`clementine::NonceGenFirstResponse`]>: First response from each verifier
-/// - Vec<BoxStream<Result<[`MusigPubNonce`], BridgeError>>>: Stream of nonces from each verifier
+/// - Vec<BoxStream<Result<[`PublicNonce`], BridgeError>>>: Stream of nonces from each verifier
 async fn create_nonce_streams(
     verifiers: ParticipatingVerifiers,
     num_nonces: u32,
@@ -1320,11 +1315,12 @@ impl ClementineAggregator for Aggregator {
             let deposit_sign_param: VerifierDepositSignParams =
                     deposit_sign_session.clone().into();
 
-            let mut partial_sig_streams = timed_try_join_all(
+        #[allow(clippy::unused_enumerate_index)]
+            let partial_sig_streams = timed_try_join_all(
                 PARTIAL_SIG_STREAM_CREATION_TIMEOUT,
                 "Partial signature stream creation",
                 Some(verifiers.ids()),
-                verifiers.clients().into_iter().enumerate().map(|(idx, verifier_client)| {
+                verifiers.clients().into_iter().enumerate().map(|(_idx, verifier_client)| {
                     let mut verifier_client = verifier_client.clone();
                     #[cfg(test)]
                     let config = self.config.clone();
@@ -1337,7 +1333,7 @@ impl ClementineAggregator for Aggregator {
                         config
                             .test_params
                             .timeout_params
-                            .hook_timeout_partial_sig_stream_creation_verifier(idx)
+                            .hook_timeout_partial_sig_stream_creation_verifier(_idx)
                             .await;
 
                         let (tx, rx) = tokio::sync::mpsc::channel(num_required_nonces as usize + 1); // initial param + num_required_nonces nonces
@@ -1358,8 +1354,9 @@ impl ClementineAggregator for Aggregator {
             .await?;
 
             // Set up deposit finalization streams
+        #[allow(clippy::unused_enumerate_index)]
             let deposit_finalize_streams = verifiers.clients().into_iter().enumerate().map(
-                    |(idx, mut verifier)| {
+                    |(_idx, mut verifier)| {
                         let (tx, rx) = tokio::sync::mpsc::channel(num_required_nonces as usize + 1);
                         let receiver_stream = tokio_stream::wrappers::ReceiverStream::new(rx);
                         #[cfg(test)]
@@ -1370,7 +1367,7 @@ impl ClementineAggregator for Aggregator {
                             config
                                 .test_params
                                 .timeout_params
-                                .hook_timeout_deposit_finalize_verifier(idx)
+                                .hook_timeout_deposit_finalize_verifier(_idx)
                                 .await;
 
                             verifier.deposit_finalize(receiver_stream).await.map_err(BridgeError::from)
@@ -1382,7 +1379,7 @@ impl ClementineAggregator for Aggregator {
 
             tracing::info!("Sending deposit finalize streams to verifiers");
 
-            let (mut deposit_finalize_futures, deposit_finalize_sender): (Vec<_>, Vec<_>) =
+            let (deposit_finalize_futures, deposit_finalize_sender): (Vec<_>, Vec<_>) =
                 deposit_finalize_streams.into_iter().unzip();
 
             // Send initial finalization params
@@ -1454,7 +1451,6 @@ impl ClementineAggregator for Aggregator {
             tracing::debug!("Getting signatures from operators");
             // Get sigs from each operator in background
             let operators = self.get_participating_operators(&deposit_data).await?;
-            let operator_clients = operators.clients();
 
             let config_clone = self.config.clone();
             let operator_sigs_fut = tokio::spawn(async move {
@@ -1468,7 +1464,6 @@ impl ClementineAggregator for Aggregator {
                             deposit_sign_session,
                         )
                         .await
-                        .map_err(Into::into)
                     },
                 )
                 .await
@@ -1730,11 +1725,8 @@ mod tests {
     use crate::actor::Actor;
     use crate::config::BridgeConfig;
     use crate::deposit::{BaseDepositData, DepositInfo, DepositType};
-    use crate::errors::BridgeError;
     use crate::musig2::AggregateFromPublicKeys;
-    use crate::rpc::clementine::{
-        self, EntityStatus, GetEntitiesStatusRequest, RawSignedTx, SendMoveTxRequest,
-    };
+    use crate::rpc::clementine::{self, GetEntitiesStatusRequest, SendMoveTxRequest};
     use crate::test::common::citrea::MockCitreaClient;
     use crate::test::common::tx_utils::ensure_tx_onchain;
     use crate::test::common::*;
@@ -1751,7 +1743,8 @@ mod tests {
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc();
 
-        run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None).await?;
+        let _unused =
+            run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None).await?;
 
         Ok(())
     }
@@ -1847,7 +1840,7 @@ mod tests {
             .await
             .unwrap()
             .into_inner();
-        let movetx_two_txid: bitcoin::Txid = aggregator
+        let _movetx_two_txid: bitcoin::Txid = aggregator
             .send_move_to_vault_tx(SendMoveTxRequest {
                 deposit_outpoint: Some(deposit_outpoint.into()),
                 raw_tx: Some(movetx_two),
@@ -2285,7 +2278,7 @@ mod tests {
     #[tokio::test]
     async fn aggregator_get_entities_status() {
         let mut config = create_test_config_with_thread_name().await;
-        let regtest = create_regtest_rpc(&mut config).await;
+        let _regtest = create_regtest_rpc(&mut config).await;
 
         let (_verifiers, _operators, mut aggregator, mut cleanup) =
             create_actors::<MockCitreaClient>(&config).await;
