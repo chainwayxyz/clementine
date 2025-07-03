@@ -1556,7 +1556,7 @@ async fn mock_citrea_run_malicious_after_exit() {
     assert!(tx.output[0].value != config.protocol_paramset().operator_challenge_amount);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn concurrent_deposits_and_withdrawals() {
     let mut config = create_test_config_with_thread_name().await;
     let regtest = create_regtest_rpc(&mut config).await;
@@ -1777,6 +1777,16 @@ async fn concurrent_deposits_and_withdrawals() {
                 })
                 .collect::<Vec<_>>();
             tracing::debug!("Withdrawal txids: {:?}", withdrawal_txids);
+
+            rpc.mine_blocks(1).await?;
+            for txid in withdrawal_txids.iter() {
+                if rpc.client.get_mempool_entry(&txid).await.is_ok() {
+                    return Err(eyre::eyre!(
+                        "Txid {:?} still in mempool after mining!",
+                        txid
+                    ));
+                };
+            }
 
             Ok(true)
         },
