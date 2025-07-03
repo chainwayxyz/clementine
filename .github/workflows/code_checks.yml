@@ -67,7 +67,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build documentation
-        run: cargo doc --no-deps
+        run: cargo doc --no-deps --all-features --document-private-items
 
   codespell:
     name: Check spelling

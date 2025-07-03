@@ -1,5 +1,5 @@
 use crate::{
-    bitcoin_syncer::{BitcoinSyncerEvent, BlockHandler, FinalizedBlockFetcherTask},
+    bitcoin_syncer::{BlockHandler, FinalizedBlockFetcherTask},
     database::{Database, DatabaseTransaction},
     task::{BufferedErrors, IntoTask, WithDelay},
 };
@@ -56,23 +56,13 @@ impl BlockHandler for QueueBlockHandler {
 /// A task that fetches new blocks from Bitcoin and adds them to the state management queue
 #[derive(Debug)]
 pub struct BlockFetcherTask<T: Owner + std::fmt::Debug + 'static> {
-    /// The database to fetch events from
-    db: Database,
-    /// Queue for sending events
-    queue: PGMQueueExt,
-    /// Queue name for this owner type
-    queue_name: String,
-    /// The next height to process
-    next_height: u32,
-    /// Protocol parameters
-    paramset: &'static ProtocolParamset,
     /// Owner type marker
     _phantom: std::marker::PhantomData<T>,
 }
 
 impl<T: Owner + std::fmt::Debug + 'static> BlockFetcherTask<T> {
     /// Creates a new block fetcher task
-    pub async fn new(
+    pub async fn new_finalized_block_fetcher_task(
         next_height: u32,
         db: Database,
         paramset: &'static ProtocolParamset,
@@ -169,11 +159,13 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
     pub async fn block_fetcher_task(
         &self,
     ) -> Result<WithDelay<impl Task<Output = bool> + std::fmt::Debug>, BridgeError> {
-        Ok(
-            BlockFetcherTask::<T>::new(self.next_height_to_process, self.db.clone(), self.paramset)
-                .await?
-                .with_delay(POLL_DELAY),
+        Ok(BlockFetcherTask::<T>::new_finalized_block_fetcher_task(
+            self.next_height_to_process,
+            self.db.clone(),
+            self.paramset,
         )
+        .await?
+        .with_delay(POLL_DELAY))
     }
 }
 

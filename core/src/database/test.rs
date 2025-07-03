@@ -6,7 +6,7 @@ use crate::{
     execute_query_with_tx,
 };
 use bitcoin::{Amount, FeeRate, Txid};
-use eyre::{Context, ContextCompat};
+use eyre::Context;
 
 impl Database {
     pub async fn get_fee_payer_utxos_for_tx(
