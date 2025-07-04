@@ -127,7 +127,7 @@ pub fn prove_bridge_circuit(
         return Err(eyre!("Header chain proof output mismatch"));
     }
 
-    let header_chain_method_id = match bridge_circuit_host_params.network {
+    let header_chain_method_id = match bridge_circuit_host_params.network.0 {
         bitcoin::Network::Bitcoin => MAINNET_HEADER_CHAIN_METHOD_ID,
         bitcoin::Network::Testnet4 => TESTNET4_HEADER_CHAIN_METHOD_ID,
         bitcoin::Network::Signet => SIGNET_HEADER_CHAIN_METHOD_ID,
@@ -391,6 +391,7 @@ mod tests {
             HeaderChainCircuitInput, HeaderChainPrevProofType,
         },
     };
+    use risc0_zkvm::default_executor;
 
     const TESTNET4_HEADERS: &[u8] = include_bytes!("../bin-files/testnet4-headers.bin");
 
@@ -432,6 +433,39 @@ mod tests {
         let new_output = BlockHeaderCircuitOutput::try_from_slice(&new_proof.journal).unwrap();
 
         println!("Output: {:?}", new_output);
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid total work")]
+    fn test_invalid_total_work() {
+        let bridge_circuit_host_params_serialized =
+            include_bytes!("../bin-files/bch_params_varying_total_works.bin");
+        let bridge_circuit_host_params: BridgeCircuitHostParams =
+            borsh::BorshDeserialize::try_from_slice(bridge_circuit_host_params_serialized)
+                .expect("Failed to deserialize BridgeCircuitHostParams");
+
+        let bridge_circuit_inputs = bridge_circuit_host_params
+            .clone()
+            .into_bridge_circuit_input();
+
+        for watchtower_input in &bridge_circuit_inputs.watchtower_inputs {
+            println!(
+                "Watchtower input: {:?}",
+                watchtower_input.watchtower_challenge_tx.output[2]
+            );
+        }
+
+        let bridge_circuit_elf = REGTEST_BRIDGE_CIRCUIT_ELF_TEST;
+
+        let executor = default_executor();
+
+        let env = ExecutorEnv::builder()
+            .write_slice(&borsh::to_vec(&bridge_circuit_inputs).unwrap())
+            .add_assumption(bridge_circuit_host_params.headerchain_receipt)
+            .build()
+            .expect("Failed to build execution environment");
+
+        executor.execute(env, bridge_circuit_elf).unwrap();
     }
 
     #[test]
