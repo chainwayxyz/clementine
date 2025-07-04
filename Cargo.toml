@@ -38,12 +38,8 @@ citrea-e2e = { git = "https://github.com/chainwayxyz/citrea-e2e", rev = "d45a29a
 sov-rollup-interface = { git = "https://github.com/chainwayxyz/citrea.git", rev = "b1fbe83fdd60d29", features = [
   "native",
 ] }
-sov-ledger-rpc = { git = "https://github.com/chainwayxyz/citrea.git", rev = "b1fbe83fdd60d29", features = [
-  "client",
-] }
 
 citrea-sov-rollup-interface = { git = "https://github.com/chainwayxyz/citrea", tag = "v0.7.0", package = "sov-rollup-interface" }
-citrea-sov-ledger-rpc = { git = "https://github.com/chainwayxyz/citrea", tag = "v0.7.0", package = "sov-ledger-rpc" }
 
 # bitcoin
 bitcoin = { version = "0.32.5", features = ["serde", "base64"] }
