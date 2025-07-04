@@ -1556,6 +1556,9 @@ async fn mock_citrea_run_malicious_after_exit() {
     assert!(tx.output[0].value != config.protocol_paramset().operator_challenge_amount);
 }
 
+/// A typical deposit and withdrawal flow. Except each operation are done
+/// multiple times and concurrently. This is done by creating multiple requests
+/// and `await`ing them together after using [`try_join_all`].
 #[tokio::test(flavor = "multi_thread")]
 async fn concurrent_deposits_and_withdrawals() {
     let mut config = create_test_config_with_thread_name().await;
@@ -1742,7 +1745,7 @@ async fn concurrent_deposits_and_withdrawals() {
     rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
     sleep(Duration::from_secs(10)).await;
 
-    poll_until_condition(
+    let withdrawal_txids = poll_get(
         async move || {
             let mut operator0s = (0..count).map(|_| operators[0].clone()).collect::<Vec<_>>();
             let mut withdrawal_requests = Vec::new();
@@ -1761,7 +1764,7 @@ async fn concurrent_deposits_and_withdrawals() {
                 Ok(txids) => txids,
                 Err(e) => {
                     tracing::error!("Error while processing withdrawals: {:?}", e);
-                    return Ok(false);
+                    return Ok(None);
                 }
             };
 
@@ -1776,23 +1779,23 @@ async fn concurrent_deposits_and_withdrawals() {
                         .unwrap()
                 })
                 .collect::<Vec<_>>();
-            tracing::debug!("Withdrawal txids: {:?}", withdrawal_txids);
 
-            rpc.mine_blocks(1).await?;
-            for txid in withdrawal_txids.iter() {
-                if rpc.client.get_mempool_entry(txid).await.is_ok() {
-                    return Err(eyre::eyre!(
-                        "Txid {:?} still in mempool after mining!",
-                        txid
-                    ));
-                };
-            }
-
-            Ok(true)
+            Ok(Some(withdrawal_txids))
         },
         Some(Duration::from_secs(240)),
         None,
     )
     .await
     .unwrap();
+
+    tracing::debug!("Withdrawal txids: {:?}", withdrawal_txids);
+
+    rpc.mine_blocks(1).await.unwrap();
+    for txid in withdrawal_txids.iter() {
+        assert!(
+            rpc.client.get_mempool_entry(txid).await.is_err(),
+            "Withdrawal txid {:?} not in mempool after mining",
+            txid
+        );
+    }
 }
