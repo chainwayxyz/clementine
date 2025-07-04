@@ -7,7 +7,7 @@ use crate::builder::transaction::input::{SpendableTxIn, UtxoVout};
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE};
 use crate::citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER};
-use crate::config::protocol::ProtocolParamset;
+use crate::config::protocol::{ProtocolParamset, TESTNET4_TEST_PARAMSET};
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::deposit::KickoffData;
@@ -54,6 +54,8 @@ use citrea_e2e::{
     Result,
 };
 use eyre::Context;
+use secrecy::SecretString;
+use std::str::FromStr;
 use std::time::Duration;
 
 #[derive(PartialEq)]
@@ -914,6 +916,242 @@ async fn mock_citrea_run_truthful() {
     ensure_outpoint_spent(&rpc, reimburse_connector)
         .await
         .unwrap();
+    tracing::warn!("Reimburse connector spent");
+}
+
+// This test needs MEMPOOL_SPACE_API_KEY to be set to send nonstandard transactions to testnet4
+#[tokio::test]
+#[ignore = "This is a tesnet4 test. It needs to be run alongside a local testnet4 node with some btc in its wallet"]
+async fn testnet4_mock_citrea_run_truthful() {
+    let mut config = create_test_config_with_thread_name().await;
+    config.bitcoin_rpc_url = "http://localhost:48443".to_string();
+    config.bitcoin_rpc_user = SecretString::from("admin".to_string());
+    config.bitcoin_rpc_password = SecretString::from("admin".to_string());
+
+    config.protocol_paramset = &TESTNET4_TEST_PARAMSET;
+
+    config.test_params.all_operators_secret_keys.truncate(1);
+    config.operator_collateral_funding_outpoint = Some(OutPoint {
+        txid: Txid::from_str("8a5ff50e6ff4b65223ea0f4c2d85513e29674de8ba5744d3a204209967744830")
+            .unwrap(),
+        vout: 1,
+    });
+
+    let rpc = ExtendedRpc::connect(
+        config.bitcoin_rpc_url.clone(),
+        config.bitcoin_rpc_user.clone(),
+        config.bitcoin_rpc_password.clone(),
+    )
+    .await
+    .unwrap();
+
+    let mut citrea_client = MockCitreaClient::new(
+        config.citrea_rpc_url.clone(),
+        "".to_string(),
+        config.citrea_chain_id,
+        None,
+    )
+    .await
+    .unwrap();
+
+    let move_txid =
+        Txid::from_str("0176f77ab0c0a25703fc42c59e317594c6d2a2b711c680342166a9eaa02d51f1").unwrap();
+
+    citrea_client
+        .insert_deposit_move_txid(config.protocol_paramset().start_height as u64, move_txid)
+        .await;
+
+    let withdrawal_utxo = OutPoint {
+        txid: Txid::from_str("0ce5a913d0ad16735b5b5de60a9e462924b0052a1becc9a8702f2a5715ad79d0")
+            .unwrap(),
+        vout: 1,
+    };
+
+    tracing::info!("Created withdrawal UTXO: {:?}", withdrawal_utxo);
+
+    citrea_client
+        .insert_withdrawal_utxo(
+            config.protocol_paramset().start_height as u64,
+            withdrawal_utxo,
+        )
+        .await;
+
+    tracing::info!("Running deposit");
+
+    tracing::info!(
+        "Deposit starting block_height: {:?}",
+        rpc.client.get_block_count().await.unwrap()
+    );
+    let (
+        _verifiers,
+        _operators,
+        _aggregator,
+        _cleanup,
+        _deposit_params,
+        _move_txid,
+        _deposit_blockhash,
+        verifiers_public_keys,
+    ) = run_single_deposit::<MockCitreaClient>(
+        &mut config,
+        rpc.clone(),
+        None,
+        Some(OutPoint {
+            txid: Txid::from_str(
+                "93b3527dfcfe957c64a3210c04f19aaf9bfa8f5d8dd55c3e6f0613e631b8b135",
+            )
+            .unwrap(),
+            vout: 1,
+        }),
+    )
+    .await
+    .unwrap();
+
+    tracing::info!(
+        "Deposit ending block_height: {:?}",
+        rpc.client.get_block_count().await.unwrap()
+    );
+
+    // Make a withdrawal
+    // let user_sk = SecretKey::from_slice(&[13u8; 32]).unwrap();
+    // let withdrawal_address = Address::p2tr(
+    //     &SECP,
+    //     user_sk.x_only_public_key(&SECP).0,
+    //     None,
+    //     config.protocol_paramset().network,
+    // );
+    // let (dust_utxo, payout_txout, sig) = generate_withdrawal_transaction_and_signature(
+    //     &config,
+    //     &rpc,
+    //     &withdrawal_address,
+    //     config.protocol_paramset().bridge_amount
+    //         - config
+    //             .operator_withdrawal_fee_sats
+    //             .unwrap_or(Amount::from_sat(0)),
+    // )
+    // .await;
+
+    // tracing::info!("Withdrawal tx sent");
+
+    // let payout_txid = poll_get(
+    //     async || {
+    //         let withdrawal_response = operators[0]
+    //             .withdraw(WithdrawParams {
+    //                 withdrawal_id: 0,
+    //                 input_signature: sig.serialize().to_vec(),
+    //                 input_outpoint: Some(withdrawal_utxo.into()),
+    //                 output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
+    //                 output_amount: payout_txout.value.to_sat(),
+    //             })
+    //             .await;
+
+    //         match withdrawal_response {
+    //             Ok(withdrawal_response) => {
+    //                 tracing::info!("Withdrawal response: {:?}", withdrawal_response);
+    //                 let payout_txid = Some(Txid::from_byte_array(
+    //                     withdrawal_response
+    //                         .into_inner()
+    //                         .txid
+    //                         .unwrap()
+    //                         .txid
+    //                         .try_into()
+    //                         .unwrap(),
+    //                 ));
+    //                 Ok(Some(payout_txid))
+    //             }
+    //             Err(e) => {
+    //                 tracing::info!("Withdrawal error: {:?}", e);
+    //                 Ok(None)
+    //             }
+    //         }
+    //     },
+    //     Some(std::time::Duration::from_secs(120)),
+    //     Some(std::time::Duration::from_millis(1000)),
+    // )
+    // .await
+    // .wrap_err("Withdrawal took too long")
+    // .unwrap();
+
+    // tracing::info!("Payout txid: {:?}", payout_txid);
+
+    // let payout_txid = payout_txid.unwrap();
+
+    let payout_txid =
+        Txid::from_str("085acb0c3242fdc43d48b2e31dfb70ad631fb9d33b8a18b9b86914978e09e875").unwrap();
+
+    // Setup tx_sender for sending transactions
+    let verifier_0_config = {
+        let mut config = config.clone();
+        config.db_name += "0";
+        config
+    };
+
+    let op0_xonly_pk = verifiers_public_keys[0].x_only_public_key().0;
+
+    let db = Database::new(&verifier_0_config)
+        .await
+        .expect("failed to create database");
+
+    // wait until payout part is not null
+    poll_until_condition(
+        async || {
+            Ok(db
+                .get_first_unhandled_payout_by_operator_xonly_pk(None, op0_xonly_pk)
+                .await?
+                .is_some())
+        },
+        Some(Duration::from_secs(20 * 60)),
+        Some(Duration::from_millis(200)),
+    )
+    .await
+    .wrap_err("Timed out while waiting for payout to be added to unhandled list")
+    .unwrap();
+
+    tracing::info!("Waiting until payout is handled");
+    // wait until payout is handled
+    poll_until_condition(
+        async || {
+            Ok(db
+                .get_first_unhandled_payout_by_operator_xonly_pk(None, op0_xonly_pk)
+                .await?
+                .is_none())
+        },
+        Some(Duration::from_secs(60 * 60)),
+        Some(Duration::from_millis(2000)),
+    )
+    .await
+    .wrap_err("Timed out while waiting for payout to be handled")
+    .unwrap();
+
+    let kickoff_txid = db
+        .get_handled_payout_kickoff_txid(None, payout_txid)
+        .await
+        .unwrap()
+        .expect("Payout must be handled");
+
+    tracing::info!("Kickoff txid: {:?}", kickoff_txid);
+
+    let reimburse_connector = OutPoint {
+        txid: kickoff_txid,
+        vout: UtxoVout::ReimburseInKickoff.get_vout(),
+    };
+
+    // ensure kickoff tx is on chain
+    loop {
+        if rpc.is_tx_on_chain(&kickoff_txid).await.unwrap() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+    }
+
+    tracing::warn!("Ensuring reimburse connector is spent");
+    // Ensure the reimburse connector is spent
+    loop {
+        if rpc.is_utxo_spent(&reimburse_connector).await.unwrap() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+    }
+
     tracing::warn!("Reimburse connector spent");
 }
 

@@ -8,6 +8,7 @@ use crate::{
     extended_rpc::ExtendedRpc,
     utils::TxMetadata,
 };
+use alloy::transports::http::reqwest;
 use bitcoin::taproot::TaprootSpendInfo;
 use bitcoin::{Amount, FeeRate, OutPoint, Transaction, TxOut, Txid, Weight};
 use bitcoincore_rpc::{json::EstimateMode, RpcApi};
@@ -18,6 +19,7 @@ use std::env;
 
 mod client;
 mod cpfp;
+mod nonstandard;
 mod rbf;
 mod task;
 
@@ -57,6 +59,7 @@ pub struct TxSender {
     pub btc_syncer_consumer_id: String,
     paramset: &'static ProtocolParamset,
     cached_spendinfo: TaprootSpendInfo,
+    http_client: reqwest::Client,
 }
 
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
@@ -80,6 +83,9 @@ pub enum SendTxError {
 
     #[error("Failed to create a PSBT for fee bump")]
     PsbtError(String),
+
+    #[error("Network error: {0}")]
+    NetworkError(String),
 
     #[error(transparent)]
     Other(#[from] eyre::Report),
@@ -107,6 +113,7 @@ impl TxSender {
             db,
             btc_syncer_consumer_id,
             paramset,
+            http_client: reqwest::Client::new(),
         }
     }
 
@@ -313,6 +320,13 @@ impl TxSender {
             }
 
             let result = match fee_paying_type {
+                // Send nonstandard transactions to testnet4 using the mempool.space accelerator.
+                // As mempool uses out of band payment, we don't need to do cpfp or rbf.
+                _ if self.paramset.network == bitcoin::Network::Testnet4
+                    && self.is_bridge_tx_nonstandard(&tx) =>
+                {
+                    self.send_testnet4_nonstandard_tx(&tx, id).await
+                }
                 FeePayingType::CPFP => self.send_cpfp_tx(id, tx, tx_metadata, new_fee_rate).await,
                 FeePayingType::RBF => {
                     self.send_rbf_tx(id, tx, tx_metadata, new_fee_rate, rbf_signing_info)

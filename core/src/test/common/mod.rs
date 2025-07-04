@@ -406,7 +406,26 @@ pub async fn run_single_deposit<C: CitreaClientT>(
             let outpoint = rpc
                 .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
                 .await?;
-            mine_once_after_in_mempool(&rpc, outpoint.txid, Some("Deposit outpoint"), None).await?;
+            match config.protocol_paramset().network {
+                bitcoin::Network::Regtest => {
+                    mine_once_after_in_mempool(&rpc, outpoint.txid, Some("Deposit outpoint"), None)
+                        .await?;
+                }
+                bitcoin::Network::Testnet4 => loop {
+                    tracing::info!("Deposit outpoint: {:?}", outpoint);
+                    if rpc.is_tx_on_chain(&outpoint.txid).await? {
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+                },
+                _ => {
+                    return Err(eyre::eyre!(
+                        "Unsupported network: {:?}",
+                        config.protocol_paramset().network
+                    )
+                    .into())
+                }
+            }
             outpoint
         }
     };
@@ -438,10 +457,30 @@ pub async fn run_single_deposit<C: CitreaClientT>(
         .into_inner()
         .try_into()?;
 
-    if !rpc.is_tx_on_chain(&move_txid).await? {
-        wait_for_fee_payer_utxos_to_be_in_mempool(&rpc, aggregator_db, move_txid).await?;
-        rpc.mine_blocks(1).await?;
-        mine_once_after_in_mempool(&rpc, move_txid, Some("Move tx"), Some(180)).await?;
+    match config.protocol_paramset().network {
+        bitcoin::Network::Regtest => {
+            if !rpc.is_tx_on_chain(&move_txid).await? {
+                wait_for_fee_payer_utxos_to_be_in_mempool(&rpc, aggregator_db, move_txid).await?;
+                rpc.mine_blocks(1).await?;
+                mine_once_after_in_mempool(&rpc, move_txid, Some("Move tx"), Some(180)).await?;
+            }
+        }
+        bitcoin::Network::Testnet4 => {
+            tracing::info!("Move txid: {:?}", move_txid);
+            loop {
+                if rpc.is_tx_on_chain(&move_txid).await? {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+            }
+        }
+        _ => {
+            return Err(eyre::eyre!(
+                "Unsupported network: {:?}",
+                config.protocol_paramset().network
+            )
+            .into())
+        }
     }
 
     // Uncomment below to debug the move tx.

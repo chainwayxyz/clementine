@@ -65,9 +65,7 @@ impl SignatureId {
     /// A [`DepositSigKeyOwner`] describing the required signature owner and sighash type for this signature ID, or a [`BridgeError`] if the mapping fails.
     pub fn get_deposit_sig_owner(&self) -> Result<DepositSigKeyOwner, BridgeError> {
         use DepositSigKeyOwner::*;
-        use TapSighashType::{
-            Default as SighashDefault, None as SighashNone, SinglePlusAnyoneCanPay,
-        };
+        use TapSighashType::{Default as SighashDefault, SinglePlusAnyoneCanPay};
         match *self {
             SignatureId::NormalSignature(normal_sig) => {
                 let normal_sig_type = NormalSignatureKind::try_from(normal_sig.signature_kind)
@@ -78,7 +76,7 @@ impl SignatureId {
                     NormalSignatureUnknown => Ok(NotOwned),
                     Challenge => Ok(OperatorSharedDeposit(SinglePlusAnyoneCanPay)),
                     DisproveTimeout2 => Ok(NofnSharedDeposit(SighashDefault)),
-                    Disprove2 => Ok(OperatorSharedDeposit(SighashNone)),
+                    Disprove2 => Ok(OperatorSharedDeposit(SighashDefault)),
                     Reimburse1 => Ok(NofnSharedDeposit(SighashDefault)),
                     KickoffNotFinalized1 => Ok(NofnSharedDeposit(SighashDefault)),
                     KickoffNotFinalized2 => Ok(OperatorSharedDeposit(SighashDefault)),
