@@ -1305,8 +1305,9 @@ pub mod tests {
             .expect("Transaction should be have debug info");
 
         // Verify that TX is in mempool
+        let initial_txid = tx_debug_info.txid.unwrap().txid;
         rpc.get_tx_of_txid(&bitcoin::Txid::from_byte_array(
-            tx_debug_info.txid.unwrap().txid.try_into().unwrap(),
+            initial_txid.clone().try_into().unwrap(),
         ))
         .await
         .expect("Transaction should be in mempool");
@@ -1341,11 +1342,18 @@ pub mod tests {
             .expect("Transaction should be have debug info");
 
         // Verify that TX is in mempool
+        let changed_txid = tx_debug_info.txid.unwrap().txid;
         rpc.get_tx_of_txid(&bitcoin::Txid::from_byte_array(
-            tx_debug_info.txid.unwrap().txid.try_into().unwrap(),
+            changed_txid.clone().try_into().unwrap(),
         ))
         .await
         .expect("Transaction should be in mempool");
+
+        // Verify that tx has changed.
+        assert_ne!(
+            changed_txid, initial_txid,
+            "Transaction should have been bumped"
+        );
 
         Ok(())
     }
