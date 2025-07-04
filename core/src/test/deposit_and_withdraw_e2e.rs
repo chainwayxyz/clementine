@@ -984,11 +984,11 @@ async fn testnet4_mock_citrea_run_truthful() {
     );
     let (
         _verifiers,
-        mut operators,
+        _operators,
         _aggregator,
         _cleanup,
         _deposit_params,
-        move_txid,
+        _move_txid,
         _deposit_blockhash,
         verifiers_public_keys,
     ) = run_single_deposit::<MockCitreaClient>(
