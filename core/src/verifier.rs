@@ -2387,17 +2387,11 @@ where
         let max_attempts = light_client_proof_wait_interval_secs.unwrap_or(TEN_MINUTES_IN_SECS);
         let timeout = Duration::from_secs(max_attempts as u64);
 
-        let (l2_height_start, l2_height_end) = match self
+        let (l2_height_start, l2_height_end) = self
             .citrea_client
             .get_citrea_l2_height_range(block_height.into(), timeout)
             .await
-        {
-            Ok(range) => (range.0, range.1),
-            Err(e) => {
-                tracing::error!("Error getting citrea l2 height range: {:?}", e);
-                return Err(e);
-            }
-        };
+            .inspect_err(|e| tracing::error!("Error getting citrea l2 height range: {:?}", e))?;
 
         tracing::debug!(
             "l2_height_start: {:?}, l2_height_end: {:?}, collecting deposits and withdrawals...",
