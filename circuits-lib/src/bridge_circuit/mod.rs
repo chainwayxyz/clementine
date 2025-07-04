@@ -104,7 +104,6 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
         .try_into()
         .expect("Cannot fail");
 
-        
     // If total work is less than the max total work of watchtowers, panic
     if total_work < max_total_work {
         panic!(
@@ -217,13 +216,8 @@ fn convert_to_groth16_and_verify(
         Err(_) => return false,
     };
 
-    println!("Groth16 proof - Seal: {:?}", seal);
-
     let groth16_proof = CircuitGroth16WithTotalWork::new(seal, total_work, genesis_state_hash);
 
-    println!("genesis state hash: {:?}", genesis_state_hash);
-
-    println!("verification started");
     groth16_proof.verify(image_id)
 }
 
@@ -498,7 +492,6 @@ pub fn total_work_and_watchtower_flags(
                 // as it does not alter the byte content. It is retained here for consistency and defensive safety.
                 total_work = borsh::from_slice(&third_output[64..])
                     .expect("Cannot fail: deserializing 16 bytes from 16-byte slice");
-                println!("Total Work: {:?}", total_work);
             }
             _ => continue,
         }
@@ -516,30 +509,16 @@ pub fn total_work_and_watchtower_flags(
     let mut total_work_result = [0u8; 16];
 
     for commitment in valid_watchtower_challenge_commitments {
-        println!(
-            "Verifying commitment with total work: {:?}",
-            commitment.total_work
-        );
-        println!(
-            "Compressed Groth16 proof: {:?}",
-            commitment.compressed_g16_proof
-        );
         if convert_to_groth16_and_verify(
             &commitment.compressed_g16_proof,
             commitment.total_work,
             work_only_image_id,
             circuit_input.hcp.genesis_state_hash,
         ) {
-            println!(
-                "Valid commitment found with total work: {:?}",
-                commitment.total_work
-            );
             total_work_result = commitment.total_work;
             break;
         }
     }
-
-    println!("Total work result: {:?}", total_work_result);
 
     (
         TotalWork(total_work_result),
