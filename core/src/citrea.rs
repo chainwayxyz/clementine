@@ -135,7 +135,7 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
         &self,
         block_height: u64,
         timeout: Duration,
-    ) -> Result<(u64, u64), BridgeError>;
+    ) -> Result<(u64, u64, [u8; 32]), BridgeError>;
 
     /// Returns the replacement deposit move txids for the given range of blocks.
     ///
@@ -166,6 +166,18 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
         l2_height: u64,
         deposit_index: u32,
     ) -> Result<StorageProof, BridgeError>;
+
+    /// Checks light client prover's state root against the L2 block state root.
+    ///
+    /// # Parameters
+    ///
+    /// - `l2_block_height`: L2 block height to check.
+    /// - `lcp_state_root`: State root from the light client prover.
+    async fn check_state_root(
+        &self,
+        l2_block_height: u64,
+        lcp_state_root: [u8; 32],
+    ) -> Result<(), BridgeError>;
 }
 
 /// Citrea client is responsible for interacting with the Citrea EVM and Citrea
@@ -493,7 +505,7 @@ impl CitreaClientT for CitreaClient {
         &self,
         block_height: u64,
         timeout: Duration,
-    ) -> Result<(u64, u64), BridgeError> {
+    ) -> Result<(u64, u64, [u8; 32]), BridgeError> {
         let start = std::time::Instant::now();
         let proof_current = loop {
             if let Some(proof) = self.get_light_client_proof(block_height).await? {
@@ -523,29 +535,7 @@ impl CitreaClientT for CitreaClient {
         let l2_height_end: u64 = proof_current.2;
         let l2_height_start: u64 = proof_previous.2;
 
-        let state_root = self
-            .client
-            .get_l2_block_by_number(alloy::primitives::U64::from(block_height))
-            .await
-            .wrap_err("Error while fetching L2 block")?
-            .ok_or(eyre::eyre!(
-                "L2 block not found for block height: {}",
-                block_height
-            ))?
-            .header
-            .state_root;
-
-        if proof_current.3 != state_root && proof_previous.3 != state_root {
-            return Err(eyre::eyre!(
-                "State root mismatch for block height: {}. Expected: {:?}, got (current, previous): {:?}",
-                block_height,
-                state_root,
-                (proof_current.3, proof_previous.3)
-            )
-            .into());
-        }
-
-        Ok((l2_height_start, l2_height_end))
+        Ok((l2_height_start, l2_height_end, proof_current.3))
     }
 
     async fn get_replacement_deposit_move_txids(
@@ -599,6 +589,35 @@ impl CitreaClientT for CitreaClient {
             .wrap_err("Failed to convert citrea contract script nofn bytes to xonly pk")?;
         if contract_nofn_xonly_pk != nofn_xonly_pk {
             return Err(eyre::eyre!("Nofn of deposit does not match with citrea contract").into());
+        }
+        Ok(())
+    }
+
+    async fn check_state_root(
+        &self,
+        l2_block_height: u64,
+        lcp_state_root: [u8; 32],
+    ) -> Result<(), BridgeError> {
+        let state_root = self
+            .client
+            .get_l2_block_by_number(alloy::primitives::U64::from(l2_block_height))
+            .await
+            .wrap_err("Error while fetching L2 block")?
+            .ok_or(eyre::eyre!(
+                "L2 block not found for block height: {}",
+                l2_block_height
+            ))?
+            .header
+            .state_root;
+
+        if state_root != lcp_state_root {
+            return Err(eyre::eyre!(
+                "State root mismatch for L2 block height {}: expected {:?}, got {:?}",
+                l2_block_height,
+                lcp_state_root,
+                state_root
+            )
+            .into());
         }
         Ok(())
     }
