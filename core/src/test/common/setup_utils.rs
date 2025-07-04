@@ -343,7 +343,7 @@ pub async fn create_actors<C: CitreaClientT>(
             {
                 use crate::config::protocol::ProtocolParamset;
 
-                if config.test_params.generate_diverse_total_works {
+                if config.test_params.generate_varying_total_works {
                     // Generate a new protocol paramset for each verifier
                     // to ensure diverse total works.
                     let mut paramset = config.protocol_paramset().clone();

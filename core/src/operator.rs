@@ -1364,7 +1364,7 @@ where
 
         #[cfg(test)]
         let current_hcp = {
-            if self.config.test_params.generate_diverse_total_works {
+            if self.config.test_params.generate_varying_total_works {
                 self.header_chain_prover
                     .prove_till_hash(payout_block_hash)
                     .await?
@@ -1384,7 +1384,7 @@ where
 
         #[cfg(test)]
         let blockhashes_serialized = {
-            if self.config.test_params.generate_diverse_total_works {
+            if self.config.test_params.generate_varying_total_works {
                 block_hashes
                     .iter()
                     .take((payout_block_height + 1) as usize)
@@ -1463,6 +1463,29 @@ where
             }
         };
         tracing::info!("Starting proving bridge circuit to send asserts");
+
+        #[cfg(test)]
+        {
+            if self.config.test_params.generate_varying_total_works {
+                use std::path::PathBuf;
+                // Serialize and write bridge_circuit_host_params to a file at bridge-circuit-host/bin-files
+                let file_path = PathBuf::from(
+                    "../bridge-circuit-host/bin-files/bch_params_varying_total_works.bin",
+                );
+                std::fs::create_dir_all(file_path.parent().unwrap()).map_err(|e| {
+                    eyre::eyre!("Failed to create directory for output file: {}", e)
+                })?;
+                let serialized_params =
+                    borsh::to_vec(&bridge_circuit_host_params).map_err(|e| {
+                        eyre::eyre!("Failed to serialize bridge circuit host params: {}", e)
+                    })?;
+                std::fs::write(file_path.clone(), serialized_params).map_err(|e| {
+                    eyre::eyre!("Failed to write bridge circuit host params to file: {}", e)
+                })?;
+                tracing::info!("Bridge circuit host params written to {:?}", file_path);
+            }
+        }
+
         let (g16_proof, g16_output, public_inputs) =
             prove_bridge_circuit(bridge_circuit_host_params, bridge_circuit_elf)?;
         tracing::info!("Proved bridge circuit in send_asserts");
