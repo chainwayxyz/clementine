@@ -220,7 +220,13 @@ impl ProtocolParamset {
 
     pub fn bridge_circuit_constant(&self) -> Result<&[u8; 32], BridgeError> {
         match self.network {
-            Network::Regtest => Ok(&REGTEST_BRIDGE_CIRCUIT_CONSTANT),
+            Network::Regtest => {
+                if cfg!(test) {
+                    Ok(&REGTEST_TEST_BRIDGE_CIRCUIT_CONSTANT)
+                } else {
+                    Ok(&REGTEST_BRIDGE_CIRCUIT_CONSTANT)
+                }
+            }
             Network::Bitcoin => Ok(&MAINNET_BRIDGE_CIRCUIT_CONSTANT),
             Network::Testnet4 => Ok(&TESTNET4_BRIDGE_CIRCUIT_CONSTANT),
             Network::Signet => Ok(&SIGNET_BRIDGE_CIRCUIT_CONSTANT),
@@ -282,8 +288,8 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
 };
 
 pub const REGTEST_TEST_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [
-    169, 112, 29, 24, 28, 80, 174, 185, 242, 230, 91, 118, 239, 252, 94, 68, 180, 121, 104,
-    143, 218, 66, 167, 45, 11, 254, 235, 206, 146, 10, 177, 42,
+    169, 112, 29, 24, 28, 80, 174, 185, 242, 230, 91, 118, 239, 252, 94, 68, 180, 121, 104, 143,
+    218, 66, 167, 45, 11, 254, 235, 206, 146, 10, 177, 42,
 ];
 
 pub const REGTEST_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [

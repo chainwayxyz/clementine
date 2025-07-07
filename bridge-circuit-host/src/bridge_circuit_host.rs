@@ -197,6 +197,7 @@ pub fn prove_bridge_circuit(
 
     let combined_method_id_constant =
         calculate_succinct_output_prefix(bridge_circuit_method_id.as_bytes());
+
     let (g16_proof, g16_output) = if is_dev_mode() {
         stark_to_bitvm2_g16_dev_mode(succinct_receipt, &succinct_receipt_journal)?
     } else {
