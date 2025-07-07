@@ -1420,7 +1420,6 @@ where
 
         let mut wt_contexts = Vec::new();
         for (_, tx) in watchtower_challenges.iter() {
-            println!("Watchtower challenge tx: {:?}", tx);
             wt_contexts.push(WatchtowerContext {
                 watchtower_tx: tx.clone(),
                 prevout_txs: self.rpc.get_prevout_txs(tx).await?,
