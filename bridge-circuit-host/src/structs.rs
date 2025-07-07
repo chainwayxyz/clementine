@@ -734,14 +734,13 @@ impl BorshSerialize for CircuitXOnlyPublicKey {
 
 impl BorshDeserialize for CircuitXOnlyPublicKey {
     fn deserialize_reader<R: borsh::io::Read>(reader: &mut R) -> borsh::io::Result<Self> {
-        use bitcoin::key::XOnlyPublicKey as BtcXOnly;
         use bitcoin::secp256k1::XOnlyPublicKey as RawXOnly;
 
         let bytes: [u8; 32] = BorshDeserialize::deserialize_reader(reader)?;
         let raw_key = RawXOnly::from_slice(&bytes).map_err(|_| {
             std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid XOnlyPublicKey")
         })?;
-        Ok(Self(BtcXOnly::from(raw_key)))
+        Ok(Self(raw_key))
     }
 }
 
