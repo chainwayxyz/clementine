@@ -353,7 +353,7 @@ pub async fn create_actors<C: CitreaClientT>(
                     let mut paramset = config.protocol_paramset().clone();
                     paramset.time_to_send_watchtower_challenge = paramset
                         .time_to_send_watchtower_challenge
-                        .checked_add(i.parse::<u16>().expect("Failed to parse i as u16") as u16)
+                        .checked_add(i.parse::<u16>().expect("Failed to parse i as u16"))
                         .expect("Failed to add time to send watchtower challenge");
                     let paramset_ref: &'static ProtocolParamset = Box::leak(Box::new(paramset));
 
