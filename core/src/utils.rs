@@ -70,21 +70,21 @@ pub fn initialize_logger(default_level: Option<LevelFilter>) -> Result<(), Bridg
     if is_ci {
         let info_log_file = std::env::var("INFO_LOG_FILE").ok();
         if let Some(file_path) = info_log_file {
-            tracing::trace!("Using file logging in CI, outputting to {}", file_path);
             try_set_global_subscriber(env_subscriber_with_file(&file_path)?);
+            tracing::trace!("Using file logging in CI, outputting to {}", file_path);
         } else {
+            try_set_global_subscriber(env_subscriber_to_human(default_level));
             tracing::trace!("Using console logging in CI");
             tracing::warn!(
                 "CI is set but INFO_LOG_FILE is missing, only console logs will be used."
             );
-            try_set_global_subscriber(env_subscriber_to_human(default_level));
         }
     } else if is_json_logs() {
-        tracing::trace!("Using JSON logging");
         try_set_global_subscriber(env_subscriber_to_json(default_level));
+        tracing::trace!("Using JSON logging");
     } else {
-        tracing::trace!("Using human-readable logging");
         try_set_global_subscriber(env_subscriber_to_human(default_level));
+        tracing::trace!("Using human-readable logging");
     }
 
     tracing::info!("Tracing initialized successfully.");
