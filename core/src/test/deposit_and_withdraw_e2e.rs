@@ -1365,12 +1365,6 @@ async fn mock_citrea_run_malicious_after_exit() {
     ) = run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None)
         .await
         .unwrap();
-    let db = Database::new(&BridgeConfig {
-        db_name: config.db_name.clone() + "0",
-        ..config.clone()
-    })
-    .await
-    .expect("failed to create database");
 
     // sleep for 1 second
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
