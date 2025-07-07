@@ -2809,7 +2809,13 @@
 <a href="#2808" id="2808">2808</a>
 <a href="#2809" id="2809">2809</a>
 <a href="#2810" id="2810">2810</a>
-<a href="#2811" id="2811">2811</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
+<a href="#2811" id="2811">2811</a>
+<a href="#2812" id="2812">2812</a>
+<a href="#2813" id="2813">2813</a>
+<a href="#2814" id="2814">2814</a>
+<a href="#2815" id="2815">2815</a>
+<a href="#2816" id="2816">2816</a>
+<a href="#2817" id="2817">2817</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
 <span class="kw">use </span><span class="kw">crate</span>::bitcoin_syncer::BitcoinSyncer;
 <span class="kw">use </span><span class="kw">crate</span>::bitvm_client::ClementineBitVMPublicKeys;
 <span class="kw">use </span><span class="kw">crate</span>::builder::address::{create_taproot_address, taproot_builder_with_scripts};
@@ -3397,11 +3403,15 @@
             .<span class="kw">await</span><span class="question-mark">?</span>;
 
         tokio::spawn(<span class="kw">async move </span>{
-            <span class="kw">let </span><span class="kw-2">mut </span>session_map = verifier.nonces.lock().<span class="kw">await</span>;
-            <span class="kw">let </span>session = session_map
-                .sessions
-                .get_mut(<span class="kw-2">&amp;</span>session_id)
-                .ok_or_else(|| <span class="macro">eyre::eyre!</span>(<span class="string">"Could not find session id {session_id}"</span>))<span class="question-mark">?</span>;
+            <span class="comment">// Take the lock and extract the session before entering the async block
+            // Extract the session and remove it from the map to release the lock early
+            </span><span class="kw">let </span><span class="kw-2">mut </span>session = {
+                <span class="kw">let </span><span class="kw-2">mut </span>session_map = verifier.nonces.lock().<span class="kw">await</span>;
+                session_map
+                    .sessions
+                    .remove(<span class="kw-2">&amp;</span>session_id)
+                    .ok_or_else(|| <span class="macro">eyre::eyre!</span>(<span class="string">"Could not find session id {session_id}"</span>))<span class="question-mark">?
+            </span>};
             session.nonces.reverse();
 
             <span class="kw">let </span><span class="kw-2">mut </span>nonce_idx: usize = <span class="number">0</span>;
@@ -3465,6 +3475,12 @@
                     session.nonces.len()
                 ).into());
             }
+
+            <span class="kw">let </span><span class="kw-2">mut </span>session_map = verifier.nonces.lock().<span class="kw">await</span>;
+            session_map
+                .sessions
+                .insert(session_id, session)
+                .ok_or_else(|| <span class="macro">eyre::eyre!</span>(<span class="string">"Could not find session id {session_id}"</span>))<span class="question-mark">?</span>;
 
             <span class="prelude-val">Ok</span>::&lt;(), BridgeError&gt;(())
         });
@@ -4348,29 +4364,30 @@
         l2_height_end: u64,
         block_height: u32,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
-        <span class="macro">tracing::debug!</span>(<span class="string">"Updating citrea deposit and withdrawals"</span>);
-
         <span class="kw">let </span>last_deposit_idx = <span class="self">self</span>.db.get_last_deposit_idx(<span class="prelude-val">None</span>).<span class="kw">await</span><span class="question-mark">?</span>;
-        <span class="macro">tracing::debug!</span>(<span class="string">"Last deposit idx: {:?}"</span>, last_deposit_idx);
+        <span class="macro">tracing::debug!</span>(<span class="string">"Last Citrea deposit idx: {:?}"</span>, last_deposit_idx);
 
         <span class="kw">let </span>last_withdrawal_idx = <span class="self">self</span>.db.get_last_withdrawal_idx(<span class="prelude-val">None</span>).<span class="kw">await</span><span class="question-mark">?</span>;
-        <span class="macro">tracing::debug!</span>(<span class="string">"Last withdrawal idx: {:?}"</span>, last_withdrawal_idx);
+        <span class="macro">tracing::debug!</span>(<span class="string">"Last Citrea withdrawal idx: {:?}"</span>, last_withdrawal_idx);
 
         <span class="kw">let </span>new_deposits = <span class="self">self
             </span>.citrea_client
             .collect_deposit_move_txids(last_deposit_idx, l2_height_end)
             .<span class="kw">await</span><span class="question-mark">?</span>;
-        <span class="macro">tracing::debug!</span>(<span class="string">"New deposits: {:?}"</span>, new_deposits);
+        <span class="macro">tracing::debug!</span>(<span class="string">"New deposits received from Citrea: {:?}"</span>, new_deposits);
 
         <span class="kw">let </span>new_withdrawals = <span class="self">self
             </span>.citrea_client
             .collect_withdrawal_utxos(last_withdrawal_idx, l2_height_end)
             .<span class="kw">await</span><span class="question-mark">?</span>;
-        <span class="macro">tracing::debug!</span>(<span class="string">"New Withdrawals: {:?}"</span>, new_withdrawals);
+        <span class="macro">tracing::debug!</span>(
+            <span class="string">"New withdrawals received from Citrea: {:?}"</span>,
+            new_withdrawals
+        );
 
         <span class="kw">for </span>(idx, move_to_vault_txid) <span class="kw">in </span>new_deposits {
             <span class="macro">tracing::info!</span>(
-                <span class="string">"Setting move to vault txid: {:?} with index {}"</span>,
+                <span class="string">"Saving move to vault txid {:?} with index {} for Citrea deposits"</span>,
                 move_to_vault_txid,
                 idx
             );
@@ -4382,9 +4399,10 @@
                 )
                 .<span class="kw">await</span><span class="question-mark">?</span>;
         }
+
         <span class="kw">for </span>(idx, withdrawal_utxo_outpoint) <span class="kw">in </span>new_withdrawals {
             <span class="macro">tracing::info!</span>(
-                <span class="string">"Setting withdrawal utxo: {:?} with index {}"</span>,
+                <span class="string">"Saving withdrawal utxo {:?} with index {} for Citrea withdrawals"</span>,
                 withdrawal_utxo_outpoint,
                 idx
             );
@@ -5186,20 +5204,14 @@
         </span><span class="kw">let </span>max_attempts = light_client_proof_wait_interval_secs.unwrap_or(TEN_MINUTES_IN_SECS);
         <span class="kw">let </span>timeout = Duration::from_secs(max_attempts <span class="kw">as </span>u64);
 
-        <span class="kw">let </span>l2_range_result = <span class="self">self
+        <span class="kw">let </span>(l2_height_start, l2_height_end) = <span class="self">self
             </span>.citrea_client
             .get_citrea_l2_height_range(block_height.into(), timeout)
-            .<span class="kw">await</span>;
-        <span class="kw">if let </span><span class="prelude-val">Err</span>(e) = l2_range_result {
-            <span class="macro">tracing::error!</span>(<span class="string">"Error getting citrea l2 height range: {:?}"</span>, e);
-            <span class="kw">return </span><span class="prelude-val">Err</span>(e);
-        }
-
-        <span class="kw">let </span>(l2_height_start, l2_height_end) =
-            l2_range_result.expect(<span class="string">"Failed to get citrea l2 height range"</span>);
+            .<span class="kw">await
+            </span>.inspect_err(|e| <span class="macro">tracing::error!</span>(<span class="string">"Error getting citrea l2 height range: {:?}"</span>, e))<span class="question-mark">?</span>;
 
         <span class="macro">tracing::debug!</span>(
-            <span class="string">"l2_height_start: {:?}, l2_height_end: {:?}, collecting deposits and withdrawals"</span>,
+            <span class="string">"l2_height_start: {:?}, l2_height_end: {:?}, collecting deposits and withdrawals..."</span>,
             l2_height_start,
             l2_height_end
         );

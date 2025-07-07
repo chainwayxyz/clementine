@@ -3069,9 +3069,9 @@
                 .map_to_status()<span class="question-mark">?</span>;
             <span class="kw">let </span>agg_nonce = aggregate_nonces(pub_nonces.iter().collect::&lt;Vec&lt;<span class="kw">_</span>&gt;&gt;().as_slice());
             <span class="comment">// send the agg nonce to the verifiers to sign the optimistic payout tx
-            </span><span class="kw">let </span>verifier_clients = <span class="self">self</span>.get_verifier_clients();
+            </span><span class="kw">let </span>verifier_clients = verifiers.clients();
             <span class="kw">let </span>payout_sigs = verifier_clients
-                .iter()
+                .into_iter()
                 .zip(first_responses)
                 .map(|(client, first_response)| {
                     <span class="kw">let </span><span class="kw-2">mut </span>client = client.clone();

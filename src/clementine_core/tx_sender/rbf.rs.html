@@ -1408,7 +1408,15 @@
 <a href="#1407" id="1407">1407</a>
 <a href="#1408" id="1408">1408</a>
 <a href="#1409" id="1409">1409</a>
-<a href="#1410" id="1410">1410</a></pre></div><pre class="rust"><code><span class="kw">use </span>bitcoin::script::Instruction;
+<a href="#1410" id="1410">1410</a>
+<a href="#1411" id="1411">1411</a>
+<a href="#1412" id="1412">1412</a>
+<a href="#1413" id="1413">1413</a>
+<a href="#1414" id="1414">1414</a>
+<a href="#1415" id="1415">1415</a>
+<a href="#1416" id="1416">1416</a>
+<a href="#1417" id="1417">1417</a>
+<a href="#1418" id="1418">1418</a></pre></div><pre class="rust"><code><span class="kw">use </span>bitcoin::script::Instruction;
 <span class="kw">use </span>bitcoin::sighash::{Prevouts, SighashCache};
 <span class="kw">use </span>bitcoin::taproot::{<span class="self">self</span>};
 <span class="kw">use </span>bitcoin::{Psbt, TapSighashType, TxOut, Txid, Witness};
@@ -2715,8 +2723,9 @@
             </span>.expect(<span class="string">"Transaction should be have debug info"</span>);
 
         <span class="comment">// Verify that TX is in mempool
-        </span>rpc.get_tx_of_txid(<span class="kw-2">&amp;</span>bitcoin::Txid::from_byte_array(
-            tx_debug_info.txid.unwrap().txid.try_into().unwrap(),
+        </span><span class="kw">let </span>initial_txid = tx_debug_info.txid.unwrap().txid;
+        rpc.get_tx_of_txid(<span class="kw-2">&amp;</span>bitcoin::Txid::from_byte_array(
+            initial_txid.clone().try_into().unwrap(),
         ))
         .<span class="kw">await
         </span>.expect(<span class="string">"Transaction should be in mempool"</span>);
@@ -2751,11 +2760,18 @@
             </span>.expect(<span class="string">"Transaction should be have debug info"</span>);
 
         <span class="comment">// Verify that TX is in mempool
-        </span>rpc.get_tx_of_txid(<span class="kw-2">&amp;</span>bitcoin::Txid::from_byte_array(
-            tx_debug_info.txid.unwrap().txid.try_into().unwrap(),
+        </span><span class="kw">let </span>changed_txid = tx_debug_info.txid.unwrap().txid;
+        rpc.get_tx_of_txid(<span class="kw-2">&amp;</span>bitcoin::Txid::from_byte_array(
+            changed_txid.clone().try_into().unwrap(),
         ))
         .<span class="kw">await
         </span>.expect(<span class="string">"Transaction should be in mempool"</span>);
+
+        <span class="comment">// Verify that tx has changed.
+        </span><span class="macro">assert_ne!</span>(
+            changed_txid, initial_txid,
+            <span class="string">"Transaction should have been bumped"
+        </span>);
 
         <span class="prelude-val">Ok</span>(())
     }
