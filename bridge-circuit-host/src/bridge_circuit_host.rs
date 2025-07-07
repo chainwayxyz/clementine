@@ -436,10 +436,53 @@ mod tests {
     }
 
     #[test]
+    fn test_varying_total_works() {
+        let bridge_circuit_host_params_serialized =
+            include_bytes!("../bin-files/bch_params_varying_total_works_valid_total_work.bin");
+        let bridge_circuit_host_params: BridgeCircuitHostParams =
+            borsh::BorshDeserialize::try_from_slice(bridge_circuit_host_params_serialized)
+                .expect("Failed to deserialize BridgeCircuitHostParams");
+
+        let bridge_circuit_inputs = bridge_circuit_host_params
+            .clone()
+            .into_bridge_circuit_input();
+
+        for watchtower_input in &bridge_circuit_inputs.watchtower_inputs {
+            println!(
+                "Watchtower input: {:?}",
+                watchtower_input.watchtower_challenge_tx.output[2]
+            );
+        }
+
+        let bridge_circuit_elf = REGTEST_BRIDGE_CIRCUIT_ELF_TEST;
+
+        let executor = default_executor();
+
+        let env = ExecutorEnv::builder()
+            .write_slice(&borsh::to_vec(&bridge_circuit_inputs).unwrap())
+            .add_assumption(bridge_circuit_host_params.headerchain_receipt)
+            .build()
+            .expect("Failed to build execution environment");
+
+        let session_info = executor.execute(env, bridge_circuit_elf).unwrap();
+
+        let public_inputs: SuccinctBridgeCircuitPublicInputs =
+            SuccinctBridgeCircuitPublicInputs::new(bridge_circuit_inputs.clone()).unwrap();
+
+        let journal_hash = public_inputs.host_journal_hash();
+
+        assert_eq!(
+            session_info.journal.bytes,
+            *journal_hash.as_bytes(),
+            "Journal hash mismatch"
+        );
+    }
+
+    #[test]
     #[should_panic(expected = "Invalid total work")]
     fn test_invalid_total_work() {
         let bridge_circuit_host_params_serialized =
-            include_bytes!("../bin-files/bch_params_varying_total_works.bin");
+            include_bytes!("../bin-files/bch_params_varying_total_works_invalid_total_work.bin");
         let bridge_circuit_host_params: BridgeCircuitHostParams =
             borsh::BorshDeserialize::try_from_slice(bridge_circuit_host_params_serialized)
                 .expect("Failed to deserialize BridgeCircuitHostParams");

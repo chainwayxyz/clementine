@@ -42,6 +42,7 @@ use citrea_e2e::{
 
 #[derive(PartialEq)]
 pub enum BridgeCircuitTestDataVariant {
+    HeaderChainProofsWithDiverseLengthsInvalidTotalWork,
     HeaderChainProofsWithDiverseLengths,
 }
 
@@ -109,7 +110,16 @@ impl TestCase for BridgeCircuitTestData {
 
         let mut config = create_test_config_with_thread_name().await;
 
-        config.test_params.generate_varying_total_works = true;
+        match self.variant {
+            BridgeCircuitTestDataVariant::HeaderChainProofsWithDiverseLengthsInvalidTotalWork => {
+                config
+                    .test_params
+                    .generate_varying_total_works_invalid_total_work = true;
+            }
+            BridgeCircuitTestDataVariant::HeaderChainProofsWithDiverseLengths => {
+                config.test_params.generate_varying_total_works = true;
+            }
+        }
 
         let lc_prover = lc_prover.unwrap();
         let batch_prover = batch_prover.unwrap();
@@ -551,6 +561,22 @@ async fn bridge_circuit_test_data_diverse_hcp_lengths() -> Result<()> {
     );
     let bridge_circuit_test_data = BridgeCircuitTestData {
         variant: BridgeCircuitTestDataVariant::HeaderChainProofsWithDiverseLengths,
+    };
+    TestCaseRunner::new(bridge_circuit_test_data).run().await
+}
+
+#[tokio::test]
+#[ignore = "Only run this test manually, it's for data generation purposes"]
+async fn bridge_circuit_test_data_invalid_total_work_diverse_hcp_lens() -> Result<()> {
+    initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
+        .expect("Failed to initialize logger");
+    std::env::set_var(
+        "CITREA_DOCKER_IMAGE",
+        "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
+    );
+
+    let bridge_circuit_test_data = BridgeCircuitTestData {
+        variant: BridgeCircuitTestDataVariant::HeaderChainProofsWithDiverseLengthsInvalidTotalWork,
     };
     TestCaseRunner::new(bridge_circuit_test_data).run().await
 }

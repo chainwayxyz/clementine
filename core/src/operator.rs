@@ -1364,7 +1364,11 @@ where
 
         #[cfg(test)]
         let current_hcp = {
-            if self.config.test_params.generate_varying_total_works {
+            if self
+                .config
+                .test_params
+                .generate_varying_total_works_invalid_total_work
+            {
                 self.header_chain_prover
                     .prove_till_hash(payout_block_hash)
                     .await?
@@ -1384,7 +1388,11 @@ where
 
         #[cfg(test)]
         let blockhashes_serialized = {
-            if self.config.test_params.generate_varying_total_works {
+            if self
+                .config
+                .test_params
+                .generate_varying_total_works_invalid_total_work
+            {
                 block_hashes
                     .iter()
                     .take((payout_block_height + 1) as usize)
@@ -1466,12 +1474,29 @@ where
 
         #[cfg(test)]
         {
-            if self.config.test_params.generate_varying_total_works {
+            if self
+                .config
+                .test_params
+                .generate_varying_total_works_invalid_total_work
+                || self.config.test_params.generate_varying_total_works
+            {
                 use std::path::PathBuf;
-                // Serialize and write bridge_circuit_host_params to a file at bridge-circuit-host/bin-files
-                let file_path = PathBuf::from(
-                    "../bridge-circuit-host/bin-files/bch_params_varying_total_works.bin",
-                );
+
+                let file_path = match (
+             self.config.test_params.generate_varying_total_works,
+             self.config.test_params.generate_varying_total_works_invalid_total_work,
+        ) {
+            (false, true) => PathBuf::from(
+                "../bridge-circuit-host/bin-files/bch_params_varying_total_works_invalid_total_work.bin",
+            ),
+            (true, false) => PathBuf::from(
+                "../bridge-circuit-host/bin-files/bch_params_varying_total_works_valid_total_work.bin",
+            ),
+            _ => {
+                panic!("Invalid or conflicting test params for generating varying total works");
+            }
+        };
+
                 std::fs::create_dir_all(file_path.parent().unwrap()).map_err(|e| {
                     eyre::eyre!("Failed to create directory for output file: {}", e)
                 })?;
