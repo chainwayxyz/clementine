@@ -288,26 +288,26 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
 };
 
 pub const REGTEST_TEST_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [
-    169, 112, 29, 24, 28, 80, 174, 185, 242, 230, 91, 118, 239, 252, 94, 68, 180, 121, 104, 143,
-    218, 66, 167, 45, 11, 254, 235, 206, 146, 10, 177, 42,
+    242, 27, 46, 111, 109, 182, 69, 174, 158, 148, 173, 199, 118, 44, 71, 215, 18, 248, 144, 149,
+    239, 46, 74, 144, 168, 66, 251, 177, 178, 48, 190, 242,
 ];
 
 pub const REGTEST_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [
-    113, 136, 67, 135, 56, 140, 97, 131, 29, 124, 164, 12, 54, 0, 58, 215, 19, 251, 94, 52, 132,
-    63, 168, 136, 32, 138, 53, 55, 239, 119, 181, 143,
+    116, 60, 226, 102, 20, 115, 44, 53, 198, 80, 202, 180, 106, 49, 223, 163, 252, 45, 26, 243, 18,
+    208, 25, 64, 238, 86, 198, 191, 47, 155, 51, 68,
 ];
 
 pub const SIGNET_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [
-    129, 122, 106, 96, 89, 86, 213, 212, 86, 237, 222, 133, 43, 33, 11, 148, 243, 204, 121, 13,
-    109, 35, 112, 162, 231, 44, 73, 229, 155, 132, 73, 50,
+    100, 204, 197, 41, 8, 32, 253, 113, 106, 51, 86, 255, 184, 217, 158, 248, 19, 47, 197, 18, 121,
+    231, 130, 84, 109, 210, 247, 185, 225, 18, 147, 84,
 ];
 pub const MAINNET_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [
-    238, 125, 50, 120, 229, 236, 180, 238, 66, 64, 67, 119, 179, 190, 34, 146, 132, 243, 199, 112,
-    6, 80, 62, 73, 173, 46, 16, 100, 253, 69, 221, 174,
+    150, 87, 158, 76, 111, 237, 99, 154, 245, 81, 145, 252, 94, 165, 1, 171, 74, 203, 20, 95, 24,
+    4, 0, 64, 150, 44, 137, 5, 61, 209, 75, 128,
 ];
 pub const TESTNET4_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [
-    114, 178, 68, 208, 63, 103, 65, 250, 57, 157, 254, 21, 198, 3, 142, 158, 172, 10, 60, 10, 88,
-    153, 219, 116, 3, 146, 40, 136, 243, 94, 7, 169,
+    95, 172, 91, 117, 126, 2, 83, 1, 207, 11, 218, 116, 162, 86, 219, 206, 61, 50, 180, 92, 26, 47,
+    9, 180, 31, 39, 120, 60, 189, 126, 155, 226,
 ];
 
 #[cfg(test)]
@@ -352,7 +352,7 @@ mod tests {
         assert_eq!(
             calculated_regtest_bridge_circuit_constant,
             regtest_bridge_circuit_constant,
-            "You forgot to update regtest-(test) bridge_circuit_constant with the new method id. Please change it in these places: core/src/config/protocol.rs -> REGTEST_PARAMSET -> bridge_circuit_method_id_constant. The expected value is: {:?}, hex format: {:?}",
+            "You forgot to update regtest-(test) bridge_circuit_constant with the new method id. Please change it in these places: core/src/config/protocol.rs. The expected value is: {:?}, hex format: {:?}",
             calculated_regtest_bridge_circuit_constant,
             hex::encode(calculated_regtest_bridge_circuit_constant)
         );
