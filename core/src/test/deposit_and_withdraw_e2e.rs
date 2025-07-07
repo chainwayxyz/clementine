@@ -13,6 +13,7 @@ use crate::database::Database;
 use crate::deposit::{BaseDepositData, DepositInfo, DepositType, KickoffData};
 use crate::header_chain_prover::HeaderChainProver;
 use crate::operator::RoundIndex;
+use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
 use crate::rpc::clementine::{
     Deposit, Empty, FeeType, FinalizedPayoutParams, KickoffId, NormalSignatureKind, RawSignedTx,
     SendMoveTxRequest, SendTxRequest, TransactionRequest, WithdrawParams,
@@ -57,6 +58,7 @@ use eyre::Context;
 use futures::future::try_join_all;
 use std::time::Duration;
 use tokio::time::sleep;
+use tonic::transport::Channel;
 use tonic::Request;
 
 #[derive(PartialEq)]
@@ -1556,40 +1558,19 @@ async fn mock_citrea_run_malicious_after_exit() {
     assert!(tx.output[0].value != config.protocol_paramset().operator_challenge_amount);
 }
 
-/// A typical deposit and withdrawal flow. Except each operation are done
-/// multiple times and concurrently. This is done by creating multiple requests
-/// and `await`ing them together after using [`try_join_all`].
-#[tokio::test(flavor = "multi_thread")]
-async fn concurrent_deposits_and_withdrawals() {
-    let mut config = create_test_config_with_thread_name().await;
-    let regtest = create_regtest_rpc(&mut config).await;
-    let rpc = regtest.rpc().clone();
-    let mut citrea_client = MockCitreaClient::new(
-        config.citrea_rpc_url.clone(),
-        "".to_string(),
-        config.citrea_chain_id,
-        None,
-    )
-    .await
-    .unwrap();
-
-    let (_verifiers, operators, mut aggregator, _cleanup) =
-        create_actors::<MockCitreaClient>(&config).await;
-    let verifiers_public_keys: Vec<bitcoin::secp256k1::PublicKey> = aggregator
-        .setup(Request::new(Empty {}))
-        .await
-        .unwrap()
-        .into_inner()
-        .try_into()
-        .unwrap();
-
+pub async fn make_concurrent_deposits(
+    count: usize,
+    rpc: &ExtendedRpc,
+    config: &BridgeConfig,
+    verifiers_public_keys: Vec<bitcoin::secp256k1::PublicKey>,
+    aggregator: &mut ClementineAggregatorClient<Channel>,
+    citrea_client: MockCitreaClient,
+) -> eyre::Result<()> {
     let actor = Actor::new(
         config.secret_key,
         config.winternitz_secret_key,
         config.protocol_paramset().network,
     );
-
-    let count = 10;
     let evm_address = EVMAddress([1; 20]);
 
     // Create move txs.
@@ -1598,14 +1579,14 @@ async fn concurrent_deposits_and_withdrawals() {
     let mut deposit_outpoints = Vec::new();
     for aggregator in aggregators.iter_mut() {
         let (deposit_address, _) =
-            get_deposit_address(&config, evm_address, verifiers_public_keys.clone()).unwrap();
+            get_deposit_address(config, evm_address, verifiers_public_keys.clone()).unwrap();
         let deposit_outpoint = rpc
             .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
             .await
             .unwrap();
         deposit_outpoints.push(deposit_outpoint);
 
-        mine_once_after_in_mempool(&rpc, deposit_outpoint.txid, Some("Deposit outpoint"), None)
+        mine_once_after_in_mempool(rpc, deposit_outpoint.txid, Some("Deposit outpoint"), None)
             .await
             .unwrap();
 
@@ -1706,6 +1687,49 @@ async fn concurrent_deposits_and_withdrawals() {
         .unwrap();
     }
 
+    Ok(())
+}
+
+/// A typical deposit and withdrawal flow. Except each operation are done
+/// multiple times and concurrently. This is done by creating multiple requests
+/// and `await`ing them together after using [`try_join_all`].
+#[tokio::test(flavor = "multi_thread")]
+async fn concurrent_deposits_and_withdrawals() {
+    let mut config = create_test_config_with_thread_name().await;
+    let regtest = create_regtest_rpc(&mut config).await;
+    let rpc = regtest.rpc().clone();
+    let mut citrea_client = MockCitreaClient::new(
+        config.citrea_rpc_url.clone(),
+        "".to_string(),
+        config.citrea_chain_id,
+        None,
+    )
+    .await
+    .unwrap();
+
+    let (_verifiers, operators, mut aggregator, _cleanup) =
+        create_actors::<MockCitreaClient>(&config).await;
+    let verifiers_public_keys: Vec<bitcoin::secp256k1::PublicKey> = aggregator
+        .setup(Request::new(Empty {}))
+        .await
+        .unwrap()
+        .into_inner()
+        .try_into()
+        .unwrap();
+
+    let count = 10;
+
+    make_concurrent_deposits(
+        count,
+        &rpc,
+        &config,
+        verifiers_public_keys.clone(),
+        &mut aggregator,
+        citrea_client.clone(),
+    )
+    .await
+    .unwrap();
+
     let mut sigs = Vec::new();
     let mut withdrawal_utxos = Vec::new();
     let mut payout_txouts = Vec::new();
@@ -1799,3 +1823,5 @@ async fn concurrent_deposits_and_withdrawals() {
         );
     }
 }
+
+// async fn concurrent_deposits_and_optimistic_payout() {}
