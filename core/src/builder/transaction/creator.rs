@@ -1026,10 +1026,9 @@ mod tests {
     use crate::builder::transaction::{TransactionType, TxHandlerBuilder};
     use crate::config::BridgeConfig;
     use crate::deposit::{DepositInfo, KickoffData};
-    use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
-    use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
     use crate::rpc::clementine::{SignedTxsWithType, TransactionRequest};
     use crate::test::common::citrea::MockCitreaClient;
+    use crate::test::common::test_actors::TestActors;
     use crate::test::common::*;
     use bitcoin::{BlockHash, Transaction, XOnlyPublicKey};
     use futures::future::try_join_all;
@@ -1052,8 +1051,7 @@ mod tests {
     }
 
     async fn check_if_signable(
-        mut verifiers: Vec<ClementineVerifierClient<tonic::transport::Channel>>,
-        mut operators: Vec<ClementineOperatorClient<tonic::transport::Channel>>,
+        actors: TestActors<MockCitreaClient>,
         deposit_info: DepositInfo,
         deposit_blockhash: BlockHash,
         config: BridgeConfig,
@@ -1074,17 +1072,18 @@ mod tests {
             TransactionType::LatestBlockhashTimeout,
         ];
         txs_operator_can_sign
-            .extend((0..verifiers.len()).map(TransactionType::OperatorChallengeNack));
+            .extend((0..actors.get_num_verifiers()).map(TransactionType::OperatorChallengeNack));
         txs_operator_can_sign
-            .extend((0..verifiers.len()).map(TransactionType::OperatorChallengeAck));
+            .extend((0..actors.get_num_verifiers()).map(TransactionType::OperatorChallengeAck));
         txs_operator_can_sign.extend(
             (0..ClementineBitVMPublicKeys::number_of_assert_txs())
                 .map(TransactionType::AssertTimeout),
         );
         txs_operator_can_sign
             .extend((0..paramset.num_kickoffs_per_round).map(TransactionType::UnspentKickoff));
-        txs_operator_can_sign
-            .extend((0..verifiers.len()).map(TransactionType::WatchtowerChallengeTimeout));
+        txs_operator_can_sign.extend(
+            (0..actors.get_num_verifiers()).map(TransactionType::WatchtowerChallengeTimeout),
+        );
 
         let all_operators_secret_keys = &config.test_params.all_operators_secret_keys;
         let operator_xonly_pks: Vec<XOnlyPublicKey> = all_operators_secret_keys
@@ -1114,7 +1113,8 @@ mod tests {
             HashMap::new();
 
         // try to sign everything for all operators
-        let operator_task_handles: Vec<_> = operators
+        let operator_task_handles: Vec<_> = actors
+            .get_operators()
             .iter_mut()
             .enumerate()
             .map(|(operator_idx, operator_rpc)| {
@@ -1187,19 +1187,21 @@ mod tests {
             //TransactionType::Disprove,
         ];
         txs_verifier_can_sign
-            .extend((0..verifiers.len()).map(TransactionType::OperatorChallengeNack));
+            .extend((0..actors.get_num_verifiers()).map(TransactionType::OperatorChallengeNack));
         txs_verifier_can_sign.extend(
             (0..ClementineBitVMPublicKeys::number_of_assert_txs())
                 .map(TransactionType::AssertTimeout),
         );
         txs_verifier_can_sign
             .extend((0..paramset.num_kickoffs_per_round).map(TransactionType::UnspentKickoff));
-        txs_verifier_can_sign
-            .extend((0..verifiers.len()).map(TransactionType::WatchtowerChallengeTimeout));
+        txs_verifier_can_sign.extend(
+            (0..actors.get_num_verifiers()).map(TransactionType::WatchtowerChallengeTimeout),
+        );
 
         // try to sign everything for all verifiers
         // try signing verifier transactions
-        let verifier_task_handles: Vec<_> = verifiers
+        let verifier_task_handles: Vec<_> = actors
+            .get_verifiers()
             .iter_mut()
             .map(|verifier_rpc| {
                 let txs_verifier_can_sign = txs_verifier_can_sign.clone();
@@ -1296,19 +1298,12 @@ mod tests {
         let mut config = create_test_config_with_thread_name().await;
         let WithProcessCleanup(_, ref rpc, _, _) = create_regtest_rpc(&mut config).await;
 
-        let (verifiers, operators, _, _cleanup, deposit_params, _, deposit_blockhash, _) =
+        let (actors, deposit_params, _, deposit_blockhash, _) =
             run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None)
                 .await
                 .unwrap();
 
-        check_if_signable(
-            verifiers,
-            operators,
-            deposit_params,
-            deposit_blockhash,
-            config.clone(),
-        )
-        .await;
+        check_if_signable(actors, deposit_params, deposit_blockhash, config.clone()).await;
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -1317,19 +1312,12 @@ mod tests {
         let mut config = create_test_config_with_thread_name().await;
         let WithProcessCleanup(_, ref rpc, _, _) = create_regtest_rpc(&mut config).await;
 
-        let (verifiers, operators, _, _cleanup, deposit_info, _, deposit_blockhash) =
+        let (actors, deposit_info, _, deposit_blockhash) =
             run_replacement_deposit(&mut config, rpc.clone(), None)
                 .await
                 .unwrap();
 
-        check_if_signable(
-            verifiers,
-            operators,
-            deposit_info,
-            deposit_blockhash,
-            config.clone(),
-        )
-        .await;
+        check_if_signable(actors, deposit_info, deposit_blockhash, config.clone()).await;
     }
 
     #[test]

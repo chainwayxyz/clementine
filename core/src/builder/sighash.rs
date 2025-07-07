@@ -448,18 +448,10 @@ mod tests {
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
 
-        let (
-            _verifiers,
-            mut operators,
-            _aggregator,
-            _cleanup,
-            deposit_info,
-            move_txid,
-            deposit_blockhash,
-            verifiers_public_keys,
-        ) = run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None)
-            .await
-            .unwrap();
+        let (actors, deposit_info, move_txid, deposit_blockhash, verifiers_public_keys) =
+            run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None)
+                .await
+                .unwrap();
 
         // get generated blocks
         let height = rpc.get_current_chain_height().await.unwrap();
@@ -497,8 +489,10 @@ mod tests {
         )
         .await;
 
+        let operator = actors.get_operator_by_index(0);
+
         let round_tx_txid_hash = compute_hash_of_round_txs(
-            operators.remove(0),
+            operator,
             deposit_info.deposit_outpoint,
             operators_xonly_pks[0],
             deposit_blockhash,
@@ -698,23 +692,15 @@ mod tests {
             .await
             .expect("Failed to generate blocks");
 
-        let (
-            _,
-            mut operators,
-            _,
-            _cleanup,
-            deposit_info,
-            move_txid,
-            deposit_blockhash,
-            verifiers_public_keys,
-        ) = run_single_deposit::<MockCitreaClient>(
-            &mut config,
-            rpc.clone(),
-            None,
-            Some(deposit_state.deposit_info.deposit_outpoint),
-        )
-        .await
-        .unwrap();
+        let (actors, deposit_info, move_txid, deposit_blockhash, verifiers_public_keys) =
+            run_single_deposit::<MockCitreaClient>(
+                &mut config,
+                rpc.clone(),
+                None,
+                Some(deposit_state.deposit_info.deposit_outpoint),
+            )
+            .await
+            .unwrap();
 
         // sanity checks, these should be equal if the deposit state saved is still valid
         // if not a new deposit state needs to be generated
@@ -735,8 +721,10 @@ mod tests {
             .map(|sk| sk.x_only_public_key(&SECP).0)
             .collect::<Vec<_>>();
 
+        let operator = actors.get_operator_by_index(0);
+
         let round_tx_hash = compute_hash_of_round_txs(
-            operators.remove(0),
+            operator,
             deposit_info.deposit_outpoint,
             operators_xonly_pks[0],
             deposit_blockhash,

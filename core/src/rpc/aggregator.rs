@@ -1646,7 +1646,8 @@ mod tests {
         let mut config = create_test_config_with_thread_name().await;
         let _regtest = create_regtest_rpc(&mut config).await;
 
-        let (_, _, mut aggregator, _cleanup) = create_actors::<MockCitreaClient>(&config).await;
+        let actors = create_actors::<MockCitreaClient>(&config).await;
+        let mut aggregator = actors.get_aggregator();
 
         aggregator
             .setup(tonic::Request::new(clementine::Empty {}))
@@ -1664,8 +1665,8 @@ mod tests {
         let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc();
-        let (_verifiers, _operators, mut aggregator, _cleanup) =
-            create_actors::<MockCitreaClient>(&config).await;
+        let actors = create_actors::<MockCitreaClient>(&config).await;
+        let mut aggregator = actors.get_aggregator();
 
         let evm_address = EVMAddress([1u8; 20]);
         let signer = Actor::new(
@@ -1777,8 +1778,8 @@ mod tests {
         let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc();
-        let (_verifiers, _operators, mut aggregator, _cleanup) =
-            create_actors::<MockCitreaClient>(&config).await;
+        let actors = create_actors::<MockCitreaClient>(&config).await;
+        let mut aggregator = actors.get_aggregator();
 
         let evm_address = EVMAddress([1u8; 20]);
         let signer = Actor::new(
@@ -1876,8 +1877,8 @@ mod tests {
         let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc();
-        let (_verifiers, _operators, mut aggregator, _cleanup) =
-            create_actors::<MockCitreaClient>(&config).await;
+        let actors = create_actors::<MockCitreaClient>(&config).await;
+        let mut aggregator = actors.get_aggregator();
 
         let evm_address = EVMAddress([1u8; 20]);
         let signer = Actor::new(

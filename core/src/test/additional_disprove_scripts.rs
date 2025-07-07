@@ -1,5 +1,5 @@
 use super::common::citrea::get_bridge_params;
-use super::common::ActorsCleanup;
+use super::common::test_actors::TestActors;
 use crate::bitvm_client::SECP;
 use crate::builder::transaction::input::UtxoVout;
 use crate::builder::transaction::TransactionType;
@@ -8,9 +8,6 @@ use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::deposit::KickoffData;
 use crate::operator::RoundIndex;
-use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
-use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
-use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
 use crate::rpc::clementine::{TransactionRequest, WithdrawParams};
 use crate::test::common::citrea::{get_citrea_safe_withdraw_params, SECRET_KEYS};
 use crate::test::common::tx_utils::{
@@ -45,7 +42,6 @@ use citrea_e2e::{
     test_case::{TestCase, TestCaseRunner},
     Result,
 };
-use tonic::transport::Channel;
 pub enum TestVariant {
     CorruptedLatestBlockHash,
     CorruptedPayoutTxBlockHash,
@@ -65,14 +61,7 @@ impl AdditionalDisproveTest {
         batch_prover: &Node<BatchProverConfig>,
         da: &BitcoinNode,
         sequencer: &Node<SequencerConfig>,
-    ) -> Result<(
-        Transaction,
-        ExtendedRpc,
-        Vec<ClementineVerifierClient<Channel>>,
-        Vec<ClementineOperatorClient<Channel>>,
-        ClementineAggregatorClient<Channel>,
-        ActorsCleanup,
-    )> {
+    ) -> Result<(Transaction, ExtendedRpc, TestActors<CitreaClient>)> {
         tracing::debug!(
             "disprove timeout is set to: {:?}",
             config.protocol_paramset().disprove_timeout_timelock
@@ -94,16 +83,8 @@ impl AdditionalDisproveTest {
             "Deposit starting at block height: {:?}",
             rpc.client.get_block_count().await?
         );
-        let (
-            verifiers,
-            mut operators,
-            aggregator,
-            cleanup,
-            deposit_params,
-            move_txid,
-            _deposit_blockhash,
-            verifiers_public_keys,
-        ) = run_single_deposit::<CitreaClient>(&mut config, rpc.clone(), None, None).await?;
+        let (actors, deposit_params, move_txid, _deposit_blockhash, verifiers_public_keys) =
+            run_single_deposit::<CitreaClient>(&mut config, rpc.clone(), None, None).await?;
 
         tracing::debug!(
             "Deposit ending block_height: {:?}",
@@ -220,8 +201,10 @@ impl AdditionalDisproveTest {
 
         let withdrawal_utxo = withdrawal_utxo_with_txout.outpoint;
 
+        let mut operator0 = actors.get_operator_by_index(0);
+
         // Without a withdrawal in Citrea, operator can't withdraw.
-        assert!(operators[0]
+        assert!(operator0
             .withdraw(WithdrawParams {
                 withdrawal_id: 0,
                 input_signature: sig.serialize().to_vec(),
@@ -302,7 +285,7 @@ impl AdditionalDisproveTest {
             .expect("failed to create database");
 
         let payout_txid = loop {
-            let withdrawal_response = operators[0]
+            let withdrawal_response = operator0
                 .withdraw(WithdrawParams {
                     withdrawal_id: 0,
                     input_signature: sig.serialize().to_vec(),
@@ -386,7 +369,7 @@ impl AdditionalDisproveTest {
             ),
             deposit_outpoint: Some(deposit_params.deposit_outpoint.into()),
         };
-        let all_txs = operators[0]
+        let all_txs = operator0
             .internal_create_signed_txs(base_tx_req.clone())
             .await?
             .into_inner();
@@ -471,7 +454,7 @@ impl AdditionalDisproveTest {
         .await
         .unwrap();
 
-        let assert_txs = operators[0]
+        let assert_txs = operator0
             .internal_create_assert_commitment_txs(base_tx_req)
             .await?
             .into_inner();
@@ -485,7 +468,7 @@ impl AdditionalDisproveTest {
             "Mini assert 0 was not found in the chain",
         );
 
-        Ok((kickoff_tx, rpc, verifiers, operators, aggregator, cleanup))
+        Ok((kickoff_tx, rpc, actors))
     }
 
     async fn disrupted_latest_block_hash_commit(&self, f: &mut TestFramework) -> Result<()> {
@@ -511,7 +494,7 @@ impl AdditionalDisproveTest {
             )),
         );
 
-        let (kickoff_tx, rpc, _verifiers, _operators, _aggregator, _cleanup) = self
+        let (kickoff_tx, rpc, _actors) = self
             .common_test_setup(config, lc_prover, batch_prover, da, sequencer)
             .await?;
 
@@ -587,7 +570,7 @@ impl AdditionalDisproveTest {
             )),
         );
 
-        let (kickoff_tx, rpc, _verifiers, _operators, _aggregator, _cleanup) = self
+        let (kickoff_tx, rpc, _actors) = self
             .common_test_setup(config, lc_prover, batch_prover, da, sequencer)
             .await?;
 
@@ -668,7 +651,7 @@ impl AdditionalDisproveTest {
             )),
         );
 
-        let (kickoff_tx, rpc, _verifiers, _operators, _aggregator, _cleanup) = self
+        let (kickoff_tx, rpc, _actors) = self
             .common_test_setup(config, lc_prover, batch_prover, da, sequencer)
             .await?;
 
@@ -744,7 +727,7 @@ impl AdditionalDisproveTest {
             )),
         );
 
-        let (kickoff_tx, rpc, _verifiers, _operators, _aggregator, _cleanup) = self
+        let (kickoff_tx, rpc, _actors) = self
             .common_test_setup(config, lc_prover, batch_prover, da, sequencer)
             .await?;
 

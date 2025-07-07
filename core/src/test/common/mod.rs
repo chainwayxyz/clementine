@@ -26,9 +26,6 @@ use crate::musig2::{
     aggregate_nonces, aggregate_partial_signatures, nonce_pair, partial_sign,
     AggregateFromPublicKeys,
 };
-use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
-use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
-use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
 use crate::rpc::clementine::{Deposit, Empty, SendMoveTxRequest};
 use crate::rpc::clementine::{NormalSignatureKind, TaggedSignature};
 use crate::utils::FeePayingType;
@@ -41,18 +38,18 @@ use bitcoin::secp256k1::PublicKey;
 use bitcoin::XOnlyPublicKey;
 use bitcoin::{taproot, BlockHash, OutPoint, Transaction, Txid, Witness};
 use bitcoincore_rpc::RpcApi;
-use citrea::MockCitreaClient;
 use eyre::Context;
 pub use setup_utils::*;
 use std::path::Path;
 use std::process::Command;
 use std::sync::Mutex;
 use std::time::Duration;
-use tonic::transport::Channel;
+use test_actors::TestActors;
 use tonic::Request;
 
 pub mod citrea;
 mod setup_utils;
+pub mod test_actors;
 pub mod tx_utils;
 
 #[cfg(feature = "automation")]
@@ -233,10 +230,7 @@ pub async fn run_multiple_deposits<C: CitreaClientT>(
     count: usize,
 ) -> Result<
     (
-        Vec<ClementineVerifierClient<Channel>>,
-        Vec<ClementineOperatorClient<Channel>>,
-        ClementineAggregatorClient<Channel>,
-        ActorsCleanup,
+        TestActors<C>,
         Vec<DepositInfo>,
         Vec<Txid>,
         Vec<BlockHash>,
@@ -244,7 +238,8 @@ pub async fn run_multiple_deposits<C: CitreaClientT>(
     ),
     BridgeError,
 > {
-    let (verifiers, operators, mut aggregator, cleanup) = create_actors::<C>(config).await;
+    let actors = create_actors::<C>(config).await;
+    let mut aggregator = actors.get_aggregator();
 
     let evm_address = EVMAddress([1u8; 20]);
     let actor = Actor::new(
@@ -323,10 +318,7 @@ pub async fn run_multiple_deposits<C: CitreaClientT>(
     }
 
     Ok((
-        verifiers,
-        operators,
-        aggregator,
-        cleanup,
+        actors,
         deposit_infos,
         move_txids,
         deposit_blockhashes,
@@ -347,10 +339,7 @@ pub async fn run_multiple_deposits<C: CitreaClientT>(
 /// A big tuple, containing:
 ///
 /// - Server clients:
-///    - [`ClementineVerifierClient`]: A vector of verifier clients.
-///    - [`ClementineOperatorClient`]: A vector of operator clients.
-///    - [`ClementineAggregatorClient`]: The aggregator client.
-///    - [`ActorsCleanup`]: Cleanup handle for the servers. Must not be dropped.
+///    - [`TestActors`]: A helper struct holding all the verifiers, operators, and the aggregator.
 /// - [`DepositInfo`]: Information about the deposit.
 /// - [`Txid`]: TXID of the move transaction.
 /// - [`BlockHash`]: Block hash of the block where the user deposit was mined.
@@ -361,20 +350,8 @@ pub async fn run_single_deposit<C: CitreaClientT>(
     rpc: ExtendedRpc,
     evm_address: Option<EVMAddress>,
     deposit_outpoint: Option<OutPoint>, // if a deposit outpoint is provided, it will be used instead of creating a new one
-) -> Result<
-    (
-        Vec<ClementineVerifierClient<Channel>>,
-        Vec<ClementineOperatorClient<Channel>>,
-        ClementineAggregatorClient<Channel>,
-        ActorsCleanup,
-        DepositInfo,
-        Txid,
-        BlockHash,
-        Vec<PublicKey>,
-    ),
-    BridgeError,
-> {
-    let (verifiers, operators, mut aggregator, cleanup) = create_actors::<C>(config).await;
+) -> Result<(TestActors<C>, DepositInfo, Txid, BlockHash, Vec<PublicKey>), BridgeError> {
+    let actors = create_actors::<C>(config).await;
     let aggregator_db = Database::new(&BridgeConfig {
         db_name: config.db_name.clone() + "0",
         ..config.clone()
@@ -389,6 +366,7 @@ pub async fn run_single_deposit<C: CitreaClientT>(
     );
 
     let setup_start = std::time::Instant::now();
+    let mut aggregator = actors.get_aggregator();
     let verifiers_public_keys: Vec<PublicKey> = aggregator
         .setup(Request::new(Empty {}))
         .await
@@ -480,10 +458,7 @@ pub async fn run_single_deposit<C: CitreaClientT>(
     // );
 
     Ok((
-        verifiers,
-        operators,
-        aggregator,
-        cleanup,
+        actors,
         deposit_info,
         move_txid,
         deposit_blockhash,
@@ -571,32 +546,13 @@ fn sign_nofn_deposit_tx(
 }
 
 #[cfg(feature = "automation")]
-pub async fn run_replacement_deposit(
+pub async fn run_replacement_deposit<C: CitreaClientT>(
     config: &mut BridgeConfig,
     rpc: ExtendedRpc,
     evm_address: Option<EVMAddress>,
-) -> Result<
-    (
-        Vec<ClementineVerifierClient<Channel>>,
-        Vec<ClementineOperatorClient<Channel>>,
-        ClementineAggregatorClient<Channel>,
-        ActorsCleanup,
-        DepositInfo,
-        Txid,
-        BlockHash,
-    ),
-    BridgeError,
-> {
-    let (
-        verifiers,
-        operators,
-        mut aggregator,
-        cleanup,
-        _dep_params,
-        move_txid,
-        _,
-        verifiers_public_keys,
-    ) = run_single_deposit::<MockCitreaClient>(config, rpc.clone(), evm_address, None).await?;
+) -> Result<(TestActors<C>, DepositInfo, Txid, BlockHash), BridgeError> {
+    let (actors, _deposit_info, move_txid, _deposit_blockhash, verifiers_public_keys) =
+        run_single_deposit::<C>(config, rpc.clone(), evm_address, None).await?;
 
     let actor = Actor::new(
         config.secret_key,
@@ -692,9 +648,9 @@ pub async fn run_replacement_deposit(
         replacement_deposit_txid
     );
 
-    let deposit_blockhash = rpc.get_blockhash_of_tx(&replacement_deposit_txid).await?;
+    let replacement_deposit_blockhash = rpc.get_blockhash_of_tx(&replacement_deposit_txid).await?;
 
-    let deposit_info = DepositInfo {
+    let replacement_deposit_info = DepositInfo {
         deposit_outpoint: bitcoin::OutPoint {
             txid: replacement_deposit_txid,
             vout: 0,
@@ -704,8 +660,9 @@ pub async fn run_replacement_deposit(
         }),
     };
 
-    let deposit: Deposit = deposit_info.clone().into();
+    let deposit: Deposit = replacement_deposit_info.clone().into();
 
+    let mut aggregator = actors.get_aggregator();
     // First create the raw signed move-to-vault transaction for the replacement deposit
     let raw_signed_tx = aggregator
         .new_deposit(deposit)
@@ -715,7 +672,7 @@ pub async fn run_replacement_deposit(
     // Broadcast the move-to-vault transaction and get its Txid
     let move_txid: Txid = aggregator
         .send_move_to_vault_tx(SendMoveTxRequest {
-            deposit_outpoint: Some(deposit_info.deposit_outpoint.into()),
+            deposit_outpoint: Some(replacement_deposit_info.deposit_outpoint.into()),
             raw_tx: Some(raw_signed_tx),
         })
         .await
@@ -724,13 +681,10 @@ pub async fn run_replacement_deposit(
         .try_into()?;
 
     Ok((
-        verifiers,
-        operators,
-        aggregator,
-        cleanup,
-        deposit_info,
+        actors,
+        replacement_deposit_info,
         move_txid,
-        deposit_blockhash,
+        replacement_deposit_blockhash,
     ))
 }
 
