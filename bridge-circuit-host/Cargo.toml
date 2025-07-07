@@ -20,7 +20,6 @@ ark-relations = { workspace = true }
 ark-groth16 = { workspace = true }
 
 alloy-rpc-types = { workspace = true }
-alloy-rpc-client = { workspace = true }
 
 serde = { workspace = true }
 serde_json = { workspace = true }
