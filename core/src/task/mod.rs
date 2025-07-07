@@ -12,6 +12,9 @@ pub mod payout_checker;
 pub mod status_monitor;
 pub mod sync_status;
 
+/// The variant of the task, used for identifying the task in the status monitor
+/// Create a new enum variant for each task that you want to track in the status monitor
+/// BackgroundTaskManager will use TaskVariant to identify the tasks, to not start the same task twice.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TaskVariant {
     PayoutChecker,
@@ -33,7 +36,9 @@ pub enum TaskVariant {
 /// indicating whether it did work (true) or needs to wait (false).
 #[async_trait]
 pub trait Task: Send + Sync + 'static {
+    /// The output of the fn run_once
     type Output: Send + Sync + 'static + Sized;
+    /// The variant of the task
     const VARIANT: TaskVariant;
     /// Run the task once, returning whether work was done
     ///

@@ -203,10 +203,8 @@ where
 
     pub async fn get_current_status(&self) -> Result<EntityStatus, BridgeError> {
         let stopped_tasks = self.background_tasks.get_stopped_tasks().await;
-        #[cfg(feature = "automation")]
-        let automation_enabled = true;
-        #[cfg(not(feature = "automation"))]
-        let automation_enabled = false;
+        // Determine if automation is enabled
+        let automation_enabled = cfg!(feature = "automation");
 
         let sync_status =
             get_sync_status::<Operator<C>>(&self.operator.db, &self.operator.rpc).await?;

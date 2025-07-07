@@ -853,7 +853,7 @@ impl ClementineAggregator for Aggregator {
 
         let operator_clients = self.get_operator_clients();
         let verifier_clients = self.get_verifier_clients();
-        let mut operator_status = join_all(
+        let operator_status = join_all(
             operator_clients
                 .iter()
                 .zip(self.get_operator_keys().iter())
@@ -918,7 +918,9 @@ impl ClementineAggregator for Aggregator {
         )
         .await;
 
-        operator_status.extend(verifier_status.into_iter());
+        // Combine operator and verifier status into a single vector
+        let mut entities_status = operator_status;
+        entities_status.extend(verifier_status);
 
         // try to restart background tasks if needed
         if restart_tasks {
@@ -946,9 +948,7 @@ impl ClementineAggregator for Aggregator {
             )?;
         }
 
-        Ok(Response::new(EntitiesStatus {
-            entities_status: operator_status,
-        }))
+        Ok(Response::new(EntitiesStatus { entities_status }))
     }
 
     async fn optimistic_payout(
