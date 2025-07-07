@@ -281,6 +281,11 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     bridge_nonstandard: true,
 };
 
+pub const REGTEST_TEST_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [
+    169, 112, 29, 24, 28, 80, 174, 185, 242, 230, 91, 118, 239, 252, 94, 68, 180, 121, 104,
+    143, 218, 66, 167, 45, 11, 254, 235, 206, 146, 10, 177, 42,
+];
+
 pub const REGTEST_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [
     113, 136, 67, 135, 56, 140, 97, 131, 29, 124, 164, 12, 54, 0, 58, 215, 19, 251, 94, 52, 132,
     63, 168, 136, 32, 138, 53, 55, 239, 119, 181, 143,
@@ -337,7 +342,7 @@ mod tests {
         let calculated_regtest_bridge_circuit_constant =
             calculate_succinct_output_prefix(regtest_bridge_circuit_method_id.as_bytes());
 
-        let regtest_bridge_circuit_constant = REGTEST_PARAMSET.bridge_circuit_method_id_constant;
+        let regtest_bridge_circuit_constant = REGTEST_TEST_BRIDGE_CIRCUIT_CONSTANT;
         assert_eq!(
             calculated_regtest_bridge_circuit_constant,
             regtest_bridge_circuit_constant,
