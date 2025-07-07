@@ -4,13 +4,13 @@ use hex_literal::hex;
 
 /// Work-only circuit method IDs for different networks.
 pub static MAINNET_WORK_ONLY_METHOD_ID: [u8; 32] =
-    hex!("bfbc9b0a0c8af2ea0c2b8e54b0f06b9c7d862dc944ab0d95e7c18308fbc5b793");
+    hex!("76294e0a9127d54f5cdfaafb60be495cf85ae04e86262f1141927bded3ee865d");
 pub static TESTNET4_WORK_ONLY_METHOD_ID: [u8; 32] =
-    hex!("fd06dbc93ad27e3997f6cf7d754b7c30df3c606b929bca93554b204d922de51b");
+    hex!("6e5c772e36e8dbbfd90cd06d51ede0792d1c3d60bad91403bd72bf01045e1243");
 pub static REGTEST_WORK_ONLY_METHOD_ID: [u8; 32] =
-    hex!("948e25c4707a0ea2bedd1e6ef84f1bc8f03669c73882d2a19b404d3cd45d013a");
+    hex!("b5f195923e12e6d7af1b140cc8c94837f070b31e2b8be3004db7c894f7e0d6c6");
 pub static SIGNET_WORK_ONLY_METHOD_ID: [u8; 32] =
-    hex!("962ae374238fe686d2212409143c92793eb838d6dc0372880845277710ff1401");
+    hex!("12304a83a90549124bc7c6abbb85ade7a25a312fe24a4c481438c1fa5e8c8eab");
 
 // GROTH16 RELATED CONSTANTS
 pub static POST_STATE: [u8; 32] =
@@ -24,10 +24,10 @@ pub static CLAIM_TAG: [u8; 32] =
 pub static OUTPUT_TAG: [u8; 32] =
     hex_literal::hex!("77eafeb366a78b47747de0d7bb176284085ff5564887009a5be63da32d3559d4"); // hash of "risc0.Output"
 
-pub const A0_BIGINT: BigInt<4> = BigInt::new([3584412468423285388, 5573840904707615506, 0, 0]);
+pub const A0_BIGINT: BigInt<4> = BigInt::new([3642024781819757448, 7056707323904088903, 0, 0]);
 pub const A0_ARK: ark_ff::Fp<ark_ff::MontBackend<ark_bn254::FrConfig, 4>, 4> = Fr::new(A0_BIGINT);
 
-pub const A1_BIGINT: BigInt<4> = BigInt::new([3118573868620133879, 7567222285189782870, 0, 0]);
+pub const A1_BIGINT: BigInt<4> = BigInt::new([2320229930753554331, 6984597893759827489, 0, 0]);
 pub const A1_ARK: ark_ff::Fp<ark_ff::MontBackend<ark_bn254::FrConfig, 4>, 4> = Fr::new(A1_BIGINT);
 
 pub const BN_254_CONTROL_ID_BIGINT: BigInt<4> = BigInt::new([
@@ -42,3 +42,13 @@ pub const BN_254_CONTROL_ID_ARK: ark_ff::Fp<ark_ff::MontBackend<ark_bn254::FrCon
 pub const PREPARED_VK: &[u8] = include_bytes!("bin/prepared_vk.bin");
 
 pub const TEST_PREPARED_VK: &[u8] = include_bytes!("bin/test_prepared_vk.bin");
+
+#[cfg(feature = "use-test-vk")]
+pub fn get_prepared_vk() -> &'static [u8] {
+    TEST_PREPARED_VK
+}
+
+#[cfg(not(feature = "use-test-vk"))]
+pub fn get_prepared_vk() -> &'static [u8] {
+    PREPARED_VK
+}

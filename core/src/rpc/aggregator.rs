@@ -1636,6 +1636,7 @@ mod tests {
     use tokio::time::sleep;
     use tonic::Status;
 
+    #[cfg(feature = "automation")]
     async fn perform_deposit(mut config: BridgeConfig) -> Result<(), Status> {
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc();
@@ -2052,6 +2053,7 @@ mod tests {
         .unwrap();
     }
 
+    #[cfg(feature = "automation")]
     #[tokio::test]
     #[ignore = "This test does not work"]
     async fn aggregator_deposit_finalize_verifier_timeout() {
@@ -2070,6 +2072,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "automation")]
     #[tokio::test]
     async fn aggregator_deposit_key_distribution_verifier_timeout() {
         let mut config = create_test_config_with_thread_name().await;
@@ -2089,6 +2092,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "automation")]
     #[tokio::test]
     async fn aggregator_deposit_key_distribution_operator_timeout() {
         let mut config = create_test_config_with_thread_name().await;
@@ -2108,6 +2112,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "automation")]
     #[tokio::test]
     async fn aggregator_deposit_nonce_stream_creation_verifier_timeout() {
         let mut config = create_test_config_with_thread_name().await;
@@ -2127,6 +2132,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "automation")]
     #[tokio::test]
     async fn aggregator_deposit_partial_sig_stream_creation_timeout() {
         let mut config = create_test_config_with_thread_name().await;
@@ -2146,6 +2152,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "automation")]
     #[tokio::test]
     async fn aggregator_deposit_operator_sig_collection_operator_timeout() {
         let mut config = create_test_config_with_thread_name().await;

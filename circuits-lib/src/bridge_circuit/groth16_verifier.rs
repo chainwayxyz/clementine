@@ -6,8 +6,8 @@ use num_bigint::BigUint;
 use num_traits::Num;
 
 use super::constants::{
-    A0_ARK, A1_ARK, ASSUMPTIONS, BN_254_CONTROL_ID_ARK, CLAIM_TAG, INPUT, OUTPUT_TAG, POST_STATE,
-    PREPARED_VK,
+    get_prepared_vk, A0_ARK, A1_ARK, ASSUMPTIONS, BN_254_CONTROL_ID_ARK, CLAIM_TAG, INPUT,
+    OUTPUT_TAG, POST_STATE,
 };
 use super::groth16::CircuitGroth16Proof;
 use super::structs::WorkOnlyCircuitOutput;
@@ -90,8 +90,11 @@ impl CircuitGroth16WithTotalWork {
     /// verifies the Groth16 proof against the prepared Verifying Key (VK) and the public inputs.
     pub fn verify(&self, pre_state: &[u8; 32]) -> bool {
         let ark_proof: Proof<Bn254> = self.groth16_seal.into();
+
+        let prepared_vk: &[u8] = get_prepared_vk();
+
         let prepared_vk: PreparedVerifyingKey<ark_ec::bn::Bn<ark_bn254::Config>> =
-            CanonicalDeserialize::deserialize_uncompressed(PREPARED_VK).unwrap();
+            CanonicalDeserialize::deserialize_uncompressed(prepared_vk).unwrap();
 
         let output_digest = create_output_digest(&WorkOnlyCircuitOutput {
             work_u128: self.total_work,

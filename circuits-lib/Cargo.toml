@@ -48,4 +48,5 @@ lazy_static = { workspace = true }
 citrea-sov-rollup-interface = { workspace = true }
 
 [features]
-not_patched = []
+default = []
+use-test-vk = []

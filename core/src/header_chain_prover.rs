@@ -539,11 +539,13 @@ impl HeaderChainProver {
             .ok_or_eyre("No proofs found before the given block hash")?;
 
         if latest_proven_block.2 == height as u64 {
-            self.db
+            let receipt = self
+                .db
                 .get_block_proof_by_hash(None, latest_proven_block.0)
                 .await
                 .wrap_err("Failed to get block proof")?
                 .ok_or(eyre!("Failed to get block proof"))?;
+            return Ok((receipt, height as u64));
         }
 
         let block_headers = self

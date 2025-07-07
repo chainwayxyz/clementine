@@ -8,6 +8,7 @@ use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE};
 use crate::citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER};
 use crate::config::protocol::{self, ProtocolParamset};
+use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::deposit::KickoffData;
 use crate::errors::ResultExt;
@@ -18,11 +19,13 @@ use crate::rpc::clementine::{
     SendTxRequest, TransactionRequest, WithdrawParams,
 };
 use crate::test::common::citrea::{get_citrea_safe_withdraw_params, MockCitreaClient, SECRET_KEYS};
-use crate::test::common::tx_utils::get_tx_from_signed_txs_with_type;
 use crate::test::common::tx_utils::{
     create_tx_sender, ensure_outpoint_spent,
     ensure_outpoint_spent_while_waiting_for_light_client_sync, ensure_tx_onchain,
     get_txid_where_utxo_is_spent, mine_once_after_outpoint_spent_in_mempool,
+};
+use crate::test::common::tx_utils::{
+    get_tx_from_signed_txs_with_type, wait_for_fee_payer_utxos_to_be_in_mempool,
 };
 use crate::test::common::{
     create_regtest_rpc, generate_withdrawal_transaction_and_signature, mine_once_after_in_mempool,
@@ -190,10 +193,8 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             rpc.client.get_block_count().await?
         );
 
-        // Wait for TXs to be on-chain (CPFP etc.).
         rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-
         for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
             sequencer.client.send_publish_batch_request().await.unwrap();
         }
@@ -277,10 +278,8 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 
         let block_height = rpc.client.get_block_count().await.unwrap();
 
-        // Wait for TXs to be on-chain (CPFP etc.).
         rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-
         for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
             sequencer.client.send_publish_batch_request().await.unwrap();
         }
@@ -476,7 +475,6 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             vout: UtxoVout::ReimburseInKickoff.get_vout(),
         };
 
-        // Wait for the kickoff tx to be onchain
         let kickoff_block_height =
             mine_once_after_in_mempool(&rpc, kickoff_txid, Some("Kickoff tx"), Some(300)).await?;
 
@@ -888,7 +886,6 @@ async fn mock_citrea_run_truthful() {
         vout: UtxoVout::ReimburseInKickoff.get_vout(),
     };
 
-    // Wait for the kickoff tx to be onchain
     let _kickoff_block_height =
         mine_once_after_in_mempool(&rpc, kickoff_txid, Some("Kickoff tx"), Some(300))
             .await
@@ -1155,6 +1152,12 @@ async fn mock_citrea_run_malicious() {
     ) = run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None)
         .await
         .unwrap();
+    let db = Database::new(&BridgeConfig {
+        db_name: config.db_name.clone() + "0",
+        ..config.clone()
+    })
+    .await
+    .expect("failed to create database");
 
     // sleep for 1 second
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
@@ -1249,7 +1252,6 @@ async fn mock_citrea_run_malicious() {
 
     tracing::info!("Kickoff txid: {:?}", kickoff_txid);
 
-    // Wait for the kickoff tx to be onchain
     let _kickoff_block_height =
         mine_once_after_in_mempool(&rpc, kickoff_txid, Some("Kickoff tx"), Some(1800))
             .await
@@ -1288,6 +1290,10 @@ async fn mock_citrea_run_malicious() {
         .try_into()
         .unwrap();
 
+    wait_for_fee_payer_utxos_to_be_in_mempool(&rpc, db, kickoff_txid_2)
+        .await
+        .unwrap();
+    rpc.mine_blocks(1).await.unwrap();
     let _kickoff_block_height2 =
         mine_once_after_in_mempool(&rpc, kickoff_txid_2, Some("Kickoff tx2"), Some(1800))
             .await
@@ -1361,6 +1367,12 @@ async fn mock_citrea_run_malicious_after_exit() {
     ) = run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None)
         .await
         .unwrap();
+    let db = Database::new(&BridgeConfig {
+        db_name: config.db_name.clone() + "0",
+        ..config.clone()
+    })
+    .await
+    .expect("failed to create database");
 
     // sleep for 1 second
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
@@ -1529,7 +1541,6 @@ async fn mock_citrea_run_malicious_after_exit() {
         .try_into()
         .unwrap();
 
-    // Wait for the kickoff tx to be onchain
     let _kickoff_block_height =
         mine_once_after_in_mempool(&rpc, kickoff_txid, Some("Kickoff tx"), Some(1800))
             .await

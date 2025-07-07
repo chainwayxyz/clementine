@@ -274,23 +274,28 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     ],
     header_chain_proof_batch_size: 100,
     bridge_circuit_method_id_constant: [
-        122, 210, 204, 155, 203, 206, 216, 8, 126, 117, 61, 91, 47, 85, 69, 147, 68, 196, 156, 234,
-        75, 17, 119, 195, 91, 121, 62, 254, 13, 195, 48, 238,
+        198, 242, 87, 76, 224, 92, 162, 192, 202, 28, 93, 99, 1, 253, 199, 11, 213, 154, 171, 254,
+        206, 29, 75, 91, 77, 113, 217, 60, 61, 233, 84, 59,
     ],
     bridge_nonstandard: true,
 };
 
+pub const REGTEST_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [
+    113, 136, 67, 135, 56, 140, 97, 131, 29, 124, 164, 12, 54, 0, 58, 215, 19, 251, 94, 52, 132,
+    63, 168, 136, 32, 138, 53, 55, 239, 119, 181, 143,
+];
+
 pub const SIGNET_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [
-    52, 23, 169, 35, 5, 10, 197, 40, 135, 145, 196, 190, 148, 7, 127, 52, 246, 105, 197, 227, 140,
-    51, 204, 184, 180, 238, 95, 34, 11, 203, 120, 57,
+    129, 122, 106, 96, 89, 86, 213, 212, 86, 237, 222, 133, 43, 33, 11, 148, 243, 204, 121, 13,
+    109, 35, 112, 162, 231, 44, 73, 229, 155, 132, 73, 50,
 ];
 pub const MAINNET_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [
-    2, 86, 35, 236, 99, 172, 34, 193, 71, 224, 59, 102, 246, 94, 242, 12, 11, 64, 209, 82, 76, 148,
-    53, 214, 23, 144, 71, 198, 174, 225, 174, 96,
+    238, 125, 50, 120, 229, 236, 180, 238, 66, 64, 67, 119, 179, 190, 34, 146, 132, 243, 199, 112,
+    6, 80, 62, 73, 173, 46, 16, 100, 253, 69, 221, 174,
 ];
 pub const TESTNET4_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [
-    245, 159, 161, 38, 62, 12, 230, 118, 90, 195, 152, 119, 78, 162, 58, 39, 81, 76, 177, 139, 97,
-    96, 170, 31, 131, 123, 90, 255, 185, 72, 65, 25,
+    114, 178, 68, 208, 63, 103, 65, 250, 57, 157, 254, 21, 198, 3, 142, 158, 172, 10, 60, 10, 88,
+    153, 219, 116, 3, 146, 40, 136, 243, 94, 7, 169,
 ];
 
 #[cfg(test)]
@@ -317,6 +322,25 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_regtest_test_bridge_circuit_constant() {
+        let regtest_bridge_elf =
+            include_bytes!("../../../risc0-circuits/elfs/test-regtest-bridge-circuit-guest.bin");
+        let regtest_bridge_circuit_method_id =
+            compute_image_id(regtest_bridge_elf).expect("should compute image id");
+        let calculated_regtest_bridge_circuit_constant =
+            calculate_succinct_output_prefix(regtest_bridge_circuit_method_id.as_bytes());
+
+        let regtest_bridge_circuit_constant = REGTEST_PARAMSET.bridge_circuit_method_id_constant;
+        assert_eq!(
+            calculated_regtest_bridge_circuit_constant,
+            regtest_bridge_circuit_constant,
+            "You forgot to update regtest-(test) bridge_circuit_constant with the new method id. Please change it in these places: core/src/config/protocol.rs -> REGTEST_PARAMSET -> bridge_circuit_method_id_constant. The expected value is: {:?}, hex format: {:?}",
+            calculated_regtest_bridge_circuit_constant,
+            hex::encode(calculated_regtest_bridge_circuit_constant)
+        );
+    }
+
+    #[test]
     fn test_regtest_bridge_circuit_constant() {
         let regtest_bridge_elf =
             include_bytes!("../../../risc0-circuits/elfs/regtest-bridge-circuit-guest.bin");
@@ -325,7 +349,7 @@ mod tests {
         let calculated_regtest_bridge_circuit_constant =
             calculate_succinct_output_prefix(regtest_bridge_circuit_method_id.as_bytes());
 
-        let regtest_bridge_circuit_constant = REGTEST_PARAMSET.bridge_circuit_method_id_constant;
+        let regtest_bridge_circuit_constant = REGTEST_BRIDGE_CIRCUIT_CONSTANT;
         assert_eq!(
             calculated_regtest_bridge_circuit_constant,
             regtest_bridge_circuit_constant,

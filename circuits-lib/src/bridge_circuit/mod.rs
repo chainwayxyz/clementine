@@ -221,6 +221,7 @@ fn convert_to_groth16_and_verify(
     };
 
     let groth16_proof = CircuitGroth16WithTotalWork::new(seal, total_work, genesis_state_hash);
+
     groth16_proof.verify(image_id)
 }
 
