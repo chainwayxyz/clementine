@@ -8,12 +8,16 @@ pub mod storage_proof;
 pub mod structs;
 pub mod transaction;
 
-use crate::common::{
-    constants::{
-        MAINNET_HEADER_CHAIN_METHOD_ID, MAX_NUMBER_OF_WATCHTOWERS, REGTEST_HEADER_CHAIN_METHOD_ID,
-        SIGNET_HEADER_CHAIN_METHOD_ID, TESTNET4_HEADER_CHAIN_METHOD_ID,
+use crate::{
+    bridge_circuit::transaction::CircuitTransaction,
+    common::{
+        constants::{
+            MAINNET_HEADER_CHAIN_METHOD_ID, MAX_NUMBER_OF_WATCHTOWERS,
+            REGTEST_HEADER_CHAIN_METHOD_ID, SIGNET_HEADER_CHAIN_METHOD_ID,
+            TESTNET4_HEADER_CHAIN_METHOD_ID,
+        },
+        zkvm::ZkvmGuest,
     },
-    zkvm::ZkvmGuest,
 };
 use bitcoin::{
     consensus::Encodable,
@@ -150,7 +154,8 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
         "Invalid withdrawal transaction output index"
     );
 
-    let last_output = input.payout_spv.transaction.output.last().unwrap();
+    let first_op_return_output = get_first_op_return_output(&input.payout_spv.transaction)
+        .expect("Payout transaction must have an OP_RETURN output");
 
     let round_txid = input.kickoff_tx.input[0]
         .previous_output
@@ -158,7 +163,7 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
         .to_byte_array();
     let kickoff_round_vout = input.kickoff_tx.input[0].previous_output.vout;
 
-    let operator_xonlypk: [u8; 32] = parse_op_return_data(&last_output.script_pubkey)
+    let operator_xonlypk: [u8; 32] = parse_op_return_data(&first_op_return_output.script_pubkey)
         .expect("Invalid operator xonlypk")
         .try_into()
         .expect("Invalid xonlypk");
@@ -615,6 +620,14 @@ pub fn journal_hash(
     let concat_journal = [deposit_constant.0, *hash_bytes].concat();
 
     blake3::hash(&concat_journal)
+}
+
+/// Retrieves the first output of a transaction that is an OP_RETURN script. Used to retrieve
+/// the operator's X-only public key from the OP_RETURN output in the payout transaction.
+fn get_first_op_return_output(tx: &CircuitTransaction) -> Option<&TxOut> {
+    tx.output
+        .iter()
+        .find(|out| out.script_pubkey.is_op_return())
 }
 
 /// Computes the Taproot sighash for a given transaction input.
