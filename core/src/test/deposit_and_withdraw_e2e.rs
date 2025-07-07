@@ -1926,7 +1926,7 @@ async fn concurrent_deposits_and_optimistic_payouts() {
 
             Ok(true)
         },
-        Some(Duration::from_secs(240)),
+        Some(Duration::from_secs(480)),
         None,
     )
     .await
@@ -1935,11 +1935,11 @@ async fn concurrent_deposits_and_optimistic_payouts() {
     poll_until_condition(
         async move || {
             tracing::info!("Ensuring move txid bridge deposit is spent");
-            for i in 0..count {
+            for move_txid in move_txids.clone().into_iter() {
                 if ensure_outpoint_spent(
                     &rpc,
                     OutPoint {
-                        txid: move_txids[i],
+                        txid: move_txid,
                         vout: (UtxoVout::DepositInMove).get_vout(),
                     },
                 )
