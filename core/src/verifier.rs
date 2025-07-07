@@ -586,11 +586,15 @@ where
             .await?;
 
         tokio::spawn(async move {
-            let mut session_map = verifier.nonces.lock().await;
-            let session = session_map
-                .sessions
-                .get_mut(&session_id)
-                .ok_or_else(|| eyre::eyre!("Could not find session id {session_id}"))?;
+            // Take the lock and extract the session before entering the async block
+            // Extract the session and remove it from the map to release the lock early
+            let mut session = {
+                let mut session_map = verifier.nonces.lock().await;
+                session_map
+                    .sessions
+                    .remove(&session_id)
+                    .ok_or_else(|| eyre::eyre!("Could not find session id {session_id}"))?
+            };
             session.nonces.reverse();
 
             let mut nonce_idx: usize = 0;
@@ -654,6 +658,12 @@ where
                     session.nonces.len()
                 ).into());
             }
+
+            let mut session_map = verifier.nonces.lock().await;
+            session_map
+                .sessions
+                .insert(session_id, session)
+                .ok_or_else(|| eyre::eyre!("Could not find session id {session_id}"))?;
 
             Ok::<(), BridgeError>(())
         });
@@ -1515,29 +1525,30 @@ where
         l2_height_end: u64,
         block_height: u32,
     ) -> Result<(), BridgeError> {
-        tracing::debug!("Updating citrea deposit and withdrawals");
-
         let last_deposit_idx = self.db.get_last_deposit_idx(None).await?;
-        tracing::debug!("Last deposit idx: {:?}", last_deposit_idx);
+        tracing::debug!("Last Citrea deposit idx: {:?}", last_deposit_idx);
 
         let last_withdrawal_idx = self.db.get_last_withdrawal_idx(None).await?;
-        tracing::debug!("Last withdrawal idx: {:?}", last_withdrawal_idx);
+        tracing::debug!("Last Citrea withdrawal idx: {:?}", last_withdrawal_idx);
 
         let new_deposits = self
             .citrea_client
             .collect_deposit_move_txids(last_deposit_idx, l2_height_end)
             .await?;
-        tracing::debug!("New deposits: {:?}", new_deposits);
+        tracing::debug!("New deposits received from Citrea: {:?}", new_deposits);
 
         let new_withdrawals = self
             .citrea_client
             .collect_withdrawal_utxos(last_withdrawal_idx, l2_height_end)
             .await?;
-        tracing::debug!("New Withdrawals: {:?}", new_withdrawals);
+        tracing::debug!(
+            "New withdrawals received from Citrea: {:?}",
+            new_withdrawals
+        );
 
         for (idx, move_to_vault_txid) in new_deposits {
             tracing::info!(
-                "Setting move to vault txid: {:?} with index {}",
+                "Saving move to vault txid {:?} with index {} for Citrea deposits",
                 move_to_vault_txid,
                 idx
             );
@@ -1549,9 +1560,10 @@ where
                 )
                 .await?;
         }
+
         for (idx, withdrawal_utxo_outpoint) in new_withdrawals {
             tracing::info!(
-                "Setting withdrawal utxo: {:?} with index {}",
+                "Saving withdrawal utxo {:?} with index {} for Citrea withdrawals",
                 withdrawal_utxo_outpoint,
                 idx
             );
@@ -2353,20 +2365,14 @@ where
         let max_attempts = light_client_proof_wait_interval_secs.unwrap_or(TEN_MINUTES_IN_SECS);
         let timeout = Duration::from_secs(max_attempts as u64);
 
-        let l2_range_result = self
+        let (l2_height_start, l2_height_end) = self
             .citrea_client
             .get_citrea_l2_height_range(block_height.into(), timeout)
-            .await;
-        if let Err(e) = l2_range_result {
-            tracing::error!("Error getting citrea l2 height range: {:?}", e);
-            return Err(e);
-        }
-
-        let (l2_height_start, l2_height_end) =
-            l2_range_result.expect("Failed to get citrea l2 height range");
+            .await
+            .inspect_err(|e| tracing::error!("Error getting citrea l2 height range: {:?}", e))?;
 
         tracing::debug!(
-            "l2_height_start: {:?}, l2_height_end: {:?}, collecting deposits and withdrawals",
+            "l2_height_start: {:?}, l2_height_end: {:?}, collecting deposits and withdrawals...",
             l2_height_start,
             l2_height_end
         );
