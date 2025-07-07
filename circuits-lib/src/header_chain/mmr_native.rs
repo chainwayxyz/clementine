@@ -159,7 +159,7 @@ mod tests {
         let mmr = MMRNative::new();
         let result = mmr.generate_proof(0);
         assert!(result.is_err());
-        assert_eq!(result.unwrap_err().to_string(), "MMR is empty");
+        assert_eq!(result.unwrap_err().to_string(), "MMR Native is empty");
     }
 
     #[test]
