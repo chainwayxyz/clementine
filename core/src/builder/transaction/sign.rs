@@ -147,8 +147,7 @@ pub async fn create_and_sign_txs(
     let mut tweak_cache = TweakCache::default();
 
     for (tx_type, mut txhandler) in txhandlers.into_iter() {
-        let result =
-            signer.tx_sign_and_fill_sigs(&mut txhandler, &signatures, Some(&mut tweak_cache));
+        let _ = signer.tx_sign_and_fill_sigs(&mut txhandler, &signatures, Some(&mut tweak_cache));
 
         if let TransactionType::OperatorChallengeAck(watchtower_idx) = tx_type {
             let path = WinternitzDerivationPath::ChallengeAckHash(

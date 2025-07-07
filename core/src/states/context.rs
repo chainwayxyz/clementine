@@ -176,7 +176,7 @@ impl<T: Owner> StateContext<T> {
     /// ensures that all errors are collected and reported in a single place.
     /// In general, it's expected that the closure attaches context about the
     /// state machine to the error report.  You may check
-    /// [`KickoffStateMachine::wrap_err`] and [`RoundStateMachine::wrap_err`]
+    /// `KickoffStateMachine::wrap_err` and `RoundStateMachine::wrap_err`
     /// for an example implementation of an error wrapper utility function.
     ///
     /// # Parameters

@@ -7,11 +7,10 @@ use crate::builder::transaction::input::{SpendableTxIn, UtxoVout};
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE};
 use crate::citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER};
-use crate::config::protocol::{self, ProtocolParamset};
+use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::deposit::KickoffData;
-use crate::errors::ResultExt;
 use crate::header_chain_prover::HeaderChainProver;
 use crate::operator::RoundIndex;
 use crate::rpc::clementine::{
@@ -40,7 +39,7 @@ use crate::{
         create_test_config_with_thread_name,
     },
 };
-use alloy::primitives::{U256, U32};
+use alloy::primitives::U256;
 use async_trait::async_trait;
 use bitcoin::hashes::Hash;
 use bitcoin::{secp256k1::SecretKey, Address, Amount};
@@ -55,7 +54,6 @@ use citrea_e2e::{
     Result,
 };
 use eyre::Context;
-use once_cell::sync::{Lazy, OnceCell};
 use std::time::Duration;
 
 #[derive(PartialEq)]

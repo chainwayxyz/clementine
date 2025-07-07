@@ -83,6 +83,7 @@ pub enum DisprovePath<'a> {
 ///
 /// # Returns
 /// A [`TxHandler`] for the kickoff transaction, or a [`BridgeError`] if construction fails.
+#[allow(clippy::too_many_arguments)]
 pub fn create_kickoff_txhandler(
     kickoff_data: KickoffData,
     round_txhandler: &TxHandler,

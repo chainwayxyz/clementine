@@ -12,8 +12,7 @@ use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::builder::transaction::{
     create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler,
-    create_round_txhandlers, create_txhandlers, ContractContext, KickoffWinternitzKeys,
-    ReimburseDbCache, TransactionType, TxHandler, TxHandlerCache,
+    create_round_txhandlers, ContractContext, KickoffWinternitzKeys, TransactionType, TxHandler,
 };
 use crate::citrea::CitreaClientT;
 use crate::config::BridgeConfig;
@@ -1665,7 +1664,6 @@ where
 #[cfg(feature = "automation")]
 mod states {
     use super::*;
-    use crate::builder::transaction::input::UtxoVout;
     use crate::builder::transaction::{
         create_txhandlers, ContractContext, ReimburseDbCache, TransactionType, TxHandler,
         TxHandlerCache,
