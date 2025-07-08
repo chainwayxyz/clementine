@@ -228,6 +228,7 @@ pub async fn run_multiple_deposits<C: CitreaClientT>(
     config: &mut BridgeConfig,
     rpc: ExtendedRpc,
     count: usize,
+    test_actors: Option<TestActors<C>>,
 ) -> Result<
     (
         TestActors<C>,
@@ -238,7 +239,7 @@ pub async fn run_multiple_deposits<C: CitreaClientT>(
     ),
     BridgeError,
 > {
-    let actors = create_actors::<C>(config).await;
+    let actors = test_actors.unwrap_or(create_actors::<C>(config).await);
     let mut aggregator = actors.get_aggregator();
 
     let evm_address = EVMAddress([1u8; 20]);
@@ -293,24 +294,10 @@ pub async fn run_multiple_deposits<C: CitreaClientT>(
             .expect("failed to send movetx")
             .into_inner()
             .try_into()?;
-        rpc.mine_blocks(1).await?;
 
-        let _tx = poll_get(
-            async || {
-                rpc.mine_blocks(1).await?;
-
-                let tx_result = rpc.client.get_raw_transaction_info(&move_txid, None).await;
-
-                let _ = tx_result.as_ref().inspect_err(|e| {
-                    tracing::info!("Waiting for transaction to be on-chain: {}", e);
-                });
-
-                Ok(tx_result.ok())
-            },
-            None,
-            None,
-        )
-        .await?;
+        if !rpc.is_tx_on_chain(&move_txid).await? {
+            mine_once_after_in_mempool(&rpc, move_txid, Some("Move tx"), Some(180)).await?;
+        }
 
         let deposit_blockhash = rpc.get_blockhash_of_tx(&deposit_outpoint.txid).await?;
         deposit_blockhashes.push(deposit_blockhash);

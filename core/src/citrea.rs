@@ -165,19 +165,6 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
         l2_height: u64,
         deposit_index: u32,
     ) -> Result<StorageProof, BridgeError>;
-
-    /// Updates the nofn aggregated key in the Citrea contract.
-    ///
-    /// # Parameters
-    ///
-    /// - `nofn_xonly_pk`: The new nofn aggregated key.
-    /// - `paramset`: The protocol paramset.
-    #[cfg(test)]
-    async fn update_nofn_aggregated_key(
-        &self,
-        nofn_xonly_pk: XOnlyPublicKey,
-        paramset: &'static crate::config::protocol::ProtocolParamset,
-    ) -> Result<(), BridgeError>;
 }
 
 /// Citrea client is responsible for interacting with the Citrea EVM and Citrea
@@ -224,6 +211,83 @@ impl CitreaClient {
         }
 
         Ok(logs)
+    }
+
+    #[cfg(test)]
+    pub async fn update_nofn_aggregated_key(
+        &self,
+        nofn_xonly_pk: XOnlyPublicKey,
+        paramset: &'static crate::config::protocol::ProtocolParamset,
+        sequencer: &citrea_e2e::node::Node<citrea_e2e::config::SequencerConfig>,
+    ) -> eyre::Result<()> {
+        use std::str::FromStr;
+
+        use crate::deposit::{
+            Actors, BaseDepositData, DepositData, DepositInfo, DepositType, SecurityCouncil,
+        };
+        use crate::EVMAddress;
+
+        // create a dummy script with nofn xonly pk
+        let dummy_evm_address: EVMAddress = EVMAddress(std::array::from_fn(|i| i as u8));
+        let mut dummy_base_deposit_data = DepositData {
+            nofn_xonly_pk: Some(nofn_xonly_pk),
+            deposit: DepositInfo {
+                deposit_outpoint: OutPoint::default(),
+                deposit_type: DepositType::BaseDeposit(BaseDepositData {
+                    evm_address: dummy_evm_address,
+                    recovery_taproot_address: bitcoin::Address::from_str(
+                        "bcrt1p65yp9q9fxtf7dyvthyrx26xxm2czanvrnh9rtvphmlsjvhdt4k6qw4pkss", // dummy address
+                    )
+                    .unwrap(),
+                }),
+            },
+            actors: Actors {
+                verifiers: vec![],
+                watchtowers: vec![],
+                operators: vec![],
+            },
+            security_council: SecurityCouncil {
+                pks: vec![],
+                threshold: 0,
+            },
+        };
+
+        let base_deposit_script =
+            dummy_base_deposit_data.get_deposit_scripts(paramset)?[0].to_script_buf();
+
+        tracing::warn!("base_deposit_script: {:?}", base_deposit_script.as_bytes());
+
+        let (deposit_prefix, deposit_suffix) =
+            crate::test::common::citrea::extract_suffix_and_prefix_from_script(
+                base_deposit_script,
+                &dummy_evm_address.0,
+            )?;
+
+        // Make the transaction more explicit
+        let send_req = self
+            .contract
+            .setDepositScript(deposit_prefix.into(), deposit_suffix.into())
+            .from(self.wallet_address)
+            .send()
+            .await
+            .wrap_err("Failed to update nofn aggregated key")?;
+
+        for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
+            sequencer
+                .client
+                .send_publish_batch_request()
+                .await
+                .map_err(|e| eyre::eyre!("Failed to publish batch: {:?}", e))?;
+        }
+        send_req.get_receipt().await?;
+
+        // self.contract
+        //     .setReplacementScript(replacementPrefix, replacementSuffix)
+        //     .call()
+        //     .await
+        //     .wrap_err("Failed to update nofn aggregated key")?;
+
+        Ok(())
     }
 }
 
@@ -588,69 +652,6 @@ impl CitreaClientT for CitreaClient {
         if contract_nofn_xonly_pk != nofn_xonly_pk {
             return Err(eyre::eyre!("Nofn of deposit does not match with citrea contract").into());
         }
-        Ok(())
-    }
-
-    #[cfg(test)]
-    async fn update_nofn_aggregated_key(
-        &self,
-        nofn_xonly_pk: XOnlyPublicKey,
-        paramset: &'static crate::config::protocol::ProtocolParamset,
-    ) -> Result<(), BridgeError> {
-        use std::str::FromStr;
-
-        use crate::deposit::{
-            Actors, BaseDepositData, DepositData, DepositInfo, DepositType, SecurityCouncil,
-        };
-        use crate::EVMAddress;
-
-        // create a dummy script with nofn xonly pk
-        let dummy_evm_address: EVMAddress = EVMAddress(std::array::from_fn(|i| i as u8));
-        let mut dummy_base_deposit_data = DepositData {
-            nofn_xonly_pk: Some(nofn_xonly_pk),
-            deposit: DepositInfo {
-                deposit_outpoint: OutPoint::default(),
-                deposit_type: DepositType::BaseDeposit(BaseDepositData {
-                    evm_address: dummy_evm_address,
-                    recovery_taproot_address: bitcoin::Address::from_str(
-                        "bcrt1p65yp9q9fxtf7dyvthyrx26xxm2czanvrnh9rtvphmlsjvhdt4k6qw4pkss",
-                    )
-                    .unwrap(),
-                }),
-            },
-            actors: Actors {
-                verifiers: vec![],
-                watchtowers: vec![],
-                operators: vec![],
-            },
-            security_council: SecurityCouncil {
-                pks: vec![],
-                threshold: 0,
-            },
-        };
-
-        let base_deposit_script =
-            dummy_base_deposit_data.get_deposit_scripts(paramset)?[0].to_script_buf();
-        tracing::warn!("Base deposit script: {:?}", base_deposit_script);
-
-        let (deposit_prefix, deposit_suffix) =
-            crate::deposit::extract_suffix_and_prefix_from_script(
-                &base_deposit_script,
-                &dummy_evm_address.0,
-            );
-
-        // self.contract
-        //     .setDepositScript(depositPrefix, depositSuffix)
-        //     .call()
-        //     .await
-        //     .wrap_err("Failed to update nofn aggregated key")?;
-
-        // self.contract
-        //     .setReplacementScript(replacementPrefix, replacementSuffix)
-        //     .call()
-        //     .await
-        //     .wrap_err("Failed to update nofn aggregated key")?;
-
         Ok(())
     }
 }

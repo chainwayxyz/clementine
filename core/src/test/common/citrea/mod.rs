@@ -1,8 +1,28 @@
 //! # Citrea Related Utilities
 
+use crate::bitvm_client::SECP;
+use crate::builder::transaction::input::UtxoVout;
+use crate::builder::transaction::TransactionType;
+use crate::citrea::{CitreaClient, SATS_TO_WEI_MULTIPLIER};
+use crate::database::Database;
+use crate::deposit::{DepositInfo, KickoffData};
+use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::AggregateFromPublicKeys;
+use crate::operator::RoundIndex;
+use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
+use crate::rpc::clementine::{TransactionRequest, WithdrawParams};
+use crate::test::common::tx_utils::{create_tx_sender, mine_once_after_outpoint_spent_in_mempool};
+use crate::test::common::{
+    generate_withdrawal_transaction_and_signature, mine_once_after_in_mempool,
+};
+use crate::utils::{FeePayingType, TxMetadata};
 use crate::{config::BridgeConfig, errors::BridgeError};
-use bitcoin::secp256k1::PublicKey;
+use alloy::primitives::U256;
+use bitcoin::hashes::Hash;
+use bitcoin::secp256k1::{PublicKey, SecretKey};
+use bitcoin::{Address, Amount, OutPoint, TxOut, Txid, XOnlyPublicKey};
+use bitcoincore_rpc::RpcApi;
+use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
 use citrea_e2e::{
     bitcoin::BitcoinNode,
     config::{BatchProverConfig, EmptyConfig, LightClientProverConfig, SequencerConfig},
@@ -152,4 +172,422 @@ pub async fn wait_until_lc_contract_updated(
         tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
     }
     Ok(())
+}
+
+pub fn extract_suffix_and_prefix_from_script(
+    script: bitcoin::ScriptBuf,
+    cut_bytes: &[u8],
+) -> eyre::Result<(Vec<u8>, Vec<u8>)> {
+    let mut script_bytes = script.into_bytes();
+    assert!(script_bytes.len() <= 75); // 75 is the max length that can be pushed to stack with one opcode
+    script_bytes.insert(0, script_bytes.len() as u8); // insert length of script to start
+
+    // Find the first occurrence of cut_bytes in the script
+    if let Some(pos) = script_bytes
+        .windows(cut_bytes.len())
+        .position(|window| window == cut_bytes)
+    {
+        let prefix = script_bytes[..pos].to_vec();
+        let suffix = script_bytes[pos + cut_bytes.len()..].to_vec();
+        Ok((prefix, suffix))
+    } else {
+        // If cut_bytes is not found, return an error
+        Err(eyre::eyre!("The requested bytes not found in script"))
+    }
+}
+
+/// helper struct to hold e2e nodes and relevant clients/configs
+pub struct CitreaE2EData<'a> {
+    pub sequencer: &'a Node<SequencerConfig>,
+    pub full_node: &'a Node<EmptyConfig>,
+    pub lc_prover: &'a Node<LightClientProverConfig>,
+    pub batch_prover: &'a Node<BatchProverConfig>,
+    pub da: &'a BitcoinNode,
+    pub config: BridgeConfig,
+    pub citrea_client: &'a CitreaClient,
+    pub rpc: &'a ExtendedRpc,
+}
+
+/// Creates a new withdrawal utxo and register to citrea using safeWithdraw
+///
+/// # Parameters
+///
+/// - `move_txid`: Move txid of the deposit.
+/// - `e2e`: Citrea e2e data.
+///
+/// # Returns
+///
+/// A tuple of:
+///
+/// - [`OutPoint`]: UTXO for the given withdrawal.
+/// - [`TxOut`]: Output correspoinding to the withdrawal.
+/// - [`schnorr::Signature`]: Signature for the withdrawal utxo.
+pub async fn get_new_withdrawal_utxo_and_register_to_citrea(
+    move_txid: Txid,
+    e2e: &CitreaE2EData<'_>,
+) -> (OutPoint, TxOut, bitcoin::secp256k1::schnorr::Signature) {
+    // Send deposit to Citrea
+    let tx = e2e
+        .rpc
+        .client
+        .get_raw_transaction(&move_txid, None)
+        .await
+        .unwrap();
+    let tx_info = e2e
+        .rpc
+        .client
+        .get_raw_transaction_info(&move_txid, None)
+        .await
+        .unwrap();
+    let block = e2e
+        .rpc
+        .client
+        .get_block(&tx_info.blockhash.unwrap())
+        .await
+        .unwrap();
+    let block_height = e2e
+        .rpc
+        .client
+        .get_block_info(&block.block_hash())
+        .await
+        .unwrap()
+        .height as u64;
+
+    wait_until_lc_contract_updated(e2e.sequencer.client.http_client(), block_height)
+        .await
+        .unwrap();
+
+    tracing::debug!("Depositing to Citrea...");
+
+    deposit(
+        e2e.rpc,
+        e2e.sequencer.client.http_client().clone(),
+        block,
+        block_height.try_into().unwrap(),
+        tx,
+    )
+    .await
+    .unwrap();
+
+    for _ in 0..e2e.sequencer.config.node.max_l2_blocks_per_commitment {
+        e2e.sequencer
+            .client
+            .send_publish_batch_request()
+            .await
+            .unwrap();
+    }
+
+    // Wait for the deposit to be processed.
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+    // After the deposit, the balance should be non-zero.
+    assert_ne!(
+        eth_get_balance(
+            e2e.sequencer.client.http_client().clone(),
+            crate::EVMAddress([1; 20]),
+        )
+        .await
+        .unwrap(),
+        0
+    );
+
+    tracing::debug!("Deposit operations are successful.");
+
+    // Prepare withdrawal transaction.
+    let user_sk = SecretKey::from_slice(&[13u8; 32]).unwrap();
+    let withdrawal_address = Address::p2tr(
+        &SECP,
+        user_sk.x_only_public_key(&SECP).0,
+        None,
+        e2e.config.protocol_paramset().network,
+    );
+    let (withdrawal_utxo_with_txout, payout_txout, sig) =
+        generate_withdrawal_transaction_and_signature(
+            &e2e.config,
+            e2e.rpc,
+            &withdrawal_address,
+            e2e.config.protocol_paramset().bridge_amount
+                - e2e
+                    .config
+                    .operator_withdrawal_fee_sats
+                    .unwrap_or(Amount::from_sat(0)),
+        )
+        .await;
+
+    e2e.rpc.mine_blocks(1).await.unwrap();
+
+    let block_height = e2e.rpc.get_current_chain_height().await.unwrap();
+
+    e2e.rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    for _ in 0..e2e.sequencer.config.node.max_l2_blocks_per_commitment {
+        e2e.sequencer
+            .client
+            .send_publish_batch_request()
+            .await
+            .unwrap();
+    }
+
+    wait_until_lc_contract_updated(e2e.sequencer.client.http_client(), block_height.into())
+        .await
+        .unwrap();
+
+    let params = get_citrea_safe_withdraw_params(
+        e2e.rpc,
+        withdrawal_utxo_with_txout.clone(),
+        payout_txout.clone(),
+        sig,
+    )
+    .await
+    .unwrap();
+
+    tracing::info!("Params: {:?}", params);
+
+    let withdrawal_utxo = withdrawal_utxo_with_txout.outpoint;
+    tracing::debug!("Created withdrawal UTXO: {:?}", withdrawal_utxo);
+
+    let citrea_withdrawal_tx = e2e
+        .citrea_client
+        .contract
+        .safeWithdraw(params.0, params.1, params.2, params.3, params.4)
+        .value(U256::from(
+            e2e.config.protocol_paramset().bridge_amount.to_sat() * SATS_TO_WEI_MULTIPLIER,
+        ))
+        .send()
+        .await
+        .unwrap();
+    tracing::debug!("Withdrawal TX sent in Citrea");
+
+    // 1. force sequencer to commit
+    for _ in 0..e2e.sequencer.config.node.max_l2_blocks_per_commitment {
+        e2e.sequencer
+            .client
+            .send_publish_batch_request()
+            .await
+            .unwrap();
+    }
+    tracing::debug!("Publish batch request sent");
+
+    let receipt = citrea_withdrawal_tx.get_receipt().await.unwrap();
+    tracing::debug!("Citrea withdrawal tx receipt: {:?}", receipt);
+
+    // 2. wait until 2 commitment txs (commit, reveal) seen from DA to ensure their reveal prefix nonce is found
+    e2e.da.wait_mempool_len(2, None).await.unwrap();
+
+    // 3. generate FINALITY_DEPTH da blocks
+    e2e.rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
+
+    // 4. wait for batch prover to generate proof on the finalized height
+    let finalized_height = e2e.da.get_finalized_height(None).await.unwrap();
+    e2e.batch_prover
+        .wait_for_l1_height(finalized_height, None)
+        .await
+        .unwrap();
+    e2e.lc_prover
+        .wait_for_l1_height(finalized_height, None)
+        .await
+        .unwrap();
+
+    // 5. ensure 2 batch proof txs on DA (commit, reveal)
+    e2e.da.wait_mempool_len(2, None).await.unwrap();
+
+    // 6. generate FINALITY_DEPTH da blocks
+    e2e.rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
+
+    let finalized_height = e2e.da.get_finalized_height(None).await.unwrap();
+
+    tracing::info!("Finalized height: {:?}", finalized_height);
+    e2e.lc_prover
+        .wait_for_l1_height(finalized_height, None)
+        .await
+        .unwrap();
+    tracing::info!("Waited for L1 height {}", finalized_height);
+
+    e2e.rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
+
+    (withdrawal_utxo, payout_txout, sig)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn withdraw_and_challenge(
+    mut operator: ClementineOperatorClient<tonic::transport::Channel>,
+    operator_xonly_pk: XOnlyPublicKey,
+    operator_db: &Database,
+    withdrawal_id: u32,
+    withdrawal_utxo: &OutPoint,
+    payout_txout: &TxOut,
+    sig: &bitcoin::secp256k1::schnorr::Signature,
+    e2e: &CitreaE2EData<'_>,
+    deposit_info: &DepositInfo,
+) -> OutPoint {
+    let payout_txid = loop {
+        let withdrawal_response = operator
+            .withdraw(WithdrawParams {
+                withdrawal_id,
+                input_signature: sig.serialize().to_vec(),
+                input_outpoint: Some((*withdrawal_utxo).into()),
+                output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
+                output_amount: payout_txout.value.to_sat(),
+            })
+            .await;
+
+        tracing::info!("Withdrawal response: {:?}", withdrawal_response);
+
+        match withdrawal_response {
+            Ok(withdrawal_response) => {
+                tracing::info!("Withdrawal response: {:?}", withdrawal_response);
+                break Txid::from_byte_array(
+                    withdrawal_response
+                        .into_inner()
+                        .txid
+                        .unwrap()
+                        .txid
+                        .try_into()
+                        .unwrap(),
+                );
+            }
+            Err(e) => {
+                tracing::info!("Withdrawal error: {:?}", e);
+            }
+        }
+
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    };
+    tracing::info!("Payout txid: {:?}", payout_txid);
+
+    mine_once_after_in_mempool(e2e.rpc, payout_txid, Some("Payout tx"), None)
+        .await
+        .unwrap();
+
+    e2e.rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
+
+    // wait until payout part is not null
+    while operator_db
+        .get_first_unhandled_payout_by_operator_xonly_pk(None, operator_xonly_pk)
+        .await
+        .unwrap()
+        .is_none()
+    {
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+
+    tracing::info!("Waiting until payout is handled");
+    // wait until payout is handled
+    while operator_db
+        .get_first_unhandled_payout_by_operator_xonly_pk(None, operator_xonly_pk)
+        .await
+        .unwrap()
+        .is_some()
+    {
+        tracing::info!("Payout is not handled yet");
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+
+    let kickoff_txid = operator_db
+        .get_handled_payout_kickoff_txid(None, payout_txid)
+        .await
+        .unwrap()
+        .expect("Payout must be handled");
+
+    let reimburse_connector = OutPoint {
+        txid: kickoff_txid,
+        vout: UtxoVout::ReimburseInKickoff.get_vout(),
+    };
+
+    let kickoff_block_height =
+        mine_once_after_in_mempool(e2e.rpc, kickoff_txid, Some("Kickoff tx"), Some(300))
+            .await
+            .unwrap();
+
+    let kickoff_tx = e2e.rpc.get_tx_of_txid(&kickoff_txid).await.unwrap();
+
+    // wrongfully challenge operator
+    let kickoff_idx = kickoff_tx.input[0].previous_output.vout - 1;
+    let base_tx_req = TransactionRequest {
+        kickoff_id: Some(
+            KickoffData {
+                operator_xonly_pk,
+                round_idx: RoundIndex::Round(0),
+                kickoff_idx: kickoff_idx as u32,
+            }
+            .into(),
+        ),
+        deposit_outpoint: Some(deposit_info.deposit_outpoint.to_owned().into()),
+    };
+    let all_txs = operator
+        .internal_create_signed_txs(base_tx_req.clone())
+        .await
+        .unwrap()
+        .into_inner();
+
+    let challenge_tx = bitcoin::consensus::deserialize(
+        &all_txs
+            .signed_txs
+            .iter()
+            .find(|tx| tx.transaction_type == Some(TransactionType::Challenge.into()))
+            .unwrap()
+            .raw_tx,
+    )
+    .unwrap();
+
+    let kickoff_tx: bitcoin::Transaction = bitcoin::consensus::deserialize(
+        &all_txs
+            .signed_txs
+            .iter()
+            .find(|tx| tx.transaction_type == Some(TransactionType::Kickoff.into()))
+            .unwrap()
+            .raw_tx,
+    )
+    .unwrap();
+
+    assert_eq!(kickoff_txid, kickoff_tx.compute_txid());
+
+    // send wrong challenge tx
+    let (tx_sender, tx_sender_db) = create_tx_sender(&e2e.config, 0).await.unwrap();
+    let mut db_commit = tx_sender_db.begin_transaction().await.unwrap();
+    tx_sender
+        .insert_try_to_send(
+            &mut db_commit,
+            Some(TxMetadata {
+                deposit_outpoint: None,
+                operator_xonly_pk: None,
+                round_idx: None,
+                kickoff_idx: None,
+                tx_type: TransactionType::Challenge,
+            }),
+            &challenge_tx,
+            FeePayingType::RBF,
+            None,
+            &[],
+            &[],
+            &[],
+            &[],
+        )
+        .await
+        .unwrap();
+    db_commit.commit().await.unwrap();
+
+    e2e.rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
+
+    let challenge_outpoint = OutPoint {
+        txid: kickoff_txid,
+        vout: UtxoVout::Challenge.get_vout(),
+    };
+    tracing::warn!(
+        "Wait until challenge tx is in mempool, kickoff block height: {:?}",
+        kickoff_block_height
+    );
+    // wait until challenge tx is in mempool
+    mine_once_after_outpoint_spent_in_mempool(e2e.rpc, challenge_outpoint)
+        .await
+        .unwrap();
+    tracing::warn!("Mined once after challenge tx is in mempool");
+
+    // wait until the light client prover is synced to the same height
+    e2e.lc_prover
+        .wait_for_l1_height(kickoff_block_height as u64, None)
+        .await
+        .unwrap();
+
+    reimburse_connector
 }

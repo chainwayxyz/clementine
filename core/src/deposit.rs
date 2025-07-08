@@ -345,14 +345,3 @@ impl<'de> serde::Deserialize<'de> for OperatorData {
         })
     }
 }
-
-#[cfg(test)]
-pub fn extract_suffix_and_prefix_from_script(
-    script: &bitcoin::ScriptBuf,
-    cut_bytes: &[u8],
-) -> (Vec<u8>, Vec<u8>) {
-    let mut script = script.into_bytes();
-    let mut suffix = script_buf.split_off(script_buf.len() - 34);
-    let prefix = script_buf;
-    (prefix, suffix)
-}
