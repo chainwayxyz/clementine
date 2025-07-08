@@ -84,7 +84,7 @@ impl AdditionalDisproveTest {
             rpc.client.get_block_count().await?
         );
         let (actors, deposit_params, move_txid, _deposit_blockhash, verifiers_public_keys) =
-            run_single_deposit::<CitreaClient>(&mut config, rpc.clone(), None, None).await?;
+            run_single_deposit::<CitreaClient>(&mut config, rpc.clone(), None, None, None).await?;
 
         tracing::debug!(
             "Deposit ending block_height: {:?}",

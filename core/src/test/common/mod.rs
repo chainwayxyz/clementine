@@ -331,8 +331,14 @@ pub async fn run_multiple_deposits<C: CitreaClientT>(
 ///
 /// # Parameters
 ///
-/// - `user_evm_address` [`EVMAddress`]: Optional EVM address to use for the
+/// - `config` [`BridgeConfig`]: The bridge configuration.
+/// - `rpc` [`ExtendedRpc`]: The RPC client to use.
+/// - `evm_address` [`EVMAddress`]: Optional EVM address to use for the
 ///   deposit. If not provided, a default address is used.
+/// - `actors` [`TestActors`]: Optional actors to use for the deposit. If not
+///   provided, a new actors will be created.
+/// - `deposit_outpoint` [`OutPoint`]: Optional deposit outpoint to use for the
+///   deposit. If not provided, a new deposit outpoint will be created.
 ///
 /// # Returns
 ///
@@ -349,9 +355,10 @@ pub async fn run_single_deposit<C: CitreaClientT>(
     config: &mut BridgeConfig,
     rpc: ExtendedRpc,
     evm_address: Option<EVMAddress>,
+    actors: Option<TestActors<C>>,
     deposit_outpoint: Option<OutPoint>, // if a deposit outpoint is provided, it will be used instead of creating a new one
 ) -> Result<(TestActors<C>, DepositInfo, Txid, BlockHash, Vec<PublicKey>), BridgeError> {
-    let actors = create_actors::<C>(config).await;
+    let actors = actors.unwrap_or(create_actors::<C>(config).await);
     let aggregator_db = Database::new(&BridgeConfig {
         db_name: config.db_name.clone() + "0",
         ..config.clone()
@@ -552,7 +559,7 @@ pub async fn run_replacement_deposit<C: CitreaClientT>(
     evm_address: Option<EVMAddress>,
 ) -> Result<(TestActors<C>, DepositInfo, Txid, BlockHash), BridgeError> {
     let (actors, _deposit_info, move_txid, _deposit_blockhash, verifiers_public_keys) =
-        run_single_deposit::<C>(config, rpc.clone(), evm_address, None).await?;
+        run_single_deposit::<C>(config, rpc.clone(), evm_address, None, None).await?;
 
     let actor = Actor::new(
         config.secret_key,

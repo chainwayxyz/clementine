@@ -221,6 +221,15 @@ impl CitreaClientT for MockCitreaClient {
     ) -> Result<(), BridgeError> {
         Ok(())
     }
+
+    #[cfg(test)]
+    async fn update_nofn_aggregated_key(
+        &self,
+        _nofn_xonly_pk: bitcoin::XOnlyPublicKey,
+        _paramset: &'static crate::config::protocol::ProtocolParamset,
+    ) -> Result<(), BridgeError> {
+        Ok(())
+    }
 }
 
 impl MockCitreaClient {

@@ -449,7 +449,7 @@ mod tests {
         let rpc = regtest.rpc().clone();
 
         let (actors, deposit_info, move_txid, deposit_blockhash, verifiers_public_keys) =
-            run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None)
+            run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None, None)
                 .await
                 .unwrap();
 
@@ -696,6 +696,7 @@ mod tests {
             run_single_deposit::<MockCitreaClient>(
                 &mut config,
                 rpc.clone(),
+                None,
                 None,
                 Some(deposit_state.deposit_info.deposit_outpoint),
             )

@@ -42,7 +42,7 @@ async fn base_setup(
     eyre::Error,
 > {
     let (actors, deposit_info, _move_txid, deposit_blockhash, _verifiers_public_keys) =
-        run_single_deposit::<MockCitreaClient>(config, rpc.clone(), None, None).await?;
+        run_single_deposit::<MockCitreaClient>(config, rpc.clone(), None, None, None).await?;
     let deposit_outpoint = deposit_info.deposit_outpoint;
 
     let mut tx_senders = Vec::new();
@@ -111,7 +111,7 @@ pub async fn run_operator_end_round(
     is_challenge: bool,
 ) -> Result<()> {
     let (actors, deposit_info, move_txid, _deposit_blockhash, _verifiers_public_keys) =
-        run_single_deposit::<MockCitreaClient>(config, rpc.clone(), None, None).await?;
+        run_single_deposit::<MockCitreaClient>(config, rpc.clone(), None, None, None).await?;
     let deposit_outpoint = deposit_info.deposit_outpoint;
 
     let mut operator0 = actors.get_operator_by_index(0);

@@ -1636,7 +1636,8 @@ mod tests {
         let rpc = regtest.rpc();
 
         let _unused =
-            run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None).await?;
+            run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None, None)
+                .await?;
 
         Ok(())
     }

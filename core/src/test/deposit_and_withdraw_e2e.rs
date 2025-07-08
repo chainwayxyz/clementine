@@ -1,6 +1,6 @@
 use super::common::citrea::get_bridge_params;
 use crate::actor::Actor;
-use crate::bitvm_client::{self, SECP};
+use crate::bitvm_client::{self, SECP, UNSPENDABLE_XONLY_PUBKEY};
 use crate::builder::address::create_taproot_address;
 use crate::builder::script::SpendPath;
 use crate::builder::transaction::input::{SpendableTxIn, UtxoVout};
@@ -148,6 +148,22 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 
         rpc.mine_blocks(12).await.unwrap();
 
+        let citrea_client = CitreaClient::new(
+            config.citrea_rpc_url.clone(),
+            config.citrea_light_client_prover_url.clone(),
+            config.citrea_chain_id,
+            Some(SECRET_KEYS[0].to_string().parse().unwrap()),
+        )
+        .await
+        .unwrap();
+
+        // TODO: Remove before merge
+        let new_agg_key = *UNSPENDABLE_XONLY_PUBKEY;
+        citrea_client
+            .update_nofn_aggregated_key(new_agg_key, &config.protocol_paramset())
+            .await
+            .unwrap();
+
         if self.variant == CitreaDepositAndWithdrawE2EVariant::GenesisHeightNonZero {
             let genesis_height: u32 = 10;
 
@@ -176,8 +192,8 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             "Deposit starting at block height: {:?}",
             rpc.client.get_block_count().await?
         );
-        let (actors, deposit_params, move_txid, _deposit_blockhash, verifiers_public_keys) =
-            run_single_deposit::<CitreaClient>(&mut config, rpc.clone(), None, None).await?;
+        let (mut actors, deposit_params, move_txid, _deposit_blockhash, verifiers_public_keys) =
+            run_single_deposit::<CitreaClient>(&mut config, rpc.clone(), None, None, None).await?;
         tracing::info!(
             "Deposit ending block_height: {:?}",
             rpc.client.get_block_count().await?
@@ -305,15 +321,6 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             })
             .await
             .is_err());
-
-        let citrea_client = CitreaClient::new(
-            config.citrea_rpc_url.clone(),
-            config.citrea_light_client_prover_url.clone(),
-            config.citrea_chain_id,
-            Some(SECRET_KEYS[0].to_string().parse().unwrap()),
-        )
-        .await
-        .unwrap();
 
         // let citrea_withdrawal_tx = citrea_client
         //     .contract
@@ -590,6 +597,17 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
                 idx
             );
         }
+
+        // add a new verifier
+        let new_sk = SecretKey::new(&mut bitcoin::secp256k1::rand::thread_rng());
+        actors.add_verifier(new_sk).await.unwrap();
+
+        let new_agg_key = actors.get_nofn_aggregated_xonly_pk().await.unwrap();
+        citrea_client
+            .update_nofn_aggregated_key(new_agg_key, &config.protocol_paramset())
+            .await
+            .unwrap();
+
         Ok(())
     }
 }
@@ -681,7 +699,7 @@ async fn mock_citrea_run_truthful() {
         rpc.client.get_block_count().await.unwrap()
     );
     let (actors, _deposit_params, move_txid, _deposit_blockhash, verifiers_public_keys) =
-        run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None)
+        run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None, None)
             .await
             .unwrap();
 
@@ -941,7 +959,7 @@ async fn mock_citrea_run_truthful_opt_payout() {
         rpc.client.get_block_count().await.unwrap()
     );
     let (actors, _deposit_params, move_txid, _deposit_blockhash, _verifiers_public_keys) =
-        run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None)
+        run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None, None)
             .await
             .unwrap();
 
@@ -1118,7 +1136,7 @@ async fn mock_citrea_run_malicious() {
         rpc.client.get_block_count().await.unwrap()
     );
     let (actors, deposit_info, move_txid, _deposit_blockhash, _) =
-        run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None)
+        run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None, None)
             .await
             .unwrap();
     let db = Database::new(&BridgeConfig {
@@ -1326,7 +1344,7 @@ async fn mock_citrea_run_malicious_after_exit() {
         rpc.client.get_block_count().await.unwrap()
     );
     let (actors, deposit_info, move_txid, _deposit_blockhash, verifier_pks) =
-        run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None)
+        run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None, None)
             .await
             .unwrap();
 
