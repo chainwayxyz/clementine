@@ -9,6 +9,7 @@ use crate::deposit::{DepositInfo, KickoffData};
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::operator::RoundIndex;
+use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::{TransactionRequest, WithdrawParams};
 use crate::test::common::tx_utils::{create_tx_sender, mine_once_after_outpoint_spent_in_mempool};
@@ -33,6 +34,8 @@ pub use client_mock::*;
 use jsonrpsee::http_client::HttpClient;
 pub use parameters::*;
 pub use requests::*;
+
+use super::tx_utils::ensure_outpoint_spent_while_waiting_for_light_client_sync;
 
 mod bitcoin_merkle;
 mod client_mock;
@@ -291,7 +294,7 @@ pub async fn get_new_withdrawal_utxo_and_register_to_citrea(
         0
     );
 
-    tracing::debug!("Deposit operations are successful.");
+    tracing::info!("Deposit operations are successful.");
 
     // Prepare withdrawal transaction.
     let user_sk = SecretKey::from_slice(&[13u8; 32]).unwrap();
@@ -344,7 +347,7 @@ pub async fn get_new_withdrawal_utxo_and_register_to_citrea(
     tracing::info!("Params: {:?}", params);
 
     let withdrawal_utxo = withdrawal_utxo_with_txout.outpoint;
-    tracing::debug!("Created withdrawal UTXO: {:?}", withdrawal_utxo);
+    tracing::info!("Created withdrawal UTXO: {:?}", withdrawal_utxo);
 
     let citrea_withdrawal_tx = e2e
         .citrea_client
@@ -356,7 +359,7 @@ pub async fn get_new_withdrawal_utxo_and_register_to_citrea(
         .send()
         .await
         .unwrap();
-    tracing::debug!("Withdrawal TX sent in Citrea");
+    tracing::info!("Withdrawal TX sent in Citrea");
 
     // 1. force sequencer to commit
     for _ in 0..e2e.sequencer.config.node.max_l2_blocks_per_commitment {
@@ -366,10 +369,10 @@ pub async fn get_new_withdrawal_utxo_and_register_to_citrea(
             .await
             .unwrap();
     }
-    tracing::debug!("Publish batch request sent");
+    tracing::info!("Publish batch request sent");
 
     let receipt = citrea_withdrawal_tx.get_receipt().await.unwrap();
-    tracing::debug!("Citrea withdrawal tx receipt: {:?}", receipt);
+    tracing::info!("Citrea withdrawal tx receipt: {:?}", receipt);
 
     // 2. wait until 2 commitment txs (commit, reveal) seen from DA to ensure their reveal prefix nonce is found
     e2e.da.wait_mempool_len(2, None).await.unwrap();
@@ -408,8 +411,9 @@ pub async fn get_new_withdrawal_utxo_and_register_to_citrea(
     (withdrawal_utxo, payout_txout, sig)
 }
 
+/// This fn sends a payout tx with given operator, starts a kickoff then returns the reimburse connector of the kickoff.
 #[allow(clippy::too_many_arguments)]
-pub async fn withdraw_and_challenge(
+pub async fn payout_and_challenge(
     mut operator: ClementineOperatorClient<tonic::transport::Channel>,
     operator_xonly_pk: XOnlyPublicKey,
     operator_db: &Database,
@@ -590,4 +594,51 @@ pub async fn withdraw_and_challenge(
         .unwrap();
 
     reimburse_connector
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn reimburse_with_optimistic_payout(
+    mut aggregator: ClementineAggregatorClient<tonic::transport::Channel>,
+    withdrawal_id: u32,
+    withdrawal_utxo: &OutPoint,
+    payout_txout: &TxOut,
+    sig: &bitcoin::secp256k1::schnorr::Signature,
+    e2e: &CitreaE2EData<'_>,
+    move_txid: Txid,
+) {
+    loop {
+        let payout_resp = aggregator
+            .optimistic_payout(WithdrawParams {
+                withdrawal_id,
+                input_signature: sig.serialize().to_vec(),
+                input_outpoint: Some(withdrawal_utxo.to_owned().into()),
+                output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
+                output_amount: payout_txout.value.to_sat(),
+            })
+            .await;
+
+        match payout_resp {
+            Ok(payout_response) => {
+                tracing::info!("Optimistic payout response: {:?}", payout_response);
+                break;
+            }
+            Err(e) => {
+                tracing::warn!("Optimistic payout error: {:?}", e);
+            }
+        }
+
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    }
+
+    // ensure the btc in vault is spent
+    ensure_outpoint_spent_while_waiting_for_light_client_sync(
+        e2e.rpc,
+        e2e.lc_prover,
+        OutPoint {
+            txid: move_txid,
+            vout: (UtxoVout::DepositInMove).get_vout(),
+        },
+    )
+    .await
+    .unwrap();
 }

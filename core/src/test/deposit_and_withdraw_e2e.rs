@@ -1,6 +1,6 @@
 use super::common::citrea::get_bridge_params;
 use crate::actor::Actor;
-use crate::bitvm_client::{self, SECP};
+use crate::bitvm_client::SECP;
 use crate::builder::address::create_taproot_address;
 use crate::builder::script::SpendPath;
 use crate::builder::transaction::input::{SpendableTxIn, UtxoVout};
@@ -217,47 +217,33 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         let mut reimburse_connectors = Vec::new();
 
         // withdraw one with a kickoff
-        for ((withdrawal_id, withdrawal_utxo, payout_txout, sig), deposit_info) in
-            withdrawal_infos.iter().zip(deposit_infos.iter()).take(1)
-        {
-            // set up verifier 0 db
-            let verifier_0_config = {
-                let mut config = config.clone();
-                config.db_name += "0";
-                config
-            };
-            let op0_xonly_pk = verifiers_public_keys[0].x_only_public_key().0;
-            let db = Database::new(&verifier_0_config)
-                .await
-                .expect("failed to create database");
-            let operator0 = actors.get_operator_by_index(0);
-
-            reimburse_connectors.push(
-                citrea::withdraw_and_challenge(
-                    operator0,
-                    op0_xonly_pk,
-                    &db,
-                    *withdrawal_id,
-                    withdrawal_utxo,
-                    payout_txout,
-                    sig,
-                    &citrea_e2e_data,
-                    deposit_info,
-                )
-                .await,
-            );
-        }
-
-        for reimburse_connector in reimburse_connectors.iter() {
-            // ensure all reimburse connectors are spent
-            ensure_outpoint_spent_while_waiting_for_light_client_sync(
-                &rpc,
-                lc_prover,
-                *reimburse_connector,
-            )
+        // set up verifier 0 db
+        let verifier_0_config = {
+            let mut config = config.clone();
+            config.db_name += "0";
+            config
+        };
+        let op0_xonly_pk = verifiers_public_keys[0].x_only_public_key().0;
+        let db = Database::new(&verifier_0_config)
             .await
-            .unwrap();
-        }
+            .expect("failed to create database");
+        let operator0 = actors.get_operator_by_index(0);
+
+        reimburse_connectors.push(
+            citrea::payout_and_challenge(
+                operator0,
+                op0_xonly_pk,
+                &db,
+                withdrawal_infos[0].0,
+                &withdrawal_infos[0].1,
+                &withdrawal_infos[0].2,
+                &withdrawal_infos[0].3,
+                &citrea_e2e_data,
+                &deposit_infos[0],
+            )
+            .await,
+        );
+
         // add a new verifier
         let new_sk = SecretKey::new(&mut bitcoin::secp256k1::rand::thread_rng());
         actors.add_verifier(new_sk).await.unwrap();
@@ -267,6 +253,81 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             .update_nofn_aggregated_key(new_agg_key, config.protocol_paramset(), sequencer)
             .await
             .unwrap();
+
+        // do 2 more deposits
+        tracing::warn!("Running 2 more deposits");
+        let (
+            actors,
+            new_deposit_infos,
+            new_move_txids,
+            _deposit_blockhashs,
+            _verifiers_public_keys,
+        ) = run_multiple_deposits::<CitreaClient>(&mut config, rpc.clone(), 2, Some(actors))
+            .await?;
+
+        tracing::warn!("2 more deposits done, doing 2 more withdrawals");
+        // do 2 more withdrawals
+        for move_txid in new_move_txids.iter() {
+            let (withdrawal_utxo, payout_txout, sig) =
+                citrea::get_new_withdrawal_utxo_and_register_to_citrea(
+                    *move_txid,
+                    &citrea_e2e_data,
+                )
+                .await;
+            withdrawal_infos.push((withdrawal_index, withdrawal_utxo, payout_txout, sig));
+            withdrawal_index += 1;
+        }
+
+        // do 1 kickoff with one of the new deposits
+        let operator0 = actors.get_operator_by_index(0);
+        reimburse_connectors.push(
+            citrea::payout_and_challenge(
+                operator0,
+                op0_xonly_pk,
+                &db,
+                withdrawal_infos[2].0,
+                &withdrawal_infos[2].1,
+                &withdrawal_infos[2].2,
+                &withdrawal_infos[2].3,
+                &citrea_e2e_data,
+                &new_deposit_infos[0],
+            )
+            .await,
+        );
+
+        // do 2 optimistic payouts, 1 with old 1 with new deposit
+        citrea::reimburse_with_optimistic_payout(
+            actors.get_aggregator(),
+            withdrawal_infos[1].0,
+            &withdrawal_infos[1].1,
+            &withdrawal_infos[1].2,
+            &withdrawal_infos[1].3,
+            &citrea_e2e_data,
+            move_txids[1],
+        )
+        .await;
+
+        citrea::reimburse_with_optimistic_payout(
+            actors.get_aggregator(),
+            withdrawal_infos[3].0,
+            &withdrawal_infos[3].1,
+            &withdrawal_infos[3].2,
+            &withdrawal_infos[3].3,
+            &citrea_e2e_data,
+            new_move_txids[1],
+        )
+        .await;
+
+        // wait for all past kickoff reimburse connectors to be spent
+        for reimburse_connector in reimburse_connectors.iter() {
+            ensure_outpoint_spent_while_waiting_for_light_client_sync(
+                &rpc,
+                lc_prover,
+                *reimburse_connector,
+            )
+            .await
+            .unwrap();
+        }
 
         Ok(())
     }

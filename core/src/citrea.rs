@@ -255,8 +255,6 @@ impl CitreaClient {
         let base_deposit_script =
             dummy_base_deposit_data.get_deposit_scripts(paramset)?[0].to_script_buf();
 
-        tracing::warn!("base_deposit_script: {:?}", base_deposit_script.as_bytes());
-
         let (deposit_prefix, deposit_suffix) =
             crate::test::common::citrea::extract_suffix_and_prefix_from_script(
                 base_deposit_script,

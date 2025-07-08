@@ -239,7 +239,10 @@ pub async fn run_multiple_deposits<C: CitreaClientT>(
     ),
     BridgeError,
 > {
-    let actors = test_actors.unwrap_or(create_actors::<C>(config).await);
+    let actors = match test_actors {
+        Some(actors) => actors,
+        None => create_actors(config).await,
+    };
     let mut aggregator = actors.get_aggregator();
 
     let evm_address = EVMAddress([1u8; 20]);
