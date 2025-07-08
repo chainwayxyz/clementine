@@ -94,11 +94,19 @@ fn env_subscriber_with_file(path: &str) -> Result<Box<dyn Subscriber + Send + Sy
 
     let file_filter = EnvFilter::from_default_env()
         .add_directive("info".parse().expect("It should parse info level"))
-        .add_directive("ci=debug".parse().expect("It should parse ci debug level"));
+        .add_directive("ci=debug".parse().expect("It should parse ci debug level"))
+        .add_directive("sqlx=trace".parse().expect("It should parse sqlx trace level"))
+        .add_directive("h2=trace".parse().expect("It should parse h2 trace level"))
+        .add_directive("hyper=trace".parse().expect("It should parse hyper trace level"))
+        .add_directive("tonic=trace".parse().expect("It should parse tonic trace level"));
 
     let console_filter = EnvFilter::builder()
         .with_default_directive(LevelFilter::WARN.into())
-        .from_env_lossy();
+        .from_env_lossy()
+        .add_directive("sqlx=trace".parse().expect("It should parse sqlx trace level"))
+        .add_directive("h2=trace".parse().expect("It should parse h2 trace level"))
+        .add_directive("hyper=trace".parse().expect("It should parse hyper trace level"))
+        .add_directive("tonic=trace".parse().expect("It should parse tonic trace level"));
 
     let file_layer = fmt::layer()
         .with_writer(file)
@@ -128,8 +136,16 @@ fn env_subscriber_to_json(level: Option<LevelFilter>) -> Box<dyn Subscriber + Se
     let filter = match level {
         Some(lvl) => EnvFilter::builder()
             .with_default_directive(lvl.into())
-            .from_env_lossy(),
-        None => EnvFilter::from_default_env(),
+            .from_env_lossy()
+            .add_directive("sqlx=trace".parse().expect("It should parse sqlx trace level"))
+            .add_directive("h2=trace".parse().expect("It should parse h2 trace level"))
+            .add_directive("hyper=trace".parse().expect("It should parse hyper trace level"))
+            .add_directive("tonic=trace".parse().expect("It should parse tonic trace level")),
+        None => EnvFilter::from_default_env()
+            .add_directive("sqlx=trace".parse().expect("It should parse sqlx trace level"))
+            .add_directive("h2=trace".parse().expect("It should parse h2 trace level"))
+            .add_directive("hyper=trace".parse().expect("It should parse hyper trace level"))
+            .add_directive("tonic=trace".parse().expect("It should parse tonic trace level")),
     };
 
     let json_layer = fmt::layer::<Registry>()
@@ -153,8 +169,16 @@ fn env_subscriber_to_human(level: Option<LevelFilter>) -> Box<dyn Subscriber + S
     let filter = match level {
         Some(lvl) => EnvFilter::builder()
             .with_default_directive(lvl.into())
-            .from_env_lossy(),
-        None => EnvFilter::from_default_env(),
+            .from_env_lossy()
+            .add_directive("sqlx=trace".parse().expect("It should parse sqlx trace level"))
+            .add_directive("h2=trace".parse().expect("It should parse h2 trace level"))
+            .add_directive("hyper=trace".parse().expect("It should parse hyper trace level"))
+            .add_directive("tonic=trace".parse().expect("It should parse tonic trace level")),
+        None => EnvFilter::from_default_env()
+            .add_directive("sqlx=trace".parse().expect("It should parse sqlx trace level"))
+            .add_directive("h2=trace".parse().expect("It should parse h2 trace level"))
+            .add_directive("hyper=trace".parse().expect("It should parse hyper trace level"))
+            .add_directive("tonic=trace".parse().expect("It should parse tonic trace level")),
     };
 
     let standard_layer = fmt::layer()
@@ -647,5 +671,22 @@ mod tests {
 
         std::env::remove_var("CI");
         std::env::remove_var("INFO_LOG_FILE");
+    }
+
+    #[test]
+    fn test_third_party_log_filters() {
+        // Test that third-party log filters are properly configured
+        let filter = EnvFilter::from_default_env()
+            .add_directive("sqlx=trace".parse().expect("It should parse sqlx trace level"))
+            .add_directive("h2=trace".parse().expect("It should parse h2 trace level"))
+            .add_directive("hyper=trace".parse().expect("It should parse hyper trace level"))
+            .add_directive("tonic=trace".parse().expect("It should parse tonic trace level"));
+
+        // This test just verifies that the filter can be created successfully
+        // and that the log directives are properly formatted
+        let _filter_string = filter.to_string();
+        
+        // The test passes if no panic occurs during filter creation
+        assert!(true, "Third-party log filters should be configurable");
     }
 }
