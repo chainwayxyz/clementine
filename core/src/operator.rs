@@ -655,7 +655,7 @@ where
                     change_position: Some(1),
                     change_type: None,
                     include_watching: None,
-                    lock_unspents: None,
+                    lock_unspents: Some(true),
                     fee_rate: None,
                     subtract_fee_from_outputs: None,
                     replaceable: None,
