@@ -23,19 +23,19 @@ services:
       - clementine-network
 
   bitcoin_testnet4:
-    image: bitcoin/bitcoin:28.1
+    image: bitcoin/bitcoin:29
     attach: false
     container_name: bitcoin_testnet4
     ports:
-      - "18443:18443"
-      - "18444:18444"
+      - "19443:19443"
+      - "19444:19444"
     command:
       -printtoconsole
       -testnet4=1
       -rest
       -rpcbind=0.0.0.0
       -rpcallowip=0.0.0.0/0
-      -rpcport=18443
+      -rpcport=19443
       -rpcuser=admin
       -rpcpassword=admin
       -server
@@ -55,12 +55,12 @@ services:
     command:
       verifier --config /config.toml --protocol-params /protocol_paramset.toml
     ports:
-      - "8080:8080"
+      - "9080:8080"
     volumes:
-      - ../../core/src/test/data/bridge_config.toml:/config.toml
+      - ./docker_config.toml:/config.toml
       - ../../core/src/test/data/protocol_paramset.toml:/protocol_paramset.toml
       - ../../bitvm_cache.bin:/bitvm_cache.bin
-      - ../../certs:/certs
+      - ../../certs/:/certs/
 
     networks:
       - clementine-network
