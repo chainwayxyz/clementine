@@ -75,10 +75,5 @@ bridge-circuit-host = { path = "../bridge-circuit-host" }
 ctor = { workspace = true }
 tokio = { workspace = true, features = ["full", "test-util"] }
 
-[[bin]]
-name = "clementine-cli"
-path = "src/bin/cli.rs"
-
-
 [lints.clippy]
 unwrap_used = { level = "deny" }

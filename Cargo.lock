@@ -2124,6 +2124,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "cli"
+version = "0.0.0"
+dependencies = [
+ "alloy",
+ "bitcoin",
+ "bitcoincore-rpc",
+ "clap",
+ "clementine-core",
+ "eyre",
+ "hex",
+ "jsonrpsee",
+ "secrecy",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "tonic",
+]
+
+[[package]]
 name = "cobs"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
