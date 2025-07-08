@@ -68,12 +68,12 @@ bridge_contract_address = "3100000000000000000000000000000000000002"
 header_chain_proof_path = "../core/src/test/data/first_1.bin"
 
 # TLS certificate and key paths
-server_cert_path = "certs/server/server.pem"
-server_key_path = "certs/server/server.key"
-ca_cert_path = "certs/ca/ca.pem"
-client_cert_path = "certs/client/client.pem"
-client_key_path = "certs/client/client.key"
-aggregator_cert_path = "certs/aggregator/aggregator.pem"
+server_cert_path = "/certs/server/server.pem"
+server_key_path = "/certs/server/server.key"
+ca_cert_path = "/certs/ca/ca.pem"
+client_cert_path = "/certs/client/client.pem"
+client_key_path = "/certs/client/client.key"
+aggregator_cert_path = "/certs/aggregator/aggregator.pem"
 client_verification = true
 security_council = "1:50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0"
 

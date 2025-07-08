@@ -60,7 +60,7 @@ services:
       - ./docker_config.toml:/config.toml
       - ../../core/src/test/data/protocol_paramset.toml:/protocol_paramset.toml
       - ../../bitvm_cache.bin:/bitvm_cache.bin
-      - ../../certs/:/certs/
+      - ../../core/certs:/certs
 
     networks:
       - clementine-network
