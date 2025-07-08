@@ -15,7 +15,8 @@ impl BitcoinMerkleTree {
     /// Constructs a standard Bitcoin Merkle tree.
     /// Leaf nodes are transaction IDs (txids), which are double-SHA256 hashes of transaction data.
     /// Internal nodes are formed by `DSHA256(LeftChildHash || RightChildHash)`.
-    /// WARNING! Do not use this tree to generate SPV proofs, as it is vulnerable to certain attacks.
+    /// WARNING! Do not use this tree to generate SPV proofs, as it is vulnerable to certain attacks. See
+    /// `new_mid_state`.
     pub fn new(txids: Vec<[u8; 32]>) -> Self {
         if txids.len() == 1 {
             // root is the coinbase txid

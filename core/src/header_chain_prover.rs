@@ -523,7 +523,7 @@ impl HeaderChainProver {
         Ok(receipt)
     }
 
-    /// Produces a proof for the chain upto the block with the given hash.
+    /// Produces a proof for the chain up to the block with the given hash.
     ///
     /// # Returns
     ///
@@ -901,13 +901,18 @@ mod tests {
             .unwrap();
         assert_eq!(block_info.2, test_height);
 
-        prover.prove_till_hash(block_hash).await.unwrap();
+        let receipt_1 = prover.prove_till_hash(block_hash).await.unwrap();
         let latest_proven_block = prover
             .db
             .get_latest_proven_block_info_until_height(None, current_hcp_height as u32)
             .await
             .unwrap()
             .unwrap();
+
+        let receipt_2 = prover.prove_till_hash(block_hash).await.unwrap();
+
+        assert_eq!(receipt_1.0.journal, receipt_2.0.journal);
+
         assert_eq!(latest_proven_block.2, test_height as u64);
     }
 
