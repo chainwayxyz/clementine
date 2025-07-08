@@ -229,6 +229,16 @@ pub async fn get_new_withdrawal_utxo_and_register_to_citrea(
     move_txid: Txid,
     e2e: &CitreaE2EData<'_>,
 ) -> (OutPoint, TxOut, bitcoin::secp256k1::schnorr::Signature) {
+    e2e.rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    for _ in 0..e2e.sequencer.config.node.max_l2_blocks_per_commitment {
+        e2e.sequencer
+            .client
+            .send_publish_batch_request()
+            .await
+            .unwrap();
+    }
+
     // Send deposit to Citrea
     let tx = e2e
         .rpc
