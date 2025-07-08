@@ -702,7 +702,7 @@ impl Aggregator {
         let emergency_stop_tx = emergency_stop_txhandler.get_cached_tx();
         let move_to_vault_txid = move_txhandler.get_txid();
 
-        tracing::trace!("Move to vault tx id: {}", move_to_vault_txid.to_string());
+        tracing::debug!("Move to vault tx id: {}", move_to_vault_txid.to_string());
 
         self.db
             .set_signed_emergency_stop_tx(None, move_to_vault_txid, emergency_stop_tx)
@@ -1063,7 +1063,7 @@ impl ClementineAggregator for Aggregator {
         let verifier_public_keys = self.collect_verifier_public_keys().await?;
         let _ = self.collect_operator_xonly_public_keys().await?;
 
-        tracing::trace!(
+        tracing::debug!(
             "Verifier public keys: {:?}",
             verifier_public_keys.verifier_public_keys
         );
@@ -1340,7 +1340,7 @@ impl ClementineAggregator for Aggregator {
                 final_sig_sender,
             ));
 
-            tracing::trace!("Getting signatures from operators");
+            tracing::debug!("Getting signatures from operators");
             // Get sigs from each operator in background
             let operators = self.get_participating_operators(&deposit_data).await?;
 
@@ -1378,7 +1378,7 @@ impl ClementineAggregator for Aggregator {
                 nonce_agg_handle.clone(),
             ));
 
-            tracing::trace!(
+            tracing::debug!(
                 "Waiting for pipeline tasks to complete (nonce agg, sig agg, sig dist, operator sigs)"
             );
 
@@ -1389,9 +1389,9 @@ impl ClementineAggregator for Aggregator {
                 .await
                 .map_err(|_| Status::internal("panic when collecting operator signatures"))??;
 
-            tracing::trace!("Got all operator signatures");
+            tracing::debug!("Got all operator signatures");
 
-            tracing::trace!("Waiting for pipeline tasks to complete");
+            tracing::debug!("Waiting for pipeline tasks to complete");
             // Wait for all pipeline tasks to complete
             timed_request(
                 PIPELINE_COMPLETION_TIMEOUT,
@@ -1400,7 +1400,7 @@ impl ClementineAggregator for Aggregator {
             )
             .await?;
 
-            tracing::trace!("Pipeline tasks completed");
+            tracing::debug!("Pipeline tasks completed");
 
 
             // send operators sigs to verifiers after all verifiers have signed
@@ -1433,7 +1433,7 @@ impl ClementineAggregator for Aggregator {
             )
             .await?;
 
-            tracing::trace!("Waiting for deposit finalization");
+            tracing::debug!("Waiting for deposit finalization");
 
             // Collect partial signatures for move transaction
             let partial_sigs: Vec<(Vec<u8>, Vec<u8>)> = timed_try_join_all(
@@ -1454,7 +1454,7 @@ impl ClementineAggregator for Aggregator {
             let (move_to_vault_sigs, emergency_stop_sigs): (Vec<Vec<u8>>, Vec<Vec<u8>>) =
                 partial_sigs.into_iter().unzip();
 
-            tracing::trace!("Received move tx partial sigs: {:?}", move_to_vault_sigs);
+            tracing::debug!("Received move tx partial sigs: {:?}", move_to_vault_sigs);
 
             // Create the final move transaction and check the signatures
             let (movetx_agg_nonce, emergency_stop_agg_nonce) = nonce_agg_handle.await?;
@@ -1994,7 +1994,7 @@ mod tests {
 
         let move_txids = vec![move_txid_0, move_txid_1];
 
-        tracing::trace!("Move txids: {:?}", move_txids);
+        tracing::debug!("Move txids: {:?}", move_txids);
 
         let emergency_txid = aggregator
             .internal_create_emergency_stop_tx(tonic::Request::new(

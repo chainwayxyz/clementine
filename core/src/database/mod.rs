@@ -70,12 +70,12 @@ impl Database {
         let url = Database::get_postgresql_database_url(config);
         let url = Url::parse(&url).wrap_err("Failed to parse database URL")?;
         let mut opt = PgConnectOptions::from_url(&url).map_err(BridgeError::DatabaseError)?;
-        // Disable sqlx logging entirely to reduce log spam
+        // Change default sqlx warnings from Warn to Debug
         // These logs really clutter our CI logs, and they were never useful.
-        // If needed in the future for debugging, these can be re-enabled.
-        opt = opt.log_slow_statements(log::LevelFilter::Off, Duration::from_secs(3));
+        // But in the future if we fix slow statements (if they are actually a problem?), we can revert this.
+        opt = opt.log_slow_statements(log::LevelFilter::Debug, Duration::from_secs(3));
 
-        let opts = sqlx::postgres::PgPoolOptions::new().acquire_slow_level(log::LevelFilter::Off);
+        let opts = sqlx::postgres::PgPoolOptions::new().acquire_slow_level(log::LevelFilter::Debug);
 
         #[cfg(test)]
         let opts = if config.test_params.timeout_params.any_timeout() {

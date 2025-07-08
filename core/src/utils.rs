@@ -79,123 +79,11 @@ where
     }
 }
 
-fn env_subscriber_with_file(path: &str) -> Result<Box<dyn Subscriber + Send + Sync>, BridgeError> {
-    if let Some(parent_dir) = std::path::Path::new(path).parent() {
-        std::fs::create_dir_all(parent_dir).map_err(|e| {
-            BridgeError::ConfigError(format!(
-                "Failed to create log directory '{}': {}",
-                parent_dir.display(),
-                e
-            ))
-        })?;
-    }
 
-    let file = File::create(path).map_err(|e| BridgeError::ConfigError(e.to_string()))?;
 
-    let file_filter = EnvFilter::from_default_env()
-        .add_directive("info".parse().expect("It should parse info level"))
-        .add_directive("ci=debug".parse().expect("It should parse ci debug level"))
-        .add_directive("sqlx=trace".parse().expect("It should parse sqlx trace level"))
-        .add_directive("h2=trace".parse().expect("It should parse h2 trace level"))
-        .add_directive("hyper=trace".parse().expect("It should parse hyper trace level"))
-        .add_directive("tonic=trace".parse().expect("It should parse tonic trace level"));
 
-    let console_filter = EnvFilter::builder()
-        .with_default_directive(LevelFilter::WARN.into())
-        .from_env_lossy()
-        .add_directive("sqlx=trace".parse().expect("It should parse sqlx trace level"))
-        .add_directive("h2=trace".parse().expect("It should parse h2 trace level"))
-        .add_directive("hyper=trace".parse().expect("It should parse hyper trace level"))
-        .add_directive("tonic=trace".parse().expect("It should parse tonic trace level"));
 
-    let file_layer = fmt::layer()
-        .with_writer(file)
-        .with_ansi(false)
-        .with_file(true)
-        .with_line_number(true)
-        .with_target(true)
-        .with_thread_ids(true)
-        .with_thread_names(true)
-        .with_filter(file_filter)
-        .boxed();
 
-    let console_layer = fmt::layer()
-        .with_test_writer()
-        .with_file(true)
-        .with_line_number(true)
-        .with_target(true)
-        .with_filter(console_filter)
-        .boxed();
-
-    Ok(Box::new(
-        Registry::default().with(file_layer).with(console_layer),
-    ))
-}
-
-fn env_subscriber_to_json(level: Option<LevelFilter>) -> Box<dyn Subscriber + Send + Sync> {
-    let filter = match level {
-        Some(lvl) => EnvFilter::builder()
-            .with_default_directive(lvl.into())
-            .from_env_lossy()
-            .add_directive("sqlx=trace".parse().expect("It should parse sqlx trace level"))
-            .add_directive("h2=trace".parse().expect("It should parse h2 trace level"))
-            .add_directive("hyper=trace".parse().expect("It should parse hyper trace level"))
-            .add_directive("tonic=trace".parse().expect("It should parse tonic trace level")),
-        None => EnvFilter::from_default_env()
-            .add_directive("sqlx=trace".parse().expect("It should parse sqlx trace level"))
-            .add_directive("h2=trace".parse().expect("It should parse h2 trace level"))
-            .add_directive("hyper=trace".parse().expect("It should parse hyper trace level"))
-            .add_directive("tonic=trace".parse().expect("It should parse tonic trace level")),
-    };
-
-    let json_layer = fmt::layer::<Registry>()
-        .with_test_writer()
-        // .with_timer(time::UtcTime::rfc_3339())
-        .with_file(true)
-        .with_line_number(true)
-        .with_thread_ids(true)
-        .with_thread_names(true)
-        .with_target(true)
-        .json();
-    // .with_current_span(true)z
-    // .with_span_list(true)
-    // To see how long each span takes, uncomment this.
-    // .with_span_events(FmtSpan::CLOSE)
-
-    Box::new(tracing_subscriber::registry().with(json_layer).with(filter))
-}
-
-fn env_subscriber_to_human(level: Option<LevelFilter>) -> Box<dyn Subscriber + Send + Sync> {
-    let filter = match level {
-        Some(lvl) => EnvFilter::builder()
-            .with_default_directive(lvl.into())
-            .from_env_lossy()
-            .add_directive("sqlx=trace".parse().expect("It should parse sqlx trace level"))
-            .add_directive("h2=trace".parse().expect("It should parse h2 trace level"))
-            .add_directive("hyper=trace".parse().expect("It should parse hyper trace level"))
-            .add_directive("tonic=trace".parse().expect("It should parse tonic trace level")),
-        None => EnvFilter::from_default_env()
-            .add_directive("sqlx=trace".parse().expect("It should parse sqlx trace level"))
-            .add_directive("h2=trace".parse().expect("It should parse h2 trace level"))
-            .add_directive("hyper=trace".parse().expect("It should parse hyper trace level"))
-            .add_directive("tonic=trace".parse().expect("It should parse tonic trace level")),
-    };
-
-    let standard_layer = fmt::layer()
-        .with_test_writer()
-        // .with_timer(time::UtcTime::rfc_3339())
-        .with_file(true)
-        .with_line_number(true)
-        // To see how long each span takes, uncomment this.
-        // .with_span_events(FmtSpan::CLOSE)
-        .with_target(true);
-
-    Box::new(
-        tracing_subscriber::registry()
-            .with(standard_layer)
-            .with(filter),
-    )
-}
 
 fn is_json_logs() -> bool {
     std::env::var("LOG_FORMAT")
@@ -689,4 +577,122 @@ mod tests {
         // The test passes if no panic occurs during filter creation
         assert!(true, "Third-party log filters should be configurable");
     }
+}
+
+fn env_subscriber_with_file(path: &str) -> Result<Box<dyn Subscriber + Send + Sync>, BridgeError> {
+    if let Some(parent_dir) = std::path::Path::new(path).parent() {
+        std::fs::create_dir_all(parent_dir).map_err(|e| {
+            BridgeError::ConfigError(format!(
+                "Failed to create log directory '{}': {}",
+                parent_dir.display(),
+                e
+            ))
+        })?;
+    }
+
+    let file = File::create(path).map_err(|e| BridgeError::ConfigError(e.to_string()))?;
+
+    let file_filter = EnvFilter::from_default_env()
+        .add_directive("info".parse().expect("It should parse info level"))
+        .add_directive("ci=debug".parse().expect("It should parse ci debug level"))
+        .add_directive("sqlx=trace".parse().expect("It should parse sqlx trace level"))
+        .add_directive("h2=trace".parse().expect("It should parse h2 trace level"))
+        .add_directive("hyper=trace".parse().expect("It should parse hyper trace level"))
+        .add_directive("tonic=trace".parse().expect("It should parse tonic trace level"));
+
+    let console_filter = EnvFilter::builder()
+        .with_default_directive(LevelFilter::WARN.into())
+        .from_env_lossy()
+        .add_directive("sqlx=trace".parse().expect("It should parse sqlx trace level"))
+        .add_directive("h2=trace".parse().expect("It should parse h2 trace level"))
+        .add_directive("hyper=trace".parse().expect("It should parse hyper trace level"))
+        .add_directive("tonic=trace".parse().expect("It should parse tonic trace level"));
+
+    let file_layer = fmt::layer()
+        .with_writer(file)
+        .with_ansi(false)
+        .with_file(true)
+        .with_line_number(true)
+        .with_target(true)
+        .with_thread_ids(true)
+        .with_thread_names(true)
+        .with_filter(file_filter)
+        .boxed();
+
+    let console_layer = fmt::layer()
+        .with_test_writer()
+        .with_file(true)
+        .with_line_number(true)
+        .with_target(true)
+        .with_filter(console_filter)
+        .boxed();
+
+    Ok(Box::new(
+        Registry::default().with(file_layer).with(console_layer),
+    ))
+}
+
+fn env_subscriber_to_json(level: Option<LevelFilter>) -> Box<dyn Subscriber + Send + Sync> {
+    let filter = match level {
+        Some(lvl) => EnvFilter::builder()
+            .with_default_directive(lvl.into())
+            .from_env_lossy()
+            .add_directive("sqlx=trace".parse().expect("It should parse sqlx trace level"))
+            .add_directive("h2=trace".parse().expect("It should parse h2 trace level"))
+            .add_directive("hyper=trace".parse().expect("It should parse hyper trace level"))
+            .add_directive("tonic=trace".parse().expect("It should parse tonic trace level")),
+        None => EnvFilter::from_default_env()
+            .add_directive("sqlx=trace".parse().expect("It should parse sqlx trace level"))
+            .add_directive("h2=trace".parse().expect("It should parse h2 trace level"))
+            .add_directive("hyper=trace".parse().expect("It should parse hyper trace level"))
+            .add_directive("tonic=trace".parse().expect("It should parse tonic trace level")),
+    };
+
+    let json_layer = fmt::layer::<Registry>()
+        .with_test_writer()
+        // .with_timer(time::UtcTime::rfc_3339())
+        .with_file(true)
+        .with_line_number(true)
+        .with_thread_ids(true)
+        .with_thread_names(true)
+        .with_target(true)
+        .json();
+    // .with_current_span(true)z
+    // .with_span_list(true)
+    // To see how long each span takes, uncomment this.
+    // .with_span_events(FmtSpan::CLOSE)
+
+    Box::new(tracing_subscriber::registry().with(json_layer).with(filter))
+}
+
+fn env_subscriber_to_human(level: Option<LevelFilter>) -> Box<dyn Subscriber + Send + Sync> {
+    let filter = match level {
+        Some(lvl) => EnvFilter::builder()
+            .with_default_directive(lvl.into())
+            .from_env_lossy()
+            .add_directive("sqlx=trace".parse().expect("It should parse sqlx trace level"))
+            .add_directive("h2=trace".parse().expect("It should parse h2 trace level"))
+            .add_directive("hyper=trace".parse().expect("It should parse hyper trace level"))
+            .add_directive("tonic=trace".parse().expect("It should parse tonic trace level")),
+        None => EnvFilter::from_default_env()
+            .add_directive("sqlx=trace".parse().expect("It should parse sqlx trace level"))
+            .add_directive("h2=trace".parse().expect("It should parse h2 trace level"))
+            .add_directive("hyper=trace".parse().expect("It should parse hyper trace level"))
+            .add_directive("tonic=trace".parse().expect("It should parse tonic trace level")),
+    };
+
+    let standard_layer = fmt::layer()
+        .with_test_writer()
+        // .with_timer(time::UtcTime::rfc_3339())
+        .with_file(true)
+        .with_line_number(true)
+        // To see how long each span takes, uncomment this.
+        // .with_span_events(FmtSpan::CLOSE)
+        .with_target(true);
+
+    Box::new(
+        tracing_subscriber::registry()
+            .with(standard_layer)
+            .with(filter),
+    )
 }
