@@ -3,6 +3,7 @@ name: Clementine Verifier
 services:
   postgres_db:
     image: 'postgres:latest'
+    attach: false
     container_name: postgres_db
     volumes:
       - .docker/db/data/:/var/lib/postgresql/data/
@@ -23,6 +24,7 @@ services:
 
   bitcoin_testnet4:
     image: bitcoin/bitcoin:28.1
+    attach: false
     container_name: bitcoin_testnet4
     ports:
       - "18443:18443"
@@ -55,9 +57,10 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - ./core/src/test/data/bridge_config.toml:/config.toml
-      - ./core/src/test/data/protocol_paramset.toml:/protocol_paramset.toml
-      - ./bitvm_cache.bin:/bitvm_cache.bin
+      - ../../core/src/test/data/bridge_config.toml:/config.toml
+      - ../../core/src/test/data/protocol_paramset.toml:/protocol_paramset.toml
+      - ../../bitvm_cache.bin:/bitvm_cache.bin
+      - ../../certs:/certs
 
     networks:
       - clementine-network

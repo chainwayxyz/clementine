@@ -203,24 +203,13 @@ For more information, use `--help` flag:
 
 #### Using Docker
 
-1. Pull the image
+There is a Docker compose file located at [scripts/docker/docker-compose.yml](scripts/docker/docker-compose.yml)
+which can be used to start Clementine servers. It defaults to test config files
+and can be modified to start a Clementine instance.
 
-   ```sh
-   docker pull chainwayxyz/clementine
-   ```
-
-2. Run the image
-
-   ```sh
-   # Paths are from test configs and assuming BitVM cache is downloaded.
-   docker run --rm -it \
-      -v ./core/src/test/data/bridge_config.toml:/config.toml \
-      -v ./core/src/test/data/protocol_paramset.toml:/protocol_paramset.toml \
-      -v ./bitvm_cache.bin:/bitvm_cache.bin \
-      -p 8080:8080 \
-      chainwayxyz/clementine \
-      verifier --config /config.toml --protocol-params /protocol_paramset.toml
-   ```
+```sh
+docker compose -f scripts/docker/docker-compose.yml up
+```
 
 ### Testing
 
