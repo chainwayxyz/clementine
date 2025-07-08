@@ -1,3 +1,5 @@
+name: Clementine Verifier
+
 services:
   postgres_db:
     image: 'postgres:latest'
@@ -41,29 +43,29 @@ services:
     networks:
       - clementine-network
 
-  clementine:
+  clementine_verifier:
     depends_on:
       - postgres_db
       - bitcoin_testnet4
-    image: clementine
+    image: chainwayxyz/clementine
     platform: linux/amd64
     container_name: clementine
     command:
-      /scripts/docker/docker_config.toml
-      --verifier-server
-    environment:
-      - RUST_LOG=info
+      verifier --config /config.toml --protocol-params /protocol_paramset.toml
     ports:
       - "8080:8080"
     volumes:
-      - clementine:/mnt/task/clementine
+      - ./core/src/test/data/bridge_config.toml:/config.toml
+      - ./core/src/test/data/protocol_paramset.toml:/protocol_paramset.toml
+      - ./bitvm_cache.bin:/bitvm_cache.bin
+
     networks:
       - clementine-network
 
 volumes:
   postgres_db:
   bitcoin_testnet4:
-  clementine:
+  clementine_verifier:
 
 networks:
   clementine-network:
