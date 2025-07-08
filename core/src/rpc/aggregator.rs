@@ -900,9 +900,9 @@ impl ClementineAggregator for Aggregator {
                 .map_to_status()?;
             let agg_nonce = aggregate_nonces(pub_nonces.iter().collect::<Vec<_>>().as_slice());
             // send the agg nonce to the verifiers to sign the optimistic payout tx
-            let verifier_clients = self.get_verifier_clients();
+            let verifier_clients = verifiers.clients();
             let payout_sigs = verifier_clients
-                .iter()
+                .into_iter()
                 .zip(first_responses)
                 .map(|(client, first_response)| {
                     let mut client = client.clone();
