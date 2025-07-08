@@ -1,15 +1,50 @@
-//! This module includes helper functions to get the current status of the entity.
+//! This module includes helper functions to get the blockchain synchronization status of the entity.
+//! The entity tracks on-chain transactions for many purposes (TxSender,
+//! FinalizedBlockFetcher, HCP) and takes action (header chain proving, payout,
+//! disprove, L2 state sync, etc.)
+//! SyncStatus tracks the latest processed block heights for each of these tasks.
+//!
+use std::sync::LazyLock;
+
+use bitcoin::Amount;
 use bitcoincore_rpc::RpcApi;
 use eyre::Context;
+use metrics::Gauge;
+use tonic::async_trait;
 
 use crate::{
     database::Database, errors::BridgeError, extended_rpc::ExtendedRpc, utils::NamedEntity,
 };
+use metrics_derive::Metrics;
+
+#[derive(Metrics)]
+#[metrics(scope = "l1_sync_status")]
+pub struct L1SyncStatusMetrics {
+    #[metric(describe = "The current balance of the wallet in Bitcoin (BTC)")]
+    pub wallet_balance_btc: Gauge,
+    #[metric(describe = "The block height of the chain as seen by Bitcoin Core RPC")]
+    pub rpc_tip_height: Gauge,
+    #[metric(describe = "The block height of the Bitcoin Syncer")]
+    pub btc_syncer_synced_height: Gauge,
+    #[metric(describe = "The block height of the latest header chain proof")]
+    pub hcp_last_proven_height: Gauge,
+    #[metric(describe = "The block height processed by the Transaction Sender")]
+    pub tx_sender_synced_height: Gauge,
+    #[metric(describe = "The finalized block height as seen by the FinalizedBlockFetcher task")]
+    pub finalized_synced_height: Gauge,
+    #[metric(describe = "The next block height to process for the State Manager")]
+    pub state_manager_next_height: Gauge,
+}
+
+pub static L1_SYNC_STATUS: LazyLock<L1SyncStatusMetrics> = LazyLock::new(|| {
+    L1SyncStatusMetrics::describe();
+    L1SyncStatusMetrics::default()
+});
 
 /// A struct containing the current sync status of the entity.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SyncStatus {
-    pub wallet_balance: String,
+pub struct L1SyncStatus {
+    pub wallet_balance: Amount,
     pub rpc_tip_height: u32,
     pub btc_syncer_synced_height: Option<u32>,
     pub hcp_last_proven_height: Option<u32>,
@@ -19,13 +54,14 @@ pub struct SyncStatus {
 }
 
 /// Get the current balance of the wallet.
-pub async fn get_wallet_balance(rpc: &ExtendedRpc) -> Result<String, BridgeError> {
+pub async fn get_wallet_balance(rpc: &ExtendedRpc) -> Result<Amount, BridgeError> {
     let balance = rpc
         .client
         .get_balance(None, None)
         .await
         .wrap_err("Failed to get wallet balance")?;
-    Ok(format!("{} btc", balance.to_btc()))
+
+    Ok(balance)
 }
 
 /// Get the current height of the chain as seen by Bitcoin Core RPC.
@@ -34,7 +70,8 @@ pub async fn get_rpc_tip_height(rpc: &ExtendedRpc) -> Result<u32, BridgeError> {
     Ok(height)
 }
 
-/// Get the last processed block height of the given consumer.
+/// Get the last processed block height of the given consumer or None if no
+/// block was processed by the consumer.
 pub async fn get_btc_syncer_consumer_last_processed_block_height(
     db: &Database,
     consumer_handle: &str,
@@ -47,13 +84,14 @@ pub async fn get_btc_syncer_consumer_last_processed_block_height(
     Ok(height)
 }
 
-/// Get the last processed block height of the Bitcoin Syncer.
+/// Get the last processed block height of the Bitcoin Syncer or None if no
+/// block is present in the database.
 pub async fn get_btc_syncer_synced_height(db: &Database) -> Result<Option<u32>, BridgeError> {
     let height = db.get_max_height(None).await?;
     Ok(height)
 }
 
-/// Get the last proven block height of the HCP.
+/// Get the last proven block height of the HCP or None if no block has been proven.
 pub async fn get_hcp_last_proven_height(db: &Database) -> Result<Option<u32>, BridgeError> {
     let latest_proven_block_height = db
         .get_latest_proven_block_info(None)
@@ -62,7 +100,8 @@ pub async fn get_hcp_last_proven_height(db: &Database) -> Result<Option<u32>, Br
     Ok(latest_proven_block_height)
 }
 
-/// Get the next height of the State Manager.
+/// Get the next height of the State Manager or None if the State Manager status
+/// for the owner is missing or the next_height_to_process is NULL.
 pub async fn get_state_manager_next_height(
     db: &Database,
     owner_type: &str,
@@ -81,31 +120,36 @@ pub async fn get_state_manager_next_height(
     }
 }
 
-/// Get full sync status of the entity.
-pub async fn get_sync_status<T: NamedEntity>(
-    db: &Database,
-    rpc: &ExtendedRpc,
-) -> Result<SyncStatus, BridgeError> {
-    let wallet_balance = get_wallet_balance(rpc).await?;
-    let rpc_tip_height = get_rpc_tip_height(rpc).await?;
-    let tx_sender_synced_height =
-        get_btc_syncer_consumer_last_processed_block_height(db, T::TX_SENDER_CONSUMER_ID).await?;
-    let finalized_synced_height =
-        get_btc_syncer_consumer_last_processed_block_height(db, T::FINALIZED_BLOCK_CONSUMER_ID)
-            .await?;
-    let btc_syncer_synced_height = get_btc_syncer_synced_height(db).await?;
-    let hcp_last_proven_height = get_hcp_last_proven_height(db).await?;
-    let state_manager_next_height = get_state_manager_next_height(db, T::ENTITY_NAME).await?;
+#[async_trait]
+pub trait L1SyncStatusProvider: NamedEntity {
+    async fn get_l1_status(db: &Database, rpc: &ExtendedRpc) -> Result<L1SyncStatus, BridgeError>;
+}
 
-    Ok(SyncStatus {
-        wallet_balance,
-        rpc_tip_height,
-        btc_syncer_synced_height,
-        hcp_last_proven_height,
-        tx_sender_synced_height,
-        finalized_synced_height,
-        state_manager_next_height,
-    })
+#[async_trait]
+impl<T: NamedEntity + Sync + Send + 'static> L1SyncStatusProvider for T {
+    async fn get_l1_status(db: &Database, rpc: &ExtendedRpc) -> Result<L1SyncStatus, BridgeError> {
+        let wallet_balance = get_wallet_balance(rpc).await?;
+        let rpc_tip_height = get_rpc_tip_height(rpc).await?;
+        let tx_sender_synced_height =
+            get_btc_syncer_consumer_last_processed_block_height(db, T::TX_SENDER_CONSUMER_ID)
+                .await?;
+        let finalized_synced_height =
+            get_btc_syncer_consumer_last_processed_block_height(db, T::FINALIZED_BLOCK_CONSUMER_ID)
+                .await?;
+        let btc_syncer_synced_height = get_btc_syncer_synced_height(db).await?;
+        let hcp_last_proven_height = get_hcp_last_proven_height(db).await?;
+        let state_manager_next_height = get_state_manager_next_height(db, T::ENTITY_NAME).await?;
+
+        Ok(L1SyncStatus {
+            wallet_balance,
+            rpc_tip_height,
+            btc_syncer_synced_height,
+            hcp_last_proven_height,
+            tx_sender_synced_height,
+            finalized_synced_height,
+            state_manager_next_height,
+        })
+    }
 }
 
 #[cfg(test)]

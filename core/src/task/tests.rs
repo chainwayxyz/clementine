@@ -320,7 +320,7 @@ async fn test_task_manager() {
 
     // Add a task that increments the counter 5 times
     let task = CounterTask::new(Arc::clone(&counter), 5);
-    manager.loop_and_monitor(task.clone()).await;
+    manager.ensure_task_looping(task.clone()).await;
 
     // Sleep to give the task time to run
     sleep(Duration::from_millis(500)).await;
@@ -339,11 +339,11 @@ async fn test_task_manager_abort() {
 
     // Add a task that sleeps for a long time
     let task = SleepTask::new(Duration::from_secs(10));
-    manager.loop_and_monitor(task.clone()).await;
+    manager.ensure_task_looping(task.clone()).await;
 
     // Start a counter task too
     let task = CounterTask::new(Arc::clone(&counter), 100);
-    manager.loop_and_monitor(task.clone()).await;
+    manager.ensure_task_looping(task.clone()).await;
 
     // Sleep for a short time to let tasks start
     sleep(Duration::from_millis(100)).await;
@@ -358,7 +358,7 @@ async fn test_task_manager_timeout() {
 
     // Add a task that sleeps for a long time
     let task = SleepTask::new(Duration::from_secs(10));
-    manager.loop_and_monitor(task.clone()).await;
+    manager.ensure_task_looping(task.clone()).await;
 
     // Graceful shutdown with short timeout should abort the task
     let start = Instant::now();
@@ -378,11 +378,11 @@ async fn test_task_manager_abort_and_restart() {
 
     // Add a task that sleeps for a long time
     let sleep_task = SleepTask::new(Duration::from_secs(10));
-    manager.loop_and_monitor(sleep_task.clone()).await;
+    manager.ensure_task_looping(sleep_task.clone()).await;
 
     // Start a counter task too
     let counter_task = CounterTask::new(Arc::clone(&counter), 100);
-    manager.loop_and_monitor(counter_task.clone()).await;
+    manager.ensure_task_looping(counter_task.clone()).await;
 
     // Sleep for a short time to let tasks start
     sleep(Duration::from_millis(100)).await;
@@ -401,8 +401,8 @@ async fn test_task_manager_abort_and_restart() {
     }
 
     // check if restart works
-    manager.loop_and_monitor(sleep_task.clone()).await;
-    manager.loop_and_monitor(counter_task.clone()).await;
+    manager.ensure_task_looping(sleep_task.clone()).await;
+    manager.ensure_task_looping(counter_task.clone()).await;
 
     // check if they are running
     for variant in variants {

@@ -13,6 +13,10 @@ tonic-build = "0.12"
 vergen-git2 = { workspace = true }
 
 [dependencies]
+metrics = { workspace = true }
+metrics-derive = { workspace = true }
+metrics-exporter-prometheus = { workspace = true }
+metrics-util = { workspace = true }
 bitcoin = { workspace = true, features = ["rand", "bitcoinconsensus"] }
 bitcoincore-rpc = { workspace = true }
 hex = { workspace = true, features = ["serde"] }

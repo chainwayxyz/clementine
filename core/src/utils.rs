@@ -1,4 +1,5 @@
 use crate::builder::transaction::TransactionType;
+use crate::config::TelemetryConfig;
 use crate::errors::BridgeError;
 use crate::operator::RoundIndex;
 use crate::rpc::clementine::VergenResponse;
@@ -6,10 +7,12 @@ use bitcoin::{OutPoint, TapNodeHash, XOnlyPublicKey};
 use eyre::Context as _;
 use futures::future::try_join_all;
 use http::HeaderValue;
+use metrics_exporter_prometheus::PrometheusBuilder;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Display};
 use std::fs::File;
 use std::future::Future;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -62,6 +65,29 @@ pub fn initialize_logger(level: Option<LevelFilter>) -> Result<(), BridgeError> 
     }
 
     tracing::info!("Tracing initialized successfully.");
+    Ok(())
+}
+
+pub fn initialize_telemetry(config: &TelemetryConfig) -> Result<(), BridgeError> {
+    let telemetry_addr: SocketAddr = format!("{}:{}", config.host, config.port)
+        .parse()
+        .unwrap_or_else(|_| {
+            tracing::warn!(
+                "Invalid telemetry address: {}:{}, using default address: 127.0.0.1:8081",
+                config.host,
+                config.port
+            );
+            SocketAddr::from((Ipv4Addr::new(0, 0, 0, 0), 8081))
+        });
+
+    tracing::debug!("Initializing telemetry at {}", telemetry_addr);
+
+    let builder = PrometheusBuilder::new().with_http_listener(telemetry_addr);
+
+    builder
+        .install()
+        .map_err(|e| eyre::eyre!("Failed to initialize telemetry: {}", e))?;
+
     Ok(())
 }
 
@@ -410,7 +436,7 @@ where
 /// A trait for entities that have a name, operator, verifier, etc.
 /// Used to distinguish between state machines with different owners in the database,
 /// and to provide a human-readable name for the entity for task names.
-pub trait NamedEntity {
+pub trait NamedEntity: Sync + Send + 'static {
     /// A string identifier for this owner type used to distinguish between
     /// state machines with different owners in the database.
     ///

@@ -8,9 +8,9 @@ use tonic::async_trait;
 use crate::errors::BridgeError;
 
 pub mod manager;
+pub mod metric_publisher;
 pub mod payout_checker;
 pub mod status_monitor;
-pub mod sync_status;
 
 /// The variant of the task, used for identifying the task in the status monitor
 /// Create a new enum variant for each task that you want to track in the status monitor
@@ -27,6 +27,7 @@ pub enum TaskVariant {
     Counter,
     #[cfg(test)]
     Sleep,
+    MetricPublisher,
 }
 
 /// Task trait defining the core behavior for cancelable background tasks

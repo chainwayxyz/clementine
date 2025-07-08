@@ -26,7 +26,7 @@ pub type TaskRegistry =
 /// `graceful_shutdown`
 #[derive(Debug)]
 pub struct BackgroundTaskManager<T: NamedEntity + Send + 'static> {
-    pub(crate) task_registry: Arc<RwLock<TaskRegistry>>,
+    task_registry: Arc<RwLock<TaskRegistry>>,
     phantom: PhantomData<T>,
 }
 
@@ -40,20 +40,21 @@ impl<T: NamedEntity + Send + 'static> Default for BackgroundTaskManager<T> {
 }
 
 impl<T: NamedEntity + Send + 'static> BackgroundTaskManager<T> {
-    /// Monitors the spawned task. If any task stops running, logs the reason why and
-    /// updates the task registry to register the task as not running.
+    /// Monitors the spawned task. If any task stops running, logs the reason
+    /// why and updates the task registry to register the task as not running.
     fn monitor_spawned_task(
         &self,
         handle: JoinHandle<Result<(), BridgeError>>,
         task_variant: TaskVariant,
-        task_registry: Arc<RwLock<TaskRegistry>>,
     ) {
+        let task_registry = Arc::downgrade(&self.task_registry);
+
         tokio::spawn(async move {
             let exit_reason = match handle.await {
                 Ok(Ok(_)) => {
                     // Task completed successfully
                     tracing::debug!("Task {:?} completed successfully", task_variant);
-                    "Completed successfully".to_string()
+                    "Completed successfully".to_owned()
                 }
                 Ok(Err(e)) => {
                     // Task returned an error
@@ -64,7 +65,7 @@ impl<T: NamedEntity + Send + 'static> BackgroundTaskManager<T> {
                     if e.is_cancelled() {
                         // Task was cancelled, which is expected during cleanup
                         tracing::debug!("Task {:?} was cancelled", task_variant);
-                        "Cancelled".to_string()
+                        "Cancelled".to_owned()
                     } else {
                         // Task panicked or was aborted
                         tracing::error!("Task {:?} panicked: {:?}", task_variant, e);
@@ -73,14 +74,29 @@ impl<T: NamedEntity + Send + 'static> BackgroundTaskManager<T> {
                 }
             };
 
-            let mut task_registry = task_registry.write().await;
-            let current_status = task_registry.remove(&task_variant);
-            if let Some((_, abort_handle, cancel_tx)) = current_status {
-                task_registry.insert(
-                    task_variant,
-                    (TaskStatus::NotRunning(exit_reason), abort_handle, cancel_tx),
+            let Some(task_registry) = task_registry.upgrade() else {
+                tracing::debug!(
+                    "Task manager has been dropped, task {:?} no longer monitored",
+                    task_variant
                 );
+                return;
+            };
+
+            let mut task_registry = task_registry.write().await;
+
+            if !task_registry.contains_key(&task_variant) {
+                tracing::error!(
+                    "Invariant violated: Monitored task {:?} not registered in the task registry",
+                    task_variant
+                );
+                return;
             }
+
+            task_registry
+                .entry(task_variant)
+                .and_modify(|(status, _, _)| {
+                    *status = TaskStatus::NotRunning(exit_reason);
+                });
         });
     }
 
@@ -118,14 +134,18 @@ impl<T: NamedEntity + Send + 'static> BackgroundTaskManager<T> {
             .map(|(status, _, _)| status.clone())
     }
 
-    /// Wraps the task in a cancelable loop and spawns it, registers it in the task registry.
-    /// If a task with the same TaskVariant is already running, it will not be started.
-    async fn start_and_register_task<S, U: IntoTask<Task = S>>(&self, task: U)
+    /// Wraps the task in a cancelable loop and spawns it, registers it in the
+    /// task registry. If a task with the same TaskVariant is already running,
+    /// it will not be started.
+    pub async fn ensure_task_looping<S, U: IntoTask<Task = S>>(&self, task: U)
     where
         S: Task + Sized + std::fmt::Debug,
         <S as Task>::Output: Into<bool>,
     {
+        self.ensure_monitor_running().await;
+
         let variant = S::VARIANT;
+
         // do not start the same task if it is already running
         if self.is_task_running(variant).await {
             tracing::debug!("Task {:?} is already running, skipping", variant);
@@ -138,31 +158,30 @@ impl<T: NamedEntity + Send + 'static> BackgroundTaskManager<T> {
         let bg_task = task.into_bg();
         let abort_handle = bg_task.abort_handle();
 
-        self.monitor_spawned_task(bg_task, variant, self.task_registry.clone());
-
         self.task_registry.write().await.insert(
             variant,
             (TaskStatus::Running, abort_handle, Some(cancel_tx)),
         );
+
+        self.monitor_spawned_task(bg_task, variant);
     }
 
-    /// Wraps the task in a cancelable loop and spawns it in the background with built-in monitoring.
-    ///
-    /// If required, polling should be added **before** a call to this function via `task.into_polling()`
-    pub async fn loop_and_monitor<S, U: IntoTask<Task = S>>(&self, task: U)
-    where
-        S: Task + Sized + std::fmt::Debug,
-        <S as Task>::Output: Into<bool>,
-    {
-        self.start_and_register_task(task).await;
-
-        // start the monitoring task if it is not running
+    async fn ensure_monitor_running(&self) {
         if !self.is_task_running(TaskVariant::TaskStatusMonitor).await {
-            self.start_and_register_task(
-                TaskStatusMonitorTask::new(self.task_registry.clone())
-                    .with_delay(TASK_STATUS_MONITOR_POLL_DELAY),
-            )
-            .await;
+            let task = TaskStatusMonitorTask::new(self.task_registry.clone())
+                .with_delay(TASK_STATUS_MONITOR_POLL_DELAY);
+
+            let variant = TaskVariant::TaskStatusMonitor;
+            let (task, cancel_tx) = task.cancelable_loop();
+            let bg_task = task.into_bg();
+            let abort_handle = bg_task.abort_handle();
+
+            self.task_registry.write().await.insert(
+                variant,
+                (TaskStatus::Running, abort_handle, Some(cancel_tx)),
+            );
+
+            self.monitor_spawned_task(bg_task, variant);
         }
     }
 
@@ -172,7 +191,7 @@ impl<T: NamedEntity + Send + 'static> BackgroundTaskManager<T> {
         for (_, (_, _, cancel_tx)) in task_registry.iter_mut() {
             let oneshot_tx = cancel_tx.take();
             if let Some(oneshot_tx) = oneshot_tx {
-                // send can fail, but if it fails the task is likely already finished(?)
+                // send can fail, but if it fails the task is dropped.
                 let _ = oneshot_tx.send(());
             }
         }
