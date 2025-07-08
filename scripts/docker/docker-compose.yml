@@ -52,6 +52,8 @@ services:
     image: chainwayxyz/clementine
     platform: linux/amd64
     container_name: clementine
+    environment:
+      - BITVM_CACHE_PATH=/bitvm_cache.bin
     command:
       verifier --config /config.toml --protocol-params /protocol_paramset.toml
     ports:
