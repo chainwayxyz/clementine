@@ -154,10 +154,21 @@ certs/
 > [!NOTE]
 > For production use, you should use certificates signed by a trusted CA rather than self-signed ones.
 
+#### BitVM Cache
+
+BitVM Cache will be generated, if not present. It can be downloaded with:
+
+```sh
+wget https://static.testnet.citrea.xyz/common/bitvm_cache_v3.bin -O bitvm_cache.bin
+wget https://static.testnet.citrea.xyz/common/bitvm_cache_dev.bin -O bitvm_cache_dev.bin
+```
+
 ### Starting a Server
 
 Clementine is designed to be run multiple times for every actor that an entity
-requires. An actor's server can be started using its corresponding argument:
+requires. An actor's server can be started using its corresponding argument.
+
+#### Compiling Manually
 
 ```sh
 # Build the binary (with optional automation)
@@ -189,6 +200,27 @@ For more information, use `--help` flag:
 ```sh
 ./target/release/clementine-core --help
 ```
+
+#### Using Docker
+
+1. Pull the image
+
+   ```sh
+   docker pull chainwayxyz/clementine
+   ```
+
+2. Run the image
+
+   ```sh
+   # Paths are from test configs and assuming BitVM cache is downloaded.
+   docker run --rm -it \
+      -v ./core/src/test/data/bridge_config.toml:/config.toml \
+      -v ./core/src/test/data/protocol_paramset.toml:/protocol_paramset.toml \
+      -v ./bitvm_cache.bin:/bitvm_cache.bin \
+      -p 8080:8080 \
+      chainwayxyz/clementine \
+      verifier --config /config.toml --protocol-params /protocol_paramset.toml
+   ```
 
 ### Testing
 
