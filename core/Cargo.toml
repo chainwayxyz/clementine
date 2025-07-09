@@ -65,6 +65,7 @@ circuits-lib = { path = "../circuits-lib" }
 bridge-circuit-host = { path = "../bridge-circuit-host" }
 bincode = { workspace = true }
 ark-ff = { workspace = true }
+rustls = { workspace = true }
 rustls-pki-types = { workspace = true }
 once_cell = { workspace = true }
 bitcoin-script = { workspace = true }

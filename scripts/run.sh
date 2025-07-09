@@ -114,7 +114,7 @@ done
 
 # Build the project once
 echo "Building clementine-core..."
-cargo build --package clementine-core --bin clementine-core
+cargo build --package clementine-core --all-features --bin clementine-core
 if [ $? -ne 0 ]; then
     echo "Build failed, exiting..."
     exit 1
@@ -164,8 +164,8 @@ for i in "${!roles[@]}"; do
     log_file="logs/${filename%.toml}.jsonl"
 
     if [ "$role" == "aggregator" ]; then
-        echo "Waiting 15 seconds before starting aggregator..."
-        sleep 15
+        echo "Waiting 120 seconds before starting aggregator..."
+        sleep 120
     fi
 
     # Set dynamic config vars for each actor

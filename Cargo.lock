@@ -2168,6 +2168,7 @@ dependencies = [
  "prost",
  "rand_chacha 0.9.0",
  "risc0-zkvm",
+ "rustls",
  "rustls-pki-types",
  "secp256k1 0.31.0",
  "secrecy",

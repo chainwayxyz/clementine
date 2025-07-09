@@ -22,7 +22,12 @@ use tracing::{level_filters::LevelFilter, Level};
 
 #[tokio::main]
 async fn main() {
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("Failed to install rustls crypto provider");
+
     let (config, args) = get_cli_config();
+
 
     let level_filter = match args.verbose {
         0 => None,
