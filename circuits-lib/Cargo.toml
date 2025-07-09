@@ -49,4 +49,4 @@ citrea-sov-rollup-interface = { workspace = true }
 
 [features]
 default = []
-use-test-vk = []
+use-test-vk = [] # Use the test verification key - this is used for testing purposes only
