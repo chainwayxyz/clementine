@@ -5,7 +5,7 @@ on:
     branches:
       - main
 
-concurrency: 
+concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ (github.ref != 'refs/heads/main') }}
 
@@ -19,7 +19,7 @@ env:
 jobs:
   build:
     name: Build and deploy documentation
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
     permissions:
       contents: write
 
@@ -28,7 +28,7 @@ jobs:
       - name: Clean documentation directory
         run: cargo clean --doc
       - name: Build documentation
-        run: cargo doc --no-deps
+        run: cargo doc --no-deps --all-features --document-private-items
       - name: Finalize documentation
         run: |
           echo '<meta http-equiv="refresh" content="0;url=clementine_core/index.html">' > target/doc/index.html

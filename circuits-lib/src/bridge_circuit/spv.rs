@@ -4,6 +4,8 @@ use crate::header_chain::{mmr_guest::MMRGuest, mmr_native::MMRInclusionProof, Ci
 
 use super::{merkle_tree::BlockInclusionProof, transaction::CircuitTransaction};
 
+/// SPV (Simplified Payment Verification) structure that contains
+/// the transaction, block inclusion proof, block header, and MMR inclusion proof.
 #[derive(Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
 pub struct SPV {
     pub transaction: CircuitTransaction,
@@ -27,10 +29,13 @@ impl SPV {
         }
     }
 
+    /// Verifies the SPV proof using the provided MMRGuest.
     pub fn verify(&self, mmr_guest: MMRGuest) -> bool {
-        let txid: [u8; 32] = self.transaction.txid();
-        let block_merkle_root = self.block_inclusion_proof.get_root(txid);
-        assert_eq!(block_merkle_root, self.block_header.merkle_root);
+        let mid_state_txid: [u8; 32] = self.transaction.mid_state_txid();
+        let block_merkle_root = self.block_inclusion_proof.get_root(mid_state_txid);
+        assert_eq!(block_merkle_root, self.block_header.merkle_root,
+            "Calculated block Merkle root from the block inclusion proof does not match the one in the block header"
+        );
         let block_hash = self.block_header.compute_block_hash();
         mmr_guest.verify_proof(block_hash, &self.mmr_inclusion_proof)
     }
@@ -47,6 +52,7 @@ mod tests {
             spv::SPV,
             transaction::CircuitTransaction,
         },
+        common::hashes::calculate_sha256,
         header_chain::{mmr_guest::MMRGuest, mmr_native::MMRNative, CircuitBlockHeader},
     };
 
@@ -103,15 +109,13 @@ mod tests {
             .map(|tx| CircuitTransaction(bitcoin::consensus::deserialize(tx).unwrap()))
             .collect::<Vec<CircuitTransaction>>();
         let mut bitcoin_merkle_proofs: Vec<BlockInclusionProof> = vec![];
-        for tx in txs.iter() {
-            let txid = tx.txid();
-            tracing::debug!("txid: {:?}", txid);
-            let bitcoin_merkle_tree = BitcoinMerkleTree::new(vec![txid]);
+        for tx in txs.clone().into_iter() {
+            let bitcoin_merkle_tree = BitcoinMerkleTree::new_mid_state(&[tx.clone()]);
             let bitcoin_merkle_proof = bitcoin_merkle_tree.generate_proof(0);
             assert!(verify_merkle_proof(
-                txid,
+                tx.mid_state_txid(),
                 &bitcoin_merkle_proof,
-                bitcoin_merkle_tree.root()
+                calculate_sha256(&bitcoin_merkle_tree.root())
             ));
             bitcoin_merkle_proofs.push(bitcoin_merkle_proof);
         }

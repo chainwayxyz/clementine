@@ -7,7 +7,6 @@ use eyre::Context as _;
 use futures::future::try_join_all;
 use http::HeaderValue;
 use serde::{Deserialize, Serialize};
-use std::env;
 use std::fmt::{Debug, Display};
 use std::fs::File;
 use std::future::Future;
@@ -23,60 +22,90 @@ use tracing::{debug_span, Instrument, Subscriber};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::{fmt, EnvFilter, Layer as TracingLayer, Registry};
 
-/// Initializes `tracing` as the logger.
+/// Initializes a [`tracing`] subscriber depending on the environment.
+/// [`EnvFilter`] is used with an optional default level. Sets up the
+/// [`color_eyre`] handler.
+///
+/// # Log Formats
+///
+/// - `json` **JSON** is used when `LOG_FORMAT=json`
+/// - `human` **Human-readable** direct logs are used when `LOG_FORMAT` is not
+///   set to `json`.
+///
+/// /// ## CI
+///
+/// In CI, logging is always in the human-readable format with output to the
+/// console. The `INFO_LOG_FILE` env var can be used to set an optional log file
+/// output. If not set, only console logging is used.
+///
+/// # Backtraces
+///
+/// Backtraces are enabled by default for tests. Error backtraces otherwise
+/// depend on the `RUST_LIB_BACKTRACE` env var. Please read [`color_eyre`]
+/// documentation for more details.
 ///
 /// # Parameters
 ///
-/// - `level`: Level ranges from 0 to 5. 0 defaults to no logs but can be
-///   overwritten with `RUST_LOG` env var. While other numbers sets log level from
-///   lowest level (1) to highest level (5). Is is advised to use 0 on tests and
-///   other values for binaries (get value from user).
+/// - `default_level`: Default level ranges from 0 to 5. This is overwritten through the
+///   `RUST_LOG` env var.
 ///
 /// # Returns
 ///
-/// Returns `Err` if `tracing` can't be initialized. Multiple subscription error
-/// is emitted and will return `Ok(())`.
-pub fn initialize_logger(level: Option<LevelFilter>) -> Result<(), BridgeError> {
+/// Returns `Err` in CI if the file logging cannot be initialized.  Already
+/// initialized errors are ignored, so this function can be called multiple
+/// times safely.
+pub fn initialize_logger(default_level: Option<LevelFilter>) -> Result<(), BridgeError> {
     let is_ci = std::env::var("CI")
         .map(|v| v == "true" || v == "1")
         .unwrap_or(false);
 
+    if cfg!(test) {
+        // Enable full backtraces for tests
+        std::env::set_var("RUST_LIB_BACKTRACE", "full");
+    }
+
+    // Initialize color-eyre for better error handling and backtraces
+    let _ = color_eyre::install();
+
     if is_ci {
         let info_log_file = std::env::var("INFO_LOG_FILE").ok();
         if let Some(file_path) = info_log_file {
-            let subscriber = env_subscriber_with_file(&file_path)?;
-            try_set_global_subscriber(subscriber)?;
+            try_set_global_subscriber(env_subscriber_with_file(&file_path)?);
+            tracing::trace!("Using file logging in CI, outputting to {}", file_path);
         } else {
+            try_set_global_subscriber(env_subscriber_to_human(default_level));
+            tracing::trace!("Using console logging in CI");
             tracing::warn!(
                 "CI is set but INFO_LOG_FILE is missing, only console logs will be used."
             );
-            let subscriber = env_subscriber_to_human(level);
-            try_set_global_subscriber(subscriber)?;
         }
+    } else if is_json_logs() {
+        try_set_global_subscriber(env_subscriber_to_json(default_level));
+        tracing::trace!("Using JSON logging");
     } else {
-        let subscriber: Box<dyn Subscriber + Send + Sync> = if is_json_logs() {
-            Box::new(env_subscriber_to_json(level))
-        } else {
-            Box::new(env_subscriber_to_human(level))
-        };
-        try_set_global_subscriber(subscriber)?;
+        try_set_global_subscriber(env_subscriber_to_human(default_level));
+        tracing::trace!("Using human-readable logging");
     }
 
     tracing::info!("Tracing initialized successfully.");
     Ok(())
 }
 
-fn try_set_global_subscriber<S>(subscriber: S) -> Result<(), BridgeError>
+fn try_set_global_subscriber<S>(subscriber: S)
 where
     S: Subscriber + Send + Sync + 'static,
 {
     match tracing::subscriber::set_global_default(subscriber) {
-        Ok(_) => Ok(()),
-        Err(e) if e.to_string() == "a global default trace dispatcher has already been set" => {
-            tracing::info!("Tracing is already initialized, skipping without errors...");
-            Ok(())
+        Ok(_) => {}
+        // Statically, the only error possible is "already initialized"
+        Err(_) => {
+            #[cfg(test)]
+            tracing::trace!("Tracing is already initialized, skipping without errors...");
+            #[cfg(not(test))]
+            tracing::info!(
+                "Unexpected double initialization of tracing, skipping without errors..."
+            );
         }
-        Err(e) => Err(BridgeError::ConfigError(e.to_string())),
     }
 }
 
@@ -566,7 +595,7 @@ where
     try_join_all(iter.into_iter().enumerate().map(|item| {
         let ids = ids.clone();
         async move {
-            let id = Option::as_ref(&ids).map(|ids| ids.get(item.0)).flatten();
+            let id = Option::as_ref(&ids).and_then(|ids| ids.get(item.0));
 
             timeout(duration, item.1)
                 .await

@@ -205,6 +205,7 @@ impl HeaderChainProver {
             )
             .await
             .map_to_eyre()?;
+            tracing::debug!("Genesis chain state (verbose): {:?}", genesis_chain_state); // Should be debug
 
             let genesis_chain_state_hash = genesis_chain_state.to_hash();
             if genesis_chain_state_hash != config.protocol_paramset().genesis_chain_state_hash {
@@ -291,8 +292,8 @@ impl HeaderChainProver {
 
         let epoch_start_block_height = height / 2016 * 2016;
 
-        let epoch_start_timestamp = if network == Network::Regtest {
-            0
+        let (epoch_start_timestamp, expected_bits) = if network == Network::Regtest {
+            (0, block_header.bits.to_consensus())
         } else {
             let epoch_start_block_hash = rpc
                 .client
@@ -310,8 +311,14 @@ impl HeaderChainProver {
                     "Failed to get block header with block hash {}",
                     epoch_start_block_hash
                 ))?;
+            let bits = if network == Network::Testnet4 {
+                // Real difficulty will show up at epoch start block no matter what
+                epoch_start_block_header.bits.to_consensus()
+            } else {
+                block_header.bits.to_consensus()
+            };
 
-            epoch_start_block_header.time
+            (epoch_start_block_header.time, bits)
         };
 
         let block_info = rpc
@@ -334,7 +341,7 @@ impl HeaderChainProver {
             block_height: height as u32,
             total_work,
             best_block_hash: block_hash.to_byte_array(),
-            current_target_bits: block_header.bits.to_consensus(),
+            current_target_bits: expected_bits,
             epoch_start_time: epoch_start_timestamp,
             prev_11_timestamps: last_11_block_timestamps,
             block_hashes_mmr,
@@ -516,7 +523,7 @@ impl HeaderChainProver {
         Ok(receipt)
     }
 
-    /// Produces a proof for the chain upto the block with the given hash.
+    /// Produces a proof for the chain up to the block with the given hash.
     ///
     /// # Returns
     ///
@@ -539,11 +546,13 @@ impl HeaderChainProver {
             .ok_or_eyre("No proofs found before the given block hash")?;
 
         if latest_proven_block.2 == height as u64 {
-            self.db
+            let receipt = self
+                .db
                 .get_block_proof_by_hash(None, latest_proven_block.0)
                 .await
                 .wrap_err("Failed to get block proof")?
                 .ok_or(eyre!("Failed to get block proof"))?;
+            return Ok((receipt, height as u64));
         }
 
         let block_headers = self
@@ -761,7 +770,7 @@ mod tests {
         let db = Database::new(&config).await.unwrap();
 
         // randomly select a number of blocks from 12 to 2116
-        let num_blocks: u64 = rand::thread_rng().gen_range(12..2116);
+        let num_blocks: u64 = rand::rng().random_range(12..2116);
 
         // Save some initial blocks.
         let headers = mine_and_get_first_n_block_headers(rpc.clone(), db.clone(), num_blocks).await;
@@ -775,7 +784,7 @@ mod tests {
         .unwrap();
 
         let mut expected_chain_state = ChainState::genesis_state();
-        expected_chain_state.apply_blocks(
+        expected_chain_state.apply_block_headers(
             headers
                 .iter()
                 .map(|header| CircuitBlockHeader::from(*header))
@@ -805,7 +814,7 @@ mod tests {
         .unwrap();
 
         // randomly select a number of blocks from 12 to 2116
-        let num_blocks: u64 = rand::thread_rng().gen_range(12..2116);
+        let num_blocks: u64 = rand::rng().random_range(12..2116);
 
         // Save some initial blocks.
         let mut headers = Vec::new();
@@ -824,7 +833,7 @@ mod tests {
         .unwrap();
 
         let mut expected_chain_state = ChainState::genesis_state();
-        expected_chain_state.apply_blocks(
+        expected_chain_state.apply_block_headers(
             headers
                 .iter()
                 .map(|header| CircuitBlockHeader::from(*header))
@@ -892,13 +901,18 @@ mod tests {
             .unwrap();
         assert_eq!(block_info.2, test_height);
 
-        prover.prove_till_hash(block_hash).await.unwrap();
+        let receipt_1 = prover.prove_till_hash(block_hash).await.unwrap();
         let latest_proven_block = prover
             .db
             .get_latest_proven_block_info_until_height(None, current_hcp_height as u32)
             .await
             .unwrap()
             .unwrap();
+
+        let receipt_2 = prover.prove_till_hash(block_hash).await.unwrap();
+
+        assert_eq!(receipt_1.0.journal, receipt_2.0.journal);
+
         assert_eq!(latest_proven_block.2, test_height as u64);
     }
 

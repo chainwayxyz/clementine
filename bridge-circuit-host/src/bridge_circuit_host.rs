@@ -23,6 +23,9 @@ use risc0_zkvm::{compute_image_id, default_prover, is_dev_mode, ExecutorEnv, Pro
 pub const REGTEST_BRIDGE_CIRCUIT_ELF: &[u8] =
     include_bytes!("../../risc0-circuits/elfs/regtest-bridge-circuit-guest.bin");
 
+pub const REGTEST_BRIDGE_CIRCUIT_ELF_TEST: &[u8] =
+    include_bytes!("../../risc0-circuits/elfs/test-regtest-bridge-circuit-guest.bin");
+
 pub const TESTNET4_BRIDGE_CIRCUIT_ELF: &[u8] =
     include_bytes!("../../risc0-circuits/elfs/testnet4-bridge-circuit-guest.bin");
 
@@ -124,7 +127,7 @@ pub fn prove_bridge_circuit(
         return Err(eyre!("Header chain proof output mismatch"));
     }
 
-    let header_chain_method_id = match bridge_circuit_host_params.network {
+    let header_chain_method_id = match bridge_circuit_host_params.network.0 {
         bitcoin::Network::Bitcoin => MAINNET_HEADER_CHAIN_METHOD_ID,
         bitcoin::Network::Testnet4 => TESTNET4_HEADER_CHAIN_METHOD_ID,
         bitcoin::Network::Signet => SIGNET_HEADER_CHAIN_METHOD_ID,
@@ -169,14 +172,14 @@ pub fn prove_bridge_circuit(
 
     let prover = default_prover();
 
-    tracing::info!("Checks complete, proving bridge circuit");
+    tracing::info!("Checks complete, proving bridge circuit to generate STARK proof");
 
     let succinct_receipt = prover
         .prove_with_opts(env, bridge_circuit_elf, &ProverOpts::succinct())
         .map_err(|e| eyre!("Failed to generate bridge circuit proof: {}", e))?
         .receipt;
 
-    tracing::info!("Bridge circuit proof generated");
+    tracing::info!("Bridge circuit proof (STARK) generated");
 
     let succinct_receipt_journal: [u8; 32] = succinct_receipt
         .clone()
@@ -194,6 +197,7 @@ pub fn prove_bridge_circuit(
 
     let combined_method_id_constant =
         calculate_succinct_output_prefix(bridge_circuit_method_id.as_bytes());
+
     let (g16_proof, g16_output) = if is_dev_mode() {
         stark_to_bitvm2_g16_dev_mode(succinct_receipt, &succinct_receipt_journal)?
     } else {
@@ -207,7 +211,7 @@ pub fn prove_bridge_circuit(
         )?
     };
 
-    tracing::info!("Bridge circuit Groth16 proof generated");
+    tracing::info!("Bridge circuit proof (Groth16) generated");
 
     let risc0_g16_seal_vec = g16_proof.to_vec();
     let risc0_g16_256 = risc0_g16_seal_vec[0..256]
@@ -388,6 +392,7 @@ mod tests {
             HeaderChainCircuitInput, HeaderChainPrevProofType,
         },
     };
+    use risc0_zkvm::default_executor;
 
     const TESTNET4_HEADERS: &[u8] = include_bytes!("../bin-files/testnet4-headers.bin");
 
@@ -429,6 +434,87 @@ mod tests {
         let new_output = BlockHeaderCircuitOutput::try_from_slice(&new_proof.journal).unwrap();
 
         println!("Output: {:?}", new_output);
+    }
+
+    #[test]
+    #[allow(clippy::print_literal)]
+    fn test_varying_total_works() {
+        eprintln!("{}Please update test data if the elf files are changed. Run the tests on bridge_circuit_test_data.rs to update the test data.{}", "\x1b[31m", "\x1b[0m");
+        let bridge_circuit_host_params_serialized =
+            include_bytes!("../bin-files/bch_params_varying_total_works.bin");
+        let bridge_circuit_host_params: BridgeCircuitHostParams =
+            borsh::BorshDeserialize::try_from_slice(bridge_circuit_host_params_serialized)
+                .expect("Failed to deserialize BridgeCircuitHostParams");
+
+        let bridge_circuit_inputs = bridge_circuit_host_params
+            .clone()
+            .into_bridge_circuit_input();
+
+        for watchtower_input in &bridge_circuit_inputs.watchtower_inputs {
+            println!(
+                "Watchtower input: {:?}",
+                watchtower_input.watchtower_challenge_tx.output[2]
+            );
+        }
+
+        let bridge_circuit_elf = REGTEST_BRIDGE_CIRCUIT_ELF_TEST;
+
+        let executor = default_executor();
+
+        let env = ExecutorEnv::builder()
+            .write_slice(&borsh::to_vec(&bridge_circuit_inputs).unwrap())
+            .add_assumption(bridge_circuit_host_params.headerchain_receipt)
+            .build()
+            .expect("Failed to build execution environment");
+
+        let session_info = executor.execute(env, bridge_circuit_elf).unwrap();
+
+        let public_inputs: SuccinctBridgeCircuitPublicInputs =
+            SuccinctBridgeCircuitPublicInputs::new(bridge_circuit_inputs.clone()).unwrap();
+
+        let journal_hash = public_inputs.host_journal_hash();
+
+        assert_eq!(
+            session_info.journal.bytes,
+            *journal_hash.as_bytes(),
+            "Journal hash mismatch"
+        );
+    }
+
+    #[test]
+    #[allow(clippy::print_literal)]
+    #[should_panic(expected = "Insufficient total work")]
+    fn test_insufficient_total_work() {
+        eprintln!("{}Please update test data if the elf files are changed. Run the tests on bridge_circuit_test_data.rs to update the test data.{}", "\x1b[31m", "\x1b[0m");
+        let bridge_circuit_host_params_serialized = include_bytes!(
+            "../bin-files/bch_params_varying_total_works_insufficient_total_work.bin"
+        );
+        let bridge_circuit_host_params: BridgeCircuitHostParams =
+            borsh::BorshDeserialize::try_from_slice(bridge_circuit_host_params_serialized)
+                .expect("Failed to deserialize BridgeCircuitHostParams");
+
+        let bridge_circuit_inputs = bridge_circuit_host_params
+            .clone()
+            .into_bridge_circuit_input();
+
+        for watchtower_input in &bridge_circuit_inputs.watchtower_inputs {
+            println!(
+                "Watchtower input: {:?}",
+                watchtower_input.watchtower_challenge_tx.output[2]
+            );
+        }
+
+        let bridge_circuit_elf = REGTEST_BRIDGE_CIRCUIT_ELF_TEST;
+
+        let executor = default_executor();
+
+        let env = ExecutorEnv::builder()
+            .write_slice(&borsh::to_vec(&bridge_circuit_inputs).unwrap())
+            .add_assumption(bridge_circuit_host_params.headerchain_receipt)
+            .build()
+            .expect("Failed to build execution environment");
+
+        executor.execute(env, bridge_circuit_elf).unwrap();
     }
 
     #[test]

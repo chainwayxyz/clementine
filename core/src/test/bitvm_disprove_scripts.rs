@@ -11,9 +11,9 @@ use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient
 use crate::rpc::clementine::{TransactionRequest, WithdrawParams};
 use crate::test::common::citrea::{get_citrea_safe_withdraw_params, SECRET_KEYS};
 use crate::test::common::tx_utils::{
-    create_tx_sender, ensure_outpoint_spent,
-    ensure_outpoint_spent_while_waiting_for_light_client_sync, get_tx_from_signed_txs_with_type,
-    get_txid_where_utxo_is_spent, get_txid_where_utxo_is_spent_while_waiting_for_light_client_sync,
+    create_tx_sender, ensure_outpoint_spent_while_waiting_for_light_client_sync,
+    get_tx_from_signed_txs_with_type,
+    get_txid_where_utxo_is_spent_while_waiting_for_light_client_sync,
     mine_once_after_outpoint_spent_in_mempool,
 };
 use crate::test::common::{
@@ -46,7 +46,6 @@ use citrea_e2e::{
     test_case::{TestCase, TestCaseRunner},
     Result,
 };
-use prost::Message;
 use tonic::transport::Channel;
 
 pub enum DisproveTestVariant {
@@ -577,6 +576,17 @@ impl DisproveTest {
         assert!(
             disprove_tx.input[1].previous_output == burn_connector,
             "Disprove tx input does not match burn connector outpoint"
+        );
+
+        const CONTROL_BLOCK_LENGTH: usize = 1 + 32 + 32 * 11; // 385 - Length of the control block in the disprove script
+
+        let witness = &disprove_tx.input[0].witness;
+        let control_block = &witness[witness.len() - 1];
+
+        assert_eq!(
+            control_block.len(),
+            CONTROL_BLOCK_LENGTH,
+            "Control block length does not match expected length"
         );
 
         tracing::info!("Disprove transaction is onchain");

@@ -100,7 +100,7 @@ impl KickoffWinternitzKeys {
         if round_idx == RoundIndex::Collateral || round_idx.to_index() > self.num_rounds + 1 {
             return Err(TxError::InvalidRoundIndex(round_idx));
         }
-        let start_idx = (round_idx.to_index() as usize)
+        let start_idx = (round_idx.to_index())
             .checked_sub(1) // 0th round is the collateral, there are no keys for the 0th round
             .ok_or(TxError::IndexOverflow)?
             .checked_mul(self.num_kickoffs_per_round)
@@ -296,7 +296,7 @@ impl ReimburseDbCache {
         let bitvm_keys = ClementineBitVMPublicKeys::from_flattened_vec(&bitvm_wpks);
 
         let script = create_additional_replacable_disprove_script_with_dummy(
-            self.paramset.bridge_circuit_method_id_constant,
+            *self.paramset.bridge_circuit_constant()?,
             bitvm_keys.bitvm_pks.0[0].to_vec(),
             bitvm_keys.latest_blockhash_pk.to_vec(),
             bitvm_keys.challenge_sending_watchtowers_pk.to_vec(),
@@ -927,7 +927,6 @@ pub async fn create_txhandlers(
             let disprove_txhandler = builder::transaction::create_disprove_txhandler(
                 get_txhandler(&txhandlers, TransactionType::Kickoff)?,
                 get_txhandler(&txhandlers, TransactionType::Round)?,
-                paramset,
             )?;
 
             txhandlers.insert(
@@ -1291,6 +1290,7 @@ mod tests {
         try_join_all(verifier_task_handles).await.unwrap();
     }
 
+    #[cfg(feature = "automation")]
     #[tokio::test(flavor = "multi_thread")]
     async fn test_deposit_and_sign_txs() {
         let mut config = create_test_config_with_thread_name().await;

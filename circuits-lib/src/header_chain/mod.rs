@@ -24,11 +24,8 @@ pub mod mmr_native;
 
 /// The main entry point of the header chain circuit.
 pub fn header_chain_circuit(guest: &impl ZkvmGuest) {
-    // let start = risc0_zkvm::guest::env::cycle_count();
-
+    // Read the input from the host
     let input: HeaderChainCircuitInput = guest.read_from_host();
-    // println!("Detected network: {:?}", NETWORK_TYPE);
-    // println!("NETWORK_CONSTANTS: {:?}", NETWORK_CONSTANTS);
     let genesis_state_hash: [u8; 32];
     let mut chain_state = match input.prev_proof {
         HeaderChainPrevProofType::GenesisBlock(genesis_state) => {
@@ -36,25 +33,26 @@ pub fn header_chain_circuit(guest: &impl ZkvmGuest) {
             genesis_state
         }
         HeaderChainPrevProofType::PrevProof(prev_proof) => {
-            assert_eq!(prev_proof.method_id, input.method_id);
+            assert_eq!(prev_proof.method_id, input.method_id, "Method ID mismatch, the input method ID must match the previous proof's method ID to ensure the same circuit is always used. Previous proof method ID: {:?}, input method ID: {:?}", prev_proof.method_id, input.method_id);
             guest.verify(input.method_id, &prev_proof);
             genesis_state_hash = prev_proof.genesis_state_hash;
             prev_proof.chain_state
         }
     };
 
-    chain_state.apply_blocks(input.block_headers);
+    // Apply the block headers to the chain state
+    chain_state.apply_block_headers(input.block_headers);
 
+    // Commit the output to the host
     guest.commit(&BlockHeaderCircuitOutput {
         method_id: input.method_id,
         genesis_state_hash,
         chain_state,
     });
-    // let end = risc0_zkvm::guest::env::cycle_count();
-    // println!("Header chain circuit took {:?} cycles", end - start);
 }
 
-/// Network configuration holder for Bitcoin-specific constants
+/// Network configuration holder for Bitcoin-specific constants. All three variables are different
+/// representations of the maximum target for the network.
 #[derive(Debug)]
 pub struct NetworkConstants {
     pub max_bits: u32,
@@ -70,6 +68,7 @@ const IS_TESTNET4: bool = matches!(NETWORK_TYPE.as_bytes(), b"testnet4");
 const MINIMUM_WORK_TESTNET: U256 =
     U256::from_be_hex("0000000000000000000000000000000000000000000000000000000100010001");
 
+/// The network constants for the Bitcoin network, which are used to determine the maximum target and bits for the network.
 pub const NETWORK_CONSTANTS: NetworkConstants = {
     match option_env!("BITCOIN_NETWORK") {
         Some(n) if matches!(n.as_bytes(), b"signet") => NetworkConstants {
@@ -128,7 +127,7 @@ pub const NETWORK_CONSTANTS: NetworkConstants = {
 };
 
 /// An epoch should be two weeks (represented as number of seconds)
-/// seconds/minute * minutes/hour * hours/day * 14 days
+/// seconds / minute * minutes / hour * hours / day * 14 days
 /// For our custom signet, we use 10 seconds block time, see: https://github.com/chainwayxyz/bitcoin/releases/tag/v29-ten-secs-blocktime-tag
 const EXPECTED_EPOCH_TIMESPAN: u32 = match option_env!("BITCOIN_NETWORK") {
     Some(n) if matches!(n.as_bytes(), b"signet") => 60 * 24 * 14,
@@ -150,6 +149,7 @@ pub struct CircuitBlockHeader {
 }
 
 impl CircuitBlockHeader {
+    /// Computes the block hash for the given block header.
     pub fn compute_block_hash(&self) -> [u8; 32] {
         let mut hasher = Sha256::new();
         hasher.update(self.version.to_le_bytes());
@@ -194,6 +194,7 @@ impl From<CircuitBlockHeader> for Header {
     }
 }
 
+/// The state of the chain, which is used to verify the block headers and maintain the chain state.
 #[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
 pub struct ChainState {
     pub block_height: u32,
@@ -228,6 +229,7 @@ impl ChainState {
         Self::new()
     }
 
+    /// Returns the hash of the chain state, which is used to identify the chain state.
     pub fn to_hash(&self) -> [u8; 32] {
         let mut hasher = Sha256::new();
         hasher.update(self.block_height.to_le_bytes());
@@ -245,7 +247,8 @@ impl ChainState {
         hasher.finalize().into()
     }
 
-    pub fn apply_blocks(&mut self, block_headers: Vec<CircuitBlockHeader>) {
+    /// Applies the block headers to the chain state, updating the state accordingly.
+    pub fn apply_block_headers(&mut self, block_headers: Vec<CircuitBlockHeader>) {
         let mut current_target_bytes = if IS_REGTEST {
             NETWORK_CONSTANTS.max_target.to_be_bytes()
         } else {
@@ -275,7 +278,9 @@ impl ChainState {
                             self.current_target_bits,
                             calculate_work(&current_target_bytes),
                         )
-                    } else {
+                    }
+                    // Otherwise, if the timestamp is more than 20 minutes ahead of the last block, the block is allowed to use the maximum target.
+                    else {
                         (
                             NETWORK_CONSTANTS.max_target_bytes,
                             NETWORK_CONSTANTS.max_bits,
@@ -299,18 +304,30 @@ impl ChainState {
 
             let new_block_hash = block_header.compute_block_hash();
 
-            assert_eq!(block_header.prev_block_hash, self.best_block_hash);
+            assert_eq!(
+                block_header.prev_block_hash, self.best_block_hash,
+                "Previous block hash does not match the best block hash. Expected: {:?}, got: {:?}",
+                self.best_block_hash, block_header.prev_block_hash
+            );
 
             if IS_REGTEST {
-                assert_eq!(block_header.bits, NETWORK_CONSTANTS.max_bits);
+                assert_eq!(
+                    block_header.bits, NETWORK_CONSTANTS.max_bits,
+                    "Bits for regtest must be equal to the maximum bits: {}. Got: {}",
+                    NETWORK_CONSTANTS.max_bits, block_header.bits
+                );
             } else {
-                assert_eq!(block_header.bits, expected_bits);
+                assert_eq!(
+                    block_header.bits, expected_bits,
+                    "Bits for the block header must match the expected bits: {}. Got: {}",
+                    expected_bits, block_header.bits
+                );
             }
 
             check_hash_valid(&new_block_hash, &target_to_use);
 
             if !validate_timestamp(block_header.time, self.prev_11_timestamps) {
-                panic!("Timestamp is not valid");
+                panic!("Timestamp is not valid, it must be greater than the median of the last 11 timestamps");
             }
 
             self.block_hashes_mmr.append(new_block_hash);
@@ -341,17 +358,20 @@ impl ChainState {
     }
 }
 
+/// Calculates the median of the last 11 timestamps, which is used to validate the block timestamp.
 fn median(arr: [u32; 11]) -> u32 {
     let mut sorted_arr = arr;
     sorted_arr.sort_unstable();
     sorted_arr[5]
 }
 
+/// Validates the block timestamp against the median of the last 11 timestamps.
 fn validate_timestamp(block_time: u32, prev_11_timestamps: [u32; 11]) -> bool {
     let median_time = median(prev_11_timestamps);
     block_time > median_time
 }
 
+/// Converts a compact target (bits) to a target in bytes.
 pub fn bits_to_target(bits: u32) -> [u8; 32] {
     let size = (bits >> 24) as usize;
     let mantissa = bits & 0x00ffffff;
@@ -361,10 +381,10 @@ pub fn bits_to_target(bits: u32) -> [u8; 32] {
     } else {
         U256::from(mantissa) << (8 * (size - 3))
     };
-    // println!("Output: {:?}", target.to_be_bytes());
     target.to_be_bytes()
 }
 
+/// Converts a target in bytes to a compact target (bits).
 fn target_to_bits(target: &[u8; 32]) -> u32 {
     let target_u256 = U256::from_be_slice(target);
     let target_bits = target_u256.bits();
@@ -377,6 +397,7 @@ fn target_to_bits(target: &[u8; 32]) -> u32 {
     u32::from_be_bytes(compact_target)
 }
 
+/// Calculates the new difficulty based on the last timestamp and the epoch start time.
 fn calculate_new_difficulty(
     epoch_start_time: u32,
     last_timestamp: u32,
@@ -400,6 +421,7 @@ fn calculate_new_difficulty(
     new_target.to_be_bytes()
 }
 
+/// Checks if the hash is valid against the target bytes.
 fn check_hash_valid(hash: &[u8; 32], target_bytes: &[u8; 32]) {
     for i in 0..32 {
         match hash[31 - i].cmp(&target_bytes[i]) {
@@ -410,6 +432,7 @@ fn check_hash_valid(hash: &[u8; 32], target_bytes: &[u8; 32]) {
     }
 }
 
+/// Calculates the work for a given target.
 fn calculate_work(target: &[u8; 32]) -> U256 {
     let target = U256::from_be_slice(target);
     let target_plus_one = target.saturating_add(&U256::ONE);
@@ -425,7 +448,7 @@ pub struct BlockHeaderCircuitOutput {
 }
 
 /// The input proof of the header chain circuit.
-/// The proof can be either None (implying the beginning) or a Succinct Risc0 proof.
+/// The header chain prev proof type can be either chain state (implying the beginning) or a Succinct Risc0 proof (implying the previous proof).
 #[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
 pub enum HeaderChainPrevProofType {
     GenesisBlock(ChainState),
@@ -433,6 +456,8 @@ pub enum HeaderChainPrevProofType {
 }
 
 /// The input of the header chain circuit.
+/// It contains the method ID, the previous proof (either a genesis block or a previous proof), and the block headers to be processed.
+/// Method ID is used to identify the circuit and is expected to be the same as the one used in the previous proof.
 #[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
 pub struct HeaderChainCircuitInput {
     pub method_id: [u32; 8],

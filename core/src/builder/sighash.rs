@@ -383,8 +383,7 @@ pub fn create_operator_sighash_stream(
 
 #[cfg(test)]
 mod tests {
-    use std::fs::File;
-
+    use super::*;
     use crate::{
         bitvm_client::SECP,
         builder::transaction::sign::TransactionRequestData,
@@ -396,7 +395,7 @@ mod tests {
         },
         test::common::{
             citrea::MockCitreaClient, create_regtest_rpc, create_test_config_with_thread_name,
-            run_single_deposit, tx_utils::get_tx_from_signed_txs_with_type,
+            tx_utils::get_tx_from_signed_txs_with_type,
         },
     };
     use bincode;
@@ -405,10 +404,10 @@ mod tests {
     use bitcoin::{Block, BlockHash, OutPoint, Txid};
     use bitcoincore_rpc::RpcApi;
     use futures_util::stream::TryStreamExt;
-
-    use super::*;
+    use std::fs::File;
 
     pub const DEPOSIT_STATE_FILE_PATH_DEBUG: &str = "src/test/data/deposit_state_debug.bincode";
+    #[cfg(not(debug_assertions))]
     pub const DEPOSIT_STATE_FILE_PATH_RELEASE: &str = "src/test/data/deposit_state_release.bincode";
 
     /// State of the chain and the deposit generated in generate_deposit_state() test.
@@ -436,9 +435,12 @@ mod tests {
     /// To make the [`test_bridge_contract_change`] test work if breaking changes are expected, run this test again
     /// (with both debug and release), the states will get updated with the current values.
     /// Read [`test_bridge_contract_change`] test doc for more details.
+    #[cfg(feature = "automation")]
     #[tokio::test]
     #[ignore = "Run this to generate fresh deposit state data, in case any breaking change occurs to deposits"]
     async fn generate_deposit_state() {
+        use crate::test::common::run_single_deposit;
+
         let mut config = create_test_config_with_thread_name().await;
         // only run with one operator
         config.test_params.all_operators_secret_keys.truncate(1);
@@ -469,7 +471,7 @@ mod tests {
         }
 
         let op0_config = BridgeConfig {
-            secret_key: config.test_params.all_verifiers_secret_keys[0].clone(),
+            secret_key: config.test_params.all_verifiers_secret_keys[0],
             db_name: config.db_name + "0",
             ..config
         };
@@ -500,7 +502,7 @@ mod tests {
             deposit_info.deposit_outpoint,
             operators_xonly_pks[0],
             deposit_blockhash,
-            &op0_config.protocol_paramset(),
+            op0_config.protocol_paramset(),
         )
         .await;
 
@@ -615,7 +617,7 @@ mod tests {
         let nofn_sighashes: Vec<_> = sighash_stream.try_collect().await.unwrap();
         let nofn_sighashes = nofn_sighashes
             .into_iter()
-            .map(|(sighash, info)| sighash.to_byte_array())
+            .map(|(sighash, _info)| sighash.to_byte_array())
             .collect::<Vec<_>>();
 
         let operator_streams = create_operator_sighash_stream(
@@ -629,7 +631,7 @@ mod tests {
         let operator_sighashes: Vec<_> = operator_streams.try_collect().await.unwrap();
         let operator_sighashes = operator_sighashes
             .into_iter()
-            .map(|(sighash, info)| sighash.to_byte_array())
+            .map(|(sighash, _info)| sighash.to_byte_array())
             .collect::<Vec<_>>();
 
         // Hash the vectors
@@ -655,8 +657,11 @@ mod tests {
     /// (with both debug and release), it will get updated with the current values. Run following commands:
     /// debug: cargo test --all-features generate_deposit_state -- --ignored
     /// release: cargo test --all-features --release generate_deposit_state -- --ignored
+    #[cfg(feature = "automation")]
     #[tokio::test]
     async fn test_bridge_contract_change() {
+        use crate::test::common::run_single_deposit;
+
         let mut config = create_test_config_with_thread_name().await;
         // only run with one operator
         config.test_params.all_operators_secret_keys.truncate(1);
@@ -718,7 +723,7 @@ mod tests {
         assert_eq!(deposit_info, deposit_state.deposit_info);
 
         let op0_config = BridgeConfig {
-            secret_key: config.test_params.all_verifiers_secret_keys[0].clone(),
+            secret_key: config.test_params.all_verifiers_secret_keys[0],
             db_name: config.db_name.clone() + "0",
             ..config.clone()
         };
@@ -735,7 +740,7 @@ mod tests {
             deposit_info.deposit_outpoint,
             operators_xonly_pks[0],
             deposit_blockhash,
-            &op0_config.protocol_paramset(),
+            op0_config.protocol_paramset(),
         )
         .await;
 

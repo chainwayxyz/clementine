@@ -20,7 +20,6 @@ ark-relations = { workspace = true }
 ark-groth16 = { workspace = true }
 
 alloy-rpc-types = { workspace = true }
-alloy-rpc-client = { workspace = true }
 
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -41,7 +40,7 @@ thiserror = { workspace = true }
 eyre = { workspace = true }
 once_cell = { workspace = true }
 
-circuits-lib = { path = "../circuits-lib", features = ["not_patched"] }
+circuits-lib = { path = "../circuits-lib" }
 
 
 

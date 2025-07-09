@@ -402,11 +402,9 @@ pub fn create_burn_unused_kickoff_connectors_txhandler(
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-
-    use crate::config::protocol::REGTEST_PARAMSET;
-
     use super::*;
+    use crate::config::protocol::REGTEST_PARAMSET;
+    use std::str::FromStr;
 
     #[tokio::test]
     async fn test_create_round_nth_txhandler_and_round_txhandlers() {
@@ -418,7 +416,6 @@ mod tests {
         let paramset = &REGTEST_PARAMSET;
         let input_outpoint = OutPoint::new(bitcoin::Txid::all_zeros(), 0);
         let input_amount = Amount::from_sat(10000000000);
-        let mut prev_ready_to_reimburse_txhandler: Option<TxHandler> = None;
         let pubkeys = KickoffWinternitzKeys::new(
             vec![vec![[0u8; 20]; 44]; paramset.num_round_txs * paramset.num_kickoffs_per_round],
             paramset.num_round_txs,
@@ -435,7 +432,7 @@ mod tests {
                     input_amount,
                     RoundIndex::Round(i),
                     &pubkeys,
-                    &paramset,
+                    paramset,
                 )
                 .unwrap();
 
@@ -443,12 +440,12 @@ mod tests {
                 op_xonly_pk,
                 round_tx_input,
                 pubkeys.get_keys_for_round(RoundIndex::Round(i)).unwrap(),
-                &paramset,
+                paramset,
             )
             .unwrap();
 
             let ready_to_reimburse_txhandler =
-                create_ready_to_reimburse_txhandler(&round_txhandler, op_xonly_pk, &paramset)
+                create_ready_to_reimburse_txhandler(&round_txhandler, op_xonly_pk, paramset)
                     .unwrap();
 
             assert_eq!(round_nth_txhandler.get_txid(), round_txhandler.get_txid());
@@ -457,10 +454,9 @@ mod tests {
                 ready_to_reimburse_txhandler.get_txid()
             );
 
-            prev_ready_to_reimburse_txhandler = Some(ready_to_reimburse_txhandler);
+            let prev_ready_to_reimburse_txhandler = ready_to_reimburse_txhandler;
             round_tx_input = RoundTxInput::Prevout(Box::new(
                 prev_ready_to_reimburse_txhandler
-                    .unwrap()
                     .get_spendable_output(UtxoVout::CollateralInReadyToReimburse)
                     .unwrap(),
             ));
