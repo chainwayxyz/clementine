@@ -1,0 +1,28 @@
+name: Clementine Operator
+
+services:
+  clementine-operator:
+    image: chainwayxyz/clementine
+    platform: linux/amd64
+    container_name: clementine-operator
+    environment:
+      - BITVM_CACHE_PATH=/bitvm_cache.bin
+    command:
+      operator --config /config.toml --protocol-params /protocol_paramset.toml
+    ports:
+      - "9080:8080"
+    volumes:
+      - ./docker_config.toml:/config.toml
+      - ../../core/src/test/data/protocol_paramset.toml:/protocol_paramset.toml
+      - ../../bitvm_cache.bin:/bitvm_cache.bin
+      - ../../core/certs:/certs
+
+    networks:
+      - clementine-network
+
+volumes:
+  clementine-operator:
+
+networks:
+  clementine-network:
+    driver: bridge

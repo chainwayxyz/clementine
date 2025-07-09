@@ -156,7 +156,8 @@ certs/
 
 #### BitVM Cache
 
-BitVM Cache will be generated, if not present. It can be downloaded with:
+BitVM Cache will be generated, if not present. Generation can be skipped and
+pre-generated files can be downloaded with:
 
 ```sh
 wget https://static.testnet.citrea.xyz/common/bitvm_cache_v3.bin -O bitvm_cache.bin
