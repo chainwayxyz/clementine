@@ -87,7 +87,11 @@ export FINALITY_DEPTH=${FINALITY_DEPTH:=100}
 export START_HEIGHT=${START_HEIGHT:=190}
 export GENESIS_HEIGHT=${GENESIS_HEIGHT:=0}
 export GENESIS_CHAIN_STATE_HASH=${GENESIS_CHAIN_STATE_HASH:=5f7302ad16c8bd9ef2f3be00c8199a86f9e0ba861484abb4af5f7e457f8c2216}
-
+export BRIDGE_NONSTANDARD=${BRIDGE_NONSTANDARD:=false}
+export TELEMETRY_HOST=0.0.0.0
+export TELEMETRY_PORT=8082
+export RUST_MIN_STACK=33554432
+export RISC0_DEV_MODE=1
 
 # Define databases to drop and recreate
 databases=("clementine0" "clementine1" "clementine2" "clementine3")
@@ -115,7 +119,7 @@ if [ $? -ne 0 ]; then
     echo "Build failed, exiting..."
     exit 1
 fi
-BIN_PATH="./target/release/clementine-core"
+BIN_PATH="./target/debug/clementine-core"
 
 # Corresponding roles
 roles=(
@@ -172,6 +176,7 @@ for i in "${!roles[@]}"; do
 
     # Aggregator overwrites
     if [ $role == "aggregator" ]; then
+        export TELEMETRY_PORT=8082
         export PORT=$((17000))
         export SECRET_KEY=$(printf "%064d" | tr '0' "1")
     fi
