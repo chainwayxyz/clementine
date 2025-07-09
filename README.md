@@ -168,6 +168,7 @@ wget https://static.testnet.citrea.xyz/common/bitvm_cache_dev.bin -O bitvm_cache
 
 Clementine is designed to be run multiple times for every actor that an entity
 requires. An actor's server can be started using its corresponding argument.
+Please follow instruction steps before trying to start a server.
 
 #### Compiling Manually
 
@@ -204,12 +205,24 @@ For more information, use `--help` flag:
 
 #### Using Docker
 
-There is a Docker compose file located at [scripts/docker/docker-compose.yml](scripts/docker/docker-compose.yml)
-which can be used to start Clementine servers. It defaults to test config files
-and can be modified to start a Clementine instance.
+A docker image is provided in
+[Docker Hub](https://hub.docker.com/r/chainwayxyz/clementine). It can be locally
+built with:
+
+```bash
+docker build -f scripts/docker/Dockerfile -t clementine:latest .
+```
+
+Also, there are multiple Docker compose files located at [scripts/docker/](scripts/docker/)
+which can be used to start Clementine servers. Provided
+[config file](scripts/docker/docker_config.toml) can be modified before starting
+a server.
 
 ```sh
-docker compose -f scripts/docker/docker-compose.yml up
+# Start a verifier server
+docker compose -f scripts/docker/docker-compose-verifier.yml up
+# Start an operator server
+docker compose -f scripts/docker/docker-compose-operator.yml up
 ```
 
 ### Testing
@@ -247,25 +260,6 @@ docker compose -f scripts/docker/docker-compose.yml up
    ```bash
    ./scripts/generate_certs.sh
    ```
-
-#### [Optional] Docker
-
-A docker image is provided in
-[Docker Hub](https://hub.docker.com/r/chainwayxyz/clementine). It can be locally
-built with:
-
-```bash
-docker build -f scripts/docker/Dockerfile -t clementine:latest .
-```
-
-An example Docker compose file is located at
-[`scripts/docker/docker-compose.yml`](scripts/docker/docker-compose.yml) and it
-can be used to bring up a verifier server. It can also be modified for bringing
-up other servers. To bring it up:
-
-```bash
-docker compose -f scripts/docker/docker-compose.yml up
-```
 
 #### Configuration
 
