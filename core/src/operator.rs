@@ -1366,7 +1366,7 @@ where
             if self
                 .config
                 .test_params
-                .generate_varying_total_works_invalid_total_work
+                .generate_varying_total_works_insufficient_total_work
             {
                 self.header_chain_prover
                     .prove_till_hash(payout_block_hash)
@@ -1390,11 +1390,14 @@ where
             if self
                 .config
                 .test_params
-                .generate_varying_total_works_invalid_total_work
+                .generate_varying_total_works_insufficient_total_work
             {
                 block_hashes
                     .iter()
-                    .take((payout_block_height + 1 - self.config.protocol_paramset().genesis_height) as usize)
+                    .take(
+                        (payout_block_height + 1 - self.config.protocol_paramset().genesis_height)
+                            as usize,
+                    )
                     .map(|(block_hash, _)| block_hash.to_byte_array())
                     .collect::<Vec<_>>()
             } else {
@@ -1475,14 +1478,14 @@ where
             if self
                 .config
                 .test_params
-                .generate_varying_total_works_invalid_total_work
+                .generate_varying_total_works_insufficient_total_work
                 || self.config.test_params.generate_varying_total_works
             {
                 use std::path::PathBuf;
 
                 let file_path = match (
              self.config.test_params.generate_varying_total_works,
-             self.config.test_params.generate_varying_total_works_invalid_total_work,
+             self.config.test_params.generate_varying_total_works_insufficient_total_work,
         ) {
             (false, true) => PathBuf::from(
                 "../bridge-circuit-host/bin-files/bch_params_varying_total_works_invalid_total_work.bin",

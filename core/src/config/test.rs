@@ -53,7 +53,7 @@ pub struct TestParams {
     pub verifier_do_not_send_disprove_indexes: Option<Vec<usize>>,
 
     /// A flag to enable data generation for bridge circuit tests (diverse total works).
-    pub generate_varying_total_works_invalid_total_work: bool,
+    pub generate_varying_total_works_insufficient_total_work: bool,
 
     pub generate_varying_total_works: bool,
 
@@ -210,7 +210,7 @@ impl Default for TestParams {
             timeout_params: TimeoutTestParams::default(),
             verifier_do_not_send_disprove_indexes: None,
             generate_to_address: true,
-            generate_varying_total_works_invalid_total_work: false,
+            generate_varying_total_works_insufficient_total_work: false,
             generate_varying_total_works: false,
         }
     }

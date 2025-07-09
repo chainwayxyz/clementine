@@ -46,7 +46,7 @@ use citrea_e2e::{
 
 #[derive(PartialEq)]
 pub enum BridgeCircuitTestDataVariant {
-    HeaderChainProofsWithDiverseLengthsInvalidTotalWork,
+    HeaderChainProofsWithDiverseLengthsInsufficientTotalWork,
     HeaderChainProofsWithDiverseLengths,
 }
 
@@ -115,10 +115,10 @@ impl TestCase for BridgeCircuitTestData {
         let mut config = create_test_config_with_thread_name().await;
 
         match self.variant {
-            BridgeCircuitTestDataVariant::HeaderChainProofsWithDiverseLengthsInvalidTotalWork => {
+            BridgeCircuitTestDataVariant::HeaderChainProofsWithDiverseLengthsInsufficientTotalWork => {
                 config
                     .test_params
-                    .generate_varying_total_works_invalid_total_work = true;
+                    .generate_varying_total_works_insufficient_total_work = true;
             }
             BridgeCircuitTestDataVariant::HeaderChainProofsWithDiverseLengths => {
                 config.test_params.generate_varying_total_works = true;
@@ -571,7 +571,7 @@ async fn bridge_circuit_test_data_diverse_hcp_lengths() -> Result<()> {
 
 #[tokio::test]
 #[ignore = "Only run this test manually, it's for data generation purposes"]
-async fn bridge_circuit_test_data_invalid_total_work_diverse_hcp_lens() -> Result<()> {
+async fn bridge_circuit_test_data_insufficient_total_work_diverse_hcp_lens() -> Result<()> {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
     std::env::set_var(
@@ -580,7 +580,8 @@ async fn bridge_circuit_test_data_invalid_total_work_diverse_hcp_lens() -> Resul
     );
 
     let bridge_circuit_test_data = BridgeCircuitTestData {
-        variant: BridgeCircuitTestDataVariant::HeaderChainProofsWithDiverseLengthsInvalidTotalWork,
+        variant:
+            BridgeCircuitTestDataVariant::HeaderChainProofsWithDiverseLengthsInsufficientTotalWork,
     };
     TestCaseRunner::new(bridge_circuit_test_data).run().await
 }

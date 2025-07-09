@@ -484,7 +484,7 @@ mod tests {
     #[test]
     #[allow(clippy::print_literal)]
     #[should_panic(expected = "Invalid total work")]
-    fn test_invalid_total_work() {
+    fn test_insufficient_total_work() {
         eprintln!("{}Please update test data if the elf files are changed. Run the tests on bridge_circuit_test_data.rs to update the test data.{}", "\x1b[31m", "\x1b[0m");
         let bridge_circuit_host_params_serialized =
             include_bytes!("../bin-files/bch_params_varying_total_works_invalid_total_work.bin");
