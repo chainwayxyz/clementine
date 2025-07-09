@@ -3,13 +3,12 @@ protocol_paramset = "regtest"
 
 host = "127.0.0.1"
 port = 17000
-index = 0
 collateral_funding_amount = 99000000
 timeout_block_count = 6
 max_withdrawal_time_block_count = 4032
 
 # Secret key of the current actor (operator or verifier)
-secret_key = "3333333333333333333333333333333333333333333333333333333333333333"
+secret_key = "1111111111111111111111111111111111111111111111111111111111111111"
 
 # All of the verifiers public keys
 num_verifiers = 4
@@ -45,7 +44,7 @@ user_takes_after = 200
 
 # Bitcoin node configuration options
 network = "regtest"
-bitcoin_rpc_url = "http://bitcoin_testnet4:19443"
+bitcoin_rpc_url = "http://bitcoin_regtest:19443/wallet/admin"
 bitcoin_rpc_user = "admin"
 bitcoin_rpc_password = "admin"
 
