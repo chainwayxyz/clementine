@@ -75,6 +75,28 @@ impl<C: CitreaClientT> TestVerifier<C> {
         config_with_new_db.secret_key = secret_key;
         initialize_database(&config_with_new_db).await;
 
+        #[cfg(test)]
+        {
+            use crate::config::protocol::ProtocolParamset;
+
+            if config_with_new_db
+                .test_params
+                .generate_varying_total_works_insufficient_total_work
+                || config_with_new_db.test_params.generate_varying_total_works
+            {
+                // Generate a new protocol paramset for each verifier
+                // to ensure diverse total works.
+                let mut paramset = config_with_new_db.protocol_paramset().clone();
+                paramset.time_to_send_watchtower_challenge = paramset
+                    .time_to_send_watchtower_challenge
+                    .checked_add(index as u16)
+                    .expect("Failed to add time to send watchtower challenge");
+                let paramset_ref: &'static ProtocolParamset = Box::leak(Box::new(paramset));
+
+                config_with_new_db.protocol_paramset = paramset_ref;
+            }
+        }
+
         let (socket_path, shutdown_tx) =
             create_verifier_unix_server::<C>(config_with_new_db.clone(), socket_path).await?;
 
