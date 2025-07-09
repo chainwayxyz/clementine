@@ -377,6 +377,9 @@ mod tests {
             "SECURITY_COUNCIL",
             "1:50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0",
         );
+
+        env::set_var("TELEMETRY_HOST", "0.0.0.0");
+        env::set_var("TELEMETRY_PORT", "8081");
     }
 
     // Helper to set up all environment variables needed for protocol paramset
@@ -437,6 +440,8 @@ mod tests {
         env::remove_var("AGGREGATOR_CERT_PATH");
         env::remove_var("CLIENT_VERIFICATION");
         env::remove_var("SECURITY_COUNCIL");
+        env::remove_var("TELEMETRY_HOST");
+        env::remove_var("TELEMETRY_PORT");
     }
 
     // Helper to clean up all protocol paramset environment variables
