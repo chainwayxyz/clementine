@@ -1,6 +1,8 @@
 use super::common::citrea::get_bridge_params;
 use crate::bitvm_client::SECP;
 use crate::builder::transaction::input::UtxoVout;
+use crate::builder::transaction::TransactionType;
+use crate::citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER};
 use crate::database::Database;
 use crate::deposit::KickoffData;
 use crate::operator::RoundIndex;
@@ -21,7 +23,6 @@ use crate::{
         create_test_config_with_thread_name,
     },
 };
-use crate::citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER};
 use alloy::primitives::U256;
 use async_trait::async_trait;
 use bitcoin::hashes::Hash;
@@ -30,7 +31,6 @@ use bitcoin::{OutPoint, Transaction, Txid};
 use bitcoincore_rpc::RpcApi;
 use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
 use citrea_e2e::config::{BatchProverConfig, LightClientProverConfig};
-use crate::builder::transaction::TransactionType;
 use citrea_e2e::{
     config::{BitcoinConfig, SequencerConfig, TestCaseConfig, TestCaseDockerConfig},
     framework::TestFramework,
@@ -533,18 +533,14 @@ impl TestCase for WatchtowerChallengeTxTest {
             .await?
             .into_inner();
 
-        let assert_tx = get_tx_from_signed_txs_with_type(
-            &assert_txs,
-            TransactionType::MiniAssert(0),
-        )
-        .unwrap();
+        let assert_tx =
+            get_tx_from_signed_txs_with_type(&assert_txs, TransactionType::MiniAssert(0)).unwrap();
         let txid = assert_tx.compute_txid();
 
         assert!(
             rpc.is_tx_on_chain(&txid).await.unwrap(),
             "Mini assert 0 was not found in the chain",
         );
-
 
         Ok(())
     }
