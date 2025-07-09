@@ -43,7 +43,7 @@ services:
       -fallbackfee=0.00001
       -maxtxfee=5
     healthcheck:
-      test: ["CMD-SHELL", "bitcoin-cli", "-regtest", "-rpcuser=admin", "-rpcpassword=admin", "-rpcport=19443", "createwallet", "\"admin\""]
+      test: ["CMD-SHELL", "bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=19443 createwallet admin"]
       interval: 2s
       timeout: 1s
       retries: 10
