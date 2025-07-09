@@ -448,7 +448,7 @@ pub struct BlockHeaderCircuitOutput {
 }
 
 /// The input proof of the header chain circuit.
-/// The previous proof can be either None (implying the beginning) or a Succinct Risc0 proof (implying the previous proof).
+/// The header chain prev proof type can be either chain state (implying the beginning) or a Succinct Risc0 proof (implying the previous proof).
 #[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
 pub enum HeaderChainPrevProofType {
     GenesisBlock(ChainState),
