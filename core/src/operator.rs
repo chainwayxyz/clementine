@@ -1394,7 +1394,7 @@ where
             {
                 block_hashes
                     .iter()
-                    .take((payout_block_height + 1) as usize)
+                    .take((payout_block_height + 1 - self.config.protocol_paramset().genesis_height) as usize)
                     .map(|(block_hash, _)| block_hash.to_byte_array())
                     .collect::<Vec<_>>()
             } else {
