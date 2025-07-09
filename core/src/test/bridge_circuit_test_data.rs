@@ -1,3 +1,7 @@
+//! This module contains integration tests for generating data used in bridge circuit tests.
+//!
+//! The tests in this file are intended for data generation purposes only and are not meant to be run as part of the standard test suite.
+//! They are ignored by default and should be executed manually when bridge-related code changes, to ensure that the generated test data remains up-to-date and consistent with the current implementation.
 use super::common::citrea::get_bridge_params;
 use crate::bitvm_client::{self, SECP};
 use crate::builder::transaction::input::UtxoVout;
