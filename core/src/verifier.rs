@@ -30,9 +30,11 @@ use crate::header_chain_prover::HeaderChainProver;
 use crate::metrics::L1SyncStatusProvider;
 use crate::operator::RoundIndex;
 use crate::rpc::clementine::{EntityStatus, NormalSignatureKind, OperatorKeys, TaggedSignature};
-use crate::task::entity_metric_publisher::{EntityMetricPublisher, ENTITY_METRIC_PUBLISHER_INTERVAL};
+use crate::task::entity_metric_publisher::{
+    EntityMetricPublisher, ENTITY_METRIC_PUBLISHER_INTERVAL,
+};
 use crate::task::manager::BackgroundTaskManager;
-use crate::task::IntoTask;
+use crate::task::{IntoTask, TaskExt};
 #[cfg(feature = "automation")]
 use crate::tx_sender::{TxSender, TxSenderClient};
 use crate::utils::NamedEntity;
@@ -183,10 +185,10 @@ where
             .await;
 
         self.background_tasks
-            .ensure_task_looping(EntityMetricPublisher::<Verifier<C>>::new(
-                self.verifier.db.clone(),
-                rpc.clone(),
-            ).with_delay(ENTITY_METRIC_PUBLISHER_INTERVAL))
+            .ensure_task_looping(
+                EntityMetricPublisher::<Verifier<C>>::new(self.verifier.db.clone(), rpc.clone())
+                    .with_delay(ENTITY_METRIC_PUBLISHER_INTERVAL),
+            )
             .await;
 
         Ok(())

@@ -23,7 +23,9 @@ use crate::extended_rpc::ExtendedRpc;
 use crate::header_chain_prover::HeaderChainProver;
 use crate::metrics::L1SyncStatusProvider;
 use crate::rpc::clementine::EntityStatus;
-use crate::task::entity_metric_publisher::{EntityMetricPublisher, ENTITY_METRIC_PUBLISHER_INTERVAL};
+use crate::task::entity_metric_publisher::{
+    EntityMetricPublisher, ENTITY_METRIC_PUBLISHER_INTERVAL,
+};
 use crate::task::manager::BackgroundTaskManager;
 use crate::task::payout_checker::{PayoutCheckerTask, PAYOUT_CHECKER_POLL_DELAY};
 use crate::task::TaskExt;
@@ -190,10 +192,13 @@ where
             .await;
 
         self.background_tasks
-            .ensure_task_looping(EntityMetricPublisher::<Operator<C>>::new(
-                self.operator.db.clone(),
-                self.operator.rpc.clone(),
-            ).with_delay(ENTITY_METRIC_PUBLISHER_INTERVAL))
+            .ensure_task_looping(
+                EntityMetricPublisher::<Operator<C>>::new(
+                    self.operator.db.clone(),
+                    self.operator.rpc.clone(),
+                )
+                .with_delay(ENTITY_METRIC_PUBLISHER_INTERVAL),
+            )
             .await;
 
         tracing::info!("Payout checker task started");

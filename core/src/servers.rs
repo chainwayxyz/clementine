@@ -1,7 +1,7 @@
 //! # Servers
 //!
 //! Utilities for operator and verifier servers.
-use crate::aggregator::{Aggregator, AggregatorServer};
+use crate::aggregator::AggregatorServer;
 use crate::citrea::CitreaClientT;
 use crate::extended_rpc::ExtendedRpc;
 use crate::operator::OperatorServer;
