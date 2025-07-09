@@ -1,13 +1,9 @@
 use super::common::citrea::get_bridge_params;
-use super::common::ActorsCleanup;
 use crate::bitvm_client::SECP;
 use crate::builder::transaction::input::UtxoVout;
-use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::deposit::KickoffData;
-use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
-use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
-use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
+use crate::operator::RoundIndex;
 use crate::rpc::clementine::{TransactionRequest, WithdrawParams};
 use crate::test::common::citrea::{get_citrea_safe_withdraw_params, SECRET_KEYS};
 use crate::test::common::tx_utils::{
@@ -19,32 +15,28 @@ use crate::test::common::{
 };
 use crate::utils::{FeePayingType, TxMetadata};
 use crate::{
-    builder::transaction::TransactionType,
-    citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER},
-};
-use crate::{
     extended_rpc::ExtendedRpc,
     test::common::{
         citrea::{self},
         create_test_config_with_thread_name,
     },
 };
+use crate::citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER};
 use alloy::primitives::U256;
 use async_trait::async_trait;
 use bitcoin::hashes::Hash;
 use bitcoin::{secp256k1::SecretKey, Address, Amount};
 use bitcoin::{OutPoint, Transaction, Txid};
 use bitcoincore_rpc::RpcApi;
-use citrea_e2e::bitcoin::{BitcoinNode, DEFAULT_FINALITY_DEPTH};
+use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
 use citrea_e2e::config::{BatchProverConfig, LightClientProverConfig};
-use citrea_e2e::node::Node;
+use crate::builder::transaction::TransactionType;
 use citrea_e2e::{
     config::{BitcoinConfig, SequencerConfig, TestCaseConfig, TestCaseDockerConfig},
     framework::TestFramework,
     test_case::{TestCase, TestCaseRunner},
     Result,
 };
-use tonic::transport::Channel;
 
 pub enum ChallengeTxTestVariant {
     WithAnnex,
@@ -57,25 +49,94 @@ struct WatchtowerChallengeTxTest {
     variant: ChallengeTxTestVariant,
 }
 
-impl WatchtowerChallengeTxTest {
-    async fn common_test_setup(
-        &self,
-        mut config: BridgeConfig,
-        lc_prover: &Node<LightClientProverConfig>,
-        batch_prover: &Node<BatchProverConfig>,
-        da: &BitcoinNode,
-        sequencer: &Node<SequencerConfig>,
-    ) -> Result<(
-        Transaction,
-        ExtendedRpc,
-        Vec<ClementineVerifierClient<Channel>>,
-        Vec<ClementineOperatorClient<Channel>>,
-        ClementineAggregatorClient<Channel>,
-        ActorsCleanup,
-    )> {
-        tracing::debug!(
-            "disprove timeout is set to: {:?}",
-            config.protocol_paramset().disprove_timeout_timelock
+#[async_trait]
+impl TestCase for WatchtowerChallengeTxTest {
+    fn bitcoin_config() -> BitcoinConfig {
+        BitcoinConfig {
+            extra_args: vec![
+                "-txindex=1",
+                "-fallbackfee=0.000001",
+                "-rpcallowip=0.0.0.0/0",
+                "-limitancestorsize=1010",
+                "-limitdescendantsize=1010",
+                "-acceptnonstdtxn=1",
+            ],
+            ..Default::default()
+        }
+    }
+
+    fn test_config() -> TestCaseConfig {
+        TestCaseConfig {
+            with_sequencer: true,
+            with_batch_prover: true,
+            with_light_client_prover: true,
+            with_full_node: true,
+            docker: TestCaseDockerConfig {
+                bitcoin: true,
+                citrea: true,
+            },
+            ..Default::default()
+        }
+    }
+
+    fn sequencer_config() -> SequencerConfig {
+        SequencerConfig {
+            bridge_initialize_params: get_bridge_params(),
+            ..Default::default()
+        }
+    }
+
+    fn batch_prover_config() -> BatchProverConfig {
+        BatchProverConfig {
+            enable_recovery: false,
+            ..Default::default()
+        }
+    }
+
+    fn light_client_prover_config() -> LightClientProverConfig {
+        LightClientProverConfig {
+            enable_recovery: false,
+            initial_da_height: 60,
+            ..Default::default()
+        }
+    }
+
+    async fn run_test(&mut self, f: &mut TestFramework) -> Result<()> {
+        tracing::info!("Starting Citrea");
+        let (sequencer, _full_node, lc_prover, batch_prover, da) =
+            citrea::start_citrea(Self::sequencer_config(), f)
+                .await
+                .unwrap();
+
+        let lc_prover = lc_prover.unwrap();
+        let batch_prover = batch_prover.unwrap();
+
+        let mut config = create_test_config_with_thread_name().await;
+
+        // Set the correct flag based on variant
+        match self.variant {
+            ChallengeTxTestVariant::WithAnnex => {
+                config.test_params.use_small_annex = true;
+            }
+            ChallengeTxTestVariant::LargeInput => {
+                config.test_params.use_large_annex = true;
+            }
+            ChallengeTxTestVariant::LargeOutput => {
+                config.test_params.use_large_output = true;
+            }
+            ChallengeTxTestVariant::LargeInputAndOutput => {
+                config.test_params.use_large_annex_and_output = true;
+            }
+        }
+
+        citrea::update_config_with_citrea_e2e_values(
+            &mut config,
+            da,
+            sequencer,
+            Some((
+                lc_prover.config.rollup.rpc.bind_host.as_str(),
+                lc_prover.config.rollup.rpc.bind_port,
+            )),
         );
 
         let rpc = ExtendedRpc::connect(
@@ -95,10 +156,10 @@ impl WatchtowerChallengeTxTest {
             rpc.client.get_block_count().await?
         );
         let (
-            verifiers,
+            _verifiers,
             mut operators,
-            aggregator,
-            cleanup,
+            _aggregator,
+            _cleanup,
             deposit_params,
             move_txid,
             _deposit_blockhash,
@@ -317,11 +378,11 @@ impl WatchtowerChallengeTxTest {
                         withdrawal_response
                             .into_inner()
                             .txid
+                            .ok_or(eyre::eyre!("Malformed outpoint in withdrawal response"))
                             .unwrap()
                             .txid
-                            .to_vec()
                             .try_into()
-                            .expect("Invalid txid length"),
+                            .unwrap(),
                     );
                 }
                 Err(e) => {
@@ -375,7 +436,7 @@ impl WatchtowerChallengeTxTest {
             kickoff_id: Some(
                 KickoffData {
                     operator_xonly_pk: op0_xonly_pk,
-                    round_idx: crate::operator::RoundIndex::Round(0),
+                    round_idx: RoundIndex::Round(0),
                     kickoff_idx: kickoff_idx as u32,
                 }
                 .into(),
@@ -472,8 +533,11 @@ impl WatchtowerChallengeTxTest {
             .await?
             .into_inner();
 
-        let assert_tx =
-            get_tx_from_signed_txs_with_type(&assert_txs, TransactionType::MiniAssert(0)).unwrap();
+        let assert_tx = get_tx_from_signed_txs_with_type(
+            &assert_txs,
+            TransactionType::MiniAssert(0),
+        )
+        .unwrap();
         let txid = assert_tx.compute_txid();
 
         assert!(
@@ -481,209 +545,6 @@ impl WatchtowerChallengeTxTest {
             "Mini assert 0 was not found in the chain",
         );
 
-        Ok((kickoff_tx, rpc, verifiers, operators, aggregator, cleanup))
-    }
-
-    async fn challenge_tx_with_annex(&self, f: &mut TestFramework) -> Result<()> {
-        tracing::info!("Starting Citrea");
-        let (sequencer, _full_node, lc_prover, batch_prover, da) =
-            citrea::start_citrea(Self::sequencer_config(), f)
-                .await
-                .unwrap();
-
-        let lc_prover = lc_prover.unwrap();
-        let batch_prover = batch_prover.unwrap();
-
-        let mut config = create_test_config_with_thread_name().await;
-        config.test_params.use_small_annex = true;
-
-        citrea::update_config_with_citrea_e2e_values(
-            &mut config,
-            da,
-            sequencer,
-            Some((
-                lc_prover.config.rollup.rpc.bind_host.as_str(),
-                lc_prover.config.rollup.rpc.bind_port,
-            )),
-        );
-
-        let _unused = self
-            .common_test_setup(config, lc_prover, batch_prover, da, sequencer)
-            .await?;
-
-        tracing::info!("Common test setup completed");
-
-        Ok(())
-    }
-
-    async fn challenge_tx_with_large_input(&self, f: &mut TestFramework) -> Result<()> {
-        tracing::info!("Starting Citrea");
-        let (sequencer, _full_node, lc_prover, batch_prover, da) =
-            citrea::start_citrea(Self::sequencer_config(), f)
-                .await
-                .unwrap();
-
-        let lc_prover = lc_prover.unwrap();
-        let batch_prover = batch_prover.unwrap();
-
-        let mut config = create_test_config_with_thread_name().await;
-        config.test_params.use_large_annex = true;
-
-        citrea::update_config_with_citrea_e2e_values(
-            &mut config,
-            da,
-            sequencer,
-            Some((
-                lc_prover.config.rollup.rpc.bind_host.as_str(),
-                lc_prover.config.rollup.rpc.bind_port,
-            )),
-        );
-
-        let _unused = self
-            .common_test_setup(config, lc_prover, batch_prover, da, sequencer)
-            .await?;
-
-        tracing::info!("Common test setup completed");
-
-        Ok(())
-    }
-
-    async fn challenge_tx_with_large_output(&self, f: &mut TestFramework) -> Result<()> {
-        tracing::info!("Starting Citrea");
-        let (sequencer, _full_node, lc_prover, batch_prover, da) =
-            citrea::start_citrea(Self::sequencer_config(), f)
-                .await
-                .unwrap();
-
-        let lc_prover = lc_prover.unwrap();
-        let batch_prover = batch_prover.unwrap();
-
-        let mut config = create_test_config_with_thread_name().await;
-        config.test_params.use_large_output = true;
-
-        citrea::update_config_with_citrea_e2e_values(
-            &mut config,
-            da,
-            sequencer,
-            Some((
-                lc_prover.config.rollup.rpc.bind_host.as_str(),
-                lc_prover.config.rollup.rpc.bind_port,
-            )),
-        );
-
-        let _unused = self
-            .common_test_setup(config, lc_prover, batch_prover, da, sequencer)
-            .await?;
-
-        tracing::info!("Common test setup completed");
-
-        Ok(())
-    }
-
-    async fn challenge_tx_with_large_input_and_output(&self, f: &mut TestFramework) -> Result<()> {
-        tracing::info!("Starting Citrea");
-        let (sequencer, _full_node, lc_prover, batch_prover, da) =
-            citrea::start_citrea(Self::sequencer_config(), f)
-                .await
-                .unwrap();
-
-        let lc_prover = lc_prover.unwrap();
-        let batch_prover = batch_prover.unwrap();
-
-        let mut config = create_test_config_with_thread_name().await;
-        config.test_params.use_large_annex_and_output = true;
-
-        citrea::update_config_with_citrea_e2e_values(
-            &mut config,
-            da,
-            sequencer,
-            Some((
-                lc_prover.config.rollup.rpc.bind_host.as_str(),
-                lc_prover.config.rollup.rpc.bind_port,
-            )),
-        );
-
-        let _unused = self
-            .common_test_setup(config, lc_prover, batch_prover, da, sequencer)
-            .await?;
-
-        tracing::info!("Common test setup completed");
-
-        Ok(())
-    }
-}
-
-#[async_trait]
-impl TestCase for WatchtowerChallengeTxTest {
-    fn bitcoin_config() -> BitcoinConfig {
-        BitcoinConfig {
-            extra_args: vec![
-                "-txindex=1",
-                "-fallbackfee=0.000001",
-                "-rpcallowip=0.0.0.0/0",
-                "-limitancestorsize=1010",
-                "-limitdescendantsize=1010",
-                "-acceptnonstdtxn=1",
-            ],
-            ..Default::default()
-        }
-    }
-
-    fn test_config() -> TestCaseConfig {
-        TestCaseConfig {
-            with_sequencer: true,
-            with_batch_prover: true,
-            with_light_client_prover: true,
-            with_full_node: true,
-            docker: TestCaseDockerConfig {
-                bitcoin: true,
-                citrea: true,
-            },
-            ..Default::default()
-        }
-    }
-
-    fn sequencer_config() -> SequencerConfig {
-        SequencerConfig {
-            bridge_initialize_params: get_bridge_params(),
-            ..Default::default()
-        }
-    }
-
-    fn batch_prover_config() -> BatchProverConfig {
-        BatchProverConfig {
-            enable_recovery: false,
-            ..Default::default()
-        }
-    }
-
-    fn light_client_prover_config() -> LightClientProverConfig {
-        LightClientProverConfig {
-            enable_recovery: false,
-            initial_da_height: 60,
-            ..Default::default()
-        }
-    }
-
-    async fn run_test(&mut self, f: &mut TestFramework) -> Result<()> {
-        match self.variant {
-            ChallengeTxTestVariant::WithAnnex => {
-                tracing::info!("Running healthy state test");
-                self.challenge_tx_with_annex(f).await?;
-            }
-            ChallengeTxTestVariant::LargeInput => {
-                tracing::info!("Running disrupted operator BitVM assert test");
-                self.challenge_tx_with_large_input(f).await?;
-            }
-            ChallengeTxTestVariant::LargeOutput => {
-                tracing::info!("Running challenge tx with large output test");
-                self.challenge_tx_with_large_output(f).await?;
-            }
-            ChallengeTxTestVariant::LargeInputAndOutput => {
-                tracing::info!("Running challenge tx with large input and output test");
-                self.challenge_tx_with_large_input_and_output(f).await?;
-            }
-        }
 
         Ok(())
     }
