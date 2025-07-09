@@ -28,9 +28,9 @@ use crate::utils::FeePayingType;
 use crate::EVMAddress;
 use bitcoin::hashes::Hash;
 use bitcoin::key::Keypair;
-use bitcoin::secp256k1::rand;
 use bitcoin::secp256k1::Message;
 use bitcoin::secp256k1::PublicKey;
+use bitcoin::secp256k1::{rand, SecretKey};
 use bitcoin::XOnlyPublicKey;
 use bitcoin::{taproot, BlockHash, OutPoint, Transaction, Txid, Witness};
 use bitcoincore_rpc::RpcApi;
@@ -459,12 +459,35 @@ pub async fn run_single_deposit<C: CitreaClientT>(
     ))
 }
 
+/// Runs a single replacement deposit transaction. It will replace the old movetx using the nofn path, so it needs
+/// the nofn xonly public key and secret keys of the old signer set that signed the previous movetx.
+///
+/// # Parameters
+///
+/// - `config` [`BridgeConfig`]: The bridge configuration.
+/// - `rpc` [`ExtendedRpc`]: The RPC client to use.
+/// - `old_move_txid` [`Txid`]: The TXID of the old move transaction.
+/// - `current_actors` [`TestActors`]: The actors to use for the replacement deposit.
+/// - `old_nofn_xonly_pk` [`XOnlyPublicKey`]: The nofn xonly public key of the old signer set that signed previous movetx.
+/// - `old_secret_keys` [`Vec<SecretKey>`]: The secret keys of the old signer set that signed previous movetx.
+///
+/// # Returns
+///
+/// A big tuple, containing:
+///
+/// - Server clients:
+///    - [`TestActors`]: A helper struct holding all the verifiers, operators, and the aggregator.
+/// - [`DepositInfo`]: Information about the deposit.
+/// - [`Txid`]: TXID of the move transaction.
+/// - [`BlockHash`]: Block hash of the block where the user deposit was mined.
 #[cfg(feature = "automation")]
 pub async fn run_single_replacement_deposit<C: CitreaClientT>(
     config: &mut BridgeConfig,
     rpc: &ExtendedRpc,
     old_move_txid: Txid,
-    actors: TestActors<C>,
+    current_actors: TestActors<C>,
+    old_nofn_xonly_pk: XOnlyPublicKey,
+    old_secret_keys: Vec<SecretKey>,
 ) -> Result<(TestActors<C>, DepositInfo, Txid, BlockHash), BridgeError> {
     let aggregator_db = Database::new(&BridgeConfig {
         db_name: config.db_name.clone() + "0",
@@ -473,16 +496,23 @@ pub async fn run_single_replacement_deposit<C: CitreaClientT>(
     .await?;
 
     // create a replacement deposit tx, we will sign it using nofn
-    let replacement_deposit_txid =
-        send_replacement_deposit_tx(config, rpc, old_move_txid, &actors).await?;
+    let replacement_deposit_txid = send_replacement_deposit_tx(
+        config,
+        rpc,
+        old_move_txid,
+        &current_actors,
+        old_nofn_xonly_pk,
+        old_secret_keys,
+    )
+    .await?;
 
     let deposit_outpoint = OutPoint {
         txid: replacement_deposit_txid,
-        vout: UtxoVout::DepositInMove.get_vout(),
+        vout: 0,
     };
 
     let setup_start = std::time::Instant::now();
-    let mut aggregator = actors.get_aggregator();
+    let mut aggregator = current_actors.get_aggregator();
     aggregator
         .setup(Request::new(Empty {}))
         .await
@@ -503,7 +533,7 @@ pub async fn run_single_replacement_deposit<C: CitreaClientT>(
     let movetx = aggregator
         .new_deposit(deposit)
         .await
-        .wrap_err("Error while making a deposit")?
+        .wrap_err("Error while making a replacement deposit")?
         .into_inner();
     let move_txid = aggregator
         .send_move_to_vault_tx(SendMoveTxRequest {
@@ -521,33 +551,34 @@ pub async fn run_single_replacement_deposit<C: CitreaClientT>(
         mine_once_after_in_mempool(rpc, move_txid, Some("Move tx"), Some(180)).await?;
     }
 
-    Ok((actors, deposit_info, move_txid, deposit_blockhash))
+    Ok((current_actors, deposit_info, move_txid, deposit_blockhash))
 }
 
-fn sign_nofn_replacement_deposit_tx<C: CitreaClientT>(
+/// Signs a replacement deposit transaction using the nofn xonly public key and secret keys
+/// of the old signer set (the ones that signed the old deposit).
+fn sign_nofn_replacement_deposit_tx(
     replacement_deposit: &TxHandler,
     config: &BridgeConfig,
-    actors: &TestActors<C>,
+    old_nofn_xonly_pk: XOnlyPublicKey,
+    old_secret_keys: Vec<SecretKey>,
     security_council: SecurityCouncil,
 ) -> Transaction {
-    let nofn_xonly_pk = actors.get_nofn_aggregated_xonly_pk().unwrap();
     let msg = Message::from_digest(
         replacement_deposit
             .calculate_script_spend_sighash(
                 0,
-                &CheckSig::new(nofn_xonly_pk).to_script_buf(),
+                &CheckSig::new(old_nofn_xonly_pk).to_script_buf(),
                 bitcoin::TapSighashType::SinglePlusAnyoneCanPay,
             )
             .unwrap()
             .to_byte_array(),
     );
-    let verifiers_secret_keys = actors.get_verifiers_secret_keys();
-    let verifiers_public_keys = verifiers_secret_keys
+    let verifiers_public_keys = old_secret_keys
         .iter()
         .map(|sk| sk.public_key(&SECP))
         .collect::<Vec<_>>();
 
-    let kps = verifiers_secret_keys
+    let kps = old_secret_keys
         .iter()
         .map(|sk| Keypair::from_secret_key(&SECP, sk))
         .collect::<Vec<_>>();
@@ -592,7 +623,7 @@ fn sign_nofn_replacement_deposit_tx<C: CitreaClientT>(
 
     let mut witness = Witness::from_slice(&[final_taproot_sig.serialize()]);
     // get script of movetx
-    let script_buf = CheckSig::new(nofn_xonly_pk).to_script_buf();
+    let script_buf = CheckSig::new(old_nofn_xonly_pk).to_script_buf();
     let multisig_script_buf = Multisig::from_security_council(security_council).to_script_buf();
     let (_, spend_info) = create_taproot_address(
         &[script_buf.clone(), multisig_script_buf.clone()],
@@ -610,6 +641,8 @@ async fn send_replacement_deposit_tx<C: CitreaClientT>(
     rpc: &ExtendedRpc,
     old_move_txid: Txid,
     actors: &TestActors<C>,
+    old_nofn_xonly_pk: XOnlyPublicKey,
+    old_secret_keys: Vec<SecretKey>,
 ) -> Result<Txid, BridgeError> {
     // create a replacement deposit tx, we will sign it using nofn
     let replacement_txhandler = create_replacement_deposit_txhandler(
@@ -618,6 +651,7 @@ async fn send_replacement_deposit_tx<C: CitreaClientT>(
             txid: old_move_txid,
             vout: UtxoVout::DepositInMove.get_vout(),
         },
+        old_nofn_xonly_pk,
         actors.get_nofn_aggregated_xonly_pk()?,
         config.protocol_paramset(),
         config.security_council.clone(),
@@ -626,7 +660,8 @@ async fn send_replacement_deposit_tx<C: CitreaClientT>(
     let signed_replacement_deposit_tx = sign_nofn_replacement_deposit_tx(
         &replacement_txhandler,
         config,
-        actors,
+        old_nofn_xonly_pk,
+        old_secret_keys,
         config.security_council.clone(),
     );
 
@@ -651,8 +686,6 @@ async fn send_replacement_deposit_tx<C: CitreaClientT>(
     let replacement_deposit_txid = signed_replacement_deposit_tx.compute_txid();
 
     wait_for_fee_payer_utxos_to_be_in_mempool(rpc, tx_sender_db, replacement_deposit_txid).await?;
-
-    tracing::warn!("Replacement deposit tx {:?}", signed_replacement_deposit_tx);
 
     mine_once_after_in_mempool(
         rpc,

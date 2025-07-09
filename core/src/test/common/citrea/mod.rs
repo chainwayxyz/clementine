@@ -31,6 +31,7 @@ use citrea_e2e::{
     node::{Node, NodeKind},
 };
 pub use client_mock::*;
+use eyre::Context;
 use jsonrpsee::http_client::HttpClient;
 pub use parameters::*;
 pub use requests::*;
@@ -181,9 +182,14 @@ pub fn extract_suffix_and_prefix_from_script(
     script: bitcoin::ScriptBuf,
     cut_bytes: &[u8],
 ) -> eyre::Result<(Vec<u8>, Vec<u8>)> {
-    let mut script_bytes = script.into_bytes();
-    assert!(script_bytes.len() <= 75); // 75 is the max length that can be pushed to stack with one opcode
-    script_bytes.insert(0, script_bytes.len() as u8); // insert length of script to start
+    // create a script that pushes the whole script to stack (to represent how they are in the witness,
+    // as the citrea contract retrieves the script from the witness)
+    let script_push_bytes = bitcoin::script::PushBytesBuf::try_from(script.into_bytes())
+        .wrap_err("Failed to create pushbytesbuf for deposit script")?;
+    let push_script = bitcoin::blockdata::script::Builder::new()
+        .push_slice(&script_push_bytes)
+        .into_script();
+    let script_bytes = push_script.into_bytes();
 
     // Find the first occurrence of cut_bytes in the script
     if let Some(pos) = script_bytes

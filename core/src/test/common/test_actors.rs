@@ -11,6 +11,7 @@ use crate::rpc::get_clients;
 use crate::servers::{
     create_aggregator_unix_server, create_operator_unix_server, create_verifier_unix_server,
 };
+use std::collections::HashMap;
 use std::marker::PhantomData;
 
 use tokio::sync::oneshot;
@@ -36,6 +37,7 @@ pub struct TestOperator<C: CitreaClientT> {
     pub socket_path: std::path::PathBuf,
     pub client_type: PhantomData<C>,
     pub secret_key: bitcoin::secp256k1::SecretKey,
+    pub verifier_index: usize, // index of the verifier that this operator is associated with
 }
 
 #[derive(Debug)]
@@ -48,8 +50,8 @@ pub struct TestAggregator {
 
 #[derive(Debug)]
 pub struct TestActors<C: CitreaClientT> {
-    verifiers: Vec<TestVerifier<C>>,
-    operators: Vec<TestOperator<C>>,
+    verifiers: HashMap<usize, TestVerifier<C>>,
+    operators: HashMap<usize, TestOperator<C>>,
     aggregator: TestAggregator,
     /// The total number of verifiers, including deleted ones, to ensure unique numbering
     pub num_total_verifiers: usize,
@@ -127,6 +129,7 @@ impl<C: CitreaClientT> TestOperator<C> {
         base_config: &BridgeConfig,
         socket_dir: &std::path::Path,
         index: usize,
+        verifier_index: usize,
         secret_key: bitcoin::secp256k1::SecretKey,
     ) -> eyre::Result<Self> {
         let socket_path = socket_dir.join(format!("operator_{}.sock", index));
@@ -153,6 +156,7 @@ impl<C: CitreaClientT> TestOperator<C> {
             socket_path,
             client_type: PhantomData,
             secret_key,
+            verifier_index,
         })
     }
 }
@@ -220,27 +224,28 @@ impl<C: CitreaClientT> TestActors<C> {
         let socket_dir = tempfile::tempdir()?;
 
         // Create verifiers
-        let mut verifiers = Vec::new();
+        let mut verifiers = HashMap::new();
         for (i, &secret_key) in all_verifiers_secret_keys.iter().enumerate() {
             let verifier = TestVerifier::new(config, socket_dir.path(), i, secret_key).await?;
-            verifiers.push(verifier);
+            verifiers.insert(i, verifier);
         }
 
         // Create operators
-        let mut operators = Vec::new();
+        let mut operators = HashMap::new();
         for (i, &secret_key) in all_operators_secret_keys.iter().enumerate() {
-            let base_config = &verifiers[i % verifiers.len()].config;
-            let operator = TestOperator::new(base_config, socket_dir.path(), i, secret_key).await?;
-            operators.push(operator);
+            let base_config = &verifiers[&i].config;
+            let operator =
+                TestOperator::new(base_config, socket_dir.path(), i, i, secret_key).await?;
+            operators.insert(i, operator);
         }
 
         // Collect paths for aggregator
-        let verifier_paths: Vec<_> = verifiers.iter().map(|v| v.socket_path.clone()).collect();
-        let operator_paths: Vec<_> = operators.iter().map(|o| o.socket_path.clone()).collect();
+        let verifier_paths: Vec<_> = verifiers.values().map(|v| v.socket_path.clone()).collect();
+        let operator_paths: Vec<_> = operators.values().map(|o| o.socket_path.clone()).collect();
 
         // Create aggregator
         let aggregator = TestAggregator::new(
-            &verifiers[0].config,
+            &verifiers[&0].config,
             socket_dir.path(),
             &verifier_paths,
             &operator_paths,
@@ -265,11 +270,11 @@ impl<C: CitreaClientT> TestActors<C> {
     }
 
     pub fn get_operator_client_by_index(&self, index: usize) -> ClementineOperatorClient<Channel> {
-        self.operators[index].operator.clone()
+        self.operators[&index].operator.clone()
     }
 
     pub fn get_verifier_client_by_index(&self, index: usize) -> ClementineVerifierClient<Channel> {
-        self.verifiers[index].verifier.clone()
+        self.verifiers[&index].verifier.clone()
     }
 
     pub fn get_aggregator(&self) -> ClementineAggregatorClient<Channel> {
@@ -284,11 +289,17 @@ impl<C: CitreaClientT> TestActors<C> {
     }
 
     pub fn get_verifiers(&self) -> Vec<ClementineVerifierClient<Channel>> {
-        self.verifiers.iter().map(|v| v.verifier.clone()).collect()
+        self.verifiers
+            .values()
+            .map(|v| v.verifier.clone())
+            .collect()
     }
 
     pub fn get_operators(&self) -> Vec<ClementineOperatorClient<Channel>> {
-        self.operators.iter().map(|o| o.operator.clone()).collect()
+        self.operators
+            .values()
+            .map(|o| o.operator.clone())
+            .collect()
     }
 
     /// Restart the aggregator by creating a new one with the current verifier and operator endpoints
@@ -296,12 +307,12 @@ impl<C: CitreaClientT> TestActors<C> {
         // Collect current paths for aggregator
         let verifier_paths: Vec<_> = self
             .verifiers
-            .iter()
+            .values()
             .map(|v| v.socket_path.clone())
             .collect();
         let operator_paths: Vec<_> = self
             .operators
-            .iter()
+            .values()
             .map(|o| o.socket_path.clone())
             .collect();
 
@@ -329,13 +340,23 @@ impl<C: CitreaClientT> TestActors<C> {
                 "Cannot remove the first verifier, its aggregator's verifier"
             ));
         }
-        self.verifiers.remove(index);
+        if let Some((operator_index, _)) = self
+            .operators
+            .iter()
+            .find(|(_, o)| o.verifier_index == index)
+        {
+            return Err(eyre::eyre!(
+                "Cannot remove verifier, verifier's operator {} is still active",
+                operator_index
+            ));
+        }
+        self.verifiers.remove(&index);
         self.restart_aggregator().await?;
         Ok(())
     }
 
     pub async fn remove_operator(&mut self, index: usize) -> eyre::Result<()> {
-        self.operators.remove(index);
+        self.operators.remove(&index);
         self.restart_aggregator().await?;
         Ok(())
     }
@@ -351,7 +372,7 @@ impl<C: CitreaClientT> TestActors<C> {
             secret_key,
         )
         .await?;
-        self.verifiers.push(verifier);
+        self.verifiers.insert(self.num_total_verifiers, verifier);
         self.num_total_verifiers += 1;
         self.restart_aggregator().await?;
         Ok(())
@@ -362,15 +383,23 @@ impl<C: CitreaClientT> TestActors<C> {
         secret_key: bitcoin::secp256k1::SecretKey,
         verifier_index: usize,
     ) -> eyre::Result<()> {
-        let base_config = &self.verifiers[verifier_index].config;
+        if !self.verifiers.contains_key(&verifier_index) {
+            return Err(eyre::eyre!(
+                "Cannot add operator with verifier index {}, verifier {} does not exist",
+                verifier_index,
+                verifier_index
+            ));
+        }
+        let base_config = &self.verifiers[&verifier_index].config;
         let operator = TestOperator::new(
             base_config,
             self.socket_dir.path(),
             self.num_total_operators,
+            verifier_index,
             secret_key,
         )
         .await?;
-        self.operators.push(operator);
+        self.operators.insert(self.num_total_operators, operator);
         self.num_total_operators += 1;
         self.restart_aggregator().await?;
         Ok(())
@@ -379,7 +408,7 @@ impl<C: CitreaClientT> TestActors<C> {
     pub fn get_nofn_aggregated_xonly_pk(&self) -> eyre::Result<bitcoin::XOnlyPublicKey> {
         let verifier_public_keys = self
             .verifiers
-            .iter()
+            .values()
             .map(|v| v.config.secret_key.public_key(&SECP))
             .collect::<Vec<_>>();
         let aggregated_pk = bitcoin::XOnlyPublicKey::from_musig2_pks(verifier_public_keys, None)?;
@@ -387,6 +416,6 @@ impl<C: CitreaClientT> TestActors<C> {
     }
 
     pub fn get_verifiers_secret_keys(&self) -> Vec<bitcoin::secp256k1::SecretKey> {
-        self.verifiers.iter().map(|v| v.secret_key).collect()
+        self.verifiers.values().map(|v| v.secret_key).collect()
     }
 }

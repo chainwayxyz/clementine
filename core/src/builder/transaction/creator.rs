@@ -1312,19 +1312,32 @@ mod tests {
         let mut config = create_test_config_with_thread_name().await;
         let WithProcessCleanup(_, ref rpc, _, _) = create_regtest_rpc(&mut config).await;
 
-        let (actors, _deposit_info, old_move_txid, _deposit_blockhash, _verifiers_public_keys) =
+        let (mut actors, _deposit_info, old_move_txid, _deposit_blockhash, _verifiers_public_keys) =
             run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None, None)
                 .await
                 .unwrap();
+
+        let old_nofn_xonly_pk = actors.get_nofn_aggregated_xonly_pk().unwrap();
+        let old_secret_keys = actors.get_verifiers_secret_keys();
+
+        // remove 1 verifier then run a replacement deposit
+        actors.remove_verifier(2).await.unwrap();
 
         let (
             actors,
             replacement_deposit_info,
             _replacement_move_txid,
             replacement_deposit_blockhash,
-        ) = run_single_replacement_deposit(&mut config, rpc, old_move_txid, actors)
-            .await
-            .unwrap();
+        ) = run_single_replacement_deposit(
+            &mut config,
+            rpc,
+            old_move_txid,
+            actors,
+            old_nofn_xonly_pk,
+            old_secret_keys,
+        )
+        .await
+        .unwrap();
 
         check_if_signable(
             actors,

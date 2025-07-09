@@ -223,7 +223,8 @@ impl CitreaClient {
         use std::str::FromStr;
 
         use crate::deposit::{
-            Actors, BaseDepositData, DepositData, DepositInfo, DepositType, SecurityCouncil,
+            Actors, BaseDepositData, DepositData, DepositInfo, DepositType, ReplacementDepositData,
+            SecurityCouncil,
         };
         use crate::EVMAddress;
 
@@ -279,11 +280,52 @@ impl CitreaClient {
         }
         send_req.get_receipt().await?;
 
-        // self.contract
-        //     .setReplacementScript(replacementPrefix, replacementSuffix)
-        //     .call()
-        //     .await
-        //     .wrap_err("Failed to update nofn aggregated key")?;
+        // now update the replacement script
+        let dummy_old_move_txid = Txid::from_byte_array(std::array::from_fn(|i| i as u8));
+        let mut dummy_replacement_deposit_data = DepositData {
+            nofn_xonly_pk: Some(nofn_xonly_pk),
+            deposit: DepositInfo {
+                deposit_outpoint: OutPoint::default(),
+                deposit_type: DepositType::ReplacementDeposit(ReplacementDepositData {
+                    old_move_txid: dummy_old_move_txid,
+                }),
+            },
+            actors: Actors {
+                verifiers: vec![],
+                watchtowers: vec![],
+                operators: vec![],
+            },
+            security_council: SecurityCouncil {
+                pks: vec![],
+                threshold: 0,
+            },
+        };
+
+        let replacement_deposit_script =
+            dummy_replacement_deposit_data.get_deposit_scripts(paramset)?[0].to_script_buf();
+
+        let (replacement_prefix, replacement_suffix) =
+            crate::test::common::citrea::extract_suffix_and_prefix_from_script(
+                replacement_deposit_script,
+                dummy_old_move_txid.as_byte_array(),
+            )?;
+
+        let replacement_send_req = self
+            .contract
+            .setReplaceScript(replacement_prefix.into(), replacement_suffix.into())
+            .from(self.wallet_address)
+            .send()
+            .await
+            .wrap_err("Failed to update nofn aggregated key")?;
+
+        for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
+            sequencer
+                .client
+                .send_publish_batch_request()
+                .await
+                .map_err(|e| eyre::eyre!("Failed to publish batch: {:?}", e))?;
+        }
+        replacement_send_req.get_receipt().await?;
 
         Ok(())
     }

@@ -327,9 +327,18 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         .await
         .unwrap();
 
-        // now remove verifier 2
+        // save old nofn and secret keys, then remove verifier 2
+        let old_nofn_xonly_pk = actors.get_nofn_aggregated_xonly_pk().unwrap();
+        let old_secret_keys = actors.get_verifiers_secret_keys();
         tracing::info!("Removing verifier 2");
         actors.remove_verifier(2).await.unwrap();
+
+        // update nofn on citrea
+        let new_agg_key = actors.get_nofn_aggregated_xonly_pk().unwrap();
+        citrea_client
+            .update_nofn_aggregated_key(new_agg_key, config.protocol_paramset(), sequencer)
+            .await
+            .unwrap();
 
         // try an optimistic payout, should fail because a verifier that signed the withdrawal was removed
         tracing::info!("Trying optimistic payout with removed verifier, should fail");
@@ -352,9 +361,16 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             _replacement_deposit_info,
             replacement_move_txid,
             _replacement_deposit_blockhash,
-        ) = run_single_replacement_deposit(&mut config, &rpc, new_move_txids[2], actors)
-            .await
-            .unwrap();
+        ) = run_single_replacement_deposit(
+            &mut config,
+            &rpc,
+            new_move_txids[2],
+            actors,
+            old_nofn_xonly_pk,
+            old_secret_keys,
+        )
+        .await
+        .unwrap();
 
         tracing::info!("Waiting for lc prover to sync");
         // wait for lc prover so that new replacement deposit gets synced on verifiers before attempting optimistic payout
