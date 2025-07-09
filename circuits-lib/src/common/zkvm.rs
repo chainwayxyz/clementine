@@ -14,7 +14,7 @@ pub trait ZkvmGuest {
 /// It contains a method ID and a journal of data that can be used to verify the proof.
 /// Proof itself is not included here, as it is added as an assumption by the host.
 #[derive(Debug, Clone)]
-pub struct Proof {
+pub struct VerificationContext {
     pub method_id: [u32; 8],
     pub journal: Vec<u8>,
 }
@@ -24,10 +24,10 @@ pub trait ZkvmHost {
     fn write<T: borsh::BorshSerialize>(&self, value: &T);
 
     /// Adds an assumption to the the guest code to be verified.
-    fn add_assumption(&self, proof: Proof);
+    fn add_assumption(&self, proof: VerificationContext);
 
     /// Proves with the given data
-    fn prove(&self, elf: &[u32]) -> Proof;
+    fn prove(&self, elf: &[u32]) -> VerificationContext;
 }
 
 #[derive(Debug, Clone)]
