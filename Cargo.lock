@@ -2095,6 +2095,7 @@ dependencies = [
  "once_cell",
  "pgmq",
  "prost",
+ "rand 0.8.5",
  "rand_chacha 0.9.0",
  "risc0-zkvm",
  "rustls-pki-types",

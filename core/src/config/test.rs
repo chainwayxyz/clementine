@@ -34,6 +34,9 @@ pub struct TestParams {
     /// A flag to introduce intentionally inconsistent or invalid data into the BitVM assertions.
     pub corrupted_asserts: bool,
 
+    /// A flag to indicate whether the public input for the BitVM challenge is corrupted.
+    pub corrupted_public_input: bool,
+
     /// A flag to generate blocks to the address of the wallet.
     pub generate_to_address: bool,
 
@@ -203,6 +206,7 @@ impl Default for TestParams {
             disrupt_challenge_sending_watchtowers_commit: false,
             operator_forgot_watchtower_challenge: false,
             corrupted_asserts: false,
+            corrupted_public_input: false,
             use_small_annex: false,
             use_large_annex: false,
             use_large_output: false,
