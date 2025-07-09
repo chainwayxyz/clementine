@@ -153,14 +153,18 @@
 <a href="#152" id="152">152</a>
 <a href="#153" id="153">153</a>
 <a href="#154" id="154">154</a>
-<a href="#155" id="155">155</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_bn254::Bn254;
+<a href="#155" id="155">155</a>
+<a href="#156" id="156">156</a>
+<a href="#157" id="157">157</a>
+<a href="#158" id="158">158</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_bn254::Bn254;
 <span class="kw">use </span>ark_ff::{Field, PrimeField};
 <span class="kw">use </span>ark_groth16::Proof;
 <span class="kw">use </span>ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, SerializationError};
 <span class="kw">type </span>G1 = ark_bn254::G1Affine;
 <span class="kw">type </span>G2 = ark_bn254::G2Affine;
 
-<span class="attr">#[derive(Copy, Clone, Debug)]
+<span class="doccomment">/// CircuitGroth16Proof represents a Groth16 proof for the circuit.
+</span><span class="attr">#[derive(Copy, Clone, Debug)]
 </span><span class="kw">pub struct </span>CircuitGroth16Proof {
     a: G1,
     b: G2,
@@ -172,7 +176,9 @@
         CircuitGroth16Proof { a, b, c }
     }
 
-    <span class="kw">pub fn </span>from_seal(seal: <span class="kw-2">&amp;</span>[u8; <span class="number">256</span>]) -&gt; CircuitGroth16Proof {
+    <span class="doccomment">/// Creates a new CircuitGroth16Proof from the given risc0 seal, which
+    /// itself is a 256-byte array.
+    </span><span class="kw">pub fn </span>from_seal(seal: <span class="kw-2">&amp;</span>[u8; <span class="number">256</span>]) -&gt; CircuitGroth16Proof {
         <span class="kw">let </span>a = G1::new(
             ark_bn254::Fq::from_be_bytes_mod_order(<span class="kw-2">&amp;</span>seal[<span class="number">0</span>..<span class="number">32</span>]),
             ark_bn254::Fq::from_be_bytes_mod_order(<span class="kw-2">&amp;</span>seal[<span class="number">32</span>..<span class="number">64</span>]),

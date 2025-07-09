@@ -118,7 +118,8 @@
 <a href="#117" id="117">117</a>
 <a href="#118" id="118">118</a>
 <a href="#119" id="119">119</a>
-<a href="#120" id="120">120</a></pre></div><pre class="rust"><code><span class="kw">use crate</span>::{
+<a href="#120" id="120">120</a>
+<a href="#121" id="121">121</a></pre></div><pre class="rust"><code><span class="kw">use crate</span>::{
     bridge_circuit::structs::{WorkOnlyCircuitInput, WorkOnlyCircuitOutput},
     common::{
         constants::{
@@ -171,8 +172,9 @@
     <span class="kw">let </span>input: WorkOnlyCircuitInput = guest.read_from_host();
     <span class="macro">assert_eq!</span>(
         HEADER_CHAIN_METHOD_ID, input.header_chain_circuit_output.method_id,
-        <span class="string">"Invalid header chain method ID"
-    </span>);
+        <span class="string">"Invalid method ID for header chain circuit: expected {:?}, got {:?}"</span>,
+        HEADER_CHAIN_METHOD_ID, input.header_chain_circuit_output.method_id
+    );
     env::verify(
         input.header_chain_circuit_output.method_id,
         <span class="kw-2">&amp;</span>borsh::to_vec(<span class="kw-2">&amp;</span>input.header_chain_circuit_output).unwrap(),

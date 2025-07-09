@@ -56,7 +56,7 @@
 <a href="#55" id="55">55</a>
 <a href="#56" id="56">56</a></pre></div><pre class="rust"><code><span class="kw">use </span>std::sync::{Arc, Mutex};
 
-<span class="kw">use </span>circuits_lib::common::zkvm::{Proof, ZkvmGuest, ZkvmHost};
+<span class="kw">use </span>circuits_lib::common::zkvm::{VerificationContext, ZkvmGuest, ZkvmHost};
 
 <span class="attr">#[derive(Debug, Clone, Default)]
 </span><span class="kw">struct </span>ZkvmData {
@@ -97,16 +97,16 @@
         <span class="kw">let </span>value = borsh::to_vec(value).unwrap();
         data.values.extend_from_slice(<span class="kw-2">&amp;</span>value);
     }
-    <span class="kw">fn </span>prove(<span class="kw-2">&amp;</span><span class="self">self</span>, _elf: <span class="kw-2">&amp;</span>[u32]) -&gt; Proof {
+    <span class="kw">fn </span>prove(<span class="kw-2">&amp;</span><span class="self">self</span>, _elf: <span class="kw-2">&amp;</span>[u32]) -&gt; VerificationContext {
         <span class="macro">tracing::warn!</span>(<span class="string">"This is a mock zkvm host, no real proof is generated."</span>);
         <span class="kw">let </span>data = <span class="self">self</span>.data.lock().unwrap();
-        Proof {
+        VerificationContext {
             method_id: [<span class="number">42</span>; <span class="number">8</span>],
             journal: data.journal.clone(),
         }
     }
 
-    <span class="kw">fn </span>add_assumption(<span class="kw-2">&amp;</span><span class="self">self</span>, _proof: Proof) {
+    <span class="kw">fn </span>add_assumption(<span class="kw-2">&amp;</span><span class="self">self</span>, _proof: VerificationContext) {
         <span class="macro">tracing::warn!</span>(<span class="string">"This is a mock zkvm host, no assumptions are added."</span>);
     }
 }

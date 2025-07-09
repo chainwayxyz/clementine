@@ -52,7 +52,9 @@
 <a href="#51" id="51">51</a>
 <a href="#52" id="52">52</a>
 <a href="#53" id="53">53</a>
-<a href="#54" id="54">54</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::structs::LightClientProof;
+<a href="#54" id="54">54</a>
+<a href="#55" id="55">55</a>
+<a href="#56" id="56">56</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::structs::LightClientProof;
 <span class="kw">use </span>citrea_sov_rollup_interface::zk::light_client_proof::output::LightClientCircuitOutput;
 
 <span class="comment">// use risc0_zkvm::guest::env;
@@ -60,8 +62,10 @@
 // const LC_IMAGE_ID: [u8; 32] =
 //     hex_literal::hex!("95d94770d8aa1803f1e63d373b92319b024c1db5d79aad0e78bcf0984c75e813");
 
+</span><span class="doccomment">/// Verifies the light client proof and returns the light client circuit output.
 </span><span class="kw">pub fn </span>lc_proof_verifier(light_client_proof: LightClientProof) -&gt; LightClientCircuitOutput {
     <span class="comment">// env::verify(LC_IMAGE_ID, &amp;light_client_proof.lc_journal).unwrap();
+    // TODO: Make sure checking the equality against the given constant LCP method ID.
 
     </span><span class="kw">if </span>light_client_proof.lc_journal.len() &lt; <span class="number">32 </span>{
         <span class="macro">panic!</span>(<span class="string">"Invalid light client journal"</span>);

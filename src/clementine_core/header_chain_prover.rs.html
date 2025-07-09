@@ -1231,7 +1231,14 @@
 <a href="#1230" id="1230">1230</a>
 <a href="#1231" id="1231">1231</a>
 <a href="#1232" id="1232">1232</a>
-<a href="#1233" id="1233">1233</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Header Chain Prover
+<a href="#1233" id="1233">1233</a>
+<a href="#1234" id="1234">1234</a>
+<a href="#1235" id="1235">1235</a>
+<a href="#1236" id="1236">1236</a>
+<a href="#1237" id="1237">1237</a>
+<a href="#1238" id="1238">1238</a>
+<a href="#1239" id="1239">1239</a>
+<a href="#1240" id="1240">1240</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Header Chain Prover
 //!
 //! This module contains utilities for proving Bitcoin block headers. This
 //! module must be fed with new blocks via the database. Later, it can check if
@@ -1756,7 +1763,7 @@
         <span class="prelude-val">Ok</span>(receipt)
     }
 
-    <span class="doccomment">/// Produces a proof for the chain upto the block with the given hash.
+    <span class="doccomment">/// Produces a proof for the chain up to the block with the given hash.
     ///
     /// # Returns
     ///
@@ -1779,11 +1786,13 @@
             </span>.ok_or_eyre(<span class="string">"No proofs found before the given block hash"</span>)<span class="question-mark">?</span>;
 
         <span class="kw">if </span>latest_proven_block.<span class="number">2 </span>== height <span class="kw">as </span>u64 {
-            <span class="self">self</span>.db
+            <span class="kw">let </span>receipt = <span class="self">self
+                </span>.db
                 .get_block_proof_by_hash(<span class="prelude-val">None</span>, latest_proven_block.<span class="number">0</span>)
                 .<span class="kw">await
                 </span>.wrap_err(<span class="string">"Failed to get block proof"</span>)<span class="question-mark">?
                 </span>.ok_or(<span class="macro">eyre!</span>(<span class="string">"Failed to get block proof"</span>))<span class="question-mark">?</span>;
+            <span class="kw">return </span><span class="prelude-val">Ok</span>((receipt, height <span class="kw">as </span>u64));
         }
 
         <span class="kw">let </span>block_headers = <span class="self">self
@@ -2015,7 +2024,7 @@
         </span>.unwrap();
 
         <span class="kw">let </span><span class="kw-2">mut </span>expected_chain_state = ChainState::genesis_state();
-        expected_chain_state.apply_blocks(
+        expected_chain_state.apply_block_headers(
             headers
                 .iter()
                 .map(|header| CircuitBlockHeader::from(<span class="kw-2">*</span>header))
@@ -2064,7 +2073,7 @@
         </span>.unwrap();
 
         <span class="kw">let </span><span class="kw-2">mut </span>expected_chain_state = ChainState::genesis_state();
-        expected_chain_state.apply_blocks(
+        expected_chain_state.apply_block_headers(
             headers
                 .iter()
                 .map(|header| CircuitBlockHeader::from(<span class="kw-2">*</span>header))
@@ -2132,13 +2141,18 @@
             .unwrap();
         <span class="macro">assert_eq!</span>(block_info.<span class="number">2</span>, test_height);
 
-        prover.prove_till_hash(block_hash).<span class="kw">await</span>.unwrap();
+        <span class="kw">let </span>receipt_1 = prover.prove_till_hash(block_hash).<span class="kw">await</span>.unwrap();
         <span class="kw">let </span>latest_proven_block = prover
             .db
             .get_latest_proven_block_info_until_height(<span class="prelude-val">None</span>, current_hcp_height <span class="kw">as </span>u32)
             .<span class="kw">await
             </span>.unwrap()
             .unwrap();
+
+        <span class="kw">let </span>receipt_2 = prover.prove_till_hash(block_hash).<span class="kw">await</span>.unwrap();
+
+        <span class="macro">assert_eq!</span>(receipt_1.<span class="number">0</span>.journal, receipt_2.<span class="number">0</span>.journal);
+
         <span class="macro">assert_eq!</span>(latest_proven_block.<span class="number">2</span>, test_height <span class="kw">as </span>u64);
     }
 

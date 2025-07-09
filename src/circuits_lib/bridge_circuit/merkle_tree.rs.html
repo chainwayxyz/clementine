@@ -373,17 +373,98 @@
 <a href="#372" id="372">372</a>
 <a href="#373" id="373">373</a>
 <a href="#374" id="374">374</a>
-<a href="#375" id="375">375</a></pre></div><pre class="rust"><code><span class="kw">use </span>borsh::{BorshDeserialize, BorshSerialize};
+<a href="#375" id="375">375</a>
+<a href="#376" id="376">376</a>
+<a href="#377" id="377">377</a>
+<a href="#378" id="378">378</a>
+<a href="#379" id="379">379</a>
+<a href="#380" id="380">380</a>
+<a href="#381" id="381">381</a>
+<a href="#382" id="382">382</a>
+<a href="#383" id="383">383</a>
+<a href="#384" id="384">384</a>
+<a href="#385" id="385">385</a>
+<a href="#386" id="386">386</a>
+<a href="#387" id="387">387</a>
+<a href="#388" id="388">388</a>
+<a href="#389" id="389">389</a>
+<a href="#390" id="390">390</a>
+<a href="#391" id="391">391</a>
+<a href="#392" id="392">392</a>
+<a href="#393" id="393">393</a>
+<a href="#394" id="394">394</a>
+<a href="#395" id="395">395</a>
+<a href="#396" id="396">396</a>
+<a href="#397" id="397">397</a>
+<a href="#398" id="398">398</a>
+<a href="#399" id="399">399</a>
+<a href="#400" id="400">400</a>
+<a href="#401" id="401">401</a>
+<a href="#402" id="402">402</a>
+<a href="#403" id="403">403</a>
+<a href="#404" id="404">404</a>
+<a href="#405" id="405">405</a>
+<a href="#406" id="406">406</a>
+<a href="#407" id="407">407</a>
+<a href="#408" id="408">408</a>
+<a href="#409" id="409">409</a>
+<a href="#410" id="410">410</a>
+<a href="#411" id="411">411</a>
+<a href="#412" id="412">412</a>
+<a href="#413" id="413">413</a>
+<a href="#414" id="414">414</a>
+<a href="#415" id="415">415</a>
+<a href="#416" id="416">416</a>
+<a href="#417" id="417">417</a>
+<a href="#418" id="418">418</a>
+<a href="#419" id="419">419</a>
+<a href="#420" id="420">420</a>
+<a href="#421" id="421">421</a>
+<a href="#422" id="422">422</a>
+<a href="#423" id="423">423</a>
+<a href="#424" id="424">424</a>
+<a href="#425" id="425">425</a>
+<a href="#426" id="426">426</a>
+<a href="#427" id="427">427</a>
+<a href="#428" id="428">428</a>
+<a href="#429" id="429">429</a>
+<a href="#430" id="430">430</a>
+<a href="#431" id="431">431</a>
+<a href="#432" id="432">432</a>
+<a href="#433" id="433">433</a>
+<a href="#434" id="434">434</a>
+<a href="#435" id="435">435</a>
+<a href="#436" id="436">436</a>
+<a href="#437" id="437">437</a>
+<a href="#438" id="438">438</a>
+<a href="#439" id="439">439</a>
+<a href="#440" id="440">440</a>
+<a href="#441" id="441">441</a>
+<a href="#442" id="442">442</a>
+<a href="#443" id="443">443</a>
+<a href="#444" id="444">444</a>
+<a href="#445" id="445">445</a>
+<a href="#446" id="446">446</a>
+<a href="#447" id="447">447</a>
+<a href="#448" id="448">448</a>
+<a href="#449" id="449">449</a>
+<a href="#450" id="450">450</a>
+<a href="#451" id="451">451</a>
+<a href="#452" id="452">452</a>
+<a href="#453" id="453">453</a>
+<a href="#454" id="454">454</a>
+<a href="#455" id="455">455</a>
+<a href="#456" id="456">456</a>
+<a href="#457" id="457">457</a>
+<a href="#458" id="458">458</a>
+<a href="#459" id="459">459</a></pre></div><pre class="rust"><code><span class="kw">use </span>borsh::{BorshDeserialize, BorshSerialize};
 <span class="kw">use </span>serde::{Deserialize, Serialize};
 
 <span class="kw">use </span><span class="kw">crate</span>::common::hashes::{calculate_double_sha256, calculate_sha256};
 
 <span class="kw">use </span><span class="kw">super</span>::transaction::CircuitTransaction;
 
-<span class="doccomment">/// Code is taken from Clementine
-/// &lt;https://github.com/chainwayxyz/clementine/blob/b600ea18df72bdc60015ded01b78131b4c9121d7/operator/src/bitcoin_merkle.rs&gt;
-///
-
+<span class="doccomment">/// Represents a Bitcoin Merkle tree.
 </span><span class="attr">#[derive(Debug, Clone)]
 </span><span class="kw">pub struct </span>BitcoinMerkleTree {
     nodes: Vec&lt;Vec&lt;[u8; <span class="number">32</span>]&gt;&gt;,
@@ -393,17 +474,15 @@
     <span class="doccomment">/// Constructs a standard Bitcoin Merkle tree.
     /// Leaf nodes are transaction IDs (txids), which are double-SHA256 hashes of transaction data.
     /// Internal nodes are formed by `DSHA256(LeftChildHash || RightChildHash)`.
-    </span><span class="kw">pub fn </span>new(transactions: Vec&lt;[u8; <span class="number">32</span>]&gt;) -&gt; <span class="self">Self </span>{
-        <span class="kw">if </span>transactions.len() == <span class="number">1 </span>{
+    /// WARNING! Do not use this tree to generate SPV proofs, as it is vulnerable to certain attacks. See
+    /// `new_mid_state`.
+    </span><span class="kw">pub fn </span>new(txids: Vec&lt;[u8; <span class="number">32</span>]&gt;) -&gt; <span class="self">Self </span>{
+        <span class="kw">if </span>txids.len() == <span class="number">1 </span>{
             <span class="comment">// root is the coinbase txid
-            </span><span class="kw">return </span>BitcoinMerkleTree {
-                nodes: <span class="macro">vec!</span>[transactions],
-            };
+            </span><span class="kw">return </span>BitcoinMerkleTree { nodes: <span class="macro">vec!</span>[txids] };
         }
 
-        <span class="kw">let </span><span class="kw-2">mut </span>tree = BitcoinMerkleTree {
-            nodes: <span class="macro">vec!</span>[transactions],
-        };
+        <span class="kw">let </span><span class="kw-2">mut </span>tree = BitcoinMerkleTree { nodes: <span class="macro">vec!</span>[txids] };
 
         <span class="comment">// Construct the tree
         </span><span class="kw">let </span><span class="kw-2">mut </span>curr_level_offset: usize = <span class="number">1</span>;
@@ -452,7 +531,7 @@
         tree
     }
 
-    <span class="comment">// Returns the Merkle root
+    <span class="comment">// Returns the Merkle root. Use this only for Bitcoin merkle tree, not for mid-state trees.
     </span><span class="kw">pub fn </span>root(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; [u8; <span class="number">32</span>] {
         <span class="self">self</span>.nodes[<span class="self">self</span>.nodes.len() - <span class="number">1</span>][<span class="number">0</span>]
     }
@@ -464,7 +543,7 @@
     /// &lt;https://bitslog.com/2018/06/09/leaf-node-weakness-in-bitcoin-merkle-tree-design/&gt; with the suggested fix:
     /// &lt;https://bitslog.com/2018/08/21/simple-change-to-the-bitcoin-merkleblock-command-to-protect-from-leaf-node-weakness-in-transaction-merkle-tree/&gt;
     ///
-    /// The leaves of this tree are transaction identifiers (`mid_state_txid()`), typically standard Bitcoin txids (double-SHA256 of the transaction).
+    /// The leaves of this tree are transaction identifiers (`mid_state_txid()`), not typically standard Bitcoin txids (double-SHA256 of the transaction).
     /// The internal nodes of this "mid-state" tree are constructed differently from a standard Bitcoin Merkle tree:
     /// `N_parent = SHA256(SHA256(N_child_left) || SHA256(N_child_right))`
     /// where `N_child_left` and `N_child_right` are nodes from the level below in this mid-state tree.
@@ -479,7 +558,7 @@
     /// as leaf txids or other hash types during verification.
     </span><span class="kw">pub fn </span>new_mid_state(transactions: <span class="kw-2">&amp;</span>[CircuitTransaction]) -&gt; <span class="self">Self </span>{
         <span class="kw">if </span>transactions.len() == <span class="number">1 </span>{
-            <span class="comment">// root is the coinbase mid-state txid (which is a standard txid)
+            <span class="comment">// root is the coinbase mid-state txid
             </span><span class="kw">return </span>BitcoinMerkleTree {
                 nodes: <span class="macro">vec!</span>[<span class="macro">vec!</span>[transactions[<span class="number">0</span>].mid_state_txid()]],
             };
@@ -489,21 +568,18 @@
             transactions.iter().map(|tx| tx.mid_state_txid()).collect();
 
         <span class="kw">let </span><span class="kw-2">mut </span>tree = BitcoinMerkleTree {
-            nodes: <span class="macro">vec!</span>[mid_state_txids], <span class="comment">// Level 0: Leaf nodes (txids)
+            nodes: <span class="macro">vec!</span>[mid_state_txids], <span class="comment">// Level 0: Leaf nodes (mid-state txids)
         </span>};
 
         <span class="comment">// Construct the tree
         </span><span class="kw">let </span><span class="kw-2">mut </span>curr_level_offset: usize = <span class="number">1</span>;
         <span class="kw">let </span><span class="kw-2">mut </span>prev_level_size = tree.nodes[<span class="number">0</span>].len();
-        <span class="kw">let </span><span class="kw-2">mut </span>prev_level_index_offset = <span class="number">0</span>;
         <span class="kw">let </span><span class="kw-2">mut </span>preimage: [u8; <span class="number">64</span>] = [<span class="number">0</span>; <span class="number">64</span>]; <span class="comment">// Preimage for SHA256(SHA256(LeftChild) || SHA256(RightChild))
         </span><span class="kw">while </span>prev_level_size &gt; <span class="number">1 </span>{
             tree.nodes.push(<span class="macro">vec!</span>[]);
             <span class="kw">for </span>i <span class="kw">in </span><span class="number">0</span>..(prev_level_size / <span class="number">2</span>) {
-                <span class="kw">let </span>left_child_node =
-                    tree.nodes[curr_level_offset - <span class="number">1</span>][prev_level_index_offset + i * <span class="number">2</span>];
-                <span class="kw">let </span>right_child_node =
-                    tree.nodes[curr_level_offset - <span class="number">1</span>][prev_level_index_offset + i * <span class="number">2 </span>+ <span class="number">1</span>];
+                <span class="kw">let </span>left_child_node = tree.nodes[curr_level_offset - <span class="number">1</span>][i * <span class="number">2</span>];
+                <span class="kw">let </span>right_child_node = tree.nodes[curr_level_offset - <span class="number">1</span>][i * <span class="number">2 </span>+ <span class="number">1</span>];
 
                 <span class="kw">if </span>left_child_node == right_child_node {
                     <span class="comment">// This check is also present in the mid-state tree construction.
@@ -521,8 +597,7 @@
             <span class="comment">// Handle odd number of nodes at the previous level by duplicating the last node's hash processing
             </span><span class="kw">if </span>prev_level_size % <span class="number">2 </span>== <span class="number">1 </span>{
                 <span class="kw">let </span><span class="kw-2">mut </span>preimage: [u8; <span class="number">64</span>] = [<span class="number">0</span>; <span class="number">64</span>];
-                <span class="kw">let </span>last_node = tree.nodes[curr_level_offset - <span class="number">1</span>]
-                    [prev_level_index_offset + prev_level_size - <span class="number">1</span>];
+                <span class="kw">let </span>last_node = tree.nodes[curr_level_offset - <span class="number">1</span>][prev_level_size - <span class="number">1</span>];
                 <span class="comment">// Preimage: SHA256(LastNode) || SHA256(LastNode)
                 </span>preimage[..<span class="number">32</span>].copy_from_slice(<span class="kw-2">&amp;</span>calculate_sha256(<span class="kw-2">&amp;</span>last_node));
                 preimage[<span class="number">32</span>..].copy_from_slice(<span class="kw-2">&amp;</span>calculate_sha256(<span class="kw-2">&amp;</span>last_node));
@@ -531,16 +606,20 @@
             }
             curr_level_offset += <span class="number">1</span>;
             prev_level_size = prev_level_size.div_ceil(<span class="number">2</span>);
-            prev_level_index_offset = <span class="number">0</span>;
         }
         tree
     }
 
-    <span class="kw">fn </span>get_idx_path(<span class="kw-2">&amp;</span><span class="self">self</span>, index: u32) -&gt; Vec&lt;[u8; <span class="number">32</span>]&gt; {
-        <span class="macro">assert!</span>(index &lt; <span class="self">self</span>.nodes[<span class="number">0</span>].len() <span class="kw">as </span>u32, <span class="string">"Index out of bounds"</span>);
+    <span class="doccomment">/// Given an index, returns the path of sibling nodes from the "mid-state" Merkle tree.
+    </span><span class="kw">fn </span>get_idx_path(<span class="kw-2">&amp;</span><span class="self">self</span>, index: u32) -&gt; Vec&lt;[u8; <span class="number">32</span>]&gt; {
+        <span class="macro">assert!</span>(
+            index &lt; <span class="self">self</span>.nodes[<span class="number">0</span>].len() <span class="kw">as </span>u32,
+            <span class="string">"Index out of bounds when trying to get path from mid-state Merkle tree"
+        </span>);
         <span class="kw">let </span><span class="kw-2">mut </span>path = <span class="macro">vec!</span>[];
         <span class="kw">let </span><span class="kw-2">mut </span>level = <span class="number">0</span>;
         <span class="kw">let </span><span class="kw-2">mut </span>i = index;
+
         <span class="kw">while </span>level &lt; <span class="self">self</span>.nodes.len() <span class="kw">as </span>u32 - <span class="number">1 </span>{
             <span class="kw">if </span>i % <span class="number">2 </span>== <span class="number">1 </span>{
                 <span class="comment">// Current node is a right child, sibling is to the left
@@ -558,12 +637,13 @@
         path
     }
 
-    <span class="kw">pub fn </span>generate_proof(<span class="kw-2">&amp;</span><span class="self">self</span>, idx: u32) -&gt; BlockInclusionProof {
+    <span class="doccomment">/// Generates a Merkle proof for a given index in the "mid-state" Merkle tree.
+    </span><span class="kw">pub fn </span>generate_proof(<span class="kw-2">&amp;</span><span class="self">self</span>, idx: u32) -&gt; BlockInclusionProof {
         <span class="kw">let </span>path = <span class="self">self</span>.get_idx_path(idx);
         BlockInclusionProof::new(idx, path)
     }
 
-    <span class="doccomment">/// Calculates the Bitcoin Merkle root from a leaf's transaction ID (mid_state_txid) and its inclusion proof
+    <span class="doccomment">/// Calculates the Bitcoin Merkle root from a leaf's mid-state transaction ID (`mid_state_txid`) and its inclusion proof
     /// derived from a "mid-state" Merkle tree. This function is central to secure SPV.
     ///
     /// The `inclusion_proof` contains sibling nodes from the "mid-state" Merkle tree.
@@ -571,7 +651,7 @@
     /// Each sibling node from the proof path is first hashed with `SHA256` before being
     /// combined with the current hash using the standard Bitcoin `calculate_double_sha256` method.
     ///
-    /// `current_hash = calculate_double_sha256(current_hash || SHA256(sibling_from_mid_state_proof))`
+    /// `current_hash = calculate_sha256(current_hash || SHA256(sibling_from_mid_state_proof))`
     ///
     /// This transformation of sibling proof elements acts as a domain separator,
     /// robustly distinguishing them from leaf transaction IDs. This prevents vulnerabilities where an
@@ -579,7 +659,7 @@
     /// internal node of the mid-state tree, or create other ambiguities that could fool an SPV client.
     /// The final `[u8; 32]` returned should match the block's official Merkle root.
     </span><span class="kw">pub fn </span>calculate_root_with_merkle_proof(
-        mid_state_txid: [u8; <span class="number">32</span>], <span class="comment">// This is the leaf txid (double-SHA256 of transaction)
+        mid_state_txid: [u8; <span class="number">32</span>], <span class="comment">// This is the leaf mid_state_txid (SHA256 of transaction)
         </span>inclusion_proof: BlockInclusionProof,
     ) -&gt; [u8; <span class="number">32</span>] {
         inclusion_proof.get_root(mid_state_txid)
@@ -597,25 +677,25 @@
         BlockInclusionProof { idx, merkle_proof }
     }
 
-    <span class="doccomment">/// Calculates the Merkle root given a leaf transaction ID (`txid`, which is a `mid_state_txid`)
+    <span class="doccomment">/// Calculates the Merkle root given a leaf transaction mid-state transaction ID (`mid_state_txid`)
     /// and the Merkle proof path (sibling nodes from the "mid-state" tree).
     ///
     /// The core of the SPV security enhancement is here:
     /// Each `merkle_proof` element (a sibling node from the mid-state tree) is first hashed
     /// with `calculate_sha256`. This transformed hash is then used in the standard Bitcoin
-    /// Merkle combination step (`calculate_double_sha256`).
+    /// Merkle combination step but with single hash (`calculate_sha256`).
     ///
     /// If `leaf` is the current hash and `P_mid_state` is a sibling from the proof path:
-    /// `next_hash = DSHA256(leaf || SHA256(P_mid_state))` (or reversed order).
+    /// `next_hash = SHA256(SHA256(leaf) || SHA256(P_mid_state))` (or reversed order).
     ///
     /// This ensures that elements from the mid-state tree's structure are treated distinctly
     /// from the leaf transaction IDs, preventing cross-interpretation and related attacks.
     /// The final hash should be the main Bitcoin block Merkle root.
-    </span><span class="kw">pub fn </span>get_root(<span class="kw-2">&amp;</span><span class="self">self</span>, txid: [u8; <span class="number">32</span>]) -&gt; [u8; <span class="number">32</span>] {
-        <span class="comment">// txid is the leaf (e.g., mid_state_txid)
+    </span><span class="kw">pub fn </span>get_root(<span class="kw-2">&amp;</span><span class="self">self</span>, mid_state_txid: [u8; <span class="number">32</span>]) -&gt; [u8; <span class="number">32</span>] {
+        <span class="comment">// mid_state_txid is the leaf but the transaction is hashed with SHA256, not DSHA256.
         </span><span class="kw">let </span><span class="kw-2">mut </span>preimage: [u8; <span class="number">64</span>] = [<span class="number">0</span>; <span class="number">64</span>];
-        <span class="kw">let </span><span class="kw-2">mut </span>combined_hash: [u8; <span class="number">32</span>] = txid; <span class="comment">// Start with the leaf txid
-        </span><span class="kw">let </span><span class="kw-2">mut </span>index = <span class="self">self</span>.idx;
+        <span class="kw">let </span><span class="kw-2">mut </span>combined_hash: [u8; <span class="number">32</span>] = mid_state_txid;
+        <span class="kw">let </span><span class="kw-2">mut </span>index = <span class="self">self</span>.idx;
         <span class="kw">let </span><span class="kw-2">mut </span>level: u32 = <span class="number">0</span>;
         <span class="kw">while </span>level &lt; <span class="self">self</span>.merkle_proof.len() <span class="kw">as </span>u32 {
             <span class="comment">// Get the sibling node from the mid-state tree proof path
@@ -623,22 +703,26 @@
             <span class="comment">// Secure SPV step: transform the mid-state sibling node by SHA256-ing it
             // before using it in the double-SHA256 combination.
             </span><span class="kw">let </span>processed_sibling_hash = calculate_sha256(<span class="kw-2">&amp;</span>mid_state_sibling_node);
+            <span class="kw">let </span>processed_combined_hash = calculate_sha256(<span class="kw-2">&amp;</span>combined_hash);
 
             <span class="kw">if </span>index % <span class="number">2 </span>== <span class="number">0 </span>{
                 <span class="comment">// `combined_hash` is the left child
-                </span>preimage[..<span class="number">32</span>].copy_from_slice(<span class="kw-2">&amp;</span>combined_hash);
+                </span>preimage[..<span class="number">32</span>].copy_from_slice(<span class="kw-2">&amp;</span>processed_combined_hash);
                 preimage[<span class="number">32</span>..].copy_from_slice(<span class="kw-2">&amp;</span>processed_sibling_hash); <span class="comment">// Use the SHA256'd mid-state sibling
-                </span>combined_hash = calculate_double_sha256(<span class="kw-2">&amp;</span>preimage);
+                </span>combined_hash = calculate_sha256(<span class="kw-2">&amp;</span>preimage);
             } <span class="kw">else </span>{
                 <span class="comment">// `combined_hash` is the right child
-                </span>preimage[..<span class="number">32</span>].copy_from_slice(<span class="kw-2">&amp;</span>processed_sibling_hash); <span class="comment">// Use the SHA256'd mid-state sibling
-                </span>preimage[<span class="number">32</span>..].copy_from_slice(<span class="kw-2">&amp;</span>combined_hash);
-                combined_hash = calculate_double_sha256(<span class="kw-2">&amp;</span>preimage);
+                </span><span class="kw">if </span>processed_sibling_hash == processed_combined_hash {
+                    <span class="macro">panic!</span>(<span class="string">"Merkle proof is invalid: left hash matches combined hash"</span>);
+                }
+                preimage[..<span class="number">32</span>].copy_from_slice(<span class="kw-2">&amp;</span>processed_sibling_hash); <span class="comment">// Use the SHA256'd mid-state sibling
+                </span>preimage[<span class="number">32</span>..].copy_from_slice(<span class="kw-2">&amp;</span>processed_combined_hash);
+                combined_hash = calculate_sha256(<span class="kw-2">&amp;</span>preimage);
             }
             level += <span class="number">1</span>;
             index /= <span class="number">2</span>;
         }
-        combined_hash <span class="comment">// This should be the Bitcoin block's Merkle root
+        calculate_sha256(<span class="kw-2">&amp;</span>combined_hash) <span class="comment">// This should be the Bitcoin block's Merkle root
     </span>}
 }
 
@@ -662,8 +746,10 @@
 <span class="attr">#[cfg(test)]
 </span><span class="kw">mod </span>tests {
 
+    <span class="kw">use </span>bitcoin::absolute::LockTime;
     <span class="kw">use </span>bitcoin::hashes::Hash;
-    <span class="kw">use </span>bitcoin::Block;
+    <span class="kw">use </span>bitcoin::transaction::Version;
+    <span class="kw">use </span>bitcoin::{Block, Transaction};
 
     <span class="kw">use </span><span class="kw">crate</span>::bridge_circuit::transaction::CircuitTransaction;
 
@@ -678,7 +764,6 @@
             .map(|tx| CircuitTransaction(tx.clone()))
             .collect();
         <span class="kw">let </span>txid_vec: Vec&lt;[u8; <span class="number">32</span>]&gt; = tx_vec.iter().map(|tx| tx.txid()).collect();
-        <span class="kw">let </span>txid_0 = txid_vec[<span class="number">0</span>];
         <span class="kw">let </span>merkle_tree = BitcoinMerkleTree::new(txid_vec);
         <span class="kw">let </span>merkle_root = merkle_tree.root();
         <span class="macro">assert_eq!</span>(
@@ -686,13 +771,18 @@
             block.header.merkle_root.as_raw_hash().to_byte_array()
         );
         <span class="kw">let </span>mid_state_merkle_tree = BitcoinMerkleTree::new_mid_state(<span class="kw-2">&amp;</span>tx_vec);
-        <span class="kw">let </span>merkle_root = calculate_sha256(<span class="kw-2">&amp;</span>mid_state_merkle_tree.root());
+        <span class="kw">let </span>mid_state_txid_0 = tx_vec[<span class="number">0</span>].mid_state_txid();
+        <span class="kw">let </span>merkle_root_from_mid_state = calculate_sha256(<span class="kw-2">&amp;</span>mid_state_merkle_tree.root());
         <span class="macro">assert_eq!</span>(
-            merkle_root,
+            merkle_root_from_mid_state,
             block.header.merkle_root.as_raw_hash().to_byte_array()
         );
         <span class="kw">let </span>merkle_proof_0 = mid_state_merkle_tree.generate_proof(<span class="number">0</span>);
-        <span class="macro">assert!</span>(verify_merkle_proof(txid_0, <span class="kw-2">&amp;</span>merkle_proof_0, merkle_root));
+        <span class="macro">assert!</span>(verify_merkle_proof(
+            mid_state_txid_0,
+            <span class="kw-2">&amp;</span>merkle_proof_0,
+            merkle_root
+        ));
     }
 
     <span class="attr">#[test]
@@ -704,7 +794,6 @@
             .map(|tx| CircuitTransaction(tx.clone()))
             .collect();
         <span class="kw">let </span>txid_vec: Vec&lt;[u8; <span class="number">32</span>]&gt; = tx_vec.iter().map(|tx| tx.txid()).collect();
-        <span class="kw">let </span>txid_vec_clone = txid_vec.clone();
         <span class="kw">let </span>merkle_tree = BitcoinMerkleTree::new(txid_vec);
         <span class="kw">let </span>merkle_root = merkle_tree.root();
         <span class="macro">assert_eq!</span>(
@@ -717,9 +806,14 @@
             mid_state_merkle_root,
             block.header.merkle_root.as_raw_hash().to_byte_array()
         );
-        <span class="kw">for </span>(i, txid) <span class="kw">in </span>txid_vec_clone.into_iter().enumerate() {
+        <span class="kw">for </span>(i, tx) <span class="kw">in </span>tx_vec.into_iter().enumerate() {
+            <span class="kw">let </span>mid_state_txid = tx.mid_state_txid();
             <span class="kw">let </span>merkle_proof_i = mid_state_merkle_tree.generate_proof(i <span class="kw">as </span>u32);
-            <span class="macro">assert!</span>(verify_merkle_proof(txid, <span class="kw-2">&amp;</span>merkle_proof_i, merkle_root));
+            <span class="macro">assert!</span>(verify_merkle_proof(
+                mid_state_txid,
+                <span class="kw-2">&amp;</span>merkle_proof_i,
+                merkle_root
+            ));
         }
     }
 
@@ -746,6 +840,80 @@
             [<span class="number">6u8</span>; <span class="number">32</span>],
         ];
         <span class="kw">let </span>_malicious_merkle_tree = BitcoinMerkleTree::new(malicious_tx_vec);
+    }
+
+    <span class="attr">#[test]
+    </span><span class="doccomment">/// a b c
+    /// but try to cheat and say c is index 3
+    </span><span class="attr">#[should_panic(expected = <span class="string">"Merkle proof is invalid: left hash matches combined hash"</span>)]
+    </span><span class="kw">fn </span>test_merkle_root_with_proof_wrong_idx_a() {
+        <span class="kw">let </span><span class="kw-2">mut </span>transactions: Vec&lt;CircuitTransaction&gt; = <span class="macro">vec!</span>[];
+        <span class="kw">for </span>i <span class="kw">in </span><span class="number">0u8</span>..<span class="number">3u8 </span>{
+            <span class="kw">let </span>tx = Transaction {
+                version: Version::non_standard(i <span class="kw">as </span>i32),
+                lock_time: LockTime::ZERO,
+                input: <span class="macro">vec!</span>[],
+                output: <span class="macro">vec!</span>[],
+            };
+            transactions.push(CircuitTransaction(tx));
+        }
+        <span class="kw">let </span><span class="kw-2">mut </span>tx_hashes: Vec&lt;[u8; <span class="number">32</span>]&gt; = <span class="macro">vec!</span>[];
+        <span class="kw">for </span>tx <span class="kw">in </span>transactions.iter() {
+            tx_hashes.push(tx.txid());
+        }
+        <span class="kw">let </span>tree = BitcoinMerkleTree::new(tx_hashes.clone());
+        <span class="kw">let </span>mid_state_tree = BitcoinMerkleTree::new_mid_state(<span class="kw-2">&amp;</span>transactions);
+        <span class="kw">let </span>tree_root = tree.root();
+        <span class="kw">let </span>mid_state_root = mid_state_tree.root();
+        <span class="macro">assert_eq!</span>(tree_root, calculate_sha256(<span class="kw-2">&amp;</span>mid_state_root));
+        <span class="kw">let </span>proof = mid_state_tree.generate_proof(<span class="number">2</span>);
+        <span class="macro">assert!</span>(verify_merkle_proof(
+            transactions[<span class="number">2</span>].mid_state_txid(),
+            <span class="kw-2">&amp;</span>proof,
+            tree_root
+        ));
+
+        <span class="comment">// Now try to cheat and say c is at index 3
+        </span><span class="kw">let </span>idx_path = mid_state_tree.get_idx_path(<span class="number">2</span>); <span class="comment">// Get from real index 2
+        </span><span class="kw">let </span>false_proof = BlockInclusionProof::new(<span class="number">3</span>, idx_path);
+        verify_merkle_proof(transactions[<span class="number">2</span>].mid_state_txid(), <span class="kw-2">&amp;</span>false_proof, tree_root);
+    }
+
+    <span class="attr">#[test]
+    </span><span class="doccomment">/// a b c d e f
+    /// but try to cheat and say e is index 6
+    </span><span class="attr">#[should_panic(expected = <span class="string">"Merkle proof is invalid: left hash matches combined hash"</span>)]
+    </span><span class="kw">fn </span>test_merkle_root_with_proof_wrong_idx_b() {
+        <span class="kw">let </span><span class="kw-2">mut </span>transactions: Vec&lt;CircuitTransaction&gt; = <span class="macro">vec!</span>[];
+        <span class="kw">for </span>i <span class="kw">in </span><span class="number">0u8</span>..<span class="number">6u8 </span>{
+            <span class="kw">let </span>tx = Transaction {
+                version: Version::non_standard(i <span class="kw">as </span>i32),
+                lock_time: LockTime::ZERO,
+                input: <span class="macro">vec!</span>[],
+                output: <span class="macro">vec!</span>[],
+            };
+            transactions.push(CircuitTransaction(tx));
+        }
+        <span class="kw">let </span><span class="kw-2">mut </span>tx_hashes: Vec&lt;[u8; <span class="number">32</span>]&gt; = <span class="macro">vec!</span>[];
+        <span class="kw">for </span>tx <span class="kw">in </span>transactions.iter() {
+            tx_hashes.push(tx.txid());
+        }
+        <span class="kw">let </span>tree = BitcoinMerkleTree::new(tx_hashes.clone());
+        <span class="kw">let </span>mid_state_tree = BitcoinMerkleTree::new_mid_state(<span class="kw-2">&amp;</span>transactions);
+        <span class="kw">let </span>tree_root = tree.root();
+        <span class="kw">let </span>mid_state_root = mid_state_tree.root();
+        <span class="macro">assert_eq!</span>(tree_root, calculate_sha256(<span class="kw-2">&amp;</span>mid_state_root));
+        <span class="kw">let </span>proof = mid_state_tree.generate_proof(<span class="number">4</span>);
+        <span class="macro">assert!</span>(verify_merkle_proof(
+            transactions[<span class="number">4</span>].mid_state_txid(),
+            <span class="kw-2">&amp;</span>proof,
+            tree_root
+        ));
+
+        <span class="comment">// Now try to cheat and say e is at index 6
+        </span><span class="kw">let </span>idx_path = mid_state_tree.get_idx_path(<span class="number">4</span>); <span class="comment">// Get from real index 4
+        </span><span class="kw">let </span>false_proof = BlockInclusionProof::new(<span class="number">6</span>, idx_path);
+        verify_merkle_proof(transactions[<span class="number">4</span>].mid_state_txid(), <span class="kw-2">&amp;</span>false_proof, tree_root);
     }
 }
 </code></pre></div></section></main></body></html>

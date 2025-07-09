@@ -128,7 +128,22 @@
 <a href="#127" id="127">127</a>
 <a href="#128" id="128">128</a>
 <a href="#129" id="129">129</a>
-<a href="#130" id="130">130</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_bn254::{Bn254, Fr};
+<a href="#130" id="130">130</a>
+<a href="#131" id="131">131</a>
+<a href="#132" id="132">132</a>
+<a href="#133" id="133">133</a>
+<a href="#134" id="134">134</a>
+<a href="#135" id="135">135</a>
+<a href="#136" id="136">136</a>
+<a href="#137" id="137">137</a>
+<a href="#138" id="138">138</a>
+<a href="#139" id="139">139</a>
+<a href="#140" id="140">140</a>
+<a href="#141" id="141">141</a>
+<a href="#142" id="142">142</a>
+<a href="#143" id="143">143</a>
+<a href="#144" id="144">144</a>
+<a href="#145" id="145">145</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_bn254::{Bn254, Fr};
 <span class="kw">use </span>ark_groth16::PreparedVerifyingKey;
 <span class="kw">use </span>ark_groth16::Proof;
 <span class="kw">use </span>ark_serialize::CanonicalDeserialize;
@@ -136,8 +151,8 @@
 <span class="kw">use </span>num_traits::Num;
 
 <span class="kw">use </span><span class="kw">super</span>::constants::{
-    A0_ARK, A1_ARK, ASSUMPTIONS, BN_254_CONTROL_ID_ARK, CLAIM_TAG, INPUT, OUTPUT_TAG, POST_STATE,
-    PREPARED_VK,
+    get_prepared_vk, A0_ARK, A1_ARK, ASSUMPTIONS, BN_254_CONTROL_ID_ARK, CLAIM_TAG, INPUT,
+    OUTPUT_TAG, POST_STATE,
 };
 <span class="kw">use </span><span class="kw">super</span>::groth16::CircuitGroth16Proof;
 <span class="kw">use </span><span class="kw">super</span>::structs::WorkOnlyCircuitOutput;
@@ -145,12 +160,14 @@
 <span class="kw">use </span>sha2::{Digest, Sha256};
 <span class="kw">use </span>std::str::FromStr;
 
-<span class="kw">pub fn </span>create_journal_digest(work_only_circuit_output: <span class="kw-2">&amp;</span>WorkOnlyCircuitOutput) -&gt; [u8; <span class="number">32</span>] {
+<span class="doccomment">/// Creates a digest for the journal of the work-only circuit output.
+</span><span class="kw">pub fn </span>create_journal_digest(work_only_circuit_output: <span class="kw-2">&amp;</span>WorkOnlyCircuitOutput) -&gt; [u8; <span class="number">32</span>] {
     <span class="kw">let </span>pre_digest = borsh::to_vec(work_only_circuit_output).unwrap();
     Sha256::digest(pre_digest).into()
 }
 
-<span class="kw">pub fn </span>create_output_digest(work_only_circuit_output: <span class="kw-2">&amp;</span>WorkOnlyCircuitOutput) -&gt; [u8; <span class="number">32</span>] {
+<span class="doccomment">/// Creates an output digest for the work-only circuit output.
+</span><span class="kw">pub fn </span>create_output_digest(work_only_circuit_output: <span class="kw-2">&amp;</span>WorkOnlyCircuitOutput) -&gt; [u8; <span class="number">32</span>] {
     <span class="kw">let </span>journal_digest: [u8; <span class="number">32</span>] = create_journal_digest(work_only_circuit_output);
     <span class="kw">let </span>len_output: u16 = <span class="number">2</span>;
 
@@ -162,12 +179,13 @@
     ]
     .concat()
     .try_into()
-    .expect(<span class="string">"slice has correct length"</span>);
+    .expect(<span class="string">"Slice has correct length"</span>);
 
     Sha256::digest(output_pre_digest).into()
 }
 
-<span class="kw">pub fn </span>create_claim_digest(output_digest: <span class="kw-2">&amp;</span>[u8; <span class="number">32</span>], pre_state: <span class="kw-2">&amp;</span>[u8; <span class="number">32</span>]) -&gt; [u8; <span class="number">32</span>] {
+<span class="doccomment">/// Creates a claim digest for the work-only circuit output.
+</span><span class="kw">pub fn </span>create_claim_digest(output_digest: <span class="kw-2">&amp;</span>[u8; <span class="number">32</span>], pre_state: <span class="kw-2">&amp;</span>[u8; <span class="number">32</span>]) -&gt; [u8; <span class="number">32</span>] {
     <span class="kw">let </span>data: [u8; <span class="number">8</span>] = [<span class="number">0</span>; <span class="number">8</span>];
 
     <span class="kw">let </span>claim_len: u16 = <span class="number">4</span>;
@@ -188,14 +206,20 @@
 
     claim_digest.into()
 }
-<span class="kw">pub struct </span>CircuitGroth16WithTotalWork {
+
+<span class="doccomment">/// Groth16 proof with total work and genesis state hash. In Clementine, this is provided by
+/// the watchtowers who challenge the operator whom they suspect of malicious behavior. Just
+/// by knowing the Groth16 proof and the total work, we can reconstruct the public outputs of
+/// the proof and verify it against the Verifying Key (VK) of the Groth16 proof.
+</span><span class="kw">pub struct </span>CircuitGroth16WithTotalWork {
     groth16_seal: CircuitGroth16Proof,
     total_work: [u8; <span class="number">16</span>],
     genesis_state_hash: [u8; <span class="number">32</span>],
 }
 
 <span class="kw">impl </span>CircuitGroth16WithTotalWork {
-    <span class="kw">pub fn </span>new(
+    <span class="doccomment">/// Creates a new instance of `CircuitGroth16WithTotalWork`.
+    </span><span class="kw">pub fn </span>new(
         groth16_seal: CircuitGroth16Proof,
         total_work: [u8; <span class="number">16</span>],
         genesis_state_hash: [u8; <span class="number">32</span>],
@@ -207,10 +231,15 @@
         }
     }
 
-    <span class="kw">pub fn </span>verify(<span class="kw-2">&amp;</span><span class="self">self</span>, pre_state: <span class="kw-2">&amp;</span>[u8; <span class="number">32</span>]) -&gt; bool {
+    <span class="doccomment">/// Given the `pre_state` (which is actually the `method ID` of the work-only circuit),
+    /// verifies the Groth16 proof against the prepared Verifying Key (VK) and the public inputs.
+    </span><span class="kw">pub fn </span>verify(<span class="kw-2">&amp;</span><span class="self">self</span>, pre_state: <span class="kw-2">&amp;</span>[u8; <span class="number">32</span>]) -&gt; bool {
         <span class="kw">let </span>ark_proof: Proof&lt;Bn254&gt; = <span class="self">self</span>.groth16_seal.into();
+
+        <span class="kw">let </span>prepared_vk: <span class="kw-2">&amp;</span>[u8] = get_prepared_vk();
+
         <span class="kw">let </span>prepared_vk: PreparedVerifyingKey&lt;ark_ec::bn::Bn&lt;ark_bn254::Config&gt;&gt; =
-            CanonicalDeserialize::deserialize_uncompressed(PREPARED_VK).unwrap();
+            CanonicalDeserialize::deserialize_uncompressed(prepared_vk).unwrap();
 
         <span class="kw">let </span>output_digest = create_output_digest(<span class="kw-2">&amp;</span>WorkOnlyCircuitOutput {
             work_u128: <span class="self">self</span>.total_work,
@@ -236,7 +265,8 @@
     }
 }
 
-<span class="kw">pub fn </span>to_decimal(s: <span class="kw-2">&amp;</span>str) -&gt; <span class="prelude-ty">Option</span>&lt;String&gt; {
+<span class="doccomment">/// Converts a hexadecimal string to a decimal string representation.
+</span><span class="kw">pub fn </span>to_decimal(s: <span class="kw-2">&amp;</span>str) -&gt; <span class="prelude-ty">Option</span>&lt;String&gt; {
     <span class="kw">let </span>int = BigUint::from_str_radix(s, <span class="number">16</span>).ok();
     int.map(|n| n.to_str_radix(<span class="number">10</span>))
 }

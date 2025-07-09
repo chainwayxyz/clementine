@@ -289,7 +289,8 @@
 <a href="#288" id="288">288</a>
 <a href="#289" id="289">289</a>
 <a href="#290" id="290">290</a>
-<a href="#291" id="291">291</a></pre></div><pre class="rust"><code><span class="doccomment">/// Code is taken from Citrea
+<a href="#291" id="291">291</a>
+<a href="#292" id="292">292</a></pre></div><pre class="rust"><code><span class="doccomment">/// Code is taken from Citrea
 /// https://github.com/chainwayxyz/citrea/blob/0acb887b1a766fac1a482a68c6d51ecf9661f538/crates/bitcoin-da/src/spec/transaction.rs
 ///
 </span><span class="kw">use </span>core::ops::{Deref, DerefMut};
@@ -303,7 +304,8 @@
 
 <span class="kw">use </span><span class="kw">crate</span>::common::hashes::calculate_sha256;
 
-<span class="attr">#[derive(Clone, PartialEq, Eq, Debug, Hash)]
+<span class="doccomment">/// A wrapper around Bitcoin's `Transaction` type that provides additional and simpler functionality.
+</span><span class="attr">#[derive(Clone, PartialEq, Eq, Debug, Hash)]
 </span><span class="kw">pub struct </span>CircuitTransaction(<span class="kw">pub </span>Transaction);
 
 <span class="kw">impl </span>CircuitTransaction {

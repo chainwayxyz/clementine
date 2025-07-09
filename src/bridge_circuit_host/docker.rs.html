@@ -551,58 +551,7 @@
 <a href="#550" id="550">550</a>
 <a href="#551" id="551">551</a>
 <a href="#552" id="552">552</a>
-<a href="#553" id="553">553</a>
-<a href="#554" id="554">554</a>
-<a href="#555" id="555">555</a>
-<a href="#556" id="556">556</a>
-<a href="#557" id="557">557</a>
-<a href="#558" id="558">558</a>
-<a href="#559" id="559">559</a>
-<a href="#560" id="560">560</a>
-<a href="#561" id="561">561</a>
-<a href="#562" id="562">562</a>
-<a href="#563" id="563">563</a>
-<a href="#564" id="564">564</a>
-<a href="#565" id="565">565</a>
-<a href="#566" id="566">566</a>
-<a href="#567" id="567">567</a>
-<a href="#568" id="568">568</a>
-<a href="#569" id="569">569</a>
-<a href="#570" id="570">570</a>
-<a href="#571" id="571">571</a>
-<a href="#572" id="572">572</a>
-<a href="#573" id="573">573</a>
-<a href="#574" id="574">574</a>
-<a href="#575" id="575">575</a>
-<a href="#576" id="576">576</a>
-<a href="#577" id="577">577</a>
-<a href="#578" id="578">578</a>
-<a href="#579" id="579">579</a>
-<a href="#580" id="580">580</a>
-<a href="#581" id="581">581</a>
-<a href="#582" id="582">582</a>
-<a href="#583" id="583">583</a>
-<a href="#584" id="584">584</a>
-<a href="#585" id="585">585</a>
-<a href="#586" id="586">586</a>
-<a href="#587" id="587">587</a>
-<a href="#588" id="588">588</a>
-<a href="#589" id="589">589</a>
-<a href="#590" id="590">590</a>
-<a href="#591" id="591">591</a>
-<a href="#592" id="592">592</a>
-<a href="#593" id="593">593</a>
-<a href="#594" id="594">594</a>
-<a href="#595" id="595">595</a>
-<a href="#596" id="596">596</a>
-<a href="#597" id="597">597</a>
-<a href="#598" id="598">598</a>
-<a href="#599" id="599">599</a>
-<a href="#600" id="600">600</a>
-<a href="#601" id="601">601</a>
-<a href="#602" id="602">602</a>
-<a href="#603" id="603">603</a>
-<a href="#604" id="604">604</a></pre></div><pre class="rust"><code><span class="kw">use </span>hex::ToHex;
+<a href="#553" id="553">553</a></pre></div><pre class="rust"><code><span class="kw">use </span>hex::ToHex;
 <span class="kw">use </span>num_bigint::BigUint;
 <span class="kw">use </span>num_traits::Num;
 <span class="kw">use </span>risc0_groth16::{to_json, ProofJson, Seal};
@@ -850,11 +799,8 @@
     <span class="kw">let </span>seal_path = work_dir.join(<span class="string">"input.json"</span>);
     <span class="kw">let </span>proof_path = work_dir.join(<span class="string">"proof.json"</span>);
     <span class="kw">let </span>_output_path = work_dir.join(<span class="string">"public.json"</span>);
-    <span class="comment">// let mut seal_json = Vec::new();
-    // to_json(&amp;*identity_p254_seal_bytes, &amp;mut seal_json).unwrap();
-    // std::fs::write(seal_path.clone(), seal_json).unwrap();
 
-    </span><span class="kw">let </span>pre_state: risc0_zkvm::MaybePruned&lt;SystemState&gt; = receipt_claim.clone().pre;
+    <span class="kw">let </span>pre_state: risc0_zkvm::MaybePruned&lt;SystemState&gt; = receipt_claim.clone().pre;
     <span class="macro">tracing::debug!</span>(<span class="string">"pre_state: {:?}"</span>, pre_state);
     <span class="kw">let </span>pre_state_digest: Digest = pre_state.clone().digest();
     <span class="macro">tracing::debug!</span>(<span class="string">"pre_state_digest: {:?}"</span>, pre_state_digest);
@@ -904,34 +850,13 @@
         .ok_or_else(|| <span class="macro">eyre!</span>(<span class="string">"Failed to convert succinct control root a1 to decimal"</span>))<span class="question-mark">?</span>;
     <span class="macro">tracing::debug!</span>(<span class="string">"Succinct control root a0 dec: {:?}"</span>, a0_dec);
     <span class="macro">tracing::debug!</span>(<span class="string">"Succinct control root a1 dec: {:?}"</span>, a1_dec);
-    <span class="comment">// println!("CONTROL_ID: {:?}", ident_receipt.control_id);
-    // let mut id_bn254_fr_bits: Vec&lt;String&gt; = ident_receipt
-    //     .control_id
-    //     .as_bytes()
-    //     .iter()
-    //     .flat_map(|&amp;byte| (0..8).rev().map(move |i| ((byte &gt;&gt; i) &amp; 1).to_string()))
-    //     .collect();
-    // println!("id_bn254_fr_bits: {:?}", id_bn254_fr_bits);
-    // // remove 248th and 249th bits
-    // id_bn254_fr_bits.remove(248);
-    // id_bn254_fr_bits.remove(248);
 
-    // println!(
-    //     "id_bn254_fr_bits after removing 2 extra bits: {:?}",
-    //     id_bn254_fr_bits
-    // );
-
-    </span><span class="kw">let </span>id_bn254_fr_bits: Vec&lt;String&gt; = ID_BN254_FR_BITS
+    <span class="kw">let </span>id_bn254_fr_bits: Vec&lt;String&gt; = ID_BN254_FR_BITS
         .iter()
         .map(|<span class="kw-2">&amp;</span>bit| bit.to_string())
         .collect();
 
-    <span class="comment">// let mut seal_json: Value = {
-    //     let file_content = fs::read_to_string(&amp;seal_path).unwrap();
-    //     serde_json::from_str(&amp;file_content).unwrap()
-    // };
-
-    </span><span class="kw">let </span><span class="kw-2">mut </span>seal_json: Value = <span class="macro">serde_json::json!</span>({});
+    <span class="kw">let </span><span class="kw-2">mut </span>seal_json: Value = <span class="macro">serde_json::json!</span>({});
 
     seal_json[<span class="string">"journal_digest_bits"</span>] = journal_digest_bits.into();
     seal_json[<span class="string">"pre_state_digest_bits"</span>] = pre_state_digest_bits.into();
@@ -1000,10 +925,7 @@
 ];
 
 <span class="kw">pub fn </span>stark_to_bitvm2_g16_dev_mode(receipt: Receipt, journal: <span class="kw-2">&amp;</span>[u8]) -&gt; <span class="prelude-ty">Result</span>&lt;(Seal, [u8; <span class="number">31</span>])&gt; {
-    <span class="comment">// let ident_receipt = risc0_zkvm::recursion::identity_p254(&amp;succinct_receipt).unwrap();
-    // let identity_p254_seal_bytes = ident_receipt.get_seal_bytes();
-    // let receipt_claim = succinct_receipt.claim.value().unwrap()
-    </span><span class="kw">let </span>identity_p254_seal_bytes = <span class="macro">vec!</span>[<span class="number">0u8</span>; <span class="number">222668</span>];
+    <span class="kw">let </span>identity_p254_seal_bytes = <span class="macro">vec!</span>[<span class="number">0u8</span>; <span class="number">222668</span>];
     <span class="kw">let </span>receipt_claim = receipt
         .claim()
         .wrap_err(<span class="string">"Failed to get receipt claim"</span>)<span class="question-mark">?
@@ -1029,11 +951,8 @@
     <span class="kw">let </span>seal_path = work_dir.join(<span class="string">"input.json"</span>);
     <span class="kw">let </span>proof_path = work_dir.join(<span class="string">"proof.json"</span>);
     <span class="kw">let </span>output_path = work_dir.join(<span class="string">"public.json"</span>);
-    <span class="comment">// let mut seal_json = Vec::new();
-    // to_json(&amp;*identity_p254_seal_bytes, &amp;mut seal_json).unwrap();
-    // std::fs::write(seal_path.clone(), seal_json).unwrap();
 
-    </span><span class="kw">let </span>pre_state: risc0_zkvm::MaybePruned&lt;SystemState&gt; = receipt_claim.clone().pre;
+    <span class="kw">let </span>pre_state: risc0_zkvm::MaybePruned&lt;SystemState&gt; = receipt_claim.clone().pre;
     <span class="macro">tracing::debug!</span>(<span class="string">"pre_state: {:?}"</span>, pre_state);
     <span class="kw">let </span>pre_state_digest: Digest = pre_state.clone().digest();
     <span class="macro">tracing::debug!</span>(<span class="string">"pre_state_digest: {:?}"</span>, pre_state_digest);
@@ -1081,34 +1000,13 @@
         .ok_or_else(|| <span class="macro">eyre!</span>(<span class="string">"Failed to convert succinct control root a1 to decimal"</span>))<span class="question-mark">?</span>;
     <span class="macro">tracing::debug!</span>(<span class="string">"Succinct control root a0 dec: {:?}"</span>, a0_dec);
     <span class="macro">tracing::debug!</span>(<span class="string">"Succinct control root a1 dec: {:?}"</span>, a1_dec);
-    <span class="comment">// println!("CONTROL_ID: {:?}", ident_receipt.control_id);
-    // let mut id_bn254_fr_bits: Vec&lt;String&gt; = ident_receipt
-    //     .control_id
-    //     .as_bytes()
-    //     .iter()
-    //     .flat_map(|&amp;byte| (0..8).rev().map(move |i| ((byte &gt;&gt; i) &amp; 1).to_string()))
-    //     .collect();
-    // println!("id_bn254_fr_bits: {:?}", id_bn254_fr_bits);
-    // // remove 248th and 249th bits
-    // id_bn254_fr_bits.remove(248);
-    // id_bn254_fr_bits.remove(248);
 
-    // println!(
-    //     "id_bn254_fr_bits after removing 2 extra bits: {:?}",
-    //     id_bn254_fr_bits
-    // );
-
-    </span><span class="kw">let </span>id_bn254_fr_bits: Vec&lt;String&gt; = ID_BN254_FR_BITS_DEV_BRIDGE
+    <span class="kw">let </span>id_bn254_fr_bits: Vec&lt;String&gt; = ID_BN254_FR_BITS_DEV_BRIDGE
         .iter()
         .map(|<span class="kw-2">&amp;</span>bit| bit.to_string())
         .collect();
 
-    <span class="comment">// let mut seal_json: Value = {
-    //     let file_content = fs::read_to_string(&amp;seal_path).unwrap();
-    //     serde_json::from_str(&amp;file_content).unwrap()
-    // };
-
-    </span><span class="kw">let </span><span class="kw-2">mut </span>seal_json: Value = <span class="macro">serde_json::json!</span>({});
+    <span class="kw">let </span><span class="kw-2">mut </span>seal_json: Value = <span class="macro">serde_json::json!</span>({});
 
     seal_json[<span class="string">"journal_digest_bits"</span>] = journal_bits.into();
     seal_json[<span class="string">"pre_state_digest_bits"</span>] = pre_state_digest_bits.into();
@@ -1150,8 +1048,8 @@
     <span class="macro">tracing::debug!</span>(<span class="string">"output content: {:?}"</span>, output_content_dec);
     <span class="kw">let </span>proof_json: ProofJson =
         serde_json::from_str(<span class="kw-2">&amp;</span>proof_content).wrap_err(<span class="string">"Failed to parse proof JSON"</span>)<span class="question-mark">?</span>;
-    <span class="comment">// let output_json: Value = serde_json::from_str(&amp;output_content).unwrap();
-    // Convert output_content_dec from decimal to hex
+
+    <span class="comment">// Convert output_content_dec from decimal to hex
     </span><span class="kw">let </span>parsed_json: Value =
         serde_json::from_str(<span class="kw-2">&amp;</span>output_content_dec).wrap_err(<span class="string">"Failed to parse output JSON"</span>)<span class="question-mark">?</span>;
     <span class="kw">let </span>output_str = parsed_json[<span class="number">0</span>]

@@ -594,7 +594,8 @@
     </span>}
 }
 
-<span class="attr">#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, BorshDeserialize, BorshSerialize)]
+<span class="doccomment">/// Represents a constant value used for each deposit in the bridge circuit.
+</span><span class="attr">#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, BorshDeserialize, BorshSerialize)]
 </span><span class="kw">pub struct </span>DepositConstant(<span class="kw">pub </span>[u8; <span class="number">32</span>]);
 
 <span class="attr">#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, BorshDeserialize, BorshSerialize)]
@@ -689,17 +690,7 @@
     </span><span class="kw">pub </span>index: u32,                         <span class="comment">// For now this is 18, for a specific withdrawal
 </span>}
 
-<span class="comment">// #[derive(Clone, Debug, BorshDeserialize, BorshSerialize)]
-// pub struct WatchtowerInputs {
-//     pub watchtower_idxs: Vec&lt;u8&gt;, // Which watchtower this is
-//     pub watchtower_pubkeys: Vec&lt;Vec&lt;u8&gt;&gt;, // We do not know what these will be for sure right now
-//     pub watchtower_challenge_input_idxs: Vec&lt;u8&gt;,
-//     pub watchtower_challenge_utxos: Vec&lt;Vec&lt;Vec&lt;u8&gt;&gt;&gt;, // BridgeCircuitUTXO
-//     pub watchtower_challenge_txs: Vec&lt;Vec&lt;u8&gt;&gt;, // BridgeCircuitTransaction
-//     pub watchtower_challenge_witnesses: Vec&lt;Vec&lt;u8&gt;&gt;, // BridgeCircuitTransactionWitness Vec&lt;Some(Witness)&gt;
-// }
-
-</span><span class="attr">#[derive(Clone, Debug, BorshDeserialize, BorshSerialize)]
+<span class="attr">#[derive(Clone, Debug, BorshDeserialize, BorshSerialize)]
 </span><span class="kw">pub struct </span>WatchtowerInput {
     <span class="kw">pub </span>watchtower_idx: u16,                           <span class="comment">// Which watchtower this is
     </span><span class="kw">pub </span>watchtower_challenge_input_idx: u16, <span class="comment">// Which input index this challenge connector txout goes to
@@ -874,11 +865,20 @@
             }
         });
 
-        <span class="kw">let </span>watchtower_challenge_witness = CircuitWitness::from(
-            watchtower_challenge_tx.input[watchtower_challenge_input_idx <span class="kw">as </span>usize]
-                .witness
-                .clone(),
-        );
+        <span class="comment">// Get the first witness item, returning an error if it doesn't exist.
+        </span><span class="kw">let </span><span class="prelude-val">Some</span>(signature) = watchtower_challenge_tx.input
+            [watchtower_challenge_input_idx <span class="kw">as </span>usize]
+            .witness
+            .nth(<span class="number">0</span>)
+        <span class="kw">else </span>{
+            <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="string">"Watchtower challenge input witness is empty"</span>);
+        };
+
+        <span class="comment">// The rest of the logic proceeds with the guaranteed `signature`.
+        </span><span class="kw">let </span><span class="kw-2">mut </span>witness = Witness::new();
+        witness.push(signature);
+
+        <span class="kw">let </span>watchtower_challenge_witness = CircuitWitness::from(witness);
 
         <span class="kw">for </span>input <span class="kw">in </span><span class="kw-2">&amp;mut </span>watchtower_challenge_tx.input {
             input.witness.clear();

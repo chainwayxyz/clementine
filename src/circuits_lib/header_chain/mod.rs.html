@@ -1124,7 +1124,32 @@
 <a href="#1123" id="1123">1123</a>
 <a href="#1124" id="1124">1124</a>
 <a href="#1125" id="1125">1125</a>
-<a href="#1126" id="1126">1126</a></pre></div><pre class="rust"><code><span class="comment">// Implementation of this module is inspired by the Bitcoin Core source code and from here:
+<a href="#1126" id="1126">1126</a>
+<a href="#1127" id="1127">1127</a>
+<a href="#1128" id="1128">1128</a>
+<a href="#1129" id="1129">1129</a>
+<a href="#1130" id="1130">1130</a>
+<a href="#1131" id="1131">1131</a>
+<a href="#1132" id="1132">1132</a>
+<a href="#1133" id="1133">1133</a>
+<a href="#1134" id="1134">1134</a>
+<a href="#1135" id="1135">1135</a>
+<a href="#1136" id="1136">1136</a>
+<a href="#1137" id="1137">1137</a>
+<a href="#1138" id="1138">1138</a>
+<a href="#1139" id="1139">1139</a>
+<a href="#1140" id="1140">1140</a>
+<a href="#1141" id="1141">1141</a>
+<a href="#1142" id="1142">1142</a>
+<a href="#1143" id="1143">1143</a>
+<a href="#1144" id="1144">1144</a>
+<a href="#1145" id="1145">1145</a>
+<a href="#1146" id="1146">1146</a>
+<a href="#1147" id="1147">1147</a>
+<a href="#1148" id="1148">1148</a>
+<a href="#1149" id="1149">1149</a>
+<a href="#1150" id="1150">1150</a>
+<a href="#1151" id="1151">1151</a></pre></div><pre class="rust"><code><span class="comment">// Implementation of this module is inspired by the Bitcoin Core source code and from here:
 // https://github.com/ZeroSync/header_chain/tree/master/program/src/block_header.
 
 </span><span class="kw">use </span>std::cmp::Ordering;
@@ -1150,37 +1175,35 @@
 
 <span class="doccomment">/// The main entry point of the header chain circuit.
 </span><span class="kw">pub fn </span>header_chain_circuit(guest: <span class="kw-2">&amp;</span><span class="kw">impl </span>ZkvmGuest) {
-    <span class="comment">// let start = risc0_zkvm::guest::env::cycle_count();
-
+    <span class="comment">// Read the input from the host
     </span><span class="kw">let </span>input: HeaderChainCircuitInput = guest.read_from_host();
-    <span class="comment">// println!("Detected network: {:?}", NETWORK_TYPE);
-    // println!("NETWORK_CONSTANTS: {:?}", NETWORK_CONSTANTS);
-    </span><span class="kw">let </span>genesis_state_hash: [u8; <span class="number">32</span>];
+    <span class="kw">let </span>genesis_state_hash: [u8; <span class="number">32</span>];
     <span class="kw">let </span><span class="kw-2">mut </span>chain_state = <span class="kw">match </span>input.prev_proof {
         HeaderChainPrevProofType::GenesisBlock(genesis_state) =&gt; {
             genesis_state_hash = genesis_state.to_hash();
             genesis_state
         }
         HeaderChainPrevProofType::PrevProof(prev_proof) =&gt; {
-            <span class="macro">assert_eq!</span>(prev_proof.method_id, input.method_id);
+            <span class="macro">assert_eq!</span>(prev_proof.method_id, input.method_id, <span class="string">"Method ID mismatch, the input method ID must match the previous proof's method ID to ensure the same circuit is always used. Previous proof method ID: {:?}, input method ID: {:?}"</span>, prev_proof.method_id, input.method_id);
             guest.verify(input.method_id, <span class="kw-2">&amp;</span>prev_proof);
             genesis_state_hash = prev_proof.genesis_state_hash;
             prev_proof.chain_state
         }
     };
 
-    chain_state.apply_blocks(input.block_headers);
+    <span class="comment">// Apply the block headers to the chain state
+    </span>chain_state.apply_block_headers(input.block_headers);
 
-    guest.commit(<span class="kw-2">&amp;</span>BlockHeaderCircuitOutput {
+    <span class="comment">// Commit the output to the host
+    </span>guest.commit(<span class="kw-2">&amp;</span>BlockHeaderCircuitOutput {
         method_id: input.method_id,
         genesis_state_hash,
         chain_state,
     });
-    <span class="comment">// let end = risc0_zkvm::guest::env::cycle_count();
-    // println!("Header chain circuit took {:?} cycles", end - start);
-</span>}
+}
 
-<span class="doccomment">/// Network configuration holder for Bitcoin-specific constants
+<span class="doccomment">/// Network configuration holder for Bitcoin-specific constants. All three variables are different
+/// representations of the maximum target for the network.
 </span><span class="attr">#[derive(Debug)]
 </span><span class="kw">pub struct </span>NetworkConstants {
     <span class="kw">pub </span>max_bits: u32,
@@ -1196,7 +1219,8 @@
 <span class="kw">const </span>MINIMUM_WORK_TESTNET: U256 =
     U256::from_be_hex(<span class="string">"0000000000000000000000000000000000000000000000000000000100010001"</span>);
 
-<span class="kw">pub const </span>NETWORK_CONSTANTS: NetworkConstants = {
+<span class="doccomment">/// The network constants for the Bitcoin network, which are used to determine the maximum target and bits for the network.
+</span><span class="kw">pub const </span>NETWORK_CONSTANTS: NetworkConstants = {
     <span class="kw">match </span><span class="macro">option_env!</span>(<span class="string">"BITCOIN_NETWORK"</span>) {
         <span class="prelude-val">Some</span>(n) <span class="kw">if </span><span class="macro">matches!</span>(n.as_bytes(), <span class="string">b"signet"</span>) =&gt; NetworkConstants {
             max_bits: <span class="number">0x1E0377AE</span>,
@@ -1254,8 +1278,8 @@
 };
 
 <span class="doccomment">/// An epoch should be two weeks (represented as number of seconds)
-/// seconds/minute * minutes/hour * hours/day * 14 days
-/// For our custom signet, we use 10 seconds block time, see: &lt;https://github.com/chainwayxyz/bitcoin/releases/tag/v29-ten-secs-blocktime-tag&gt;
+/// seconds / minute * minutes / hour * hours / day * 14 days
+/// For our custom signet, we use 10 seconds block time, see: https://github.com/chainwayxyz/bitcoin/releases/tag/v29-ten-secs-blocktime-tag
 </span><span class="kw">const </span>EXPECTED_EPOCH_TIMESPAN: u32 = <span class="kw">match </span><span class="macro">option_env!</span>(<span class="string">"BITCOIN_NETWORK"</span>) {
     <span class="prelude-val">Some</span>(n) <span class="kw">if </span><span class="macro">matches!</span>(n.as_bytes(), <span class="string">b"signet"</span>) =&gt; <span class="number">60 </span>* <span class="number">24 </span>* <span class="number">14</span>,
     <span class="kw">_ </span>=&gt; <span class="number">60 </span>* <span class="number">60 </span>* <span class="number">24 </span>* <span class="number">14</span>,
@@ -1276,7 +1300,8 @@
 }
 
 <span class="kw">impl </span>CircuitBlockHeader {
-    <span class="kw">pub fn </span>compute_block_hash(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; [u8; <span class="number">32</span>] {
+    <span class="doccomment">/// Computes the block hash for the given block header.
+    </span><span class="kw">pub fn </span>compute_block_hash(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; [u8; <span class="number">32</span>] {
         <span class="kw">let </span><span class="kw-2">mut </span>hasher = Sha256::new();
         hasher.update(<span class="self">self</span>.version.to_le_bytes());
         hasher.update(<span class="self">self</span>.prev_block_hash);
@@ -1320,7 +1345,8 @@
     }
 }
 
-<span class="attr">#[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
+<span class="doccomment">/// The state of the chain, which is used to verify the block headers and maintain the chain state.
+</span><span class="attr">#[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
 </span><span class="kw">pub struct </span>ChainState {
     <span class="kw">pub </span>block_height: u32,
     <span class="kw">pub </span>total_work: [u8; <span class="number">32</span>],
@@ -1354,7 +1380,8 @@
         <span class="self">Self</span>::new()
     }
 
-    <span class="kw">pub fn </span>to_hash(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; [u8; <span class="number">32</span>] {
+    <span class="doccomment">/// Returns the hash of the chain state, which is used to identify the chain state.
+    </span><span class="kw">pub fn </span>to_hash(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; [u8; <span class="number">32</span>] {
         <span class="kw">let </span><span class="kw-2">mut </span>hasher = Sha256::new();
         hasher.update(<span class="self">self</span>.block_height.to_le_bytes());
         hasher.update(<span class="self">self</span>.total_work);
@@ -1371,7 +1398,8 @@
         hasher.finalize().into()
     }
 
-    <span class="kw">pub fn </span>apply_blocks(<span class="kw-2">&amp;mut </span><span class="self">self</span>, block_headers: Vec&lt;CircuitBlockHeader&gt;) {
+    <span class="doccomment">/// Applies the block headers to the chain state, updating the state accordingly.
+    </span><span class="kw">pub fn </span>apply_block_headers(<span class="kw-2">&amp;mut </span><span class="self">self</span>, block_headers: Vec&lt;CircuitBlockHeader&gt;) {
         <span class="kw">let </span><span class="kw-2">mut </span>current_target_bytes = <span class="kw">if </span>IS_REGTEST {
             NETWORK_CONSTANTS.max_target.to_be_bytes()
         } <span class="kw">else </span>{
@@ -1401,7 +1429,9 @@
                             <span class="self">self</span>.current_target_bits,
                             calculate_work(<span class="kw-2">&amp;</span>current_target_bytes),
                         )
-                    } <span class="kw">else </span>{
+                    }
+                    <span class="comment">// Otherwise, if the timestamp is more than 20 minutes ahead of the last block, the block is allowed to use the maximum target.
+                    </span><span class="kw">else </span>{
                         (
                             NETWORK_CONSTANTS.max_target_bytes,
                             NETWORK_CONSTANTS.max_bits,
@@ -1425,18 +1455,30 @@
 
             <span class="kw">let </span>new_block_hash = block_header.compute_block_hash();
 
-            <span class="macro">assert_eq!</span>(block_header.prev_block_hash, <span class="self">self</span>.best_block_hash);
+            <span class="macro">assert_eq!</span>(
+                block_header.prev_block_hash, <span class="self">self</span>.best_block_hash,
+                <span class="string">"Previous block hash does not match the best block hash. Expected: {:?}, got: {:?}"</span>,
+                <span class="self">self</span>.best_block_hash, block_header.prev_block_hash
+            );
 
             <span class="kw">if </span>IS_REGTEST {
-                <span class="macro">assert_eq!</span>(block_header.bits, NETWORK_CONSTANTS.max_bits);
+                <span class="macro">assert_eq!</span>(
+                    block_header.bits, NETWORK_CONSTANTS.max_bits,
+                    <span class="string">"Bits for regtest must be equal to the maximum bits: {}. Got: {}"</span>,
+                    NETWORK_CONSTANTS.max_bits, block_header.bits
+                );
             } <span class="kw">else </span>{
-                <span class="macro">assert_eq!</span>(block_header.bits, expected_bits);
+                <span class="macro">assert_eq!</span>(
+                    block_header.bits, expected_bits,
+                    <span class="string">"Bits for the block header must match the expected bits: {}. Got: {}"</span>,
+                    expected_bits, block_header.bits
+                );
             }
 
             check_hash_valid(<span class="kw-2">&amp;</span>new_block_hash, <span class="kw-2">&amp;</span>target_to_use);
 
             <span class="kw">if </span>!validate_timestamp(block_header.time, <span class="self">self</span>.prev_11_timestamps) {
-                <span class="macro">panic!</span>(<span class="string">"Timestamp is not valid"</span>);
+                <span class="macro">panic!</span>(<span class="string">"Timestamp is not valid, it must be greater than the median of the last 11 timestamps"</span>);
             }
 
             <span class="self">self</span>.block_hashes_mmr.append(new_block_hash);
@@ -1467,18 +1509,21 @@
     }
 }
 
-<span class="kw">fn </span>median(arr: [u32; <span class="number">11</span>]) -&gt; u32 {
+<span class="doccomment">/// Calculates the median of the last 11 timestamps, which is used to validate the block timestamp.
+</span><span class="kw">fn </span>median(arr: [u32; <span class="number">11</span>]) -&gt; u32 {
     <span class="kw">let </span><span class="kw-2">mut </span>sorted_arr = arr;
     sorted_arr.sort_unstable();
     sorted_arr[<span class="number">5</span>]
 }
 
-<span class="kw">fn </span>validate_timestamp(block_time: u32, prev_11_timestamps: [u32; <span class="number">11</span>]) -&gt; bool {
+<span class="doccomment">/// Validates the block timestamp against the median of the last 11 timestamps.
+</span><span class="kw">fn </span>validate_timestamp(block_time: u32, prev_11_timestamps: [u32; <span class="number">11</span>]) -&gt; bool {
     <span class="kw">let </span>median_time = median(prev_11_timestamps);
     block_time &gt; median_time
 }
 
-<span class="kw">pub fn </span>bits_to_target(bits: u32) -&gt; [u8; <span class="number">32</span>] {
+<span class="doccomment">/// Converts a compact target (bits) to a target in bytes.
+</span><span class="kw">pub fn </span>bits_to_target(bits: u32) -&gt; [u8; <span class="number">32</span>] {
     <span class="kw">let </span>size = (bits &gt;&gt; <span class="number">24</span>) <span class="kw">as </span>usize;
     <span class="kw">let </span>mantissa = bits &amp; <span class="number">0x00ffffff</span>;
 
@@ -1487,11 +1532,11 @@
     } <span class="kw">else </span>{
         U256::from(mantissa) &lt;&lt; (<span class="number">8 </span>* (size - <span class="number">3</span>))
     };
-    <span class="comment">// println!("Output: {:?}", target.to_be_bytes());
-    </span>target.to_be_bytes()
+    target.to_be_bytes()
 }
 
-<span class="kw">fn </span>target_to_bits(target: <span class="kw-2">&amp;</span>[u8; <span class="number">32</span>]) -&gt; u32 {
+<span class="doccomment">/// Converts a target in bytes to a compact target (bits).
+</span><span class="kw">fn </span>target_to_bits(target: <span class="kw-2">&amp;</span>[u8; <span class="number">32</span>]) -&gt; u32 {
     <span class="kw">let </span>target_u256 = U256::from_be_slice(target);
     <span class="kw">let </span>target_bits = target_u256.bits();
     <span class="kw">let </span>size = (<span class="number">263 </span>- target_bits) / <span class="number">8</span>;
@@ -1503,7 +1548,8 @@
     u32::from_be_bytes(compact_target)
 }
 
-<span class="kw">fn </span>calculate_new_difficulty(
+<span class="doccomment">/// Calculates the new difficulty based on the last timestamp and the epoch start time.
+</span><span class="kw">fn </span>calculate_new_difficulty(
     epoch_start_time: u32,
     last_timestamp: u32,
     current_target: u32,
@@ -1526,7 +1572,8 @@
     new_target.to_be_bytes()
 }
 
-<span class="kw">fn </span>check_hash_valid(hash: <span class="kw-2">&amp;</span>[u8; <span class="number">32</span>], target_bytes: <span class="kw-2">&amp;</span>[u8; <span class="number">32</span>]) {
+<span class="doccomment">/// Checks if the hash is valid against the target bytes.
+</span><span class="kw">fn </span>check_hash_valid(hash: <span class="kw-2">&amp;</span>[u8; <span class="number">32</span>], target_bytes: <span class="kw-2">&amp;</span>[u8; <span class="number">32</span>]) {
     <span class="kw">for </span>i <span class="kw">in </span><span class="number">0</span>..<span class="number">32 </span>{
         <span class="kw">match </span>hash[<span class="number">31 </span>- i].cmp(<span class="kw-2">&amp;</span>target_bytes[i]) {
             Ordering::Less =&gt; <span class="kw">return</span>,
@@ -1536,7 +1583,8 @@
     }
 }
 
-<span class="kw">fn </span>calculate_work(target: <span class="kw-2">&amp;</span>[u8; <span class="number">32</span>]) -&gt; U256 {
+<span class="doccomment">/// Calculates the work for a given target.
+</span><span class="kw">fn </span>calculate_work(target: <span class="kw-2">&amp;</span>[u8; <span class="number">32</span>]) -&gt; U256 {
     <span class="kw">let </span>target = U256::from_be_slice(target);
     <span class="kw">let </span>target_plus_one = target.saturating_add(<span class="kw-2">&amp;</span>U256::ONE);
     U256::MAX.wrapping_div(<span class="kw-2">&amp;</span>target_plus_one)
@@ -1551,7 +1599,7 @@
 }
 
 <span class="doccomment">/// The input proof of the header chain circuit.
-/// The proof can be either None (implying the beginning) or a Succinct Risc0 proof.
+/// The header chain prev proof type can be either chain state (implying the beginning) or a Succinct Risc0 proof (implying the previous proof).
 </span><span class="attr">#[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
 </span><span class="kw">pub enum </span>HeaderChainPrevProofType {
     GenesisBlock(ChainState),
@@ -1559,6 +1607,8 @@
 }
 
 <span class="doccomment">/// The input of the header chain circuit.
+/// It contains the method ID, the previous proof (either a genesis block or a previous proof), and the block headers to be processed.
+/// Method ID is used to identify the circuit and is expected to be the same as the one used in the previous proof.
 </span><span class="attr">#[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
 </span><span class="kw">pub struct </span>HeaderChainCircuitInput {
     <span class="kw">pub </span>method_id: [u32; <span class="number">8</span>],

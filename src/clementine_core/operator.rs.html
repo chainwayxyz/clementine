@@ -1824,7 +1824,90 @@
 <a href="#1823" id="1823">1823</a>
 <a href="#1824" id="1824">1824</a>
 <a href="#1825" id="1825">1825</a>
-<a href="#1826" id="1826">1826</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_ff::PrimeField;
+<a href="#1826" id="1826">1826</a>
+<a href="#1827" id="1827">1827</a>
+<a href="#1828" id="1828">1828</a>
+<a href="#1829" id="1829">1829</a>
+<a href="#1830" id="1830">1830</a>
+<a href="#1831" id="1831">1831</a>
+<a href="#1832" id="1832">1832</a>
+<a href="#1833" id="1833">1833</a>
+<a href="#1834" id="1834">1834</a>
+<a href="#1835" id="1835">1835</a>
+<a href="#1836" id="1836">1836</a>
+<a href="#1837" id="1837">1837</a>
+<a href="#1838" id="1838">1838</a>
+<a href="#1839" id="1839">1839</a>
+<a href="#1840" id="1840">1840</a>
+<a href="#1841" id="1841">1841</a>
+<a href="#1842" id="1842">1842</a>
+<a href="#1843" id="1843">1843</a>
+<a href="#1844" id="1844">1844</a>
+<a href="#1845" id="1845">1845</a>
+<a href="#1846" id="1846">1846</a>
+<a href="#1847" id="1847">1847</a>
+<a href="#1848" id="1848">1848</a>
+<a href="#1849" id="1849">1849</a>
+<a href="#1850" id="1850">1850</a>
+<a href="#1851" id="1851">1851</a>
+<a href="#1852" id="1852">1852</a>
+<a href="#1853" id="1853">1853</a>
+<a href="#1854" id="1854">1854</a>
+<a href="#1855" id="1855">1855</a>
+<a href="#1856" id="1856">1856</a>
+<a href="#1857" id="1857">1857</a>
+<a href="#1858" id="1858">1858</a>
+<a href="#1859" id="1859">1859</a>
+<a href="#1860" id="1860">1860</a>
+<a href="#1861" id="1861">1861</a>
+<a href="#1862" id="1862">1862</a>
+<a href="#1863" id="1863">1863</a>
+<a href="#1864" id="1864">1864</a>
+<a href="#1865" id="1865">1865</a>
+<a href="#1866" id="1866">1866</a>
+<a href="#1867" id="1867">1867</a>
+<a href="#1868" id="1868">1868</a>
+<a href="#1869" id="1869">1869</a>
+<a href="#1870" id="1870">1870</a>
+<a href="#1871" id="1871">1871</a>
+<a href="#1872" id="1872">1872</a>
+<a href="#1873" id="1873">1873</a>
+<a href="#1874" id="1874">1874</a>
+<a href="#1875" id="1875">1875</a>
+<a href="#1876" id="1876">1876</a>
+<a href="#1877" id="1877">1877</a>
+<a href="#1878" id="1878">1878</a>
+<a href="#1879" id="1879">1879</a>
+<a href="#1880" id="1880">1880</a>
+<a href="#1881" id="1881">1881</a>
+<a href="#1882" id="1882">1882</a>
+<a href="#1883" id="1883">1883</a>
+<a href="#1884" id="1884">1884</a>
+<a href="#1885" id="1885">1885</a>
+<a href="#1886" id="1886">1886</a>
+<a href="#1887" id="1887">1887</a>
+<a href="#1888" id="1888">1888</a>
+<a href="#1889" id="1889">1889</a>
+<a href="#1890" id="1890">1890</a>
+<a href="#1891" id="1891">1891</a>
+<a href="#1892" id="1892">1892</a>
+<a href="#1893" id="1893">1893</a>
+<a href="#1894" id="1894">1894</a>
+<a href="#1895" id="1895">1895</a>
+<a href="#1896" id="1896">1896</a>
+<a href="#1897" id="1897">1897</a>
+<a href="#1898" id="1898">1898</a>
+<a href="#1899" id="1899">1899</a>
+<a href="#1900" id="1900">1900</a>
+<a href="#1901" id="1901">1901</a>
+<a href="#1902" id="1902">1902</a>
+<a href="#1903" id="1903">1903</a>
+<a href="#1904" id="1904">1904</a>
+<a href="#1905" id="1905">1905</a>
+<a href="#1906" id="1906">1906</a>
+<a href="#1907" id="1907">1907</a>
+<a href="#1908" id="1908">1908</a>
+<a href="#1909" id="1909">1909</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_ff::PrimeField;
 <span class="kw">use </span>circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
 <span class="kw">use </span>risc0_zkvm::is_dev_mode;
 <span class="kw">use </span>std::collections::HashMap;
@@ -1867,7 +1950,7 @@
 <span class="kw">use </span>bitvm::signatures::winternitz;
 <span class="kw">use </span>bridge_circuit_host::bridge_circuit_host::{
     create_spv, prove_bridge_circuit, MAINNET_BRIDGE_CIRCUIT_ELF, REGTEST_BRIDGE_CIRCUIT_ELF,
-    SIGNET_BRIDGE_CIRCUIT_ELF, TESTNET4_BRIDGE_CIRCUIT_ELF,
+    REGTEST_BRIDGE_CIRCUIT_ELF_TEST, SIGNET_BRIDGE_CIRCUIT_ELF, TESTNET4_BRIDGE_CIRCUIT_ELF,
 };
 <span class="kw">use </span>bridge_circuit_host::structs::{BridgeCircuitHostParams, WatchtowerContext};
 <span class="kw">use </span>bridge_circuit_host::utils::{get_ark_verifying_key, get_ark_verifying_key_dev_mode_bridge};
@@ -3186,6 +3269,23 @@
             </span>.header_chain_prover
             .prove_till_hash(latest_blockhash)
             .<span class="kw">await</span><span class="question-mark">?</span>;
+
+        <span class="attr">#[cfg(test)]
+        </span><span class="kw">let </span>current_hcp = {
+            <span class="kw">if </span><span class="self">self
+                </span>.config
+                .test_params
+                .generate_varying_total_works_insufficient_total_work
+            {
+                <span class="self">self</span>.header_chain_prover
+                    .prove_till_hash(payout_block_hash)
+                    .<span class="kw">await</span><span class="question-mark">?
+                    </span>.<span class="number">0
+            </span>} <span class="kw">else </span>{
+                current_hcp
+            }
+        };
+
         <span class="macro">tracing::info!</span>(<span class="string">"Got header chain proof in send_asserts"</span>);
 
         <span class="kw">let </span>blockhashes_serialized: Vec&lt;[u8; <span class="number">32</span>]&gt; = block_hashes
@@ -3193,6 +3293,26 @@
             .take(latest_blockhash_index + <span class="number">1</span>) <span class="comment">// get all blocks up to and including latest_blockhash
             </span>.map(|(block_hash, <span class="kw">_</span>)| block_hash.to_byte_array())
             .collect::&lt;Vec&lt;<span class="kw">_</span>&gt;&gt;();
+
+        <span class="attr">#[cfg(test)]
+        </span><span class="kw">let </span>blockhashes_serialized = {
+            <span class="kw">if </span><span class="self">self
+                </span>.config
+                .test_params
+                .generate_varying_total_works_insufficient_total_work
+            {
+                block_hashes
+                    .iter()
+                    .take(
+                        (payout_block_height + <span class="number">1 </span>- <span class="self">self</span>.config.protocol_paramset().genesis_height)
+                            <span class="kw">as </span>usize,
+                    )
+                    .map(|(block_hash, <span class="kw">_</span>)| block_hash.to_byte_array())
+                    .collect::&lt;Vec&lt;<span class="kw">_</span>&gt;&gt;()
+            } <span class="kw">else </span>{
+                blockhashes_serialized
+            }
+        };
 
         <span class="macro">tracing::debug!</span>(
             <span class="string">"Genesis height - Before SPV: {},"</span>,
@@ -3245,7 +3365,13 @@
             bitcoin::Network::Bitcoin =&gt; MAINNET_BRIDGE_CIRCUIT_ELF,
             bitcoin::Network::Testnet4 =&gt; TESTNET4_BRIDGE_CIRCUIT_ELF,
             bitcoin::Network::Signet =&gt; SIGNET_BRIDGE_CIRCUIT_ELF,
-            bitcoin::Network::Regtest =&gt; REGTEST_BRIDGE_CIRCUIT_ELF,
+            bitcoin::Network::Regtest =&gt; {
+                <span class="kw">if </span><span class="macro">cfg!</span>(test) {
+                    REGTEST_BRIDGE_CIRCUIT_ELF_TEST
+                } <span class="kw">else </span>{
+                    REGTEST_BRIDGE_CIRCUIT_ELF
+                }
+            }
             <span class="kw">_ </span>=&gt; {
                 <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(
                     <span class="string">"Unsupported network {:?} in send_asserts"</span>,
@@ -3255,6 +3381,46 @@
             }
         };
         <span class="macro">tracing::info!</span>(<span class="string">"Starting proving bridge circuit to send asserts"</span>);
+
+        <span class="attr">#[cfg(test)]
+        </span>{
+            <span class="kw">if </span><span class="self">self
+                </span>.config
+                .test_params
+                .generate_varying_total_works_insufficient_total_work
+                || <span class="self">self</span>.config.test_params.generate_varying_total_works
+            {
+                <span class="kw">use </span>std::path::PathBuf;
+
+                <span class="kw">let </span>file_path = <span class="kw">match </span>(
+             <span class="self">self</span>.config.test_params.generate_varying_total_works,
+             <span class="self">self</span>.config.test_params.generate_varying_total_works_insufficient_total_work,
+        ) {
+            (<span class="bool-val">false</span>, <span class="bool-val">true</span>) =&gt; PathBuf::from(
+                <span class="string">"../bridge-circuit-host/bin-files/bch_params_varying_total_works_insufficient_total_work.bin"</span>,
+            ),
+            (<span class="bool-val">true</span>, <span class="bool-val">false</span>) =&gt; PathBuf::from(
+                <span class="string">"../bridge-circuit-host/bin-files/bch_params_varying_total_works.bin"</span>,
+            ),
+            <span class="kw">_ </span>=&gt; {
+                <span class="macro">panic!</span>(<span class="string">"Invalid or conflicting test params for generating varying total works"</span>);
+            }
+        };
+
+                std::fs::create_dir_all(file_path.parent().unwrap()).map_err(|e| {
+                    <span class="macro">eyre::eyre!</span>(<span class="string">"Failed to create directory for output file: {}"</span>, e)
+                })<span class="question-mark">?</span>;
+                <span class="kw">let </span>serialized_params =
+                    borsh::to_vec(<span class="kw-2">&amp;</span>bridge_circuit_host_params).map_err(|e| {
+                        <span class="macro">eyre::eyre!</span>(<span class="string">"Failed to serialize bridge circuit host params: {}"</span>, e)
+                    })<span class="question-mark">?</span>;
+                std::fs::write(file_path.clone(), serialized_params).map_err(|e| {
+                    <span class="macro">eyre::eyre!</span>(<span class="string">"Failed to write bridge circuit host params to file: {}"</span>, e)
+                })<span class="question-mark">?</span>;
+                <span class="macro">tracing::info!</span>(<span class="string">"Bridge circuit host params written to {:?}"</span>, file_path);
+            }
+        }
+
         <span class="kw">let </span>(g16_proof, g16_output, public_inputs) =
             prove_bridge_circuit(bridge_circuit_host_params, bridge_circuit_elf)<span class="question-mark">?</span>;
         <span class="macro">tracing::info!</span>(<span class="string">"Proved bridge circuit in send_asserts"</span>);

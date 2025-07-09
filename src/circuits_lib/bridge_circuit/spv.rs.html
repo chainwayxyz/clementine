@@ -133,13 +133,19 @@
 <a href="#132" id="132">132</a>
 <a href="#133" id="133">133</a>
 <a href="#134" id="134">134</a>
-<a href="#135" id="135">135</a></pre></div><pre class="rust"><code><span class="kw">use </span>borsh::{BorshDeserialize, BorshSerialize};
+<a href="#135" id="135">135</a>
+<a href="#136" id="136">136</a>
+<a href="#137" id="137">137</a>
+<a href="#138" id="138">138</a>
+<a href="#139" id="139">139</a></pre></div><pre class="rust"><code><span class="kw">use </span>borsh::{BorshDeserialize, BorshSerialize};
 
 <span class="kw">use </span><span class="kw">crate</span>::header_chain::{mmr_guest::MMRGuest, mmr_native::MMRInclusionProof, CircuitBlockHeader};
 
 <span class="kw">use super</span>::{merkle_tree::BlockInclusionProof, transaction::CircuitTransaction};
 
-<span class="attr">#[derive(Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
+<span class="doccomment">/// SPV (Simplified Payment Verification) structure that contains
+/// the transaction, block inclusion proof, block header, and MMR inclusion proof.
+</span><span class="attr">#[derive(Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
 </span><span class="kw">pub struct </span>SPV {
     <span class="kw">pub </span>transaction: CircuitTransaction,
     <span class="kw">pub </span>block_inclusion_proof: BlockInclusionProof,
@@ -162,10 +168,13 @@
         }
     }
 
-    <span class="kw">pub fn </span>verify(<span class="kw-2">&amp;</span><span class="self">self</span>, mmr_guest: MMRGuest) -&gt; bool {
-        <span class="kw">let </span>txid: [u8; <span class="number">32</span>] = <span class="self">self</span>.transaction.txid();
-        <span class="kw">let </span>block_merkle_root = <span class="self">self</span>.block_inclusion_proof.get_root(txid);
-        <span class="macro">assert_eq!</span>(block_merkle_root, <span class="self">self</span>.block_header.merkle_root);
+    <span class="doccomment">/// Verifies the SPV proof using the provided MMRGuest.
+    </span><span class="kw">pub fn </span>verify(<span class="kw-2">&amp;</span><span class="self">self</span>, mmr_guest: MMRGuest) -&gt; bool {
+        <span class="kw">let </span>mid_state_txid: [u8; <span class="number">32</span>] = <span class="self">self</span>.transaction.mid_state_txid();
+        <span class="kw">let </span>block_merkle_root = <span class="self">self</span>.block_inclusion_proof.get_root(mid_state_txid);
+        <span class="macro">assert_eq!</span>(block_merkle_root, <span class="self">self</span>.block_header.merkle_root,
+            <span class="string">"Calculated block Merkle root from the block inclusion proof does not match the one in the block header"
+        </span>);
         <span class="kw">let </span>block_hash = <span class="self">self</span>.block_header.compute_block_hash();
         mmr_guest.verify_proof(block_hash, <span class="kw-2">&amp;</span><span class="self">self</span>.mmr_inclusion_proof)
     }
@@ -182,6 +191,7 @@
             spv::SPV,
             transaction::CircuitTransaction,
         },
+        common::hashes::calculate_sha256,
         header_chain::{mmr_guest::MMRGuest, mmr_native::MMRNative, CircuitBlockHeader},
     };
 
@@ -238,15 +248,13 @@
             .map(|tx| CircuitTransaction(bitcoin::consensus::deserialize(tx).unwrap()))
             .collect::&lt;Vec&lt;CircuitTransaction&gt;&gt;();
         <span class="kw">let </span><span class="kw-2">mut </span>bitcoin_merkle_proofs: Vec&lt;BlockInclusionProof&gt; = <span class="macro">vec!</span>[];
-        <span class="kw">for </span>tx <span class="kw">in </span>txs.iter() {
-            <span class="kw">let </span>txid = tx.txid();
-            <span class="macro">tracing::debug!</span>(<span class="string">"txid: {:?}"</span>, txid);
-            <span class="kw">let </span>bitcoin_merkle_tree = BitcoinMerkleTree::new(<span class="macro">vec!</span>[txid]);
+        <span class="kw">for </span>tx <span class="kw">in </span>txs.clone().into_iter() {
+            <span class="kw">let </span>bitcoin_merkle_tree = BitcoinMerkleTree::new_mid_state(<span class="kw-2">&amp;</span>[tx.clone()]);
             <span class="kw">let </span>bitcoin_merkle_proof = bitcoin_merkle_tree.generate_proof(<span class="number">0</span>);
             <span class="macro">assert!</span>(verify_merkle_proof(
-                txid,
+                tx.mid_state_txid(),
                 <span class="kw-2">&amp;</span>bitcoin_merkle_proof,
-                bitcoin_merkle_tree.root()
+                calculate_sha256(<span class="kw-2">&amp;</span>bitcoin_merkle_tree.root())
             ));
             bitcoin_merkle_proofs.push(bitcoin_merkle_proof);
         }

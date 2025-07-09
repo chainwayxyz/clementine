@@ -2793,29 +2793,7 @@
 <a href="#2792" id="2792">2792</a>
 <a href="#2793" id="2793">2793</a>
 <a href="#2794" id="2794">2794</a>
-<a href="#2795" id="2795">2795</a>
-<a href="#2796" id="2796">2796</a>
-<a href="#2797" id="2797">2797</a>
-<a href="#2798" id="2798">2798</a>
-<a href="#2799" id="2799">2799</a>
-<a href="#2800" id="2800">2800</a>
-<a href="#2801" id="2801">2801</a>
-<a href="#2802" id="2802">2802</a>
-<a href="#2803" id="2803">2803</a>
-<a href="#2804" id="2804">2804</a>
-<a href="#2805" id="2805">2805</a>
-<a href="#2806" id="2806">2806</a>
-<a href="#2807" id="2807">2807</a>
-<a href="#2808" id="2808">2808</a>
-<a href="#2809" id="2809">2809</a>
-<a href="#2810" id="2810">2810</a>
-<a href="#2811" id="2811">2811</a>
-<a href="#2812" id="2812">2812</a>
-<a href="#2813" id="2813">2813</a>
-<a href="#2814" id="2814">2814</a>
-<a href="#2815" id="2815">2815</a>
-<a href="#2816" id="2816">2816</a>
-<a href="#2817" id="2817">2817</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
+<a href="#2795" id="2795">2795</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
 <span class="kw">use </span><span class="kw">crate</span>::bitcoin_syncer::BitcoinSyncer;
 <span class="kw">use </span><span class="kw">crate</span>::bitvm_client::ClementineBitVMPublicKeys;
 <span class="kw">use </span><span class="kw">crate</span>::builder::address::{create_taproot_address, taproot_builder_with_scripts};
@@ -4255,28 +4233,6 @@
         <span class="kw">let </span>(work_only_proof, work_output) = <span class="self">self
             </span>.header_chain_prover
             .prove_work_only(current_tip_hcp.<span class="number">0</span>)<span class="question-mark">?</span>;
-
-        <span class="attr">#[cfg(test)]
-        </span>{
-            <span class="comment">// if in test mode and risc0_dev_mode is enabled, we will not generate real proof
-            // if not in test mode, we should enforce RISC0_DEV_MODE to be disabled
-            </span><span class="kw">if </span>is_dev_mode() {
-                <span class="macro">tracing::warn!</span>(<span class="string">"Warning, malicious kickoff detected but RISC0_DEV_MODE is enabled, will not generate real proof"</span>);
-                <span class="kw">let </span>g16_bytes = <span class="number">128</span>;
-                <span class="kw">let </span><span class="kw-2">mut </span>challenge = <span class="macro">vec!</span>[<span class="number">0u8</span>; g16_bytes];
-                <span class="kw">for </span>(step, i) <span class="kw">in </span>(<span class="number">0</span>..g16_bytes).step_by(<span class="number">32</span>).enumerate() {
-                    <span class="kw">if </span>i &lt; g16_bytes {
-                        challenge[i] = step <span class="kw">as </span>u8;
-                    }
-                }
-                <span class="kw">let </span>total_work = borsh::to_vec(<span class="kw-2">&amp;</span>work_output.work_u128)
-                    .wrap_err(<span class="string">"Couldn't serialize total work"</span>)<span class="question-mark">?</span>;
-                challenge.extend_from_slice(<span class="kw-2">&amp;</span>total_work);
-                <span class="kw">return </span><span class="self">self
-                    </span>.queue_watchtower_challenge(kickoff_data, deposit_data, challenge)
-                    .<span class="kw">await</span>;
-            }
-        }
 
         <span class="kw">let </span>g16: [u8; <span class="number">256</span>] = work_only_proof
             .inner

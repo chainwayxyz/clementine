@@ -469,7 +469,37 @@
 <a href="#468" id="468">468</a>
 <a href="#469" id="469">469</a>
 <a href="#470" id="470">470</a>
-<a href="#471" id="471">471</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::config::env::read_string_from_env_then_parse;
+<a href="#471" id="471">471</a>
+<a href="#472" id="472">472</a>
+<a href="#473" id="473">473</a>
+<a href="#474" id="474">474</a>
+<a href="#475" id="475">475</a>
+<a href="#476" id="476">476</a>
+<a href="#477" id="477">477</a>
+<a href="#478" id="478">478</a>
+<a href="#479" id="479">479</a>
+<a href="#480" id="480">480</a>
+<a href="#481" id="481">481</a>
+<a href="#482" id="482">482</a>
+<a href="#483" id="483">483</a>
+<a href="#484" id="484">484</a>
+<a href="#485" id="485">485</a>
+<a href="#486" id="486">486</a>
+<a href="#487" id="487">487</a>
+<a href="#488" id="488">488</a>
+<a href="#489" id="489">489</a>
+<a href="#490" id="490">490</a>
+<a href="#491" id="491">491</a>
+<a href="#492" id="492">492</a>
+<a href="#493" id="493">493</a>
+<a href="#494" id="494">494</a>
+<a href="#495" id="495">495</a>
+<a href="#496" id="496">496</a>
+<a href="#497" id="497">497</a>
+<a href="#498" id="498">498</a>
+<a href="#499" id="499">499</a>
+<a href="#500" id="500">500</a>
+<a href="#501" id="501">501</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::config::env::read_string_from_env_then_parse;
 <span class="kw">use </span><span class="kw">crate</span>::constants::{MIN_TAPROOT_AMOUNT, NON_EPHEMERAL_ANCHOR_AMOUNT};
 <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
 <span class="kw">use </span>bitcoin::{Amount, Network};
@@ -691,7 +721,13 @@
 
     <span class="kw">pub fn </span>bridge_circuit_constant(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="kw-2">&amp;</span>[u8; <span class="number">32</span>], BridgeError&gt; {
         <span class="kw">match </span><span class="self">self</span>.network {
-            Network::Regtest =&gt; <span class="prelude-val">Ok</span>(<span class="kw-2">&amp;</span>REGTEST_BRIDGE_CIRCUIT_CONSTANT),
+            Network::Regtest =&gt; {
+                <span class="kw">if </span><span class="macro">cfg!</span>(test) {
+                    <span class="prelude-val">Ok</span>(<span class="kw-2">&amp;</span>REGTEST_TEST_BRIDGE_CIRCUIT_CONSTANT)
+                } <span class="kw">else </span>{
+                    <span class="prelude-val">Ok</span>(<span class="kw-2">&amp;</span>REGTEST_BRIDGE_CIRCUIT_CONSTANT)
+                }
+            }
             Network::Bitcoin =&gt; <span class="prelude-val">Ok</span>(<span class="kw-2">&amp;</span>MAINNET_BRIDGE_CIRCUIT_CONSTANT),
             Network::Testnet4 =&gt; <span class="prelude-val">Ok</span>(<span class="kw-2">&amp;</span>TESTNET4_BRIDGE_CIRCUIT_CONSTANT),
             Network::Signet =&gt; <span class="prelude-val">Ok</span>(<span class="kw-2">&amp;</span>SIGNET_BRIDGE_CIRCUIT_CONSTANT),
@@ -752,22 +788,27 @@
     bridge_nonstandard: <span class="bool-val">true</span>,
 };
 
-<span class="kw">pub const </span>SIGNET_BRIDGE_CIRCUIT_CONSTANT: [u8; <span class="number">32</span>] = [
-    <span class="number">52</span>, <span class="number">23</span>, <span class="number">169</span>, <span class="number">35</span>, <span class="number">5</span>, <span class="number">10</span>, <span class="number">197</span>, <span class="number">40</span>, <span class="number">135</span>, <span class="number">145</span>, <span class="number">196</span>, <span class="number">190</span>, <span class="number">148</span>, <span class="number">7</span>, <span class="number">127</span>, <span class="number">52</span>, <span class="number">246</span>, <span class="number">105</span>, <span class="number">197</span>, <span class="number">227</span>, <span class="number">140</span>,
-    <span class="number">51</span>, <span class="number">204</span>, <span class="number">184</span>, <span class="number">180</span>, <span class="number">238</span>, <span class="number">95</span>, <span class="number">34</span>, <span class="number">11</span>, <span class="number">203</span>, <span class="number">120</span>, <span class="number">57</span>,
-];
-<span class="kw">pub const </span>MAINNET_BRIDGE_CIRCUIT_CONSTANT: [u8; <span class="number">32</span>] = [
-    <span class="number">2</span>, <span class="number">86</span>, <span class="number">35</span>, <span class="number">236</span>, <span class="number">99</span>, <span class="number">172</span>, <span class="number">34</span>, <span class="number">193</span>, <span class="number">71</span>, <span class="number">224</span>, <span class="number">59</span>, <span class="number">102</span>, <span class="number">246</span>, <span class="number">94</span>, <span class="number">242</span>, <span class="number">12</span>, <span class="number">11</span>, <span class="number">64</span>, <span class="number">209</span>, <span class="number">82</span>, <span class="number">76</span>, <span class="number">148</span>,
-    <span class="number">53</span>, <span class="number">214</span>, <span class="number">23</span>, <span class="number">144</span>, <span class="number">71</span>, <span class="number">198</span>, <span class="number">174</span>, <span class="number">225</span>, <span class="number">174</span>, <span class="number">96</span>,
-];
-<span class="kw">pub const </span>TESTNET4_BRIDGE_CIRCUIT_CONSTANT: [u8; <span class="number">32</span>] = [
-    <span class="number">245</span>, <span class="number">159</span>, <span class="number">161</span>, <span class="number">38</span>, <span class="number">62</span>, <span class="number">12</span>, <span class="number">230</span>, <span class="number">118</span>, <span class="number">90</span>, <span class="number">195</span>, <span class="number">152</span>, <span class="number">119</span>, <span class="number">78</span>, <span class="number">162</span>, <span class="number">58</span>, <span class="number">39</span>, <span class="number">81</span>, <span class="number">76</span>, <span class="number">177</span>, <span class="number">139</span>, <span class="number">97</span>,
-    <span class="number">96</span>, <span class="number">170</span>, <span class="number">31</span>, <span class="number">131</span>, <span class="number">123</span>, <span class="number">90</span>, <span class="number">255</span>, <span class="number">185</span>, <span class="number">72</span>, <span class="number">65</span>, <span class="number">25</span>,
+<span class="kw">pub const </span>REGTEST_TEST_BRIDGE_CIRCUIT_CONSTANT: [u8; <span class="number">32</span>] = [
+    <span class="number">120</span>, <span class="number">106</span>, <span class="number">18</span>, <span class="number">159</span>, <span class="number">198</span>, <span class="number">16</span>, <span class="number">205</span>, <span class="number">107</span>, <span class="number">213</span>, <span class="number">181</span>, <span class="number">0</span>, <span class="number">233</span>, <span class="number">75</span>, <span class="number">10</span>, <span class="number">179</span>, <span class="number">227</span>, <span class="number">3</span>, <span class="number">32</span>, <span class="number">205</span>, <span class="number">41</span>, <span class="number">57</span>,
+    <span class="number">234</span>, <span class="number">137</span>, <span class="number">14</span>, <span class="number">159</span>, <span class="number">110</span>, <span class="number">182</span>, <span class="number">119</span>, <span class="number">79</span>, <span class="number">63</span>, <span class="number">128</span>, <span class="number">177</span>,
 ];
 
 <span class="kw">pub const </span>REGTEST_BRIDGE_CIRCUIT_CONSTANT: [u8; <span class="number">32</span>] = [
-    <span class="number">122</span>, <span class="number">210</span>, <span class="number">204</span>, <span class="number">155</span>, <span class="number">203</span>, <span class="number">206</span>, <span class="number">216</span>, <span class="number">8</span>, <span class="number">126</span>, <span class="number">117</span>, <span class="number">61</span>, <span class="number">91</span>, <span class="number">47</span>, <span class="number">85</span>, <span class="number">69</span>, <span class="number">147</span>, <span class="number">68</span>, <span class="number">196</span>, <span class="number">156</span>, <span class="number">234</span>, <span class="number">75</span>,
-    <span class="number">17</span>, <span class="number">119</span>, <span class="number">195</span>, <span class="number">91</span>, <span class="number">121</span>, <span class="number">62</span>, <span class="number">254</span>, <span class="number">13</span>, <span class="number">195</span>, <span class="number">48</span>, <span class="number">238</span>,
+    <span class="number">195</span>, <span class="number">32</span>, <span class="number">8</span>, <span class="number">48</span>, <span class="number">94</span>, <span class="number">60</span>, <span class="number">206</span>, <span class="number">5</span>, <span class="number">92</span>, <span class="number">160</span>, <span class="number">213</span>, <span class="number">100</span>, <span class="number">236</span>, <span class="number">151</span>, <span class="number">102</span>, <span class="number">24</span>, <span class="number">73</span>, <span class="number">169</span>, <span class="number">91</span>, <span class="number">230</span>, <span class="number">159</span>,
+    <span class="number">198</span>, <span class="number">119</span>, <span class="number">21</span>, <span class="number">133</span>, <span class="number">93</span>, <span class="number">124</span>, <span class="number">208</span>, <span class="number">214</span>, <span class="number">136</span>, <span class="number">167</span>, <span class="number">55</span>,
+];
+
+<span class="kw">pub const </span>SIGNET_BRIDGE_CIRCUIT_CONSTANT: [u8; <span class="number">32</span>] = [
+    <span class="number">3</span>, <span class="number">255</span>, <span class="number">164</span>, <span class="number">138</span>, <span class="number">69</span>, <span class="number">140</span>, <span class="number">51</span>, <span class="number">144</span>, <span class="number">7</span>, <span class="number">146</span>, <span class="number">138</span>, <span class="number">146</span>, <span class="number">92</span>, <span class="number">55</span>, <span class="number">220</span>, <span class="number">117</span>, <span class="number">32</span>, <span class="number">212</span>, <span class="number">132</span>, <span class="number">3</span>, <span class="number">207</span>,
+    <span class="number">31</span>, <span class="number">100</span>, <span class="number">131</span>, <span class="number">235</span>, <span class="number">88</span>, <span class="number">199</span>, <span class="number">26</span>, <span class="number">14</span>, <span class="number">1</span>, <span class="number">152</span>, <span class="number">102</span>,
+];
+<span class="kw">pub const </span>MAINNET_BRIDGE_CIRCUIT_CONSTANT: [u8; <span class="number">32</span>] = [
+    <span class="number">53</span>, <span class="number">105</span>, <span class="number">15</span>, <span class="number">124</span>, <span class="number">94</span>, <span class="number">236</span>, <span class="number">46</span>, <span class="number">182</span>, <span class="number">239</span>, <span class="number">94</span>, <span class="number">233</span>, <span class="number">184</span>, <span class="number">178</span>, <span class="number">26</span>, <span class="number">177</span>, <span class="number">86</span>, <span class="number">254</span>, <span class="number">169</span>, <span class="number">218</span>, <span class="number">203</span>,
+    <span class="number">100</span>, <span class="number">210</span>, <span class="number">50</span>, <span class="number">60</span>, <span class="number">254</span>, <span class="number">63</span>, <span class="number">87</span>, <span class="number">116</span>, <span class="number">141</span>, <span class="number">18</span>, <span class="number">175</span>, <span class="number">186</span>,
+];
+<span class="kw">pub const </span>TESTNET4_BRIDGE_CIRCUIT_CONSTANT: [u8; <span class="number">32</span>] = [
+    <span class="number">123</span>, <span class="number">174</span>, <span class="number">147</span>, <span class="number">252</span>, <span class="number">180</span>, <span class="number">21</span>, <span class="number">226</span>, <span class="number">7</span>, <span class="number">0</span>, <span class="number">134</span>, <span class="number">177</span>, <span class="number">95</span>, <span class="number">139</span>, <span class="number">212</span>, <span class="number">140</span>, <span class="number">167</span>, <span class="number">136</span>, <span class="number">195</span>, <span class="number">77</span>, <span class="number">32</span>,
+    <span class="number">247</span>, <span class="number">57</span>, <span class="number">108</span>, <span class="number">254</span>, <span class="number">159</span>, <span class="number">79</span>, <span class="number">94</span>, <span class="number">202</span>, <span class="number">136</span>, <span class="number">168</span>, <span class="number">76</span>, <span class="number">102</span>,
 ];
 
 <span class="attr">#[cfg(test)]
@@ -798,6 +839,25 @@
     };
 
     <span class="kw">use super</span>::<span class="kw-2">*</span>;
+
+    <span class="attr">#[test]
+    </span><span class="kw">fn </span>test_regtest_test_bridge_circuit_constant() {
+        <span class="kw">let </span>regtest_bridge_elf =
+            <span class="macro">include_bytes!</span>(<span class="string">"../../../risc0-circuits/elfs/test-regtest-bridge-circuit-guest.bin"</span>);
+        <span class="kw">let </span>regtest_bridge_circuit_method_id =
+            compute_image_id(regtest_bridge_elf).expect(<span class="string">"should compute image id"</span>);
+        <span class="kw">let </span>calculated_regtest_bridge_circuit_constant =
+            calculate_succinct_output_prefix(regtest_bridge_circuit_method_id.as_bytes());
+
+        <span class="kw">let </span>regtest_bridge_circuit_constant = REGTEST_TEST_BRIDGE_CIRCUIT_CONSTANT;
+        <span class="macro">assert_eq!</span>(
+            calculated_regtest_bridge_circuit_constant,
+            regtest_bridge_circuit_constant,
+            <span class="string">"You forgot to update regtest-(test) bridge_circuit_constant with the new method id. Please change it in these places: core/src/config/protocol.rs. The expected value is: {:?}, hex format: {:?}"</span>,
+            calculated_regtest_bridge_circuit_constant,
+            hex::encode(calculated_regtest_bridge_circuit_constant)
+        );
+    }
 
     <span class="attr">#[test]
     </span><span class="kw">fn </span>test_regtest_bridge_circuit_constant() {

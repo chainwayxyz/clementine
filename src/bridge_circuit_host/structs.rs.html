@@ -639,10 +639,134 @@
 <a href="#638" id="638">638</a>
 <a href="#639" id="639">639</a>
 <a href="#640" id="640">640</a>
-<a href="#641" id="641">641</a></pre></div><pre class="rust"><code><span class="kw">use </span>alloy_rpc_types::EIP1186StorageProof;
+<a href="#641" id="641">641</a>
+<a href="#642" id="642">642</a>
+<a href="#643" id="643">643</a>
+<a href="#644" id="644">644</a>
+<a href="#645" id="645">645</a>
+<a href="#646" id="646">646</a>
+<a href="#647" id="647">647</a>
+<a href="#648" id="648">648</a>
+<a href="#649" id="649">649</a>
+<a href="#650" id="650">650</a>
+<a href="#651" id="651">651</a>
+<a href="#652" id="652">652</a>
+<a href="#653" id="653">653</a>
+<a href="#654" id="654">654</a>
+<a href="#655" id="655">655</a>
+<a href="#656" id="656">656</a>
+<a href="#657" id="657">657</a>
+<a href="#658" id="658">658</a>
+<a href="#659" id="659">659</a>
+<a href="#660" id="660">660</a>
+<a href="#661" id="661">661</a>
+<a href="#662" id="662">662</a>
+<a href="#663" id="663">663</a>
+<a href="#664" id="664">664</a>
+<a href="#665" id="665">665</a>
+<a href="#666" id="666">666</a>
+<a href="#667" id="667">667</a>
+<a href="#668" id="668">668</a>
+<a href="#669" id="669">669</a>
+<a href="#670" id="670">670</a>
+<a href="#671" id="671">671</a>
+<a href="#672" id="672">672</a>
+<a href="#673" id="673">673</a>
+<a href="#674" id="674">674</a>
+<a href="#675" id="675">675</a>
+<a href="#676" id="676">676</a>
+<a href="#677" id="677">677</a>
+<a href="#678" id="678">678</a>
+<a href="#679" id="679">679</a>
+<a href="#680" id="680">680</a>
+<a href="#681" id="681">681</a>
+<a href="#682" id="682">682</a>
+<a href="#683" id="683">683</a>
+<a href="#684" id="684">684</a>
+<a href="#685" id="685">685</a>
+<a href="#686" id="686">686</a>
+<a href="#687" id="687">687</a>
+<a href="#688" id="688">688</a>
+<a href="#689" id="689">689</a>
+<a href="#690" id="690">690</a>
+<a href="#691" id="691">691</a>
+<a href="#692" id="692">692</a>
+<a href="#693" id="693">693</a>
+<a href="#694" id="694">694</a>
+<a href="#695" id="695">695</a>
+<a href="#696" id="696">696</a>
+<a href="#697" id="697">697</a>
+<a href="#698" id="698">698</a>
+<a href="#699" id="699">699</a>
+<a href="#700" id="700">700</a>
+<a href="#701" id="701">701</a>
+<a href="#702" id="702">702</a>
+<a href="#703" id="703">703</a>
+<a href="#704" id="704">704</a>
+<a href="#705" id="705">705</a>
+<a href="#706" id="706">706</a>
+<a href="#707" id="707">707</a>
+<a href="#708" id="708">708</a>
+<a href="#709" id="709">709</a>
+<a href="#710" id="710">710</a>
+<a href="#711" id="711">711</a>
+<a href="#712" id="712">712</a>
+<a href="#713" id="713">713</a>
+<a href="#714" id="714">714</a>
+<a href="#715" id="715">715</a>
+<a href="#716" id="716">716</a>
+<a href="#717" id="717">717</a>
+<a href="#718" id="718">718</a>
+<a href="#719" id="719">719</a>
+<a href="#720" id="720">720</a>
+<a href="#721" id="721">721</a>
+<a href="#722" id="722">722</a>
+<a href="#723" id="723">723</a>
+<a href="#724" id="724">724</a>
+<a href="#725" id="725">725</a>
+<a href="#726" id="726">726</a>
+<a href="#727" id="727">727</a>
+<a href="#728" id="728">728</a>
+<a href="#729" id="729">729</a>
+<a href="#730" id="730">730</a>
+<a href="#731" id="731">731</a>
+<a href="#732" id="732">732</a>
+<a href="#733" id="733">733</a>
+<a href="#734" id="734">734</a>
+<a href="#735" id="735">735</a>
+<a href="#736" id="736">736</a>
+<a href="#737" id="737">737</a>
+<a href="#738" id="738">738</a>
+<a href="#739" id="739">739</a>
+<a href="#740" id="740">740</a>
+<a href="#741" id="741">741</a>
+<a href="#742" id="742">742</a>
+<a href="#743" id="743">743</a>
+<a href="#744" id="744">744</a>
+<a href="#745" id="745">745</a>
+<a href="#746" id="746">746</a>
+<a href="#747" id="747">747</a>
+<a href="#748" id="748">748</a>
+<a href="#749" id="749">749</a>
+<a href="#750" id="750">750</a>
+<a href="#751" id="751">751</a>
+<a href="#752" id="752">752</a>
+<a href="#753" id="753">753</a>
+<a href="#754" id="754">754</a>
+<a href="#755" id="755">755</a>
+<a href="#756" id="756">756</a>
+<a href="#757" id="757">757</a>
+<a href="#758" id="758">758</a>
+<a href="#759" id="759">759</a>
+<a href="#760" id="760">760</a>
+<a href="#761" id="761">761</a>
+<a href="#762" id="762">762</a>
+<a href="#763" id="763">763</a>
+<a href="#764" id="764">764</a></pre></div><pre class="rust"><code><span class="kw">use </span>alloy_rpc_types::EIP1186StorageProof;
 <span class="kw">use </span>ark_bn254::Bn254;
 <span class="kw">use </span>ark_ff::PrimeField;
 <span class="kw">use </span>bitcoin::{hashes::Hash, Network, Transaction, Txid, XOnlyPublicKey};
+<span class="kw">use </span>borsh::{BorshDeserialize, BorshSerialize};
 <span class="kw">use </span>circuits_lib::{
     bridge_circuit::{
         deposit_constant, journal_hash, parse_op_return_data,
@@ -651,12 +775,14 @@
             BridgeCircuitInput, ChallengeSendingWatchtowers, DepositConstant, LatestBlockhash,
             LightClientProof, PayoutTxBlockhash, StorageProof, WatchtowerInput,
         },
+        transaction::CircuitTransaction,
         verify_watchtower_challenges,
     },
     header_chain::BlockHeaderCircuitOutput,
 };
 <span class="kw">use </span>eyre::Result;
 <span class="kw">use </span>risc0_zkvm::Receipt;
+<span class="kw">use </span>std::ops::{Deref, DerefMut};
 
 <span class="kw">use </span><span class="kw">crate</span>::utils::get_ark_verifying_key;
 <span class="kw">use </span>thiserror::Error;
@@ -668,18 +794,18 @@
 ///
 /// This struct contains all the necessary inputs and proofs required to generate
 /// a bridge circuit proof, including transactions, receipts, and cryptographic proofs.
-</span><span class="attr">#[derive(Debug, Clone)]
+</span><span class="attr">#[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
 </span><span class="kw">pub struct </span>BridgeCircuitHostParams {
-    <span class="kw">pub </span>kickoff_tx: Transaction,
+    <span class="kw">pub </span>kickoff_tx: CircuitTransaction,
     <span class="kw">pub </span>spv: SPV,
     <span class="kw">pub </span>block_header_circuit_output: BlockHeaderCircuitOutput,
     <span class="kw">pub </span>headerchain_receipt: Receipt,
     <span class="kw">pub </span>light_client_proof: LightClientProof,
     <span class="kw">pub </span>lcp_receipt: Receipt,
     <span class="kw">pub </span>storage_proof: StorageProof,
-    <span class="kw">pub </span>network: Network,
+    <span class="kw">pub </span>network: CircuitNetwork,
     <span class="kw">pub </span>watchtower_inputs: Vec&lt;WatchtowerInput&gt;,
-    <span class="kw">pub </span>all_tweaked_watchtower_pubkeys: Vec&lt;XOnlyPublicKey&gt;,
+    <span class="kw">pub </span>all_tweaked_watchtower_pubkeys: Vec&lt;CircuitXOnlyPublicKey&gt;,
     <span class="kw">pub </span>watchtower_challenge_connector_start_idx: u16,
     <span class="kw">pub </span>payout_input_index: u16,
 }
@@ -757,15 +883,21 @@
         watchtower_challenge_connector_start_idx: u16,
         payout_input_index: u16,
     ) -&gt; <span class="self">Self </span>{
+        <span class="kw">let </span>all_tweaked_watchtower_pubkeys: Vec&lt;CircuitXOnlyPublicKey&gt; =
+            all_tweaked_watchtower_pubkeys
+                .into_iter()
+                .map(CircuitXOnlyPublicKey::from)
+                .collect();
+
         BridgeCircuitHostParams {
-            kickoff_tx,
+            kickoff_tx: CircuitTransaction(kickoff_tx),
             spv,
             block_header_circuit_output,
             headerchain_receipt,
             light_client_proof,
             lcp_receipt,
             storage_proof,
-            network,
+            network: CircuitNetwork(network),
             watchtower_inputs,
             all_tweaked_watchtower_pubkeys,
             watchtower_challenge_connector_start_idx,
@@ -839,15 +971,21 @@
 
         <span class="kw">let </span>payout_input_index = get_payout_input_index(wd_txid, <span class="kw-2">&amp;</span>spv.transaction.<span class="number">0</span>)<span class="question-mark">?</span>;
 
+        <span class="kw">let </span>all_tweaked_watchtower_pubkeys: Vec&lt;CircuitXOnlyPublicKey&gt; =
+            all_tweaked_watchtower_pubkeys
+                .into_iter()
+                .map(CircuitXOnlyPublicKey::from)
+                .collect();
+
         <span class="prelude-val">Ok</span>(BridgeCircuitHostParams {
-            kickoff_tx,
+            kickoff_tx: CircuitTransaction(kickoff_tx),
             spv,
             block_header_circuit_output,
             headerchain_receipt,
             light_client_proof,
             lcp_receipt,
             storage_proof,
-            network,
+            network: CircuitNetwork(network),
             watchtower_inputs,
             all_tweaked_watchtower_pubkeys,
             watchtower_challenge_connector_start_idx,
@@ -881,11 +1019,11 @@
 
         <span class="kw">let </span>all_tweaked_watchtower_pubkeys: Vec&lt;[u8; <span class="number">32</span>]&gt; = all_tweaked_watchtower_pubkeys
             .iter()
-            .map(|pubkey| pubkey.serialize())
+            .map(|pubkey| (<span class="kw-2">**</span>pubkey).serialize())
             .collect();
 
         BridgeCircuitInput::new(
-            kickoff_tx,
+            kickoff_tx.into(),
             watchtower_inputs,
             all_tweaked_watchtower_pubkeys,
             block_header_circuit_output,
@@ -1071,7 +1209,7 @@
         })
     }
 
-    <span class="doccomment">/// Calculates the host journal hash for the bridge circuit.
+    <span class="doccomment">/// Calculates the host-side journal hash for the bridge circuit.
     ///
     /// # Returns
     ///
@@ -1278,6 +1416,114 @@
             <span class="kw-2">&amp;</span>[public_input_scalar],
         )
         .map_err(|<span class="kw">_</span>| BridgeCircuitHostParamsError::ProofVerificationFailed)
+    }
+}
+
+<span class="attr">#[derive(Clone, PartialEq, Eq, Debug, Hash)]
+</span><span class="kw">pub struct </span>CircuitNetwork(<span class="kw">pub </span>Network);
+
+<span class="kw">impl </span>CircuitNetwork {
+    <span class="kw">pub fn </span>from(network: Network) -&gt; <span class="self">Self </span>{
+        <span class="self">Self</span>(network)
+    }
+
+    <span class="kw">pub fn </span>inner(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="kw-2">&amp;</span>Network {
+        <span class="kw-2">&amp;</span><span class="self">self</span>.<span class="number">0
+    </span>}
+}
+
+<span class="kw">impl </span>BorshSerialize <span class="kw">for </span>CircuitNetwork {
+    <span class="kw">fn </span>serialize&lt;W: borsh::io::Write&gt;(<span class="kw-2">&amp;</span><span class="self">self</span>, writer: <span class="kw-2">&amp;mut </span>W) -&gt; borsh::io::Result&lt;()&gt; {
+        BorshSerialize::serialize(<span class="kw-2">&amp;</span>(<span class="self">self</span>.<span class="number">0 </span><span class="kw">as </span>u8), writer)
+    }
+}
+
+<span class="kw">impl </span>BorshDeserialize <span class="kw">for </span>CircuitNetwork {
+    <span class="kw">fn </span>deserialize_reader&lt;R: borsh::io::Read&gt;(reader: <span class="kw-2">&amp;mut </span>R) -&gt; borsh::io::Result&lt;<span class="self">Self</span>&gt; {
+        <span class="kw">let </span>value = u8::deserialize_reader(reader)<span class="question-mark">?</span>;
+        <span class="kw">let </span>network = <span class="kw">match </span>value {
+            <span class="number">0 </span>=&gt; Network::Bitcoin,
+            <span class="number">1 </span>=&gt; Network::Testnet,
+            <span class="number">2 </span>=&gt; Network::Testnet4,
+            <span class="number">3 </span>=&gt; Network::Signet,
+            <span class="number">4 </span>=&gt; Network::Regtest,
+            <span class="kw">_ </span>=&gt; {
+                <span class="kw">return </span><span class="prelude-val">Err</span>(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    <span class="string">"Invalid Network"</span>,
+                ))
+            }
+        };
+        <span class="prelude-val">Ok</span>(<span class="self">Self</span>(network))
+    }
+}
+
+<span class="kw">impl </span>Deref <span class="kw">for </span>CircuitNetwork {
+    <span class="kw">type </span>Target = Network;
+    <span class="kw">fn </span>deref(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="kw-2">&amp;</span><span class="self">Self</span>::Target {
+        <span class="kw-2">&amp;</span><span class="self">self</span>.<span class="number">0
+    </span>}
+}
+
+<span class="kw">impl </span>DerefMut <span class="kw">for </span>CircuitNetwork {
+    <span class="kw">fn </span>deref_mut(<span class="kw-2">&amp;mut </span><span class="self">self</span>) -&gt; <span class="kw-2">&amp;mut </span><span class="self">Self</span>::Target {
+        <span class="kw-2">&amp;mut </span><span class="self">self</span>.<span class="number">0
+    </span>}
+}
+
+<span class="kw">impl </span>From&lt;Network&gt; <span class="kw">for </span>CircuitNetwork {
+    <span class="kw">fn </span>from(network: Network) -&gt; <span class="self">Self </span>{
+        <span class="self">Self</span>(network)
+    }
+}
+
+<span class="attr">#[derive(Clone, PartialEq, Eq, Debug, Hash)]
+</span><span class="kw">pub struct </span>CircuitXOnlyPublicKey(<span class="kw">pub </span>XOnlyPublicKey);
+
+<span class="kw">impl </span>CircuitXOnlyPublicKey {
+    <span class="kw">pub fn </span>from(pk: XOnlyPublicKey) -&gt; <span class="self">Self </span>{
+        <span class="self">Self</span>(pk)
+    }
+
+    <span class="kw">pub fn </span>inner(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="kw-2">&amp;</span>XOnlyPublicKey {
+        <span class="kw-2">&amp;</span><span class="self">self</span>.<span class="number">0
+    </span>}
+}
+
+<span class="kw">impl </span>BorshSerialize <span class="kw">for </span>CircuitXOnlyPublicKey {
+    <span class="kw">fn </span>serialize&lt;W: borsh::io::Write&gt;(<span class="kw-2">&amp;</span><span class="self">self</span>, writer: <span class="kw-2">&amp;mut </span>W) -&gt; borsh::io::Result&lt;()&gt; {
+        BorshSerialize::serialize(<span class="kw-2">&amp;</span><span class="self">self</span>.<span class="number">0</span>.serialize(), writer)
+    }
+}
+
+<span class="kw">impl </span>BorshDeserialize <span class="kw">for </span>CircuitXOnlyPublicKey {
+    <span class="kw">fn </span>deserialize_reader&lt;R: borsh::io::Read&gt;(reader: <span class="kw-2">&amp;mut </span>R) -&gt; borsh::io::Result&lt;<span class="self">Self</span>&gt; {
+        <span class="kw">use </span>bitcoin::secp256k1::XOnlyPublicKey <span class="kw">as </span>RawXOnly;
+
+        <span class="kw">let </span>bytes: [u8; <span class="number">32</span>] = BorshDeserialize::deserialize_reader(reader)<span class="question-mark">?</span>;
+        <span class="kw">let </span>raw_key = RawXOnly::from_slice(<span class="kw-2">&amp;</span>bytes).map_err(|<span class="kw">_</span>| {
+            std::io::Error::new(std::io::ErrorKind::InvalidData, <span class="string">"Invalid XOnlyPublicKey"</span>)
+        })<span class="question-mark">?</span>;
+        <span class="prelude-val">Ok</span>(<span class="self">Self</span>(raw_key))
+    }
+}
+
+<span class="kw">impl </span>Deref <span class="kw">for </span>CircuitXOnlyPublicKey {
+    <span class="kw">type </span>Target = XOnlyPublicKey;
+    <span class="kw">fn </span>deref(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="kw-2">&amp;</span><span class="self">Self</span>::Target {
+        <span class="kw-2">&amp;</span><span class="self">self</span>.<span class="number">0
+    </span>}
+}
+
+<span class="kw">impl </span>DerefMut <span class="kw">for </span>CircuitXOnlyPublicKey {
+    <span class="kw">fn </span>deref_mut(<span class="kw-2">&amp;mut </span><span class="self">self</span>) -&gt; <span class="kw-2">&amp;mut </span><span class="self">Self</span>::Target {
+        <span class="kw-2">&amp;mut </span><span class="self">self</span>.<span class="number">0
+    </span>}
+}
+
+<span class="kw">impl </span>From&lt;XOnlyPublicKey&gt; <span class="kw">for </span>CircuitXOnlyPublicKey {
+    <span class="kw">fn </span>from(pk: XOnlyPublicKey) -&gt; <span class="self">Self </span>{
+        <span class="self">Self</span>(pk)
     }
 }
 </code></pre></div></section></main></body></html>

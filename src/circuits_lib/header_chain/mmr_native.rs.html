@@ -237,25 +237,7 @@
 <a href="#236" id="236">236</a>
 <a href="#237" id="237">237</a>
 <a href="#238" id="238">238</a>
-<a href="#239" id="239">239</a>
-<a href="#240" id="240">240</a>
-<a href="#241" id="241">241</a>
-<a href="#242" id="242">242</a>
-<a href="#243" id="243">243</a>
-<a href="#244" id="244">244</a>
-<a href="#245" id="245">245</a>
-<a href="#246" id="246">246</a>
-<a href="#247" id="247">247</a>
-<a href="#248" id="248">248</a>
-<a href="#249" id="249">249</a>
-<a href="#250" id="250">250</a>
-<a href="#251" id="251">251</a>
-<a href="#252" id="252">252</a>
-<a href="#253" id="253">253</a>
-<a href="#254" id="254">254</a>
-<a href="#255" id="255">255</a>
-<a href="#256" id="256">256</a>
-<a href="#257" id="257">257</a></pre></div><pre class="rust"><code><span class="kw">use </span>borsh::{BorshDeserialize, BorshSerialize};
+<a href="#239" id="239">239</a></pre></div><pre class="rust"><code><span class="kw">use </span>borsh::{BorshDeserialize, BorshSerialize};
 <span class="kw">use </span>eyre::{eyre, <span class="prelude-ty">Result</span>};
 <span class="kw">use </span>serde::{Deserialize, Serialize};
 
@@ -322,7 +304,7 @@
     <span class="doccomment">/// Generates a proof for a given index. Returns the leaf as well.
     </span><span class="kw">pub fn </span>generate_proof(<span class="kw-2">&amp;</span><span class="self">self</span>, index: u32) -&gt; <span class="prelude-ty">Result</span>&lt;([u8; <span class="number">32</span>], MMRInclusionProof)&gt; {
         <span class="kw">if </span><span class="self">self</span>.nodes[<span class="number">0</span>].is_empty() {
-            <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre!</span>(<span class="string">"MMR is empty"</span>));
+            <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre!</span>(<span class="string">"MMR Native is empty"</span>));
         }
         <span class="kw">if </span><span class="self">self</span>.nodes[<span class="number">0</span>].len() &lt;= index <span class="kw">as </span>usize {
             <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre!</span>(
@@ -349,9 +331,7 @@
             current_level += <span class="number">1</span>;
         }
         <span class="kw">let </span>(subroot_idx, internal_idx) = <span class="self">self</span>.get_helpers_from_index(index);
-        <span class="comment">// let subroot = self.nodes[current_level][current_index as usize];
-        // proof.extend(self.get_subroot_helpers(subroot));
-        </span><span class="kw">let </span>mmr_proof = MMRInclusionProof::new(subroot_idx, internal_idx, proof);
+        <span class="kw">let </span>mmr_proof = MMRInclusionProof::new(subroot_idx, internal_idx, proof);
         <span class="prelude-val">Ok</span>((<span class="self">self</span>.nodes[<span class="number">0</span>][index <span class="kw">as </span>usize], mmr_proof))
     }
 
@@ -367,31 +347,15 @@
                 subtree_idx += <span class="number">1</span>;
             }
         }
-        <span class="comment">// (tree_idx, xor_leading_digit, internal_idx)
-        </span>(subtree_idx, internal_idx)
+        (subtree_idx, internal_idx)
     }
 
     <span class="doccomment">/// Verifies an inclusion proof against the current MMR root.
     </span><span class="kw">pub fn </span>verify_proof(<span class="kw-2">&amp;</span><span class="self">self</span>, leaf: [u8; <span class="number">32</span>], mmr_proof: <span class="kw-2">&amp;</span>MMRInclusionProof) -&gt; bool {
-        <span class="macro">tracing::debug!</span>(<span class="string">"NATIVE: inclusion_proof: {:?}"</span>, mmr_proof);
-        <span class="macro">tracing::debug!</span>(<span class="string">"NATIVE: leaf: {:?}"</span>, leaf);
-        <span class="comment">// let (subroot_idx, subtree_size, internal_idx) = self.get_helpers_from_index(index);
-        </span><span class="kw">let </span>subroot = mmr_proof.get_subroot(leaf);
-        <span class="macro">tracing::debug!</span>(<span class="string">"NATIVE: calculated_subroot: {:?}"</span>, subroot);
+        <span class="kw">let </span>subroot = mmr_proof.get_subroot(leaf);
         <span class="kw">let </span>subroots = <span class="self">self</span>.get_subroots();
-        <span class="macro">tracing::debug!</span>(<span class="string">"NATIVE: subroots: {:?}"</span>, subroots);
         subroots[mmr_proof.subroot_idx] == subroot
-        <span class="comment">// let mut preimage: Vec&lt;u8&gt; = vec![];
-        // for i in 0..subroot_idx {
-        //     preimage.extend_from_slice(&amp;subroots[i]);
-        // }
-        // preimage.extend_from_slice(&amp;current_hash);
-        // for i in subroot_idx + 1..subroots.len() {
-        //     preimage.extend_from_slice(&amp;subroots[i]);
-        // }
-        // let calculated_root = calculate_sha256(&amp;preimage);
-        // calculated_root == self.get_root()
-    </span>}
+    }
 }
 
 <span class="attr">#[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
@@ -434,7 +398,7 @@
         <span class="kw">let </span>mmr = MMRNative::new();
         <span class="kw">let </span>result = mmr.generate_proof(<span class="number">0</span>);
         <span class="macro">assert!</span>(result.is_err());
-        <span class="macro">assert_eq!</span>(result.unwrap_err().to_string(), <span class="string">"MMR is empty"</span>);
+        <span class="macro">assert_eq!</span>(result.unwrap_err().to_string(), <span class="string">"MMR Native is empty"</span>);
     }
 
     <span class="attr">#[test]
