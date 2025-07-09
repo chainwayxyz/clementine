@@ -422,6 +422,7 @@ pub async fn get_new_withdrawal_utxo_and_register_to_citrea(
 }
 
 /// This fn sends a payout tx with given operator, starts a kickoff then returns the reimburse connector of the kickoff.
+/// operator_xonly_pk and operator_db should match the operator client ClementineOperatorClient
 #[allow(clippy::too_many_arguments)]
 pub async fn payout_and_challenge(
     mut operator: ClementineOperatorClient<tonic::transport::Channel>,
@@ -615,30 +616,16 @@ pub async fn reimburse_with_optimistic_payout(
     sig: &bitcoin::secp256k1::schnorr::Signature,
     e2e: &CitreaE2EData<'_>,
     move_txid: Txid,
-) {
-    loop {
-        let payout_resp = aggregator
-            .optimistic_payout(WithdrawParams {
-                withdrawal_id,
-                input_signature: sig.serialize().to_vec(),
-                input_outpoint: Some(withdrawal_utxo.to_owned().into()),
-                output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
-                output_amount: payout_txout.value.to_sat(),
-            })
-            .await;
-
-        match payout_resp {
-            Ok(payout_response) => {
-                tracing::info!("Optimistic payout response: {:?}", payout_response);
-                break;
-            }
-            Err(e) => {
-                tracing::warn!("Optimistic payout error: {:?}", e);
-            }
-        }
-
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-    }
+) -> eyre::Result<()> {
+    aggregator
+        .optimistic_payout(WithdrawParams {
+            withdrawal_id,
+            input_signature: sig.serialize().to_vec(),
+            input_outpoint: Some(withdrawal_utxo.to_owned().into()),
+            output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
+            output_amount: payout_txout.value.to_sat(),
+        })
+        .await?;
 
     // ensure the btc in vault is spent
     ensure_outpoint_spent_while_waiting_for_light_client_sync(
@@ -649,6 +636,7 @@ pub async fn reimburse_with_optimistic_payout(
             vout: (UtxoVout::DepositInMove).get_vout(),
         },
     )
-    .await
-    .unwrap();
+    .await?;
+
+    Ok(())
 }

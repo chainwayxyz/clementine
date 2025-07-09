@@ -88,7 +88,7 @@ async fn base_setup(
         ),
         deposit_outpoint: Some(deposit_outpoint.into()),
     };
-    let mut operator0 = actors.get_operator_by_index(0);
+    let mut operator0 = actors.get_operator_client_by_index(0);
     let all_txs = operator0
         .internal_create_signed_txs(base_tx_req.clone())
         .await?
@@ -114,7 +114,7 @@ pub async fn run_operator_end_round(
         run_single_deposit::<MockCitreaClient>(config, rpc.clone(), None, None, None).await?;
     let deposit_outpoint = deposit_info.deposit_outpoint;
 
-    let mut operator0 = actors.get_operator_by_index(0);
+    let mut operator0 = actors.get_operator_client_by_index(0);
     let kickoff_txid = operator0
         .internal_finalized_payout(FinalizedPayoutParams {
             payout_blockhash: [1u8; 32].to_vec(),
@@ -124,8 +124,8 @@ pub async fn run_operator_end_round(
 
     let kickoff_txid = Txid::from_byte_array(kickoff_txid.into_inner().txid.try_into().unwrap());
 
-    let mut operator0 = actors.get_operator_by_index(0);
-    let mut verifier1 = actors.get_verifier_by_index(1);
+    let mut operator0 = actors.get_operator_client_by_index(0);
+    let mut verifier1 = actors.get_verifier_client_by_index(1);
 
     operator0.internal_end_round(Request::new(Empty {})).await?;
 
@@ -183,7 +183,7 @@ pub async fn run_happy_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
 
     // Send Reimburse Generator 1
     tracing::info!("Sending round 2 transaction");
-    let mut operator0 = actors.get_operator_by_index(0);
+    let mut operator0 = actors.get_operator_client_by_index(0);
     let all_txs_2 = operator0
         .internal_create_signed_txs(TransactionRequest {
             kickoff_id: Some(
@@ -277,7 +277,7 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
             "Sending operator challenge ack transaction for verifier {}",
             verifier_idx
         );
-        let mut operator0 = actors.get_operator_by_index(0);
+        let mut operator0 = actors.get_operator_client_by_index(0);
         let operator_challenge_ack_txs = operator0
             .internal_create_signed_txs(base_tx_req.clone())
             .await?
@@ -292,7 +292,7 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
     }
 
     // Send Assert Transactions
-    let mut operator0 = actors.get_operator_by_index(0);
+    let mut operator0 = actors.get_operator_client_by_index(0);
     let assert_txs = operator0
         .internal_create_assert_commitment_txs(base_tx_req.clone())
         .await?
@@ -391,7 +391,7 @@ pub async fn run_simple_assert_flow(config: &mut BridgeConfig, rpc: ExtendedRpc)
     // Get deposit data and kickoff ID for assert creation
     rpc.mine_blocks(8 * BLOCKS_PER_HOUR as u64).await?;
     // Create assert transactions for operator 0
-    let mut operator0 = actors.get_operator_by_index(0);
+    let mut operator0 = actors.get_operator_client_by_index(0);
     let assert_txs = operator0
         .internal_create_assert_commitment_txs(base_tx_req)
         .await?
@@ -455,7 +455,7 @@ pub async fn run_bad_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
         "Sending watchtower challenge transaction for watchtower {}",
         watchtower_idx
     );
-    let mut verifier = actors.get_verifier_by_index(watchtower_idx);
+    let mut verifier = actors.get_verifier_client_by_index(watchtower_idx);
     let watchtower_challenge_tx = verifier
         .internal_create_watchtower_challenge(base_tx_req.clone())
         .await?

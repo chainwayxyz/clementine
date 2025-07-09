@@ -201,7 +201,7 @@ impl DisproveTest {
         let withdrawal_utxo = withdrawal_utxo_with_txout.outpoint;
 
         // Without a withdrawal in Citrea, operator can't withdraw.
-        let mut operator0 = actors.get_operator_by_index(0);
+        let mut operator0 = actors.get_operator_client_by_index(0);
         assert!(operator0
             .withdraw(WithdrawParams {
                 withdrawal_id: 0,

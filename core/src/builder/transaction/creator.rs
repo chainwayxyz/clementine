@@ -1312,12 +1312,27 @@ mod tests {
         let mut config = create_test_config_with_thread_name().await;
         let WithProcessCleanup(_, ref rpc, _, _) = create_regtest_rpc(&mut config).await;
 
-        let (actors, deposit_info, _, deposit_blockhash) =
-            run_replacement_deposit(&mut config, rpc.clone(), None)
+        let (actors, _deposit_info, old_move_txid, _deposit_blockhash, _verifiers_public_keys) =
+            run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None, None)
                 .await
                 .unwrap();
 
-        check_if_signable(actors, deposit_info, deposit_blockhash, config.clone()).await;
+        let (
+            actors,
+            replacement_deposit_info,
+            _replacement_move_txid,
+            replacement_deposit_blockhash,
+        ) = run_single_replacement_deposit(&mut config, rpc, old_move_txid, actors)
+            .await
+            .unwrap();
+
+        check_if_signable(
+            actors,
+            replacement_deposit_info,
+            replacement_deposit_blockhash,
+            config.clone(),
+        )
+        .await;
     }
 
     #[test]

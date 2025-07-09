@@ -34,6 +34,7 @@ use crate::test::common::{
     create_actors, create_regtest_rpc, create_test_config_with_thread_name,
     generate_withdrawal_transaction_and_signature, get_deposit_address, mine_once_after_in_mempool,
     poll_get, poll_until_condition, run_multiple_deposits, run_single_deposit,
+    run_single_replacement_deposit,
 };
 use crate::utils::initialize_logger;
 use crate::{EVMAddress, UTXO};
@@ -58,7 +59,7 @@ use tonic::Request;
 
 #[derive(PartialEq)]
 pub enum CitreaDepositAndWithdrawE2EVariant {
-    GenesisHeightZero,
+    //GenesisHeightZero,
     GenesisHeightNonZero,
 }
 
@@ -208,7 +209,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 
         let mut reimburse_connectors = Vec::new();
 
-        // withdraw one with a kickoff
+        // withdraw one with a kickoff with operator 0
         // set up verifier 0 db
         let verifier_0_config = {
             let mut config = config.clone();
@@ -219,11 +220,10 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         let db = Database::new(&verifier_0_config)
             .await
             .expect("failed to create database");
-        let operator0 = actors.get_operator_by_index(0);
 
         reimburse_connectors.push(
             payout_and_challenge(
-                operator0,
+                actors.get_operator_client_by_index(0),
                 op0_xonly_pk,
                 &db,
                 withdrawal_infos[0].0,
@@ -239,25 +239,32 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         // add a new verifier
         let new_sk = SecretKey::new(&mut bitcoin::secp256k1::rand::thread_rng());
         actors.add_verifier(new_sk).await.unwrap();
+        // add a new operator too that uses the new verifier
+        let new_op_sk = SecretKey::new(&mut bitcoin::secp256k1::rand::thread_rng());
+        let new_verifier_index = actors.num_total_verifiers - 1;
+        actors
+            .add_operator(new_op_sk, new_verifier_index)
+            .await
+            .unwrap();
 
-        let new_agg_key = actors.get_nofn_aggregated_xonly_pk().await.unwrap();
+        let new_agg_key = actors.get_nofn_aggregated_xonly_pk().unwrap();
         citrea_client
             .update_nofn_aggregated_key(new_agg_key, config.protocol_paramset(), sequencer)
             .await
             .unwrap();
 
-        // do 2 more deposits
-        tracing::warn!("Running 2 more deposits");
+        // do 3 more deposits
+        tracing::info!("Running 3 more deposits");
         let (
-            actors,
+            mut actors,
             new_deposit_infos,
             new_move_txids,
             _deposit_blockhashs,
             _verifiers_public_keys,
-        ) = run_multiple_deposits::<CitreaClient>(&mut config, rpc.clone(), 2, Some(actors))
+        ) = run_multiple_deposits::<CitreaClient>(&mut config, rpc.clone(), 3, Some(actors))
             .await?;
 
-        tracing::warn!("2 more deposits done, doing 2 more withdrawals");
+        tracing::info!("3 more deposits done, doing 3 more withdrawals");
         // do 2 more withdrawals
         for move_txid in new_move_txids.iter() {
             let (withdrawal_utxo, payout_txout, sig) =
@@ -266,13 +273,22 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             withdrawal_index += 1;
         }
 
-        // do 1 kickoff with one of the new deposits
-        let operator0 = actors.get_operator_by_index(0);
+        // do 1 kickoff with one of the new deposits using the new operator
+        let new_operator_index = actors.num_total_operators - 1;
+        let new_operator_xonly_pk = new_op_sk.x_only_public_key(&SECP).0;
+        let verifier_x_config = {
+            let mut config = config.clone();
+            config.db_name += &new_verifier_index.to_string();
+            config
+        };
+        let new_operator_db = Database::new(&verifier_x_config)
+            .await
+            .expect("failed to create database");
         reimburse_connectors.push(
             payout_and_challenge(
-                operator0,
-                op0_xonly_pk,
-                &db,
+                actors.get_operator_client_by_index(new_operator_index),
+                new_operator_xonly_pk,
+                &new_operator_db,
                 withdrawal_infos[2].0,
                 &withdrawal_infos[2].1,
                 &withdrawal_infos[2].2,
@@ -283,7 +299,9 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             .await,
         );
 
-        // do 2 optimistic payouts, 1 with old 1 with new deposit
+        // do 2 optimistic payouts, 1 with old 1 with new deposit, they should both work as all verifiers that
+        // signed them still exist
+        tracing::info!("Doing optimistic payout with old deposit");
         reimburse_with_optimistic_payout(
             actors.get_aggregator(),
             withdrawal_infos[1].0,
@@ -293,8 +311,10 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             &citrea_e2e_data,
             move_txids[1],
         )
-        .await;
+        .await
+        .unwrap();
 
+        tracing::info!("Doing optimistic payout with new deposit");
         reimburse_with_optimistic_payout(
             actors.get_aggregator(),
             withdrawal_infos[3].0,
@@ -304,9 +324,63 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             &citrea_e2e_data,
             new_move_txids[1],
         )
-        .await;
+        .await
+        .unwrap();
+
+        // now remove verifier 2
+        tracing::info!("Removing verifier 2");
+        actors.remove_verifier(2).await.unwrap();
+
+        // try an optimistic payout, should fail because a verifier that signed the withdrawal was removed
+        tracing::info!("Trying optimistic payout with removed verifier, should fail");
+        let _ = reimburse_with_optimistic_payout(
+            actors.get_aggregator(),
+            withdrawal_infos[4].0,
+            &withdrawal_infos[4].1,
+            &withdrawal_infos[4].2,
+            &withdrawal_infos[4].3,
+            &citrea_e2e_data,
+            new_move_txids[2],
+        )
+        .await
+        .unwrap_err();
+
+        // replace the deposit
+        tracing::info!("Replacing deposit");
+        let (
+            actors,
+            _replacement_deposit_info,
+            replacement_move_txid,
+            _replacement_deposit_blockhash,
+        ) = run_single_replacement_deposit(&mut config, &rpc, new_move_txids[2], actors)
+            .await
+            .unwrap();
+
+        tracing::info!("Waiting for lc prover to sync");
+        // wait for lc prover so that new replacement deposit gets synced on verifiers before attempting optimistic payout
+        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH + 1).await.unwrap();
+        let block_height = da.get_finalized_height(None).await.unwrap();
+        lc_prover
+            .wait_for_l1_height(block_height as u64, None)
+            .await
+            .unwrap();
+
+        tracing::info!("Doing optimistic payout with new replacement deposit");
+        // do optimistic payout with new replacement deposit, should work now
+        reimburse_with_optimistic_payout(
+            actors.get_aggregator(),
+            withdrawal_infos[5].0,
+            &withdrawal_infos[5].1,
+            &withdrawal_infos[5].2,
+            &withdrawal_infos[5].3,
+            &citrea_e2e_data,
+            replacement_move_txid,
+        )
+        .await
+        .unwrap();
 
         // wait for all past kickoff reimburse connectors to be spent
+        tracing::info!("Waiting for all past kickoff reimburse connectors to be spent");
         for reimburse_connector in reimburse_connectors.iter() {
             ensure_outpoint_spent_while_waiting_for_light_client_sync(
                 &rpc,
@@ -326,34 +400,26 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 /// # Arrange
 /// * Sets up Citrea infrastructure (sequencer, prover, DA layer)
 /// * Configures bridge parameters and connects to Bitcoin regtest
+/// * At first there are 2 operators; 0 and 1, and 4 verifiers; 0, 1, 2, 3
 ///
 /// # Act
-/// * Executes a deposit from Bitcoin to Citrea
-/// * Waits for deposit finalization and batch proof generation
-/// * Executes a withdrawal from Citrea back to Bitcoin
-/// * Processes the payout transaction
+/// * Executes 2 deposits 0 and 1 from Bitcoin to Citrea
+/// * Creates 2 withdrawal utxos and registers them to Citrea, no payout performerd yet
+/// * Operator 0 pays and starts the kickoff for deposit 0
+/// * New verifier 4 and new operator 2 that uses verifier 4 are added
+/// * 3 new deposits are performed; 2, 3, 4
+/// * Operator 2 pays and starts the kickoff for deposit 2
+/// * Optimistic payout for deposit 1 is performed
+/// * Optimistic payout for deposit 3 is performed
+/// * Verifier 2 leaves the verifier set
+/// * Optimistic payout for deposit 4 is attempted but fails because verifier 2 is not in signer set anymore,
+/// but it is one of the nofn in deposit 4
+/// * A replacement deposit is performed for deposit 4
+/// * Optimistic payout for deposit 4 is performed with the new replacement deposit
+/// * A check to see if reimburse connectors for the kickoffs created previously (for deposit 0 and 2) are spent,
+///     meaning operators 0 and 2 got their funds back (the kickoff process is independent of actor set changes, they should
+///     always work if the collected signatures are correct from start)
 ///
-/// # Assert
-/// * Verifies balance is 0 before deposit and non-zero after deposit
-/// * Confirms withdrawal fails without Citrea-side withdrawal
-/// * Verifies payout transaction is successfully processed
-/// * Confirms kickoff transaction is created and mined
-/// * Verifies reimburse connector is spent (proper payout handling)
-#[tokio::test]
-#[ignore = "This test does the same thing as disprove_script_test_healthy"]
-async fn citrea_deposit_and_withdraw_e2e() -> citrea_e2e::Result<()> {
-    initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
-        .expect("Failed to initialize logger");
-    std::env::set_var(
-        "CITREA_DOCKER_IMAGE",
-        "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
-    );
-    let citrea_e2e = CitreaDepositAndWithdrawE2E {
-        variant: CitreaDepositAndWithdrawE2EVariant::GenesisHeightZero,
-    };
-    TestCaseRunner::new(citrea_e2e).run().await
-}
-
 #[tokio::test]
 #[ignore = "Run in standalone VM in CI"]
 async fn citrea_deposit_and_withdraw_e2e_non_zero_genesis_height() -> citrea_e2e::Result<()> {
@@ -490,7 +556,7 @@ async fn mock_citrea_run_truthful() {
     //     .unwrap();
 
     tracing::info!("Withdrawal tx sent");
-    let mut operator0 = actors.get_operator_by_index(0);
+    let mut operator0 = actors.get_operator_client_by_index(0);
 
     let payout_txid = poll_get(
         async || {
@@ -935,7 +1001,7 @@ async fn mock_citrea_run_malicious() {
 
     rpc.mine_blocks(DEFAULT_FINALITY_DEPTH + 2).await.unwrap();
 
-    let mut operator0 = actors.get_operator_by_index(0);
+    let mut operator0 = actors.get_operator_client_by_index(0);
     let kickoff_txid: bitcoin::Txid = operator0
         .internal_finalized_payout(FinalizedPayoutParams {
             payout_blockhash: vec![0u8; 32],
@@ -1140,7 +1206,7 @@ async fn mock_citrea_run_malicious_after_exit() {
         config.protocol_paramset().network,
     );
 
-    let mut operator0 = actors.get_operator_by_index(0);
+    let mut operator0 = actors.get_operator_client_by_index(0);
     let first_round_txs = operator0
         .internal_create_signed_txs(TransactionRequest {
             deposit_outpoint: Some(deposit_info.deposit_outpoint.into()),
@@ -1461,7 +1527,7 @@ async fn concurrent_deposits_and_withdrawals() {
     let withdrawal_txids = poll_get(
         async move || {
             let mut operator0s = (0..count)
-                .map(|_| actors.get_operator_by_index(0))
+                .map(|_| actors.get_operator_client_by_index(0))
                 .collect::<Vec<_>>();
             let mut withdrawal_requests = Vec::new();
 

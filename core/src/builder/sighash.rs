@@ -489,7 +489,7 @@ mod tests {
         )
         .await;
 
-        let operator = actors.get_operator_by_index(0);
+        let operator = actors.get_operator_client_by_index(0);
 
         let round_tx_txid_hash = compute_hash_of_round_txs(
             operator,
@@ -722,7 +722,7 @@ mod tests {
             .map(|sk| sk.x_only_public_key(&SECP).0)
             .collect::<Vec<_>>();
 
-        let operator = actors.get_operator_by_index(0);
+        let operator = actors.get_operator_client_by_index(0);
 
         let round_tx_hash = compute_hash_of_round_txs(
             operator,

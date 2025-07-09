@@ -25,6 +25,7 @@ pub struct TestVerifier<C: CitreaClientT> {
     pub shutdown_tx: oneshot::Sender<()>,
     pub socket_path: std::path::PathBuf,
     pub client_type: PhantomData<C>,
+    pub secret_key: bitcoin::secp256k1::SecretKey,
 }
 
 #[derive(Debug)]
@@ -34,6 +35,7 @@ pub struct TestOperator<C: CitreaClientT> {
     pub shutdown_tx: oneshot::Sender<()>,
     pub socket_path: std::path::PathBuf,
     pub client_type: PhantomData<C>,
+    pub secret_key: bitcoin::secp256k1::SecretKey,
 }
 
 #[derive(Debug)]
@@ -50,11 +52,11 @@ pub struct TestActors<C: CitreaClientT> {
     operators: Vec<TestOperator<C>>,
     aggregator: TestAggregator,
     /// The total number of verifiers, including deleted ones, to ensure unique numbering
-    num_total_verifiers: usize,
+    pub num_total_verifiers: usize,
     /// The total number of operators, including deleted ones, to ensure unique numbering
-    num_total_operators: usize,
+    pub num_total_operators: usize,
     /// The total number of aggregators, including deleted ones, to ensure unique numbering
-    num_total_aggregators: usize,
+    pub num_total_aggregators: usize,
     socket_dir: tempfile::TempDir,
     base_config: BridgeConfig,
 }
@@ -92,6 +94,7 @@ impl<C: CitreaClientT> TestVerifier<C> {
             shutdown_tx,
             socket_path,
             client_type: PhantomData,
+            secret_key,
         })
     }
 }
@@ -127,6 +130,7 @@ impl<C: CitreaClientT> TestOperator<C> {
             shutdown_tx,
             socket_path,
             client_type: PhantomData,
+            secret_key,
         })
     }
 }
@@ -238,11 +242,11 @@ impl<C: CitreaClientT> TestActors<C> {
         })
     }
 
-    pub fn get_operator_by_index(&self, index: usize) -> ClementineOperatorClient<Channel> {
+    pub fn get_operator_client_by_index(&self, index: usize) -> ClementineOperatorClient<Channel> {
         self.operators[index].operator.clone()
     }
 
-    pub fn get_verifier_by_index(&self, index: usize) -> ClementineVerifierClient<Channel> {
+    pub fn get_verifier_client_by_index(&self, index: usize) -> ClementineVerifierClient<Channel> {
         self.verifiers[index].verifier.clone()
     }
 
@@ -350,7 +354,7 @@ impl<C: CitreaClientT> TestActors<C> {
         Ok(())
     }
 
-    pub async fn get_nofn_aggregated_xonly_pk(&self) -> eyre::Result<bitcoin::XOnlyPublicKey> {
+    pub fn get_nofn_aggregated_xonly_pk(&self) -> eyre::Result<bitcoin::XOnlyPublicKey> {
         let verifier_public_keys = self
             .verifiers
             .iter()
@@ -358,5 +362,9 @@ impl<C: CitreaClientT> TestActors<C> {
             .collect::<Vec<_>>();
         let aggregated_pk = bitcoin::XOnlyPublicKey::from_musig2_pks(verifier_public_keys, None)?;
         Ok(aggregated_pk)
+    }
+
+    pub fn get_verifiers_secret_keys(&self) -> Vec<bitcoin::secp256k1::SecretKey> {
+        self.verifiers.iter().map(|v| v.secret_key).collect()
     }
 }
