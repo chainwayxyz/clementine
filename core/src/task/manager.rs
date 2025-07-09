@@ -2,10 +2,8 @@ use super::status_monitor::{TaskStatusMonitorTask, TASK_STATUS_MONITOR_POLL_DELA
 use super::{IntoTask, Task, TaskExt, TaskVariant};
 use crate::errors::BridgeError;
 use crate::rpc::clementine::StoppedTasks;
-use crate::utils::NamedEntity;
 use futures::future::join_all;
 use std::collections::HashMap;
-use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{oneshot, RwLock};
@@ -25,21 +23,19 @@ pub type TaskRegistry =
 /// dropped, it will abort all tasks. Graceful shutdown can be performed with
 /// `graceful_shutdown`
 #[derive(Debug)]
-pub struct BackgroundTaskManager<T: NamedEntity + Send + 'static> {
+pub struct BackgroundTaskManager {
     task_registry: Arc<RwLock<TaskRegistry>>,
-    phantom: PhantomData<T>,
 }
 
-impl<T: NamedEntity + Send + 'static> Default for BackgroundTaskManager<T> {
+impl Default for BackgroundTaskManager {
     fn default() -> Self {
         Self {
             task_registry: Arc::new(RwLock::new(HashMap::new())),
-            phantom: PhantomData,
         }
     }
 }
 
-impl<T: NamedEntity + Send + 'static> BackgroundTaskManager<T> {
+impl BackgroundTaskManager {
     /// Monitors the spawned task. If any task stops running, logs the reason
     /// why and updates the task registry to register the task as not running.
     fn monitor_spawned_task(
@@ -250,7 +246,7 @@ impl<T: NamedEntity + Send + 'static> BackgroundTaskManager<T> {
     }
 }
 
-impl<T: NamedEntity + Send + 'static> Drop for BackgroundTaskManager<T> {
+impl Drop for BackgroundTaskManager {
     fn drop(&mut self) {
         self.abort_all();
     }

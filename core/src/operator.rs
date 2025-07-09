@@ -118,7 +118,7 @@ impl RoundIndex {
 
 pub struct OperatorServer<C: CitreaClientT> {
     pub operator: Operator<C>,
-    background_tasks: BackgroundTaskManager<Operator<C>>,
+    background_tasks: BackgroundTaskManager,
 }
 
 #[derive(Debug, Clone)]

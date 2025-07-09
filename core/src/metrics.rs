@@ -65,6 +65,9 @@ pub struct EntityL1SyncStatusMetrics {
     pub finalized_synced_height: Gauge,
     #[metric(describe = "The next block height to process for the State Manager for the entity")]
     pub state_manager_next_height: Gauge,
+
+    #[metric(describe = "The number of error responses from the entity status endpoint")]
+    pub entity_status_error_count: metrics::Counter,
 }
 
 /// The L1 sync status metrics static for the currently running entity. (operator/verifier)

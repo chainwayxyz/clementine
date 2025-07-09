@@ -84,7 +84,7 @@ pub struct AllSessions {
 
 pub struct VerifierServer<C: CitreaClientT> {
     pub verifier: Verifier<C>,
-    background_tasks: BackgroundTaskManager<Verifier<C>>,
+    background_tasks: BackgroundTaskManager,
 }
 
 impl<C> VerifierServer<C>
@@ -157,7 +157,7 @@ where
         {
             use crate::task::TaskExt;
             self.background_tasks
-                .loop_and_monitor(
+                .ensure_task_looping(
                     crate::bitcoin_syncer::FinalizedBlockFetcherTask::new(
                         self.verifier.db.clone(),
                         Verifier::<C>::FINALIZED_BLOCK_CONSUMER_ID.to_string(),

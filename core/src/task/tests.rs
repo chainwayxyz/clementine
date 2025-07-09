@@ -6,7 +6,6 @@ use tokio::time::sleep;
 
 use crate::errors::BridgeError;
 use crate::task::manager::TaskStatus;
-use crate::utils::NamedEntity;
 
 use super::manager::BackgroundTaskManager;
 use super::{CancelableResult, Task, TaskExt, TaskVariant};
@@ -85,16 +84,6 @@ impl Task for SleepTask {
         sleep(self.duration).await;
         Ok(true)
     }
-}
-
-// Define an Owner for testing BackgroundTaskManager
-#[derive(Debug, Clone)]
-struct TestOwner;
-
-impl NamedEntity for TestOwner {
-    const ENTITY_NAME: &'static str = "test_owner";
-    const TX_SENDER_CONSUMER_ID: &'static str = "test_tx_sender";
-    const FINALIZED_BLOCK_CONSUMER_ID: &'static str = "test_finalized_block";
 }
 
 #[tokio::test]
@@ -316,7 +305,7 @@ async fn test_map() {
 #[tokio::test]
 async fn test_task_manager() {
     let counter = Arc::new(Mutex::new(0));
-    let mut manager = BackgroundTaskManager::<TestOwner>::default();
+    let mut manager = BackgroundTaskManager::default();
 
     // Add a task that increments the counter 5 times
     let task = CounterTask::new(Arc::clone(&counter), 5);
@@ -335,7 +324,7 @@ async fn test_task_manager() {
 #[tokio::test]
 async fn test_task_manager_abort() {
     let counter = Arc::new(Mutex::new(0));
-    let mut manager = BackgroundTaskManager::<TestOwner>::default();
+    let mut manager = BackgroundTaskManager::default();
 
     // Add a task that sleeps for a long time
     let task = SleepTask::new(Duration::from_secs(10));
@@ -354,7 +343,7 @@ async fn test_task_manager_abort() {
 
 #[tokio::test]
 async fn test_task_manager_timeout() {
-    let mut manager = BackgroundTaskManager::<TestOwner>::default();
+    let mut manager = BackgroundTaskManager::default();
 
     // Add a task that sleeps for a long time
     let task = SleepTask::new(Duration::from_secs(10));
@@ -374,7 +363,7 @@ async fn test_task_manager_timeout() {
 #[tokio::test]
 async fn test_task_manager_abort_and_restart() {
     let counter = Arc::new(Mutex::new(0));
-    let mut manager = BackgroundTaskManager::<TestOwner>::default();
+    let mut manager = BackgroundTaskManager::default();
 
     // Add a task that sleeps for a long time
     let sleep_task = SleepTask::new(Duration::from_secs(10));
