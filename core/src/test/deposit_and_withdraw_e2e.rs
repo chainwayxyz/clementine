@@ -372,23 +372,48 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         .await
         .unwrap();
 
+        // TODO: register replace deposit
+
         tracing::info!("Waiting for lc prover to sync");
         // wait for lc prover so that new replacement deposit gets synced on verifiers before attempting optimistic payout
-        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH + 1).await.unwrap();
+        // TODO: can use status rpc to ensure they are synced
+        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
+            sequencer.client.send_publish_batch_request().await.unwrap();
+        }
+
         let block_height = da.get_finalized_height(None).await.unwrap();
         lc_prover
             .wait_for_l1_height(block_height as u64, None)
             .await
             .unwrap();
 
-        tracing::info!("Doing optimistic payout with new replacement deposit");
+        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
+
+        tracing::warn!(
+            "Cur block height: {:?}",
+            rpc.get_current_chain_height().await.unwrap()
+        );
+
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
+            sequencer.client.send_publish_batch_request().await.unwrap();
+        }
+
+        let block_height = da.get_finalized_height(None).await.unwrap();
+        lc_prover
+            .wait_for_l1_height(block_height as u64, None)
+            .await
+            .unwrap();
+
         // do optimistic payout with new replacement deposit, should work now
         reimburse_with_optimistic_payout(
             actors.get_aggregator(),
-            withdrawal_infos[5].0,
-            &withdrawal_infos[5].1,
-            &withdrawal_infos[5].2,
-            &withdrawal_infos[5].3,
+            withdrawal_infos[4].0,
+            &withdrawal_infos[4].1,
+            &withdrawal_infos[4].2,
+            &withdrawal_infos[4].3,
             &citrea_e2e_data,
             replacement_move_txid,
         )

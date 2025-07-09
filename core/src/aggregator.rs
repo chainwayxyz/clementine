@@ -423,6 +423,11 @@ impl Aggregator {
                 participating_verifiers
                     .push((self.verifier_clients[pos].clone(), VerifierId(verifier_pk)));
             } else {
+                tracing::error!(
+                    "Verifier public key not found. Deposit data verifier keys: {:?}, self verifier keys: {:?}",
+                    deposit_data.get_verifiers(),
+                    self.verifier_keys
+                );
                 return Err(BridgeError::VerifierNotFound(verifier_pk));
             }
         }
