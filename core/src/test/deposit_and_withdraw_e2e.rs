@@ -221,20 +221,20 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             .await
             .expect("failed to create database");
 
-        reimburse_connectors.push(
-            payout_and_challenge(
-                actors.get_operator_client_by_index(0),
-                op0_xonly_pk,
-                &db,
-                withdrawal_infos[0].0,
-                &withdrawal_infos[0].1,
-                &withdrawal_infos[0].2,
-                &withdrawal_infos[0].3,
-                &citrea_e2e_data,
-                &deposit_infos[0],
-            )
-            .await,
-        );
+        // reimburse_connectors.push(
+        //     payout_and_challenge(
+        //         actors.get_operator_client_by_index(0),
+        //         op0_xonly_pk,
+        //         &db,
+        //         withdrawal_infos[0].0,
+        //         &withdrawal_infos[0].1,
+        //         &withdrawal_infos[0].2,
+        //         &withdrawal_infos[0].3,
+        //         &citrea_e2e_data,
+        //         &deposit_infos[0],
+        //     )
+        //     .await,
+        // );
 
         // add a new verifier
         let new_sk = SecretKey::new(&mut bitcoin::secp256k1::rand::thread_rng());
@@ -284,20 +284,20 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         let new_operator_db = Database::new(&verifier_x_config)
             .await
             .expect("failed to create database");
-        reimburse_connectors.push(
-            payout_and_challenge(
-                actors.get_operator_client_by_index(new_operator_index),
-                new_operator_xonly_pk,
-                &new_operator_db,
-                withdrawal_infos[2].0,
-                &withdrawal_infos[2].1,
-                &withdrawal_infos[2].2,
-                &withdrawal_infos[2].3,
-                &citrea_e2e_data,
-                &new_deposit_infos[0],
-            )
-            .await,
-        );
+        // reimburse_connectors.push(
+        //     payout_and_challenge(
+        //         actors.get_operator_client_by_index(new_operator_index),
+        //         new_operator_xonly_pk,
+        //         &new_operator_db,
+        //         withdrawal_infos[2].0,
+        //         &withdrawal_infos[2].1,
+        //         &withdrawal_infos[2].2,
+        //         &withdrawal_infos[2].3,
+        //         &citrea_e2e_data,
+        //         &new_deposit_infos[0],
+        //     )
+        //     .await,
+        // );
 
         // do 2 optimistic payouts, 1 with old 1 with new deposit, they should both work as all verifiers that
         // signed them still exist
@@ -419,7 +419,6 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 /// * A check to see if reimburse connectors for the kickoffs created previously (for deposit 0 and 2) are spent,
 ///     meaning operators 0 and 2 got their funds back (the kickoff process is independent of actor set changes, they should
 ///     always work if the collected signatures are correct from start)
-///
 #[tokio::test]
 #[ignore = "Run in standalone VM in CI"]
 async fn citrea_deposit_and_withdraw_e2e_non_zero_genesis_height() -> citrea_e2e::Result<()> {

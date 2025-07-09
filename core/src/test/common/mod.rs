@@ -652,6 +652,8 @@ async fn send_replacement_deposit_tx<C: CitreaClientT>(
 
     wait_for_fee_payer_utxos_to_be_in_mempool(rpc, tx_sender_db, replacement_deposit_txid).await?;
 
+    tracing::warn!("Replacement deposit tx {:?}", signed_replacement_deposit_tx);
+
     mine_once_after_in_mempool(
         rpc,
         replacement_deposit_txid,
