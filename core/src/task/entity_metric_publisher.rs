@@ -15,6 +15,10 @@ use crate::{
     utils::NamedEntity,
 };
 
+/// The interval at which the entity metrics are polled and published
+/// (Not sent to Prometheus at this interval, since we use a pull-based http listener)
+///
+/// This doubles as the timeout for entity status retrieval.
 pub const ENTITY_METRIC_PUBLISHER_INTERVAL: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Clone)]

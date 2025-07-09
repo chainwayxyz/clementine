@@ -28,6 +28,7 @@ pub enum TaskVariant {
     Counter,
     #[cfg(test)]
     Sleep,
+    /// Used to publish metrics to Prometheus periodically. This 
     MetricPublisher,
 }
 

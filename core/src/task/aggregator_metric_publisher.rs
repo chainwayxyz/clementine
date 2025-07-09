@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, time::Duration};
 use std::str::FromStr;
 
 use tonic::{async_trait, Request};
@@ -13,6 +13,8 @@ use crate::{
     },
     task::{Task, TaskVariant},
 };
+
+pub const AGGREGATOR_METRIC_PUBLISHER_POLL_DELAY: Duration = Duration::from_secs(60);
 
 /// Publishes metrics for the aggregator, including the Entity Statuses of all registered entities.
 #[derive(Debug)]

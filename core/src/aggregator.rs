@@ -2,6 +2,7 @@ use crate::constants::{OPERATOR_GET_KEYS_TIMEOUT, VERIFIER_SEND_KEYS_TIMEOUT};
 use crate::deposit::DepositData;
 use crate::extended_rpc::ExtendedRpc;
 use crate::rpc::clementine::{DepositParams, OperatorKeysWithDeposit};
+use crate::task::aggregator_metric_publisher::AGGREGATOR_METRIC_PUBLISHER_POLL_DELAY;
 use crate::task::TaskExt;
 #[cfg(feature = "automation")]
 use crate::tx_sender::TxSenderClient;
@@ -496,7 +497,7 @@ impl AggregatorServer {
                 crate::task::aggregator_metric_publisher::AggregatorMetricPublisher::new(
                     self.aggregator.clone(),
                 )
-                .with_delay(std::time::Duration::from_secs(60)),
+                .with_delay(AGGREGATOR_METRIC_PUBLISHER_POLL_DELAY),
             )
             .await;
 
