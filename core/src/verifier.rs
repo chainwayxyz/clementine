@@ -30,6 +30,7 @@ use crate::header_chain_prover::HeaderChainProver;
 use crate::metrics::L1SyncStatusProvider;
 use crate::operator::RoundIndex;
 use crate::rpc::clementine::{EntityStatus, NormalSignatureKind, OperatorKeys, TaggedSignature};
+use crate::task::entity_metric_publisher::EntityMetricPublisher;
 use crate::task::manager::BackgroundTaskManager;
 use crate::task::IntoTask;
 #[cfg(feature = "automation")]
@@ -172,13 +173,20 @@ where
 
         let syncer = BitcoinSyncer::new(
             self.verifier.db.clone(),
-            rpc,
+            rpc.clone(),
             self.verifier.config.protocol_paramset(),
         )
         .await?;
 
         self.background_tasks
             .ensure_task_looping(syncer.into_task())
+            .await;
+
+        self.background_tasks
+            .ensure_task_looping(EntityMetricPublisher::<Verifier<C>>::new(
+                self.verifier.db.clone(),
+                rpc.clone(),
+            ))
             .await;
 
         Ok(())

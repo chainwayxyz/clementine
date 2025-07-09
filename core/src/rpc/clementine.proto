@@ -308,14 +308,14 @@ message EntityStatus {
   uint32 state_manager_next_height = 9;
 }
 
-enum Entities {
+enum EntityType {
   ENTITY_UNKNOWN = 0;
   OPERATOR = 1;
   VERIFIER = 2;
 }
 
 message EntityId {
-  Entities entity = 1;
+  EntityType kind = 1;
   string id = 2;
 }
 

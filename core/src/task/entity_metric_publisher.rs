@@ -1,9 +1,11 @@
 use std::sync::LazyLock;
+use std::time::Duration;
 
 use tonic::async_trait;
 
 use crate::metrics::L1SyncStatusProvider;
 
+use crate::utils::timed_request;
 use crate::{
     database::Database,
     errors::BridgeError,
@@ -13,14 +15,17 @@ use crate::{
     utils::NamedEntity,
 };
 
+pub const ENTITY_METRIC_PUBLISHER_INTERVAL: Duration = Duration::from_secs(60);
+
 #[derive(Debug, Clone)]
-pub struct MetricPublisher<T: NamedEntity> {
+/// Publishes the metrics available for an entity (operator/verifier)
+pub struct EntityMetricPublisher<T: NamedEntity> {
     db: Database,
     rpc: ExtendedRpc,
     _phantom: std::marker::PhantomData<T>,
 }
 
-impl<T: NamedEntity> MetricPublisher<T> {
+impl<T: NamedEntity> EntityMetricPublisher<T> {
     pub fn new(db: Database, rpc: ExtendedRpc) -> Self {
         Self {
             db,
@@ -31,12 +36,22 @@ impl<T: NamedEntity> MetricPublisher<T> {
 }
 
 #[async_trait]
-impl<T: NamedEntity> Task for MetricPublisher<T> {
+impl<T: NamedEntity> Task for EntityMetricPublisher<T> {
     const VARIANT: TaskVariant = TaskVariant::MetricPublisher;
     type Output = bool;
 
     async fn run_once(&mut self) -> Result<Self::Output, BridgeError> {
-        let l1_status = T::get_l1_status(&self.db, &self.rpc).await?;
+        // Metrics are not published in tests
+        if cfg!(test) {
+            return Ok(false);
+        }
+
+        let l1_status = timed_request(
+            ENTITY_METRIC_PUBLISHER_INTERVAL,
+            "get_l1_status",
+            T::get_l1_status(&self.db, &self.rpc),
+        )
+        .await?;
 
         let metric = LazyLock::force(&L1_SYNC_STATUS);
 
@@ -60,6 +75,6 @@ impl<T: NamedEntity> Task for MetricPublisher<T> {
             .state_manager_next_height
             .set(l1_status.state_manager_next_height.unwrap_or(0) as f64);
 
-        Ok(true)
+        Ok(false)
     }
 }

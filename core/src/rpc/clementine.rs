@@ -329,8 +329,8 @@ pub struct EntityStatus {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct EntityId {
-    #[prost(enumeration = "Entities", tag = "1")]
-    pub entity: i32,
+    #[prost(enumeration = "EntityType", tag = "1")]
+    pub kind: i32,
     #[prost(string, tag = "2")]
     pub id: ::prost::alloc::string::String,
 }
@@ -898,12 +898,12 @@ impl NumberedTransactionType {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
-pub enum Entities {
+pub enum EntityType {
     EntityUnknown = 0,
     Operator = 1,
     Verifier = 2,
 }
-impl Entities {
+impl EntityType {
     /// String value of the enum field names used in the ProtoBuf definition.
     ///
     /// The values are not transformed in any way and thus are considered stable

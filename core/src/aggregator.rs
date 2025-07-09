@@ -48,6 +48,12 @@ pub struct Aggregator {
     operator_keys: Vec<XOnlyPublicKey>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum EntityId {
+    Verifier(VerifierId),
+    Operator(OperatorId),
+}
+
 /// Wrapper struct that renders the verifier id in the logs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct VerifierId(PublicKey);

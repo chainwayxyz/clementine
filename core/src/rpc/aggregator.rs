@@ -863,7 +863,7 @@ impl ClementineAggregator for Aggregator {
                         let response = client.get_current_status(Request::new(Empty {})).await;
                         super::EntityStatusWithId {
                             entity_id: Some(super::EntityId {
-                                entity: super::Entities::Operator as i32,
+                                kind: super::EntityType::Operator as i32,
                                 id: key.to_string(),
                             }),
                             status: match response {
@@ -895,7 +895,7 @@ impl ClementineAggregator for Aggregator {
                         let response = client.get_current_status(Request::new(Empty {})).await;
                         super::EntityStatusWithId {
                             entity_id: Some(super::EntityId {
-                                entity: super::Entities::Verifier as i32,
+                                kind: super::EntityType::Verifier as i32,
                                 id: key.to_string(),
                             }),
                             status: match response {

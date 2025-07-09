@@ -19,6 +19,7 @@ use metrics_derive::Metrics;
 
 #[derive(Metrics)]
 #[metrics(scope = "l1_sync_status")]
+/// The L1 sync status metrics for the currently running entity. (operator/verifier)
 pub struct L1SyncStatusMetrics {
     #[metric(describe = "The current balance of the wallet in Bitcoin (BTC)")]
     pub wallet_balance_btc: Gauge,
@@ -36,6 +37,37 @@ pub struct L1SyncStatusMetrics {
     pub state_manager_next_height: Gauge,
 }
 
+#[derive(Metrics)]
+#[metrics(dynamic = true)]
+/// The L1 sync status metrics for an entity. This is used by the aggregator to
+/// publish external entity metrics.  The scope will be set to the EntityId +
+/// "_l1_sync_status", which will be displayed as
+/// `Operator(abcdef123...)_l1_sync_status` or
+/// `Verifier(abcdef123...)_l1_sync_status` where the XOnlyPublicKey's first 10
+/// characters are displayed, cf. [`crate::aggregator::OperatorId`] and
+/// [`crate::aggregator::VerifierId`].
+pub struct EntityL1SyncStatusMetrics {
+    #[metric(describe = "The current balance of the wallet of the entity in Bitcoin (BTC)")]
+    pub wallet_balance_btc: Gauge,
+    #[metric(
+        describe = "The block height of the chain as seen by Bitcoin Core RPC for the entity"
+    )]
+    pub rpc_tip_height: Gauge,
+    #[metric(describe = "The block height of the Bitcoin Syncer for the entity")]
+    pub btc_syncer_synced_height: Gauge,
+    #[metric(describe = "The block height of the latest header chain proof for the entity")]
+    pub hcp_last_proven_height: Gauge,
+    #[metric(describe = "The block height processed by the Transaction Sender for the entity")]
+    pub tx_sender_synced_height: Gauge,
+    #[metric(
+        describe = "The finalized block height as seen by the FinalizedBlockFetcher task for the entity"
+    )]
+    pub finalized_synced_height: Gauge,
+    #[metric(describe = "The next block height to process for the State Manager for the entity")]
+    pub state_manager_next_height: Gauge,
+}
+
+/// The L1 sync status metrics static for the currently running entity. (operator/verifier)
 pub static L1_SYNC_STATUS: LazyLock<L1SyncStatusMetrics> = LazyLock::new(|| {
     L1SyncStatusMetrics::describe();
     L1SyncStatusMetrics::default()
@@ -121,6 +153,7 @@ pub async fn get_state_manager_next_height(
 }
 
 #[async_trait]
+/// Extension trait on named entities who synchronize to the L1 data, to retrieve their L1 sync status.
 pub trait L1SyncStatusProvider: NamedEntity {
     async fn get_l1_status(db: &Database, rpc: &ExtendedRpc) -> Result<L1SyncStatus, BridgeError>;
 }
@@ -155,7 +188,7 @@ impl<T: NamedEntity + Sync + Send + 'static> L1SyncStatusProvider for T {
 #[cfg(test)]
 mod tests {
     #[cfg(not(feature = "automation"))]
-    use crate::rpc::clementine::Entities;
+    use crate::rpc::clementine::EntityType;
     use crate::{
         rpc::clementine::GetEntitiesStatusRequest,
         test::common::{
@@ -197,12 +230,12 @@ mod tests {
                     }
                     #[cfg(not(feature = "automation"))]
                     {
-                        let entity_type: Entities =
-                            entity.entity_id.unwrap().entity.try_into().unwrap();
+                        let entity_type: EntityType =
+                            entity.entity_id.unwrap().kind.try_into().unwrap();
                         // tx sender and hcp are not running in non-automation mode
                         assert!(!status.automation);
                         assert!(status.tx_sender_synced_height == 0);
-                        if entity_type == Entities::Verifier {
+                        if entity_type == EntityType::Verifier {
                             assert!(status.finalized_synced_height > 0);
                         } else {
                             // operator doesn't run finalized block fetcher in non-automation mode

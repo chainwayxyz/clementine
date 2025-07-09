@@ -7,8 +7,9 @@ use tonic::async_trait;
 
 use crate::errors::BridgeError;
 
+pub mod aggregator_metric_publisher;
+pub mod entity_metric_publisher;
 pub mod manager;
-pub mod metric_publisher;
 pub mod payout_checker;
 pub mod status_monitor;
 
