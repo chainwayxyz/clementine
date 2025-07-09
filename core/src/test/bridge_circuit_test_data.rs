@@ -571,7 +571,7 @@ async fn bridge_circuit_test_data_diverse_hcp_lengths() -> Result<()> {
 
 #[tokio::test]
 #[ignore = "Only run this test manually, it's for data generation purposes"]
-async fn bridge_circuit_test_data_insufficient_total_work_diverse_hcp_lens() -> Result<()> {
+async fn bridge_circuit_test_data_insuff_total_work_diverse_hcp_lens() -> Result<()> {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
     std::env::set_var(

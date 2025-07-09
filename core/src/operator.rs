@@ -1488,10 +1488,10 @@ where
              self.config.test_params.generate_varying_total_works_insufficient_total_work,
         ) {
             (false, true) => PathBuf::from(
-                "../bridge-circuit-host/bin-files/bch_params_varying_total_works_invalid_total_work.bin",
+                "../bridge-circuit-host/bin-files/bch_params_varying_total_works_insufficient_total_work.bin",
             ),
             (true, false) => PathBuf::from(
-                "../bridge-circuit-host/bin-files/bch_params_varying_total_works_valid_total_work.bin",
+                "../bridge-circuit-host/bin-files/bch_params_varying_total_works.bin",
             ),
             _ => {
                 panic!("Invalid or conflicting test params for generating varying total works");

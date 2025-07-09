@@ -115,7 +115,7 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
     // If total work is less than the max total work of watchtowers, panic
     if total_work < max_total_work {
         panic!(
-            "Invalid total work: Total Work {:?} - Max Total Work: {:?}",
+            "Insufficient total work: Total Work {:?} - Max Total Work: {:?}",
             input.hcp.chain_state.total_work, max_total_work
         );
     }
