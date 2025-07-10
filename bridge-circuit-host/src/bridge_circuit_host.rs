@@ -105,10 +105,10 @@ pub fn prove_bridge_circuit(
         .clone()
         .into_bridge_circuit_input();
 
-    #[cfg(test)]
+    #[cfg(feature = "write-to-file")]
     let mut bridge_circuit_input_clone = bridge_circuit_input.clone();
     
-    #[cfg(test)]
+    #[cfg(feature = "write-to-file")]
     {
         tracing::info!("Now reducing the witness size to write to a file");
         for watchtower_input in &mut bridge_circuit_input_clone.watchtower_inputs {

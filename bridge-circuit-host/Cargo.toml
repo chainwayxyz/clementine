@@ -48,3 +48,4 @@ circuits-lib = { path = "../circuits-lib" }
 
 [features]
 metal = ["risc0-zkvm/metal"]
+write-to-file = []

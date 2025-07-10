@@ -7,6 +7,7 @@ rust-version = "1.85.0"
 [features]
 automation = []
 integration-tests = ["automation"]
+features = ["bridge-circuit-host/write-to-file"]
 
 [build-dependencies]
 tonic-build = "0.12"
