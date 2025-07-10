@@ -1,0 +1,39 @@
+name: Bitcoin Regtest Service
+
+services:
+  bitcoin_regtest:
+    image: bitcoin/bitcoin:29
+    attach: false
+    container_name: bitcoin_regtest
+    ports:
+      - "19443:19443"
+      - "19444:19444"
+    command:
+      -printtoconsole
+      -regtest=1
+      -rest
+      -rpcbind=0.0.0.0
+      -rpcallowip=0.0.0.0/0
+      -rpcport=19443
+      -rpcuser=admin
+      -rpcpassword=admin
+      -server
+      -txindex=1
+      -fallbackfee=0.00001
+      -maxtxfee=5
+    healthcheck:
+      test: ["CMD-SHELL", "bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=19443 loadwallet admin || bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=19443 createwallet admin; bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=19443 -rpcwallet=admin generatetoaddress 101 $(bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=19443 -rpcwallet=admin getnewaddress); bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=19443 getblockchaininfo"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - bitcoin_regtest:/home/bitcoin/.bitcoin
+    networks:
+      - clementine-network
+
+volumes:
+  bitcoin_regtest:
+
+networks:
+  clementine-network:
+    driver: bridge
