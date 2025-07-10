@@ -33,7 +33,6 @@ use crate::{
 };
 use alloy::primitives::U256;
 use async_trait::async_trait;
-use bitcoin::hashes::Hash;
 use bitcoin::{secp256k1::SecretKey, Address, Amount};
 use bitcoin::{OutPoint, Transaction, Txid};
 use bitcoincore_rpc::RpcApi;

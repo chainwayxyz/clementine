@@ -1,14 +1,11 @@
 use super::clementine::clementine_operator_server::ClementineOperator;
-#[cfg(not(feature = "automation"))]
-use super::clementine::WithdrawErrorResponse;
 use super::clementine::{
     self, ChallengeAckDigest, DepositParams, DepositSignSession, Empty, FinalizedPayoutParams,
     OperatorKeys, OperatorParams, SchnorrSig, SignedTxWithType, SignedTxsWithType,
     TransactionRequest, VergenResponse, WithdrawParams, WithdrawResult, WithdrawSuccess,
-    WithdrawalFinalizedParams, XOnlyPublicKeyRpc,
+    XOnlyPublicKeyRpc,
 };
 use super::error::*;
-use super::parser::ParserError;
 use crate::bitvm_client::ClementineBitVMPublicKeys;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::citrea::CitreaClientT;
@@ -131,8 +128,7 @@ where
         // try to fulfill withdrawal only if automation is enabled
         #[cfg(feature = "automation")]
         {
-            let withdrawal_txid = self
-                .operator
+            self.operator
                 .withdraw(
                     withdrawal_id,
                     input_signature,
@@ -150,14 +146,17 @@ where
         }
 
         #[cfg(not(feature = "automation"))]
-        Ok(Response::new(WithdrawResult {
-            result: Some(clementine::withdraw_result::Result::Error(
-                WithdrawErrorResponse {
-                    error: "Automation is not enabled. Operator will not fulfill withdrawals."
-                        .to_string(),
-                },
-            )),
-        }))
+        {
+            use super::clementine::WithdrawErrorResponse;
+            return Ok(Response::new(WithdrawResult {
+                result: Some(clementine::withdraw_result::Result::Error(
+                    WithdrawErrorResponse {
+                        error: "Automation is not enabled. Operator will not fulfill withdrawals."
+                            .to_string(),
+                    },
+                )),
+            }));
+        }
     }
 
     #[tracing::instrument(skip(self, request), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]

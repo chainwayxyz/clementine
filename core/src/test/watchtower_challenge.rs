@@ -12,7 +12,9 @@ use crate::rpc::clementine::{TransactionRequest, WithdrawParams};
 use crate::test::common::citrea::{get_citrea_safe_withdraw_params, SECRET_KEYS};
 use crate::test::common::tx_utils::{
     create_tx_sender, ensure_outpoint_spent_while_waiting_for_light_client_sync,
-    get_tx_from_signed_txs_with_type, mine_once_after_outpoint_spent_in_mempool,
+    get_tx_from_signed_txs_with_type,
+    get_txid_where_utxo_is_spent_while_waiting_for_light_client_sync,
+    mine_once_after_outpoint_spent_in_mempool,
 };
 use crate::test::common::{
     generate_withdrawal_transaction_and_signature, mine_once_after_in_mempool, run_single_deposit,
@@ -31,9 +33,8 @@ use crate::{
 };
 use alloy::primitives::U256;
 use async_trait::async_trait;
-use bitcoin::hashes::Hash;
 use bitcoin::{secp256k1::SecretKey, Address, Amount};
-use bitcoin::{OutPoint, Transaction, Txid};
+use bitcoin::{OutPoint, Transaction};
 use bitcoincore_rpc::RpcApi;
 use citrea_e2e::bitcoin::{BitcoinNode, DEFAULT_FINALITY_DEPTH};
 use citrea_e2e::config::{BatchProverConfig, LightClientProverConfig};

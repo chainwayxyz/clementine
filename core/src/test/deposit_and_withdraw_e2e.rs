@@ -1778,7 +1778,9 @@ async fn concurrent_deposits_and_withdrawals() {
     rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
     sleep(Duration::from_secs(10)).await;
 
-    let withdrawal_txids = poll_get(
+    let withdrawal_input_outpoints = withdrawal_utxos.clone();
+
+    poll_get(
         async move || {
             let mut operator0s = (0..count).map(|_| operators[0].clone()).collect::<Vec<_>>();
             let mut withdrawal_requests = Vec::new();
@@ -1797,21 +1799,9 @@ async fn concurrent_deposits_and_withdrawals() {
                 Ok(txids) => txids,
                 Err(e) => {
                     tracing::error!("Error while processing withdrawals: {:?}", e);
-                    return Ok(None);
+                    return Err(eyre::eyre!("Error while processing withdrawals: {:?}", e));
                 }
             };
-
-            let withdrawal_txids: Vec<Txid> = withdrawal_txids
-                .into_iter()
-                .map(|encoded_withdrawal_tx| {
-                    encoded_withdrawal_tx
-                        .into_inner()
-                        .txid
-                        .unwrap()
-                        .try_into()
-                        .unwrap()
-                })
-                .collect::<Vec<_>>();
 
             Ok(Some(withdrawal_txids))
         },
@@ -1821,15 +1811,10 @@ async fn concurrent_deposits_and_withdrawals() {
     .await
     .unwrap();
 
-    tracing::debug!("Withdrawal txids: {:?}", withdrawal_txids);
-
-    rpc.mine_blocks(1).await.unwrap();
-    for txid in withdrawal_txids.iter() {
-        assert!(
-            rpc.client.get_mempool_entry(txid).await.is_err(),
-            "Withdrawal txid {:?} not in mempool after mining",
-            txid
-        );
+    // check if withdrawal input outpoints are spent
+    for outpoint in withdrawal_input_outpoints.iter() {
+        ensure_tx_onchain(&rpc, outpoint.txid).await.unwrap();
+        ensure_outpoint_spent(&rpc, *outpoint).await.unwrap();
     }
 }
 

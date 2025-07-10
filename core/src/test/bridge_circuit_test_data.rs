@@ -11,9 +11,9 @@ use crate::database::Database;
 use crate::deposit::KickoffData;
 
 use crate::operator::RoundIndex;
-use crate::rpc::clementine::{TransactionRequest, WithdrawParams};
+use crate::rpc::clementine::{TransactionRequest, WithdrawErrorResponse, WithdrawParams, WithdrawSuccess};
 use crate::test::common::citrea::{get_citrea_safe_withdraw_params, SECRET_KEYS};
-use crate::test::common::tx_utils::get_tx_from_signed_txs_with_type;
+use crate::test::common::tx_utils::{get_tx_from_signed_txs_with_type, get_txid_where_utxo_is_spent_while_waiting_for_light_client_sync};
 use crate::test::common::tx_utils::{
     create_tx_sender, ensure_outpoint_spent_while_waiting_for_light_client_sync,
     mine_once_after_outpoint_spent_in_mempool,
@@ -31,7 +31,6 @@ use crate::{
 };
 use alloy::primitives::U256;
 use async_trait::async_trait;
-use bitcoin::hashes::Hash;
 use bitcoin::{secp256k1::SecretKey, Address, Amount};
 use bitcoin::{OutPoint, Transaction, Txid};
 use bitcoincore_rpc::RpcApi;
@@ -359,7 +358,7 @@ impl TestCase for BridgeCircuitTestData {
             .await
             .expect("failed to create database");
 
-        let payout_txid = loop {
+        loop {
             let withdrawal_response = operators[0]
                 .withdraw(WithdrawParams {
                     withdrawal_id: 0,
@@ -373,28 +372,38 @@ impl TestCase for BridgeCircuitTestData {
             tracing::info!("Withdrawal response: {:?}", withdrawal_response);
 
             match withdrawal_response {
-                Ok(withdrawal_response) => {
-                    tracing::info!("Withdrawal response: {:?}", withdrawal_response);
-                    break Txid::from_byte_array(
-                        withdrawal_response
-                            .into_inner()
-                            .txid
-                            .unwrap()
-                            .txid
-                            .try_into()
-                            .unwrap(),
-                    );
-                }
+                Ok(withdrawal_response) => match withdrawal_response.into_inner().result {
+                    Some(crate::rpc::clementine::withdraw_result::Result::Success(
+                        WithdrawSuccess {},
+                    )) => {
+                        break;
+                    }
+                    Some(crate::rpc::clementine::withdraw_result::Result::Error(
+                        WithdrawErrorResponse {
+                            error: error_message,
+                        },
+                    )) => {
+                        tracing::info!("Withdrawal error: {:?}", error_message);
+                    }
+                    _ => {
+                        tracing::info!("Withdrawal error");
+                    }
+                },
                 Err(e) => {
                     tracing::info!("Withdrawal error: {:?}", e);
                 }
-            }
+            };
 
             tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        };
-        tracing::info!("Payout txid: {:?}", payout_txid);
+        }
 
-        mine_once_after_in_mempool(&rpc, payout_txid, Some("Payout tx"), None).await?;
+        let payout_txid = get_txid_where_utxo_is_spent_while_waiting_for_light_client_sync(
+            &rpc,
+            lc_prover,
+            withdrawal_utxo,
+        )
+        .await
+        .unwrap();
 
         rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
 
