@@ -1540,21 +1540,24 @@ where
             public_inputs.challenge_sending_watchtowers
         );
 
-        let asserts = if cfg!(test) && is_dev_mode() {
-            generate_assertions(
-                g16_proof,
-                vec![public_input_scalar],
-                &get_ark_verifying_key_dev_mode_bridge(),
-            )
-            .map_err(|e| eyre::eyre!("Failed to generate dev mode assertions: {}", e))?
-        } else {
-            generate_assertions(
-                g16_proof,
-                vec![public_input_scalar],
-                &get_ark_verifying_key(),
-            )
-            .map_err(|e| eyre::eyre!("Failed to generate assertions: {}", e))?
-        };
+        let asserts = tokio::task::spawn_blocking(move || {
+            if cfg!(test) && is_dev_mode() {
+                generate_assertions(
+                    g16_proof,
+                    vec![public_input_scalar],
+                    &get_ark_verifying_key_dev_mode_bridge(),
+                )
+            } else {
+                generate_assertions(
+                    g16_proof,
+                    vec![public_input_scalar],
+                    &get_ark_verifying_key(),
+                )
+            }
+        })
+        .await
+        .wrap_err("Generate assertions thread failed with error")?
+        .map_err(|e| eyre::eyre!("Failed to generate assertions: {}", e))?;
 
         #[cfg(test)]
         let mut asserts = asserts;
