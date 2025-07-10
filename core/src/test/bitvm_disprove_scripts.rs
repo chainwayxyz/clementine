@@ -403,8 +403,6 @@ impl TestCase for DisproveTest {
         .unwrap();
         tracing::info!("Payout txid: {:?}", payout_txid);
 
-        mine_once_after_in_mempool(&rpc, payout_txid, Some("Payout tx"), None).await?;
-
         rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
 
         // wait until payout part is not null
