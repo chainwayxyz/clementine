@@ -24,7 +24,7 @@ services:
 
   bitcoin_regtest:
     image: bitcoin/bitcoin:29
-    # attach: false
+    attach: false
     container_name: bitcoin_regtest
     ports:
       - "19443:19443"
@@ -60,7 +60,7 @@ services:
         condition: service_healthy
     image: chainwayxyz/clementine
     platform: linux/amd64
-    container_name: clementine
+    container_name: clementine_verifier
     environment:
       - BITVM_CACHE_PATH=/bitvm_cache.bin
     command:
@@ -69,7 +69,7 @@ services:
       - "9080:8080"
     volumes:
       - ./docker_config.toml:/config.toml
-      - ../../core/src/test/data/protocol_paramset.toml:/protocol_paramset.toml
+      - ./docker_protocol_paramset.toml:/protocol_paramset.toml
       - ../../bitvm_cache.bin:/bitvm_cache.bin
       - ../../core/certs:/certs
 
@@ -86,7 +86,7 @@ services:
         condition: service_started
     image: chainwayxyz/clementine
     platform: linux/amd64
-    container_name: clementine-operator
+    container_name: clementine_operator
     environment:
       - BITVM_CACHE_PATH=/bitvm_cache.bin
     command:
@@ -95,7 +95,7 @@ services:
       - "7080:8080"
     volumes:
       - ./docker_config.toml:/config.toml
-      - ../../core/src/test/data/protocol_paramset.toml:/protocol_paramset.toml
+      - ./docker_protocol_paramset.toml:/protocol_paramset.toml
       - ../../bitvm_cache.bin:/bitvm_cache.bin
       - ../../core/certs:/certs
 
