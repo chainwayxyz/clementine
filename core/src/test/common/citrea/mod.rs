@@ -550,6 +550,10 @@ pub async fn payout_and_challenge(
 
     e2e.rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
 
+    tracing::info!(
+        "Waiting until getting first unhandled payout for operator {:?}",
+        operator_xonly_pk
+    );
     // wait until payout part is not null
     while operator_db
         .get_first_unhandled_payout_by_operator_xonly_pk(None, operator_xonly_pk)

@@ -211,22 +211,13 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         let mut reimburse_connectors = Vec::new();
 
         // withdraw one with a kickoff with operator 0
-        // set up verifier 0 db
-        let verifier_0_config = {
-            let mut config = config.clone();
-            config.db_name += "0";
-            config
-        };
-        let op0_xonly_pk = verifiers_public_keys[0].x_only_public_key().0;
-        let db = Database::new(&verifier_0_config)
-            .await
-            .expect("failed to create database");
+        let (op0_db, op0_xonly_pk) = actors.get_operator_db_and_xonly_pk_by_index(0).await;
 
         reimburse_connectors.push(
             payout_and_challenge(
                 actors.get_operator_client_by_index(0),
                 op0_xonly_pk,
-                &db,
+                &op0_db,
                 withdrawal_infos[0].0,
                 &withdrawal_infos[0].1,
                 &withdrawal_infos[0].2,
@@ -276,15 +267,10 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 
         // do 1 kickoff with one of the new deposits using the new operator
         let new_operator_index = actors.num_total_operators - 1;
-        let new_operator_xonly_pk = new_op_sk.x_only_public_key(&SECP).0;
-        let verifier_x_config = {
-            let mut config = config.clone();
-            config.db_name += &new_verifier_index.to_string();
-            config
-        };
-        let new_operator_db = Database::new(&verifier_x_config)
-            .await
-            .expect("failed to create database");
+        let (new_operator_db, new_operator_xonly_pk) = actors
+            .get_operator_db_and_xonly_pk_by_index(new_operator_index)
+            .await;
+
         reimburse_connectors.push(
             payout_and_challenge(
                 actors.get_operator_client_by_index(new_operator_index),
@@ -482,6 +468,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 /// but it is one of the nofn in deposit 4
 /// * A replacement deposit is performed for deposit 4
 /// * Optimistic payout for deposit 4 is performed with the new replacement deposit
+/// * Remove operator 1, try to do a deposit, it should fail because the operator is still in verifiers DB.
 /// * A check to see if reimburse connectors for the kickoffs created previously (for deposit 0 and 2) are spent,
 ///     meaning operators 0 and 2 got their funds back (the kickoff process is independent of actor set changes, they should
 ///     always work if the collected signatures are correct from start)

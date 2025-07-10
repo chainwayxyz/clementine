@@ -3,6 +3,7 @@
 use crate::bitvm_client::SECP;
 use crate::citrea::CitreaClientT;
 use crate::config::BridgeConfig;
+use crate::database::Database;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
@@ -11,9 +12,10 @@ use crate::rpc::get_clients;
 use crate::servers::{
     create_aggregator_unix_server, create_operator_unix_server, create_verifier_unix_server,
 };
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::marker::PhantomData;
 
+use bitcoin::XOnlyPublicKey;
 use tokio::sync::oneshot;
 use tonic::transport::Channel;
 
@@ -50,8 +52,8 @@ pub struct TestAggregator {
 
 #[derive(Debug)]
 pub struct TestActors<C: CitreaClientT> {
-    verifiers: HashMap<usize, TestVerifier<C>>,
-    operators: HashMap<usize, TestOperator<C>>,
+    verifiers: BTreeMap<usize, TestVerifier<C>>,
+    operators: BTreeMap<usize, TestOperator<C>>,
     aggregator: TestAggregator,
     /// The total number of verifiers, including deleted ones, to ensure unique numbering
     pub num_total_verifiers: usize,
@@ -224,14 +226,14 @@ impl<C: CitreaClientT> TestActors<C> {
         let socket_dir = tempfile::tempdir()?;
 
         // Create verifiers
-        let mut verifiers = HashMap::new();
+        let mut verifiers = BTreeMap::new();
         for (i, &secret_key) in all_verifiers_secret_keys.iter().enumerate() {
             let verifier = TestVerifier::new(config, socket_dir.path(), i, secret_key).await?;
             verifiers.insert(i, verifier);
         }
 
         // Create operators
-        let mut operators = HashMap::new();
+        let mut operators = BTreeMap::new();
         for (i, &secret_key) in all_operators_secret_keys.iter().enumerate() {
             let base_config = &verifiers[&i].config;
             let operator =
@@ -275,6 +277,16 @@ impl<C: CitreaClientT> TestActors<C> {
 
     pub fn get_verifier_client_by_index(&self, index: usize) -> ClementineVerifierClient<Channel> {
         self.verifiers[&index].verifier.clone()
+    }
+
+    pub async fn get_operator_db_and_xonly_pk_by_index(
+        &self,
+        index: usize,
+    ) -> (Database, XOnlyPublicKey) {
+        let operator = &self.operators[&index];
+        let db = Database::new(&operator.config).await.unwrap();
+        let xonly_pk = operator.secret_key.x_only_public_key(&SECP).0;
+        (db, xonly_pk)
     }
 
     pub fn get_aggregator(&self) -> ClementineAggregatorClient<Channel> {

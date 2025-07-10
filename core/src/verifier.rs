@@ -1649,9 +1649,9 @@ where
             }
 
             tracing::info!(
-                "A new payout tx detected for withdrawal {}, payout txid: {}, operator xonly pk: {:?}",
+                "A new payout tx detected for withdrawal {}, payout txid: {:?}, operator xonly pk: {:?}",
                 idx,
-                hex::encode(payout_txid),
+                payout_txid,
                 operator_xonly_pk
             );
 
