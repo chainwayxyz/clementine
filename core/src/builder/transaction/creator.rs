@@ -1020,7 +1020,6 @@ pub fn create_round_txhandlers(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::actor::Actor;
     use crate::bitvm_client::ClementineBitVMPublicKeys;
     use crate::builder::transaction::sign::get_kickoff_utxos_to_sign;
     use crate::builder::transaction::{TransactionType, TxHandlerBuilder};
@@ -1085,18 +1084,7 @@ mod tests {
             (0..actors.get_num_verifiers()).map(TransactionType::WatchtowerChallengeTimeout),
         );
 
-        let all_operators_secret_keys = &config.test_params.all_operators_secret_keys;
-        let operator_xonly_pks: Vec<XOnlyPublicKey> = all_operators_secret_keys
-            .iter()
-            .map(|&sk| {
-                Actor::new(
-                    sk,
-                    config.winternitz_secret_key,
-                    config.protocol_paramset().network,
-                )
-                .xonly_public_key
-            })
-            .collect();
+        let operator_xonly_pks: Vec<XOnlyPublicKey> = actors.get_operators_xonly_pks();
         let mut utxo_idxs: Vec<Vec<usize>> = Vec::with_capacity(operator_xonly_pks.len());
 
         for op_xonly_pk in &operator_xonly_pks {

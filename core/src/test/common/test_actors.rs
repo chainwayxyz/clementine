@@ -418,4 +418,15 @@ impl<C: CitreaClientT> TestActors<C> {
     pub fn get_verifiers_secret_keys(&self) -> Vec<bitcoin::secp256k1::SecretKey> {
         self.verifiers.values().map(|v| v.secret_key).collect()
     }
+
+    pub fn get_operators_secret_keys(&self) -> Vec<bitcoin::secp256k1::SecretKey> {
+        self.operators.values().map(|o| o.secret_key).collect()
+    }
+
+    pub fn get_operators_xonly_pks(&self) -> Vec<bitcoin::XOnlyPublicKey> {
+        self.get_operators_secret_keys()
+            .into_iter()
+            .map(|o| o.x_only_public_key(&SECP).0)
+            .collect()
+    }
 }
