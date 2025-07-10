@@ -646,6 +646,8 @@ impl TestCase for DisproveTest {
                 let witness = &disprove_tx.input[0].witness;
                 let control_block = &witness[witness.len() - 1];
 
+                // Check if the control block length matches either depth 10 or 11 which are the only valid depths for disprove transactions
+                // This differs from additional disprove tx, which has a smaller control block length
                 assert!(
                     control_block.len() == CONTROL_BLOCK_LENGTH_DEPTH_10
                         || control_block.len() == CONTROL_BLOCK_LENGTH_DEPTH_11,
