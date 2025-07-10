@@ -721,7 +721,7 @@ pub async fn reimburse_with_optimistic_payout(
             txid: move_txid,
             vout: (UtxoVout::DepositInMove).get_vout(),
         },
-        &actors,
+        actors,
     )
     .await?;
 
