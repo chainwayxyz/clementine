@@ -79,6 +79,7 @@ base64 = { workspace = true }
 bridge-circuit-host = { path = "../bridge-circuit-host" }
 ctor = { workspace = true }
 tokio = { workspace = true, features = ["full", "test-util"] }
+rand = { workspace = true }
 
 [[bin]]
 name = "clementine-cli"

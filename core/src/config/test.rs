@@ -1,6 +1,7 @@
 use crate::deposit::DepositData;
 use bitcoin::secp256k1::PublicKey;
 use bitcoin::secp256k1::SecretKey;
+use bitvm::chunk::api::Assertions;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
@@ -33,6 +34,9 @@ pub struct TestParams {
 
     /// A flag to introduce intentionally inconsistent or invalid data into the BitVM assertions.
     pub corrupted_asserts: bool,
+
+    /// A flag to indicate whether the public input for the BitVM challenge is corrupted.
+    pub corrupted_public_input: bool,
 
     /// A flag to generate blocks to the address of the wallet.
     pub generate_to_address: bool,
@@ -73,6 +77,33 @@ impl TestParams {
             .verifier_do_not_send_disprove_indexes
             .as_ref()
             .is_none_or(|indexes| !indexes.contains(&verifier_idx)))
+    }
+
+    pub fn maybe_corrupt_asserts(&self, asserts: &mut Assertions) {
+        use rand::Rng;
+        if self.corrupted_asserts {
+            let mut rng = rand::thread_rng();
+
+            if rng.gen_bool(0.5) {
+                let i = rng.gen_range(0..asserts.1.len());
+                let j = rng.gen_range(0..asserts.1[i].len());
+                tracing::info!("Disrupting asserts commit 1 with i: {}, j: {}", i, j);
+
+                asserts.1[i][j] ^= 0x01;
+            } else {
+                let i = rng.gen_range(0..asserts.2.len());
+                let j = rng.gen_range(0..asserts.2[i].len());
+                tracing::info!("Disrupting asserts commit 2 with i: {}, j: {}", i, j);
+
+                asserts.2[i][j] ^= 0x01;
+            }
+        } else if self.corrupted_public_input {
+            let mut rng = rand::thread_rng();
+            let j = rng.gen_range(1..asserts.0[0].len());
+
+            tracing::info!("Disrupting public input with i: 0, j: {}", j);
+            asserts.0[0][j] ^= 0x01;
+        }
     }
 }
 
@@ -203,6 +234,7 @@ impl Default for TestParams {
             disrupt_challenge_sending_watchtowers_commit: false,
             operator_forgot_watchtower_challenge: false,
             corrupted_asserts: false,
+            corrupted_public_input: false,
             use_small_annex: false,
             use_large_annex: false,
             use_large_output: false,
