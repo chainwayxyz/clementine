@@ -27,10 +27,14 @@ use crate::deposit::{DepositData, KickoffData, OperatorData};
 use crate::errors::{BridgeError, TxError};
 use crate::extended_rpc::ExtendedRpc;
 use crate::header_chain_prover::HeaderChainProver;
+use crate::metrics::L1SyncStatusProvider;
 use crate::operator::RoundIndex;
-use crate::rpc::clementine::{NormalSignatureKind, OperatorKeys, TaggedSignature};
+use crate::rpc::clementine::{EntityStatus, NormalSignatureKind, OperatorKeys, TaggedSignature};
+use crate::task::entity_metric_publisher::{
+    EntityMetricPublisher, ENTITY_METRIC_PUBLISHER_INTERVAL,
+};
 use crate::task::manager::BackgroundTaskManager;
-use crate::task::IntoTask;
+use crate::task::{IntoTask, TaskExt};
 #[cfg(feature = "automation")]
 use crate::tx_sender::{TxSender, TxSenderClient};
 use crate::utils::NamedEntity;
@@ -82,7 +86,7 @@ pub struct AllSessions {
 
 pub struct VerifierServer<C: CitreaClientT> {
     pub verifier: Verifier<C>,
-    background_tasks: BackgroundTaskManager<Verifier<C>>,
+    background_tasks: BackgroundTaskManager,
 }
 
 impl<C> VerifierServer<C>
@@ -91,13 +95,21 @@ where
 {
     pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
         let verifier = Verifier::new(config.clone()).await?;
-        let db = verifier.db.clone();
-        let mut background_tasks = BackgroundTaskManager::default();
+        let background_tasks = BackgroundTaskManager::default();
 
+        Ok(VerifierServer {
+            verifier,
+            background_tasks,
+        })
+    }
+
+    /// Starts the background tasks for the verifier.
+    /// If called multiple times, it will restart only the tasks that are not already running.
+    pub async fn start_background_tasks(&self) -> Result<(), BridgeError> {
         let rpc = ExtendedRpc::connect(
-            config.bitcoin_rpc_url.clone(),
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
+            self.verifier.config.bitcoin_rpc_url.clone(),
+            self.verifier.config.bitcoin_rpc_user.clone(),
+            self.verifier.config.bitcoin_rpc_password.clone(),
         )
         .await?;
 
@@ -106,25 +118,27 @@ where
         {
             // TODO: Removing index causes to remove the index from the tx_sender handle as well
             let tx_sender = TxSender::new(
-                verifier.signer.clone(),
+                self.verifier.signer.clone(),
                 rpc.clone(),
-                verifier.db.clone(),
-                "verifier_".to_string(),
-                config.protocol_paramset(),
+                self.verifier.db.clone(),
+                Verifier::<C>::TX_SENDER_CONSUMER_ID.to_string(),
+                self.verifier.config.protocol_paramset(),
             );
 
-            background_tasks.loop_and_monitor(tx_sender.into_task());
+            self.background_tasks
+                .ensure_task_looping(tx_sender.into_task())
+                .await;
             let state_manager = crate::states::StateManager::new(
-                db.clone(),
-                verifier.clone(),
-                config.protocol_paramset(),
+                self.verifier.db.clone(),
+                self.verifier.clone(),
+                self.verifier.config.protocol_paramset(),
             )
             .await?;
 
             let should_run_state_mgr = {
                 #[cfg(test)]
                 {
-                    config.test_params.should_run_state_manager
+                    self.verifier.config.test_params.should_run_state_manager
                 }
                 #[cfg(not(test))]
                 {
@@ -133,41 +147,76 @@ where
             };
 
             if should_run_state_mgr {
-                background_tasks.loop_and_monitor(state_manager.block_fetcher_task().await?);
-                background_tasks.loop_and_monitor(state_manager.into_task());
+                self.background_tasks
+                    .ensure_task_looping(state_manager.block_fetcher_task().await?)
+                    .await;
+                self.background_tasks
+                    .ensure_task_looping(state_manager.into_task())
+                    .await;
             }
         }
         #[cfg(not(feature = "automation"))]
         {
             use crate::task::TaskExt;
-
-            background_tasks.loop_and_monitor(
-                crate::bitcoin_syncer::FinalizedBlockFetcherTask::new(
-                    db.clone(),
-                    "verifier".to_string(),
-                    config.protocol_paramset(),
-                    config.protocol_paramset().start_height,
-                    verifier.clone(),
+            self.background_tasks
+                .ensure_task_looping(
+                    crate::bitcoin_syncer::FinalizedBlockFetcherTask::new(
+                        self.verifier.db.clone(),
+                        Verifier::<C>::FINALIZED_BLOCK_CONSUMER_ID.to_string(),
+                        self.verifier.config.protocol_paramset(),
+                        self.verifier.config.protocol_paramset().start_height,
+                        self.verifier.clone(),
+                    )
+                    .into_buffered_errors(50)
+                    .with_delay(crate::bitcoin_syncer::BTC_SYNCER_POLL_DELAY),
                 )
-                .into_buffered_errors(50)
-                .with_delay(Duration::from_secs(60)),
-            );
+                .await;
         }
 
-        let syncer = BitcoinSyncer::new(db, rpc, config.protocol_paramset()).await?;
+        let syncer = BitcoinSyncer::new(
+            self.verifier.db.clone(),
+            rpc.clone(),
+            self.verifier.config.protocol_paramset(),
+        )
+        .await?;
 
-        background_tasks.loop_and_monitor(syncer.into_task());
+        self.background_tasks
+            .ensure_task_looping(syncer.into_task())
+            .await;
 
-        Ok(VerifierServer {
-            verifier,
-            background_tasks,
+        self.background_tasks
+            .ensure_task_looping(
+                EntityMetricPublisher::<Verifier<C>>::new(self.verifier.db.clone(), rpc.clone())
+                    .with_delay(ENTITY_METRIC_PUBLISHER_INTERVAL),
+            )
+            .await;
+
+        Ok(())
+    }
+
+    pub async fn get_current_status(&self) -> Result<EntityStatus, BridgeError> {
+        let stopped_tasks = self.background_tasks.get_stopped_tasks().await;
+        // Determine if automation is enabled
+        let automation_enabled = cfg!(feature = "automation");
+
+        let l1_sync_status =
+            Verifier::<C>::get_l1_status(&self.verifier.db, &self.verifier.rpc).await?;
+
+        Ok(EntityStatus {
+            automation: automation_enabled,
+            wallet_balance: format!("{} BTC", l1_sync_status.wallet_balance.to_btc()),
+            tx_sender_synced_height: l1_sync_status.tx_sender_synced_height.unwrap_or(0),
+            finalized_synced_height: l1_sync_status.finalized_synced_height.unwrap_or(0),
+            hcp_last_proven_height: l1_sync_status.hcp_last_proven_height.unwrap_or(0),
+            rpc_tip_height: l1_sync_status.rpc_tip_height,
+            bitcoin_syncer_synced_height: l1_sync_status.btc_syncer_synced_height.unwrap_or(0),
+            stopped_tasks: Some(stopped_tasks),
+            state_manager_next_height: l1_sync_status.state_manager_next_height.unwrap_or(0),
         })
     }
 
     pub async fn shutdown(&mut self) {
-        self.background_tasks
-            .graceful_shutdown_with_timeout(Duration::from_secs(10))
-            .await;
+        self.background_tasks.graceful_shutdown().await;
     }
 }
 
@@ -221,7 +270,7 @@ where
 
         // TODO: Removing index causes to remove the index from the tx_sender handle as well
         #[cfg(feature = "automation")]
-        let tx_sender = TxSenderClient::new(db.clone(), "verifier_".to_string());
+        let tx_sender = TxSenderClient::new(db.clone(), Self::TX_SENDER_CONSUMER_ID.to_string());
 
         #[cfg(feature = "automation")]
         let header_chain_prover = HeaderChainProver::new(&config, rpc.clone()).await?;
@@ -2438,6 +2487,8 @@ where
     C: CitreaClientT,
 {
     const ENTITY_NAME: &'static str = "verifier";
+    const TX_SENDER_CONSUMER_ID: &'static str = "verifier_tx_sender";
+    const FINALIZED_BLOCK_CONSUMER_ID: &'static str = "verifier_finalized_block_fetcher";
 }
 
 #[cfg(feature = "automation")]

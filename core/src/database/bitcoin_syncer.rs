@@ -307,11 +307,53 @@ impl Database {
         Ok(())
     }
 
-    pub async fn fetch_next_bitcoin_syncer_evt(
+    pub async fn get_event(
+        &self,
+        tx: DatabaseTransaction<'_, '_>,
+        event_id: i32,
+    ) -> Result<Option<BitcoinSyncerEvent>, BridgeError> {
+        let event = sqlx::query_as::<_, (String, i32)>(
+            "SELECT event_type::text, block_id FROM bitcoin_syncer_events WHERE id = $1",
+        )
+        .bind(event_id)
+        .fetch_optional(tx.deref_mut())
+        .await?;
+
+        match event {
+            Some(event) => Ok(Some(event.try_into()?)),
+            None => Ok(None),
+        }
+    }
+
+    /// Returns the last processed Bitcoin Syncer event's block height.
+    /// If the last processed event is missing, returns `None`.
+    pub async fn get_last_processed_event_block_height(
         &self,
         tx: DatabaseTransaction<'_, '_>,
         consumer_handle: &str,
-    ) -> Result<Option<BitcoinSyncerEvent>, BridgeError> {
+    ) -> Result<Option<u32>, BridgeError> {
+        let event_id = self
+            .get_last_processed_event_id(tx, consumer_handle)
+            .await?;
+        let event = self.get_event(tx, event_id).await?;
+        let block_id = match event {
+            Some(BitcoinSyncerEvent::NewBlock(id)) | Some(BitcoinSyncerEvent::ReorgedBlock(id)) => {
+                id
+            }
+            None => return Ok(None),
+        };
+        let block_info = self.get_block_info_from_id(Some(tx), block_id).await?;
+        match block_info {
+            Some((_, height)) => Ok(Some(height)),
+            None => Ok(None),
+        }
+    }
+
+    pub async fn get_last_processed_event_id(
+        &self,
+        tx: DatabaseTransaction<'_, '_>,
+        consumer_handle: &str,
+    ) -> Result<i32, BridgeError> {
         // Step 1: Insert the consumer_handle if it doesn't exist
         sqlx::query(
             r#"
@@ -336,7 +378,20 @@ impl Database {
         .fetch_one(tx.deref_mut())
         .await?;
 
-        // Step 3: Retrieve the next event that hasn't been processed yet
+        Ok(last_processed_event_id)
+    }
+
+    pub async fn fetch_next_bitcoin_syncer_evt(
+        &self,
+        tx: DatabaseTransaction<'_, '_>,
+        consumer_handle: &str,
+    ) -> Result<Option<BitcoinSyncerEvent>, BridgeError> {
+        // Get the last processed event ID for this consumer
+        let last_processed_event_id = self
+            .get_last_processed_event_id(tx, consumer_handle)
+            .await?;
+
+        // Retrieve the next event that hasn't been processed yet
         let event = sqlx::query_as::<_, (i32, i32, String)>(
             r#"
             SELECT id, block_id, event_type::text
@@ -355,18 +410,10 @@ impl Database {
         }
 
         let event = event.expect("should exist since we checked is_none()");
-        let event_type = match event.2.as_str() {
-            "new_block" => BitcoinSyncerEvent::NewBlock(
-                u32::try_from(event.1).wrap_err(BridgeError::IntConversionError)?,
-            ),
-            "reorged_block" => BitcoinSyncerEvent::ReorgedBlock(
-                u32::try_from(event.1).wrap_err(BridgeError::IntConversionError)?,
-            ),
-            _ => return Err(eyre::eyre!("Invalid event type").into()),
-        };
         let event_id = event.0;
+        let event_type: BitcoinSyncerEvent = (event.2, event.1).try_into()?;
 
-        // Step 5: Update last_processed_event_id for this consumer
+        // Update last_processed_event_id for this consumer
         sqlx::query(
             r#"
             UPDATE bitcoin_syncer_event_handlers

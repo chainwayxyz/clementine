@@ -2,6 +2,8 @@ use crate::constants::{OPERATOR_GET_KEYS_TIMEOUT, VERIFIER_SEND_KEYS_TIMEOUT};
 use crate::deposit::DepositData;
 use crate::extended_rpc::ExtendedRpc;
 use crate::rpc::clementine::{DepositParams, OperatorKeysWithDeposit};
+use crate::task::aggregator_metric_publisher::AGGREGATOR_METRIC_PUBLISHER_POLL_DELAY;
+use crate::task::TaskExt;
 #[cfg(feature = "automation")]
 use crate::tx_sender::TxSenderClient;
 use crate::utils::{timed_request, timed_try_join_all};
@@ -48,13 +50,28 @@ pub struct Aggregator {
     operator_keys: Vec<XOnlyPublicKey>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum EntityId {
+    Verifier(VerifierId),
+    Operator(OperatorId),
+}
+
 /// Wrapper struct that renders the verifier id in the logs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct VerifierId(PublicKey);
+pub struct VerifierId(pub PublicKey);
 
 /// Wrapper struct that renders the operator id in the logs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct OperatorId(XOnlyPublicKey);
+pub struct OperatorId(pub XOnlyPublicKey);
+
+impl std::fmt::Display for EntityId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EntityId::Verifier(id) => write!(f, "{}", id),
+            EntityId::Operator(id) => write!(f, "{}", id),
+        }
+    }
+}
 
 impl std::fmt::Display for VerifierId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -455,5 +472,46 @@ impl Aggregator {
         }
 
         Ok(ParticipatingOperators::new(participating_operators))
+    }
+}
+
+/// Aggregator server wrapper that manages background tasks.
+#[derive(Debug)]
+pub struct AggregatorServer {
+    pub aggregator: Aggregator,
+    background_tasks: crate::task::manager::BackgroundTaskManager,
+}
+
+impl AggregatorServer {
+    pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
+        let aggregator = Aggregator::new(config.clone()).await?;
+        let background_tasks = crate::task::manager::BackgroundTaskManager::default();
+
+        Ok(Self {
+            aggregator,
+            background_tasks,
+        })
+    }
+
+    /// Starts the background tasks for the aggregator.
+    /// If called multiple times, it will restart only the tasks that are not already running.
+    pub async fn start_background_tasks(&self) -> Result<(), BridgeError> {
+        // Start the aggregator metric publisher task
+        self.background_tasks
+            .ensure_task_looping(
+                crate::task::aggregator_metric_publisher::AggregatorMetricPublisher::new(
+                    self.aggregator.clone(),
+                )
+                .with_delay(AGGREGATOR_METRIC_PUBLISHER_POLL_DELAY),
+            )
+            .await;
+
+        tracing::info!("Aggregator metric publisher task started");
+
+        Ok(())
+    }
+
+    pub async fn shutdown(&mut self) {
+        self.background_tasks.graceful_shutdown().await;
     }
 }

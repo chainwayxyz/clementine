@@ -14,6 +14,10 @@ vergen-git2 = { workspace = true }
 
 [dependencies]
 color-eyre = { workspace = true }
+metrics = { workspace = true }
+metrics-derive = { workspace = true }
+metrics-exporter-prometheus = { workspace = true }
+metrics-util = { workspace = true }
 bitcoin = { workspace = true, features = ["rand", "bitcoinconsensus"] }
 bitcoincore-rpc = { workspace = true }
 hex = { workspace = true, features = ["serde"] }
@@ -62,6 +66,7 @@ circuits-lib = { path = "../circuits-lib" }
 bridge-circuit-host = { path = "../bridge-circuit-host" }
 bincode = { workspace = true }
 ark-ff = { workspace = true }
+rustls = { workspace = true }
 rustls-pki-types = { workspace = true }
 once_cell = { workspace = true }
 bitcoin-script = { workspace = true }
