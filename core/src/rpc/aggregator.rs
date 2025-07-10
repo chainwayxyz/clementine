@@ -860,11 +860,7 @@ impl ClementineAggregator for Aggregator {
             let withdrawal_utxo = self
                 .db
                 .get_withdrawal_utxo_from_citrea_withdrawal(None, deposit_id)
-                .await?
-                .ok_or(Status::invalid_argument(format!(
-                    "Withdrawal utxo not found for deposit id {}",
-                    deposit_id
-                )))?;
+                .await?;
             if withdrawal_utxo != input_outpoint {
                 return Err(Status::invalid_argument(format!(
                     "Withdrawal utxo is not correct: {:?} != {:?}",

@@ -558,19 +558,8 @@ where
             .get_withdrawal_utxo_from_citrea_withdrawal(None, withdrawal_index)
             .await?;
 
-        match withdrawal_utxo {
-            Some(withdrawal_utxo) => {
-                if withdrawal_utxo != input_utxo.outpoint {
-                    return Err(eyre::eyre!("Input UTXO does not match withdrawal UTXO from Citrea: Input Outpoint: {0}, Withdrawal Outpoint (from Citrea): {1}", input_utxo.outpoint, withdrawal_utxo).into());
-                }
-            }
-            None => {
-                return Err(eyre::eyre!(
-                    "User's withdrawal UTXO is not set for withdrawal index: {0}",
-                    withdrawal_index
-                )
-                .into());
-            }
+        if withdrawal_utxo != input_utxo.outpoint {
+            return Err(eyre::eyre!("Input UTXO does not match withdrawal UTXO from Citrea: Input Outpoint: {0}, Withdrawal Outpoint (from Citrea): {1}", input_utxo.outpoint, withdrawal_utxo).into());
         }
 
         let operator_withdrawal_fee_sats =
