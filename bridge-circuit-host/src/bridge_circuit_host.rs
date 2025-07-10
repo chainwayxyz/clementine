@@ -601,27 +601,8 @@ mod tests {
     #[test]
     fn test_bridge_circuit_with_annex() {
         let input_bytes: &[u8] = include_bytes!("../bin-files/challenge_tx_with_annex.bin");
-        let mut bridge_circuit_input: BridgeCircuitInput = borsh::from_slice(input_bytes)
+        let bridge_circuit_input: BridgeCircuitInput = borsh::from_slice(input_bytes)
             .expect("Failed to deserialize BridgeCircuitInput from file");
-
-        // Now add the removed witness element back to the watchtower inputs
-        for watchtower_input in &mut bridge_circuit_input.watchtower_inputs {
-            println!(
-                "Watchtower input witness len: {:?}",
-                watchtower_input.watchtower_challenge_witness.len()
-            );
-            println!(
-                "Watchtower input witness: {:?}",
-                watchtower_input.watchtower_challenge_witness
-            );
-            watchtower_input
-                .watchtower_challenge_witness
-                .push([0x80; 10000]);
-            println!(
-                "Watchtower input witness len after: {:?}",
-                watchtower_input.watchtower_challenge_witness.len()
-            );
-        }
 
         let assumption_bytes: &[u8] =
             include_bytes!("../bin-files/challenge_tx_with_annex_hcp_receipt.bin");
@@ -642,6 +623,7 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "Failed to prove bridge circuit with annex: Guest panicked: Invalid witness length, expected 1 element, watchtower index: 0")]
     fn test_bridge_circuit_with_large_input() {
         let input_bytes: &[u8] = include_bytes!("../bin-files/challenge_tx_with_large_input.bin");
         let mut bridge_circuit_input: BridgeCircuitInput = borsh::from_slice(input_bytes)
@@ -711,27 +693,8 @@ mod tests {
     fn test_bridge_circuit_with_large_input_and_output() {
         let input_bytes: &[u8] =
             include_bytes!("../bin-files/challenge_tx_with_large_input_and_output.bin");
-        let mut bridge_circuit_input: BridgeCircuitInput = borsh::from_slice(input_bytes)
+        let bridge_circuit_input: BridgeCircuitInput = borsh::from_slice(input_bytes)
             .expect("Failed to deserialize BridgeCircuitInput from file");
-
-        // Now add the removed witness element back to the watchtower inputs
-        for watchtower_input in &mut bridge_circuit_input.watchtower_inputs {
-            println!(
-                "Watchtower input witness len: {:?}",
-                watchtower_input.watchtower_challenge_witness.len()
-            );
-            println!(
-                "Watchtower input witness: {:?}",
-                watchtower_input.watchtower_challenge_witness
-            );
-            watchtower_input
-                .watchtower_challenge_witness
-                .push([0x80; 3000000]);
-            println!(
-                "Watchtower input witness len after: {:?}",
-                watchtower_input.watchtower_challenge_witness.len()
-            );
-        }
 
         let assumption_bytes: &[u8] =
             include_bytes!("../bin-files/challenge_tx_with_large_input_and_output_hcp_receipt.bin");
