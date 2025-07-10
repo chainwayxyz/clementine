@@ -28,7 +28,6 @@ async fn main() {
 
     let (config, args) = get_cli_config();
 
-
     let level_filter = match args.verbose {
         0 => None,
         other => Some(LevelFilter::from_level(
