@@ -1,6 +1,7 @@
 use crate::deposit::DepositData;
 use bitcoin::secp256k1::PublicKey;
 use bitcoin::secp256k1::SecretKey;
+use bitvm::chunk::api::Assertions;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
@@ -80,7 +81,7 @@ impl TestParams {
 
     pub fn maybe_corrupt_assersts(
         &self,
-        asserts: &mut ([[u8; 32]; 1], [[u8; 32]; 14], [[u8; 16]; 363]),
+        asserts: &mut Assertions,
     ) {
         use rand::Rng;
         if self.corrupted_asserts {
