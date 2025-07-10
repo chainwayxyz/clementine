@@ -1603,6 +1603,8 @@ where
         .wrap_err("Generate assertions thread failed with error")?
         .map_err(|e| eyre::eyre!("Failed to generate assertions: {}", e))?;
 
+        tracing::warn!("Generated assertions in send_asserts");
+
         #[cfg(test)]
         let mut asserts = asserts;
 

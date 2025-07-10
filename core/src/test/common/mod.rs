@@ -150,22 +150,32 @@ pub async fn are_all_state_managers_synced<C: CitreaClientT>(
         }))
         .await?
         .into_inner();
-    let mut state_mngr_sync_heights = Vec::new();
-    for entity in l1_sync_status.entities_status {
-        if let Some(entity_status_with_id::Status::EntityStatus(status)) = entity.status {
-            state_mngr_sync_heights.push(status.state_manager_next_height);
-        } else {
-            return Err(eyre::eyre!(
-                "Couldn't retrive sync status from entity {:?}",
-                entity.entity_id
-            ));
-        }
-    }
-    let min_next_sync_height = state_mngr_sync_heights.iter().min().unwrap();
+    let min_next_sync_height = l1_sync_status
+        .entities_status
+        .into_iter()
+        .map(|entity| {
+            if let Some(entity_status_with_id::Status::EntityStatus(status)) = entity.status {
+                if status.automation {
+                    Ok(status.state_manager_next_height)
+                } else {
+                    // assume synced if automation is off
+                    Ok(u32::MAX)
+                }
+            } else {
+                Err(eyre::eyre!(
+                    "Couldn't retrive sync status from entity {:?}",
+                    entity.entity_id
+                ))
+            }
+        })
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .min()
+        .unwrap();
     let current_chain_height = rpc.get_current_chain_height().await?;
     let current_finalized_chain_height =
         current_chain_height - actors.aggregator.config.protocol_paramset().finality_depth;
-    Ok(*min_next_sync_height <= current_finalized_chain_height)
+    Ok(min_next_sync_height > current_finalized_chain_height)
 }
 
 /// Wait for a transaction to be in the mempool and than mines a block to make
@@ -297,7 +307,8 @@ pub async fn run_multiple_deposits<C: CitreaClientT>(
         let deposit_outpoint: OutPoint = rpc
             .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
             .await?;
-        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH + 1).await?;
+        rpc.mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH + 1, &actors)
+            .await?;
 
         let deposit_info = DepositInfo {
             deposit_outpoint,
@@ -446,7 +457,7 @@ pub async fn run_single_deposit<C: CitreaClientT>(
 
     if !rpc.is_tx_on_chain(&move_txid).await? {
         wait_for_fee_payer_utxos_to_be_in_mempool(&rpc, aggregator_db, move_txid).await?;
-        rpc.mine_blocks(1).await?;
+        rpc.mine_blocks_while_synced(1, &actors).await?;
         mine_once_after_in_mempool(&rpc, move_txid, Some("Move tx"), Some(180)).await?;
     }
 
@@ -548,6 +559,10 @@ pub async fn run_single_replacement_deposit<C: CitreaClientT>(
 
     let setup_start = std::time::Instant::now();
     let mut aggregator = current_actors.get_aggregator();
+    tracing::info!(
+        "Current chain height before aggregator setup: {:?}",
+        rpc.get_current_chain_height().await?
+    );
     aggregator
         .setup(Request::new(Empty {}))
         .await
@@ -582,7 +597,7 @@ pub async fn run_single_replacement_deposit<C: CitreaClientT>(
 
     if !rpc.is_tx_on_chain(&move_txid).await? {
         wait_for_fee_payer_utxos_to_be_in_mempool(rpc, aggregator_db, move_txid).await?;
-        rpc.mine_blocks(1).await?;
+        rpc.mine_blocks_while_synced(1, &current_actors).await?;
         mine_once_after_in_mempool(rpc, move_txid, Some("Move tx"), Some(180)).await?;
     }
 

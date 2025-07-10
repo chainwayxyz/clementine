@@ -234,9 +234,12 @@ pub struct CitreaE2EData<'a> {
 pub async fn get_new_withdrawal_utxo_and_register_to_citrea(
     move_txid: Txid,
     e2e: &CitreaE2EData<'_>,
+    actors: &TestActors<CitreaClient>,
 ) -> (OutPoint, TxOut, bitcoin::secp256k1::schnorr::Signature) {
-    e2e.rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
-    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    e2e.rpc
+        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH, actors)
+        .await
+        .unwrap();
     force_sequencer_to_commit(e2e.sequencer).await.unwrap();
 
     // Send deposit to Citrea
@@ -297,12 +300,14 @@ pub async fn get_new_withdrawal_utxo_and_register_to_citrea(
         )
         .await;
 
-    e2e.rpc.mine_blocks(1).await.unwrap();
+    e2e.rpc.mine_blocks_while_synced(1, actors).await.unwrap();
 
     let block_height = e2e.rpc.get_current_chain_height().await.unwrap();
 
-    e2e.rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
-    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    e2e.rpc
+        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH, actors)
+        .await
+        .unwrap();
     force_sequencer_to_commit(e2e.sequencer).await.unwrap();
 
     wait_until_lc_contract_updated(e2e.sequencer.client.http_client(), block_height.into())
@@ -342,39 +347,57 @@ pub async fn get_new_withdrawal_utxo_and_register_to_citrea(
     let receipt = citrea_withdrawal_tx.get_receipt().await.unwrap();
     tracing::info!("Citrea withdrawal tx receipt: {:?}", receipt);
 
-    // 2. wait until 2 commitment txs (commit, reveal) seen from DA to ensure their reveal prefix nonce is found
-    e2e.da.wait_mempool_len(2, None).await.unwrap();
+    // // 2. wait until 2 commitment txs (commit, reveal) seen from DA to ensure their reveal prefix nonce is found
+    // e2e.da.wait_mempool_len(2, None).await.unwrap();
+    // tracing::info!("2 commitment txs seen from DA");
 
-    // 3. generate FINALITY_DEPTH da blocks
-    e2e.rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
+    // // 3. generate FINALITY_DEPTH da blocks
+    // e2e.rpc
+    //     .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH, actors)
+    //     .await
+    //     .unwrap();
+    // tracing::info!("FINALITY_DEPTH da blocks mined");
+    // // 4. wait for batch prover to generate proof on the finalized height
+    // let finalized_height = e2e.da.get_finalized_height(None).await.unwrap();
+    // e2e.batch_prover
+    //     .wait_for_l1_height(finalized_height, None)
+    //     .await
+    //     .unwrap();
+    // e2e.lc_prover
+    //     .wait_for_l1_height(finalized_height, None)
+    //     .await
+    //     .unwrap();
 
-    // 4. wait for batch prover to generate proof on the finalized height
+    // // 5. ensure 2 batch proof txs on DA (commit, reveal)
+    // e2e.da.wait_mempool_len(2, None).await.unwrap();
+    // tracing::info!("2 batch proof txs on DA");
+    // // 6. generate FINALITY_DEPTH da blocks
+    // e2e.rpc
+    //     .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH, actors)
+    //     .await
+    //     .unwrap();
+    // tracing::info!("FINALITY_DEPTH da blocks mined");
+    // let finalized_height = e2e.da.get_finalized_height(None).await.unwrap();
+
+    // tracing::info!("Finalized height: {:?}", finalized_height);
+    // e2e.lc_prover
+    //     .wait_for_l1_height(finalized_height, None)
+    //     .await
+    //     .unwrap();
+    // tracing::info!("Waited for L1 height {}", finalized_height);
+    e2e.rpc
+        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH, actors)
+        .await
+        .unwrap();
     let finalized_height = e2e.da.get_finalized_height(None).await.unwrap();
     e2e.batch_prover
         .wait_for_l1_height(finalized_height, None)
         .await
         .unwrap();
-    e2e.lc_prover
-        .wait_for_l1_height(finalized_height, None)
+    e2e.rpc
+        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH, actors)
         .await
         .unwrap();
-
-    // 5. ensure 2 batch proof txs on DA (commit, reveal)
-    e2e.da.wait_mempool_len(2, None).await.unwrap();
-
-    // 6. generate FINALITY_DEPTH da blocks
-    e2e.rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
-
-    let finalized_height = e2e.da.get_finalized_height(None).await.unwrap();
-
-    tracing::info!("Finalized height: {:?}", finalized_height);
-    e2e.lc_prover
-        .wait_for_l1_height(finalized_height, None)
-        .await
-        .unwrap();
-    tracing::info!("Waited for L1 height {}", finalized_height);
-
-    e2e.rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
 
     (withdrawal_utxo, payout_txout, sig)
 }
@@ -414,7 +437,14 @@ pub async fn register_replacement_deposit_to_citrea(
     e2e: &CitreaE2EData<'_>,
     move_txid: Txid,
     deposit_id: u32,
+    actors: &TestActors<CitreaClient>,
 ) -> eyre::Result<()> {
+    e2e.rpc
+        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH, actors)
+        .await
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    force_sequencer_to_commit(e2e.sequencer).await.unwrap();
     tracing::info!("Setting operator to our address");
     // first set our address as operator
     let set_operator_tx = e2e
@@ -427,7 +457,10 @@ pub async fn register_replacement_deposit_to_citrea(
     let receipt = set_operator_tx.get_receipt().await?;
     tracing::info!("Set operator tx receipt: {:?}", receipt);
 
-    e2e.rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
+    e2e.rpc
+        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH, actors)
+        .await
+        .unwrap();
 
     let (replace_tx, block, block_height) = get_tx_information_for_citrea(e2e, move_txid).await?;
 
@@ -440,11 +473,19 @@ pub async fn register_replacement_deposit_to_citrea(
         .await
         .map_err(|e| eyre::eyre!("Failed to wait for light client to sync: {:?}", e))?;
 
+    wait_until_lc_contract_updated(e2e.sequencer.client.http_client(), block_height)
+        .await
+        .unwrap();
+
     let (replace_tx, tx_proof, sha_script_pubkeys) =
         get_citrea_deposit_params(e2e.rpc, replace_tx, block, block_height as u32, move_txid)
             .await?;
 
     tracing::warn!("Replace transaction block height: {:?}", block_height);
+    tracing::warn!(
+        "Current chain height: {:?}",
+        e2e.rpc.get_current_chain_height().await.unwrap()
+    );
     tracing::warn!("Replace transaction tx proof : {:?}", tx_proof);
 
     let replace_deposit_tx = e2e
@@ -465,39 +506,19 @@ pub async fn register_replacement_deposit_to_citrea(
     let receipt = replace_deposit_tx.get_receipt().await?;
     tracing::info!("Replace deposit tx receipt: {:?}", receipt);
 
-    // 2. wait until 2 commitment txs (commit, reveal) seen from DA to ensure their reveal prefix nonce is found
-    e2e.da.wait_mempool_len(2, None).await.unwrap();
-
-    // 3. generate FINALITY_DEPTH da blocks
-    e2e.rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
-
-    // 4. wait for batch prover to generate proof on the finalized height
+    e2e.rpc
+        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH, actors)
+        .await
+        .unwrap();
     let finalized_height = e2e.da.get_finalized_height(None).await.unwrap();
     e2e.batch_prover
         .wait_for_l1_height(finalized_height, None)
         .await
         .unwrap();
-    e2e.lc_prover
-        .wait_for_l1_height(finalized_height, None)
+    e2e.rpc
+        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH, actors)
         .await
         .unwrap();
-
-    // 5. ensure 2 batch proof txs on DA (commit, reveal)
-    e2e.da.wait_mempool_len(2, None).await.unwrap();
-
-    // 6. generate FINALITY_DEPTH da blocks
-    e2e.rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
-
-    let finalized_height = e2e.da.get_finalized_height(None).await.unwrap();
-
-    tracing::info!("Finalized height: {:?}", finalized_height);
-    e2e.lc_prover
-        .wait_for_l1_height(finalized_height, None)
-        .await
-        .unwrap();
-    tracing::info!("Waited for L1 height {}", finalized_height);
-
-    e2e.rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
 
     Ok(())
 }
@@ -515,6 +536,7 @@ pub async fn payout_and_challenge(
     sig: &bitcoin::secp256k1::schnorr::Signature,
     e2e: &CitreaE2EData<'_>,
     deposit_info: &DepositInfo,
+    actors: &TestActors<CitreaClient>,
 ) -> OutPoint {
     let payout_txid = loop {
         let withdrawal_response = operator
@@ -555,7 +577,10 @@ pub async fn payout_and_challenge(
         .await
         .unwrap();
 
-    e2e.rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
+    e2e.rpc
+        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH, actors)
+        .await
+        .unwrap();
 
     tracing::info!(
         "Waiting until getting first unhandled payout for operator {:?}",
@@ -598,6 +623,13 @@ pub async fn payout_and_challenge(
         mine_once_after_in_mempool(e2e.rpc, kickoff_txid, Some("Kickoff tx"), Some(300))
             .await
             .unwrap();
+
+    tracing::info!(
+        "Kickoff height: {:?}, txid: {:?} operator: {:?}",
+        kickoff_block_height,
+        kickoff_txid,
+        operator_xonly_pk
+    );
 
     let kickoff_tx = e2e.rpc.get_tx_of_txid(&kickoff_txid).await.unwrap();
 
@@ -667,7 +699,10 @@ pub async fn payout_and_challenge(
         .unwrap();
     db_commit.commit().await.unwrap();
 
-    e2e.rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
+    e2e.rpc
+        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH, actors)
+        .await
+        .unwrap();
 
     let challenge_outpoint = OutPoint {
         txid: kickoff_txid,

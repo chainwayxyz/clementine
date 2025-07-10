@@ -202,18 +202,27 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 
         let mut withdrawal_infos = Vec::new();
 
+        tracing::info!("Mining withdrawal utxos");
         for move_txid in move_txids.iter() {
             let (withdrawal_utxo, payout_txout, sig) =
-                get_new_withdrawal_utxo_and_register_to_citrea(*move_txid, &citrea_e2e_data).await;
+                get_new_withdrawal_utxo_and_register_to_citrea(
+                    *move_txid,
+                    &citrea_e2e_data,
+                    &actors,
+                )
+                .await;
             withdrawal_infos.push((withdrawal_index, withdrawal_utxo, payout_txout, sig));
             withdrawal_index += 1;
         }
+
+        tracing::info!("Mining withdrawal utxos done");
 
         let mut reimburse_connectors = Vec::new();
 
         // withdraw one with a kickoff with operator 0
         let (op0_db, op0_xonly_pk) = actors.get_operator_db_and_xonly_pk_by_index(0).await;
 
+        tracing::info!("Paying and challenging withdrawal 0");
         reimburse_connectors.push(
             payout_and_challenge(
                 actors.get_operator_client_by_index(0),
@@ -225,10 +234,12 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
                 &withdrawal_infos[0].3,
                 &citrea_e2e_data,
                 &deposit_infos[0],
+                &actors,
             )
             .await,
         );
 
+        tracing::info!("Adding new verifier and operator");
         // add a new verifier
         let new_sk = SecretKey::new(&mut bitcoin::secp256k1::rand::thread_rng());
         actors.add_verifier(new_sk).await.unwrap();
@@ -261,7 +272,12 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         // do 3 more withdrawals
         for move_txid in new_move_txids.iter() {
             let (withdrawal_utxo, payout_txout, sig) =
-                get_new_withdrawal_utxo_and_register_to_citrea(*move_txid, &citrea_e2e_data).await;
+                get_new_withdrawal_utxo_and_register_to_citrea(
+                    *move_txid,
+                    &citrea_e2e_data,
+                    &actors,
+                )
+                .await;
             withdrawal_infos.push((withdrawal_index, withdrawal_utxo, payout_txout, sig));
             withdrawal_index += 1;
         }
@@ -283,6 +299,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
                 &withdrawal_infos[2].3,
                 &citrea_e2e_data,
                 &new_deposit_infos[0],
+                &actors,
             )
             .await,
         );
@@ -352,8 +369,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         ) = run_single_replacement_deposit(
             &mut config,
             &rpc,
-            //new_move_txids[2],
-            new_move_txids[0],
+            new_move_txids[2],
             actors,
             old_nofn_xonly_pk,
             old_secret_keys,
@@ -366,6 +382,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             &citrea_e2e_data,
             replacement_move_txid,
             withdrawal_infos[1].0,
+            &actors,
         )
         .await
         .unwrap();
@@ -373,7 +390,9 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         tracing::info!("Waiting for lc prover to sync");
         // wait for lc prover so that new replacement deposit gets synced on verifiers before attempting optimistic payout
         // TODO: can use status rpc to ensure they are synced
-        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
+        rpc.mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH, &actors)
+            .await
+            .unwrap();
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
         for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
             sequencer.client.send_publish_batch_request().await.unwrap();
@@ -385,7 +404,9 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             .await
             .unwrap();
 
-        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
+        rpc.mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH, &actors)
+            .await
+            .unwrap();
 
         tracing::warn!(
             "Cur block height: {:?}",
