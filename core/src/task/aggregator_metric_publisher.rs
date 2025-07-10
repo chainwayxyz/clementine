@@ -14,7 +14,7 @@ use crate::{
     task::{Task, TaskVariant},
 };
 
-pub const AGGREGATOR_METRIC_PUBLISHER_POLL_DELAY: Duration = Duration::from_secs(60);
+pub const AGGREGATOR_METRIC_PUBLISHER_POLL_DELAY: Duration = Duration::from_secs(5);
 
 /// Publishes metrics for the aggregator, including the Entity Statuses of all registered entities.
 #[derive(Debug)]
@@ -66,6 +66,7 @@ impl AggregatorMetricPublisher {
     fn get_or_create_metrics(&mut self, entity_id: EntityId) -> &mut EntityL1SyncStatusMetrics {
         self.metrics.entry(entity_id).or_insert_with(|| {
             let scope = format!("{}_l1_sync_status", entity_id);
+            EntityL1SyncStatusMetrics::describe(&scope);
             EntityL1SyncStatusMetrics::new(&scope)
         })
     }
@@ -81,14 +82,20 @@ impl Task for AggregatorMetricPublisher {
         if cfg!(test) {
             return Ok(false);
         }
+        tracing::info!("Publishing metrics for aggregator");
 
         let entities_status = self
             .aggregator
             .get_entities_status(Request::new(GetEntitiesStatusRequest {
                 restart_tasks: false,
             }))
-            .await?
+            .await
+            .inspect_err(|e| {
+                tracing::error!("Error getting entities status: {:?}", e);
+            })?
             .into_inner();
+
+        tracing::info!("Entities status: {:?}", entities_status);
 
         // Process each entity status
         for entity_status_with_id in entities_status.entities_status {

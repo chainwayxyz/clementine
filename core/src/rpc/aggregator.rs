@@ -6,7 +6,7 @@ use super::clementine::{
     AggregatorWithdrawResponse, Deposit, EntitiesStatus, GetEntitiesStatusRequest,
     OptimisticPayoutParams, RawSignedTx, VergenResponse, VerifierPublicKeys, WithdrawParams,
 };
-use crate::aggregator::{ParticipatingOperators, ParticipatingVerifiers};
+use crate::aggregator::{OperatorId, ParticipatingOperators, ParticipatingVerifiers, VerifierId};
 use crate::builder::sighash::SignatureInfo;
 use crate::builder::transaction::{
     combine_emergency_stop_txhandler, create_emergency_stop_txhandler,
@@ -50,6 +50,7 @@ use futures::{
 };
 use secp256k1::musig::{AggregatedNonce, PartialSignature, PublicNonce};
 use std::future::Future;
+use std::time::Duration;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tonic::{async_trait, Request, Response, Status, Streaming};
 
@@ -851,9 +852,19 @@ impl ClementineAggregator for Aggregator {
         let request = request.into_inner();
         let restart_tasks = request.restart_tasks;
 
+        tracing::info!("Getting entities status");
+
         let operator_clients = self.get_operator_clients();
         let verifier_clients = self.get_verifier_clients();
-        let operator_status = join_all(
+        let operator_status = timed_try_join_all(
+            Duration::from_secs(60),
+            "Getting operator status",
+            Some(
+                self.get_operator_keys()
+                    .iter()
+                    .map(|key| OperatorId(*key))
+                    .collect::<Vec<_>>(),
+            ),
             operator_clients
                 .iter()
                 .zip(self.get_operator_keys().iter())
@@ -861,7 +872,7 @@ impl ClementineAggregator for Aggregator {
                     let mut client = client.clone();
                     async move {
                         let response = client.get_current_status(Request::new(Empty {})).await;
-                        super::EntityStatusWithId {
+                        Ok(super::EntityStatusWithId {
                             entity_id: Some(super::EntityId {
                                 kind: super::EntityType::Operator as i32,
                                 id: key.to_string(),
@@ -880,12 +891,22 @@ impl ClementineAggregator for Aggregator {
                                     ),
                                 ),
                             },
-                        }
+                        })
                     }
-                }),
+                })
+                .collect::<Vec<_>>(),
         )
-        .await;
-        let verifier_status = join_all(
+        .await?;
+
+        let verifier_status = timed_try_join_all(
+            Duration::from_secs(60),
+            "Getting verifier status",
+            Some(
+                self.get_verifier_keys()
+                    .iter()
+                    .map(|key| VerifierId(*key))
+                    .collect::<Vec<_>>(),
+            ),
             verifier_clients
                 .iter()
                 .zip(self.get_verifier_keys().iter())
@@ -893,7 +914,7 @@ impl ClementineAggregator for Aggregator {
                     let mut client = client.clone();
                     async move {
                         let response = client.get_current_status(Request::new(Empty {})).await;
-                        super::EntityStatusWithId {
+                        Ok(super::EntityStatusWithId {
                             entity_id: Some(super::EntityId {
                                 kind: super::EntityType::Verifier as i32,
                                 id: key.to_string(),
@@ -912,11 +933,14 @@ impl ClementineAggregator for Aggregator {
                                     ),
                                 ),
                             },
-                        }
+                        })
                     }
-                }),
+                })
+                .collect::<Vec<_>>(),
         )
-        .await;
+        .await?;
+
+        tracing::info!("Operator status: {:?}", operator_status);
 
         // Combine operator and verifier status into a single vector
         let mut entities_status = operator_status;

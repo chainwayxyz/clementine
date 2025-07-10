@@ -151,15 +151,15 @@ impl BackgroundTaskManager {
         let task = task.into_task();
         let (task, cancel_tx) = task.cancelable_loop();
 
-        let bg_task = task.into_bg();
-        let abort_handle = bg_task.abort_handle();
+        let join_handle = task.into_bg();
+        let abort_handle = join_handle.abort_handle();
 
         self.task_registry.write().await.insert(
             variant,
             (TaskStatus::Running, abort_handle, Some(cancel_tx)),
         );
 
-        self.monitor_spawned_task(bg_task, variant);
+        self.monitor_spawned_task(join_handle, variant);
     }
 
     async fn ensure_monitor_running(&self) {
