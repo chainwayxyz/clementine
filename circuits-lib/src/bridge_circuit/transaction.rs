@@ -12,6 +12,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 
 use crate::common::hashes::calculate_sha256;
 
+/// A wrapper around Bitcoin's `Transaction` type that provides additional and simpler functionality.
 #[derive(Clone, PartialEq, Eq, Debug, Hash)]
 pub struct CircuitTransaction(pub Transaction);
 

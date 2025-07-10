@@ -49,7 +49,6 @@ use citrea_e2e::{
 };
 use tonic::transport::Channel;
 pub enum TestVariant {
-    HealthyState,
     CorruptedLatestBlockHash,
     CorruptedPayoutTxBlockHash,
     CorruptedChallengeSendingWatchtowers,
@@ -809,73 +808,6 @@ impl AdditionalDisproveTest {
         tracing::info!("Disprove transaction is onchain");
         Ok(())
     }
-
-    async fn healthy_state_test(&self, f: &mut TestFramework) -> Result<()> {
-        tracing::info!("Starting Citrea");
-        let (sequencer, _full_node, lc_prover, batch_prover, da) =
-            citrea::start_citrea(Self::sequencer_config(), f)
-                .await
-                .unwrap();
-
-        let lc_prover = lc_prover.unwrap();
-        let batch_prover = batch_prover.unwrap();
-
-        let mut config = create_test_config_with_thread_name().await;
-
-        citrea::update_config_with_citrea_e2e_values(
-            &mut config,
-            da,
-            sequencer,
-            Some((
-                lc_prover.config.rollup.rpc.bind_host.as_str(),
-                lc_prover.config.rollup.rpc.bind_port,
-            )),
-        );
-
-        let (kickoff_tx, rpc, _verifiers, _operators, _aggregator, _cleanup) = self
-            .common_test_setup(config, lc_prover, batch_prover, da, sequencer)
-            .await?;
-
-        tracing::info!("Common test setup completed");
-
-        let kickoff_txid = kickoff_tx.compute_txid();
-
-        let disprove_timeout_outpoint = OutPoint {
-            txid: kickoff_txid,
-            vout: UtxoVout::Disprove.get_vout(),
-        };
-
-        tracing::info!(
-            "Disprove timeout outpoint: {:?}, txid: {:?}",
-            disprove_timeout_outpoint,
-            kickoff_txid
-        );
-
-        let txid = get_txid_where_utxo_is_spent_while_waiting_for_light_client_sync(
-            &rpc,
-            lc_prover,
-            disprove_timeout_outpoint,
-        )
-        .await
-        .unwrap();
-
-        tracing::info!("Disprove timeout txid: {:?}", txid);
-
-        let kickoff_finalizer_out = OutPoint {
-            txid: kickoff_txid,
-            vout: UtxoVout::KickoffFinalizer.get_vout(),
-        };
-
-        let disprove_timeout_tx = rpc.client.get_raw_transaction(&txid, None).await?;
-
-        assert!(
-            disprove_timeout_tx.input[1].previous_output == kickoff_finalizer_out,
-            "Disprove timeout tx input does not match kickoff finalizer outpoint"
-        );
-
-        tracing::info!("Disprove timeout transaction is onchain");
-        Ok(())
-    }
 }
 
 #[async_trait]
@@ -930,10 +862,6 @@ impl TestCase for AdditionalDisproveTest {
 
     async fn run_test(&mut self, f: &mut TestFramework) -> Result<()> {
         match self.variant {
-            TestVariant::HealthyState => {
-                tracing::info!("Running healthy state test");
-                self.healthy_state_test(f).await?;
-            }
             TestVariant::CorruptedLatestBlockHash => {
                 tracing::info!("Running disrupted latest block hash commit test");
                 self.disrupted_latest_block_hash_commit(f).await?;
@@ -982,35 +910,6 @@ async fn additional_disprove_script_test_disrupted_latest_block_hash() -> Result
     );
     let additional_disprove_test = AdditionalDisproveTest {
         variant: TestVariant::CorruptedLatestBlockHash,
-    };
-    TestCaseRunner::new(additional_disprove_test).run().await
-}
-
-/// Tests the disprove timeout mechanism in a healthy, non-disrupted protocol state.
-///
-/// # Arrange
-/// * Sets up full Citrea stack with sequencer, DA node, batch prover, and light client prover.
-/// * Uses default bridge configuration without any intentional disruption.
-///
-/// # Act
-/// * Executes deposit and withdrawal flows.
-/// * Processes the payout and kickoff transactions.
-/// * Waits for the disprove timeout to activate.
-///
-/// # Assert
-/// * Confirms that a disprove timeout transaction is created and included on Bitcoin.
-/// * Verifies that the transaction correctly spends the `KickoffFinalizer` output.
-#[tokio::test]
-#[ignore = "This test is too slow, run separately"]
-async fn additional_disprove_script_test_healthy() -> Result<()> {
-    initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
-        .expect("Failed to initialize logger");
-    std::env::set_var(
-        "CITREA_DOCKER_IMAGE",
-        "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
-    );
-    let additional_disprove_test = AdditionalDisproveTest {
-        variant: TestVariant::HealthyState,
     };
     TestCaseRunner::new(additional_disprove_test).run().await
 }

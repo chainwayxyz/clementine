@@ -6,8 +6,10 @@ use citrea_sov_rollup_interface::zk::light_client_proof::output::LightClientCirc
 // const LC_IMAGE_ID: [u8; 32] =
 //     hex_literal::hex!("95d94770d8aa1803f1e63d373b92319b024c1db5d79aad0e78bcf0984c75e813");
 
+/// Verifies the light client proof and returns the light client circuit output.
 pub fn lc_proof_verifier(light_client_proof: LightClientProof) -> LightClientCircuitOutput {
     // env::verify(LC_IMAGE_ID, &light_client_proof.lc_journal).unwrap();
+    // TODO: Make sure checking the equality against the given constant LCP method ID.
 
     if light_client_proof.lc_journal.len() < 32 {
         panic!("Invalid light client journal");

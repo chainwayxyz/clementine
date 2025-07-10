@@ -22,6 +22,8 @@ mod header_chain_prover;
 mod operator;
 #[cfg(feature = "automation")]
 mod state_machine;
+#[cfg(all(test, feature = "automation"))]
+mod test;
 #[cfg(feature = "automation")]
 mod tx_sender;
 mod verifier;
@@ -151,9 +153,9 @@ impl Database {
     /// the given configuration.
     pub fn get_postgresql_url(config: &BridgeConfig) -> String {
         "postgresql://".to_owned()
-            + &config.db_user.expose_secret()
+            + config.db_user.expose_secret()
             + ":"
-            + &config.db_password.expose_secret()
+            + config.db_password.expose_secret()
             + "@"
             + &config.db_host
             + ":"

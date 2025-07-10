@@ -37,6 +37,7 @@ impl Deref for MoveTxid {
     }
 }
 
+/// Represents a constant value used for each deposit in the bridge circuit.
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, BorshDeserialize, BorshSerialize)]
 pub struct DepositConstant(pub [u8; 32]);
 
@@ -131,16 +132,6 @@ pub struct StorageProof {
     pub storage_proof_deposit_txid: String, // This is the index of the withdrawal
     pub index: u32,                         // For now this is 18, for a specific withdrawal
 }
-
-// #[derive(Clone, Debug, BorshDeserialize, BorshSerialize)]
-// pub struct WatchtowerInputs {
-//     pub watchtower_idxs: Vec<u8>, // Which watchtower this is
-//     pub watchtower_pubkeys: Vec<Vec<u8>>, // We do not know what these will be for sure right now
-//     pub watchtower_challenge_input_idxs: Vec<u8>,
-//     pub watchtower_challenge_utxos: Vec<Vec<Vec<u8>>>, // BridgeCircuitUTXO
-//     pub watchtower_challenge_txs: Vec<Vec<u8>>, // BridgeCircuitTransaction
-//     pub watchtower_challenge_witnesses: Vec<Vec<u8>>, // BridgeCircuitTransactionWitness Vec<Some(Witness)>
-// }
 
 #[derive(Clone, Debug, BorshDeserialize, BorshSerialize)]
 pub struct WatchtowerInput {
@@ -317,11 +308,20 @@ impl WatchtowerInput {
             }
         });
 
-        let watchtower_challenge_witness = CircuitWitness::from(
-            watchtower_challenge_tx.input[watchtower_challenge_input_idx as usize]
-                .witness
-                .clone(),
-        );
+        // Get the first witness item, returning an error if it doesn't exist.
+        let Some(signature) = watchtower_challenge_tx.input
+            [watchtower_challenge_input_idx as usize]
+            .witness
+            .nth(0)
+        else {
+            return Err("Watchtower challenge input witness is empty");
+        };
+
+        // The rest of the logic proceeds with the guaranteed `signature`.
+        let mut witness = Witness::new();
+        witness.push(signature);
+
+        let watchtower_challenge_witness = CircuitWitness::from(witness);
 
         for input in &mut watchtower_challenge_tx.input {
             input.witness.clear();

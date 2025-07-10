@@ -12,9 +12,7 @@ use crate::rpc::clementine::{TransactionRequest, WithdrawParams};
 use crate::test::common::citrea::{get_citrea_safe_withdraw_params, SECRET_KEYS};
 use crate::test::common::tx_utils::{
     create_tx_sender, ensure_outpoint_spent_while_waiting_for_light_client_sync,
-    get_tx_from_signed_txs_with_type,
-    get_txid_where_utxo_is_spent_while_waiting_for_light_client_sync,
-    mine_once_after_outpoint_spent_in_mempool,
+    get_tx_from_signed_txs_with_type, mine_once_after_outpoint_spent_in_mempool,
 };
 use crate::test::common::{
     generate_withdrawal_transaction_and_signature, mine_once_after_in_mempool, run_single_deposit,
@@ -46,14 +44,13 @@ use citrea_e2e::{
     test_case::{TestCase, TestCaseRunner},
     Result,
 };
-use prost::Message;
 use tonic::transport::Channel;
 
 pub enum ChallengeTxTestVariant {
-    ChallengeTxWithAnnex,
-    ChallengeTxLargeInput,
-    ChallengeTxLargeOutput,
-    ChallengeTxLargeInputAndOutput,
+    WithAnnex,
+    LargeInput,
+    LargeOutput,
+    LargeInputAndOutput,
 }
 
 struct WatchtowerChallengeTxTest {
@@ -520,7 +517,7 @@ impl WatchtowerChallengeTxTest {
             )),
         );
 
-        let (kickoff_tx, rpc, _verifiers, _operators, _aggregator, _cleanup) = self
+        let _unused = self
             .common_test_setup(config, lc_prover, batch_prover, da, sequencer)
             .await?;
 
@@ -552,7 +549,7 @@ impl WatchtowerChallengeTxTest {
             )),
         );
 
-        let (kickoff_tx, rpc, _verifiers, _operators, _aggregator, _cleanup) = self
+        let _unused = self
             .common_test_setup(config, lc_prover, batch_prover, da, sequencer)
             .await?;
 
@@ -584,7 +581,7 @@ impl WatchtowerChallengeTxTest {
             )),
         );
 
-        let (kickoff_tx, rpc, _verifiers, _operators, _aggregator, _cleanup) = self
+        let _unused = self
             .common_test_setup(config, lc_prover, batch_prover, da, sequencer)
             .await?;
 
@@ -616,7 +613,7 @@ impl WatchtowerChallengeTxTest {
             )),
         );
 
-        let (kickoff_tx, rpc, _verifiers, _operators, _aggregator, _cleanup) = self
+        let _unused = self
             .common_test_setup(config, lc_prover, batch_prover, da, sequencer)
             .await?;
 
@@ -680,19 +677,19 @@ impl TestCase for WatchtowerChallengeTxTest {
 
     async fn run_test(&mut self, f: &mut TestFramework) -> Result<()> {
         match self.variant {
-            ChallengeTxTestVariant::ChallengeTxWithAnnex => {
+            ChallengeTxTestVariant::WithAnnex => {
                 tracing::info!("Running healthy state test");
                 self.challenge_tx_with_annex(f).await?;
             }
-            ChallengeTxTestVariant::ChallengeTxLargeInput => {
+            ChallengeTxTestVariant::LargeInput => {
                 tracing::info!("Running disrupted operator BitVM assert test");
                 self.challenge_tx_with_large_input(f).await?;
             }
-            ChallengeTxTestVariant::ChallengeTxLargeOutput => {
+            ChallengeTxTestVariant::LargeOutput => {
                 tracing::info!("Running challenge tx with large output test");
                 self.challenge_tx_with_large_output(f).await?;
             }
-            ChallengeTxTestVariant::ChallengeTxLargeInputAndOutput => {
+            ChallengeTxTestVariant::LargeInputAndOutput => {
                 tracing::info!("Running challenge tx with large input and output test");
                 self.challenge_tx_with_large_input_and_output(f).await?;
             }
@@ -710,7 +707,7 @@ async fn challenge_tx_with_annex() -> Result<()> {
         "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
     );
     let watchtower_challenge_tx_variant = WatchtowerChallengeTxTest {
-        variant: ChallengeTxTestVariant::ChallengeTxWithAnnex,
+        variant: ChallengeTxTestVariant::WithAnnex,
     };
     TestCaseRunner::new(watchtower_challenge_tx_variant)
         .run()
@@ -725,7 +722,7 @@ async fn challenge_tx_with_large_input() -> Result<()> {
         "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
     );
     let watchtower_challenge_tx_variant = WatchtowerChallengeTxTest {
-        variant: ChallengeTxTestVariant::ChallengeTxLargeInput,
+        variant: ChallengeTxTestVariant::LargeInput,
     };
     TestCaseRunner::new(watchtower_challenge_tx_variant)
         .run()
@@ -740,7 +737,7 @@ async fn challenge_tx_with_large_output() -> Result<()> {
         "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
     );
     let watchtower_challenge_tx_variant = WatchtowerChallengeTxTest {
-        variant: ChallengeTxTestVariant::ChallengeTxLargeOutput,
+        variant: ChallengeTxTestVariant::LargeOutput,
     };
     TestCaseRunner::new(watchtower_challenge_tx_variant)
         .run()
@@ -755,7 +752,7 @@ async fn challenge_tx_with_large_input_and_output() -> Result<()> {
         "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
     );
     let watchtower_challenge_tx_variant = WatchtowerChallengeTxTest {
-        variant: ChallengeTxTestVariant::ChallengeTxLargeInputAndOutput,
+        variant: ChallengeTxTestVariant::LargeInputAndOutput,
     };
     TestCaseRunner::new(watchtower_challenge_tx_variant)
         .run()

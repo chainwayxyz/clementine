@@ -12,8 +12,7 @@ use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::builder::transaction::{
     create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler,
-    create_round_txhandlers, create_txhandlers, ContractContext, KickoffWinternitzKeys,
-    ReimburseDbCache, TransactionType, TxHandler, TxHandlerCache,
+    create_round_txhandlers, ContractContext, KickoffWinternitzKeys, TransactionType, TxHandler,
 };
 use crate::citrea::CitreaClientT;
 use crate::config::BridgeConfig;
@@ -29,12 +28,11 @@ use crate::task::TaskExt;
 use crate::utils::Last20Bytes;
 use crate::utils::{NamedEntity, TxMetadata};
 use crate::{builder, constants, UTXO};
-use bitcoin::consensus::deserialize;
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::{schnorr, Message};
 use bitcoin::{
-    Address, Amount, BlockHash, OutPoint, ScriptBuf, Transaction, TxOut, Txid, XOnlyPublicKey,
+    Address, Amount, BlockHash, OutPoint, ScriptBuf, Transaction, TxOut, XOnlyPublicKey,
 };
 use bitcoincore_rpc::json::AddressType;
 use bitcoincore_rpc::RpcApi;
@@ -42,7 +40,7 @@ use bitvm::chunk::api::generate_assertions;
 use bitvm::signatures::winternitz;
 use bridge_circuit_host::bridge_circuit_host::{
     create_spv, prove_bridge_circuit, MAINNET_BRIDGE_CIRCUIT_ELF, REGTEST_BRIDGE_CIRCUIT_ELF,
-    SIGNET_BRIDGE_CIRCUIT_ELF, TESTNET4_BRIDGE_CIRCUIT_ELF,
+    REGTEST_BRIDGE_CIRCUIT_ELF_TEST, SIGNET_BRIDGE_CIRCUIT_ELF, TESTNET4_BRIDGE_CIRCUIT_ELF,
 };
 use bridge_circuit_host::structs::{BridgeCircuitHostParams, WatchtowerContext};
 use bridge_circuit_host::utils::{get_ark_verifying_key, get_ark_verifying_key_dev_mode_bridge};
@@ -1340,10 +1338,27 @@ where
 
         let latest_blockhash = block_hashes[latest_blockhash_index].0;
 
-        let (current_hcp, hcp_height) = self
+        let (current_hcp, _hcp_height) = self
             .header_chain_prover
             .prove_till_hash(latest_blockhash)
             .await?;
+
+        #[cfg(test)]
+        let current_hcp = {
+            if self
+                .config
+                .test_params
+                .generate_varying_total_works_insufficient_total_work
+            {
+                self.header_chain_prover
+                    .prove_till_hash(payout_block_hash)
+                    .await?
+                    .0
+            } else {
+                current_hcp
+            }
+        };
+
         tracing::info!("Got header chain proof in send_asserts");
 
         let blockhashes_serialized: Vec<[u8; 32]> = block_hashes
@@ -1351,6 +1366,26 @@ where
             .take(latest_blockhash_index + 1) // get all blocks up to and including latest_blockhash
             .map(|(block_hash, _)| block_hash.to_byte_array())
             .collect::<Vec<_>>();
+
+        #[cfg(test)]
+        let blockhashes_serialized = {
+            if self
+                .config
+                .test_params
+                .generate_varying_total_works_insufficient_total_work
+            {
+                block_hashes
+                    .iter()
+                    .take(
+                        (payout_block_height + 1 - self.config.protocol_paramset().genesis_height)
+                            as usize,
+                    )
+                    .map(|(block_hash, _)| block_hash.to_byte_array())
+                    .collect::<Vec<_>>()
+            } else {
+                blockhashes_serialized
+            }
+        };
 
         tracing::debug!(
             "Genesis height - Before SPV: {},",
@@ -1403,7 +1438,13 @@ where
             bitcoin::Network::Bitcoin => MAINNET_BRIDGE_CIRCUIT_ELF,
             bitcoin::Network::Testnet4 => TESTNET4_BRIDGE_CIRCUIT_ELF,
             bitcoin::Network::Signet => SIGNET_BRIDGE_CIRCUIT_ELF,
-            bitcoin::Network::Regtest => REGTEST_BRIDGE_CIRCUIT_ELF,
+            bitcoin::Network::Regtest => {
+                if cfg!(test) {
+                    REGTEST_BRIDGE_CIRCUIT_ELF_TEST
+                } else {
+                    REGTEST_BRIDGE_CIRCUIT_ELF
+                }
+            }
             _ => {
                 return Err(eyre::eyre!(
                     "Unsupported network {:?} in send_asserts",
@@ -1413,6 +1454,46 @@ where
             }
         };
         tracing::info!("Starting proving bridge circuit to send asserts");
+
+        #[cfg(test)]
+        {
+            if self
+                .config
+                .test_params
+                .generate_varying_total_works_insufficient_total_work
+                || self.config.test_params.generate_varying_total_works
+            {
+                use std::path::PathBuf;
+
+                let file_path = match (
+             self.config.test_params.generate_varying_total_works,
+             self.config.test_params.generate_varying_total_works_insufficient_total_work,
+        ) {
+            (false, true) => PathBuf::from(
+                "../bridge-circuit-host/bin-files/bch_params_varying_total_works_insufficient_total_work.bin",
+            ),
+            (true, false) => PathBuf::from(
+                "../bridge-circuit-host/bin-files/bch_params_varying_total_works.bin",
+            ),
+            _ => {
+                panic!("Invalid or conflicting test params for generating varying total works");
+            }
+        };
+
+                std::fs::create_dir_all(file_path.parent().unwrap()).map_err(|e| {
+                    eyre::eyre!("Failed to create directory for output file: {}", e)
+                })?;
+                let serialized_params =
+                    borsh::to_vec(&bridge_circuit_host_params).map_err(|e| {
+                        eyre::eyre!("Failed to serialize bridge circuit host params: {}", e)
+                    })?;
+                std::fs::write(file_path.clone(), serialized_params).map_err(|e| {
+                    eyre::eyre!("Failed to write bridge circuit host params to file: {}", e)
+                })?;
+                tracing::info!("Bridge circuit host params written to {:?}", file_path);
+            }
+        }
+
         let (g16_proof, g16_output, public_inputs) =
             prove_bridge_circuit(bridge_circuit_host_params, bridge_circuit_elf)?;
         tracing::info!("Proved bridge circuit in send_asserts");
@@ -1568,7 +1649,6 @@ where
 #[cfg(feature = "automation")]
 mod states {
     use super::*;
-    use crate::builder::transaction::input::UtxoVout;
     use crate::builder::transaction::{
         create_txhandlers, ContractContext, ReimburseDbCache, TransactionType, TxHandler,
         TxHandlerCache,
