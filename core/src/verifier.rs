@@ -1491,7 +1491,7 @@ where
         #[cfg(test)]
         {
             if let Some(annex_bytes) = rbf_info.annex.clone() {
-                let annex = challenge_tx.input[0].witness.push(annex_bytes);
+                challenge_tx.input[0].witness.push(annex_bytes);
             }
         }
 

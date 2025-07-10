@@ -105,6 +105,33 @@ pub fn prove_bridge_circuit(
         .clone()
         .into_bridge_circuit_input();
 
+    #[cfg(test)]
+    let mut bridge_circuit_input_clone = bridge_circuit_input.clone();
+    
+    #[cfg(test)]
+    {
+        tracing::info!("Now reducing the witness size to write to a file");
+        for watchtower_input in &mut bridge_circuit_input_clone.watchtower_inputs {
+            use bitcoin::Witness;
+            use circuits_lib::bridge_circuit::structs::CircuitWitness;
+
+            if watchtower_input.watchtower_challenge_witness.len() > 1 {
+                let cropped_witness = watchtower_input.watchtower_challenge_witness.nth(0).unwrap();
+            let mut circuit_witness: CircuitWitness = CircuitWitness(Witness::new());
+            circuit_witness.0.push(cropped_witness);
+            watchtower_input
+                .watchtower_challenge_witness = circuit_witness;
+            }
+        }
+        let serialized_input = borsh::to_vec(&bridge_circuit_input_clone)
+            .wrap_err("Failed to serialize bridge circuit input")?;
+        // Write this to a file
+        std::fs::write(
+            "challenge_tx_with_annex.bin",
+            serialized_input,
+        ).unwrap();
+    }
+
     let header_chain_proof_output_serialized = borsh::to_vec(&bridge_circuit_input.hcp)
         .wrap_err("Could not serialize header chain output")?;
 
@@ -159,6 +186,20 @@ pub fn prove_bridge_circuit(
         SuccinctBridgeCircuitPublicInputs::new(bridge_circuit_input.clone())?;
 
     let journal_hash = public_inputs.host_journal_hash();
+
+    #[cfg(test)]
+    let hcp_receipt_clone = bridge_circuit_host_params.headerchain_receipt.clone();
+
+    #[cfg(test)]
+    {
+        let serialized_receipt = borsh::to_vec(&hcp_receipt_clone)
+            .wrap_err("Failed to serialize header chain receipt")?;
+        // Write this to a file
+        std::fs::write(
+            "challenge_tx_with_annex_hcp_receipt.bin",
+            serialized_receipt,
+        ).unwrap();
+    }
 
     let mut binding = ExecutorEnv::builder();
     let env = binding
