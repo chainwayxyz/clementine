@@ -77,6 +77,36 @@ impl TestParams {
             .as_ref()
             .is_none_or(|indexes| !indexes.contains(&verifier_idx)))
     }
+
+    pub fn maybe_corrupt_assersts(
+        &self,
+        asserts: &mut ([[u8; 32]; 1], [[u8; 32]; 14], [[u8; 16]; 363]),
+    ) {
+        use rand::Rng;
+        if self.corrupted_asserts {
+            let mut rng = rand::thread_rng();
+
+            if rng.gen_bool(0.5) {
+                let i = rng.gen_range(0..asserts.1.len());
+                let j = rng.gen_range(0..asserts.1[i].len());
+                tracing::info!("Disrupting asserts commit 1 with i: {}, j: {}", i, j);
+
+                asserts.1[i][j] ^= 0x01;
+            } else {
+                let i = rng.gen_range(0..asserts.2.len());
+                let j = rng.gen_range(0..asserts.2[i].len());
+                tracing::info!("Disrupting asserts commit 2 with i: {}, j: {}", i, j);
+
+                asserts.2[i][j] ^= 0x01;
+            }
+        } else if self.corrupted_public_input {
+            let mut rng = rand::thread_rng();
+            let j = rng.gen_range(1..asserts.0[0].len());
+
+            tracing::info!("Disrupting public input with i: 0, j: {}", j);
+            asserts.0[0][j] ^= 0x01;
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Default)]
