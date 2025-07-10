@@ -79,10 +79,7 @@ impl TestParams {
             .is_none_or(|indexes| !indexes.contains(&verifier_idx)))
     }
 
-    pub fn maybe_corrupt_assersts(
-        &self,
-        asserts: &mut Assertions,
-    ) {
+    pub fn maybe_corrupt_assersts(&self, asserts: &mut Assertions) {
         use rand::Rng;
         if self.corrupted_asserts {
             let mut rng = rand::thread_rng();
