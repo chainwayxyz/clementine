@@ -175,7 +175,7 @@ jobs:
   # Matrix (Standalone) Tests --------------------------------------------------
   standalone_tests:
     name: Release | All features | Test ${{ matrix.description_suffix }}
-    runs-on: ubicloud-standard-30
+    runs-on: ubicloud-standard-16
     needs: release_build_all_features
 
     env:

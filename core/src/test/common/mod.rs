@@ -376,7 +376,10 @@ pub async fn run_single_deposit<C: CitreaClientT>(
     actors: Option<TestActors<C>>,
     deposit_outpoint: Option<OutPoint>, // if a deposit outpoint is provided, it will be used instead of creating a new one
 ) -> Result<(TestActors<C>, DepositInfo, Txid, BlockHash, Vec<PublicKey>), BridgeError> {
-    let actors = actors.unwrap_or(create_actors::<C>(config).await);
+    let actors = match actors {
+        Some(actors) => actors,
+        None => create_actors(config).await,
+    };
     let aggregator_db = Database::new(&BridgeConfig {
         db_name: config.db_name.clone() + "0",
         ..config.clone()

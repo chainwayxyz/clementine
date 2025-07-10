@@ -429,7 +429,10 @@ pub async fn register_replacement_deposit_to_citrea(
 
     e2e.rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
 
-    let (tx, block, block_height) = get_tx_information_for_citrea(e2e, move_txid).await?;
+    let (replace_tx, block, block_height) = get_tx_information_for_citrea(e2e, move_txid).await?;
+
+    tracing::warn!("Replace transaction: {:?}", replace_tx);
+    tracing::warn!("Replace transaction block: {:?}", block);
 
     // wait for light client to sync until replacement deposit tx
     e2e.lc_prover
@@ -438,7 +441,11 @@ pub async fn register_replacement_deposit_to_citrea(
         .map_err(|e| eyre::eyre!("Failed to wait for light client to sync: {:?}", e))?;
 
     let (replace_tx, tx_proof, sha_script_pubkeys) =
-        get_citrea_deposit_params(e2e.rpc, tx, block, block_height as u32, move_txid).await?;
+        get_citrea_deposit_params(e2e.rpc, replace_tx, block, block_height as u32, move_txid)
+            .await?;
+
+    tracing::warn!("Replace transaction block height: {:?}", block_height);
+    tracing::warn!("Replace transaction tx proof : {:?}", tx_proof);
 
     let replace_deposit_tx = e2e
         .citrea_client

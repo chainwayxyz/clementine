@@ -179,7 +179,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         }
 
         // do 2 deposits
-        let (mut actors, deposit_infos, move_txids, _deposit_blockhashs, verifiers_public_keys) =
+        let (mut actors, deposit_infos, move_txids, _deposit_blockhashs, _) =
             run_multiple_deposits::<CitreaClient>(&mut config, rpc.clone(), 2, None).await?;
 
         let citrea_e2e_data = CitreaE2EData {
@@ -343,83 +343,78 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         .unwrap_err();
 
         // replace the deposit
-        // tracing::info!("Replacing deposit");
-        // let (
-        //     actors,
-        //     _replacement_deposit_info,
-        //     replacement_move_txid,
-        //     _replacement_deposit_blockhash,
-        // ) = run_single_replacement_deposit(
-        //     &mut config,
-        //     &rpc,
-        //     //new_move_txids[2],
-        //     new_move_txids[0],
-        //     actors,
-        //     old_nofn_xonly_pk,
-        //     old_secret_keys,
-        // )
-        // .await
-        // .unwrap();
+        tracing::info!("Replacing deposit");
+        let (
+            mut actors,
+            _replacement_deposit_info,
+            replacement_move_txid,
+            _replacement_deposit_blockhash,
+        ) = run_single_replacement_deposit(
+            &mut config,
+            &rpc,
+            //new_move_txids[2],
+            new_move_txids[0],
+            actors,
+            old_nofn_xonly_pk,
+            old_secret_keys,
+        )
+        .await
+        .unwrap();
 
-        // tracing::info!("Registering replacement deposit to Citrea");
-        // register_replacement_deposit_to_citrea(
-        //     &citrea_e2e_data,
-        //     replacement_move_txid,
-        //     withdrawal_infos[1].0,
-        // )
-        // .await
-        // .unwrap();
+        tracing::info!("Registering replacement deposit to Citrea");
+        register_replacement_deposit_to_citrea(
+            &citrea_e2e_data,
+            replacement_move_txid,
+            withdrawal_infos[1].0,
+        )
+        .await
+        .unwrap();
 
-        // tracing::info!("Waiting for lc prover to sync");
-        // // wait for lc prover so that new replacement deposit gets synced on verifiers before attempting optimistic payout
-        // // TODO: can use status rpc to ensure they are synced
-        // rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
-        // tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        // for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
-        //     sequencer.client.send_publish_batch_request().await.unwrap();
-        // }
+        tracing::info!("Waiting for lc prover to sync");
+        // wait for lc prover so that new replacement deposit gets synced on verifiers before attempting optimistic payout
+        // TODO: can use status rpc to ensure they are synced
+        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
+            sequencer.client.send_publish_batch_request().await.unwrap();
+        }
 
-        // let block_height = da.get_finalized_height(None).await.unwrap();
-        // lc_prover
-        //     .wait_for_l1_height(block_height as u64, None)
-        //     .await
-        //     .unwrap();
+        let block_height = da.get_finalized_height(None).await.unwrap();
+        lc_prover
+            .wait_for_l1_height(block_height as u64, None)
+            .await
+            .unwrap();
 
-        // rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
+        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
 
-        // tracing::warn!(
-        //     "Cur block height: {:?}",
-        //     rpc.get_current_chain_height().await.unwrap()
-        // );
+        tracing::warn!(
+            "Cur block height: {:?}",
+            rpc.get_current_chain_height().await.unwrap()
+        );
 
-        // tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        // for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
-        //     sequencer.client.send_publish_batch_request().await.unwrap();
-        // }
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
+            sequencer.client.send_publish_batch_request().await.unwrap();
+        }
 
-        // let block_height = da.get_finalized_height(None).await.unwrap();
-        // lc_prover
-        //     .wait_for_l1_height(block_height as u64, None)
-        //     .await
-        //     .unwrap();
+        let block_height = da.get_finalized_height(None).await.unwrap();
+        lc_prover
+            .wait_for_l1_height(block_height as u64, None)
+            .await
+            .unwrap();
 
-        // // do optimistic payout with new replacement deposit, should work now
-        // reimburse_with_optimistic_payout(
-        //     actors.get_aggregator(),
-        //     // withdrawal_infos[4].0,
-        //     // &withdrawal_infos[4].1,
-        //     // &withdrawal_infos[4].2,
-        //     // &withdrawal_infos[4].3,
-        //     withdrawal_infos[1].0,
-        //     &withdrawal_infos[1].1,
-        //     &withdrawal_infos[1].2,
-        //     &withdrawal_infos[1].3,
-        //     &citrea_e2e_data,
-        //     //replacement_move_txid,
-        //     new_move_txids[0],
-        // )
-        // .await
-        // .unwrap();
+        // do optimistic payout with new replacement deposit, should work now
+        reimburse_with_optimistic_payout(
+            &actors,
+            withdrawal_infos[4].0,
+            &withdrawal_infos[4].1,
+            &withdrawal_infos[4].2,
+            &withdrawal_infos[4].3,
+            &citrea_e2e_data,
+            replacement_move_txid,
+        )
+        .await
+        .unwrap();
 
         // wait for all past kickoff reimburse connectors to be spent
         tracing::info!("Waiting for all past kickoff reimburse connectors to be spent");
@@ -437,18 +432,18 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         // remove an operator and try a deposit, it should fail because the  operator is still in verifiers DB.
         // to make it not fail, operator data needs to be removed from verifiers DB.
         // if the behavior is changed in the future, the test should be updated.
-        // tracing::info!("Removing operator 1");
-        // actors.remove_operator(1).await.unwrap();
-        // // try to do a deposit, it should fail.
-        // assert!(run_single_deposit::<CitreaClient>(
-        //     &mut config,
-        //     rpc.clone(),
-        //     None,
-        //     Some(actors),
-        //     None
-        // )
-        // .await
-        // .is_err());
+        tracing::info!("Removing operator 1");
+        actors.remove_operator(1).await.unwrap();
+        // try to do a deposit, it should fail.
+        assert!(run_single_deposit::<CitreaClient>(
+            &mut config,
+            rpc.clone(),
+            None,
+            Some(actors),
+            None
+        )
+        .await
+        .is_err());
 
         Ok(())
     }
