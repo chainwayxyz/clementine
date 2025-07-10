@@ -15,7 +15,7 @@ use crate::rpc::clementine::{TransactionRequest, WithdrawParams};
 use crate::test::common::citrea::{get_citrea_safe_withdraw_params, SECRET_KEYS};
 use crate::test::common::tx_utils::get_tx_from_signed_txs_with_type;
 use crate::test::common::tx_utils::{
-    create_tx_sender, ensure_outpoint_spent_while_waiting_for_light_client_sync,
+    create_tx_sender, ensure_outpoint_spent_while_waiting_for_light_client_and_state_mngr_sync,
     mine_once_after_outpoint_spent_in_mempool,
 };
 use crate::test::common::{
@@ -512,10 +512,11 @@ impl TestCase for BridgeCircuitTestData {
             .await?;
 
         // Ensure the reimburse connector is spent
-        ensure_outpoint_spent_while_waiting_for_light_client_sync(
+        ensure_outpoint_spent_while_waiting_for_light_client_and_state_mngr_sync(
             &rpc,
             lc_prover,
             reimburse_connector,
+            &actors,
         )
         .await
         .unwrap();

@@ -276,7 +276,7 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     watchtower_challenge_timeout_timelock: 4 * BLOCKS_PER_HOUR * 2,
     time_to_send_watchtower_challenge: 4 * BLOCKS_PER_HOUR * 3 / 2,
     latest_blockhash_timeout_timelock: 4 * BLOCKS_PER_HOUR * 5 / 2,
-    finality_depth: 1,
+    finality_depth: 5, // citrea e2e finality depth
     start_height: 190,
     genesis_height: 0,
     genesis_chain_state_hash: [

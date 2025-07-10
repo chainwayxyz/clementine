@@ -8,9 +8,9 @@ use crate::deposit::KickoffData;
 use crate::rpc::clementine::{TransactionRequest, WithdrawParams};
 use crate::test::common::citrea::{get_citrea_safe_withdraw_params, SECRET_KEYS};
 use crate::test::common::tx_utils::{
-    create_tx_sender, ensure_outpoint_spent_while_waiting_for_light_client_sync,
+    create_tx_sender, ensure_outpoint_spent_while_waiting_for_light_client_and_state_mngr_sync,
     get_tx_from_signed_txs_with_type,
-    get_txid_where_utxo_is_spent_while_waiting_for_light_client_sync,
+    get_txid_where_utxo_is_spent_while_waiting_for_light_client_and_state_mngr_sync,
     mine_once_after_outpoint_spent_in_mempool,
 };
 use crate::test::common::{
@@ -444,10 +444,11 @@ impl DisproveTest {
             vout: UtxoVout::Assert(0).get_vout(),
         };
 
-        ensure_outpoint_spent_while_waiting_for_light_client_sync(
+        ensure_outpoint_spent_while_waiting_for_light_client_and_state_mngr_sync(
             &rpc,
             lc_prover,
             first_assert_utxo,
+            &actors,
         )
         .await
         .unwrap();
@@ -458,10 +459,11 @@ impl DisproveTest {
                 .get_vout(),
         };
 
-        ensure_outpoint_spent_while_waiting_for_light_client_sync(
+        ensure_outpoint_spent_while_waiting_for_light_client_and_state_mngr_sync(
             &rpc,
             lc_prover,
             last_assert_utxo,
+            &actors,
         )
         .await
         .unwrap();
@@ -517,8 +519,8 @@ impl DisproveTest {
             )),
         );
 
-        let (kickoff_tx, rpc, _actors) = self
-            .common_test_setup(config, lc_prover, batch_prover, da, sequencer)
+        let (kickoff_tx, rpc, actors) = self
+            .common_test_setup(config.clone(), lc_prover, batch_prover, da, sequencer)
             .await?;
 
         tracing::info!("Common test setup completed");
@@ -536,10 +538,11 @@ impl DisproveTest {
             kickoff_txid
         );
 
-        let txid = get_txid_where_utxo_is_spent_while_waiting_for_light_client_sync(
+        let txid = get_txid_where_utxo_is_spent_while_waiting_for_light_client_and_state_mngr_sync(
             &rpc,
             lc_prover,
             disprove_outpoint,
+            &actors,
         )
         .await
         .unwrap();
@@ -599,8 +602,8 @@ impl DisproveTest {
             )),
         );
 
-        let (kickoff_tx, rpc, _actors) = self
-            .common_test_setup(config, lc_prover, batch_prover, da, sequencer)
+        let (kickoff_tx, rpc, actors) = self
+            .common_test_setup(config.clone(), lc_prover, batch_prover, da, sequencer)
             .await?;
 
         tracing::info!("Common test setup completed");
@@ -618,10 +621,11 @@ impl DisproveTest {
             kickoff_txid
         );
 
-        let txid = get_txid_where_utxo_is_spent_while_waiting_for_light_client_sync(
+        let txid = get_txid_where_utxo_is_spent_while_waiting_for_light_client_and_state_mngr_sync(
             &rpc,
             lc_prover,
             disprove_timeout_outpoint,
+            &actors,
         )
         .await
         .unwrap();

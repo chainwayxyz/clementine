@@ -54,7 +54,7 @@ pub struct TestAggregator {
 pub struct TestActors<C: CitreaClientT> {
     verifiers: BTreeMap<usize, TestVerifier<C>>,
     operators: BTreeMap<usize, TestOperator<C>>,
-    aggregator: TestAggregator,
+    pub aggregator: TestAggregator,
     /// The total number of verifiers, including deleted ones, to ensure unique numbering
     pub num_total_verifiers: usize,
     /// The total number of operators, including deleted ones, to ensure unique numbering

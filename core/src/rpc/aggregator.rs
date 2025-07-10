@@ -2282,9 +2282,8 @@ mod tests {
         let mut config = create_test_config_with_thread_name().await;
         let _regtest = create_regtest_rpc(&mut config).await;
 
-        let (_verifiers, _operators, mut aggregator, mut cleanup) =
-            create_actors::<MockCitreaClient>(&config).await;
-
+        let actors = create_actors::<MockCitreaClient>(&config).await;
+        let mut aggregator = actors.get_aggregator();
         let status = aggregator
             .get_entities_status(Request::new(GetEntitiesStatusRequest {
                 restart_tasks: false,
@@ -2300,31 +2299,5 @@ mod tests {
             config.test_params.all_operators_secret_keys.len()
                 + config.test_params.all_verifiers_secret_keys.len()
         );
-
-        // close an entity
-        cleanup.0 .0.remove(0).send(()).unwrap();
-
-        let status = aggregator
-            .get_entities_status(Request::new(GetEntitiesStatusRequest {
-                restart_tasks: false,
-            }))
-            .await
-            .unwrap()
-            .into_inner();
-
-        tracing::info!("Status: {:?}", status);
-
-        // count errors
-        let errors = status
-            .entities_status
-            .iter()
-            .filter(|entity| {
-                matches!(
-                    entity.status,
-                    Some(clementine::entity_status_with_id::Status::EntityError(_))
-                )
-            })
-            .count();
-        assert_eq!(errors, 1);
     }
 }

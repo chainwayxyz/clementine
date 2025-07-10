@@ -1,5 +1,8 @@
-use super::{mine_once_after_in_mempool, poll_until_condition};
+use super::test_actors::TestActors;
+use super::{are_all_state_managers_synced, mine_once_after_in_mempool, poll_until_condition};
 use crate::builder::transaction::TransactionType as TxType;
+use crate::citrea::CitreaClientT;
+use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::extended_rpc::ExtendedRpc;
@@ -30,10 +33,13 @@ pub fn get_tx_from_signed_txs_with_type(
     bitcoin::consensus::deserialize(&tx).context("expected valid tx")
 }
 // Cannot use ensure_async due to `Send` requirement being broken upstream
-pub async fn ensure_outpoint_spent_while_waiting_for_light_client_sync(
+pub async fn ensure_outpoint_spent_while_waiting_for_light_client_and_state_mngr_sync<
+    C: CitreaClientT,
+>(
     rpc: &ExtendedRpc,
     lc_prover: &Node<LightClientProverConfig>,
     outpoint: OutPoint,
+    actors: &TestActors<C>,
 ) -> Result<(), eyre::Error> {
     let mut timeout_counter = 300;
     while match rpc
@@ -57,6 +63,11 @@ pub async fn ensure_outpoint_spent_while_waiting_for_light_client_sync(
             }
             total_retry += 1;
             tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+        }
+
+        if !are_all_state_managers_synced(rpc, actors).await? {
+            // state manager didnt sync yet, do not mine blocks
+            continue;
         }
         rpc.mine_blocks(1).await?;
 
@@ -119,12 +130,18 @@ pub async fn retry_get_block_count(
     unreachable!("retry loop should either return Ok or Err")
 }
 
-pub async fn get_txid_where_utxo_is_spent_while_waiting_for_light_client_sync(
+pub async fn get_txid_where_utxo_is_spent_while_waiting_for_light_client_and_state_mngr_sync<
+    C: CitreaClientT,
+>(
     rpc: &ExtendedRpc,
     lc_prover: &Node<LightClientProverConfig>,
     utxo: OutPoint,
+    actors: &TestActors<C>,
 ) -> Result<Txid, eyre::Error> {
-    ensure_outpoint_spent_while_waiting_for_light_client_sync(rpc, lc_prover, utxo).await?;
+    ensure_outpoint_spent_while_waiting_for_light_client_and_state_mngr_sync(
+        rpc, lc_prover, utxo, actors,
+    )
+    .await?;
     let remaining_block_count = 30;
     // look for the txid in the last 30 blocks
     for i in 0..remaining_block_count {

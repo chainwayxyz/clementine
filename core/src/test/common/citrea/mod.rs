@@ -9,7 +9,6 @@ use crate::deposit::{DepositInfo, KickoffData};
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::operator::RoundIndex;
-use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::{TransactionRequest, WithdrawParams};
 use crate::test::common::tx_utils::{create_tx_sender, mine_once_after_outpoint_spent_in_mempool};
@@ -36,7 +35,8 @@ use jsonrpsee::http_client::HttpClient;
 pub use parameters::*;
 pub use requests::*;
 
-use super::tx_utils::ensure_outpoint_spent_while_waiting_for_light_client_sync;
+use super::test_actors::TestActors;
+use super::tx_utils::ensure_outpoint_spent_while_waiting_for_light_client_and_state_mngr_sync;
 
 mod bitcoin_merkle;
 mod client_mock;
@@ -687,7 +687,7 @@ pub async fn payout_and_challenge(
 
 #[allow(clippy::too_many_arguments)]
 pub async fn reimburse_with_optimistic_payout(
-    mut aggregator: ClementineAggregatorClient<tonic::transport::Channel>,
+    actors: &TestActors<CitreaClient>,
     withdrawal_id: u32,
     withdrawal_utxo: &OutPoint,
     payout_txout: &TxOut,
@@ -695,6 +695,7 @@ pub async fn reimburse_with_optimistic_payout(
     e2e: &CitreaE2EData<'_>,
     move_txid: Txid,
 ) -> eyre::Result<()> {
+    let mut aggregator = actors.get_aggregator();
     aggregator
         .optimistic_payout(WithdrawParams {
             withdrawal_id,
@@ -706,13 +707,14 @@ pub async fn reimburse_with_optimistic_payout(
         .await?;
 
     // ensure the btc in vault is spent
-    ensure_outpoint_spent_while_waiting_for_light_client_sync(
+    ensure_outpoint_spent_while_waiting_for_light_client_and_state_mngr_sync(
         e2e.rpc,
         e2e.lc_prover,
         OutPoint {
             txid: move_txid,
             vout: (UtxoVout::DepositInMove).get_vout(),
         },
+        &actors,
     )
     .await?;
 

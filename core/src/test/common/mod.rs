@@ -23,7 +23,9 @@ use crate::deposit::{
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::{aggregate_nonces, aggregate_partial_signatures, nonce_pair, partial_sign};
-use crate::rpc::clementine::{Deposit, Empty, SendMoveTxRequest};
+use crate::rpc::clementine::{
+    entity_status_with_id, Deposit, Empty, GetEntitiesStatusRequest, SendMoveTxRequest,
+};
 use crate::utils::FeePayingType;
 use crate::EVMAddress;
 use bitcoin::hashes::Hash;
@@ -34,6 +36,7 @@ use bitcoin::secp256k1::{rand, SecretKey};
 use bitcoin::XOnlyPublicKey;
 use bitcoin::{taproot, BlockHash, OutPoint, Transaction, Txid, Witness};
 use bitcoincore_rpc::RpcApi;
+use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
 use eyre::Context;
 pub use setup_utils::*;
 use std::path::Path;
@@ -134,6 +137,36 @@ pub async fn poll_get<T>(
 
         tokio::time::sleep(poll_interval).await;
     }
+}
+
+pub async fn are_all_state_managers_synced<C: CitreaClientT>(
+    rpc: &ExtendedRpc,
+    actors: &TestActors<C>,
+) -> eyre::Result<bool> {
+    let mut aggregator = actors.get_aggregator();
+    let l1_sync_status = aggregator
+        .get_entities_status(Request::new(GetEntitiesStatusRequest {
+            restart_tasks: false,
+        }))
+        .await?
+        .into_inner();
+    let mut state_mngr_sync_heights = Vec::new();
+    for entity in l1_sync_status.entities_status {
+        if let Some(entity_status_with_id::Status::EntityStatus(status)) = entity.status {
+            state_mngr_sync_heights.push(status.state_manager_next_height);
+        } else {
+            return Err(eyre::eyre!(
+                "Couldn't retrive sync status from entity {:?}",
+                entity.entity_id
+            )
+            .into());
+        }
+    }
+    let min_next_sync_height = state_mngr_sync_heights.iter().min().unwrap();
+    let current_chain_height = rpc.get_current_chain_height().await?;
+    let current_finalized_chain_height =
+        current_chain_height - actors.aggregator.config.protocol_paramset().finality_depth;
+    Ok(*min_next_sync_height <= current_finalized_chain_height)
 }
 
 /// Wait for a transaction to be in the mempool and than mines a block to make
@@ -265,7 +298,7 @@ pub async fn run_multiple_deposits<C: CitreaClientT>(
         let deposit_outpoint: OutPoint = rpc
             .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
             .await?;
-        rpc.mine_blocks(18).await?;
+        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH + 1).await?;
 
         let deposit_info = DepositInfo {
             deposit_outpoint,

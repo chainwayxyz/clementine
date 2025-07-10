@@ -8,7 +8,8 @@ use crate::deposit::KickoffData;
 use crate::rpc::clementine::{TransactionRequest, WithdrawParams};
 use crate::test::common::citrea::{get_citrea_safe_withdraw_params, SECRET_KEYS};
 use crate::test::common::tx_utils::{
-    create_tx_sender, ensure_outpoint_spent_while_waiting_for_light_client_sync,
+    create_tx_sender,
+    ensure_outpoint_spent_while_waiting_for_light_client_and_state_mngr_sync,
     get_tx_from_signed_txs_with_type, mine_once_after_outpoint_spent_in_mempool,
 };
 use crate::test::common::{
@@ -442,10 +443,11 @@ impl WatchtowerChallengeTxTest {
             vout: UtxoVout::Assert(0).get_vout(),
         };
 
-        ensure_outpoint_spent_while_waiting_for_light_client_sync(
+        ensure_outpoint_spent_while_waiting_for_light_client_and_state_mngr_sync(
             &rpc,
             lc_prover,
             first_assert_utxo,
+            &actors,
         )
         .await
         .unwrap();
