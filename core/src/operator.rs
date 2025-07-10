@@ -1532,10 +1532,7 @@ where
 
         #[cfg(test)]
         {
-            if self.config.test_params.corrupted_asserts {
-                tracing::info!("Disrupting asserts commit in send_asserts");
-                asserts.0[0][0] ^= 0x01;
-            }
+            self.config.test_params.maybe_corrupt_asserts(&mut asserts);
         }
 
         let assert_txs = self
