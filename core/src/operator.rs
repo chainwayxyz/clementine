@@ -1561,7 +1561,7 @@ where
 
         #[cfg(test)]
         {
-            self.config.test_params.maybe_corrupt_assersts(&mut asserts);
+            self.config.test_params.maybe_corrupt_asserts(&mut asserts);
         }
 
         let assert_txs = self
