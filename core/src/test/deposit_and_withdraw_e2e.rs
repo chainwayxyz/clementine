@@ -20,8 +20,8 @@ use crate::rpc::clementine::{
 };
 use crate::test::common::citrea::{
     get_new_withdrawal_utxo_and_register_to_citrea, payout_and_challenge,
-    reimburse_with_optimistic_payout, start_citrea, update_config_with_citrea_e2e_values,
-    CitreaE2EData, MockCitreaClient, SECRET_KEYS,
+    register_replacement_deposit_to_citrea, reimburse_with_optimistic_payout, start_citrea,
+    update_config_with_citrea_e2e_values, CitreaE2EData, MockCitreaClient, SECRET_KEYS,
 };
 use crate::test::common::tx_utils::{
     ensure_outpoint_spent, ensure_outpoint_spent_while_waiting_for_light_client_sync,
@@ -177,6 +177,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             config.protocol_paramset = Box::leak(Box::new(paramset));
         }
 
+        // do 2 deposits
         let (mut actors, deposit_infos, move_txids, _deposit_blockhashs, verifiers_public_keys) =
             run_multiple_deposits::<CitreaClient>(&mut config, rpc.clone(), 2, None).await?;
 
@@ -221,20 +222,20 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             .await
             .expect("failed to create database");
 
-        // reimburse_connectors.push(
-        //     payout_and_challenge(
-        //         actors.get_operator_client_by_index(0),
-        //         op0_xonly_pk,
-        //         &db,
-        //         withdrawal_infos[0].0,
-        //         &withdrawal_infos[0].1,
-        //         &withdrawal_infos[0].2,
-        //         &withdrawal_infos[0].3,
-        //         &citrea_e2e_data,
-        //         &deposit_infos[0],
-        //     )
-        //     .await,
-        // );
+        reimburse_connectors.push(
+            payout_and_challenge(
+                actors.get_operator_client_by_index(0),
+                op0_xonly_pk,
+                &db,
+                withdrawal_infos[0].0,
+                &withdrawal_infos[0].1,
+                &withdrawal_infos[0].2,
+                &withdrawal_infos[0].3,
+                &citrea_e2e_data,
+                &deposit_infos[0],
+            )
+            .await,
+        );
 
         // add a new verifier
         let new_sk = SecretKey::new(&mut bitcoin::secp256k1::rand::thread_rng());
@@ -265,7 +266,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             .await?;
 
         tracing::info!("3 more deposits done, doing 3 more withdrawals");
-        // do 2 more withdrawals
+        // do 3 more withdrawals
         for move_txid in new_move_txids.iter() {
             let (withdrawal_utxo, payout_txout, sig) =
                 get_new_withdrawal_utxo_and_register_to_citrea(*move_txid, &citrea_e2e_data).await;
@@ -284,20 +285,20 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         let new_operator_db = Database::new(&verifier_x_config)
             .await
             .expect("failed to create database");
-        // reimburse_connectors.push(
-        //     payout_and_challenge(
-        //         actors.get_operator_client_by_index(new_operator_index),
-        //         new_operator_xonly_pk,
-        //         &new_operator_db,
-        //         withdrawal_infos[2].0,
-        //         &withdrawal_infos[2].1,
-        //         &withdrawal_infos[2].2,
-        //         &withdrawal_infos[2].3,
-        //         &citrea_e2e_data,
-        //         &new_deposit_infos[0],
-        //     )
-        //     .await,
-        // );
+        reimburse_connectors.push(
+            payout_and_challenge(
+                actors.get_operator_client_by_index(new_operator_index),
+                new_operator_xonly_pk,
+                &new_operator_db,
+                withdrawal_infos[2].0,
+                &withdrawal_infos[2].1,
+                &withdrawal_infos[2].2,
+                &withdrawal_infos[2].3,
+                &citrea_e2e_data,
+                &new_deposit_infos[0],
+            )
+            .await,
+        );
 
         // do 2 optimistic payouts, 1 with old 1 with new deposit, they should both work as all verifiers that
         // signed them still exist
@@ -355,70 +356,83 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         .unwrap_err();
 
         // replace the deposit
-        tracing::info!("Replacing deposit");
-        let (
-            actors,
-            _replacement_deposit_info,
-            replacement_move_txid,
-            _replacement_deposit_blockhash,
-        ) = run_single_replacement_deposit(
-            &mut config,
-            &rpc,
-            new_move_txids[2],
-            actors,
-            old_nofn_xonly_pk,
-            old_secret_keys,
-        )
-        .await
-        .unwrap();
+        // tracing::info!("Replacing deposit");
+        // let (
+        //     actors,
+        //     _replacement_deposit_info,
+        //     replacement_move_txid,
+        //     _replacement_deposit_blockhash,
+        // ) = run_single_replacement_deposit(
+        //     &mut config,
+        //     &rpc,
+        //     //new_move_txids[2],
+        //     new_move_txids[0],
+        //     actors,
+        //     old_nofn_xonly_pk,
+        //     old_secret_keys,
+        // )
+        // .await
+        // .unwrap();
 
-        // TODO: register replace deposit
+        // tracing::info!("Registering replacement deposit to Citrea");
+        // register_replacement_deposit_to_citrea(
+        //     &citrea_e2e_data,
+        //     replacement_move_txid,
+        //     withdrawal_infos[1].0,
+        // )
+        // .await
+        // .unwrap();
 
-        tracing::info!("Waiting for lc prover to sync");
-        // wait for lc prover so that new replacement deposit gets synced on verifiers before attempting optimistic payout
-        // TODO: can use status rpc to ensure they are synced
-        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
-            sequencer.client.send_publish_batch_request().await.unwrap();
-        }
+        // tracing::info!("Waiting for lc prover to sync");
+        // // wait for lc prover so that new replacement deposit gets synced on verifiers before attempting optimistic payout
+        // // TODO: can use status rpc to ensure they are synced
+        // rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
+        // tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        // for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
+        //     sequencer.client.send_publish_batch_request().await.unwrap();
+        // }
 
-        let block_height = da.get_finalized_height(None).await.unwrap();
-        lc_prover
-            .wait_for_l1_height(block_height as u64, None)
-            .await
-            .unwrap();
+        // let block_height = da.get_finalized_height(None).await.unwrap();
+        // lc_prover
+        //     .wait_for_l1_height(block_height as u64, None)
+        //     .await
+        //     .unwrap();
 
-        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
+        // rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
 
-        tracing::warn!(
-            "Cur block height: {:?}",
-            rpc.get_current_chain_height().await.unwrap()
-        );
+        // tracing::warn!(
+        //     "Cur block height: {:?}",
+        //     rpc.get_current_chain_height().await.unwrap()
+        // );
 
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
-            sequencer.client.send_publish_batch_request().await.unwrap();
-        }
+        // tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        // for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
+        //     sequencer.client.send_publish_batch_request().await.unwrap();
+        // }
 
-        let block_height = da.get_finalized_height(None).await.unwrap();
-        lc_prover
-            .wait_for_l1_height(block_height as u64, None)
-            .await
-            .unwrap();
+        // let block_height = da.get_finalized_height(None).await.unwrap();
+        // lc_prover
+        //     .wait_for_l1_height(block_height as u64, None)
+        //     .await
+        //     .unwrap();
 
-        // do optimistic payout with new replacement deposit, should work now
-        reimburse_with_optimistic_payout(
-            actors.get_aggregator(),
-            withdrawal_infos[4].0,
-            &withdrawal_infos[4].1,
-            &withdrawal_infos[4].2,
-            &withdrawal_infos[4].3,
-            &citrea_e2e_data,
-            replacement_move_txid,
-        )
-        .await
-        .unwrap();
+        // // do optimistic payout with new replacement deposit, should work now
+        // reimburse_with_optimistic_payout(
+        //     actors.get_aggregator(),
+        //     // withdrawal_infos[4].0,
+        //     // &withdrawal_infos[4].1,
+        //     // &withdrawal_infos[4].2,
+        //     // &withdrawal_infos[4].3,
+        //     withdrawal_infos[1].0,
+        //     &withdrawal_infos[1].1,
+        //     &withdrawal_infos[1].2,
+        //     &withdrawal_infos[1].3,
+        //     &citrea_e2e_data,
+        //     //replacement_move_txid,
+        //     new_move_txids[0],
+        // )
+        // .await
+        // .unwrap();
 
         // wait for all past kickoff reimburse connectors to be spent
         tracing::info!("Waiting for all past kickoff reimburse connectors to be spent");

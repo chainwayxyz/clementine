@@ -226,6 +226,7 @@ impl CitreaClient {
             Actors, BaseDepositData, DepositData, DepositInfo, DepositType, ReplacementDepositData,
             SecurityCouncil,
         };
+        use crate::test::common::citrea::force_sequencer_to_commit;
         use crate::EVMAddress;
 
         // create a dummy script with nofn xonly pk
@@ -263,7 +264,7 @@ impl CitreaClient {
             )?;
 
         // Make the transaction more explicit
-        let send_req = self
+        let dep_script_tx = self
             .contract
             .setDepositScript(deposit_prefix.into(), deposit_suffix.into())
             .from(self.wallet_address)
@@ -271,14 +272,9 @@ impl CitreaClient {
             .await
             .wrap_err("Failed to update nofn aggregated key")?;
 
-        for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
-            sequencer
-                .client
-                .send_publish_batch_request()
-                .await
-                .map_err(|e| eyre::eyre!("Failed to publish batch: {:?}", e))?;
-        }
-        send_req.get_receipt().await?;
+        force_sequencer_to_commit(sequencer).await?;
+
+        dep_script_tx.get_receipt().await?;
 
         // now update the replacement script
         let dummy_old_move_txid = Txid::from_byte_array(std::array::from_fn(|i| i as u8));
@@ -310,7 +306,7 @@ impl CitreaClient {
                 dummy_old_move_txid.as_byte_array(),
             )?;
 
-        let replacement_send_req = self
+        let rep_deposit_tx = self
             .contract
             .setReplaceScript(replacement_prefix.into(), replacement_suffix.into())
             .from(self.wallet_address)
@@ -318,14 +314,9 @@ impl CitreaClient {
             .await
             .wrap_err("Failed to update nofn aggregated key")?;
 
-        for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
-            sequencer
-                .client
-                .send_publish_batch_request()
-                .await
-                .map_err(|e| eyre::eyre!("Failed to publish batch: {:?}", e))?;
-        }
-        replacement_send_req.get_receipt().await?;
+        force_sequencer_to_commit(sequencer).await?;
+
+        rep_deposit_tx.get_receipt().await?;
 
         Ok(())
     }
