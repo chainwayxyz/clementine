@@ -597,7 +597,7 @@ impl TestCase for DisproveTest {
 
                 assert!(
                     disprove_timeout_tx.input[1].previous_output == kickoff_finalizer_out,
-                    "Disprove timeout tx input does not match kickoff finalizer outpoint"
+                    "Disprove timeout tx input does not match kickoff finalizer outpoint. Disprove tx is sent instead."
                 );
 
                 tracing::info!("Disprove timeout transaction is onchain");
