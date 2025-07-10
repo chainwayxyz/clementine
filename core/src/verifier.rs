@@ -2381,6 +2381,7 @@ where
             .citrea_client
             .check_state_root(l2_height_end, state_root)
             .await
+            .inspect_err(|e| tracing::error!("Error checking state root: {:?}", e))
             .is_ok()
         {
             self.update_citrea_deposit_and_withdrawals(
