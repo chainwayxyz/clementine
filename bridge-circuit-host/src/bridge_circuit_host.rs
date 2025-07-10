@@ -600,9 +600,6 @@ mod tests {
 
     #[test]
     fn test_bridge_circuit_with_annex() {
-        // Set the RISC0_DEV_MODE environment variable to "1"
-        std::env::set_var("RISC0_DEV_MODE", "1");
-
         let input_bytes: &[u8] = include_bytes!("../bin-files/challenge_tx_with_annex.bin");
         let mut bridge_circuit_input: BridgeCircuitInput = borsh::from_slice(input_bytes)
             .expect("Failed to deserialize BridgeCircuitInput from file");
@@ -646,9 +643,6 @@ mod tests {
 
     #[test]
     fn test_bridge_circuit_with_large_input() {
-        // Set the RISC0_DEV_MODE environment variable to "1"
-        std::env::set_var("RISC0_DEV_MODE", "1");
-
         let input_bytes: &[u8] = include_bytes!("../bin-files/challenge_tx_with_large_input.bin");
         let mut bridge_circuit_input: BridgeCircuitInput = borsh::from_slice(input_bytes)
             .expect("Failed to deserialize BridgeCircuitInput from file");
@@ -692,9 +686,6 @@ mod tests {
 
     #[test]
     fn test_bridge_circuit_with_large_output() {
-        // Set the RISC0_DEV_MODE environment variable to "1"
-        std::env::set_var("RISC0_DEV_MODE", "1");
-
         let input_bytes: &[u8] = include_bytes!("../bin-files/challenge_tx_with_large_output.bin");
         let assumption_bytes: &[u8] =
             include_bytes!("../bin-files/challenge_tx_with_large_output_hcp_receipt.bin");
@@ -718,9 +709,6 @@ mod tests {
 
     #[test]
     fn test_bridge_circuit_with_large_input_and_output() {
-        // Set the RISC0_DEV_MODE environment variable to "1"
-        std::env::set_var("RISC0_DEV_MODE", "1");
-
         let input_bytes: &[u8] =
             include_bytes!("../bin-files/challenge_tx_with_large_input_and_output.bin");
         let mut bridge_circuit_input: BridgeCircuitInput = borsh::from_slice(input_bytes)

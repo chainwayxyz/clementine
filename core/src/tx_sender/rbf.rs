@@ -308,6 +308,7 @@ impl TxSender {
                 if let Some(ref annex_bytes) = rbf_signing_info.annex {
                     let mut witness = Witness::from_slice(&[signature.serialize()]);
                     witness.push(annex_bytes);
+                    decoded_psbt.inputs[input_index].final_script_witness = Some(witness);
                     tracing::info!("Decoded PSBT: {:?}", decoded_psbt);
                 }
             }
