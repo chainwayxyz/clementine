@@ -623,7 +623,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Failed to prove bridge circuit with annex: Guest panicked: Invalid witness length, expected 1 element, watchtower index: 0")]
+    #[should_panic(
+        expected = "Failed to prove bridge circuit with annex: Guest panicked: Invalid witness length, expected 1 element, watchtower index: 0"
+    )]
     fn test_bridge_circuit_with_large_input() {
         let input_bytes: &[u8] = include_bytes!("../bin-files/challenge_tx_with_large_input.bin");
         let mut bridge_circuit_input: BridgeCircuitInput = borsh::from_slice(input_bytes)
