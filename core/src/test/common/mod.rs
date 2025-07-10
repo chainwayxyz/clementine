@@ -158,8 +158,7 @@ pub async fn are_all_state_managers_synced<C: CitreaClientT>(
             return Err(eyre::eyre!(
                 "Couldn't retrive sync status from entity {:?}",
                 entity.entity_id
-            )
-            .into());
+            ));
         }
     }
     let min_next_sync_height = state_mngr_sync_heights.iter().min().unwrap();

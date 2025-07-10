@@ -2,7 +2,6 @@ use super::test_actors::TestActors;
 use super::{are_all_state_managers_synced, mine_once_after_in_mempool, poll_until_condition};
 use crate::builder::transaction::TransactionType as TxType;
 use crate::citrea::CitreaClientT;
-use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::extended_rpc::ExtendedRpc;
