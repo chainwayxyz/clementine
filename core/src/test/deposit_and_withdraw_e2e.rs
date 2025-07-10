@@ -434,6 +434,17 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         // .await
         // .unwrap();
 
+        // remove an operator and try a deposit, it should fail because the  operator is still in verifiers DB.
+        // to make it not fail, operator data needs to be removed from verifiers DB.
+        // if the behavior is changed in the future, the test should be updated.
+        actors.remove_operator(1).await.unwrap();
+        // try to do a deposit, it should fail.
+        assert!(
+            run_single_deposit::<CitreaClient>(&mut config, rpc.clone(), None, None, None)
+                .await
+                .is_err()
+        );
+
         // wait for all past kickoff reimburse connectors to be spent
         tracing::info!("Waiting for all past kickoff reimburse connectors to be spent");
         for reimburse_connector in reimburse_connectors.iter() {
