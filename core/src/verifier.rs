@@ -2399,20 +2399,16 @@ where
             l2_height_end
         );
 
-        if self
-            .citrea_client
+        self.citrea_client
             .check_state_root(l2_height_end, state_root)
-            .await
-            .is_ok()
-        {
-            self.update_citrea_deposit_and_withdrawals(
-                &mut dbtx,
-                l2_height_start,
-                l2_height_end,
-                block_height,
-            )
             .await?;
-        };
+        self.update_citrea_deposit_and_withdrawals(
+            &mut dbtx,
+            l2_height_start,
+            l2_height_end,
+            block_height,
+        )
+        .await?;
 
         self.update_finalized_payouts(&mut dbtx, block_id, &block_cache)
             .await?;
