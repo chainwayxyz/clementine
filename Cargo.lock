@@ -2129,6 +2129,7 @@ dependencies = [
  "alloy",
  "bitcoin",
  "bitcoincore-rpc",
+ "circuits-lib",
  "clap",
  "clementine-core",
  "eyre",

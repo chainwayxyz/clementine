@@ -7,6 +7,8 @@ use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr;
 use bitcoin::{Block, Transaction, Txid};
 use bitcoincore_rpc::RpcApi;
+use circuits_lib::bridge_circuit::merkle_tree::BitcoinMerkleTree;
+use circuits_lib::bridge_circuit::merkle_tree::BlockInclusionProof;
 use clementine_core::builder;
 use clementine_core::builder::script::SpendPath;
 use clementine_core::builder::transaction::TransactionType;
@@ -17,8 +19,6 @@ use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::rpc::clementine::NormalSignatureKind;
 use clementine_core::UTXO;
 use eyre::Context;
-
-use crate::utils::bitcoin_merkle::BitcoinMerkleTree;
 
 /// Returns merkle proof for a given transaction (via txid) in a block.
 pub fn get_block_merkle_proof(
@@ -53,10 +53,9 @@ pub fn get_block_merkle_proof(
     let merkle_tree = BitcoinMerkleTree::new(txids.clone());
     let witness_idx_path = merkle_tree.get_idx_path(txid_index.try_into().unwrap());
 
-    let _root = merkle_tree.calculate_root_with_merkle_proof(
+    let _root = BitcoinMerkleTree::calculate_root_with_merkle_proof(
         txids[txid_index],
-        txid_index.try_into().unwrap(),
-        witness_idx_path.clone(),
+        BlockInclusionProof::new(txid_index.try_into().unwrap(), witness_idx_path.clone()),
     );
 
     Ok((txid_index, witness_idx_path.into_iter().flatten().collect()))

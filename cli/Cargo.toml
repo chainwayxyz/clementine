@@ -4,6 +4,7 @@ version = "0.0.0"
 edition = "2021"
 
 [dependencies]
+circuits-lib = { path = "../circuits-lib" }
 clementine-core = { path = "../core" }
 bitcoin = { workspace = true }
 clap = { workspace = true }
