@@ -343,7 +343,7 @@ impl<T: Task + Sized> TaskExt for T {
 
     fn into_bg(mut self) -> JoinHandle<Result<Self::Output, BridgeError>> {
         tokio::spawn(async move {
-            tracing::warn!(
+            tracing::debug!(
                 "Running task {:?} with ID {:?}",
                 Self::VARIANT,
                 task::try_id()
