@@ -68,6 +68,7 @@ pub fn initialize_logger(default_level: Option<LevelFilter>) -> Result<(), Bridg
     if cfg!(test) {
         // Enable full backtraces for tests
         std::env::set_var("RUST_LIB_BACKTRACE", "full");
+        std::env::set_var("RUST_BACKTRACE", "full");
     }
 
     // Initialize color-eyre for better error handling and backtraces
