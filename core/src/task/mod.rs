@@ -7,8 +7,30 @@ use tonic::async_trait;
 
 use crate::errors::BridgeError;
 
+pub mod aggregator_metric_publisher;
+pub mod entity_metric_publisher;
 pub mod manager;
 pub mod payout_checker;
+pub mod status_monitor;
+
+/// The variant of the task, used for identifying the task in the status monitor
+/// Create a new enum variant for each task that you want to track in the status monitor
+/// BackgroundTaskManager will use TaskVariant to identify the tasks, to not start the same task twice.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TaskVariant {
+    PayoutChecker,
+    StateManager,
+    FinalizedBlockFetcher,
+    TxSender,
+    BitcoinSyncer,
+    TaskStatusMonitor,
+    #[cfg(test)]
+    Counter,
+    #[cfg(test)]
+    Sleep,
+    /// Used to publish metrics to Prometheus periodically. This
+    MetricPublisher,
+}
 
 /// Task trait defining the core behavior for cancelable background tasks
 ///
@@ -17,7 +39,10 @@ pub mod payout_checker;
 /// indicating whether it did work (true) or needs to wait (false).
 #[async_trait]
 pub trait Task: Send + Sync + 'static {
+    /// The output of the fn run_once
     type Output: Send + Sync + 'static + Sized;
+    /// The variant of the task
+    const VARIANT: TaskVariant;
     /// Run the task once, returning whether work was done
     ///
     /// Returns:
@@ -72,6 +97,7 @@ where
     T::Output: Into<bool>,
 {
     type Output = bool;
+    const VARIANT: TaskVariant = T::VARIANT;
     async fn run_once(&mut self) -> Result<bool, BridgeError> {
         // Run the inner task
         let did_work = self.inner.run_once().await?.into();
@@ -111,6 +137,7 @@ pub enum CancelableResult<T> {
 #[async_trait]
 impl<T: Task> Task for CancelableTask<T> {
     type Output = CancelableResult<T::Output>;
+    const VARIANT: TaskVariant = T::VARIANT;
 
     async fn run_once(&mut self) -> Result<Self::Output, BridgeError> {
         // Check if we've been canceled
@@ -131,6 +158,7 @@ pub struct CancelableLoop<T: Task + Sized> {
 #[async_trait]
 impl<T: Task + Sized> Task for CancelableLoop<T> {
     type Output = ();
+    const VARIANT: TaskVariant = T::VARIANT;
 
     async fn run_once(&mut self) -> Result<Self::Output, BridgeError> {
         loop {
@@ -175,6 +203,7 @@ where
     T::Output: Default,
 {
     type Output = T::Output;
+    const VARIANT: TaskVariant = T::VARIANT;
 
     async fn run_once(&mut self) -> Result<Self::Output, BridgeError> {
         let result = self.inner.run_once().await;
@@ -218,6 +247,7 @@ pub struct Map<T: Task + Sized, F: Fn(T::Output) -> T::Output + Send + Sync + 's
 #[async_trait]
 impl<T: Task + Sized, F: Fn(T::Output) -> T::Output + Send + Sync + 'static> Task for Map<T, F> {
     type Output = T::Output;
+    const VARIANT: TaskVariant = T::VARIANT;
 
     #[track_caller]
     async fn run_once(&mut self) -> Result<Self::Output, BridgeError> {
@@ -245,6 +275,7 @@ where
     T::Output: Default,
 {
     type Output = T::Output;
+    const VARIANT: TaskVariant = T::VARIANT;
 
     async fn run_once(&mut self) -> Result<Self::Output, BridgeError> {
         Ok(self

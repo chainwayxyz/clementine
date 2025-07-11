@@ -6,9 +6,9 @@ use crate::deposit::KickoffData;
 use crate::rpc::clementine::{TransactionRequest, WithdrawParams};
 use crate::test::common::citrea::{get_citrea_safe_withdraw_params, SECRET_KEYS};
 use crate::test::common::tx_utils::{
-    create_tx_sender, ensure_outpoint_spent_while_waiting_for_light_client_sync,
+    create_tx_sender, ensure_outpoint_spent_while_waiting_for_light_client_and_state_mngr_sync,
     get_tx_from_signed_txs_with_type,
-    get_txid_where_utxo_is_spent_while_waiting_for_light_client_sync,
+    get_txid_where_utxo_is_spent_while_waiting_for_light_client_and_state_mngr_sync,
     mine_once_after_outpoint_spent_in_mempool,
 };
 use crate::test::common::{
@@ -150,16 +150,8 @@ impl TestCase for DisproveTest {
             "Deposit starting at block height: {:?}",
             rpc.client.get_block_count().await?
         );
-        let (
-            _verifiers,
-            mut operators,
-            _aggregator,
-            _cleanup,
-            deposit_params,
-            move_txid,
-            _deposit_blockhash,
-            verifiers_public_keys,
-        ) = run_single_deposit::<CitreaClient>(&mut config, rpc.clone(), None, None).await?;
+        let (actors, deposit_params, move_txid, _deposit_blockhash, verifiers_public_keys) =
+            run_single_deposit::<CitreaClient>(&mut config, rpc.clone(), None, None, None).await?;
 
         tracing::debug!(
             "Deposit ending block_height: {:?}",
@@ -276,7 +268,8 @@ impl TestCase for DisproveTest {
         let withdrawal_utxo = withdrawal_utxo_with_txout.outpoint;
 
         // Without a withdrawal in Citrea, operator can't withdraw.
-        assert!(operators[0]
+        let mut operator0 = actors.get_operator_client_by_index(0);
+        assert!(operator0
             .withdraw(WithdrawParams {
                 withdrawal_id: 0,
                 input_signature: sig.serialize().to_vec(),
@@ -357,7 +350,7 @@ impl TestCase for DisproveTest {
             .expect("failed to create database");
 
         let payout_txid = loop {
-            let withdrawal_response = operators[0]
+            let withdrawal_response = operator0
                 .withdraw(WithdrawParams {
                     withdrawal_id: 0,
                     input_signature: sig.serialize().to_vec(),
@@ -441,7 +434,7 @@ impl TestCase for DisproveTest {
             ),
             deposit_outpoint: Some(deposit_params.deposit_outpoint.into()),
         };
-        let all_txs = operators[0]
+        let all_txs = operator0
             .internal_create_signed_txs(base_tx_req.clone())
             .await?
             .into_inner();
@@ -518,10 +511,11 @@ impl TestCase for DisproveTest {
             vout: UtxoVout::Assert(0).get_vout(),
         };
 
-        ensure_outpoint_spent_while_waiting_for_light_client_sync(
+        ensure_outpoint_spent_while_waiting_for_light_client_and_state_mngr_sync(
             &rpc,
             lc_prover,
             first_assert_utxo,
+            &actors,
         )
         .await
         .unwrap();
@@ -532,16 +526,17 @@ impl TestCase for DisproveTest {
                 .get_vout(),
         };
 
-        ensure_outpoint_spent_while_waiting_for_light_client_sync(
+        ensure_outpoint_spent_while_waiting_for_light_client_and_state_mngr_sync(
             &rpc,
             lc_prover,
             last_assert_utxo,
+            &actors,
         )
         .await
         .unwrap();
 
         // Create assert transactions for operator 0
-        let assert_txs = operators[0]
+        let assert_txs = operator0
             .internal_create_assert_commitment_txs(base_tx_req)
             .await?
             .into_inner();
@@ -578,10 +573,11 @@ impl TestCase for DisproveTest {
                     kickoff_txid
                 );
 
-                let txid = get_txid_where_utxo_is_spent_while_waiting_for_light_client_sync(
+                let txid = get_txid_where_utxo_is_spent_while_waiting_for_light_client_and_state_mngr_sync(
                     &rpc,
                     lc_prover,
                     disprove_timeout_outpoint,
+                    &actors,
                 )
                 .await
                 .unwrap();
@@ -615,10 +611,11 @@ impl TestCase for DisproveTest {
                     kickoff_txid
                 );
 
-                let txid = get_txid_where_utxo_is_spent_while_waiting_for_light_client_sync(
+                let txid = get_txid_where_utxo_is_spent_while_waiting_for_light_client_and_state_mngr_sync(
                     &rpc,
                     lc_prover,
                     disprove_outpoint,
+                    &actors,
                 )
                 .await
                 .unwrap();

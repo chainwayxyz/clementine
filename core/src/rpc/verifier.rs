@@ -8,8 +8,9 @@ use super::error;
 use super::parser::ParserError;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::citrea::CitreaClientT;
+use crate::constants::RESTART_BACKGROUND_TASKS_TIMEOUT;
 use crate::rpc::clementine::VerifierDepositFinalizeResponse;
-use crate::utils::get_vergen_response;
+use crate::utils::{get_vergen_response, timed_request};
 use crate::verifier::VerifierServer;
 use crate::{constants, fetch_next_optional_message_from_stream};
 use crate::{
@@ -30,6 +31,20 @@ where
 {
     async fn vergen(&self, _request: Request<Empty>) -> Result<Response<VergenResponse>, Status> {
         Ok(Response::new(get_vergen_response()))
+    }
+
+    async fn restart_background_tasks(
+        &self,
+        _request: tonic::Request<super::Empty>,
+    ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status> {
+        // because start_background_tasks uses a RwLock, we set a timeout to be safe
+        timed_request(
+            RESTART_BACKGROUND_TASKS_TIMEOUT,
+            "Restarting background tasks",
+            self.start_background_tasks(),
+        )
+        .await?;
+        Ok(Response::new(Empty {}))
     }
 
     async fn optimistic_payout_sign(
@@ -537,5 +552,13 @@ where
                 ))),
             }
         }
+    }
+
+    async fn get_current_status(
+        &self,
+        _request: Request<Empty>,
+    ) -> Result<Response<clementine::EntityStatus>, Status> {
+        let status = self.get_current_status().await?;
+        Ok(Response::new(status))
     }
 }

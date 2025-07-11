@@ -337,7 +337,6 @@ impl TxSenderClient {
             TransactionType::AllNeededForDeposit | TransactionType::YieldKickoffTxid => {
                 unreachable!()
             }
-            TransactionType::BaseDeposit => unimplemented!(),
         }
     }
 

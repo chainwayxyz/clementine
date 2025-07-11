@@ -125,17 +125,19 @@ pub mod deposit;
 pub mod errors;
 pub mod extended_rpc;
 pub mod header_chain_prover;
+pub mod metrics;
 pub mod musig2;
 pub mod operator;
 pub mod rpc;
 pub mod servers;
-#[cfg(feature = "automation")]
-pub mod states;
 pub mod task;
-#[cfg(feature = "automation")]
-pub mod tx_sender;
 pub mod utils;
 pub mod verifier;
+
+#[cfg(feature = "automation")]
+pub mod states;
+#[cfg(feature = "automation")]
+pub mod tx_sender;
 
 #[cfg(test)]
 pub mod test;
