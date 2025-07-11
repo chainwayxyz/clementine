@@ -35,7 +35,7 @@ use tracing_subscriber::{fmt, EnvFilter, Layer as TracingLayer, Registry};
 /// - `human` **Human-readable** direct logs are used when `LOG_FORMAT` is not
 ///   set to `json`.
 ///
-/// /// ## CI
+/// ## CI
 ///
 /// In CI, logging is always in the human-readable format with output to the
 /// console. The `INFO_LOG_FILE` env var can be used to set an optional log file
@@ -62,8 +62,8 @@ pub fn initialize_logger(default_level: Option<LevelFilter>) -> Result<(), Bridg
         .map(|v| v == "true" || v == "1")
         .unwrap_or(false);
 
-    #[cfg(tokio_unstable)]
-    console_subscriber::init();
+    // UNCOMMENT TO DEBUG TOKIO TASKS
+    // console_subscriber::init();
 
     if cfg!(test) {
         // Enable full backtraces for tests

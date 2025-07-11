@@ -72,8 +72,9 @@ once_cell = { workspace = true }
 bitcoin-script = { workspace = true }
 secrecy = { workspace = true }
 
-# Only used with cfg(tokio_unstable)
-console-subscriber = { version = "0.4.1" }
+# UNCOMMENT TO DEBUG TOKIO TASKS
+
+# console-subscriber = { version = "0.4.1" }
 
 [dev-dependencies]
 serial_test = { workspace = true }
