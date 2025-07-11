@@ -154,10 +154,23 @@ certs/
 > [!NOTE]
 > For production use, you should use certificates signed by a trusted CA rather than self-signed ones.
 
+#### BitVM Cache
+
+BitVM Cache will be generated, if not present. Generation can be skipped and
+pre-generated files can be downloaded with:
+
+```sh
+wget https://static.testnet.citrea.xyz/common/bitvm_cache_v3.bin -O bitvm_cache.bin
+wget https://static.testnet.citrea.xyz/common/bitvm_cache_dev.bin -O bitvm_cache_dev.bin
+```
+
 ### Starting a Server
 
 Clementine is designed to be run multiple times for every actor that an entity
-requires. An actor's server can be started using its corresponding argument:
+requires. An actor's server can be started using its corresponding argument.
+Please follow instruction steps before trying to start a server.
+
+#### Compiling Manually
 
 ```sh
 # Build the binary (with optional automation)
@@ -196,6 +209,28 @@ For more information, use `--help` flag:
 ./target/release/clementine-core --help
 ```
 
+#### Using Docker
+
+A docker image is provided in
+[Docker Hub](https://hub.docker.com/r/chainwayxyz/clementine). It can be locally
+built with:
+
+```bash
+docker build -f scripts/docker/Dockerfile -t clementine:latest .
+```
+
+Also, there are multiple Docker compose files located at [scripts/docker/](scripts/docker/)
+which can be used to start Clementine servers. Provided
+[config file](scripts/docker/docker_config.toml) can be modified before starting
+a server.
+
+```sh
+# Start a verifier server
+docker compose -f scripts/docker/docker-compose-verifier.yml up
+# Start an operator server
+docker compose -f scripts/docker/docker-compose-operator.yml up
+```
+
 ### Testing
 
 #### Prerequisites
@@ -231,25 +266,6 @@ For more information, use `--help` flag:
    ```bash
    ./scripts/generate_certs.sh
    ```
-
-#### [Optional] Docker
-
-A docker image is provided in
-[Docker Hub](https://hub.docker.com/r/chainwayxyz/clementine). It can be locally
-built with:
-
-```bash
-docker build -f scripts/docker/Dockerfile -t clementine:latest .
-```
-
-An example Docker compose file is located at
-[`scripts/docker/docker-compose.yml`](scripts/docker/docker-compose.yml) and it
-can be used to bring up a verifier server. It can also be modified for bringing
-up other servers. To bring it up:
-
-```bash
-docker compose -f scripts/docker/docker-compose.yml up
-```
 
 #### Configuration
 
