@@ -21,10 +21,13 @@ use crate::deposit::{DepositData, KickoffData, OperatorData};
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::header_chain_prover::HeaderChainProver;
+use crate::metrics::L1SyncStatusProvider;
 use crate::rpc::clementine::EntityStatus;
+use crate::task::entity_metric_publisher::{
+    EntityMetricPublisher, ENTITY_METRIC_PUBLISHER_INTERVAL,
+};
 use crate::task::manager::BackgroundTaskManager;
 use crate::task::payout_checker::{PayoutCheckerTask, PAYOUT_CHECKER_POLL_DELAY};
-use crate::task::sync_status::get_sync_status;
 use crate::task::TaskExt;
 use crate::utils::Last20Bytes;
 use crate::utils::{NamedEntity, TxMetadata};
@@ -117,7 +120,7 @@ impl RoundIndex {
 
 pub struct OperatorServer<C: CitreaClientT> {
     pub operator: Operator<C>,
-    background_tasks: BackgroundTaskManager<Operator<C>>,
+    background_tasks: BackgroundTaskManager,
 }
 
 #[derive(Debug, Clone)]
@@ -172,19 +175,29 @@ where
 
             if should_run_state_mgr {
                 self.background_tasks
-                    .loop_and_monitor(state_manager.block_fetcher_task().await?)
+                    .ensure_task_looping(state_manager.block_fetcher_task().await?)
                     .await;
                 self.background_tasks
-                    .loop_and_monitor(state_manager.into_task())
+                    .ensure_task_looping(state_manager.into_task())
                     .await;
             }
         }
 
         // run payout checker task
         self.background_tasks
-            .loop_and_monitor(
+            .ensure_task_looping(
                 PayoutCheckerTask::new(self.operator.db.clone(), self.operator.clone())
                     .with_delay(PAYOUT_CHECKER_POLL_DELAY),
+            )
+            .await;
+
+        self.background_tasks
+            .ensure_task_looping(
+                EntityMetricPublisher::<Operator<C>>::new(
+                    self.operator.db.clone(),
+                    self.operator.rpc.clone(),
+                )
+                .with_delay(ENTITY_METRIC_PUBLISHER_INTERVAL),
             )
             .await;
 
@@ -207,11 +220,11 @@ where
         let automation_enabled = cfg!(feature = "automation");
 
         let sync_status =
-            get_sync_status::<Operator<C>>(&self.operator.db, &self.operator.rpc).await?;
+            Operator::<C>::get_l1_status(&self.operator.db, &self.operator.rpc).await?;
 
         Ok(EntityStatus {
             automation: automation_enabled,
-            wallet_balance: sync_status.wallet_balance,
+            wallet_balance: format!("{} BTC", sync_status.wallet_balance.to_btc()),
             tx_sender_synced_height: sync_status.tx_sender_synced_height.unwrap_or(0),
             finalized_synced_height: sync_status.finalized_synced_height.unwrap_or(0),
             hcp_last_proven_height: sync_status.hcp_last_proven_height.unwrap_or(0),

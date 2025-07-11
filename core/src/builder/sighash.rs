@@ -406,6 +406,7 @@ mod tests {
     use futures_util::stream::TryStreamExt;
     use std::fs::File;
 
+    #[cfg(debug_assertions)]
     pub const DEPOSIT_STATE_FILE_PATH_DEBUG: &str = "src/test/data/deposit_state_debug.bincode";
     #[cfg(not(debug_assertions))]
     pub const DEPOSIT_STATE_FILE_PATH_RELEASE: &str = "src/test/data/deposit_state_release.bincode";

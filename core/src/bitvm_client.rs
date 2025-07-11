@@ -92,7 +92,7 @@ pub fn load_or_generate_bitvm_cache() -> BitvmCache {
 #[derive(BorshSerialize, BorshDeserialize, Debug)]
 pub struct BitvmCache {
     pub disprove_scripts: Vec<Vec<u8>>,
-    pub replacement_places: ClementineBitVMReplacementData,
+    pub replacement_places: Box<ClementineBitVMReplacementData>,
 }
 
 impl BitvmCache {
@@ -207,7 +207,7 @@ fn generate_fresh_data() -> BitvmCache {
 
     BitvmCache {
         disprove_scripts: scripts,
-        replacement_places,
+        replacement_places: Box::new(replacement_places),
     }
 }
 

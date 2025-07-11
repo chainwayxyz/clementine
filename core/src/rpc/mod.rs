@@ -158,7 +158,9 @@ where
                             .wrap_err("Failed to configure TLS")?
                             .connect()
                             .await
-                            .wrap_err("Failed to connect to endpoint")?
+                            .wrap_err_with(|| {
+                                format!("Failed to connect to endpoint {}", endpoint)
+                            })?
                     };
 
                     Ok(connect(channel))

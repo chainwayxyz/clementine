@@ -131,38 +131,43 @@ pub enum TxError {
     Other(#[from] eyre::Report),
 }
 
-/// Types of all transactions that can be created. Some transactions have an (usize) as they are created
-/// multiple times per kickoff.
+/// Types of all transactions that can be created. Some transactions have a
+/// (usize) index as there are multiple instances of the same transaction type
+/// per kickoff.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Ord, PartialOrd, Serialize, Deserialize)]
 pub enum TransactionType {
-    Round,
-    Kickoff,
-    MoveToVault,
-    EmergencyStop,
-    Payout,
-    Challenge,
-    UnspentKickoff(usize),
-    WatchtowerChallengeTimeout(usize),
-    WatchtowerChallenge(usize),
-    OperatorChallengeNack(usize),
-    OperatorChallengeAck(usize),
+    // --- Transaction Types ---
     AssertTimeout(usize),
-    MiniAssert(usize),
+    BurnUnusedKickoffConnectors,
+    Challenge,
+    ChallengeTimeout,
     Disprove,
     DisproveTimeout,
-    Reimburse,
-    AllNeededForDeposit, // this will include all tx's that is to be signed for a deposit for verifiers
-    Dummy,               // for tests
-    ReadyToReimburse,
+    EmergencyStop,
+    Kickoff,
     KickoffNotFinalized,
-    ChallengeTimeout,
-    BurnUnusedKickoffConnectors,
-    YieldKickoffTxid, // This is just to yield kickoff txid from the sighash stream, not used for anything else, sorry
-    BaseDeposit,
-    ReplacementDeposit,
-    LatestBlockhashTimeout,
     LatestBlockhash,
+    LatestBlockhashTimeout,
+    MiniAssert(usize),
+    MoveToVault,
+    OperatorChallengeAck(usize),
+    OperatorChallengeNack(usize),
     OptimisticPayout,
+    Payout,
+    ReadyToReimburse,
+    Reimburse,
+    ReplacementDeposit,
+    Round,
+    UnspentKickoff(usize),
+    WatchtowerChallenge(usize),
+    WatchtowerChallengeTimeout(usize),
+
+    // --- Transaction Subsets ---
+    AllNeededForDeposit, // this will include all tx's that is to be signed for a deposit for verifiers
+    YieldKickoffTxid, // This is just to yield kickoff txid from the sighash stream, not used for anything else, sorry
+
+    /// For testing and for values to be replaced later.
+    Dummy,
 }
 
 // converter from proto type to rust enum
@@ -193,7 +198,6 @@ impl TryFrom<GrpcTransactionId> for TransactionType {
                     Normal::UnspecifiedTransactionType => Err(::prost::UnknownEnumValue(idx)),
                     Normal::BurnUnusedKickoffConnectors => Ok(Self::BurnUnusedKickoffConnectors),
                     Normal::YieldKickoffTxid => Ok(Self::YieldKickoffTxid),
-                    Normal::BaseDeposit => Ok(Self::BaseDeposit),
                     Normal::ReplacementDeposit => Ok(Self::ReplacementDeposit),
                     Normal::LatestBlockhashTimeout => Ok(Self::LatestBlockhashTimeout),
                     Normal::LatestBlockhash => Ok(Self::LatestBlockhash),
@@ -261,7 +265,6 @@ impl From<TransactionType> for GrpcTransactionId {
                 TransactionType::ChallengeTimeout => {
                     NormalTransaction(Normal::ChallengeTimeout as i32)
                 }
-                TransactionType::BaseDeposit => NormalTransaction(Normal::BaseDeposit as i32),
                 TransactionType::ReplacementDeposit => {
                     NormalTransaction(Normal::ReplacementDeposit as i32)
                 }

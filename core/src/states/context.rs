@@ -112,15 +112,18 @@ pub enum DutyResult {
 
 /// Owner trait with async handling and tx handler creation
 #[async_trait]
-pub trait Owner: Send + Sync + Clone + NamedEntity {
-    /// Handle a duty
+pub trait Owner: Clone + NamedEntity {
+    /// Handle a protocol-related duty
     async fn handle_duty(&self, duty: Duty) -> Result<DutyResult, BridgeError>;
+
+    /// Create the transactions for an instance of the L1 contract
     async fn create_txhandlers(
         &self,
         tx_type: TransactionType,
         contract_context: ContractContext,
     ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError>;
 
+    /// Handle a new finalized block
     async fn handle_finalized_block(
         &self,
         dbtx: DatabaseTransaction<'_, '_>,

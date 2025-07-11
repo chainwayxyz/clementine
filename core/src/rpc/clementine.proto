@@ -162,7 +162,6 @@ enum NormalTransactionId {
     CHALLENGE_TIMEOUT = 13;
     BURN_UNUSED_KICKOFF_CONNECTORS = 14;
     YIELD_KICKOFF_TXID = 15;
-    BASE_DEPOSIT = 16;
     REPLACEMENT_DEPOSIT = 17;
     LATEST_BLOCKHASH_TIMEOUT = 18;
     LATEST_BLOCKHASH = 19;
@@ -309,27 +308,27 @@ message EntityStatus {
   uint32 state_manager_next_height = 9;
 }
 
-enum Entities {
+enum EntityType {
   ENTITY_UNKNOWN = 0;
   OPERATOR = 1;
   VERIFIER = 2;
 }
 
 message EntityId {
-  Entities entity = 1;
+  EntityType kind = 1;
   string id = 2;
 }
 
 message EntityStatusWithId {
   EntityId entity_id = 1;
-  oneof status {
-    EntityStatus entity_status = 2;
-    EntityError entity_error = 3;
+  oneof status_result {
+    EntityStatus status = 2;
+    EntityError err = 3;
   }
 }
 
-message EntitiesStatus {
-  repeated EntityStatusWithId entities_status = 1;
+message EntityStatuses {
+  repeated EntityStatusWithId entity_statuses = 1;
 }
 
 // An operator is responsible for paying withdrawals. It has an unique ID and
@@ -660,7 +659,7 @@ message SendMoveTxRequest {
   Outpoint deposit_outpoint = 2;
 }
 
-message GetEntitiesStatusRequest {
+message GetEntityStatusesRequest {
   bool restart_tasks = 1;
 }
 
@@ -702,7 +701,7 @@ service ClementineAggregator {
 
   // Returns the current status of tasks running on the operators/verifiers.
   // If restart_tasks is true, it will restart the tasks on the entities if they are stopped.
-  rpc GetEntitiesStatus(GetEntitiesStatusRequest) returns (EntitiesStatus) {}
+  rpc GetEntityStatuses(GetEntityStatusesRequest) returns (EntityStatuses) {}
 
   // Creates an emergency stop tx that won't be broadcasted.
   // Tx will have around 3 sats/vbyte fee.

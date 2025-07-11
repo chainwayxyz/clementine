@@ -1,3 +1,6 @@
 [alias]
 test_unit = "test --features automation"
 test_integration = "test --workspace --all-features -p core test:: -- --test-threads 6"
+build_console = '''
+build -p clementine-core --all-features --config build.rustflags=["--cfg","tokio_unstable"]
+'''

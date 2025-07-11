@@ -1,7 +1,7 @@
 //! # Servers
 //!
 //! Utilities for operator and verifier servers.
-use crate::aggregator::Aggregator;
+use crate::aggregator::AggregatorServer;
 use crate::citrea::CitreaClientT;
 use crate::extended_rpc::ExtendedRpc;
 use crate::operator::OperatorServer;
@@ -273,8 +273,10 @@ pub async fn create_aggregator_grpc_server(
     let addr: std::net::SocketAddr = format!("{}:{}", config.host, config.port)
         .parse()
         .wrap_err("Failed to parse address")?;
-    let aggregator = Aggregator::new(config.clone()).await?;
-    let svc = ClementineAggregatorServer::new(aggregator);
+    let aggregator_server = AggregatorServer::new(config.clone()).await?;
+    aggregator_server.start_background_tasks().await?;
+
+    let svc = ClementineAggregatorServer::new(aggregator_server);
 
     if config.client_verification {
         tracing::warn!(
@@ -372,8 +374,9 @@ pub async fn create_aggregator_unix_server(
     config: BridgeConfig,
     socket_path: std::path::PathBuf,
 ) -> Result<(std::path::PathBuf, oneshot::Sender<()>), BridgeError> {
-    let aggregator = Aggregator::new(config.clone()).await?;
-    let svc = ClementineAggregatorServer::new(aggregator);
+    let aggregator_server = AggregatorServer::new(config.clone()).await?;
+    aggregator_server.start_background_tasks().await?;
+    let svc = ClementineAggregatorServer::new(aggregator_server);
 
     let (server_addr, shutdown_tx) =
         create_grpc_server(socket_path.into(), svc, "Aggregator", &config).await?;
