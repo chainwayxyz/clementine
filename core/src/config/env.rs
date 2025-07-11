@@ -156,7 +156,7 @@ impl BridgeConfig {
             client_key_path,
             aggregator_cert_path,
 
-            telemetry: Some(TelemetryConfig::from_env()?),
+            telemetry: TelemetryConfig::from_env().ok(),
 
             #[cfg(test)]
             test_params: super::TestParams::default(),
