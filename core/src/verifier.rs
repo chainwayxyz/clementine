@@ -2365,7 +2365,7 @@ where
         let max_attempts = light_client_proof_wait_interval_secs.unwrap_or(TEN_MINUTES_IN_SECS);
         let timeout = Duration::from_secs(max_attempts as u64);
 
-        let (l2_height_start, l2_height_end) = self
+        let (l2_height_start, l2_height_end, state_root) = self
             .citrea_client
             .get_citrea_l2_height_range(block_height.into(), timeout)
             .await
@@ -2376,13 +2376,22 @@ where
             l2_height_start,
             l2_height_end
         );
-        self.update_citrea_deposit_and_withdrawals(
-            &mut dbtx,
-            l2_height_start,
-            l2_height_end,
-            block_height,
-        )
-        .await?;
+
+        if self
+            .citrea_client
+            .check_state_root(l2_height_end, state_root)
+            .await
+            .inspect_err(|e| tracing::error!("Error checking state root: {:?}", e))
+            .is_ok()
+        {
+            self.update_citrea_deposit_and_withdrawals(
+                &mut dbtx,
+                l2_height_start,
+                l2_height_end,
+                block_height,
+            )
+            .await?;
+        };
 
         self.update_finalized_payouts(&mut dbtx, block_id, &block_cache)
             .await?;
