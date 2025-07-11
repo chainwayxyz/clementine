@@ -129,8 +129,8 @@ pub struct LightClientProof {
 pub struct StorageProof {
     pub storage_proof_utxo: String,         // This will be an Outpoint
     pub storage_proof_vout: String,         // This is the vout of the txid
-    pub storage_proof_deposit_txid: String, // This is the index of the withdrawal
-    pub index: u32,                         // For now this is 18, for a specific withdrawal
+    pub storage_proof_deposit_txid: String, // This is the txid of the deposit tx
+    pub index: u32, // This is the index of the storage proof in the contract
 }
 
 #[derive(Clone, Debug, BorshDeserialize, BorshSerialize)]

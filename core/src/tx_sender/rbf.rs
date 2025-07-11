@@ -308,6 +308,7 @@ impl TxSender {
                 if let Some(ref annex_bytes) = rbf_signing_info.annex {
                     let mut witness = Witness::from_slice(&[signature.serialize()]);
                     witness.push(annex_bytes);
+                    decoded_psbt.inputs[input_index].final_script_witness = Some(witness);
                     tracing::info!("Decoded PSBT: {:?}", decoded_psbt);
                 }
             }
@@ -1061,6 +1062,8 @@ pub mod tests {
                     tweak_merkle_root: None,
                     #[cfg(test)]
                     annex: None,
+                    #[cfg(test)]
+                    additional_taproot_output_count: None,
                 }),
                 &[], // No cancel outpoints
                 &[], // No cancel txids
@@ -1085,6 +1088,8 @@ pub mod tests {
                     tweak_merkle_root: None,
                     #[cfg(test)]
                     annex: None,
+                    #[cfg(test)]
+                    additional_taproot_output_count: None,
                 }),
             )
             .await
@@ -1135,6 +1140,8 @@ pub mod tests {
                     tweak_merkle_root: None,
                     #[cfg(test)]
                     annex: None,
+                    #[cfg(test)]
+                    additional_taproot_output_count: None,
                 }),
                 &[], // No cancel outpoints
                 &[], // No cancel txids
@@ -1159,6 +1166,8 @@ pub mod tests {
                     tweak_merkle_root: None,
                     #[cfg(test)]
                     annex: None,
+                    #[cfg(test)]
+                    additional_taproot_output_count: None,
                 }),
             )
             .await
@@ -1292,6 +1301,8 @@ pub mod tests {
                     tweak_merkle_root: None,
                     #[cfg(test)]
                     annex: None,
+                    #[cfg(test)]
+                    additional_taproot_output_count: None,
                 }),
             )
             .await
@@ -1329,6 +1340,8 @@ pub mod tests {
                     tweak_merkle_root: None,
                     #[cfg(test)]
                     annex: None,
+                    #[cfg(test)]
+                    additional_taproot_output_count: None,
                 }),
             )
             .await
@@ -1383,6 +1396,8 @@ pub mod tests {
                     tweak_merkle_root: None,
                     #[cfg(test)]
                     annex: None,
+                    #[cfg(test)]
+                    additional_taproot_output_count: None,
                 }),
                 &[],
                 &[],

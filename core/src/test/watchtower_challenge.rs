@@ -593,7 +593,7 @@ async fn challenge_tx_with_large_output() -> Result<()> {
 
 #[tokio::test]
 #[ignore = "This test is too slow, run separately"]
-async fn challenge_tx_with_large_input_and_output() -> Result<()> {
+async fn challenge_tx_with_both_large_input_and_output() -> Result<()> {
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
         "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",

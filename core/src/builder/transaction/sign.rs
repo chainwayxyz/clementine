@@ -265,8 +265,8 @@ where
         #[cfg(test)]
         let mut annex: Option<Vec<u8>> = None;
 
-        // #[cfg(test)]
-        // let mut additional_op_return = None;
+        #[cfg(test)]
+        let mut additional_taproot_output_count = None;
 
         #[cfg(test)]
         {
@@ -276,6 +276,9 @@ where
                 annex = Some(vec![80u8; 3990000]);
             } else if self.config.test_params.use_large_annex_and_output {
                 annex = Some(vec![80u8; 3000000]);
+                additional_taproot_output_count = Some(2300);
+            } else if self.config.test_params.use_large_output {
+                additional_taproot_output_count = Some(2300);
             }
         }
 
@@ -287,6 +290,8 @@ where
                 tweak_merkle_root: merkle_root,
                 #[cfg(test)]
                 annex,
+                #[cfg(test)]
+                additional_taproot_output_count,
             },
         ))
     }
