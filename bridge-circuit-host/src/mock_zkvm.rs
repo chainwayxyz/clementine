@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use circuits_lib::common::zkvm::{Proof, ZkvmGuest, ZkvmHost};
+use circuits_lib::common::zkvm::{VerificationContext, ZkvmGuest, ZkvmHost};
 
 #[derive(Debug, Clone, Default)]
 struct ZkvmData {
@@ -41,16 +41,16 @@ impl ZkvmHost for MockZkvmHost {
         let value = borsh::to_vec(value).unwrap();
         data.values.extend_from_slice(&value);
     }
-    fn prove(&self, _elf: &[u32]) -> Proof {
+    fn prove(&self, _elf: &[u32]) -> VerificationContext {
         tracing::warn!("This is a mock zkvm host, no real proof is generated.");
         let data = self.data.lock().unwrap();
-        Proof {
+        VerificationContext {
             method_id: [42; 8],
             journal: data.journal.clone(),
         }
     }
 
-    fn add_assumption(&self, _proof: Proof) {
+    fn add_assumption(&self, _proof: VerificationContext) {
         tracing::warn!("This is a mock zkvm host, no assumptions are added.");
     }
 }

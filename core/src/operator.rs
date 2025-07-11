@@ -12,8 +12,7 @@ use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::builder::transaction::{
     create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler,
-    create_round_txhandlers, create_txhandlers, ContractContext, KickoffWinternitzKeys,
-    ReimburseDbCache, TransactionType, TxHandler, TxHandlerCache,
+    create_round_txhandlers, ContractContext, KickoffWinternitzKeys, TransactionType, TxHandler,
 };
 use crate::citrea::CitreaClientT;
 use crate::config::BridgeConfig;
@@ -42,7 +41,7 @@ use bitvm::chunk::api::generate_assertions;
 use bitvm::signatures::winternitz;
 use bridge_circuit_host::bridge_circuit_host::{
     create_spv, prove_bridge_circuit, MAINNET_BRIDGE_CIRCUIT_ELF, REGTEST_BRIDGE_CIRCUIT_ELF,
-    SIGNET_BRIDGE_CIRCUIT_ELF, TESTNET4_BRIDGE_CIRCUIT_ELF,
+    REGTEST_BRIDGE_CIRCUIT_ELF_TEST, SIGNET_BRIDGE_CIRCUIT_ELF, TESTNET4_BRIDGE_CIRCUIT_ELF,
 };
 use bridge_circuit_host::structs::{BridgeCircuitHostParams, WatchtowerContext};
 use bridge_circuit_host::utils::{get_ark_verifying_key, get_ark_verifying_key_dev_mode_bridge};
@@ -266,15 +265,19 @@ where
                             .get_tx_of_txid(&outpoint.txid)
                             .await
                             .wrap_err("Failed to get collateral funding tx")?;
-                        let collateral_value = collateral_tx
+                        let collateral_txout = collateral_tx
                             .output
                             .get(outpoint.vout as usize)
-                            .ok_or_eyre("Invalid vout index for collateral funding tx")?
-                            .value;
-                        if collateral_value != config.protocol_paramset().collateral_funding_amount
+                            .ok_or_eyre("Invalid vout index for collateral funding tx")?;
+                        if collateral_txout.value
+                            != config.protocol_paramset().collateral_funding_amount
                         {
                             return Err(eyre::eyre!("Operator collateral funding outpoint given in config has a different amount than the one specified in config..
-                                Bridge collateral funnding amount: {:?}, Amount in given outpoint: {:?}", config.protocol_paramset().collateral_funding_amount, collateral_value).into());
+                                Bridge collateral funding amount: {:?}, Amount in given outpoint: {:?}", config.protocol_paramset().collateral_funding_amount, collateral_txout.value).into());
+                        }
+                        if collateral_txout.script_pubkey != signer.address.script_pubkey() {
+                            return Err(eyre::eyre!("Operator collateral funding outpoint given in config has a different script pubkey than the pubkey matching to the operator's   secret key. Script pubkey should correspond to taproot address with no scripts and internal key equal to the operator's xonly public key.
+                                Script pubkey in given outpoint: {:?}, Script pubkey should be: {:?}", collateral_txout.script_pubkey, signer.address.script_pubkey()).into());
                         }
                         *outpoint
                     }
@@ -621,7 +624,7 @@ where
                     change_position: Some(1),
                     change_type: None,
                     include_watching: None,
-                    lock_unspents: None,
+                    lock_unspents: Some(true),
                     fee_rate: None,
                     subtract_fee_from_outputs: None,
                     replaceable: None,
@@ -1353,17 +1356,54 @@ where
 
         let latest_blockhash = block_hashes[latest_blockhash_index].0;
 
-        let (current_hcp, hcp_height) = self
+        let (current_hcp, _hcp_height) = self
             .header_chain_prover
             .prove_till_hash(latest_blockhash)
             .await?;
+
+        #[cfg(test)]
+        let current_hcp = {
+            if self
+                .config
+                .test_params
+                .generate_varying_total_works_insufficient_total_work
+            {
+                self.header_chain_prover
+                    .prove_till_hash(payout_block_hash)
+                    .await?
+                    .0
+            } else {
+                current_hcp
+            }
+        };
+
         tracing::info!("Got header chain proof in send_asserts");
 
         let blockhashes_serialized: Vec<[u8; 32]> = block_hashes
             .iter()
-            .take(hcp_height as usize + 1) // height 0 included
+            .take(latest_blockhash_index + 1) // get all blocks up to and including latest_blockhash
             .map(|(block_hash, _)| block_hash.to_byte_array())
             .collect::<Vec<_>>();
+
+        #[cfg(test)]
+        let blockhashes_serialized = {
+            if self
+                .config
+                .test_params
+                .generate_varying_total_works_insufficient_total_work
+            {
+                block_hashes
+                    .iter()
+                    .take(
+                        (payout_block_height + 1 - self.config.protocol_paramset().genesis_height)
+                            as usize,
+                    )
+                    .map(|(block_hash, _)| block_hash.to_byte_array())
+                    .collect::<Vec<_>>()
+            } else {
+                blockhashes_serialized
+            }
+        };
 
         tracing::debug!(
             "Genesis height - Before SPV: {},",
@@ -1377,7 +1417,7 @@ where
             payout_block_height,
             self.config.protocol_paramset().genesis_height,
             payout_tx_index as u32,
-        );
+        )?;
         tracing::info!("Calculated spv proof in send_asserts");
 
         let mut wt_contexts = Vec::new();
@@ -1416,7 +1456,13 @@ where
             bitcoin::Network::Bitcoin => MAINNET_BRIDGE_CIRCUIT_ELF,
             bitcoin::Network::Testnet4 => TESTNET4_BRIDGE_CIRCUIT_ELF,
             bitcoin::Network::Signet => SIGNET_BRIDGE_CIRCUIT_ELF,
-            bitcoin::Network::Regtest => REGTEST_BRIDGE_CIRCUIT_ELF,
+            bitcoin::Network::Regtest => {
+                if cfg!(test) {
+                    REGTEST_BRIDGE_CIRCUIT_ELF_TEST
+                } else {
+                    REGTEST_BRIDGE_CIRCUIT_ELF
+                }
+            }
             _ => {
                 return Err(eyre::eyre!(
                     "Unsupported network {:?} in send_asserts",
@@ -1426,8 +1472,48 @@ where
             }
         };
         tracing::info!("Starting proving bridge circuit to send asserts");
+
+        #[cfg(test)]
+        {
+            if self
+                .config
+                .test_params
+                .generate_varying_total_works_insufficient_total_work
+                || self.config.test_params.generate_varying_total_works
+            {
+                use std::path::PathBuf;
+
+                let file_path = match (
+             self.config.test_params.generate_varying_total_works,
+             self.config.test_params.generate_varying_total_works_insufficient_total_work,
+        ) {
+            (false, true) => PathBuf::from(
+                "../bridge-circuit-host/bin-files/bch_params_varying_total_works_insufficient_total_work.bin",
+            ),
+            (true, false) => PathBuf::from(
+                "../bridge-circuit-host/bin-files/bch_params_varying_total_works.bin",
+            ),
+            _ => {
+                panic!("Invalid or conflicting test params for generating varying total works");
+            }
+        };
+
+                std::fs::create_dir_all(file_path.parent().unwrap()).map_err(|e| {
+                    eyre::eyre!("Failed to create directory for output file: {}", e)
+                })?;
+                let serialized_params =
+                    borsh::to_vec(&bridge_circuit_host_params).map_err(|e| {
+                        eyre::eyre!("Failed to serialize bridge circuit host params: {}", e)
+                    })?;
+                std::fs::write(file_path.clone(), serialized_params).map_err(|e| {
+                    eyre::eyre!("Failed to write bridge circuit host params to file: {}", e)
+                })?;
+                tracing::info!("Bridge circuit host params written to {:?}", file_path);
+            }
+        }
+
         let (g16_proof, g16_output, public_inputs) =
-            prove_bridge_circuit(bridge_circuit_host_params, bridge_circuit_elf);
+            prove_bridge_circuit(bridge_circuit_host_params, bridge_circuit_elf)?;
         tracing::info!("Proved bridge circuit in send_asserts");
         let public_input_scalar = ark_bn254::Fr::from_be_bytes_mod_order(&g16_output);
 
@@ -1475,10 +1561,7 @@ where
 
         #[cfg(test)]
         {
-            if self.config.test_params.corrupted_asserts {
-                tracing::info!("Disrupting asserts commit in send_asserts");
-                asserts.0[0][0] ^= 0x01;
-            }
+            self.config.test_params.maybe_corrupt_asserts(&mut asserts);
         }
 
         let assert_txs = self
@@ -1654,7 +1737,6 @@ mod states {
                         .get_deposit_data_with_kickoff_txid(None, txid)
                         .await?;
                     if let Some((deposit_data, kickoff_data)) = kickoff_data {
-                        // add kickoff machine if there is a new kickoff
                         let mut dbtx = self.db.begin_transaction().await?;
                         StateManager::<Self>::dispatch_new_kickoff_machine(
                             self.db.clone(),

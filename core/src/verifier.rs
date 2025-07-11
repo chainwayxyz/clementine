@@ -1,5 +1,5 @@
 use crate::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
-use crate::bitcoin_syncer::{BitcoinSyncer, BlockHandler, FinalizedBlockFetcherTask};
+use crate::bitcoin_syncer::BitcoinSyncer;
 use crate::bitvm_client::ClementineBitVMPublicKeys;
 use crate::builder::address::{create_taproot_address, taproot_builder_with_scripts};
 use crate::builder::block_cache;
@@ -15,8 +15,7 @@ use crate::builder::transaction::input::UtxoVout;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::builder::transaction::{
     create_emergency_stop_txhandler, create_move_to_vault_txhandler,
-    create_optimistic_payout_txhandler, create_txhandlers, ContractContext, ReimburseDbCache,
-    TransactionType, TxHandler, TxHandlerCache,
+    create_optimistic_payout_txhandler, TransactionType, TxHandler,
 };
 use crate::builder::transaction::{create_round_txhandlers, KickoffWinternitzKeys};
 use crate::citrea::CitreaClientT;
@@ -27,11 +26,11 @@ use crate::database::{Database, DatabaseTransaction};
 use crate::deposit::{DepositData, KickoffData, OperatorData};
 use crate::errors::{BridgeError, TxError};
 use crate::extended_rpc::ExtendedRpc;
-use crate::header_chain_prover::{HeaderChainProver, HeaderChainProverError};
+use crate::header_chain_prover::HeaderChainProver;
 use crate::operator::RoundIndex;
 use crate::rpc::clementine::{NormalSignatureKind, OperatorKeys, TaggedSignature};
 use crate::task::manager::BackgroundTaskManager;
-use crate::task::{IntoTask, TaskExt};
+use crate::task::IntoTask;
 #[cfg(feature = "automation")]
 use crate::tx_sender::{TxSender, TxSenderClient};
 use crate::utils::NamedEntity;
@@ -47,7 +46,6 @@ use bitcoin::taproot::TaprootBuilder;
 use bitcoin::{Address, Amount, ScriptBuf, Witness, XOnlyPublicKey};
 use bitcoin::{OutPoint, TxOut};
 use bitcoin_script::builder::StructuredScript;
-use bitcoincore_rpc::RpcApi;
 use bitvm::chunk::api::validate_assertions;
 use bitvm::clementine::additional_disprove::{
     replace_placeholders_in_script, validate_assertions_for_additional_script,
@@ -69,7 +67,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
-use tonic::async_trait;
 
 #[derive(Debug)]
 pub struct NonceSession {
@@ -142,15 +139,18 @@ where
         }
         #[cfg(not(feature = "automation"))]
         {
+            use crate::task::TaskExt;
+
             background_tasks.loop_and_monitor(
-                FinalizedBlockFetcherTask::new(
+                crate::bitcoin_syncer::FinalizedBlockFetcherTask::new(
                     db.clone(),
                     "verifier".to_string(),
                     config.protocol_paramset(),
                     config.protocol_paramset().start_height,
                     verifier.clone(),
                 )
-                .with_delay(Duration::from_secs(1)),
+                .into_buffered_errors(50)
+                .with_delay(Duration::from_secs(60)),
             );
         }
 
@@ -181,7 +181,8 @@ pub struct Verifier<C: CitreaClientT> {
     pub(crate) nonces: Arc<tokio::sync::Mutex<AllSessions>>,
     #[cfg(feature = "automation")]
     pub tx_sender: TxSenderClient,
-    pub header_chain_prover: Option<HeaderChainProver>,
+    #[cfg(feature = "automation")]
+    pub header_chain_prover: HeaderChainProver,
     pub citrea_client: C,
 }
 
@@ -222,11 +223,8 @@ where
         #[cfg(feature = "automation")]
         let tx_sender = TxSenderClient::new(db.clone(), "verifier_".to_string());
 
-        let header_chain_prover = if std::env::var("ENABLE_HEADER_CHAIN_PROVER").is_ok() {
-            Some(HeaderChainProver::new(&config, rpc.clone()).await?)
-        } else {
-            None
-        };
+        #[cfg(feature = "automation")]
+        let header_chain_prover = HeaderChainProver::new(&config, rpc.clone()).await?;
 
         let verifier = Verifier {
             rpc,
@@ -236,6 +234,7 @@ where
             nonces: Arc::new(tokio::sync::Mutex::new(all_sessions)),
             #[cfg(feature = "automation")]
             tx_sender,
+            #[cfg(feature = "automation")]
             header_chain_prover,
             citrea_client,
         };
@@ -324,29 +323,28 @@ where
     async fn is_deposit_valid(&self, deposit_data: &mut DepositData) -> Result<bool, BridgeError> {
         // check if security council is the same as in our config
         if deposit_data.security_council != self.config.security_council {
-            tracing::warn!(
+            tracing::error!(
                 "Security council in deposit is not the same as in the config, expected {:?}, got {:?}",
                 self.config.security_council,
                 deposit_data.security_council
             );
             return Ok(false);
         }
-        let operator_xonly_pks = deposit_data.get_operators();
+        let operators_in_deposit = deposit_data.get_operators();
         // check if all operators that still have collateral are in the deposit
-        let are_all_operators_in_deposit = self.db.get_operators(None).await?;
-        for (xonly_pk, reimburse_addr, collateral_funding_outpoint) in are_all_operators_in_deposit
-        {
+        let operators_in_db = self.db.get_operators(None).await?;
+        for (xonly_pk, reimburse_addr, collateral_funding_outpoint) in operators_in_db.iter() {
             let operator_data = OperatorData {
-                xonly_pk,
-                collateral_funding_outpoint,
-                reimburse_addr,
+                xonly_pk: *xonly_pk,
+                collateral_funding_outpoint: *collateral_funding_outpoint,
+                reimburse_addr: reimburse_addr.clone(),
             };
-            let kickoff_wpks = self
+            let kickoff_winternitz_pks = self
                 .db
-                .get_operator_kickoff_winternitz_public_keys(None, xonly_pk)
+                .get_operator_kickoff_winternitz_public_keys(None, *xonly_pk)
                 .await?;
             let kickoff_wpks = KickoffWinternitzKeys::new(
-                kickoff_wpks,
+                kickoff_winternitz_pks,
                 self.config.protocol_paramset().num_kickoffs_per_round,
                 self.config.protocol_paramset().num_round_txs,
             );
@@ -359,18 +357,31 @@ where
                 )
                 .await?;
             // if operator is not in deposit but its collateral is still on chain, return false
-            if !operator_xonly_pks.contains(&xonly_pk) && is_collateral_usable {
-                tracing::warn!(
+            if !operators_in_deposit.contains(xonly_pk) && is_collateral_usable {
+                tracing::error!(
                     "Operator {:?} is is still in protocol but not in the deposit",
                     xonly_pk
                 );
                 return Ok(false);
             }
             // if operator is in deposit, but the collateral is not usable, return false
-            if operator_xonly_pks.contains(&xonly_pk) && !is_collateral_usable {
-                tracing::warn!(
+            if operators_in_deposit.contains(xonly_pk) && !is_collateral_usable {
+                tracing::error!(
                     "Operator {:?} is in the deposit but its collateral is spent, operator cannot fulfill withdrawals anymore",
                     xonly_pk
+                );
+                return Ok(false);
+            }
+        }
+        // check if there are any operators in the deposit that are not in the DB.
+        for operator_xonly_pk in operators_in_deposit {
+            if !operators_in_db
+                .iter()
+                .any(|(xonly_pk, _, _)| xonly_pk == &operator_xonly_pk)
+            {
+                tracing::error!(
+                    "Operator {:?} is in the deposit but not in the DB, cannot sign deposit",
+                    operator_xonly_pk
                 );
                 return Ok(false);
             }
@@ -381,7 +392,8 @@ where
             .into_iter()
             .map(|s| s.to_script_buf())
             .collect();
-        let deposit_txout_pubkey = create_taproot_address(
+        // what the deposit scriptpubkey is in the deposit_outpoint should be according to the deposit data
+        let expected_scriptpubkey = create_taproot_address(
             &deposit_scripts,
             None,
             self.config.protocol_paramset().network,
@@ -395,7 +407,7 @@ where
             .get_tx_of_txid(&deposit_txid)
             .await
             .wrap_err("Deposit tx could not be found on chain")?;
-        let deposit_txout = deposit_tx
+        let deposit_txout_in_chain = deposit_tx
             .output
             .get(deposit_outpoint.vout as usize)
             .ok_or(eyre::eyre!(
@@ -403,19 +415,19 @@ where
                 deposit_txid,
                 deposit_outpoint.vout
             ))?;
-        if deposit_txout.value != self.config.protocol_paramset().bridge_amount {
-            tracing::warn!(
+        if deposit_txout_in_chain.value != self.config.protocol_paramset().bridge_amount {
+            tracing::error!(
                 "Deposit amount is not correct, expected {}, got {}",
                 self.config.protocol_paramset().bridge_amount,
-                deposit_txout.value
+                deposit_txout_in_chain.value
             );
             return Ok(false);
         }
-        if deposit_txout.script_pubkey != deposit_txout_pubkey {
-            tracing::warn!(
+        if deposit_txout_in_chain.script_pubkey != expected_scriptpubkey {
+            tracing::error!(
                 "Deposit script pubkey in deposit outpoint does not match the deposit data, expected {:?}, got {:?}",
-                deposit_txout_pubkey,
-                deposit_txout.script_pubkey
+                expected_scriptpubkey,
+                deposit_txout_in_chain.script_pubkey
             );
             return Ok(false);
         }
@@ -522,8 +534,7 @@ where
         let (sec_nonces, pub_nonces): (Vec<SecretNonce>, Vec<PublicNonce>) = (0..num_nonces)
             .map(|_| {
                 // nonce pair needs keypair and a rng
-                let (sec_nonce, pub_nonce) =
-                    musig2::nonce_pair(&self.signer.keypair, &mut secp256k1::rand::thread_rng())?;
+                let (sec_nonce, pub_nonce) = musig2::nonce_pair(&self.signer.keypair)?;
                 Ok((sec_nonce, pub_nonce))
             })
             .collect::<Result<Vec<(SecretNonce, PublicNonce)>, BridgeError>>()?
@@ -575,11 +586,15 @@ where
             .await?;
 
         tokio::spawn(async move {
-            let mut session_map = verifier.nonces.lock().await;
-            let session = session_map
-                .sessions
-                .get_mut(&session_id)
-                .ok_or_else(|| eyre::eyre!("Could not find session id {session_id}"))?;
+            // Take the lock and extract the session before entering the async block
+            // Extract the session and remove it from the map to release the lock early
+            let mut session = {
+                let mut session_map = verifier.nonces.lock().await;
+                session_map
+                    .sessions
+                    .remove(&session_id)
+                    .ok_or_else(|| eyre::eyre!("Could not find session id {session_id}"))?
+            };
             session.nonces.reverse();
 
             let mut nonce_idx: usize = 0;
@@ -643,6 +658,12 @@ where
                     session.nonces.len()
                 ).into());
             }
+
+            let mut session_map = verifier.nonces.lock().await;
+            session_map
+                .sessions
+                .insert(session_id, session)
+                .ok_or_else(|| eyre::eyre!("Could not find session id {session_id}"))?;
 
             Ok::<(), BridgeError>(())
         });
@@ -1021,6 +1042,7 @@ where
         Ok((move_tx_partial_sig, emergency_stop_partial_sig))
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn sign_optimistic_payout(
         &self,
         nonce_session_id: u32,
@@ -1130,6 +1152,14 @@ where
         keys: OperatorKeys,
         operator_xonly_pk: XOnlyPublicKey,
     ) -> Result<(), BridgeError> {
+        self.citrea_client
+            .check_nofn_correctness(deposit_data.get_nofn_xonly_pk()?)
+            .await?;
+
+        if !self.is_deposit_valid(&mut deposit_data).await? {
+            return Err(BridgeError::InvalidDeposit);
+        }
+
         self.db
             .set_deposit_data(None, &mut deposit_data, self.config.protocol_paramset())
             .await?;
@@ -1394,40 +1424,20 @@ where
         Ok(true)
     }
 
+    #[cfg(feature = "automation")]
     async fn send_watchtower_challenge(
         &self,
         kickoff_data: KickoffData,
         deposit_data: DepositData,
     ) -> Result<(), BridgeError> {
-        let hcp_prover = self
+        let current_tip_hcp = self
             .header_chain_prover
-            .as_ref()
-            .ok_or(HeaderChainProverError::HeaderChainProverNotInitialized)?;
-        let current_tip_hcp = hcp_prover.get_tip_header_chain_proof().await?;
+            .get_tip_header_chain_proof()
+            .await?;
 
-        let (work_only_proof, work_output) = hcp_prover.prove_work_only(current_tip_hcp.0)?;
-
-        #[cfg(test)]
-        {
-            // if in test mode and risc0_dev_mode is enabled, we will not generate real proof
-            // if not in test mode, we should enforce RISC0_DEV_MODE to be disabled
-            if is_dev_mode() {
-                tracing::warn!("Warning, malicious kickoff detected but RISC0_DEV_MODE is enabled, will not generate real proof");
-                let g16_bytes = 128;
-                let mut challenge = vec![0u8; g16_bytes];
-                for (step, i) in (0..g16_bytes).step_by(32).enumerate() {
-                    if i < g16_bytes {
-                        challenge[i] = step as u8;
-                    }
-                }
-                let total_work = borsh::to_vec(&work_output.work_u128)
-                    .wrap_err("Couldn't serialize total work")?;
-                challenge.extend_from_slice(&total_work);
-                return self
-                    .queue_watchtower_challenge(kickoff_data, deposit_data, challenge)
-                    .await;
-            }
-        }
+        let (work_only_proof, work_output) = self
+            .header_chain_prover
+            .prove_work_only(current_tip_hcp.0)?;
 
         let g16: [u8; 256] = work_only_proof
             .inner
@@ -1515,29 +1525,30 @@ where
         l2_height_end: u64,
         block_height: u32,
     ) -> Result<(), BridgeError> {
-        tracing::debug!("Updating citrea deposit and withdrawals");
-
         let last_deposit_idx = self.db.get_last_deposit_idx(None).await?;
-        tracing::debug!("Last deposit idx: {:?}", last_deposit_idx);
+        tracing::debug!("Last Citrea deposit idx: {:?}", last_deposit_idx);
 
         let last_withdrawal_idx = self.db.get_last_withdrawal_idx(None).await?;
-        tracing::debug!("Last withdrawal idx: {:?}", last_withdrawal_idx);
+        tracing::debug!("Last Citrea withdrawal idx: {:?}", last_withdrawal_idx);
 
         let new_deposits = self
             .citrea_client
             .collect_deposit_move_txids(last_deposit_idx, l2_height_end)
             .await?;
-        tracing::debug!("New deposits: {:?}", new_deposits);
+        tracing::debug!("New deposits received from Citrea: {:?}", new_deposits);
 
         let new_withdrawals = self
             .citrea_client
             .collect_withdrawal_utxos(last_withdrawal_idx, l2_height_end)
             .await?;
-        tracing::debug!("New Withdrawals: {:?}", new_withdrawals);
+        tracing::debug!(
+            "New withdrawals received from Citrea: {:?}",
+            new_withdrawals
+        );
 
         for (idx, move_to_vault_txid) in new_deposits {
             tracing::info!(
-                "Setting move to vault txid: {:?} with index {}",
+                "Saving move to vault txid {:?} with index {} for Citrea deposits",
                 move_to_vault_txid,
                 idx
             );
@@ -1549,9 +1560,10 @@ where
                 )
                 .await?;
         }
+
         for (idx, withdrawal_utxo_outpoint) in new_withdrawals {
             tracing::info!(
-                "Setting withdrawal utxo: {:?} with index {}",
+                "Saving withdrawal utxo {:?} with index {} for Citrea withdrawals",
                 withdrawal_utxo_outpoint,
                 idx
             );
@@ -1590,7 +1602,6 @@ where
         block_id: u32,
         block_cache: &block_cache::BlockCache,
     ) -> Result<(), BridgeError> {
-        tracing::info!("Updating finalized payouts for block: {:?}", block_id);
         let payout_txids = self
             .db
             .get_payout_txs_for_withdrawal_utxos(Some(dbtx), block_id)
@@ -1727,6 +1738,7 @@ where
     /// - `Ok(None)` if the operator's claims are valid under this specific challenge, and no disprove is possible.
     /// - `Err(BridgeError)` if any error occurs during script reconstruction or validation.
     #[cfg(feature = "automation")]
+    #[allow(clippy::too_many_arguments)]
     async fn verify_additional_disprove_conditions(
         &self,
         deposit_data: &mut DepositData,
@@ -1737,6 +1749,8 @@ where
         operator_acks: &HashMap<usize, Witness>,
         txhandlers: &BTreeMap<TransactionType, TxHandler>,
     ) -> Result<Option<bitcoin::Witness>, BridgeError> {
+        use bitvm::clementine::additional_disprove::debug_assertions_for_additional_script;
+
         use crate::builder::transaction::ReimburseDbCache;
 
         let mut reimburse_db_cache = ReimburseDbCache::new_for_deposit(
@@ -1878,6 +1892,8 @@ where
                 .into());
             }
             operator_acks_vec[*idx] = Some(pre_image);
+
+            tracing::debug!(target: "ci", "Operator ack for idx {}", idx);
         }
 
         let latest_blockhash: Vec<Vec<u8>> = latest_blockhash
@@ -1904,13 +1920,49 @@ where
             payout_blockhash_new.push(element);
         }
 
+        tracing::debug!(
+            target: "ci",
+            "Verify additional disprove conditions - Genesis height: {:?}, operator_xonly_pk: {:?}, move_txid: {:?}, round_txid: {:?}, vout: {:?}, watchtower_challenge_start_idx: {:?}, genesis_chain_state_hash: {:?}, deposit_constant: {:?}",
+            self.config.protocol_paramset.genesis_height,
+            kickoff_data.operator_xonly_pk,
+            move_txid,
+            round_txid,
+            vout,
+            watchtower_challenge_start_idx,
+            self.config.protocol_paramset.genesis_chain_state_hash,
+            deposit_constant
+        );
+
+        tracing::debug!(
+            target: "ci",
+            "Payout blockhash: {:?}\nLatest blockhash: {:?}\nChallenge sending watchtowers signature: {:?}\nG16 public input signature: {:?}",
+            payout_blockhash_new,
+            latest_blockhash_new,
+            challenge_sending_watchtowers_signature,
+            g16_public_input_signature
+        );
+
         let additional_disprove_witness = validate_assertions_for_additional_script(
             additional_disprove_script.clone(),
             g16_public_input_signature.clone(),
             payout_blockhash_new.clone(),
             latest_blockhash_new.clone(),
             challenge_sending_watchtowers_signature.clone(),
+            operator_acks_vec.clone(),
+        );
+
+        let debug_additional_disprove_script = debug_assertions_for_additional_script(
+            additional_disprove_script.clone(),
+            g16_public_input_signature.clone(),
+            payout_blockhash_new.clone(),
+            latest_blockhash_new.clone(),
+            challenge_sending_watchtowers_signature.clone(),
             operator_acks_vec,
+        );
+
+        tracing::info!(
+            "Debug additional disprove script: {:?}",
+            debug_additional_disprove_script
         );
 
         tracing::info!(
@@ -1994,20 +2046,32 @@ where
 
         tracing::debug!("Disprove txid: {:?}", disprove_tx.compute_txid());
 
-        tracing::info!(
-            "Disprove tx created for verifier {:?} with kickoff_data: {:?}, deposit_data: {:?}",
+        tracing::warn!(
+            "Additional disprove tx created for verifier {:?} with kickoff_data: {:?}, deposit_data: {:?}",
             verifier_xonly_pk,
             kickoff_data,
             deposit_data
         );
 
-        let raw_tx = bitcoin::consensus::serialize(&disprove_tx);
-
-        self.rpc
-            .client
-            .send_raw_transaction(&raw_tx)
-            .await
-            .wrap_err("Error sending disprove tx - additional")?;
+        let mut dbtx = self.db.begin_transaction().await?;
+        self.tx_sender
+            .add_tx_to_queue(
+                &mut dbtx,
+                TransactionType::Disprove,
+                &disprove_tx,
+                &[],
+                Some(TxMetadata {
+                    tx_type: TransactionType::Disprove,
+                    deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
+                    operator_xonly_pk: Some(kickoff_data.operator_xonly_pk),
+                    round_idx: Some(kickoff_data.round_idx),
+                    kickoff_idx: Some(kickoff_data.kickoff_idx),
+                }),
+                &self.config,
+                None,
+            )
+            .await?;
+        dbtx.commit().await?;
         Ok(())
     }
 
@@ -2258,20 +2322,32 @@ where
 
         tracing::debug!("Disprove txid: {:?}", disprove_tx.compute_txid());
 
-        tracing::info!(
-            "Disprove tx created for verifier {:?} with kickoff_data: {:?}, deposit_data: {:?}",
+        tracing::warn!(
+            "BitVM disprove tx created for verifier {:?} with kickoff_data: {:?}, deposit_data: {:?}",
             verifier_xonly_pk,
             kickoff_data,
             deposit_data
         );
 
-        let raw_tx = bitcoin::consensus::serialize(&disprove_tx);
-
-        self.rpc
-            .client
-            .send_raw_transaction(&raw_tx)
-            .await
-            .wrap_err("Error sending disprove tx")?;
+        let mut dbtx = self.db.begin_transaction().await?;
+        self.tx_sender
+            .add_tx_to_queue(
+                &mut dbtx,
+                TransactionType::Disprove,
+                &disprove_tx,
+                &[],
+                Some(TxMetadata {
+                    tx_type: TransactionType::Disprove,
+                    deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
+                    operator_xonly_pk: Some(kickoff_data.operator_xonly_pk),
+                    round_idx: Some(kickoff_data.round_idx),
+                    kickoff_idx: Some(kickoff_data.kickoff_idx),
+                }),
+                &self.config,
+                None,
+            )
+            .await?;
+        dbtx.commit().await?;
         Ok(())
     }
 
@@ -2289,20 +2365,14 @@ where
         let max_attempts = light_client_proof_wait_interval_secs.unwrap_or(TEN_MINUTES_IN_SECS);
         let timeout = Duration::from_secs(max_attempts as u64);
 
-        let l2_range_result = self
+        let (l2_height_start, l2_height_end) = self
             .citrea_client
             .get_citrea_l2_height_range(block_height.into(), timeout)
-            .await;
-        if let Err(e) = l2_range_result {
-            tracing::error!("Error getting citrea l2 height range: {:?}", e);
-            return Err(e);
-        }
-
-        let (l2_height_start, l2_height_end) =
-            l2_range_result.expect("Failed to get citrea l2 height range");
+            .await
+            .inspect_err(|e| tracing::error!("Error getting citrea l2 height range: {:?}", e))?;
 
         tracing::debug!(
-            "l2_height_start: {:?}, l2_height_end: {:?}, collecting deposits and withdrawals",
+            "l2_height_start: {:?}, l2_height_end: {:?}, collecting deposits and withdrawals...",
             l2_height_start,
             l2_height_end
         );
@@ -2317,11 +2387,16 @@ where
         self.update_finalized_payouts(&mut dbtx, block_id, &block_cache)
             .await?;
 
-        if let Some(header_chain_prover) = &self.header_chain_prover {
-            header_chain_prover
+        #[cfg(feature = "automation")]
+        {
+            // Save unproven block cache to the database
+            self.header_chain_prover
                 .save_unproven_block_cache(Some(&mut dbtx), &block_cache)
                 .await?;
-            header_chain_prover.prove_if_ready().await?;
+            while (self.header_chain_prover.prove_if_ready().await?).is_some() {
+                // Continue until prove_if_ready returns None
+                // If it doesn't return None, it means next batch_size amount of blocks were proven
+            }
         }
 
         Ok(())
@@ -2330,8 +2405,8 @@ where
 
 // This implementation is only relevant for non-automation mode, where the verifier is run as a standalone process
 #[cfg(not(feature = "automation"))]
-#[async_trait]
-impl<C> BlockHandler for Verifier<C>
+#[async_trait::async_trait]
+impl<C> crate::bitcoin_syncer::BlockHandler for Verifier<C>
 where
     C: CitreaClientT,
 {
@@ -2421,6 +2496,16 @@ mod states {
                     payout_blockhash,
                     latest_blockhash,
                 } => {
+                    #[cfg(test)]
+                    {
+                        if !self
+                            .config
+                            .test_params
+                            .should_disprove(&self.signer.public_key, &deposit_data)?
+                        {
+                            return Ok(DutyResult::Handled);
+                        }
+                    }
                     let context = ContractContext::new_context_with_signer(
                         kickoff_data,
                         deposit_data.clone(),
@@ -2521,8 +2606,10 @@ mod states {
                             kickoff_data,
                             deposit_data.get_deposit_outpoint()
                         );
-                        // add kickoff machine if there is a new kickoff
                         let mut dbtx = self.db.begin_transaction().await?;
+                        // add kickoff machine if there is a new kickoff
+                        // do not add if kickoff finalizer is already spent => kickoff is finished
+                        // this can happen if we are resyncing
                         StateManager::<Self>::dispatch_new_kickoff_machine(
                             self.db.clone(),
                             &mut dbtx,
@@ -2566,7 +2653,7 @@ mod states {
 
         async fn handle_finalized_block(
             &self,
-            mut dbtx: DatabaseTransaction<'_, '_>,
+            dbtx: DatabaseTransaction<'_, '_>,
             block_id: u32,
             block_height: u32,
             block_cache: Arc<block_cache::BlockCache>,
@@ -2664,6 +2751,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(feature = "automation")]
     async fn test_database_operations_idempotency() {
         let mut config = create_test_config_with_thread_name().await;
         let _regtest = create_regtest_rpc(&mut config).await;
@@ -2673,35 +2761,35 @@ mod tests {
             .unwrap();
 
         // Test header chain prover save operation idempotency
-        if let Some(ref header_chain_prover) = verifier.header_chain_prover {
-            let test_block = Block {
-                header: bitcoin::block::Header {
-                    version: bitcoin::block::Version::ONE,
-                    prev_blockhash: bitcoin::BlockHash::all_zeros(),
-                    merkle_root: bitcoin::TxMerkleNode::all_zeros(),
-                    time: 1234567890,
-                    bits: bitcoin::CompactTarget::from_consensus(0x207fffff),
-                    nonce: 12345,
-                },
-                txdata: vec![], // empty transactions
-            };
-            let block_cache = block_cache::BlockCache::from_block(&test_block, 100u32);
+        let test_block = Block {
+            header: bitcoin::block::Header {
+                version: bitcoin::block::Version::ONE,
+                prev_blockhash: bitcoin::BlockHash::all_zeros(),
+                merkle_root: bitcoin::TxMerkleNode::all_zeros(),
+                time: 1234567890,
+                bits: bitcoin::CompactTarget::from_consensus(0x207fffff),
+                nonce: 12345,
+            },
+            txdata: vec![], // empty transactions
+        };
+        let block_cache = block_cache::BlockCache::from_block(&test_block, 100u32);
 
-            // First save
-            let mut dbtx1 = verifier.db.begin_transaction().await.unwrap();
-            let result1 = header_chain_prover
-                .save_unproven_block_cache(Some(&mut dbtx1), &block_cache)
-                .await;
-            assert!(result1.is_ok(), "First save should succeed");
-            dbtx1.commit().await.unwrap();
+        // First save
+        let mut dbtx1 = verifier.db.begin_transaction().await.unwrap();
+        let result1 = verifier
+            .header_chain_prover
+            .save_unproven_block_cache(Some(&mut dbtx1), &block_cache)
+            .await;
+        assert!(result1.is_ok(), "First save should succeed");
+        dbtx1.commit().await.unwrap();
 
-            // Second save with same data should be idempotent
-            let mut dbtx2 = verifier.db.begin_transaction().await.unwrap();
-            let result2 = header_chain_prover
-                .save_unproven_block_cache(Some(&mut dbtx2), &block_cache)
-                .await;
-            assert!(result2.is_ok(), "Second save should succeed (idempotent)");
-            dbtx2.commit().await.unwrap();
-        }
+        // Second save with same data should be idempotent
+        let mut dbtx2 = verifier.db.begin_transaction().await.unwrap();
+        let result2 = verifier
+            .header_chain_prover
+            .save_unproven_block_cache(Some(&mut dbtx2), &block_cache)
+            .await;
+        assert!(result2.is_ok(), "Second save should succeed (idempotent)");
+        dbtx2.commit().await.unwrap();
     }
 }

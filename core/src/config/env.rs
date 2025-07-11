@@ -201,16 +201,16 @@ mod tests {
         std::env::set_var("BITCOIN_RPC_URL", &default_config.bitcoin_rpc_url);
         std::env::set_var(
             "BITCOIN_RPC_USER",
-            &default_config.bitcoin_rpc_user.expose_secret(),
+            default_config.bitcoin_rpc_user.expose_secret(),
         );
         std::env::set_var(
             "BITCOIN_RPC_PASSWORD",
-            &default_config.bitcoin_rpc_password.expose_secret(),
+            default_config.bitcoin_rpc_password.expose_secret(),
         );
         std::env::set_var("DB_HOST", default_config.db_host.clone());
         std::env::set_var("DB_PORT", default_config.db_port.to_string());
-        std::env::set_var("DB_USER", &default_config.db_user.expose_secret());
-        std::env::set_var("DB_PASSWORD", &default_config.db_password.expose_secret());
+        std::env::set_var("DB_USER", default_config.db_user.expose_secret());
+        std::env::set_var("DB_PASSWORD", default_config.db_password.expose_secret());
         std::env::set_var("DB_NAME", &default_config.db_name);
         std::env::set_var("CITREA_RPC_URL", &default_config.citrea_rpc_url);
         std::env::set_var(
@@ -363,10 +363,6 @@ mod tests {
             "TIME_TO_SEND_WATCHTOWER_CHALLENGE",
             default_config.time_to_send_watchtower_challenge.to_string(),
         );
-        std::env::set_var(
-            "TIME_TO_DISPROVE",
-            default_config.time_to_disprove.to_string(),
-        );
         std::env::set_var("FINALITY_DEPTH", default_config.finality_depth.to_string());
         std::env::set_var("START_HEIGHT", default_config.start_height.to_string());
         std::env::set_var("GENESIS_HEIGHT", default_config.genesis_height.to_string());
@@ -383,10 +379,6 @@ mod tests {
             default_config.header_chain_proof_batch_size.to_string(),
         );
 
-        std::env::set_var(
-            "BRIDGE_CIRCUIT_METHOD_ID_CONSTANT",
-            hex::encode(default_config.bridge_circuit_method_id_constant),
-        );
         std::env::set_var(
             "BRIDGE_NONSTANDARD",
             default_config.bridge_nonstandard.to_string(),

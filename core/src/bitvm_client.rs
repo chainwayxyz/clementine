@@ -19,7 +19,7 @@ use risc0_zkvm::is_dev_mode;
 use std::fs;
 
 use std::str::FromStr;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 
 lazy_static::lazy_static! {
@@ -44,38 +44,49 @@ lazy_static::lazy_static! {
         XOnlyPublicKey::from_str("50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0").expect("this key is valid");
 }
 
-// lazy_static::lazy_static! {
-//     pub static ref ALL_BITVM_INTERMEDIATE_VARIABLES: BTreeMap<String, usize> = BridgeAssigner::default().all_intermediate_variable();
-// }
-lazy_static::lazy_static! {
-    pub static ref BITVM_CACHE: BitvmCache = {
-        let start = Instant::now();
+/// Global BitVM cache wrapped in a OnceLock.
+///
+/// # Usage
+/// Use with `BITVM_CACHE.get_or_init(load_or_generate_bitvm_cache)` to get the cache or optionally load it.
+/// The cache will be initialized from a file, and if that fails, the fresh data will be generated.
+pub static BITVM_CACHE: OnceLock<BitvmCache> = OnceLock::new();
 
-        let bitvm_cache = {
-            let cache_path = if cfg!(test) && is_dev_mode() {
-                "bitvm_cache_dev.bin".to_string()
-            } else {
-                std::env::var("BITVM_CACHE_PATH").unwrap_or_else(|_| "bitvm_cache.bin".to_string())
-            };
-            tracing::info!("Loading BitVM cache from file: {}", cache_path);
-            match BitvmCache::load_from_file(&cache_path) {
-                Ok(cache) => {
-                    tracing::info!("Loaded BitVM cache from file");
-                    cache
-                }
-                Err(_) => {
-                    tracing::info!("No BitVM cache found, generating fresh data");
-                    let fresh_data = generate_fresh_data();
-                    if let Err(e) = fresh_data.save_to_file(&cache_path) {
-                        tracing::error!("Failed to save BitVM cache to file: {}", e);
-                    }
-                    fresh_data
-                }
-            }
-        };
-        println!("BitVM initialization took: {:?}", start.elapsed());
-        bitvm_cache
+pub fn load_or_generate_bitvm_cache() -> BitvmCache {
+    let start = Instant::now();
+
+    let cache_path = if cfg!(test) && is_dev_mode() {
+        "bitvm_cache_dev.bin".to_string()
+    } else {
+        std::env::var("BITVM_CACHE_PATH").unwrap_or_else(|_| "bitvm_cache.bin".to_string())
     };
+
+    let bitvm_cache = {
+        tracing::debug!("Attempting to load BitVM cache from file: {}", cache_path);
+
+        match BitvmCache::load_from_file(&cache_path) {
+            Ok(cache) => {
+                tracing::debug!("Loaded BitVM cache from file");
+
+                cache
+            }
+            Err(_) => {
+                tracing::info!("No BitVM cache found, generating fresh data");
+
+                let fresh_data = generate_fresh_data();
+
+                if let Err(e) = fresh_data.save_to_file(&cache_path) {
+                    tracing::error!(
+                        "Failed to save freshly generated BitVM cache to file: {}",
+                        e
+                    );
+                }
+                fresh_data
+            }
+        }
+    };
+
+    tracing::debug!("BitVM initialization took: {:?}", start.elapsed());
+    bitvm_cache
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug)]
@@ -585,7 +596,7 @@ pub fn replace_disprove_scripts(pks: &ClementineBitVMPublicKeys) -> Vec<ScriptBu
     let start = Instant::now();
     tracing::info!("Starting script replacement");
 
-    let cache = &*BITVM_CACHE;
+    let cache = BITVM_CACHE.get_or_init(load_or_generate_bitvm_cache);
     let mut result: Vec<Vec<u8>> = cache.disprove_scripts.clone();
     let replacement_places = &cache.replacement_places;
 

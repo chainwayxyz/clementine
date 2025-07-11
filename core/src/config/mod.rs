@@ -17,8 +17,8 @@ use bitcoin::address::NetworkUnchecked;
 use bitcoin::secp256k1::SecretKey;
 use bitcoin::{Address, Amount, OutPoint};
 use protocol::ProtocolParamset;
-use secrecy::{ExposeSecret, SecretString};
-use serde::{Deserialize, Serialize};
+use secrecy::SecretString;
+use serde::Deserialize;
 use std::str::FromStr;
 use std::{fs::File, io::Read, path::PathBuf};
 
@@ -177,7 +177,9 @@ impl BridgeConfig {
 #[cfg(test)]
 impl PartialEq for BridgeConfig {
     fn eq(&self, other: &Self) -> bool {
-        let mut all_eq = self.protocol_paramset == other.protocol_paramset
+        use secrecy::ExposeSecret;
+
+        let all_eq = self.protocol_paramset == other.protocol_paramset
             && self.host == other.host
             && self.port == other.port
             && self.secret_key == other.secret_key

@@ -8,12 +8,16 @@ pub mod storage_proof;
 pub mod structs;
 pub mod transaction;
 
-use crate::common::{
-    constants::{
-        MAINNET_HEADER_CHAIN_METHOD_ID, MAX_NUMBER_OF_WATCHTOWERS, REGTEST_HEADER_CHAIN_METHOD_ID,
-        SIGNET_HEADER_CHAIN_METHOD_ID, TESTNET4_HEADER_CHAIN_METHOD_ID,
+use crate::{
+    bridge_circuit::transaction::CircuitTransaction,
+    common::{
+        constants::{
+            MAINNET_HEADER_CHAIN_METHOD_ID, MAX_NUMBER_OF_WATCHTOWERS,
+            REGTEST_HEADER_CHAIN_METHOD_ID, SIGNET_HEADER_CHAIN_METHOD_ID,
+            TESTNET4_HEADER_CHAIN_METHOD_ID,
+        },
+        zkvm::ZkvmGuest,
     },
-    zkvm::ZkvmGuest,
 };
 use bitcoin::{
     consensus::Encodable,
@@ -57,7 +61,7 @@ pub const HEADER_CHAIN_METHOD_ID: [u32; 8] = {
 };
 
 /// Executes the bridge circuit in a zkVM environment, verifying multiple cryptographic proofs
-/// related to watchtower work, SPV, and storage proofs.
+/// related to watchtowers' Bitcoin work, SPV, and storage proofs.
 ///
 /// # Parameters
 ///
@@ -91,7 +95,11 @@ pub const HEADER_CHAIN_METHOD_ID: [u32; 8] = {
 /// - If the withdrawal transaction ID does not match the referenced input in `payout_spv`.
 pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
     let input: BridgeCircuitInput = guest.read_from_host();
-    assert_eq!(HEADER_CHAIN_METHOD_ID, input.hcp.method_id);
+    assert_eq!(
+        HEADER_CHAIN_METHOD_ID, input.hcp.method_id,
+        "Invalid method ID for header chain circuit: expected {:?}, got {:?}",
+        HEADER_CHAIN_METHOD_ID, input.hcp.method_id
+    );
 
     // Verify the HCP
     guest.verify(input.hcp.method_id, &input.hcp);
@@ -107,7 +115,7 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
     // If total work is less than the max total work of watchtowers, panic
     if total_work < max_total_work {
         panic!(
-            "Invalid total work: Total Work {:?} - Max Total Work: {:?}",
+            "Insufficient total work: Total Work {:?} - Max Total Work: {:?}",
             input.hcp.chain_state.total_work, max_total_work
         );
     }
@@ -146,7 +154,8 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
         "Invalid withdrawal transaction output index"
     );
 
-    let last_output = input.payout_spv.transaction.output.last().unwrap();
+    let first_op_return_output = get_first_op_return_output(&input.payout_spv.transaction)
+        .expect("Payout transaction must have an OP_RETURN output");
 
     let round_txid = input.kickoff_tx.input[0]
         .previous_output
@@ -154,7 +163,7 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
         .to_byte_array();
     let kickoff_round_vout = input.kickoff_tx.input[0].previous_output.vout;
 
-    let operator_xonlypk: [u8; 32] = parse_op_return_data(&last_output.script_pubkey)
+    let operator_xonlypk: [u8; 32] = parse_op_return_data(&first_op_return_output.script_pubkey)
         .expect("Invalid operator xonlypk")
         .try_into()
         .expect("Invalid xonlypk");
@@ -169,6 +178,7 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
         input.hcp.genesis_state_hash,
     );
 
+    // In the future this will be fetched from the LC proof
     let latest_blockhash: LatestBlockhash = input.hcp.chain_state.best_block_hash[12..32]
         .try_into()
         .unwrap();
@@ -216,6 +226,7 @@ fn convert_to_groth16_and_verify(
     };
 
     let groth16_proof = CircuitGroth16WithTotalWork::new(seal, total_work, genesis_state_hash);
+
     groth16_proof.verify(image_id)
 }
 
@@ -246,7 +257,7 @@ fn convert_to_groth16_and_verify(
 /// will be skipped gracefully without causing the function to panic.
 pub fn verify_watchtower_challenges(circuit_input: &BridgeCircuitInput) -> WatchtowerChallengeSet {
     let mut challenge_sending_watchtowers: [u8; 20] = [0u8; 20];
-    let mut watchtower_challenges_outputs: Vec<[TxOut; 3]> = vec![];
+    let mut watchtower_challenges_outputs: Vec<Vec<TxOut>> = vec![];
 
     let kickoff_txid = circuit_input.kickoff_tx.compute_txid();
 
@@ -275,6 +286,13 @@ pub fn verify_watchtower_challenges(circuit_input: &BridgeCircuitInput) -> Watch
         let input = watchtower_input.watchtower_challenge_tx.input[watchtower_input_idx].clone();
 
         let (sighash_type, sig_bytes): (TapSighashType, [u8; 64]) = {
+            // Enforce the witness to be only 1 element, which is the signature
+            if watchtower_input.watchtower_challenge_witness.0.len() != 1 {
+                panic!(
+                    "Invalid witness length, expected 1 element, watchtower index: {}",
+                    watchtower_input.watchtower_idx
+                );
+            }
             let signature = watchtower_input.watchtower_challenge_witness.0.to_vec()[0].clone();
 
             if signature.len() == 64 {
@@ -392,16 +410,10 @@ pub fn verify_watchtower_challenges(circuit_input: &BridgeCircuitInput) -> Watch
             .verify_prehash(sighash.as_byte_array(), &signature)
             .is_ok()
         {
-            // TODO: CHECK IF THIS IS CORRECT
             challenge_sending_watchtowers[(watchtower_input.watchtower_idx as usize) / 8] |=
                 1 << (watchtower_input.watchtower_idx % 8);
-            if watchtower_input.watchtower_challenge_tx.output.len() >= 3 {
-                watchtower_challenges_outputs.push([
-                    watchtower_input.watchtower_challenge_tx.output[0].clone(),
-                    watchtower_input.watchtower_challenge_tx.output[1].clone(),
-                    watchtower_input.watchtower_challenge_tx.output[2].clone(),
-                ]);
-            }
+            watchtower_challenges_outputs
+                .push(watchtower_input.watchtower_challenge_tx.output.clone());
         }
     }
 
@@ -427,11 +439,20 @@ pub fn verify_watchtower_challenges(circuit_input: &BridgeCircuitInput) -> Watch
 ///
 /// # Notes
 ///
-/// - Skips over any challenge with invalid encoding, invalid signature, or improper structure.
-/// - Each watchtower challenge is expected to contain exactly 3 outputs:
-///     - First two should be P2TR outputs containing the compressed Groth16 proof parts.
-///     - Third must be an OP_RETURN containing the rest of the proof and the total work value.
-/// - The function sorts valid commitments by total work and verifies the highest one using a Groth16 verifier.
+/// - The function robustly skips over any challenges that are malformed, have invalid signatures,
+///   or do not adhere to the expected transaction output structure.
+/// - Each watchtower challenge transaction is expected to contain one of two distinct output structures:
+///     - **Single Output Format:** A single `OP_RETURN` script containing a total of 144 bytes.
+///       This includes the entire 128-byte compressed Groth16 proof followed by the 16-byte `total_work` value.
+///     - **Three Output Format:**
+///         - The first two outputs **must** be P2TR (Pay-to-Taproot) outputs. These two outputs
+///           collectively contain the first 64 bytes of the compressed Groth16 proof parts
+///           (32 bytes from each P2TR output).
+///         - The third output **must** be an `OP_RETURN` script, containing the remaining 64 bytes
+///           of the compressed Groth16 proof and the 16-byte `total_work` value.
+/// - Valid commitments are sorted in descending order by their `total_work` value. The Groth16
+///   verifier is then applied sequentially to these sorted commitments, and the first successfully
+///   verified `total_work` is selected as the maximum verified work.
 pub fn total_work_and_watchtower_flags(
     circuit_input: &BridgeCircuitInput,
     work_only_image_id: &[u8; 32],
@@ -441,34 +462,58 @@ pub fn total_work_and_watchtower_flags(
     let mut valid_watchtower_challenge_commitments: Vec<WatchTowerChallengeTxCommitment> = vec![];
 
     for outputs in watchtower_challenge_set.challenge_outputs {
-        if !outputs[0].script_pubkey.is_p2tr()
-            || !outputs[1].script_pubkey.is_p2tr()
-            || !outputs[2].script_pubkey.is_op_return()
-        {
-            continue;
+        let compressed_g16_proof: [u8; 128];
+        let total_work: [u8; 16];
+
+        match outputs.as_slice() {
+            // Single OP_RETURN output with 144 bytes
+            [op_return_output, ..] if op_return_output.script_pubkey.is_op_return() => {
+                // If the first output is OP_RETURN, we expect a single output with 144 bytes
+                let Some(Ok(whole_output)) = parse_op_return_data(&outputs[2].script_pubkey)
+                    .map(TryInto::<[u8; 144]>::try_into)
+                else {
+                    continue;
+                };
+                compressed_g16_proof = whole_output[0..128]
+                    .try_into()
+                    .expect("Cannot fail: slicing 128 bytes from 144-byte array");
+                total_work = borsh::from_slice(&whole_output[128..144])
+                    .expect("Cannot fail: deserializing 16 bytes from a 16-byte slice");
+            }
+            // Otherwise, we expect three outputs:
+            // 1. [out1, out2, out3] where out1 and out2 are P2TR outputs
+            //    and out3 is an OP_RETURN output with 80 bytes
+            [out1, out2, out3, ..]
+                if out1.script_pubkey.is_p2tr()
+                    && out2.script_pubkey.is_p2tr()
+                    && out3.script_pubkey.is_op_return() =>
+            {
+                let first_output: [u8; 32] = out1.script_pubkey.to_bytes()[2..]
+                    .try_into()
+                    .expect("Cannot fail: slicing 32 bytes from P2TR output");
+                let second_output: [u8; 32] = out2.script_pubkey.to_bytes()[2..]
+                    .try_into()
+                    .expect("Cannot fail: slicing 32 bytes from P2TR output");
+
+                let Some(Ok(third_output)) =
+                    parse_op_return_data(&out3.script_pubkey).map(TryInto::<[u8; 80]>::try_into)
+                else {
+                    continue;
+                };
+
+                compressed_g16_proof =
+                    [&first_output[..], &second_output[..], &third_output[0..64]]
+                        .concat()
+                        .try_into()
+                        .expect("Cannot fail: concatenating and converting to 128-byte array");
+
+                // Borsh deserialization of the final 16 bytes is functionally redundant in this context,
+                // as it does not alter the byte content. It is retained here for consistency and defensive safety.
+                total_work = borsh::from_slice(&third_output[64..])
+                    .expect("Cannot fail: deserializing 16 bytes from 16-byte slice");
+            }
+            _ => continue,
         }
-
-        let first_output: [u8; 32] = outputs[0].script_pubkey.to_bytes()[2..]
-            .try_into()
-            .expect("Cannot fail");
-        let second_output: [u8; 32] = outputs[1].script_pubkey.to_bytes()[2..]
-            .try_into()
-            .expect("Cannot fail");
-
-        let Some(Ok(third_output)) =
-            parse_op_return_data(&outputs[2].script_pubkey).map(TryInto::<[u8; 80]>::try_into)
-        else {
-            continue;
-        };
-
-        let compressed_g16_proof: [u8; 128] = [&first_output, &second_output, &third_output[0..64]]
-            .concat()
-            .try_into()
-            .expect("Cannot fail");
-
-        // Borsh deserialization of the final 16 bytes is functionally redundant in this context,
-        // as it does not alter the byte content. It is retained here for consistency and defensive safety.
-        let total_work: [u8; 16] = borsh::from_slice(&third_output[64..]).expect("Cannot fail");
 
         let commitment = WatchTowerChallengeTxCommitment {
             compressed_g16_proof,
@@ -478,30 +523,29 @@ pub fn total_work_and_watchtower_flags(
         valid_watchtower_challenge_commitments.push(commitment);
     }
 
-    // TODO: UPDATE THIS PART ACCORDING TO ENDIANNESS
     valid_watchtower_challenge_commitments.sort_by(|a, b| b.total_work.cmp(&a.total_work));
 
-    let mut total_work = [0u8; 16];
+    let mut total_work_result = [0u8; 16];
 
     for commitment in valid_watchtower_challenge_commitments {
-        // Grooth16 verification of work only circuit
         if convert_to_groth16_and_verify(
             &commitment.compressed_g16_proof,
             commitment.total_work,
             work_only_image_id,
             circuit_input.hcp.genesis_state_hash,
         ) {
-            total_work = commitment.total_work;
+            total_work_result = commitment.total_work;
             break;
         }
     }
 
     (
-        TotalWork(total_work),
+        TotalWork(total_work_result),
         ChallengeSendingWatchtowers(watchtower_challenge_set.challenge_senders),
     )
 }
 
+/// Parses the OP_RETURN data from a Bitcoin script. It retrieves the first data push after an OP_RETURN.
 pub fn parse_op_return_data(script: &Script) -> Option<&[u8]> {
     let mut instructions = script.instructions();
     if let Some(Ok(Instruction::Op(opcodes::all::OP_RETURN))) = instructions.next() {
@@ -576,6 +620,14 @@ pub fn journal_hash(
     let concat_journal = [deposit_constant.0, *hash_bytes].concat();
 
     blake3::hash(&concat_journal)
+}
+
+/// Retrieves the first output of a transaction that is an OP_RETURN script. Used to retrieve
+/// the operator's X-only public key from the OP_RETURN output in the payout transaction.
+fn get_first_op_return_output(tx: &CircuitTransaction) -> Option<&TxOut> {
+    tx.output
+        .iter()
+        .find(|out| out.script_pubkey.is_op_return())
 }
 
 /// Computes the Taproot sighash for a given transaction input.
@@ -832,17 +884,17 @@ mod tests {
         sighash::Annex,
         taproot::TAPROOT_ANNEX_PREFIX,
         transaction::Version,
-        ScriptBuf, Transaction, TxIn, Txid, Witness,
+        Amount, ScriptBuf, Transaction, TxIn, Txid, Witness,
     };
     use lazy_static::lazy_static;
     use risc0_zkvm::compute_image_id;
     use std::io::Cursor;
 
-    const WORK_ONLY_ELF: &[u8] =
+    const TESTNET4_WORK_ONLY_ELF: &[u8] =
         include_bytes!("../../../risc0-circuits/elfs/testnet4-work-only-guest.bin");
 
     lazy_static! {
-        static ref WORK_ONLY_IMAGE_ID: [u8; 32] = compute_image_id(WORK_ONLY_ELF)
+        static ref TESTNET4_WORK_ONLY_IMAGE_ID: [u8; 32] = compute_image_id(TESTNET4_WORK_ONLY_ELF)
             .expect("Elf must be valid")
             .as_bytes()
             .try_into()
@@ -935,7 +987,7 @@ mod tests {
         let (input, _) = total_work_and_watchtower_flags_setup();
 
         let (total_work, challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(&input, &WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(&input, &TESTNET4_WORK_ONLY_IMAGE_ID);
 
         let expected_challenge_sending_watchtowers =
             [64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
@@ -964,7 +1016,7 @@ mod tests {
         input.watchtower_inputs[0].watchtower_challenge_witness = CircuitWitness(new_witness);
 
         let (total_work, challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(&input, &WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(&input, &TESTNET4_WORK_ONLY_IMAGE_ID);
 
         assert_eq!(*total_work, [0u8; 16], "Total work is not correct");
         assert_eq!(
@@ -995,7 +1047,7 @@ mod tests {
         });
 
         let (total_work, challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(&input, &WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(&input, &TESTNET4_WORK_ONLY_IMAGE_ID);
 
         assert_eq!(*total_work, [0u8; 16], "Total work is not correct");
         assert_eq!(
@@ -1021,7 +1073,7 @@ mod tests {
         input.watchtower_inputs[0].watchtower_challenge_input_idx = 0;
 
         let (_total_work, _challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(&input, &WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(&input, &TESTNET4_WORK_ONLY_IMAGE_ID);
     }
 
     #[test]
@@ -1036,7 +1088,7 @@ mod tests {
         input.watchtower_inputs[0].watchtower_challenge_witness = CircuitWitness(invalid_witness);
 
         let (_total_work, _challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(&input, &WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(&input, &TESTNET4_WORK_ONLY_IMAGE_ID);
     }
 
     #[test]
@@ -1049,7 +1101,7 @@ mod tests {
         input.all_tweaked_watchtower_pubkeys[watch_tower_idx] = [0u8; 32];
 
         let (_total_work, _challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(&input, &WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(&input, &TESTNET4_WORK_ONLY_IMAGE_ID);
     }
 
     #[test]
@@ -1061,7 +1113,7 @@ mod tests {
         input.watchtower_inputs[0].watchtower_challenge_input_idx = 160;
 
         let (_total_work, _challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(&input, &WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(&input, &TESTNET4_WORK_ONLY_IMAGE_ID);
     }
 
     #[test]
@@ -1073,7 +1125,7 @@ mod tests {
         input.watchtower_inputs[0].watchtower_challenge_input_idx = 10;
 
         let (_total_work, _challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(&input, &WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(&input, &TESTNET4_WORK_ONLY_IMAGE_ID);
     }
 
     #[test]
@@ -1087,7 +1139,7 @@ mod tests {
         input.watchtower_inputs[0].watchtower_challenge_witness = CircuitWitness(invalid_witness);
 
         let (_total_work, _challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(&input, &WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(&input, &TESTNET4_WORK_ONLY_IMAGE_ID);
     }
 
     #[test]
@@ -1101,7 +1153,7 @@ mod tests {
         input.watchtower_inputs[0].watchtower_challenge_witness = CircuitWitness(invalid_witness);
 
         let (_total_work, _challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(&input, &WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(&input, &TESTNET4_WORK_ONLY_IMAGE_ID);
     }
 
     #[test]
@@ -1115,7 +1167,7 @@ mod tests {
         input.watchtower_inputs[0].watchtower_challenge_witness = CircuitWitness(invalid_witness);
 
         let (_total_work, _challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(&input, &WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(&input, &TESTNET4_WORK_ONLY_IMAGE_ID);
     }
 
     #[test]
@@ -1278,5 +1330,22 @@ mod tests {
         xonly_pk
             .verify_prehash(sighash.as_byte_array(), &signature)
             .expect("Signature verification failed");
+    }
+
+    #[test]
+    fn test_parsing_op_return_data_144_bytes() {
+        let op_return_data = "6a4c90000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000";
+        let txout = TxOut {
+            value: Amount::from_sat(0),
+            script_pubkey: ScriptBuf::from(hex::decode(op_return_data).unwrap()),
+        };
+        assert!(
+            txout.script_pubkey.is_op_return(),
+            "Script is not OP_RETURN"
+        );
+        let parsed_data =
+            parse_op_return_data(&txout.script_pubkey).expect("Failed to parse OP_RETURN data");
+        assert_eq!(parsed_data.len(), 144, "Parsed data length is not correct");
+        assert_eq!(parsed_data, [0u8; 144], "Parsed data is not correct");
     }
 }
