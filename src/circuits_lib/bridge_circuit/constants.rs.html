@@ -52,19 +52,72 @@
 <a href="#51" id="51">51</a>
 <a href="#52" id="52">52</a>
 <a href="#53" id="53">53</a>
-<a href="#54" id="54">54</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_bn254::Fr;
+<a href="#54" id="54">54</a>
+<a href="#55" id="55">55</a>
+<a href="#56" id="56">56</a>
+<a href="#57" id="57">57</a>
+<a href="#58" id="58">58</a>
+<a href="#59" id="59">59</a>
+<a href="#60" id="60">60</a>
+<a href="#61" id="61">61</a>
+<a href="#62" id="62">62</a>
+<a href="#63" id="63">63</a>
+<a href="#64" id="64">64</a>
+<a href="#65" id="65">65</a>
+<a href="#66" id="66">66</a>
+<a href="#67" id="67">67</a>
+<a href="#68" id="68">68</a>
+<a href="#69" id="69">69</a>
+<a href="#70" id="70">70</a>
+<a href="#71" id="71">71</a>
+<a href="#72" id="72">72</a>
+<a href="#73" id="73">73</a>
+<a href="#74" id="74">74</a>
+<a href="#75" id="75">75</a>
+<a href="#76" id="76">76</a>
+<a href="#77" id="77">77</a>
+<a href="#78" id="78">78</a>
+<a href="#79" id="79">79</a>
+<a href="#80" id="80">80</a>
+<a href="#81" id="81">81</a>
+<a href="#82" id="82">82</a>
+<a href="#83" id="83">83</a>
+<a href="#84" id="84">84</a>
+<a href="#85" id="85">85</a>
+<a href="#86" id="86">86</a>
+<a href="#87" id="87">87</a>
+<a href="#88" id="88">88</a>
+<a href="#89" id="89">89</a>
+<a href="#90" id="90">90</a>
+<a href="#91" id="91">91</a>
+<a href="#92" id="92">92</a>
+<a href="#93" id="93">93</a>
+<a href="#94" id="94">94</a>
+<a href="#95" id="95">95</a>
+<a href="#96" id="96">96</a>
+<a href="#97" id="97">97</a>
+<a href="#98" id="98">98</a>
+<a href="#99" id="99">99</a>
+<a href="#100" id="100">100</a>
+<a href="#101" id="101">101</a>
+<a href="#102" id="102">102</a>
+<a href="#103" id="103">103</a>
+<a href="#104" id="104">104</a>
+<a href="#105" id="105">105</a>
+<a href="#106" id="106">106</a>
+<a href="#107" id="107">107</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_bn254::Fr;
 <span class="kw">use </span>ark_ff::BigInt;
 <span class="kw">use </span>hex_literal::hex;
 
 <span class="doccomment">/// Work-only circuit method IDs for different networks.
 </span><span class="kw">pub static </span>MAINNET_WORK_ONLY_METHOD_ID: [u8; <span class="number">32</span>] =
-    <span class="macro">hex!</span>(<span class="string">"169c002b26e21301a1bf171a8482012542bc61f40f20d00f7358a580edc3d80f"</span>);
+    <span class="macro">hex!</span>(<span class="string">"52fb341c88914a0373ceaf24d05cbd7d25a985c1d5ad43b89481272d87078a54"</span>);
 <span class="kw">pub static </span>TESTNET4_WORK_ONLY_METHOD_ID: [u8; <span class="number">32</span>] =
-    <span class="macro">hex!</span>(<span class="string">"04004e8f21fb406a9ec90f0824d7aaef775f949e55d35407e6934412d2826727"</span>);
+    <span class="macro">hex!</span>(<span class="string">"ac53f8eec3de637a71c0054a97fbb70d90b70986d459dc82bc8ad5ebba2ba992"</span>);
 <span class="kw">pub static </span>REGTEST_WORK_ONLY_METHOD_ID: [u8; <span class="number">32</span>] =
-    <span class="macro">hex!</span>(<span class="string">"bcdc89be81df5eaac63e71c88a36a2538302ae29aa9983e4fc4a8ea498e57769"</span>);
+    <span class="macro">hex!</span>(<span class="string">"0fa79aa35c0dad5d9bfd3cc9cacb2e59a886633b5cd3a125225c39de8bef6186"</span>);
 <span class="kw">pub static </span>SIGNET_WORK_ONLY_METHOD_ID: [u8; <span class="number">32</span>] =
-    <span class="macro">hex!</span>(<span class="string">"0f99fadaa066653eaf6a393235165e646e1de7661f3bfc103cc10a669ce6ac7e"</span>);
+    <span class="macro">hex!</span>(<span class="string">"fdbba6bf1e3cc9b0cac853ea7ea9e5abdab3807b613f23ccd1553b3db05eba13"</span>);
 
 <span class="comment">// GROTH16 RELATED CONSTANTS
 </span><span class="kw">pub static </span>POST_STATE: [u8; <span class="number">32</span>] =
@@ -78,10 +131,10 @@
 </span><span class="kw">pub static </span>OUTPUT_TAG: [u8; <span class="number">32</span>] =
     <span class="macro">hex_literal::hex!</span>(<span class="string">"77eafeb366a78b47747de0d7bb176284085ff5564887009a5be63da32d3559d4"</span>); <span class="comment">// hash of "risc0.Output"
 
-</span><span class="kw">pub const </span>A0_BIGINT: BigInt&lt;<span class="number">4</span>&gt; = BigInt::new([<span class="number">3642024781819757448</span>, <span class="number">7056707323904088903</span>, <span class="number">0</span>, <span class="number">0</span>]);
+</span><span class="kw">pub const </span>A0_BIGINT: BigInt&lt;<span class="number">4</span>&gt; = BigInt::new([<span class="number">162754123530195662</span>, <span class="number">1949396425256203034</span>, <span class="number">0</span>, <span class="number">0</span>]);
 <span class="kw">pub const </span>A0_ARK: ark_ff::Fp&lt;ark_ff::MontBackend&lt;ark_bn254::FrConfig, <span class="number">4</span>&gt;, <span class="number">4</span>&gt; = Fr::new(A0_BIGINT);
 
-<span class="kw">pub const </span>A1_BIGINT: BigInt&lt;<span class="number">4</span>&gt; = BigInt::new([<span class="number">2320229930753554331</span>, <span class="number">6984597893759827489</span>, <span class="number">0</span>, <span class="number">0</span>]);
+<span class="kw">pub const </span>A1_BIGINT: BigInt&lt;<span class="number">4</span>&gt; = BigInt::new([<span class="number">2457364108815709557</span>, <span class="number">2960371475104660934</span>, <span class="number">0</span>, <span class="number">0</span>]);
 <span class="kw">pub const </span>A1_ARK: ark_ff::Fp&lt;ark_ff::MontBackend&lt;ark_bn254::FrConfig, <span class="number">4</span>&gt;, <span class="number">4</span>&gt; = Fr::new(A1_BIGINT);
 
 <span class="kw">pub const </span>BN_254_CONTROL_ID_BIGINT: BigInt&lt;<span class="number">4</span>&gt; = BigInt::new([
@@ -105,5 +158,58 @@
 <span class="attr">#[cfg(not(feature = <span class="string">"use-test-vk"</span>))]
 </span><span class="kw">pub fn </span>get_prepared_vk() -&gt; <span class="kw-2">&amp;</span><span class="lifetime">'static </span>[u8] {
     PREPARED_VK
+}
+
+<span class="attr">#[cfg(test)]
+</span><span class="kw">mod </span>tests {
+    <span class="kw">use </span>ark_bn254::Fr;
+    <span class="kw">use </span>ark_ff::PrimeField;
+    <span class="kw">use </span>risc0_zkvm::Digest;
+
+    <span class="kw">use </span><span class="kw">crate</span>::bridge_circuit::constants::{A0_BIGINT, A1_BIGINT};
+
+    <span class="comment">// This test checks that the A0 and A1 constants match the expected values derived from the control root
+    // of the Groth16 verifier parameters. If they do not match, it indicates that the constants need to be updated
+    // in the `constants.rs` file. This is important because the A0 and A1 constants are used in the bridge circuit to verify the Groth16
+    // proof, and any mismatch could lead to incorrect verification results.
+    </span><span class="attr">#[test]
+    </span><span class="kw">fn </span>test_a0_and_a1() {
+        <span class="kw">let </span>verifier_context = risc0_zkvm::VerifierContext::default();
+        <span class="kw">let </span>params = verifier_context
+            .groth16_verifier_parameters
+            .as_ref()
+            .unwrap();
+        <span class="kw">let </span>(a0, a1) = split_digest(params.control_root);
+
+        <span class="kw">let </span>a0_bigint = a0.into_bigint();
+        <span class="kw">let </span>a1_bigint = a1.into_bigint();
+
+        <span class="macro">assert_eq!</span>((a0_bigint, a1_bigint), (A0_BIGINT, A1_BIGINT),
+            <span class="string">"A0 and A1 do not match the expected values, please update the a0 and a1 constants in constants.rs. a0: {:?}, a1: {:?}"</span>,
+            a0_bigint.<span class="number">0</span>, a1_bigint.<span class="number">0</span>);
+    }
+
+    <span class="comment">// This is the exact same implementation as in risc0_groth16, but we need to re-implement it here to change
+    // the return type. Please check the original implementation each time risc0 version is updated.
+    </span><span class="kw">fn </span>split_digest(d: Digest) -&gt; (Fr, Fr) {
+        <span class="kw">let </span>big_endian: Vec&lt;u8&gt; = d.as_bytes().to_vec().iter().rev().cloned().collect();
+        <span class="kw">let </span>middle = big_endian.len() / <span class="number">2</span>;
+        <span class="kw">let </span>(b, a) = big_endian.split_at(middle);
+        (
+            Fr::from_be_bytes_mod_order(<span class="kw-2">&amp;</span>from_u256_hex(<span class="kw-2">&amp;</span>hex::encode(a))),
+            Fr::from_be_bytes_mod_order(<span class="kw-2">&amp;</span>from_u256_hex(<span class="kw-2">&amp;</span>hex::encode(b))),
+        )
+    }
+
+    <span class="kw">fn </span>from_u256_hex(value: <span class="kw-2">&amp;</span>str) -&gt; Vec&lt;u8&gt; {
+        to_fixed_array(hex::decode(value).unwrap()).to_vec()
+    }
+
+    <span class="kw">fn </span>to_fixed_array(input: Vec&lt;u8&gt;) -&gt; [u8; <span class="number">32</span>] {
+        <span class="kw">let </span><span class="kw-2">mut </span>fixed_array = [<span class="number">0u8</span>; <span class="number">32</span>];
+        <span class="kw">let </span>start = core::cmp::max(<span class="number">32</span>, input.len()) - core::cmp::min(<span class="number">32</span>, input.len());
+        fixed_array[start..].copy_from_slice(<span class="kw-2">&amp;</span>input[input.len().saturating_sub(<span class="number">32</span>)..]);
+        fixed_array
+    }
 }
 </code></pre></div></section></main></body></html>
