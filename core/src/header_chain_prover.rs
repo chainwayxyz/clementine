@@ -1214,6 +1214,7 @@ mod tests {
         let verifier = VerifierServer::<MockCitreaClient>::new(config)
             .await
             .unwrap();
+        verifier.start_background_tasks().await.unwrap();
         // Make sure enough blocks to prove and is finalized.
         rpc.mine_blocks((batch_size + 10).into()).await.unwrap();
 
