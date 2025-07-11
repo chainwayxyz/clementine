@@ -17,6 +17,7 @@ metrics = { workspace = true }
 metrics-derive = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
 metrics-util = { workspace = true }
+color-eyre = { workspace = true }
 bitcoin = { workspace = true, features = ["rand", "bitcoinconsensus"] }
 bitcoincore-rpc = { workspace = true }
 hex = { workspace = true, features = ["serde"] }
@@ -81,6 +82,7 @@ base64 = { workspace = true }
 bridge-circuit-host = { path = "../bridge-circuit-host" }
 ctor = { workspace = true }
 tokio = { workspace = true, features = ["full", "test-util"] }
+rand = { workspace = true }
 
 [[bin]]
 name = "clementine-cli"
