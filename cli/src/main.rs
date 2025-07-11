@@ -54,11 +54,11 @@ enum Commands {
 // Create a minimal config with default TLS paths
 fn create_minimal_config() -> BridgeConfig {
     BridgeConfig {
-        server_cert_path: PathBuf::from("certs/server/server.pem"),
-        server_key_path: PathBuf::from("certs/server/server.key"),
-        ca_cert_path: PathBuf::from("certs/ca/ca.pem"),
-        client_cert_path: PathBuf::from("certs/client/client.pem"),
-        client_key_path: PathBuf::from("certs/client/client.key"),
+        server_cert_path: PathBuf::from("core/certs/server/server.pem"),
+        server_key_path: PathBuf::from("core/certs/server/server.key"),
+        ca_cert_path: PathBuf::from("core/certs/ca/ca.pem"),
+        client_cert_path: PathBuf::from("core/certs/client/client.pem"),
+        client_key_path: PathBuf::from("core/certs/client/client.key"),
         client_verification: true,
         ..Default::default()
     }
@@ -68,7 +68,9 @@ fn create_minimal_config() -> BridgeConfig {
 async fn main() {
     let cli = Cli::parse();
 
-    if !std::path::Path::new("certs/ca/ca.pem").exists() {
+    if !std::path::Path::new("core/certs/ca/ca.pem").exists() {
+        println!("sss {:?}", std::env::current_dir());
+
         if PathBuf::from(
             std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is not set"),
         )
