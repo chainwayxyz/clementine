@@ -71,6 +71,9 @@ once_cell = { workspace = true }
 bitcoin-script = { workspace = true }
 secrecy = { workspace = true }
 
+# Only used with cfg(tokio_unstable)
+console-subscriber = { version = "0.4.1" }
+
 [dev-dependencies]
 serial_test = { workspace = true }
 citrea-e2e = { workspace = true }
@@ -86,3 +89,7 @@ path = "src/bin/cli.rs"
 
 [lints.clippy]
 unwrap_used = { level = "deny" }
+
+[lints.rust]
+# This is used to enable/disable the tokio-console debugging utility
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tokio_unstable)'] }

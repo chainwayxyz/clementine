@@ -1,7 +1,7 @@
 use std::time::Duration;
 use tokio::sync::oneshot;
 use tokio::sync::oneshot::error::TryRecvError;
-use tokio::task::JoinHandle;
+use tokio::task::{self, JoinHandle};
 use tokio::time::sleep;
 use tonic::async_trait;
 
@@ -342,7 +342,14 @@ impl<T: Task + Sized> TaskExt for T {
     }
 
     fn into_bg(mut self) -> JoinHandle<Result<Self::Output, BridgeError>> {
-        tokio::spawn(async move { self.run_once().await })
+        tokio::spawn(async move {
+            tracing::warn!(
+                "Running task {:?} with ID {:?}",
+                Self::VARIANT,
+                task::try_id()
+            );
+            self.run_once().await
+        })
     }
 
     fn into_buffered_errors(self, error_overflow_limit: usize) -> BufferedErrors<Self>

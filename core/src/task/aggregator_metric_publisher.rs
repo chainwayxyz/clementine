@@ -1,20 +1,17 @@
 use std::str::FromStr;
 use std::{collections::HashMap, time::Duration};
 
-use tonic::{async_trait, Request};
+use tonic::async_trait;
 
 use crate::{
     aggregator::{Aggregator, EntityId, OperatorId, VerifierId},
     errors::BridgeError,
     metrics::EntityL1SyncStatusMetrics,
-    rpc::clementine::{
-        clementine_aggregator_server::ClementineAggregator as _, EntityType,
-        GetEntitiesStatusRequest,
-    },
+    rpc::clementine::EntityType,
     task::{Task, TaskVariant},
 };
 
-pub const AGGREGATOR_METRIC_PUBLISHER_POLL_DELAY: Duration = Duration::from_secs(5);
+pub const AGGREGATOR_METRIC_PUBLISHER_POLL_DELAY: Duration = Duration::from_secs(60);
 
 /// Publishes metrics for the aggregator, including the Entity Statuses of all registered entities.
 #[derive(Debug)]
@@ -24,11 +21,11 @@ pub struct AggregatorMetricPublisher {
 }
 
 impl AggregatorMetricPublisher {
-    pub fn new(aggregator: Aggregator) -> Self {
-        Self {
-            aggregator,
+    pub async fn new(aggregator: Aggregator) -> Result<Self, BridgeError> {
+        Ok(Self {
+            aggregator: Aggregator::new(aggregator.config).await?,
             metrics: HashMap::new(),
-        }
+        })
     }
 
     /// Convert protobuf EntityId to rust EntityId
@@ -84,21 +81,18 @@ impl Task for AggregatorMetricPublisher {
         }
         tracing::info!("Publishing metrics for aggregator");
 
-        let entities_status = self
+        let entity_statuses = self
             .aggregator
-            .get_entities_status(Request::new(GetEntitiesStatusRequest {
-                restart_tasks: false,
-            }))
+            .get_entity_statuses(false)
             .await
             .inspect_err(|e| {
                 tracing::error!("Error getting entities status: {:?}", e);
-            })?
-            .into_inner();
+            })?;
 
-        tracing::info!("Entities status: {:?}", entities_status);
+        tracing::info!("Entities status: {:?}", entity_statuses);
 
         // Process each entity status
-        for entity_status_with_id in entities_status.entities_status {
+        for entity_status_with_id in entity_statuses {
             let proto_entity_id = entity_status_with_id
                 .entity_id
                 .ok_or_else(|| BridgeError::ConfigError("Missing entity_id".into()))?;
@@ -113,8 +107,8 @@ impl Task for AggregatorMetricPublisher {
 
             let metrics = self.get_or_create_metrics(entity_id);
 
-            match entity_status_with_id.status {
-                Some(crate::rpc::clementine::entity_status_with_id::Status::EntityStatus(
+            match entity_status_with_id.status_result {
+                Some(crate::rpc::clementine::entity_status_with_id::StatusResult::Status(
                     status,
                 )) => {
                     // Parse wallet balance from string (format is "X.XXX BTC")
@@ -143,7 +137,7 @@ impl Task for AggregatorMetricPublisher {
                         .state_manager_next_height
                         .set(status.state_manager_next_height as f64);
                 }
-                Some(crate::rpc::clementine::entity_status_with_id::Status::EntityError(error)) => {
+                Some(crate::rpc::clementine::entity_status_with_id::StatusResult::Err(error)) => {
                     tracing::error!("Entity {} error: {}", entity_id, error.error);
                     // Increment error counter
                     metrics.entity_status_error_count.increment(1);

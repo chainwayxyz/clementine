@@ -193,7 +193,7 @@ mod tests {
     #[cfg(not(feature = "automation"))]
     use crate::rpc::clementine::EntityType;
     use crate::{
-        rpc::clementine::GetEntitiesStatusRequest,
+        rpc::clementine::GetEntityStatusesRequest,
         test::common::{
             citrea::MockCitreaClient, create_actors, create_regtest_rpc,
             create_test_config_with_thread_name,
@@ -208,18 +208,18 @@ mod tests {
         let (_, _, mut aggregator, _cleanup) = create_actors::<MockCitreaClient>(&config).await;
         // wait for entities to sync a bit, this might cause flakiness, if so increase sleep time or make it serial
         tokio::time::sleep(Duration::from_secs(40)).await;
-        let entities_status = aggregator
-            .get_entities_status(tonic::Request::new(GetEntitiesStatusRequest {
+        let entity_statuses = aggregator
+            .get_entity_statuses(tonic::Request::new(GetEntityStatusesRequest {
                 restart_tasks: false,
             }))
             .await
             .unwrap()
             .into_inner();
 
-        for entity in entities_status.entities_status {
-            let status = entity.status.unwrap();
+        for entity in entity_statuses.entity_statuses {
+            let status = entity.status_result.unwrap();
             match status {
-                crate::rpc::clementine::entity_status_with_id::Status::EntityStatus(status) => {
+                crate::rpc::clementine::entity_status_with_id::StatusResult::Status(status) => {
                     tracing::info!("Status: {:#?}", status);
                     #[cfg(feature = "automation")]
                     {
@@ -250,7 +250,7 @@ mod tests {
                         assert!(status.state_manager_next_height == 0);
                     }
                 }
-                crate::rpc::clementine::entity_status_with_id::Status::EntityError(error) => {
+                crate::rpc::clementine::entity_status_with_id::StatusResult::Err(error) => {
                     panic!("Coudln't get entity status: {}", error.error);
                 }
             }

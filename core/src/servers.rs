@@ -276,7 +276,7 @@ pub async fn create_aggregator_grpc_server(
     let aggregator_server = AggregatorServer::new(config.clone()).await?;
     aggregator_server.start_background_tasks().await?;
 
-    let svc = ClementineAggregatorServer::new(aggregator_server.aggregator);
+    let svc = ClementineAggregatorServer::new(aggregator_server);
 
     if config.client_verification {
         tracing::warn!(
@@ -376,7 +376,7 @@ pub async fn create_aggregator_unix_server(
 ) -> Result<(std::path::PathBuf, oneshot::Sender<()>), BridgeError> {
     let aggregator_server = AggregatorServer::new(config.clone()).await?;
     aggregator_server.start_background_tasks().await?;
-    let svc = ClementineAggregatorServer::new(aggregator_server.aggregator);
+    let svc = ClementineAggregatorServer::new(aggregator_server);
 
     let (server_addr, shutdown_tx) =
         create_grpc_server(socket_path.into(), svc, "Aggregator", &config).await?;

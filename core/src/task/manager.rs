@@ -195,6 +195,8 @@ impl BackgroundTaskManager {
 
     /// Abort all tasks by dropping their cancellation senders
     pub fn abort_all(&mut self) {
+        tracing::info!("Aborting all tasks");
+
         // only one thread must have &mut self, so lock should be able to be acquired
         if let Ok(task_registry) = self.task_registry.try_read() {
             for (_, (_, abort_handle, _)) in task_registry.iter() {
@@ -210,6 +212,8 @@ impl BackgroundTaskManager {
     /// timeout. The function polls tasks until they are finished with a 100ms
     /// poll interval.
     pub async fn graceful_shutdown(&mut self) {
+        tracing::info!("Gracefully shutting down all tasks");
+
         self.send_cancel_signals().await;
 
         let mut task_registry = self.task_registry.write().await;
@@ -248,6 +252,8 @@ impl BackgroundTaskManager {
 
 impl Drop for BackgroundTaskManager {
     fn drop(&mut self) {
+        tracing::info!("Dropping BackgroundTaskManager, aborting all tasks");
+
         self.abort_all();
     }
 }

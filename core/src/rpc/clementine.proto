@@ -321,14 +321,14 @@ message EntityId {
 
 message EntityStatusWithId {
   EntityId entity_id = 1;
-  oneof status {
-    EntityStatus entity_status = 2;
-    EntityError entity_error = 3;
+  oneof status_result {
+    EntityStatus status = 2;
+    EntityError err = 3;
   }
 }
 
-message EntitiesStatus {
-  repeated EntityStatusWithId entities_status = 1;
+message EntityStatuses {
+  repeated EntityStatusWithId entity_statuses = 1;
 }
 
 // An operator is responsible for paying withdrawals. It has an unique ID and
@@ -659,7 +659,7 @@ message SendMoveTxRequest {
   Outpoint deposit_outpoint = 2;
 }
 
-message GetEntitiesStatusRequest {
+message GetEntityStatusesRequest {
   bool restart_tasks = 1;
 }
 
@@ -701,7 +701,7 @@ service ClementineAggregator {
 
   // Returns the current status of tasks running on the operators/verifiers.
   // If restart_tasks is true, it will restart the tasks on the entities if they are stopped.
-  rpc GetEntitiesStatus(GetEntitiesStatusRequest) returns (EntitiesStatus) {}
+  rpc GetEntityStatuses(GetEntityStatusesRequest) returns (EntityStatuses) {}
 
   // Creates an emergency stop tx that won't be broadcasted.
   // Tx will have around 3 sats/vbyte fee.

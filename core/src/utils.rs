@@ -43,6 +43,10 @@ pub fn initialize_logger(level: Option<LevelFilter>) -> Result<(), BridgeError> 
         .map(|v| v == "true" || v == "1")
         .unwrap_or(false);
 
+
+    #[cfg(tokio_unstable)]
+    console_subscriber::init();
+
     if is_ci {
         let info_log_file = std::env::var("INFO_LOG_FILE").ok();
         if let Some(file_path) = info_log_file {

@@ -13,7 +13,7 @@ use clementine_core::{
         self, clementine_aggregator_client::ClementineAggregatorClient,
         clementine_operator_client::ClementineOperatorClient,
         clementine_verifier_client::ClementineVerifierClient, deposit::DepositData, Actors,
-        BaseDeposit, Deposit, Empty, GetEntitiesStatusRequest, Outpoint, ReplacementDeposit,
+        BaseDeposit, Deposit, Empty, GetEntityStatusesRequest, Outpoint, ReplacementDeposit,
         SendMoveTxRequest, VerifierPublicKeys, XOnlyPublicKeys,
     },
     EVMAddress,
@@ -203,7 +203,7 @@ enum AggregatorCommands {
         output_amount: u64,
     },
     /// Get the status of all entities (operators and verifiers)
-    GetEntitiesStatus {
+    GetEntityStatuses {
         #[arg(long)]
         restart_tasks: Option<bool>,
     },
@@ -1189,22 +1189,22 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                 }
             }
         }
-        AggregatorCommands::GetEntitiesStatus { restart_tasks } => {
+        AggregatorCommands::GetEntityStatuses { restart_tasks } => {
             let restart_tasks = restart_tasks.unwrap_or(false);
-            let request = GetEntitiesStatusRequest { restart_tasks };
+            let request = GetEntityStatusesRequest { restart_tasks };
 
             let response = aggregator
-                .get_entities_status(Request::new(request))
+                .get_entity_statuses(Request::new(request))
                 .await
                 .expect("Failed to make a request");
 
             println!("Entities status:");
-            for entity_status in &response.get_ref().entities_status {
+            for entity_status in &response.get_ref().entity_statuses {
                 match &entity_status.entity_id {
                     Some(entity_id) => {
                         println!("Entity: {:?} - {}", entity_id.kind, entity_id.id);
-                        match &entity_status.status {
-                            Some(clementine_core::rpc::clementine::entity_status_with_id::Status::EntityStatus(status)) => {
+                        match &entity_status.status_result {
+                            Some(clementine_core::rpc::clementine::entity_status_with_id::StatusResult::Status(status)) => {
                                 println!("  Automation: {}", status.automation);
                                 println!("  Wallet balance: {}", status.wallet_balance);
                                 println!("  TX sender synced height: {}", status.tx_sender_synced_height);
@@ -1217,7 +1217,7 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                                     println!("  Stopped tasks: {:?}", status.stopped_tasks.as_ref().expect("Stopped tasks are required").stopped_tasks);
                                 }
                             }
-                            Some(clementine_core::rpc::clementine::entity_status_with_id::Status::EntityError(error)) => {
+                            Some(clementine_core::rpc::clementine::entity_status_with_id::StatusResult::Err(error)) => {
                                 println!("  Error: {}", error.error);
                             }
                             None => {
