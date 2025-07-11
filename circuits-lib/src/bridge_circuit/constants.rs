@@ -24,10 +24,10 @@ pub static CLAIM_TAG: [u8; 32] =
 pub static OUTPUT_TAG: [u8; 32] =
     hex_literal::hex!("77eafeb366a78b47747de0d7bb176284085ff5564887009a5be63da32d3559d4"); // hash of "risc0.Output"
 
-pub const A0_BIGINT: BigInt<4> = BigInt::new([3642024781819757448, 7056707323904088903, 0, 0]);
+pub const A0_BIGINT: BigInt<4> = BigInt::new([162754123530195662, 1949396425256203034, 0, 0]);
 pub const A0_ARK: ark_ff::Fp<ark_ff::MontBackend<ark_bn254::FrConfig, 4>, 4> = Fr::new(A0_BIGINT);
 
-pub const A1_BIGINT: BigInt<4> = BigInt::new([2320229930753554331, 6984597893759827489, 0, 0]);
+pub const A1_BIGINT: BigInt<4> = BigInt::new([2457364108815709557, 2960371475104660934, 0, 0]);
 pub const A1_ARK: ark_ff::Fp<ark_ff::MontBackend<ark_bn254::FrConfig, 4>, 4> = Fr::new(A1_BIGINT);
 
 pub const BN_254_CONTROL_ID_BIGINT: BigInt<4> = BigInt::new([
@@ -51,4 +51,57 @@ pub fn get_prepared_vk() -> &'static [u8] {
 #[cfg(not(feature = "use-test-vk"))]
 pub fn get_prepared_vk() -> &'static [u8] {
     PREPARED_VK
+}
+
+#[cfg(test)]
+mod tests {
+    use ark_bn254::Fr;
+    use ark_ff::PrimeField;
+    use risc0_zkvm::Digest;
+
+    use crate::bridge_circuit::constants::{A0_BIGINT, A1_BIGINT};
+
+    // This test checks that the A0 and A1 constants match the expected values derived from the control root
+    // of the Groth16 verifier parameters. If they do not match, it indicates that the constants need to be updated
+    // in the `constants.rs` file. This is important because the A0 and A1 constants are used in the bridge circuit to verify the Groth16
+    // proof, and any mismatch could lead to incorrect verification results.
+    #[test]
+    fn test_a0_and_a1() {
+        let verifier_context = risc0_zkvm::VerifierContext::default();
+        let params = verifier_context
+            .groth16_verifier_parameters
+            .as_ref()
+            .unwrap();
+        let (a0, a1) = split_digest(params.control_root);
+
+        let a0_bigint = a0.into_bigint();
+        let a1_bigint = a1.into_bigint();
+
+        assert_eq!((a0_bigint, a1_bigint), (A0_BIGINT, A1_BIGINT),
+            "A0 and A1 do not match the expected values, please update the a0 and a1 constants in constants.rs. a0: {:?}, a1: {:?}",
+            a0_bigint.0, a1_bigint.0);
+    }
+
+    // This is the exact same implementation as in risc0_groth16, but we need to re-implement it here to change
+    // the return type. Please check the original implementation each time risc0 version is updated.
+    fn split_digest(d: Digest) -> (Fr, Fr) {
+        let big_endian: Vec<u8> = d.as_bytes().to_vec().iter().rev().cloned().collect();
+        let middle = big_endian.len() / 2;
+        let (b, a) = big_endian.split_at(middle);
+        (
+            Fr::from_be_bytes_mod_order(&from_u256_hex(&hex::encode(a))),
+            Fr::from_be_bytes_mod_order(&from_u256_hex(&hex::encode(b))),
+        )
+    }
+
+    fn from_u256_hex(value: &str) -> Vec<u8> {
+        to_fixed_array(hex::decode(value).unwrap()).to_vec()
+    }
+
+    fn to_fixed_array(input: Vec<u8>) -> [u8; 32] {
+        let mut fixed_array = [0u8; 32];
+        let start = core::cmp::max(32, input.len()) - core::cmp::min(32, input.len());
+        fixed_array[start..].copy_from_slice(&input[input.len().saturating_sub(32)..]);
+        fixed_array
+    }
 }
