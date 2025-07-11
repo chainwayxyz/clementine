@@ -1080,8 +1080,7 @@ where
         let withdrawal_utxo = self
             .db
             .get_withdrawal_utxo_from_citrea_withdrawal(None, deposit_id)
-            .await?
-            .ok_or_eyre("Withdrawal utxo not found")?;
+            .await?;
         if withdrawal_utxo != input_outpoint {
             return Err(eyre::eyre!(
                 "Withdrawal utxo is not correct: {:?} != {:?}",
@@ -1628,7 +1627,7 @@ where
             }
             let payout_tx_idx = payout_tx_idx.expect("Payout tx not found in block cache");
             let payout_tx = &block.txdata[*payout_tx_idx];
-            // Find the output that contains OP_RETURN
+            // Find the first output that contains OP_RETURN
             let op_return_output = payout_tx.output.iter().find(|output| {
                 let script_bytes = output.script_pubkey.to_bytes();
                 !script_bytes.is_empty() && script_bytes[0] == OP_RETURN.to_u8()

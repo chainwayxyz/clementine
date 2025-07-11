@@ -5,7 +5,7 @@ use bitcoin::{hashes::Hash, Network, Transaction, Txid, XOnlyPublicKey};
 use borsh::{BorshDeserialize, BorshSerialize};
 use circuits_lib::{
     bridge_circuit::{
-        deposit_constant, journal_hash, parse_op_return_data,
+        deposit_constant, get_first_op_return_output, journal_hash, parse_op_return_data,
         spv::SPV,
         structs::{
             BridgeCircuitInput, ChallengeSendingWatchtowers, DepositConstant, LatestBlockhash,
@@ -480,12 +480,8 @@ impl SuccinctBridgeCircuitPublicInputs {
 fn host_deposit_constant(
     input: &BridgeCircuitInput,
 ) -> Result<DepositConstant, BridgeCircuitHostParamsError> {
-    let last_output = input
-        .payout_spv
-        .transaction
-        .output
-        .last()
-        .ok_or(BridgeCircuitHostParamsError::MissingKickoffOutputs)?;
+    let first_op_return_output = get_first_op_return_output(&input.payout_spv.transaction)
+        .ok_or(BridgeCircuitHostParamsError::InvalidOperatorPubkey)?;
 
     let deposit_storage_proof: EIP1186StorageProof =
         serde_json::from_str(&input.sp.storage_proof_deposit_txid).map_err(|e| {
@@ -508,7 +504,7 @@ fn host_deposit_constant(
 
     let kickff_round_vout = input.kickoff_tx.input[0].previous_output.vout;
 
-    let operator_xonlypk: [u8; 32] = parse_op_return_data(&last_output.script_pubkey)
+    let operator_xonlypk: [u8; 32] = parse_op_return_data(&first_op_return_output.script_pubkey)
         .ok_or(BridgeCircuitHostParamsError::InvalidOperatorPubkey)?
         .try_into()
         .map_err(|_| BridgeCircuitHostParamsError::InvalidOperatorPubkey)?;
