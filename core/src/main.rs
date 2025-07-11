@@ -37,8 +37,10 @@ async fn main() {
 
     initialize_logger(level_filter).expect("Failed to initialize logger.");
 
-    if let Err(e) = initialize_telemetry(&config.telemetry) {
-        tracing::error!("Failed to initialize telemetry listener: {:?}", e);
+    if let Some(telemetry) = &config.telemetry {
+        if let Err(e) = initialize_telemetry(telemetry) {
+            tracing::error!("Failed to initialize telemetry listener: {:?}", e);
+        }
     }
 
     // Load the BitVM cache on startup.

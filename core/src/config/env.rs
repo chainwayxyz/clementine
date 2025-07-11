@@ -156,7 +156,7 @@ impl BridgeConfig {
             client_key_path,
             aggregator_cert_path,
 
-            telemetry: TelemetryConfig::from_env()?,
+            telemetry: Some(TelemetryConfig::from_env()?),
 
             #[cfg(test)]
             test_params: super::TestParams::default(),
@@ -277,8 +277,14 @@ mod tests {
             );
         }
 
-        std::env::set_var("TELEMETRY_HOST", default_config.telemetry.host.clone());
-        std::env::set_var("TELEMETRY_PORT", default_config.telemetry.port.to_string());
+        std::env::set_var(
+            "TELEMETRY_HOST",
+            default_config.telemetry.as_ref().unwrap().host.clone(),
+        );
+        std::env::set_var(
+            "TELEMETRY_PORT",
+            default_config.telemetry.as_ref().unwrap().port.to_string(),
+        );
 
         assert_eq!(super::BridgeConfig::from_env().unwrap(), default_config);
     }
