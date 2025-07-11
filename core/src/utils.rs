@@ -62,7 +62,6 @@ pub fn initialize_logger(default_level: Option<LevelFilter>) -> Result<(), Bridg
         .map(|v| v == "true" || v == "1")
         .unwrap_or(false);
 
-
     #[cfg(tokio_unstable)]
     console_subscriber::init();
 
