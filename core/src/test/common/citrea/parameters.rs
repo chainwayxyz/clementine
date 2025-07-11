@@ -8,7 +8,6 @@ use crate::citrea::Bridge::Transaction as CitreaTransaction;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::rpc::clementine::NormalSignatureKind;
-use crate::test::common::citrea::bitcoin_merkle::BitcoinMerkleTree;
 use crate::UTXO;
 use alloy::primitives::{Bytes, FixedBytes, Uint};
 use bitcoin::consensus::Encodable;
@@ -17,6 +16,8 @@ use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr;
 use bitcoin::{Block, Transaction, Txid};
 use bitcoincore_rpc::RpcApi;
+use circuits_lib::bridge_circuit::merkle_tree::BitcoinMerkleTree;
+use circuits_lib::bridge_circuit::merkle_tree::BlockInclusionProof;
 use eyre::Context;
 
 /// Returns merkle proof for a given transaction (via txid) in a block.
@@ -52,10 +53,9 @@ fn get_block_merkle_proof(
     let merkle_tree = BitcoinMerkleTree::new(txids.clone());
     let witness_idx_path = merkle_tree.get_idx_path(txid_index.try_into().unwrap());
 
-    let _root = merkle_tree.calculate_root_with_merkle_proof(
+    let _root = BitcoinMerkleTree::calculate_root_with_merkle_proof(
         txids[txid_index],
-        txid_index.try_into().unwrap(),
-        witness_idx_path.clone(),
+        BlockInclusionProof::new(txid_index.try_into().unwrap(), witness_idx_path.clone()),
     );
 
     Ok((txid_index, witness_idx_path.into_iter().flatten().collect()))
