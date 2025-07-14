@@ -9,7 +9,10 @@ use crate::operator::RoundIndex;
 use crate::rpc::clementine::{TransactionRequest, WithdrawParams};
 use crate::test::common::citrea::{get_citrea_safe_withdraw_params, SECRET_KEYS};
 use crate::test::common::tx_utils::{
-    create_tx_sender, ensure_outpoint_spent_while_waiting_for_light_client_and_state_mngr_sync, get_tx_from_signed_txs_with_type, get_txid_where_utxo_is_spent_while_waiting_for_light_client_and_state_mngr_sync, mine_once_after_outpoint_spent_in_mempool
+    create_tx_sender, ensure_outpoint_spent_while_waiting_for_light_client_and_state_mngr_sync,
+    get_tx_from_signed_txs_with_type,
+    get_txid_where_utxo_is_spent_while_waiting_for_light_client_and_state_mngr_sync,
+    mine_once_after_outpoint_spent_in_mempool,
 };
 use crate::test::common::{
     generate_withdrawal_transaction_and_signature, mine_once_after_in_mempool, run_single_deposit,
