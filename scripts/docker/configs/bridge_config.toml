@@ -59,7 +59,7 @@ db_name = "clementine"
 confirmation_threshold = 1
 
 citrea_rpc_url = "http://citrea_sequencer:12345"
-citrea_light_client_prover_url = "http://citrea_light_client_prover:12348"
+citrea_light_client_prover_url = "http://citrea_light_client_prover:12349"
 citrea_chain_id = 5655
 bridge_contract_address = "3100000000000000000000000000000000000002"
 

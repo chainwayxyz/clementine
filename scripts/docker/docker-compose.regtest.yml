@@ -45,7 +45,7 @@ services:
     healthcheck:
       test: ["CMD-SHELL", "bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 loadwallet admin || bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 createwallet admin; bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 -rpcwallet=admin generatetoaddress 202 $(bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 -rpcwallet=admin getnewaddress); bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 getblockchaininfo"]
       interval: 2s
-      timeout: 5s
+      timeout: 15s
       retries: 10
     volumes:
       - bitcoin_regtest:/home/bitcoin/.bitcoin
@@ -82,7 +82,7 @@ services:
     command:
       --dev --da-layer bitcoin --rollup-config-path /rollup_config.toml --genesis-paths resources/genesis/bitcoin-regtest/
     ports:
-      - "12346:8080"
+      - "12346:12346"
     volumes:
       - ./configs/citrea/rollup_config.toml:/rollup_config.toml
       - ./configs/citrea/genesis-bitcoin-regtest:/genesis-bitcoin-regtest
@@ -103,7 +103,7 @@ services:
     command:
       --dev --da-layer bitcoin --rollup-config-path /batch_prover_rollup_config.toml --batch-prover /batch_prover_config.toml --genesis-paths /bitcoin-regtest
     ports:
-      - "12347:12347"
+      - "12348:12348"
     volumes:
       - ./configs/citrea/batch_prover_rollup_config.toml:/batch_prover_rollup_config.toml
       - ./configs/citrea/batch_prover_config.toml:/batch_prover_config.toml
@@ -127,7 +127,7 @@ services:
     command:
       --dev --da-layer bitcoin --rollup-config-path /light_client_prover_rollup_config.toml --light-client-prover /light_client_prover_config.toml --genesis-paths /bitcoin-regtest
     ports:
-      - "12348:12348"
+      - "12349:12349"
     volumes:
       - ./configs/citrea/light_client_prover_rollup_config.toml:/light_client_prover_rollup_config.toml
       - ./configs/citrea/light_client_prover_config.toml:/light_client_prover_config.toml
