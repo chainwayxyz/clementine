@@ -19,7 +19,7 @@ use crate::rpc::clementine::{
     SendMoveTxRequest, SendTxRequest, TransactionRequest, WithdrawParams,
 };
 use crate::test::common::citrea::{
-    get_new_withdrawal_utxo_and_register_to_citrea, payout_and_challenge,
+    get_new_withdrawal_utxo_and_register_to_citrea, payout_and_start_kickoff,
     register_replacement_deposit_to_citrea, reimburse_with_optimistic_payout, start_citrea,
     update_config_with_citrea_e2e_values, CitreaE2EData, MockCitreaClient, SECRET_KEYS,
 };
@@ -179,7 +179,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         }
 
         // do 2 deposits
-        let (mut actors, deposit_infos, move_txids, _deposit_blockhashs, _) =
+        let (mut actors, _deposit_infos, move_txids, _deposit_blockhashs, _) =
             run_multiple_deposits::<CitreaClient>(&mut config, rpc.clone(), 2, None).await?;
 
         let citrea_e2e_data = CitreaE2EData {
@@ -224,7 +224,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 
         tracing::info!("Paying and challenging withdrawal 0");
         reimburse_connectors.push(
-            payout_and_challenge(
+            payout_and_start_kickoff(
                 actors.get_operator_client_by_index(0),
                 op0_xonly_pk,
                 &op0_db,
@@ -233,7 +233,6 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
                 &withdrawal_infos[0].2,
                 &withdrawal_infos[0].3,
                 &citrea_e2e_data,
-                &deposit_infos[0],
                 &actors,
             )
             .await,
@@ -261,7 +260,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         tracing::info!("Running 3 more deposits");
         let (
             mut actors,
-            new_deposit_infos,
+            _new_deposit_infos,
             new_move_txids,
             _deposit_blockhashs,
             _verifiers_public_keys,
@@ -289,7 +288,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             .await;
 
         reimburse_connectors.push(
-            payout_and_challenge(
+            payout_and_start_kickoff(
                 actors.get_operator_client_by_index(new_operator_index),
                 new_operator_xonly_pk,
                 &new_operator_db,
@@ -298,7 +297,6 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
                 &withdrawal_infos[2].2,
                 &withdrawal_infos[2].3,
                 &citrea_e2e_data,
-                &new_deposit_infos[0],
                 &actors,
             )
             .await,

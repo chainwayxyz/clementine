@@ -2,20 +2,15 @@
 
 use crate::bitvm_client::SECP;
 use crate::builder::transaction::input::UtxoVout;
-use crate::builder::transaction::TransactionType;
 use crate::citrea::{CitreaClient, SATS_TO_WEI_MULTIPLIER};
 use crate::database::Database;
-use crate::deposit::{DepositInfo, KickoffData};
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::AggregateFromPublicKeys;
-use crate::operator::RoundIndex;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
-use crate::rpc::clementine::{TransactionRequest, WithdrawParams};
-use crate::test::common::tx_utils::{create_tx_sender, mine_once_after_outpoint_spent_in_mempool};
+use crate::rpc::clementine::WithdrawParams;
 use crate::test::common::{
     generate_withdrawal_transaction_and_signature, mine_once_after_in_mempool,
 };
-use crate::utils::{FeePayingType, TxMetadata};
 use crate::{config::BridgeConfig, errors::BridgeError};
 use alloy::primitives::U256;
 use bitcoin::hashes::Hash;
@@ -526,7 +521,7 @@ pub async fn register_replacement_deposit_to_citrea(
 /// This fn sends a payout tx with given operator, starts a kickoff then returns the reimburse connector of the kickoff.
 /// operator_xonly_pk and operator_db should match the operator client ClementineOperatorClient
 #[allow(clippy::too_many_arguments)]
-pub async fn payout_and_challenge(
+pub async fn payout_and_start_kickoff(
     mut operator: ClementineOperatorClient<tonic::transport::Channel>,
     operator_xonly_pk: XOnlyPublicKey,
     operator_db: &Database,
@@ -535,7 +530,6 @@ pub async fn payout_and_challenge(
     payout_txout: &TxOut,
     sig: &bitcoin::secp256k1::schnorr::Signature,
     e2e: &CitreaE2EData<'_>,
-    deposit_info: &DepositInfo,
     actors: &TestActors<CitreaClient>,
 ) -> OutPoint {
     let payout_txid = loop {
@@ -630,99 +624,6 @@ pub async fn payout_and_challenge(
         kickoff_txid,
         operator_xonly_pk
     );
-
-    let kickoff_tx = e2e.rpc.get_tx_of_txid(&kickoff_txid).await.unwrap();
-
-    // wrongfully challenge operator
-    let kickoff_idx = kickoff_tx.input[0].previous_output.vout - 1;
-    let base_tx_req = TransactionRequest {
-        kickoff_id: Some(
-            KickoffData {
-                operator_xonly_pk,
-                round_idx: RoundIndex::Round(0),
-                kickoff_idx: kickoff_idx as u32,
-            }
-            .into(),
-        ),
-        deposit_outpoint: Some(deposit_info.deposit_outpoint.to_owned().into()),
-    };
-    let all_txs = operator
-        .internal_create_signed_txs(base_tx_req.clone())
-        .await
-        .unwrap()
-        .into_inner();
-
-    let challenge_tx = bitcoin::consensus::deserialize(
-        &all_txs
-            .signed_txs
-            .iter()
-            .find(|tx| tx.transaction_type == Some(TransactionType::Challenge.into()))
-            .unwrap()
-            .raw_tx,
-    )
-    .unwrap();
-
-    let kickoff_tx: bitcoin::Transaction = bitcoin::consensus::deserialize(
-        &all_txs
-            .signed_txs
-            .iter()
-            .find(|tx| tx.transaction_type == Some(TransactionType::Kickoff.into()))
-            .unwrap()
-            .raw_tx,
-    )
-    .unwrap();
-
-    assert_eq!(kickoff_txid, kickoff_tx.compute_txid());
-
-    // send wrong challenge tx
-    let (tx_sender, tx_sender_db) = create_tx_sender(&e2e.config, 0).await.unwrap();
-    let mut db_commit = tx_sender_db.begin_transaction().await.unwrap();
-    tx_sender
-        .insert_try_to_send(
-            &mut db_commit,
-            Some(TxMetadata {
-                deposit_outpoint: None,
-                operator_xonly_pk: None,
-                round_idx: None,
-                kickoff_idx: None,
-                tx_type: TransactionType::Challenge,
-            }),
-            &challenge_tx,
-            FeePayingType::RBF,
-            None,
-            &[],
-            &[],
-            &[],
-            &[],
-        )
-        .await
-        .unwrap();
-    db_commit.commit().await.unwrap();
-
-    e2e.rpc
-        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH, actors)
-        .await
-        .unwrap();
-
-    let challenge_outpoint = OutPoint {
-        txid: kickoff_txid,
-        vout: UtxoVout::Challenge.get_vout(),
-    };
-    tracing::warn!(
-        "Wait until challenge tx is in mempool, kickoff block height: {:?}",
-        kickoff_block_height
-    );
-    // wait until challenge tx is in mempool
-    mine_once_after_outpoint_spent_in_mempool(e2e.rpc, challenge_outpoint)
-        .await
-        .unwrap();
-    tracing::warn!("Mined once after challenge tx is in mempool");
-
-    // wait until the light client prover is synced to the same height
-    e2e.lc_prover
-        .wait_for_l1_height(kickoff_block_height as u64, None)
-        .await
-        .unwrap();
 
     reimburse_connector
 }

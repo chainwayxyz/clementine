@@ -24,7 +24,7 @@ use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::{aggregate_nonces, aggregate_partial_signatures, nonce_pair, partial_sign};
 use crate::rpc::clementine::{
-    entity_status_with_id, Deposit, Empty, GetEntitiesStatusRequest, SendMoveTxRequest,
+    entity_status_with_id, Deposit, Empty, GetEntityStatusesRequest, SendMoveTxRequest,
 };
 use crate::utils::FeePayingType;
 use crate::EVMAddress;
@@ -139,22 +139,24 @@ pub async fn poll_get<T>(
     }
 }
 
+/// Checks if all the state managers are within finality depth * 2 (* 2 to offer some buffer) of the current chain height
 pub async fn are_all_state_managers_synced<C: CitreaClientT>(
     rpc: &ExtendedRpc,
     actors: &TestActors<C>,
 ) -> eyre::Result<bool> {
     let mut aggregator = actors.get_aggregator();
     let l1_sync_status = aggregator
-        .get_entities_status(Request::new(GetEntitiesStatusRequest {
+        .get_entity_statuses(Request::new(GetEntityStatusesRequest {
             restart_tasks: false,
         }))
         .await?
         .into_inner();
     let min_next_sync_height = l1_sync_status
-        .entities_status
+        .entity_statuses
         .into_iter()
         .map(|entity| {
-            if let Some(entity_status_with_id::Status::EntityStatus(status)) = entity.status {
+            if let Some(entity_status_with_id::StatusResult::Status(status)) = entity.status_result
+            {
                 if status.automation {
                     Ok(status.state_manager_next_height)
                 } else {
@@ -173,9 +175,9 @@ pub async fn are_all_state_managers_synced<C: CitreaClientT>(
         .min()
         .unwrap();
     let current_chain_height = rpc.get_current_chain_height().await?;
-    let current_finalized_chain_height =
-        current_chain_height - actors.aggregator.config.protocol_paramset().finality_depth;
-    Ok(min_next_sync_height > current_finalized_chain_height)
+    let finality_depth = actors.aggregator.config.protocol_paramset().finality_depth;
+    let current_finalized_chain_height = current_chain_height.saturating_sub(finality_depth);
+    Ok(min_next_sync_height.saturating_sub(finality_depth) > current_finalized_chain_height)
 }
 
 /// Wait for a transaction to be in the mempool and than mines a block to make
