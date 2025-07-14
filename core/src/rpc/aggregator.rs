@@ -3,10 +3,10 @@ use super::clementine::{
     DepositParams, Empty, VerifierDepositFinalizeParams,
 };
 use super::clementine::{
-    AggregatorWithdrawResponse, Deposit, OptimisticPayoutParams, RawSignedTx, VergenResponse,
-    VerifierPublicKeys, WithdrawParams,
+    AggregatorWithdrawResponse, Deposit, EntityStatuses, GetEntityStatusesRequest,
+    OptimisticPayoutParams, RawSignedTx, VergenResponse, VerifierPublicKeys, WithdrawParams,
 };
-use crate::aggregator::{ParticipatingOperators, ParticipatingVerifiers};
+use crate::aggregator::{AggregatorServer, ParticipatingOperators, ParticipatingVerifiers};
 use crate::builder::sighash::SignatureInfo;
 use crate::builder::transaction::{
     combine_emergency_stop_txhandler, create_emergency_stop_txhandler,
@@ -838,9 +838,21 @@ impl Aggregator {
 }
 
 #[async_trait]
-impl ClementineAggregator for Aggregator {
+impl ClementineAggregator for AggregatorServer {
     async fn vergen(&self, _request: Request<Empty>) -> Result<Response<VergenResponse>, Status> {
         Ok(Response::new(get_vergen_response()))
+    }
+
+    async fn get_entity_statuses(
+        &self,
+        request: Request<GetEntityStatusesRequest>,
+    ) -> Result<Response<EntityStatuses>, Status> {
+        let request = request.into_inner();
+        let restart_tasks = request.restart_tasks;
+
+        Ok(Response::new(EntityStatuses {
+            entity_statuses: self.aggregator.get_entity_statuses(restart_tasks).await?,
+        }))
     }
 
     async fn optimistic_payout(
@@ -1607,7 +1619,7 @@ mod tests {
     use crate::config::BridgeConfig;
     use crate::deposit::{BaseDepositData, DepositInfo, DepositType};
     use crate::musig2::AggregateFromPublicKeys;
-    use crate::rpc::clementine::{self, SendMoveTxRequest};
+    use crate::rpc::clementine::{self, GetEntityStatusesRequest, SendMoveTxRequest};
     use crate::test::common::citrea::MockCitreaClient;
     use crate::test::common::tx_utils::ensure_tx_onchain;
     use crate::test::common::*;
@@ -1617,7 +1629,7 @@ mod tests {
     use eyre::Context;
     use std::time::Duration;
     use tokio::time::sleep;
-    use tonic::Status;
+    use tonic::{Request, Status};
 
     #[cfg(feature = "automation")]
     async fn perform_deposit(mut config: BridgeConfig) -> Result<(), Status> {
@@ -2154,5 +2166,56 @@ mod tests {
             "Error string was: {}",
             err_string
         );
+    }
+
+    #[tokio::test]
+    async fn aggregator_get_entity_statuses() {
+        let mut config = create_test_config_with_thread_name().await;
+        let _regtest = create_regtest_rpc(&mut config).await;
+
+        let (_verifiers, _operators, mut aggregator, mut cleanup) =
+            create_actors::<MockCitreaClient>(&config).await;
+
+        let status = aggregator
+            .get_entity_statuses(Request::new(GetEntityStatusesRequest {
+                restart_tasks: false,
+            }))
+            .await
+            .unwrap()
+            .into_inner();
+
+        tracing::info!("Status: {:?}", status);
+
+        assert_eq!(
+            status.entity_statuses.len(),
+            config.test_params.all_operators_secret_keys.len()
+                + config.test_params.all_verifiers_secret_keys.len()
+        );
+
+        // close an entity
+        cleanup.0 .0.remove(0).send(()).unwrap();
+
+        let status = aggregator
+            .get_entity_statuses(Request::new(GetEntityStatusesRequest {
+                restart_tasks: false,
+            }))
+            .await
+            .unwrap()
+            .into_inner();
+
+        tracing::info!("Status: {:?}", status);
+
+        // count errors
+        let errors = status
+            .entity_statuses
+            .iter()
+            .filter(|entity| {
+                matches!(
+                    entity.status_result,
+                    Some(clementine::entity_status_with_id::StatusResult::Err(_))
+                )
+            })
+            .count();
+        assert_eq!(errors, 1);
     }
 }

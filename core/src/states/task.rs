@@ -1,7 +1,7 @@
 use crate::{
     bitcoin_syncer::{BlockHandler, FinalizedBlockFetcherTask},
     database::{Database, DatabaseTransaction},
-    task::{BufferedErrors, IntoTask, WithDelay},
+    task::{BufferedErrors, IntoTask, TaskVariant, WithDelay},
 };
 use eyre::Context as _;
 use pgmq::{Message, PGMQueueExt};
@@ -83,7 +83,7 @@ impl<T: Owner + std::fmt::Debug + 'static> BlockFetcherTask<T> {
 
         Ok(crate::bitcoin_syncer::FinalizedBlockFetcherTask::new(
             db,
-            queue_name,
+            T::FINALIZED_BLOCK_CONSUMER_ID.to_string(),
             paramset,
             next_height,
             handler,
@@ -102,6 +102,7 @@ pub struct MessageConsumerTask<T: Owner + std::fmt::Debug + 'static> {
 #[async_trait]
 impl<T: Owner + std::fmt::Debug + 'static> Task for MessageConsumerTask<T> {
     type Output = bool;
+    const VARIANT: TaskVariant = TaskVariant::StateManager;
 
     async fn run_once(&mut self) -> Result<Self::Output, BridgeError> {
         let new_event_received = async {
@@ -192,6 +193,8 @@ mod tests {
 
     impl NamedEntity for MockHandler {
         const ENTITY_NAME: &'static str = "MockHandler";
+        const TX_SENDER_CONSUMER_ID: &'static str = "mock_tx_sender";
+        const FINALIZED_BLOCK_CONSUMER_ID: &'static str = "mock_finalized_block";
     }
 
     #[async_trait]
