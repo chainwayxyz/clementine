@@ -2,8 +2,6 @@ use super::status_monitor::{TaskStatusMonitorTask, TASK_STATUS_MONITOR_POLL_DELA
 use super::{IntoTask, Task, TaskExt, TaskVariant};
 use crate::errors::BridgeError;
 use crate::rpc::clementine::StoppedTasks;
-use crate::utils::timed_try_join_all;
-use futures::future::join_all;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
