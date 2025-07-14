@@ -258,7 +258,7 @@ impl CitreaClient {
             dummy_base_deposit_data.get_deposit_scripts(paramset)?[0].to_script_buf();
 
         let (deposit_prefix, deposit_suffix) =
-            crate::test::common::citrea::extract_suffix_and_prefix_from_script(
+            crate::test::common::citrea::extract_suffix_and_prefix_from_witness_script(
                 base_deposit_script,
                 &dummy_evm_address.0,
             )?;
@@ -301,7 +301,7 @@ impl CitreaClient {
             dummy_replacement_deposit_data.get_deposit_scripts(paramset)?[0].to_script_buf();
 
         let (replacement_prefix, replacement_suffix) =
-            crate::test::common::citrea::extract_suffix_and_prefix_from_script(
+            crate::test::common::citrea::extract_suffix_and_prefix_from_witness_script(
                 replacement_deposit_script,
                 dummy_old_move_txid.as_byte_array(),
             )?;

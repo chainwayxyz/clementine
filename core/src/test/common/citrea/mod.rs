@@ -13,9 +13,10 @@ use crate::test::common::{
 };
 use crate::{config::BridgeConfig, errors::BridgeError};
 use alloy::primitives::U256;
+use bitcoin::consensus::Encodable;
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::{PublicKey, SecretKey};
-use bitcoin::{Address, Amount, Block, OutPoint, Transaction, TxOut, Txid, XOnlyPublicKey};
+use bitcoin::{Address, Amount, Block, OutPoint, Transaction, TxOut, Txid, VarInt, XOnlyPublicKey};
 use bitcoincore_rpc::RpcApi;
 use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
 use citrea_e2e::{
@@ -25,7 +26,6 @@ use citrea_e2e::{
     node::{Node, NodeKind},
 };
 pub use client_mock::*;
-use eyre::Context;
 use jsonrpsee::http_client::HttpClient;
 pub use parameters::*;
 pub use requests::*;
@@ -173,18 +173,23 @@ pub async fn wait_until_lc_contract_updated(
     Ok(())
 }
 
-pub fn extract_suffix_and_prefix_from_script(
+/// Convert scriptbuf into how it would look like as a tapscript in a witness
+/// Then search the script bytes, find the location where the next bytes exactly matches cut_bytes
+/// cut it from the script and return the resulting prefix and suffix
+pub fn extract_suffix_and_prefix_from_witness_script(
     script: bitcoin::ScriptBuf,
     cut_bytes: &[u8],
 ) -> eyre::Result<(Vec<u8>, Vec<u8>)> {
-    // create a script that pushes the whole script to stack (to represent how they are in the witness,
-    // as the citrea contract retrieves the script from the witness)
-    let script_push_bytes = bitcoin::script::PushBytesBuf::try_from(script.into_bytes())
-        .wrap_err("Failed to create pushbytesbuf for deposit script")?;
-    let push_script = bitcoin::blockdata::script::Builder::new()
-        .push_slice(&script_push_bytes)
-        .into_script();
-    let script_bytes = push_script.into_bytes();
+    // In the witness, the length of the script is appended as VarInt first
+    // contract expects this VarInt in the script prefix so we add it manually here
+    let mut script_bytes = script.into_bytes();
+    let varint = VarInt::from(script_bytes.len());
+    let mut varint_vec: Vec<u8> = Vec::with_capacity(varint.size());
+    varint.consensus_encode(&mut varint_vec)?;
+
+    // Combine varint and script_bytes back to back
+    varint_vec.append(&mut script_bytes);
+    let script_bytes = varint_vec;
 
     // Find the first occurrence of cut_bytes in the script
     if let Some(pos) = script_bytes
@@ -295,19 +300,11 @@ pub async fn get_new_withdrawal_utxo_and_register_to_citrea(
         )
         .await;
 
-    e2e.rpc.mine_blocks_while_synced(1, actors).await.unwrap();
-
-    let block_height = e2e.rpc.get_current_chain_height().await.unwrap();
-
     e2e.rpc
-        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH, actors)
+        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH + 2, actors)
         .await
         .unwrap();
     force_sequencer_to_commit(e2e.sequencer).await.unwrap();
-
-    wait_until_lc_contract_updated(e2e.sequencer.client.http_client(), block_height.into())
-        .await
-        .unwrap();
 
     let params = get_citrea_safe_withdraw_params(
         e2e.rpc,
@@ -342,44 +339,6 @@ pub async fn get_new_withdrawal_utxo_and_register_to_citrea(
     let receipt = citrea_withdrawal_tx.get_receipt().await.unwrap();
     tracing::info!("Citrea withdrawal tx receipt: {:?}", receipt);
 
-    // // 2. wait until 2 commitment txs (commit, reveal) seen from DA to ensure their reveal prefix nonce is found
-    // e2e.da.wait_mempool_len(2, None).await.unwrap();
-    // tracing::info!("2 commitment txs seen from DA");
-
-    // // 3. generate FINALITY_DEPTH da blocks
-    // e2e.rpc
-    //     .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH, actors)
-    //     .await
-    //     .unwrap();
-    // tracing::info!("FINALITY_DEPTH da blocks mined");
-    // // 4. wait for batch prover to generate proof on the finalized height
-    // let finalized_height = e2e.da.get_finalized_height(None).await.unwrap();
-    // e2e.batch_prover
-    //     .wait_for_l1_height(finalized_height, None)
-    //     .await
-    //     .unwrap();
-    // e2e.lc_prover
-    //     .wait_for_l1_height(finalized_height, None)
-    //     .await
-    //     .unwrap();
-
-    // // 5. ensure 2 batch proof txs on DA (commit, reveal)
-    // e2e.da.wait_mempool_len(2, None).await.unwrap();
-    // tracing::info!("2 batch proof txs on DA");
-    // // 6. generate FINALITY_DEPTH da blocks
-    // e2e.rpc
-    //     .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH, actors)
-    //     .await
-    //     .unwrap();
-    // tracing::info!("FINALITY_DEPTH da blocks mined");
-    // let finalized_height = e2e.da.get_finalized_height(None).await.unwrap();
-
-    // tracing::info!("Finalized height: {:?}", finalized_height);
-    // e2e.lc_prover
-    //     .wait_for_l1_height(finalized_height, None)
-    //     .await
-    //     .unwrap();
-    // tracing::info!("Waited for L1 height {}", finalized_height);
     e2e.rpc
         .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH, actors)
         .await
