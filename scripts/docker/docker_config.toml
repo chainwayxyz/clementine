@@ -44,7 +44,7 @@ user_takes_after = 200
 
 # Bitcoin node configuration options
 network = "regtest"
-bitcoin_rpc_url = "http://172.17.0.1:19443/wallet/admin"
+bitcoin_rpc_url = "http://172.17.0.1:20443/wallet/admin"
 bitcoin_rpc_user = "admin"
 bitcoin_rpc_password = "admin"
 
@@ -58,8 +58,8 @@ db_name = "clementine"
 
 confirmation_threshold = 1
 
-citrea_rpc_url = "http://172.17.0.1:12345"
-citrea_light_client_prover_url = "http://172.17.0.1:12346"
+citrea_rpc_url = "http://citrea_sequencer:12345"
+citrea_light_client_prover_url = "http://citrea_light_client_prover:12346"
 citrea_chain_id = 5655
 bridge_contract_address = "3100000000000000000000000000000000000002"
 
