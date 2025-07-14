@@ -673,7 +673,7 @@ impl TestCase for DisproveTest {
 /// # Assert
 /// * Confirms that a disprove timeout transaction is created and included on Bitcoin.
 /// * Verifies that the transaction correctly spends the `KickoffFinalizer` output.
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 #[ignore = "This test is too slow, run separately"]
 async fn disprove_script_test_healthy() -> Result<()> {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
@@ -702,7 +702,7 @@ async fn disprove_script_test_healthy() -> Result<()> {
 /// # Assert
 /// - Confirms a disprove transaction is created and included on Bitcoin.
 /// - Validates that the disprove transaction consumes the correct input (the `BurnConnector` outpoint).
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 #[ignore = "This test is too slow, run separately"]
 async fn disprove_script_test_corrupted_assert() -> Result<()> {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))

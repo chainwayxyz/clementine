@@ -611,7 +611,7 @@ impl TestCase for AdditionalDisproveTest {
 /// # Assert
 /// * Confirms that a disprove transaction is created on Bitcoin.
 /// * Validates that the disprove transaction consumes the correct input (the burn connector outpoint).
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 #[ignore = "This test is too slow, run separately"]
 async fn additional_disprove_script_test_disrupted_latest_block_hash() -> Result<()> {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
@@ -640,7 +640,7 @@ async fn additional_disprove_script_test_disrupted_latest_block_hash() -> Result
 /// # Assert
 /// * Confirms that a disprove transaction is created on Bitcoin.
 /// * Validates that the disprove transaction consumes the correct input (the burn connector outpoint).
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 #[ignore = "This test is too slow, run separately"]
 async fn additional_disprove_script_test_disrupted_payout_tx_block_hash() -> Result<()> {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
@@ -669,7 +669,7 @@ async fn additional_disprove_script_test_disrupted_payout_tx_block_hash() -> Res
 /// # Assert
 /// * Confirms that a disprove transaction is created on Bitcoin.
 /// * Validates that the disprove transaction consumes the correct input (the burn connector outpoint).
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 #[ignore = "This test is too slow, run separately"]
 async fn additional_disprove_script_test_disrupt_chal_sending_wts() -> Result<()> {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
@@ -698,7 +698,7 @@ async fn additional_disprove_script_test_disrupt_chal_sending_wts() -> Result<()
 /// # Assert
 /// * Confirms that a disprove transaction is created on Bitcoin.
 /// * Validates that the disprove transaction consumes the correct input (the burn connector outpoint).
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 #[ignore = "This test is too slow, run separately"]
 async fn additional_disprove_script_test_operator_forgot_wt_challenge() -> Result<()> {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
@@ -727,7 +727,7 @@ async fn additional_disprove_script_test_operator_forgot_wt_challenge() -> Resul
 /// # Assert
 /// * Confirms that a disprove transaction is created on Bitcoin.
 /// * Validates that the disprove transaction consumes the correct input (the burn connector outpoint).
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 #[ignore = "This test is too slow, run separately"]
 async fn additional_disprove_script_test_corrupted_public_input() -> Result<()> {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))

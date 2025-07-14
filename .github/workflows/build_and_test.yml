@@ -26,6 +26,7 @@ jobs:
   release_build_all_features:
     name: Release | All features | Compile
     runs-on: ubicloud-standard-16
+
     steps:
       - uses: catchpoint/workflow-telemetry-action@v2
         with:
@@ -45,7 +46,6 @@ jobs:
   release_build:
     name: Release | No features | Compile
     runs-on: ubicloud-standard-2
-    if: ${{ !github.event.pull_request.draft }}
 
     steps:
       - uses: catchpoint/workflow-telemetry-action@v2
@@ -117,7 +117,6 @@ jobs:
   release_build_test_all_features:
     name: Release | All features | Test
     runs-on: ubicloud-standard-16
-    if: ${{ !github.event.pull_request.draft }}
     needs: release_build_all_features
 
     env:
@@ -175,7 +174,7 @@ jobs:
   # Matrix (Standalone) Tests --------------------------------------------------
   standalone_tests:
     name: Release | All features | Test ${{ matrix.description_suffix }}
-    runs-on: ubicloud-standard-16
+    runs-on: ubicloud-standard-8
     needs: release_build_all_features
 
     env:
@@ -185,24 +184,27 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # - test_script_name: additional_disprove_script_test_disrupted_payout_tx_block_hash
-          #   description_suffix: "Add. disprove disrupted payout tx blockhash path"
-          #   test_name: "additional-disrupted-payout"
-          # - test_script_name: additional_disprove_script_test_disrupt_chal_sending_wts
-          #   description_suffix: "Add. disprove disrupted challenge sending watchtowers path"
-          #   test_name: "additional-disrupted-chal-sending-wts"
-          # - test_script_name: additional_disprove_script_test_operator_forgot_wt_challenge
-          #   description_suffix: "Add. disprove operator forgot watchtower challenge path"
-          #   test_name: "additional-forgot-challenge"
-          # - test_script_name: additional_disprove_script_test_disrupted_latest_block_hash
-          #   description_suffix: "Add. disprove disrupted latest blockhash path"
-          #   test_name: "additional-disrupted-latest-blockhash"
-          # - test_script_name: bitvm_disprove_scripts::disprove_script_test_healthy
-          #   description_suffix: "Disprove healthy path"
-          #   test_name: "disprove-healthy"
-          # - test_script_name: bitvm_disprove_scripts::disprove_script_test_corrupted_assert
-          #   description_suffix: "Disprove disrupted assert path"
-          #   test_name: "disprove-corrupted-assert"
+          - test_script_name: additional_disprove_script_test_disrupted_payout_tx_block_hash
+            description_suffix: "Add. disprove disrupted payout tx blockhash path"
+            test_name: "additional-disrupted-payout"
+          - test_script_name: additional_disprove_script_test_disrupt_chal_sending_wts
+            description_suffix: "Add. disprove disrupted challenge sending watchtowers path"
+            test_name: "additional-disrupted-chal-sending-wts"
+          - test_script_name: additional_disprove_script_test_operator_forgot_wt_challenge
+            description_suffix: "Add. disprove operator forgot watchtower challenge path"
+            test_name: "additional-forgot-challenge"
+          - test_script_name: additional_disprove_script_test_disrupted_latest_block_hash
+            description_suffix: "Add. disprove disrupted latest blockhash path"
+            test_name: "additional-disrupted-latest-blockhash"
+          - test_script_name: additional_disprove_script_test_corrupted_public_input
+            description_suffix: "Add. disprove disrupted public input path"
+            test_name: "additional-corrupted-public-input"
+          - test_script_name: bitvm_disprove_scripts::disprove_script_test_healthy
+            description_suffix: "Disprove healthy path"
+            test_name: "disprove-healthy"
+          - test_script_name: bitvm_disprove_scripts::disprove_script_test_corrupted_assert
+            description_suffix: "Disprove disrupted assert path"
+            test_name: "disprove-corrupted-assert"
           - test_script_name: citrea_deposit_and_withdraw_e2e_non_zero_genesis_height
             description_suffix: "E2E non-zero genesis height"
             test_name: "citrea-deposit-and-withdraw-non-zero-genesis-height"
@@ -244,7 +246,7 @@ jobs:
           shared-key: ${{ runner.os }}-cargo-RELEASE-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
 
       - name: Run tests
-        run: cargo test ${{ matrix.test_script_name }} $CARGOFLAGS_ALL_FEATURES --release -- --ignored --nocapture
+        run: cargo test ${{ matrix.test_script_name }} $CARGOFLAGS_ALL_FEATURES --release -- --ignored
 
       - name: Upload test logs
         if: failure()
