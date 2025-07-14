@@ -38,7 +38,6 @@ use crate::utils::TxMetadata;
 use crate::{musig2, UTXO};
 use bitcoin::hashes::Hash;
 use bitcoin::key::Secp256k1;
-use bitcoin::opcodes::all::OP_RETURN;
 use bitcoin::script::Instruction;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::Message;
@@ -55,7 +54,10 @@ use bitvm::signatures::winternitz;
 use bridge_circuit_host::utils::get_ark_verifying_key;
 use bridge_circuit_host::utils::get_ark_verifying_key_dev_mode_bridge;
 use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
-use circuits_lib::bridge_circuit::{deposit_constant, parse_op_return_data};
+use circuits_lib::bridge_circuit::transaction::CircuitTransaction;
+use circuits_lib::bridge_circuit::{
+    deposit_constant, get_first_op_return_output, parse_op_return_data,
+};
 use eyre::{Context, ContextCompat, OptionExt, Result};
 use risc0_zkvm::is_dev_mode;
 use secp256k1::musig::{AggregatedNonce, PartialSignature, PublicNonce, SecretNonce};
@@ -1628,10 +1630,8 @@ where
             let payout_tx_idx = payout_tx_idx.expect("Payout tx not found in block cache");
             let payout_tx = &block.txdata[*payout_tx_idx];
             // Find the first output that contains OP_RETURN
-            let op_return_output = payout_tx.output.iter().find(|output| {
-                let script_bytes = output.script_pubkey.to_bytes();
-                !script_bytes.is_empty() && script_bytes[0] == OP_RETURN.to_u8()
-            });
+            let circuit_payout_tx = CircuitTransaction::from(payout_tx.clone());
+            let op_return_output = get_first_op_return_output(&circuit_payout_tx);
 
             // If OP_RETURN doesn't exist in any outputs, or the data in OP_RETURN is not a valid xonly_pubkey,
             // operator_xonly_pk will be set to None, and the corresponding column in DB set to NULL.
