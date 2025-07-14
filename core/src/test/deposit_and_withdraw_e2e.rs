@@ -379,7 +379,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         register_replacement_deposit_to_citrea(
             &citrea_e2e_data,
             replacement_move_txid,
-            withdrawal_infos[1].0,
+            withdrawal_infos[4].0,
             &actors,
         )
         .await
