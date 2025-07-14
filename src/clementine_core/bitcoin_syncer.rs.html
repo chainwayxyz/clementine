@@ -1033,6 +1033,8 @@
     </span><span class="kw">let </span>block_id = db
         .set_block_as_canonical_if_exists(<span class="prelude-val">Some</span>(dbtx), block_hash)
         .<span class="kw">await</span><span class="question-mark">?</span>;
+    db.store_full_block(<span class="prelude-val">Some</span>(dbtx), block, block_height).<span class="kw">await</span><span class="question-mark">?</span>;
+
     <span class="kw">if let </span><span class="prelude-val">Some</span>(block_id) = block_id {
         <span class="kw">return </span><span class="prelude-val">Ok</span>(block_id);
     }
@@ -1045,8 +1047,6 @@
             block_height,
         )
         .<span class="kw">await</span><span class="question-mark">?</span>;
-
-    db.store_full_block(<span class="prelude-val">Some</span>(dbtx), block, block_height).<span class="kw">await</span><span class="question-mark">?</span>;
 
     <span class="macro">tracing::debug!</span>(
         <span class="string">"Saving {} transactions to a block with hash {}"</span>,
