@@ -6,7 +6,7 @@
 //! spawn multiple actor servers that it needs, in different processes. Meaning
 //! Clementine binary should be run multiple times with different arguments.
 
-use std::str::FromStr as _;
+use std::{str::FromStr as _, time::Duration};
 
 use clementine_core::{
     bitvm_client::{load_or_generate_bitvm_cache, BITVM_CACHE},
@@ -37,8 +37,10 @@ async fn main() {
 
     initialize_logger(level_filter).expect("Failed to initialize logger.");
 
-    if let Err(e) = initialize_telemetry(&config.telemetry) {
-        tracing::error!("Failed to initialize telemetry listener: {:?}", e);
+    if let Some(telemetry) = &config.telemetry {
+        if let Err(e) = initialize_telemetry(telemetry) {
+            tracing::error!("Failed to initialize telemetry listener: {:?}", e);
+        }
     }
 
     // Load the BitVM cache on startup.
@@ -87,6 +89,7 @@ async fn main() {
         }
     };
     println!("Server has started successfully.");
+    tokio::time::sleep(Duration::from_secs(10000)).await;
 
     handle.closed().await;
 }

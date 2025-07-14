@@ -218,6 +218,8 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
 ///
 /// - [`BridgeConfig`]: Modified configuration struct
 pub async fn create_test_config_with_thread_name() -> BridgeConfig {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
     let handle = std::thread::current()
         .name()
         .expect("Failed to get thread name")

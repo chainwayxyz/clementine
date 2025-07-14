@@ -13,8 +13,8 @@ use clementine_core::{
         self, clementine_aggregator_client::ClementineAggregatorClient,
         clementine_operator_client::ClementineOperatorClient,
         clementine_verifier_client::ClementineVerifierClient, deposit::DepositData, Actors,
-        BaseDeposit, Deposit, Empty, Outpoint, ReplacementDeposit, SendMoveTxRequest,
-        VerifierPublicKeys, XOnlyPublicKeys,
+        BaseDeposit, Deposit, Empty, GetEntityStatusesRequest, Outpoint, ReplacementDeposit,
+        SendMoveTxRequest, VerifierPublicKeys, XOnlyPublicKeys,
     },
     EVMAddress,
 };
@@ -201,6 +201,11 @@ enum AggregatorCommands {
         output_script_pubkey: String,
         #[arg(long)]
         output_amount: u64,
+    },
+    /// Get the status of all entities (operators and verifiers)
+    GetEntityStatuses {
+        #[arg(long)]
+        restart_tasks: Option<bool>,
     },
     /// Get vergen build information
     Vergen,
@@ -1184,6 +1189,53 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                 }
             }
         }
+        AggregatorCommands::GetEntityStatuses { restart_tasks } => {
+            let restart_tasks = restart_tasks.unwrap_or(false);
+            let request = GetEntityStatusesRequest { restart_tasks };
+
+            let response = aggregator
+                .get_entity_statuses(Request::new(request))
+                .await
+                .expect("Failed to make a request");
+
+            println!("Entities status:");
+            for entity_status in &response.get_ref().entity_statuses {
+                match &entity_status.entity_id {
+                    Some(entity_id) => {
+                        println!("Entity: {:?} - {}", entity_id.kind, entity_id.id);
+                        match &entity_status.status_result {
+                            Some(clementine_core::rpc::clementine::entity_status_with_id::StatusResult::Status(status)) => {
+                                println!("  Automation: {}", status.automation);
+                                println!("  Wallet balance: {}", status.wallet_balance);
+                                println!("  TX sender synced height: {}", status.tx_sender_synced_height);
+                                println!("  Finalized synced height: {}", status.finalized_synced_height);
+                                println!("  HCP last proven height: {}", status.hcp_last_proven_height);
+                                println!("  RPC tip height: {}", status.rpc_tip_height);
+                                println!("  Bitcoin syncer synced height: {}", status.bitcoin_syncer_synced_height);
+                                println!("  State manager next height: {}", status.state_manager_next_height);
+                                if !status.stopped_tasks.as_ref().is_none_or(|t| t.stopped_tasks.is_empty()) {
+                                    println!("  Stopped tasks: {:?}", status.stopped_tasks.as_ref().expect("Stopped tasks are required").stopped_tasks);
+                                }
+                            }
+                            Some(clementine_core::rpc::clementine::entity_status_with_id::StatusResult::Err(error)) => {
+                                println!("  Error: {}", error.error);
+                            }
+                            None => {
+                                println!("  No status available");
+                            }
+                        }
+                    }
+                    None => {
+                        println!("Entity: Unknown");
+                    }
+                }
+                println!();
+            }
+
+            if restart_tasks {
+                println!("Tasks restart was requested and included in the request.");
+            }
+        }
         AggregatorCommands::Vergen => {
             let params = Empty {};
             let response = aggregator
@@ -1198,6 +1250,10 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
+
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("Failed to install rustls crypto provider");
 
     if !std::path::Path::new("certs/ca/ca.pem").exists() {
         if PathBuf::from(

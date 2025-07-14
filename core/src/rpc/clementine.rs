@@ -338,23 +338,23 @@ pub struct EntityId {
 pub struct EntityStatusWithId {
     #[prost(message, optional, tag = "1")]
     pub entity_id: ::core::option::Option<EntityId>,
-    #[prost(oneof = "entity_status_with_id::Status", tags = "2, 3")]
-    pub status: ::core::option::Option<entity_status_with_id::Status>,
+    #[prost(oneof = "entity_status_with_id::StatusResult", tags = "2, 3")]
+    pub status_result: ::core::option::Option<entity_status_with_id::StatusResult>,
 }
 /// Nested message and enum types in `EntityStatusWithId`.
 pub mod entity_status_with_id {
     #[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum Status {
+    pub enum StatusResult {
         #[prost(message, tag = "2")]
-        EntityStatus(super::EntityStatus),
+        Status(super::EntityStatus),
         #[prost(message, tag = "3")]
-        EntityError(super::EntityError),
+        Err(super::EntityError),
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct EntitiesStatus {
+pub struct EntityStatuses {
     #[prost(message, repeated, tag = "1")]
-    pub entities_status: ::prost::alloc::vec::Vec<EntityStatusWithId>,
+    pub entity_statuses: ::prost::alloc::vec::Vec<EntityStatusWithId>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct VerifierParams {
@@ -589,7 +589,7 @@ pub struct SendMoveTxRequest {
     pub deposit_outpoint: ::core::option::Option<Outpoint>,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
-pub struct GetEntitiesStatusRequest {
+pub struct GetEntityStatusesRequest {
     #[prost(bool, tag = "1")]
     pub restart_tasks: bool,
 }
@@ -2174,10 +2174,10 @@ pub mod clementine_aggregator_client {
         }
         /// Returns the current status of tasks running on the operators/verifiers.
         /// If restart_tasks is true, it will restart the tasks on the entities if they are stopped.
-        pub async fn get_entities_status(
+        pub async fn get_entity_statuses(
             &mut self,
-            request: impl tonic::IntoRequest<super::GetEntitiesStatusRequest>,
-        ) -> std::result::Result<tonic::Response<super::EntitiesStatus>, tonic::Status> {
+            request: impl tonic::IntoRequest<super::GetEntityStatusesRequest>,
+        ) -> std::result::Result<tonic::Response<super::EntityStatuses>, tonic::Status> {
             self.inner
                 .ready()
                 .await
@@ -2188,14 +2188,14 @@ pub mod clementine_aggregator_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/clementine.ClementineAggregator/GetEntitiesStatus",
+                "/clementine.ClementineAggregator/GetEntityStatuses",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
                     GrpcMethod::new(
                         "clementine.ClementineAggregator",
-                        "GetEntitiesStatus",
+                        "GetEntityStatuses",
                     ),
                 );
             self.inner.unary(req, path, codec).await
@@ -4126,10 +4126,10 @@ pub mod clementine_aggregator_server {
         ) -> std::result::Result<tonic::Response<super::Txid>, tonic::Status>;
         /// Returns the current status of tasks running on the operators/verifiers.
         /// If restart_tasks is true, it will restart the tasks on the entities if they are stopped.
-        async fn get_entities_status(
+        async fn get_entity_statuses(
             &self,
-            request: tonic::Request<super::GetEntitiesStatusRequest>,
-        ) -> std::result::Result<tonic::Response<super::EntitiesStatus>, tonic::Status>;
+            request: tonic::Request<super::GetEntityStatusesRequest>,
+        ) -> std::result::Result<tonic::Response<super::EntityStatuses>, tonic::Status>;
         /// Creates an emergency stop tx that won't be broadcasted.
         /// Tx will have around 3 sats/vbyte fee.
         /// Set add_anchor to true to add an anchor output for cpfp..
@@ -4554,25 +4554,25 @@ pub mod clementine_aggregator_server {
                     };
                     Box::pin(fut)
                 }
-                "/clementine.ClementineAggregator/GetEntitiesStatus" => {
+                "/clementine.ClementineAggregator/GetEntityStatuses" => {
                     #[allow(non_camel_case_types)]
-                    struct GetEntitiesStatusSvc<T: ClementineAggregator>(pub Arc<T>);
+                    struct GetEntityStatusesSvc<T: ClementineAggregator>(pub Arc<T>);
                     impl<
                         T: ClementineAggregator,
-                    > tonic::server::UnaryService<super::GetEntitiesStatusRequest>
-                    for GetEntitiesStatusSvc<T> {
-                        type Response = super::EntitiesStatus;
+                    > tonic::server::UnaryService<super::GetEntityStatusesRequest>
+                    for GetEntityStatusesSvc<T> {
+                        type Response = super::EntityStatuses;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::GetEntitiesStatusRequest>,
+                            request: tonic::Request<super::GetEntityStatusesRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as ClementineAggregator>::get_entities_status(
+                                <T as ClementineAggregator>::get_entity_statuses(
                                         &inner,
                                         request,
                                     )
@@ -4587,7 +4587,7 @@ pub mod clementine_aggregator_server {
                     let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
-                        let method = GetEntitiesStatusSvc(inner);
+                        let method = GetEntityStatusesSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

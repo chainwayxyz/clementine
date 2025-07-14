@@ -3,10 +3,10 @@ use super::clementine::{
     DepositParams, Empty, VerifierDepositFinalizeParams,
 };
 use super::clementine::{
-    AggregatorWithdrawResponse, Deposit, EntitiesStatus, GetEntitiesStatusRequest,
+    AggregatorWithdrawResponse, Deposit, EntityStatuses, GetEntityStatusesRequest,
     OptimisticPayoutParams, RawSignedTx, VergenResponse, VerifierPublicKeys, WithdrawParams,
 };
-use crate::aggregator::{ParticipatingOperators, ParticipatingVerifiers};
+use crate::aggregator::{AggregatorServer, ParticipatingOperators, ParticipatingVerifiers};
 use crate::builder::sighash::SignatureInfo;
 use crate::builder::transaction::{
     combine_emergency_stop_txhandler, create_emergency_stop_txhandler,
@@ -42,7 +42,6 @@ use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::{Message, PublicKey};
 use bitcoin::{TapSighash, TxOut, Txid, XOnlyPublicKey};
 use eyre::{Context, OptionExt};
-use futures::future::join_all;
 use futures::{
     future::try_join_all,
     stream::{BoxStream, TryStreamExt},
@@ -839,116 +838,21 @@ impl Aggregator {
 }
 
 #[async_trait]
-impl ClementineAggregator for Aggregator {
+impl ClementineAggregator for AggregatorServer {
     async fn vergen(&self, _request: Request<Empty>) -> Result<Response<VergenResponse>, Status> {
         Ok(Response::new(get_vergen_response()))
     }
 
-    async fn get_entities_status(
+    async fn get_entity_statuses(
         &self,
-        request: Request<GetEntitiesStatusRequest>,
-    ) -> Result<Response<EntitiesStatus>, Status> {
+        request: Request<GetEntityStatusesRequest>,
+    ) -> Result<Response<EntityStatuses>, Status> {
         let request = request.into_inner();
         let restart_tasks = request.restart_tasks;
 
-        let operator_clients = self.get_operator_clients();
-        let verifier_clients = self.get_verifier_clients();
-        let operator_status = join_all(
-            operator_clients
-                .iter()
-                .zip(self.get_operator_keys().iter())
-                .map(|(client, key)| {
-                    let mut client = client.clone();
-                    async move {
-                        let response = client.get_current_status(Request::new(Empty {})).await;
-                        super::EntityStatusWithId {
-                            entity_id: Some(super::EntityId {
-                                kind: super::EntityType::Operator as i32,
-                                id: key.to_string(),
-                            }),
-                            status: match response {
-                                Ok(response) => Some(
-                                    super::clementine::entity_status_with_id::Status::EntityStatus(
-                                        response.into_inner(),
-                                    ),
-                                ),
-                                Err(e) => Some(
-                                    super::clementine::entity_status_with_id::Status::EntityError(
-                                        super::EntityError {
-                                            error: e.to_string(),
-                                        },
-                                    ),
-                                ),
-                            },
-                        }
-                    }
-                }),
-        )
-        .await;
-        let verifier_status = join_all(
-            verifier_clients
-                .iter()
-                .zip(self.get_verifier_keys().iter())
-                .map(|(client, key)| {
-                    let mut client = client.clone();
-                    async move {
-                        let response = client.get_current_status(Request::new(Empty {})).await;
-                        super::EntityStatusWithId {
-                            entity_id: Some(super::EntityId {
-                                kind: super::EntityType::Verifier as i32,
-                                id: key.to_string(),
-                            }),
-                            status: match response {
-                                Ok(response) => Some(
-                                    super::clementine::entity_status_with_id::Status::EntityStatus(
-                                        response.into_inner(),
-                                    ),
-                                ),
-                                Err(e) => Some(
-                                    super::clementine::entity_status_with_id::Status::EntityError(
-                                        super::EntityError {
-                                            error: e.to_string(),
-                                        },
-                                    ),
-                                ),
-                            },
-                        }
-                    }
-                }),
-        )
-        .await;
-
-        // Combine operator and verifier status into a single vector
-        let mut entities_status = operator_status;
-        entities_status.extend(verifier_status);
-
-        // try to restart background tasks if needed
-        if restart_tasks {
-            let operator_tasks = operator_clients.iter().map(|client| {
-                let mut client = client.clone();
-                async move {
-                    client
-                        .restart_background_tasks(Request::new(Empty {}))
-                        .await
-                }
-            });
-
-            let verifier_tasks = verifier_clients.iter().map(|client| {
-                let mut client = client.clone();
-                async move {
-                    client
-                        .restart_background_tasks(Request::new(Empty {}))
-                        .await
-                }
-            });
-
-            futures::try_join!(
-                futures::future::try_join_all(operator_tasks),
-                futures::future::try_join_all(verifier_tasks)
-            )?;
-        }
-
-        Ok(Response::new(EntitiesStatus { entities_status }))
+        Ok(Response::new(EntityStatuses {
+            entity_statuses: self.aggregator.get_entity_statuses(restart_tasks).await?,
+        }))
     }
 
     async fn optimistic_payout(
@@ -1726,7 +1630,7 @@ mod tests {
     use crate::config::BridgeConfig;
     use crate::deposit::{BaseDepositData, DepositInfo, DepositType};
     use crate::musig2::AggregateFromPublicKeys;
-    use crate::rpc::clementine::{self, GetEntitiesStatusRequest, SendMoveTxRequest};
+    use crate::rpc::clementine::{self, GetEntityStatusesRequest, SendMoveTxRequest};
     use crate::test::common::citrea::MockCitreaClient;
     use crate::test::common::tx_utils::ensure_tx_onchain;
     use crate::test::common::*;
@@ -2278,14 +2182,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn aggregator_get_entities_status() {
+    async fn aggregator_get_entity_statuses() {
         let mut config = create_test_config_with_thread_name().await;
         let _regtest = create_regtest_rpc(&mut config).await;
 
         let actors = create_actors::<MockCitreaClient>(&config).await;
         let mut aggregator = actors.get_aggregator();
         let status = aggregator
-            .get_entities_status(Request::new(GetEntitiesStatusRequest {
+            .get_entity_statuses(Request::new(GetEntityStatusesRequest {
                 restart_tasks: false,
             }))
             .await
@@ -2295,7 +2199,7 @@ mod tests {
         tracing::info!("Status: {:?}", status);
 
         assert_eq!(
-            status.entities_status.len(),
+            status.entity_statuses.len(),
             config.test_params.all_operators_secret_keys.len()
                 + config.test_params.all_verifiers_secret_keys.len()
         );

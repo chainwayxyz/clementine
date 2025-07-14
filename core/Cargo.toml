@@ -13,11 +13,11 @@ tonic-build = "0.12"
 vergen-git2 = { workspace = true }
 
 [dependencies]
-color-eyre = { workspace = true }
 metrics = { workspace = true }
 metrics-derive = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
 metrics-util = { workspace = true }
+color-eyre = { workspace = true }
 bitcoin = { workspace = true, features = ["rand", "bitcoinconsensus"] }
 bitcoincore-rpc = { workspace = true }
 hex = { workspace = true, features = ["serde"] }
@@ -72,6 +72,10 @@ once_cell = { workspace = true }
 bitcoin-script = { workspace = true }
 secrecy = { workspace = true }
 
+# UNCOMMENT TO DEBUG TOKIO TASKS
+
+# console-subscriber = { version = "0.4.1" }
+
 [dev-dependencies]
 serial_test = { workspace = true }
 citrea-e2e = { workspace = true }
@@ -88,3 +92,7 @@ path = "src/bin/cli.rs"
 
 [lints.clippy]
 unwrap_used = { level = "deny" }
+
+[lints.rust]
+# This is used to enable/disable the tokio-console debugging utility
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tokio_unstable)'] }

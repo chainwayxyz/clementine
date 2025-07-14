@@ -129,7 +129,7 @@ pub struct BridgeConfig {
     pub aggregator_cert_path: PathBuf,
 
     /// Telemetry configuration
-    pub telemetry: TelemetryConfig,
+    pub telemetry: Option<TelemetryConfig>,
 
     #[cfg(test)]
     #[serde(skip)]
@@ -278,7 +278,7 @@ impl Default for BridgeConfig {
             aggregator_cert_path: PathBuf::from("certs/aggregator/aggregator.pem"),
             client_verification: true,
 
-            telemetry: TelemetryConfig::default(),
+            telemetry: Some(TelemetryConfig::default()),
 
             #[cfg(test)]
             test_params: test::TestParams::default(),
