@@ -21,7 +21,7 @@ pub enum TaskStatus {
 pub type TaskRegistry =
     HashMap<TaskVariant, (TaskStatus, AbortHandle, Option<oneshot::Sender<()>>)>;
 
-/// A background task manager that can hold and manage multiple tasks When
+/// A background task manager that can hold and manage multiple tasks. When
 /// dropped, it will abort all tasks. Graceful shutdown can be performed with
 /// `graceful_shutdown`
 #[derive(Debug)]

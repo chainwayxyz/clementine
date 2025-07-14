@@ -853,7 +853,7 @@ impl ClementineAggregator for Aggregator {
 
         let operator_clients = self.get_operator_clients();
         let verifier_clients = self.get_verifier_clients();
-        let operator_status = join_all(
+        let operators_status = join_all(
             operator_clients
                 .iter()
                 .zip(self.get_operator_keys().iter())
@@ -885,7 +885,7 @@ impl ClementineAggregator for Aggregator {
                 }),
         )
         .await;
-        let verifier_status = join_all(
+        let verifiers_status = join_all(
             verifier_clients
                 .iter()
                 .zip(self.get_verifier_keys().iter())
@@ -919,8 +919,8 @@ impl ClementineAggregator for Aggregator {
         .await;
 
         // Combine operator and verifier status into a single vector
-        let mut entities_status = operator_status;
-        entities_status.extend(verifier_status);
+        let mut entities_status = operators_status;
+        entities_status.extend(verifiers_status);
 
         // try to restart background tasks if needed
         if restart_tasks {

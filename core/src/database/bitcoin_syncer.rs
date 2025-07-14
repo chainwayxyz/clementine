@@ -77,6 +77,7 @@ impl Database {
         .transpose()
     }
 
+    /// Gets block hash and height from block id (internal id used in bitcoin_syncer)
     pub async fn get_block_info_from_id(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
@@ -97,6 +98,7 @@ impl Database {
         .transpose()
     }
 
+    /// Stores the full block in bytes in the database, with its height and hash
     pub async fn store_full_block(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
@@ -116,6 +118,7 @@ impl Database {
         Ok(())
     }
 
+    /// Gets the full block from the database, given the block height
     pub async fn get_full_block(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
@@ -137,6 +140,7 @@ impl Database {
         }
     }
 
+    /// Gets the full block from the database, given the block hash
     pub async fn get_full_block_from_hash(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
@@ -160,6 +164,7 @@ impl Database {
         }
     }
 
+    /// Gets the maximum height of the canonical blocks in the database
     pub async fn get_max_height(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
@@ -176,6 +181,7 @@ impl Database {
     }
 
     /// Gets the block hashes that have height bigger then the given height and deletes them.
+    /// Marks blocks with height greater than the given height as non-canonical.
     pub async fn set_non_canonical_block_hashes(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
@@ -199,6 +205,7 @@ impl Database {
             .map_err(Into::into)
     }
 
+    /// Gets the block id of the canonical block at the given height
     pub async fn get_canonical_block_id_from_height(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
@@ -218,6 +225,7 @@ impl Database {
             .map_err(Into::into)
     }
 
+    /// Saves the txid with the id of the block that contains it to the database
     pub async fn add_txid_to_block(
         &self,
         tx: DatabaseTransaction<'_, '_>,
@@ -232,6 +240,8 @@ impl Database {
 
         Ok(())
     }
+
+    /// Gets all the txids that are contained in the block with the given id
     pub async fn get_block_txids(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
@@ -245,6 +255,7 @@ impl Database {
         Ok(txids.into_iter().map(|(txid,)| txid.0).collect())
     }
 
+    /// Inserts a spent utxo into the database, with the block id that contains it, the spending txid and the vout
     pub async fn insert_spent_utxo(
         &self,
         tx: DatabaseTransaction<'_, '_>,
@@ -264,6 +275,8 @@ impl Database {
         .await?;
         Ok(())
     }
+
+    /// Gets all the spent utxos for a given txid
     pub async fn get_spent_utxos_for_txid(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
@@ -288,6 +301,7 @@ impl Database {
             .collect::<Result<Vec<_>, BridgeError>>()
     }
 
+    /// Adds a bitcoin syncer event to the database. These events can currently be new block or reorged block.
     pub async fn add_event(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
@@ -307,6 +321,8 @@ impl Database {
         Ok(())
     }
 
+    /// Gets a bitcoin syncer event from the database, given the event id
+    /// event id is the serial key of the bitcoin_syncer_events table
     pub async fn get_event(
         &self,
         tx: DatabaseTransaction<'_, '_>,
@@ -325,6 +341,7 @@ impl Database {
         }
     }
 
+    /// Gets the block height of the last processed event for a given consumer
     pub async fn get_last_processed_event_block_height(
         &self,
         tx: DatabaseTransaction<'_, '_>,
@@ -347,6 +364,7 @@ impl Database {
         }
     }
 
+    /// Gets the last processed event id for a given consumer
     pub async fn get_last_processed_event_id(
         &self,
         tx: DatabaseTransaction<'_, '_>,
@@ -379,6 +397,11 @@ impl Database {
         Ok(last_processed_event_id)
     }
 
+    /// Fetches the next bitcoin syncer event for a given consumer
+    /// This function is used to fetch the next event that hasn't been processed yet
+    /// It will return the event which includes the event type and the block id
+    /// The last updated event id is also updated to the id that is returned
+    /// If there are no more events to fetch, None is returned
     pub async fn fetch_next_bitcoin_syncer_evt(
         &self,
         tx: DatabaseTransaction<'_, '_>,
