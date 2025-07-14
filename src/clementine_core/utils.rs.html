@@ -679,7 +679,44 @@
 <a href="#678" id="678">678</a>
 <a href="#679" id="679">679</a>
 <a href="#680" id="680">680</a>
-<a href="#681" id="681">681</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::builder::transaction::TransactionType;
+<a href="#681" id="681">681</a>
+<a href="#682" id="682">682</a>
+<a href="#683" id="683">683</a>
+<a href="#684" id="684">684</a>
+<a href="#685" id="685">685</a>
+<a href="#686" id="686">686</a>
+<a href="#687" id="687">687</a>
+<a href="#688" id="688">688</a>
+<a href="#689" id="689">689</a>
+<a href="#690" id="690">690</a>
+<a href="#691" id="691">691</a>
+<a href="#692" id="692">692</a>
+<a href="#693" id="693">693</a>
+<a href="#694" id="694">694</a>
+<a href="#695" id="695">695</a>
+<a href="#696" id="696">696</a>
+<a href="#697" id="697">697</a>
+<a href="#698" id="698">698</a>
+<a href="#699" id="699">699</a>
+<a href="#700" id="700">700</a>
+<a href="#701" id="701">701</a>
+<a href="#702" id="702">702</a>
+<a href="#703" id="703">703</a>
+<a href="#704" id="704">704</a>
+<a href="#705" id="705">705</a>
+<a href="#706" id="706">706</a>
+<a href="#707" id="707">707</a>
+<a href="#708" id="708">708</a>
+<a href="#709" id="709">709</a>
+<a href="#710" id="710">710</a>
+<a href="#711" id="711">711</a>
+<a href="#712" id="712">712</a>
+<a href="#713" id="713">713</a>
+<a href="#714" id="714">714</a>
+<a href="#715" id="715">715</a>
+<a href="#716" id="716">716</a>
+<a href="#717" id="717">717</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::builder::transaction::TransactionType;
+<span class="kw">use </span><span class="kw">crate</span>::config::TelemetryConfig;
 <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
 <span class="kw">use </span><span class="kw">crate</span>::operator::RoundIndex;
 <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::VergenResponse;
@@ -687,10 +724,12 @@
 <span class="kw">use </span>eyre::Context <span class="kw">as _</span>;
 <span class="kw">use </span>futures::future::try_join_all;
 <span class="kw">use </span>http::HeaderValue;
+<span class="kw">use </span>metrics_exporter_prometheus::PrometheusBuilder;
 <span class="kw">use </span>serde::{Deserialize, Serialize};
 <span class="kw">use </span>std::fmt::{Debug, Display};
 <span class="kw">use </span>std::fs::File;
 <span class="kw">use </span>std::future::Future;
+<span class="kw">use </span>std::net::{Ipv4Addr, SocketAddr};
 <span class="kw">use </span>std::pin::Pin;
 <span class="kw">use </span>std::sync::Arc;
 <span class="kw">use </span>std::task::{Context, Poll};
@@ -713,7 +752,7 @@
 /// - `human` **Human-readable** direct logs are used when `LOG_FORMAT` is not
 ///   set to `json`.
 ///
-/// /// ## CI
+/// ## CI
 ///
 /// In CI, logging is always in the human-readable format with output to the
 /// console. The `INFO_LOG_FILE` env var can be used to set an optional log file
@@ -740,9 +779,13 @@
         .map(|v| v == <span class="string">"true" </span>|| v == <span class="string">"1"</span>)
         .unwrap_or(<span class="bool-val">false</span>);
 
-    <span class="kw">if </span><span class="macro">cfg!</span>(test) {
+    <span class="comment">// UNCOMMENT TO DEBUG TOKIO TASKS
+    // console_subscriber::init();
+
+    </span><span class="kw">if </span><span class="macro">cfg!</span>(test) {
         <span class="comment">// Enable full backtraces for tests
         </span>std::env::set_var(<span class="string">"RUST_LIB_BACKTRACE"</span>, <span class="string">"full"</span>);
+        std::env::set_var(<span class="string">"RUST_BACKTRACE"</span>, <span class="string">"full"</span>);
     }
 
     <span class="comment">// Initialize color-eyre for better error handling and backtraces
@@ -769,6 +812,29 @@
     }
 
     <span class="macro">tracing::info!</span>(<span class="string">"Tracing initialized successfully."</span>);
+    <span class="prelude-val">Ok</span>(())
+}
+
+<span class="kw">pub fn </span>initialize_telemetry(config: <span class="kw-2">&amp;</span>TelemetryConfig) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
+    <span class="kw">let </span>telemetry_addr: SocketAddr = <span class="macro">format!</span>(<span class="string">"{}:{}"</span>, config.host, config.port)
+        .parse()
+        .unwrap_or_else(|<span class="kw">_</span>| {
+            <span class="macro">tracing::warn!</span>(
+                <span class="string">"Invalid telemetry address: {}:{}, using default address: 127.0.0.1:8081"</span>,
+                config.host,
+                config.port
+            );
+            SocketAddr::from((Ipv4Addr::new(<span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>), <span class="number">8081</span>))
+        });
+
+    <span class="macro">tracing::debug!</span>(<span class="string">"Initializing telemetry at {}"</span>, telemetry_addr);
+
+    <span class="kw">let </span>builder = PrometheusBuilder::new().with_http_listener(telemetry_addr);
+
+    builder
+        .install()
+        .map_err(|e| <span class="macro">eyre::eyre!</span>(<span class="string">"Failed to initialize telemetry: {}"</span>, e))<span class="question-mark">?</span>;
+
     <span class="prelude-val">Ok</span>(())
 }
 
@@ -1118,16 +1184,22 @@
     }
 }
 
-<span class="doccomment">/// A trait for entities that have a name, operator, watchtower, verifier, etc.
+<span class="doccomment">/// A trait for entities that have a name, operator, verifier, etc.
 /// Used to distinguish between state machines with different owners in the database,
 /// and to provide a human-readable name for the entity for task names.
-</span><span class="kw">pub trait </span>NamedEntity {
+</span><span class="kw">pub trait </span>NamedEntity: Sync + Send + <span class="lifetime">'static </span>{
     <span class="doccomment">/// A string identifier for this owner type used to distinguish between
     /// state machines with different owners in the database.
     ///
     /// ## Example
-    /// "operator", "watchtower", "verifier", "user"
+    /// "operator", "verifier", "user"
     </span><span class="kw">const </span>ENTITY_NAME: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str;
+
+    <span class="doccomment">/// Consumer ID for the tx sender task.
+    </span><span class="kw">const </span>TX_SENDER_CONSUMER_ID: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str;
+
+    <span class="doccomment">/// Consumer ID for the finalized block task.
+    </span><span class="kw">const </span>FINALIZED_BLOCK_CONSUMER_ID: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str;
 }
 
 <span class="attr">#[derive(Copy, Clone, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]

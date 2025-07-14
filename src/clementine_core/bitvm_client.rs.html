@@ -796,7 +796,7 @@
 <span class="attr">#[derive(BorshSerialize, BorshDeserialize, Debug)]
 </span><span class="kw">pub struct </span>BitvmCache {
     <span class="kw">pub </span>disprove_scripts: Vec&lt;Vec&lt;u8&gt;&gt;,
-    <span class="kw">pub </span>replacement_places: ClementineBitVMReplacementData,
+    <span class="kw">pub </span>replacement_places: Box&lt;ClementineBitVMReplacementData&gt;,
 }
 
 <span class="kw">impl </span>BitvmCache {
@@ -911,7 +911,7 @@
 
     BitvmCache {
         disprove_scripts: scripts,
-        replacement_places,
+        replacement_places: Box::new(replacement_places),
     }
 }
 

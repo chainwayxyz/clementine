@@ -770,7 +770,8 @@
 <a href="#769" id="769">769</a>
 <a href="#770" id="770">770</a>
 <a href="#771" id="771">771</a>
-<a href="#772" id="772">772</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Sighash Builder
+<a href="#772" id="772">772</a>
+<a href="#773" id="773">773</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Sighash Builder
 //!
 //! This module provides functions and types for constructing signature hashes (sighashes) for the transactions in the Clementine bridge protocol.
 //! Sighash is the message that is signed by the private key of the signer.
@@ -1178,7 +1179,8 @@
     <span class="kw">use </span>futures_util::stream::TryStreamExt;
     <span class="kw">use </span>std::fs::File;
 
-    <span class="kw">pub const </span>DEPOSIT_STATE_FILE_PATH_DEBUG: <span class="kw-2">&amp;</span>str = <span class="string">"src/test/data/deposit_state_debug.bincode"</span>;
+    <span class="attr">#[cfg(debug_assertions)]
+    </span><span class="kw">pub const </span>DEPOSIT_STATE_FILE_PATH_DEBUG: <span class="kw-2">&amp;</span>str = <span class="string">"src/test/data/deposit_state_debug.bincode"</span>;
     <span class="attr">#[cfg(not(debug_assertions))]
     </span><span class="kw">pub const </span>DEPOSIT_STATE_FILE_PATH_RELEASE: <span class="kw-2">&amp;</span>str = <span class="string">"src/test/data/deposit_state_release.bincode"</span>;
 

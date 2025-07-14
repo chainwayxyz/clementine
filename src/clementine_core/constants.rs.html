@@ -40,7 +40,8 @@
 <a href="#39" id="39">39</a>
 <a href="#40" id="40">40</a>
 <a href="#41" id="41">41</a>
-<a href="#42" id="42">42</a></pre></div><pre class="rust"><code><span class="kw">use </span>bitcoin::{Address, Amount, ScriptBuf};
+<a href="#42" id="42">42</a>
+<a href="#43" id="43">43</a></pre></div><pre class="rust"><code><span class="kw">use </span>bitcoin::{Address, Amount, ScriptBuf};
 
 <span class="doccomment">/// The amount of the non-ephemeral P2A anchor output.
 </span><span class="kw">pub const </span>NON_EPHEMERAL_ANCHOR_AMOUNT: Amount = Amount::from_sat(<span class="number">240</span>);
@@ -71,9 +72,10 @@
     </span><span class="kw">pub const </span>PIPELINE_COMPLETION_TIMEOUT: Duration = Duration::from_secs(<span class="number">3600</span>); <span class="comment">// 60 minutes
     </span><span class="kw">pub const </span>OPERATOR_SIGS_TIMEOUT: Duration = Duration::from_secs(<span class="number">1200</span>); <span class="comment">// 20 minutes
     </span><span class="kw">pub const </span>SEND_OPERATOR_SIGS_TIMEOUT: Duration = Duration::from_secs(<span class="number">600</span>); <span class="comment">// 10 minutes
-    </span><span class="kw">pub const </span>DEPOSIT_FINALIZATION_TIMEOUT: Duration = Duration::from_secs(<span class="number">2400</span>);
-    <span class="comment">// 40 minutes
-</span>}
+    </span><span class="kw">pub const </span>DEPOSIT_FINALIZATION_TIMEOUT: Duration = Duration::from_secs(<span class="number">2400</span>); <span class="comment">// 40 minutes
+
+    </span><span class="kw">pub const </span>RESTART_BACKGROUND_TASKS_TIMEOUT: Duration = Duration::from_secs(<span class="number">60</span>);
+}
 
 <span class="macro">lazy_static::lazy_static!</span> {
   <span class="kw">pub static </span><span class="kw-2">ref </span>BURN_SCRIPT: ScriptBuf = (<span class="string">"1111111111111111111114oLvT2"</span>)

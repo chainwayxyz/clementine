@@ -2792,7 +2792,58 @@
 <a href="#2791" id="2791">2791</a>
 <a href="#2792" id="2792">2792</a>
 <a href="#2793" id="2793">2793</a>
-<a href="#2794" id="2794">2794</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
+<a href="#2794" id="2794">2794</a>
+<a href="#2795" id="2795">2795</a>
+<a href="#2796" id="2796">2796</a>
+<a href="#2797" id="2797">2797</a>
+<a href="#2798" id="2798">2798</a>
+<a href="#2799" id="2799">2799</a>
+<a href="#2800" id="2800">2800</a>
+<a href="#2801" id="2801">2801</a>
+<a href="#2802" id="2802">2802</a>
+<a href="#2803" id="2803">2803</a>
+<a href="#2804" id="2804">2804</a>
+<a href="#2805" id="2805">2805</a>
+<a href="#2806" id="2806">2806</a>
+<a href="#2807" id="2807">2807</a>
+<a href="#2808" id="2808">2808</a>
+<a href="#2809" id="2809">2809</a>
+<a href="#2810" id="2810">2810</a>
+<a href="#2811" id="2811">2811</a>
+<a href="#2812" id="2812">2812</a>
+<a href="#2813" id="2813">2813</a>
+<a href="#2814" id="2814">2814</a>
+<a href="#2815" id="2815">2815</a>
+<a href="#2816" id="2816">2816</a>
+<a href="#2817" id="2817">2817</a>
+<a href="#2818" id="2818">2818</a>
+<a href="#2819" id="2819">2819</a>
+<a href="#2820" id="2820">2820</a>
+<a href="#2821" id="2821">2821</a>
+<a href="#2822" id="2822">2822</a>
+<a href="#2823" id="2823">2823</a>
+<a href="#2824" id="2824">2824</a>
+<a href="#2825" id="2825">2825</a>
+<a href="#2826" id="2826">2826</a>
+<a href="#2827" id="2827">2827</a>
+<a href="#2828" id="2828">2828</a>
+<a href="#2829" id="2829">2829</a>
+<a href="#2830" id="2830">2830</a>
+<a href="#2831" id="2831">2831</a>
+<a href="#2832" id="2832">2832</a>
+<a href="#2833" id="2833">2833</a>
+<a href="#2834" id="2834">2834</a>
+<a href="#2835" id="2835">2835</a>
+<a href="#2836" id="2836">2836</a>
+<a href="#2837" id="2837">2837</a>
+<a href="#2838" id="2838">2838</a>
+<a href="#2839" id="2839">2839</a>
+<a href="#2840" id="2840">2840</a>
+<a href="#2841" id="2841">2841</a>
+<a href="#2842" id="2842">2842</a>
+<a href="#2843" id="2843">2843</a>
+<a href="#2844" id="2844">2844</a>
+<a href="#2845" id="2845">2845</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
 <span class="kw">use </span><span class="kw">crate</span>::bitcoin_syncer::BitcoinSyncer;
 <span class="kw">use </span><span class="kw">crate</span>::bitvm_client::ClementineBitVMPublicKeys;
 <span class="kw">use </span><span class="kw">crate</span>::builder::address::{create_taproot_address, taproot_builder_with_scripts};
@@ -2821,10 +2872,14 @@
 <span class="kw">use </span><span class="kw">crate</span>::errors::{BridgeError, TxError};
 <span class="kw">use </span><span class="kw">crate</span>::extended_rpc::ExtendedRpc;
 <span class="kw">use </span><span class="kw">crate</span>::header_chain_prover::HeaderChainProver;
+<span class="kw">use </span><span class="kw">crate</span>::metrics::L1SyncStatusProvider;
 <span class="kw">use </span><span class="kw">crate</span>::operator::RoundIndex;
-<span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::{NormalSignatureKind, OperatorKeys, TaggedSignature};
+<span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::{EntityStatus, NormalSignatureKind, OperatorKeys, TaggedSignature};
+<span class="kw">use </span><span class="kw">crate</span>::task::entity_metric_publisher::{
+    EntityMetricPublisher, ENTITY_METRIC_PUBLISHER_INTERVAL,
+};
 <span class="kw">use </span><span class="kw">crate</span>::task::manager::BackgroundTaskManager;
-<span class="kw">use </span><span class="kw">crate</span>::task::IntoTask;
+<span class="kw">use </span><span class="kw">crate</span>::task::{IntoTask, TaskExt};
 <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
 </span><span class="kw">use </span><span class="kw">crate</span>::tx_sender::{TxSender, TxSenderClient};
 <span class="kw">use </span><span class="kw">crate</span>::utils::NamedEntity;
@@ -2878,7 +2933,7 @@
 
 <span class="kw">pub struct </span>VerifierServer&lt;C: CitreaClientT&gt; {
     <span class="kw">pub </span>verifier: Verifier&lt;C&gt;,
-    background_tasks: BackgroundTaskManager&lt;Verifier&lt;C&gt;&gt;,
+    background_tasks: BackgroundTaskManager,
 }
 
 <span class="kw">impl</span>&lt;C&gt; VerifierServer&lt;C&gt;
@@ -2887,13 +2942,21 @@
 {
     <span class="kw">pub async fn </span>new(config: BridgeConfig) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="self">Self</span>, BridgeError&gt; {
         <span class="kw">let </span>verifier = Verifier::new(config.clone()).<span class="kw">await</span><span class="question-mark">?</span>;
-        <span class="kw">let </span>db = verifier.db.clone();
-        <span class="kw">let </span><span class="kw-2">mut </span>background_tasks = BackgroundTaskManager::default();
+        <span class="kw">let </span>background_tasks = BackgroundTaskManager::default();
 
+        <span class="prelude-val">Ok</span>(VerifierServer {
+            verifier,
+            background_tasks,
+        })
+    }
+
+    <span class="doccomment">/// Starts the background tasks for the verifier.
+    /// If called multiple times, it will restart only the tasks that are not already running.
+    </span><span class="kw">pub async fn </span>start_background_tasks(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
         <span class="kw">let </span>rpc = ExtendedRpc::connect(
-            config.bitcoin_rpc_url.clone(),
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
+            <span class="self">self</span>.verifier.config.bitcoin_rpc_url.clone(),
+            <span class="self">self</span>.verifier.config.bitcoin_rpc_user.clone(),
+            <span class="self">self</span>.verifier.config.bitcoin_rpc_password.clone(),
         )
         .<span class="kw">await</span><span class="question-mark">?</span>;
 
@@ -2902,25 +2965,27 @@
         </span>{
             <span class="comment">// TODO: Removing index causes to remove the index from the tx_sender handle as well
             </span><span class="kw">let </span>tx_sender = TxSender::new(
-                verifier.signer.clone(),
+                <span class="self">self</span>.verifier.signer.clone(),
                 rpc.clone(),
-                verifier.db.clone(),
-                <span class="string">"verifier_"</span>.to_string(),
-                config.protocol_paramset(),
+                <span class="self">self</span>.verifier.db.clone(),
+                Verifier::&lt;C&gt;::TX_SENDER_CONSUMER_ID.to_string(),
+                <span class="self">self</span>.verifier.config.protocol_paramset(),
             );
 
-            background_tasks.loop_and_monitor(tx_sender.into_task());
+            <span class="self">self</span>.background_tasks
+                .ensure_task_looping(tx_sender.into_task())
+                .<span class="kw">await</span>;
             <span class="kw">let </span>state_manager = <span class="kw">crate</span>::states::StateManager::new(
-                db.clone(),
-                verifier.clone(),
-                config.protocol_paramset(),
+                <span class="self">self</span>.verifier.db.clone(),
+                <span class="self">self</span>.verifier.clone(),
+                <span class="self">self</span>.verifier.config.protocol_paramset(),
             )
             .<span class="kw">await</span><span class="question-mark">?</span>;
 
             <span class="kw">let </span>should_run_state_mgr = {
                 <span class="attr">#[cfg(test)]
                 </span>{
-                    config.test_params.should_run_state_manager
+                    <span class="self">self</span>.verifier.config.test_params.should_run_state_manager
                 }
                 <span class="attr">#[cfg(not(test))]
                 </span>{
@@ -2929,41 +2994,76 @@
             };
 
             <span class="kw">if </span>should_run_state_mgr {
-                background_tasks.loop_and_monitor(state_manager.block_fetcher_task().<span class="kw">await</span><span class="question-mark">?</span>);
-                background_tasks.loop_and_monitor(state_manager.into_task());
+                <span class="self">self</span>.background_tasks
+                    .ensure_task_looping(state_manager.block_fetcher_task().<span class="kw">await</span><span class="question-mark">?</span>)
+                    .<span class="kw">await</span>;
+                <span class="self">self</span>.background_tasks
+                    .ensure_task_looping(state_manager.into_task())
+                    .<span class="kw">await</span>;
             }
         }
         <span class="attr">#[cfg(not(feature = <span class="string">"automation"</span>))]
         </span>{
             <span class="kw">use </span><span class="kw">crate</span>::task::TaskExt;
-
-            background_tasks.loop_and_monitor(
-                <span class="kw">crate</span>::bitcoin_syncer::FinalizedBlockFetcherTask::new(
-                    db.clone(),
-                    <span class="string">"verifier"</span>.to_string(),
-                    config.protocol_paramset(),
-                    config.protocol_paramset().start_height,
-                    verifier.clone(),
+            <span class="self">self</span>.background_tasks
+                .ensure_task_looping(
+                    <span class="kw">crate</span>::bitcoin_syncer::FinalizedBlockFetcherTask::new(
+                        <span class="self">self</span>.verifier.db.clone(),
+                        Verifier::&lt;C&gt;::FINALIZED_BLOCK_CONSUMER_ID.to_string(),
+                        <span class="self">self</span>.verifier.config.protocol_paramset(),
+                        <span class="self">self</span>.verifier.config.protocol_paramset().start_height,
+                        <span class="self">self</span>.verifier.clone(),
+                    )
+                    .into_buffered_errors(<span class="number">50</span>)
+                    .with_delay(<span class="kw">crate</span>::bitcoin_syncer::BTC_SYNCER_POLL_DELAY),
                 )
-                .into_buffered_errors(<span class="number">50</span>)
-                .with_delay(Duration::from_secs(<span class="number">60</span>)),
-            );
+                .<span class="kw">await</span>;
         }
 
-        <span class="kw">let </span>syncer = BitcoinSyncer::new(db, rpc, config.protocol_paramset()).<span class="kw">await</span><span class="question-mark">?</span>;
+        <span class="kw">let </span>syncer = BitcoinSyncer::new(
+            <span class="self">self</span>.verifier.db.clone(),
+            rpc.clone(),
+            <span class="self">self</span>.verifier.config.protocol_paramset(),
+        )
+        .<span class="kw">await</span><span class="question-mark">?</span>;
 
-        background_tasks.loop_and_monitor(syncer.into_task());
+        <span class="self">self</span>.background_tasks
+            .ensure_task_looping(syncer.into_task())
+            .<span class="kw">await</span>;
 
-        <span class="prelude-val">Ok</span>(VerifierServer {
-            verifier,
-            background_tasks,
+        <span class="self">self</span>.background_tasks
+            .ensure_task_looping(
+                EntityMetricPublisher::&lt;Verifier&lt;C&gt;&gt;::new(<span class="self">self</span>.verifier.db.clone(), rpc.clone())
+                    .with_delay(ENTITY_METRIC_PUBLISHER_INTERVAL),
+            )
+            .<span class="kw">await</span>;
+
+        <span class="prelude-val">Ok</span>(())
+    }
+
+    <span class="kw">pub async fn </span>get_current_status(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span>&lt;EntityStatus, BridgeError&gt; {
+        <span class="kw">let </span>stopped_tasks = <span class="self">self</span>.background_tasks.get_stopped_tasks().<span class="kw">await</span>;
+        <span class="comment">// Determine if automation is enabled
+        </span><span class="kw">let </span>automation_enabled = <span class="macro">cfg!</span>(feature = <span class="string">"automation"</span>);
+
+        <span class="kw">let </span>l1_sync_status =
+            Verifier::&lt;C&gt;::get_l1_status(<span class="kw-2">&amp;</span><span class="self">self</span>.verifier.db, <span class="kw-2">&amp;</span><span class="self">self</span>.verifier.rpc).<span class="kw">await</span><span class="question-mark">?</span>;
+
+        <span class="prelude-val">Ok</span>(EntityStatus {
+            automation: automation_enabled,
+            wallet_balance: <span class="macro">format!</span>(<span class="string">"{} BTC"</span>, l1_sync_status.wallet_balance.to_btc()),
+            tx_sender_synced_height: l1_sync_status.tx_sender_synced_height.unwrap_or(<span class="number">0</span>),
+            finalized_synced_height: l1_sync_status.finalized_synced_height.unwrap_or(<span class="number">0</span>),
+            hcp_last_proven_height: l1_sync_status.hcp_last_proven_height.unwrap_or(<span class="number">0</span>),
+            rpc_tip_height: l1_sync_status.rpc_tip_height,
+            bitcoin_syncer_synced_height: l1_sync_status.btc_syncer_synced_height.unwrap_or(<span class="number">0</span>),
+            stopped_tasks: <span class="prelude-val">Some</span>(stopped_tasks),
+            state_manager_next_height: l1_sync_status.state_manager_next_height.unwrap_or(<span class="number">0</span>),
         })
     }
 
     <span class="kw">pub async fn </span>shutdown(<span class="kw-2">&amp;mut </span><span class="self">self</span>) {
-        <span class="self">self</span>.background_tasks
-            .graceful_shutdown_with_timeout(Duration::from_secs(<span class="number">10</span>))
-            .<span class="kw">await</span>;
+        <span class="self">self</span>.background_tasks.graceful_shutdown().<span class="kw">await</span>;
     }
 }
 
@@ -3017,7 +3117,7 @@
 
         <span class="comment">// TODO: Removing index causes to remove the index from the tx_sender handle as well
         </span><span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
-        </span><span class="kw">let </span>tx_sender = TxSenderClient::new(db.clone(), <span class="string">"verifier_"</span>.to_string());
+        </span><span class="kw">let </span>tx_sender = TxSenderClient::new(db.clone(), <span class="self">Self</span>::TX_SENDER_CONSUMER_ID.to_string());
 
         <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
         </span><span class="kw">let </span>header_chain_prover = HeaderChainProver::new(<span class="kw-2">&amp;</span>config, rpc.clone()).<span class="kw">await</span><span class="question-mark">?</span>;
@@ -5226,6 +5326,8 @@
     </span>C: CitreaClientT,
 {
     <span class="kw">const </span>ENTITY_NAME: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str = <span class="string">"verifier"</span>;
+    <span class="kw">const </span>TX_SENDER_CONSUMER_ID: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str = <span class="string">"verifier_tx_sender"</span>;
+    <span class="kw">const </span>FINALIZED_BLOCK_CONSUMER_ID: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str = <span class="string">"verifier_finalized_block_fetcher"</span>;
 }
 
 <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]

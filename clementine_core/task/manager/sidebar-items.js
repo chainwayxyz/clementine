@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"struct":["BackgroundTaskManager"]};
+window.SIDEBAR_ITEMS = {"enum":["TaskStatus"],"struct":["BackgroundTaskManager"],"type":["TaskRegistry"]};

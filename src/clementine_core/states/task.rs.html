@@ -259,10 +259,13 @@
 <a href="#258" id="258">258</a>
 <a href="#259" id="259">259</a>
 <a href="#260" id="260">260</a>
-<a href="#261" id="261">261</a></pre></div><pre class="rust"><code><span class="kw">use crate</span>::{
+<a href="#261" id="261">261</a>
+<a href="#262" id="262">262</a>
+<a href="#263" id="263">263</a>
+<a href="#264" id="264">264</a></pre></div><pre class="rust"><code><span class="kw">use crate</span>::{
     bitcoin_syncer::{BlockHandler, FinalizedBlockFetcherTask},
     database::{Database, DatabaseTransaction},
-    task::{BufferedErrors, IntoTask, WithDelay},
+    task::{BufferedErrors, IntoTask, TaskVariant, WithDelay},
 };
 <span class="kw">use </span>eyre::Context <span class="kw">as _</span>;
 <span class="kw">use </span>pgmq::{Message, PGMQueueExt};
@@ -344,7 +347,7 @@
 
         <span class="prelude-val">Ok</span>(<span class="kw">crate</span>::bitcoin_syncer::FinalizedBlockFetcherTask::new(
             db,
-            queue_name,
+            T::FINALIZED_BLOCK_CONSUMER_ID.to_string(),
             paramset,
             next_height,
             handler,
@@ -363,6 +366,7 @@
 <span class="attr">#[async_trait]
 </span><span class="kw">impl</span>&lt;T: Owner + std::fmt::Debug + <span class="lifetime">'static</span>&gt; Task <span class="kw">for </span>MessageConsumerTask&lt;T&gt; {
     <span class="kw">type </span>Output = bool;
+    <span class="kw">const </span>VARIANT: TaskVariant = TaskVariant::StateManager;
 
     <span class="kw">async fn </span>run_once(<span class="kw-2">&amp;mut </span><span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="self">Self</span>::Output, BridgeError&gt; {
         <span class="kw">let </span>new_event_received = <span class="kw">async </span>{
@@ -453,6 +457,8 @@
 
     <span class="kw">impl </span>NamedEntity <span class="kw">for </span>MockHandler {
         <span class="kw">const </span>ENTITY_NAME: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str = <span class="string">"MockHandler"</span>;
+        <span class="kw">const </span>TX_SENDER_CONSUMER_ID: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str = <span class="string">"mock_tx_sender"</span>;
+        <span class="kw">const </span>FINALIZED_BLOCK_CONSUMER_ID: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str = <span class="string">"mock_finalized_block"</span>;
     }
 
     <span class="attr">#[async_trait]

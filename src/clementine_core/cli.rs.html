@@ -581,15 +581,7 @@
 <a href="#580" id="580">580</a>
 <a href="#581" id="581">581</a>
 <a href="#582" id="582">582</a>
-<a href="#583" id="583">583</a>
-<a href="#584" id="584">584</a>
-<a href="#585" id="585">585</a>
-<a href="#586" id="586">586</a>
-<a href="#587" id="587">587</a>
-<a href="#588" id="588">588</a>
-<a href="#589" id="589">589</a>
-<a href="#590" id="590">590</a>
-<a href="#591" id="591">591</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Command Line Interface
+<a href="#583" id="583">583</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Command Line Interface
 //!
 //! This module defines command line interface for server binaries. `Clap` is used
 //! for easy generation of help messages and handling arguments.
@@ -598,7 +590,6 @@
 <span class="kw">use </span><span class="kw">crate</span>::config::BridgeConfig;
 <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
 <span class="kw">use </span><span class="kw">crate</span>::errors::ErrorExt;
-<span class="kw">use </span><span class="kw">crate</span>::utils;
 <span class="kw">use </span><span class="kw">crate</span>::utils::delayed_panic;
 <span class="kw">use </span>clap::Parser;
 <span class="kw">use </span>clap::ValueEnum;
@@ -607,9 +598,6 @@
 <span class="kw">use </span>std::ffi::OsString;
 <span class="kw">use </span>std::path::PathBuf;
 <span class="kw">use </span>std::process;
-<span class="kw">use </span>std::str::FromStr;
-<span class="kw">use </span>tracing::level_filters::LevelFilter;
-<span class="kw">use </span>tracing::Level;
 
 <span class="attr">#[derive(Debug, Clone, Copy, ValueEnum, Eq, PartialEq)]
 </span><span class="kw">pub enum </span>Actors {
@@ -771,15 +759,6 @@
     T: Into&lt;OsString&gt; + Clone,
 {
     <span class="kw">let </span>args = parse_from(itr).wrap_err(<span class="string">"Failed to parse CLI arguments."</span>)<span class="question-mark">?</span>;
-
-    <span class="kw">let </span>level_filter = <span class="kw">match </span>args.verbose {
-        <span class="number">0 </span>=&gt; <span class="prelude-val">None</span>,
-        other =&gt; <span class="prelude-val">Some</span>(LevelFilter::from_level(
-            Level::from_str(<span class="kw-2">&amp;</span>other.to_string()).unwrap_or(Level::INFO),
-        )),
-    };
-
-    utils::initialize_logger(level_filter).wrap_err(<span class="string">"Failed to initialize logger."</span>)<span class="question-mark">?</span>;
 
     <span class="kw">let </span>config_source = get_config_source(<span class="string">"READ_CONFIG_FROM_ENV"</span>, args.config.clone());
 
@@ -981,6 +960,9 @@
             <span class="string">"SECURITY_COUNCIL"</span>,
             <span class="string">"1:50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0"</span>,
         );
+
+        env::set_var(<span class="string">"TELEMETRY_HOST"</span>, <span class="string">"0.0.0.0"</span>);
+        env::set_var(<span class="string">"TELEMETRY_PORT"</span>, <span class="string">"8081"</span>);
     }
 
     <span class="comment">// Helper to set up all environment variables needed for protocol paramset
@@ -1041,6 +1023,8 @@
         env::remove_var(<span class="string">"AGGREGATOR_CERT_PATH"</span>);
         env::remove_var(<span class="string">"CLIENT_VERIFICATION"</span>);
         env::remove_var(<span class="string">"SECURITY_COUNCIL"</span>);
+        env::remove_var(<span class="string">"TELEMETRY_HOST"</span>);
+        env::remove_var(<span class="string">"TELEMETRY_PORT"</span>);
     }
 
     <span class="comment">// Helper to clean up all protocol paramset environment variables

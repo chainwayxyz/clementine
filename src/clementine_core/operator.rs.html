@@ -1876,11 +1876,57 @@
 <a href="#1875" id="1875">1875</a>
 <a href="#1876" id="1876">1876</a>
 <a href="#1877" id="1877">1877</a>
-<a href="#1878" id="1878">1878</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_ff::PrimeField;
+<a href="#1878" id="1878">1878</a>
+<a href="#1879" id="1879">1879</a>
+<a href="#1880" id="1880">1880</a>
+<a href="#1881" id="1881">1881</a>
+<a href="#1882" id="1882">1882</a>
+<a href="#1883" id="1883">1883</a>
+<a href="#1884" id="1884">1884</a>
+<a href="#1885" id="1885">1885</a>
+<a href="#1886" id="1886">1886</a>
+<a href="#1887" id="1887">1887</a>
+<a href="#1888" id="1888">1888</a>
+<a href="#1889" id="1889">1889</a>
+<a href="#1890" id="1890">1890</a>
+<a href="#1891" id="1891">1891</a>
+<a href="#1892" id="1892">1892</a>
+<a href="#1893" id="1893">1893</a>
+<a href="#1894" id="1894">1894</a>
+<a href="#1895" id="1895">1895</a>
+<a href="#1896" id="1896">1896</a>
+<a href="#1897" id="1897">1897</a>
+<a href="#1898" id="1898">1898</a>
+<a href="#1899" id="1899">1899</a>
+<a href="#1900" id="1900">1900</a>
+<a href="#1901" id="1901">1901</a>
+<a href="#1902" id="1902">1902</a>
+<a href="#1903" id="1903">1903</a>
+<a href="#1904" id="1904">1904</a>
+<a href="#1905" id="1905">1905</a>
+<a href="#1906" id="1906">1906</a>
+<a href="#1907" id="1907">1907</a>
+<a href="#1908" id="1908">1908</a>
+<a href="#1909" id="1909">1909</a>
+<a href="#1910" id="1910">1910</a>
+<a href="#1911" id="1911">1911</a>
+<a href="#1912" id="1912">1912</a>
+<a href="#1913" id="1913">1913</a>
+<a href="#1914" id="1914">1914</a>
+<a href="#1915" id="1915">1915</a>
+<a href="#1916" id="1916">1916</a>
+<a href="#1917" id="1917">1917</a>
+<a href="#1918" id="1918">1918</a>
+<a href="#1919" id="1919">1919</a>
+<a href="#1920" id="1920">1920</a>
+<a href="#1921" id="1921">1921</a>
+<a href="#1922" id="1922">1922</a>
+<a href="#1923" id="1923">1923</a>
+<a href="#1924" id="1924">1924</a>
+<a href="#1925" id="1925">1925</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_ff::PrimeField;
 <span class="kw">use </span>circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
 <span class="kw">use </span>risc0_zkvm::is_dev_mode;
 <span class="kw">use </span>std::collections::HashMap;
-<span class="kw">use </span>std::time::Duration;
 
 <span class="kw">use </span><span class="kw">crate</span>::actor::{Actor, TweakCache, WinternitzDerivationPath};
 <span class="kw">use </span><span class="kw">crate</span>::bitvm_client::{ClementineBitVMPublicKeys, SECP};
@@ -1900,6 +1946,11 @@
 <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
 <span class="kw">use </span><span class="kw">crate</span>::extended_rpc::ExtendedRpc;
 <span class="kw">use </span><span class="kw">crate</span>::header_chain_prover::HeaderChainProver;
+<span class="kw">use </span><span class="kw">crate</span>::metrics::L1SyncStatusProvider;
+<span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::EntityStatus;
+<span class="kw">use </span><span class="kw">crate</span>::task::entity_metric_publisher::{
+    EntityMetricPublisher, ENTITY_METRIC_PUBLISHER_INTERVAL,
+};
 <span class="kw">use </span><span class="kw">crate</span>::task::manager::BackgroundTaskManager;
 <span class="kw">use </span><span class="kw">crate</span>::task::payout_checker::{PayoutCheckerTask, PAYOUT_CHECKER_POLL_DELAY};
 <span class="kw">use </span><span class="kw">crate</span>::task::TaskExt;
@@ -1993,7 +2044,7 @@
 
 <span class="kw">pub struct </span>OperatorServer&lt;C: CitreaClientT&gt; {
     <span class="kw">pub </span>operator: Operator&lt;C&gt;,
-    background_tasks: BackgroundTaskManager&lt;Operator&lt;C&gt;&gt;,
+    background_tasks: BackgroundTaskManager,
 }
 
 <span class="attr">#[derive(Debug, Clone)]
@@ -2016,19 +2067,29 @@
 {
     <span class="kw">pub async fn </span>new(config: BridgeConfig) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="self">Self</span>, BridgeError&gt; {
         <span class="kw">let </span>operator = Operator::new(config.clone()).<span class="kw">await</span><span class="question-mark">?</span>;
-        <span class="kw">let </span><span class="kw-2">mut </span>background_tasks = BackgroundTaskManager::default();
+        <span class="kw">let </span>background_tasks = BackgroundTaskManager::default();
 
+        <span class="prelude-val">Ok</span>(<span class="self">Self </span>{
+            operator,
+            background_tasks,
+        })
+    }
+
+    <span class="doccomment">/// Starts the background tasks for the operator.
+    /// If called multiple times, it will restart only the tasks that are not already running.
+    </span><span class="kw">pub async fn </span>start_background_tasks(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
         <span class="comment">// initialize and run state manager
         </span><span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
         </span>{
-            <span class="kw">let </span>paramset = config.protocol_paramset();
+            <span class="kw">let </span>paramset = <span class="self">self</span>.operator.config.protocol_paramset();
             <span class="kw">let </span>state_manager =
-                StateManager::new(operator.db.clone(), operator.clone(), paramset).<span class="kw">await</span><span class="question-mark">?</span>;
+                StateManager::new(<span class="self">self</span>.operator.db.clone(), <span class="self">self</span>.operator.clone(), paramset)
+                    .<span class="kw">await</span><span class="question-mark">?</span>;
 
             <span class="kw">let </span>should_run_state_mgr = {
                 <span class="attr">#[cfg(test)]
                 </span>{
-                    config.test_params.should_run_state_manager
+                    <span class="self">self</span>.operator.config.test_params.should_run_state_manager
                 }
                 <span class="attr">#[cfg(not(test))]
                 </span>{
@@ -2037,36 +2098,69 @@
             };
 
             <span class="kw">if </span>should_run_state_mgr {
-                background_tasks.loop_and_monitor(state_manager.block_fetcher_task().<span class="kw">await</span><span class="question-mark">?</span>);
-                background_tasks.loop_and_monitor(state_manager.into_task());
+                <span class="self">self</span>.background_tasks
+                    .ensure_task_looping(state_manager.block_fetcher_task().<span class="kw">await</span><span class="question-mark">?</span>)
+                    .<span class="kw">await</span>;
+                <span class="self">self</span>.background_tasks
+                    .ensure_task_looping(state_manager.into_task())
+                    .<span class="kw">await</span>;
             }
         }
 
         <span class="comment">// run payout checker task
-        </span>background_tasks.loop_and_monitor(
-            PayoutCheckerTask::new(operator.db.clone(), operator.clone())
-                .with_delay(PAYOUT_CHECKER_POLL_DELAY),
-        );
+        </span><span class="self">self</span>.background_tasks
+            .ensure_task_looping(
+                PayoutCheckerTask::new(<span class="self">self</span>.operator.db.clone(), <span class="self">self</span>.operator.clone())
+                    .with_delay(PAYOUT_CHECKER_POLL_DELAY),
+            )
+            .<span class="kw">await</span>;
+
+        <span class="self">self</span>.background_tasks
+            .ensure_task_looping(
+                EntityMetricPublisher::&lt;Operator&lt;C&gt;&gt;::new(
+                    <span class="self">self</span>.operator.db.clone(),
+                    <span class="self">self</span>.operator.rpc.clone(),
+                )
+                .with_delay(ENTITY_METRIC_PUBLISHER_INTERVAL),
+            )
+            .<span class="kw">await</span>;
 
         <span class="macro">tracing::info!</span>(<span class="string">"Payout checker task started"</span>);
 
         <span class="comment">// track the operator's round state
         </span><span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
         </span>{
-            operator.track_rounds().<span class="kw">await</span><span class="question-mark">?</span>;
+            <span class="comment">// Will not start a new state machine if one for the operator already exists.
+            </span><span class="self">self</span>.operator.track_rounds().<span class="kw">await</span><span class="question-mark">?</span>;
             <span class="macro">tracing::info!</span>(<span class="string">"Operator round state tracked"</span>);
         }
 
-        <span class="prelude-val">Ok</span>(<span class="self">Self </span>{
-            operator,
-            background_tasks,
+        <span class="prelude-val">Ok</span>(())
+    }
+
+    <span class="kw">pub async fn </span>get_current_status(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span>&lt;EntityStatus, BridgeError&gt; {
+        <span class="kw">let </span>stopped_tasks = <span class="self">self</span>.background_tasks.get_stopped_tasks().<span class="kw">await</span>;
+        <span class="comment">// Determine if automation is enabled
+        </span><span class="kw">let </span>automation_enabled = <span class="macro">cfg!</span>(feature = <span class="string">"automation"</span>);
+
+        <span class="kw">let </span>sync_status =
+            Operator::&lt;C&gt;::get_l1_status(<span class="kw-2">&amp;</span><span class="self">self</span>.operator.db, <span class="kw-2">&amp;</span><span class="self">self</span>.operator.rpc).<span class="kw">await</span><span class="question-mark">?</span>;
+
+        <span class="prelude-val">Ok</span>(EntityStatus {
+            automation: automation_enabled,
+            wallet_balance: <span class="macro">format!</span>(<span class="string">"{} BTC"</span>, sync_status.wallet_balance.to_btc()),
+            tx_sender_synced_height: sync_status.tx_sender_synced_height.unwrap_or(<span class="number">0</span>),
+            finalized_synced_height: sync_status.finalized_synced_height.unwrap_or(<span class="number">0</span>),
+            hcp_last_proven_height: sync_status.hcp_last_proven_height.unwrap_or(<span class="number">0</span>),
+            rpc_tip_height: sync_status.rpc_tip_height,
+            bitcoin_syncer_synced_height: sync_status.btc_syncer_synced_height.unwrap_or(<span class="number">0</span>),
+            stopped_tasks: <span class="prelude-val">Some</span>(stopped_tasks),
+            state_manager_next_height: sync_status.state_manager_next_height.unwrap_or(<span class="number">0</span>),
         })
     }
 
     <span class="kw">pub async fn </span>shutdown(<span class="kw-2">&amp;mut </span><span class="self">self</span>) {
-        <span class="self">self</span>.background_tasks
-            .graceful_shutdown_with_timeout(Duration::from_secs(<span class="number">10</span>))
-            .<span class="kw">await</span>;
+        <span class="self">self</span>.background_tasks.graceful_shutdown().<span class="kw">await</span>;
     }
 }
 
@@ -2091,10 +2185,7 @@
         .<span class="kw">await</span><span class="question-mark">?</span>;
 
         <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
-        </span><span class="kw">let </span>tx_sender = TxSenderClient::new(
-            db.clone(),
-            <span class="macro">format!</span>(<span class="string">"operator_{:?}"</span>, signer.xonly_public_key).to_string(),
-        );
+        </span><span class="kw">let </span>tx_sender = TxSenderClient::new(db.clone(), <span class="self">Self</span>::TX_SENDER_CONSUMER_ID.to_string());
 
         <span class="kw">if </span>config.operator_withdrawal_fee_sats.is_none() {
             <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(<span class="string">"Operator withdrawal fee is not set"</span>).into());
@@ -3509,6 +3600,9 @@
     </span>C: CitreaClientT,
 {
     <span class="kw">const </span>ENTITY_NAME: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str = <span class="string">"operator"</span>;
+    <span class="comment">// operators use their verifier's tx sender
+    </span><span class="kw">const </span>TX_SENDER_CONSUMER_ID: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str = <span class="string">"verifier_tx_sender"</span>;
+    <span class="kw">const </span>FINALIZED_BLOCK_CONSUMER_ID: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str = <span class="string">"operator_finalized_block_fetcher"</span>;
 }
 
 <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]

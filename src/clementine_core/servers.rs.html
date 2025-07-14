@@ -389,10 +389,17 @@
 <a href="#388" id="388">388</a>
 <a href="#389" id="389">389</a>
 <a href="#390" id="390">390</a>
-<a href="#391" id="391">391</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Servers
+<a href="#391" id="391">391</a>
+<a href="#392" id="392">392</a>
+<a href="#393" id="393">393</a>
+<a href="#394" id="394">394</a>
+<a href="#395" id="395">395</a>
+<a href="#396" id="396">396</a>
+<a href="#397" id="397">397</a>
+<a href="#398" id="398">398</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Servers
 //!
 //! Utilities for operator and verifier servers.
-</span><span class="kw">use </span><span class="kw">crate</span>::aggregator::Aggregator;
+</span><span class="kw">use </span><span class="kw">crate</span>::aggregator::AggregatorServer;
 <span class="kw">use </span><span class="kw">crate</span>::citrea::CitreaClientT;
 <span class="kw">use </span><span class="kw">crate</span>::extended_rpc::ExtendedRpc;
 <span class="kw">use </span><span class="kw">crate</span>::operator::OperatorServer;
@@ -618,6 +625,7 @@
         .parse()
         .wrap_err(<span class="string">"Failed to parse address"</span>)<span class="question-mark">?</span>;
     <span class="kw">let </span>verifier = VerifierServer::&lt;C&gt;::new(config.clone()).<span class="kw">await</span><span class="question-mark">?</span>;
+    verifier.start_background_tasks().<span class="kw">await</span><span class="question-mark">?</span>;
     <span class="kw">let </span>svc = ClementineVerifierServer::new(verifier);
 
     <span class="kw">let </span>(server_addr, shutdown_tx) =
@@ -643,6 +651,7 @@
 
     <span class="macro">tracing::info!</span>(<span class="string">"Creating operator server"</span>);
     <span class="kw">let </span>operator = OperatorServer::&lt;C&gt;::new(config.clone()).<span class="kw">await</span><span class="question-mark">?</span>;
+    operator.start_background_tasks().<span class="kw">await</span><span class="question-mark">?</span>;
 
     <span class="macro">tracing::info!</span>(<span class="string">"Creating ClementineOperatorServer"</span>);
     <span class="kw">let </span>svc = ClementineOperatorServer::new(operator);
@@ -662,8 +671,10 @@
     <span class="kw">let </span>addr: std::net::SocketAddr = <span class="macro">format!</span>(<span class="string">"{}:{}"</span>, config.host, config.port)
         .parse()
         .wrap_err(<span class="string">"Failed to parse address"</span>)<span class="question-mark">?</span>;
-    <span class="kw">let </span>aggregator = Aggregator::new(config.clone()).<span class="kw">await</span><span class="question-mark">?</span>;
-    <span class="kw">let </span>svc = ClementineAggregatorServer::new(aggregator);
+    <span class="kw">let </span>aggregator_server = AggregatorServer::new(config.clone()).<span class="kw">await</span><span class="question-mark">?</span>;
+    aggregator_server.start_background_tasks().<span class="kw">await</span><span class="question-mark">?</span>;
+
+    <span class="kw">let </span>svc = ClementineAggregatorServer::new(aggregator_server);
 
     <span class="kw">if </span>config.client_verification {
         <span class="macro">tracing::warn!</span>(
@@ -698,6 +709,7 @@
     </span>.wrap_err(<span class="string">"Failed to connect to Bitcoin RPC"</span>)<span class="question-mark">?</span>;
 
     <span class="kw">let </span>verifier = VerifierServer::&lt;C&gt;::new(config.clone()).<span class="kw">await</span><span class="question-mark">?</span>;
+    verifier.start_background_tasks().<span class="kw">await</span><span class="question-mark">?</span>;
     <span class="kw">let </span>svc = ClementineVerifierServer::new(verifier);
 
     <span class="kw">let </span>(server_addr, shutdown_tx) =
@@ -733,6 +745,7 @@
     </span>.wrap_err(<span class="string">"Failed to connect to Bitcoin RPC"</span>)<span class="question-mark">?</span>;
 
     <span class="kw">let </span>operator = OperatorServer::&lt;C&gt;::new(config.clone()).<span class="kw">await</span><span class="question-mark">?</span>;
+    operator.start_background_tasks().<span class="kw">await</span><span class="question-mark">?</span>;
     <span class="kw">let </span>svc = ClementineOperatorServer::new(operator);
 
     <span class="kw">let </span>(server_addr, shutdown_tx) =
@@ -759,8 +772,9 @@
     config: BridgeConfig,
     socket_path: std::path::PathBuf,
 ) -&gt; <span class="prelude-ty">Result</span>&lt;(std::path::PathBuf, oneshot::Sender&lt;()&gt;), BridgeError&gt; {
-    <span class="kw">let </span>aggregator = Aggregator::new(config.clone()).<span class="kw">await</span><span class="question-mark">?</span>;
-    <span class="kw">let </span>svc = ClementineAggregatorServer::new(aggregator);
+    <span class="kw">let </span>aggregator_server = AggregatorServer::new(config.clone()).<span class="kw">await</span><span class="question-mark">?</span>;
+    aggregator_server.start_background_tasks().<span class="kw">await</span><span class="question-mark">?</span>;
+    <span class="kw">let </span>svc = ClementineAggregatorServer::new(aggregator_server);
 
     <span class="kw">let </span>(server_addr, shutdown_tx) =
         create_grpc_server(socket_path.into(), svc, <span class="string">"Aggregator"</span>, <span class="kw-2">&amp;</span>config).<span class="kw">await</span><span class="question-mark">?</span>;

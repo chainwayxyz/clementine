@@ -789,7 +789,78 @@
 <a href="#788" id="788">788</a>
 <a href="#789" id="789">789</a>
 <a href="#790" id="790">790</a>
-<a href="#791" id="791">791</a></pre></div><pre class="rust"><code><span class="kw">use super</span>::{
+<a href="#791" id="791">791</a>
+<a href="#792" id="792">792</a>
+<a href="#793" id="793">793</a>
+<a href="#794" id="794">794</a>
+<a href="#795" id="795">795</a>
+<a href="#796" id="796">796</a>
+<a href="#797" id="797">797</a>
+<a href="#798" id="798">798</a>
+<a href="#799" id="799">799</a>
+<a href="#800" id="800">800</a>
+<a href="#801" id="801">801</a>
+<a href="#802" id="802">802</a>
+<a href="#803" id="803">803</a>
+<a href="#804" id="804">804</a>
+<a href="#805" id="805">805</a>
+<a href="#806" id="806">806</a>
+<a href="#807" id="807">807</a>
+<a href="#808" id="808">808</a>
+<a href="#809" id="809">809</a>
+<a href="#810" id="810">810</a>
+<a href="#811" id="811">811</a>
+<a href="#812" id="812">812</a>
+<a href="#813" id="813">813</a>
+<a href="#814" id="814">814</a>
+<a href="#815" id="815">815</a>
+<a href="#816" id="816">816</a>
+<a href="#817" id="817">817</a>
+<a href="#818" id="818">818</a>
+<a href="#819" id="819">819</a>
+<a href="#820" id="820">820</a>
+<a href="#821" id="821">821</a>
+<a href="#822" id="822">822</a>
+<a href="#823" id="823">823</a>
+<a href="#824" id="824">824</a>
+<a href="#825" id="825">825</a>
+<a href="#826" id="826">826</a>
+<a href="#827" id="827">827</a>
+<a href="#828" id="828">828</a>
+<a href="#829" id="829">829</a>
+<a href="#830" id="830">830</a>
+<a href="#831" id="831">831</a>
+<a href="#832" id="832">832</a>
+<a href="#833" id="833">833</a>
+<a href="#834" id="834">834</a>
+<a href="#835" id="835">835</a>
+<a href="#836" id="836">836</a>
+<a href="#837" id="837">837</a>
+<a href="#838" id="838">838</a>
+<a href="#839" id="839">839</a>
+<a href="#840" id="840">840</a>
+<a href="#841" id="841">841</a>
+<a href="#842" id="842">842</a>
+<a href="#843" id="843">843</a>
+<a href="#844" id="844">844</a>
+<a href="#845" id="845">845</a>
+<a href="#846" id="846">846</a>
+<a href="#847" id="847">847</a>
+<a href="#848" id="848">848</a>
+<a href="#849" id="849">849</a>
+<a href="#850" id="850">850</a>
+<a href="#851" id="851">851</a>
+<a href="#852" id="852">852</a>
+<a href="#853" id="853">853</a>
+<a href="#854" id="854">854</a>
+<a href="#855" id="855">855</a>
+<a href="#856" id="856">856</a>
+<a href="#857" id="857">857</a>
+<a href="#858" id="858">858</a>
+<a href="#859" id="859">859</a>
+<a href="#860" id="860">860</a>
+<a href="#861" id="861">861</a>
+<a href="#862" id="862">862</a></pre></div><pre class="rust"><code><span class="kw">use super</span>::{
     wrapper::{BlockHashDB, TxidDB},
     Database, DatabaseTransaction,
 };
@@ -823,7 +894,9 @@
             .map_err(Into::into)
     }
 
-    <span class="kw">pub async fn </span>set_block_as_canonical_if_exists(
+    <span class="doccomment">/// Sets the block with given block hash as canonical if it exists in the database
+    /// Returns the block id if the block was found and set as canonical, None otherwise
+    </span><span class="kw">pub async fn </span>set_block_as_canonical_if_exists(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
         block_hash: BlockHash,
@@ -868,7 +941,8 @@
         .transpose()
     }
 
-    <span class="kw">pub async fn </span>get_block_info_from_id(
+    <span class="doccomment">/// Gets block hash and height from block id (internal id used in bitcoin_syncer)
+    </span><span class="kw">pub async fn </span>get_block_info_from_id(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
         block_id: u32,
@@ -888,7 +962,8 @@
         .transpose()
     }
 
-    <span class="kw">pub async fn </span>store_full_block(
+    <span class="doccomment">/// Stores the full block in bytes in the database, with its height and hash
+    </span><span class="kw">pub async fn </span>store_full_block(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
         block: <span class="kw-2">&amp;</span>bitcoin::Block,
@@ -907,7 +982,8 @@
         <span class="prelude-val">Ok</span>(())
     }
 
-    <span class="kw">pub async fn </span>get_full_block(
+    <span class="doccomment">/// Gets the full block from the database, given the block height
+    </span><span class="kw">pub async fn </span>get_full_block(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
         block_height: u32,
@@ -928,7 +1004,8 @@
         }
     }
 
-    <span class="kw">pub async fn </span>get_full_block_from_hash(
+    <span class="doccomment">/// Gets the full block and its height from the database, given the block hash
+    </span><span class="kw">pub async fn </span>get_full_block_from_hash(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
         block_hash: BlockHash,
@@ -951,7 +1028,8 @@
         }
     }
 
-    <span class="kw">pub async fn </span>get_max_height(
+    <span class="doccomment">/// Gets the maximum height of the canonical blocks in the bitcoin_syncer database
+    </span><span class="kw">pub async fn </span>get_max_height(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;u32&gt;, BridgeError&gt; {
@@ -967,6 +1045,7 @@
     }
 
     <span class="doccomment">/// Gets the block hashes that have height bigger then the given height and deletes them.
+    /// Marks blocks with height greater than the given height as non-canonical.
     </span><span class="kw">pub async fn </span>set_non_canonical_block_hashes(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
@@ -990,7 +1069,8 @@
             .map_err(Into::into)
     }
 
-    <span class="kw">pub async fn </span>get_canonical_block_id_from_height(
+    <span class="doccomment">/// Gets the block id of the canonical block at the given height
+    </span><span class="kw">pub async fn </span>get_canonical_block_id_from_height(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
         height: u32,
@@ -1009,7 +1089,8 @@
             .map_err(Into::into)
     }
 
-    <span class="kw">pub async fn </span>add_txid_to_block(
+    <span class="doccomment">/// Saves the txid with the id of the block that contains it to the database
+    </span><span class="kw">pub async fn </span>add_txid_to_block(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         tx: DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;,
         block_id: u32,
@@ -1023,7 +1104,9 @@
 
         <span class="prelude-val">Ok</span>(())
     }
-    <span class="kw">pub async fn </span>get_block_txids(
+
+    <span class="doccomment">/// Gets all the txids that are contained in the block with the given id
+    </span><span class="kw">pub async fn </span>get_block_txids(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
         block_id: u32,
@@ -1036,7 +1119,8 @@
         <span class="prelude-val">Ok</span>(txids.into_iter().map(|(txid,)| txid.<span class="number">0</span>).collect())
     }
 
-    <span class="kw">pub async fn </span>insert_spent_utxo(
+    <span class="doccomment">/// Inserts a spent utxo into the database, with the block id that contains it, the spending txid and the vout
+    </span><span class="kw">pub async fn </span>insert_spent_utxo(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         tx: DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;,
         block_id: u32,
@@ -1055,7 +1139,9 @@
         .<span class="kw">await</span><span class="question-mark">?</span>;
         <span class="prelude-val">Ok</span>(())
     }
-    <span class="kw">pub async fn </span>get_spent_utxos_for_txid(
+
+    <span class="doccomment">/// Gets all the spent utxos for a given txid
+    </span><span class="kw">pub async fn </span>get_spent_utxos_for_txid(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
         txid: Txid,
@@ -1079,7 +1165,8 @@
             .collect::&lt;<span class="prelude-ty">Result</span>&lt;Vec&lt;<span class="kw">_</span>&gt;, BridgeError&gt;&gt;()
     }
 
-    <span class="kw">pub async fn </span>add_event(
+    <span class="doccomment">/// Adds a bitcoin syncer event to the database. These events can currently be new block or reorged block.
+    </span><span class="kw">pub async fn </span>add_event(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
         event_type: BitcoinSyncerEvent,
@@ -1098,11 +1185,56 @@
         <span class="prelude-val">Ok</span>(())
     }
 
-    <span class="kw">pub async fn </span>fetch_next_bitcoin_syncer_evt(
+    <span class="doccomment">/// Gets a bitcoin syncer event from the database, given the event id
+    /// event id is the serial key of the bitcoin_syncer_events table
+    </span><span class="kw">pub async fn </span>get_event(
+        <span class="kw-2">&amp;</span><span class="self">self</span>,
+        tx: DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;,
+        event_id: i32,
+    ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;BitcoinSyncerEvent&gt;, BridgeError&gt; {
+        <span class="kw">let </span>event = sqlx::query_as::&lt;<span class="kw">_</span>, (String, i32)&gt;(
+            <span class="string">"SELECT event_type::text, block_id FROM bitcoin_syncer_events WHERE id = $1"</span>,
+        )
+        .bind(event_id)
+        .fetch_optional(tx.deref_mut())
+        .<span class="kw">await</span><span class="question-mark">?</span>;
+
+        <span class="kw">match </span>event {
+            <span class="prelude-val">Some</span>(event) =&gt; <span class="prelude-val">Ok</span>(<span class="prelude-val">Some</span>(event.try_into()<span class="question-mark">?</span>)),
+            <span class="prelude-val">None </span>=&gt; <span class="prelude-val">Ok</span>(<span class="prelude-val">None</span>),
+        }
+    }
+
+    <span class="doccomment">/// Returns the last processed Bitcoin Syncer event's block height.
+    /// If the last processed event is missing, returns `None`.
+    </span><span class="kw">pub async fn </span>get_last_processed_event_block_height(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         tx: DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;,
         consumer_handle: <span class="kw-2">&amp;</span>str,
-    ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;BitcoinSyncerEvent&gt;, BridgeError&gt; {
+    ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;u32&gt;, BridgeError&gt; {
+        <span class="kw">let </span>event_id = <span class="self">self
+            </span>.get_last_processed_event_id(tx, consumer_handle)
+            .<span class="kw">await</span><span class="question-mark">?</span>;
+        <span class="kw">let </span>event = <span class="self">self</span>.get_event(tx, event_id).<span class="kw">await</span><span class="question-mark">?</span>;
+        <span class="kw">let </span>block_id = <span class="kw">match </span>event {
+            <span class="prelude-val">Some</span>(BitcoinSyncerEvent::NewBlock(id)) | <span class="prelude-val">Some</span>(BitcoinSyncerEvent::ReorgedBlock(id)) =&gt; {
+                id
+            }
+            <span class="prelude-val">None </span>=&gt; <span class="kw">return </span><span class="prelude-val">Ok</span>(<span class="prelude-val">None</span>),
+        };
+        <span class="kw">let </span>block_info = <span class="self">self</span>.get_block_info_from_id(<span class="prelude-val">Some</span>(tx), block_id).<span class="kw">await</span><span class="question-mark">?</span>;
+        <span class="kw">match </span>block_info {
+            <span class="prelude-val">Some</span>((<span class="kw">_</span>, height)) =&gt; <span class="prelude-val">Ok</span>(<span class="prelude-val">Some</span>(height)),
+            <span class="prelude-val">None </span>=&gt; <span class="prelude-val">Ok</span>(<span class="prelude-val">None</span>),
+        }
+    }
+
+    <span class="doccomment">/// Gets the last processed event id for a given consumer
+    </span><span class="kw">pub async fn </span>get_last_processed_event_id(
+        <span class="kw-2">&amp;</span><span class="self">self</span>,
+        tx: DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;,
+        consumer_handle: <span class="kw-2">&amp;</span>str,
+    ) -&gt; <span class="prelude-ty">Result</span>&lt;i32, BridgeError&gt; {
         <span class="comment">// Step 1: Insert the consumer_handle if it doesn't exist
         </span>sqlx::query(
             <span class="string">r#"
@@ -1127,7 +1259,25 @@
         .fetch_one(tx.deref_mut())
         .<span class="kw">await</span><span class="question-mark">?</span>;
 
-        <span class="comment">// Step 3: Retrieve the next event that hasn't been processed yet
+        <span class="prelude-val">Ok</span>(last_processed_event_id)
+    }
+
+    <span class="doccomment">/// Fetches the next bitcoin syncer event for a given consumer
+    /// This function is used to fetch the next event that hasn't been processed yet
+    /// It will return the event which includes the event type and the block id
+    /// The last updated event id is also updated to the id that is returned
+    /// If there are no more events to fetch, None is returned
+    </span><span class="kw">pub async fn </span>fetch_next_bitcoin_syncer_evt(
+        <span class="kw-2">&amp;</span><span class="self">self</span>,
+        tx: DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;,
+        consumer_handle: <span class="kw-2">&amp;</span>str,
+    ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;BitcoinSyncerEvent&gt;, BridgeError&gt; {
+        <span class="comment">// Get the last processed event ID for this consumer
+        </span><span class="kw">let </span>last_processed_event_id = <span class="self">self
+            </span>.get_last_processed_event_id(tx, consumer_handle)
+            .<span class="kw">await</span><span class="question-mark">?</span>;
+
+        <span class="comment">// Retrieve the next event that hasn't been processed yet
         </span><span class="kw">let </span>event = sqlx::query_as::&lt;<span class="kw">_</span>, (i32, i32, String)&gt;(
             <span class="string">r#"
             SELECT id, block_id, event_type::text
@@ -1146,18 +1296,10 @@
         }
 
         <span class="kw">let </span>event = event.expect(<span class="string">"should exist since we checked is_none()"</span>);
-        <span class="kw">let </span>event_type = <span class="kw">match </span>event.<span class="number">2</span>.as_str() {
-            <span class="string">"new_block" </span>=&gt; BitcoinSyncerEvent::NewBlock(
-                u32::try_from(event.<span class="number">1</span>).wrap_err(BridgeError::IntConversionError)<span class="question-mark">?</span>,
-            ),
-            <span class="string">"reorged_block" </span>=&gt; BitcoinSyncerEvent::ReorgedBlock(
-                u32::try_from(event.<span class="number">1</span>).wrap_err(BridgeError::IntConversionError)<span class="question-mark">?</span>,
-            ),
-            <span class="kw">_ </span>=&gt; <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(<span class="string">"Invalid event type"</span>).into()),
-        };
         <span class="kw">let </span>event_id = event.<span class="number">0</span>;
+        <span class="kw">let </span>event_type: BitcoinSyncerEvent = (event.<span class="number">2</span>, event.<span class="number">1</span>).try_into()<span class="question-mark">?</span>;
 
-        <span class="comment">// Step 5: Update last_processed_event_id for this consumer
+        <span class="comment">// Update last_processed_event_id for this consumer
         </span>sqlx::query(
             <span class="string">r#"
             UPDATE bitcoin_syncer_event_handlers

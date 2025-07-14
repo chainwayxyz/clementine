@@ -194,7 +194,10 @@
 <a href="#193" id="193">193</a>
 <a href="#194" id="194">194</a>
 <a href="#195" id="195">195</a>
-<a href="#196" id="196">196</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::config::protocol::ProtocolParamset;
+<a href="#196" id="196">196</a>
+<a href="#197" id="197">197</a>
+<a href="#198" id="198">198</a>
+<a href="#199" id="199">199</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::config::protocol::ProtocolParamset;
 <span class="kw">use </span><span class="kw">crate</span>::database::DatabaseTransaction;
 <span class="kw">use </span><span class="kw">crate</span>::deposit::{DepositData, KickoffData};
 <span class="kw">use </span><span class="kw">crate</span>::operator::RoundIndex;
@@ -308,16 +311,19 @@
 
 <span class="doccomment">/// Owner trait with async handling and tx handler creation
 </span><span class="attr">#[async_trait]
-</span><span class="kw">pub trait </span>Owner: Send + Sync + Clone + NamedEntity {
-    <span class="doccomment">/// Handle a duty
+</span><span class="kw">pub trait </span>Owner: Clone + NamedEntity {
+    <span class="doccomment">/// Handle a protocol-related duty
     </span><span class="kw">async fn </span>handle_duty(<span class="kw-2">&amp;</span><span class="self">self</span>, duty: Duty) -&gt; <span class="prelude-ty">Result</span>&lt;DutyResult, BridgeError&gt;;
-    <span class="kw">async fn </span>create_txhandlers(
+
+    <span class="doccomment">/// Create the transactions for an instance of the L1 contract
+    </span><span class="kw">async fn </span>create_txhandlers(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         tx_type: TransactionType,
         contract_context: ContractContext,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;BTreeMap&lt;TransactionType, TxHandler&gt;, BridgeError&gt;;
 
-    <span class="kw">async fn </span>handle_finalized_block(
+    <span class="doccomment">/// Handle a new finalized block
+    </span><span class="kw">async fn </span>handle_finalized_block(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         dbtx: DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;,
         block_id: u32,

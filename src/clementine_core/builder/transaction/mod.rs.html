@@ -770,7 +770,10 @@
 <a href="#769" id="769">769</a>
 <a href="#770" id="770">770</a>
 <a href="#771" id="771">771</a>
-<a href="#772" id="772">772</a></pre></div><pre class="rust"><code><span class="doccomment">//! # builder::transaction
+<a href="#772" id="772">772</a>
+<a href="#773" id="773">773</a>
+<a href="#774" id="774">774</a>
+<a href="#775" id="775">775</a></pre></div><pre class="rust"><code><span class="doccomment">//! # builder::transaction
 //!
 //!
 //! This module provides the core logic for constructing, handling, and signing the various Bitcoin transactions
@@ -903,38 +906,43 @@
     </span>Other(<span class="attr">#[from] </span>eyre::Report),
 }
 
-<span class="doccomment">/// Types of all transactions that can be created. Some transactions have an (usize) as they are created
-/// multiple times per kickoff.
+<span class="doccomment">/// Types of all transactions that can be created. Some transactions have a
+/// (usize) index as there are multiple instances of the same transaction type
+/// per kickoff.
 </span><span class="attr">#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Ord, PartialOrd, Serialize, Deserialize)]
 </span><span class="kw">pub enum </span>TransactionType {
-    Round,
-    Kickoff,
-    MoveToVault,
-    EmergencyStop,
-    Payout,
+    <span class="comment">// --- Transaction Types ---
+    </span>AssertTimeout(usize),
+    BurnUnusedKickoffConnectors,
     Challenge,
-    UnspentKickoff(usize),
-    WatchtowerChallengeTimeout(usize),
-    WatchtowerChallenge(usize),
-    OperatorChallengeNack(usize),
-    OperatorChallengeAck(usize),
-    AssertTimeout(usize),
-    MiniAssert(usize),
+    ChallengeTimeout,
     Disprove,
     DisproveTimeout,
-    Reimburse,
-    AllNeededForDeposit, <span class="comment">// this will include all tx's that is to be signed for a deposit for verifiers
-    </span>Dummy,               <span class="comment">// for tests
-    </span>ReadyToReimburse,
+    EmergencyStop,
+    Kickoff,
     KickoffNotFinalized,
-    ChallengeTimeout,
-    BurnUnusedKickoffConnectors,
-    YieldKickoffTxid, <span class="comment">// This is just to yield kickoff txid from the sighash stream, not used for anything else, sorry
-    </span>BaseDeposit,
-    ReplacementDeposit,
-    LatestBlockhashTimeout,
     LatestBlockhash,
+    LatestBlockhashTimeout,
+    MiniAssert(usize),
+    MoveToVault,
+    OperatorChallengeAck(usize),
+    OperatorChallengeNack(usize),
     OptimisticPayout,
+    Payout,
+    ReadyToReimburse,
+    Reimburse,
+    ReplacementDeposit,
+    Round,
+    UnspentKickoff(usize),
+    WatchtowerChallenge(usize),
+    WatchtowerChallengeTimeout(usize),
+
+    <span class="comment">// --- Transaction Subsets ---
+    </span>AllNeededForDeposit, <span class="comment">// this will include all tx's that is to be signed for a deposit for verifiers
+    </span>YieldKickoffTxid, <span class="comment">// This is just to yield kickoff txid from the sighash stream, not used for anything else, sorry
+
+    </span><span class="doccomment">/// For testing and for values to be replaced later.
+    </span>Dummy,
 }
 
 <span class="comment">// converter from proto type to rust enum
@@ -965,7 +973,6 @@
                     Normal::UnspecifiedTransactionType =&gt; <span class="prelude-val">Err</span>(::prost::UnknownEnumValue(idx)),
                     Normal::BurnUnusedKickoffConnectors =&gt; <span class="prelude-val">Ok</span>(<span class="self">Self</span>::BurnUnusedKickoffConnectors),
                     Normal::YieldKickoffTxid =&gt; <span class="prelude-val">Ok</span>(<span class="self">Self</span>::YieldKickoffTxid),
-                    Normal::BaseDeposit =&gt; <span class="prelude-val">Ok</span>(<span class="self">Self</span>::BaseDeposit),
                     Normal::ReplacementDeposit =&gt; <span class="prelude-val">Ok</span>(<span class="self">Self</span>::ReplacementDeposit),
                     Normal::LatestBlockhashTimeout =&gt; <span class="prelude-val">Ok</span>(<span class="self">Self</span>::LatestBlockhashTimeout),
                     Normal::LatestBlockhash =&gt; <span class="prelude-val">Ok</span>(<span class="self">Self</span>::LatestBlockhash),
@@ -1033,7 +1040,6 @@
                 TransactionType::ChallengeTimeout =&gt; {
                     NormalTransaction(Normal::ChallengeTimeout <span class="kw">as </span>i32)
                 }
-                TransactionType::BaseDeposit =&gt; NormalTransaction(Normal::BaseDeposit <span class="kw">as </span>i32),
                 TransactionType::ReplacementDeposit =&gt; {
                     NormalTransaction(Normal::ReplacementDeposit <span class="kw">as </span>i32)
                 }

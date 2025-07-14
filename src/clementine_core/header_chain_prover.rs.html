@@ -1238,7 +1238,8 @@
 <a href="#1237" id="1237">1237</a>
 <a href="#1238" id="1238">1238</a>
 <a href="#1239" id="1239">1239</a>
-<a href="#1240" id="1240">1240</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Header Chain Prover
+<a href="#1240" id="1240">1240</a>
+<a href="#1241" id="1241">1241</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Header Chain Prover
 //!
 //! This module contains utilities for proving Bitcoin block headers. This
 //! module must be fed with new blocks via the database. Later, it can check if
@@ -2454,6 +2455,7 @@
         <span class="kw">let </span>verifier = VerifierServer::&lt;MockCitreaClient&gt;::new(config)
             .<span class="kw">await
             </span>.unwrap();
+        verifier.start_background_tasks().<span class="kw">await</span>.unwrap();
         <span class="comment">// Make sure enough blocks to prove and is finalized.
         </span>rpc.mine_blocks((batch_size + <span class="number">10</span>).into()).<span class="kw">await</span>.unwrap();
 

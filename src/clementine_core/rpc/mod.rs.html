@@ -168,7 +168,9 @@
 <a href="#167" id="167">167</a>
 <a href="#168" id="168">168</a>
 <a href="#169" id="169">169</a>
-<a href="#170" id="170">170</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
+<a href="#170" id="170">170</a>
+<a href="#171" id="171">171</a>
+<a href="#172" id="172">172</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
 <span class="kw">use </span>clementine::<span class="kw-2">*</span>;
 <span class="kw">use </span>eyre::Context;
 <span class="kw">use </span>hyper_util::rt::TokioIo;
@@ -328,7 +330,9 @@
                             .wrap_err(<span class="string">"Failed to configure TLS"</span>)<span class="question-mark">?
                             </span>.connect()
                             .<span class="kw">await
-                            </span>.wrap_err(<span class="string">"Failed to connect to endpoint"</span>)<span class="question-mark">?
+                            </span>.wrap_err_with(|| {
+                                <span class="macro">format!</span>(<span class="string">"Failed to connect to endpoint {}"</span>, endpoint)
+                            })<span class="question-mark">?
                     </span>};
 
                     <span class="prelude-val">Ok</span>(connect(channel))

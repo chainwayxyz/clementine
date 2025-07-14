@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"struct":["Aggregator","OperatorId","ParticipatingOperators","ParticipatingVerifiers","VerifierId"]};
+window.SIDEBAR_ITEMS = {"enum":["EntityId"],"struct":["Aggregator","AggregatorServer","OperatorId","ParticipatingOperators","ParticipatingVerifiers","VerifierId"]};
