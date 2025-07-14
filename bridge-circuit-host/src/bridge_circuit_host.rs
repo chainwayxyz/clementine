@@ -385,7 +385,11 @@ mod tests {
 
     use borsh::BorshDeserialize;
     use circuits_lib::{
-        bridge_circuit::structs::WorkOnlyCircuitOutput,
+        bridge_circuit::{
+            constants::REGTEST_WORK_ONLY_METHOD_ID,
+            structs::{ChallengeSendingWatchtowers, TotalWork, WorkOnlyCircuitOutput},
+            total_work_and_watchtower_flags,
+        },
         common::zkvm::ZkvmHost,
         header_chain::{
             header_chain_circuit, BlockHeaderCircuitOutput, ChainState, CircuitBlockHeader,
@@ -515,6 +519,43 @@ mod tests {
             .expect("Failed to build execution environment");
 
         executor.execute(env, bridge_circuit_elf).unwrap();
+    }
+
+    #[test]
+    #[allow(clippy::print_literal)]
+    #[ignore = "This test should be run with 'use-test-vk' feature enabled."]
+    fn test_varying_total_works_first_two_valid() {
+        eprintln!("{}Please update test data if the elf files are changed. Run the tests on bridge_circuit_test_data.rs to update the test data.{}", "\x1b[31m", "\x1b[0m");
+        let bridge_circuit_host_params_serialized =
+            include_bytes!("../bin-files/bch_params_varying_total_works_first_two_valid.bin");
+        let bridge_circuit_host_params: BridgeCircuitHostParams =
+            borsh::BorshDeserialize::try_from_slice(bridge_circuit_host_params_serialized)
+                .expect("Failed to deserialize BridgeCircuitHostParams");
+
+        let bridge_circuit_input = bridge_circuit_host_params
+            .clone()
+            .into_bridge_circuit_input();
+
+        for watchtower_input in &bridge_circuit_input.watchtower_inputs {
+            println!(
+                "Watchtower input: {:?}",
+                watchtower_input.watchtower_challenge_tx.output[2]
+            );
+        }
+
+        let (total_work, challenge_sending_wts) =
+            total_work_and_watchtower_flags(&bridge_circuit_input, &REGTEST_WORK_ONLY_METHOD_ID);
+
+        let expected_total_work = TotalWork([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 64]);
+        let expected_challenge_sending_wts = ChallengeSendingWatchtowers([
+            15, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        ]);
+
+        assert_eq!(total_work, expected_total_work, "Total work mismatch");
+        assert_eq!(
+            challenge_sending_wts, expected_challenge_sending_wts,
+            "Challenge sending watchtowers mismatch"
+        );
     }
 
     #[test]
