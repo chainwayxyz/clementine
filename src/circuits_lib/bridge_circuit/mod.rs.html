@@ -1975,7 +1975,7 @@
 
 <span class="doccomment">/// Retrieves the first output of a transaction that is an OP_RETURN script. Used to retrieve
 /// the operator's X-only public key from the OP_RETURN output in the payout transaction.
-</span><span class="kw">fn </span>get_first_op_return_output(tx: <span class="kw-2">&amp;</span>CircuitTransaction) -&gt; <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span>TxOut&gt; {
+</span><span class="kw">pub fn </span>get_first_op_return_output(tx: <span class="kw-2">&amp;</span>CircuitTransaction) -&gt; <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span>TxOut&gt; {
     tx.output
         .iter()
         .find(|out| out.script_pubkey.is_op_return())

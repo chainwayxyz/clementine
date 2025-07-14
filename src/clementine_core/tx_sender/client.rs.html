@@ -433,7 +433,8 @@
 <a href="#432" id="432">432</a>
 <a href="#433" id="433">433</a>
 <a href="#434" id="434">434</a>
-<a href="#435" id="435">435</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::Result;
+<a href="#435" id="435">435</a>
+<a href="#436" id="436">436</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::Result;
 <span class="kw">use super</span>::{ActivatedWithOutpoint, ActivatedWithTxid};
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::input::UtxoVout;
 <span class="kw">use </span><span class="kw">crate</span>::errors::ResultExt;
@@ -654,7 +655,6 @@
             | TransactionType::Round
             | TransactionType::OperatorChallengeNack(<span class="kw">_</span>)
             | TransactionType::UnspentKickoff(<span class="kw">_</span>)
-            | TransactionType::Payout
             | TransactionType::MoveToVault
             | TransactionType::BurnUnusedKickoffConnectors
             | TransactionType::KickoffNotFinalized
@@ -680,7 +680,9 @@
                 )
                 .<span class="kw">await
             </span>}
-            TransactionType::Challenge | TransactionType::WatchtowerChallenge(<span class="kw">_</span>) =&gt; {
+            TransactionType::Challenge
+            | TransactionType::WatchtowerChallenge(<span class="kw">_</span>)
+            | TransactionType::Payout =&gt; {
                 <span class="self">self</span>.insert_try_to_send(
                     dbtx,
                     tx_metadata,

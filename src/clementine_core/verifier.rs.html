@@ -2792,8 +2792,7 @@
 <a href="#2791" id="2791">2791</a>
 <a href="#2792" id="2792">2792</a>
 <a href="#2793" id="2793">2793</a>
-<a href="#2794" id="2794">2794</a>
-<a href="#2795" id="2795">2795</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
+<a href="#2794" id="2794">2794</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
 <span class="kw">use </span><span class="kw">crate</span>::bitcoin_syncer::BitcoinSyncer;
 <span class="kw">use </span><span class="kw">crate</span>::bitvm_client::ClementineBitVMPublicKeys;
 <span class="kw">use </span><span class="kw">crate</span>::builder::address::{create_taproot_address, taproot_builder_with_scripts};
@@ -2833,7 +2832,6 @@
 <span class="kw">use crate</span>::{musig2, UTXO};
 <span class="kw">use </span>bitcoin::hashes::Hash;
 <span class="kw">use </span>bitcoin::key::Secp256k1;
-<span class="kw">use </span>bitcoin::opcodes::all::OP_RETURN;
 <span class="kw">use </span>bitcoin::script::Instruction;
 <span class="kw">use </span>bitcoin::secp256k1::schnorr::Signature;
 <span class="kw">use </span>bitcoin::secp256k1::Message;
@@ -2850,7 +2848,10 @@
 </span><span class="kw">use </span>bridge_circuit_host::utils::get_ark_verifying_key;
 <span class="kw">use </span>bridge_circuit_host::utils::get_ark_verifying_key_dev_mode_bridge;
 <span class="kw">use </span>circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
-<span class="kw">use </span>circuits_lib::bridge_circuit::{deposit_constant, parse_op_return_data};
+<span class="kw">use </span>circuits_lib::bridge_circuit::transaction::CircuitTransaction;
+<span class="kw">use </span>circuits_lib::bridge_circuit::{
+    deposit_constant, get_first_op_return_output, parse_op_return_data,
+};
 <span class="kw">use </span>eyre::{Context, ContextCompat, OptionExt, <span class="prelude-ty">Result</span>};
 <span class="kw">use </span>risc0_zkvm::is_dev_mode;
 <span class="kw">use </span>secp256k1::musig::{AggregatedNonce, PartialSignature, PublicNonce, SecretNonce};
@@ -3875,8 +3876,7 @@
         </span><span class="kw">let </span>withdrawal_utxo = <span class="self">self
             </span>.db
             .get_withdrawal_utxo_from_citrea_withdrawal(<span class="prelude-val">None</span>, deposit_id)
-            .<span class="kw">await</span><span class="question-mark">?
-            </span>.ok_or_eyre(<span class="string">"Withdrawal utxo not found"</span>)<span class="question-mark">?</span>;
+            .<span class="kw">await</span><span class="question-mark">?</span>;
         <span class="kw">if </span>withdrawal_utxo != input_outpoint {
             <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(
                 <span class="string">"Withdrawal utxo is not correct: {:?} != {:?}"</span>,
@@ -4423,11 +4423,9 @@
             }
             <span class="kw">let </span>payout_tx_idx = payout_tx_idx.expect(<span class="string">"Payout tx not found in block cache"</span>);
             <span class="kw">let </span>payout_tx = <span class="kw-2">&amp;</span>block.txdata[<span class="kw-2">*</span>payout_tx_idx];
-            <span class="comment">// Find the output that contains OP_RETURN
-            </span><span class="kw">let </span>op_return_output = payout_tx.output.iter().find(|output| {
-                <span class="kw">let </span>script_bytes = output.script_pubkey.to_bytes();
-                !script_bytes.is_empty() &amp;&amp; script_bytes[<span class="number">0</span>] == OP_RETURN.to_u8()
-            });
+            <span class="comment">// Find the first output that contains OP_RETURN
+            </span><span class="kw">let </span>circuit_payout_tx = CircuitTransaction::from(payout_tx.clone());
+            <span class="kw">let </span>op_return_output = get_first_op_return_output(<span class="kw-2">&amp;</span>circuit_payout_tx);
 
             <span class="comment">// If OP_RETURN doesn't exist in any outputs, or the data in OP_RETURN is not a valid xonly_pubkey,
             // operator_xonly_pk will be set to None, and the corresponding column in DB set to NULL.

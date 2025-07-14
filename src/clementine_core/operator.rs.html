@@ -1876,35 +1876,7 @@
 <a href="#1875" id="1875">1875</a>
 <a href="#1876" id="1876">1876</a>
 <a href="#1877" id="1877">1877</a>
-<a href="#1878" id="1878">1878</a>
-<a href="#1879" id="1879">1879</a>
-<a href="#1880" id="1880">1880</a>
-<a href="#1881" id="1881">1881</a>
-<a href="#1882" id="1882">1882</a>
-<a href="#1883" id="1883">1883</a>
-<a href="#1884" id="1884">1884</a>
-<a href="#1885" id="1885">1885</a>
-<a href="#1886" id="1886">1886</a>
-<a href="#1887" id="1887">1887</a>
-<a href="#1888" id="1888">1888</a>
-<a href="#1889" id="1889">1889</a>
-<a href="#1890" id="1890">1890</a>
-<a href="#1891" id="1891">1891</a>
-<a href="#1892" id="1892">1892</a>
-<a href="#1893" id="1893">1893</a>
-<a href="#1894" id="1894">1894</a>
-<a href="#1895" id="1895">1895</a>
-<a href="#1896" id="1896">1896</a>
-<a href="#1897" id="1897">1897</a>
-<a href="#1898" id="1898">1898</a>
-<a href="#1899" id="1899">1899</a>
-<a href="#1900" id="1900">1900</a>
-<a href="#1901" id="1901">1901</a>
-<a href="#1902" id="1902">1902</a>
-<a href="#1903" id="1903">1903</a>
-<a href="#1904" id="1904">1904</a>
-<a href="#1905" id="1905">1905</a>
-<a href="#1906" id="1906">1906</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_ff::PrimeField;
+<a href="#1878" id="1878">1878</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_ff::PrimeField;
 <span class="kw">use </span>circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
 <span class="kw">use </span>risc0_zkvm::is_dev_mode;
 <span class="kw">use </span>std::collections::HashMap;
@@ -1934,12 +1906,11 @@
 <span class="kw">use </span><span class="kw">crate</span>::utils::Last20Bytes;
 <span class="kw">use </span><span class="kw">crate</span>::utils::{NamedEntity, TxMetadata};
 <span class="kw">use crate</span>::{builder, constants, UTXO};
-<span class="kw">use </span>bitcoin::consensus::deserialize;
 <span class="kw">use </span>bitcoin::hashes::Hash;
 <span class="kw">use </span>bitcoin::secp256k1::schnorr::Signature;
 <span class="kw">use </span>bitcoin::secp256k1::{schnorr, Message};
 <span class="kw">use </span>bitcoin::{
-    Address, Amount, BlockHash, OutPoint, ScriptBuf, Transaction, TxOut, Txid, XOnlyPublicKey,
+    Address, Amount, BlockHash, OutPoint, ScriptBuf, Transaction, TxOut, XOnlyPublicKey,
 };
 <span class="kw">use </span>bitcoincore_rpc::json::AddressType;
 <span class="kw">use </span>bitcoincore_rpc::RpcApi;
@@ -2415,7 +2386,7 @@
     /// 1. Checking if the withdrawal has been made on Citrea
     /// 2. Verifying the given signature
     /// 3. Checking if the withdrawal is profitable or not
-    /// 4. Funding the witdhrawal transaction
+    /// 4. Funding the witdhrawal transaction using TxSender RBF option
     ///
     /// # Parameters
     ///
@@ -2429,7 +2400,9 @@
     ///
     /// # Returns
     ///
-    /// - [`Txid`]: Payout transaction's txid
+    /// - Ok(()) if the withdrawal checks are successful and a payout transaction is added to the TxSender
+    /// - Err(BridgeError) if the withdrawal checks fail
+    </span><span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
     </span><span class="kw">pub async fn </span>withdraw(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         withdrawal_index: u32,
@@ -2437,7 +2410,7 @@
         in_outpoint: OutPoint,
         out_script_pubkey: ScriptBuf,
         out_amount: Amount,
-    ) -&gt; <span class="prelude-ty">Result</span>&lt;Txid, BridgeError&gt; {
+    ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
         <span class="macro">tracing::info!</span>(
             <span class="string">"Withdrawing with index: {}, in_signature: {}, in_outpoint: {:?}, out_script_pubkey: {}, out_amount: {}"</span>,
             withdrawal_index,
@@ -2464,19 +2437,8 @@
             .get_withdrawal_utxo_from_citrea_withdrawal(<span class="prelude-val">None</span>, withdrawal_index)
             .<span class="kw">await</span><span class="question-mark">?</span>;
 
-        <span class="kw">match </span>withdrawal_utxo {
-            <span class="prelude-val">Some</span>(withdrawal_utxo) =&gt; {
-                <span class="kw">if </span>withdrawal_utxo != input_utxo.outpoint {
-                    <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(<span class="string">"Input UTXO does not match withdrawal UTXO from Citrea: Input Outpoint: {0}, Withdrawal Outpoint (from Citrea): {1}"</span>, input_utxo.outpoint, withdrawal_utxo).into());
-                }
-            }
-            <span class="prelude-val">None </span>=&gt; {
-                <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(
-                    <span class="string">"User's withdrawal UTXO is not set for withdrawal index: {0}"</span>,
-                    withdrawal_index
-                )
-                .into());
-            }
+        <span class="kw">if </span>withdrawal_utxo != input_utxo.outpoint {
+            <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(<span class="string">"Input UTXO does not match withdrawal UTXO from Citrea: Input Outpoint: {0}, Withdrawal Outpoint (from Citrea): {1}"</span>, input_utxo.outpoint, withdrawal_utxo).into());
         }
 
         <span class="kw">let </span>operator_withdrawal_fee_sats =
@@ -2519,47 +2481,29 @@
         )
         .wrap_err(<span class="string">"Failed to verify signature received from user for payout txin"</span>)<span class="question-mark">?</span>;
 
-        <span class="kw">let </span>funded_tx = <span class="self">self
-            </span>.rpc
-            .client
-            .fund_raw_transaction(
-                payout_txhandler.get_cached_tx(),
-                <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span>bitcoincore_rpc::json::FundRawTransactionOptions {
-                    add_inputs: <span class="prelude-val">Some</span>(<span class="bool-val">true</span>),
-                    change_address: <span class="prelude-val">None</span>,
-                    change_position: <span class="prelude-val">Some</span>(<span class="number">1</span>),
-                    change_type: <span class="prelude-val">None</span>,
-                    include_watching: <span class="prelude-val">None</span>,
-                    lock_unspents: <span class="prelude-val">Some</span>(<span class="bool-val">true</span>),
-                    fee_rate: <span class="prelude-val">None</span>,
-                    subtract_fee_from_outputs: <span class="prelude-val">None</span>,
-                    replaceable: <span class="prelude-val">None</span>,
-                    conf_target: <span class="prelude-val">None</span>,
-                    estimate_mode: <span class="prelude-val">None</span>,
+        <span class="comment">// send payout tx using RBF
+        </span><span class="kw">let </span>payout_tx = payout_txhandler.get_cached_tx();
+        <span class="kw">let </span><span class="kw-2">mut </span>dbtx = <span class="self">self</span>.db.begin_transaction().<span class="kw">await</span><span class="question-mark">?</span>;
+        <span class="self">self</span>.tx_sender
+            .add_tx_to_queue(
+                <span class="kw-2">&amp;mut </span>dbtx,
+                TransactionType::Payout,
+                payout_tx,
+                <span class="kw-2">&amp;</span>[],
+                <span class="prelude-val">Some</span>(TxMetadata {
+                    tx_type: TransactionType::Payout,
+                    operator_xonly_pk: <span class="prelude-val">Some</span>(<span class="self">self</span>.signer.xonly_public_key),
+                    round_idx: <span class="prelude-val">None</span>,
+                    kickoff_idx: <span class="prelude-val">None</span>,
+                    deposit_outpoint: <span class="prelude-val">None</span>,
                 }),
+                <span class="kw-2">&amp;</span><span class="self">self</span>.config,
                 <span class="prelude-val">None</span>,
             )
-            .<span class="kw">await
-            </span>.wrap_err(<span class="string">"Failed to fund raw transaction"</span>)<span class="question-mark">?
-            </span>.hex;
+            .<span class="kw">await</span><span class="question-mark">?</span>;
+        dbtx.commit().<span class="kw">await</span><span class="question-mark">?</span>;
 
-        <span class="kw">let </span>signed_tx: Transaction = deserialize(
-            <span class="kw-2">&amp;</span><span class="self">self
-                </span>.rpc
-                .client
-                .sign_raw_transaction_with_wallet(<span class="kw-2">&amp;</span>funded_tx, <span class="prelude-val">None</span>, <span class="prelude-val">None</span>)
-                .<span class="kw">await
-                </span>.wrap_err(<span class="string">"Failed to sign funded tx through bitcoin RPC"</span>)<span class="question-mark">?
-                </span>.hex,
-        )
-        .wrap_err(<span class="string">"Failed to deserialize signed tx"</span>)<span class="question-mark">?</span>;
-
-        <span class="prelude-val">Ok</span>(<span class="self">self
-            </span>.rpc
-            .client
-            .send_raw_transaction(<span class="kw-2">&amp;</span>signed_tx)
-            .<span class="kw">await
-            </span>.wrap_err(<span class="string">"Failed to send transaction to signed tx"</span>)<span class="question-mark">?</span>)
+        <span class="prelude-val">Ok</span>(())
     }
 
     <span class="doccomment">/// Generates Winternitz public keys for every  BitVM assert tx for a deposit.

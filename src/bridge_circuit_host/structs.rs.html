@@ -758,18 +758,14 @@
 <a href="#757" id="757">757</a>
 <a href="#758" id="758">758</a>
 <a href="#759" id="759">759</a>
-<a href="#760" id="760">760</a>
-<a href="#761" id="761">761</a>
-<a href="#762" id="762">762</a>
-<a href="#763" id="763">763</a>
-<a href="#764" id="764">764</a></pre></div><pre class="rust"><code><span class="kw">use </span>alloy_rpc_types::EIP1186StorageProof;
+<a href="#760" id="760">760</a></pre></div><pre class="rust"><code><span class="kw">use </span>alloy_rpc_types::EIP1186StorageProof;
 <span class="kw">use </span>ark_bn254::Bn254;
 <span class="kw">use </span>ark_ff::PrimeField;
 <span class="kw">use </span>bitcoin::{hashes::Hash, Network, Transaction, Txid, XOnlyPublicKey};
 <span class="kw">use </span>borsh::{BorshDeserialize, BorshSerialize};
 <span class="kw">use </span>circuits_lib::{
     bridge_circuit::{
-        deposit_constant, journal_hash, parse_op_return_data,
+        deposit_constant, get_first_op_return_output, journal_hash, parse_op_return_data,
         spv::SPV,
         structs::{
             BridgeCircuitInput, ChallengeSendingWatchtowers, DepositConstant, LatestBlockhash,
@@ -1244,12 +1240,8 @@
 </span><span class="kw">fn </span>host_deposit_constant(
     input: <span class="kw-2">&amp;</span>BridgeCircuitInput,
 ) -&gt; <span class="prelude-ty">Result</span>&lt;DepositConstant, BridgeCircuitHostParamsError&gt; {
-    <span class="kw">let </span>last_output = input
-        .payout_spv
-        .transaction
-        .output
-        .last()
-        .ok_or(BridgeCircuitHostParamsError::MissingKickoffOutputs)<span class="question-mark">?</span>;
+    <span class="kw">let </span>first_op_return_output = get_first_op_return_output(<span class="kw-2">&amp;</span>input.payout_spv.transaction)
+        .ok_or(BridgeCircuitHostParamsError::InvalidOperatorPubkey)<span class="question-mark">?</span>;
 
     <span class="kw">let </span>deposit_storage_proof: EIP1186StorageProof =
         serde_json::from_str(<span class="kw-2">&amp;</span>input.sp.storage_proof_deposit_txid).map_err(|e| {
@@ -1272,7 +1264,7 @@
 
     <span class="kw">let </span>kickff_round_vout = input.kickoff_tx.input[<span class="number">0</span>].previous_output.vout;
 
-    <span class="kw">let </span>operator_xonlypk: [u8; <span class="number">32</span>] = parse_op_return_data(<span class="kw-2">&amp;</span>last_output.script_pubkey)
+    <span class="kw">let </span>operator_xonlypk: [u8; <span class="number">32</span>] = parse_op_return_data(<span class="kw-2">&amp;</span>first_op_return_output.script_pubkey)
         .ok_or(BridgeCircuitHostParamsError::InvalidOperatorPubkey)<span class="question-mark">?
         </span>.try_into()
         .map_err(|<span class="kw">_</span>| BridgeCircuitHostParamsError::InvalidOperatorPubkey)<span class="question-mark">?</span>;

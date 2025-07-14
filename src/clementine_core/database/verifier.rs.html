@@ -481,7 +481,10 @@
 <a href="#480" id="480">480</a>
 <a href="#481" id="481">481</a>
 <a href="#482" id="482">482</a>
-<a href="#483" id="483">483</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Verifier Related Database Operations
+<a href="#483" id="483">483</a>
+<a href="#484" id="484">484</a>
+<a href="#485" id="485">485</a>
+<a href="#486" id="486">486</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Verifier Related Database Operations
 //!
 //! This module includes database functions which are mainly used by a verifier.
 
@@ -616,11 +619,13 @@
         <span class="prelude-val">Ok</span>(())
     }
 
-    <span class="kw">pub async fn </span>get_withdrawal_utxo_from_citrea_withdrawal(
+    <span class="doccomment">/// For the given deposit index, returns the withdrawal utxo associated with it
+    /// If there is no withdrawal utxo set for the deposit, an error is returned
+    </span><span class="kw">pub async fn </span>get_withdrawal_utxo_from_citrea_withdrawal(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
         citrea_idx: u32,
-    ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;OutPoint&gt;, BridgeError&gt; {
+    ) -&gt; <span class="prelude-ty">Result</span>&lt;OutPoint, BridgeError&gt; {
         <span class="kw">let </span>query = sqlx::query_as::&lt;<span class="kw">_</span>, (<span class="prelude-ty">Option</span>&lt;TxidDB&gt;, <span class="prelude-ty">Option</span>&lt;i32&gt;)&gt;(
             <span class="string">"SELECT w.withdrawal_utxo_txid, w.withdrawal_utxo_vout
              FROM withdrawals w
@@ -630,16 +635,19 @@
 
         <span class="kw">let </span>results = <span class="macro">execute_query_with_tx!</span>(<span class="self">self</span>.connection, tx, query, fetch_optional)<span class="question-mark">?</span>;
 
-        results
-            .map(|(txid, vout)| <span class="kw">match </span>(txid, vout) {
+        <span class="kw">match </span>results {
+            <span class="prelude-val">None </span>=&gt; <span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(<span class="string">"Deposit with id {} is not set"</span>, citrea_idx).into()),
+            <span class="prelude-val">Some</span>((txid, vout)) =&gt; <span class="kw">match </span>(txid, vout) {
                 (<span class="prelude-val">Some</span>(txid), <span class="prelude-val">Some</span>(vout)) =&gt; <span class="prelude-val">Ok</span>(OutPoint {
                     txid: txid.<span class="number">0</span>,
                     vout: u32::try_from(vout)
                         .wrap_err(<span class="string">"Failed to convert withdrawal utxo vout to u32"</span>)<span class="question-mark">?</span>,
                 }),
-                <span class="kw">_ </span>=&gt; <span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(<span class="string">"Unexpected null value"</span>).into()),
-            })
-            .transpose()
+                <span class="kw">_ </span>=&gt; {
+                    <span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(<span class="string">"Withdrawal utxo is not set for deposit {}"</span>, citrea_idx).into())
+                }
+            },
+        }
     }
 
     <span class="doccomment">/// Returns the withdrawal indexes and their spending txid for the given
@@ -863,8 +871,7 @@
         <span class="macro">assert!</span>(db
             .get_withdrawal_utxo_from_citrea_withdrawal(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx), index)
             .<span class="kw">await
-            </span>.unwrap()
-            .is_none());
+            </span>.is_err());
         db.set_move_to_vault_txid_from_citrea_deposit(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx), index, <span class="kw-2">&amp;</span>txid)
             .<span class="kw">await
             </span>.unwrap();
@@ -893,8 +900,7 @@
         <span class="kw">let </span>withdrawal_utxo = db
             .get_withdrawal_utxo_from_citrea_withdrawal(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx), index)
             .<span class="kw">await
-            </span>.unwrap()
-            .unwrap();
+            </span>.unwrap();
         <span class="macro">assert_eq!</span>(withdrawal_utxo, utxo);
 
         <span class="kw">let </span>move_txid = db
