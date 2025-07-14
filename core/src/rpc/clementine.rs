@@ -274,13 +274,6 @@ pub mod withdraw_result {
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct WithdrawalFinalizedParams {
-    #[prost(uint32, tag = "1")]
-    pub withdrawal_id: u32,
-    #[prost(message, optional, tag = "2")]
-    pub deposit_outpoint: ::core::option::Option<Outpoint>,
-}
-#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FinalizedPayoutParams {
     #[prost(bytes = "vec", tag = "1")]
     pub payout_blockhash: ::prost::alloc::vec::Vec<u8>,

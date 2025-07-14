@@ -273,11 +273,6 @@ message WithdrawResult {
   }
 }
 
-message WithdrawalFinalizedParams {
-  uint32 withdrawal_id = 1;
-  Outpoint deposit_outpoint = 2;
-}
-
 message FinalizedPayoutParams {
   bytes payout_blockhash = 1;
   Outpoint deposit_outpoint = 2;
@@ -326,8 +321,9 @@ service ClementineOperator {
   // - Operator burn Schnorr signature
   rpc DepositSign(DepositSignSession) returns (stream SchnorrSig) {}
 
-  // Prepares a withdrawal if it's profitable and previous sequential_collateral_tx's timelock
-  // has ended, by paying for the withdrawal and locking the current sequential_collateral_tx.
+  // Prepares a withdrawal if it's profitable and the withdrawal is correct and registered in Citrea bridge contract/
+  // If withdrawal is accepted, the payout tx will be added to the TxSender and success is returned, otherwise an error is returned.
+  // If automation is disabled, the withdrawal will not be accepted and an error will be returned.
   rpc Withdraw(WithdrawParams)
     returns (WithdrawResult) {}
 

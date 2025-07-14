@@ -508,7 +508,7 @@ where
     /// 1. Checking if the withdrawal has been made on Citrea
     /// 2. Verifying the given signature
     /// 3. Checking if the withdrawal is profitable or not
-    /// 4. Funding the witdhrawal transaction
+    /// 4. Funding the witdhrawal transaction using TxSender RBF option
     ///
     /// # Parameters
     ///
@@ -522,7 +522,8 @@ where
     ///
     /// # Returns
     ///
-    /// - [`Txid`]: Payout transaction's txid
+    /// - Ok(()) if the withdrawal checks are successful and a payout transaction is added to the TxSender
+    /// - Err(BridgeError) if the withdrawal checks fail
     #[cfg(feature = "automation")]
     pub async fn withdraw(
         &self,

@@ -133,6 +133,8 @@ impl Database {
         Ok(())
     }
 
+    /// For the given deposit index, returns the withdrawal utxo associated with it
+    /// If there is no withdrawal utxo set for the deposit, an error is returned
     pub async fn get_withdrawal_utxo_from_citrea_withdrawal(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
