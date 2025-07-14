@@ -2,6 +2,7 @@ use super::status_monitor::{TaskStatusMonitorTask, TASK_STATUS_MONITOR_POLL_DELA
 use super::{IntoTask, Task, TaskExt, TaskVariant};
 use crate::errors::BridgeError;
 use crate::rpc::clementine::StoppedTasks;
+use crate::utils::timed_try_join_all;
 use futures::future::join_all;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -216,20 +217,23 @@ impl BackgroundTaskManager {
 
         self.send_cancel_signals().await;
 
-        let mut task_registry = self.task_registry.write().await;
-        join_all(
-            task_registry
-                .iter_mut()
-                .map(|(_, (_, abort_handle, _))| async move {
-                    loop {
-                        if abort_handle.is_finished() {
-                            break;
-                        }
-                        sleep(Duration::from_millis(100)).await;
-                    }
-                }),
-        )
-        .await;
+        loop {
+            let mut all_finished = true;
+            let task_registry = self.task_registry.read().await;
+
+            for (_, (_, abort_handle, _)) in task_registry.iter() {
+                if !abort_handle.is_finished() {
+                    all_finished = false;
+                    break;
+                }
+            }
+
+            if all_finished {
+                break;
+            }
+
+            sleep(Duration::from_millis(100)).await;
+        }
     }
 
     /// Graceful shutdown of all tasks with a timeout. All tasks will be aborted
