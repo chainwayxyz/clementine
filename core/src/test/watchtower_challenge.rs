@@ -372,6 +372,7 @@ impl TestCase for WatchtowerChallengeTxTest {
             };
 
             tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            rpc.mine_blocks_while_synced(1, &actors).await.unwrap();
         }
 
         let payout_txid =

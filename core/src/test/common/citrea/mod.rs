@@ -470,7 +470,7 @@ pub async fn register_replacement_deposit_to_citrea(
         .await
         .unwrap();
     e2e.rpc
-        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH, actors)
+        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH + 2, actors)
         .await
         .unwrap();
 

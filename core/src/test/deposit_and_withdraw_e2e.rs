@@ -385,17 +385,26 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         .unwrap();
 
         // do optimistic payout with new replacement deposit, should work now
-        reimburse_with_optimistic_payout(
-            &actors,
-            withdrawal_infos[4].0,
-            &withdrawal_infos[4].1,
-            &withdrawal_infos[4].2,
-            &withdrawal_infos[4].3,
-            &citrea_e2e_data,
-            replacement_move_txid,
-        )
-        .await
-        .unwrap();
+        // mine blocks until the replacement deposit is processed in handle_finalized_block
+        loop {
+            tracing::info!(
+                "Trying to reimburse with optimistic payout for the replacement deposit"
+            );
+            let res = reimburse_with_optimistic_payout(
+                &actors,
+                withdrawal_infos[4].0,
+                &withdrawal_infos[4].1,
+                &withdrawal_infos[4].2,
+                &withdrawal_infos[4].3,
+                &citrea_e2e_data,
+                replacement_move_txid,
+            )
+            .await;
+            if res.is_ok() {
+                break;
+            }
+            rpc.mine_blocks_while_synced(1, &actors).await.unwrap();
+        }
 
         // wait for all past kickoff reimburse connectors to be spent
         tracing::info!("Waiting for all past kickoff reimburse connectors to be spent");
