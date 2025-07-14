@@ -11,7 +11,7 @@ use crate::{
     task::{Task, TaskVariant},
 };
 
-pub const AGGREGATOR_METRIC_PUBLISHER_POLL_DELAY: Duration = Duration::from_secs(60);
+pub const AGGREGATOR_METRIC_PUBLISHER_POLL_DELAY: Duration = Duration::from_secs(10);
 
 /// Publishes metrics for the aggregator, including the Entity Statuses of all registered entities.
 #[derive(Debug)]
