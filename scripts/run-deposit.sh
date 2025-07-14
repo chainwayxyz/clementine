@@ -24,10 +24,10 @@ if ! command -v jq &> /dev/null; then
 fi
 
 echo "🧱 Step 1: Setting up Aggregator..."
-cargo run --bin clementine-cli -- --node-url $AGGREGATOR_URL aggregator setup
+cargo run --bin cli -- --node-url $AGGREGATOR_URL aggregator setup
 
 echo "📬 Step 2: Getting deposit address..."
-DEPOSIT_ADDRESS=$(cargo run --bin clementine-cli -- --node-url $AGGREGATOR_URL aggregator get-deposit-address | grep -o 'bcrt1[a-zA-Z0-9]*')
+DEPOSIT_ADDRESS=$(cargo run --bin cli -- --node-url $AGGREGATOR_URL aggregator get-deposit-address | grep -o 'bcrt1[a-zA-Z0-9]*')
 echo "Deposit address: $DEPOSIT_ADDRESS"
 
 echo "🪙 Step 3: Sending deposit via bitcoind..."
@@ -47,7 +47,7 @@ VOUT_INDEX=$(echo $RAW_TX | jq -r --arg addr "$DEPOSIT_ADDRESS" '.vout[] | selec
 echo "Output index (vout): $VOUT_INDEX"
 
 echo "🧾 Step 5: Creating and sending move transaction with CPFP..."
-cargo run --bin clementine-cli -- --node-url $AGGREGATOR_URL aggregator send-move-transaction-cpfp \
+cargo run --bin cli -- --node-url $AGGREGATOR_URL aggregator send-move-transaction-cpfp \
   --deposit-outpoint-txid $DEPOSIT_TXID \
   --deposit-outpoint-vout $VOUT_INDEX \
   --fee-rate $FEE_RATE \

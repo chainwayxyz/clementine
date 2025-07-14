@@ -14,7 +14,6 @@ use jsonrpsee::http_client::HttpClient;
 pub use parameters::*;
 pub use requests::*;
 
-mod bitcoin_merkle;
 mod client_mock;
 mod parameters;
 mod requests;

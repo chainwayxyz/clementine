@@ -152,7 +152,7 @@ impl BitcoinMerkleTree {
     }
 
     /// Given an index, returns the path of sibling nodes from the "mid-state" Merkle tree.
-    fn get_idx_path(&self, index: u32) -> Vec<[u8; 32]> {
+    pub fn get_idx_path(&self, index: u32) -> Vec<[u8; 32]> {
         assert!(
             index < self.nodes[0].len() as u32,
             "Index out of bounds when trying to get path from mid-state Merkle tree"
