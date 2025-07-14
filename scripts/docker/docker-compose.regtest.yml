@@ -54,19 +54,84 @@ services:
 
   citrea_sequencer:
     image: chainwayxyz/citrea
+    attach: false
     depends_on:
       bitcoin_regtest:
         condition: service_healthy
     container_name: citrea_sequencer
     command:
-      --dev --da-layer bitcoin --rollup-config-path sequencer_rollup_config.toml --sequencer sequencer_config.toml --genesis-paths genesis-bitcoin-regtest/
+      --dev --da-layer bitcoin --rollup-config-path /sequencer_rollup_config.toml --sequencer /sequencer_config.toml --genesis-paths /genesis-bitcoin-regtest/
     ports:
-      - "10080:8080"
+      - "12345:8080"
     volumes:
       - ./configs/citrea/sequencer_rollup_config.toml:/sequencer_rollup_config.toml
       - ./configs/citrea/sequencer_config.toml:/sequencer_config.toml
       - ./configs/citrea/genesis-bitcoin-regtest:/genesis-bitcoin-regtest
+    networks:
+      - clementine-network
 
+  citrea_full_node:
+    image: chainwayxyz/citrea
+    attach: false
+    depends_on:
+      bitcoin_regtest:
+        condition: service_healthy
+      citrea_sequencer:
+        condition: service_started
+    container_name: citrea_full_node
+    command:
+      --dev --da-layer bitcoin --rollup-config-path /rollup_config.toml --genesis-paths resources/genesis/bitcoin-regtest/
+    ports:
+      - "12346:8080"
+    volumes:
+      - ./configs/citrea/rollup_config.toml:/rollup_config.toml
+      - ./configs/citrea/genesis-bitcoin-regtest:/genesis-bitcoin-regtest
+    networks:
+      - clementine-network
+
+  citrea_batch_prover:
+    image: chainwayxyz/citrea
+    attach: false
+    depends_on:
+      bitcoin_regtest:
+        condition: service_healthy
+      citrea_sequencer:
+        condition: service_started
+      citrea_full_node:
+        condition: service_started
+    container_name: citrea_batch_prover
+    command:
+      --dev --da-layer bitcoin --rollup-config-path /batch_prover_rollup_config.toml --batch-prover /batch_prover_config.toml --genesis-paths /bitcoin-regtest
+    ports:
+      - "12347:8080"
+    volumes:
+      - ./configs/citrea/batch_prover_rollup_config.toml:/batch_prover_rollup_config.toml
+      - ./configs/citrea/batch_prover_config.toml:/batch_prover_config.toml
+      - ./configs/citrea/genesis-bitcoin-regtest:/genesis-bitcoin-regtest
+    networks:
+      - clementine-network
+
+  citrea_light_client_prover:
+    image: chainwayxyz/citrea
+    attach: false
+    depends_on:
+      bitcoin_regtest:
+        condition: service_healthy
+      citrea_sequencer:
+        condition: service_started
+      citrea_full_node:
+        condition: service_started
+      citrea_batch_prover:
+        condition: service_started
+    container_name: citrea_light_client_prover
+    command:
+      --dev --da-layer bitcoin --rollup-config-path /light_client_prover_rollup_config.toml --light-client-prover /light_client_prover_config.toml --genesis-paths /bitcoin-regtest
+    ports:
+      - "12348:8080"
+    volumes:
+      - ./configs/citrea/light_client_prover_rollup_config.toml:/light_client_prover_rollup_config.toml
+      - ./configs/citrea/light_client_prover_config.toml:/light_client_prover_config.toml
+      - ./configs/citrea/genesis-bitcoin-regtest:/genesis-bitcoin-regtest
     networks:
       - clementine-network
 
@@ -76,6 +141,14 @@ services:
         condition: service_healthy
       bitcoin_regtest:
         condition: service_healthy
+      citrea_sequencer:
+        condition: service_started
+      citrea_full_node:
+        condition: service_started
+      citrea_batch_prover:
+        condition: service_started
+      citrea_light_client_prover:
+        condition: service_started
     image: chainwayxyz/clementine
     platform: linux/amd64
     container_name: clementine_verifier
@@ -90,7 +163,6 @@ services:
       - ./configs/docker_protocol_paramset.toml:/protocol_paramset.toml
       - ../../bitvm_cache.bin:/bitvm_cache.bin
       - ../../core/certs:/certs
-
     networks:
       - clementine-network
 
@@ -101,6 +173,14 @@ services:
       bitcoin_regtest:
         condition: service_healthy
       clementine_verifier:
+        condition: service_started
+      citrea_sequencer:
+        condition: service_started
+      citrea_full_node:
+        condition: service_started
+      citrea_batch_prover:
+        condition: service_started
+      citrea_light_client_prover:
         condition: service_started
     image: chainwayxyz/clementine
     platform: linux/amd64
@@ -116,7 +196,6 @@ services:
       - ./configs/docker_protocol_paramset.toml:/protocol_paramset.toml
       - ../../bitvm_cache.bin:/bitvm_cache.bin
       - ../../core/certs:/certs
-
     networks:
       - clementine-network
 
