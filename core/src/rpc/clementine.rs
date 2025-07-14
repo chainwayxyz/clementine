@@ -1041,8 +1041,9 @@ pub mod clementine_operator_client {
                 .insert(GrpcMethod::new("clementine.ClementineOperator", "DepositSign"));
             self.inner.server_streaming(req, path, codec).await
         }
-        /// Prepares a withdrawal if it's profitable and previous sequential_collateral_tx's timelock
-        /// has ended, by paying for the withdrawal and locking the current sequential_collateral_tx.
+        /// Prepares a withdrawal if it's profitable and the withdrawal is correct and registered in Citrea bridge contract/
+        /// If withdrawal is accepted, the payout tx will be added to the TxSender and success is returned, otherwise an error is returned.
+        /// If automation is disabled, the withdrawal will not be accepted and an error will be returned.
         pub async fn withdraw(
             &mut self,
             request: impl tonic::IntoRequest<super::WithdrawParams>,
@@ -2055,8 +2056,9 @@ pub mod clementine_operator_server {
             tonic::Response<Self::DepositSignStream>,
             tonic::Status,
         >;
-        /// Prepares a withdrawal if it's profitable and previous sequential_collateral_tx's timelock
-        /// has ended, by paying for the withdrawal and locking the current sequential_collateral_tx.
+        /// Prepares a withdrawal if it's profitable and the withdrawal is correct and registered in Citrea bridge contract/
+        /// If withdrawal is accepted, the payout tx will be added to the TxSender and success is returned, otherwise an error is returned.
+        /// If automation is disabled, the withdrawal will not be accepted and an error will be returned.
         async fn withdraw(
             &self,
             request: tonic::Request<super::WithdrawParams>,
