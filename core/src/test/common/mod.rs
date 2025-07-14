@@ -688,6 +688,7 @@ fn sign_nofn_replacement_deposit_tx(
     tx
 }
 
+#[cfg(feature = "automation")]
 async fn send_replacement_deposit_tx<C: CitreaClientT>(
     config: &BridgeConfig,
     rpc: &ExtendedRpc,
