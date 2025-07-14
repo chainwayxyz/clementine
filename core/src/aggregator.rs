@@ -512,7 +512,7 @@ impl Aggregator {
                             .await
                             .map_err(BridgeError::from);
 
-                        tracing::info!("Got operator status: {:?}", response);
+                        tracing::debug!("Got operator status: {:?}", response);
                         Ok(EntityStatusWithId {
                             entity_id: Some(RPCEntityId {
                                 kind: EntityType::Operator as i32,
@@ -546,7 +546,9 @@ impl Aggregator {
                 .map(|(client, key)| {
                     let mut client = client.clone();
                     async move {
+                        tracing::debug!("Getting verifier status for {}", key.to_string());
                         let response = client.get_current_status(Request::new(Empty {})).await;
+                        tracing::debug!("Got verifier status: {:?}", response);
                         Ok(EntityStatusWithId {
                             entity_id: Some(RPCEntityId {
                                 kind: EntityType::Verifier as i32,
@@ -564,8 +566,6 @@ impl Aggregator {
                 .collect::<Vec<_>>(),
         )
         .await?;
-
-        tracing::info!("Operator status: {:?}", operator_status);
 
         // Combine operator and verifier status into a single vector
         let mut entity_statuses = operator_status;

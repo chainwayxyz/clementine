@@ -103,13 +103,12 @@ impl TestCase for AdditionalDisproveTest {
 
     async fn run_test(&mut self, f: &mut TestFramework) -> Result<()> {
         tracing::info!("Starting Citrea");
-        let (sequencer, _full_node, lc_prover, batch_prover, da) =
+        let (sequencer, _full_node, lc_prover, _batch_prover, da) =
             citrea::start_citrea(Self::sequencer_config(), f)
                 .await
                 .unwrap();
 
         let lc_prover = lc_prover.unwrap();
-        let batch_prover = batch_prover.unwrap();
 
         let mut config = create_test_config_with_thread_name().await;
 
@@ -320,33 +319,6 @@ impl TestCase for AdditionalDisproveTest {
         let receipt = citrea_withdrawal_tx.get_receipt().await.unwrap();
         println!("Citrea withdrawal tx receipt: {:?}", receipt);
 
-        // 2. wait until 2 commitment txs (commit, reveal) seen from DA to ensure their reveal prefix nonce is found
-        da.wait_mempool_len(2, None).await?;
-
-        // 3. generate FINALITY_DEPTH da blocks
-        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
-
-        // 4. wait for batch prover to generate proof on the finalized height
-        let finalized_height = da.get_finalized_height(None).await.unwrap();
-        batch_prover
-            .wait_for_l1_height(finalized_height, None)
-            .await?;
-        lc_prover.wait_for_l1_height(finalized_height, None).await?;
-
-        // 5. ensure 2 batch proof txs on DA (commit, reveal)
-        da.wait_mempool_len(2, None).await?;
-
-        // 6. generate FINALITY_DEPTH da blocks
-        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
-
-        let finalized_height = da.get_finalized_height(None).await.unwrap();
-
-        tracing::info!("Finalized height: {:?}", finalized_height);
-        lc_prover.wait_for_l1_height(finalized_height, None).await?;
-        tracing::info!("Waited for L1 height {}", finalized_height);
-
-        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
-
         // Setup tx_sender for sending transactions
         let verifier_0_config = {
             let mut config = config.clone();
@@ -388,17 +360,14 @@ impl TestCase for AdditionalDisproveTest {
                     );
                 }
                 Err(e) => {
+                    rpc.mine_blocks_while_synced(1, &actors).await.unwrap();
                     tracing::info!("Withdrawal error: {:?}", e);
                 }
             }
-
-            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
         };
         tracing::info!("Payout txid: {:?}", payout_txid);
 
         mine_once_after_in_mempool(&rpc, payout_txid, Some("Payout tx"), None).await?;
-
-        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
 
         // wait until payout part is not null
         while db
@@ -406,7 +375,7 @@ impl TestCase for AdditionalDisproveTest {
             .await?
             .is_none()
         {
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            rpc.mine_blocks_while_synced(1, &actors).await.unwrap();
         }
 
         tracing::info!("Waiting until payout is handled");
@@ -496,7 +465,9 @@ impl TestCase for AdditionalDisproveTest {
             .unwrap();
         db_commit.commit().await.unwrap();
 
-        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
+        rpc.mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH, &actors)
+            .await
+            .unwrap();
 
         let challenge_outpoint = OutPoint {
             txid: kickoff_txid,
@@ -511,11 +482,6 @@ impl TestCase for AdditionalDisproveTest {
             .await
             .unwrap();
         tracing::warn!("Mined once after challenge tx is in mempool");
-
-        // wait until the light client prover is synced to the same height
-        lc_prover
-            .wait_for_l1_height(kickoff_block_height as u64, None)
-            .await?;
 
         let first_assert_utxo = OutPoint {
             txid: kickoff_txid,
