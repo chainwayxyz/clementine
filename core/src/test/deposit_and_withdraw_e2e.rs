@@ -411,7 +411,6 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             rpc.get_current_chain_height().await.unwrap()
         );
 
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
         for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
             sequencer.client.send_publish_batch_request().await.unwrap();
         }
