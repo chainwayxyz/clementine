@@ -485,11 +485,11 @@ impl Aggregator {
         &self,
         restart_tasks: bool,
     ) -> Result<Vec<EntityStatusWithId>, BridgeError> {
-        tracing::info!("Getting entities status");
+        tracing::debug!("Getting entities status");
 
         let operator_clients = self.get_operator_clients();
         let verifier_clients = self.get_verifier_clients();
-        tracing::info!("Operator clients: {:?}", operator_clients.len());
+        tracing::debug!("Operator clients: {:?}", operator_clients.len());
 
         let operator_status = timed_try_join_all(
             Duration::from_secs(60),
@@ -506,7 +506,7 @@ impl Aggregator {
                 .map(|(client, key)| {
                     let mut client = client.clone();
                     async move {
-                        tracing::info!("Getting operator status for {}", key.to_string());
+                        tracing::debug!("Getting operator status for {}", key.to_string());
                         let response = client
                             .get_current_status(Request::new(Empty {}))
                             .await
