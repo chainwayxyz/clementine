@@ -27,11 +27,14 @@ use crate::deposit::{DepositData, KickoffData, OperatorData};
 use crate::errors::{BridgeError, TxError};
 use crate::extended_rpc::ExtendedRpc;
 use crate::header_chain_prover::HeaderChainProver;
+use crate::metrics::L1SyncStatusProvider;
 use crate::operator::RoundIndex;
 use crate::rpc::clementine::{EntityStatus, NormalSignatureKind, OperatorKeys, TaggedSignature};
+use crate::task::entity_metric_publisher::{
+    EntityMetricPublisher, ENTITY_METRIC_PUBLISHER_INTERVAL,
+};
 use crate::task::manager::BackgroundTaskManager;
-use crate::task::sync_status::get_sync_status;
-use crate::task::IntoTask;
+use crate::task::{IntoTask, TaskExt};
 #[cfg(feature = "automation")]
 use crate::tx_sender::{TxSender, TxSenderClient};
 use crate::utils::NamedEntity;
@@ -83,7 +86,7 @@ pub struct AllSessions {
 
 pub struct VerifierServer<C: CitreaClientT> {
     pub verifier: Verifier<C>,
-    background_tasks: BackgroundTaskManager<Verifier<C>>,
+    background_tasks: BackgroundTaskManager,
 }
 
 impl<C> VerifierServer<C>
@@ -123,7 +126,7 @@ where
             );
 
             self.background_tasks
-                .loop_and_monitor(tx_sender.into_task())
+                .ensure_task_looping(tx_sender.into_task())
                 .await;
             let state_manager = crate::states::StateManager::new(
                 self.verifier.db.clone(),
@@ -145,10 +148,10 @@ where
 
             if should_run_state_mgr {
                 self.background_tasks
-                    .loop_and_monitor(state_manager.block_fetcher_task().await?)
+                    .ensure_task_looping(state_manager.block_fetcher_task().await?)
                     .await;
                 self.background_tasks
-                    .loop_and_monitor(state_manager.into_task())
+                    .ensure_task_looping(state_manager.into_task())
                     .await;
             }
         }
@@ -156,7 +159,7 @@ where
         {
             use crate::task::TaskExt;
             self.background_tasks
-                .loop_and_monitor(
+                .ensure_task_looping(
                     crate::bitcoin_syncer::FinalizedBlockFetcherTask::new(
                         self.verifier.db.clone(),
                         Verifier::<C>::FINALIZED_BLOCK_CONSUMER_ID.to_string(),
@@ -172,13 +175,20 @@ where
 
         let syncer = BitcoinSyncer::new(
             self.verifier.db.clone(),
-            rpc,
+            rpc.clone(),
             self.verifier.config.protocol_paramset(),
         )
         .await?;
 
         self.background_tasks
-            .loop_and_monitor(syncer.into_task())
+            .ensure_task_looping(syncer.into_task())
+            .await;
+
+        self.background_tasks
+            .ensure_task_looping(
+                EntityMetricPublisher::<Verifier<C>>::new(self.verifier.db.clone(), rpc.clone())
+                    .with_delay(ENTITY_METRIC_PUBLISHER_INTERVAL),
+            )
             .await;
 
         Ok(())
@@ -189,19 +199,19 @@ where
         // Determine if automation is enabled
         let automation_enabled = cfg!(feature = "automation");
 
-        let sync_status =
-            get_sync_status::<Verifier<C>>(&self.verifier.db, &self.verifier.rpc).await?;
+        let l1_sync_status =
+            Verifier::<C>::get_l1_status(&self.verifier.db, &self.verifier.rpc).await?;
 
         Ok(EntityStatus {
             automation: automation_enabled,
-            wallet_balance: sync_status.wallet_balance,
-            tx_sender_synced_height: sync_status.tx_sender_synced_height.unwrap_or(0),
-            finalized_synced_height: sync_status.finalized_synced_height.unwrap_or(0),
-            hcp_last_proven_height: sync_status.hcp_last_proven_height.unwrap_or(0),
-            rpc_tip_height: sync_status.rpc_tip_height,
-            bitcoin_syncer_synced_height: sync_status.btc_syncer_synced_height.unwrap_or(0),
+            wallet_balance: format!("{} BTC", l1_sync_status.wallet_balance.to_btc()),
+            tx_sender_synced_height: l1_sync_status.tx_sender_synced_height.unwrap_or(0),
+            finalized_synced_height: l1_sync_status.finalized_synced_height.unwrap_or(0),
+            hcp_last_proven_height: l1_sync_status.hcp_last_proven_height.unwrap_or(0),
+            rpc_tip_height: l1_sync_status.rpc_tip_height,
+            bitcoin_syncer_synced_height: l1_sync_status.btc_syncer_synced_height.unwrap_or(0),
             stopped_tasks: Some(stopped_tasks),
-            state_manager_next_height: sync_status.state_manager_next_height.unwrap_or(0),
+            state_manager_next_height: l1_sync_status.state_manager_next_height.unwrap_or(0),
         })
     }
 

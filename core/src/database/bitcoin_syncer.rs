@@ -343,7 +343,8 @@ impl Database {
         }
     }
 
-    /// Gets the block height of the last processed event for a given consumer
+    /// Returns the last processed Bitcoin Syncer event's block height.
+    /// If the last processed event is missing, returns `None`.
     pub async fn get_last_processed_event_block_height(
         &self,
         tx: DatabaseTransaction<'_, '_>,
