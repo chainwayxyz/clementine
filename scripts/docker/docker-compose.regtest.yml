@@ -62,7 +62,7 @@ services:
     command:
       --dev --da-layer bitcoin --rollup-config-path /sequencer_rollup_config.toml --sequencer /sequencer_config.toml --genesis-paths /genesis-bitcoin-regtest/
     ports:
-      - "12345:8080"
+      - "12345:12345"
     volumes:
       - ./configs/citrea/sequencer_rollup_config.toml:/sequencer_rollup_config.toml
       - ./configs/citrea/sequencer_config.toml:/sequencer_config.toml
@@ -103,7 +103,7 @@ services:
     command:
       --dev --da-layer bitcoin --rollup-config-path /batch_prover_rollup_config.toml --batch-prover /batch_prover_config.toml --genesis-paths /bitcoin-regtest
     ports:
-      - "12347:8080"
+      - "12347:12347"
     volumes:
       - ./configs/citrea/batch_prover_rollup_config.toml:/batch_prover_rollup_config.toml
       - ./configs/citrea/batch_prover_config.toml:/batch_prover_config.toml
@@ -127,7 +127,7 @@ services:
     command:
       --dev --da-layer bitcoin --rollup-config-path /light_client_prover_rollup_config.toml --light-client-prover /light_client_prover_config.toml --genesis-paths /bitcoin-regtest
     ports:
-      - "12348:8080"
+      - "12348:12348"
     volumes:
       - ./configs/citrea/light_client_prover_rollup_config.toml:/light_client_prover_rollup_config.toml
       - ./configs/citrea/light_client_prover_config.toml:/light_client_prover_config.toml
@@ -157,7 +157,7 @@ services:
     command:
       verifier --config /config.toml --protocol-params /protocol_paramset.toml
     ports:
-      - "9080:8080"
+      - "17001:17000"
     volumes:
       - ./configs/bridge_config.toml:/config.toml
       - ./configs/protocol_paramset.toml:/protocol_paramset.toml
@@ -190,7 +190,7 @@ services:
     command:
       operator --config /config.toml --protocol-params /protocol_paramset.toml
     ports:
-      - "7080:8080"
+      - "17006:17000"
     volumes:
       - ./configs/bridge_config.toml:/config.toml
       - ./configs/protocol_paramset.toml:/protocol_paramset.toml

@@ -56,4 +56,4 @@ genesis_chain_state_hash = [
     22,
 ]
 header_chain_proof_batch_size = 100
-bridge_nonstandard = false
+bridge_nonstandard = true
