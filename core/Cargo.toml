@@ -20,7 +20,7 @@ hex = { workspace = true, features = ["serde"] }
 hex-literal = { workspace = true }
 lazy_static = { workspace = true, features = ["spin_no_std"] }
 sha2 = { workspace = true }
-risc0-zkvm = { version = "2.1.0", features = ["prove"] }
+risc0-zkvm = { workspace = true, features = ["prove"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 secp256k1 = { workspace = true, features = ["serde", "rand", "std"] }
@@ -74,6 +74,7 @@ base64 = { workspace = true }
 bridge-circuit-host = { path = "../bridge-circuit-host" }
 ctor = { workspace = true }
 tokio = { workspace = true, features = ["full", "test-util"] }
+rand = { workspace = true }
 
 [[bin]]
 name = "clementine-cli"

@@ -6,8 +6,8 @@ edition = "2021"
 [workspace]
 
 [build-dependencies]
-risc0-build = { version = "2.1.2", features = ["unstable"] }
-risc0-binfmt = {version = "2.0.1"}
+risc0-build = { version = "2.2.0", features = ["unstable"] }
+risc0-binfmt = {version = "2.0.2"}
 
 [features]
 default = []
