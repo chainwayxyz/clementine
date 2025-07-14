@@ -5,6 +5,9 @@ edition = "2021"
 
 [workspace]
 
+[features]
+use-test-vk = ["circuits-lib/use-test-vk"]
+
 [dependencies]
 circuits-lib = { path = "../../../circuits-lib" }
 

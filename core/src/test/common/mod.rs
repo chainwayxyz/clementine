@@ -5,7 +5,7 @@
 //!
 //! - Setting up databases, servers
 //! - Creating test configurations
-//! - Making common operetions like deposits
+//! - Making common operations like deposits
 //! - Communicating with Citrea
 
 use crate::actor::Actor;
@@ -519,7 +519,7 @@ fn sign_nofn_deposit_tx(
 
     let nonce_pairs = kps
         .iter()
-        .map(|kp| nonce_pair(kp, &mut secp256k1::rand::thread_rng()).unwrap())
+        .map(|kp| nonce_pair(kp).unwrap())
         .collect::<Vec<_>>();
 
     let agg_nonce = aggregate_nonces(
@@ -766,19 +766,15 @@ pub fn ensure_test_certificates() -> Result<(), std::io::Error> {
 }
 
 mod tests {
-    use crate::{
-        actor::Actor,
-        extended_rpc::ExtendedRpc,
-        test::common::{
-            citrea::MockCitreaClient, create_regtest_rpc, create_test_config_with_thread_name,
-        },
-    };
-    use bitcoin::{absolute::LockTime, transaction::Version, Transaction};
-    use bitcoincore_rpc::RpcApi;
-
-    #[cfg(feature = "integration_tests")]
+    #[cfg(feature = "integration-tests")]
     #[tokio::test]
     async fn test_regtest_create_and_connect() {
+        use crate::{
+            extended_rpc::ExtendedRpc,
+            test::common::{create_regtest_rpc, create_test_config_with_thread_name},
+        };
+        use bitcoincore_rpc::RpcApi;
+
         let mut config = create_test_config_with_thread_name().await;
 
         let regtest = create_regtest_rpc(&mut config).await;

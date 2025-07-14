@@ -1,21 +1,27 @@
+//! This module contains integration tests for generating data used in bridge circuit tests.
+//!
+//! The tests in this file are intended for data generation purposes only and are not meant to be run as part of the standard test suite.
+//! They are ignored by default and should be executed manually when bridge-related code changes, to ensure that the generated test data remains up-to-date and consistent with the current implementation.
 use super::common::citrea::get_bridge_params;
-use crate::bitvm_client::SECP;
+use crate::bitvm_client::{self, SECP};
 use crate::builder::transaction::input::UtxoVout;
 use crate::builder::transaction::TransactionType;
 use crate::citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER};
 use crate::database::Database;
 use crate::deposit::KickoffData;
+
 use crate::operator::RoundIndex;
 use crate::rpc::clementine::{TransactionRequest, WithdrawParams};
 use crate::test::common::citrea::{get_citrea_safe_withdraw_params, SECRET_KEYS};
+use crate::test::common::tx_utils::get_tx_from_signed_txs_with_type;
 use crate::test::common::tx_utils::{
     create_tx_sender, ensure_outpoint_spent_while_waiting_for_light_client_sync,
-    get_tx_from_signed_txs_with_type, mine_once_after_outpoint_spent_in_mempool,
+    mine_once_after_outpoint_spent_in_mempool,
 };
 use crate::test::common::{
     generate_withdrawal_transaction_and_signature, mine_once_after_in_mempool, run_single_deposit,
 };
-use crate::utils::{FeePayingType, TxMetadata};
+use crate::utils::{initialize_logger, FeePayingType, TxMetadata};
 use crate::{
     extended_rpc::ExtendedRpc,
     test::common::{
@@ -38,28 +44,25 @@ use citrea_e2e::{
     Result,
 };
 
-pub enum ChallengeTxTestVariant {
-    WithAnnex,
-    LargeInput,
-    LargeOutput,
-    LargeInputAndOutput,
+#[derive(PartialEq)]
+pub enum BridgeCircuitTestDataVariant {
+    HeaderChainProofsWithDiverseLengthsInsufficientTotalWork,
+    HeaderChainProofsWithDiverseLengths,
 }
 
-struct WatchtowerChallengeTxTest {
-    variant: ChallengeTxTestVariant,
+struct BridgeCircuitTestData {
+    variant: BridgeCircuitTestDataVariant,
 }
 
 #[async_trait]
-impl TestCase for WatchtowerChallengeTxTest {
+impl TestCase for BridgeCircuitTestData {
     fn bitcoin_config() -> BitcoinConfig {
         BitcoinConfig {
             extra_args: vec![
                 "-txindex=1",
                 "-fallbackfee=0.000001",
                 "-rpcallowip=0.0.0.0/0",
-                "-limitancestorsize=1010",
-                "-limitdescendantsize=1010",
-                "-acceptnonstdtxn=1",
+                "-dustrelayfee=0",
             ],
             ..Default::default()
         }
@@ -103,31 +106,27 @@ impl TestCase for WatchtowerChallengeTxTest {
 
     async fn run_test(&mut self, f: &mut TestFramework) -> Result<()> {
         tracing::info!("Starting Citrea");
+
         let (sequencer, _full_node, lc_prover, batch_prover, da) =
             citrea::start_citrea(Self::sequencer_config(), f)
                 .await
                 .unwrap();
 
-        let lc_prover = lc_prover.unwrap();
-        let batch_prover = batch_prover.unwrap();
-
         let mut config = create_test_config_with_thread_name().await;
 
-        // Set the correct flag based on variant
         match self.variant {
-            ChallengeTxTestVariant::WithAnnex => {
-                config.test_params.use_small_annex = true;
+            BridgeCircuitTestDataVariant::HeaderChainProofsWithDiverseLengthsInsufficientTotalWork => {
+                config
+                    .test_params
+                    .generate_varying_total_works_insufficient_total_work = true;
             }
-            ChallengeTxTestVariant::LargeInput => {
-                config.test_params.use_large_annex = true;
-            }
-            ChallengeTxTestVariant::LargeOutput => {
-                config.test_params.use_large_output = true;
-            }
-            ChallengeTxTestVariant::LargeInputAndOutput => {
-                config.test_params.use_large_annex_and_output = true;
+            BridgeCircuitTestDataVariant::HeaderChainProofsWithDiverseLengths => {
+                config.test_params.generate_varying_total_works = true;
             }
         }
+
+        let lc_prover = lc_prover.unwrap();
+        let batch_prover = batch_prover.unwrap();
 
         citrea::update_config_with_citrea_e2e_values(
             &mut config,
@@ -146,35 +145,32 @@ impl TestCase for WatchtowerChallengeTxTest {
         )
         .await?;
 
-        rpc.mine_blocks(5).await.unwrap();
+        rpc.mine_blocks(12).await.unwrap();
 
         let block_count = da.get_block_count().await?;
         tracing::debug!("Block count before deposit: {:?}", block_count);
 
-        tracing::debug!(
+        tracing::info!(
             "Deposit starting at block height: {:?}",
             rpc.client.get_block_count().await?
         );
         let (
             _verifiers,
             mut operators,
-            _aggregator,
+            mut _aggregator,
             _cleanup,
             deposit_params,
             move_txid,
             _deposit_blockhash,
             verifiers_public_keys,
         ) = run_single_deposit::<CitreaClient>(&mut config, rpc.clone(), None, None).await?;
-
-        tracing::debug!(
+        tracing::info!(
             "Deposit ending block_height: {:?}",
             rpc.client.get_block_count().await?
         );
 
-        // Wait for TXs to be on-chain (CPFP etc.).
         rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-
         for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
             sequencer.client.send_publish_batch_request().await.unwrap();
         }
@@ -213,9 +209,13 @@ impl TestCase for WatchtowerChallengeTxTest {
             tx,
         )
         .await?;
+
         for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
             sequencer.client.send_publish_batch_request().await.unwrap();
         }
+
+        // Wait for the deposit to be processed.
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
         // After the deposit, the balance should be non-zero.
         assert_ne!(
@@ -254,10 +254,8 @@ impl TestCase for WatchtowerChallengeTxTest {
 
         let block_height = rpc.client.get_block_count().await.unwrap();
 
-        // Wait for TXs to be on-chain (CPFP etc.).
         rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-
         for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
             sequencer.client.send_publish_batch_request().await.unwrap();
         }
@@ -275,7 +273,10 @@ impl TestCase for WatchtowerChallengeTxTest {
         .await
         .unwrap();
 
+        tracing::info!("Params: {:?}", params);
+
         let withdrawal_utxo = withdrawal_utxo_with_txout.outpoint;
+        tracing::debug!("Created withdrawal UTXO: {:?}", withdrawal_utxo);
 
         // Without a withdrawal in Citrea, operator can't withdraw.
         assert!(operators[0]
@@ -378,7 +379,6 @@ impl TestCase for WatchtowerChallengeTxTest {
                         withdrawal_response
                             .into_inner()
                             .txid
-                            .ok_or(eyre::eyre!("Malformed outpoint in withdrawal response"))
                             .unwrap()
                             .txid
                             .try_into()
@@ -398,7 +398,6 @@ impl TestCase for WatchtowerChallengeTxTest {
 
         rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
 
-        // wait until payout part is not null
         while db
             .get_first_unhandled_payout_by_operator_xonly_pk(None, op0_xonly_pk)
             .await?
@@ -423,14 +422,17 @@ impl TestCase for WatchtowerChallengeTxTest {
             .await?
             .expect("Payout must be handled");
 
-        tracing::info!("Kickoff txid: {:?}", kickoff_txid);
+        let reimburse_connector = OutPoint {
+            txid: kickoff_txid,
+            vout: UtxoVout::ReimburseInKickoff.get_vout(),
+        };
 
-        // Wait for the kickoff tx to be onchain
         let kickoff_block_height =
             mine_once_after_in_mempool(&rpc, kickoff_txid, Some("Kickoff tx"), Some(300)).await?;
 
         let kickoff_tx = rpc.get_tx_of_txid(&kickoff_txid).await?;
 
+        // wrongfully challenge operator
         let kickoff_idx = kickoff_tx.input[0].previous_output.vout - 1;
         let base_tx_req = TransactionRequest {
             kickoff_id: Some(
@@ -470,6 +472,7 @@ impl TestCase for WatchtowerChallengeTxTest {
 
         assert_eq!(kickoff_txid, kickoff_tx.compute_txid());
 
+        // send wrong challenge tx
         let (tx_sender, tx_sender_db) = create_tx_sender(&config, 0).await.unwrap();
         let mut db_commit = tx_sender_db.begin_transaction().await.unwrap();
         tx_sender
@@ -515,93 +518,70 @@ impl TestCase for WatchtowerChallengeTxTest {
             .wait_for_l1_height(kickoff_block_height as u64, None)
             .await?;
 
-        let first_assert_utxo = OutPoint {
-            txid: kickoff_txid,
-            vout: UtxoVout::Assert(0).get_vout(),
-        };
-
+        // Ensure the reimburse connector is spent
         ensure_outpoint_spent_while_waiting_for_light_client_sync(
             &rpc,
             lc_prover,
-            first_assert_utxo,
+            reimburse_connector,
         )
         .await
         .unwrap();
 
+        // Create assert transactions for operator 0
         let assert_txs = operators[0]
             .internal_create_assert_commitment_txs(base_tx_req)
             .await?
             .into_inner();
 
-        let assert_tx =
-            get_tx_from_signed_txs_with_type(&assert_txs, TransactionType::MiniAssert(0)).unwrap();
-        let txid = assert_tx.compute_txid();
-
-        assert!(
-            rpc.is_tx_on_chain(&txid).await.unwrap(),
-            "Mini assert 0 was not found in the chain",
-        );
-
+        // check if asserts were sent due to challenge
+        let operator_assert_txids = (0
+            ..bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs())
+            .map(|i| {
+                let assert_tx =
+                    get_tx_from_signed_txs_with_type(&assert_txs, TransactionType::MiniAssert(i))
+                        .unwrap();
+                assert_tx.compute_txid()
+            })
+            .collect::<Vec<Txid>>();
+        for (idx, txid) in operator_assert_txids.into_iter().enumerate() {
+            assert!(
+                rpc.is_tx_on_chain(&txid).await.unwrap(),
+                "Mini assert {} was not found in the chain",
+                idx
+            );
+        }
         Ok(())
     }
 }
 
 #[tokio::test]
-#[ignore = "This test is too slow, run separately"]
-async fn challenge_tx_with_annex() -> Result<()> {
+#[ignore = "Only run this test manually, it's for data generation purposes"]
+async fn bridge_circuit_test_data_diverse_hcp_lengths() -> Result<()> {
+    initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
+        .expect("Failed to initialize logger");
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
         "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
     );
-    let watchtower_challenge_tx_variant = WatchtowerChallengeTxTest {
-        variant: ChallengeTxTestVariant::WithAnnex,
+    let bridge_circuit_test_data = BridgeCircuitTestData {
+        variant: BridgeCircuitTestDataVariant::HeaderChainProofsWithDiverseLengths,
     };
-    TestCaseRunner::new(watchtower_challenge_tx_variant)
-        .run()
-        .await
+    TestCaseRunner::new(bridge_circuit_test_data).run().await
 }
 
 #[tokio::test]
-#[ignore = "This test is too slow, run separately"]
-async fn challenge_tx_with_large_input() -> Result<()> {
+#[ignore = "Only run this test manually, it's for data generation purposes"]
+async fn bridge_circuit_test_data_insuff_total_work_diverse_hcp_lens() -> Result<()> {
+    initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
+        .expect("Failed to initialize logger");
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
         "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
     );
-    let watchtower_challenge_tx_variant = WatchtowerChallengeTxTest {
-        variant: ChallengeTxTestVariant::LargeInput,
-    };
-    TestCaseRunner::new(watchtower_challenge_tx_variant)
-        .run()
-        .await
-}
 
-#[tokio::test]
-#[ignore = "This test is too slow, run separately"]
-async fn challenge_tx_with_large_output() -> Result<()> {
-    std::env::set_var(
-        "CITREA_DOCKER_IMAGE",
-        "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
-    );
-    let watchtower_challenge_tx_variant = WatchtowerChallengeTxTest {
-        variant: ChallengeTxTestVariant::LargeOutput,
+    let bridge_circuit_test_data = BridgeCircuitTestData {
+        variant:
+            BridgeCircuitTestDataVariant::HeaderChainProofsWithDiverseLengthsInsufficientTotalWork,
     };
-    TestCaseRunner::new(watchtower_challenge_tx_variant)
-        .run()
-        .await
-}
-
-#[tokio::test]
-#[ignore = "This test is too slow, run separately"]
-async fn challenge_tx_with_large_input_and_output() -> Result<()> {
-    std::env::set_var(
-        "CITREA_DOCKER_IMAGE",
-        "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
-    );
-    let watchtower_challenge_tx_variant = WatchtowerChallengeTxTest {
-        variant: ChallengeTxTestVariant::LargeInputAndOutput,
-    };
-    TestCaseRunner::new(watchtower_challenge_tx_variant)
-        .run()
-        .await
+    TestCaseRunner::new(bridge_circuit_test_data).run().await
 }

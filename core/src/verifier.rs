@@ -1,5 +1,5 @@
 use crate::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
-use crate::bitcoin_syncer::{BitcoinSyncer, BlockHandler, FinalizedBlockFetcherTask};
+use crate::bitcoin_syncer::BitcoinSyncer;
 use crate::bitvm_client::ClementineBitVMPublicKeys;
 use crate::builder::address::{create_taproot_address, taproot_builder_with_scripts};
 use crate::builder::block_cache;
@@ -10,15 +10,12 @@ use crate::builder::script::{
 use crate::builder::sighash::{
     create_nofn_sighash_stream, create_operator_sighash_stream, PartialSignatureInfo, SignatureInfo,
 };
-#[cfg(test)]
-use crate::builder::transaction::challenge;
 use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::input::UtxoVout;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::builder::transaction::{
     create_emergency_stop_txhandler, create_move_to_vault_txhandler,
-    create_optimistic_payout_txhandler, create_txhandlers, ContractContext, ReimburseDbCache,
-    TransactionType, TxHandler, TxHandlerCache,
+    create_optimistic_payout_txhandler, TransactionType, TxHandler,
 };
 use crate::builder::transaction::{create_round_txhandlers, KickoffWinternitzKeys};
 use crate::citrea::CitreaClientT;
@@ -29,14 +26,13 @@ use crate::database::{Database, DatabaseTransaction};
 use crate::deposit::{DepositData, KickoffData, OperatorData};
 use crate::errors::{BridgeError, TxError};
 use crate::extended_rpc::ExtendedRpc;
-use crate::header_chain_prover::{HeaderChainProver, HeaderChainProverError};
+use crate::header_chain_prover::HeaderChainProver;
 use crate::operator::RoundIndex;
 use crate::rpc::clementine::{NormalSignatureKind, OperatorKeys, TaggedSignature};
 use crate::task::manager::BackgroundTaskManager;
-use crate::task::{IntoTask, TaskExt};
+use crate::task::IntoTask;
 #[cfg(feature = "automation")]
 use crate::tx_sender::{TxSender, TxSenderClient};
-use crate::utils::FeePayingType;
 use crate::utils::NamedEntity;
 use crate::utils::TxMetadata;
 use crate::{musig2, UTXO};
@@ -50,7 +46,6 @@ use bitcoin::taproot::TaprootBuilder;
 use bitcoin::{Address, Amount, ScriptBuf, Witness, XOnlyPublicKey};
 use bitcoin::{OutPoint, TxOut};
 use bitcoin_script::builder::StructuredScript;
-use bitcoincore_rpc::RpcApi;
 use bitvm::chunk::api::validate_assertions;
 use bitvm::clementine::additional_disprove::{
     replace_placeholders_in_script, validate_assertions_for_additional_script,
@@ -72,7 +67,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
-use tonic::async_trait;
 
 #[derive(Debug)]
 pub struct NonceSession {
@@ -145,8 +139,10 @@ where
         }
         #[cfg(not(feature = "automation"))]
         {
+            use crate::task::TaskExt;
+
             background_tasks.loop_and_monitor(
-                FinalizedBlockFetcherTask::new(
+                crate::bitcoin_syncer::FinalizedBlockFetcherTask::new(
                     db.clone(),
                     "verifier".to_string(),
                     config.protocol_paramset(),
@@ -538,8 +534,7 @@ where
         let (sec_nonces, pub_nonces): (Vec<SecretNonce>, Vec<PublicNonce>) = (0..num_nonces)
             .map(|_| {
                 // nonce pair needs keypair and a rng
-                let (sec_nonce, pub_nonce) =
-                    musig2::nonce_pair(&self.signer.keypair, &mut secp256k1::rand::thread_rng())?;
+                let (sec_nonce, pub_nonce) = musig2::nonce_pair(&self.signer.keypair)?;
                 Ok((sec_nonce, pub_nonce))
             })
             .collect::<Result<Vec<(SecretNonce, PublicNonce)>, BridgeError>>()?
@@ -591,11 +586,15 @@ where
             .await?;
 
         tokio::spawn(async move {
-            let mut session_map = verifier.nonces.lock().await;
-            let session = session_map
-                .sessions
-                .get_mut(&session_id)
-                .ok_or_else(|| eyre::eyre!("Could not find session id {session_id}"))?;
+            // Take the lock and extract the session before entering the async block
+            // Extract the session and remove it from the map to release the lock early
+            let mut session = {
+                let mut session_map = verifier.nonces.lock().await;
+                session_map
+                    .sessions
+                    .remove(&session_id)
+                    .ok_or_else(|| eyre::eyre!("Could not find session id {session_id}"))?
+            };
             session.nonces.reverse();
 
             let mut nonce_idx: usize = 0;
@@ -659,6 +658,12 @@ where
                     session.nonces.len()
                 ).into());
             }
+
+            let mut session_map = verifier.nonces.lock().await;
+            session_map
+                .sessions
+                .insert(session_id, session)
+                .ok_or_else(|| eyre::eyre!("Could not find session id {session_id}"))?;
 
             Ok::<(), BridgeError>(())
         });
@@ -1037,6 +1042,7 @@ where
         Ok((move_tx_partial_sig, emergency_stop_partial_sig))
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn sign_optimistic_payout(
         &self,
         nonce_session_id: u32,
@@ -1433,28 +1439,6 @@ where
             .header_chain_prover
             .prove_work_only(current_tip_hcp.0)?;
 
-        #[cfg(test)]
-        {
-            // if in test mode and risc0_dev_mode is enabled, we will not generate real proof
-            // if not in test mode, we should enforce RISC0_DEV_MODE to be disabled
-            if is_dev_mode() {
-                tracing::warn!("Warning, malicious kickoff detected but RISC0_DEV_MODE is enabled, will not generate real proof");
-                let g16_bytes = 128;
-                let mut challenge = vec![0u8; g16_bytes];
-                for (step, i) in (0..g16_bytes).step_by(32).enumerate() {
-                    if i < g16_bytes {
-                        challenge[i] = step as u8;
-                    }
-                }
-                let total_work = borsh::to_vec(&work_output.work_u128)
-                    .wrap_err("Couldn't serialize total work")?;
-                challenge.extend_from_slice(&total_work);
-                return self
-                    .queue_watchtower_challenge(kickoff_data, deposit_data, challenge)
-                    .await;
-            }
-        }
-
         let g16: [u8; 256] = work_only_proof
             .inner
             .groth16()
@@ -1541,29 +1525,30 @@ where
         l2_height_end: u64,
         block_height: u32,
     ) -> Result<(), BridgeError> {
-        tracing::debug!("Updating citrea deposit and withdrawals");
-
         let last_deposit_idx = self.db.get_last_deposit_idx(None).await?;
-        tracing::debug!("Last deposit idx: {:?}", last_deposit_idx);
+        tracing::debug!("Last Citrea deposit idx: {:?}", last_deposit_idx);
 
         let last_withdrawal_idx = self.db.get_last_withdrawal_idx(None).await?;
-        tracing::debug!("Last withdrawal idx: {:?}", last_withdrawal_idx);
+        tracing::debug!("Last Citrea withdrawal idx: {:?}", last_withdrawal_idx);
 
         let new_deposits = self
             .citrea_client
             .collect_deposit_move_txids(last_deposit_idx, l2_height_end)
             .await?;
-        tracing::debug!("New deposits: {:?}", new_deposits);
+        tracing::debug!("New deposits received from Citrea: {:?}", new_deposits);
 
         let new_withdrawals = self
             .citrea_client
             .collect_withdrawal_utxos(last_withdrawal_idx, l2_height_end)
             .await?;
-        tracing::debug!("New Withdrawals: {:?}", new_withdrawals);
+        tracing::debug!(
+            "New withdrawals received from Citrea: {:?}",
+            new_withdrawals
+        );
 
         for (idx, move_to_vault_txid) in new_deposits {
             tracing::info!(
-                "Setting move to vault txid: {:?} with index {}",
+                "Saving move to vault txid {:?} with index {} for Citrea deposits",
                 move_to_vault_txid,
                 idx
             );
@@ -1575,9 +1560,10 @@ where
                 )
                 .await?;
         }
+
         for (idx, withdrawal_utxo_outpoint) in new_withdrawals {
             tracing::info!(
-                "Setting withdrawal utxo: {:?} with index {}",
+                "Saving withdrawal utxo {:?} with index {} for Citrea withdrawals",
                 withdrawal_utxo_outpoint,
                 idx
             );
@@ -1752,6 +1738,7 @@ where
     /// - `Ok(None)` if the operator's claims are valid under this specific challenge, and no disprove is possible.
     /// - `Err(BridgeError)` if any error occurs during script reconstruction or validation.
     #[cfg(feature = "automation")]
+    #[allow(clippy::too_many_arguments)]
     async fn verify_additional_disprove_conditions(
         &self,
         deposit_data: &mut DepositData,
@@ -2066,8 +2053,6 @@ where
             deposit_data
         );
 
-        let raw_tx = bitcoin::consensus::serialize(&disprove_tx);
-
         let mut dbtx = self.db.begin_transaction().await?;
         self.tx_sender
             .add_tx_to_queue(
@@ -2380,20 +2365,14 @@ where
         let max_attempts = light_client_proof_wait_interval_secs.unwrap_or(TEN_MINUTES_IN_SECS);
         let timeout = Duration::from_secs(max_attempts as u64);
 
-        let l2_range_result = self
+        let (l2_height_start, l2_height_end) = self
             .citrea_client
             .get_citrea_l2_height_range(block_height.into(), timeout)
-            .await;
-        if let Err(e) = l2_range_result {
-            tracing::error!("Error getting citrea l2 height range: {:?}", e);
-            return Err(e);
-        }
-
-        let (l2_height_start, l2_height_end) =
-            l2_range_result.expect("Failed to get citrea l2 height range");
+            .await
+            .inspect_err(|e| tracing::error!("Error getting citrea l2 height range: {:?}", e))?;
 
         tracing::debug!(
-            "l2_height_start: {:?}, l2_height_end: {:?}, collecting deposits and withdrawals",
+            "l2_height_start: {:?}, l2_height_end: {:?}, collecting deposits and withdrawals...",
             l2_height_start,
             l2_height_end
         );
@@ -2414,7 +2393,7 @@ where
             self.header_chain_prover
                 .save_unproven_block_cache(Some(&mut dbtx), &block_cache)
                 .await?;
-            while let Some(_) = self.header_chain_prover.prove_if_ready().await? {
+            while (self.header_chain_prover.prove_if_ready().await?).is_some() {
                 // Continue until prove_if_ready returns None
                 // If it doesn't return None, it means next batch_size amount of blocks were proven
             }
@@ -2426,8 +2405,8 @@ where
 
 // This implementation is only relevant for non-automation mode, where the verifier is run as a standalone process
 #[cfg(not(feature = "automation"))]
-#[async_trait]
-impl<C> BlockHandler for Verifier<C>
+#[async_trait::async_trait]
+impl<C> crate::bitcoin_syncer::BlockHandler for Verifier<C>
 where
     C: CitreaClientT,
 {
@@ -2674,7 +2653,7 @@ mod states {
 
         async fn handle_finalized_block(
             &self,
-            mut dbtx: DatabaseTransaction<'_, '_>,
+            dbtx: DatabaseTransaction<'_, '_>,
             block_id: u32,
             block_height: u32,
             block_cache: Arc<block_cache::BlockCache>,

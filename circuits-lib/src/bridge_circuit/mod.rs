@@ -8,12 +8,16 @@ pub mod storage_proof;
 pub mod structs;
 pub mod transaction;
 
-use crate::common::{
-    constants::{
-        MAINNET_HEADER_CHAIN_METHOD_ID, MAX_NUMBER_OF_WATCHTOWERS, REGTEST_HEADER_CHAIN_METHOD_ID,
-        SIGNET_HEADER_CHAIN_METHOD_ID, TESTNET4_HEADER_CHAIN_METHOD_ID,
+use crate::{
+    bridge_circuit::transaction::CircuitTransaction,
+    common::{
+        constants::{
+            MAINNET_HEADER_CHAIN_METHOD_ID, MAX_NUMBER_OF_WATCHTOWERS,
+            REGTEST_HEADER_CHAIN_METHOD_ID, SIGNET_HEADER_CHAIN_METHOD_ID,
+            TESTNET4_HEADER_CHAIN_METHOD_ID,
+        },
+        zkvm::ZkvmGuest,
     },
-    zkvm::ZkvmGuest,
 };
 use bitcoin::{
     consensus::Encodable,
@@ -57,7 +61,7 @@ pub const HEADER_CHAIN_METHOD_ID: [u32; 8] = {
 };
 
 /// Executes the bridge circuit in a zkVM environment, verifying multiple cryptographic proofs
-/// related to watchtower work, SPV, and storage proofs.
+/// related to watchtowers' Bitcoin work, SPV, and storage proofs.
 ///
 /// # Parameters
 ///
@@ -91,7 +95,11 @@ pub const HEADER_CHAIN_METHOD_ID: [u32; 8] = {
 /// - If the withdrawal transaction ID does not match the referenced input in `payout_spv`.
 pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
     let input: BridgeCircuitInput = guest.read_from_host();
-    assert_eq!(HEADER_CHAIN_METHOD_ID, input.hcp.method_id);
+    assert_eq!(
+        HEADER_CHAIN_METHOD_ID, input.hcp.method_id,
+        "Invalid method ID for header chain circuit: expected {:?}, got {:?}",
+        HEADER_CHAIN_METHOD_ID, input.hcp.method_id
+    );
 
     // Verify the HCP
     guest.verify(input.hcp.method_id, &input.hcp);
@@ -107,7 +115,7 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
     // If total work is less than the max total work of watchtowers, panic
     if total_work < max_total_work {
         panic!(
-            "Invalid total work: Total Work {:?} - Max Total Work: {:?}",
+            "Insufficient total work: Total Work {:?} - Max Total Work: {:?}",
             input.hcp.chain_state.total_work, max_total_work
         );
     }
@@ -146,7 +154,8 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
         "Invalid withdrawal transaction output index"
     );
 
-    let last_output = input.payout_spv.transaction.output.last().unwrap();
+    let first_op_return_output = get_first_op_return_output(&input.payout_spv.transaction)
+        .expect("Payout transaction must have an OP_RETURN output");
 
     let round_txid = input.kickoff_tx.input[0]
         .previous_output
@@ -154,7 +163,7 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
         .to_byte_array();
     let kickoff_round_vout = input.kickoff_tx.input[0].previous_output.vout;
 
-    let operator_xonlypk: [u8; 32] = parse_op_return_data(&last_output.script_pubkey)
+    let operator_xonlypk: [u8; 32] = parse_op_return_data(&first_op_return_output.script_pubkey)
         .expect("Invalid operator xonlypk")
         .try_into()
         .expect("Invalid xonlypk");
@@ -217,6 +226,7 @@ fn convert_to_groth16_and_verify(
     };
 
     let groth16_proof = CircuitGroth16WithTotalWork::new(seal, total_work, genesis_state_hash);
+
     groth16_proof.verify(image_id)
 }
 
@@ -276,6 +286,13 @@ pub fn verify_watchtower_challenges(circuit_input: &BridgeCircuitInput) -> Watch
         let input = watchtower_input.watchtower_challenge_tx.input[watchtower_input_idx].clone();
 
         let (sighash_type, sig_bytes): (TapSighashType, [u8; 64]) = {
+            // Enforce the witness to be only 1 element, which is the signature
+            if watchtower_input.watchtower_challenge_witness.0.len() != 1 {
+                panic!(
+                    "Invalid witness length, expected 1 element, watchtower index: {}",
+                    watchtower_input.watchtower_idx
+                );
+            }
             let signature = watchtower_input.watchtower_challenge_witness.0.to_vec()[0].clone();
 
             if signature.len() == 64 {
@@ -463,6 +480,9 @@ pub fn total_work_and_watchtower_flags(
                 total_work = borsh::from_slice(&whole_output[128..144])
                     .expect("Cannot fail: deserializing 16 bytes from a 16-byte slice");
             }
+            // Otherwise, we expect three outputs:
+            // 1. [out1, out2, out3] where out1 and out2 are P2TR outputs
+            //    and out3 is an OP_RETURN output with 80 bytes
             [out1, out2, out3, ..]
                 if out1.script_pubkey.is_p2tr()
                     && out2.script_pubkey.is_p2tr()
@@ -525,6 +545,7 @@ pub fn total_work_and_watchtower_flags(
     )
 }
 
+/// Parses the OP_RETURN data from a Bitcoin script. It retrieves the first data push after an OP_RETURN.
 pub fn parse_op_return_data(script: &Script) -> Option<&[u8]> {
     let mut instructions = script.instructions();
     if let Some(Ok(Instruction::Op(opcodes::all::OP_RETURN))) = instructions.next() {
@@ -599,6 +620,14 @@ pub fn journal_hash(
     let concat_journal = [deposit_constant.0, *hash_bytes].concat();
 
     blake3::hash(&concat_journal)
+}
+
+/// Retrieves the first output of a transaction that is an OP_RETURN script. Used to retrieve
+/// the operator's X-only public key from the OP_RETURN output in the payout transaction.
+fn get_first_op_return_output(tx: &CircuitTransaction) -> Option<&TxOut> {
+    tx.output
+        .iter()
+        .find(|out| out.script_pubkey.is_op_return())
 }
 
 /// Computes the Taproot sighash for a given transaction input.
