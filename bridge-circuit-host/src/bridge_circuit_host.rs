@@ -7,10 +7,12 @@ use ark_bn254::Bn254;
 use bitcoin::Transaction;
 use borsh;
 use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
+use circuits_lib::bridge_circuit::lc_proof::LC_IMAGE_ID;
 use circuits_lib::bridge_circuit::merkle_tree::BitcoinMerkleTree;
 use circuits_lib::bridge_circuit::spv::SPV;
 use circuits_lib::bridge_circuit::structs::WorkOnlyCircuitInput;
 use circuits_lib::bridge_circuit::transaction::CircuitTransaction;
+use citrea_sov_rollup_interface::zk::light_client_proof::output::LightClientCircuitOutput;
 use eyre::{eyre, Result, WrapErr};
 
 use circuits_lib::common::constants::{
@@ -115,10 +117,16 @@ pub fn prove_bridge_circuit(
     tracing::debug!(target: "ci", "Watchtower challenges: {:?}",
         bridge_circuit_input.watchtower_inputs);
 
-    // if bridge_circuit_host_params.lcp_receipt.verify(LC_IMAGE_ID).is_err()
-    // {
-    //     panic!("Light client proof receipt verification failed");
-    // }
+    if !is_dev_mode() {
+        // Verify light client proof
+        if bridge_circuit_host_params
+            .lcp_receipt
+            .verify(LC_IMAGE_ID)
+            .is_err()
+        {
+            return Err(eyre!("Light client proof verification failed"));
+        }
+    }
 
     // Header chain verification
     if header_chain_proof_output_serialized
@@ -600,6 +608,7 @@ mod tests {
 
     #[test]
     fn test_bridge_circuit_with_annex() {
+        eprintln!("{}Please update test data if the elf files are changed. Run the tests on bridge_circuit_test_data.rs to update the test data.{}", "\x1b[31m", "\x1b[0m");
         let input_bytes: &[u8] =
             include_bytes!("../bin-files/bch_params_challenge_tx_with_annex.bin");
         let bridge_circuit_host_params: BridgeCircuitHostParams = borsh::from_slice(input_bytes)
@@ -616,6 +625,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Invalid witness length, expected 1 element")]
     fn test_bridge_circuit_with_large_input() {
+        eprintln!("{}Please update test data if the elf files are changed. Run the tests on bridge_circuit_test_data.rs to update the test data.{}", "\x1b[31m", "\x1b[0m");
         let input_bytes: &[u8] =
             include_bytes!("../bin-files/bch_params_challenge_tx_with_large_annex.bin");
         let mut bridge_circuit_host_params: BridgeCircuitHostParams =
@@ -636,6 +646,7 @@ mod tests {
 
     #[test]
     fn test_bridge_circuit_with_large_output() {
+        eprintln!("{}Please update test data if the elf files are changed. Run the tests on bridge_circuit_test_data.rs to update the test data.{}", "\x1b[31m", "\x1b[0m");
         let input_bytes: &[u8] =
             include_bytes!("../bin-files/bch_params_challenge_tx_with_large_output.bin");
         let bridge_circuit_host_params: BridgeCircuitHostParams = borsh::from_slice(input_bytes)
@@ -651,6 +662,7 @@ mod tests {
 
     #[test]
     fn test_bridge_circuit_with_large_input_and_output() {
+        eprintln!("{}Please update test data if the elf files are changed. Run the tests on bridge_circuit_test_data.rs to update the test data.{}", "\x1b[31m", "\x1b[0m");
         let input_bytes: &[u8] =
             include_bytes!("../bin-files/bch_params_challenge_tx_with_large_annex_and_output.bin");
         let bridge_circuit_host_params: BridgeCircuitHostParams = borsh::from_slice(input_bytes)
