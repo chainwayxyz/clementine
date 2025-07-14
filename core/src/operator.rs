@@ -32,12 +32,11 @@ use crate::task::TaskExt;
 use crate::utils::Last20Bytes;
 use crate::utils::{NamedEntity, TxMetadata};
 use crate::{builder, constants, UTXO};
-use bitcoin::consensus::deserialize;
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::{schnorr, Message};
 use bitcoin::{
-    Address, Amount, BlockHash, OutPoint, ScriptBuf, Transaction, TxOut, Txid, XOnlyPublicKey,
+    Address, Amount, BlockHash, OutPoint, ScriptBuf, Transaction, TxOut, XOnlyPublicKey,
 };
 use bitcoincore_rpc::json::AddressType;
 use bitcoincore_rpc::RpcApi;
@@ -553,7 +552,7 @@ where
     /// 1. Checking if the withdrawal has been made on Citrea
     /// 2. Verifying the given signature
     /// 3. Checking if the withdrawal is profitable or not
-    /// 4. Funding the witdhrawal transaction
+    /// 4. Funding the witdhrawal transaction using TxSender RBF option
     ///
     /// # Parameters
     ///
@@ -567,7 +566,9 @@ where
     ///
     /// # Returns
     ///
-    /// - [`Txid`]: Payout transaction's txid
+    /// - Ok(()) if the withdrawal checks are successful and a payout transaction is added to the TxSender
+    /// - Err(BridgeError) if the withdrawal checks fail
+    #[cfg(feature = "automation")]
     pub async fn withdraw(
         &self,
         withdrawal_index: u32,
@@ -575,7 +576,7 @@ where
         in_outpoint: OutPoint,
         out_script_pubkey: ScriptBuf,
         out_amount: Amount,
-    ) -> Result<Txid, BridgeError> {
+    ) -> Result<(), BridgeError> {
         tracing::info!(
             "Withdrawing with index: {}, in_signature: {}, in_outpoint: {:?}, out_script_pubkey: {}, out_amount: {}",
             withdrawal_index,
@@ -602,19 +603,8 @@ where
             .get_withdrawal_utxo_from_citrea_withdrawal(None, withdrawal_index)
             .await?;
 
-        match withdrawal_utxo {
-            Some(withdrawal_utxo) => {
-                if withdrawal_utxo != input_utxo.outpoint {
-                    return Err(eyre::eyre!("Input UTXO does not match withdrawal UTXO from Citrea: Input Outpoint: {0}, Withdrawal Outpoint (from Citrea): {1}", input_utxo.outpoint, withdrawal_utxo).into());
-                }
-            }
-            None => {
-                return Err(eyre::eyre!(
-                    "User's withdrawal UTXO is not set for withdrawal index: {0}",
-                    withdrawal_index
-                )
-                .into());
-            }
+        if withdrawal_utxo != input_utxo.outpoint {
+            return Err(eyre::eyre!("Input UTXO does not match withdrawal UTXO from Citrea: Input Outpoint: {0}, Withdrawal Outpoint (from Citrea): {1}", input_utxo.outpoint, withdrawal_utxo).into());
         }
 
         let operator_withdrawal_fee_sats =
@@ -657,47 +647,29 @@ where
         )
         .wrap_err("Failed to verify signature received from user for payout txin")?;
 
-        let funded_tx = self
-            .rpc
-            .client
-            .fund_raw_transaction(
-                payout_txhandler.get_cached_tx(),
-                Some(&bitcoincore_rpc::json::FundRawTransactionOptions {
-                    add_inputs: Some(true),
-                    change_address: None,
-                    change_position: Some(1),
-                    change_type: None,
-                    include_watching: None,
-                    lock_unspents: Some(true),
-                    fee_rate: None,
-                    subtract_fee_from_outputs: None,
-                    replaceable: None,
-                    conf_target: None,
-                    estimate_mode: None,
+        // send payout tx using RBF
+        let payout_tx = payout_txhandler.get_cached_tx();
+        let mut dbtx = self.db.begin_transaction().await?;
+        self.tx_sender
+            .add_tx_to_queue(
+                &mut dbtx,
+                TransactionType::Payout,
+                payout_tx,
+                &[],
+                Some(TxMetadata {
+                    tx_type: TransactionType::Payout,
+                    operator_xonly_pk: Some(self.signer.xonly_public_key),
+                    round_idx: None,
+                    kickoff_idx: None,
+                    deposit_outpoint: None,
                 }),
+                &self.config,
                 None,
             )
-            .await
-            .wrap_err("Failed to fund raw transaction")?
-            .hex;
+            .await?;
+        dbtx.commit().await?;
 
-        let signed_tx: Transaction = deserialize(
-            &self
-                .rpc
-                .client
-                .sign_raw_transaction_with_wallet(&funded_tx, None, None)
-                .await
-                .wrap_err("Failed to sign funded tx through bitcoin RPC")?
-                .hex,
-        )
-        .wrap_err("Failed to deserialize signed tx")?;
-
-        Ok(self
-            .rpc
-            .client
-            .send_raw_transaction(&signed_tx)
-            .await
-            .wrap_err("Failed to send transaction to signed tx")?)
+        Ok(())
     }
 
     /// Generates Winternitz public keys for every  BitVM assert tx for a deposit.

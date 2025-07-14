@@ -8,13 +8,13 @@ use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::WithdrawParams;
+use crate::test::common::tx_utils::get_txid_where_utxo_is_spent_while_waiting_for_light_client_and_state_mngr_sync;
 use crate::test::common::{
     generate_withdrawal_transaction_and_signature, mine_once_after_in_mempool,
 };
 use crate::{config::BridgeConfig, errors::BridgeError};
 use alloy::primitives::U256;
 use bitcoin::consensus::Encodable;
-use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::{PublicKey, SecretKey};
 use bitcoin::{Address, Amount, Block, OutPoint, Transaction, TxOut, Txid, VarInt, XOnlyPublicKey};
 use bitcoincore_rpc::RpcApi;
@@ -491,7 +491,7 @@ pub async fn payout_and_start_kickoff(
     e2e: &CitreaE2EData<'_>,
     actors: &TestActors<CitreaClient>,
 ) -> OutPoint {
-    let payout_txid = loop {
+    loop {
         let withdrawal_response = operator
             .withdraw(WithdrawParams {
                 withdrawal_id,
@@ -505,28 +505,20 @@ pub async fn payout_and_start_kickoff(
         tracing::info!("Withdrawal response: {:?}", withdrawal_response);
 
         match withdrawal_response {
-            Ok(withdrawal_response) => {
-                tracing::info!("Withdrawal response: {:?}", withdrawal_response);
-                break Txid::from_byte_array(
-                    withdrawal_response
-                        .into_inner()
-                        .txid
-                        .unwrap()
-                        .txid
-                        .try_into()
-                        .unwrap(),
-                );
-            }
-            Err(e) => {
-                tracing::info!("Withdrawal error: {:?}", e);
-            }
-        }
+            Ok(_) => break,
+            Err(e) => tracing::info!("Withdrawal error: {:?}", e),
+        };
 
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-    };
-    tracing::info!("Payout txid: {:?}", payout_txid);
+    }
 
-    mine_once_after_in_mempool(e2e.rpc, payout_txid, Some("Payout tx"), None)
+    let payout_txid =
+        get_txid_where_utxo_is_spent_while_waiting_for_light_client_and_state_mngr_sync(
+            e2e.rpc,
+            e2e.lc_prover,
+            *withdrawal_utxo,
+            actors,
+        )
         .await
         .unwrap();
 

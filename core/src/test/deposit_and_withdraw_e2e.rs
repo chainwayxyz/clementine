@@ -40,7 +40,6 @@ use crate::test::common::{
 use crate::utils::initialize_logger;
 use crate::{EVMAddress, UTXO};
 use async_trait::async_trait;
-use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::SecretKey;
 use bitcoin::{Address, Amount, OutPoint, Transaction, TxOut, Txid};
 use bitcoincore_rpc::RpcApi;
@@ -385,42 +384,6 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         .await
         .unwrap();
 
-        tracing::info!("Waiting for lc prover to sync");
-        // wait for lc prover so that new replacement deposit gets synced on verifiers before attempting optimistic payout
-        // TODO: can use status rpc to ensure they are synced
-        rpc.mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH, &actors)
-            .await
-            .unwrap();
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
-            sequencer.client.send_publish_batch_request().await.unwrap();
-        }
-
-        let block_height = da.get_finalized_height(None).await.unwrap();
-        lc_prover
-            .wait_for_l1_height(block_height as u64, None)
-            .await
-            .unwrap();
-
-        rpc.mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH, &actors)
-            .await
-            .unwrap();
-
-        tracing::warn!(
-            "Cur block height: {:?}",
-            rpc.get_current_chain_height().await.unwrap()
-        );
-
-        for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
-            sequencer.client.send_publish_batch_request().await.unwrap();
-        }
-
-        let block_height = da.get_finalized_height(None).await.unwrap();
-        lc_prover
-            .wait_for_l1_height(block_height as u64, None)
-            .await
-            .unwrap();
-
         // do optimistic payout with new replacement deposit, should work now
         reimburse_with_optimistic_payout(
             &actors,
@@ -630,52 +593,31 @@ async fn mock_citrea_run_truthful() {
     tracing::info!("Withdrawal tx sent");
     let mut operator0 = actors.get_operator_client_by_index(0);
 
-    let payout_txid = poll_get(
-        async || {
-            let withdrawal_response = operator0
-                .withdraw(WithdrawParams {
-                    withdrawal_id: 0,
-                    input_signature: sig.serialize().to_vec(),
-                    input_outpoint: Some(withdrawal_utxo.into()),
-                    output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
-                    output_amount: payout_txout.value.to_sat(),
-                })
-                .await;
+    loop {
+        let withdrawal_response = operator0
+            .withdraw(WithdrawParams {
+                withdrawal_id: 0,
+                input_signature: sig.serialize().to_vec(),
+                input_outpoint: Some(withdrawal_utxo.into()),
+                output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
+                output_amount: payout_txout.value.to_sat(),
+            })
+            .await;
 
-            match withdrawal_response {
-                Ok(withdrawal_response) => {
-                    tracing::info!("Withdrawal response: {:?}", withdrawal_response);
-                    let payout_txid = Some(Txid::from_byte_array(
-                        withdrawal_response
-                            .into_inner()
-                            .txid
-                            .unwrap()
-                            .txid
-                            .try_into()
-                            .unwrap(),
-                    ));
-                    Ok(Some(payout_txid))
-                }
-                Err(e) => {
-                    tracing::info!("Withdrawal error: {:?}", e);
-                    Ok(None)
-                }
-            }
-        },
-        Some(std::time::Duration::from_secs(120)),
-        Some(std::time::Duration::from_millis(1000)),
-    )
-    .await
-    .wrap_err("Withdrawal took too long")
-    .unwrap();
+        tracing::info!("Withdrawal response: {:?}", withdrawal_response);
 
-    tracing::info!("Payout txid: {:?}", payout_txid);
+        match withdrawal_response {
+            Ok(_) => break,
+            Err(e) => tracing::info!("Withdrawal error: {:?}", e),
+        };
 
-    let payout_txid = payout_txid.unwrap();
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    }
 
-    mine_once_after_in_mempool(&rpc, payout_txid, Some("Payout tx"), None)
+    let payout_txid = get_txid_where_utxo_is_spent(&rpc, withdrawal_utxo)
         .await
         .unwrap();
+    tracing::info!("Payout txid: {:?}", payout_txid);
 
     rpc.mine_blocks(DEFAULT_FINALITY_DEPTH + 2).await.unwrap();
 
@@ -1596,7 +1538,9 @@ async fn concurrent_deposits_and_withdrawals() {
     rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
     sleep(Duration::from_secs(10)).await;
 
-    let withdrawal_txids = poll_get(
+    let withdrawal_input_outpoints = withdrawal_utxos.clone();
+
+    poll_get(
         async move || {
             let mut operator0s = (0..count)
                 .map(|_| actors.get_operator_client_by_index(0))
@@ -1617,21 +1561,9 @@ async fn concurrent_deposits_and_withdrawals() {
                 Ok(txids) => txids,
                 Err(e) => {
                     tracing::error!("Error while processing withdrawals: {:?}", e);
-                    return Ok(None);
+                    return Err(eyre::eyre!("Error while processing withdrawals: {:?}", e));
                 }
             };
-
-            let withdrawal_txids: Vec<Txid> = withdrawal_txids
-                .into_iter()
-                .map(|encoded_withdrawal_tx| {
-                    encoded_withdrawal_tx
-                        .into_inner()
-                        .txid
-                        .unwrap()
-                        .try_into()
-                        .unwrap()
-                })
-                .collect::<Vec<_>>();
 
             Ok(Some(withdrawal_txids))
         },
@@ -1641,15 +1573,10 @@ async fn concurrent_deposits_and_withdrawals() {
     .await
     .unwrap();
 
-    tracing::debug!("Withdrawal txids: {:?}", withdrawal_txids);
-
-    rpc.mine_blocks(1).await.unwrap();
-    for txid in withdrawal_txids.iter() {
-        assert!(
-            rpc.client.get_mempool_entry(txid).await.is_err(),
-            "Withdrawal txid {:?} not in mempool after mining",
-            txid
-        );
+    // check if withdrawal input outpoints are spent
+    for outpoint in withdrawal_input_outpoints.iter() {
+        ensure_tx_onchain(&rpc, outpoint.txid).await.unwrap();
+        ensure_outpoint_spent(&rpc, *outpoint).await.unwrap();
     }
 }
 
