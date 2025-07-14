@@ -252,39 +252,6 @@ pub struct WithdrawParams {
     pub output_amount: u64,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct WithdrawResponse {
-    /// The withdrawal transaction's txid
-    #[prost(message, optional, tag = "1")]
-    pub txid: ::core::option::Option<Txid>,
-}
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct WithdrawErrorResponse {
-    #[prost(string, tag = "1")]
-    pub error: ::prost::alloc::string::String,
-}
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct WithdrawResult {
-    #[prost(oneof = "withdraw_result::Result", tags = "1, 2")]
-    pub result: ::core::option::Option<withdraw_result::Result>,
-}
-/// Nested message and enum types in `WithdrawResult`.
-pub mod withdraw_result {
-    #[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum Result {
-        #[prost(message, tag = "1")]
-        Success(super::WithdrawResponse),
-        #[prost(message, tag = "2")]
-        Error(super::WithdrawErrorResponse),
-    }
-}
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct WithdrawalFinalizedParams {
-    #[prost(uint32, tag = "1")]
-    pub withdrawal_id: u32,
-    #[prost(message, optional, tag = "2")]
-    pub deposit_outpoint: ::core::option::Option<Outpoint>,
-}
-#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FinalizedPayoutParams {
     #[prost(bytes = "vec", tag = "1")]
     pub payout_blockhash: ::prost::alloc::vec::Vec<u8>,
@@ -511,8 +478,8 @@ pub struct RawTxWithRbfInfo {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AggregatorWithdrawResponse {
-    #[prost(message, repeated, tag = "1")]
-    pub withdraw_responses: ::prost::alloc::vec::Vec<WithdrawResult>,
+    #[prost(string, repeated, tag = "1")]
+    pub withdraw_responses: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CreateEmergencyStopTxRequest {
@@ -1052,15 +1019,13 @@ pub mod clementine_operator_client {
                 .insert(GrpcMethod::new("clementine.ClementineOperator", "DepositSign"));
             self.inner.server_streaming(req, path, codec).await
         }
-        /// Prepares a withdrawal if it's profitable and previous sequential_collateral_tx's timelock
-        /// has ended, by paying for the withdrawal and locking the current sequential_collateral_tx.
+        /// Prepares a withdrawal if it's profitable and the withdrawal is correct and registered in Citrea bridge contract/
+        /// If withdrawal is accepted, the payout tx will be added to the TxSender and success is returned, otherwise an error is returned.
+        /// If automation is disabled, the withdrawal will not be accepted and an error will be returned.
         pub async fn withdraw(
             &mut self,
             request: impl tonic::IntoRequest<super::WithdrawParams>,
-        ) -> std::result::Result<
-            tonic::Response<super::WithdrawResponse>,
-            tonic::Status,
-        > {
+        ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status> {
             self.inner
                 .ready()
                 .await
@@ -1076,44 +1041,6 @@ pub mod clementine_operator_client {
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("clementine.ClementineOperator", "Withdraw"));
-            self.inner.unary(req, path, codec).await
-        }
-        /// Checks if a withdrawal is finalized.
-        ///
-        /// Steps:
-        ///
-        /// 1. Calculate move_txid and check if the withdrawal idx matches it
-        /// 2. Check if it is proved on citrea
-        /// 3. Send operator_take_txs
-        ///
-        /// # Parameters
-        ///
-        /// - withdrawal_id: Withdrawal's ID
-        /// - deposit_outpoint: Withdrawal's deposit UTXO
-        pub async fn withdrawal_finalized(
-            &mut self,
-            request: impl tonic::IntoRequest<super::WithdrawalFinalizedParams>,
-        ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status> {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/clementine.ClementineOperator/WithdrawalFinalized",
-            );
-            let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(
-                    GrpcMethod::new(
-                        "clementine.ClementineOperator",
-                        "WithdrawalFinalized",
-                    ),
-                );
             self.inner.unary(req, path, codec).await
         }
         /// Signs all tx's it can according to given transaction type (use it with AllNeededForDeposit to get almost all tx's)
@@ -2107,30 +2034,12 @@ pub mod clementine_operator_server {
             tonic::Response<Self::DepositSignStream>,
             tonic::Status,
         >;
-        /// Prepares a withdrawal if it's profitable and previous sequential_collateral_tx's timelock
-        /// has ended, by paying for the withdrawal and locking the current sequential_collateral_tx.
+        /// Prepares a withdrawal if it's profitable and the withdrawal is correct and registered in Citrea bridge contract/
+        /// If withdrawal is accepted, the payout tx will be added to the TxSender and success is returned, otherwise an error is returned.
+        /// If automation is disabled, the withdrawal will not be accepted and an error will be returned.
         async fn withdraw(
             &self,
             request: tonic::Request<super::WithdrawParams>,
-        ) -> std::result::Result<
-            tonic::Response<super::WithdrawResponse>,
-            tonic::Status,
-        >;
-        /// Checks if a withdrawal is finalized.
-        ///
-        /// Steps:
-        ///
-        /// 1. Calculate move_txid and check if the withdrawal idx matches it
-        /// 2. Check if it is proved on citrea
-        /// 3. Send operator_take_txs
-        ///
-        /// # Parameters
-        ///
-        /// - withdrawal_id: Withdrawal's ID
-        /// - deposit_outpoint: Withdrawal's deposit UTXO
-        async fn withdrawal_finalized(
-            &self,
-            request: tonic::Request<super::WithdrawalFinalizedParams>,
         ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
         /// Signs all tx's it can according to given transaction type (use it with AllNeededForDeposit to get almost all tx's)
         /// Creates the transactions denoted by the deposit and operator_idx, round_idx, and kickoff_idx.
@@ -2454,7 +2363,7 @@ pub mod clementine_operator_server {
                         T: ClementineOperator,
                     > tonic::server::UnaryService<super::WithdrawParams>
                     for WithdrawSvc<T> {
-                        type Response = super::WithdrawResponse;
+                        type Response = super::Empty;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
@@ -2477,55 +2386,6 @@ pub mod clementine_operator_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = WithdrawSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            )
-                            .apply_max_message_size_config(
-                                max_decoding_message_size,
-                                max_encoding_message_size,
-                            );
-                        let res = grpc.unary(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
-                "/clementine.ClementineOperator/WithdrawalFinalized" => {
-                    #[allow(non_camel_case_types)]
-                    struct WithdrawalFinalizedSvc<T: ClementineOperator>(pub Arc<T>);
-                    impl<
-                        T: ClementineOperator,
-                    > tonic::server::UnaryService<super::WithdrawalFinalizedParams>
-                    for WithdrawalFinalizedSvc<T> {
-                        type Response = super::Empty;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<super::WithdrawalFinalizedParams>,
-                        ) -> Self::Future {
-                            let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                <T as ClementineOperator>::withdrawal_finalized(
-                                        &inner,
-                                        request,
-                                    )
-                                    .await
-                            };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let max_decoding_message_size = self.max_decoding_message_size;
-                    let max_encoding_message_size = self.max_encoding_message_size;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let method = WithdrawalFinalizedSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

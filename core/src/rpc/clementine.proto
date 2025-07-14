@@ -259,26 +259,6 @@ message WithdrawParams {
   uint64 output_amount = 5;
 }
 
-message WithdrawResponse {
-  // The withdrawal transaction's txid
-  Txid txid = 1;
-}
-
-message WithdrawErrorResponse {
-  string error = 1;
-}
-
-message WithdrawResult {
-  oneof result {
-    WithdrawResponse success = 1;
-    WithdrawErrorResponse error = 2;
-  }
-}
-
-message WithdrawalFinalizedParams {
-  uint32 withdrawal_id = 1;
-  Outpoint deposit_outpoint = 2;
-}
 
 message FinalizedPayoutParams {
   bytes payout_blockhash = 1;
@@ -328,24 +308,11 @@ service ClementineOperator {
   // - Operator burn Schnorr signature
   rpc DepositSign(DepositSignSession) returns (stream SchnorrSig) {}
 
-  // Prepares a withdrawal if it's profitable and previous sequential_collateral_tx's timelock
-  // has ended, by paying for the withdrawal and locking the current sequential_collateral_tx.
+  // Prepares a withdrawal if it's profitable and the withdrawal is correct and registered in Citrea bridge contract/
+  // If withdrawal is accepted, the payout tx will be added to the TxSender and success is returned, otherwise an error is returned.
+  // If automation is disabled, the withdrawal will not be accepted and an error will be returned.
   rpc Withdraw(WithdrawParams)
-    returns (WithdrawResponse) {}
-
-  // Checks if a withdrawal is finalized.
-  //
-  // Steps:
-  //
-  // 1. Calculate move_txid and check if the withdrawal idx matches it
-  // 2. Check if it is proved on citrea
-  // 3. Send operator_take_txs
-  //
-  // # Parameters
-  //
-  // - withdrawal_id: Withdrawal's ID
-  // - deposit_outpoint: Withdrawal's deposit UTXO
-  rpc WithdrawalFinalized(WithdrawalFinalizedParams) returns (Empty) {}
+    returns (Empty) {}
 
   // Signs all tx's it can according to given transaction type (use it with AllNeededForDeposit to get almost all tx's)
   // Creates the transactions denoted by the deposit and operator_idx, round_idx, and kickoff_idx.
@@ -593,7 +560,7 @@ message RawTxWithRbfInfo {
 }
 
 message AggregatorWithdrawResponse {
-  repeated WithdrawResult withdraw_responses = 1;
+  repeated string withdraw_responses = 1;
 }
 
 message CreateEmergencyStopTxRequest {

@@ -860,11 +860,7 @@ impl ClementineAggregator for Aggregator {
             let withdrawal_utxo = self
                 .db
                 .get_withdrawal_utxo_from_citrea_withdrawal(None, deposit_id)
-                .await?
-                .ok_or(Status::invalid_argument(format!(
-                    "Withdrawal utxo not found for deposit id {}",
-                    deposit_id
-                )))?;
+                .await?;
             if withdrawal_utxo != input_outpoint {
                 return Err(Status::invalid_argument(format!(
                     "Withdrawal utxo is not correct: {:?} != {:?}",
@@ -1493,21 +1489,14 @@ impl ClementineAggregator for Aggregator {
             async move { operator.withdraw(Request::new(params)).await }
         });
 
+        // collect responses from operators and return them as a vector of strings
         let responses = futures::future::join_all(withdraw_futures).await;
         Ok(Response::new(AggregatorWithdrawResponse {
             withdraw_responses: responses
                 .into_iter()
-                .map(|r| clementine::WithdrawResult {
-                    result: Some(match r {
-                        Ok(response) => {
-                            clementine::withdraw_result::Result::Success(response.into_inner())
-                        }
-                        Err(e) => clementine::withdraw_result::Result::Error(
-                            clementine::WithdrawErrorResponse {
-                                error: e.to_string(),
-                            },
-                        ),
-                    }),
+                .map(|r| match r {
+                    Ok(_) => "Withdraw successful".to_string(),
+                    Err(e) => e.to_string(),
                 })
                 .collect(),
         }))
