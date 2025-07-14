@@ -1,4 +1,4 @@
-initial_da_height = 1
+initial_da_height = 8152
 proving_mode = "execute"
 proof_sampling_number = 500
 enable_recovery = true
