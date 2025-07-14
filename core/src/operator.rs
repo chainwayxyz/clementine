@@ -1372,6 +1372,18 @@ where
                     .prove_till_hash(payout_block_hash)
                     .await?
                     .0
+            } else if self
+                .config
+                .test_params
+                .generate_varying_total_works_first_two_valid
+            {
+                let highest_valid_wt_index = 287;
+                let target_blockhash = block_hashes.get(highest_valid_wt_index).unwrap();
+
+                self.header_chain_prover
+                    .prove_till_hash(target_blockhash.0)
+                    .await?
+                    .0
             } else {
                 current_hcp
             }
@@ -1398,6 +1410,17 @@ where
                         (payout_block_height + 1 - self.config.protocol_paramset().genesis_height)
                             as usize,
                     )
+                    .map(|(block_hash, _)| block_hash.to_byte_array())
+                    .collect::<Vec<_>>()
+            } else if self
+                .config
+                .test_params
+                .generate_varying_total_works_first_two_valid
+            {
+                let highest_valid_wt_index = 287;
+                block_hashes
+                    .iter()
+                    .take(highest_valid_wt_index)
                     .map(|(block_hash, _)| block_hash.to_byte_array())
                     .collect::<Vec<_>>()
             } else {
@@ -1480,18 +1503,26 @@ where
                 .test_params
                 .generate_varying_total_works_insufficient_total_work
                 || self.config.test_params.generate_varying_total_works
+                || self
+                    .config
+                    .test_params
+                    .generate_varying_total_works_first_two_valid
             {
                 use std::path::PathBuf;
 
                 let file_path = match (
              self.config.test_params.generate_varying_total_works,
              self.config.test_params.generate_varying_total_works_insufficient_total_work,
+            self.config.test_params.generate_varying_total_works_first_two_valid,
         ) {
-            (false, true) => PathBuf::from(
+            (true, false, false) => PathBuf::from(
+                "../bridge-circuit-host/bin-files/bch_params_varying_total_works.bin",
+            ),
+            (false, true, false) => PathBuf::from(
                 "../bridge-circuit-host/bin-files/bch_params_varying_total_works_insufficient_total_work.bin",
             ),
-            (true, false) => PathBuf::from(
-                "../bridge-circuit-host/bin-files/bch_params_varying_total_works.bin",
+            (false, false, true) => PathBuf::from(
+                "../bridge-circuit-host/bin-files/bch_params_varying_total_works_first_two_valid.bin",
             ),
             _ => {
                 panic!("Invalid or conflicting test params for generating varying total works");
@@ -1540,29 +1571,38 @@ where
             public_inputs.challenge_sending_watchtowers
         );
 
-        let asserts = if cfg!(test) && is_dev_mode() {
-            generate_assertions(
-                g16_proof,
-                vec![public_input_scalar],
-                &get_ark_verifying_key_dev_mode_bridge(),
-            )
-            .map_err(|e| eyre::eyre!("Failed to generate dev mode assertions: {}", e))?
-        } else {
-            generate_assertions(
-                g16_proof,
-                vec![public_input_scalar],
-                &get_ark_verifying_key(),
-            )
-            .map_err(|e| eyre::eyre!("Failed to generate assertions: {}", e))?
+        let asserts = {
+            let vk = if cfg!(test) && is_dev_mode() {
+                get_ark_verifying_key_dev_mode_bridge()
+            } else {
+                get_ark_verifying_key()
+            };
+
+            let asserts =
+                generate_assertions(g16_proof, vec![public_input_scalar], &vk).map_err(|e| {
+                    eyre::eyre!(
+                        "Failed to generate {}assertions: {}",
+                        if cfg!(test) && is_dev_mode() {
+                            "dev mode "
+                        } else {
+                            ""
+                        },
+                        e
+                    )
+                })?;
+
+            #[cfg(test)]
+            {
+                let mut asserts = asserts;
+                self.config.test_params.maybe_corrupt_asserts(&mut asserts);
+                asserts
+            }
+
+            #[cfg(not(test))]
+            {
+                asserts
+            }
         };
-
-        #[cfg(test)]
-        let mut asserts = asserts;
-
-        #[cfg(test)]
-        {
-            self.config.test_params.maybe_corrupt_asserts(&mut asserts);
-        }
 
         let assert_txs = self
             .create_assert_commitment_txs(

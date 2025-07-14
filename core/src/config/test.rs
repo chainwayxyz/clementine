@@ -61,6 +61,8 @@ pub struct TestParams {
 
     pub generate_varying_total_works: bool,
 
+    pub generate_varying_total_works_first_two_valid: bool,
+
     #[serde(default)]
     pub timeout_params: TimeoutTestParams,
 }
@@ -244,6 +246,7 @@ impl Default for TestParams {
             generate_to_address: true,
             generate_varying_total_works_insufficient_total_work: false,
             generate_varying_total_works: false,
+            generate_varying_total_works_first_two_valid: false,
         }
     }
 }
