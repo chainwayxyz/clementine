@@ -60,9 +60,9 @@ services:
     ports:
       - "10080:8080"
     volumes:
-      - ./sequencer_rollup_config.toml:/sequencer_rollup_config.toml
-      - ./sequencer_config.toml:/sequencer_config.toml
-      - ./genesis-bitcoin-regtest:/genesis-bitcoin-regtest
+      - ./configs/citrea/sequencer_rollup_config.toml:/sequencer_rollup_config.toml
+      - ./configs/citrea/sequencer_config.toml:/sequencer_config.toml
+      - ./configs/citrea/genesis-bitcoin-regtest:/genesis-bitcoin-regtest
 
     networks:
       - clementine-network
@@ -83,8 +83,8 @@ services:
     ports:
       - "9080:8080"
     volumes:
-      - ./docker_config.toml:/config.toml
-      - ./docker_protocol_paramset.toml:/protocol_paramset.toml
+      - ./configs/docker_config.toml:/config.toml
+      - ./configs/docker_protocol_paramset.toml:/protocol_paramset.toml
       - ../../bitvm_cache.bin:/bitvm_cache.bin
       - ../../core/certs:/certs
 
@@ -109,8 +109,8 @@ services:
     ports:
       - "7080:8080"
     volumes:
-      - ./docker_config.toml:/config.toml
-      - ./docker_protocol_paramset.toml:/protocol_paramset.toml
+      - ./configs/docker_config.toml:/config.toml
+      - ./configs/docker_protocol_paramset.toml:/protocol_paramset.toml
       - ../../bitvm_cache.bin:/bitvm_cache.bin
       - ../../core/certs:/certs
 
