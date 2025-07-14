@@ -344,7 +344,7 @@ mod tests {
 
     #[test]
     fn test_docker_config_parseable() {
-        let content = include_str!("../../../scripts/docker/docker_config.toml");
+        let content = include_str!("../../../scripts/docker/configs/bridge_config.toml");
         BridgeConfig::try_parse_from(content.to_string()).unwrap();
     }
 }

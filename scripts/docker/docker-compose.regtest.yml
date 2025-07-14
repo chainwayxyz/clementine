@@ -159,8 +159,8 @@ services:
     ports:
       - "9080:8080"
     volumes:
-      - ./configs/docker_config.toml:/config.toml
-      - ./configs/docker_protocol_paramset.toml:/protocol_paramset.toml
+      - ./configs/bridge_config.toml:/config.toml
+      - ./configs/protocol_paramset.toml:/protocol_paramset.toml
       - ../../bitvm_cache.bin:/bitvm_cache.bin
       - ../../core/certs:/certs
     networks:
@@ -192,8 +192,8 @@ services:
     ports:
       - "7080:8080"
     volumes:
-      - ./configs/docker_config.toml:/config.toml
-      - ./configs/docker_protocol_paramset.toml:/protocol_paramset.toml
+      - ./configs/bridge_config.toml:/config.toml
+      - ./configs/protocol_paramset.toml:/protocol_paramset.toml
       - ../../bitvm_cache.bin:/bitvm_cache.bin
       - ../../core/certs:/certs
     networks:
