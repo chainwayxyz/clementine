@@ -385,7 +385,7 @@ mod tests {
 
     use borsh::BorshDeserialize;
     use circuits_lib::{
-        bridge_circuit::structs::{BridgeCircuitInput, WorkOnlyCircuitOutput},
+        bridge_circuit::structs::WorkOnlyCircuitOutput,
         common::zkvm::ZkvmHost,
         header_chain::{
             header_chain_circuit, BlockHeaderCircuitOutput, ChainState, CircuitBlockHeader,
@@ -600,119 +600,67 @@ mod tests {
 
     #[test]
     fn test_bridge_circuit_with_annex() {
-        let input_bytes: &[u8] = include_bytes!("../bin-files/challenge_tx_with_annex.bin");
-        let bridge_circuit_input: BridgeCircuitInput = borsh::from_slice(input_bytes)
-            .expect("Failed to deserialize BridgeCircuitInput from file");
+        let input_bytes: &[u8] =
+            include_bytes!("../bin-files/bch_params_challenge_tx_with_annex.bin");
+        let bridge_circuit_host_params: BridgeCircuitHostParams = borsh::from_slice(input_bytes)
+            .expect("Failed to deserialize BridgeCircuitHostParams from file");
 
-        let assumption_bytes: &[u8] =
-            include_bytes!("../bin-files/challenge_tx_with_annex_hcp_receipt.bin");
-        let assumption: Receipt =
-            borsh::from_slice(assumption_bytes).expect("Failed to deserialize Receipt from file");
-        let mut binding = ExecutorEnv::builder();
-        let env = binding
-            .write_slice(&borsh::to_vec(&bridge_circuit_input).unwrap())
-            .add_assumption(assumption)
-            .build()
-            .unwrap();
-        let prover = default_prover();
-        let receipt = prover
-            .prove_with_opts(env, REGTEST_BRIDGE_CIRCUIT_ELF, &ProverOpts::succinct())
-            .expect("Failed to prove bridge circuit with annex")
-            .receipt;
-        println!("Receipt: {:?}", receipt);
+        let (proof, public_output, bitvm_inputs) =
+            prove_bridge_circuit(bridge_circuit_host_params, REGTEST_BRIDGE_CIRCUIT_ELF_TEST)
+                .unwrap();
+        println!("Proof: {:?}", proof);
+        println!("Public Output: {:?}", public_output);
+        println!("BitVM Inputs: {:?}", bitvm_inputs);
     }
 
     #[test]
-    #[should_panic(
-        expected = "Failed to prove bridge circuit with large input: Guest panicked: Invalid witness length, expected 1 element, watchtower index: 2"
-    )]
+    #[should_panic(expected = "Invalid witness length, expected 1 element")]
     fn test_bridge_circuit_with_large_input() {
-        let input_bytes: &[u8] = include_bytes!("../bin-files/challenge_tx_with_large_input.bin");
-        let mut bridge_circuit_input: BridgeCircuitInput = borsh::from_slice(input_bytes)
-            .expect("Failed to deserialize BridgeCircuitInput from file");
+        let input_bytes: &[u8] =
+            include_bytes!("../bin-files/bch_params_challenge_tx_with_large_annex.bin");
+        let mut bridge_circuit_host_params: BridgeCircuitHostParams =
+            borsh::from_slice(input_bytes)
+                .expect("Failed to deserialize BridgeCircuitHostParams from file");
 
         // Now add the removed witness element back to the watchtower inputs
-        for watchtower_input in &mut bridge_circuit_input.watchtower_inputs {
-            println!(
-                "Watchtower input witness len: {:?}",
-                watchtower_input.watchtower_challenge_witness.len()
-            );
-            println!(
-                "Watchtower input witness: {:?}",
-                watchtower_input.watchtower_challenge_witness
-            );
+        for watchtower_input in &mut bridge_circuit_host_params.watchtower_inputs {
+            let large_data: Vec<u8> = vec![0x80; 3999000];
             watchtower_input
                 .watchtower_challenge_witness
-                .push([0x80; 3999000]);
-            println!(
-                "Watchtower input witness len after: {:?}",
-                watchtower_input.watchtower_challenge_witness.len()
-            );
+                .push(large_data);
         }
-
-        let assumption_bytes: &[u8] =
-            include_bytes!("../bin-files/challenge_tx_with_large_input_hcp_receipt.bin");
-        let assumption: Receipt =
-            borsh::from_slice(assumption_bytes).expect("Failed to deserialize Receipt from file");
-        let mut binding = ExecutorEnv::builder();
-        let env = binding
-            .write_slice(&borsh::to_vec(&bridge_circuit_input).unwrap())
-            .add_assumption(assumption)
-            .build()
-            .unwrap();
-        let prover = default_prover();
-        let receipt = prover
-            .prove_with_opts(env, REGTEST_BRIDGE_CIRCUIT_ELF, &ProverOpts::succinct())
-            .expect("Failed to prove bridge circuit with large input")
-            .receipt;
-        println!("Receipt: {:?}", receipt);
+        let (_, _, _) =
+            prove_bridge_circuit(bridge_circuit_host_params, REGTEST_BRIDGE_CIRCUIT_ELF_TEST)
+                .unwrap();
     }
 
     #[test]
     fn test_bridge_circuit_with_large_output() {
-        let input_bytes: &[u8] = include_bytes!("../bin-files/challenge_tx_with_large_output.bin");
-        let assumption_bytes: &[u8] =
-            include_bytes!("../bin-files/challenge_tx_with_large_output_hcp_receipt.bin");
-        let bridge_circuit_input: BridgeCircuitInput = borsh::from_slice(input_bytes)
-            .expect("Failed to deserialize BridgeCircuitInput from file");
-        let assumption: Receipt =
-            borsh::from_slice(assumption_bytes).expect("Failed to deserialize Receipt from file");
-        let mut binding = ExecutorEnv::builder();
-        let env = binding
-            .write_slice(&borsh::to_vec(&bridge_circuit_input).unwrap())
-            .add_assumption(assumption)
-            .build()
-            .unwrap();
-        let prover = default_prover();
-        let receipt = prover
-            .prove_with_opts(env, REGTEST_BRIDGE_CIRCUIT_ELF, &ProverOpts::succinct())
-            .expect("Failed to prove bridge circuit with large output")
-            .receipt;
-        println!("Receipt: {:?}", receipt);
+        let input_bytes: &[u8] =
+            include_bytes!("../bin-files/bch_params_challenge_tx_with_large_output.bin");
+        let bridge_circuit_host_params: BridgeCircuitHostParams = borsh::from_slice(input_bytes)
+            .expect("Failed to deserialize BridgeCircuitHostParams from file");
+
+        let (proof, public_output, bitvm_inputs) =
+            prove_bridge_circuit(bridge_circuit_host_params, REGTEST_BRIDGE_CIRCUIT_ELF_TEST)
+                .unwrap();
+        println!("Proof: {:?}", proof);
+        println!("Public Output: {:?}", public_output);
+        println!("BitVM Inputs: {:?}", bitvm_inputs);
     }
 
     #[test]
     fn test_bridge_circuit_with_large_input_and_output() {
         let input_bytes: &[u8] =
-            include_bytes!("../bin-files/challenge_tx_with_large_input_and_output.bin");
-        let bridge_circuit_input: BridgeCircuitInput = borsh::from_slice(input_bytes)
-            .expect("Failed to deserialize BridgeCircuitInput from file");
+            include_bytes!("../bin-files/bch_params_challenge_tx_with_large_annex_and_output.bin");
+        let bridge_circuit_host_params: BridgeCircuitHostParams = borsh::from_slice(input_bytes)
+            .expect("Failed to deserialize BridgeCircuitHostParams from file");
 
-        let assumption_bytes: &[u8] =
-            include_bytes!("../bin-files/challenge_tx_with_large_input_and_output_hcp_receipt.bin");
-        let assumption: Receipt =
-            borsh::from_slice(assumption_bytes).expect("Failed to deserialize Receipt from file");
-        let mut binding = ExecutorEnv::builder();
-        let env = binding
-            .write_slice(&borsh::to_vec(&bridge_circuit_input).unwrap())
-            .add_assumption(assumption)
-            .build()
-            .unwrap();
-        let prover = default_prover();
-        let receipt = prover
-            .prove_with_opts(env, REGTEST_BRIDGE_CIRCUIT_ELF, &ProverOpts::succinct())
-            .expect("Failed to prove bridge circuit with large input and output")
-            .receipt;
-        println!("Receipt: {:?}", receipt);
+        let (proof, public_output, bitvm_inputs) =
+            prove_bridge_circuit(bridge_circuit_host_params, REGTEST_BRIDGE_CIRCUIT_ELF_TEST)
+                .unwrap();
+        println!("Proof: {:?}", proof);
+        println!("Public Output: {:?}", public_output);
+        println!("BitVM Inputs: {:?}", bitvm_inputs);
     }
 }

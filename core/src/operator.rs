@@ -1512,6 +1512,81 @@ where
             }
         }
 
+        #[cfg(test)]
+        {
+            use std::path::PathBuf;
+
+            if self.config.test_params.use_small_annex {
+                let path = PathBuf::from(
+                    "../bridge-circuit-host/bin-files/bch_params_challenge_tx_with_annex.bin",
+                );
+                std::fs::create_dir_all(path.parent().unwrap()).map_err(|e| {
+                    eyre::eyre!("Failed to create directory for output file: {}", e)
+                })?;
+                let serialized_params =
+                    borsh::to_vec(&bridge_circuit_host_params).map_err(|e| {
+                        eyre::eyre!("Failed to serialize bridge circuit host params: {}", e)
+                    })?;
+                std::fs::write(&path, serialized_params).map_err(|e| {
+                    eyre::eyre!("Failed to write bridge circuit host params to file: {}", e)
+                })?;
+                tracing::info!(
+                    "Bridge circuit host params with annex written to {:?}",
+                    &path
+                );
+            } else if self.config.test_params.use_large_annex {
+                let path = PathBuf::from(
+                    "../bridge-circuit-host/bin-files/bch_params_challenge_tx_with_large_annex.bin",
+                );
+                std::fs::create_dir_all(path.parent().unwrap()).map_err(|e| {
+                    eyre::eyre!("Failed to create directory for output file: {}", e)
+                })?;
+                let serialized_params =
+                    borsh::to_vec(&bridge_circuit_host_params).map_err(|e| {
+                        eyre::eyre!("Failed to serialize bridge circuit host params: {}", e)
+                    })?;
+                std::fs::write(&path, serialized_params).map_err(|e| {
+                    eyre::eyre!("Failed to write bridge circuit host params to file: {}", e)
+                })?;
+                tracing::info!(
+                    "Bridge circuit host params with large annex written to {:?}",
+                    &path
+                );
+            } else if self.config.test_params.use_large_output {
+                let path = PathBuf::from("../bridge-circuit-host/bin-files/bch_params_challenge_tx_with_large_output.bin");
+                std::fs::create_dir_all(path.parent().unwrap()).map_err(|e| {
+                    eyre::eyre!("Failed to create directory for output file: {}", e)
+                })?;
+                let serialized_params =
+                    borsh::to_vec(&bridge_circuit_host_params).map_err(|e| {
+                        eyre::eyre!("Failed to serialize bridge circuit host params: {}", e)
+                    })?;
+                std::fs::write(&path, serialized_params).map_err(|e| {
+                    eyre::eyre!("Failed to write bridge circuit host params to file: {}", e)
+                })?;
+                tracing::info!(
+                    "Bridge circuit host params with large output written to {:?}",
+                    &path
+                );
+            } else if self.config.test_params.use_large_annex_and_output {
+                let path = PathBuf::from("../bridge-circuit-host/bin-files/bch_params_challenge_tx_with_large_annex_and_output.bin");
+                std::fs::create_dir_all(path.parent().unwrap()).map_err(|e| {
+                    eyre::eyre!("Failed to create directory for output file: {}", e)
+                })?;
+                let serialized_params =
+                    borsh::to_vec(&bridge_circuit_host_params).map_err(|e| {
+                        eyre::eyre!("Failed to serialize bridge circuit host params: {}", e)
+                    })?;
+                std::fs::write(&path, serialized_params).map_err(|e| {
+                    eyre::eyre!("Failed to write bridge circuit host params to file: {}", e)
+                })?;
+                tracing::info!(
+                    "Bridge circuit host params with large annex and output written to {:?}",
+                    &path
+                );
+            }
+        }
+
         let (g16_proof, g16_output, public_inputs) =
             prove_bridge_circuit(bridge_circuit_host_params, bridge_circuit_elf)?;
         tracing::info!("Proved bridge circuit in send_asserts");
