@@ -373,26 +373,8 @@ impl TestCase for WatchtowerChallengeTxTest {
             tracing::info!("Withdrawal response: {:?}", withdrawal_response);
 
             match withdrawal_response {
-                Ok(withdrawal_response) => match withdrawal_response.into_inner().result {
-                    Some(crate::rpc::clementine::withdraw_result::Result::Success(
-                        crate::rpc::clementine::WithdrawSuccess {},
-                    )) => {
-                        break;
-                    }
-                    Some(crate::rpc::clementine::withdraw_result::Result::Error(
-                        crate::rpc::clementine::WithdrawErrorResponse {
-                            error: error_message,
-                        },
-                    )) => {
-                        tracing::info!("Withdrawal error: {:?}", error_message);
-                    }
-                    _ => {
-                        tracing::info!("Withdrawal error");
-                    }
-                },
-                Err(e) => {
-                    tracing::info!("Withdrawal error: {:?}", e);
-                }
+                Ok(_) => break,
+                Err(e) => tracing::info!("Withdrawal error: {:?}", e),
             };
 
             tokio::time::sleep(std::time::Duration::from_secs(1)).await;

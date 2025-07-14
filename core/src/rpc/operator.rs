@@ -2,8 +2,7 @@ use super::clementine::clementine_operator_server::ClementineOperator;
 use super::clementine::{
     self, ChallengeAckDigest, DepositParams, DepositSignSession, Empty, FinalizedPayoutParams,
     OperatorKeys, OperatorParams, SchnorrSig, SignedTxWithType, SignedTxsWithType,
-    TransactionRequest, VergenResponse, WithdrawParams, WithdrawResult, WithdrawSuccess,
-    XOnlyPublicKeyRpc,
+    TransactionRequest, VergenResponse, WithdrawParams, XOnlyPublicKeyRpc,
 };
 use super::error::*;
 use crate::bitvm_client::ClementineBitVMPublicKeys;
@@ -118,10 +117,7 @@ where
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    async fn withdraw(
-        &self,
-        request: Request<WithdrawParams>,
-    ) -> Result<Response<WithdrawResult>, Status> {
+    async fn withdraw(&self, request: Request<WithdrawParams>) -> Result<Response<Empty>, Status> {
         let (withdrawal_id, input_signature, input_outpoint, output_script_pubkey, output_amount) =
             parser::operator::parse_withdrawal_sig_params(request.into_inner()).await?;
 
@@ -138,24 +134,14 @@ where
                 )
                 .await?;
 
-            Ok(Response::new(WithdrawResult {
-                result: Some(clementine::withdraw_result::Result::Success(
-                    WithdrawSuccess {},
-                )),
-            }))
+            Ok(Response::new(Empty {}))
         }
 
         #[cfg(not(feature = "automation"))]
         {
-            use super::clementine::WithdrawErrorResponse;
-            return Ok(Response::new(WithdrawResult {
-                result: Some(clementine::withdraw_result::Result::Error(
-                    WithdrawErrorResponse {
-                        error: "Automation is not enabled. Operator will not fulfill withdrawals."
-                            .to_string(),
-                    },
-                )),
-            }));
+            return Err(Status::unavailable(
+                "Automation is not enabled. Operator will not fulfill withdrawals.",
+            ));
         }
     }
 

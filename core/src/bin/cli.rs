@@ -1158,19 +1158,7 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             let withdraw_responses = response.get_ref().withdraw_responses.clone();
 
             for (i, result) in withdraw_responses.iter().enumerate() {
-                match &result.result {
-                    Some(clementine_core::rpc::clementine::withdraw_result::Result::Success(_)) => {
-                        println!("Operator {}: Withdrawal accepted", i);
-                    }
-                    Some(clementine_core::rpc::clementine::withdraw_result::Result::Error(
-                        error,
-                    )) => {
-                        println!("Operator {}: Withdrawal failed: {}", i, error.error);
-                    }
-                    None => {
-                        println!("Operator {}: Unknown result", i);
-                    }
-                }
+                println!("Operator {}: {}", i, result);
             }
         }
         AggregatorCommands::Vergen => {

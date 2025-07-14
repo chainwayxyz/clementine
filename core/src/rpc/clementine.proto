@@ -259,19 +259,6 @@ message WithdrawParams {
   uint64 output_amount = 5;
 }
 
-message WithdrawSuccess {
-}
-
-message WithdrawErrorResponse {
-  string error = 1;
-}
-
-message WithdrawResult {
-  oneof result {
-    WithdrawSuccess success = 1;
-    WithdrawErrorResponse error = 2;
-  }
-}
 
 message FinalizedPayoutParams {
   bytes payout_blockhash = 1;
@@ -325,7 +312,7 @@ service ClementineOperator {
   // If withdrawal is accepted, the payout tx will be added to the TxSender and success is returned, otherwise an error is returned.
   // If automation is disabled, the withdrawal will not be accepted and an error will be returned.
   rpc Withdraw(WithdrawParams)
-    returns (WithdrawResult) {}
+    returns (Empty) {}
 
   // Signs all tx's it can according to given transaction type (use it with AllNeededForDeposit to get almost all tx's)
   // Creates the transactions denoted by the deposit and operator_idx, round_idx, and kickoff_idx.
@@ -573,7 +560,7 @@ message RawTxWithRbfInfo {
 }
 
 message AggregatorWithdrawResponse {
-  repeated WithdrawResult withdraw_responses = 1;
+  repeated string withdraw_responses = 1;
 }
 
 message CreateEmergencyStopTxRequest {

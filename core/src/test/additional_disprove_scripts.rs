@@ -6,9 +6,7 @@ use crate::citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER};
 use crate::database::Database;
 use crate::deposit::KickoffData;
 use crate::operator::RoundIndex;
-use crate::rpc::clementine::{
-    TransactionRequest, WithdrawErrorResponse, WithdrawParams, WithdrawSuccess,
-};
+use crate::rpc::clementine::{TransactionRequest, WithdrawParams};
 use crate::test::common::citrea::{get_citrea_safe_withdraw_params, SECRET_KEYS};
 use crate::test::common::tx_utils::{
     create_tx_sender, ensure_outpoint_spent_while_waiting_for_light_client_sync,
@@ -382,26 +380,8 @@ impl TestCase for AdditionalDisproveTest {
             tracing::info!("Withdrawal response: {:?}", withdrawal_response);
 
             match withdrawal_response {
-                Ok(withdrawal_response) => match withdrawal_response.into_inner().result {
-                    Some(crate::rpc::clementine::withdraw_result::Result::Success(
-                        WithdrawSuccess {},
-                    )) => {
-                        break;
-                    }
-                    Some(crate::rpc::clementine::withdraw_result::Result::Error(
-                        WithdrawErrorResponse {
-                            error: error_message,
-                        },
-                    )) => {
-                        tracing::info!("Withdrawal error: {:?}", error_message);
-                    }
-                    _ => {
-                        tracing::info!("Withdrawal error");
-                    }
-                },
-                Err(e) => {
-                    tracing::info!("Withdrawal error: {:?}", e);
-                }
+                Ok(_) => break,
+                Err(e) => tracing::info!("Withdrawal error: {:?}", e),
             };
 
             tokio::time::sleep(std::time::Duration::from_secs(1)).await;

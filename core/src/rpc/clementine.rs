@@ -251,28 +251,6 @@ pub struct WithdrawParams {
     #[prost(uint64, tag = "5")]
     pub output_amount: u64,
 }
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
-pub struct WithdrawSuccess {}
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct WithdrawErrorResponse {
-    #[prost(string, tag = "1")]
-    pub error: ::prost::alloc::string::String,
-}
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct WithdrawResult {
-    #[prost(oneof = "withdraw_result::Result", tags = "1, 2")]
-    pub result: ::core::option::Option<withdraw_result::Result>,
-}
-/// Nested message and enum types in `WithdrawResult`.
-pub mod withdraw_result {
-    #[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum Result {
-        #[prost(message, tag = "1")]
-        Success(super::WithdrawSuccess),
-        #[prost(message, tag = "2")]
-        Error(super::WithdrawErrorResponse),
-    }
-}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FinalizedPayoutParams {
     #[prost(bytes = "vec", tag = "1")]
@@ -500,8 +478,8 @@ pub struct RawTxWithRbfInfo {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AggregatorWithdrawResponse {
-    #[prost(message, repeated, tag = "1")]
-    pub withdraw_responses: ::prost::alloc::vec::Vec<WithdrawResult>,
+    #[prost(string, repeated, tag = "1")]
+    pub withdraw_responses: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CreateEmergencyStopTxRequest {
@@ -1047,7 +1025,7 @@ pub mod clementine_operator_client {
         pub async fn withdraw(
             &mut self,
             request: impl tonic::IntoRequest<super::WithdrawParams>,
-        ) -> std::result::Result<tonic::Response<super::WithdrawResult>, tonic::Status> {
+        ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status> {
             self.inner
                 .ready()
                 .await
@@ -2062,7 +2040,7 @@ pub mod clementine_operator_server {
         async fn withdraw(
             &self,
             request: tonic::Request<super::WithdrawParams>,
-        ) -> std::result::Result<tonic::Response<super::WithdrawResult>, tonic::Status>;
+        ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
         /// Signs all tx's it can according to given transaction type (use it with AllNeededForDeposit to get almost all tx's)
         /// Creates the transactions denoted by the deposit and operator_idx, round_idx, and kickoff_idx.
         /// It will create the transaction and sign it with the operator's private key and/or saved nofn signatures.
@@ -2385,7 +2363,7 @@ pub mod clementine_operator_server {
                         T: ClementineOperator,
                     > tonic::server::UnaryService<super::WithdrawParams>
                     for WithdrawSvc<T> {
-                        type Response = super::WithdrawResult;
+                        type Response = super::Empty;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,

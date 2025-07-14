@@ -1489,19 +1489,14 @@ impl ClementineAggregator for Aggregator {
             async move { operator.withdraw(Request::new(params)).await }
         });
 
+        // collect responses from operators and return them as a vector of strings
         let responses = futures::future::join_all(withdraw_futures).await;
         Ok(Response::new(AggregatorWithdrawResponse {
             withdraw_responses: responses
                 .into_iter()
                 .map(|r| match r {
-                    Ok(response) => response.into_inner(),
-                    Err(e) => clementine::WithdrawResult {
-                        result: Some(clementine::withdraw_result::Result::Error(
-                            clementine::WithdrawErrorResponse {
-                                error: e.to_string(),
-                            },
-                        )),
-                    },
+                    Ok(_) => "Withdraw successful".to_string(),
+                    Err(e) => e.to_string(),
                 })
                 .collect(),
         }))
