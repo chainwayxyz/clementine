@@ -32,6 +32,8 @@ impl Database {
             .map_err(Into::into)
     }
 
+    /// Sets the block with given block hash as canonical if it exists in the database
+    /// Returns the block id if the block was found and set as canonical, None otherwise
     pub async fn set_block_as_canonical_if_exists(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
@@ -140,7 +142,7 @@ impl Database {
         }
     }
 
-    /// Gets the full block from the database, given the block hash
+    /// Gets the full block and its height from the database, given the block hash
     pub async fn get_full_block_from_hash(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
@@ -164,7 +166,7 @@ impl Database {
         }
     }
 
-    /// Gets the maximum height of the canonical blocks in the database
+    /// Gets the maximum height of the canonical blocks in the bitcoin_syncer database
     pub async fn get_max_height(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
