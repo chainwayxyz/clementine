@@ -4,13 +4,13 @@ use hex_literal::hex;
 
 /// Work-only circuit method IDs for different networks.
 pub static MAINNET_WORK_ONLY_METHOD_ID: [u8; 32] =
-    hex!("52fb341c88914a0373ceaf24d05cbd7d25a985c1d5ad43b89481272d87078a54");
+    hex!("ccb324475c82f54640093499f5979abda92ba8fa0a7171be2360185b8fa64c6f");
 pub static TESTNET4_WORK_ONLY_METHOD_ID: [u8; 32] =
-    hex!("ac53f8eec3de637a71c0054a97fbb70d90b70986d459dc82bc8ad5ebba2ba992");
+    hex!("7a81701845c27c4340d000facc3cf8e572c222301513ffc99a760d093c3bb97f");
 pub static REGTEST_WORK_ONLY_METHOD_ID: [u8; 32] =
-    hex!("0fa79aa35c0dad5d9bfd3cc9cacb2e59a886633b5cd3a125225c39de8bef6186");
+    hex!("b7735696783e0fa8052fedebfd57a1f0ec17a938be03fb5374cd7b968bd11fac");
 pub static SIGNET_WORK_ONLY_METHOD_ID: [u8; 32] =
-    hex!("fdbba6bf1e3cc9b0cac853ea7ea9e5abdab3807b613f23ccd1553b3db05eba13");
+    hex!("6faa03bf1d491d3acfaeab61256b484fc99ccb28fe0a032d8bf7c0092e41f87a");
 
 // GROTH16 RELATED CONSTANTS
 pub static POST_STATE: [u8; 32] =
