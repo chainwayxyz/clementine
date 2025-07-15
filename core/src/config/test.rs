@@ -1,7 +1,11 @@
 use crate::deposit::DepositData;
+use crate::header_chain_prover::HeaderChainProver;
+use bitcoin::blockdata::block::BlockHash;
+use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::PublicKey;
 use bitcoin::secp256k1::SecretKey;
 use bitvm::chunk::api::Assertions;
+use risc0_zkvm::Receipt;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
@@ -106,6 +110,153 @@ impl TestParams {
             tracing::info!("Disrupting public input with i: 0, j: {}", j);
             asserts.0[0][j] ^= 0x01;
         }
+    }
+
+    pub fn maybe_override_blockhashes_serialized(
+        &self,
+        block_hashes: &[(BlockHash, impl Sized)],
+        payout_block_height: u32,
+        latest_blockhash_index: usize,
+        genesis_height: u32,
+    ) -> Vec<[u8; 32]> {
+        if self.generate_varying_total_works_insufficient_total_work {
+            let take_count = (payout_block_height + 1 - genesis_height) as usize;
+            tracing::info!(
+                "Overriding blockhashes: insufficient total work mode with {} blocks",
+                take_count
+            );
+            return block_hashes
+                .iter()
+                .take(take_count)
+                .map(|(block_hash, _)| block_hash.to_byte_array())
+                .collect();
+        }
+
+        if self.generate_varying_total_works_first_two_valid {
+            const HIGHEST_VALID_WT_INDEX: usize = 287;
+            tracing::info!(
+                "Overriding blockhashes: first two valid mode with {} blocks",
+                HIGHEST_VALID_WT_INDEX
+            );
+            return block_hashes
+                .iter()
+                .take(HIGHEST_VALID_WT_INDEX)
+                .map(|(block_hash, _)| block_hash.to_byte_array())
+                .collect();
+        }
+
+        block_hashes
+            .iter()
+            .take(latest_blockhash_index + 1)
+            .map(|(block_hash, _)| block_hash.to_byte_array())
+            .collect()
+    }
+
+    pub async fn maybe_override_current_hcp(
+        &self,
+        current_hcp: Receipt,
+        payout_block_hash: BlockHash,
+        block_hashes: &[(BlockHash, impl Sized)],
+        header_chain_prover: &HeaderChainProver,
+    ) -> eyre::Result<Receipt> {
+        if self.generate_varying_total_works_insufficient_total_work {
+            let (hcp, _) = header_chain_prover
+                .prove_till_hash(payout_block_hash)
+                .await?;
+            return Ok(hcp);
+        }
+
+        if self.generate_varying_total_works_first_two_valid {
+            let highest_valid_wt_index = 287;
+            let target_blockhash = block_hashes.get(highest_valid_wt_index).ok_or_else(|| {
+                eyre::eyre!("Missing blockhash at index {}", highest_valid_wt_index)
+            })?;
+
+            let (hcp, _) = header_chain_prover
+                .prove_till_hash(target_blockhash.0)
+                .await?;
+            return Ok(hcp);
+        }
+
+        Ok(current_hcp)
+    }
+
+    pub fn maybe_disrupt_block_hash(&self, block_hash: [u8; 32]) -> [u8; 32] {
+        if self.disrupt_latest_block_hash_commit {
+            tracing::info!("Disrupting block hash commitment for testing purposes");
+            tracing::info!("Original block hash: {:?}", block_hash);
+            let mut disrupted = block_hash;
+            disrupted[31] ^= 0x01;
+            return disrupted;
+        }
+
+        block_hash
+    }
+
+    pub fn maybe_disrupt_commit_data_for_total_work(
+        &self,
+        commit_data: &mut Vec<u8>,
+        total_work: &[u8],
+    ) {
+        if self.generate_varying_total_works_first_two_valid {
+            let ref_total_work: [u8; 16] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 64];
+
+            tracing::debug!(
+                "Ref total work: {:?}, total work: {:?}",
+                ref_total_work, total_work
+            );
+
+            if let Ok(current_work) = total_work.try_into() {
+                if ref_total_work < current_work {
+                    commit_data[0] ^= 0x01;
+                    tracing::info!("Flipping first byte of commit data to generate varying total work");
+                }
+            } else {
+                tracing::warn!("Failed to convert total work to [u8; 16]");
+            }
+        }
+    }
+
+    pub fn maybe_dump_bridge_circuit_params_to_file(
+        &self,
+        bridge_circuit_host_params: &impl borsh::BorshSerialize,
+    ) -> eyre::Result<()> {
+        if self.generate_varying_total_works_insufficient_total_work
+            || self.generate_varying_total_works
+            || self.generate_varying_total_works_first_two_valid
+        {
+            use std::path::PathBuf;
+
+            let file_path = match (
+             self.generate_varying_total_works,
+             self.generate_varying_total_works_insufficient_total_work,
+            self.generate_varying_total_works_first_two_valid,
+        ) {
+            (true, false, false) => PathBuf::from(
+                "../bridge-circuit-host/bin-files/bch_params_varying_total_works.bin",
+            ),
+            (false, true, false) => PathBuf::from(
+                "../bridge-circuit-host/bin-files/bch_params_varying_total_works_insufficient_total_work.bin",
+            ),
+            (false, false, true) => PathBuf::from(
+                "../bridge-circuit-host/bin-files/bch_params_varying_total_works_first_two_valid.bin",
+            ),
+            _ => {
+                panic!("Invalid or conflicting test params for generating varying total works");
+            }
+        };
+
+            std::fs::create_dir_all(file_path.parent().unwrap())
+                .map_err(|e| eyre::eyre!("Failed to create directory for output file: {}", e))?;
+            let serialized_params = borsh::to_vec(&bridge_circuit_host_params).map_err(|e| {
+                eyre::eyre!("Failed to serialize bridge circuit host params: {}", e)
+            })?;
+            std::fs::write(file_path.clone(), serialized_params).map_err(|e| {
+                eyre::eyre!("Failed to write bridge circuit host params to file: {}", e)
+            })?;
+            tracing::info!("Bridge circuit host params written to {:?}", file_path);
+        }
+        Ok(())
     }
 }
 

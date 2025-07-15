@@ -859,18 +859,24 @@ where
             kickoff_data,
         };
 
-        let payout_tx_blockhash: [u8; 20] = payout_tx_blockhash.as_byte_array().last_20_bytes();
+        let payout_tx_blockhash = {
+            #[cfg(test)]
+            {
+                let mut hash = payout_tx_blockhash.as_byte_array().last_20_bytes();
 
-        #[cfg(test)]
-        let mut payout_tx_blockhash = payout_tx_blockhash;
+                if self.config.test_params.disrupt_payout_tx_block_hash_commit {
+                    tracing::info!("Disrupting latest blockhash for testing purposes");
+                    hash[19] ^= 0x01;
+                }
 
-        #[cfg(test)]
-        {
-            if self.config.test_params.disrupt_payout_tx_block_hash_commit {
-                tracing::info!("Disrupting latest blockhash for testing purposes",);
-                payout_tx_blockhash[19] ^= 0x01;
+                hash
             }
-        }
+
+            #[cfg(not(test))]
+            {
+                payout_tx_blockhash.as_byte_array().last_20_bytes()
+            }
+        };
 
         let signed_txs = create_and_sign_txs(
             self.db.clone(),
@@ -1300,10 +1306,27 @@ where
             self.config.protocol_paramset(),
         )?;
 
-        let latest_blockhash = commits
-            .first()
-            .ok_or_eyre("Failed to get latest blockhash in send_asserts")?
-            .to_owned();
+        let latest_blockhash = {
+            let hash = commits
+                .first()
+                .ok_or_eyre("Failed to get latest blockhash in send_asserts")?
+                .to_owned();
+
+            #[cfg(test)]
+            {
+                let mut hash = hash;
+                if self.config.test_params.disrupt_latest_block_hash_commit {
+                    tracing::info!("Correcting latest blockhash for testing purposes");
+                    hash[19] ^= 0x01;
+                }
+                hash
+            }
+
+            #[cfg(not(test))]
+            {
+                hash
+            }
+        };
 
         let rpc_current_finalized_height = self
             .rpc
@@ -1335,17 +1358,6 @@ where
             )
             .await?;
 
-        #[cfg(test)]
-        let mut latest_blockhash = latest_blockhash;
-
-        #[cfg(test)]
-        {
-            if self.config.test_params.disrupt_latest_block_hash_commit {
-                tracing::info!("Correcting latest blockhash for testing purposes",);
-                latest_blockhash[19] ^= 0x01;
-            }
-        }
-
         // find out which blockhash is latest_blockhash (only last 20 bytes is committed to Witness)
         let latest_blockhash_index = block_hashes
             .iter()
@@ -1362,69 +1374,39 @@ where
             .await?;
 
         #[cfg(test)]
-        let current_hcp = {
-            if self
-                .config
-                .test_params
-                .generate_varying_total_works_insufficient_total_work
-            {
-                self.header_chain_prover
-                    .prove_till_hash(payout_block_hash)
-                    .await?
-                    .0
-            } else if self
-                .config
-                .test_params
-                .generate_varying_total_works_first_two_valid
-            {
-                let highest_valid_wt_index = 287;
-                let target_blockhash = block_hashes.get(highest_valid_wt_index).unwrap();
-
-                self.header_chain_prover
-                    .prove_till_hash(target_blockhash.0)
-                    .await?
-                    .0
-            } else {
-                current_hcp
-            }
-        };
+        let current_hcp = self
+            .config
+            .test_params
+            .maybe_override_current_hcp(
+                current_hcp,
+                payout_block_hash,
+                &block_hashes,
+                &self.header_chain_prover,
+            )
+            .await?;
 
         tracing::info!("Got header chain proof in send_asserts");
 
-        let blockhashes_serialized: Vec<[u8; 32]> = block_hashes
-            .iter()
-            .take(latest_blockhash_index + 1) // get all blocks up to and including latest_blockhash
-            .map(|(block_hash, _)| block_hash.to_byte_array())
-            .collect::<Vec<_>>();
-
-        #[cfg(test)]
-        let blockhashes_serialized = {
-            if self
-                .config
-                .test_params
-                .generate_varying_total_works_insufficient_total_work
+        let blockhashes_serialized: Vec<[u8; 32]> = {
+            #[cfg(test)]
             {
-                block_hashes
-                    .iter()
-                    .take(
-                        (payout_block_height + 1 - self.config.protocol_paramset().genesis_height)
-                            as usize,
+                self.config
+                    .test_params
+                    .maybe_override_blockhashes_serialized(
+                        &block_hashes,
+                        payout_block_height,
+                        latest_blockhash_index,
+                        self.config.protocol_paramset().genesis_height,
                     )
-                    .map(|(block_hash, _)| block_hash.to_byte_array())
-                    .collect::<Vec<_>>()
-            } else if self
-                .config
-                .test_params
-                .generate_varying_total_works_first_two_valid
+            }
+
+            #[cfg(not(test))]
             {
-                let highest_valid_wt_index = 287;
                 block_hashes
                     .iter()
-                    .take(highest_valid_wt_index)
-                    .map(|(block_hash, _)| block_hash.to_byte_array())
-                    .collect::<Vec<_>>()
-            } else {
-                blockhashes_serialized
+                    .take(latest_blockhash_index + 1)
+                    .map(|(h, _)| h.to_byte_array())
+                    .collect()
             }
         };
 
@@ -1497,54 +1479,13 @@ where
         tracing::info!("Starting proving bridge circuit to send asserts");
 
         #[cfg(test)]
-        {
-            if self
-                .config
-                .test_params
-                .generate_varying_total_works_insufficient_total_work
-                || self.config.test_params.generate_varying_total_works
-                || self
-                    .config
-                    .test_params
-                    .generate_varying_total_works_first_two_valid
-            {
-                use std::path::PathBuf;
-
-                let file_path = match (
-             self.config.test_params.generate_varying_total_works,
-             self.config.test_params.generate_varying_total_works_insufficient_total_work,
-            self.config.test_params.generate_varying_total_works_first_two_valid,
-        ) {
-            (true, false, false) => PathBuf::from(
-                "../bridge-circuit-host/bin-files/bch_params_varying_total_works.bin",
-            ),
-            (false, true, false) => PathBuf::from(
-                "../bridge-circuit-host/bin-files/bch_params_varying_total_works_insufficient_total_work.bin",
-            ),
-            (false, false, true) => PathBuf::from(
-                "../bridge-circuit-host/bin-files/bch_params_varying_total_works_first_two_valid.bin",
-            ),
-            _ => {
-                panic!("Invalid or conflicting test params for generating varying total works");
-            }
-        };
-
-                std::fs::create_dir_all(file_path.parent().unwrap()).map_err(|e| {
-                    eyre::eyre!("Failed to create directory for output file: {}", e)
-                })?;
-                let serialized_params =
-                    borsh::to_vec(&bridge_circuit_host_params).map_err(|e| {
-                        eyre::eyre!("Failed to serialize bridge circuit host params: {}", e)
-                    })?;
-                std::fs::write(file_path.clone(), serialized_params).map_err(|e| {
-                    eyre::eyre!("Failed to write bridge circuit host params to file: {}", e)
-                })?;
-                tracing::info!("Bridge circuit host params written to {:?}", file_path);
-            }
-        }
+        self.config
+            .test_params
+            .maybe_dump_bridge_circuit_params_to_file(&bridge_circuit_host_params)?;
 
         let (g16_proof, g16_output, public_inputs) =
             prove_bridge_circuit(bridge_circuit_host_params, bridge_circuit_elf)?;
+
         tracing::info!("Proved bridge circuit in send_asserts");
         let public_input_scalar = ark_bn254::Fr::from_be_bytes_mod_order(&g16_output);
 
@@ -1566,6 +1507,7 @@ where
                 );
             }
         }
+
         tracing::info!(
             "Challenge sending watchtowers commit: {:?}",
             public_inputs.challenge_sending_watchtowers

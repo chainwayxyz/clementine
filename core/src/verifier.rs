@@ -1463,23 +1463,10 @@ where
             borsh::to_vec(&work_output.work_u128).wrap_err("Couldn't serialize total work")?;
 
         #[cfg(test)]
-        {
-            if self
-                .config
-                .test_params
-                .generate_varying_total_works_first_two_valid
-            {
-                let ref_total_work: [u8; 16] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 64];
-                println!(
-                    "Ref total work: {:?}, total work: {:?}",
-                    ref_total_work, total_work
-                );
-                if ref_total_work < total_work.as_slice().try_into().unwrap() {
-                    commit_data[0] ^= 0x01;
-                    println!("Flipping first byte of commit data to generate varying total work");
-                }
-            }
-        }
+        self.config
+            .test_params
+            .maybe_disrupt_commit_data_for_total_work(&mut commit_data, &total_work);
+
         commit_data.extend_from_slice(&total_work);
 
         tracing::info!("Watchtower prepared commit data, trying to send watchtower challenge");
