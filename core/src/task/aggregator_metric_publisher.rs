@@ -136,6 +136,12 @@ impl Task for AggregatorMetricPublisher {
                     metrics
                         .state_manager_next_height
                         .set(status.state_manager_next_height as f64);
+                    metrics.stopped_tasks_count.set(
+                        status
+                            .stopped_tasks
+                            .map_or(0, |tasks| tasks.stopped_tasks.len())
+                            as f64,
+                    );
                 }
                 Some(crate::rpc::clementine::entity_status_with_id::StatusResult::Err(error)) => {
                     tracing::error!("Entity {} error: {}", entity_id, error.error);
