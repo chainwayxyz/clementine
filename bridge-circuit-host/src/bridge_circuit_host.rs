@@ -446,7 +446,7 @@ mod tests {
     #[test]
     #[allow(clippy::print_literal)]
     fn test_varying_total_works() {
-        eprintln!("{}Please update test data if the elf files are changed. Run the tests on bridge_circuit_test_data.rs to update the test data.{}", "\x1b[31m", "\x1b[0m");
+        eprintln!("\x1b[31mPlease update test data if the elf files are changed. Run the tests on bridge_circuit_test_data.rs to update the test data.\x1b[0m");
         let bridge_circuit_host_params_serialized =
             include_bytes!("../bin-files/bch_params_varying_total_works.bin");
         let bridge_circuit_host_params: BridgeCircuitHostParams =
@@ -492,7 +492,7 @@ mod tests {
     #[allow(clippy::print_literal)]
     #[should_panic(expected = "Insufficient total work")]
     fn test_insufficient_total_work() {
-        eprintln!("{}Please update test data if the elf files are changed. Run the tests on bridge_circuit_test_data.rs to update the test data.{}", "\x1b[31m", "\x1b[0m");
+        eprintln!("\x1b[31mPlease update test data if the elf files are changed. Run the tests on bridge_circuit_test_data.rs to update the test data.\x1b[0m");
         let bridge_circuit_host_params_serialized = include_bytes!(
             "../bin-files/bch_params_varying_total_works_insufficient_total_work.bin"
         );
@@ -607,7 +607,7 @@ mod tests {
 
     #[test]
     fn test_bridge_circuit_with_annex() {
-        eprintln!("{}Please update test data if the elf files are changed. Run the tests on bridge_circuit_test_data.rs to update the test data.{}", "\x1b[31m", "\x1b[0m");
+        eprintln!("\x1b[31mPlease update test data if the elf files are changed. Run the tests on bridge_circuit_test_data.rs to update the test data.\x1b[0m");
         let input_bytes: &[u8] =
             include_bytes!("../bin-files/bch_params_challenge_tx_with_annex.bin");
         let bridge_circuit_host_params: BridgeCircuitHostParams = borsh::from_slice(input_bytes)
@@ -624,7 +624,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Invalid witness length, expected 1 element")]
     fn test_bridge_circuit_with_large_input() {
-        eprintln!("{}Please update test data if the elf files are changed. Run the tests on bridge_circuit_test_data.rs to update the test data.{}", "\x1b[31m", "\x1b[0m");
+        eprintln!("\x1b[31mPlease update test data if the elf files are changed. Run the tests on bridge_circuit_test_data.rs to update the test data.\x1b[0m");
         let input_bytes: &[u8] =
             include_bytes!("../bin-files/bch_params_challenge_tx_with_large_annex.bin");
         let mut bridge_circuit_host_params: BridgeCircuitHostParams =
@@ -645,7 +645,7 @@ mod tests {
 
     #[test]
     fn test_bridge_circuit_with_large_output() {
-        eprintln!("{}Please update test data if the elf files are changed. Run the tests on bridge_circuit_test_data.rs to update the test data.{}", "\x1b[31m", "\x1b[0m");
+        eprintln!("\x1b[31mPlease update test data if the elf files are changed. Run the tests on bridge_circuit_test_data.rs to update the test data.\x1b[0m");
         let input_bytes: &[u8] =
             include_bytes!("../bin-files/bch_params_challenge_tx_with_large_output.bin");
         let bridge_circuit_host_params: BridgeCircuitHostParams = borsh::from_slice(input_bytes)
@@ -661,7 +661,7 @@ mod tests {
 
     #[test]
     fn test_bridge_circuit_with_large_input_and_output() {
-        eprintln!("{}Please update test data if the elf files are changed. Run the tests on bridge_circuit_test_data.rs to update the test data.{}", "\x1b[31m", "\x1b[0m");
+        eprintln!("\x1b[31mPlease update test data if the elf files are changed. Run the tests on bridge_circuit_test_data.rs to update the test data.\x1b[0m");
         let input_bytes: &[u8] =
             include_bytes!("../bin-files/bch_params_challenge_tx_with_large_annex_and_output.bin");
         let bridge_circuit_host_params: BridgeCircuitHostParams = borsh::from_slice(input_bytes)
