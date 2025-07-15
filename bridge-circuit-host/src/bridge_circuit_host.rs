@@ -521,9 +521,9 @@ mod tests {
         executor.execute(env, bridge_circuit_elf).unwrap();
     }
 
+    #[cfg(feature = "use-test-vk")]
     #[test]
     #[allow(clippy::print_literal)]
-    #[ignore = "This test should be run with 'use-test-vk' feature enabled."]
     fn test_varying_total_works_first_two_valid() {
         eprintln!("{}Please update test data if the elf files are changed. Run the tests on bridge_circuit_test_data.rs to update the test data.{}", "\x1b[31m", "\x1b[0m");
         let bridge_circuit_host_params_serialized =
