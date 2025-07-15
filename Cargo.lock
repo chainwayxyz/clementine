@@ -1853,7 +1853,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "sov-rollup-interface 0.7.0",
  "tempfile",
  "thiserror 1.0.69",
  "tokio",

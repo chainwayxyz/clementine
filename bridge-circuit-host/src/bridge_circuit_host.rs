@@ -12,7 +12,6 @@ use circuits_lib::bridge_circuit::merkle_tree::BitcoinMerkleTree;
 use circuits_lib::bridge_circuit::spv::SPV;
 use circuits_lib::bridge_circuit::structs::WorkOnlyCircuitInput;
 use circuits_lib::bridge_circuit::transaction::CircuitTransaction;
-use citrea_sov_rollup_interface::zk::light_client_proof::output::LightClientCircuitOutput;
 use eyre::{eyre, Result, WrapErr};
 
 use circuits_lib::common::constants::{
