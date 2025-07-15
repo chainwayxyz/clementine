@@ -229,6 +229,8 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
 ///
 /// - [`BridgeConfig`]: Modified configuration struct
 pub async fn create_test_config_with_thread_name() -> BridgeConfig {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
     let handle = std::thread::current()
         .name()
         .expect("Failed to get thread name")
@@ -629,6 +631,8 @@ impl PartialEq for MockOwner {
 
 impl NamedEntity for MockOwner {
     const ENTITY_NAME: &'static str = "test_owner";
+    const TX_SENDER_CONSUMER_ID: &'static str = "test_tx_sender";
+    const FINALIZED_BLOCK_CONSUMER_ID: &'static str = "test_finalized_block";
 }
 
 #[cfg(feature = "automation")]

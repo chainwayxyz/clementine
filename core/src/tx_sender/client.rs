@@ -219,7 +219,6 @@ impl TxSenderClient {
             | TransactionType::Round
             | TransactionType::OperatorChallengeNack(_)
             | TransactionType::UnspentKickoff(_)
-            | TransactionType::Payout
             | TransactionType::MoveToVault
             | TransactionType::BurnUnusedKickoffConnectors
             | TransactionType::KickoffNotFinalized
@@ -245,7 +244,9 @@ impl TxSenderClient {
                 )
                 .await
             }
-            TransactionType::Challenge | TransactionType::WatchtowerChallenge(_) => {
+            TransactionType::Challenge
+            | TransactionType::WatchtowerChallenge(_)
+            | TransactionType::Payout => {
                 self.insert_try_to_send(
                     dbtx,
                     tx_metadata,
@@ -337,7 +338,6 @@ impl TxSenderClient {
             TransactionType::AllNeededForDeposit | TransactionType::YieldKickoffTxid => {
                 unreachable!()
             }
-            TransactionType::BaseDeposit => unimplemented!(),
         }
     }
 

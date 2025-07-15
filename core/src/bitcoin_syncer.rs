@@ -8,7 +8,7 @@ use crate::{
     database::{Database, DatabaseTransaction},
     errors::BridgeError,
     extended_rpc::ExtendedRpc,
-    task::{IntoTask, Task, TaskExt, WithDelay},
+    task::{IntoTask, Task, TaskExt, TaskVariant, WithDelay},
 };
 use bitcoin::{block::Header, BlockHash, OutPoint};
 use bitcoincore_rpc::RpcApi;
@@ -16,7 +16,7 @@ use eyre::Context;
 use std::time::Duration;
 use tonic::async_trait;
 
-const POLL_DELAY: Duration = if cfg!(test) {
+pub const BTC_SYNCER_POLL_DELAY: Duration = if cfg!(test) {
     Duration::from_millis(250)
 } else {
     Duration::from_secs(30)
@@ -36,6 +36,21 @@ struct BlockInfo {
 pub enum BitcoinSyncerEvent {
     NewBlock(u32),
     ReorgedBlock(u32),
+}
+
+impl TryFrom<(String, i32)> for BitcoinSyncerEvent {
+    type Error = eyre::Report;
+    fn try_from(value: (String, i32)) -> Result<Self, Self::Error> {
+        match value.0.as_str() {
+            "new_block" => Ok(BitcoinSyncerEvent::NewBlock(
+                u32::try_from(value.1).wrap_err(BridgeError::IntConversionError)?,
+            )),
+            "reorged_block" => Ok(BitcoinSyncerEvent::ReorgedBlock(
+                u32::try_from(value.1).wrap_err(BridgeError::IntConversionError)?,
+            )),
+            _ => Err(eyre::eyre!("Invalid event type: {}", value.0)),
+        }
+    }
 }
 
 /// Trait for handling new blocks as they are finalized
@@ -92,6 +107,8 @@ pub(crate) async fn save_block(
     let block_id = db
         .set_block_as_canonical_if_exists(Some(dbtx), block_hash)
         .await?;
+    db.store_full_block(Some(dbtx), block, block_height).await?;
+
     if let Some(block_id) = block_id {
         return Ok(block_id);
     }
@@ -104,8 +121,6 @@ pub(crate) async fn save_block(
             block_height,
         )
         .await?;
-
-    db.store_full_block(Some(dbtx), block, block_height).await?;
 
     tracing::debug!(
         "Saving {} transactions to a block with hash {}",
@@ -395,13 +410,14 @@ impl IntoTask for BitcoinSyncer {
             rpc: self.rpc,
             current_height: self.current_height,
         }
-        .with_delay(POLL_DELAY)
+        .with_delay(BTC_SYNCER_POLL_DELAY)
     }
 }
 
 #[async_trait]
 impl Task for BitcoinSyncerTask {
     type Output = bool;
+    const VARIANT: TaskVariant = TaskVariant::BitcoinSyncer;
 
     async fn run_once(&mut self) -> Result<Self::Output, BridgeError> {
         tracing::debug!("BitcoinSyncer: Fetching new blocks");
@@ -487,6 +503,7 @@ impl<H: BlockHandler> FinalizedBlockFetcherTask<H> {
 #[async_trait]
 impl<H: BlockHandler> Task for FinalizedBlockFetcherTask<H> {
     type Output = bool;
+    const VARIANT: TaskVariant = TaskVariant::FinalizedBlockFetcher;
 
     async fn run_once(&mut self) -> Result<Self::Output, BridgeError> {
         let mut dbtx = self.db.begin_transaction().await?;
