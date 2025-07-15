@@ -1,7 +1,16 @@
+use std::ops::Deref;
+use std::time::Duration;
+
 use crate::constants::{OPERATOR_GET_KEYS_TIMEOUT, VERIFIER_SEND_KEYS_TIMEOUT};
 use crate::deposit::DepositData;
 use crate::extended_rpc::ExtendedRpc;
-use crate::rpc::clementine::{DepositParams, OperatorKeysWithDeposit};
+use crate::rpc::clementine::entity_status_with_id::StatusResult;
+use crate::rpc::clementine::EntityId as RPCEntityId;
+use crate::rpc::clementine::{
+    self, DepositParams, Empty, EntityStatusWithId, EntityType, OperatorKeysWithDeposit,
+};
+use crate::task::aggregator_metric_publisher::AGGREGATOR_METRIC_PUBLISHER_POLL_DELAY;
+use crate::task::TaskExt;
 #[cfg(feature = "automation")]
 use crate::tx_sender::TxSenderClient;
 use crate::utils::{timed_request, timed_try_join_all};
@@ -24,7 +33,7 @@ use bitcoin::secp256k1::{schnorr, Message, PublicKey};
 use bitcoin::XOnlyPublicKey;
 use eyre::Context;
 use secp256k1::musig::{AggregatedNonce, PartialSignature};
-use tonic::Status;
+use tonic::{Request, Status};
 use tracing::{debug_span, Instrument};
 
 /// Aggregator struct.
@@ -48,23 +57,38 @@ pub struct Aggregator {
     operator_keys: Vec<XOnlyPublicKey>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum EntityId {
+    Verifier(VerifierId),
+    Operator(OperatorId),
+}
+
 /// Wrapper struct that renders the verifier id in the logs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct VerifierId(PublicKey);
+pub struct VerifierId(pub PublicKey);
 
 /// Wrapper struct that renders the operator id in the logs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct OperatorId(XOnlyPublicKey);
+pub struct OperatorId(pub XOnlyPublicKey);
+
+impl std::fmt::Display for EntityId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EntityId::Verifier(id) => write!(f, "{}", id),
+            EntityId::Operator(id) => write!(f, "{}", id),
+        }
+    }
+}
 
 impl std::fmt::Display for VerifierId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Verifier({}...)", &self.0.to_string()[..10])
+        write!(f, "Verifier({})", &self.0.to_string()[..10])
     }
 }
 
 impl std::fmt::Display for OperatorId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Operator({}...)", &self.0.to_string()[..10])
+        write!(f, "Operator({})", &self.0.to_string()[..10])
     }
 }
 
@@ -228,7 +252,7 @@ impl Aggregator {
 
         // Create channels with larger capacity to prevent blocking
         let (operator_keys_tx, operator_keys_rx) =
-            tokio::sync::broadcast::channel::<crate::rpc::clementine::OperatorKeysWithDeposit>(
+            tokio::sync::broadcast::channel::<clementine::OperatorKeysWithDeposit>(
                 deposit_data.get_num_operators() * deposit_data.get_num_verifiers(),
             );
         let operator_rx_handles = (0..deposit_data.get_num_verifiers())
@@ -450,5 +474,173 @@ impl Aggregator {
         }
 
         Ok(ParticipatingOperators::new(participating_operators))
+    }
+
+    pub async fn get_entity_statuses(
+        &self,
+        restart_tasks: bool,
+    ) -> Result<Vec<EntityStatusWithId>, BridgeError> {
+        tracing::info!("Getting entities status");
+
+        let operator_clients = self.get_operator_clients();
+        let verifier_clients = self.get_verifier_clients();
+        tracing::info!("Operator clients: {:?}", operator_clients.len());
+
+        let operator_status = timed_try_join_all(
+            Duration::from_secs(60),
+            "Getting operator status",
+            Some(
+                self.get_operator_keys()
+                    .iter()
+                    .map(|key| OperatorId(*key))
+                    .collect::<Vec<_>>(),
+            ),
+            operator_clients
+                .iter()
+                .zip(self.get_operator_keys().iter())
+                .map(|(client, key)| {
+                    let mut client = client.clone();
+                    async move {
+                        tracing::info!("Getting operator status for {}", key.to_string());
+                        let response = client
+                            .get_current_status(Request::new(Empty {}))
+                            .await
+                            .map_err(BridgeError::from);
+
+                        tracing::info!("Got operator status: {:?}", response);
+                        Ok(EntityStatusWithId {
+                            entity_id: Some(RPCEntityId {
+                                kind: EntityType::Operator as i32,
+                                id: key.to_string(),
+                            }),
+                            status_result: match response {
+                                Ok(response) => Some(StatusResult::Status(response.into_inner())),
+                                Err(e) => Some(StatusResult::Err(clementine::EntityError {
+                                    error: e.to_string(),
+                                })),
+                            },
+                        })
+                    }
+                })
+                .collect::<Vec<_>>(),
+        )
+        .await?;
+
+        let verifier_status = timed_try_join_all(
+            Duration::from_secs(60),
+            "Getting verifier status",
+            Some(
+                self.get_verifier_keys()
+                    .iter()
+                    .map(|key| VerifierId(*key))
+                    .collect::<Vec<_>>(),
+            ),
+            verifier_clients
+                .iter()
+                .zip(self.get_verifier_keys().iter())
+                .map(|(client, key)| {
+                    let mut client = client.clone();
+                    async move {
+                        let response = client.get_current_status(Request::new(Empty {})).await;
+                        Ok(EntityStatusWithId {
+                            entity_id: Some(RPCEntityId {
+                                kind: EntityType::Verifier as i32,
+                                id: key.to_string(),
+                            }),
+                            status_result: match response {
+                                Ok(response) => Some(StatusResult::Status(response.into_inner())),
+                                Err(e) => Some(StatusResult::Err(clementine::EntityError {
+                                    error: e.to_string(),
+                                })),
+                            },
+                        })
+                    }
+                })
+                .collect::<Vec<_>>(),
+        )
+        .await?;
+
+        tracing::info!("Operator status: {:?}", operator_status);
+
+        // Combine operator and verifier status into a single vector
+        let mut entity_statuses = operator_status;
+        entity_statuses.extend(verifier_status);
+
+        // try to restart background tasks if needed
+        if restart_tasks {
+            let operator_tasks = operator_clients.iter().map(|client| {
+                let mut client = client.clone();
+                async move {
+                    client
+                        .restart_background_tasks(Request::new(Empty {}))
+                        .await
+                }
+            });
+
+            let verifier_tasks = verifier_clients.iter().map(|client| {
+                let mut client = client.clone();
+                async move {
+                    client
+                        .restart_background_tasks(Request::new(Empty {}))
+                        .await
+                }
+            });
+
+            futures::try_join!(
+                futures::future::try_join_all(operator_tasks),
+                futures::future::try_join_all(verifier_tasks)
+            )?;
+        }
+        Ok(entity_statuses)
+    }
+}
+
+/// Aggregator server wrapper that manages background tasks.
+#[derive(Debug)]
+pub struct AggregatorServer {
+    pub aggregator: Aggregator,
+    background_tasks: crate::task::manager::BackgroundTaskManager,
+}
+
+impl AggregatorServer {
+    pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
+        let aggregator = Aggregator::new(config.clone()).await?;
+        let background_tasks = crate::task::manager::BackgroundTaskManager::default();
+
+        Ok(Self {
+            aggregator,
+            background_tasks,
+        })
+    }
+
+    /// Starts the background tasks for the aggregator.
+    /// If called multiple times, it will restart only the tasks that are not already running.
+    pub async fn start_background_tasks(&self) -> Result<(), BridgeError> {
+        // Start the aggregator metric publisher task
+        self.background_tasks
+            .ensure_task_looping(
+                crate::task::aggregator_metric_publisher::AggregatorMetricPublisher::new(
+                    self.aggregator.clone(),
+                )
+                .await?
+                .with_delay(AGGREGATOR_METRIC_PUBLISHER_POLL_DELAY),
+            )
+            .await;
+
+        tracing::info!("Aggregator metric publisher task started");
+
+        Ok(())
+    }
+
+    pub async fn shutdown(&mut self) {
+        self.background_tasks.graceful_shutdown().await;
+    }
+}
+
+impl Deref for AggregatorServer {
+    type Target = Aggregator;
+
+    fn deref(&self) -> &Self::Target {
+        &self.aggregator
     }
 }

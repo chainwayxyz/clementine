@@ -624,7 +624,7 @@ pub fn journal_hash(
 
 /// Retrieves the first output of a transaction that is an OP_RETURN script. Used to retrieve
 /// the operator's X-only public key from the OP_RETURN output in the payout transaction.
-fn get_first_op_return_output(tx: &CircuitTransaction) -> Option<&TxOut> {
+pub fn get_first_op_return_output(tx: &CircuitTransaction) -> Option<&TxOut> {
     tx.output
         .iter()
         .find(|out| out.script_pubkey.is_op_return())

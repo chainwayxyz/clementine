@@ -1,4 +1,5 @@
 use crate::builder::transaction::TransactionType;
+use crate::config::TelemetryConfig;
 use crate::errors::BridgeError;
 use crate::operator::RoundIndex;
 use crate::rpc::clementine::VergenResponse;
@@ -6,10 +7,12 @@ use bitcoin::{OutPoint, TapNodeHash, XOnlyPublicKey};
 use eyre::Context as _;
 use futures::future::try_join_all;
 use http::HeaderValue;
+use metrics_exporter_prometheus::PrometheusBuilder;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Display};
 use std::fs::File;
 use std::future::Future;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -32,7 +35,7 @@ use tracing_subscriber::{fmt, EnvFilter, Layer as TracingLayer, Registry};
 /// - `human` **Human-readable** direct logs are used when `LOG_FORMAT` is not
 ///   set to `json`.
 ///
-/// /// ## CI
+/// ## CI
 ///
 /// In CI, logging is always in the human-readable format with output to the
 /// console. The `INFO_LOG_FILE` env var can be used to set an optional log file
@@ -59,9 +62,13 @@ pub fn initialize_logger(default_level: Option<LevelFilter>) -> Result<(), Bridg
         .map(|v| v == "true" || v == "1")
         .unwrap_or(false);
 
+    // UNCOMMENT TO DEBUG TOKIO TASKS
+    // console_subscriber::init();
+
     if cfg!(test) {
         // Enable full backtraces for tests
         std::env::set_var("RUST_LIB_BACKTRACE", "full");
+        std::env::set_var("RUST_BACKTRACE", "full");
     }
 
     // Initialize color-eyre for better error handling and backtraces
@@ -88,6 +95,29 @@ pub fn initialize_logger(default_level: Option<LevelFilter>) -> Result<(), Bridg
     }
 
     tracing::info!("Tracing initialized successfully.");
+    Ok(())
+}
+
+pub fn initialize_telemetry(config: &TelemetryConfig) -> Result<(), BridgeError> {
+    let telemetry_addr: SocketAddr = format!("{}:{}", config.host, config.port)
+        .parse()
+        .unwrap_or_else(|_| {
+            tracing::warn!(
+                "Invalid telemetry address: {}:{}, using default address: 127.0.0.1:8081",
+                config.host,
+                config.port
+            );
+            SocketAddr::from((Ipv4Addr::new(0, 0, 0, 0), 8081))
+        });
+
+    tracing::debug!("Initializing telemetry at {}", telemetry_addr);
+
+    let builder = PrometheusBuilder::new().with_http_listener(telemetry_addr);
+
+    builder
+        .install()
+        .map_err(|e| eyre::eyre!("Failed to initialize telemetry: {}", e))?;
+
     Ok(())
 }
 
@@ -437,16 +467,22 @@ where
     }
 }
 
-/// A trait for entities that have a name, operator, watchtower, verifier, etc.
+/// A trait for entities that have a name, operator, verifier, etc.
 /// Used to distinguish between state machines with different owners in the database,
 /// and to provide a human-readable name for the entity for task names.
-pub trait NamedEntity {
+pub trait NamedEntity: Sync + Send + 'static {
     /// A string identifier for this owner type used to distinguish between
     /// state machines with different owners in the database.
     ///
     /// ## Example
-    /// "operator", "watchtower", "verifier", "user"
+    /// "operator", "verifier", "user"
     const ENTITY_NAME: &'static str;
+
+    /// Consumer ID for the tx sender task.
+    const TX_SENDER_CONSUMER_ID: &'static str;
+
+    /// Consumer ID for the finalized block task.
+    const FINALIZED_BLOCK_CONSUMER_ID: &'static str;
 }
 
 #[derive(Copy, Clone, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
