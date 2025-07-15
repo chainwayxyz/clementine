@@ -195,7 +195,7 @@ impl TestParams {
 
     pub fn maybe_disrupt_commit_data_for_total_work(
         &self,
-        commit_data: &mut Vec<u8>,
+        commit_data: &mut [u8],
         total_work: &[u8],
     ) {
         if self.generate_varying_total_works_first_two_valid {
