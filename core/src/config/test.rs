@@ -203,13 +203,16 @@ impl TestParams {
 
             tracing::debug!(
                 "Ref total work: {:?}, total work: {:?}",
-                ref_total_work, total_work
+                ref_total_work,
+                total_work
             );
 
             if let Ok(current_work) = total_work.try_into() {
                 if ref_total_work < current_work {
                     commit_data[0] ^= 0x01;
-                    tracing::info!("Flipping first byte of commit data to generate varying total work");
+                    tracing::info!(
+                        "Flipping first byte of commit data to generate varying total work"
+                    );
                 }
             } else {
                 tracing::warn!("Failed to convert total work to [u8; 16]");
