@@ -68,6 +68,9 @@ pub struct EntityL1SyncStatusMetrics {
 
     #[metric(describe = "The number of error responses from the entity status endpoint")]
     pub entity_status_error_count: metrics::Counter,
+
+    #[metric(describe = "The number of stopped tasks for the entity")]
+    pub stopped_tasks_count: Gauge,
 }
 
 /// The L1 sync status metrics static for the currently running entity. (operator/verifier)
