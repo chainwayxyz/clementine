@@ -46,9 +46,12 @@ services:
       test: [
         "CMD-SHELL",
         "bitcoin-cli -testnet4 -rpcuser=admin -rpcpassword=admin -rpcport=20443 loadwallet admin || bitcoin-cli -testnet4 -rpcuser=admin -rpcpassword=admin -rpcport=20443 createwallet admin; \
-        if [ $(bitcoin-cli -testnet4 -rpcuser=admin -rpcpassword=admin -rpcport=20443 getblockchaininfo | jq -r '.initialblockdownload') = \"false\" ] then; \
+        if [ $(bitcoin-cli -testnet4 -rpcuser=admin -rpcpassword=admin -rpcport=20443 getblockchaininfo | jq -r '.initialblockdownload') = \"true\" ]; then \
           false; \
-        fi"
+        else \
+          true; \
+        fi;
+        "
       ]
       interval: 10s
       timeout: 15s
