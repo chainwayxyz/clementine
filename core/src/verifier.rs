@@ -2298,7 +2298,7 @@ where
             return Err(e);
         }
 
-        let (l2_height_start, l2_height_end) =
+        let (l2_height_start, l2_height_end, state_root) =
             l2_range_result.expect("Failed to get citrea l2 height range");
 
         tracing::debug!(
@@ -2306,13 +2306,21 @@ where
             l2_height_start,
             l2_height_end
         );
-        self.update_citrea_deposit_and_withdrawals(
-            &mut dbtx,
-            l2_height_start,
-            l2_height_end,
-            block_height,
-        )
-        .await?;
+        if self
+            .citrea_client
+            .check_state_root(l2_height_end, state_root)
+            .await
+            .inspect_err(|e| tracing::error!("Error checking state root: {:?}", e))
+            .is_ok()
+        {
+            self.update_citrea_deposit_and_withdrawals(
+                &mut dbtx,
+                l2_height_start,
+                l2_height_end,
+                block_height,
+            )
+            .await?;
+        }
 
         self.update_finalized_payouts(&mut dbtx, block_id, &block_cache)
             .await?;
