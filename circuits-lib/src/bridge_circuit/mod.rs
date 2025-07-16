@@ -525,11 +525,6 @@ pub fn total_work_and_watchtower_flags(
 
     valid_watchtower_challenge_commitments.sort_by(|a, b| b.total_work.cmp(&a.total_work));
 
-    println!(
-        "Valid watchtower challenge commitments: {:?}",
-        valid_watchtower_challenge_commitments
-    );
-
     let mut total_work_result = [0u8; 16];
 
     for commitment in valid_watchtower_challenge_commitments {
@@ -539,10 +534,6 @@ pub fn total_work_and_watchtower_flags(
             work_only_image_id,
             circuit_input.hcp.genesis_state_hash,
         ) {
-            println!(
-                "Valid watchtower challenge commitment found with total work: {:?}",
-                commitment.total_work
-            );
             total_work_result = commitment.total_work;
             break;
         }
