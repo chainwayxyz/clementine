@@ -521,6 +521,10 @@ mod tests {
         executor.execute(env, bridge_circuit_elf).unwrap();
     }
 
+    // Test is validated againts a hardcoded value of expected total work.
+    // If the test fails, it may mean that the test data is outdated or expected values have changed.
+    // The test data is generated in bridge_circuit_test_data.rs and it also includes a hardcoded value 
+    // ref_total_work which should be updated accordingly.
     #[cfg(feature = "use-test-vk")]
     #[test]
     #[allow(clippy::print_literal)]

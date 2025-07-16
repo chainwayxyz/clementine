@@ -585,6 +585,7 @@ async fn bridge_circuit_test_data_insuff_total_work_diverse_hcp_lens() -> Result
     TestCaseRunner::new(bridge_circuit_test_data).run().await
 }
 
+// The generated data is used with hard coded ref_total_work value. Since the block with kickoff tx can change the related parameter need to be updated manually.
 #[tokio::test]
 #[ignore = "Only run this test manually, it's for data generation purposes"]
 async fn bridge_circuit_test_data_diverse_hcp_lens_first_two_valid() -> Result<()> {
