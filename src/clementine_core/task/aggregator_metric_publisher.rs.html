@@ -152,7 +152,13 @@
 <a href="#151" id="151">151</a>
 <a href="#152" id="152">152</a>
 <a href="#153" id="153">153</a>
-<a href="#154" id="154">154</a></pre></div><pre class="rust"><code><span class="kw">use </span>std::str::FromStr;
+<a href="#154" id="154">154</a>
+<a href="#155" id="155">155</a>
+<a href="#156" id="156">156</a>
+<a href="#157" id="157">157</a>
+<a href="#158" id="158">158</a>
+<a href="#159" id="159">159</a>
+<a href="#160" id="160">160</a></pre></div><pre class="rust"><code><span class="kw">use </span>std::str::FromStr;
 <span class="kw">use </span>std::{collections::HashMap, time::Duration};
 
 <span class="kw">use </span>tonic::async_trait;
@@ -290,6 +296,12 @@
                     metrics
                         .state_manager_next_height
                         .set(status.state_manager_next_height <span class="kw">as </span>f64);
+                    metrics.stopped_tasks_count.set(
+                        status
+                            .stopped_tasks
+                            .map_or(<span class="number">0</span>, |tasks| tasks.stopped_tasks.len())
+                            <span class="kw">as </span>f64,
+                    );
                 }
                 <span class="prelude-val">Some</span>(<span class="kw">crate</span>::rpc::clementine::entity_status_with_id::StatusResult::Err(error)) =&gt; {
                     <span class="macro">tracing::error!</span>(<span class="string">"Entity {} error: {}"</span>, entity_id, error.error);

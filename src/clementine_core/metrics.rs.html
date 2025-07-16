@@ -257,7 +257,10 @@
 <a href="#256" id="256">256</a>
 <a href="#257" id="257">257</a>
 <a href="#258" id="258">258</a>
-<a href="#259" id="259">259</a></pre></div><pre class="rust"><code><span class="doccomment">//! This module includes helper functions to get the blockchain synchronization status of the entity.
+<a href="#259" id="259">259</a>
+<a href="#260" id="260">260</a>
+<a href="#261" id="261">261</a>
+<a href="#262" id="262">262</a></pre></div><pre class="rust"><code><span class="doccomment">//! This module includes helper functions to get the blockchain synchronization status of the entity.
 //! The entity tracks on-chain transactions for many purposes (TxSender,
 //! FinalizedBlockFetcher, HCP) and takes action (header chain proving, payout,
 //! disprove, L2 state sync, etc.)
@@ -327,6 +330,9 @@
 
     <span class="attr">#[metric(describe = <span class="string">"The number of error responses from the entity status endpoint"</span>)]
     </span><span class="kw">pub </span>entity_status_error_count: metrics::Counter,
+
+    <span class="attr">#[metric(describe = <span class="string">"The number of stopped tasks for the entity"</span>)]
+    </span><span class="kw">pub </span>stopped_tasks_count: Gauge,
 }
 
 <span class="doccomment">/// The L1 sync status metrics static for the currently running entity. (operator/verifier)

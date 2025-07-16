@@ -644,10 +644,14 @@
 <a href="#643" id="643">643</a>
 <a href="#644" id="644">644</a>
 <a href="#645" id="645">645</a>
-<a href="#646" id="646">646</a></pre></div><pre class="rust"><code><span class="kw">use </span>std::ops::Deref;
-<span class="kw">use </span>std::time::Duration;
+<a href="#646" id="646">646</a>
+<a href="#647" id="647">647</a>
+<a href="#648" id="648">648</a>
+<a href="#649" id="649">649</a></pre></div><pre class="rust"><code><span class="kw">use </span>std::ops::Deref;
 
-<span class="kw">use </span><span class="kw">crate</span>::constants::{OPERATOR_GET_KEYS_TIMEOUT, VERIFIER_SEND_KEYS_TIMEOUT};
+<span class="kw">use </span><span class="kw">crate</span>::constants::{
+    ENTITY_STATUS_POLL_TIMEOUT, OPERATOR_GET_KEYS_TIMEOUT, VERIFIER_SEND_KEYS_TIMEOUT,
+};
 <span class="kw">use </span><span class="kw">crate</span>::deposit::DepositData;
 <span class="kw">use </span><span class="kw">crate</span>::extended_rpc::ExtendedRpc;
 <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::entity_status_with_id::StatusResult;
@@ -678,6 +682,7 @@
 <span class="kw">use </span>bitcoin::secp256k1::{schnorr, Message, PublicKey};
 <span class="kw">use </span>bitcoin::XOnlyPublicKey;
 <span class="kw">use </span>eyre::Context;
+<span class="kw">use </span>futures::future::join_all;
 <span class="kw">use </span>secp256k1::musig::{AggregatedNonce, PartialSignature};
 <span class="kw">use </span>tonic::{Request, Status};
 <span class="kw">use </span>tracing::{debug_span, Instrument};
@@ -1122,7 +1127,9 @@
         <span class="prelude-val">Ok</span>(ParticipatingOperators::new(participating_operators))
     }
 
-    <span class="kw">pub async fn </span>get_entity_statuses(
+    <span class="doccomment">/// Retrieves the status of all entities (operators and verifiers) and restarts background tasks if needed.
+    /// Returns a vector of EntityStatusWithId. Only returns an error if restarting tasks fails when requested.
+    </span><span class="kw">pub async fn </span>get_entity_statuses(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         restart_tasks: bool,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;Vec&lt;EntityStatusWithId&gt;, BridgeError&gt; {
@@ -1132,29 +1139,27 @@
         <span class="kw">let </span>verifier_clients = <span class="self">self</span>.get_verifier_clients();
         <span class="macro">tracing::info!</span>(<span class="string">"Operator clients: {:?}"</span>, operator_clients.len());
 
-        <span class="kw">let </span>operator_status = timed_try_join_all(
-            Duration::from_secs(<span class="number">60</span>),
-            <span class="string">"Getting operator status"</span>,
-            <span class="prelude-val">Some</span>(
-                <span class="self">self</span>.get_operator_keys()
-                    .iter()
-                    .map(|key| OperatorId(<span class="kw-2">*</span>key))
-                    .collect::&lt;Vec&lt;<span class="kw">_</span>&gt;&gt;(),
-            ),
+        <span class="kw">let </span>operator_status = join_all(
             operator_clients
                 .iter()
                 .zip(<span class="self">self</span>.get_operator_keys().iter())
                 .map(|(client, key)| {
                     <span class="kw">let </span><span class="kw-2">mut </span>client = client.clone();
                     <span class="kw">async move </span>{
-                        <span class="macro">tracing::info!</span>(<span class="string">"Getting operator status for {}"</span>, key.to_string());
-                        <span class="kw">let </span>response = client
-                            .get_current_status(Request::new(Empty {}))
-                            .<span class="kw">await
-                            </span>.map_err(BridgeError::from);
+                        <span class="macro">tracing::debug!</span>(<span class="string">"Getting operator status for {}"</span>, key.to_string());
+                        <span class="kw">let </span>response = timed_request(
+                            ENTITY_STATUS_POLL_TIMEOUT,
+                            <span class="kw-2">&amp;</span><span class="macro">format!</span>(<span class="string">"Getting operator status for {}"</span>, OperatorId(<span class="kw-2">*</span>key)),
+                            <span class="kw">async </span>{
+                                client
+                                    .get_current_status(Request::new(Empty {}))
+                                    .<span class="kw">await
+                                    </span>.map_err(BridgeError::from)
+                            },
+                        )
+                        .<span class="kw">await</span>;
 
-                        <span class="macro">tracing::info!</span>(<span class="string">"Got operator status: {:?}"</span>, response);
-                        <span class="prelude-val">Ok</span>(EntityStatusWithId {
+                        EntityStatusWithId {
                             entity_id: <span class="prelude-val">Some</span>(RPCEntityId {
                                 kind: EntityType::Operator <span class="kw">as </span>i32,
                                 id: key.to_string(),
@@ -1165,30 +1170,32 @@
                                     error: e.to_string(),
                                 })),
                             },
-                        })
+                        }
                     }
-                })
-                .collect::&lt;Vec&lt;<span class="kw">_</span>&gt;&gt;(),
+                }),
         )
-        .<span class="kw">await</span><span class="question-mark">?</span>;
+        .<span class="kw">await</span>;
 
-        <span class="kw">let </span>verifier_status = timed_try_join_all(
-            Duration::from_secs(<span class="number">60</span>),
-            <span class="string">"Getting verifier status"</span>,
-            <span class="prelude-val">Some</span>(
-                <span class="self">self</span>.get_verifier_keys()
-                    .iter()
-                    .map(|key| VerifierId(<span class="kw-2">*</span>key))
-                    .collect::&lt;Vec&lt;<span class="kw">_</span>&gt;&gt;(),
-            ),
+        <span class="kw">let </span>verifier_status = join_all(
             verifier_clients
                 .iter()
                 .zip(<span class="self">self</span>.get_verifier_keys().iter())
                 .map(|(client, key)| {
                     <span class="kw">let </span><span class="kw-2">mut </span>client = client.clone();
                     <span class="kw">async move </span>{
-                        <span class="kw">let </span>response = client.get_current_status(Request::new(Empty {})).<span class="kw">await</span>;
-                        <span class="prelude-val">Ok</span>(EntityStatusWithId {
+                        <span class="kw">let </span>response = timed_request(
+                            ENTITY_STATUS_POLL_TIMEOUT,
+                            <span class="kw-2">&amp;</span><span class="macro">format!</span>(<span class="string">"Getting verifier status for {}"</span>, VerifierId(<span class="kw-2">*</span>key)),
+                            <span class="kw">async </span>{
+                                client
+                                    .get_current_status(Request::new(Empty {}))
+                                    .<span class="kw">await
+                                    </span>.map_err(BridgeError::from)
+                            },
+                        )
+                        .<span class="kw">await</span>;
+
+                        EntityStatusWithId {
                             entity_id: <span class="prelude-val">Some</span>(RPCEntityId {
                                 kind: EntityType::Verifier <span class="kw">as </span>i32,
                                 id: key.to_string(),
@@ -1199,12 +1206,11 @@
                                     error: e.to_string(),
                                 })),
                             },
-                        })
+                        }
                     }
-                })
-                .collect::&lt;Vec&lt;<span class="kw">_</span>&gt;&gt;(),
+                }),
         )
-        .<span class="kw">await</span><span class="question-mark">?</span>;
+        .<span class="kw">await</span>;
 
         <span class="macro">tracing::info!</span>(<span class="string">"Operator status: {:?}"</span>, operator_status);
 
