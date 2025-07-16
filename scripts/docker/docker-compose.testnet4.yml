@@ -1,0 +1,225 @@
+name: Clementine Operator Full Stack
+
+services:
+  postgres_db:
+    image: 'postgres:latest'
+    attach: false
+    container_name: postgres_db
+    volumes:
+      - .docker/db/data/:/var/lib/postgresql/data/
+      - .docker/db/init.d/:/docker-entrypoint-initdb.d/
+    environment:
+      POSTGRES_USER: clementine
+      POSTGRES_PASSWORD: clementine
+      POSTGRES_DB: clementine
+      POSTGRES_HOST_AUTH_METHOD: trust
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U clementine -d clementine"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    networks:
+      - clementine-network
+
+  bitcoin_testnet4:
+    image: bitcoin/bitcoin:29
+    attach: false
+    container_name: bitcoin_testnet4
+    ports:
+      - "20443:20443"
+      - "20444:20444"
+    command:
+      -printtoconsole
+      -testnet4=1
+      -rest
+      -rpcbind=0.0.0.0
+      -rpcallowip=0.0.0.0/0
+      -rpcport=20443
+      -rpcuser=admin
+      -rpcpassword=admin
+      -server
+      -txindex=1
+      -fallbackfee=0.00001
+      -maxtxfee=5
+    healthcheck:
+      test: [
+        "CMD-SHELL",
+        "bitcoin-cli -testnet4 -rpcuser=admin -rpcpassword=admin -rpcport=20443 loadwallet admin || bitcoin-cli -testnet4 -rpcuser=admin -rpcpassword=admin -rpcport=20443 createwallet admin; \
+        if [ $(bitcoin-cli -testnet4 -rpcuser=admin -rpcpassword=admin -rpcport=20443 getblockchaininfo | jq -r '.initialblockdownload') = \"false\" ] then; \
+          false; \
+        fi"
+      ]
+      interval: 10s
+      timeout: 15s
+      retries: 100
+    volumes:
+      - bitcoin_testnet4:/home/bitcoin/.bitcoin
+    networks:
+      - clementine-network
+
+  citrea_sequencer:
+    image: chainwayxyz/citrea-full-node
+    attach: false
+    depends_on:
+      bitcoin_testnet4:
+        condition: service_healthy
+    container_name: citrea_sequencer
+    command:
+      --network testnet --da-layer bitcoin --rollup-config-path /sequencer_rollup_config.toml --sequencer /sequencer_config.toml --genesis-paths /genesis-bitcoin-testnet4/
+    ports:
+      - "12345:12345"
+    volumes:
+      - citrea_sequencer:/mnt/task/citrea-db
+      - ./configs/testnet4/citrea/sequencer_rollup_config.toml:/sequencer_rollup_config.toml
+      - ./configs/testnet4/citrea/sequencer_config.toml:/sequencer_config.toml
+      - ./configs/testnet4/citrea/genesis-bitcoin-testnet4:/bitcoin-testnet4
+    networks:
+      - clementine-network
+
+  citrea_full_node:
+    image: chainwayxyz/citrea-full-node
+    attach: false
+    depends_on:
+      bitcoin_testnet4:
+        condition: service_healthy
+      citrea_sequencer:
+        condition: service_started
+    container_name: citrea_full_node
+    command:
+      --network testnet --da-layer bitcoin --rollup-config-path /rollup_config.toml --genesis-paths resources/genesis/bitcoin-testnet4/
+    ports:
+      - "12346:12346"
+    volumes:
+      - citrea_full_node:/mnt/task/citrea-db
+      - ./configs/testnet4/citrea/rollup_config.toml:/rollup_config.toml
+      - ./configs/testnet4/citrea/genesis-bitcoin-testnet4:/bitcoin-testnet4
+    networks:
+      - clementine-network
+
+  citrea_batch_prover:
+    image: chainwayxyz/citrea-full-node
+    attach: false
+    depends_on:
+      bitcoin_testnet4:
+        condition: service_healthy
+      citrea_sequencer:
+        condition: service_started
+      citrea_full_node:
+        condition: service_started
+    container_name: citrea_batch_prover
+    command:
+      --network testnet --da-layer bitcoin --rollup-config-path /batch_prover_rollup_config.toml --batch-prover /batch_prover_config.toml --genesis-paths /bitcoin-testnet4
+    ports:
+      - "12348:12348"
+    volumes:
+      - citrea_batch_prover:/mnt/task/citrea-db
+      - ./configs/testnet4/citrea/batch_prover_rollup_config.toml:/batch_prover_rollup_config.toml
+      - ./configs/testnet4/citrea/batch_prover_config.toml:/batch_prover_config.toml
+      - ./configs/testnet4/citrea/genesis-bitcoin-testnet4:/bitcoin-testnet4
+    networks:
+      - clementine-network
+
+  citrea_light_client_prover:
+    image: chainwayxyz/citrea-full-node
+    attach: false
+    depends_on:
+      bitcoin_testnet4:
+        condition: service_healthy
+      citrea_sequencer:
+        condition: service_started
+      citrea_full_node:
+        condition: service_started
+      citrea_batch_prover:
+        condition: service_started
+    container_name: citrea_light_client_prover
+    command:
+      --network testnet --da-layer bitcoin --rollup-config-path /light_client_prover_rollup_config.toml --light-client-prover /light_client_prover_config.toml --genesis-paths /bitcoin-testnet4
+    ports:
+      - "12349:12349"
+    volumes:
+      - citrea_light_client_prover:/mnt/task/citrea-db
+      - ./configs/testnet4/citrea/light_client_prover_rollup_config.toml:/light_client_prover_rollup_config.toml
+      - ./configs/testnet4/citrea/light_client_prover_config.toml:/light_client_prover_config.toml
+      - ./configs/testnet4/citrea/genesis-bitcoin-testnet4:/bitcoin-testnet4
+    networks:
+      - clementine-network
+
+  clementine_verifier:
+    depends_on:
+      postgres_db:
+        condition: service_healthy
+      bitcoin_testnet4:
+        condition: service_healthy
+      citrea_sequencer:
+        condition: service_started
+      citrea_full_node:
+        condition: service_started
+      citrea_batch_prover:
+        condition: service_started
+      citrea_light_client_prover:
+        condition: service_started
+    image: chainwayxyz/clementine
+    platform: linux/amd64
+    container_name: clementine_verifier
+    environment:
+      - BITVM_CACHE_PATH=/bitvm_cache.bin
+    command:
+      verifier --config /config.toml --protocol-params /protocol_paramset.toml
+    ports:
+      - "17001:17000"
+    volumes:
+      - ./configs/testnet4/bridge_config.toml:/config.toml
+      - ./configs/testnet4/protocol_paramset.toml:/protocol_paramset.toml
+      - ../../bitvm_cache.bin:/bitvm_cache.bin
+      - ../../core/certs:/certs
+    networks:
+      - clementine-network
+
+  clementine_operator:
+    attach: false
+    depends_on:
+      postgres_db:
+        condition: service_healthy
+      bitcoin_testnet4:
+        condition: service_healthy
+      clementine_verifier:
+        condition: service_started
+      citrea_sequencer:
+        condition: service_started
+      citrea_full_node:
+        condition: service_started
+      citrea_batch_prover:
+        condition: service_started
+      citrea_light_client_prover:
+        condition: service_started
+    image: chainwayxyz/clementine
+    platform: linux/amd64
+    container_name: clementine_operator
+    environment:
+      - BITVM_CACHE_PATH=/bitvm_cache.bin
+    command:
+      operator --config /config.toml --protocol-params /protocol_paramset.toml
+    ports:
+      - "17006:17000"
+    volumes:
+      - ./configs/testnet4/bridge_config.toml:/config.toml
+      - ./configs/testnet4/protocol_paramset.toml:/protocol_paramset.toml
+      - ../../bitvm_cache.bin:/bitvm_cache.bin
+      - ../../core/certs:/certs
+    networks:
+      - clementine-network
+
+volumes:
+  postgres_db:
+  bitcoin_testnet4:
+  citrea_sequencer:
+  citrea_full_node:
+  citrea_batch_prover:
+  citrea_light_client_prover:
+  clementine_verifier:
+  clementine_operator:
+
+networks:
+  clementine-network:
+    driver: bridge
