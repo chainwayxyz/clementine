@@ -113,7 +113,7 @@ impl TestParams {
 
     pub fn maybe_override_blockhashes_serialized(
         &self,
-        blockhashes_serialized: &[[u8; 32]],
+        blockhashes_serialized: Vec<[u8; 32]>,
         payout_block_height: u32,
         genesis_height: u32,
     ) -> Vec<[u8; 32]> {

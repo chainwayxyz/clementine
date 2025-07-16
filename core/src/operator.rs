@@ -1397,7 +1397,7 @@ where
             .config
             .test_params
             .maybe_override_blockhashes_serialized(
-                &blockhashes_serialized,
+                blockhashes_serialized,
                 payout_block_height,
                 self.config.protocol_paramset().genesis_height,
             );
