@@ -31,9 +31,7 @@ pub fn get_tx_from_signed_txs_with_type(
     bitcoin::consensus::deserialize(&tx).context("expected valid tx")
 }
 // Cannot use ensure_async due to `Send` requirement being broken upstream
-pub async fn ensure_outpoint_spent_while_waiting_for_state_mngr_sync<
-    C: CitreaClientT,
->(
+pub async fn ensure_outpoint_spent_while_waiting_for_state_mngr_sync<C: CitreaClientT>(
     rpc: &ExtendedRpc,
     _lc_prover: &Node<LightClientProverConfig>,
     outpoint: OutPoint,
@@ -107,18 +105,13 @@ pub async fn retry_get_block_count(
     unreachable!("retry loop should either return Ok or Err")
 }
 
-pub async fn get_txid_where_utxo_is_spent_while_waiting_for_state_mngr_sync<
-    C: CitreaClientT,
->(
+pub async fn get_txid_where_utxo_is_spent_while_waiting_for_state_mngr_sync<C: CitreaClientT>(
     rpc: &ExtendedRpc,
     lc_prover: &Node<LightClientProverConfig>,
     utxo: OutPoint,
     actors: &TestActors<C>,
 ) -> Result<Txid, eyre::Error> {
-    ensure_outpoint_spent_while_waiting_for_state_mngr_sync(
-        rpc, lc_prover, utxo, actors,
-    )
-    .await?;
+    ensure_outpoint_spent_while_waiting_for_state_mngr_sync(rpc, lc_prover, utxo, actors).await?;
     let remaining_block_count = 30;
     // look for the txid in the last 30 blocks
     for i in 0..remaining_block_count {

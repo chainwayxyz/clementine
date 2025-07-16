@@ -363,15 +363,14 @@ impl TestCase for WatchtowerChallengeTxTest {
             rpc.mine_blocks_while_synced(1, &actors).await.unwrap();
         }
 
-        let payout_txid =
-            get_txid_where_utxo_is_spent_while_waiting_for_state_mngr_sync(
-                &rpc,
-                lc_prover,
-                withdrawal_utxo,
-                &actors,
-            )
-            .await
-            .unwrap();
+        let payout_txid = get_txid_where_utxo_is_spent_while_waiting_for_state_mngr_sync(
+            &rpc,
+            lc_prover,
+            withdrawal_utxo,
+            &actors,
+        )
+        .await
+        .unwrap();
         tracing::info!("Payout txid: {:?}", payout_txid);
 
         rpc.mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH, &actors)

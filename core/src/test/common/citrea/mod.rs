@@ -505,15 +505,14 @@ pub async fn payout_and_start_kickoff(
         e2e.rpc.mine_blocks_while_synced(1, actors).await.unwrap();
     }
 
-    let payout_txid =
-        get_txid_where_utxo_is_spent_while_waiting_for_state_mngr_sync(
-            e2e.rpc,
-            e2e.lc_prover,
-            *withdrawal_utxo,
-            actors,
-        )
-        .await
-        .unwrap();
+    let payout_txid = get_txid_where_utxo_is_spent_while_waiting_for_state_mngr_sync(
+        e2e.rpc,
+        e2e.lc_prover,
+        *withdrawal_utxo,
+        actors,
+    )
+    .await
+    .unwrap();
 
     e2e.rpc
         .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH, actors)
