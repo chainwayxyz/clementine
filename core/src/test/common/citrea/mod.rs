@@ -236,18 +236,14 @@ pub async fn get_new_withdrawal_utxo_and_register_to_citrea(
     e2e: &CitreaE2EData<'_>,
     actors: &TestActors<CitreaClient>,
 ) -> (OutPoint, TxOut, bitcoin::secp256k1::schnorr::Signature) {
+    force_sequencer_to_commit(e2e.sequencer).await.unwrap();
     e2e.rpc
-        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH, actors)
+        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH + 2, actors)
         .await
         .unwrap();
-    force_sequencer_to_commit(e2e.sequencer).await.unwrap();
 
     // Send deposit to Citrea
     let (tx, block, block_height) = get_tx_information_for_citrea(e2e, move_txid).await.unwrap();
-
-    wait_until_lc_contract_updated(e2e.sequencer.client.http_client(), block_height)
-        .await
-        .unwrap();
 
     tracing::debug!("Depositing to Citrea...");
 
@@ -262,6 +258,8 @@ pub async fn get_new_withdrawal_utxo_and_register_to_citrea(
     .unwrap();
 
     force_sequencer_to_commit(e2e.sequencer).await.unwrap();
+
+    e2e.rpc.mine_blocks_while_synced(1, actors).await.unwrap();
 
     // Wait for the deposit to be processed.
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
@@ -305,6 +303,10 @@ pub async fn get_new_withdrawal_utxo_and_register_to_citrea(
         .await
         .unwrap();
     force_sequencer_to_commit(e2e.sequencer).await.unwrap();
+    e2e.rpc
+        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH + 2, actors)
+        .await
+        .unwrap();
 
     let params = get_citrea_safe_withdraw_params(
         e2e.rpc,
@@ -340,16 +342,7 @@ pub async fn get_new_withdrawal_utxo_and_register_to_citrea(
     tracing::info!("Citrea withdrawal tx receipt: {:?}", receipt);
 
     e2e.rpc
-        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH, actors)
-        .await
-        .unwrap();
-    let finalized_height = e2e.da.get_finalized_height(None).await.unwrap();
-    e2e.batch_prover
-        .wait_for_l1_height(finalized_height, None)
-        .await
-        .unwrap();
-    e2e.rpc
-        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH, actors)
+        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH + 2, actors)
         .await
         .unwrap();
 
