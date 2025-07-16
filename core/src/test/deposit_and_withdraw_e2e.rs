@@ -1548,11 +1548,12 @@ async fn concurrent_deposits_and_withdrawals() {
     sleep(Duration::from_secs(10)).await;
 
     let withdrawal_input_outpoints = withdrawal_utxos.clone();
+    let actors_ref = &actors;
 
     poll_get(
         async move || {
             let mut operator0s = (0..count)
-                .map(|_| actors.get_operator_client_by_index(0))
+                .map(|_| actors_ref.get_operator_client_by_index(0))
                 .collect::<Vec<_>>();
             let mut withdrawal_requests = Vec::new();
 
@@ -1582,6 +1583,7 @@ async fn concurrent_deposits_and_withdrawals() {
     .await
     .unwrap();
 
+    tracing::info!("Checking if withdrawal input outpoints are spent");
     // check if withdrawal input outpoints are spent
     for outpoint in withdrawal_input_outpoints.iter() {
         ensure_tx_onchain(&rpc, outpoint.txid).await.unwrap();

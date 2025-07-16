@@ -502,7 +502,7 @@ pub async fn payout_and_start_kickoff(
             Err(e) => tracing::info!("Withdrawal error: {:?}", e),
         };
 
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        e2e.rpc.mine_blocks_while_synced(1, actors).await.unwrap();
     }
 
     let payout_txid =
@@ -524,25 +524,15 @@ pub async fn payout_and_start_kickoff(
         "Waiting until getting first unhandled payout for operator {:?}",
         operator_xonly_pk
     );
-    // wait until payout part is not null
+
+    // wait until payout is handled
+    tracing::info!("Waiting until payout is handled");
     while operator_db
-        .get_first_unhandled_payout_by_operator_xonly_pk(None, operator_xonly_pk)
+        .get_handled_payout_kickoff_txid(None, payout_txid)
         .await
         .unwrap()
         .is_none()
     {
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-    }
-
-    tracing::info!("Waiting until payout is handled");
-    // wait until payout is handled
-    while operator_db
-        .get_first_unhandled_payout_by_operator_xonly_pk(None, operator_xonly_pk)
-        .await
-        .unwrap()
-        .is_some()
-    {
-        tracing::info!("Payout is not handled yet");
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
 

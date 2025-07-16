@@ -341,23 +341,17 @@ impl TestCase for DisproveTest {
             .unwrap();
         tracing::info!("Payout txid: {:?}", payout_txid);
 
-        // wait until payout part is not null
+        rpc.mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH, &actors)
+            .await
+            .unwrap();
+
+        // wait until payout is handled
+        tracing::info!("Waiting until payout is handled");
         while op0_db
-            .get_first_unhandled_payout_by_operator_xonly_pk(None, op0_xonly_pk)
+            .get_handled_payout_kickoff_txid(None, payout_txid)
             .await?
             .is_none()
         {
-            rpc.mine_blocks_while_synced(1, &actors).await.unwrap();
-        }
-
-        tracing::info!("Waiting until payout is handled");
-        // wait until payout is handled
-        while op0_db
-            .get_first_unhandled_payout_by_operator_xonly_pk(None, op0_xonly_pk)
-            .await?
-            .is_some()
-        {
-            tracing::info!("Payout is not handled yet");
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
 
