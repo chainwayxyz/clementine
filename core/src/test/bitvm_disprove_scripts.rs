@@ -3,7 +3,7 @@ use crate::bitvm_client::{ClementineBitVMPublicKeys, SECP};
 use crate::builder::transaction::input::UtxoVout;
 use crate::deposit::KickoffData;
 use crate::rpc::clementine::{TransactionRequest, WithdrawParams};
-use crate::test::common::citrea::{get_citrea_safe_withdraw_params, SECRET_KEYS};
+use crate::test::common::citrea::{force_sequencer_to_commit, get_citrea_safe_withdraw_params, SECRET_KEYS};
 use crate::test::common::tx_utils::{
     create_tx_sender, ensure_outpoint_spent_while_waiting_for_state_mngr_sync,
     get_tx_from_signed_txs_with_type,
@@ -237,13 +237,14 @@ impl TestCase for DisproveTest {
             )
             .await;
 
-        rpc.mine_blocks(1).await.unwrap();
+        rpc.mine_blocks_while_synced(1, &actors).await.unwrap();
 
         let block_height = rpc.client.get_block_count().await.unwrap();
 
         // Wait for TXs to be on-chain (CPFP etc.).
-        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        rpc.mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH + 2, &actors)
+            .await
+            .unwrap();
 
         for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
             sequencer.client.send_publish_batch_request().await.unwrap();
@@ -326,7 +327,7 @@ impl TestCase for DisproveTest {
                 Err(e) => tracing::info!("Withdrawal error: {:?}", e),
             };
 
-            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            force_sequencer_to_commit(sequencer).await.unwrap();
             rpc.mine_blocks_while_synced(1, &actors).await.unwrap();
         }
 

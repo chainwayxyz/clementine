@@ -242,13 +242,14 @@ impl TestCase for WatchtowerChallengeTxTest {
             )
             .await;
 
-        rpc.mine_blocks(1).await.unwrap();
+        rpc.mine_blocks_while_synced(1, &actors).await.unwrap();
 
         let block_height = rpc.client.get_block_count().await.unwrap();
 
         // Wait for TXs to be on-chain (CPFP etc.).
-        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        rpc.mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH + 2, &actors)
+            .await
+            .unwrap();
 
         for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
             sequencer.client.send_publish_batch_request().await.unwrap();
