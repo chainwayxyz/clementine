@@ -131,7 +131,7 @@ impl TestParams {
         }
 
         if self.generate_varying_total_works_first_two_valid {
-            const HIGHEST_VALID_WT_INDEX: usize = 287;
+            const HIGHEST_VALID_WT_INDEX: usize = 288;
             tracing::info!(
                 "Overriding blockhashes: first two valid mode with {} blocks",
                 HIGHEST_VALID_WT_INDEX
@@ -161,7 +161,7 @@ impl TestParams {
         }
 
         if self.generate_varying_total_works_first_two_valid {
-            let highest_valid_wt_index = 287;
+            let highest_valid_wt_index = 288;
             let target_blockhash = block_hashes.get(highest_valid_wt_index).ok_or_else(|| {
                 eyre::eyre!("Missing blockhash at index {}", highest_valid_wt_index)
             })?;
@@ -193,7 +193,7 @@ impl TestParams {
         total_work: &[u8],
     ) {
         if self.generate_varying_total_works_first_two_valid {
-            let ref_total_work: [u8; 16] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 64];
+            let ref_total_work: [u8; 16] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 66];
 
             tracing::debug!(
                 "Ref total work: {:?}, total work: {:?}",
@@ -230,11 +230,11 @@ impl TestParams {
         payout_tx_blockhash
     }
 
-    pub fn maybe_disrupt_latest_block_hash_commit(&self, latest_block_hash: [u8; 32]) -> [u8; 32] {
+    pub fn maybe_disrupt_latest_block_hash_commit(&self, latest_block_hash: [u8; 20]) -> [u8; 20] {
         if self.disrupt_latest_block_hash_commit {
             tracing::info!("Disrupting latest block hash commitment for testing purposes");
             let mut disrupted = latest_block_hash;
-            disrupted[31] ^= 0x01;
+            disrupted[19] ^= 0x01;
             return disrupted;
         }
 

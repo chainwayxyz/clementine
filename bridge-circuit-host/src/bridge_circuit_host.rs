@@ -546,7 +546,12 @@ mod tests {
         let (total_work, challenge_sending_wts) =
             total_work_and_watchtower_flags(&bridge_circuit_input, &REGTEST_WORK_ONLY_METHOD_ID);
 
-        let expected_total_work = TotalWork([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 64]);
+        println!(
+            "Total work: {:?}, Challenge sending watchtowers: {:?}",
+            total_work, challenge_sending_wts
+        );
+
+        let expected_total_work = TotalWork([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 66]);
         let expected_challenge_sending_wts = ChallengeSendingWatchtowers([
             15, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         ]);

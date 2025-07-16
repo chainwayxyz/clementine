@@ -1324,7 +1324,7 @@ where
             .maybe_disrupt_latest_block_hash_commit(
                 latest_blockhash
                     .try_into()
-                    .expect("BlockHash is 32 bytes long, cannot fail"),
+                    .expect("Latest blockhash is 20 bytes long, cannot fail"),
             );
 
         let rpc_current_finalized_height = self
