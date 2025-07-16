@@ -1,7 +1,6 @@
 use super::common::citrea::get_bridge_params;
 use crate::bitvm_client::{ClementineBitVMPublicKeys, SECP};
 use crate::builder::transaction::input::UtxoVout;
-use crate::database::Database;
 use crate::deposit::KickoffData;
 use crate::rpc::clementine::{TransactionRequest, WithdrawParams};
 use crate::test::common::citrea::{get_citrea_safe_withdraw_params, SECRET_KEYS};
@@ -148,7 +147,7 @@ impl TestCase for DisproveTest {
             "Deposit starting at block height: {:?}",
             rpc.client.get_block_count().await?
         );
-        let (actors, deposit_params, move_txid, _deposit_blockhash, verifiers_public_keys) =
+        let (actors, deposit_params, move_txid, _deposit_blockhash, _verifiers_public_keys) =
             run_single_deposit::<CitreaClient>(&mut config, rpc.clone(), None, None, None).await?;
 
         tracing::info!(
@@ -307,18 +306,7 @@ impl TestCase for DisproveTest {
         let receipt = citrea_withdrawal_tx.get_receipt().await.unwrap();
         println!("Citrea withdrawal tx receipt: {:?}", receipt);
 
-        // Setup tx_sender for sending transactions
-        let verifier_0_config = {
-            let mut config = config.clone();
-            config.db_name += "0";
-            config
-        };
-
-        let op0_xonly_pk = verifiers_public_keys[0].x_only_public_key().0;
-
-        let db = Database::new(&verifier_0_config)
-            .await
-            .expect("failed to create database");
+        let (op0_db, op0_xonly_pk) = actors.get_operator_db_and_xonly_pk_by_index(0).await;
 
         loop {
             let withdrawal_response = operator0
@@ -354,7 +342,7 @@ impl TestCase for DisproveTest {
         tracing::info!("Payout txid: {:?}", payout_txid);
 
         // wait until payout part is not null
-        while db
+        while op0_db
             .get_first_unhandled_payout_by_operator_xonly_pk(None, op0_xonly_pk)
             .await?
             .is_none()
@@ -364,7 +352,7 @@ impl TestCase for DisproveTest {
 
         tracing::info!("Waiting until payout is handled");
         // wait until payout is handled
-        while db
+        while op0_db
             .get_first_unhandled_payout_by_operator_xonly_pk(None, op0_xonly_pk)
             .await?
             .is_some()
@@ -373,7 +361,7 @@ impl TestCase for DisproveTest {
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
 
-        let kickoff_txid = db
+        let kickoff_txid = op0_db
             .get_handled_payout_kickoff_txid(None, payout_txid)
             .await?
             .expect("Payout must be handled");
