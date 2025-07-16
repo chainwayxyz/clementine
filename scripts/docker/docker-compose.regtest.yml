@@ -60,7 +60,7 @@ services:
       - clementine-network
 
   citrea_sequencer:
-    image: chainwayxyz/citrea
+    image: chainwayxyz/citrea-test:91e8047ecf0eb13ef422733a68db5e6eead4a6a3
     attach: false
     depends_on:
       bitcoin_regtest:
@@ -69,16 +69,17 @@ services:
     command:
       --dev --da-layer bitcoin --rollup-config-path /sequencer_rollup_config.toml --sequencer /sequencer_config.toml --genesis-paths /genesis-bitcoin-regtest/
     ports:
-      - "12345:12345"
+      - "12345:8545"
     volumes:
+      - citrea_sequencer:/mnt/task/citrea-db
       - ./configs/citrea/sequencer_rollup_config.toml:/sequencer_rollup_config.toml
       - ./configs/citrea/sequencer_config.toml:/sequencer_config.toml
-      - ./configs/citrea/genesis-bitcoin-regtest:/genesis-bitcoin-regtest
+      - ./configs/citrea/genesis-bitcoin-regtest:/bitcoin-regtest
     networks:
       - clementine-network
 
   citrea_full_node:
-    image: chainwayxyz/citrea
+    image: chainwayxyz/citrea-test:91e8047ecf0eb13ef422733a68db5e6eead4a6a3
     attach: false
     depends_on:
       bitcoin_regtest:
@@ -89,15 +90,16 @@ services:
     command:
       --dev --da-layer bitcoin --rollup-config-path /rollup_config.toml --genesis-paths resources/genesis/bitcoin-regtest/
     ports:
-      - "12346:12346"
+      - "12346:8545"
     volumes:
+      - citrea_full_node:/mnt/task/citrea-db
       - ./configs/citrea/rollup_config.toml:/rollup_config.toml
-      - ./configs/citrea/genesis-bitcoin-regtest:/genesis-bitcoin-regtest
+      - ./configs/citrea/genesis-bitcoin-regtest:/bitcoin-regtest
     networks:
       - clementine-network
 
   citrea_batch_prover:
-    image: chainwayxyz/citrea
+    image: chainwayxyz/citrea-test:91e8047ecf0eb13ef422733a68db5e6eead4a6a3
     attach: false
     depends_on:
       bitcoin_regtest:
@@ -110,17 +112,18 @@ services:
     command:
       --dev --da-layer bitcoin --rollup-config-path /batch_prover_rollup_config.toml --batch-prover /batch_prover_config.toml --genesis-paths /bitcoin-regtest
     ports:
-      - "12348:12348"
+      - "12348:8545"
     volumes:
+      - citrea_batch_prover:/mnt/task/citrea-db
       - ./configs/citrea/batch_prover_rollup_config.toml:/batch_prover_rollup_config.toml
       - ./configs/citrea/batch_prover_config.toml:/batch_prover_config.toml
-      - ./configs/citrea/genesis-bitcoin-regtest:/genesis-bitcoin-regtest
+      - ./configs/citrea/genesis-bitcoin-regtest:/bitcoin-regtest
     networks:
       - clementine-network
 
   citrea_light_client_prover:
-    image: chainwayxyz/citrea
-    attach: false
+    image: chainwayxyz/citrea-test:91e8047ecf0eb13ef422733a68db5e6eead4a6a3
+    # attach: false
     depends_on:
       bitcoin_regtest:
         condition: service_healthy
@@ -134,15 +137,17 @@ services:
     command:
       --dev --da-layer bitcoin --rollup-config-path /light_client_prover_rollup_config.toml --light-client-prover /light_client_prover_config.toml --genesis-paths /bitcoin-regtest
     ports:
-      - "12349:12349"
+      - "12349:8545"
     volumes:
+      - citrea_light_client_prover:/mnt/task/citrea-db
       - ./configs/citrea/light_client_prover_rollup_config.toml:/light_client_prover_rollup_config.toml
       - ./configs/citrea/light_client_prover_config.toml:/light_client_prover_config.toml
-      - ./configs/citrea/genesis-bitcoin-regtest:/genesis-bitcoin-regtest
+      - ./configs/citrea/genesis-bitcoin-regtest:/bitcoin-regtest
     networks:
       - clementine-network
 
   clementine_verifier:
+    # attach: false
     depends_on:
       postgres_db:
         condition: service_healthy
@@ -174,6 +179,7 @@ services:
       - clementine-network
 
   clementine_operator:
+    attach: false
     depends_on:
       postgres_db:
         condition: service_healthy
@@ -209,6 +215,10 @@ services:
 volumes:
   postgres_db:
   bitcoin_regtest:
+  citrea_sequencer:
+  citrea_full_node:
+  citrea_batch_prover:
+  citrea_light_client_prover:
   clementine_verifier:
   clementine_operator:
 

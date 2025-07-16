@@ -5,7 +5,7 @@ prover_da_pub_key = "03eedab888e45f3bdc3ec9918c491c11e5cf7af0a91f38b97fbc1e135ae
 
 [da]
 # fill here
-node_url = "http://127.0.1:20443/wallet/admin"
+node_url = "http://bitcoin_regtest:20443/wallet/admin"
 # fill here
 node_username = "admin"
 # fill here
