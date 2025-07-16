@@ -8,13 +8,16 @@ pub const LC_IMAGE_ID: [u32; 8] = [
 
 /// Verifies the light client proof and returns the light client circuit output.
 pub fn lc_proof_verifier(light_client_proof: LightClientProof) -> LightClientCircuitOutput {
-    env::verify(LC_IMAGE_ID, &light_client_proof.lc_journal).unwrap();
-
     let light_client_circuit_output: LightClientCircuitOutput =
         borsh::from_slice(light_client_proof.lc_journal.as_slice())
             .expect("Failed to deserialize light client circuit output");
 
-    // assert_eq!(light_client_circuit_output.light_client_proof_method_id, LC_IMAGE_ID);
+    env::verify(LC_IMAGE_ID, &light_client_proof.lc_journal).unwrap();
+
+    assert_eq!(
+        light_client_circuit_output.light_client_proof_method_id, LC_IMAGE_ID,
+        "Light client proof method ID does not match expected LC_IMAGE_ID"
+    );
 
     light_client_circuit_output
 }

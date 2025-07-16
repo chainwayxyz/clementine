@@ -174,6 +174,7 @@ pub fn prove_bridge_circuit(
                 .wrap_err("Failed to serialize bridge circuit input")?,
         )
         .add_assumption(bridge_circuit_host_params.headerchain_receipt)
+        .add_assumption(bridge_circuit_host_params.lcp_receipt)
         .build()
         .map_err(|e| eyre!("Failed to build execution environment: {}", e))?;
 
