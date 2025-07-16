@@ -69,7 +69,7 @@ services:
     command:
       --dev --da-layer bitcoin --rollup-config-path /sequencer_rollup_config.toml --sequencer /sequencer_config.toml --genesis-paths /genesis-bitcoin-regtest/
     ports:
-      - "12345:8545"
+      - "12345:12345"
     volumes:
       - citrea_sequencer:/mnt/task/citrea-db
       - ./configs/citrea/sequencer_rollup_config.toml:/sequencer_rollup_config.toml
@@ -90,7 +90,7 @@ services:
     command:
       --dev --da-layer bitcoin --rollup-config-path /rollup_config.toml --genesis-paths resources/genesis/bitcoin-regtest/
     ports:
-      - "12346:8545"
+      - "12346:12346"
     volumes:
       - citrea_full_node:/mnt/task/citrea-db
       - ./configs/citrea/rollup_config.toml:/rollup_config.toml
@@ -112,7 +112,7 @@ services:
     command:
       --dev --da-layer bitcoin --rollup-config-path /batch_prover_rollup_config.toml --batch-prover /batch_prover_config.toml --genesis-paths /bitcoin-regtest
     ports:
-      - "12348:8545"
+      - "12348:12348"
     volumes:
       - citrea_batch_prover:/mnt/task/citrea-db
       - ./configs/citrea/batch_prover_rollup_config.toml:/batch_prover_rollup_config.toml
@@ -123,7 +123,7 @@ services:
 
   citrea_light_client_prover:
     image: chainwayxyz/citrea-test:91e8047ecf0eb13ef422733a68db5e6eead4a6a3
-    # attach: false
+    attach: false
     depends_on:
       bitcoin_regtest:
         condition: service_healthy
@@ -137,7 +137,7 @@ services:
     command:
       --dev --da-layer bitcoin --rollup-config-path /light_client_prover_rollup_config.toml --light-client-prover /light_client_prover_config.toml --genesis-paths /bitcoin-regtest
     ports:
-      - "12349:8545"
+      - "12349:12349"
     volumes:
       - citrea_light_client_prover:/mnt/task/citrea-db
       - ./configs/citrea/light_client_prover_rollup_config.toml:/light_client_prover_rollup_config.toml
@@ -147,7 +147,6 @@ services:
       - clementine-network
 
   clementine_verifier:
-    # attach: false
     depends_on:
       postgres_db:
         condition: service_healthy
