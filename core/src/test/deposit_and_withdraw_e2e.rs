@@ -404,39 +404,43 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             .await
             .expect("failed to create database");
 
-        let payout_txid = loop {
-            let withdrawal_response = operators[0]
-                .withdraw(WithdrawParams {
-                    withdrawal_id: 0,
-                    input_signature: sig.serialize().to_vec(),
-                    input_outpoint: Some(withdrawal_utxo.into()),
-                    output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
-                    output_amount: payout_txout.value.to_sat(),
+        let mut operator = operators[0].clone();
+        let payout_txid = poll_get(
+            async move || {
+                let withdrawal_response = operator
+                    .withdraw(WithdrawParams {
+                        withdrawal_id: 0,
+                        input_signature: sig.serialize().to_vec(),
+                        input_outpoint: Some(withdrawal_utxo.into()),
+                        output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
+                        output_amount: payout_txout.value.to_sat(),
+                    })
+                    .await;
+                tracing::info!("Withdrawal response: {:?}", withdrawal_response);
+
+                Ok(match withdrawal_response {
+                    Ok(withdrawal_response) => {
+                        tracing::info!("Withdrawal response: {:?}", withdrawal_response);
+                        Some(Txid::from_byte_array(
+                            withdrawal_response
+                                .into_inner()
+                                .txid
+                                .unwrap()
+                                .txid
+                                .try_into()
+                                .unwrap(),
+                        ))
+                    }
+                    Err(e) => {
+                        tracing::info!("Withdrawal error: {:?}", e);
+                        None
+                    }
                 })
-                .await;
-
-            tracing::info!("Withdrawal response: {:?}", withdrawal_response);
-
-            match withdrawal_response {
-                Ok(withdrawal_response) => {
-                    tracing::info!("Withdrawal response: {:?}", withdrawal_response);
-                    break Txid::from_byte_array(
-                        withdrawal_response
-                            .into_inner()
-                            .txid
-                            .unwrap()
-                            .txid
-                            .try_into()
-                            .unwrap(),
-                    );
-                }
-                Err(e) => {
-                    tracing::info!("Withdrawal error: {:?}", e);
-                }
-            }
-
-            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        };
+            },
+            None,
+            None,
+        )
+        .await?;
         tracing::info!("Payout txid: {:?}", payout_txid);
 
         mine_once_after_in_mempool(&rpc, payout_txid, Some("Payout tx"), None).await?;
