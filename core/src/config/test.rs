@@ -84,8 +84,9 @@ impl TestParams {
             .is_none_or(|indexes| !indexes.contains(&verifier_idx)))
     }
 
-    pub fn maybe_corrupt_asserts(&self, asserts: &mut Assertions) {
+    pub fn maybe_corrupt_asserts(&self, asserts: Assertions) -> Assertions {
         use rand::Rng;
+        let mut asserts = asserts;
         if self.corrupted_asserts {
             let mut rng = rand::thread_rng();
 
@@ -109,6 +110,7 @@ impl TestParams {
             tracing::info!("Disrupting public input with i: 0, j: {}", j);
             asserts.0[0][j] ^= 0x01;
         }
+        asserts
     }
 
     pub fn maybe_override_blockhashes_serialized(

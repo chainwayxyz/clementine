@@ -1522,10 +1522,7 @@ where
         };
 
         #[cfg(test)]
-        let mut asserts = asserts;
-
-        #[cfg(test)]
-        self.config.test_params.maybe_corrupt_asserts(&mut asserts);
+        let asserts = self.config.test_params.maybe_corrupt_asserts(asserts);
 
         let assert_txs = self
             .create_assert_commitment_txs(
