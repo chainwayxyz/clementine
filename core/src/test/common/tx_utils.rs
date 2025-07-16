@@ -36,7 +36,7 @@ pub async fn ensure_outpoint_spent_while_waiting_for_light_client_and_state_mngr
     C: CitreaClientT,
 >(
     rpc: &ExtendedRpc,
-    lc_prover: &Node<LightClientProverConfig>,
+    _lc_prover: &Node<LightClientProverConfig>,
     outpoint: OutPoint,
     actors: &TestActors<C>,
 ) -> Result<(), eyre::Error> {
@@ -49,28 +49,7 @@ pub async fn ensure_outpoint_spent_while_waiting_for_light_client_and_state_mngr
         Err(_) => true,
         Ok(val) => val.is_some(),
     } {
-        // Mine more blocks and wait longer between checks
-        let block_count = retry_get_block_count(rpc, 5, Duration::from_millis(300)).await?;
-
-        let mut total_retry = 0;
-        while let Err(e) = lc_prover
-            .wait_for_l1_height(block_count as u64 - DEFAULT_FINALITY_DEPTH, None)
-            .await
-        {
-            if total_retry > 10 {
-                bail!("Failed to wait for l1 height: {:?}", e);
-            }
-            total_retry += 1;
-            tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
-        }
-
-        if !are_all_state_managers_synced(rpc, actors).await? {
-            // state manager didnt sync yet, do not mine blocks
-            continue;
-        }
-        rpc.mine_blocks(1).await?;
-
-        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+        rpc.mine_blocks_while_synced(1, actors).await?;
         timeout_counter -= 1;
 
         if timeout_counter == 0 {
