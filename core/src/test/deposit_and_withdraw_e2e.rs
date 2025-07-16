@@ -1544,7 +1544,7 @@ async fn concurrent_deposits_and_withdrawals() {
         sigs.push(sig);
     }
 
-    rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
+    rpc.mine_blocks(DEFAULT_FINALITY_DEPTH + 2).await.unwrap();
     sleep(Duration::from_secs(10)).await;
 
     let withdrawal_input_outpoints = withdrawal_utxos.clone();
@@ -1662,7 +1662,7 @@ async fn concurrent_deposits_and_optimistic_payouts() {
         sigs.push(sig);
     }
 
-    rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
+    rpc.mine_blocks(DEFAULT_FINALITY_DEPTH + 2).await.unwrap();
     sleep(Duration::from_secs(10)).await;
 
     poll_until_condition(

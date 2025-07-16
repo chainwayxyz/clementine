@@ -142,16 +142,16 @@ impl TestCase for DisproveTest {
         rpc.mine_blocks(5).await.unwrap();
 
         let block_count = da.get_block_count().await?;
-        tracing::debug!("Block count before deposit: {:?}", block_count);
+        tracing::info!("Block count before deposit: {:?}", block_count);
 
-        tracing::debug!(
+        tracing::info!(
             "Deposit starting at block height: {:?}",
             rpc.client.get_block_count().await?
         );
         let (actors, deposit_params, move_txid, _deposit_blockhash, verifiers_public_keys) =
             run_single_deposit::<CitreaClient>(&mut config, rpc.clone(), None, None, None).await?;
 
-        tracing::debug!(
+        tracing::info!(
             "Deposit ending block_height: {:?}",
             rpc.client.get_block_count().await?
         );
@@ -188,7 +188,7 @@ impl TestCase for DisproveTest {
             0
         );
 
-        tracing::debug!("Depositing to Citrea...");
+        tracing::info!("Depositing to Citrea...");
 
         citrea::deposit(
             &rpc,
@@ -216,7 +216,7 @@ impl TestCase for DisproveTest {
             0
         );
 
-        tracing::debug!("Deposit operations are successful.");
+        tracing::info!("Deposit operations are successful.");
 
         // Prepare withdrawal transaction.
         let user_sk = SecretKey::from_slice(&[13u8; 32]).unwrap();
@@ -296,13 +296,13 @@ impl TestCase for DisproveTest {
             .send()
             .await
             .unwrap();
-        tracing::debug!("Withdrawal TX sent in Citrea");
+        tracing::info!("Withdrawal TX sent in Citrea");
 
         // 1. force sequencer to commit
         for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
             sequencer.client.send_publish_batch_request().await.unwrap();
         }
-        tracing::debug!("Publish batch request sent");
+        tracing::info!("Publish batch request sent");
 
         let receipt = citrea_withdrawal_tx.get_receipt().await.unwrap();
         println!("Citrea withdrawal tx receipt: {:?}", receipt);
