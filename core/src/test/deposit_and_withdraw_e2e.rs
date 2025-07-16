@@ -24,9 +24,8 @@ use crate::test::common::citrea::{
     update_config_with_citrea_e2e_values, CitreaE2EData, MockCitreaClient, SECRET_KEYS,
 };
 use crate::test::common::tx_utils::{
-    ensure_outpoint_spent,
-    ensure_outpoint_spent_while_waiting_for_light_client_and_state_mngr_sync, ensure_tx_onchain,
-    get_txid_where_utxo_is_spent,
+    ensure_outpoint_spent, ensure_outpoint_spent_while_waiting_for_state_mngr_sync,
+    ensure_tx_onchain, get_txid_where_utxo_is_spent,
 };
 use crate::test::common::tx_utils::{
     get_tx_from_signed_txs_with_type, wait_for_fee_payer_utxos_to_be_in_mempool,
@@ -409,7 +408,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         // wait for all past kickoff reimburse connectors to be spent
         tracing::info!("Waiting for all past kickoff reimburse connectors to be spent");
         for reimburse_connector in reimburse_connectors.iter() {
-            ensure_outpoint_spent_while_waiting_for_light_client_and_state_mngr_sync(
+            ensure_outpoint_spent_while_waiting_for_state_mngr_sync(
                 &rpc,
                 lc_prover,
                 *reimburse_connector,

@@ -8,7 +8,7 @@ use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::WithdrawParams;
-use crate::test::common::tx_utils::get_txid_where_utxo_is_spent_while_waiting_for_light_client_and_state_mngr_sync;
+use crate::test::common::tx_utils::get_txid_where_utxo_is_spent_while_waiting_for_state_mngr_sync;
 use crate::test::common::{
     generate_withdrawal_transaction_and_signature, mine_once_after_in_mempool,
 };
@@ -31,7 +31,7 @@ pub use parameters::*;
 pub use requests::*;
 
 use super::test_actors::TestActors;
-use super::tx_utils::ensure_outpoint_spent_while_waiting_for_light_client_and_state_mngr_sync;
+use super::tx_utils::ensure_outpoint_spent_while_waiting_for_state_mngr_sync;
 
 mod bitcoin_merkle;
 mod client_mock;
@@ -506,7 +506,7 @@ pub async fn payout_and_start_kickoff(
     }
 
     let payout_txid =
-        get_txid_where_utxo_is_spent_while_waiting_for_light_client_and_state_mngr_sync(
+        get_txid_where_utxo_is_spent_while_waiting_for_state_mngr_sync(
             e2e.rpc,
             e2e.lc_prover,
             *withdrawal_utxo,
@@ -584,7 +584,7 @@ pub async fn reimburse_with_optimistic_payout(
         .await?;
 
     // ensure the btc in vault is spent
-    ensure_outpoint_spent_while_waiting_for_light_client_and_state_mngr_sync(
+    ensure_outpoint_spent_while_waiting_for_state_mngr_sync(
         e2e.rpc,
         e2e.lc_prover,
         OutPoint {

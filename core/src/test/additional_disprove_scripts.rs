@@ -8,9 +8,9 @@ use crate::operator::RoundIndex;
 use crate::rpc::clementine::{TransactionRequest, WithdrawParams};
 use crate::test::common::citrea::{get_citrea_safe_withdraw_params, SECRET_KEYS};
 use crate::test::common::tx_utils::{
-    create_tx_sender, ensure_outpoint_spent_while_waiting_for_light_client_and_state_mngr_sync,
+    create_tx_sender, ensure_outpoint_spent_while_waiting_for_state_mngr_sync,
     get_tx_from_signed_txs_with_type,
-    get_txid_where_utxo_is_spent_while_waiting_for_light_client_and_state_mngr_sync,
+    get_txid_where_utxo_is_spent_while_waiting_for_state_mngr_sync,
     mine_once_after_outpoint_spent_in_mempool,
 };
 use crate::test::common::{
@@ -341,15 +341,14 @@ impl TestCase for AdditionalDisproveTest {
             rpc.mine_blocks_while_synced(1, &actors).await.unwrap();
         }
 
-        let payout_txid =
-            get_txid_where_utxo_is_spent_while_waiting_for_light_client_and_state_mngr_sync(
-                &rpc,
-                lc_prover,
-                withdrawal_utxo,
-                &actors,
-            )
-            .await
-            .unwrap();
+        let payout_txid = get_txid_where_utxo_is_spent_while_waiting_for_state_mngr_sync(
+            &rpc,
+            lc_prover,
+            withdrawal_utxo,
+            &actors,
+        )
+        .await
+        .unwrap();
         tracing::info!("Payout txid: {:?}", payout_txid);
 
         rpc.mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH, &actors)
@@ -465,7 +464,7 @@ impl TestCase for AdditionalDisproveTest {
             vout: UtxoVout::Assert(0).get_vout(),
         };
 
-        ensure_outpoint_spent_while_waiting_for_light_client_and_state_mngr_sync(
+        ensure_outpoint_spent_while_waiting_for_state_mngr_sync(
             &rpc,
             lc_prover,
             first_assert_utxo,
@@ -503,7 +502,7 @@ impl TestCase for AdditionalDisproveTest {
             kickoff_txid
         );
 
-        let txid = get_txid_where_utxo_is_spent_while_waiting_for_light_client_and_state_mngr_sync(
+        let txid = get_txid_where_utxo_is_spent_while_waiting_for_state_mngr_sync(
             &rpc,
             lc_prover,
             disprove_outpoint,

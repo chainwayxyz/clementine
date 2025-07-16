@@ -13,12 +13,12 @@ use crate::operator::RoundIndex;
 use crate::rpc::clementine::{TransactionRequest, WithdrawParams};
 use crate::test::common::citrea::{get_citrea_safe_withdraw_params, SECRET_KEYS};
 use crate::test::common::tx_utils::{
-    create_tx_sender, ensure_outpoint_spent_while_waiting_for_light_client_and_state_mngr_sync,
+    create_tx_sender, ensure_outpoint_spent_while_waiting_for_state_mngr_sync,
     mine_once_after_outpoint_spent_in_mempool,
 };
 use crate::test::common::tx_utils::{
     get_tx_from_signed_txs_with_type,
-    get_txid_where_utxo_is_spent_while_waiting_for_light_client_and_state_mngr_sync,
+    get_txid_where_utxo_is_spent_while_waiting_for_state_mngr_sync,
 };
 use crate::test::common::{
     generate_withdrawal_transaction_and_signature, mine_once_after_in_mempool, run_single_deposit,
@@ -365,7 +365,7 @@ impl TestCase for BridgeCircuitTestData {
         }
 
         let payout_txid =
-            get_txid_where_utxo_is_spent_while_waiting_for_light_client_and_state_mngr_sync(
+            get_txid_where_utxo_is_spent_while_waiting_for_state_mngr_sync(
                 &rpc,
                 lc_prover,
                 withdrawal_utxo,
@@ -490,7 +490,7 @@ impl TestCase for BridgeCircuitTestData {
             .await?;
 
         // Ensure the reimburse connector is spent
-        ensure_outpoint_spent_while_waiting_for_light_client_and_state_mngr_sync(
+        ensure_outpoint_spent_while_waiting_for_state_mngr_sync(
             &rpc,
             lc_prover,
             reimburse_connector,

@@ -1,5 +1,5 @@
 use super::test_actors::TestActors;
-use super::{are_all_state_managers_synced, mine_once_after_in_mempool, poll_until_condition};
+use super::{mine_once_after_in_mempool, poll_until_condition};
 use crate::builder::transaction::TransactionType as TxType;
 use crate::citrea::CitreaClientT;
 use crate::config::BridgeConfig;
@@ -10,7 +10,6 @@ use crate::utils::{FeePayingType, RbfSigningInfo, TxMetadata};
 use bitcoin::consensus::{self};
 use bitcoin::{block, OutPoint, Transaction, Txid};
 use bitcoincore_rpc::RpcApi;
-use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
 use citrea_e2e::config::LightClientProverConfig;
 use citrea_e2e::node::Node;
 use eyre::{bail, Context, Result};
@@ -32,7 +31,7 @@ pub fn get_tx_from_signed_txs_with_type(
     bitcoin::consensus::deserialize(&tx).context("expected valid tx")
 }
 // Cannot use ensure_async due to `Send` requirement being broken upstream
-pub async fn ensure_outpoint_spent_while_waiting_for_light_client_and_state_mngr_sync<
+pub async fn ensure_outpoint_spent_while_waiting_for_state_mngr_sync<
     C: CitreaClientT,
 >(
     rpc: &ExtendedRpc,
@@ -40,7 +39,7 @@ pub async fn ensure_outpoint_spent_while_waiting_for_light_client_and_state_mngr
     outpoint: OutPoint,
     actors: &TestActors<C>,
 ) -> Result<(), eyre::Error> {
-    let mut timeout_counter = 300;
+    let mut max_blocks_to_mine = 1000;
     while match rpc
         .client
         .get_tx_out(&outpoint.txid, outpoint.vout, Some(false))
@@ -50,9 +49,9 @@ pub async fn ensure_outpoint_spent_while_waiting_for_light_client_and_state_mngr
         Ok(val) => val.is_some(),
     } {
         rpc.mine_blocks_while_synced(1, actors).await?;
-        timeout_counter -= 1;
+        max_blocks_to_mine -= 1;
 
-        if timeout_counter == 0 {
+        if max_blocks_to_mine == 0 {
             bail!(
                 "timeout while waiting for outpoint {:?} to be spent",
                 outpoint
@@ -108,7 +107,7 @@ pub async fn retry_get_block_count(
     unreachable!("retry loop should either return Ok or Err")
 }
 
-pub async fn get_txid_where_utxo_is_spent_while_waiting_for_light_client_and_state_mngr_sync<
+pub async fn get_txid_where_utxo_is_spent_while_waiting_for_state_mngr_sync<
     C: CitreaClientT,
 >(
     rpc: &ExtendedRpc,
@@ -116,7 +115,7 @@ pub async fn get_txid_where_utxo_is_spent_while_waiting_for_light_client_and_sta
     utxo: OutPoint,
     actors: &TestActors<C>,
 ) -> Result<Txid, eyre::Error> {
-    ensure_outpoint_spent_while_waiting_for_light_client_and_state_mngr_sync(
+    ensure_outpoint_spent_while_waiting_for_state_mngr_sync(
         rpc, lc_prover, utxo, actors,
     )
     .await?;
