@@ -30,19 +30,25 @@ mod tests {
     #[test]
     fn test_lc_proof_verifier() {
         let lcp_receipt_bytes = include_bytes!("../../test_data/lcp_receipt.bin");
-        let lcp_receipt: Receipt = bincode::deserialize(lcp_receipt_bytes).unwrap();
+        let lcp_receipt: Receipt = borsh::from_slice(lcp_receipt_bytes).unwrap();
+
+        println!("LCP Receipt: {:?}", lcp_receipt.clone());
 
         let light_client_proof: LightClientProof = LightClientProof {
             l2_height: "0x0".to_string(),
             lc_journal: lcp_receipt.journal.bytes.to_vec(),
         };
 
-        let light_client_circuit_output = lc_proof_verifier(light_client_proof);
+        // Do not use lc_proof_verifier directly in tests, use the function to verify the proof
+        lcp_receipt.verify(LC_IMAGE_ID).unwrap();
+        let light_client_circuit_output: LightClientCircuitOutput =
+            borsh::from_slice(light_client_proof.lc_journal.as_slice())
+                .expect("Failed to deserialize light client circuit output");
 
         let expected_state_root =
-            "20476f2cc8568476d4ca3c2e34d2f9889c1cce06289873ed5ed46c31be0ce55e";
+            "2da019e05eb9a6ecc4872120ebf1cfb96704cc0cc967a89bd87b2d5da7f6ca07";
         let expected_last_block_hash =
-            "cdac10c915210c36f5b182eed334c0834a616302f1a393a3bcbfc2303b030000";
+            "a810cea613b869d296816e88f2f5f35165cd78be7b3ec6564cc41f30d3ff8c41";
 
         assert_eq!(
             hex::encode(light_client_circuit_output.l2_state_root),

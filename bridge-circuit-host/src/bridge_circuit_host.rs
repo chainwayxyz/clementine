@@ -167,6 +167,14 @@ pub fn prove_bridge_circuit(
 
     let journal_hash = public_inputs.host_journal_hash();
 
+    let lcp_receipt: Receipt = bridge_circuit_host_params.lcp_receipt.clone();
+    // Write this lcp_receipt to a file
+    let lcp_receipt_bytes = borsh::to_vec(&lcp_receipt)
+        .wrap_err("Failed to serialize light client proof receipt")?;
+    // Write to a file
+    std::fs::write("lcp_receipt.bin", lcp_receipt_bytes)
+        .wrap_err("Failed to write light client proof receipt to file")?;
+
     let mut binding = ExecutorEnv::builder();
     let env = binding
         .write_slice(
