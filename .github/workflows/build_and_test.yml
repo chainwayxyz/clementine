@@ -115,7 +115,7 @@ jobs:
         run: |
           if grep -q "test builder::sighash::tests::test_bridge_contract_change ... FAILED" unit_test_output.log; then
             echo "Found test_bridge_contract_change failure, running generate_deposit_state test"
-            cargo test generate_deposit_state $CARGOFLAGS_ALL_FEATURES || true
+            cargo test generate_deposit_state $CARGOFLAGS_ALL_FEATURES -- --ignored || true
           fi
 
       - name: Upload deposit state artifact
