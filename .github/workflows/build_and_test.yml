@@ -105,7 +105,9 @@ jobs:
 
       - name: Run unit tests
         id: unit_tests
-        run: cargo test_unit 2>&1 | tee unit_test_output.log
+        run: |
+          set -o pipefail
+          cargo test_unit 2>&1 | tee unit_test_output.log
 
       - name: Check for specific test failure and run generate_deposit_state
         if: failure()
