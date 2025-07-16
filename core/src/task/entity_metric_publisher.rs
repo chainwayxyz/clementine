@@ -50,12 +50,25 @@ impl<T: NamedEntity> Task for EntityMetricPublisher<T> {
             return Ok(false);
         }
 
-        let l1_status = timed_request(
+        let l1_status_result = timed_request(
             ENTITY_METRIC_PUBLISHER_INTERVAL,
             "get_l1_status",
             T::get_l1_status(&self.db, &self.rpc),
         )
-        .await?;
+        .await;
+
+        let l1_status = match l1_status_result {
+            Ok(l1_status) => l1_status,
+            Err(e) => {
+                tracing::error!(
+                    "Failed to get l1 status when publishing metrics for {}: {:?}",
+                    T::ENTITY_NAME,
+                    e
+                );
+
+                return Ok(false);
+            }
+        };
 
         let metric = LazyLock::force(&L1_SYNC_STATUS);
 
