@@ -663,6 +663,9 @@ mod tests {
     async fn test_bridge_contract_change() {
         use crate::test::common::run_single_deposit;
 
+        // fail on purpose
+        panic!("test_bridge_contract_change fail on purpose");
+
         let mut config = create_test_config_with_thread_name().await;
         // only run with one operator
         config.test_params.all_operators_secret_keys.truncate(1);
