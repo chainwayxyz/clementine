@@ -472,6 +472,7 @@ mod tests {
         let env = ExecutorEnv::builder()
             .write_slice(&borsh::to_vec(&bridge_circuit_inputs).unwrap())
             .add_assumption(bridge_circuit_host_params.headerchain_receipt)
+            .add_assumption(bridge_circuit_host_params.lcp_receipt)
             .build()
             .expect("Failed to build execution environment");
 
