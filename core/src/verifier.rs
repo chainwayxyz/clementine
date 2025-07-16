@@ -55,15 +55,12 @@ use bitvm::clementine::additional_disprove::{
 };
 use bitvm::signatures::winternitz;
 #[cfg(feature = "automation")]
-use bridge_circuit_host::utils::get_ark_verifying_key;
-use bridge_circuit_host::utils::get_ark_verifying_key_dev_mode_bridge;
 use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
 use circuits_lib::bridge_circuit::transaction::CircuitTransaction;
 use circuits_lib::bridge_circuit::{
     deposit_constant, get_first_op_return_output, parse_op_return_data,
 };
 use eyre::{Context, ContextCompat, OptionExt, Result};
-use risc0_zkvm::is_dev_mode;
 use secp256k1::musig::{AggregatedNonce, PartialSignature, PublicNonce, SecretNonce};
 #[cfg(feature = "automation")]
 use std::collections::BTreeMap;
@@ -2151,6 +2148,8 @@ where
         deposit_data: &mut DepositData,
         operator_asserts: &HashMap<usize, Witness>,
     ) -> Result<Option<(usize, StructuredScript)>, BridgeError> {
+        use bridge_circuit_host::utils::get_verifying_key;
+
         let bitvm_pks = self.signer.generate_bitvm_pks_for_deposit(
             deposit_data.get_deposit_outpoint(),
             self.config.protocol_paramset,
@@ -2268,11 +2267,7 @@ where
 
         tracing::info!("Boxes created");
 
-        let vk = if is_dev_mode() {
-            get_ark_verifying_key_dev_mode_bridge()
-        } else {
-            get_ark_verifying_key()
-        };
+        let vk = get_verifying_key();
 
         let res = validate_assertions(
             &vk,

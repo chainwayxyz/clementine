@@ -47,7 +47,6 @@ use bridge_circuit_host::bridge_circuit_host::{
     REGTEST_BRIDGE_CIRCUIT_ELF_TEST, SIGNET_BRIDGE_CIRCUIT_ELF, TESTNET4_BRIDGE_CIRCUIT_ELF,
 };
 use bridge_circuit_host::structs::{BridgeCircuitHostParams, WatchtowerContext};
-use bridge_circuit_host::utils::{get_ark_verifying_key, get_ark_verifying_key_dev_mode_bridge};
 use eyre::{Context, OptionExt};
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
@@ -875,24 +874,13 @@ where
             kickoff_data,
         };
 
-        let payout_tx_blockhash = {
-            #[cfg(test)]
-            {
-                let mut hash = payout_tx_blockhash.as_byte_array().last_20_bytes();
+        let payout_tx_blockhash = payout_tx_blockhash.as_byte_array().last_20_bytes();
 
-                if self.config.test_params.disrupt_payout_tx_block_hash_commit {
-                    tracing::info!("Disrupting latest blockhash for testing purposes");
-                    hash[19] ^= 0x01;
-                }
-
-                hash
-            }
-
-            #[cfg(not(test))]
-            {
-                payout_tx_blockhash.as_byte_array().last_20_bytes()
-            }
-        };
+        #[cfg(test)]
+        let payout_tx_blockhash = self
+            .config
+            .test_params
+            .maybe_disrupt_payout_tx_block_hash_commit(payout_tx_blockhash);
 
         let signed_txs = create_and_sign_txs(
             self.db.clone(),
@@ -1222,6 +1210,8 @@ where
         _payout_blockhash: Witness,
         latest_blockhash: Witness,
     ) -> Result<(), BridgeError> {
+        use bridge_circuit_host::utils::get_verifying_key;
+
         let context = ContractContext::new_context_for_kickoff(
             kickoff_data,
             deposit_data.clone(),
@@ -1322,27 +1312,20 @@ where
             self.config.protocol_paramset(),
         )?;
 
-        let latest_blockhash = {
-            let hash = commits
-                .first()
-                .ok_or_eyre("Failed to get latest blockhash in send_asserts")?
-                .to_owned();
+        let latest_blockhash = commits
+            .first()
+            .ok_or_eyre("Failed to get latest blockhash in send_asserts")?
+            .to_owned();
 
-            #[cfg(test)]
-            {
-                let mut hash = hash;
-                if self.config.test_params.disrupt_latest_block_hash_commit {
-                    tracing::info!("Correcting latest blockhash for testing purposes");
-                    hash[19] ^= 0x01;
-                }
-                hash
-            }
-
-            #[cfg(not(test))]
-            {
-                hash
-            }
-        };
+        #[cfg(test)]
+        let latest_blockhash = self
+            .config
+            .test_params
+            .maybe_disrupt_latest_block_hash_commit(
+                latest_blockhash
+                    .try_into()
+                    .expect("BlockHash is 32 bytes long, cannot fail"),
+            );
 
         let rpc_current_finalized_height = self
             .rpc
@@ -1403,28 +1386,21 @@ where
 
         tracing::info!("Got header chain proof in send_asserts");
 
-        let blockhashes_serialized: Vec<[u8; 32]> = {
-            #[cfg(test)]
-            {
-                self.config
-                    .test_params
-                    .maybe_override_blockhashes_serialized(
-                        &block_hashes,
-                        payout_block_height,
-                        latest_blockhash_index,
-                        self.config.protocol_paramset().genesis_height,
-                    )
-            }
+        let blockhashes_serialized: Vec<[u8; 32]> = block_hashes
+            .iter()
+            .take(latest_blockhash_index + 1)
+            .map(|(h, _)| h.to_byte_array())
+            .collect();
 
-            #[cfg(not(test))]
-            {
-                block_hashes
-                    .iter()
-                    .take(latest_blockhash_index + 1)
-                    .map(|(h, _)| h.to_byte_array())
-                    .collect()
-            }
-        };
+        #[cfg(test)]
+        let blockhashes_serialized = self
+            .config
+            .test_params
+            .maybe_override_blockhashes_serialized(
+                &blockhashes_serialized,
+                payout_block_height,
+                self.config.protocol_paramset().genesis_height,
+            );
 
         tracing::debug!(
             "Genesis height - Before SPV: {},",
@@ -1530,37 +1506,26 @@ where
         );
 
         let asserts = {
-            let vk = if cfg!(test) && is_dev_mode() {
-                get_ark_verifying_key_dev_mode_bridge()
-            } else {
-                get_ark_verifying_key()
-            };
+            let vk = get_verifying_key();
 
-            let asserts =
-                generate_assertions(g16_proof, vec![public_input_scalar], &vk).map_err(|e| {
-                    eyre::eyre!(
-                        "Failed to generate {}assertions: {}",
-                        if cfg!(test) && is_dev_mode() {
-                            "dev mode "
-                        } else {
-                            ""
-                        },
-                        e
-                    )
-                })?;
-
-            #[cfg(test)]
-            {
-                let mut asserts = asserts;
-                self.config.test_params.maybe_corrupt_asserts(&mut asserts);
-                asserts
-            }
-
-            #[cfg(not(test))]
-            {
-                asserts
-            }
+            generate_assertions(g16_proof, vec![public_input_scalar], &vk).map_err(|e| {
+                eyre::eyre!(
+                    "Failed to generate {}assertions: {}",
+                    if cfg!(test) && is_dev_mode() {
+                        "dev mode "
+                    } else {
+                        ""
+                    },
+                    e
+                )
+            })?
         };
+
+        #[cfg(test)]
+        let mut asserts = asserts;
+
+        #[cfg(test)]
+        self.config.test_params.maybe_corrupt_asserts(&mut asserts);
 
         let assert_txs = self
             .create_assert_commitment_txs(

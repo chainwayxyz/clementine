@@ -1,7 +1,7 @@
 use ark_bn254::{Bn254, Fq, Fq2, G1Affine, G2Affine};
 use ark_groth16::VerifyingKey;
 use risc0_circuit_recursion::control_id::BN254_IDENTITY_CONTROL_ID;
-use risc0_zkvm::{sha::Digestible, SuccinctReceiptVerifierParameters, SystemState};
+use risc0_zkvm::{is_dev_mode, sha::Digestible, SuccinctReceiptVerifierParameters, SystemState};
 use sha2::{Digest, Sha256};
 use std::str::FromStr;
 
@@ -231,6 +231,14 @@ pub fn get_ark_verifying_key_dev_mode_bridge() -> ark_groth16::VerifyingKey<Bn25
         gamma_g2,
         delta_g2,
         gamma_abc_g1,
+    }
+}
+
+pub fn get_verifying_key() -> ark_groth16::VerifyingKey<Bn254> {
+    if is_dev_mode() {
+        get_ark_verifying_key_dev_mode_bridge()
+    } else {
+        get_ark_verifying_key()
     }
 }
 

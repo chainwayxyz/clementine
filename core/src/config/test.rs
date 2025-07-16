@@ -1,7 +1,6 @@
 use crate::deposit::DepositData;
 use crate::header_chain_prover::HeaderChainProver;
 use bitcoin::blockdata::block::BlockHash;
-use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::PublicKey;
 use bitcoin::secp256k1::SecretKey;
 use bitvm::chunk::api::Assertions;
@@ -114,9 +113,8 @@ impl TestParams {
 
     pub fn maybe_override_blockhashes_serialized(
         &self,
-        block_hashes: &[(BlockHash, impl Sized)],
+        blockhashes_serialized: &[[u8; 32]],
         payout_block_height: u32,
-        latest_blockhash_index: usize,
         genesis_height: u32,
     ) -> Vec<[u8; 32]> {
         if self.generate_varying_total_works_insufficient_total_work {
@@ -125,10 +123,10 @@ impl TestParams {
                 "Overriding blockhashes: insufficient total work mode with {} blocks",
                 take_count
             );
-            return block_hashes
+            return blockhashes_serialized
                 .iter()
                 .take(take_count)
-                .map(|(block_hash, _)| block_hash.to_byte_array())
+                .cloned()
                 .collect();
         }
 
@@ -138,18 +136,14 @@ impl TestParams {
                 "Overriding blockhashes: first two valid mode with {} blocks",
                 HIGHEST_VALID_WT_INDEX
             );
-            return block_hashes
+            return blockhashes_serialized
                 .iter()
                 .take(HIGHEST_VALID_WT_INDEX)
-                .map(|(block_hash, _)| block_hash.to_byte_array())
+                .cloned()
                 .collect();
         }
 
-        block_hashes
-            .iter()
-            .take(latest_blockhash_index + 1)
-            .map(|(block_hash, _)| block_hash.to_byte_array())
-            .collect()
+        blockhashes_serialized.to_vec()
     }
 
     pub async fn maybe_override_current_hcp(
@@ -218,6 +212,33 @@ impl TestParams {
                 tracing::warn!("Failed to convert total work to [u8; 16]");
             }
         }
+    }
+
+    pub fn maybe_disrupt_payout_tx_block_hash_commit(
+        &self,
+        payout_tx_blockhash: [u8; 20],
+    ) -> [u8; 20] {
+        if self.disrupt_payout_tx_block_hash_commit {
+            tracing::info!(
+                "Disrupting payout transaction block hash commitment for testing purposes"
+            );
+            let mut disrupted = payout_tx_blockhash;
+            disrupted[19] ^= 0x01;
+            return disrupted;
+        }
+
+        payout_tx_blockhash
+    }
+
+    pub fn maybe_disrupt_latest_block_hash_commit(&self, latest_block_hash: [u8; 32]) -> [u8; 32] {
+        if self.disrupt_latest_block_hash_commit {
+            tracing::info!("Disrupting latest block hash commitment for testing purposes");
+            let mut disrupted = latest_block_hash;
+            disrupted[31] ^= 0x01;
+            return disrupted;
+        }
+
+        latest_block_hash
     }
 
     pub fn maybe_dump_bridge_circuit_params_to_file(
