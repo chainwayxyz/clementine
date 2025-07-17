@@ -698,11 +698,7 @@
 <a href="#697" id="697">697</a>
 <a href="#698" id="698">698</a>
 <a href="#699" id="699">699</a>
-<a href="#700" id="700">700</a>
-<a href="#701" id="701">701</a>
-<a href="#702" id="702">702</a>
-<a href="#703" id="703">703</a>
-<a href="#704" id="704">704</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::WinternitzDerivationPath;
+<a href="#700" id="700">700</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::WinternitzDerivationPath;
 <span class="kw">use </span><span class="kw">crate</span>::builder::address::taproot_builder_with_scripts;
 <span class="kw">use </span><span class="kw">crate</span>::builder::script::{SpendableScript, WinternitzCommit};
 
@@ -718,7 +714,7 @@
 <span class="kw">use </span>bitvm::signatures::wots_api::wots160;
 
 <span class="kw">use </span>borsh::{BorshDeserialize, BorshSerialize};
-<span class="kw">use </span>bridge_circuit_host::utils::{get_ark_verifying_key, get_ark_verifying_key_dev_mode_bridge};
+<span class="kw">use </span>bridge_circuit_host::utils::get_verifying_key;
 <span class="kw">use </span>risc0_zkvm::is_dev_mode;
 <span class="kw">use </span>std::fs;
 
@@ -828,11 +824,7 @@
 }
 
 <span class="kw">fn </span>generate_fresh_data() -&gt; BitvmCache {
-    <span class="kw">let </span>vk = <span class="kw">if </span><span class="macro">cfg!</span>(test) &amp;&amp; is_dev_mode() {
-        get_ark_verifying_key_dev_mode_bridge()
-    } <span class="kw">else </span>{
-        get_ark_verifying_key()
-    };
+    <span class="kw">let </span>vk = get_verifying_key();
 
     <span class="kw">let </span>dummy_pks = ClementineBitVMPublicKeys::create_replacable();
 

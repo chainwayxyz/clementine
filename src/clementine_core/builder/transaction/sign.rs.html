@@ -632,7 +632,7 @@
 <span class="kw">use </span><span class="kw">crate</span>::deposit::KickoffData;
 <span class="kw">use </span><span class="kw">crate</span>::errors::{BridgeError, TxError};
 <span class="kw">use </span><span class="kw">crate</span>::operator::{Operator, RoundIndex};
-<span class="kw">use </span><span class="kw">crate</span>::utils::RbfSigningInfo;
+<span class="kw">use </span><span class="kw">crate</span>::utils::{Last20Bytes, RbfSigningInfo};
 <span class="kw">use </span><span class="kw">crate</span>::verifier::Verifier;
 <span class="kw">use </span>bitcoin::hashes::Hash;
 <span class="kw">use </span>bitcoin::{BlockHash, OutPoint, Transaction, XOnlyPublicKey};
@@ -1118,22 +1118,22 @@
                 .remove(<span class="kw-2">&amp;</span>TransactionType::LatestBlockhash)
                 .ok_or(TxError::TxHandlerNotFound(TransactionType::LatestBlockhash))<span class="question-mark">?</span>;
 
-        <span class="comment">// get last 20 bytes of block_hash
-        </span><span class="kw">let </span>block_hash = block_hash.to_byte_array();
+        <span class="kw">let </span>block_hash: [u8; <span class="number">32</span>] = {
+            <span class="kw">let </span>raw = block_hash.to_byte_array();
 
-        <span class="attr">#[cfg(test)]
-        </span><span class="kw">let </span><span class="kw-2">mut </span>block_hash = block_hash;
-
-        <span class="attr">#[cfg(test)]
-        </span>{
-            <span class="kw">if </span><span class="self">self</span>.config.test_params.disrupt_latest_block_hash_commit {
-                <span class="macro">tracing::info!</span>(<span class="string">"Disrupting block hash commitment for testing purposes"</span>);
-                <span class="macro">tracing::info!</span>(<span class="string">"Original block hash: {:?}"</span>, block_hash);
-                block_hash[<span class="number">31</span>] ^= <span class="number">0x01</span>;
+            <span class="attr">#[cfg(test)]
+            </span>{
+                <span class="self">self</span>.config.test_params.maybe_disrupt_block_hash(raw)
             }
-        }
 
-        <span class="kw">let </span>block_hash_last_20 = block_hash[block_hash.len() - <span class="number">20</span>..].to_vec();
+            <span class="attr">#[cfg(not(test))]
+            </span>{
+                raw
+            }
+        };
+
+        <span class="comment">// get last 20 bytes of block_hash
+        </span><span class="kw">let </span>block_hash_last_20 = block_hash.last_20_bytes().to_vec();
 
         <span class="macro">tracing::info!</span>(
             <span class="string">"Creating latest blockhash tx with block hash's last 20 bytes: {:?}"</span>,

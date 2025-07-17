@@ -2843,7 +2843,18 @@
 <a href="#2842" id="2842">2842</a>
 <a href="#2843" id="2843">2843</a>
 <a href="#2844" id="2844">2844</a>
-<a href="#2845" id="2845">2845</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
+<a href="#2845" id="2845">2845</a>
+<a href="#2846" id="2846">2846</a>
+<a href="#2847" id="2847">2847</a>
+<a href="#2848" id="2848">2848</a>
+<a href="#2849" id="2849">2849</a>
+<a href="#2850" id="2850">2850</a>
+<a href="#2851" id="2851">2851</a>
+<a href="#2852" id="2852">2852</a>
+<a href="#2853" id="2853">2853</a>
+<a href="#2854" id="2854">2854</a>
+<a href="#2855" id="2855">2855</a>
+<a href="#2856" id="2856">2856</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
 <span class="kw">use </span><span class="kw">crate</span>::bitcoin_syncer::BitcoinSyncer;
 <span class="kw">use </span><span class="kw">crate</span>::bitvm_client::ClementineBitVMPublicKeys;
 <span class="kw">use </span><span class="kw">crate</span>::builder::address::{create_taproot_address, taproot_builder_with_scripts};
@@ -2900,15 +2911,12 @@
 };
 <span class="kw">use </span>bitvm::signatures::winternitz;
 <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
-</span><span class="kw">use </span>bridge_circuit_host::utils::get_ark_verifying_key;
-<span class="kw">use </span>bridge_circuit_host::utils::get_ark_verifying_key_dev_mode_bridge;
-<span class="kw">use </span>circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
+</span><span class="kw">use </span>circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
 <span class="kw">use </span>circuits_lib::bridge_circuit::transaction::CircuitTransaction;
 <span class="kw">use </span>circuits_lib::bridge_circuit::{
     deposit_constant, get_first_op_return_output, parse_op_return_data,
 };
 <span class="kw">use </span>eyre::{Context, ContextCompat, OptionExt, <span class="prelude-ty">Result</span>};
-<span class="kw">use </span>risc0_zkvm::is_dev_mode;
 <span class="kw">use </span>secp256k1::musig::{AggregatedNonce, PartialSignature, PublicNonce, SecretNonce};
 <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
 </span><span class="kw">use </span>std::collections::BTreeMap;
@@ -4356,6 +4364,22 @@
 
         <span class="kw">let </span>total_work =
             borsh::to_vec(<span class="kw-2">&amp;</span>work_output.work_u128).wrap_err(<span class="string">"Couldn't serialize total work"</span>)<span class="question-mark">?</span>;
+
+        <span class="attr">#[cfg(test)]
+        </span>{
+            <span class="kw">let </span>wt_ind = <span class="self">self
+                </span>.config
+                .test_params
+                .all_verifiers_secret_keys
+                .iter()
+                .position(|x| x == <span class="kw-2">&amp;</span><span class="self">self</span>.config.secret_key)
+                .ok_or_else(|| <span class="macro">eyre::eyre!</span>(<span class="string">"Verifier secret key not found in test params"</span>))<span class="question-mark">?</span>;
+
+            <span class="self">self</span>.config
+                .test_params
+                .maybe_disrupt_commit_data_for_total_work(<span class="kw-2">&amp;mut </span>commit_data, wt_ind);
+        }
+
         commit_data.extend_from_slice(<span class="kw-2">&amp;</span>total_work);
 
         <span class="macro">tracing::info!</span>(<span class="string">"Watchtower prepared commit data, trying to send watchtower challenge"</span>);
@@ -4990,6 +5014,8 @@
         deposit_data: <span class="kw-2">&amp;mut </span>DepositData,
         operator_asserts: <span class="kw-2">&amp;</span>HashMap&lt;usize, Witness&gt;,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;(usize, StructuredScript)&gt;, BridgeError&gt; {
+        <span class="kw">use </span>bridge_circuit_host::utils::get_verifying_key;
+
         <span class="kw">let </span>bitvm_pks = <span class="self">self</span>.signer.generate_bitvm_pks_for_deposit(
             deposit_data.get_deposit_outpoint(),
             <span class="self">self</span>.config.protocol_paramset,
@@ -5107,11 +5133,7 @@
 
         <span class="macro">tracing::info!</span>(<span class="string">"Boxes created"</span>);
 
-        <span class="kw">let </span>vk = <span class="kw">if </span>is_dev_mode() {
-            get_ark_verifying_key_dev_mode_bridge()
-        } <span class="kw">else </span>{
-            get_ark_verifying_key()
-        };
+        <span class="kw">let </span>vk = get_verifying_key();
 
         <span class="kw">let </span>res = validate_assertions(
             <span class="kw-2">&amp;</span>vk,

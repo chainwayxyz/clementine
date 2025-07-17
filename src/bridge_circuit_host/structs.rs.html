@@ -780,7 +780,7 @@
 <span class="kw">use </span>risc0_zkvm::Receipt;
 <span class="kw">use </span>std::ops::{Deref, DerefMut};
 
-<span class="kw">use </span><span class="kw">crate</span>::utils::get_ark_verifying_key;
+<span class="kw">use </span><span class="kw">crate</span>::utils::get_ark_verifying_key_prod;
 <span class="kw">use </span>thiserror::Error;
 
 <span class="kw">const </span>OP_RETURN_OUTPUT: usize = <span class="number">1</span>;
@@ -1399,7 +1399,7 @@
         <span class="kw">let </span>public_input_scalar =
             ark_bn254::Fr::from_be_bytes_mod_order(<span class="kw-2">&amp;</span>public_output_bytes[<span class="number">0</span>..<span class="number">31</span>]);
 
-        <span class="kw">let </span>ark_vk = get_ark_verifying_key();
+        <span class="kw">let </span>ark_vk = get_ark_verifying_key_prod();
         <span class="kw">let </span>ark_pvk = ark_groth16::prepare_verifying_key(<span class="kw-2">&amp;</span>ark_vk);
 
         ark_groth16::Groth16::&lt;ark_bn254::Bn254&gt;::verify_proof(
