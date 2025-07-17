@@ -165,7 +165,7 @@ pub async fn are_all_state_managers_synced<C: CitreaClientT>(
                 }
             } else {
                 Err(eyre::eyre!(
-                    "Couldn't retrive sync status from entity {:?}",
+                    "Couldn't retrieve sync status from entity {:?}",
                     entity.entity_id
                 ))
             }

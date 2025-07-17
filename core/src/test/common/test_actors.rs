@@ -347,7 +347,7 @@ impl<C: CitreaClientT> TestActors<C> {
 
     pub async fn remove_verifier(&mut self, index: usize) -> eyre::Result<()> {
         if index == 0 {
-            // cant remove the first verifier as first verifier is used by aggregator
+            // can't remove the first verifier as first verifier is used by aggregator
             return Err(eyre::eyre!(
                 "Cannot remove the first verifier, its aggregator's verifier"
             ));

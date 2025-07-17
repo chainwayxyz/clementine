@@ -235,7 +235,7 @@ pub struct CitreaE2EData<'a> {
 /// A tuple of:
 ///
 /// - [`OutPoint`]: UTXO for the given withdrawal.
-/// - [`TxOut`]: Output correspoinding to the withdrawal.
+/// - [`TxOut`]: Output corresponding to the withdrawal.
 /// - [`schnorr::Signature`]: Signature for the withdrawal utxo.
 pub async fn get_new_withdrawal_utxo_and_register_to_citrea(
     move_txid: Txid,
