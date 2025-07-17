@@ -144,8 +144,6 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         )
         .await?;
 
-        rpc.mine_blocks(12).await.unwrap();
-
         let citrea_client = CitreaClient::new(
             config.citrea_rpc_url.clone(),
             config.citrea_light_client_prover_url.clone(),

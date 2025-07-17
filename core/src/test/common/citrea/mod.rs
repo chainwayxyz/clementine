@@ -1,17 +1,20 @@
 //! # Citrea Related Utilities
 
-use crate::bitvm_client::SECP;
+use crate::bitvm_client::{ClementineBitVMPublicKeys, SECP};
 use crate::builder::transaction::input::UtxoVout;
+use crate::builder::transaction::TransactionType;
 use crate::citrea::{CitreaClient, SATS_TO_WEI_MULTIPLIER};
 use crate::database::Database;
+use crate::deposit::KickoffData;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
-use crate::rpc::clementine::WithdrawParams;
+use crate::rpc::clementine::{TransactionRequest, WithdrawParams};
 use crate::test::common::tx_utils::get_txid_where_utxo_is_spent_while_waiting_for_state_mngr_sync;
 use crate::test::common::{
     generate_withdrawal_transaction_and_signature, mine_once_after_in_mempool,
 };
+use crate::utils::FeePayingType;
 use crate::{config::BridgeConfig, errors::BridgeError};
 use alloy::primitives::U256;
 use bitcoin::consensus::Encodable;
@@ -30,8 +33,12 @@ use jsonrpsee::http_client::HttpClient;
 pub use parameters::*;
 pub use requests::*;
 
+use super::run_single_deposit;
 use super::test_actors::TestActors;
-use super::tx_utils::ensure_outpoint_spent_while_waiting_for_state_mngr_sync;
+use super::tx_utils::{
+    create_tx_sender, ensure_outpoint_spent_while_waiting_for_state_mngr_sync,
+    get_tx_from_signed_txs_with_type, mine_once_after_outpoint_spent_in_mempool,
+};
 
 mod bitcoin_merkle;
 mod client_mock;
@@ -593,4 +600,132 @@ pub async fn reimburse_with_optimistic_payout(
     .await?;
 
     Ok(())
+}
+
+/// Helper fn for common setup for disprove tests
+/// Does a single deposit, registers a withdrawal, starts a kickoff from operator 0 and then challenges the kickoff
+/// Afterwards it waits until all asserts are sent by operator.
+/// Returns the actors, the kickoff txid and the kickoff tx
+pub async fn disprove_tests_common_setup(
+    e2e: &CitreaE2EData<'_>,
+) -> (TestActors<CitreaClient>, Txid, Transaction) {
+    let mut config = e2e.config.clone();
+    let (actors, deposit_info, move_txid, _deposit_blockhash, _) =
+        run_single_deposit::<CitreaClient>(&mut config, e2e.rpc.clone(), None, None, None)
+            .await
+            .unwrap();
+
+    // generate a withdrawal
+    let (withdrawal_utxo, payout_txout, sig) =
+        get_new_withdrawal_utxo_and_register_to_citrea(move_txid, e2e, &actors).await;
+
+    // withdraw one with a kickoff with operator 0
+    let (op0_db, op0_xonly_pk) = actors.get_operator_db_and_xonly_pk_by_index(0).await;
+    let mut operator0 = actors.get_operator_client_by_index(0);
+
+    let reimburse_connector = payout_and_start_kickoff(
+        operator0.clone(),
+        op0_xonly_pk,
+        &op0_db,
+        0,
+        &withdrawal_utxo,
+        &payout_txout,
+        &sig,
+        e2e,
+        &actors,
+    )
+    .await;
+
+    let kickoff_txid = reimburse_connector.txid;
+
+    // send a challenge
+    let kickoff_tx = e2e.rpc.get_tx_of_txid(&kickoff_txid).await.unwrap();
+
+    // get kickoff utxo index
+    let kickoff_idx = kickoff_tx.input[0].previous_output.vout - 1;
+    let base_tx_req = TransactionRequest {
+        kickoff_id: Some(
+            KickoffData {
+                operator_xonly_pk: op0_xonly_pk,
+                round_idx: crate::operator::RoundIndex::Round(0),
+                kickoff_idx: kickoff_idx as u32,
+            }
+            .into(),
+        ),
+        deposit_outpoint: Some(deposit_info.deposit_outpoint.into()),
+    };
+
+    let all_txs = operator0
+        .internal_create_signed_txs(base_tx_req.clone())
+        .await
+        .unwrap()
+        .into_inner();
+
+    let challenge_tx = bitcoin::consensus::deserialize(
+        &all_txs
+            .signed_txs
+            .iter()
+            .find(|tx| tx.transaction_type == Some(TransactionType::Challenge.into()))
+            .unwrap()
+            .raw_tx,
+    )
+    .unwrap();
+
+    let (tx_sender, tx_sender_db) = create_tx_sender(&config, 0).await.unwrap();
+    let mut db_commit = tx_sender_db.begin_transaction().await.unwrap();
+    tx_sender
+        .insert_try_to_send(
+            &mut db_commit,
+            None,
+            &challenge_tx,
+            FeePayingType::RBF,
+            None,
+            &[],
+            &[],
+            &[],
+            &[],
+        )
+        .await
+        .unwrap();
+    db_commit.commit().await.unwrap();
+
+    e2e.rpc
+        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH, &actors)
+        .await
+        .unwrap();
+
+    let challenge_outpoint = OutPoint {
+        txid: kickoff_txid,
+        vout: UtxoVout::Challenge.get_vout(),
+    };
+    // wait until challenge tx is in mempool and mine
+    mine_once_after_outpoint_spent_in_mempool(e2e.rpc, challenge_outpoint)
+        .await
+        .unwrap();
+
+    // Create assert transactions for operator 0
+    let assert_txs = operator0
+        .internal_create_assert_commitment_txs(base_tx_req)
+        .await
+        .unwrap()
+        .into_inner();
+
+    // check if asserts are all in chain
+    let operator_assert_txids = (0..ClementineBitVMPublicKeys::number_of_assert_txs())
+        .map(|i| {
+            let assert_tx =
+                get_tx_from_signed_txs_with_type(&assert_txs, TransactionType::MiniAssert(i))
+                    .unwrap();
+            assert_tx.compute_txid()
+        })
+        .collect::<Vec<Txid>>();
+    for (idx, txid) in operator_assert_txids.into_iter().enumerate() {
+        assert!(
+            e2e.rpc.is_tx_on_chain(&txid).await.unwrap(),
+            "Mini assert {} was not found in the chain",
+            idx
+        );
+    }
+
+    (actors, kickoff_txid, kickoff_tx)
 }

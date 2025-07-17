@@ -177,8 +177,13 @@ pub async fn are_all_state_managers_synced<C: CitreaClientT>(
     let current_chain_height = rpc.get_current_chain_height().await?;
     let finality_depth = actors.aggregator.config.protocol_paramset().finality_depth;
     let current_finalized_chain_height = current_chain_height.saturating_sub(finality_depth);
-    // if min_next_sync_height is 0, state manager is disabled for test
-    Ok(min_next_sync_height > current_finalized_chain_height || min_next_sync_height == 0)
+    // assume synced if state manager is not running
+    let state_manager_running = actors
+        .aggregator
+        .config
+        .test_params
+        .should_run_state_manager;
+    Ok(!state_manager_running || min_next_sync_height > current_finalized_chain_height)
 }
 
 /// Wait for a transaction to be in the mempool and than mines a block to make
