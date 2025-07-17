@@ -53,7 +53,7 @@ pub fn create_watchtower_challenge_txhandler(
         return Err(TxError::IncorrectWatchtowerChallengeDataLength.into());
     }
     let mut builder = TxHandlerBuilder::new(TransactionType::WatchtowerChallenge(watchtower_idx))
-        .with_version(Version::non_standard(2))
+        .with_version(Version::TWO)
         .add_input(
             (
                 NumberedSignatureKind::WatchtowerChallenge,
