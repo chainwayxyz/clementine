@@ -33,11 +33,10 @@ use jsonrpsee::http_client::HttpClient;
 pub use parameters::*;
 pub use requests::*;
 
-use super::run_single_deposit;
 use super::test_actors::TestActors;
 use super::tx_utils::{
-    create_tx_sender, ensure_outpoint_spent_while_waiting_for_state_mngr_sync,
-    get_tx_from_signed_txs_with_type, mine_once_after_outpoint_spent_in_mempool,
+    ensure_outpoint_spent_while_waiting_for_state_mngr_sync,
+    mine_once_after_outpoint_spent_in_mempool,
 };
 
 mod bitcoin_merkle;
@@ -512,7 +511,6 @@ pub async fn payout_and_start_kickoff(
 
     let payout_txid = get_txid_where_utxo_is_spent_while_waiting_for_state_mngr_sync(
         e2e.rpc,
-        e2e.lc_prover,
         *withdrawal_utxo,
         actors,
     )
@@ -590,7 +588,6 @@ pub async fn reimburse_with_optimistic_payout(
     // ensure the btc in vault is spent
     ensure_outpoint_spent_while_waiting_for_state_mngr_sync(
         e2e.rpc,
-        e2e.lc_prover,
         OutPoint {
             txid: move_txid,
             vout: (UtxoVout::DepositInMove).get_vout(),
@@ -606,9 +603,12 @@ pub async fn reimburse_with_optimistic_payout(
 /// Does a single deposit, registers a withdrawal, starts a kickoff from operator 0 and then challenges the kickoff
 /// Afterwards it waits until all asserts are sent by operator.
 /// Returns the actors, the kickoff txid and the kickoff tx
+#[cfg(feature = "automation")]
 pub async fn disprove_tests_common_setup(
     e2e: &CitreaE2EData<'_>,
 ) -> (TestActors<CitreaClient>, Txid, Transaction) {
+    use super::run_single_deposit;
+    use super::tx_utils::create_tx_sender;
     let mut config = e2e.config.clone();
     let (actors, deposit_info, move_txid, _deposit_blockhash, _) =
         run_single_deposit::<CitreaClient>(&mut config, e2e.rpc.clone(), None, None, None)
@@ -703,28 +703,18 @@ pub async fn disprove_tests_common_setup(
         .await
         .unwrap();
 
-    // Create assert transactions for operator 0
-    let assert_txs = operator0
-        .internal_create_assert_commitment_txs(base_tx_req)
+    // wait until all asserts are mined
+    for i in 0..ClementineBitVMPublicKeys::number_of_assert_txs() {
+        ensure_outpoint_spent_while_waiting_for_state_mngr_sync(
+            e2e.rpc,
+            OutPoint {
+                txid: kickoff_txid,
+                vout: UtxoVout::Assert(i).get_vout(),
+            },
+            &actors,
+        )
         .await
-        .unwrap()
-        .into_inner();
-
-    // check if asserts are all in chain
-    let operator_assert_txids = (0..ClementineBitVMPublicKeys::number_of_assert_txs())
-        .map(|i| {
-            let assert_tx =
-                get_tx_from_signed_txs_with_type(&assert_txs, TransactionType::MiniAssert(i))
-                    .unwrap();
-            assert_tx.compute_txid()
-        })
-        .collect::<Vec<Txid>>();
-    for (idx, txid) in operator_assert_txids.into_iter().enumerate() {
-        assert!(
-            e2e.rpc.is_tx_on_chain(&txid).await.unwrap(),
-            "Mini assert {} was not found in the chain",
-            idx
-        );
+        .unwrap();
     }
 
     (actors, kickoff_txid, kickoff_tx)

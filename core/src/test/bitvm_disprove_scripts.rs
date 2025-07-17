@@ -160,7 +160,6 @@ impl TestCase for DisproveTest {
 
                 let txid = get_txid_where_utxo_is_spent_while_waiting_for_state_mngr_sync(
                     &rpc,
-                    lc_prover,
                     disprove_timeout_outpoint,
                     &actors,
                 )
@@ -198,7 +197,6 @@ impl TestCase for DisproveTest {
 
                 let txid = get_txid_where_utxo_is_spent_while_waiting_for_state_mngr_sync(
                     &rpc,
-                    lc_prover,
                     disprove_outpoint,
                     &actors,
                 )

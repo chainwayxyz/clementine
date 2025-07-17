@@ -408,7 +408,6 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         for reimburse_connector in reimburse_connectors.iter() {
             ensure_outpoint_spent_while_waiting_for_state_mngr_sync(
                 &rpc,
-                lc_prover,
                 *reimburse_connector,
                 &actors,
             )
