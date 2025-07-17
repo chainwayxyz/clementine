@@ -312,6 +312,10 @@ pub async fn get_new_withdrawal_utxo_and_register_to_citrea(
         .await
         .unwrap();
     force_sequencer_to_commit(e2e.sequencer).await.unwrap();
+    e2e.rpc
+        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH + 2, actors)
+        .await
+        .unwrap();
 
     let params = get_citrea_safe_withdraw_params(
         e2e.rpc,

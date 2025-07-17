@@ -460,6 +460,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 /// * A check to see if reimburse connectors for the kickoffs created previously (for deposit 0 and 2) are spent,
 ///     meaning operators 0 and 2 got their funds back (the kickoff process is independent of actor set changes, they should
 ///     always work if the collected signatures are correct from start)
+/// * Removes one operator and tries to do a deposit, it should fail because the operator is still in verifiers DB.
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "Run in standalone VM in CI"]
 async fn citrea_deposit_and_withdraw_e2e_non_zero_genesis_height() -> citrea_e2e::Result<()> {
