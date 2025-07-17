@@ -61,7 +61,7 @@ services:
       - clementine-network
 
   citrea_sequencer:
-    image: chainwayxyz/citrea-full-node:testnet
+    image: chainwayxyz/citrea-dev:03bc302dd57d2c14143077adc415c336ca742504
     attach: false
     depends_on:
       bitcoin_testnet4:
@@ -80,7 +80,7 @@ services:
       - clementine-network
 
   citrea_full_node:
-    image: chainwayxyz/citrea-full-node:testnet
+    image: chainwayxyz/citrea-dev:03bc302dd57d2c14143077adc415c336ca742504
     attach: false
     depends_on:
       bitcoin_testnet4:
@@ -100,7 +100,7 @@ services:
       - clementine-network
 
   citrea_batch_prover:
-    image: chainwayxyz/citrea-full-node:testnet
+    image: chainwayxyz/citrea-dev:03bc302dd57d2c14143077adc415c336ca742504
     attach: false
     depends_on:
       bitcoin_testnet4:
@@ -125,7 +125,7 @@ services:
       - clementine-network
 
   citrea_light_client_prover:
-    image: chainwayxyz/citrea-full-node:testnet
+    image: chainwayxyz/citrea-dev:03bc302dd57d2c14143077adc415c336ca742504
     attach: false
     depends_on:
       bitcoin_testnet4:
