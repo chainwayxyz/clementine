@@ -1,7 +1,7 @@
 # Host, port and index of the current actor (operator, verifier, or watchtower)
 protocol_paramset = "regtest"
 
-host = "127.0.0.1"
+host = "0.0.0.0"
 port = 17000
 collateral_funding_amount = 99000000
 timeout_block_count = 6
