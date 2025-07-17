@@ -68,7 +68,7 @@ services:
         condition: service_healthy
     container_name: citrea_sequencer
     command:
-      --network testnet --da-layer bitcoin --rollup-config-path /sequencer_rollup_config.toml --sequencer /sequencer_config.toml --genesis-paths /genesis-bitcoin-testnet4/
+      --network testnet --da-layer bitcoin --rollup-config-path /sequencer_rollup_config.toml --sequencer /sequencer_config.toml --genesis-paths /bitcoin-testnet4/
     ports:
       - "12345:12345"
     volumes:
@@ -89,7 +89,7 @@ services:
         condition: service_started
     container_name: citrea_full_node
     command:
-      --network testnet --da-layer bitcoin --rollup-config-path /rollup_config.toml --genesis-paths resources/genesis/bitcoin-testnet4/
+      --network testnet --da-layer bitcoin --rollup-config-path /rollup_config.toml --genesis-paths /bitcoin-testnet4/
     ports:
       - "12346:12346"
     volumes:
@@ -110,6 +110,8 @@ services:
       citrea_full_node:
         condition: service_started
     container_name: citrea_batch_prover
+    environment:
+      - PARALLEL_PROOF_LIMIT=1
     command:
       --network testnet --da-layer bitcoin --rollup-config-path /batch_prover_rollup_config.toml --batch-prover /batch_prover_config.toml --genesis-paths /bitcoin-testnet4
     ports:
@@ -135,6 +137,12 @@ services:
       citrea_batch_prover:
         condition: service_started
     container_name: citrea_light_client_prover
+    healthcheck:
+      test: [
+        "CMD-SHELL",
+        "sleep 5"
+      ]
+      retries: 1
     command:
       --network testnet --da-layer bitcoin --rollup-config-path /light_client_prover_rollup_config.toml --light-client-prover /light_client_prover_config.toml --genesis-paths /bitcoin-testnet4
     ports:
@@ -160,7 +168,7 @@ services:
       citrea_batch_prover:
         condition: service_started
       citrea_light_client_prover:
-        condition: service_started
+        condition: service_healthy
     image: chainwayxyz/clementine
     platform: linux/amd64
     container_name: clementine_verifier
@@ -179,7 +187,6 @@ services:
       - clementine-network
 
   clementine_operator:
-    attach: false
     depends_on:
       postgres_db:
         condition: service_healthy
@@ -194,7 +201,7 @@ services:
       citrea_batch_prover:
         condition: service_started
       citrea_light_client_prover:
-        condition: service_started
+        condition: service_healthy
     image: chainwayxyz/clementine
     platform: linux/amd64
     container_name: clementine_operator
