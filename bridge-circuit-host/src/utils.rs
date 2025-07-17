@@ -6,7 +6,7 @@ use sha2::{Digest, Sha256};
 use std::str::FromStr;
 
 /// This is the test Verifying Key of the STARK-to-BitVM2 Groth16 proof Circom circuit.
-pub fn get_ark_verifying_key() -> ark_groth16::VerifyingKey<Bn254> {
+pub fn get_ark_verifying_key_prod() -> ark_groth16::VerifyingKey<Bn254> {
     let alpha_g1 = G1Affine::new(
         Fq::from_str(
             "20491192805390485299153009773594534940189261866228447918068658471970481763042",
@@ -238,7 +238,7 @@ pub fn get_verifying_key() -> ark_groth16::VerifyingKey<Bn254> {
     if is_dev_mode() {
         get_ark_verifying_key_dev_mode_bridge()
     } else {
-        get_ark_verifying_key()
+        get_ark_verifying_key_prod()
     }
 }
 
