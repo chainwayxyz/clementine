@@ -23,7 +23,9 @@ use eyre::Context;
 
 /// A helper to construct a `TaprootBuilder` from a slice of script buffers, forming the script tree.
 /// Finds the needed depth the script tree needs to be to fit all the scripts and inserts the scripts.
-pub fn taproot_builder_with_scripts(scripts: &[ScriptBuf]) -> TaprootBuilder {
+pub fn taproot_builder_with_scripts(scripts: impl Into<Vec<ScriptBuf>>) -> TaprootBuilder {
+    // doesnt clone if its already an owned Vec
+    let mut scripts: Vec<ScriptBuf> = scripts.into();
     let builder = TaprootBuilder::new();
     let num_scripts = scripts.len();
 
@@ -32,7 +34,7 @@ pub fn taproot_builder_with_scripts(scripts: &[ScriptBuf]) -> TaprootBuilder {
         0 => return builder,
         1 => {
             return builder
-                .add_leaf(0, scripts[0].clone())
+                .add_leaf(0, scripts.remove(0))
                 .expect("one root leaf added on empty builder")
         }
         _ => {}
@@ -43,15 +45,18 @@ pub fn taproot_builder_with_scripts(scripts: &[ScriptBuf]) -> TaprootBuilder {
     let num_empty_nodes_in_final_depth = 2_usize.pow(deepest_layer_depth.into()) - num_scripts;
     let num_nodes_in_final_depth = num_scripts - num_empty_nodes_in_final_depth;
 
-    (0..num_scripts).fold(builder, |acc, i| {
-        let is_node_in_last_minus_one_depth = (i >= num_nodes_in_final_depth) as u8;
+    scripts
+        .into_iter()
+        .enumerate()
+        .fold(builder, |acc, (i, script)| {
+            let is_node_in_last_minus_one_depth = (i >= num_nodes_in_final_depth) as u8;
 
-        acc.add_leaf(
-            deepest_layer_depth - is_node_in_last_minus_one_depth,
-            scripts[i].clone(),
-        )
-        .expect("algorithm tested to be correct")
-    })
+            acc.add_leaf(
+                deepest_layer_depth - is_node_in_last_minus_one_depth,
+                script,
+            )
+            .expect("algorithm tested to be correct")
+        })
 }
 
 /// Calculates the depth of each leaf in a balanced Taproot tree structure.
@@ -357,7 +362,7 @@ mod tests {
             let scripts = (0..i)
                 .map(|k| ScriptBuf::builder().push_int(k).into_script())
                 .collect::<Vec<_>>();
-            let builder = super::taproot_builder_with_scripts(&scripts);
+            let builder = super::taproot_builder_with_scripts(scripts);
             let tree_info = builder
                 .finalize(&SECP, *bitvm_client::UNSPENDABLE_XONLY_PUBKEY)
                 .unwrap();
