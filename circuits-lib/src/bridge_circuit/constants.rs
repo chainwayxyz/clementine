@@ -2,14 +2,15 @@ use ark_bn254::Fr;
 use ark_ff::BigInt;
 use hex_literal::hex;
 
+/// Work-only circuit method IDs for different networks.
 pub static MAINNET_WORK_ONLY_METHOD_ID: [u8; 32] =
-    hex!("bfbc9b0a0c8af2ea0c2b8e54b0f06b9c7d862dc944ab0d95e7c18308fbc5b793");
+    hex!("52fb341c88914a0373ceaf24d05cbd7d25a985c1d5ad43b89481272d87078a54");
 pub static TESTNET4_WORK_ONLY_METHOD_ID: [u8; 32] =
-    hex!("fd06dbc93ad27e3997f6cf7d754b7c30df3c606b929bca93554b204d922de51b");
+    hex!("ac53f8eec3de637a71c0054a97fbb70d90b70986d459dc82bc8ad5ebba2ba992");
 pub static REGTEST_WORK_ONLY_METHOD_ID: [u8; 32] =
-    hex!("948e25c4707a0ea2bedd1e6ef84f1bc8f03669c73882d2a19b404d3cd45d013a");
+    hex!("0fa79aa35c0dad5d9bfd3cc9cacb2e59a886633b5cd3a125225c39de8bef6186");
 pub static SIGNET_WORK_ONLY_METHOD_ID: [u8; 32] =
-    hex!("962ae374238fe686d2212409143c92793eb838d6dc0372880845277710ff1401");
+    hex!("fdbba6bf1e3cc9b0cac853ea7ea9e5abdab3807b613f23ccd1553b3db05eba13");
 
 // GROTH16 RELATED CONSTANTS
 pub static POST_STATE: [u8; 32] =
@@ -23,10 +24,10 @@ pub static CLAIM_TAG: [u8; 32] =
 pub static OUTPUT_TAG: [u8; 32] =
     hex_literal::hex!("77eafeb366a78b47747de0d7bb176284085ff5564887009a5be63da32d3559d4"); // hash of "risc0.Output"
 
-pub const A0_BIGINT: BigInt<4> = BigInt::new([3584412468423285388, 5573840904707615506, 0, 0]);
+pub const A0_BIGINT: BigInt<4> = BigInt::new([162754123530195662, 1949396425256203034, 0, 0]);
 pub const A0_ARK: ark_ff::Fp<ark_ff::MontBackend<ark_bn254::FrConfig, 4>, 4> = Fr::new(A0_BIGINT);
 
-pub const A1_BIGINT: BigInt<4> = BigInt::new([3118573868620133879, 7567222285189782870, 0, 0]);
+pub const A1_BIGINT: BigInt<4> = BigInt::new([2457364108815709557, 2960371475104660934, 0, 0]);
 pub const A1_ARK: ark_ff::Fp<ark_ff::MontBackend<ark_bn254::FrConfig, 4>, 4> = Fr::new(A1_BIGINT);
 
 pub const BN_254_CONTROL_ID_BIGINT: BigInt<4> = BigInt::new([
@@ -41,3 +42,66 @@ pub const BN_254_CONTROL_ID_ARK: ark_ff::Fp<ark_ff::MontBackend<ark_bn254::FrCon
 pub const PREPARED_VK: &[u8] = include_bytes!("bin/prepared_vk.bin");
 
 pub const TEST_PREPARED_VK: &[u8] = include_bytes!("bin/test_prepared_vk.bin");
+
+#[cfg(feature = "use-test-vk")]
+pub fn get_prepared_vk() -> &'static [u8] {
+    TEST_PREPARED_VK
+}
+
+#[cfg(not(feature = "use-test-vk"))]
+pub fn get_prepared_vk() -> &'static [u8] {
+    PREPARED_VK
+}
+
+#[cfg(test)]
+mod tests {
+    use ark_bn254::Fr;
+    use ark_ff::PrimeField;
+    use risc0_zkvm::Digest;
+
+    use crate::bridge_circuit::constants::{A0_BIGINT, A1_BIGINT};
+
+    // This test checks that the A0 and A1 constants match the expected values derived from the control root
+    // of the Groth16 verifier parameters. If they do not match, it indicates that the constants need to be updated
+    // in the `constants.rs` file. This is important because the A0 and A1 constants are used in the bridge circuit to verify the Groth16
+    // proof, and any mismatch could lead to incorrect verification results.
+    #[test]
+    fn test_a0_and_a1() {
+        let verifier_context = risc0_zkvm::VerifierContext::default();
+        let params = verifier_context
+            .groth16_verifier_parameters
+            .as_ref()
+            .unwrap();
+        let (a0, a1) = split_digest(params.control_root);
+
+        let a0_bigint = a0.into_bigint();
+        let a1_bigint = a1.into_bigint();
+
+        assert_eq!((a0_bigint, a1_bigint), (A0_BIGINT, A1_BIGINT),
+            "A0 and A1 do not match the expected values, please update the a0 and a1 constants in constants.rs. a0: {:?}, a1: {:?}",
+            a0_bigint.0, a1_bigint.0);
+    }
+
+    // This is the exact same implementation as in risc0_groth16, but we need to re-implement it here to change
+    // the return type. Please check the original implementation each time risc0 version is updated.
+    fn split_digest(d: Digest) -> (Fr, Fr) {
+        let big_endian: Vec<u8> = d.as_bytes().to_vec().iter().rev().cloned().collect();
+        let middle = big_endian.len() / 2;
+        let (b, a) = big_endian.split_at(middle);
+        (
+            Fr::from_be_bytes_mod_order(&from_u256_hex(&hex::encode(a))),
+            Fr::from_be_bytes_mod_order(&from_u256_hex(&hex::encode(b))),
+        )
+    }
+
+    fn from_u256_hex(value: &str) -> Vec<u8> {
+        to_fixed_array(hex::decode(value).unwrap()).to_vec()
+    }
+
+    fn to_fixed_array(input: Vec<u8>) -> [u8; 32] {
+        let mut fixed_array = [0u8; 32];
+        let start = core::cmp::max(32, input.len()) - core::cmp::min(32, input.len());
+        fixed_array[start..].copy_from_slice(&input[input.len().saturating_sub(32)..]);
+        fixed_array
+    }
+}

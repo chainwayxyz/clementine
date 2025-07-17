@@ -2,7 +2,6 @@ use ark_ff::PrimeField;
 use circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
 use risc0_zkvm::is_dev_mode;
 use std::collections::HashMap;
-use std::time::Duration;
 
 use crate::actor::{Actor, TweakCache, WinternitzDerivationPath};
 use crate::bitvm_client::{ClementineBitVMPublicKeys, SECP};
@@ -22,18 +21,22 @@ use crate::deposit::{DepositData, KickoffData, OperatorData};
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::header_chain_prover::HeaderChainProver;
+use crate::metrics::L1SyncStatusProvider;
+use crate::rpc::clementine::EntityStatus;
+use crate::task::entity_metric_publisher::{
+    EntityMetricPublisher, ENTITY_METRIC_PUBLISHER_INTERVAL,
+};
 use crate::task::manager::BackgroundTaskManager;
 use crate::task::payout_checker::{PayoutCheckerTask, PAYOUT_CHECKER_POLL_DELAY};
 use crate::task::TaskExt;
 use crate::utils::Last20Bytes;
 use crate::utils::{NamedEntity, TxMetadata};
 use crate::{builder, constants, UTXO};
-use bitcoin::consensus::deserialize;
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::{schnorr, Message};
 use bitcoin::{
-    Address, Amount, BlockHash, OutPoint, ScriptBuf, Transaction, TxOut, Txid, XOnlyPublicKey,
+    Address, Amount, BlockHash, OutPoint, ScriptBuf, Transaction, TxOut, XOnlyPublicKey,
 };
 use bitcoincore_rpc::json::AddressType;
 use bitcoincore_rpc::RpcApi;
@@ -41,7 +44,7 @@ use bitvm::chunk::api::generate_assertions;
 use bitvm::signatures::winternitz;
 use bridge_circuit_host::bridge_circuit_host::{
     create_spv, prove_bridge_circuit, MAINNET_BRIDGE_CIRCUIT_ELF, REGTEST_BRIDGE_CIRCUIT_ELF,
-    SIGNET_BRIDGE_CIRCUIT_ELF, TESTNET4_BRIDGE_CIRCUIT_ELF,
+    REGTEST_BRIDGE_CIRCUIT_ELF_TEST, SIGNET_BRIDGE_CIRCUIT_ELF, TESTNET4_BRIDGE_CIRCUIT_ELF,
 };
 use bridge_circuit_host::structs::{BridgeCircuitHostParams, WatchtowerContext};
 use bridge_circuit_host::utils::{get_ark_verifying_key, get_ark_verifying_key_dev_mode_bridge};
@@ -116,7 +119,7 @@ impl RoundIndex {
 
 pub struct OperatorServer<C: CitreaClientT> {
     pub operator: Operator<C>,
-    background_tasks: BackgroundTaskManager<Operator<C>>,
+    background_tasks: BackgroundTaskManager,
 }
 
 #[derive(Debug, Clone)]
@@ -139,19 +142,29 @@ where
 {
     pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
         let operator = Operator::new(config.clone()).await?;
-        let mut background_tasks = BackgroundTaskManager::default();
+        let background_tasks = BackgroundTaskManager::default();
 
+        Ok(Self {
+            operator,
+            background_tasks,
+        })
+    }
+
+    /// Starts the background tasks for the operator.
+    /// If called multiple times, it will restart only the tasks that are not already running.
+    pub async fn start_background_tasks(&self) -> Result<(), BridgeError> {
         // initialize and run state manager
         #[cfg(feature = "automation")]
         {
-            let paramset = config.protocol_paramset();
+            let paramset = self.operator.config.protocol_paramset();
             let state_manager =
-                StateManager::new(operator.db.clone(), operator.clone(), paramset).await?;
+                StateManager::new(self.operator.db.clone(), self.operator.clone(), paramset)
+                    .await?;
 
             let should_run_state_mgr = {
                 #[cfg(test)]
                 {
-                    config.test_params.should_run_state_manager
+                    self.operator.config.test_params.should_run_state_manager
                 }
                 #[cfg(not(test))]
                 {
@@ -160,36 +173,69 @@ where
             };
 
             if should_run_state_mgr {
-                background_tasks.loop_and_monitor(state_manager.block_fetcher_task().await?);
-                background_tasks.loop_and_monitor(state_manager.into_task());
+                self.background_tasks
+                    .ensure_task_looping(state_manager.block_fetcher_task().await?)
+                    .await;
+                self.background_tasks
+                    .ensure_task_looping(state_manager.into_task())
+                    .await;
             }
         }
 
         // run payout checker task
-        background_tasks.loop_and_monitor(
-            PayoutCheckerTask::new(operator.db.clone(), operator.clone())
-                .with_delay(PAYOUT_CHECKER_POLL_DELAY),
-        );
+        self.background_tasks
+            .ensure_task_looping(
+                PayoutCheckerTask::new(self.operator.db.clone(), self.operator.clone())
+                    .with_delay(PAYOUT_CHECKER_POLL_DELAY),
+            )
+            .await;
+
+        self.background_tasks
+            .ensure_task_looping(
+                EntityMetricPublisher::<Operator<C>>::new(
+                    self.operator.db.clone(),
+                    self.operator.rpc.clone(),
+                )
+                .with_delay(ENTITY_METRIC_PUBLISHER_INTERVAL),
+            )
+            .await;
 
         tracing::info!("Payout checker task started");
 
         // track the operator's round state
         #[cfg(feature = "automation")]
         {
-            operator.track_rounds().await?;
+            // Will not start a new state machine if one for the operator already exists.
+            self.operator.track_rounds().await?;
             tracing::info!("Operator round state tracked");
         }
 
-        Ok(Self {
-            operator,
-            background_tasks,
+        Ok(())
+    }
+
+    pub async fn get_current_status(&self) -> Result<EntityStatus, BridgeError> {
+        let stopped_tasks = self.background_tasks.get_stopped_tasks().await;
+        // Determine if automation is enabled
+        let automation_enabled = cfg!(feature = "automation");
+
+        let sync_status =
+            Operator::<C>::get_l1_status(&self.operator.db, &self.operator.rpc).await?;
+
+        Ok(EntityStatus {
+            automation: automation_enabled,
+            wallet_balance: format!("{} BTC", sync_status.wallet_balance.to_btc()),
+            tx_sender_synced_height: sync_status.tx_sender_synced_height.unwrap_or(0),
+            finalized_synced_height: sync_status.finalized_synced_height.unwrap_or(0),
+            hcp_last_proven_height: sync_status.hcp_last_proven_height.unwrap_or(0),
+            rpc_tip_height: sync_status.rpc_tip_height,
+            bitcoin_syncer_synced_height: sync_status.btc_syncer_synced_height.unwrap_or(0),
+            stopped_tasks: Some(stopped_tasks),
+            state_manager_next_height: sync_status.state_manager_next_height.unwrap_or(0),
         })
     }
 
     pub async fn shutdown(&mut self) {
-        self.background_tasks
-            .graceful_shutdown_with_timeout(Duration::from_secs(10))
-            .await;
+        self.background_tasks.graceful_shutdown().await;
     }
 }
 
@@ -214,10 +260,7 @@ where
         .await?;
 
         #[cfg(feature = "automation")]
-        let tx_sender = TxSenderClient::new(
-            db.clone(),
-            format!("operator_{:?}", signer.xonly_public_key).to_string(),
-        );
+        let tx_sender = TxSenderClient::new(db.clone(), Self::TX_SENDER_CONSUMER_ID.to_string());
 
         if config.operator_withdrawal_fee_sats.is_none() {
             return Err(eyre::eyre!("Operator withdrawal fee is not set").into());
@@ -509,7 +552,7 @@ where
     /// 1. Checking if the withdrawal has been made on Citrea
     /// 2. Verifying the given signature
     /// 3. Checking if the withdrawal is profitable or not
-    /// 4. Funding the witdhrawal transaction
+    /// 4. Funding the witdhrawal transaction using TxSender RBF option
     ///
     /// # Parameters
     ///
@@ -523,7 +566,9 @@ where
     ///
     /// # Returns
     ///
-    /// - [`Txid`]: Payout transaction's txid
+    /// - Ok(()) if the withdrawal checks are successful and a payout transaction is added to the TxSender
+    /// - Err(BridgeError) if the withdrawal checks fail
+    #[cfg(feature = "automation")]
     pub async fn withdraw(
         &self,
         withdrawal_index: u32,
@@ -531,7 +576,7 @@ where
         in_outpoint: OutPoint,
         out_script_pubkey: ScriptBuf,
         out_amount: Amount,
-    ) -> Result<Txid, BridgeError> {
+    ) -> Result<(), BridgeError> {
         tracing::info!(
             "Withdrawing with index: {}, in_signature: {}, in_outpoint: {:?}, out_script_pubkey: {}, out_amount: {}",
             withdrawal_index,
@@ -558,19 +603,8 @@ where
             .get_withdrawal_utxo_from_citrea_withdrawal(None, withdrawal_index)
             .await?;
 
-        match withdrawal_utxo {
-            Some(withdrawal_utxo) => {
-                if withdrawal_utxo != input_utxo.outpoint {
-                    return Err(eyre::eyre!("Input UTXO does not match withdrawal UTXO from Citrea: Input Outpoint: {0}, Withdrawal Outpoint (from Citrea): {1}", input_utxo.outpoint, withdrawal_utxo).into());
-                }
-            }
-            None => {
-                return Err(eyre::eyre!(
-                    "User's withdrawal UTXO is not set for withdrawal index: {0}",
-                    withdrawal_index
-                )
-                .into());
-            }
+        if withdrawal_utxo != input_utxo.outpoint {
+            return Err(eyre::eyre!("Input UTXO does not match withdrawal UTXO from Citrea: Input Outpoint: {0}, Withdrawal Outpoint (from Citrea): {1}", input_utxo.outpoint, withdrawal_utxo).into());
         }
 
         let operator_withdrawal_fee_sats =
@@ -613,47 +647,29 @@ where
         )
         .wrap_err("Failed to verify signature received from user for payout txin")?;
 
-        let funded_tx = self
-            .rpc
-            .client
-            .fund_raw_transaction(
-                payout_txhandler.get_cached_tx(),
-                Some(&bitcoincore_rpc::json::FundRawTransactionOptions {
-                    add_inputs: Some(true),
-                    change_address: None,
-                    change_position: Some(1),
-                    change_type: None,
-                    include_watching: None,
-                    lock_unspents: Some(true),
-                    fee_rate: None,
-                    subtract_fee_from_outputs: None,
-                    replaceable: None,
-                    conf_target: None,
-                    estimate_mode: None,
+        // send payout tx using RBF
+        let payout_tx = payout_txhandler.get_cached_tx();
+        let mut dbtx = self.db.begin_transaction().await?;
+        self.tx_sender
+            .add_tx_to_queue(
+                &mut dbtx,
+                TransactionType::Payout,
+                payout_tx,
+                &[],
+                Some(TxMetadata {
+                    tx_type: TransactionType::Payout,
+                    operator_xonly_pk: Some(self.signer.xonly_public_key),
+                    round_idx: None,
+                    kickoff_idx: None,
+                    deposit_outpoint: None,
                 }),
+                &self.config,
                 None,
             )
-            .await
-            .wrap_err("Failed to fund raw transaction")?
-            .hex;
+            .await?;
+        dbtx.commit().await?;
 
-        let signed_tx: Transaction = deserialize(
-            &self
-                .rpc
-                .client
-                .sign_raw_transaction_with_wallet(&funded_tx, None, None)
-                .await
-                .wrap_err("Failed to sign funded tx through bitcoin RPC")?
-                .hex,
-        )
-        .wrap_err("Failed to deserialize signed tx")?;
-
-        Ok(self
-            .rpc
-            .client
-            .send_raw_transaction(&signed_tx)
-            .await
-            .wrap_err("Failed to send transaction to signed tx")?)
+        Ok(())
     }
 
     /// Generates Winternitz public keys for every  BitVM assert tx for a deposit.
@@ -1360,6 +1376,23 @@ where
             .header_chain_prover
             .prove_till_hash(latest_blockhash)
             .await?;
+
+        #[cfg(test)]
+        let current_hcp = {
+            if self
+                .config
+                .test_params
+                .generate_varying_total_works_insufficient_total_work
+            {
+                self.header_chain_prover
+                    .prove_till_hash(payout_block_hash)
+                    .await?
+                    .0
+            } else {
+                current_hcp
+            }
+        };
+
         tracing::info!("Got header chain proof in send_asserts");
 
         let blockhashes_serialized: Vec<[u8; 32]> = block_hashes
@@ -1367,6 +1400,26 @@ where
             .take(latest_blockhash_index + 1) // get all blocks up to and including latest_blockhash
             .map(|(block_hash, _)| block_hash.to_byte_array())
             .collect::<Vec<_>>();
+
+        #[cfg(test)]
+        let blockhashes_serialized = {
+            if self
+                .config
+                .test_params
+                .generate_varying_total_works_insufficient_total_work
+            {
+                block_hashes
+                    .iter()
+                    .take(
+                        (payout_block_height + 1 - self.config.protocol_paramset().genesis_height)
+                            as usize,
+                    )
+                    .map(|(block_hash, _)| block_hash.to_byte_array())
+                    .collect::<Vec<_>>()
+            } else {
+                blockhashes_serialized
+            }
+        };
 
         tracing::debug!(
             "Genesis height - Before SPV: {},",
@@ -1419,7 +1472,13 @@ where
             bitcoin::Network::Bitcoin => MAINNET_BRIDGE_CIRCUIT_ELF,
             bitcoin::Network::Testnet4 => TESTNET4_BRIDGE_CIRCUIT_ELF,
             bitcoin::Network::Signet => SIGNET_BRIDGE_CIRCUIT_ELF,
-            bitcoin::Network::Regtest => REGTEST_BRIDGE_CIRCUIT_ELF,
+            bitcoin::Network::Regtest => {
+                if cfg!(test) {
+                    REGTEST_BRIDGE_CIRCUIT_ELF_TEST
+                } else {
+                    REGTEST_BRIDGE_CIRCUIT_ELF
+                }
+            }
             _ => {
                 return Err(eyre::eyre!(
                     "Unsupported network {:?} in send_asserts",
@@ -1429,6 +1488,46 @@ where
             }
         };
         tracing::info!("Starting proving bridge circuit to send asserts");
+
+        #[cfg(test)]
+        {
+            if self
+                .config
+                .test_params
+                .generate_varying_total_works_insufficient_total_work
+                || self.config.test_params.generate_varying_total_works
+            {
+                use std::path::PathBuf;
+
+                let file_path = match (
+             self.config.test_params.generate_varying_total_works,
+             self.config.test_params.generate_varying_total_works_insufficient_total_work,
+        ) {
+            (false, true) => PathBuf::from(
+                "../bridge-circuit-host/bin-files/bch_params_varying_total_works_insufficient_total_work.bin",
+            ),
+            (true, false) => PathBuf::from(
+                "../bridge-circuit-host/bin-files/bch_params_varying_total_works.bin",
+            ),
+            _ => {
+                panic!("Invalid or conflicting test params for generating varying total works");
+            }
+        };
+
+                std::fs::create_dir_all(file_path.parent().unwrap()).map_err(|e| {
+                    eyre::eyre!("Failed to create directory for output file: {}", e)
+                })?;
+                let serialized_params =
+                    borsh::to_vec(&bridge_circuit_host_params).map_err(|e| {
+                        eyre::eyre!("Failed to serialize bridge circuit host params: {}", e)
+                    })?;
+                std::fs::write(file_path.clone(), serialized_params).map_err(|e| {
+                    eyre::eyre!("Failed to write bridge circuit host params to file: {}", e)
+                })?;
+                tracing::info!("Bridge circuit host params written to {:?}", file_path);
+            }
+        }
+
         let (g16_proof, g16_output, public_inputs) =
             prove_bridge_circuit(bridge_circuit_host_params, bridge_circuit_elf)?;
         tracing::info!("Proved bridge circuit in send_asserts");
@@ -1478,10 +1577,7 @@ where
 
         #[cfg(test)]
         {
-            if self.config.test_params.corrupted_asserts {
-                tracing::info!("Disrupting asserts commit in send_asserts");
-                asserts.0[0][0] ^= 0x01;
-            }
+            self.config.test_params.maybe_corrupt_asserts(&mut asserts);
         }
 
         let assert_txs = self
@@ -1579,6 +1675,9 @@ where
     C: CitreaClientT,
 {
     const ENTITY_NAME: &'static str = "operator";
+    // operators use their verifier's tx sender
+    const TX_SENDER_CONSUMER_ID: &'static str = "verifier_tx_sender";
+    const FINALIZED_BLOCK_CONSUMER_ID: &'static str = "operator_finalized_block_fetcher";
 }
 
 #[cfg(feature = "automation")]

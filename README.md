@@ -197,6 +197,12 @@ A server's log level can be specified with `--verbose` flag:
 ./target/release/clementine-core operator --config /path/to/config.toml --verbose 5 # Logs everything
 ```
 
+Setting `RUST_LIB_BACKTRACE` to `full` will enable full backtraces for errors
+
+```sh
+RUST_LIB_BACKTRACE=full ./target/release/clementine-core operator --config /path/to/config.toml
+```
+
 For more information, use `--help` flag:
 
 ```sh
@@ -302,6 +308,20 @@ them are for testing but still can be used for setting up the environment. They
 can change quite frequently. So, please check for useful ones.
 
 Each script should have a name and comment inside that explain its purpose.
+
+#### Debugging Tokio Tasks (`tokio-console`)
+
+To debug tokio tasks, you can uncomment the `console-subscriber` dependency in `Cargo.toml` and the `console_subscriber::init();` line in `src/utils.rs`. Then, rebuild the project with `cargo build_console` which is an alias defined with the necessary flags.
+
+```sh
+cargo build_console
+```
+
+After running Clementine, you can access the console by running the following command:
+
+```sh
+tokio-console
+```
 
 ## Security Considerations
 

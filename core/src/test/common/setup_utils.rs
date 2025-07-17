@@ -229,6 +229,8 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
 ///
 /// - [`BridgeConfig`]: Modified configuration struct
 pub async fn create_test_config_with_thread_name() -> BridgeConfig {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
     let handle = std::thread::current()
         .name()
         .expect("Failed to get thread name")
@@ -338,6 +340,29 @@ pub async fn create_actors<C: CitreaClientT>(
             let socket_path = socket_dir.path().join(format!("verifier_{}.sock", i));
             let i = i.to_string();
             let mut config_with_new_db = config.clone();
+
+            #[cfg(test)]
+            {
+                use crate::config::protocol::ProtocolParamset;
+
+                if config
+                    .test_params
+                    .generate_varying_total_works_insufficient_total_work
+                    || config.test_params.generate_varying_total_works
+                {
+                    // Generate a new protocol paramset for each verifier
+                    // to ensure diverse total works.
+                    let mut paramset = config.protocol_paramset().clone();
+                    paramset.time_to_send_watchtower_challenge = paramset
+                        .time_to_send_watchtower_challenge
+                        .checked_add(i.parse::<u16>().expect("Failed to parse i as u16"))
+                        .expect("Failed to add time to send watchtower challenge");
+                    let paramset_ref: &'static ProtocolParamset = Box::leak(Box::new(paramset));
+
+                    config_with_new_db.protocol_paramset = paramset_ref;
+                }
+            }
+
             async move {
                 config_with_new_db.db_name += &i;
                 initialize_database(&config_with_new_db).await;
@@ -603,6 +628,8 @@ impl PartialEq for MockOwner {
 
 impl NamedEntity for MockOwner {
     const ENTITY_NAME: &'static str = "test_owner";
+    const TX_SENDER_CONSUMER_ID: &'static str = "test_tx_sender";
+    const FINALIZED_BLOCK_CONSUMER_ID: &'static str = "test_finalized_block";
 }
 
 #[cfg(feature = "automation")]

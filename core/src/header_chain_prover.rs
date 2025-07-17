@@ -523,7 +523,7 @@ impl HeaderChainProver {
         Ok(receipt)
     }
 
-    /// Produces a proof for the chain upto the block with the given hash.
+    /// Produces a proof for the chain up to the block with the given hash.
     ///
     /// # Returns
     ///
@@ -546,11 +546,13 @@ impl HeaderChainProver {
             .ok_or_eyre("No proofs found before the given block hash")?;
 
         if latest_proven_block.2 == height as u64 {
-            self.db
+            let receipt = self
+                .db
                 .get_block_proof_by_hash(None, latest_proven_block.0)
                 .await
                 .wrap_err("Failed to get block proof")?
                 .ok_or(eyre!("Failed to get block proof"))?;
+            return Ok((receipt, height as u64));
         }
 
         let block_headers = self
@@ -782,7 +784,7 @@ mod tests {
         .unwrap();
 
         let mut expected_chain_state = ChainState::genesis_state();
-        expected_chain_state.apply_blocks(
+        expected_chain_state.apply_block_headers(
             headers
                 .iter()
                 .map(|header| CircuitBlockHeader::from(*header))
@@ -831,7 +833,7 @@ mod tests {
         .unwrap();
 
         let mut expected_chain_state = ChainState::genesis_state();
-        expected_chain_state.apply_blocks(
+        expected_chain_state.apply_block_headers(
             headers
                 .iter()
                 .map(|header| CircuitBlockHeader::from(*header))
@@ -899,13 +901,18 @@ mod tests {
             .unwrap();
         assert_eq!(block_info.2, test_height);
 
-        prover.prove_till_hash(block_hash).await.unwrap();
+        let receipt_1 = prover.prove_till_hash(block_hash).await.unwrap();
         let latest_proven_block = prover
             .db
             .get_latest_proven_block_info_until_height(None, current_hcp_height as u32)
             .await
             .unwrap()
             .unwrap();
+
+        let receipt_2 = prover.prove_till_hash(block_hash).await.unwrap();
+
+        assert_eq!(receipt_1.0.journal, receipt_2.0.journal);
+
         assert_eq!(latest_proven_block.2, test_height as u64);
     }
 
@@ -1207,6 +1214,7 @@ mod tests {
         let verifier = VerifierServer::<MockCitreaClient>::new(config)
             .await
             .unwrap();
+        verifier.start_background_tasks().await.unwrap();
         // Make sure enough blocks to prove and is finalized.
         rpc.mine_blocks((batch_size + 10).into()).await.unwrap();
 

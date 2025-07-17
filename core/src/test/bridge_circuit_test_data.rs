@@ -1,18 +1,25 @@
+//! This module contains integration tests for generating data used in bridge circuit tests.
+//!
+//! The tests in this file are intended for data generation purposes only and are not meant to be run as part of the standard test suite.
+//! They are ignored by default and should be executed manually when bridge-related code changes, to ensure that the generated test data remains up-to-date and consistent with the current implementation.
 use super::common::citrea::get_bridge_params;
-use crate::bitvm_client::SECP;
+use crate::bitvm_client::{self, SECP};
 use crate::builder::transaction::input::UtxoVout;
 use crate::builder::transaction::TransactionType;
 use crate::citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER};
 use crate::database::Database;
 use crate::deposit::KickoffData;
+
 use crate::operator::RoundIndex;
 use crate::rpc::clementine::{TransactionRequest, WithdrawParams};
 use crate::test::common::citrea::{get_citrea_safe_withdraw_params, SECRET_KEYS};
 use crate::test::common::tx_utils::{
     create_tx_sender, ensure_outpoint_spent_while_waiting_for_light_client_sync,
+    mine_once_after_outpoint_spent_in_mempool,
+};
+use crate::test::common::tx_utils::{
     get_tx_from_signed_txs_with_type,
     get_txid_where_utxo_is_spent_while_waiting_for_light_client_sync,
-    mine_once_after_outpoint_spent_in_mempool,
 };
 use crate::test::common::{
     generate_withdrawal_transaction_and_signature, mine_once_after_in_mempool, run_single_deposit,
@@ -28,7 +35,7 @@ use crate::{
 use alloy::primitives::U256;
 use async_trait::async_trait;
 use bitcoin::{secp256k1::SecretKey, Address, Amount};
-use bitcoin::{OutPoint, Transaction};
+use bitcoin::{OutPoint, Transaction, Txid};
 use bitcoincore_rpc::RpcApi;
 use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
 use citrea_e2e::config::{BatchProverConfig, LightClientProverConfig};
@@ -38,20 +45,19 @@ use citrea_e2e::{
     test_case::{TestCase, TestCaseRunner},
     Result,
 };
-pub enum TestVariant {
-    CorruptedLatestBlockHash,
-    CorruptedPayoutTxBlockHash,
-    CorruptedChallengeSendingWatchtowers,
-    OperatorForgotWatchtowerChallenge,
-    CorruptedPublicInput,
+
+#[derive(PartialEq)]
+pub enum BridgeCircuitTestDataVariant {
+    HeaderChainProofsWithDiverseLengthsInsufficientTotalWork,
+    HeaderChainProofsWithDiverseLengths,
 }
 
-struct AdditionalDisproveTest {
-    variant: TestVariant,
+struct BridgeCircuitTestData {
+    variant: BridgeCircuitTestDataVariant,
 }
 
 #[async_trait]
-impl TestCase for AdditionalDisproveTest {
+impl TestCase for BridgeCircuitTestData {
     fn bitcoin_config() -> BitcoinConfig {
         BitcoinConfig {
             extra_args: vec![
@@ -102,35 +108,27 @@ impl TestCase for AdditionalDisproveTest {
 
     async fn run_test(&mut self, f: &mut TestFramework) -> Result<()> {
         tracing::info!("Starting Citrea");
+
         let (sequencer, _full_node, lc_prover, batch_prover, da) =
             citrea::start_citrea(Self::sequencer_config(), f)
                 .await
                 .unwrap();
 
-        let lc_prover = lc_prover.unwrap();
-        let batch_prover = batch_prover.unwrap();
-
         let mut config = create_test_config_with_thread_name().await;
 
         match self.variant {
-            TestVariant::CorruptedLatestBlockHash => {
-                config.test_params.disrupt_latest_block_hash_commit = true;
-            }
-            TestVariant::CorruptedPayoutTxBlockHash => {
-                config.test_params.disrupt_payout_tx_block_hash_commit = true;
-            }
-            TestVariant::CorruptedChallengeSendingWatchtowers => {
+            BridgeCircuitTestDataVariant::HeaderChainProofsWithDiverseLengthsInsufficientTotalWork => {
                 config
                     .test_params
-                    .disrupt_challenge_sending_watchtowers_commit = true;
+                    .generate_varying_total_works_insufficient_total_work = true;
             }
-            TestVariant::OperatorForgotWatchtowerChallenge => {
-                config.test_params.operator_forgot_watchtower_challenge = true;
-            }
-            TestVariant::CorruptedPublicInput => {
-                config.test_params.corrupted_public_input = true;
+            BridgeCircuitTestDataVariant::HeaderChainProofsWithDiverseLengths => {
+                config.test_params.generate_varying_total_works = true;
             }
         }
+
+        let lc_prover = lc_prover.unwrap();
+        let batch_prover = batch_prover.unwrap();
 
         citrea::update_config_with_citrea_e2e_values(
             &mut config,
@@ -149,36 +147,32 @@ impl TestCase for AdditionalDisproveTest {
         )
         .await?;
 
-        rpc.mine_blocks(5).await.unwrap();
+        rpc.mine_blocks(12).await.unwrap();
 
         let block_count = da.get_block_count().await?;
         tracing::debug!("Block count before deposit: {:?}", block_count);
 
-        tracing::debug!(
+        tracing::info!(
             "Deposit starting at block height: {:?}",
             rpc.client.get_block_count().await?
         );
-
         let (
             _verifiers,
             mut operators,
-            _aggregator,
+            mut _aggregator,
             _cleanup,
             deposit_params,
             move_txid,
             _deposit_blockhash,
             verifiers_public_keys,
         ) = run_single_deposit::<CitreaClient>(&mut config, rpc.clone(), None, None).await?;
-
-        tracing::debug!(
+        tracing::info!(
             "Deposit ending block_height: {:?}",
             rpc.client.get_block_count().await?
         );
 
-        // Wait for TXs to be on-chain (CPFP etc.).
         rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-
         for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
             sequencer.client.send_publish_batch_request().await.unwrap();
         }
@@ -217,6 +211,7 @@ impl TestCase for AdditionalDisproveTest {
             tx,
         )
         .await?;
+
         for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
             sequencer.client.send_publish_batch_request().await.unwrap();
         }
@@ -232,8 +227,7 @@ impl TestCase for AdditionalDisproveTest {
             )
             .await
             .unwrap(),
-            0,
-            "Balance should be non-zero after deposit"
+            0
         );
 
         tracing::debug!("Deposit operations are successful.");
@@ -262,10 +256,8 @@ impl TestCase for AdditionalDisproveTest {
 
         let block_height = rpc.client.get_block_count().await.unwrap();
 
-        // Wait for TXs to be on-chain (CPFP etc.).
         rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-
         for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
             sequencer.client.send_publish_batch_request().await.unwrap();
         }
@@ -283,7 +275,10 @@ impl TestCase for AdditionalDisproveTest {
         .await
         .unwrap();
 
+        tracing::info!("Params: {:?}", params);
+
         let withdrawal_utxo = withdrawal_utxo_with_txout.outpoint;
+        tracing::debug!("Created withdrawal UTXO: {:?}", withdrawal_utxo);
 
         // Without a withdrawal in Citrea, operator can't withdraw.
         assert!(operators[0]
@@ -394,11 +389,9 @@ impl TestCase for AdditionalDisproveTest {
         )
         .await
         .unwrap();
-        tracing::info!("Payout txid: {:?}", payout_txid);
 
         rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
 
-        // wait until payout part is not null
         while db
             .get_first_unhandled_payout_by_operator_xonly_pk(None, op0_xonly_pk)
             .await?
@@ -423,14 +416,17 @@ impl TestCase for AdditionalDisproveTest {
             .await?
             .expect("Payout must be handled");
 
-        tracing::info!("Kickoff txid: {:?}", kickoff_txid);
+        let reimburse_connector = OutPoint {
+            txid: kickoff_txid,
+            vout: UtxoVout::ReimburseInKickoff.get_vout(),
+        };
 
-        // Wait for the kickoff tx to be onchain
         let kickoff_block_height =
             mine_once_after_in_mempool(&rpc, kickoff_txid, Some("Kickoff tx"), Some(300)).await?;
 
         let kickoff_tx = rpc.get_tx_of_txid(&kickoff_txid).await?;
 
+        // wrongfully challenge operator
         let kickoff_idx = kickoff_tx.input[0].previous_output.vout - 1;
         let base_tx_req = TransactionRequest {
             kickoff_id: Some(
@@ -470,6 +466,7 @@ impl TestCase for AdditionalDisproveTest {
 
         assert_eq!(kickoff_txid, kickoff_tx.compute_txid());
 
+        // send wrong challenge tx
         let (tx_sender, tx_sender_db) = create_tx_sender(&config, 0).await.unwrap();
         let mut db_commit = tx_sender_db.begin_transaction().await.unwrap();
         tx_sender
@@ -515,225 +512,70 @@ impl TestCase for AdditionalDisproveTest {
             .wait_for_l1_height(kickoff_block_height as u64, None)
             .await?;
 
-        let first_assert_utxo = OutPoint {
-            txid: kickoff_txid,
-            vout: UtxoVout::Assert(0).get_vout(),
-        };
-
+        // Ensure the reimburse connector is spent
         ensure_outpoint_spent_while_waiting_for_light_client_sync(
             &rpc,
             lc_prover,
-            first_assert_utxo,
+            reimburse_connector,
         )
         .await
         .unwrap();
 
+        // Create assert transactions for operator 0
         let assert_txs = operators[0]
             .internal_create_assert_commitment_txs(base_tx_req)
             .await?
             .into_inner();
 
-        let assert_tx =
-            get_tx_from_signed_txs_with_type(&assert_txs, TransactionType::MiniAssert(0)).unwrap();
-        let txid = assert_tx.compute_txid();
-
-        assert!(
-            rpc.is_tx_on_chain(&txid).await.unwrap(),
-            "Mini assert 0 was not found in the chain",
-        );
-
-        tracing::info!("Common test setup completed");
-
-        let kickoff_txid = kickoff_tx.compute_txid();
-
-        let disprove_outpoint = OutPoint {
-            txid: kickoff_txid,
-            vout: UtxoVout::Disprove.get_vout(),
-        };
-
-        tracing::info!(
-            "Disprove outpoint: {:?}, txid: {:?}",
-            disprove_outpoint,
-            kickoff_txid
-        );
-
-        let txid = get_txid_where_utxo_is_spent_while_waiting_for_light_client_sync(
-            &rpc,
-            lc_prover,
-            disprove_outpoint,
-        )
-        .await
-        .unwrap();
-
-        tracing::info!("Additional disprove txid: {:?}", txid);
-
-        let round_txid = kickoff_tx.input[0].previous_output.txid;
-
-        let burn_connector = OutPoint {
-            txid: round_txid,
-            vout: UtxoVout::CollateralInRound.get_vout(),
-        };
-
-        let add_disprove_tx = rpc.client.get_raw_transaction(&txid, None).await?;
-
-        assert!(
-            add_disprove_tx.input[1].previous_output == burn_connector,
-            "Additional disprove tx input does not match burn connector outpoint"
-        );
-
-        assert_eq!(
-            add_disprove_tx.input[0].witness.len(),
-            562,
-            "Additional disprove tx input witness length is not 562"
-        );
-
-        tracing::info!("Additional disprove transaction is onchain");
-
+        // check if asserts were sent due to challenge
+        let operator_assert_txids = (0
+            ..bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs())
+            .map(|i| {
+                let assert_tx =
+                    get_tx_from_signed_txs_with_type(&assert_txs, TransactionType::MiniAssert(i))
+                        .unwrap();
+                assert_tx.compute_txid()
+            })
+            .collect::<Vec<Txid>>();
+        for (idx, txid) in operator_assert_txids.into_iter().enumerate() {
+            assert!(
+                rpc.is_tx_on_chain(&txid).await.unwrap(),
+                "Mini assert {} was not found in the chain",
+                idx
+            );
+        }
         Ok(())
     }
 }
 
-/// Tests the disprove mechanism when the latest block hash commitment is intentionally corrupted.
-///
-/// # Arrange
-/// * Sets up full Citrea infrastructure including sequencer, batch prover, light client prover, and DA node.
-/// * Sets `disrupt_latest_block_hash_commit = true` to simulate a corrupted block hash during commitment.
-///
-/// # Act
-/// * Performs deposit and withdrawal operations between Bitcoin and Citrea.
-/// * Processes payout and kickoff transactions.
-/// * Waits for the disprove transaction to be triggered due to the corrupted block hash in the commitment.
-///
-/// # Assert
-/// * Confirms that a disprove transaction is created on Bitcoin.
-/// * Validates that the disprove transaction consumes the correct input (the burn connector outpoint).
 #[tokio::test]
-#[ignore = "This test is too slow, run separately"]
-async fn additional_disprove_script_test_disrupted_latest_block_hash() -> Result<()> {
+#[ignore = "Only run this test manually, it's for data generation purposes"]
+async fn bridge_circuit_test_data_diverse_hcp_lengths() -> Result<()> {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
         "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
     );
-    let additional_disprove_test = AdditionalDisproveTest {
-        variant: TestVariant::CorruptedLatestBlockHash,
+    let bridge_circuit_test_data = BridgeCircuitTestData {
+        variant: BridgeCircuitTestDataVariant::HeaderChainProofsWithDiverseLengths,
     };
-    TestCaseRunner::new(additional_disprove_test).run().await
+    TestCaseRunner::new(bridge_circuit_test_data).run().await
 }
 
-/// Tests the disprove mechanism when the payout transaction's block hash commitment is intentionally corrupted.
-///
-/// # Arrange
-/// * Sets up full Citrea infrastructure including sequencer, batch prover, light client prover, and DA node.
-/// * Sets `disrupt_payout_tx_block_hash_commit = true` to simulate a corrupted block hash for the payout transaction during commitment.
-///
-/// # Act
-/// * Performs deposit and withdrawal operations between Bitcoin and Citrea.
-/// * Processes payout and kickoff transactions.
-/// * Waits for the disprove transaction to be triggered due to the corrupted payout transaction block hash in the commitment.
-///
-/// # Assert
-/// * Confirms that a disprove transaction is created on Bitcoin.
-/// * Validates that the disprove transaction consumes the correct input (the burn connector outpoint).
 #[tokio::test]
-#[ignore = "This test is too slow, run separately"]
-async fn additional_disprove_script_test_disrupted_payout_tx_block_hash() -> Result<()> {
+#[ignore = "Only run this test manually, it's for data generation purposes"]
+async fn bridge_circuit_test_data_insuff_total_work_diverse_hcp_lens() -> Result<()> {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
         "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
     );
-    let additional_disprove_test = AdditionalDisproveTest {
-        variant: TestVariant::CorruptedPayoutTxBlockHash,
-    };
-    TestCaseRunner::new(additional_disprove_test).run().await
-}
 
-/// Tests the disprove mechanism when the commitment for challenges sent by watchtowers is intentionally corrupted.
-///
-/// # Arrange
-/// * Sets up full Citrea infrastructure including sequencer, batch prover, light client prover, and DA node.
-/// * Sets `disrupt_challenge_sending_watchtowers_commit = true` to simulate a corrupted commitment related to watchtower challenges.
-///
-/// # Act
-/// * Performs deposit and withdrawal operations between Bitcoin and Citrea.
-/// * Processes payout and kickoff transactions.
-/// * Waits for the disprove transaction to be triggered due to the corrupted watchtower challenge commitment.
-///
-/// # Assert
-/// * Confirms that a disprove transaction is created on Bitcoin.
-/// * Validates that the disprove transaction consumes the correct input (the burn connector outpoint).
-#[tokio::test]
-#[ignore = "This test is too slow, run separately"]
-async fn additional_disprove_script_test_disrupt_chal_sending_wts() -> Result<()> {
-    initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
-        .expect("Failed to initialize logger");
-    std::env::set_var(
-        "CITREA_DOCKER_IMAGE",
-        "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
-    );
-    let additional_disprove_test = AdditionalDisproveTest {
-        variant: TestVariant::CorruptedChallengeSendingWatchtowers,
+    let bridge_circuit_test_data = BridgeCircuitTestData {
+        variant:
+            BridgeCircuitTestDataVariant::HeaderChainProofsWithDiverseLengthsInsufficientTotalWork,
     };
-    TestCaseRunner::new(additional_disprove_test).run().await
-}
-
-/// Tests the disprove mechanism when an operator "forgets" to include a watchtower challenge.
-///
-/// # Arrange
-/// * Sets up full Citrea infrastructure including sequencer, batch prover, light client prover, and DA node.
-/// * Sets `operator_forgot_watchtower_challenge = true` to simulate a scenario where an operator fails to send a necessary watchtower challenge.
-///
-/// # Act
-/// * Performs deposit and withdrawal operations between Bitcoin and Citrea.
-/// * Processes payout and kickoff transactions.
-/// * Waits for the disprove transaction to be triggered due to the operator's failure to include a watchtower challenge.
-///
-/// # Assert
-/// * Confirms that a disprove transaction is created on Bitcoin.
-/// * Validates that the disprove transaction consumes the correct input (the burn connector outpoint).
-#[tokio::test]
-#[ignore = "This test is too slow, run separately"]
-async fn additional_disprove_script_test_operator_forgot_wt_challenge() -> Result<()> {
-    initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
-        .expect("Failed to initialize logger");
-    std::env::set_var(
-        "CITREA_DOCKER_IMAGE",
-        "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
-    );
-    let additional_disprove_test = AdditionalDisproveTest {
-        variant: TestVariant::OperatorForgotWatchtowerChallenge,
-    };
-    TestCaseRunner::new(additional_disprove_test).run().await
-}
-
-/// Tests the disprove mechanism when the public input is intentionally corrupted.
-///
-/// # Arrange
-/// * Sets up full Citrea infrastructure including sequencer, batch prover, light client prover, and DA node.
-/// * Sets `corrupted_public_input = true` to simulate a corrupted public input scenario.
-///
-/// # Act
-/// * Performs deposit and withdrawal operations between Bitcoin and Citrea.
-/// * Processes payout and kickoff transactions.
-/// * Waits for the disprove transaction to be triggered due to the corrupted public input.
-///
-/// # Assert
-/// * Confirms that a disprove transaction is created on Bitcoin.
-/// * Validates that the disprove transaction consumes the correct input (the burn connector outpoint).
-#[tokio::test]
-#[ignore = "This test is too slow, run separately"]
-async fn additional_disprove_script_test_corrupted_public_input() -> Result<()> {
-    initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
-        .expect("Failed to initialize logger");
-    std::env::set_var(
-        "CITREA_DOCKER_IMAGE",
-        "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
-    );
-    let additional_disprove_test = AdditionalDisproveTest {
-        variant: TestVariant::CorruptedPublicInput,
-    };
-    TestCaseRunner::new(additional_disprove_test).run().await
+    TestCaseRunner::new(bridge_circuit_test_data).run().await
 }

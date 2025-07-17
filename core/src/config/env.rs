@@ -1,7 +1,7 @@
 //! # Environment Variable Support For [`BridgeConfig`]
 
 use super::BridgeConfig;
-use crate::{deposit::SecurityCouncil, errors::BridgeError};
+use crate::{config::TelemetryConfig, deposit::SecurityCouncil, errors::BridgeError};
 use bitcoin::{address::NetworkUnchecked, secp256k1::SecretKey, Amount};
 use std::{path::PathBuf, str::FromStr};
 
@@ -156,6 +156,8 @@ impl BridgeConfig {
             client_key_path,
             aggregator_cert_path,
 
+            telemetry: TelemetryConfig::from_env().ok(),
+
             #[cfg(test)]
             test_params: super::TestParams::default(),
         };
@@ -274,6 +276,15 @@ mod tests {
                 operator_collateral_funding_outpoint.to_string(),
             );
         }
+
+        std::env::set_var(
+            "TELEMETRY_HOST",
+            default_config.telemetry.as_ref().unwrap().host.clone(),
+        );
+        std::env::set_var(
+            "TELEMETRY_PORT",
+            default_config.telemetry.as_ref().unwrap().port.to_string(),
+        );
 
         assert_eq!(super::BridgeConfig::from_env().unwrap(), default_config);
     }

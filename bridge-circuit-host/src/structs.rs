@@ -2,20 +2,23 @@ use alloy_rpc_types::EIP1186StorageProof;
 use ark_bn254::Bn254;
 use ark_ff::PrimeField;
 use bitcoin::{hashes::Hash, Network, Transaction, Txid, XOnlyPublicKey};
+use borsh::{BorshDeserialize, BorshSerialize};
 use circuits_lib::{
     bridge_circuit::{
-        deposit_constant, journal_hash, parse_op_return_data,
+        deposit_constant, get_first_op_return_output, journal_hash, parse_op_return_data,
         spv::SPV,
         structs::{
             BridgeCircuitInput, ChallengeSendingWatchtowers, DepositConstant, LatestBlockhash,
             LightClientProof, PayoutTxBlockhash, StorageProof, WatchtowerInput,
         },
+        transaction::CircuitTransaction,
         verify_watchtower_challenges,
     },
     header_chain::BlockHeaderCircuitOutput,
 };
 use eyre::Result;
 use risc0_zkvm::Receipt;
+use std::ops::{Deref, DerefMut};
 
 use crate::utils::get_ark_verifying_key;
 use thiserror::Error;
@@ -27,18 +30,18 @@ const ANCHOR_OUTPUT: usize = 1;
 ///
 /// This struct contains all the necessary inputs and proofs required to generate
 /// a bridge circuit proof, including transactions, receipts, and cryptographic proofs.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
 pub struct BridgeCircuitHostParams {
-    pub kickoff_tx: Transaction,
+    pub kickoff_tx: CircuitTransaction,
     pub spv: SPV,
     pub block_header_circuit_output: BlockHeaderCircuitOutput,
     pub headerchain_receipt: Receipt,
     pub light_client_proof: LightClientProof,
     pub lcp_receipt: Receipt,
     pub storage_proof: StorageProof,
-    pub network: Network,
+    pub network: CircuitNetwork,
     pub watchtower_inputs: Vec<WatchtowerInput>,
-    pub all_tweaked_watchtower_pubkeys: Vec<XOnlyPublicKey>,
+    pub all_tweaked_watchtower_pubkeys: Vec<CircuitXOnlyPublicKey>,
     pub watchtower_challenge_connector_start_idx: u16,
     pub payout_input_index: u16,
 }
@@ -116,15 +119,21 @@ impl BridgeCircuitHostParams {
         watchtower_challenge_connector_start_idx: u16,
         payout_input_index: u16,
     ) -> Self {
+        let all_tweaked_watchtower_pubkeys: Vec<CircuitXOnlyPublicKey> =
+            all_tweaked_watchtower_pubkeys
+                .into_iter()
+                .map(CircuitXOnlyPublicKey::from)
+                .collect();
+
         BridgeCircuitHostParams {
-            kickoff_tx,
+            kickoff_tx: CircuitTransaction(kickoff_tx),
             spv,
             block_header_circuit_output,
             headerchain_receipt,
             light_client_proof,
             lcp_receipt,
             storage_proof,
-            network,
+            network: CircuitNetwork(network),
             watchtower_inputs,
             all_tweaked_watchtower_pubkeys,
             watchtower_challenge_connector_start_idx,
@@ -198,15 +207,21 @@ impl BridgeCircuitHostParams {
 
         let payout_input_index = get_payout_input_index(wd_txid, &spv.transaction.0)?;
 
+        let all_tweaked_watchtower_pubkeys: Vec<CircuitXOnlyPublicKey> =
+            all_tweaked_watchtower_pubkeys
+                .into_iter()
+                .map(CircuitXOnlyPublicKey::from)
+                .collect();
+
         Ok(BridgeCircuitHostParams {
-            kickoff_tx,
+            kickoff_tx: CircuitTransaction(kickoff_tx),
             spv,
             block_header_circuit_output,
             headerchain_receipt,
             light_client_proof,
             lcp_receipt,
             storage_proof,
-            network,
+            network: CircuitNetwork(network),
             watchtower_inputs,
             all_tweaked_watchtower_pubkeys,
             watchtower_challenge_connector_start_idx,
@@ -240,11 +255,11 @@ impl BridgeCircuitHostParams {
 
         let all_tweaked_watchtower_pubkeys: Vec<[u8; 32]> = all_tweaked_watchtower_pubkeys
             .iter()
-            .map(|pubkey| pubkey.serialize())
+            .map(|pubkey| (**pubkey).serialize())
             .collect();
 
         BridgeCircuitInput::new(
-            kickoff_tx,
+            kickoff_tx.into(),
             watchtower_inputs,
             all_tweaked_watchtower_pubkeys,
             block_header_circuit_output,
@@ -430,7 +445,7 @@ impl SuccinctBridgeCircuitPublicInputs {
         })
     }
 
-    /// Calculates the host journal hash for the bridge circuit.
+    /// Calculates the host-side journal hash for the bridge circuit.
     ///
     /// # Returns
     ///
@@ -465,12 +480,8 @@ impl SuccinctBridgeCircuitPublicInputs {
 fn host_deposit_constant(
     input: &BridgeCircuitInput,
 ) -> Result<DepositConstant, BridgeCircuitHostParamsError> {
-    let last_output = input
-        .payout_spv
-        .transaction
-        .output
-        .last()
-        .ok_or(BridgeCircuitHostParamsError::MissingKickoffOutputs)?;
+    let first_op_return_output = get_first_op_return_output(&input.payout_spv.transaction)
+        .ok_or(BridgeCircuitHostParamsError::InvalidOperatorPubkey)?;
 
     let deposit_storage_proof: EIP1186StorageProof =
         serde_json::from_str(&input.sp.storage_proof_deposit_txid).map_err(|e| {
@@ -493,7 +504,7 @@ fn host_deposit_constant(
 
     let kickff_round_vout = input.kickoff_tx.input[0].previous_output.vout;
 
-    let operator_xonlypk: [u8; 32] = parse_op_return_data(&last_output.script_pubkey)
+    let operator_xonlypk: [u8; 32] = parse_op_return_data(&first_op_return_output.script_pubkey)
         .ok_or(BridgeCircuitHostParamsError::InvalidOperatorPubkey)?
         .try_into()
         .map_err(|_| BridgeCircuitHostParamsError::InvalidOperatorPubkey)?;
@@ -637,5 +648,113 @@ impl BridgeCircuitBitvmInputs {
             &[public_input_scalar],
         )
         .map_err(|_| BridgeCircuitHostParamsError::ProofVerificationFailed)
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Hash)]
+pub struct CircuitNetwork(pub Network);
+
+impl CircuitNetwork {
+    pub fn from(network: Network) -> Self {
+        Self(network)
+    }
+
+    pub fn inner(&self) -> &Network {
+        &self.0
+    }
+}
+
+impl BorshSerialize for CircuitNetwork {
+    fn serialize<W: borsh::io::Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
+        BorshSerialize::serialize(&(self.0 as u8), writer)
+    }
+}
+
+impl BorshDeserialize for CircuitNetwork {
+    fn deserialize_reader<R: borsh::io::Read>(reader: &mut R) -> borsh::io::Result<Self> {
+        let value = u8::deserialize_reader(reader)?;
+        let network = match value {
+            0 => Network::Bitcoin,
+            1 => Network::Testnet,
+            2 => Network::Testnet4,
+            3 => Network::Signet,
+            4 => Network::Regtest,
+            _ => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "Invalid Network",
+                ))
+            }
+        };
+        Ok(Self(network))
+    }
+}
+
+impl Deref for CircuitNetwork {
+    type Target = Network;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for CircuitNetwork {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl From<Network> for CircuitNetwork {
+    fn from(network: Network) -> Self {
+        Self(network)
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Hash)]
+pub struct CircuitXOnlyPublicKey(pub XOnlyPublicKey);
+
+impl CircuitXOnlyPublicKey {
+    pub fn from(pk: XOnlyPublicKey) -> Self {
+        Self(pk)
+    }
+
+    pub fn inner(&self) -> &XOnlyPublicKey {
+        &self.0
+    }
+}
+
+impl BorshSerialize for CircuitXOnlyPublicKey {
+    fn serialize<W: borsh::io::Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
+        BorshSerialize::serialize(&self.0.serialize(), writer)
+    }
+}
+
+impl BorshDeserialize for CircuitXOnlyPublicKey {
+    fn deserialize_reader<R: borsh::io::Read>(reader: &mut R) -> borsh::io::Result<Self> {
+        use bitcoin::secp256k1::XOnlyPublicKey as RawXOnly;
+
+        let bytes: [u8; 32] = BorshDeserialize::deserialize_reader(reader)?;
+        let raw_key = RawXOnly::from_slice(&bytes).map_err(|_| {
+            std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid XOnlyPublicKey")
+        })?;
+        Ok(Self(raw_key))
+    }
+}
+
+impl Deref for CircuitXOnlyPublicKey {
+    type Target = XOnlyPublicKey;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for CircuitXOnlyPublicKey {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl From<XOnlyPublicKey> for CircuitXOnlyPublicKey {
+    fn from(pk: XOnlyPublicKey) -> Self {
+        Self(pk)
     }
 }
