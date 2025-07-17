@@ -1,7 +1,8 @@
 use std::ops::Deref;
-use std::time::Duration;
 
-use crate::constants::{OPERATOR_GET_KEYS_TIMEOUT, VERIFIER_SEND_KEYS_TIMEOUT};
+use crate::constants::{
+    ENTITY_STATUS_POLL_TIMEOUT, OPERATOR_GET_KEYS_TIMEOUT, VERIFIER_SEND_KEYS_TIMEOUT,
+};
 use crate::deposit::DepositData;
 use crate::extended_rpc::ExtendedRpc;
 use crate::rpc::clementine::entity_status_with_id::StatusResult;
@@ -32,6 +33,7 @@ use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::{schnorr, Message, PublicKey};
 use bitcoin::XOnlyPublicKey;
 use eyre::Context;
+use futures::future::join_all;
 use secp256k1::musig::{AggregatedNonce, PartialSignature};
 use tonic::{Request, Status};
 use tracing::{debug_span, Instrument};
@@ -476,6 +478,8 @@ impl Aggregator {
         Ok(ParticipatingOperators::new(participating_operators))
     }
 
+    /// Retrieves the status of all entities (operators and verifiers) and restarts background tasks if needed.
+    /// Returns a vector of EntityStatusWithId. Only returns an error if restarting tasks fails when requested.
     pub async fn get_entity_statuses(
         &self,
         restart_tasks: bool,
@@ -486,29 +490,27 @@ impl Aggregator {
         let verifier_clients = self.get_verifier_clients();
         tracing::info!("Operator clients: {:?}", operator_clients.len());
 
-        let operator_status = timed_try_join_all(
-            Duration::from_secs(60),
-            "Getting operator status",
-            Some(
-                self.get_operator_keys()
-                    .iter()
-                    .map(|key| OperatorId(*key))
-                    .collect::<Vec<_>>(),
-            ),
+        let operator_status = join_all(
             operator_clients
                 .iter()
                 .zip(self.get_operator_keys().iter())
                 .map(|(client, key)| {
                     let mut client = client.clone();
                     async move {
-                        tracing::info!("Getting operator status for {}", key.to_string());
-                        let response = client
-                            .get_current_status(Request::new(Empty {}))
-                            .await
-                            .map_err(BridgeError::from);
+                        tracing::debug!("Getting operator status for {}", key.to_string());
+                        let response = timed_request(
+                            ENTITY_STATUS_POLL_TIMEOUT,
+                            &format!("Getting operator status for {}", OperatorId(*key)),
+                            async {
+                                client
+                                    .get_current_status(Request::new(Empty {}))
+                                    .await
+                                    .map_err(BridgeError::from)
+                            },
+                        )
+                        .await;
 
-                        tracing::info!("Got operator status: {:?}", response);
-                        Ok(EntityStatusWithId {
+                        EntityStatusWithId {
                             entity_id: Some(RPCEntityId {
                                 kind: EntityType::Operator as i32,
                                 id: key.to_string(),
@@ -519,30 +521,32 @@ impl Aggregator {
                                     error: e.to_string(),
                                 })),
                             },
-                        })
+                        }
                     }
-                })
-                .collect::<Vec<_>>(),
+                }),
         )
-        .await?;
+        .await;
 
-        let verifier_status = timed_try_join_all(
-            Duration::from_secs(60),
-            "Getting verifier status",
-            Some(
-                self.get_verifier_keys()
-                    .iter()
-                    .map(|key| VerifierId(*key))
-                    .collect::<Vec<_>>(),
-            ),
+        let verifier_status = join_all(
             verifier_clients
                 .iter()
                 .zip(self.get_verifier_keys().iter())
                 .map(|(client, key)| {
                     let mut client = client.clone();
                     async move {
-                        let response = client.get_current_status(Request::new(Empty {})).await;
-                        Ok(EntityStatusWithId {
+                        let response = timed_request(
+                            ENTITY_STATUS_POLL_TIMEOUT,
+                            &format!("Getting verifier status for {}", VerifierId(*key)),
+                            async {
+                                client
+                                    .get_current_status(Request::new(Empty {}))
+                                    .await
+                                    .map_err(BridgeError::from)
+                            },
+                        )
+                        .await;
+
+                        EntityStatusWithId {
                             entity_id: Some(RPCEntityId {
                                 kind: EntityType::Verifier as i32,
                                 id: key.to_string(),
@@ -553,12 +557,11 @@ impl Aggregator {
                                     error: e.to_string(),
                                 })),
                             },
-                        })
+                        }
                     }
-                })
-                .collect::<Vec<_>>(),
+                }),
         )
-        .await?;
+        .await;
 
         tracing::info!("Operator status: {:?}", operator_status);
 
