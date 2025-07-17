@@ -14,7 +14,7 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  RUST_LOG: info,risc0_zkvm=error,risc0_circuit_rv32im=error
+  RUST_LOG: warn,risc0_zkvm=error,risc0_circuit_rv32im=error
   RISC0_DEV_MODE: 1
   RUST_MIN_STACK: 33554432
 
@@ -26,6 +26,7 @@ jobs:
   release_build_all_features:
     name: Release | All features | Compile
     runs-on: ubicloud-standard-16
+    if: ${{ !github.event.pull_request.draft }}
 
     steps:
       - uses: catchpoint/workflow-telemetry-action@v2
@@ -46,6 +47,7 @@ jobs:
   release_build:
     name: Release | No features | Compile
     runs-on: ubicloud-standard-2
+    if: ${{ !github.event.pull_request.draft }}
 
     steps:
       - uses: catchpoint/workflow-telemetry-action@v2
@@ -117,6 +119,7 @@ jobs:
   release_build_test_all_features:
     name: Release | All features | Test
     runs-on: ubicloud-standard-16
+    if: ${{ !github.event.pull_request.draft }}
     needs: release_build_all_features
 
     env:
@@ -175,6 +178,7 @@ jobs:
   standalone_tests:
     name: Release | All features | Test ${{ matrix.description_suffix }}
     runs-on: ubicloud-standard-8
+    if: ${{ !github.event.pull_request.draft }}
     needs: release_build_all_features
 
     env:
@@ -246,7 +250,7 @@ jobs:
           shared-key: ${{ runner.os }}-cargo-RELEASE-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
 
       - name: Run tests
-        run: cargo test ${{ matrix.test_script_name }} $CARGOFLAGS_ALL_FEATURES --release -- --ignored --nocapture
+        run: cargo test ${{ matrix.test_script_name }} $CARGOFLAGS_ALL_FEATURES --release -- --ignored
 
       - name: Upload test logs
         if: failure()
