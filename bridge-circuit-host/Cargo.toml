@@ -50,3 +50,4 @@ citrea-sov-rollup-interface = { workspace = true }
 
 [features]
 metal = ["risc0-zkvm/metal"]
+use-test-vk = ["circuits-lib/use-test-vk"]
