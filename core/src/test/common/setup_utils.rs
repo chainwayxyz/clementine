@@ -349,6 +349,9 @@ pub async fn create_actors<C: CitreaClientT>(
                     .test_params
                     .generate_varying_total_works_insufficient_total_work
                     || config.test_params.generate_varying_total_works
+                    || config
+                        .test_params
+                        .generate_varying_total_works_first_two_valid
                 {
                     // Generate a new protocol paramset for each verifier
                     // to ensure diverse total works.
