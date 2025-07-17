@@ -139,7 +139,7 @@ jobs:
 
   release_build_test_all_features:
     name: Release | All features | Test
-    runs-on: ubicloud-standard-16
+    runs-on: ubicloud-standard-30
     if: ${{ !github.event.pull_request.draft }}
     needs: release_build_all_features
 
