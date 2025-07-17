@@ -1,4 +1,4 @@
-name: Clementine Operator Full Stack
+name: Clementine Verifier Full Stack
 
 services:
   postgres_db:
@@ -108,22 +108,17 @@ services:
         condition: service_healthy
       citrea_full_node:
         condition: service_started
-      citrea_light_client_prover:
-        condition: service_healthy
-    image: chainwayxyz/clementine
+    image: chainwayxyz/clementine:latest
     platform: linux/amd64
     container_name: clementine_verifier
     environment:
-      - BITVM_CACHE_PATH=/bitvm_cache.bin
+      - BITVM_CACHE_PATH=/static/bitvm_cache.bin
     command:
-      verifier --config /config.toml --protocol-params /protocol_paramset.toml
+      verifier --config /static/bridge_config.toml --protocol-params /static/protocol_paramset.toml
     ports:
       - "17001:17000"
     volumes:
-      - ./configs/testnet4/bridge_config.toml:/config.toml
-      - ./configs/testnet4/protocol_paramset.toml:/protocol_paramset.toml
-      - ../../bitvm_cache.bin:/bitvm_cache.bin
-      - ../../core/certs:/certs
+      - ./static:/static
     networks:
       - clementine-network
 
@@ -160,9 +155,7 @@ volumes:
   postgres_db:
   bitcoin_testnet4:
   citrea_full_node:
-  citrea_light_client_prover:
   clementine_verifier:
-  # clementine_operator:
 
 networks:
   clementine-network:
