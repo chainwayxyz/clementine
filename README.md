@@ -36,7 +36,7 @@ Before compiling Clementine:
 1. Install Rust: [rustup.rs](https://rustup.rs/)
 2. Install RiscZero (2.1.0): [dev.risczero.com/api/zkvm/install](https://dev.risczero.com/api/zkvm/install)
 
-   ```bash
+   ```sh
    curl -L https://risczero.com/install | bash
    rzup install cargo-risczero 2.1.0 # Or v2.1.0
    rzup install r0vm 2.1.0
@@ -45,13 +45,13 @@ Before compiling Clementine:
 
 3. If on Mac, install XCode and its app from AppStore (if `xcrun metal` gives an error):
 
-   ```bash
+   ```sh
    xcode-select --install
    ```
 
 4. If on Ubuntu, install these packages:
 
-   ```bash
+   ```sh
    sudo apt install build-essential libssl-dev pkg-config
    ```
 
@@ -61,7 +61,7 @@ Before running Clementine:
 2. Install and configure PostgreSQL
 3. Set `RUST_MIN_STACK` to at least 33554432
 
-   ```bash
+   ```sh
    # In *nix systems:
    export RUST_MIN_STACK=33554432
    ```
@@ -156,12 +156,13 @@ certs/
 
 #### BitVM Cache
 
-BitVM Cache will be generated, if not present. Generation can be skipped and
-pre-generated files can be downloaded with:
+BitVM Cache will be generated, if not present. Generation can be skipped with
+downloading pre-generated files and setting the environment variable:
 
 ```sh
 wget https://static.testnet.citrea.xyz/common/bitvm_cache_v3.bin -O bitvm_cache.bin
 wget https://static.testnet.citrea.xyz/common/bitvm_cache_dev.bin -O bitvm_cache_dev.bin
+export BITVM_CACHE_PATH=/path/to/bitvm_cache.bin
 ```
 
 ### Starting a Server
@@ -212,23 +213,21 @@ For more information, use `--help` flag:
 #### Using Docker
 
 A docker image is provided in
-[Docker Hub](https://hub.docker.com/r/chainwayxyz/clementine). It can be locally
-built with:
+[Docker Hub](https://hub.docker.com/r/chainwayxyz/clementine). It can also be
+locally built with:
 
 ```bash
 docker build -f scripts/docker/Dockerfile -t clementine:latest .
 ```
 
 Also, there are multiple Docker compose files located at [scripts/docker/](scripts/docker/)
-which can be used to start Clementine servers. Provided
-[config file](scripts/docker/docker_config.toml) can be modified before starting
-a server.
+which can be used to start Bitcoin, PostgreSQL, Citrea and Clementine. Config
+files for these compose files can be found at [scripts/docker/configs/](scripts/docker/configs/).
+They are configured for a typical deployment and needs modification before deployment.
 
 ```sh
-# Start a verifier server
-docker compose -f scripts/docker/docker-compose-verifier.yml up
-# Start an operator server
-docker compose -f scripts/docker/docker-compose-operator.yml up
+docker compose -f scripts/docker/docker-compose.testnet4.yml up
+docker compose -f scripts/docker/docker-compose.regtest.yml up
 ```
 
 ### Testing
