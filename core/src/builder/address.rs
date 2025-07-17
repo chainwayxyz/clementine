@@ -24,7 +24,7 @@ use eyre::Context;
 /// A helper to construct a `TaprootBuilder` from a slice of script buffers, forming the script tree.
 /// Finds the needed depth the script tree needs to be to fit all the scripts and inserts the scripts.
 pub fn taproot_builder_with_scripts(scripts: impl Into<Vec<ScriptBuf>>) -> TaprootBuilder {
-    // doesnt clone if its already an owned Vec
+    // doesn't clone if its already an owned Vec
     let mut scripts: Vec<ScriptBuf> = scripts.into();
     let builder = TaprootBuilder::new();
     let num_scripts = scripts.len();
