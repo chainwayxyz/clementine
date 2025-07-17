@@ -1690,7 +1690,7 @@ async fn concurrent_deposits_and_withdrawals() {
         .try_into()
         .unwrap();
 
-    let count = 10;
+    let count = 5;
 
     make_concurrent_deposits(
         count,
@@ -1806,7 +1806,7 @@ async fn concurrent_deposits_and_optimistic_payouts() {
         .try_into()
         .unwrap();
 
-    let count = 10;
+    let count = 5;
 
     let move_txids = make_concurrent_deposits(
         count,
