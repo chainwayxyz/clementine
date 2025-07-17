@@ -1510,9 +1510,19 @@ where
             borsh::to_vec(&work_output.work_u128).wrap_err("Couldn't serialize total work")?;
 
         #[cfg(test)]
-        self.config
-            .test_params
-            .maybe_disrupt_commit_data_for_total_work(&mut commit_data, &total_work);
+        {
+            let wt_ind = self
+                .config
+                .test_params
+                .all_verifiers_secret_keys
+                .iter()
+                .position(|x| x == &self.config.secret_key)
+                .ok_or_else(|| eyre::eyre!("Verifier secret key not found in test params"))?;
+
+            self.config
+                .test_params
+                .maybe_disrupt_commit_data_for_total_work(&mut commit_data, wt_ind);
+        }
 
         commit_data.extend_from_slice(&total_work);
 

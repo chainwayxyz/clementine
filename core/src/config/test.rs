@@ -118,6 +118,7 @@ impl TestParams {
         blockhashes_serialized: Vec<[u8; 32]>,
         payout_block_height: u32,
         genesis_height: u32,
+        total_works: Vec<[u8; 16]>,
     ) -> Vec<[u8; 32]> {
         if self.generate_varying_total_works_insufficient_total_work {
             let take_count = (payout_block_height + 1 - genesis_height) as usize;
@@ -133,14 +134,15 @@ impl TestParams {
         }
 
         if self.generate_varying_total_works_first_two_valid {
-            const HIGHEST_VALID_WT_INDEX: usize = 288;
+            let highest_valid_wt_index = self.highest_valid_wt_index(total_works).unwrap();
+
             tracing::info!(
                 "Overriding blockhashes: first two valid mode with {} blocks",
-                HIGHEST_VALID_WT_INDEX
+                highest_valid_wt_index
             );
             return blockhashes_serialized
                 .iter()
-                .take(HIGHEST_VALID_WT_INDEX)
+                .take(highest_valid_wt_index)
                 .cloned()
                 .collect();
         }
@@ -154,6 +156,7 @@ impl TestParams {
         payout_block_hash: BlockHash,
         block_hashes: &[(BlockHash, impl Sized)],
         header_chain_prover: &HeaderChainProver,
+        total_works: Vec<[u8; 16]>,
     ) -> eyre::Result<Receipt> {
         if self.generate_varying_total_works_insufficient_total_work {
             let (hcp, _) = header_chain_prover
@@ -163,7 +166,7 @@ impl TestParams {
         }
 
         if self.generate_varying_total_works_first_two_valid {
-            let highest_valid_wt_index = 288;
+            let highest_valid_wt_index = self.highest_valid_wt_index(total_works).unwrap();
             let target_blockhash = block_hashes.get(highest_valid_wt_index).ok_or_else(|| {
                 eyre::eyre!("Missing blockhash at index {}", highest_valid_wt_index)
             })?;
@@ -175,6 +178,23 @@ impl TestParams {
         }
 
         Ok(current_hcp)
+    }
+
+    fn highest_valid_wt_index(&self, total_works: Vec<[u8; 16]>) -> eyre::Result<usize> {
+        if total_works.len() < 2 {
+            return Err(eyre::eyre!(
+                "Expected at least two total works for first two valid mode"
+            ));
+        }
+
+        let second_lowest_total_work = &total_works[1];
+        let second_lowest_total_work_index = usize::from_be_bytes(
+            second_lowest_total_work[8..16]
+                .try_into()
+                .expect("Expected 8 bytes for index conversion"),
+        );
+
+        Ok(second_lowest_total_work_index / 2 - 1)
     }
 
     pub fn maybe_disrupt_block_hash(&self, block_hash: [u8; 32]) -> [u8; 32] {
@@ -192,26 +212,16 @@ impl TestParams {
     pub fn maybe_disrupt_commit_data_for_total_work(
         &self,
         commit_data: &mut [u8],
-        total_work: &[u8],
+        wt_index: usize,
     ) {
         if self.generate_varying_total_works_first_two_valid {
-            let ref_total_work: [u8; 16] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 66];
-
-            tracing::debug!(
-                "Ref total work: {:?}, total work: {:?}",
-                ref_total_work,
-                total_work
-            );
-
-            if let Ok(current_work) = total_work.try_into() {
-                if ref_total_work < current_work {
-                    commit_data[0] ^= 0x01;
-                    tracing::info!(
-                        "Flipping first byte of commit data to generate varying total work"
+            let ref_wt_index = 1;
+            if ref_wt_index < wt_index {
+                commit_data[0] ^= 0x01;
+                tracing::info!(
+                        "Flipping first byte of commit data to generate varying total work. Wt index: {}",
+                        wt_index
                     );
-                }
-            } else {
-                tracing::warn!("Failed to convert total work to [u8; 16]");
             }
         }
     }

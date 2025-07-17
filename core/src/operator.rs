@@ -1373,6 +1373,19 @@ where
             .await?;
 
         #[cfg(test)]
+        let mut total_works: Vec<[u8; 16]> = Vec::with_capacity(watchtower_challenges.len());
+
+        #[cfg(test)]
+        {
+            use bridge_circuit_host::utils::total_work_from_wt_tx;
+            for (_, tx) in watchtower_challenges.iter() {
+                let total_work = total_work_from_wt_tx(tx);
+                total_works.push(total_work);
+            }
+            tracing::debug!("Total works: {:?}", total_works);
+        }
+
+        #[cfg(test)]
         let current_hcp = self
             .config
             .test_params
@@ -1381,6 +1394,7 @@ where
                 payout_block_hash,
                 &block_hashes,
                 &self.header_chain_prover,
+                total_works.clone(),
             )
             .await?;
 
@@ -1400,6 +1414,7 @@ where
                 blockhashes_serialized,
                 payout_block_height,
                 self.config.protocol_paramset().genesis_height,
+                total_works,
             );
 
         tracing::debug!(

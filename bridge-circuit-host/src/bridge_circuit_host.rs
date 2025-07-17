@@ -375,7 +375,7 @@ pub fn prove_work_only_header_chain_proof(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mock_zkvm::MockZkvmHost;
+    use crate::{mock_zkvm::MockZkvmHost, utils::total_work_from_wt_tx};
 
     const TESTNET4_HEADER_CHAIN_GUEST_ELF: &[u8] =
         include_bytes!("../../risc0-circuits/elfs/testnet4-header-chain-guest.bin");
@@ -520,11 +520,6 @@ mod tests {
 
         executor.execute(env, bridge_circuit_elf).unwrap();
     }
-
-    // Test is validated against a hardcoded value of expected total work.
-    // If the test fails, it may mean that the test data is outdated or expected values have changed.
-    // The test data is generated in bridge_circuit_test_data.rs and it also includes a hardcoded value
-    // ref_total_work which should be updated accordingly.
     #[cfg(feature = "use-test-vk")]
     #[test]
     #[allow(clippy::print_literal)]
@@ -540,11 +535,17 @@ mod tests {
             .clone()
             .into_bridge_circuit_input();
 
+        let mut total_works: Vec<[u8; 16]> =
+            Vec::with_capacity(bridge_circuit_input.watchtower_inputs.len());
+
         for watchtower_input in &bridge_circuit_input.watchtower_inputs {
             println!(
                 "Watchtower input: {:?}",
                 watchtower_input.watchtower_challenge_tx.output[2]
             );
+
+            let total_work = total_work_from_wt_tx(&watchtower_input.watchtower_challenge_tx);
+            total_works.push(total_work);
         }
 
         let (total_work, challenge_sending_wts) =
@@ -555,7 +556,9 @@ mod tests {
             total_work, challenge_sending_wts
         );
 
-        let expected_total_work = TotalWork([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 66]);
+        total_works.sort();
+
+        let expected_total_work = TotalWork(total_works[1]);
         let expected_challenge_sending_wts = ChallengeSendingWatchtowers([
             15, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         ]);
