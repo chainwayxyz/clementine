@@ -1,5 +1,5 @@
 [alias]
-test_unit = "test --features automation"
+test_unit = "test --features automation,use-test-vk"
 test_integration = "test --workspace --all-features -p core test:: -- --test-threads 7"
 test_integration_release = "test --release --workspace --all-features -p core test:: -- --test-threads 7"
 build_console = '''
