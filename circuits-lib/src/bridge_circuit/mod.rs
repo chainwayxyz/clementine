@@ -130,6 +130,17 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
     // Light client proof verification
     let light_client_circuit_output = lc_proof_verifier(input.lcp.clone());
 
+    // Make sure the L1 block hash of the LightClientCircuitOutput matches the payout tx block hash
+    let lc_l1_block_hash = light_client_circuit_output.latest_da_state.block_hash;
+    let spv_l1_block_hash = input.payout_spv.block_header.compute_block_hash();
+
+    if lc_l1_block_hash != spv_l1_block_hash {
+        panic!(
+            "L1 block hash mismatch: expected {:?}, got {:?}",
+            lc_l1_block_hash, spv_l1_block_hash
+        );
+    }
+
     // Storage proof verification for deposit tx index and withdrawal outpoint
     let (user_wd_outpoint, vout, move_txid) =
         verify_storage_proofs(&input.sp, light_client_circuit_output.l2_state_root);

@@ -12,6 +12,7 @@ use circuits_lib::bridge_circuit::merkle_tree::BitcoinMerkleTree;
 use circuits_lib::bridge_circuit::spv::SPV;
 use circuits_lib::bridge_circuit::structs::WorkOnlyCircuitInput;
 use circuits_lib::bridge_circuit::transaction::CircuitTransaction;
+use citrea_sov_rollup_interface::zk::light_client_proof::output::LightClientCircuitOutput;
 use eyre::{eyre, Result, WrapErr};
 
 use circuits_lib::common::constants::{
@@ -116,15 +117,13 @@ pub fn prove_bridge_circuit(
     tracing::debug!(target: "ci", "Watchtower challenges: {:?}",
         bridge_circuit_input.watchtower_inputs);
 
-    if !is_dev_mode() {
-        // Verify light client proof
-        if bridge_circuit_host_params
-            .lcp_receipt
-            .verify(LC_IMAGE_ID)
-            .is_err()
-        {
-            return Err(eyre!("Light client proof verification failed"));
-        }
+    // Verify light client proof
+    if bridge_circuit_host_params
+        .lcp_receipt
+        .verify(LC_IMAGE_ID)
+        .is_err()
+    {
+        return Err(eyre!("Light client proof verification failed"));
     }
 
     // Header chain verification
@@ -162,18 +161,35 @@ pub fn prove_bridge_circuit(
         return Err(eyre!("SPV verification failed"));
     }
 
+    // Make sure the L1 block hash of the LightClientCircuitOutput matches the payout tx block hash
+    let lc_output: LightClientCircuitOutput = borsh::from_slice(
+        bridge_circuit_host_params
+            .lcp_receipt
+            .journal
+            .bytes
+            .as_slice(),
+    )
+    .wrap_err("Failed to deserialize light client circuit output")?;
+
+    let lc_l1_block_hash = lc_output.latest_da_state.block_hash;
+
+    let spv_l1_block_hash = bridge_circuit_input
+        .payout_spv
+        .block_header
+        .compute_block_hash();
+
+    if lc_l1_block_hash != spv_l1_block_hash {
+        return Err(eyre!(
+            "L1 block hash mismatch: expected {:?}, got {:?}",
+            lc_l1_block_hash,
+            spv_l1_block_hash
+        ));
+    }
+
     let public_inputs: SuccinctBridgeCircuitPublicInputs =
         SuccinctBridgeCircuitPublicInputs::new(bridge_circuit_input.clone())?;
 
     let journal_hash = public_inputs.host_journal_hash();
-
-    let lcp_receipt: Receipt = bridge_circuit_host_params.lcp_receipt.clone();
-    // Write this lcp_receipt to a file
-    let lcp_receipt_bytes =
-        borsh::to_vec(&lcp_receipt).wrap_err("Failed to serialize light client proof receipt")?;
-    // Write to a file
-    std::fs::write("lcp_receipt.bin", lcp_receipt_bytes)
-        .wrap_err("Failed to write light client proof receipt to file")?;
 
     let mut binding = ExecutorEnv::builder();
     let env = binding

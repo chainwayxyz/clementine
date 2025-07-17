@@ -42,6 +42,8 @@ once_cell = { workspace = true }
 
 circuits-lib = { path = "../circuits-lib" }
 
+citrea-sov-rollup-interface = { workspace = true }
+
 
 
 
