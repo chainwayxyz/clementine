@@ -1,6 +1,6 @@
 use crate::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
 use crate::bitcoin_syncer::BitcoinSyncer;
-use crate::bitvm_client::ClementineBitVMPublicKeys;
+use crate::bitvm_client::{ClementineBitVMPublicKeys, REPLACE_SCRIPTS_LOCK};
 use crate::builder::address::{create_taproot_address, taproot_builder_with_scripts};
 use crate::builder::block_cache;
 use crate::builder::script::{
@@ -1276,15 +1276,21 @@ where
             .collect::<Vec<_>>();
 
         // TODO: Use correct verification key and along with a dummy proof.
+        // wrap around a mutex lock to avoid OOM
+        let guard = REPLACE_SCRIPTS_LOCK.lock().await;
         let start = std::time::Instant::now();
         let scripts: Vec<ScriptBuf> = bitvm_pks.get_g16_verifier_disprove_scripts();
 
-        let taproot_builder = taproot_builder_with_scripts(&scripts);
+        let taproot_builder = taproot_builder_with_scripts(scripts);
+
         let root_hash = taproot_builder
             .try_into_taptree()
             .expect("taproot builder always builds a full taptree")
             .root_hash()
             .to_byte_array();
+
+        // bitvm scripts are dropped, release the lock
+        drop(guard);
         tracing::debug!("Built taproot tree in {:?}", start.elapsed());
 
         let latest_blockhash_wots = bitvm_pks.latest_blockhash_pk.to_vec();
