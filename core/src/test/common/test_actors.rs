@@ -392,6 +392,9 @@ impl<C: CitreaClientT> TestActors<C> {
     }
 
     /// Remove a verifier with the given index and restarts the aggregator with the current actor set.
+    /// Returns an error if the verifier is the first verifier (which is used by the aggregator)
+    /// or if there is an operator associated with the verifier. If there is an operator associated
+    /// with the verifier, the operator needs to be removed first.
     pub async fn remove_verifier(&mut self, index: usize) -> eyre::Result<()> {
         if index == 0 {
             // can't remove the first verifier as first verifier is used by aggregator

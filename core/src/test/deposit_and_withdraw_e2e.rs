@@ -58,7 +58,7 @@ use tonic::Request;
 
 #[derive(PartialEq)]
 pub enum CitreaDepositAndWithdrawE2EVariant {
-    //GenesisHeightZero,
+    GenesisHeightZero,
     GenesisHeightNonZero,
 }
 
@@ -472,6 +472,21 @@ async fn citrea_deposit_and_withdraw_e2e_non_zero_genesis_height() -> citrea_e2e
     );
     let citrea_e2e = CitreaDepositAndWithdrawE2E {
         variant: CitreaDepositAndWithdrawE2EVariant::GenesisHeightNonZero,
+    };
+    TestCaseRunner::new(citrea_e2e).run().await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "Ignored, currently no specific reason to test with genesis height zero"]
+async fn citrea_deposit_and_withdraw_e2e() -> citrea_e2e::Result<()> {
+    initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
+        .expect("Failed to initialize logger");
+    std::env::set_var(
+        "CITREA_DOCKER_IMAGE",
+        "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
+    );
+    let citrea_e2e = CitreaDepositAndWithdrawE2E {
+        variant: CitreaDepositAndWithdrawE2EVariant::GenesisHeightZero,
     };
     TestCaseRunner::new(citrea_e2e).run().await
 }
