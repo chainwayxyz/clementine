@@ -20,7 +20,7 @@ use eyre::Result;
 use risc0_zkvm::Receipt;
 use std::ops::{Deref, DerefMut};
 
-use crate::utils::get_ark_verifying_key;
+use crate::utils::get_ark_verifying_key_prod;
 use thiserror::Error;
 
 const OP_RETURN_OUTPUT: usize = 1;
@@ -639,7 +639,7 @@ impl BridgeCircuitBitvmInputs {
         let public_input_scalar =
             ark_bn254::Fr::from_be_bytes_mod_order(&public_output_bytes[0..31]);
 
-        let ark_vk = get_ark_verifying_key();
+        let ark_vk = get_ark_verifying_key_prod();
         let ark_pvk = ark_groth16::prepare_verifying_key(&ark_vk);
 
         ark_groth16::Groth16::<ark_bn254::Bn254>::verify_proof(
