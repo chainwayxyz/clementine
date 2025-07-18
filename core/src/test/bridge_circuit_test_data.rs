@@ -24,6 +24,10 @@ use citrea_e2e::{
 
 #[derive(PartialEq)]
 pub enum BridgeCircuitTestDataVariant {
+    WithAnnex,
+    LargeInput,
+    LargeOutput,
+    LargeInputAndOutput,
     InsufficientTotalWork,
     Valid,
     FirstTwoValid,
@@ -42,6 +46,7 @@ impl TestCase for BridgeCircuitTestData {
                 "-fallbackfee=0.000001",
                 "-rpcallowip=0.0.0.0/0",
                 "-dustrelayfee=0",
+                "-acceptnonstdtxn=1",
             ],
             ..Default::default()
         }
@@ -103,6 +108,18 @@ impl TestCase for BridgeCircuitTestData {
             }
             BridgeCircuitTestDataVariant::Valid => {
                 config.test_params.generate_varying_total_works = true;
+            }
+            BridgeCircuitTestDataVariant::WithAnnex => {
+                config.test_params.use_small_annex = true;
+            }
+            BridgeCircuitTestDataVariant::LargeInput => {
+                config.test_params.use_large_annex = true;
+            }
+            BridgeCircuitTestDataVariant::LargeOutput => {
+                config.test_params.use_large_output = true;
+            }
+            BridgeCircuitTestDataVariant::LargeInputAndOutput => {
+                config.test_params.use_large_annex_and_output = true;
             }
             BridgeCircuitTestDataVariant::FirstTwoValid => {
                 config
@@ -189,8 +206,6 @@ async fn bridge_circuit_test_data_insuff_total_work_diverse_hcp_lens() -> Result
 #[tokio::test]
 #[ignore = "Only run this test manually, it's for data generation purposes"]
 async fn bridge_circuit_test_data_diverse_hcp_lens_first_two_valid() -> Result<()> {
-    initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
-        .expect("Failed to initialize logger");
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
         "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
@@ -201,4 +216,66 @@ async fn bridge_circuit_test_data_diverse_hcp_lens_first_two_valid() -> Result<(
     };
 
     TestCaseRunner::new(bridge_circuit_test_data).run().await
+}
+
+#[tokio::test]
+#[ignore = "Only run this test manually, it's for data generation purposes"]
+async fn challenge_tx_with_annex() -> Result<()> {
+    initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
+        .expect("Failed to initialize logger");
+    std::env::set_var(
+        "CITREA_DOCKER_IMAGE",
+        "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
+    );
+    let watchtower_challenge_tx_variant = BridgeCircuitTestData {
+        variant: BridgeCircuitTestDataVariant::WithAnnex,
+    };
+    TestCaseRunner::new(watchtower_challenge_tx_variant)
+        .run()
+        .await
+}
+
+#[tokio::test]
+#[ignore = "Only run this test manually, it's for data generation purposes"]
+async fn challenge_tx_with_large_input() -> Result<()> {
+    std::env::set_var(
+        "CITREA_DOCKER_IMAGE",
+        "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
+    );
+    let watchtower_challenge_tx_variant = BridgeCircuitTestData {
+        variant: BridgeCircuitTestDataVariant::LargeInput,
+    };
+    TestCaseRunner::new(watchtower_challenge_tx_variant)
+        .run()
+        .await
+}
+
+#[tokio::test]
+#[ignore = "Only run this test manually, it's for data generation purposes"]
+async fn challenge_tx_with_large_output() -> Result<()> {
+    std::env::set_var(
+        "CITREA_DOCKER_IMAGE",
+        "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
+    );
+    let watchtower_challenge_tx_variant = BridgeCircuitTestData {
+        variant: BridgeCircuitTestDataVariant::LargeOutput,
+    };
+    TestCaseRunner::new(watchtower_challenge_tx_variant)
+        .run()
+        .await
+}
+
+#[tokio::test]
+#[ignore = "Only run this test manually, it's for data generation purposes"]
+async fn challenge_tx_with_both_large_input_and_output() -> Result<()> {
+    std::env::set_var(
+        "CITREA_DOCKER_IMAGE",
+        "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
+    );
+    let watchtower_challenge_tx_variant = BridgeCircuitTestData {
+        variant: BridgeCircuitTestDataVariant::LargeInputAndOutput,
+    };
+    TestCaseRunner::new(watchtower_challenge_tx_variant)
+        .run()
+        .await
 }

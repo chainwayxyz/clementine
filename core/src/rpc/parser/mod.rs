@@ -132,6 +132,8 @@ impl TryFrom<RbfSigningInfoRpc> for RbfSigningInfo {
             vout: value.vout,
             #[cfg(test)]
             annex: None,
+            #[cfg(test)]
+            additional_taproot_output_count: None,
         })
     }
 }

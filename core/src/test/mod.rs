@@ -29,9 +29,6 @@ mod additional_disprove_scripts;
 mod bitvm_disprove_scripts;
 
 #[cfg(all(feature = "automation", feature = "integration-tests"))]
-mod watchtower_challenge;
-
-#[cfg(all(feature = "automation", feature = "integration-tests"))]
 mod bridge_circuit_test_data;
 
 #[cfg(feature = "integration-tests")]
