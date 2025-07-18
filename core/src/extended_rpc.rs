@@ -40,6 +40,12 @@ use crate::deposit::OperatorData;
 use crate::errors::BridgeError;
 use crate::operator::RoundIndex;
 
+#[cfg(test)]
+use crate::{
+    citrea::CitreaClientT,
+    test::common::{are_all_state_managers_synced, test_actors::TestActors},
+};
+
 type Result<T> = std::result::Result<T, BitcoinRPCError>;
 
 /// Bitcoin RPC wrapper. Extended RPC provides useful wrapper functions for
@@ -547,6 +553,26 @@ impl ExtendedRpc {
         }
 
         unreachable!()
+    }
+
+    /// A helper fn to safely mine blocks while waiting for all actors to be synced
+    #[cfg(test)]
+    pub async fn mine_blocks_while_synced<C: CitreaClientT>(
+        &self,
+        block_num: u64,
+        actors: &TestActors<C>,
+    ) -> Result<Vec<BlockHash>> {
+        let mut mined_blocks = Vec::new();
+        while mined_blocks.len() < block_num as usize {
+            if !are_all_state_managers_synced(self, actors).await? {
+                // wait until they are synced
+                tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                continue;
+            }
+            let new_blocks = self.mine_blocks(1).await?;
+            mined_blocks.extend(new_blocks);
+        }
+        Ok(mined_blocks)
     }
 
     /// Internal helper that performs the actual block mining logic.

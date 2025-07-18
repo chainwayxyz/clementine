@@ -525,7 +525,8 @@ pub fn combine_emergency_stop_txhandler(
 pub fn create_replacement_deposit_txhandler(
     old_move_txid: Txid,
     input_outpoint: OutPoint,
-    nofn_xonly_pk: XOnlyPublicKey,
+    old_nofn_xonly_pk: XOnlyPublicKey,
+    new_nofn_xonly_pk: XOnlyPublicKey,
     paramset: &'static ProtocolParamset,
     security_council: SecurityCouncil,
 ) -> Result<TxHandler, BridgeError> {
@@ -537,7 +538,7 @@ pub fn create_replacement_deposit_txhandler(
                 input_outpoint,
                 paramset.bridge_amount,
                 vec![
-                    Arc::new(CheckSig::new(nofn_xonly_pk)),
+                    Arc::new(CheckSig::new(old_nofn_xonly_pk)),
                     Arc::new(Multisig::from_security_council(security_council.clone())),
                 ],
                 None,
@@ -549,7 +550,10 @@ pub fn create_replacement_deposit_txhandler(
         .add_output(UnspentTxOut::from_scripts(
             paramset.bridge_amount,
             vec![
-                Arc::new(ReplacementDepositScript::new(nofn_xonly_pk, old_move_txid)),
+                Arc::new(ReplacementDepositScript::new(
+                    new_nofn_xonly_pk,
+                    old_move_txid,
+                )),
                 Arc::new(Multisig::from_security_council(security_council)),
             ],
             None,
