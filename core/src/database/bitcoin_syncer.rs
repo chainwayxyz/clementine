@@ -323,22 +323,23 @@ impl Database {
         Ok(())
     }
 
-    /// Gets a bitcoin syncer event from the database, given the event id
+    /// Gets the block id belonging to the event from the database, given the event id
     /// event id is the serial key of the bitcoin_syncer_events table
-    pub async fn get_event(
+    pub async fn get_block_id_from_event_id(
         &self,
         tx: DatabaseTransaction<'_, '_>,
         event_id: i32,
-    ) -> Result<Option<BitcoinSyncerEvent>, BridgeError> {
-        let event = sqlx::query_as::<_, (String, i32)>(
-            "SELECT event_type::text, block_id FROM bitcoin_syncer_events WHERE id = $1",
-        )
-        .bind(event_id)
-        .fetch_optional(tx.deref_mut())
-        .await?;
+    ) -> Result<Option<u32>, BridgeError> {
+        let event =
+            sqlx::query_as::<_, (i32,)>("SELECT block_id FROM bitcoin_syncer_events WHERE id = $1")
+                .bind(event_id)
+                .fetch_optional(tx.deref_mut())
+                .await?;
 
         match event {
-            Some(event) => Ok(Some(event.try_into()?)),
+            Some((block_id,)) => Ok(Some(
+                u32::try_from(block_id).wrap_err(BridgeError::IntConversionError)?,
+            )),
             None => Ok(None),
         }
     }
@@ -353,11 +354,9 @@ impl Database {
         let event_id = self
             .get_last_processed_event_id(tx, consumer_handle)
             .await?;
-        let event = self.get_event(tx, event_id).await?;
-        let block_id = match event {
-            Some(BitcoinSyncerEvent::NewBlock(id)) | Some(BitcoinSyncerEvent::ReorgedBlock(id)) => {
-                id
-            }
+        let block_id = self.get_block_id_from_event_id(tx, event_id).await?;
+        let block_id = match block_id {
+            Some(block_id) => block_id,
             None => return Ok(None),
         };
         let block_info = self.get_block_info_from_id(Some(tx), block_id).await?;
