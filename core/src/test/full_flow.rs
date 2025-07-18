@@ -1,35 +1,32 @@
-use super::common::{create_actors, create_test_config_with_thread_name, tx_utils::*};
+//! # Flow Tests
+//!
+//! This module contains tests that simulate typical flows of Clementine.
+
+use super::common::{create_test_config_with_thread_name, tx_utils::*};
 use crate::actor::Actor;
-use crate::bitvm_client::{self};
-use crate::builder::transaction::input::UtxoVout;
 use crate::builder::transaction::sign::get_kickoff_utxos_to_sign;
 use crate::builder::transaction::TransactionType as TxType;
 use crate::config::protocol::BLOCKS_PER_HOUR;
 use crate::config::BridgeConfig;
 use crate::database::Database;
-use crate::deposit::{BaseDepositData, DepositInfo, DepositType, KickoffData};
+use crate::deposit::{DepositInfo, KickoffData};
 use crate::extended_rpc::ExtendedRpc;
 use crate::operator::RoundIndex;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
-use crate::rpc::clementine::SendMoveTxRequest;
-use crate::rpc::clementine::{
-    Deposit, Empty, FinalizedPayoutParams, SignedTxsWithType, TransactionRequest,
-};
+use crate::rpc::clementine::{Empty, FinalizedPayoutParams, SignedTxsWithType, TransactionRequest};
 use crate::test::common::citrea::MockCitreaClient;
 use crate::test::common::*;
 use crate::tx_sender::TxSenderClient;
 use crate::utils::RbfSigningInfo;
-use crate::EVMAddress;
 use bitcoin::hashes::Hash;
-use bitcoin::secp256k1::PublicKey;
-use bitcoin::{OutPoint, Transaction, Txid, XOnlyPublicKey};
-use bitcoincore_rpc::RpcApi;
+use bitcoin::{OutPoint, Txid, XOnlyPublicKey};
 use eyre::{Context, Result};
 use tonic::Request;
 
 const BLOCKS_PER_DAY: u64 = 144;
 
+/// Makes a deposit and returns the necessary clients and parameters for further testing.
 async fn base_setup(
     config: &mut BridgeConfig,
     rpc: &ExtendedRpc,
@@ -47,17 +44,17 @@ async fn base_setup(
     ),
     eyre::Error,
 > {
-    tracing::info!("Setting up environment and actors");
-    let (verifiers, mut operators, mut aggregator, cleanup) =
-        create_actors::<MockCitreaClient>(config).await;
-
-    tracing::info!("Setting up aggregator");
-    let verifiers_public_keys: Vec<PublicKey> = aggregator
-        .setup(Request::new(Empty {}))
-        .await?
-        .into_inner()
-        .try_into()
-        .unwrap();
+    let (
+        verifiers,
+        mut operators,
+        mut _aggregator,
+        cleanup,
+        deposit_info,
+        _move_txid,
+        deposit_blockhash,
+        _verifiers_public_keys,
+    ) = run_single_deposit::<MockCitreaClient>(config, rpc.clone(), None, None).await?;
+    let deposit_outpoint = deposit_info.deposit_outpoint;
 
     let mut tx_senders = Vec::new();
     for i in 0..verifiers.len() {
@@ -69,57 +66,11 @@ async fn base_setup(
         let tx_sender_db = Database::new(&verifier_config)
             .await
             .expect("failed to create database");
+
         let tx_sender = TxSenderClient::new(tx_sender_db.clone(), format!("full_flow_{}", i));
         tx_senders.push(tx_sender);
     }
-    let evm_address = EVMAddress([1u8; 20]);
-    let (deposit_address, _) =
-        get_deposit_address(config, evm_address, verifiers_public_keys.clone())?;
-    tracing::info!("Generated deposit address: {}", deposit_address);
-    let recovery_taproot_address = Actor::new(
-        config.secret_key,
-        config.winternitz_secret_key,
-        config.protocol_paramset().network,
-    )
-    .address;
-    let withdrawal_amount = config.protocol_paramset().bridge_amount.to_sat()
-        - (2 * config
-            .operator_withdrawal_fee_sats
-            .expect("exists in test config")
-            .to_sat());
-    tracing::info!("Withdrawal amount set to: {} sats", withdrawal_amount);
-    tracing::info!("Making deposit transaction");
-    let deposit_outpoint = rpc
-        .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
-        .await?;
-    rpc.mine_blocks(18).await?;
-    tracing::info!("Deposit transaction mined: {}", deposit_outpoint);
 
-    let deposit_info = DepositInfo {
-        deposit_outpoint: deposit_outpoint.clone(),
-        deposit_type: DepositType::BaseDeposit(BaseDepositData {
-            evm_address,
-            recovery_taproot_address: recovery_taproot_address.as_unchecked().to_owned(),
-        }),
-    };
-
-    let dep_params: Deposit = deposit_info.clone().into();
-
-    tracing::info!("Creating move transaction");
-    let raw_move_tx = aggregator.new_deposit(dep_params).await?.into_inner();
-
-    let move_txid: Txid = aggregator
-        .send_move_to_vault_tx(Request::new(SendMoveTxRequest {
-            raw_tx: Some(raw_move_tx),
-            deposit_outpoint: Some(deposit_outpoint.into()),
-        }))
-        .await?
-        .into_inner()
-        .try_into()
-        .unwrap();
-
-    ensure_tx_onchain(rpc, move_txid).await?;
-    tracing::info!("Move transaction sent: {:x?}", move_txid);
     let op0_xonly_pk = Actor::new(
         config
             .test_params
@@ -131,7 +82,6 @@ async fn base_setup(
         config.protocol_paramset().network,
     )
     .xonly_public_key;
-    let deposit_blockhash = rpc.get_blockhash_of_tx(&deposit_outpoint.txid).await?;
     let kickoff_idx = get_kickoff_utxos_to_sign(
         config.protocol_paramset(),
         op0_xonly_pk,
@@ -153,6 +103,7 @@ async fn base_setup(
         .internal_create_signed_txs(base_tx_req.clone())
         .await?
         .into_inner();
+
     Ok((
         operators,
         verifiers,
@@ -167,72 +118,21 @@ async fn base_setup(
 }
 
 pub async fn run_operator_end_round(
-    config: BridgeConfig,
+    config: &mut BridgeConfig,
     rpc: ExtendedRpc,
     is_challenge: bool,
 ) -> Result<()> {
-    // Setup environment and actors
-    tracing::info!("Setting up environment and actors");
-    let (mut verifiers, mut operators, mut aggregator, _cleanup) =
-        create_actors::<MockCitreaClient>(&config).await;
-
-    // Setup Aggregator
-    tracing::info!("Setting up aggregator");
-    let verifiers_public_keys: Vec<PublicKey> = aggregator
-        .setup(Request::new(Empty {}))
-        .await?
-        .into_inner()
-        .try_into()
-        .unwrap();
-
-    let evm_address = EVMAddress([1u8; 20]);
-    let (deposit_address, _) =
-        get_deposit_address(&config, evm_address, verifiers_public_keys.clone())?;
-    tracing::info!("Generated deposit address: {}", deposit_address);
-
-    let recovery_taproot_address = Actor::new(
-        config.secret_key,
-        config.winternitz_secret_key,
-        config.protocol_paramset().network,
-    )
-    .address;
-
-    // Make Deposit
-    tracing::info!("Making deposit transaction");
-    let deposit_outpoint = rpc
-        .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
-        .await?;
-    rpc.mine_blocks(18).await?;
-    tracing::info!("Deposit transaction mined: {}", deposit_outpoint);
-
-    let deposit_info = DepositInfo {
-        deposit_outpoint: deposit_outpoint.clone(),
-        deposit_type: DepositType::BaseDeposit(BaseDepositData {
-            evm_address,
-            recovery_taproot_address: recovery_taproot_address.as_unchecked().to_owned(),
-        }),
-    };
-
-    let dep_params: Deposit = deposit_info.into();
-
-    tracing::info!("Creating move transaction");
-    let raw_move_tx = aggregator.new_deposit(dep_params).await?.into_inner();
-    let move_txid = aggregator
-        .send_move_to_vault_tx(SendMoveTxRequest {
-            deposit_outpoint: Some(deposit_outpoint.into()),
-            raw_tx: Some(raw_move_tx),
-        })
-        .await?
-        .into_inner()
-        .try_into()
-        .unwrap();
-
-    tracing::info!(
-        "Move transaction sent, waiting for on-chain confirmation: {:x?}",
-        move_txid
-    );
-
-    ensure_tx_onchain(&rpc, move_txid).await?;
+    let (
+        mut verifiers,
+        mut operators,
+        mut _aggregator,
+        _cleanup,
+        deposit_info,
+        move_txid,
+        _deposit_blockhash,
+        _verifiers_public_keys,
+    ) = run_single_deposit::<MockCitreaClient>(config, rpc.clone(), None, None).await?;
+    let deposit_outpoint = deposit_info.deposit_outpoint;
 
     let kickoff_txid = operators[0]
         .internal_finalized_payout(FinalizedPayoutParams {
@@ -269,6 +169,7 @@ pub async fn run_operator_end_round(
         }
     };
     ensure_outpoint_spent(&rpc, wait_to_be_spent).await?;
+
     Ok(())
 }
 
@@ -917,7 +818,9 @@ mod tests {
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
 
-        run_operator_end_round(config, rpc, false).await.unwrap();
+        run_operator_end_round(&mut config, rpc, false)
+            .await
+            .unwrap();
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -927,7 +830,9 @@ mod tests {
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
 
-        run_operator_end_round(config, rpc, true).await.unwrap();
+        run_operator_end_round(&mut config, rpc, true)
+            .await
+            .unwrap();
     }
 
     #[tokio::test(flavor = "multi_thread")]

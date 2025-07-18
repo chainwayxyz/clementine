@@ -11,14 +11,15 @@
 //! described in `BridgeConfig` struct.
 
 use crate::bitvm_client::UNSPENDABLE_XONLY_PUBKEY;
+use crate::config::env::{read_string_from_env, read_string_from_env_then_parse};
 use crate::deposit::SecurityCouncil;
 use crate::errors::BridgeError;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::secp256k1::SecretKey;
 use bitcoin::{Address, Amount, OutPoint};
 use protocol::ProtocolParamset;
-use secrecy::{ExposeSecret, SecretString};
-use serde::{Deserialize, Serialize};
+use secrecy::SecretString;
+use serde::Deserialize;
 use std::str::FromStr;
 use std::{fs::File, io::Read, path::PathBuf};
 
@@ -127,6 +128,9 @@ pub struct BridgeConfig {
     /// Aggregator's client cert should be equal to the this certificate.
     pub aggregator_cert_path: PathBuf,
 
+    /// Telemetry configuration
+    pub telemetry: Option<TelemetryConfig>,
+
     #[cfg(test)]
     #[serde(skip)]
     pub test_params: test::TestParams,
@@ -177,7 +181,9 @@ impl BridgeConfig {
 #[cfg(test)]
 impl PartialEq for BridgeConfig {
     fn eq(&self, other: &Self) -> bool {
-        let mut all_eq = self.protocol_paramset == other.protocol_paramset
+        use secrecy::ExposeSecret;
+
+        let all_eq = self.protocol_paramset == other.protocol_paramset
             && self.host == other.host
             && self.port == other.port
             && self.secret_key == other.secret_key
@@ -272,9 +278,34 @@ impl Default for BridgeConfig {
             aggregator_cert_path: PathBuf::from("certs/aggregator/aggregator.pem"),
             client_verification: true,
 
+            telemetry: Some(TelemetryConfig::default()),
+
             #[cfg(test)]
             test_params: test::TestParams::default(),
         }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct TelemetryConfig {
+    pub host: String,
+    pub port: u16,
+}
+
+impl Default for TelemetryConfig {
+    fn default() -> Self {
+        Self {
+            host: "0.0.0.0".to_string(),
+            port: 8081,
+        }
+    }
+}
+
+impl TelemetryConfig {
+    pub fn from_env() -> Result<Self, BridgeError> {
+        let host = read_string_from_env("TELEMETRY_HOST")?;
+        let port = read_string_from_env_then_parse::<u16>("TELEMETRY_PORT")?;
+        Ok(Self { host, port })
     }
 }
 

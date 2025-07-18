@@ -143,7 +143,7 @@ pub fn extract_winternitz_commits_with_sigs(
 /// generates the witness for the script using various arguments. A `dyn SpendableScript` is cast into a concrete [`ScriptKind`] to
 /// generate a witness, the trait object can be used to generate the script_buf.
 ///
-/// We store [`Arc<dyn SpendableScript>`]s inside a [`super::transaction::TxHandler`] input, and we cast them into a [`ScriptKind`] when signing.
+/// We store `Arc<dyn SpendableScript>`s inside a [`super::transaction::TxHandler`] input, and we cast them into a [`ScriptKind`] when signing.
 ///
 /// When creating a new Script, make sure you add it to the [`ScriptKind`] enum and add a test for it below.
 /// Otherwise, it will not be spendable.

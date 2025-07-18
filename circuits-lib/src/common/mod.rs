@@ -20,7 +20,6 @@ pub const NETWORK_TYPE: &str = {
     }
 };
 
-// Then your function becomes simpler
 pub const fn get_network() -> &'static str {
     NETWORK_TYPE
 }

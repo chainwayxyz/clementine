@@ -2,11 +2,9 @@ use super::clementine::clementine_operator_server::ClementineOperator;
 use super::clementine::{
     self, ChallengeAckDigest, DepositParams, DepositSignSession, Empty, FinalizedPayoutParams,
     OperatorKeys, OperatorParams, SchnorrSig, SignedTxWithType, SignedTxsWithType,
-    TransactionRequest, VergenResponse, WithdrawParams, WithdrawResponse,
-    WithdrawalFinalizedParams, XOnlyPublicKeyRpc,
+    TransactionRequest, VergenResponse, WithdrawParams, XOnlyPublicKeyRpc,
 };
 use super::error::*;
-use super::parser::ParserError;
 use crate::bitvm_client::ClementineBitVMPublicKeys;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::citrea::CitreaClientT;
@@ -33,6 +31,24 @@ where
 
     async fn vergen(&self, _request: Request<Empty>) -> Result<Response<VergenResponse>, Status> {
         Ok(Response::new(get_vergen_response()))
+    }
+
+    async fn restart_background_tasks(
+        &self,
+        _request: tonic::Request<super::Empty>,
+    ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status> {
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(60),
+            self.start_background_tasks(),
+        )
+        .await;
+        match result {
+            Ok(Ok(_)) => Ok(tonic::Response::new(super::Empty {})),
+            Ok(Err(e)) => Err(e.into()),
+            Err(_) => Err(tonic::Status::deadline_exceeded(
+                "Timed out while restarting background tasks. Recommended to restart the operator manually.",
+            )),
+        }
     }
 
     #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
@@ -119,47 +135,32 @@ where
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    async fn withdraw(
-        &self,
-        request: Request<WithdrawParams>,
-    ) -> Result<Response<WithdrawResponse>, Status> {
+    async fn withdraw(&self, request: Request<WithdrawParams>) -> Result<Response<Empty>, Status> {
         let (withdrawal_id, input_signature, input_outpoint, output_script_pubkey, output_amount) =
             parser::operator::parse_withdrawal_sig_params(request.into_inner()).await?;
 
-        let withdrawal_txid = self
-            .operator
-            .withdraw(
-                withdrawal_id,
-                input_signature,
-                input_outpoint,
-                output_script_pubkey,
-                output_amount,
-            )
-            .await?;
+        // try to fulfill withdrawal only if automation is enabled
+        #[cfg(feature = "automation")]
+        {
+            self.operator
+                .withdraw(
+                    withdrawal_id,
+                    input_signature,
+                    input_outpoint,
+                    output_script_pubkey,
+                    output_amount,
+                )
+                .await?;
 
-        Ok(Response::new(WithdrawResponse {
-            txid: Some(withdrawal_txid.into()),
-        }))
-    }
+            Ok(Response::new(Empty {}))
+        }
 
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    async fn withdrawal_finalized(
-        &self,
-        request: Request<WithdrawalFinalizedParams>,
-    ) -> Result<Response<Empty>, Status> {
-        // Decode inputs.
-        let _withdrawal_idx: u32 = request.get_ref().withdrawal_id;
-        let _deposit_outpoint: OutPoint = request
-            .get_ref()
-            .deposit_outpoint
-            .clone()
-            .ok_or(ParserError::RPCRequiredParam("deposit_outpoint"))?
-            .try_into()?;
-
-        // self.operator.withdrawal_proved_on_citrea(withdrawal_idx, deposit_outpoint)
-        //     .await?; // TODO: Reuse this in the new design.
-
-        Ok(Response::new(Empty {}))
+        #[cfg(not(feature = "automation"))]
+        {
+            return Err(Status::unavailable(
+                "Automation is not enabled. Operator will not fulfill withdrawals.",
+            ));
+        }
     }
 
     #[tracing::instrument(skip(self, request), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
@@ -321,5 +322,13 @@ where
         Ok(Response::new(XOnlyPublicKeyRpc {
             xonly_public_key: xonly_pk.to_vec(),
         }))
+    }
+
+    async fn get_current_status(
+        &self,
+        _request: Request<Empty>,
+    ) -> Result<Response<clementine::EntityStatus>, Status> {
+        let status = self.get_current_status().await?;
+        Ok(Response::new(status))
     }
 }

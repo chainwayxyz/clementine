@@ -113,8 +113,6 @@ pub struct ProtocolParamset {
     pub watchtower_challenge_timeout_timelock: u16,
     /// Time to wait after a kickoff to send a watchtower challenge
     pub time_to_send_watchtower_challenge: u16,
-    /// Time to wait before trying to disprove (so that you collect all operator challenge acks before disproving)
-    pub time_to_disprove: u16,
     /// Amount of depth a block should have from the current head to be considered finalized
     pub finality_depth: u32,
     /// start height to sync the chain from, i.e. the height bridge was deployed
@@ -125,9 +123,7 @@ pub struct ProtocolParamset {
     pub genesis_chain_state_hash: [u8; 32],
     /// Batch size of the header chain proofs
     pub header_chain_proof_batch_size: u32,
-    /// Bridge circuit method id
-    pub bridge_circuit_method_id_constant: [u8; 32],
-    /// Denotes if the bridge is non-standard, i.e. uses 0 sat outputs
+    /// Denotes if the bridge is non-standard, i.e. uses 0 sat outputs for round tx (except collateral) and kickoff outputs
     pub bridge_nonstandard: bool,
 }
 
@@ -188,7 +184,6 @@ impl ProtocolParamset {
             time_to_send_watchtower_challenge: read_string_from_env_then_parse::<u16>(
                 "TIME_TO_SEND_WATCHTOWER_CHALLENGE",
             )?,
-            time_to_disprove: read_string_from_env_then_parse::<u16>("TIME_TO_DISPROVE")?,
             finality_depth: read_string_from_env_then_parse::<u32>("FINALITY_DEPTH")?,
             start_height: read_string_from_env_then_parse::<u32>("START_HEIGHT")?,
             genesis_height: read_string_from_env_then_parse::<u32>("GENESIS_HEIGHT")?,
@@ -200,9 +195,6 @@ impl ProtocolParamset {
             )?,
             latest_blockhash_timeout_timelock: read_string_from_env_then_parse::<u16>(
                 "LATEST_BLOCKHASH_TIMEOUT_TIMELOCK",
-            )?,
-            bridge_circuit_method_id_constant: convert_hex_string_to_bytes(
-                &read_string_from_env_then_parse::<String>("BRIDGE_CIRCUIT_METHOD_ID_CONSTANT")?,
             )?,
             bridge_nonstandard: read_string_from_env_then_parse::<bool>("BRIDGE_NONSTANDARD")?,
         };
@@ -223,6 +215,22 @@ impl ProtocolParamset {
             Amount::from_sat(0)
         } else {
             NON_EPHEMERAL_ANCHOR_AMOUNT
+        }
+    }
+
+    pub fn bridge_circuit_constant(&self) -> Result<&[u8; 32], BridgeError> {
+        match self.network {
+            Network::Regtest => {
+                if cfg!(test) {
+                    Ok(&REGTEST_TEST_BRIDGE_CIRCUIT_CONSTANT)
+                } else {
+                    Ok(&REGTEST_BRIDGE_CIRCUIT_CONSTANT)
+                }
+            }
+            Network::Bitcoin => Ok(&MAINNET_BRIDGE_CIRCUIT_CONSTANT),
+            Network::Testnet4 => Ok(&TESTNET4_BRIDGE_CIRCUIT_CONSTANT),
+            Network::Signet => Ok(&SIGNET_BRIDGE_CIRCUIT_CONSTANT),
+            _ => Err(BridgeError::UnsupportedNetwork),
         }
     }
 }
@@ -253,7 +261,7 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     num_kickoffs_per_round: 10,
     num_signed_kickoffs: 2,
     bridge_amount: Amount::from_sat(1_000_000_000),
-    kickoff_amount: Amount::from_sat(55000),
+    kickoff_amount: Amount::from_sat(0),
     operator_challenge_amount: Amount::from_sat(200_000_000),
     collateral_funding_amount: Amount::from_sat(99_000_000),
     watchtower_challenge_bytes: 144,
@@ -267,7 +275,6 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     operator_reimburse_timelock: 2,
     watchtower_challenge_timeout_timelock: 4 * BLOCKS_PER_HOUR * 2,
     time_to_send_watchtower_challenge: 4 * BLOCKS_PER_HOUR * 3 / 2,
-    time_to_disprove: 4 * BLOCKS_PER_HOUR * 4 + 4 * BLOCKS_PER_HOUR / 2,
     latest_blockhash_timeout_timelock: 4 * BLOCKS_PER_HOUR * 5 / 2,
     finality_depth: 1,
     start_height: 190,
@@ -277,9 +284,218 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
         134, 20, 132, 171, 180, 175, 95, 126, 69, 127, 140, 34, 22,
     ],
     header_chain_proof_batch_size: 100,
-    bridge_circuit_method_id_constant: [
-        135, 127, 96, 197, 209, 59, 13, 243, 184, 10, 25, 163, 197, 237, 43, 164, 90, 184, 43, 190,
-        122, 88, 234, 82, 78, 92, 249, 255, 206, 153, 87, 255,
-    ],
-    bridge_nonstandard: false,
+    bridge_nonstandard: true,
 };
+
+pub const REGTEST_TEST_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [
+    219, 251, 51, 159, 112, 157, 75, 66, 39, 168, 176, 247, 89, 178, 95, 0, 254, 169, 220, 148,
+    209, 154, 92, 235, 132, 33, 130, 165, 37, 29, 226, 63,
+];
+
+pub const REGTEST_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [
+    215, 192, 189, 101, 34, 211, 5, 70, 28, 245, 30, 168, 33, 101, 74, 31, 99, 15, 60, 187, 94,
+    121, 74, 93, 140, 104, 85, 123, 240, 233, 233, 201,
+];
+
+pub const SIGNET_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [
+    62, 211, 172, 53, 221, 180, 96, 56, 11, 87, 120, 216, 133, 156, 157, 123, 223, 140, 86, 106,
+    35, 179, 185, 153, 37, 84, 39, 211, 231, 88, 243, 145,
+];
+pub const MAINNET_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [
+    137, 221, 135, 243, 34, 9, 163, 29, 202, 65, 4, 189, 32, 43, 49, 230, 85, 52, 44, 52, 156, 116,
+    116, 150, 12, 126, 105, 190, 135, 253, 236, 242,
+];
+pub const TESTNET4_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [
+    16, 76, 236, 172, 244, 249, 118, 176, 92, 119, 119, 250, 119, 206, 7, 219, 44, 182, 146, 99,
+    83, 199, 205, 22, 146, 167, 190, 221, 118, 177, 191, 15,
+];
+
+#[cfg(test)]
+mod tests {
+    use bridge_circuit_host::{
+        bridge_circuit_host::{
+            MAINNET_BRIDGE_CIRCUIT_ELF, REGTEST_BRIDGE_CIRCUIT_ELF, SIGNET_BRIDGE_CIRCUIT_ELF,
+            TESTNET4_BRIDGE_CIRCUIT_ELF,
+        },
+        utils::calculate_succinct_output_prefix,
+    };
+    use circuits_lib::{
+        bridge_circuit::constants::{
+            MAINNET_WORK_ONLY_METHOD_ID, REGTEST_WORK_ONLY_METHOD_ID, SIGNET_WORK_ONLY_METHOD_ID,
+            TESTNET4_WORK_ONLY_METHOD_ID,
+        },
+        common::constants::{
+            MAINNET_HEADER_CHAIN_METHOD_ID, REGTEST_HEADER_CHAIN_METHOD_ID,
+            SIGNET_HEADER_CHAIN_METHOD_ID, TESTNET4_HEADER_CHAIN_METHOD_ID,
+        },
+    };
+    use risc0_zkvm::compute_image_id;
+
+    use bridge_circuit_host::bridge_circuit_host::{
+        MAINNET_HEADER_CHAIN_ELF, MAINNET_WORK_ONLY_ELF, REGTEST_HEADER_CHAIN_ELF,
+        REGTEST_WORK_ONLY_ELF, SIGNET_HEADER_CHAIN_ELF, SIGNET_WORK_ONLY_ELF,
+        TESTNET4_HEADER_CHAIN_ELF, TESTNET4_WORK_ONLY_ELF,
+    };
+
+    use super::*;
+
+    #[test]
+    fn test_regtest_test_bridge_circuit_constant() {
+        let regtest_bridge_elf =
+            include_bytes!("../../../risc0-circuits/elfs/test-regtest-bridge-circuit-guest.bin");
+        let regtest_bridge_circuit_method_id =
+            compute_image_id(regtest_bridge_elf).expect("should compute image id");
+        let calculated_regtest_bridge_circuit_constant =
+            calculate_succinct_output_prefix(regtest_bridge_circuit_method_id.as_bytes());
+
+        let regtest_bridge_circuit_constant = REGTEST_TEST_BRIDGE_CIRCUIT_CONSTANT;
+        assert_eq!(
+            calculated_regtest_bridge_circuit_constant,
+            regtest_bridge_circuit_constant,
+            "You forgot to update regtest-(test) bridge_circuit_constant with the new method id. Please change it in these places: core/src/config/protocol.rs. The expected value is: {:?}, hex format: {:?}",
+            calculated_regtest_bridge_circuit_constant,
+            hex::encode(calculated_regtest_bridge_circuit_constant)
+        );
+    }
+
+    #[test]
+    fn test_regtest_bridge_circuit_constant() {
+        let regtest_bridge_elf = REGTEST_BRIDGE_CIRCUIT_ELF;
+        let regtest_bridge_circuit_method_id =
+            compute_image_id(regtest_bridge_elf).expect("should compute image id");
+        let calculated_regtest_bridge_circuit_constant =
+            calculate_succinct_output_prefix(regtest_bridge_circuit_method_id.as_bytes());
+
+        let regtest_bridge_circuit_constant = REGTEST_BRIDGE_CIRCUIT_CONSTANT;
+        assert_eq!(
+            calculated_regtest_bridge_circuit_constant,
+            regtest_bridge_circuit_constant,
+            "You forgot to update regtest bridge_circuit_constant with the new method id. Please change it in these places: core/src/config/protocol.rs. The expected value is: {:?}, hex format: {:?}",
+            calculated_regtest_bridge_circuit_constant,
+            hex::encode(calculated_regtest_bridge_circuit_constant)
+        );
+    }
+
+    #[test]
+    fn test_mainnet_bridge_circuit_constant() {
+        let mainnet_bridge_elf = MAINNET_BRIDGE_CIRCUIT_ELF;
+        let mainnet_bridge_circuit_method_id =
+            compute_image_id(mainnet_bridge_elf).expect("should compute image id");
+        let calculated_mainnet_bridge_circuit_constant =
+            calculate_succinct_output_prefix(mainnet_bridge_circuit_method_id.as_bytes());
+
+        let mainnet_bridge_circuit_constant = MAINNET_BRIDGE_CIRCUIT_CONSTANT;
+        assert_eq!(
+            calculated_mainnet_bridge_circuit_constant,
+            mainnet_bridge_circuit_constant,
+            "You forgot to update mainnet bridge_circuit_constant with the new method id. Please change it in these places: core/src/config/protocol.rs. The expected value is: {:?}, hex format: {:?}",
+            calculated_mainnet_bridge_circuit_constant,
+            hex::encode(calculated_mainnet_bridge_circuit_constant)
+        );
+    }
+
+    #[test]
+    fn test_testnet4_bridge_circuit_constant() {
+        let testnet4_bridge_elf = TESTNET4_BRIDGE_CIRCUIT_ELF;
+        let testnet4_bridge_circuit_method_id =
+            compute_image_id(testnet4_bridge_elf).expect("should compute image id");
+        let calculated_testnet4_bridge_circuit_constant =
+            calculate_succinct_output_prefix(testnet4_bridge_circuit_method_id.as_bytes());
+
+        let testnet4_bridge_circuit_constant = TESTNET4_BRIDGE_CIRCUIT_CONSTANT;
+        assert_eq!(
+            calculated_testnet4_bridge_circuit_constant,
+            testnet4_bridge_circuit_constant,
+            "You forgot to update testnet4 bridge_circuit_constant with the new method id. Please change it in these places: core/src/config/protocol.rs. The expected value is: {:?}, hex format: {:?}",
+            calculated_testnet4_bridge_circuit_constant,
+            hex::encode(calculated_testnet4_bridge_circuit_constant)
+        );
+    }
+
+    #[test]
+    fn test_signet_bridge_circuit_constant() {
+        let signet_bridge_elf = SIGNET_BRIDGE_CIRCUIT_ELF;
+        let signet_bridge_circuit_method_id =
+            compute_image_id(signet_bridge_elf).expect("should compute image id");
+        let calculated_signet_bridge_circuit_constant =
+            calculate_succinct_output_prefix(signet_bridge_circuit_method_id.as_bytes());
+
+        let signet_bridge_circuit_constant = SIGNET_BRIDGE_CIRCUIT_CONSTANT;
+        assert_eq!(
+            calculated_signet_bridge_circuit_constant,
+            signet_bridge_circuit_constant,
+            "You forgot to update signet bridge_circuit_constant with the new method id. Please change it in these places: core/src/config/protocol.rs. The expected value is: {:?}, hex format: {:?}",
+            calculated_signet_bridge_circuit_constant,
+            hex::encode(calculated_signet_bridge_circuit_constant)
+        );
+    }
+
+    #[test]
+    fn test_header_chain_method_ids() {
+        let networks = [
+            (
+                MAINNET_HEADER_CHAIN_ELF,
+                MAINNET_HEADER_CHAIN_METHOD_ID,
+                "mainnet",
+            ),
+            (
+                TESTNET4_HEADER_CHAIN_ELF,
+                TESTNET4_HEADER_CHAIN_METHOD_ID,
+                "testnet4",
+            ),
+            (
+                SIGNET_HEADER_CHAIN_ELF,
+                SIGNET_HEADER_CHAIN_METHOD_ID,
+                "signet",
+            ),
+            (
+                REGTEST_HEADER_CHAIN_ELF,
+                REGTEST_HEADER_CHAIN_METHOD_ID,
+                "regtest",
+            ),
+        ];
+
+        for (elf, method_id, network) in networks.into_iter() {
+            let header_chain_circuit_method_id = compute_image_id(elf);
+            assert_eq!(
+                header_chain_circuit_method_id.expect("should compute image id").as_words(),
+                method_id,
+                "Header chain method ID mismatch for {network}, please update the constant here: circuits-lib/src/common/constants.rs",
+            );
+        }
+    }
+
+    #[test]
+    fn test_work_only_method_ids() {
+        let networks = [
+            (
+                MAINNET_WORK_ONLY_ELF,
+                MAINNET_WORK_ONLY_METHOD_ID,
+                "mainnet",
+            ),
+            (
+                TESTNET4_WORK_ONLY_ELF,
+                TESTNET4_WORK_ONLY_METHOD_ID,
+                "testnet4",
+            ),
+            (SIGNET_WORK_ONLY_ELF, SIGNET_WORK_ONLY_METHOD_ID, "signet"),
+            (
+                REGTEST_WORK_ONLY_ELF,
+                REGTEST_WORK_ONLY_METHOD_ID,
+                "regtest",
+            ),
+        ];
+
+        for (elf, method_id, network) in networks.into_iter() {
+            let work_only_circuit_method_id =
+                compute_image_id(elf).expect("should compute image id");
+            let current_method_id = work_only_circuit_method_id.as_bytes();
+            assert_eq!(
+                current_method_id,
+                method_id,
+                "Work only method ID mismatch for {network}, please update the constant here: circuits-lib/src/bridge_circuit/constants.rs. Hex format of correct value: {:?}",
+                hex::encode(current_method_id)
+            );
+        }
+    }
+}

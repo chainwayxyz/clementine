@@ -5,6 +5,7 @@ use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, Serializ
 type G1 = ark_bn254::G1Affine;
 type G2 = ark_bn254::G2Affine;
 
+/// CircuitGroth16Proof represents a Groth16 proof for the circuit.
 #[derive(Copy, Clone, Debug)]
 pub struct CircuitGroth16Proof {
     a: G1,
@@ -17,6 +18,8 @@ impl CircuitGroth16Proof {
         CircuitGroth16Proof { a, b, c }
     }
 
+    /// Creates a new CircuitGroth16Proof from the given risc0 seal, which
+    /// itself is a 256-byte array.
     pub fn from_seal(seal: &[u8; 256]) -> CircuitGroth16Proof {
         let a = G1::new(
             ark_bn254::Fq::from_be_bytes_mod_order(&seal[0..32]),
