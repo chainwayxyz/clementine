@@ -1,0 +1,26 @@
+[public_keys]
+sequencer_public_key = "036360e856310ce5d294e8be33fc807077dc56ac80d95d9cd4ddbd21325eff73f7"
+sequencer_da_pub_key = ""
+prover_da_pub_key = ""
+
+[da]
+# fill here
+node_url = "http://bitcoin_testnet4:20443/wallet/admin"
+# fill here
+node_username = "admin"
+# fill here
+node_password = "admin"
+da_private_key = "E9873D79C6D87DC0FB6A5778633389F4453213303DA61F20BD67FC233AA33262"
+tx_backup_dir = "resources/bitcoin/inscription_txs"
+
+[storage]
+# The path to the rollup's data directory. Paths that do not begin with `/` are interpreted as relative paths.
+path = "resources/dbs/sequencer-db"
+db_max_open_files = 5000
+
+[rpc]
+# the host and port to bind the rpc server for
+bind_host = "0.0.0.0"
+bind_port = 12345
+enable_subscriptions = true
+max_subscriptions_per_connection = 100
