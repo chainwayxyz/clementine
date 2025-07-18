@@ -698,7 +698,12 @@
 <a href="#697" id="697">697</a>
 <a href="#698" id="698">698</a>
 <a href="#699" id="699">699</a>
-<a href="#700" id="700">700</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::WinternitzDerivationPath;
+<a href="#700" id="700">700</a>
+<a href="#701" id="701">701</a>
+<a href="#702" id="702">702</a>
+<a href="#703" id="703">703</a>
+<a href="#704" id="704">704</a>
+<a href="#705" id="705">705</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::WinternitzDerivationPath;
 <span class="kw">use </span><span class="kw">crate</span>::builder::address::taproot_builder_with_scripts;
 <span class="kw">use </span><span class="kw">crate</span>::builder::script::{SpendableScript, WinternitzCommit};
 
@@ -717,10 +722,15 @@
 <span class="kw">use </span>bridge_circuit_host::utils::get_verifying_key;
 <span class="kw">use </span>risc0_zkvm::is_dev_mode;
 <span class="kw">use </span>std::fs;
+<span class="kw">use </span>tokio::sync::Mutex;
 
 <span class="kw">use </span>std::str::FromStr;
-<span class="kw">use </span>std::sync::{Arc, OnceLock};
+<span class="kw">use </span>std::sync::{Arc, LazyLock, OnceLock};
 <span class="kw">use </span>std::time::Instant;
+
+<span class="doccomment">/// Replacing bitvm scripts require cloning the scripts, which can be ~4GB. And this operation is done every deposit.
+/// So we ensure only 1 thread is doing this at a time to avoid OOM.
+</span><span class="kw">pub static </span>REPLACE_SCRIPTS_LOCK: LazyLock&lt;Mutex&lt;()&gt;&gt; = LazyLock::new(|| Mutex::new(()));
 
 <span class="macro">lazy_static::lazy_static!</span> {
     <span class="doccomment">/// Global secp context.
@@ -1268,7 +1278,7 @@
     ) -&gt; Vec&lt;bitcoin::TapNodeHash&gt; {
         <span class="kw">let </span>assert_scripts = <span class="self">self</span>.get_assert_scripts(xonly_public_key);
         assert_scripts
-            .iter()
+            .into_iter()
             .map(|script| {
                 <span class="kw">let </span>taproot_builder = taproot_builder_with_scripts(<span class="kw-2">&amp;</span>[script.to_script_buf()]);
                 taproot_builder

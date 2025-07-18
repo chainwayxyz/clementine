@@ -2864,9 +2864,15 @@
 <a href="#2863" id="2863">2863</a>
 <a href="#2864" id="2864">2864</a>
 <a href="#2865" id="2865">2865</a>
-<a href="#2866" id="2866">2866</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
+<a href="#2866" id="2866">2866</a>
+<a href="#2867" id="2867">2867</a>
+<a href="#2868" id="2868">2868</a>
+<a href="#2869" id="2869">2869</a>
+<a href="#2870" id="2870">2870</a>
+<a href="#2871" id="2871">2871</a>
+<a href="#2872" id="2872">2872</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
 <span class="kw">use </span><span class="kw">crate</span>::bitcoin_syncer::BitcoinSyncer;
-<span class="kw">use </span><span class="kw">crate</span>::bitvm_client::ClementineBitVMPublicKeys;
+<span class="kw">use </span><span class="kw">crate</span>::bitvm_client::{ClementineBitVMPublicKeys, REPLACE_SCRIPTS_LOCK};
 <span class="kw">use </span><span class="kw">crate</span>::builder::address::{create_taproot_address, taproot_builder_with_scripts};
 <span class="kw">use </span><span class="kw">crate</span>::builder::block_cache;
 <span class="kw">use </span><span class="kw">crate</span>::builder::script::{
@@ -4142,15 +4148,21 @@
             .collect::&lt;Vec&lt;<span class="kw">_</span>&gt;&gt;();
 
         <span class="comment">// TODO: Use correct verification key and along with a dummy proof.
-        </span><span class="kw">let </span>start = std::time::Instant::now();
+        // wrap around a mutex lock to avoid OOM
+        </span><span class="kw">let </span>guard = REPLACE_SCRIPTS_LOCK.lock().<span class="kw">await</span>;
+        <span class="kw">let </span>start = std::time::Instant::now();
         <span class="kw">let </span>scripts: Vec&lt;ScriptBuf&gt; = bitvm_pks.get_g16_verifier_disprove_scripts();
 
-        <span class="kw">let </span>taproot_builder = taproot_builder_with_scripts(<span class="kw-2">&amp;</span>scripts);
+        <span class="kw">let </span>taproot_builder = taproot_builder_with_scripts(scripts);
+
         <span class="kw">let </span>root_hash = taproot_builder
             .try_into_taptree()
             .expect(<span class="string">"taproot builder always builds a full taptree"</span>)
             .root_hash()
             .to_byte_array();
+
+        <span class="comment">// bitvm scripts are dropped, release the lock
+        </span>drop(guard);
         <span class="macro">tracing::debug!</span>(<span class="string">"Built taproot tree in {:?}"</span>, start.elapsed());
 
         <span class="kw">let </span>latest_blockhash_wots = bitvm_pks.latest_blockhash_pk.to_vec();

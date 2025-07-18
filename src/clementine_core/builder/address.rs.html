@@ -400,7 +400,12 @@
 <a href="#399" id="399">399</a>
 <a href="#400" id="400">400</a>
 <a href="#401" id="401">401</a>
-<a href="#402" id="402">402</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Bitcoin Address Construction
+<a href="#402" id="402">402</a>
+<a href="#403" id="403">403</a>
+<a href="#404" id="404">404</a>
+<a href="#405" id="405">405</a>
+<a href="#406" id="406">406</a>
+<a href="#407" id="407">407</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Bitcoin Address Construction
 //!
 //! Contains helper functions to create taproot addresses with given scripts and internal key.
 //! Contains helper functions to create correct deposit addresses. Addresses need to be of a specific format to be
@@ -425,7 +430,9 @@
 
 <span class="doccomment">/// A helper to construct a `TaprootBuilder` from a slice of script buffers, forming the script tree.
 /// Finds the needed depth the script tree needs to be to fit all the scripts and inserts the scripts.
-</span><span class="kw">pub fn </span>taproot_builder_with_scripts(scripts: <span class="kw-2">&amp;</span>[ScriptBuf]) -&gt; TaprootBuilder {
+</span><span class="kw">pub fn </span>taproot_builder_with_scripts(scripts: <span class="kw">impl </span>Into&lt;Vec&lt;ScriptBuf&gt;&gt;) -&gt; TaprootBuilder {
+    <span class="comment">// doesn't clone if its already an owned Vec
+    </span><span class="kw">let </span><span class="kw-2">mut </span>scripts: Vec&lt;ScriptBuf&gt; = scripts.into();
     <span class="kw">let </span>builder = TaprootBuilder::new();
     <span class="kw">let </span>num_scripts = scripts.len();
 
@@ -434,7 +441,7 @@
         <span class="number">0 </span>=&gt; <span class="kw">return </span>builder,
         <span class="number">1 </span>=&gt; {
             <span class="kw">return </span>builder
-                .add_leaf(<span class="number">0</span>, scripts[<span class="number">0</span>].clone())
+                .add_leaf(<span class="number">0</span>, scripts.remove(<span class="number">0</span>))
                 .expect(<span class="string">"one root leaf added on empty builder"</span>)
         }
         <span class="kw">_ </span>=&gt; {}
@@ -445,15 +452,18 @@
     <span class="kw">let </span>num_empty_nodes_in_final_depth = <span class="number">2_usize</span>.pow(deepest_layer_depth.into()) - num_scripts;
     <span class="kw">let </span>num_nodes_in_final_depth = num_scripts - num_empty_nodes_in_final_depth;
 
-    (<span class="number">0</span>..num_scripts).fold(builder, |acc, i| {
-        <span class="kw">let </span>is_node_in_last_minus_one_depth = (i &gt;= num_nodes_in_final_depth) <span class="kw">as </span>u8;
+    scripts
+        .into_iter()
+        .enumerate()
+        .fold(builder, |acc, (i, script)| {
+            <span class="kw">let </span>is_node_in_last_minus_one_depth = (i &gt;= num_nodes_in_final_depth) <span class="kw">as </span>u8;
 
-        acc.add_leaf(
-            deepest_layer_depth - is_node_in_last_minus_one_depth,
-            scripts[i].clone(),
-        )
-        .expect(<span class="string">"algorithm tested to be correct"</span>)
-    })
+            acc.add_leaf(
+                deepest_layer_depth - is_node_in_last_minus_one_depth,
+                script,
+            )
+            .expect(<span class="string">"algorithm tested to be correct"</span>)
+        })
 }
 
 <span class="doccomment">/// Calculates the depth of each leaf in a balanced Taproot tree structure.
@@ -759,7 +769,7 @@
             <span class="kw">let </span>scripts = (<span class="number">0</span>..i)
                 .map(|k| ScriptBuf::builder().push_int(k).into_script())
                 .collect::&lt;Vec&lt;<span class="kw">_</span>&gt;&gt;();
-            <span class="kw">let </span>builder = <span class="kw">super</span>::taproot_builder_with_scripts(<span class="kw-2">&amp;</span>scripts);
+            <span class="kw">let </span>builder = <span class="kw">super</span>::taproot_builder_with_scripts(scripts);
             <span class="kw">let </span>tree_info = builder
                 .finalize(<span class="kw-2">&amp;</span>SECP, <span class="kw-2">*</span>bitvm_client::UNSPENDABLE_XONLY_PUBKEY)
                 .unwrap();

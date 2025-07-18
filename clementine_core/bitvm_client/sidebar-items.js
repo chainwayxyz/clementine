@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["generate_fresh_data","load_or_generate_bitvm_cache","replace_disprove_scripts"],"static":["BITVM_CACHE"],"struct":["BitvmCache","ClementineBitVMPublicKeys","ClementineBitVMReplacementData","SECP","UNSPENDABLE_XONLY_PUBKEY"]};
+window.SIDEBAR_ITEMS = {"fn":["generate_fresh_data","load_or_generate_bitvm_cache","replace_disprove_scripts"],"static":["BITVM_CACHE","REPLACE_SCRIPTS_LOCK"],"struct":["BitvmCache","ClementineBitVMPublicKeys","ClementineBitVMReplacementData","SECP","UNSPENDABLE_XONLY_PUBKEY"]};
