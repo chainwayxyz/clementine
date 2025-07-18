@@ -50,6 +50,12 @@ pub struct TestAggregator {
     pub socket_path: std::path::PathBuf,
 }
 
+/// This struct is used to control the actors in the test.
+/// It contains the verifiers, operators, and aggregator.
+/// It stores various information on each actor, can add and remove actors.
+/// After each actor set change, the aggregator is restarted with the current actor set in it's config.
+/// Each verifier and operator is indexes starting from 0, according to their creation order.
+/// All gRPC servers are closed if the TestActors instance is dropped.
 #[derive(Debug)]
 pub struct TestActors<C: CitreaClientT> {
     verifiers: BTreeMap<usize, TestVerifier<C>>,
@@ -66,7 +72,16 @@ pub struct TestActors<C: CitreaClientT> {
 }
 
 impl<C: CitreaClientT> TestVerifier<C> {
-    /// Create a new TestVerifier instance
+    /// Create a new `TestVerifier` instance.
+    ///
+    /// # Parameters
+    /// - `base_config`: The base configuration for all actors. For verifiers, the database name is appended with the index.
+    /// - `socket_dir`: The directory to store the Unix sockets.
+    /// - `index`: The index of the verifier (its position in `TestActors`).
+    /// - `secret_key`: The secret key of the verifier.
+    ///
+    /// # Returns
+    /// Returns a [`Result`](eyre::Result) containing the new [`TestVerifier`] instance on success, or an error if creation fails.
     pub async fn new(
         base_config: &BridgeConfig,
         socket_dir: &std::path::Path,
@@ -126,16 +141,26 @@ impl<C: CitreaClientT> TestVerifier<C> {
 }
 
 impl<C: CitreaClientT> TestOperator<C> {
-    /// Create a new TestOperator instance
+    /// Create a new `TestOperator` instance.
+    ///
+    /// # Parameters
+    /// - `verifier_config`: The configuration of the verifier that this operator belongs to (only the secret key can be changed).
+    /// - `socket_dir`: The directory to store the Unix sockets.
+    /// - `index`: The index of the operator (its position in `TestActors`).
+    /// - `verifier_index`: The index of the verifier that this operator belongs to (index in `TestActors`).
+    /// - `secret_key`: The secret key of the operator.
+    ///
+    /// # Returns
+    /// Returns a [`Result`](eyre::Result) containing the new [`TestOperator`] instance on success, or an error if creation fails.
     pub async fn new(
-        base_config: &BridgeConfig,
+        verifier_config: &BridgeConfig,
         socket_dir: &std::path::Path,
         index: usize,
         verifier_index: usize,
         secret_key: bitcoin::secp256k1::SecretKey,
     ) -> eyre::Result<Self> {
         let socket_path = socket_dir.join(format!("operator_{}.sock", index));
-        let mut operator_config = base_config.clone();
+        let mut operator_config = verifier_config.clone();
         operator_config.secret_key = secret_key;
 
         let (socket_path, shutdown_tx) =
@@ -164,7 +189,17 @@ impl<C: CitreaClientT> TestOperator<C> {
 }
 
 impl TestAggregator {
-    /// Create a new TestAggregator instance, uses the base_config except the verifier and operator endpoints
+    /// Create a new `TestAggregator` instance, using the base_config except the verifier and operator endpoints.
+    ///
+    /// # Parameters
+    /// - `base_config`: The base configuration for the aggregator.
+    /// - `socket_dir`: The directory to store the Unix sockets.
+    /// - `verifier_paths`: The list of Unix socket paths for verifiers.
+    /// - `operator_paths`: The list of Unix socket paths for operators.
+    /// - `socket_suffix`: Suffix for the aggregator socket filename.
+    ///
+    /// # Returns
+    /// Returns a [`Result`](eyre::Result) containing the new [`TestAggregator`] instance on success, or an error if creation fails.
     pub async fn new(
         base_config: &BridgeConfig,
         socket_dir: &std::path::Path,
@@ -218,6 +253,14 @@ impl TestAggregator {
 }
 
 impl<C: CitreaClientT> TestActors<C> {
+    /// Create a new `TestActors` instance.
+    /// The verifiers and operators are created according to the secret keys in the config.
+    ///
+    /// # Parameters
+    /// - `config`: The base configuration for all actors.
+    ///
+    /// # Returns
+    /// Returns a [`Result`](eyre::Result) containing the new [`TestActors`] instance on success, or an error if creation fails.
     pub async fn new(config: &BridgeConfig) -> eyre::Result<Self> {
         let all_verifiers_secret_keys = &config.test_params.all_verifiers_secret_keys;
         let all_operators_secret_keys = &config.test_params.all_operators_secret_keys;
@@ -345,6 +388,7 @@ impl<C: CitreaClientT> TestActors<C> {
         Ok(())
     }
 
+    /// Remove a verifier with the given index and restarts the aggregator with the current actor set.
     pub async fn remove_verifier(&mut self, index: usize) -> eyre::Result<()> {
         if index == 0 {
             // can't remove the first verifier as first verifier is used by aggregator
@@ -367,12 +411,14 @@ impl<C: CitreaClientT> TestActors<C> {
         Ok(())
     }
 
+    /// Remove an operator with the given index and restarts the aggregator with the current actor set.
     pub async fn remove_operator(&mut self, index: usize) -> eyre::Result<()> {
         self.operators.remove(&index);
         self.restart_aggregator().await?;
         Ok(())
     }
 
+    /// Add a verifier with the given secret key and restarts the aggregator with the current actor set.
     pub async fn add_verifier(
         &mut self,
         secret_key: bitcoin::secp256k1::SecretKey,
@@ -390,6 +436,7 @@ impl<C: CitreaClientT> TestActors<C> {
         Ok(())
     }
 
+    /// Add an operator with the given secret key and verifier index and restarts the aggregator with the current actor set.
     pub async fn add_operator(
         &mut self,
         secret_key: bitcoin::secp256k1::SecretKey,
@@ -417,6 +464,7 @@ impl<C: CitreaClientT> TestActors<C> {
         Ok(())
     }
 
+    /// Get the aggregated x-only public key of all current verifiers.
     pub fn get_nofn_aggregated_xonly_pk(&self) -> eyre::Result<bitcoin::XOnlyPublicKey> {
         let verifier_public_keys = self
             .verifiers
@@ -427,14 +475,17 @@ impl<C: CitreaClientT> TestActors<C> {
         Ok(aggregated_pk)
     }
 
+    /// Get the secret keys of all current verifiers.
     pub fn get_verifiers_secret_keys(&self) -> Vec<bitcoin::secp256k1::SecretKey> {
         self.verifiers.values().map(|v| v.secret_key).collect()
     }
 
+    /// Get the secret keys of all current operators.
     pub fn get_operators_secret_keys(&self) -> Vec<bitcoin::secp256k1::SecretKey> {
         self.operators.values().map(|o| o.secret_key).collect()
     }
 
+    /// Get the x-only public keys of all current operators.
     pub fn get_operators_xonly_pks(&self) -> Vec<bitcoin::XOnlyPublicKey> {
         self.get_operators_secret_keys()
             .into_iter()
