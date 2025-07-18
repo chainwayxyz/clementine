@@ -267,6 +267,7 @@ impl BlockInclusionProof {
     }
 }
 
+#[cfg(test)]
 /// Verifies a Merkle proof against a given root using the "mid-state" tree approach.
 ///
 /// - `mid_state_txid`: The transaction ID of the leaf node for which the proof is provided.
