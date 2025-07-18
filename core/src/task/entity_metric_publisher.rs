@@ -19,7 +19,7 @@ use crate::{
 /// (Not sent to Prometheus at this interval, since we use a pull-based http listener)
 ///
 /// This doubles as the timeout for entity status retrieval.
-pub const ENTITY_METRIC_PUBLISHER_INTERVAL: Duration = Duration::from_secs(300);
+pub const ENTITY_METRIC_PUBLISHER_INTERVAL: Duration = Duration::from_secs(120);
 
 #[derive(Debug, Clone)]
 /// Publishes the metrics available for an entity (operator/verifier)
