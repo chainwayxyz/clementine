@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["verify_merkle_proof"],"struct":["BitcoinMerkleTree","BlockInclusionProof"]};
+window.SIDEBAR_ITEMS = {"struct":["BitcoinMerkleTree","BlockInclusionProof"]};

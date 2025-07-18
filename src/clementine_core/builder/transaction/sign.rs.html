@@ -614,7 +614,12 @@
 <a href="#613" id="613">613</a>
 <a href="#614" id="614">614</a>
 <a href="#615" id="615">615</a>
-<a href="#616" id="616">616</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Transaction Signing Utilities
+<a href="#616" id="616">616</a>
+<a href="#617" id="617">617</a>
+<a href="#618" id="618">618</a>
+<a href="#619" id="619">619</a>
+<a href="#620" id="620">620</a>
+<a href="#621" id="621">621</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Transaction Signing Utilities
 //!
 //! This module provides logic signing the transactions used in the Clementine bridge.
 
@@ -881,10 +886,10 @@
         <span class="attr">#[cfg(test)]
         </span><span class="kw">let </span><span class="kw-2">mut </span>annex: <span class="prelude-ty">Option</span>&lt;Vec&lt;u8&gt;&gt; = <span class="prelude-val">None</span>;
 
-        <span class="comment">// #[cfg(test)]
-        // let mut additional_op_return = None;
+        <span class="attr">#[cfg(test)]
+        </span><span class="kw">let </span><span class="kw-2">mut </span>additional_taproot_output_count = <span class="prelude-val">None</span>;
 
-        </span><span class="attr">#[cfg(test)]
+        <span class="attr">#[cfg(test)]
         </span>{
             <span class="kw">if </span><span class="self">self</span>.config.test_params.use_small_annex {
                 annex = <span class="prelude-val">Some</span>(<span class="macro">vec!</span>[<span class="number">80u8</span>; <span class="number">10000</span>]);
@@ -892,6 +897,9 @@
                 annex = <span class="prelude-val">Some</span>(<span class="macro">vec!</span>[<span class="number">80u8</span>; <span class="number">3990000</span>]);
             } <span class="kw">else if </span><span class="self">self</span>.config.test_params.use_large_annex_and_output {
                 annex = <span class="prelude-val">Some</span>(<span class="macro">vec!</span>[<span class="number">80u8</span>; <span class="number">3000000</span>]);
+                additional_taproot_output_count = <span class="prelude-val">Some</span>(<span class="number">2300</span>);
+            } <span class="kw">else if </span><span class="self">self</span>.config.test_params.use_large_output {
+                additional_taproot_output_count = <span class="prelude-val">Some</span>(<span class="number">2300</span>);
             }
         }
 
@@ -903,6 +911,8 @@
                 tweak_merkle_root: merkle_root,
                 <span class="attr">#[cfg(test)]
                 </span>annex,
+                <span class="attr">#[cfg(test)]
+                </span>additional_taproot_output_count,
             },
         ))
     }

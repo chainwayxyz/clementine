@@ -1349,7 +1349,30 @@
 <a href="#1348" id="1348">1348</a>
 <a href="#1349" id="1349">1349</a>
 <a href="#1350" id="1350">1350</a>
-<a href="#1351" id="1351">1351</a></pre></div><pre class="rust"><code><span class="kw">pub mod </span>constants;
+<a href="#1351" id="1351">1351</a>
+<a href="#1352" id="1352">1352</a>
+<a href="#1353" id="1353">1353</a>
+<a href="#1354" id="1354">1354</a>
+<a href="#1355" id="1355">1355</a>
+<a href="#1356" id="1356">1356</a>
+<a href="#1357" id="1357">1357</a>
+<a href="#1358" id="1358">1358</a>
+<a href="#1359" id="1359">1359</a>
+<a href="#1360" id="1360">1360</a>
+<a href="#1361" id="1361">1361</a>
+<a href="#1362" id="1362">1362</a>
+<a href="#1363" id="1363">1363</a>
+<a href="#1364" id="1364">1364</a>
+<a href="#1365" id="1365">1365</a>
+<a href="#1366" id="1366">1366</a>
+<a href="#1367" id="1367">1367</a>
+<a href="#1368" id="1368">1368</a>
+<a href="#1369" id="1369">1369</a>
+<a href="#1370" id="1370">1370</a>
+<a href="#1371" id="1371">1371</a>
+<a href="#1372" id="1372">1372</a>
+<a href="#1373" id="1373">1373</a>
+<a href="#1374" id="1374">1374</a></pre></div><pre class="rust"><code><span class="kw">pub mod </span>constants;
 <span class="kw">pub mod </span>groth16;
 <span class="kw">pub mod </span>groth16_verifier;
 <span class="kw">pub mod </span>lc_proof;
@@ -1424,18 +1447,19 @@
 /// 1. Reads the `BridgeCircuitInput` from the host.
 /// 2. Ensures the method ID in `hcp` (header chain proof) matches `HEADER_CHAIN_METHOD_ID`.
 /// 3. Verifies the header chain proof (`hcp`).
-/// 4. Computes total work and watchtower challenge flags using `total_work_and_watchtower_flags`.
-/// 5. Validates that the computed `total_work` does not exceed the total work in `hcp.chain_state`.
+/// 4. Computes maximum total work and watchtower challenge flags using `total_work_and_watchtower_flags`.
+/// 5. Validates that the computed `max_total_work` does not exceed the `total_work` in `hcp.chain_state`.
 /// 6. Fetches the MMR (Merkle Mountain Range) for block hashes from `hcp.chain_state`.
 /// 7. Verifies the SPV proof (`payout_spv`) using the fetched MMR.
 /// 8. Verifies the light client proof using `lc_proof_verifier`.
-/// 9. Checks storage proofs for deposit and withdrawal transaction indices using `verify_storage_proofs`.
-/// 10. Converts the verified withdrawal outpoint into a Bitcoin transaction ID.
-/// 11. Ensures the withdrawal transaction ID matches the input reference in `payout_spv.transaction`.
-/// 12. Computes the `deposit_constant` using the last output of the payout transaction.
-/// 13. Extracts and truncates the latest block hash and the payout transaction’s block hash.
-/// 14. Computes a Blake3 hash over concatenated block hash and watchtower flags.
-/// 15. Generates a final journal hash using Blake3 over concatenated data and commits it.
+/// 9. Ensures the L1 block hash from the light client proof matches the payout transaction's block hash.
+/// 10. Checks storage proofs for deposit and withdrawal transaction indices using `verify_storage_proofs`.
+/// 11. Converts the verified withdrawal outpoint into a Bitcoin transaction ID.
+/// 12. Ensures the withdrawal transaction ID matches the input reference in `payout_spv.transaction`.
+/// 13. Computes the `deposit_constant` using the first OP_RETURN output of the payout transaction.
+/// 14. Extracts and truncates the latest block hash and the payout transaction’s block hash.
+/// 15. Computes a Blake3 hash over concatenated block hash and watchtower flags.
+/// 16. Generates a final journal hash using Blake3 over concatenated data and commits it.
 ///
 /// # Panics
 ///
@@ -1443,6 +1467,7 @@
 /// - If `max_total_work` given by watchtowers is greater than `hcp.chain_state.total_work`.
 /// - If the SPV proof is invalid.
 /// - If the storage proof verification fails.
+/// - If the block hash of the light client proof does not match the payout transaction's block hash.
 /// - If the withdrawal transaction ID does not match the referenced input in `payout_spv`.
 </span><span class="kw">pub fn </span>bridge_circuit(guest: <span class="kw-2">&amp;</span><span class="kw">impl </span>ZkvmGuest, work_only_image_id: [u8; <span class="number">32</span>]) {
     <span class="kw">let </span>input: BridgeCircuitInput = guest.read_from_host();
@@ -1467,7 +1492,7 @@
     </span><span class="kw">if </span>total_work &lt; max_total_work {
         <span class="macro">panic!</span>(
             <span class="string">"Insufficient total work: Total Work {:?} - Max Total Work: {:?}"</span>,
-            input.hcp.chain_state.total_work, max_total_work
+            total_work, max_total_work
         );
     }
 
@@ -1475,11 +1500,25 @@
     </span><span class="kw">let </span>mmr = input.hcp.chain_state.block_hashes_mmr.clone();
 
     <span class="kw">if </span>!input.payout_spv.verify(mmr) {
-        <span class="macro">panic!</span>(<span class="string">"Invalid SPV proof"</span>);
+        <span class="macro">panic!</span>(
+            <span class="string">"Invalid SPV proof for txid: {}"</span>,
+            input.payout_spv.transaction.compute_txid()
+        );
     }
 
     <span class="comment">// Light client proof verification
     </span><span class="kw">let </span>light_client_circuit_output = lc_proof_verifier(input.lcp.clone());
+
+    <span class="comment">// Make sure the L1 block hash of the LightClientCircuitOutput matches the payout tx block hash
+    </span><span class="kw">let </span>lc_l1_block_hash = light_client_circuit_output.latest_da_state.block_hash;
+    <span class="kw">let </span>spv_l1_block_hash = input.payout_spv.block_header.compute_block_hash();
+
+    <span class="kw">if </span>lc_l1_block_hash != spv_l1_block_hash {
+        <span class="macro">panic!</span>(
+            <span class="string">"L1 block hash mismatch: expected {:?}, got {:?}"</span>,
+            lc_l1_block_hash, spv_l1_block_hash
+        );
+    }
 
     <span class="comment">// Storage proof verification for deposit tx index and withdrawal outpoint
     </span><span class="kw">let </span>(user_wd_outpoint, vout, move_txid) =
@@ -1601,7 +1640,11 @@
 /// # Returns
 /// A tuple containing:
 /// - A 20-byte bitmap indicating which watchtower challenges were valid,
-/// - A vector of the first 3 outputs from each valid watchtower transaction.
+/// - A vector of vectors containing the outputs of valid watchtower challenge transactions.
+///   These outputs should conform to the expected structure of either a single OP_RETURN output
+///   or a combination of two P2TR outputs and one OP_RETURN output for the challenge to be
+///   considered when calculating the maximum work). However, it is enough to have a valid signature
+///   to mark the watchtower as a challenge sender.
 ///
 /// # Notes
 /// Invalid or malformed challenge data (e.g., decoding errors, invalid signatures)
@@ -1613,7 +1656,10 @@
     <span class="kw">let </span>kickoff_txid = circuit_input.kickoff_tx.compute_txid();
 
     <span class="kw">if </span>circuit_input.watchtower_inputs.len() &gt; MAX_NUMBER_OF_WATCHTOWERS {
-        <span class="macro">panic!</span>(<span class="string">"Invalid number of watchtower challenge transactions"</span>);
+        <span class="macro">panic!</span>(
+            <span class="string">"Invalid number of watchtower challenge transactions: {}"</span>,
+            circuit_input.watchtower_inputs.len()
+        );
     }
 
     <span class="kw">for </span>watchtower_input <span class="kw">in </span>circuit_input.watchtower_inputs.iter() {
@@ -1795,7 +1841,7 @@
 /// - Each watchtower challenge transaction is expected to contain one of two distinct output structures:
 ///     - **Single Output Format:** A single `OP_RETURN` script containing a total of 144 bytes.
 ///       This includes the entire 128-byte compressed Groth16 proof followed by the 16-byte `total_work` value.
-///     - **Three Output Format:**
+///     - **Three Outputs Format:**
 ///         - The first two outputs **must** be P2TR (Pay-to-Taproot) outputs. These two outputs
 ///           collectively contain the first 64 bytes of the compressed Groth16 proof parts
 ///           (32 bytes from each P2TR output).
@@ -1973,8 +2019,8 @@
     blake3::hash(<span class="kw-2">&amp;</span>concat_journal)
 }
 
-<span class="doccomment">/// Retrieves the first output of a transaction that is an OP_RETURN script. Used to retrieve
-/// the operator's X-only public key from the OP_RETURN output in the payout transaction.
+<span class="doccomment">/// Retrieves the first output of a transaction that is an OP_RETURN script. Used in various
+/// contexts to extract metadata or constants from transactions.
 </span><span class="kw">pub fn </span>get_first_op_return_output(tx: <span class="kw-2">&amp;</span>CircuitTransaction) -&gt; <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span>TxOut&gt; {
     tx.output
         .iter()

@@ -457,7 +457,8 @@
 <a href="#456" id="456">456</a>
 <a href="#457" id="457">457</a>
 <a href="#458" id="458">458</a>
-<a href="#459" id="459">459</a></pre></div><pre class="rust"><code><span class="kw">use </span>borsh::{BorshDeserialize, BorshSerialize};
+<a href="#459" id="459">459</a>
+<a href="#460" id="460">460</a></pre></div><pre class="rust"><code><span class="kw">use </span>borsh::{BorshDeserialize, BorshSerialize};
 <span class="kw">use </span>serde::{Deserialize, Serialize};
 
 <span class="kw">use </span><span class="kw">crate</span>::common::hashes::{calculate_double_sha256, calculate_sha256};
@@ -726,7 +727,8 @@
     </span>}
 }
 
-<span class="doccomment">/// Verifies a Merkle proof against a given root using the "mid-state" tree approach.
+<span class="attr">#[cfg(test)]
+</span><span class="doccomment">/// Verifies a Merkle proof against a given root using the "mid-state" tree approach.
 ///
 /// - `mid_state_txid`: The transaction ID of the leaf node for which the proof is provided.
 /// - `inclusion_proof`: The proof path containing sibling nodes from the "mid-state" Merkle tree.

@@ -686,8 +686,8 @@
 </span><span class="kw">pub struct </span>StorageProof {
     <span class="kw">pub </span>storage_proof_utxo: String,         <span class="comment">// This will be an Outpoint
     </span><span class="kw">pub </span>storage_proof_vout: String,         <span class="comment">// This is the vout of the txid
-    </span><span class="kw">pub </span>storage_proof_deposit_txid: String, <span class="comment">// This is the index of the withdrawal
-    </span><span class="kw">pub </span>index: u32,                         <span class="comment">// For now this is 18, for a specific withdrawal
+    </span><span class="kw">pub </span>storage_proof_deposit_txid: String, <span class="comment">// This is the txid of the deposit tx
+    </span><span class="kw">pub </span>index: u32, <span class="comment">// This is the index of the storage proof in the contract
 </span>}
 
 <span class="attr">#[derive(Clone, Debug, BorshDeserialize, BorshSerialize)]

@@ -54,26 +54,32 @@
 <a href="#53" id="53">53</a>
 <a href="#54" id="54">54</a>
 <a href="#55" id="55">55</a>
-<a href="#56" id="56">56</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::structs::LightClientProof;
+<a href="#56" id="56">56</a>
+<a href="#57" id="57">57</a>
+<a href="#58" id="58">58</a>
+<a href="#59" id="59">59</a>
+<a href="#60" id="60">60</a>
+<a href="#61" id="61">61</a>
+<a href="#62" id="62">62</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::structs::LightClientProof;
 <span class="kw">use </span>citrea_sov_rollup_interface::zk::light_client_proof::output::LightClientCircuitOutput;
+<span class="kw">use </span>risc0_zkvm::guest::env;
 
-<span class="comment">// use risc0_zkvm::guest::env;
+<span class="kw">pub const </span>LC_IMAGE_ID: [u32; <span class="number">8</span>] = [
+    <span class="number">3660459984</span>, <span class="number">67963468</span>, <span class="number">224607921</span>, <span class="number">1061011534</span>, <span class="number">1677575514</span>, <span class="number">2989077152</span>, <span class="number">2727382595</span>, <span class="number">2335204203</span>,
+];
 
-// const LC_IMAGE_ID: [u8; 32] =
-//     hex_literal::hex!("95d94770d8aa1803f1e63d373b92319b024c1db5d79aad0e78bcf0984c75e813");
-
-</span><span class="doccomment">/// Verifies the light client proof and returns the light client circuit output.
+<span class="doccomment">/// Verifies the light client proof and returns the light client circuit output.
 </span><span class="kw">pub fn </span>lc_proof_verifier(light_client_proof: LightClientProof) -&gt; LightClientCircuitOutput {
-    <span class="comment">// env::verify(LC_IMAGE_ID, &amp;light_client_proof.lc_journal).unwrap();
-    // TODO: Make sure checking the equality against the given constant LCP method ID.
-
-    </span><span class="kw">if </span>light_client_proof.lc_journal.len() &lt; <span class="number">32 </span>{
-        <span class="macro">panic!</span>(<span class="string">"Invalid light client journal"</span>);
-    }
-
     <span class="kw">let </span>light_client_circuit_output: LightClientCircuitOutput =
         borsh::from_slice(light_client_proof.lc_journal.as_slice())
             .expect(<span class="string">"Failed to deserialize light client circuit output"</span>);
+
+    env::verify(LC_IMAGE_ID, <span class="kw-2">&amp;</span>light_client_proof.lc_journal).unwrap();
+
+    <span class="macro">assert_eq!</span>(
+        light_client_circuit_output.light_client_proof_method_id, LC_IMAGE_ID,
+        <span class="string">"Light client proof method ID does not match expected LC_IMAGE_ID"
+    </span>);
 
     light_client_circuit_output
 }
@@ -86,19 +92,25 @@
     <span class="attr">#[test]
     </span><span class="kw">fn </span>test_lc_proof_verifier() {
         <span class="kw">let </span>lcp_receipt_bytes = <span class="macro">include_bytes!</span>(<span class="string">"../../test_data/lcp_receipt.bin"</span>);
-        <span class="kw">let </span>lcp_receipt: Receipt = bincode::deserialize(lcp_receipt_bytes).unwrap();
+        <span class="kw">let </span>lcp_receipt: Receipt = borsh::from_slice(lcp_receipt_bytes).unwrap();
+
+        <span class="macro">println!</span>(<span class="string">"LCP Receipt: {:?}"</span>, lcp_receipt.clone());
 
         <span class="kw">let </span>light_client_proof: LightClientProof = LightClientProof {
             l2_height: <span class="string">"0x0"</span>.to_string(),
             lc_journal: lcp_receipt.journal.bytes.to_vec(),
         };
 
-        <span class="kw">let </span>light_client_circuit_output = lc_proof_verifier(light_client_proof);
+        <span class="comment">// Do not use lc_proof_verifier directly in tests, use the function to verify the proof
+        </span>lcp_receipt.verify(LC_IMAGE_ID).unwrap();
+        <span class="kw">let </span>light_client_circuit_output: LightClientCircuitOutput =
+            borsh::from_slice(light_client_proof.lc_journal.as_slice())
+                .expect(<span class="string">"Failed to deserialize light client circuit output"</span>);
 
         <span class="kw">let </span>expected_state_root =
-            <span class="string">"20476f2cc8568476d4ca3c2e34d2f9889c1cce06289873ed5ed46c31be0ce55e"</span>;
+            <span class="string">"2da019e05eb9a6ecc4872120ebf1cfb96704cc0cc967a89bd87b2d5da7f6ca07"</span>;
         <span class="kw">let </span>expected_last_block_hash =
-            <span class="string">"cdac10c915210c36f5b182eed334c0834a616302f1a393a3bcbfc2303b030000"</span>;
+            <span class="string">"a810cea613b869d296816e88f2f5f35165cd78be7b3ec6564cc41f30d3ff8c41"</span>;
 
         <span class="macro">assert_eq!</span>(
             hex::encode(light_client_circuit_output.l2_state_root),

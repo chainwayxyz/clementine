@@ -715,7 +715,9 @@
 <a href="#714" id="714">714</a>
 <a href="#715" id="715">715</a>
 <a href="#716" id="716">716</a>
-<a href="#717" id="717">717</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::builder::transaction::TransactionType;
+<a href="#717" id="717">717</a>
+<a href="#718" id="718">718</a>
+<a href="#719" id="719">719</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::builder::transaction::TransactionType;
 <span class="kw">use </span><span class="kw">crate</span>::config::TelemetryConfig;
 <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
 <span class="kw">use </span><span class="kw">crate</span>::operator::RoundIndex;
@@ -1262,6 +1264,8 @@
     <span class="kw">pub </span>tweak_merkle_root: <span class="prelude-ty">Option</span>&lt;TapNodeHash&gt;,
     <span class="attr">#[cfg(test)]
     </span><span class="kw">pub </span>annex: <span class="prelude-ty">Option</span>&lt;Vec&lt;u8&gt;&gt;,
+    <span class="attr">#[cfg(test)]
+    </span><span class="kw">pub </span>additional_taproot_output_count: <span class="prelude-ty">Option</span>&lt;u32&gt;,
 }
 <span class="kw">pub trait </span>Last20Bytes {
     <span class="kw">fn </span>last_20_bytes(<span class="self">self</span>) -&gt; [u8; <span class="number">20</span>];

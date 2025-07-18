@@ -396,23 +396,7 @@
 <a href="#395" id="395">395</a>
 <a href="#396" id="396">396</a>
 <a href="#397" id="397">397</a>
-<a href="#398" id="398">398</a>
-<a href="#399" id="399">399</a>
-<a href="#400" id="400">400</a>
-<a href="#401" id="401">401</a>
-<a href="#402" id="402">402</a>
-<a href="#403" id="403">403</a>
-<a href="#404" id="404">404</a>
-<a href="#405" id="405">405</a>
-<a href="#406" id="406">406</a>
-<a href="#407" id="407">407</a>
-<a href="#408" id="408">408</a>
-<a href="#409" id="409">409</a>
-<a href="#410" id="410">410</a>
-<a href="#411" id="411">411</a>
-<a href="#412" id="412">412</a>
-<a href="#413" id="413">413</a>
-<a href="#414" id="414">414</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Challenge Transaction Logic
+<a href="#398" id="398">398</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Challenge Transaction Logic
 //!
 //! This module provides functions for constructing and challenge related transactions in the protocol.
 //! The transactions are: Challenge, ChallengeTimeout, OperatorChallengeNack, OperatorChallengeAck, Disprove.
@@ -467,7 +451,7 @@
         <span class="kw">return </span><span class="prelude-val">Err</span>(TxError::IncorrectWatchtowerChallengeDataLength.into());
     }
     <span class="kw">let </span><span class="kw-2">mut </span>builder = TxHandlerBuilder::new(TransactionType::WatchtowerChallenge(watchtower_idx))
-        .with_version(Version::non_standard(<span class="number">3</span>))
+        .with_version(Version::TWO)
         .add_input(
             (
                 NumberedSignatureKind::WatchtowerChallenge,
@@ -505,23 +489,7 @@
 
     <span class="attr">#[cfg(test)]
     </span>{
-        <span class="kw">if </span>test_params.use_large_annex_and_output {
-            <span class="kw">let </span><span class="kw-2">mut </span>op_return_vec: Vec&lt;u8&gt; = <span class="macro">vec!</span>[<span class="number">0x6a</span>, <span class="number">0xa8</span>, <span class="number">0xcc</span>, <span class="number">0x03</span>, <span class="number">0x00</span>];
-            op_return_vec.extend_from_slice(<span class="kw-2">&amp;</span>[<span class="number">0u8</span>; <span class="number">249000</span>]);
-            <span class="kw">let </span>additional_op_return_txout = TxOut {
-                value: Amount::from_sat(<span class="number">0</span>),
-                script_pubkey: ScriptBuf::from_bytes(op_return_vec),
-            };
-            builder = builder.add_output(UnspentTxOut::from_partial(additional_op_return_txout));
-        } <span class="kw">else if </span>test_params.use_large_output {
-            <span class="kw">let </span><span class="kw-2">mut </span>op_return_vec: Vec&lt;u8&gt; = <span class="macro">vec!</span>[<span class="number">0x6a</span>, <span class="number">0x58</span>, <span class="number">0x3e</span>, <span class="number">0x0f</span>, <span class="number">0x00</span>];
-            op_return_vec.extend_from_slice(<span class="kw-2">&amp;</span>[<span class="number">0u8</span>; <span class="number">999000</span>]);
-            <span class="kw">let </span>additional_op_return_txout = TxOut {
-                value: Amount::from_sat(<span class="number">0</span>),
-                script_pubkey: ScriptBuf::from_bytes(op_return_vec),
-            };
-            builder = builder.add_output(UnspentTxOut::from_partial(additional_op_return_txout));
-        }
+        builder = test_params.maybe_add_large_test_outputs(builder)<span class="question-mark">?</span>;
     }
 
     <span class="prelude-val">Ok</span>(builder.finalize())

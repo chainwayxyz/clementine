@@ -2854,7 +2854,17 @@
 <a href="#2853" id="2853">2853</a>
 <a href="#2854" id="2854">2854</a>
 <a href="#2855" id="2855">2855</a>
-<a href="#2856" id="2856">2856</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
+<a href="#2856" id="2856">2856</a>
+<a href="#2857" id="2857">2857</a>
+<a href="#2858" id="2858">2858</a>
+<a href="#2859" id="2859">2859</a>
+<a href="#2860" id="2860">2860</a>
+<a href="#2861" id="2861">2861</a>
+<a href="#2862" id="2862">2862</a>
+<a href="#2863" id="2863">2863</a>
+<a href="#2864" id="2864">2864</a>
+<a href="#2865" id="2865">2865</a>
+<a href="#2866" id="2866">2866</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
 <span class="kw">use </span><span class="kw">crate</span>::bitcoin_syncer::BitcoinSyncer;
 <span class="kw">use </span><span class="kw">crate</span>::bitvm_client::ClementineBitVMPublicKeys;
 <span class="kw">use </span><span class="kw">crate</span>::builder::address::{create_taproot_address, taproot_builder_with_scripts};
@@ -4403,6 +4413,16 @@
                 <span class="kw-2">&amp;</span>commit_data,
             )
             .<span class="kw">await</span><span class="question-mark">?</span>;
+
+        <span class="attr">#[cfg(test)]
+        </span><span class="kw">let </span><span class="kw-2">mut </span>challenge_tx = challenge_tx;
+
+        <span class="attr">#[cfg(test)]
+        </span>{
+            <span class="kw">if let </span><span class="prelude-val">Some</span>(annex_bytes) = rbf_info.annex.clone() {
+                challenge_tx.input[<span class="number">0</span>].witness.push(annex_bytes);
+            }
+        }
 
         <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
         </span>{
