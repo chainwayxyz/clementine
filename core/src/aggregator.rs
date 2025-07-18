@@ -500,10 +500,7 @@ impl Aggregator {
                         tracing::debug!("Getting operator status for {}", key.to_string());
                         let mut request = Request::new(Empty {});
                         request.set_timeout(ENTITY_STATUS_POLL_TIMEOUT);
-                        let response = client
-                            .get_current_status(request)
-                            .await
-                            .map_err(BridgeError::from);
+                        let response = client.get_current_status(request).await;
 
                         EntityStatusWithId {
                             entity_id: Some(RPCEntityId {
@@ -531,10 +528,7 @@ impl Aggregator {
                     async move {
                         let mut request = Request::new(Empty {});
                         request.set_timeout(ENTITY_STATUS_POLL_TIMEOUT);
-                        let response = client
-                            .get_current_status(request)
-                            .await
-                            .map_err(BridgeError::from);
+                        let response = client.get_current_status(request).await;
 
                         EntityStatusWithId {
                             entity_id: Some(RPCEntityId {
