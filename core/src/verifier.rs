@@ -1548,6 +1548,16 @@ where
             )
             .await?;
 
+        #[cfg(test)]
+        let mut challenge_tx = challenge_tx;
+
+        #[cfg(test)]
+        {
+            if let Some(annex_bytes) = rbf_info.annex.clone() {
+                challenge_tx.input[0].witness.push(annex_bytes);
+            }
+        }
+
         #[cfg(feature = "automation")]
         {
             let mut dbtx = self.db.begin_transaction().await?;

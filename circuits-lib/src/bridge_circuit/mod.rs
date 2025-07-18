@@ -73,18 +73,19 @@ pub const HEADER_CHAIN_METHOD_ID: [u32; 8] = {
 /// 1. Reads the `BridgeCircuitInput` from the host.
 /// 2. Ensures the method ID in `hcp` (header chain proof) matches `HEADER_CHAIN_METHOD_ID`.
 /// 3. Verifies the header chain proof (`hcp`).
-/// 4. Computes total work and watchtower challenge flags using `total_work_and_watchtower_flags`.
-/// 5. Validates that the computed `total_work` does not exceed the total work in `hcp.chain_state`.
+/// 4. Computes maximum total work and watchtower challenge flags using `total_work_and_watchtower_flags`.
+/// 5. Validates that the computed `max_total_work` does not exceed the `total_work` in `hcp.chain_state`.
 /// 6. Fetches the MMR (Merkle Mountain Range) for block hashes from `hcp.chain_state`.
 /// 7. Verifies the SPV proof (`payout_spv`) using the fetched MMR.
 /// 8. Verifies the light client proof using `lc_proof_verifier`.
-/// 9. Checks storage proofs for deposit and withdrawal transaction indices using `verify_storage_proofs`.
-/// 10. Converts the verified withdrawal outpoint into a Bitcoin transaction ID.
-/// 11. Ensures the withdrawal transaction ID matches the input reference in `payout_spv.transaction`.
-/// 12. Computes the `deposit_constant` using the last output of the payout transaction.
-/// 13. Extracts and truncates the latest block hash and the payout transaction’s block hash.
-/// 14. Computes a Blake3 hash over concatenated block hash and watchtower flags.
-/// 15. Generates a final journal hash using Blake3 over concatenated data and commits it.
+/// 9. Ensures the L1 block hash from the light client proof matches the payout transaction's block hash.
+/// 10. Checks storage proofs for deposit and withdrawal transaction indices using `verify_storage_proofs`.
+/// 11. Converts the verified withdrawal outpoint into a Bitcoin transaction ID.
+/// 12. Ensures the withdrawal transaction ID matches the input reference in `payout_spv.transaction`.
+/// 13. Computes the `deposit_constant` using the first OP_RETURN output of the payout transaction.
+/// 14. Extracts and truncates the latest block hash and the payout transaction’s block hash.
+/// 15. Computes a Blake3 hash over concatenated block hash and watchtower flags.
+/// 16. Generates a final journal hash using Blake3 over concatenated data and commits it.
 ///
 /// # Panics
 ///
@@ -92,6 +93,7 @@ pub const HEADER_CHAIN_METHOD_ID: [u32; 8] = {
 /// - If `max_total_work` given by watchtowers is greater than `hcp.chain_state.total_work`.
 /// - If the SPV proof is invalid.
 /// - If the storage proof verification fails.
+/// - If the block hash of the light client proof does not match the payout transaction's block hash.
 /// - If the withdrawal transaction ID does not match the referenced input in `payout_spv`.
 pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
     let input: BridgeCircuitInput = guest.read_from_host();
@@ -116,7 +118,7 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
     if total_work < max_total_work {
         panic!(
             "Insufficient total work: Total Work {:?} - Max Total Work: {:?}",
-            input.hcp.chain_state.total_work, max_total_work
+            total_work, max_total_work
         );
     }
 
@@ -124,11 +126,25 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
     let mmr = input.hcp.chain_state.block_hashes_mmr.clone();
 
     if !input.payout_spv.verify(mmr) {
-        panic!("Invalid SPV proof");
+        panic!(
+            "Invalid SPV proof for txid: {}",
+            input.payout_spv.transaction.compute_txid()
+        );
     }
 
     // Light client proof verification
     let light_client_circuit_output = lc_proof_verifier(input.lcp.clone());
+
+    // Make sure the L1 block hash of the LightClientCircuitOutput matches the payout tx block hash
+    let lc_l1_block_hash = light_client_circuit_output.latest_da_state.block_hash;
+    let spv_l1_block_hash = input.payout_spv.block_header.compute_block_hash();
+
+    if lc_l1_block_hash != spv_l1_block_hash {
+        panic!(
+            "L1 block hash mismatch: expected {:?}, got {:?}",
+            lc_l1_block_hash, spv_l1_block_hash
+        );
+    }
 
     // Storage proof verification for deposit tx index and withdrawal outpoint
     let (user_wd_outpoint, vout, move_txid) =
@@ -250,7 +266,11 @@ fn convert_to_groth16_and_verify(
 /// # Returns
 /// A tuple containing:
 /// - A 20-byte bitmap indicating which watchtower challenges were valid,
-/// - A vector of the first 3 outputs from each valid watchtower transaction.
+/// - A vector of vectors containing the outputs of valid watchtower challenge transactions.
+///   These outputs should conform to the expected structure of either a single OP_RETURN output
+///   or a combination of two P2TR outputs and one OP_RETURN output for the challenge to be
+///   considered when calculating the maximum work). However, it is enough to have a valid signature
+///   to mark the watchtower as a challenge sender.
 ///
 /// # Notes
 /// Invalid or malformed challenge data (e.g., decoding errors, invalid signatures)
@@ -262,7 +282,10 @@ pub fn verify_watchtower_challenges(circuit_input: &BridgeCircuitInput) -> Watch
     let kickoff_txid = circuit_input.kickoff_tx.compute_txid();
 
     if circuit_input.watchtower_inputs.len() > MAX_NUMBER_OF_WATCHTOWERS {
-        panic!("Invalid number of watchtower challenge transactions");
+        panic!(
+            "Invalid number of watchtower challenge transactions: {}",
+            circuit_input.watchtower_inputs.len()
+        );
     }
 
     for watchtower_input in circuit_input.watchtower_inputs.iter() {
@@ -444,7 +467,7 @@ pub fn verify_watchtower_challenges(circuit_input: &BridgeCircuitInput) -> Watch
 /// - Each watchtower challenge transaction is expected to contain one of two distinct output structures:
 ///     - **Single Output Format:** A single `OP_RETURN` script containing a total of 144 bytes.
 ///       This includes the entire 128-byte compressed Groth16 proof followed by the 16-byte `total_work` value.
-///     - **Three Output Format:**
+///     - **Three Outputs Format:**
 ///         - The first two outputs **must** be P2TR (Pay-to-Taproot) outputs. These two outputs
 ///           collectively contain the first 64 bytes of the compressed Groth16 proof parts
 ///           (32 bytes from each P2TR output).
@@ -622,8 +645,8 @@ pub fn journal_hash(
     blake3::hash(&concat_journal)
 }
 
-/// Retrieves the first output of a transaction that is an OP_RETURN script. Used to retrieve
-/// the operator's X-only public key from the OP_RETURN output in the payout transaction.
+/// Retrieves the first output of a transaction that is an OP_RETURN script. Used in various
+/// contexts to extract metadata or constants from transactions.
 pub fn get_first_op_return_output(tx: &CircuitTransaction) -> Option<&TxOut> {
     tx.output
         .iter()

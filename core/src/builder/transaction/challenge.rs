@@ -53,7 +53,7 @@ pub fn create_watchtower_challenge_txhandler(
         return Err(TxError::IncorrectWatchtowerChallengeDataLength.into());
     }
     let mut builder = TxHandlerBuilder::new(TransactionType::WatchtowerChallenge(watchtower_idx))
-        .with_version(Version::non_standard(3))
+        .with_version(Version::TWO)
         .add_input(
             (
                 NumberedSignatureKind::WatchtowerChallenge,
@@ -91,23 +91,7 @@ pub fn create_watchtower_challenge_txhandler(
 
     #[cfg(test)]
     {
-        if test_params.use_large_annex_and_output {
-            let mut op_return_vec: Vec<u8> = vec![0x6a, 0xa8, 0xcc, 0x03, 0x00];
-            op_return_vec.extend_from_slice(&[0u8; 249000]);
-            let additional_op_return_txout = TxOut {
-                value: Amount::from_sat(0),
-                script_pubkey: ScriptBuf::from_bytes(op_return_vec),
-            };
-            builder = builder.add_output(UnspentTxOut::from_partial(additional_op_return_txout));
-        } else if test_params.use_large_output {
-            let mut op_return_vec: Vec<u8> = vec![0x6a, 0x58, 0x3e, 0x0f, 0x00];
-            op_return_vec.extend_from_slice(&[0u8; 999000]);
-            let additional_op_return_txout = TxOut {
-                value: Amount::from_sat(0),
-                script_pubkey: ScriptBuf::from_bytes(op_return_vec),
-            };
-            builder = builder.add_output(UnspentTxOut::from_partial(additional_op_return_txout));
-        }
+        builder = test_params.maybe_add_large_test_outputs(builder)?;
     }
 
     Ok(builder.finalize())
