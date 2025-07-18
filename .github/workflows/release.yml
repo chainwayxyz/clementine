@@ -32,61 +32,107 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build Project
+      - name: Build Project (No Features)
         run: |
-          if [[ "${{ github.ref_name }}" == *"testing"* ]]; then
-            cargo build --all-features --release
-          else
-            cargo build --release
-          fi
+          cargo build --release
 
-      - name: Upload clementine linux-amd64 Binary
+      - name: Copy No Features Binaries
+        run: |
+          cp target/release/clementine-core target/release/clementine-core-no-automation
+          cp target/release/clementine-cli target/release/clementine-cli-no-automation
+
+      - name: Build Project (with automation)
+        run: |
+          cargo build --features automation --release
+
+      - name: Copy Automation Feature Binaries
+        run: |
+          cp target/release/clementine-core target/release/clementine-core-with-automation
+          cp target/release/clementine-cli target/release/clementine-cli-with-automation
+
+      - name: Upload clementine no-automation linux-amd64 Binary
         uses: actions/upload-artifact@v4
         with:
-          name: clementine-core-${{ github.ref_name }}-linux-amd64
-          path: target/release/clementine-core
+          name: clementine-core-${{ github.ref_name }}-no-automation-linux-amd64
+          path: target/release/clementine-core-no-automation
 
-      - name: Upload clementine-cli linux-amd64 Binary
+      - name: Upload clementine with-automation linux-amd64 Binary
         uses: actions/upload-artifact@v4
         with:
-          name: clementine-cli-${{ github.ref_name }}-linux-amd64
-          path: target/release/clementine-cli
+          name: clementine-core-${{ github.ref_name }}-with-automation-linux-amd64
+          path: target/release/clementine-core-with-automation
+
+      - name: Upload clementine-cli no-automation linux-amd64 Binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: clementine-cli-${{ github.ref_name }}-no-automation-linux-amd64
+          path: target/release/clementine-cli-no-automation
+
+      - name: Upload clementine-cli with-automation linux-amd64 Binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: clementine-cli-${{ github.ref_name }}-with-automation-linux-amd64
+          path: target/release/clementine-cli-with-automation
 
   release:
     needs: linux_amd64_binary_extraction
     runs-on: ubicloud-standard-2
     steps:
-      - name: Download linux-amd64 Binary
+      - name: Download no-automation linux-amd64 Binary
         uses: actions/download-artifact@v4
         with:
-          name: clementine-core-${{ github.ref_name }}-linux-amd64
+          name: clementine-core-${{ github.ref_name }}-no-automation-linux-amd64
           path: release
 
-      - name: rename file
+      - name: rename no-automation file
         run: |
-          mv release/clementine-core release/clementine-core-${{ github.ref_name }}-linux-amd64
+          mv release/clementine-core-no-automation release/clementine-core-${{ github.ref_name }}-no-automation-linux-amd64
 
-      - name: Download clementine-cli linux-amd64 Binary
+      - name: Download with-automation linux-amd64 Binary
         uses: actions/download-artifact@v4
         with:
-          name: clementine-cli-${{ github.ref_name }}-linux-amd64
+          name: clementine-core-${{ github.ref_name }}-with-automation-linux-amd64
           path: release
 
-      - name: rename file
+      - name: rename with-automation file
         run: |
-          mv release/clementine-cli release/clementine-cli-${{ github.ref_name }}-linux-amd64
+          mv release/clementine-core-with-automation release/clementine-core-${{ github.ref_name }}-with-automation-linux-amd64
+
+      - name: Download clementine-cli no-automation linux-amd64 Binary
+        uses: actions/download-artifact@v4
+        with:
+          name: clementine-cli-${{ github.ref_name }}-no-automation-linux-amd64
+          path: release
+
+      - name: rename clementine-cli no-automation file
+        run: |
+          mv release/clementine-cli-no-automation release/clementine-cli-${{ github.ref_name }}-no-automation-linux-amd64
+
+      - name: Download clementine-cli with-automation linux-amd64 Binary
+        uses: actions/download-artifact@v4
+        with:
+          name: clementine-cli-${{ github.ref_name }}-with-automation-linux-amd64
+          path: release
+
+      - name: rename clementine-cli with-automation file
+        run: |
+          mv release/clementine-cli-with-automation release/clementine-cli-${{ github.ref_name }}-with-automation-linux-amd64
 
       - name: Release
         uses: softprops/action-gh-release@v1
         with:
           draft: ${{ contains(github.ref, 'tmp') }}
           files: |
-            release/clementine-core-${{ github.ref_name }}-linux-amd64
-            release/clementine-cli-${{ github.ref_name }}-linux-amd64
+            release/clementine-core-${{ github.ref_name }}-no-automation-linux-amd64
+            release/clementine-core-${{ github.ref_name }}-with-automation-linux-amd64
+            release/clementine-cli-${{ github.ref_name }}-no-automation-linux-amd64
+            release/clementine-cli-${{ github.ref_name }}-with-automation-linux-amd64
           name: Release ${{ github.ref_name }}
           body: |
             This is the release for version ${{ github.ref_name }}.
 
             It includes:
-            - clementine-core-${{ github.ref_name }}-linux-amd64
-            - clementine-cli-${{ github.ref_name }}-linux-amd64
+            - clementine-core-${{ github.ref_name }}-no-automation-linux-amd64
+            - clementine-core-${{ github.ref_name }}-with-automation-linux-amd64
+            - clementine-cli-${{ github.ref_name }}-no-automation-linux-amd64
+            - clementine-cli-${{ github.ref_name }}-with-automation-linux-amd64
