@@ -267,10 +267,10 @@ fn convert_to_groth16_and_verify(
 /// A tuple containing:
 /// - A 20-byte bitmap indicating which watchtower challenges were valid,
 /// - A vector of vectors containing the outputs of valid watchtower challenge transactions.
-/// These outputs should conform to the expected structure of either a single OP_RETURN output
-/// or a combination of two P2TR outputs and one OP_RETURN output for the challenge to be
-/// considered when calculating the maximum work). However, it is enough to have a valid signature
-/// to mark the watchtower as a challenge sender.
+///   These outputs should conform to the expected structure of either a single OP_RETURN output
+///   or a combination of two P2TR outputs and one OP_RETURN output for the challenge to be
+///   considered when calculating the maximum work). However, it is enough to have a valid signature
+///   to mark the watchtower as a challenge sender.
 ///
 /// # Notes
 /// Invalid or malformed challenge data (e.g., decoding errors, invalid signatures)
