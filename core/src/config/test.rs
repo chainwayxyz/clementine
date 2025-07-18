@@ -1,8 +1,13 @@
+use crate::builder::transaction::output::UnspentTxOut;
+use crate::builder::transaction::TxHandlerBuilder;
+use crate::constants::MIN_TAPROOT_AMOUNT;
 use crate::deposit::DepositData;
 use crate::header_chain_prover::HeaderChainProver;
 use bitcoin::blockdata::block::BlockHash;
 use bitcoin::secp256k1::PublicKey;
 use bitcoin::secp256k1::SecretKey;
+use bitcoin::ScriptBuf;
+use bitcoin::TxOut;
 use bitvm::chunk::api::Assertions;
 use risc0_zkvm::Receipt;
 use serde::{Deserialize, Serialize};
@@ -253,45 +258,110 @@ impl TestParams {
         latest_block_hash
     }
 
+    pub fn maybe_add_large_test_outputs(
+        &self,
+        mut builder: TxHandlerBuilder,
+    ) -> eyre::Result<TxHandlerBuilder> {
+        // Returns the modified builder
+        // Check if the large annex and output scenario is enabled
+        if self.use_large_annex_and_output {
+            for i in 0..2300 {
+                let mut test_taproot_address: [u8; 32] = [0; 32];
+                let num_to_use: u32 = 30000 + i;
+                let num_to_use_bytes = num_to_use.to_le_bytes();
+                // Last 4 bytes of test_taproot_address will be used to differentiate the outputs
+                test_taproot_address[28..32].copy_from_slice(&num_to_use_bytes);
+                let mut additional_taproot_script_vec = vec![0x51, 0x20];
+                additional_taproot_script_vec.extend_from_slice(&test_taproot_address);
+                let additional_taproot_script =
+                    ScriptBuf::from_bytes(additional_taproot_script_vec);
+                let additional_taproot_txout = TxOut {
+                    value: MIN_TAPROOT_AMOUNT,
+                    script_pubkey: additional_taproot_script,
+                };
+                // Reassign the result of add_output back to builder
+                builder = builder.add_output(UnspentTxOut::from_partial(additional_taproot_txout));
+            }
+            tracing::warn!("Using large annex and output");
+        } else if self.use_large_output {
+            for i in 0..2300 {
+                let mut test_taproot_address: [u8; 32] = [0; 32];
+                let num_to_use: u32 = 30000 + i;
+                let num_to_use_bytes = num_to_use.to_le_bytes();
+                // Last 4 bytes of test_taproot_address will be used to differentiate the outputs
+                test_taproot_address[28..32].copy_from_slice(&num_to_use_bytes);
+                let mut additional_taproot_script_vec = vec![0x51, 0x20];
+                additional_taproot_script_vec.extend_from_slice(&test_taproot_address);
+                let additional_taproot_script =
+                    ScriptBuf::from_bytes(additional_taproot_script_vec);
+                let additional_taproot_txout = TxOut {
+                    value: MIN_TAPROOT_AMOUNT,
+                    script_pubkey: additional_taproot_script,
+                };
+                // Reassign the result of add_output back to builder
+                builder = builder.add_output(UnspentTxOut::from_partial(additional_taproot_txout));
+            }
+            tracing::warn!("Using large output");
+        }
+        Ok(builder)
+    }
+
     pub fn maybe_dump_bridge_circuit_params_to_file(
         &self,
         bridge_circuit_host_params: &impl borsh::BorshSerialize,
     ) -> eyre::Result<()> {
-        if self.generate_varying_total_works_insufficient_total_work
-            || self.generate_varying_total_works
-            || self.generate_varying_total_works_first_two_valid
-        {
-            use std::path::PathBuf;
+        use std::path::PathBuf;
 
-            let file_path = match (
-             self.generate_varying_total_works,
-             self.generate_varying_total_works_insufficient_total_work,
+        let cases = [
+        (
+            self.use_small_annex,
+            "../bridge-circuit-host/bin-files/bch_params_challenge_tx_with_annex.bin",
+        ),
+        (
+            self.use_large_annex,
+            "../bridge-circuit-host/bin-files/bch_params_challenge_tx_with_large_annex.bin",
+        ),
+        (
+            self.use_large_output,
+            "../bridge-circuit-host/bin-files/bch_params_challenge_tx_with_large_output.bin",
+        ),
+        (
+            self.use_large_annex_and_output,
+            "../bridge-circuit-host/bin-files/bch_params_challenge_tx_with_large_annex_and_output.bin",
+        ),
+        (
+            self.generate_varying_total_works,
+            "../bridge-circuit-host/bin-files/bch_params_varying_total_works.bin",
+        ),
+        (
+            self.generate_varying_total_works_insufficient_total_work,
+            "../bridge-circuit-host/bin-files/bch_params_varying_total_works_insufficient_total_work.bin",
+        ),
+        (
             self.generate_varying_total_works_first_two_valid,
-        ) {
-            (true, false, false) => PathBuf::from(
-                "../bridge-circuit-host/bin-files/bch_params_varying_total_works.bin",
-            ),
-            (false, true, false) => PathBuf::from(
-                "../bridge-circuit-host/bin-files/bch_params_varying_total_works_insufficient_total_work.bin",
-            ),
-            (false, false, true) => PathBuf::from(
-                "../bridge-circuit-host/bin-files/bch_params_varying_total_works_first_two_valid.bin",
-            ),
-            _ => {
-                panic!("Invalid or conflicting test params for generating varying total works");
-            }
-        };
+            "../bridge-circuit-host/bin-files/bch_params_varying_total_works_first_two_valid.bin",
+        ),
+    ];
 
-            std::fs::create_dir_all(file_path.parent().unwrap())
+        let active_cases: Vec<_> = cases.iter().filter(|(cond, _)| *cond).collect();
+
+        if active_cases.len() > 1 {
+            panic!("Multiple conflicting bridge circuit dump conditions are enabled");
+        }
+
+        if let Some((_, file_path)) = active_cases.first() {
+            let path = PathBuf::from(file_path);
+            std::fs::create_dir_all(path.parent().unwrap())
                 .map_err(|e| eyre::eyre!("Failed to create directory for output file: {}", e))?;
-            let serialized_params = borsh::to_vec(&bridge_circuit_host_params).map_err(|e| {
+            let serialized_params = borsh::to_vec(bridge_circuit_host_params).map_err(|e| {
                 eyre::eyre!("Failed to serialize bridge circuit host params: {}", e)
             })?;
-            std::fs::write(file_path.clone(), serialized_params).map_err(|e| {
+            std::fs::write(&path, serialized_params).map_err(|e| {
                 eyre::eyre!("Failed to write bridge circuit host params to file: {}", e)
             })?;
-            tracing::info!("Bridge circuit host params written to {:?}", file_path);
+            tracing::info!("Bridge circuit host params written to {:?}", &path);
         }
+
         Ok(())
     }
 }

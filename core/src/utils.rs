@@ -545,6 +545,8 @@ pub struct RbfSigningInfo {
     pub tweak_merkle_root: Option<TapNodeHash>,
     #[cfg(test)]
     pub annex: Option<Vec<u8>>,
+    #[cfg(test)]
+    pub additional_taproot_output_count: Option<u32>,
 }
 pub trait Last20Bytes {
     fn last_20_bytes(self) -> [u8; 20];
