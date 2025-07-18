@@ -131,6 +131,7 @@ pub struct Operator<C: CitreaClientT> {
     pub(crate) reimburse_addr: Address,
     #[cfg(feature = "automation")]
     pub tx_sender: TxSenderClient,
+    #[cfg(feature = "automation")]
     pub header_chain_prover: HeaderChainProver,
     pub citrea_client: C,
 }
@@ -358,6 +359,7 @@ where
             config.db_name
         );
 
+        #[cfg(feature = "automation")]
         let header_chain_prover = HeaderChainProver::new(&config, rpc.clone()).await?;
 
         Ok(Operator {
@@ -369,6 +371,7 @@ where
             #[cfg(feature = "automation")]
             tx_sender,
             citrea_client,
+            #[cfg(feature = "automation")]
             header_chain_prover,
             reimburse_addr,
         })
