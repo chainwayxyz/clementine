@@ -5,7 +5,6 @@ use tonic::async_trait;
 
 use crate::metrics::L1SyncStatusProvider;
 
-use crate::utils::timed_request;
 use crate::{
     database::Database,
     errors::BridgeError,
@@ -50,14 +49,7 @@ impl<T: NamedEntity> Task for EntityMetricPublisher<T> {
             return Ok(false);
         }
 
-        let l1_status_result = timed_request(
-            ENTITY_METRIC_PUBLISHER_INTERVAL,
-            "get_l1_status",
-            T::get_l1_status(&self.db, &self.rpc),
-        )
-        .await;
-
-        let l1_status = match l1_status_result {
+        let l1_status = match T::get_l1_status(&self.db, &self.rpc).await {
             Ok(l1_status) => l1_status,
             Err(e) => {
                 tracing::error!(

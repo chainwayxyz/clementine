@@ -214,7 +214,7 @@ where
     }
 
     pub async fn get_current_status(&self) -> Result<EntityStatus, BridgeError> {
-        let stopped_tasks = self.background_tasks.get_stopped_tasks().await;
+        let stopped_tasks = self.background_tasks.get_stopped_tasks().await?;
         // Determine if automation is enabled
         let automation_enabled = cfg!(feature = "automation");
 
