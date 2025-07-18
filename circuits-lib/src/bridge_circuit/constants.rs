@@ -4,13 +4,13 @@ use hex_literal::hex;
 
 /// Work-only circuit method IDs for different networks.
 pub static MAINNET_WORK_ONLY_METHOD_ID: [u8; 32] =
-    hex!("ccb324475c82f54640093499f5979abda92ba8fa0a7171be2360185b8fa64c6f");
+    hex!("5b166499bace4ab1d4c71c03b0f0f201fc873032c346db5d8e46e8e24a820809");
 pub static TESTNET4_WORK_ONLY_METHOD_ID: [u8; 32] =
-    hex!("7a81701845c27c4340d000facc3cf8e572c222301513ffc99a760d093c3bb97f");
+    hex!("931ecaa5a6566b577f10729763bcaf0a0e00ec4a365505f393ea6557d404588b");
 pub static REGTEST_WORK_ONLY_METHOD_ID: [u8; 32] =
-    hex!("b7735696783e0fa8052fedebfd57a1f0ec17a938be03fb5374cd7b968bd11fac");
+    hex!("5e61cc4a91a47746a9ecf5f70c834f1884d58005d69645fd1d4bab115a649c24");
 pub static SIGNET_WORK_ONLY_METHOD_ID: [u8; 32] =
-    hex!("6faa03bf1d491d3acfaeab61256b484fc99ccb28fe0a032d8bf7c0092e41f87a");
+    hex!("269912faf4bd668784a5eef4bb3fa0b1d7e3fe26ec0232589e5481f1a3418d69");
 
 // GROTH16 RELATED CONSTANTS
 pub static POST_STATE: [u8; 32] =
@@ -20,9 +20,9 @@ pub static INPUT: [u8; 32] =
 pub static ASSUMPTIONS: [u8; 32] =
     hex_literal::hex!("0000000000000000000000000000000000000000000000000000000000000000");
 pub static CLAIM_TAG: [u8; 32] =
-    hex_literal::hex!("cb1fefcd1f2d9a64975cbbbf6e161e2914434b0cbb9960b84df5d717e86b48af"); // hash of "risc0.ReceiptClaim"
+    hex_literal::hex!("cb1fefcd1f2d9a64975cbbbf6e161e2914434b0cbb9960b84df5d717e86b48af"); // SHA256 hash of "risc0.ReceiptClaim"
 pub static OUTPUT_TAG: [u8; 32] =
-    hex_literal::hex!("77eafeb366a78b47747de0d7bb176284085ff5564887009a5be63da32d3559d4"); // hash of "risc0.Output"
+    hex_literal::hex!("77eafeb366a78b47747de0d7bb176284085ff5564887009a5be63da32d3559d4"); // SHA256 hash of "risc0.Output"
 
 pub const A0_BIGINT: BigInt<4> = BigInt::new([162754123530195662, 1949396425256203034, 0, 0]);
 pub const A0_ARK: ark_ff::Fp<ark_ff::MontBackend<ark_bn254::FrConfig, 4>, 4> = Fr::new(A0_BIGINT);

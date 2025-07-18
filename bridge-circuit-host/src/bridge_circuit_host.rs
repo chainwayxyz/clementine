@@ -472,6 +472,7 @@ mod tests {
         println!("Output: {:?}", new_output);
     }
 
+    /// Please use RISC0_DDEV_MODE=1 to run the following tests.
     #[test]
     #[allow(clippy::print_literal)]
     fn test_varying_total_works() {
