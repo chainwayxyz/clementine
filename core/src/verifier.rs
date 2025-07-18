@@ -510,6 +510,7 @@ where
         operator_winternitz_public_keys: Vec<winternitz::PublicKey>,
         unspent_kickoff_sigs: Vec<Signature>,
     ) -> Result<(), BridgeError> {
+        tracing::info!("Setting operator: {:?}", operator_xonly_pk);
         let operator_data = OperatorData {
             xonly_pk: operator_xonly_pk,
             collateral_funding_outpoint,
@@ -594,7 +595,7 @@ where
             .await?;
         }
         dbtx.commit().await?;
-
+        tracing::info!("Operator: {:?} set successfully", operator_xonly_pk);
         Ok(())
     }
 

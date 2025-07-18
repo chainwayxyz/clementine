@@ -425,15 +425,19 @@ where
         BridgeError,
     > {
         tracing::info!("Generating operator params");
+        tracing::info!("Generating kickoff winternitz pubkeys");
         let wpks = self.generate_kickoff_winternitz_pubkeys()?;
+        tracing::info!("Kickoff winternitz pubkeys generated");
         let (wpk_tx, wpk_rx) = mpsc::channel(wpks.len());
         let kickoff_wpks = KickoffWinternitzKeys::new(
             wpks,
             self.config.protocol_paramset().num_kickoffs_per_round,
             self.config.protocol_paramset().num_round_txs,
         );
+        tracing::info!("Starting to generate unspent kickoff signatures");
         let kickoff_sigs = self.generate_unspent_kickoff_sigs(&kickoff_wpks)?;
-        let wpks = kickoff_wpks.keys.clone();
+        tracing::info!("Unspent kickoff signatures generated");
+        let wpks = kickoff_wpks.keys;
         let (sig_tx, sig_rx) = mpsc::channel(kickoff_sigs.len());
 
         tokio::spawn(async move {

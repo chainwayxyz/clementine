@@ -33,7 +33,7 @@ mod timeout {
 
     pub const RESTART_BACKGROUND_TASKS_TIMEOUT: Duration = Duration::from_secs(60);
 
-    pub const ENTITY_STATUS_POLL_TIMEOUT: Duration = Duration::from_secs(60);
+    pub const ENTITY_STATUS_POLL_TIMEOUT: Duration = Duration::from_secs(300);
 }
 
 lazy_static::lazy_static! {
