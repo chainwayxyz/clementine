@@ -24,18 +24,13 @@ impl Database {
     pub async fn save_state_machines(
         &self,
         mut tx: Option<DatabaseTransaction<'_, '_>>,
-        kickoff_machines: Vec<(String, String, bool)>,
-        round_machines: Vec<(String, XOnlyPublicKey, bool)>,
+        kickoff_machines: Vec<(String, String)>,
+        round_machines: Vec<(String, XOnlyPublicKey)>,
         block_height: i32,
         owner_type: &str,
     ) -> Result<(), BridgeError> {
         // Save kickoff machines that are dirty
-        for (state_json, kickoff_id, dirty) in kickoff_machines {
-            // Skip machines that are not dirty
-            if !dirty {
-                continue;
-            }
-
+        for (state_json, kickoff_id) in kickoff_machines {
             let query = sqlx::query(
                 "INSERT INTO state_machines (
                     machine_type,
@@ -62,12 +57,7 @@ impl Database {
         }
 
         // Save round machines that are dirty
-        for (state_json, operator_xonly_pk, dirty) in round_machines {
-            // Skip machines that are not dirty
-            if !dirty {
-                continue;
-            }
-
+        for (state_json, operator_xonly_pk) in round_machines {
             let query = sqlx::query(
                 "INSERT INTO state_machines (
                     machine_type,
@@ -221,29 +211,13 @@ mod tests {
         // Create test data with owner_type
         let owner_type = "test_owner";
         let kickoff_machines = vec![
-            (
-                "kickoff_state_1".to_string(),
-                "kickoff_id_1".to_string(),
-                true, // dirty
-            ),
-            (
-                "kickoff_state_2".to_string(),
-                "kickoff_id_2".to_string(),
-                true, // dirty
-            ),
+            ("kickoff_state_1".to_string(), "kickoff_id_1".to_string()),
+            ("kickoff_state_2".to_string(), "kickoff_id_2".to_string()),
         ];
 
         let round_machines = vec![
-            (
-                "round_state_1".to_string(),
-                xonly_pk1,
-                true, // dirty
-            ),
-            (
-                "round_state_2".to_string(),
-                xonly_pk2,
-                true, // dirty
-            ),
+            ("round_state_1".to_string(), xonly_pk1),
+            ("round_state_2".to_string(), xonly_pk2),
         ];
 
         // Save state machines
@@ -277,41 +251,5 @@ mod tests {
         assert_eq!(loaded_round[0].0, "round_state_1");
         assert_eq!(loaded_round[0].1, xonly_pk1);
         assert_eq!(loaded_round[0].2, 123);
-
-        // Test dirty flag by updating only one machine
-        let kickoff_machines_update = vec![
-            (
-                "kickoff_state_1_updated".to_string(),
-                "kickoff_id_1".to_string(),
-                true, // dirty - will be updated
-            ),
-            (
-                "kickoff_state_2".to_string(),
-                "kickoff_id_2".to_string(),
-                false, // not dirty - won't be updated
-            ),
-        ];
-
-        db.save_state_machines(None, kickoff_machines_update, vec![], 124, owner_type)
-            .await
-            .unwrap();
-
-        // Load kickoff machines again to verify only one was updated
-        let loaded_kickoff = db.load_kickoff_machines(None, owner_type).await.unwrap();
-        assert_eq!(loaded_kickoff.len(), 2);
-
-        // Find the machine with kickoff_id_1 - it should be updated
-        let machine1 = loaded_kickoff
-            .iter()
-            .find(|m| m.1 == "kickoff_id_1")
-            .unwrap();
-        assert_eq!(machine1.0, "kickoff_state_1_updated");
-
-        // Find the machine with kickoff_id_2 - it should not be updated
-        let machine2 = loaded_kickoff
-            .iter()
-            .find(|m| m.1 == "kickoff_id_2")
-            .unwrap();
-        assert_eq!(machine2.0, "kickoff_state_2");
     }
 }
