@@ -363,9 +363,19 @@ pub mod nonce_gen_response {
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct OptimisticPayoutParams {
+pub struct OptimisticWithdrawParams {
     #[prost(message, optional, tag = "1")]
     pub withdrawal: ::core::option::Option<WithdrawParams>,
+    /// An ECDSA signature (of citrea/aggregator) over the withdrawal params
+    /// to authenticate the withdrawal params. This will be signed manually by citrea
+    /// after manual verification of the optimistic payout.
+    #[prost(string, optional, tag = "2")]
+    pub verification_signature: ::core::option::Option<::prost::alloc::string::String>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct OptimisticPayoutParams {
+    #[prost(message, optional, tag = "1")]
+    pub opt_withdrawal: ::core::option::Option<OptimisticWithdrawParams>,
     #[prost(message, optional, tag = "2")]
     pub nonce_gen: ::core::option::Option<NonceGenFirstResponse>,
     #[prost(bytes = "vec", tag = "3")]
@@ -2025,7 +2035,7 @@ pub mod clementine_aggregator_client {
         /// Perform an optimistic payout to reimburse a peg-out from Citrea
         pub async fn optimistic_payout(
             &mut self,
-            request: impl tonic::IntoRequest<super::WithdrawParams>,
+            request: impl tonic::IntoRequest<super::OptimisticWithdrawParams>,
         ) -> std::result::Result<tonic::Response<super::RawSignedTx>, tonic::Status> {
             self.inner
                 .ready()
@@ -3973,7 +3983,7 @@ pub mod clementine_aggregator_server {
         /// Perform an optimistic payout to reimburse a peg-out from Citrea
         async fn optimistic_payout(
             &self,
-            request: tonic::Request<super::WithdrawParams>,
+            request: tonic::Request<super::OptimisticWithdrawParams>,
         ) -> std::result::Result<tonic::Response<super::RawSignedTx>, tonic::Status>;
         /// Send a pre-signed tx to the network
         async fn internal_send_tx(
@@ -4272,7 +4282,7 @@ pub mod clementine_aggregator_server {
                     struct OptimisticPayoutSvc<T: ClementineAggregator>(pub Arc<T>);
                     impl<
                         T: ClementineAggregator,
-                    > tonic::server::UnaryService<super::WithdrawParams>
+                    > tonic::server::UnaryService<super::OptimisticWithdrawParams>
                     for OptimisticPayoutSvc<T> {
                         type Response = super::RawSignedTx;
                         type Future = BoxFuture<
@@ -4281,7 +4291,7 @@ pub mod clementine_aggregator_server {
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::WithdrawParams>,
+                            request: tonic::Request<super::OptimisticWithdrawParams>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {

@@ -857,11 +857,20 @@ impl ClementineAggregator for AggregatorServer {
 
     async fn optimistic_payout(
         &self,
-        request: tonic::Request<super::WithdrawParams>,
+        request: tonic::Request<super::OptimisticWithdrawParams>,
     ) -> std::result::Result<tonic::Response<super::RawSignedTx>, tonic::Status> {
-        let withdraw_params = request.into_inner();
+        let opt_withdraw_params = request.into_inner();
+
+        let withdraw_params =
+            opt_withdraw_params
+                .withdrawal
+                .clone()
+                .ok_or(Status::invalid_argument(
+                    "Withdrawal params not found for optimistic payout",
+                ))?;
         let (deposit_id, input_signature, input_outpoint, output_script_pubkey, output_amount) =
-            parser::operator::parse_withdrawal_sig_params(withdraw_params.clone()).await?;
+            parser::operator::parse_withdrawal_sig_params(withdraw_params)?;
+
         // get which deposit the withdrawal belongs to
         let withdrawal = self
             .db
@@ -914,12 +923,12 @@ impl ClementineAggregator for AggregatorServer {
                 .zip(first_responses)
                 .map(|(client, first_response)| {
                     let mut client = client.clone();
-                    let withdrawal_params = withdraw_params.clone();
+                    let opt_withdraw_params = opt_withdraw_params.clone();
                     let agg_nonce_bytes = agg_nonce.serialize().to_vec();
                     async move {
                         client
                             .optimistic_payout_sign(OptimisticPayoutParams {
-                                withdrawal: Some(withdrawal_params),
+                                opt_withdrawal: Some(opt_withdraw_params),
                                 agg_nonce: agg_nonce_bytes,
                                 nonce_gen: Some(first_response),
                             })

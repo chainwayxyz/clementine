@@ -76,7 +76,7 @@ use tokio_stream::StreamExt;
 
 alloy_sol_types::sol! {
     #[derive(Debug)]
-    struct OptimisticPayoutParams {
+    struct ClementineOptimisticPayout {
         uint32 withdrawal_id;
         bytes input_signature;
         bytes32 input_outpoint_txid;
@@ -1124,7 +1124,7 @@ where
         let input_sig_bytes = input_signature.serialize().to_vec();
         let outpoint_txid_bytes = input_outpoint.txid.to_byte_array();
         let script_pubkey_bytes = output_script_pubkey.as_bytes().to_vec();
-        let params = OptimisticPayoutParams {
+        let params = ClementineOptimisticPayout {
             withdrawal_id: deposit_id,
             input_signature: input_sig_bytes.into(),
             input_outpoint_txid: outpoint_txid_bytes.into(),
@@ -1132,14 +1132,11 @@ where
             output_script_pubkey: script_pubkey_bytes.into(),
             output_amount: output_amount.to_sat(),
         };
+
         let eip712_hash = params.eip712_signing_hash(&DOMAIN);
 
-        println!("EIP712 hash: {:?}", eip712_hash);
-        println!("Signature: {:?}", signature);
-        println!("Params: {:#?}", params);
-
         let address = signature
-            .recover_address_from_msg(eip712_hash)
+            .recover_address_from_prehash(&eip712_hash)
             .wrap_err("Invalid signature")?;
         Ok(address)
     }
@@ -1154,33 +1151,37 @@ where
         input_outpoint: OutPoint,
         output_script_pubkey: ScriptBuf,
         output_amount: Amount,
+        verification_signature: Option<PrimitiveSignature>,
     ) -> Result<PartialSignature, BridgeError> {
-        let input_sig_bytes = input_signature.serialize().to_vec();
-        let outpoint_txid_bytes = input_outpoint.txid.to_byte_array();
-        let script_pubkey_bytes = output_script_pubkey.as_bytes().to_vec();
-        let params = OptimisticPayoutParams {
-            withdrawal_id: deposit_id,
-            input_signature: input_sig_bytes.into(),
-            input_outpoint_txid: outpoint_txid_bytes.into(),
-            input_outpoint_vout: input_outpoint.vout,
-            output_script_pubkey: script_pubkey_bytes.into(),
-            output_amount: output_amount.to_sat(),
-        };
-        let eip712_hash = params.eip712_signing_hash(&DOMAIN);
-        let signature: PrimitiveSignature =
-            <PrimitiveSignature as std::str::FromStr>::from_str("0x367896c49757882eed394e3148d06c08a76665da2f6933bd132175ab919013c846aad8ff3f67c10386bf0b2a8c247b9a4233109d5c887dec99974fccab65f13d1c")
-                .wrap_err("Invalid signature")?;
+        // if verification address is set in config, check if verification signature is valid
+        if let Some(address_in_config) = self.config.opt_payout_verification_address {
+            // check if verification signature is provided by aggregator
+            if let Some(verification_signature) = verification_signature {
+                let input_sig_bytes = input_signature.serialize().to_vec();
+                let outpoint_txid_bytes = input_outpoint.txid.to_byte_array();
+                let script_pubkey_bytes = output_script_pubkey.as_bytes().to_vec();
+                let params = ClementineOptimisticPayout {
+                    withdrawal_id: deposit_id,
+                    input_signature: input_sig_bytes.into(),
+                    input_outpoint_txid: outpoint_txid_bytes.into(),
+                    input_outpoint_vout: input_outpoint.vout,
+                    output_script_pubkey: script_pubkey_bytes.into(),
+                    output_amount: output_amount.to_sat(),
+                };
+                let eip712_hash = params.eip712_signing_hash(&DOMAIN);
 
-        let address = signature
-            .recover_address_from_msg(eip712_hash)
-            .wrap_err("Invalid signature")?;
-        println!("Recovered address: {}", address);
-        println!("Input signature: {:?}", input_signature.to_string());
-        println!("Input outpoint: {:?}", input_outpoint.to_string());
-        println!("Output script pubkey: {:?}", output_script_pubkey.to_string());
-        println!("Output amount: {:?}", output_amount);
-        println!("EIP712 hash: {:?}", eip712_hash.to_string());
-        println!("Signature: {:?}", signature.to_string());
+                let address_from_sig = verification_signature
+                    .recover_address_from_prehash(&eip712_hash)
+                    .wrap_err("Invalid signature")?;
+                // check if verification signature is signed by the address in config
+                if address_from_sig != address_in_config {
+                    return Err(BridgeError::InvalidOptPayoutVerificationSignature);
+                }
+            } else {
+                // if verification signature is not provided, but verification address is set in config, return error
+                return Err(BridgeError::OptPayoutVerificationSignatureMissing);
+            }
+        }
 
         // check if withdrawal is valid first
         let move_txid = self
@@ -2954,22 +2955,17 @@ mod tests {
 
     #[tokio::test]
     async fn test_recover_address_from_signature() {
-        // let mut config = create_test_config_with_thread_name().await;
-        // let _regtest = create_regtest_rpc(&mut config).await;
-
-        // let verifier = Verifier::<MockCitreaClient>::new(config.clone())
-        //     .await
-        //     .unwrap();
-        
-
         let signature = PrimitiveSignature::from_str("0x93907632f97f51a91e684a88a9b8ad9bb1e0f7679686f79d6538972f4a759c0c38dddc0c449b7336963275189fb26ea3bb2055ba5d140f5a536c6fac6997ae061b")
             .unwrap();
         let input_signature = Signature::from_str("e8b82defd5e7745731737d210ad3f649541fd1e3173424fe6f9152b11cf8a1f9e24a176690c2ab243fb80ccc43369b2aba095b011d7a3a7c2a6953ef6b102643")
             .unwrap();
-        let input_outpoint = OutPoint::from_str("0000000000000000000000000000000000000000000000000000000000000000:0")
-            .unwrap();
-        let output_script_pubkey = ScriptBuf::from_hex("0000000000000000000000000000000000000000000000000000000000000000")
-            .unwrap();
+        let input_outpoint = OutPoint::from_str(
+            "0000000000000000000000000000000000000000000000000000000000000000:0",
+        )
+        .unwrap();
+        let output_script_pubkey =
+            ScriptBuf::from_hex("0000000000000000000000000000000000000000000000000000000000000000")
+                .unwrap();
         let output_amount = Amount::from_sat(1000000000000000000);
         let deposit_id = 1;
         let address = Verifier::<MockCitreaClient>::recover_address_from_signature(
@@ -2981,6 +2977,10 @@ mod tests {
             signature,
         )
         .unwrap();
-        assert_eq!(address, alloy::primitives::Address::from_str("0x0000000000000000000000000000000000000000").unwrap());
+        assert_eq!(
+            address,
+            alloy::primitives::Address::from_str("0x9fcdf8f60d3009656e50bf805cd53c7335b284fb")
+                .unwrap()
+        );
     }
 }

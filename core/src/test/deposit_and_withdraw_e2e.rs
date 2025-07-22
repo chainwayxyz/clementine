@@ -15,8 +15,9 @@ use crate::header_chain_prover::HeaderChainProver;
 use crate::operator::RoundIndex;
 use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
 use crate::rpc::clementine::{
-    Deposit, Empty, FeeType, FinalizedPayoutParams, KickoffId, NormalSignatureKind, RawSignedTx,
-    SendMoveTxRequest, SendTxRequest, TransactionRequest, WithdrawParams,
+    Deposit, Empty, FeeType, FinalizedPayoutParams, KickoffId, NormalSignatureKind,
+    OptimisticWithdrawParams, RawSignedTx, SendMoveTxRequest, SendTxRequest, TransactionRequest,
+    WithdrawParams,
 };
 use crate::test::common::citrea::{get_citrea_safe_withdraw_params, MockCitreaClient, SECRET_KEYS};
 use crate::test::common::tx_utils::{
@@ -34,6 +35,7 @@ use crate::test::common::{
     get_deposit_address, mine_once_after_in_mempool, poll_get, poll_until_condition,
     run_single_deposit,
 };
+use crate::test::sign::sign_optimistic_payout_verification_signature;
 use crate::utils::{initialize_logger, FeePayingType, TxMetadata};
 use crate::{
     extended_rpc::ExtendedRpc,
@@ -1002,14 +1004,24 @@ async fn mock_citrea_run_truthful_opt_payout() {
     )
     .await;
 
+    let withdrawal_params = WithdrawParams {
+        withdrawal_id: 0,
+        input_signature: sig.serialize().to_vec(),
+        input_outpoint: Some(withdrawal_utxo.into()),
+        output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
+        output_amount: payout_txout.value.to_sat(),
+    };
+
+    let verification_signature =
+        sign_optimistic_payout_verification_signature(&config, withdrawal_params.clone());
+
+    let verification_signature_str = verification_signature.to_string();
+
     // should give err before deposit is confirmed on citrea
     assert!(aggregator
-        .optimistic_payout(WithdrawParams {
-            withdrawal_id: 0,
-            input_signature: sig.serialize().to_vec(),
-            input_outpoint: Some(withdrawal_utxo.into()),
-            output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
-            output_amount: payout_txout.value.to_sat(),
+        .optimistic_payout(OptimisticWithdrawParams {
+            withdrawal: Some(withdrawal_params.clone()),
+            verification_signature: None,
         })
         .await
         .is_err());
@@ -1032,12 +1044,9 @@ async fn mock_citrea_run_truthful_opt_payout() {
 
     // should give err before withdrawal is confirmed on citrea
     assert!(aggregator
-        .optimistic_payout(WithdrawParams {
-            withdrawal_id: 0,
-            input_signature: sig.serialize().to_vec(),
-            input_outpoint: Some(withdrawal_utxo.into()),
-            output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
-            output_amount: payout_txout.value.to_sat(),
+        .optimistic_payout(OptimisticWithdrawParams {
+            withdrawal: Some(withdrawal_params.clone()),
+            verification_signature: None,
         })
         .await
         .is_err());
@@ -1053,12 +1062,9 @@ async fn mock_citrea_run_truthful_opt_payout() {
     let opt_payout_tx = poll_get(
         async || {
             let payout_resp = aggregator
-                .optimistic_payout(WithdrawParams {
-                    withdrawal_id: 0,
-                    input_signature: sig.serialize().to_vec(),
-                    input_outpoint: Some(withdrawal_utxo.into()),
-                    output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
-                    output_amount: payout_txout.value.to_sat(),
+                .optimistic_payout(OptimisticWithdrawParams {
+                    withdrawal: Some(withdrawal_params.clone()),
+                    verification_signature: Some(verification_signature_str.clone()),
                 })
                 .await;
 
@@ -1864,12 +1870,24 @@ async fn concurrent_deposits_and_optimistic_payouts() {
             let mut withdrawal_requests = Vec::new();
 
             for (i, aggregator) in aggregators.iter_mut().enumerate() {
-                withdrawal_requests.push(aggregator.optimistic_payout(WithdrawParams {
+                let withdrawal_params = WithdrawParams {
                     withdrawal_id: i as u32,
                     input_signature: sigs[i].serialize().to_vec(),
                     input_outpoint: Some(withdrawal_utxos[i].into()),
                     output_script_pubkey: payout_txouts[i].script_pubkey.to_bytes(),
                     output_amount: payout_txouts[i].value.to_sat(),
+                };
+
+                let verification_signature = sign_optimistic_payout_verification_signature(
+                    &config,
+                    withdrawal_params.clone(),
+                );
+
+                let verification_signature_str = verification_signature.to_string();
+
+                withdrawal_requests.push(aggregator.optimistic_payout(OptimisticWithdrawParams {
+                    withdrawal: Some(withdrawal_params.clone()),
+                    verification_signature: Some(verification_signature_str),
                 }));
             }
 

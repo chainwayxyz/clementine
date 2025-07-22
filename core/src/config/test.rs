@@ -13,7 +13,7 @@ use risc0_zkvm::Receipt;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TestParams {
     /// Controls whether the state manager component is initialized and run as part of the test setup.
     /// Allows for testing components in isolation from the state manager.
@@ -71,7 +71,10 @@ pub struct TestParams {
 
     pub generate_varying_total_works_first_two_valid: bool,
 
-    #[serde(default)]
+    /// A secret key for generating signatures of optimistic payout verification.
+    /// It should match the opt_payout_verification_address in BridgeConfig.
+    pub opt_payout_verification_secret_key: Option<alloy::signers::k256::ecdsa::SigningKey>,
+
     pub timeout_params: TimeoutTestParams,
 }
 
@@ -504,6 +507,15 @@ impl Default for TestParams {
             generate_varying_total_works_insufficient_total_work: false,
             generate_varying_total_works: false,
             generate_varying_total_works_first_two_valid: false,
+            opt_payout_verification_secret_key: Some(
+                alloy::signers::k256::ecdsa::SigningKey::from_slice(
+                    &hex::decode(
+                        "7ee82330d90423649d065f2c31f342a323c0d7b29a72eff10d88a9b8b00bed87",
+                    )
+                    .expect("valid hex"),
+                )
+                .expect("valid secret key"),
+            ),
         }
     }
 }

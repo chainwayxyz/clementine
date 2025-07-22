@@ -137,7 +137,7 @@ pub async fn parse_schnorr_sig(
     }
 }
 
-pub async fn parse_withdrawal_sig_params(
+pub fn parse_withdrawal_sig_params(
     params: WithdrawParams,
 ) -> Result<(u32, Signature, OutPoint, ScriptBuf, Amount), Status> {
     let input_signature = Signature::from_slice(&params.input_signature)

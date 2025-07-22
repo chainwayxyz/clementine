@@ -131,6 +131,10 @@ pub struct BridgeConfig {
     /// Telemetry configuration
     pub telemetry: Option<TelemetryConfig>,
 
+    /// The ECDSA address of the citrea/aggregator that will sign the withdrawal params
+    /// after manual verification of the optimistic payout.
+    pub opt_payout_verification_address: Option<alloy::primitives::Address>,
+
     #[cfg(test)]
     #[serde(skip)]
     pub test_params: test::TestParams,
@@ -277,6 +281,10 @@ impl Default for BridgeConfig {
             ca_cert_path: PathBuf::from("certs/ca/ca.pem"),
             aggregator_cert_path: PathBuf::from("certs/aggregator/aggregator.pem"),
             client_verification: true,
+            opt_payout_verification_address: Some(
+                alloy::primitives::Address::from_str("0x242fbec93465ce42b3d7c0e1901824a2697193fd")
+                    .expect("valid address"),
+            ),
 
             telemetry: Some(TelemetryConfig::default()),
 
