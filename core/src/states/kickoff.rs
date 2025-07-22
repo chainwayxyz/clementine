@@ -60,25 +60,48 @@ pub enum KickoffEvent {
     /// Event that is dispatched when the burn connector is spent in Bitcoin
     BurnConnectorSpent,
     TimeToSendWatchtowerChallenge,
-    /// Special event that is used to indicate that the state machine has been saved to the database and the dirty flag should be reset
+    /// Special event that is used to indicate that the state machine has been saved to the database and the dirty flag should be reset to false
     SavedToDb,
 }
 
+/// State machine for tracking a single kickoff process (Created after a kickoff tx is detected on Bitcoin).
 #[serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct KickoffStateMachine<T: Owner> {
+    /// Maps matchers to the resulting kickoff events.
     #[serde_as(as = "Vec<(_, _)>")]
     pub(crate) matchers: HashMap<Matcher, KickoffEvent>,
+    /// Indicates if the state machine has unsaved changes that need to be persisted on db.
+    /// dirty flag is set if any matcher matches the current block.
+    /// the flag is set to true in on_transition and on_dispatch
+    /// the flag is set to false after the state machine is saved to db and the event SavedToDb is dispatched
     pub(crate) dirty: bool,
+    /// The kickoff data associated with the kickoff being tracked.
     pub(crate) kickoff_data: KickoffData,
+    /// The deposit data that the kickoff tries to withdraw from.
     pub(crate) deposit_data: DepositData,
+    /// The block height at which the kickoff transaction was mined.
     pub(crate) kickoff_height: u32,
+    /// The witness for the kickoff transactions input which is a winternitz signature that commits the payout blockhash.
     pub(crate) payout_blockhash: Witness,
+    /// Set of indices of watchtower UTXOs that have already been spent.
     spent_watchtower_utxos: HashSet<usize>,
+    /// The witness taken from the transaction spending the latest blockhash utxo.
     latest_blockhash: Witness,
+    /// Saves watchtower challenges with the watchtower index as the key.
+    /// Watchtower challenges are encoded as the output of the watchtower challenge tx.
+    /// (taproot addresses parsed as 32 bytes + OP_RETURN data), in total 144 bytes.
     watchtower_challenges: HashMap<usize, Transaction>,
+    /// Saves operator asserts with the index of the assert utxo as the key.
+    /// Operator asserts are witnesses that spend the assert utxo's and contain the winternitz signature of the BitVM assertion.
     operator_asserts: HashMap<usize, Witness>,
+    /// Saves operator challenge acks with the index of the challenge ack utxo as the key.
+    /// Operator challenge acks are witnesses that spend the challenge ack utxo's.
+    /// The witness contains the revealed preimage that can be used to disprove if the operator
+    /// maliciously doesn't include the watchtower challenge in the BitVM proof.
     operator_challenge_acks: HashMap<usize, Witness>,
+    /// Marker for the generic owner type (phantom data for type safety).
+    /// This is used to ensure that the state machine is generic over the owner type.
     phantom: std::marker::PhantomData<T>,
 }
 

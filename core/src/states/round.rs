@@ -34,16 +34,22 @@ pub enum RoundEvent {
     /// This event is sent if operators collateral was spent in any way other than default behaviour (default is round -> ready to reimburse -> round -> ready to reimburse -> ...)
     /// It means operator stopped participating in the protocol and can no longer participate in clementine bridge protocol.
     OperatorExit,
-    /// Special event that is used to indicate that the state machine has been saved to the database and the dirty flag should be reset
+    /// Special event that is used to indicate that the state machine has been saved to the database and the dirty flag should be reset to false
     SavedToDb,
 }
 
 #[serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct RoundStateMachine<T: Owner> {
+    /// Maps matchers to the resulting round events.
     #[serde_as(as = "Vec<(_, _)>")]
     pub(crate) matchers: HashMap<matcher::Matcher, RoundEvent>,
+    /// Data of the operator that is being tracked.
     pub(crate) operator_data: OperatorData,
+    /// Indicates if the state machine has unsaved changes that need to be persisted on db.
+    /// dirty flag is set if any matcher matches the current block.
+    /// the flag is set to true in on_transition and on_dispatch
+    /// the flag is set to false after the state machine is saved to db and the event SavedToDb is dispatched
     pub(crate) dirty: bool,
     phantom: std::marker::PhantomData<T>,
 }
