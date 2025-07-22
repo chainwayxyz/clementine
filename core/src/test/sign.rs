@@ -1,7 +1,7 @@
 use crate::{
     config::BridgeConfig,
     rpc::clementine::WithdrawParams,
-    verifier::{ClementineOptimisticPayout, DOMAIN},
+    verifier::{ClementineOptimisticPayoutMessage, DOMAIN},
 };
 use alloy::primitives::PrimitiveSignature;
 use alloy_sol_types::SolStruct;
@@ -24,7 +24,7 @@ pub fn sign_optimistic_payout_verification_signature(
     let input_sig_bytes = input_signature.serialize().to_vec();
     let outpoint_txid_bytes = input_outpoint.txid.to_byte_array();
     let script_pubkey_bytes = output_script_pubkey.as_bytes().to_vec();
-    let params = ClementineOptimisticPayout {
+    let params = ClementineOptimisticPayoutMessage {
         withdrawal_id,
         input_signature: input_sig_bytes.into(),
         input_outpoint_txid: outpoint_txid_bytes.into(),

@@ -76,7 +76,7 @@ use tokio_stream::StreamExt;
 
 alloy_sol_types::sol! {
     #[derive(Debug)]
-    struct ClementineOptimisticPayout {
+    struct ClementineOptimisticPayoutMessage {
         uint32 withdrawal_id;
         bytes input_signature;
         bytes32 input_outpoint_txid;
@@ -87,7 +87,7 @@ alloy_sol_types::sol! {
 }
 
 pub static DOMAIN: Eip712Domain = alloy_sol_types::eip712_domain! {
-    name: "ClementineOptimisticPayout",
+    name: "ClementineOptimisticPayoutMessage",
     version: "1",
 };
 
@@ -1124,7 +1124,7 @@ where
         let input_sig_bytes = input_signature.serialize().to_vec();
         let outpoint_txid_bytes = input_outpoint.txid.to_byte_array();
         let script_pubkey_bytes = output_script_pubkey.as_bytes().to_vec();
-        let params = ClementineOptimisticPayout {
+        let params = ClementineOptimisticPayoutMessage {
             withdrawal_id: deposit_id,
             input_signature: input_sig_bytes.into(),
             input_outpoint_txid: outpoint_txid_bytes.into(),
@@ -1160,7 +1160,7 @@ where
                 let input_sig_bytes = input_signature.serialize().to_vec();
                 let outpoint_txid_bytes = input_outpoint.txid.to_byte_array();
                 let script_pubkey_bytes = output_script_pubkey.as_bytes().to_vec();
-                let params = ClementineOptimisticPayout {
+                let params = ClementineOptimisticPayoutMessage {
                     withdrawal_id: deposit_id,
                     input_signature: input_sig_bytes.into(),
                     input_outpoint_txid: outpoint_txid_bytes.into(),
@@ -2979,7 +2979,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             address,
-            alloy::primitives::Address::from_str("0x9fcdf8f60d3009656e50bf805cd53c7335b284fb")
+            alloy::primitives::Address::from_str("0xc9f597cbdd1235c986fb079184c785bf25b273b9")
                 .unwrap()
         );
     }
