@@ -10,8 +10,10 @@ use crate::{
 };
 use bitcoin::taproot::TaprootSpendInfo;
 use bitcoin::{Amount, FeeRate, OutPoint, Transaction, TxOut, Txid, Weight};
-use bitcoincore_rpc::{json::EstimateMode, RpcApi};
+use bitcoincore_rpc::RpcApi;
+use eyre::ContextCompat;
 use eyre::OptionExt;
+use eyre::WrapErr;
 
 #[cfg(test)]
 use std::env;
@@ -23,6 +25,9 @@ mod task;
 
 pub use client::TxSenderClient;
 pub use task::TxSenderTask;
+
+const MEMPOOL_SPACE_URL: &str = "https://mempool.space/";
+const MEMPOOL_SPACE_RECOMMENDED_FEE_ENDPOINT: &str = "api/v1/fees/recommended";
 
 // Define a macro for logging errors and saving them to the database
 macro_rules! log_error_for_tx {
@@ -110,39 +115,29 @@ impl TxSender {
         }
     }
 
-    /// Gets the current recommended fee rate from the Bitcoin Core node.
-    ///
-    /// Uses the `estimatesmartfee` RPC call with a confirmation target of 1 block
-    /// and conservative estimation mode.
-    ///
-    /// If fee estimation is unavailable (e.g., node is warming up), it returns
-    /// an error, except in Regtest mode where it defaults to 1 sat/vB for testing convenience.
+    /// Gets the current recommended fee rate in sat/vb from Mempool Space or Bitcoin Core.
+    pub async fn get_fee_rate_as_sat_vb(&self) -> Result<FeeRate> {
+        // If network is regtest or signet, mempool space is not available
+        let smart_fee = get_fee_rate_from_mempool_space(self.paramset.network)
+            .await?
+            .or(self
+                .rpc
+                .client
+                .estimate_smart_fee(1, None)
+                .await
+                .wrap_err("Failed to estimate smart fee using Bitcoin Core RPC")?
+                .fee_rate);
+        let sat_vkb = smart_fee.map_or(1000, |rate| rate.to_sat());
+
+        tracing::info!("Fee rate: {} sat/vb", sat_vkb / 1000);
+        Ok(FeeRate::from_sat_per_vb(sat_vkb / 1000)
+            .wrap_err("Failed to convert fee rate to FeeRate")?)
+    }
+
     async fn _get_fee_rate(&self) -> Result<FeeRate> {
         tracing::info!("Getting fee rate");
-        let fee_rate = self
-            .rpc
-            .client
-            .estimate_smart_fee(1, Some(EstimateMode::Conservative))
-            .await;
-
-        match fee_rate {
-            Ok(fee_rate) => match fee_rate.fee_rate {
-                Some(fee_rate) => Ok(FeeRate::from_sat_per_kwu(fee_rate.to_sat())),
-                None => {
-                    if self.paramset.network == bitcoin::Network::Regtest {
-                        tracing::debug!("Using fee rate of 1 sat/vb (Regtest mode)");
-                        return Ok(FeeRate::from_sat_per_vb_unchecked(1));
-                    }
-
-                    tracing::error!("TXSENDER: Fee estimation error: {:?}", fee_rate.errors);
-                    Ok(FeeRate::from_sat_per_vb_unchecked(1))
-                }
-            },
-            Err(e) => {
-                tracing::error!("TXSENDER: Error getting fee rate: {:?}", e);
-                Ok(FeeRate::from_sat_per_vb_unchecked(1))
-            }
-        }
+        let fee_rate = self.get_fee_rate_as_sat_vb().await?;
+        Ok(fee_rate)
     }
 
     /// Calculates the total fee required for a transaction package based on the fee bumping strategy.
@@ -390,6 +385,37 @@ impl TxSender {
 
         Ok(())
     }
+}
+
+/// Fetches the current recommended fee rate from Mempool Space API.
+/// This function is used to get the fee rate in sat/vkb (satoshis per kilovbyte).
+pub(crate) async fn get_fee_rate_from_mempool_space(
+    network: bitcoin::Network,
+) -> Result<Option<Amount>> {
+    let url = match network {
+        bitcoin::Network::Bitcoin => format!(
+            // Mainnet
+            "{}{}",
+            MEMPOOL_SPACE_URL, MEMPOOL_SPACE_RECOMMENDED_FEE_ENDPOINT
+        ),
+        bitcoin::Network::Testnet => format!(
+            "{}testnet4/{}",
+            MEMPOOL_SPACE_URL, MEMPOOL_SPACE_RECOMMENDED_FEE_ENDPOINT
+        ),
+        _ => return Ok(None),
+    };
+
+    let fee_rate = reqwest::get(url)
+        .await
+        .wrap_err("Failed to GET fee rate from mempool.space")?
+        .json::<serde_json::Value>()
+        .await
+        .wrap_err("Failed to parse JSON response from mempool.space")?
+        .get("fastestFee")
+        .and_then(|fee| fee.as_u64())
+        .map(|fee| Amount::from_sat(fee * 1000)); // multiply by 1000 to convert to sat/vkb
+
+    Ok(fee_rate)
 }
 
 #[cfg(test)]
@@ -822,5 +848,25 @@ mod tests {
             .expect("Should not return error if sent again but still in mempool");
 
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_mempool_space_fee_rate() {
+        let _fee_rate = get_fee_rate_from_mempool_space(bitcoin::Network::Bitcoin)
+            .await
+            .unwrap()
+            .unwrap();
+        let _fee_rate = get_fee_rate_from_mempool_space(bitcoin::Network::Testnet)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(get_fee_rate_from_mempool_space(bitcoin::Network::Regtest)
+            .await
+            .unwrap()
+            .is_none());
+        assert!(get_fee_rate_from_mempool_space(bitcoin::Network::Signet)
+            .await
+            .unwrap()
+            .is_none());
     }
 }
