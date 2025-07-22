@@ -278,9 +278,9 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         let kickoff_machines: eyre::Result<Vec<_>> = self
             .kickoff_machines
             .iter()
+            // Only serialize machines that are dirty
             .filter(|machine| machine.dirty)
             .map(|machine| -> eyre::Result<_> {
-                // Directly serialize the machine
                 let state_json = serde_json::to_string(&machine).wrap_err_with(|| {
                     format!("Failed to serialize kickoff machine: {:?}", machine)
                 })?;
@@ -288,8 +288,6 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                     serde_json::to_string(&machine.kickoff_data).wrap_err_with(|| {
                         format!("Failed to serialize kickoff id for machine: {:?}", machine)
                     })?;
-
-                // Use the machine's dirty flag to determine if it needs updating
                 Ok((state_json, (kickoff_id)))
             })
             .collect();
@@ -298,6 +296,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         let round_machines: eyre::Result<Vec<_>> = self
             .round_machines
             .iter()
+            // Only serialize machines that are dirty
             .filter(|machine| machine.dirty)
             .map(|machine| -> eyre::Result<_> {
                 let state_json = serde_json::to_string(machine).wrap_err_with(|| {

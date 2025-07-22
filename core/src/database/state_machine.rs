@@ -14,8 +14,8 @@ impl Database {
     /// # Arguments
     ///
     /// * `tx` - Optional database transaction
-    /// * `kickoff_machines` - Vector of (state_json, kickoff_id, owner_type, dirty) tuples for kickoff machines
-    /// * `round_machines` - Vector of (state_json, operator_xonly_pk, owner_type, dirty) tuples for round machines
+    /// * `kickoff_machines` - Vector of (state_json, kickoff_id, owner_type) tuples for kickoff machines
+    /// * `round_machines` - Vector of (state_json, operator_xonly_pk, owner_type) tuples for round machines
     /// * `block_height` - Current block height
     ///
     /// # Errors
