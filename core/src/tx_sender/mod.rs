@@ -187,6 +187,7 @@ impl TxSender {
         }
     }
 
+    #[allow(dead_code)]
     async fn _get_fee_rate(&self) -> Result<FeeRate> {
         tracing::info!("Getting fee rate");
         let fee_rate = self._get_fee_rate_as_sat_vb().await?;
