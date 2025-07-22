@@ -14,7 +14,7 @@ use bitcoincore_rpc::RpcApi;
 use eyre::ContextCompat;
 use eyre::OptionExt;
 use eyre::WrapErr;
-use eyre::{bail, eyre};
+use eyre::eyre;
 
 #[cfg(test)]
 use std::env;
@@ -442,7 +442,8 @@ impl TxSender {
 
 /// Fetches the current recommended fee rate from Mempool Space API.
 /// This function is used to get the fee rate in sat/vkb (satoshis per kilovbyte).
-pub(crate) async fn get_fee_rate_from_mempool_space(network: Network) -> Result<Amount> {
+/// See [Mempool Space API](https://mempool.space/docs/api/rest#get-recommended-fees) for more details.
+async fn get_fee_rate_from_mempool_space(network: Network) -> Result<Amount> {
     let url = match network {
         Network::Bitcoin => format!(
             "{}{}",
