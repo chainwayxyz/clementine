@@ -9,12 +9,12 @@ use crate::{
     utils::TxMetadata,
 };
 use bitcoin::taproot::TaprootSpendInfo;
-use bitcoin::{Amount, FeeRate, OutPoint, Transaction, TxOut, Txid, Weight};
+use bitcoin::{Amount, FeeRate, Network, OutPoint, Transaction, TxOut, Txid, Weight};
 use bitcoincore_rpc::RpcApi;
 use eyre::ContextCompat;
 use eyre::OptionExt;
 use eyre::WrapErr;
-use reqwest;
+use eyre::{bail, eyre};
 
 #[cfg(test)]
 use std::env;
@@ -117,27 +117,79 @@ impl TxSender {
     }
 
     /// Gets the current recommended fee rate in sat/vb from Mempool Space or Bitcoin Core.
-    pub async fn get_fee_rate_as_sat_vb(&self) -> Result<FeeRate> {
-        // If network is regtest or signet, mempool space is not available
-        let smart_fee = get_fee_rate_from_mempool_space(self.paramset.network)
-            .await?
-            .or(self
-                .rpc
-                .client
-                .estimate_smart_fee(1, None)
-                .await
-                .wrap_err("Failed to estimate smart fee using Bitcoin Core RPC")?
-                .fee_rate);
-        let sat_vkb = smart_fee.map_or(1000, |rate| rate.to_sat());
+    async fn _get_fee_rate_as_sat_vb(&self) -> Result<FeeRate> {
+        match self.paramset.network {
+            // Regtest and Signet use a fixed, low fee rate.
+            Network::Regtest | Network::Signet => {
+                tracing::info!(
+                    "Using fixed fee rate of 1 sat/vB for {} network",
+                    self.paramset.network
+                );
+                Ok(FeeRate::from_sat_per_vb_unchecked(1))
+            }
 
-        tracing::info!("Fee rate: {} sat/vb", sat_vkb / 1000);
-        Ok(FeeRate::from_sat_per_vb(sat_vkb / 1000)
-            .wrap_err("Failed to convert fee rate to FeeRate")?)
+            // Mainnet and Testnet4 fetch fees from Mempool Space or Bitcoin Core RPC.
+            Network::Bitcoin | Network::Testnet4 => {
+                tracing::info!("Fetching fee rate for {} network...", self.paramset.network);
+
+                // Fetch fee from mempool.space with a fallback to the RPC node.
+                let smart_fee_result: Result<Amount> = {
+                    let mempool_fee = get_fee_rate_from_mempool_space(self.paramset.network).await;
+
+                    if let Ok(fee_rate) = mempool_fee {
+                        Ok(fee_rate)
+                    } else {
+                        if let Err(e) = &mempool_fee {
+                            tracing::warn!(
+                    "Mempool.space fee fetch failed, falling back to Bitcoin Core RPC: {:#}",
+                    e
+                );
+                        }
+
+                        let fee_estimate = self
+                            .rpc
+                            .client
+                            .estimate_smart_fee(1, None)
+                            .await
+                            .wrap_err("Failed to estimate smart fee using Bitcoin Core RPC")?;
+
+                        fee_estimate.fee_rate.ok_or_else(|| {
+                            eyre!("Bitcoin Core RPC returned no fee estimate").into()
+                        })
+                    }
+                };
+
+                let sat_vkb = smart_fee_result.map_or_else(
+                    |err| {
+                        tracing::warn!(
+                            "Smart fee estimation failed, using default of 1 sat/vB. Error: {:#}",
+                            err
+                        );
+                        1000
+                    },
+                    |rate| rate.to_sat(),
+                );
+
+                // Convert sat/kvB to sat/vB.
+                let fee_sat_vb = sat_vkb / 1000;
+
+                tracing::info!("Using fee rate: {} sat/vb", fee_sat_vb);
+                Ok(FeeRate::from_sat_per_vb(fee_sat_vb)
+                    .wrap_err("Failed to create FeeRate from calculated sat/vb")?)
+            }
+
+            // All other network types are unsupported.
+            _ => Err(eyre!(
+                "Fee rate estimation is not supported for network: {:?}",
+                self.paramset.network
+            )
+            .into()),
+        }
     }
 
     async fn _get_fee_rate(&self) -> Result<FeeRate> {
         tracing::info!("Getting fee rate");
-        let fee_rate = self.get_fee_rate_as_sat_vb().await?;
+        let fee_rate = self._get_fee_rate_as_sat_vb().await?;
         Ok(fee_rate)
     }
 
@@ -390,31 +442,32 @@ impl TxSender {
 
 /// Fetches the current recommended fee rate from Mempool Space API.
 /// This function is used to get the fee rate in sat/vkb (satoshis per kilovbyte).
-pub(crate) async fn get_fee_rate_from_mempool_space(
-    network: bitcoin::Network,
-) -> Result<Option<Amount>> {
+pub(crate) async fn get_fee_rate_from_mempool_space(network: Network) -> Result<Amount> {
     let url = match network {
-        bitcoin::Network::Bitcoin => format!(
-            // Mainnet
+        Network::Bitcoin => format!(
             "{}{}",
             MEMPOOL_SPACE_URL, MEMPOOL_SPACE_RECOMMENDED_FEE_ENDPOINT
         ),
-        bitcoin::Network::Testnet => format!(
+        Network::Testnet4 => format!(
             "{}testnet4/{}",
             MEMPOOL_SPACE_URL, MEMPOOL_SPACE_RECOMMENDED_FEE_ENDPOINT
         ),
-        _ => return Ok(None),
+        // Return early with error for unsupported networks
+        _ => return Err(eyre!("Unsupported network for mempool.space: {:?}", network).into()),
     };
 
-    let fee_rate = reqwest::get(url)
+    let fee_sat_per_vb = reqwest::get(&url)
         .await
-        .wrap_err("Failed to GET fee rate from mempool.space")?
+        .wrap_err_with(|| format!("GET request to {} failed", url))?
         .json::<serde_json::Value>()
         .await
-        .wrap_err("Failed to parse JSON response from mempool.space")?
+        .wrap_err_with(|| format!("Failed to parse JSON response from {}", url))?
         .get("fastestFee")
         .and_then(|fee| fee.as_u64())
-        .map(|fee| Amount::from_sat(fee * 1000)); // multiply by 1000 to convert to sat/vkb
+        .ok_or_else(|| eyre!("'fastestFee' field not found or invalid in API response"))?;
+
+    // The API returns the fee rate in sat/vB. We multiply by 1000 to get sat/kvB.
+    let fee_rate = Amount::from_sat(fee_sat_per_vb * 1000);
 
     Ok(fee_rate)
 }
@@ -855,19 +908,15 @@ mod tests {
     async fn test_mempool_space_fee_rate() {
         let _fee_rate = get_fee_rate_from_mempool_space(bitcoin::Network::Bitcoin)
             .await
-            .unwrap()
             .unwrap();
-        let _fee_rate = get_fee_rate_from_mempool_space(bitcoin::Network::Testnet)
+        let _fee_rate = get_fee_rate_from_mempool_space(bitcoin::Network::Testnet4)
             .await
-            .unwrap()
             .unwrap();
         assert!(get_fee_rate_from_mempool_space(bitcoin::Network::Regtest)
             .await
-            .unwrap()
-            .is_none());
+            .is_err());
         assert!(get_fee_rate_from_mempool_space(bitcoin::Network::Signet)
             .await
-            .unwrap()
-            .is_none());
+            .is_err());
     }
 }
