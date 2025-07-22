@@ -14,6 +14,7 @@ use bitcoincore_rpc::RpcApi;
 use eyre::ContextCompat;
 use eyre::OptionExt;
 use eyre::WrapErr;
+use reqwest;
 
 #[cfg(test)]
 use std::env;
