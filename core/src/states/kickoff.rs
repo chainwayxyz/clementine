@@ -447,7 +447,7 @@ impl<T: Owner> KickoffStateMachine<T> {
                 Handled
             }
             // When the latest blockhash is detected in Bitcoin,
-            // save the witness which inclueds the blockhash and check if the operator asserts and
+            // save the witness which includes the blockhash and check if the operator asserts and
             // disprove tx are ready to be sent
             KickoffEvent::LatestBlockHashSent {
                 latest_blockhash_outpoint,
@@ -529,7 +529,7 @@ impl<T: Owner> KickoffStateMachine<T> {
             )?;
             let assert_timeout_txid = assert_timeout_txhandler.get_txid();
             // Assert transactions can have any txid (there is no enforcement on how the assert utxo is spent, just that
-            // spending asssert utxo reveals the BitVM winternitz commit in the utxo's witness)
+            // spending assert utxo reveals the BitVM winternitz commit in the utxo's witness)
             // But assert timeouts are nofn signed transactions with a fixed txid, so we can detect assert transactions
             // by checking if the assert utxo is spent but not by the assert timeout tx
             self.matchers.insert(
