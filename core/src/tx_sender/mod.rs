@@ -11,10 +11,10 @@ use crate::{
 use bitcoin::taproot::TaprootSpendInfo;
 use bitcoin::{Amount, FeeRate, Network, OutPoint, Transaction, TxOut, Txid, Weight};
 use bitcoincore_rpc::RpcApi;
+use eyre::eyre;
 use eyre::ContextCompat;
 use eyre::OptionExt;
 use eyre::WrapErr;
-use eyre::eyre;
 
 #[cfg(test)]
 use std::env;
