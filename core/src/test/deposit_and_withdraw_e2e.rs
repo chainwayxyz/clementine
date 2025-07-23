@@ -910,11 +910,13 @@ async fn testnet4_mock_citrea_run_truthful() {
 
     config.test_params.all_operators_secret_keys =
         vec![SecretKey::from_slice(&[12u8; 32]).unwrap()];
-    // config.operator_collateral_funding_outpoint = Some(OutPoint {
-    //     txid: Txid::from_str("8a5ff50e6ff4b65223ea0f4c2d85513e29674de8ba5744d3a204209967744830")
-    //         .unwrap(),
-    //     vout: 1,
-    // });
+
+    // use previous collateral funding outpoint so that we don't need to fund it again
+    config.operator_collateral_funding_outpoint = Some(OutPoint {
+        txid: Txid::from_str("a054cad4f2427f6659d87c11f781930cbdee74535267ebd848c628df2e3e5700")
+            .unwrap(),
+        vout: 1,
+    });
 
     let rpc = ExtendedRpc::connect(
         config.bitcoin_rpc_url.clone(),
@@ -940,8 +942,10 @@ async fn testnet4_mock_citrea_run_truthful() {
         .insert_deposit_move_txid(config.protocol_paramset().start_height as u64, move_txid)
         .await;
 
+    // use previous withdrawal utxo so that we don't need to create a new one (if payout was already sent before,
+    // otherwise you need to create a new one)
     // let withdrawal_utxo = OutPoint {
-    //     txid: Txid::from_str("0ce5a913d0ad16735b5b5de60a9e462924b0052a1becc9a8702f2a5715ad79d0")
+    //     txid: Txid::from_str("0ce5a913d0ad1673db64d4e6ed90f3cb1392c1c2c2854589c2dd8fa30e0219838fa635c4208b97f45b5b5de60a9e462924b0052a1becc9a8702f2a5715ad79d0")
     //         .unwrap(),
     //     vout: 1,
     // };
@@ -1016,7 +1020,16 @@ async fn testnet4_mock_citrea_run_truthful() {
     )
     .await;
 
-    tracing::info!("Withdrawal tx sent");
+    tracing::info!("Withdrawal tx sent, withdrawal utxo: {:?}", withdrawal_utxo);
+
+    // insert withdrawal utxo into next block for mock citrea
+    citrea_client
+        .insert_withdrawal_utxo(
+            (rpc.get_current_chain_height().await.unwrap() - TESTNET4_TEST_PARAMSET.finality_depth
+                + 1) as u64,
+            withdrawal_utxo,
+        )
+        .await;
 
     loop {
         let withdrawal_response = _operators[0]
