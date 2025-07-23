@@ -41,6 +41,8 @@ impl TxSender {
     /// Note: Mempool.space accelerator doesn't accept transactions if:
     ///     - At least one of the transaction's inputs is signed with either the SIGHASH_NONE or SIGHASH_ANYONECANPAY flag, which may allow a third party to replace the transaction.
     ///     - The number of signature operations multiplied by 20 exceeds the transaction's weight.
+    /// [Mempool Space API docs](https://mempool.space/docs/api/rest)
+    /// [Mempool Space Accelerator FAQ](https://mempool.space/accelerator/faq)
     pub async fn send_testnet4_nonstandard_tx(
         &self,
         tx: &Transaction,
