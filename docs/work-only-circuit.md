@@ -2,6 +2,17 @@
 
 This document details the **Work-Only Circuit**, a specialized zero-knowledge virtual machine (zkVM) circuit designed to verify and commit the accumulated proof of work from a previously executed Bitcoin header chain circuit. Its primary purpose is to extract the `total_work` value and `genesis_state_hash` from a Header Chain Circuit proof and present them as a new, concise proof output.
 
+## TL;DR
+* **Method ID Consistency:**
+    * Verifies that the `method_id` of the input `header_chain_circuit_output` matches the expected `HEADER_CHAIN_METHOD_ID` constant.
+
+* **Previous Proof Verification:**
+    * Cryptographically verifies the entire `header_chain_circuit_output` using `env::verify()`.
+
+* **Value Extraction and Conversion:**
+    * Extracts the `total_work` and `genesis_state_hash` from the verified output.
+    * Converts the 256-bit `total_work` value into a 128-bit (`[u8; 16]`) representation.
+
 ## Directory Structure (Core Logic)
 
 The core logic of the work-only circuit is organized within the `circuits-lib/src/work_only/` directory:

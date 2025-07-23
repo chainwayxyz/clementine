@@ -21,8 +21,32 @@ If a Challenger disagrees with the output of the Operator's off-chain execution 
 - BridgeDisproveScript: This script verifies the main Bridge Circuit. It uses a Groth16 proof to check several critical conditions related to bridge operations.
 - ClementineDisproveScript: This script ensures that the inputs provided to the Bridge Circuit are consistent with the on-chain state of the relevant data, such as Watchtower challenges and block hashes (committed via WOTS). It verifies that the Operator has not censored or ignored any valid challenges from the Watchtowers, and did use the data they committed on-chain.
 
+## TL;DR
+* **Header Chain Proof (HCP) Verification:**
+    * Verifies that the HCP's `method_id` is correct.
+    * Verifies the HCP's Groth16 proof using the `zkvm_guest`.
+
+* **Watchtower Challenge Processing:**
+    * Verifies the Schnorr signature on each Watchtower's challenge transaction and if verification is successful, sets the corresponding bit.
+    * Sorts Watchtower challenges that passed the Schnorr signature verification by their `total_work` in descending order.
+    * Verifies the Groth16 proof of the Watchtower with the highest `total_work` to get `max_total_work`.
+    * Asserts that the Operator's `total_work` from their HCP is greater than the `max_total_work` from the Watchtowers.
+
+* **Simple Payment Verification (SPV):**
+    * Verifies the inclusion of the payout transaction within the claimed Bitcoin block using a Merkle tree proof based on `mid_state_txid`.
+    * Verifies the inclusion of the block header in the MMR of the canonical chain.
+
+* **Light Client Proof (LCP) Verification:**
+    * Verifies the `LightClientProof` by calling `env::verify` with the correct `LC_IMAGE_ID`.
+    * Performs a sanity check to ensure the L1 block hash from the LCP output matches the payout transaction's block hash.
+
+* **EVM Storage Proof Verification:**
+    * Verifies the storage proof for the deposit UTXO using the state root from the verified LCP.
+    * Verifies the storage proof for the withdrawal data.
+
 ## High-Level Overview
-Before reading this document, please read the header chain circuit and work only circuit documentations.
+> [!WARNING]
+> Before reading this document, please read the [header chain circuit](header-chain-circuit.md) and [work only circuit](work-only-circuit.md) documentations.
 The bridge circuit in Clementine serves as a critical component that enables secure and (optimistically) verifiable cross-chain interactions between Bitcoin and the Citrea L2 rollup. Its primary function is to allow Operators, when challenged, to prove the correctness of their operations and the validity of state transitions.
 
 At a high level, the circuit performs several key verifications:
@@ -44,7 +68,7 @@ After all of the verification steps above, the specific constants from the setup
 ## A Deeper Look at the Code
 
 ### Directory Structure
-The relevant code is contained within the circuits-lib/src/bridge_circuit/ directory:
+The relevant code is contained within the [circuits-lib/src/bridge_circuit/](circuits-lib/src/bridge_circuit/) directory:
 
 ```
 circuits-lib/

@@ -2,6 +2,27 @@
 
 This document describes the logic and structure of the header chain circuit, which implements Bitcoin header chain verification logic. This circuit is designed to operate within a zero-knowledge virtual machine (zkVM) environment, with some components also supporting native execution. Its primary purpose is to verify sequences of Bitcoin block headers, ensuring the integrity and continuity of the chain state.
 
+## TL;DR
+* **Method ID Consistency:**
+    * Verifies that the input `method_id` matches any previous proof's `method_id`.
+
+* **Chain Continuity:**
+    * Confirms that each block's `prev_block_hash` matches the `best_block_hash` of the preceding state.
+
+* **Block Hash Validity:**
+    * Calculates the double SHA256 hash of the block header.
+    * Checks that the computed block hash is less than or equal to the current difficulty target.
+
+* **Difficulty Target Validation:**
+    * Verifies that the `bits` field in the block header matches the expected difficulty target for the current network and epoch.
+    * If an epoch ends, calculates and validates the new difficulty target based on the time elapsed.
+
+* **Timestamp Validation:**
+    * Ensures the block's timestamp is greater than the median timestamp of the previous 11 blocks.
+
+* **MMR Integrity:**
+    * Verifies the integrity of block header inclusion proofs using the `verify_proof` method of the Merkle Mountain Range.
+
 ## Directory Structure (Core Logic)
 
 The relevant code is organized within the `circuits-lib/src/header_chain/` directory:
