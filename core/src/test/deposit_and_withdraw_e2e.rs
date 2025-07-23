@@ -56,9 +56,9 @@ use citrea_e2e::{
     test_case::{TestCase, TestCaseRunner},
 };
 use eyre::Context;
+use futures::future::try_join_all;
 use secrecy::SecretString;
 use std::str::FromStr;
-use futures::future::try_join_all;
 use std::time::Duration;
 use tokio::time::sleep;
 use tonic::transport::Channel;
