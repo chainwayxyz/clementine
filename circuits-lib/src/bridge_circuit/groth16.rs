@@ -1,3 +1,15 @@
+//! # Groth16 Proof Struct
+//! This module defines the `CircuitGroth16Proof` struct, which represents a Groth16 proof
+//! for the bridge circuit. It includes methods for creating a proof from a given Risc0 seal
+//! and converting it to a compressed format. The proof consists of three components: `a`,
+//! `b`, and `c`, which are points on the elliptic curve used in the Groth16 protocol.
+//! ## Key Components
+//! - **G1 and G2 Points:** The proof consists of points `a` and `c` in G1, and point `b` in G2.
+//! - **Serialization:** The proof can be serialized and deserialized, both in compressed and uncompressed
+//!   formats.
+//! - **Conversion to Groth16 Proof:** The `CircuitGroth16Proof` can be converted to a Groth16 proof
+//!   for use in verification.
+
 use ark_bn254::Bn254;
 use ark_ff::{Field, PrimeField};
 use ark_groth16::Proof;
