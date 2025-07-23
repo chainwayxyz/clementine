@@ -25,7 +25,7 @@ This document describes the logic and structure of the header chain circuit, whi
 
 ## Directory Structure (Core Logic)
 
-The relevant code is organized within the `circuits-lib/src/header_chain/` directory:
+The relevant code is organized within the [`circuits-lib/src/header_chain/`](../circuits-lib/src/header_chain/) directory:
 
 ```
 circuits-lib/

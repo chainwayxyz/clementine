@@ -15,7 +15,7 @@ This document details the **Work-Only Circuit**, a specialized zero-knowledge vi
 
 ## Directory Structure (Core Logic)
 
-The core logic of the work-only circuit is organized within the `circuits-lib/src/work_only/` directory:
+The core logic of the work-only circuit is organized within the [`circuits-lib/src/work_only/`](../circuits-lib/src/work_only/) directory:
 
 ```
 circuits-lib/
