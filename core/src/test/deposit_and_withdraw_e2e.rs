@@ -1052,7 +1052,7 @@ async fn testnet4_mock_citrea_run_truthful() {
             Err(e) => tracing::info!("Withdrawal error: {:?}", e),
         };
 
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
     }
 
     // Setup tx_sender for sending transactions
