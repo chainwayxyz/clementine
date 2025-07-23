@@ -274,27 +274,12 @@ impl Multisig {
         &self,
         signatures: &[Option<taproot::Signature>],
     ) -> eyre::Result<Witness> {
-        let is_valid_signature =
-            signatures.iter().filter(|x| x.is_some()).count() >= self.threshold as usize;
-        if !is_valid_signature {
-            return Err(eyre::eyre!(
-                "Number of signatures is less than the multisig threshold"
-            ));
-        }
-        if self.threshold == 0 {
-            return Err(eyre::eyre!("Multisig threshold is 0"));
-        }
-        let a_valid_signature = signatures
-            .iter()
-            .find(|x| x.is_some())
-            .expect("should contain at least one valid signature")
-            .expect("should be some");
         let mut witness = Witness::new();
 
         for signature in signatures.iter().rev() {
             match signature {
                 Some(sig) => witness.push(sig.serialize()),
-                None => witness.push(a_valid_signature.serialize()), // push dummy signature
+                None => witness.push([]),
             }
         }
         Ok(witness)
