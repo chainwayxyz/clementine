@@ -1,11 +1,12 @@
-// Implementation of this module is inspired by the Bitcoin Core source code and from here:
-// https://github.com/ZeroSync/header_chain/tree/master/program/src/block_header.
+//! # Circuits-lib - Header Chain Circuit
+//! This module contains the implementation of the header chain circuit, which is basically
+//! the Bitcoin header chain verification logic.
+//!
+//! Implementation of this module is inspired by the Bitcoin Core source code and from here:
+//! https://github.com/ZeroSync/header_chain/tree/master/program/src/block_header.
+//!
+//! **⚠️ Warning:** This implementation is not a word-to-word translation of the Bitcoin Core source code.
 
-use std::cmp::Ordering;
-
-/// This module contains the implementation of the header chain circuit, which is basically
-/// the Bitcoin header chain verification logic.
-/// WARNING: This implementation is not a word-to-word translation of the Bitcoin Core source code.
 use bitcoin::{
     block::{Header, Version},
     hashes::Hash,
@@ -16,6 +17,7 @@ use crypto_bigint::{Encoding, U256};
 use mmr_guest::MMRGuest;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::cmp::Ordering;
 
 use crate::common::{get_network, zkvm::ZkvmGuest};
 
@@ -23,6 +25,47 @@ pub mod mmr_guest;
 pub mod mmr_native;
 
 /// The main entry point of the header chain circuit.
+///
+/// This function implements Bitcoin header chain verification logic within a zero-knowledge
+/// virtual machine (zkVM) environment. It processes block headers, verifies chain continuity,
+/// validates proof of work, and maintains the chain state.
+///
+/// ## Verification Process
+///
+/// The circuit performs several critical validations:
+/// - **Method ID Consistency**: Ensures the input `method_id` matches any previous proof's `method_id`
+/// - **Chain Continuity**: Confirms each block's `prev_block_hash` matches the `best_block_hash` of the preceding state
+/// - **Block Hash Validity**: Calculates double SHA256 hash and checks it's ≤ current difficulty target
+/// - **Difficulty Target Validation**: Verifies the `bits` field matches expected difficulty for current network/epoch
+/// - **Timestamp Validation**: Ensures block timestamp > median of previous 11 block timestamps
+/// - **MMR Integrity**: Maintains Merkle Mountain Range for efficient block hash storage and verification
+///
+/// ## Parameters
+///
+/// * `guest` - ZkvmGuest implementation for reading input, verifying proofs, and committing output
+///
+/// ## Input Format
+///
+/// Expects `HeaderChainCircuitInput` containing:
+/// - `method_id`: Circuit version identifier
+/// - `prev_proof`: Either genesis state or previous circuit output
+/// - `block_headers`: Vector of block headers to process
+///
+/// ## Output Format
+///
+/// Commits `BlockHeaderCircuitOutput` containing:
+/// - `method_id`: Same as input for consistency
+/// - `genesis_state_hash`: Hash of initial chain state
+/// - `chain_state`: Updated chain state after processing all headers
+///
+/// ## Panics
+///
+/// The function will panic on any validation failure including:
+/// - Method ID mismatch between input and previous proof
+/// - Invalid block hash (doesn't meet difficulty target)
+/// - Chain discontinuity (prev_block_hash mismatch)
+/// - Invalid timestamps
+/// - Incorrect difficulty bits
 pub fn header_chain_circuit(guest: &impl ZkvmGuest) {
     // Read the input from the host
     let input: HeaderChainCircuitInput = guest.read_from_host();
@@ -51,8 +94,19 @@ pub fn header_chain_circuit(guest: &impl ZkvmGuest) {
     });
 }
 
-/// Network configuration holder for Bitcoin-specific constants. All three variables are different
-/// representations of the maximum target for the network.
+/// Network configuration holder for Bitcoin-specific constants.
+///
+/// Contains different representations of the maximum target for various Bitcoin networks
+/// (mainnet, testnet4, signet, regtest). The maximum target defines the lowest possible
+/// difficulty for the network.
+///
+/// ## Fields
+///
+/// * `max_bits` - Compact representation of maximum target (difficulty bits format)
+/// * `max_target` - 256-bit representation of maximum target
+/// * `max_target_bytes` - 32-byte array representation of maximum target
+///
+/// All three fields represent the same value in different formats for computational efficiency.
 #[derive(Debug)]
 pub struct NetworkConstants {
     pub max_bits: u32,
@@ -68,7 +122,18 @@ const IS_TESTNET4: bool = matches!(NETWORK_TYPE.as_bytes(), b"testnet4");
 const MINIMUM_WORK_TESTNET: U256 =
     U256::from_be_hex("0000000000000000000000000000000000000000000000000000000100010001");
 
-/// The network constants for the Bitcoin network, which are used to determine the maximum target and bits for the network.
+/// Network constants for the Bitcoin network configuration.
+///
+/// Determines the maximum target and difficulty bits based on the `BITCOIN_NETWORK`
+/// environment variable. Supports mainnet, testnet4, signet, and regtest networks.
+///
+/// ## Network-Specific Values
+///
+/// - **Mainnet/Testnet4**: `max_bits = 0x1D00FFFF` (standard Bitcoin difficulty)
+/// - **Signet**: `max_bits = 0x1E0377AE` (custom signet difficulty)
+/// - **Regtest**: `max_bits = 0x207FFFFF` (minimal difficulty for testing)
+///
+/// Defaults to mainnet configuration if no environment variable is set.
 pub const NETWORK_CONSTANTS: NetworkConstants = {
     match option_env!("BITCOIN_NETWORK") {
         Some(n) if matches!(n.as_bytes(), b"signet") => NetworkConstants {
@@ -126,18 +191,38 @@ pub const NETWORK_CONSTANTS: NetworkConstants = {
     }
 };
 
-/// An epoch should be two weeks (represented as number of seconds)
-/// seconds / minute * minutes / hour * hours / day * 14 days
-/// For our custom signet, we use 10 seconds block time, see: https://github.com/chainwayxyz/bitcoin/releases/tag/v29-ten-secs-blocktime-tag
+/// Expected duration of a difficulty adjustment epoch in seconds.
+///
+/// Bitcoin adjusts difficulty every 2016 blocks (approximately 2 weeks).
+/// - **Standard networks**: 2 weeks = 60 * 60 * 24 * 14 = 1,209,600 seconds
+/// - **Custom signet**: Uses 10-second block time, so 60 * 24 * 14 = 20,160 seconds
+///
+/// See: <https://github.com/chainwayxyz/bitcoin/releases/tag/v29-ten-secs-blocktime-tag>
 const EXPECTED_EPOCH_TIMESPAN: u32 = match option_env!("BITCOIN_NETWORK") {
     Some(n) if matches!(n.as_bytes(), b"signet") => 60 * 24 * 14,
     _ => 60 * 60 * 24 * 14,
 };
 
-/// Number of blocks per epoch
+/// Number of blocks in a difficulty adjustment epoch.
+///
+/// Bitcoin recalculates the difficulty target every 2016 blocks based on the time
+/// it took to mine those blocks compared to the expected timespan.
 const BLOCKS_PER_EPOCH: u32 = 2016;
 
-/// Bitcoin block header.
+/// Serializable representation of a Bitcoin block header.
+///
+/// Contains all fields from the Bitcoin block header in a format suitable for
+/// zero-knowledge circuits. This struct can be serialized/deserialized and
+/// converted to/from the standard `bitcoin::block::Header` type.
+///
+/// ## Fields
+///
+/// * `version` - Block version indicating which validation rules to use
+/// * `prev_block_hash` - Hash of the previous block in the chain (32 bytes)
+/// * `merkle_root` - Merkle tree root of all transactions in the block (32 bytes)
+/// * `time` - Block timestamp as Unix time
+/// * `bits` - Compact representation of the difficulty target
+/// * `nonce` - Counter used in proof-of-work mining
 #[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
 pub struct CircuitBlockHeader {
     pub version: i32,
@@ -149,7 +234,16 @@ pub struct CircuitBlockHeader {
 }
 
 impl CircuitBlockHeader {
-    /// Computes the block hash for the given block header.
+    /// Computes the double SHA256 hash of the block header.
+    ///
+    /// This implements Bitcoin's block hashing algorithm:
+    /// 1. Serialize header fields in little-endian format
+    /// 2. Compute SHA256 hash of the serialized data
+    /// 3. Compute SHA256 hash of the result from step 2
+    ///
+    /// ## Returns
+    ///
+    /// * `[u8; 32]` - The double SHA256 hash of the block header
     pub fn compute_block_hash(&self) -> [u8; 32] {
         let mut hasher = Sha256::new();
         hasher.update(self.version.to_le_bytes());
@@ -194,7 +288,21 @@ impl From<CircuitBlockHeader> for Header {
     }
 }
 
-/// The state of the chain, which is used to verify the block headers and maintain the chain state.
+/// Verifiable state of the Bitcoin header chain.
+///
+/// Maintains all information necessary to verify the next block in the chain,
+/// including difficulty adjustment state, timestamp validation data, and an MMR
+/// for efficient block hash storage and verification.
+///
+/// ## Fields
+///
+/// * `block_height` - Current height of the chain (u32::MAX for uninitialized state)
+/// * `total_work` - Cumulative proof-of-work as 32-byte big-endian integer
+/// * `best_block_hash` - Hash of the most recently validated block
+/// * `current_target_bits` - Current difficulty target in compact representation
+/// * `epoch_start_time` - Timestamp of first block in current difficulty epoch
+/// * `prev_11_timestamps` - Previous 11 block timestamps for median calculation
+/// * `block_hashes_mmr` - Merkle Mountain Range storing subroots
 #[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
 pub struct ChainState {
     pub block_height: u32,
@@ -213,6 +321,7 @@ impl Default for ChainState {
 }
 
 impl ChainState {
+    /// Creates a new chain state with default values.
     pub fn new() -> Self {
         ChainState {
             block_height: u32::MAX,
@@ -225,11 +334,26 @@ impl ChainState {
         }
     }
 
+    /// Creates a genesis chain state.
+    ///
+    /// Equivalent to `new()` but with clearer semantic meaning for genesis block scenarios.
+    ///
+    /// ## Returns
+    ///
+    /// * `Self` - A new genesis `ChainState`
     pub fn genesis_state() -> Self {
         Self::new()
     }
 
-    /// Returns the hash of the chain state, which is used to identify the chain state.
+    /// Computes a cryptographic hash of the current chain state.
+    ///
+    /// Creates a deterministic hash that uniquely identifies this chain state by
+    /// hashing all relevant fields including block height, total work, best block hash,
+    /// difficulty parameters, timestamps, and MMR state.
+    ///
+    /// ## Returns
+    ///
+    /// * `[u8; 32]` - SHA256 hash uniquely identifying this chain state
     pub fn to_hash(&self) -> [u8; 32] {
         let mut hasher = Sha256::new();
         hasher.update(self.block_height.to_le_bytes());
@@ -247,7 +371,35 @@ impl ChainState {
         hasher.finalize().into()
     }
 
-    /// Applies the block headers to the chain state, updating the state accordingly.
+    /// Applies a sequence of block headers to the chain state.
+    ///
+    /// Processes each block header in order, performing comprehensive validation
+    /// and updating the chain state accordingly. This is the core validation logic
+    /// that ensures Bitcoin consensus rules are followed.
+    ///
+    /// ## Validation Steps (per block header)
+    ///
+    /// 1. **Chain Continuity**: Verifies `prev_block_hash` matches current `best_block_hash`
+    /// 2. **Difficulty Validation**: Ensures `bits` field matches expected difficulty
+    /// 3. **Proof of Work**: Validates block hash meets the difficulty target
+    /// 4. **Timestamp Validation**: Checks timestamp > median of last 11 timestamps
+    /// 5. **State Updates**: Updates height, work, best hash, MMR, and timestamps
+    /// 6. **Difficulty Adjustment**: Recalculates difficulty at epoch boundaries
+    ///
+    /// ## Network-Specific Behavior
+    ///
+    /// - **Regtest**: Uses minimum difficulty, no difficulty adjustments
+    /// - **Testnet4**: Allows emergency difficulty reduction after 20+ minute gaps
+    /// - **Others**: Standard Bitcoin difficulty adjustment rules
+    ///
+    /// ## Parameters
+    ///
+    /// * `block_headers` - Vector of block headers to process in sequence
+    ///
+    /// ## Panics
+    ///
+    /// Panics on any validation failure including invalid hashes, chain breaks,
+    /// or timestamp violations.
     pub fn apply_block_headers(&mut self, block_headers: Vec<CircuitBlockHeader>) {
         let mut current_target_bytes = if IS_REGTEST {
             NETWORK_CONSTANTS.max_target.to_be_bytes()
@@ -358,20 +510,63 @@ impl ChainState {
     }
 }
 
-/// Calculates the median of the last 11 timestamps, which is used to validate the block timestamp.
+/// Calculates the median of 11 timestamps.
+///
+/// Used for Bitcoin's median time past (MTP) rule, which requires that a block's
+/// timestamp must be greater than the median of the previous 11 blocks' timestamps.
+/// This prevents miners from lying about timestamps to manipulate difficulty.
+///
+/// ## Parameters
+///
+/// * `arr` - Array of exactly 11 timestamps as u32 values
+///
+/// ## Returns
+///
+/// * `u32` - The median timestamp (6th element when sorted)
 fn median(arr: [u32; 11]) -> u32 {
     let mut sorted_arr = arr;
     sorted_arr.sort_unstable();
     sorted_arr[5]
 }
 
-/// Validates the block timestamp against the median of the last 11 timestamps.
+/// Validates a block timestamp against the median time past rule.
+///
+/// Implements Bitcoin's median time past (MTP) validation which requires that
+/// each block's timestamp must be strictly greater than the median of the
+/// previous 11 blocks' timestamps. This prevents timestamp manipulation attacks.
+///
+/// ## Parameters
+///
+/// * `block_time` - The timestamp of the block being validated
+/// * `prev_11_timestamps` - Array of the previous 11 block timestamps
+///
+/// ## Returns
+///
+/// * `bool` - `true` if the timestamp is valid (greater than median), `false` otherwise
 fn validate_timestamp(block_time: u32, prev_11_timestamps: [u32; 11]) -> bool {
     let median_time = median(prev_11_timestamps);
     block_time > median_time
 }
 
-/// Converts a compact target (bits) to a target in bytes.
+/// Converts compact target representation (bits) to full 32-byte target.
+///
+/// Bitcoin uses a compact representation for difficulty targets in block headers.
+/// This function expands the 4-byte compact format into the full 32-byte target
+/// that hash values are compared against.
+///
+/// ## Compact Target Format
+///
+/// The compact target uses a floating-point-like representation:
+/// - Bits 24-31: Size/exponent (how many bytes the mantissa occupies)
+/// - Bits 0-23: Mantissa (the significant digits)
+///
+/// ## Parameters
+///
+/// * `bits` - Compact target representation from block header
+///
+/// ## Returns
+///
+/// * `[u8; 32]` - Full 32-byte target in big-endian format
 pub fn bits_to_target(bits: u32) -> [u8; 32] {
     let size = (bits >> 24) as usize;
     let mantissa = bits & 0x00ffffff;
@@ -384,7 +579,18 @@ pub fn bits_to_target(bits: u32) -> [u8; 32] {
     target.to_be_bytes()
 }
 
-/// Converts a target in bytes to a compact target (bits).
+/// Converts a full 32-byte target to compact representation (bits).
+///
+/// This is the inverse of `bits_to_target()`, converting a full 32-byte target
+/// back into Bitcoin's compact 4-byte representation used in block headers.
+///
+/// ## Parameters
+///
+/// * `target` - Full 32-byte target in big-endian format
+///
+/// ## Returns
+///
+/// * `u32` - Compact target representation suitable for block headers
 fn target_to_bits(target: &[u8; 32]) -> u32 {
     let target_u256 = U256::from_be_slice(target);
     let target_bits = target_u256.bits();
@@ -397,7 +603,28 @@ fn target_to_bits(target: &[u8; 32]) -> u32 {
     u32::from_be_bytes(compact_target)
 }
 
-/// Calculates the new difficulty based on the last timestamp and the epoch start time.
+/// Calculates the new difficulty target after a difficulty adjustment epoch.
+///
+/// Bitcoin adjusts difficulty every 2016 blocks to maintain ~10 minute block times.
+/// The adjustment is based on how long the previous 2016 blocks actually took
+/// compared to the expected timespan (2 weeks).
+///
+/// ## Algorithm
+///
+/// 1. Calculate actual timespan: `last_timestamp - epoch_start_time`
+/// 2. Clamp timespan to [expected/4, expected*4] to limit adjustment range
+/// 3. New target = old target * actual_timespan / expected_timespan
+/// 4. Ensure new target doesn't exceed network maximum
+///
+/// ## Parameters
+///
+/// * `epoch_start_time` - Timestamp of the first block in the epoch
+/// * `last_timestamp` - Timestamp of the last block in the epoch  
+/// * `current_target` - Current difficulty target in compact format
+///
+/// ## Returns
+///
+/// * `[u8; 32]` - New difficulty target as 32-byte array
 fn calculate_new_difficulty(
     epoch_start_time: u32,
     last_timestamp: u32,
@@ -410,8 +637,8 @@ fn calculate_new_difficulty(
         actual_timespan = EXPECTED_EPOCH_TIMESPAN * 4;
     }
 
-    let new_target_bytes = bits_to_target(current_target);
-    let mut new_target = U256::from_be_bytes(new_target_bytes)
+    let current_target_bytes = bits_to_target(current_target);
+    let mut new_target = U256::from_be_bytes(current_target_bytes)
         .wrapping_mul(&U256::from(actual_timespan))
         .wrapping_div(&U256::from(EXPECTED_EPOCH_TIMESPAN));
 
@@ -421,7 +648,23 @@ fn calculate_new_difficulty(
     new_target.to_be_bytes()
 }
 
-/// Checks if the hash is valid against the target bytes.
+/// Validates that a block hash meets the proof-of-work requirement.
+///
+/// Compares the block hash against the difficulty target to ensure sufficient
+/// work was performed. The hash is interpreted as a big-endian 256-bit integer
+/// and must be less than or equal to the target.
+///
+/// Bitcoin uses little-endian byte order for hashes in most contexts, but for
+/// difficulty comparison the hash bytes are reversed to big-endian format.
+///
+/// ## Parameters
+///
+/// * `hash` - The block hash to validate (32 bytes, little-endian)
+/// * `target_bytes` - The difficulty target (32 bytes, big-endian)
+///
+/// ## Panics
+///
+/// Panics with "Hash is not valid" if the hash exceeds the target.
 fn check_hash_valid(hash: &[u8; 32], target_bytes: &[u8; 32]) {
     for i in 0..32 {
         match hash[31 - i].cmp(&target_bytes[i]) {
@@ -432,14 +675,29 @@ fn check_hash_valid(hash: &[u8; 32], target_bytes: &[u8; 32]) {
     }
 }
 
-/// Calculates the work for a given target.
+/// Calculates the amount of work represented by a difficulty target.
+///
+/// Bitcoin measures cumulative proof-of-work as the sum of work done by all blocks.
+/// The work for a single block is inversely proportional to its target:
+/// work = max_target / (target + 1)
+///
+/// This allows comparing the total work between different chains to determine
+/// which has the most accumulated proof-of-work.
+///
+/// ## Parameters
+///
+/// * `target` - The difficulty target as a 32-byte big-endian array
+///
+/// ## Returns
+///
+/// * `U256` - The amount of work represented by this target
 fn calculate_work(target: &[u8; 32]) -> U256 {
     let target = U256::from_be_slice(target);
     let target_plus_one = target.saturating_add(&U256::ONE);
     U256::MAX.wrapping_div(&target_plus_one)
 }
 
-/// The output of the header chain circuit.
+/// Circuit output containing the updated chain state and metadata.
 #[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
 pub struct BlockHeaderCircuitOutput {
     pub method_id: [u32; 8],
@@ -447,8 +705,7 @@ pub struct BlockHeaderCircuitOutput {
     pub chain_state: ChainState,
 }
 
-/// The input proof of the header chain circuit.
-/// The header chain prev proof type can be either chain state (implying the beginning) or a Succinct Risc0 proof (implying the previous proof).
+/// Previous proof type - either genesis state or previous circuit output.
 #[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
 pub enum HeaderChainPrevProofType {
     GenesisBlock(ChainState),
