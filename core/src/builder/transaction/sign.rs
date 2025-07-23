@@ -16,7 +16,7 @@ use crate::database::Database;
 use crate::deposit::KickoffData;
 use crate::errors::{BridgeError, TxError};
 use crate::operator::{Operator, RoundIndex};
-use crate::utils::RbfSigningInfo;
+use crate::utils::{Last20Bytes, RbfSigningInfo};
 use crate::verifier::Verifier;
 use bitcoin::hashes::Hash;
 use bitcoin::{BlockHash, OutPoint, Transaction, XOnlyPublicKey};
@@ -265,8 +265,8 @@ where
         #[cfg(test)]
         let mut annex: Option<Vec<u8>> = None;
 
-        // #[cfg(test)]
-        // let mut additional_op_return = None;
+        #[cfg(test)]
+        let mut additional_taproot_output_count = None;
 
         #[cfg(test)]
         {
@@ -276,6 +276,9 @@ where
                 annex = Some(vec![80u8; 3990000]);
             } else if self.config.test_params.use_large_annex_and_output {
                 annex = Some(vec![80u8; 3000000]);
+                additional_taproot_output_count = Some(2300);
+            } else if self.config.test_params.use_large_output {
+                additional_taproot_output_count = Some(2300);
             }
         }
 
@@ -287,6 +290,8 @@ where
                 tweak_merkle_root: merkle_root,
                 #[cfg(test)]
                 annex,
+                #[cfg(test)]
+                additional_taproot_output_count,
             },
         ))
     }
@@ -502,22 +507,22 @@ where
                 .remove(&TransactionType::LatestBlockhash)
                 .ok_or(TxError::TxHandlerNotFound(TransactionType::LatestBlockhash))?;
 
-        // get last 20 bytes of block_hash
-        let block_hash = block_hash.to_byte_array();
+        let block_hash: [u8; 32] = {
+            let raw = block_hash.to_byte_array();
 
-        #[cfg(test)]
-        let mut block_hash = block_hash;
-
-        #[cfg(test)]
-        {
-            if self.config.test_params.disrupt_latest_block_hash_commit {
-                tracing::info!("Disrupting block hash commitment for testing purposes");
-                tracing::info!("Original block hash: {:?}", block_hash);
-                block_hash[31] ^= 0x01;
+            #[cfg(test)]
+            {
+                self.config.test_params.maybe_disrupt_block_hash(raw)
             }
-        }
 
-        let block_hash_last_20 = block_hash[block_hash.len() - 20..].to_vec();
+            #[cfg(not(test))]
+            {
+                raw
+            }
+        };
+
+        // get last 20 bytes of block_hash
+        let block_hash_last_20 = block_hash.last_20_bytes().to_vec();
 
         tracing::info!(
             "Creating latest blockhash tx with block hash's last 20 bytes: {:?}",

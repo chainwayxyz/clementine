@@ -1,6 +1,6 @@
 use crate::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
 use crate::bitcoin_syncer::BitcoinSyncer;
-use crate::bitvm_client::ClementineBitVMPublicKeys;
+use crate::bitvm_client::{ClementineBitVMPublicKeys, REPLACE_SCRIPTS_LOCK};
 use crate::builder::address::{create_taproot_address, taproot_builder_with_scripts};
 use crate::builder::block_cache;
 use crate::builder::script::{
@@ -55,15 +55,12 @@ use bitvm::clementine::additional_disprove::{
 };
 use bitvm::signatures::winternitz;
 #[cfg(feature = "automation")]
-use bridge_circuit_host::utils::get_ark_verifying_key;
-use bridge_circuit_host::utils::get_ark_verifying_key_dev_mode_bridge;
 use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
 use circuits_lib::bridge_circuit::transaction::CircuitTransaction;
 use circuits_lib::bridge_circuit::{
     deposit_constant, get_first_op_return_output, parse_op_return_data,
 };
 use eyre::{Context, ContextCompat, OptionExt, Result};
-use risc0_zkvm::is_dev_mode;
 use secp256k1::musig::{AggregatedNonce, PartialSignature, PublicNonce, SecretNonce};
 #[cfg(feature = "automation")]
 use std::collections::BTreeMap;
@@ -1279,15 +1276,21 @@ where
             .collect::<Vec<_>>();
 
         // TODO: Use correct verification key and along with a dummy proof.
+        // wrap around a mutex lock to avoid OOM
+        let guard = REPLACE_SCRIPTS_LOCK.lock().await;
         let start = std::time::Instant::now();
         let scripts: Vec<ScriptBuf> = bitvm_pks.get_g16_verifier_disprove_scripts();
 
-        let taproot_builder = taproot_builder_with_scripts(&scripts);
+        let taproot_builder = taproot_builder_with_scripts(scripts);
+
         let root_hash = taproot_builder
             .try_into_taptree()
             .expect("taproot builder always builds a full taptree")
             .root_hash()
             .to_byte_array();
+
+        // bitvm scripts are dropped, release the lock
+        drop(guard);
         tracing::debug!("Built taproot tree in {:?}", start.elapsed());
 
         let latest_blockhash_wots = bitvm_pks.latest_blockhash_pk.to_vec();
@@ -1511,6 +1514,22 @@ where
 
         let total_work =
             borsh::to_vec(&work_output.work_u128).wrap_err("Couldn't serialize total work")?;
+
+        #[cfg(test)]
+        {
+            let wt_ind = self
+                .config
+                .test_params
+                .all_verifiers_secret_keys
+                .iter()
+                .position(|x| x == &self.config.secret_key)
+                .ok_or_else(|| eyre::eyre!("Verifier secret key not found in test params"))?;
+
+            self.config
+                .test_params
+                .maybe_disrupt_commit_data_for_total_work(&mut commit_data, wt_ind);
+        }
+
         commit_data.extend_from_slice(&total_work);
 
         tracing::info!("Watchtower prepared commit data, trying to send watchtower challenge");
@@ -1534,6 +1553,16 @@ where
                 &commit_data,
             )
             .await?;
+
+        #[cfg(test)]
+        let mut challenge_tx = challenge_tx;
+
+        #[cfg(test)]
+        {
+            if let Some(annex_bytes) = rbf_info.annex.clone() {
+                challenge_tx.input[0].witness.push(annex_bytes);
+            }
+        }
 
         #[cfg(feature = "automation")]
         {
@@ -2145,6 +2174,8 @@ where
         deposit_data: &mut DepositData,
         operator_asserts: &HashMap<usize, Witness>,
     ) -> Result<Option<(usize, StructuredScript)>, BridgeError> {
+        use bridge_circuit_host::utils::get_verifying_key;
+
         let bitvm_pks = self.signer.generate_bitvm_pks_for_deposit(
             deposit_data.get_deposit_outpoint(),
             self.config.protocol_paramset,
@@ -2262,11 +2293,7 @@ where
 
         tracing::info!("Boxes created");
 
-        let vk = if is_dev_mode() {
-            get_ark_verifying_key_dev_mode_bridge()
-        } else {
-            get_ark_verifying_key()
-        };
+        let vk = get_verifying_key();
 
         let res = validate_assertions(
             &vk,

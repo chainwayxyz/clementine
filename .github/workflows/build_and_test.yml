@@ -104,7 +104,28 @@ jobs:
           shared-key: ${{ runner.os }}-cargo-DEBUG-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
 
       - name: Run unit tests
-        run: cargo test_unit
+        id: unit_tests
+        run: |
+          set -o pipefail
+          cargo test_unit 2>&1 | tee unit_test_output.log
+
+      - name: Check for specific test failure and run generate_deposit_state
+        if: failure()
+        run: |
+          if grep -q "test builder::sighash::tests::test_bridge_contract_change ... FAILED" unit_test_output.log; then
+            echo "Found test_bridge_contract_change failure, running generate_deposit_state test"
+            cargo test generate_deposit_state $CARGOFLAGS_ALL_FEATURES -- --ignored
+          fi
+
+      - name: Upload deposit state artifact
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deposit-state-debug
+          path: core/src/test/data/deposit_state_debug.bincode
+          if-no-files-found: ignore
+          retention-days: 1
+
       - name: Run integration tests
         run: cargo test_integration
 
@@ -162,9 +183,30 @@ jobs:
           shared-key: ${{ runner.os }}-cargo-RELEASE-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
 
       - name: Run unit tests
-        run: cargo test_unit
+        id: unit_tests
+        run: |
+          set -o pipefail
+          cargo test_unit --release 2>&1 | tee unit_test_output.log
+
+      - name: Check for specific test failure and run generate_deposit_state
+        if: failure()
+        run: |
+          if grep -q "test builder::sighash::tests::test_bridge_contract_change ... FAILED" unit_test_output.log; then
+            echo "Found test_bridge_contract_change failure, running generate_deposit_state test"
+            cargo test --release generate_deposit_state $CARGOFLAGS_ALL_FEATURES -- --ignored
+          fi
+
+      - name: Upload deposit state artifact
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deposit-state-release
+          path: core/src/test/data/deposit_state_release.bincode
+          if-no-files-found: ignore
+          retention-days: 1
+
       - name: Run integration tests
-        run: cargo test_integration
+        run: cargo test_integration_release
 
       - name: Upload test logs
         if: failure()
