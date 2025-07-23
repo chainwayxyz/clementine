@@ -908,12 +908,13 @@ async fn testnet4_mock_citrea_run_truthful() {
 
     config.protocol_paramset = &TESTNET4_TEST_PARAMSET;
 
-    config.test_params.all_operators_secret_keys.truncate(1);
-    config.operator_collateral_funding_outpoint = Some(OutPoint {
-        txid: Txid::from_str("8a5ff50e6ff4b65223ea0f4c2d85513e29674de8ba5744d3a204209967744830")
-            .unwrap(),
-        vout: 1,
-    });
+    config.test_params.all_operators_secret_keys =
+        vec![SecretKey::from_slice(&[12u8; 32]).unwrap()];
+    // config.operator_collateral_funding_outpoint = Some(OutPoint {
+    //     txid: Txid::from_str("8a5ff50e6ff4b65223ea0f4c2d85513e29674de8ba5744d3a204209967744830")
+    //         .unwrap(),
+    //     vout: 1,
+    // });
 
     let rpc = ExtendedRpc::connect(
         config.bitcoin_rpc_url.clone(),
@@ -939,20 +940,20 @@ async fn testnet4_mock_citrea_run_truthful() {
         .insert_deposit_move_txid(config.protocol_paramset().start_height as u64, move_txid)
         .await;
 
-    let withdrawal_utxo = OutPoint {
-        txid: Txid::from_str("0ce5a913d0ad16735b5b5de60a9e462924b0052a1becc9a8702f2a5715ad79d0")
-            .unwrap(),
-        vout: 1,
-    };
+    // let withdrawal_utxo = OutPoint {
+    //     txid: Txid::from_str("0ce5a913d0ad16735b5b5de60a9e462924b0052a1becc9a8702f2a5715ad79d0")
+    //         .unwrap(),
+    //     vout: 1,
+    // };
 
-    tracing::info!("Created withdrawal UTXO: {:?}", withdrawal_utxo);
+    // tracing::info!("Created withdrawal UTXO: {:?}", withdrawal_utxo);
 
-    citrea_client
-        .insert_withdrawal_utxo(
-            config.protocol_paramset().start_height as u64,
-            withdrawal_utxo,
-        )
-        .await;
+    // citrea_client
+    //     .insert_withdrawal_utxo(
+    //         config.protocol_paramset().start_height as u64,
+    //         withdrawal_utxo,
+    //     )
+    //     .await;
 
     tracing::info!("Running deposit");
 
@@ -962,7 +963,7 @@ async fn testnet4_mock_citrea_run_truthful() {
     );
     let (
         _verifiers,
-        _operators,
+        mut _operators,
         _aggregator,
         _cleanup,
         _deposit_params,
@@ -990,71 +991,57 @@ async fn testnet4_mock_citrea_run_truthful() {
     );
 
     // Make a withdrawal
-    // let user_sk = SecretKey::from_slice(&[13u8; 32]).unwrap();
-    // let withdrawal_address = Address::p2tr(
-    //     &SECP,
-    //     user_sk.x_only_public_key(&SECP).0,
-    //     None,
-    //     config.protocol_paramset().network,
-    // );
-    // let (dust_utxo, payout_txout, sig) = generate_withdrawal_transaction_and_signature(
-    //     &config,
-    //     &rpc,
-    //     &withdrawal_address,
-    //     config.protocol_paramset().bridge_amount
-    //         - config
-    //             .operator_withdrawal_fee_sats
-    //             .unwrap_or(Amount::from_sat(0)),
-    // )
-    // .await;
+    let user_sk = SecretKey::from_slice(&[13u8; 32]).unwrap();
+    let withdrawal_address = Address::p2tr(
+        &SECP,
+        user_sk.x_only_public_key(&SECP).0,
+        None,
+        config.protocol_paramset().network,
+    );
+    let (
+        UTXO {
+            outpoint: withdrawal_utxo,
+            ..
+        },
+        payout_txout,
+        sig,
+    ) = generate_withdrawal_transaction_and_signature(
+        &config,
+        &rpc,
+        &withdrawal_address,
+        config.protocol_paramset().bridge_amount
+            - config
+                .operator_withdrawal_fee_sats
+                .unwrap_or(Amount::from_sat(0)),
+    )
+    .await;
 
-    // tracing::info!("Withdrawal tx sent");
+    tracing::info!("Withdrawal tx sent");
 
-    // let payout_txid = poll_get(
-    //     async || {
-    //         let withdrawal_response = operators[0]
-    //             .withdraw(WithdrawParams {
-    //                 withdrawal_id: 0,
-    //                 input_signature: sig.serialize().to_vec(),
-    //                 input_outpoint: Some(withdrawal_utxo.into()),
-    //                 output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
-    //                 output_amount: payout_txout.value.to_sat(),
-    //             })
-    //             .await;
+    loop {
+        let withdrawal_response = _operators[0]
+            .withdraw(WithdrawParams {
+                withdrawal_id: 0,
+                input_signature: sig.serialize().to_vec(),
+                input_outpoint: Some(withdrawal_utxo.into()),
+                output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
+                output_amount: payout_txout.value.to_sat(),
+            })
+            .await;
 
-    //         match withdrawal_response {
-    //             Ok(withdrawal_response) => {
-    //                 tracing::info!("Withdrawal response: {:?}", withdrawal_response);
-    //                 let payout_txid = Some(Txid::from_byte_array(
-    //                     withdrawal_response
-    //                         .into_inner()
-    //                         .txid
-    //                         .unwrap()
-    //                         .txid
-    //                         .try_into()
-    //                         .unwrap(),
-    //                 ));
-    //                 Ok(Some(payout_txid))
-    //             }
-    //             Err(e) => {
-    //                 tracing::info!("Withdrawal error: {:?}", e);
-    //                 Ok(None)
-    //             }
-    //         }
-    //     },
-    //     Some(std::time::Duration::from_secs(120)),
-    //     Some(std::time::Duration::from_millis(1000)),
-    // )
-    // .await
-    // .wrap_err("Withdrawal took too long")
-    // .unwrap();
+        tracing::info!("Withdrawal response: {:?}", withdrawal_response);
 
-    // tracing::info!("Payout txid: {:?}", payout_txid);
+        match withdrawal_response {
+            Ok(_) => break,
+            Err(e) => tracing::info!("Withdrawal error: {:?}", e),
+        };
 
-    // let payout_txid = payout_txid.unwrap();
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    }
 
-    let payout_txid =
-        Txid::from_str("085acb0c3242fdc43d48b2e31dfb70ad631fb9d33b8a18b9b86914978e09e875").unwrap();
+    let payout_txid = get_txid_where_utxo_is_spent(&rpc, withdrawal_utxo)
+        .await
+        .unwrap();
 
     // Setup tx_sender for sending transactions
     let verifier_0_config = {
