@@ -503,17 +503,9 @@ impl Aggregator {
                     let mut client = client.clone();
                     async move {
                         tracing::debug!("Getting operator status for {}", key.to_string());
-                        let response = timed_request(
-                            ENTITY_STATUS_POLL_TIMEOUT,
-                            &format!("Getting operator status for {}", OperatorId(*key)),
-                            async {
-                                client
-                                    .get_current_status(Request::new(Empty {}))
-                                    .await
-                                    .map_err(BridgeError::from)
-                            },
-                        )
-                        .await;
+                        let mut request = Request::new(Empty {});
+                        request.set_timeout(ENTITY_STATUS_POLL_TIMEOUT);
+                        let response = client.get_current_status(request).await;
 
                         EntityStatusWithId {
                             entity_id: Some(RPCEntityId {
@@ -539,17 +531,9 @@ impl Aggregator {
                 .map(|(client, key)| {
                     let mut client = client.clone();
                     async move {
-                        let response = timed_request(
-                            ENTITY_STATUS_POLL_TIMEOUT,
-                            &format!("Getting verifier status for {}", VerifierId(*key)),
-                            async {
-                                client
-                                    .get_current_status(Request::new(Empty {}))
-                                    .await
-                                    .map_err(BridgeError::from)
-                            },
-                        )
-                        .await;
+                        let mut request = Request::new(Empty {});
+                        request.set_timeout(ENTITY_STATUS_POLL_TIMEOUT);
+                        let response = client.get_current_status(request).await;
 
                         EntityStatusWithId {
                             entity_id: Some(RPCEntityId {
