@@ -5,8 +5,8 @@
 //! `b`, and `c`, which are points on the elliptic curve used in the Groth16 protocol.
 //! ## Key Components
 //! - **G1 and G2 Points:** The proof consists of points `a` and `c` in G1, and point `b` in G2.
-//! - **Serialization:** The proof can be serialized and deserialized, both in compressed and uncompressed
-//!   formats.
+//! - **Serialization/Deserialization:** The proof can be serialized to a compressed format
+//!   and deserialized back, allowing for efficient storage and transmission.
 //! - **Conversion to Groth16 Proof:** The `CircuitGroth16Proof` can be converted to a Groth16 proof
 //!   for use in verification.
 
