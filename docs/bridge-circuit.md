@@ -69,7 +69,7 @@ After all of the verification steps above, the specific constants from the setup
 ## A Deeper Look at the Code
 
 ### Directory Structure
-The relevant code is contained within the [circuits-lib/src/bridge_circuit/](circuits-lib/src/bridge_circuit/) directory:
+The relevant code is contained within the [circuits-lib/src/bridge_circuit/](../circuits-lib/src/bridge_circuit/) directory:
 
 ```
 circuits-lib/
