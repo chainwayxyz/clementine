@@ -1049,6 +1049,11 @@ mod tests {
             .collect()
     }
 
+    /// This test first creates a vec of transaction types the entity should be able to sign.
+    /// Afterwards it calls internal_create_signed_txs for verifiers and operators,
+    /// internal_create_assert_commitment_txs for operators, and internal_create_watchtower_challenge for verifiers
+    /// and checks if all transaction types that should be signed are returned from these functions.
+    /// If a transaction type is not found, it means the entity is not able to sign it.
     async fn check_if_signable(
         actors: TestActors<MockCitreaClient>,
         deposit_info: DepositInfo,

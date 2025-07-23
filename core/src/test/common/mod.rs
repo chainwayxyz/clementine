@@ -24,7 +24,8 @@ use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::{aggregate_nonces, aggregate_partial_signatures, nonce_pair, partial_sign};
 use crate::rpc::clementine::{
-    entity_status_with_id, Deposit, Empty, GetEntityStatusesRequest, SendMoveTxRequest,
+    entity_status_with_id, Deposit, Empty, EntityStatuses, GetEntityStatusesRequest,
+    SendMoveTxRequest,
 };
 use crate::utils::FeePayingType;
 use crate::EVMAddress;
@@ -139,19 +140,11 @@ pub async fn poll_get<T>(
     }
 }
 
-/// Checks if all the state managers are synced to the latest finalized block
-pub async fn are_all_state_managers_synced<C: CitreaClientT>(
-    rpc: &ExtendedRpc,
-    actors: &TestActors<C>,
-) -> eyre::Result<bool> {
-    let mut aggregator = actors.get_aggregator();
-    let l1_sync_status = aggregator
-        .get_entity_statuses(Request::new(GetEntityStatusesRequest {
-            restart_tasks: false,
-        }))
-        .await?
-        .into_inner();
-    let min_next_sync_height = l1_sync_status
+/// Get the minimum next state manager height from all the state managers
+/// If automation is off for any entity, their state manager is assumed to be synced
+/// (by setting their next height to u32::MAX).
+pub async fn get_next_sync_heights(entity_statuses: EntityStatuses) -> eyre::Result<Vec<u32>> {
+    entity_statuses
         .entity_statuses
         .into_iter()
         .map(|entity| {
@@ -170,12 +163,37 @@ pub async fn are_all_state_managers_synced<C: CitreaClientT>(
                 ))
             }
         })
-        .collect::<Result<Vec<_>, _>>()?
+        .collect::<Result<Vec<_>, _>>()
+}
+
+/// Calls get_entity_statuses and returns the minimum next state manager height
+pub async fn get_min_next_state_manager_height<C: CitreaClientT>(
+    actors: &TestActors<C>,
+) -> eyre::Result<u32> {
+    let mut aggregator = actors.get_aggregator();
+    let l1_sync_status = aggregator
+        .get_entity_statuses(Request::new(GetEntityStatusesRequest {
+            restart_tasks: false,
+        }))
+        .await?
+        .into_inner();
+    let min_next_sync_height = get_next_sync_heights(l1_sync_status)
+        .await?
         .into_iter()
         .min()
-        .unwrap();
+        .ok_or_else(|| eyre::eyre!("No entities found"))?;
+    Ok(min_next_sync_height)
+}
+
+/// Checks if all the state managers are synced to the latest finalized block
+pub async fn are_all_state_managers_synced<C: CitreaClientT>(
+    rpc: &ExtendedRpc,
+    actors: &TestActors<C>,
+) -> eyre::Result<bool> {
+    let min_next_sync_height = get_min_next_state_manager_height(actors).await?;
     let current_chain_height = rpc.get_current_chain_height().await?;
     let finality_depth = actors.aggregator.config.protocol_paramset().finality_depth;
+    // get the current finalized chain height
     let current_finalized_chain_height = current_chain_height.saturating_sub(finality_depth);
     // assume synced if state manager is not running
     let state_manager_running = actors
