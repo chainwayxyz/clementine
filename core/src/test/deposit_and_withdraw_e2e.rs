@@ -937,20 +937,20 @@ async fn testnet4_mock_citrea_run_truthful() {
 
     // use previous withdrawal utxo so that we don't need to create a new one (if payout was already sent before,
     // otherwise you need to create a new one)
-    // let withdrawal_utxo = OutPoint {
-    //     txid: Txid::from_str("0ce5a913d0ad1673db64d4e6ed90f3cb1392c1c2c2854589c2dd8fa30e0219838fa635c4208b97f45b5b5de60a9e462924b0052a1becc9a8702f2a5715ad79d0")
-    //         .unwrap(),
-    //     vout: 1,
-    // };
+    let withdrawal_utxo = OutPoint {
+        txid: Txid::from_str("3edf392111b78fc8a90f998ec7553bd2a2afc960473a2d27c83fd8d9db8c2a68")
+            .unwrap(),
+        vout: 1,
+    };
 
-    // tracing::info!("Created withdrawal UTXO: {:?}", withdrawal_utxo);
+    tracing::info!("Created withdrawal UTXO: {:?}", withdrawal_utxo);
 
-    // citrea_client
-    //     .insert_withdrawal_utxo(
-    //         config.protocol_paramset().start_height as u64,
-    //         withdrawal_utxo,
-    //     )
-    //     .await;
+    citrea_client
+        .insert_withdrawal_utxo(
+            config.protocol_paramset().start_height as u64,
+            withdrawal_utxo,
+        )
+        .await;
 
     tracing::info!("Running deposit");
 
@@ -975,7 +975,7 @@ async fn testnet4_mock_citrea_run_truthful() {
         _deposit_params,
         _move_txid,
         _deposit_blockhash,
-        verifiers_public_keys,
+        _verifiers_public_keys,
     ) = run_single_deposit::<MockCitreaClient>(
         &mut config,
         rpc.clone(),
@@ -997,63 +997,63 @@ async fn testnet4_mock_citrea_run_truthful() {
         rpc.client.get_block_count().await.unwrap()
     );
 
-    // Make a withdrawal
-    let user_sk = SecretKey::from_slice(&[13u8; 32]).unwrap();
-    let withdrawal_address = Address::p2tr(
-        &SECP,
-        user_sk.x_only_public_key(&SECP).0,
-        None,
-        config.protocol_paramset().network,
-    );
-    let (
-        UTXO {
-            outpoint: withdrawal_utxo,
-            ..
-        },
-        payout_txout,
-        sig,
-    ) = generate_withdrawal_transaction_and_signature(
-        &config,
-        &rpc,
-        &withdrawal_address,
-        config.protocol_paramset().bridge_amount
-            - config
-                .operator_withdrawal_fee_sats
-                .unwrap_or(Amount::from_sat(0)),
-    )
-    .await;
+    // // Make a withdrawal
+    // let user_sk = SecretKey::from_slice(&[13u8; 32]).unwrap();
+    // let withdrawal_address = Address::p2tr(
+    //     &SECP,
+    //     user_sk.x_only_public_key(&SECP).0,
+    //     None,
+    //     config.protocol_paramset().network,
+    // );
+    // let (
+    //     UTXO {
+    //         outpoint: withdrawal_utxo,
+    //         ..
+    //     },
+    //     payout_txout,
+    //     sig,
+    // ) = generate_withdrawal_transaction_and_signature(
+    //     &config,
+    //     &rpc,
+    //     &withdrawal_address,
+    //     config.protocol_paramset().bridge_amount
+    //         - config
+    //             .operator_withdrawal_fee_sats
+    //             .unwrap_or(Amount::from_sat(0)),
+    // )
+    // .await;
 
-    tracing::info!("Withdrawal tx sent, withdrawal utxo: {:?}", withdrawal_utxo);
+    // tracing::info!("Withdrawal tx sent, withdrawal utxo: {:?}", withdrawal_utxo);
 
-    // insert withdrawal utxo into next block for mock citrea
-    citrea_client
-        .insert_withdrawal_utxo(
-            (rpc.get_current_chain_height().await.unwrap() - TESTNET4_TEST_PARAMSET.finality_depth
-                + 1) as u64,
-            withdrawal_utxo,
-        )
-        .await;
+    // // insert withdrawal utxo into next block for mock citrea
+    // citrea_client
+    //     .insert_withdrawal_utxo(
+    //         (rpc.get_current_chain_height().await.unwrap() - TESTNET4_TEST_PARAMSET.finality_depth
+    //             + 1) as u64,
+    //         withdrawal_utxo,
+    //     )
+    //     .await;
 
-    loop {
-        let withdrawal_response = _operators[0]
-            .withdraw(WithdrawParams {
-                withdrawal_id: 0,
-                input_signature: sig.serialize().to_vec(),
-                input_outpoint: Some(withdrawal_utxo.into()),
-                output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
-                output_amount: payout_txout.value.to_sat(),
-            })
-            .await;
+    // loop {
+    //     let withdrawal_response = _operators[0]
+    //         .withdraw(WithdrawParams {
+    //             withdrawal_id: 0,
+    //             input_signature: sig.serialize().to_vec(),
+    //             input_outpoint: Some(withdrawal_utxo.into()),
+    //             output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
+    //             output_amount: payout_txout.value.to_sat(),
+    //         })
+    //         .await;
 
-        tracing::info!("Withdrawal response: {:?}", withdrawal_response);
+    //     tracing::info!("Withdrawal response: {:?}", withdrawal_response);
 
-        match withdrawal_response {
-            Ok(_) => break,
-            Err(e) => tracing::info!("Withdrawal error: {:?}", e),
-        };
+    //     match withdrawal_response {
+    //         Ok(_) => break,
+    //         Err(e) => tracing::info!("Withdrawal error: {:?}", e),
+    //     };
 
-        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
-    }
+    //     tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+    // }
 
     // Setup tx_sender for sending transactions
     let verifier_0_config = {
@@ -1062,41 +1062,25 @@ async fn testnet4_mock_citrea_run_truthful() {
         config
     };
 
-    let op0_xonly_pk = verifiers_public_keys[0].x_only_public_key().0;
-
     let db = Database::new(&verifier_0_config)
         .await
         .expect("failed to create database");
 
-    // wait until payout part is not null
-    poll_until_condition(
-        async || {
-            Ok(db
-                .get_first_unhandled_payout_by_operator_xonly_pk(None, op0_xonly_pk)
-                .await?
-                .is_some())
-        },
-        Some(Duration::from_secs(300 * 60)),
-        Some(Duration::from_millis(200)),
-    )
-    .await
-    .wrap_err("Timed out while waiting for payout to be added to unhandled list")
-    .unwrap();
+    tracing::info!("Waiting for payout is mined and added to db");
 
-    tracing::info!("Waiting until payout is handled");
-    // wait until payout is handled
+    // wait until payout tx is added to db
     poll_until_condition(
         async || {
             Ok(db
-                .get_first_unhandled_payout_by_operator_xonly_pk(None, op0_xonly_pk)
-                .await?
-                .is_none())
+                .get_payout_info_from_move_txid(None, move_txid)
+                .await
+                .is_ok())
         },
         Some(Duration::from_secs(300 * 60)),
         Some(Duration::from_millis(2000)),
     )
     .await
-    .wrap_err("Timed out while waiting for payout to be handled")
+    .wrap_err("Timed out while waiting for payout to be added to db")
     .unwrap();
 
     let payout_txid = db
@@ -1107,6 +1091,21 @@ async fn testnet4_mock_citrea_run_truthful() {
         .2;
 
     tracing::info!("Payout txid: {:?}", payout_txid);
+
+    // wait until payout is handled
+    poll_until_condition(
+        async || {
+            Ok(db
+                .get_handled_payout_kickoff_txid(None, payout_txid)
+                .await?
+                .is_some())
+        },
+        Some(Duration::from_secs(300 * 60)),
+        Some(Duration::from_millis(2000)),
+    )
+    .await
+    .wrap_err("Timed out while waiting for payout to be handled")
+    .unwrap();
 
     let kickoff_txid = db
         .get_handled_payout_kickoff_txid(None, payout_txid)
