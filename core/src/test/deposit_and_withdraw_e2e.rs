@@ -911,11 +911,11 @@ async fn testnet4_mock_citrea_run_truthful() {
     config.test_params.all_operators_secret_keys =
         vec![SecretKey::from_slice(&[12u8; 32]).unwrap()];
 
-    // use previous collateral funding outpoint so that we don't need to fund it again
+    // use previous collateral funding outpoint on testnet4 so that we don't need to fund it again
     config.operator_collateral_funding_outpoint = Some(OutPoint {
         txid: Txid::from_str("a054cad4f2427f6659d87c11f781930cbdee74535267ebd848c628df2e3e5700")
             .unwrap(),
-        vout: 1,
+        vout: 0,
     });
 
     let rpc = ExtendedRpc::connect(
@@ -934,13 +934,6 @@ async fn testnet4_mock_citrea_run_truthful() {
     )
     .await
     .unwrap();
-
-    let move_txid =
-        Txid::from_str("0176f77ab0c0a25703fc42c59e317594c6d2a2b711c680342166a9eaa02d51f1").unwrap();
-
-    citrea_client
-        .insert_deposit_move_txid(config.protocol_paramset().start_height as u64, move_txid)
-        .await;
 
     // use previous withdrawal utxo so that we don't need to create a new one (if payout was already sent before,
     // otherwise you need to create a new one)
@@ -965,6 +958,15 @@ async fn testnet4_mock_citrea_run_truthful() {
         "Deposit starting block_height: {:?}",
         rpc.client.get_block_count().await.unwrap()
     );
+
+    // use previous move txid and register it to mock citrea  (if a deposit was done before)
+    let move_txid =
+        Txid::from_str("0176f77ab0c0a25703fc42c59e317594c6d2a2b711c680342166a9eaa02d51f1").unwrap();
+
+    citrea_client
+        .insert_deposit_move_txid(config.protocol_paramset().start_height as u64, move_txid)
+        .await;
+
     let (
         _verifiers,
         mut _operators,
@@ -979,6 +981,7 @@ async fn testnet4_mock_citrea_run_truthful() {
         rpc.clone(),
         None,
         Some(OutPoint {
+            // use previous deposit outpoint so that we don't need to create a new one
             txid: Txid::from_str(
                 "93b3527dfcfe957c64a3210c04f19aaf9bfa8f5d8dd55c3e6f0613e631b8b135",
             )
@@ -1052,10 +1055,6 @@ async fn testnet4_mock_citrea_run_truthful() {
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     }
 
-    let payout_txid = get_txid_where_utxo_is_spent(&rpc, withdrawal_utxo)
-        .await
-        .unwrap();
-
     // Setup tx_sender for sending transactions
     let verifier_0_config = {
         let mut config = config.clone();
@@ -1077,7 +1076,7 @@ async fn testnet4_mock_citrea_run_truthful() {
                 .await?
                 .is_some())
         },
-        Some(Duration::from_secs(20 * 60)),
+        Some(Duration::from_secs(300 * 60)),
         Some(Duration::from_millis(200)),
     )
     .await
@@ -1093,12 +1092,21 @@ async fn testnet4_mock_citrea_run_truthful() {
                 .await?
                 .is_none())
         },
-        Some(Duration::from_secs(60 * 60)),
+        Some(Duration::from_secs(300 * 60)),
         Some(Duration::from_millis(2000)),
     )
     .await
     .wrap_err("Timed out while waiting for payout to be handled")
     .unwrap();
+
+    let payout_txid = db
+        .get_payout_info_from_move_txid(None, move_txid)
+        .await
+        .unwrap()
+        .unwrap()
+        .2;
+
+    tracing::info!("Payout txid: {:?}", payout_txid);
 
     let kickoff_txid = db
         .get_handled_payout_kickoff_txid(None, payout_txid)
