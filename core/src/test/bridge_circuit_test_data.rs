@@ -5,6 +5,7 @@
 use super::common::citrea::get_bridge_params;
 use crate::citrea::{CitreaClient, CitreaClientT};
 use crate::test::common::citrea::{CitreaE2EData, SECRET_KEYS};
+use crate::test::common::clementine_utils::disprove_tests_common_setup;
 use crate::utils::initialize_logger;
 use crate::{
     extended_rpc::ExtendedRpc,
@@ -166,7 +167,7 @@ impl TestCase for BridgeCircuitTestData {
         };
 
         let (_actors, _kickoff_txid, _kickoff_tx) =
-            citrea::disprove_tests_common_setup(&citrea_e2e_data).await;
+            disprove_tests_common_setup(&citrea_e2e_data).await;
 
         Ok(())
     }

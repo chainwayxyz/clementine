@@ -1,20 +1,10 @@
 //! # Citrea Related Utilities
 
-use crate::bitvm_client::{ClementineBitVMPublicKeys, SECP};
-use crate::builder::transaction::input::UtxoVout;
-use crate::builder::transaction::TransactionType;
+use crate::bitvm_client::SECP;
 use crate::citrea::{CitreaClient, SATS_TO_WEI_MULTIPLIER};
-use crate::database::Database;
-use crate::deposit::KickoffData;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::AggregateFromPublicKeys;
-use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
-use crate::rpc::clementine::{TransactionRequest, WithdrawParams};
-use crate::test::common::tx_utils::get_txid_where_utxo_is_spent_while_waiting_for_state_mngr_sync;
-use crate::test::common::{
-    generate_withdrawal_transaction_and_signature, mine_once_after_in_mempool,
-};
-use crate::utils::FeePayingType;
+use crate::test::common::generate_withdrawal_transaction_and_signature;
 use crate::{config::BridgeConfig, errors::BridgeError};
 use alloy::primitives::U256;
 use bitcoin::consensus::Encodable;
@@ -36,10 +26,6 @@ pub use parameters::*;
 pub use requests::*;
 
 use super::test_actors::TestActors;
-use super::tx_utils::{
-    ensure_outpoint_spent_while_waiting_for_state_mngr_sync,
-    mine_once_after_outpoint_spent_in_mempool,
-};
 
 mod bitcoin_merkle;
 mod client_mock;
@@ -163,6 +149,7 @@ pub fn update_config_with_citrea_e2e_values(
     }
 }
 
+/// Wait until the light client contract is updated to the given block height
 pub async fn wait_until_lc_contract_updated(
     client: &HttpClient,
     block_height: u64,
@@ -182,6 +169,7 @@ pub async fn wait_until_lc_contract_updated(
 }
 
 /// Convert scriptbuf into how it would look like as a tapscript in a witness
+/// (basically adds a VarInt to the beginning of the script)
 /// Then search the script bytes, find the location where the next bytes exactly matches cut_bytes
 /// cut it from the script and return the resulting prefix and suffix
 pub fn extract_suffix_and_prefix_from_witness_script(
@@ -226,11 +214,16 @@ pub struct CitreaE2EData<'a> {
 }
 
 /// Creates a new withdrawal utxo and register to citrea using safeWithdraw
+/// First it registers the deposit to Citrea.
+/// After it is registered a new utxo is created and mined, it is registered to citrea
+/// using safeWithdraw. Afterwards, this utxo is saved on contract and operators can use this
+/// utxo to fulfill withdrawals.
 ///
 /// # Parameters
 ///
 /// - `move_txid`: Move txid of the deposit.
 /// - `e2e`: Citrea e2e data.
+/// - `actors`: Test actors.
 ///
 /// # Returns
 ///
@@ -360,6 +353,7 @@ pub async fn get_new_withdrawal_utxo_and_register_to_citrea(
     (withdrawal_utxo, payout_txout, sig)
 }
 
+/// call citrea_testPublishBlock max_l2_blocks_per_commitment times
 pub async fn force_sequencer_to_commit(sequencer: &Node<SequencerConfig>) -> eyre::Result<()> {
     for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
         sequencer
@@ -371,6 +365,7 @@ pub async fn force_sequencer_to_commit(sequencer: &Node<SequencerConfig>) -> eyr
     Ok(())
 }
 
+/// For a given txid, get the full tx, block that includes it and height of the block
 pub async fn get_tx_information_for_citrea(
     e2e: &CitreaE2EData<'_>,
     txid: Txid,
@@ -391,9 +386,11 @@ pub async fn get_tx_information_for_citrea(
     Ok((tx, block, block_height))
 }
 
+/// After a replacement deposit is done, register this replacement on citrea
+/// The move_txid for the corresponding deposit_id will be updated to replacement_move_txid
 pub async fn register_replacement_deposit_to_citrea(
     e2e: &CitreaE2EData<'_>,
-    move_txid: Txid,
+    replacement_move_txid: Txid,
     deposit_id: u32,
     actors: &TestActors<CitreaClient>,
 ) -> eyre::Result<()> {
@@ -420,7 +417,8 @@ pub async fn register_replacement_deposit_to_citrea(
         .await
         .unwrap();
 
-    let (replace_tx, block, block_height) = get_tx_information_for_citrea(e2e, move_txid).await?;
+    let (replace_tx, block, block_height) =
+        get_tx_information_for_citrea(e2e, replacement_move_txid).await?;
 
     tracing::warn!("Replace transaction: {:?}", replace_tx);
     tracing::warn!("Replace transaction block: {:?}", block);
@@ -435,9 +433,14 @@ pub async fn register_replacement_deposit_to_citrea(
         .await
         .unwrap();
 
-    let (replace_tx, tx_proof, sha_script_pubkeys) =
-        get_citrea_deposit_params(e2e.rpc, replace_tx, block, block_height as u32, move_txid)
-            .await?;
+    let (replace_tx, tx_proof, sha_script_pubkeys) = get_citrea_deposit_params(
+        e2e.rpc,
+        replace_tx,
+        block,
+        block_height as u32,
+        replacement_move_txid,
+    )
+    .await?;
 
     tracing::warn!("Replace transaction block height: {:?}", block_height);
     tracing::warn!(
@@ -481,254 +484,13 @@ pub async fn register_replacement_deposit_to_citrea(
     Ok(())
 }
 
-/// This fn sends a payout tx with given operator, starts a kickoff then returns the reimburse connector of the kickoff.
-/// operator_xonly_pk and operator_db should match the operator client ClementineOperatorClient
-#[allow(clippy::too_many_arguments)]
-pub async fn payout_and_start_kickoff(
-    mut operator: ClementineOperatorClient<tonic::transport::Channel>,
-    operator_xonly_pk: XOnlyPublicKey,
-    operator_db: &Database,
-    withdrawal_id: u32,
-    withdrawal_utxo: &OutPoint,
-    payout_txout: &TxOut,
-    sig: &bitcoin::secp256k1::schnorr::Signature,
-    e2e: &CitreaE2EData<'_>,
-    actors: &TestActors<CitreaClient>,
-) -> OutPoint {
-    loop {
-        let withdrawal_response = operator
-            .withdraw(WithdrawParams {
-                withdrawal_id,
-                input_signature: sig.serialize().to_vec(),
-                input_outpoint: Some((*withdrawal_utxo).into()),
-                output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
-                output_amount: payout_txout.value.to_sat(),
-            })
-            .await;
-
-        tracing::info!("Withdrawal response: {:?}", withdrawal_response);
-
-        match withdrawal_response {
-            Ok(_) => break,
-            Err(e) => tracing::info!("Withdrawal error: {:?}", e),
-        };
-        e2e.rpc.mine_blocks_while_synced(1, actors).await.unwrap();
-    }
-
-    let payout_txid = get_txid_where_utxo_is_spent_while_waiting_for_state_mngr_sync(
-        e2e.rpc,
-        *withdrawal_utxo,
-        actors,
-    )
-    .await
-    .unwrap();
-
-    e2e.rpc
-        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH, actors)
-        .await
-        .unwrap();
-
-    tracing::info!(
-        "Waiting until getting first unhandled payout for operator {:?}",
-        operator_xonly_pk
-    );
-
-    // wait until payout is handled
-    tracing::info!("Waiting until payout is handled");
-    while operator_db
-        .get_handled_payout_kickoff_txid(None, payout_txid)
-        .await
-        .unwrap()
-        .is_none()
-    {
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-    }
-
-    let kickoff_txid = operator_db
-        .get_handled_payout_kickoff_txid(None, payout_txid)
-        .await
-        .unwrap()
-        .expect("Payout must be handled");
-
-    let reimburse_connector = OutPoint {
-        txid: kickoff_txid,
-        vout: UtxoVout::ReimburseInKickoff.get_vout(),
-    };
-
-    let kickoff_block_height =
-        mine_once_after_in_mempool(e2e.rpc, kickoff_txid, Some("Kickoff tx"), Some(300))
-            .await
-            .unwrap();
-
-    tracing::info!(
-        "Kickoff height: {:?}, txid: {:?} operator: {:?}",
-        kickoff_block_height,
-        kickoff_txid,
-        operator_xonly_pk
-    );
-
-    reimburse_connector
-}
-
-#[allow(clippy::too_many_arguments)]
-pub async fn reimburse_with_optimistic_payout(
-    actors: &TestActors<CitreaClient>,
-    withdrawal_id: u32,
-    withdrawal_utxo: &OutPoint,
-    payout_txout: &TxOut,
-    sig: &bitcoin::secp256k1::schnorr::Signature,
-    e2e: &CitreaE2EData<'_>,
-    move_txid: Txid,
-) -> eyre::Result<()> {
-    let mut aggregator = actors.get_aggregator();
-    aggregator
-        .optimistic_payout(WithdrawParams {
-            withdrawal_id,
-            input_signature: sig.serialize().to_vec(),
-            input_outpoint: Some(withdrawal_utxo.to_owned().into()),
-            output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
-            output_amount: payout_txout.value.to_sat(),
-        })
-        .await?;
-
-    // ensure the btc in vault is spent
-    ensure_outpoint_spent_while_waiting_for_state_mngr_sync(
-        e2e.rpc,
-        OutPoint {
-            txid: move_txid,
-            vout: (UtxoVout::DepositInMove).get_vout(),
-        },
-        actors,
-    )
-    .await?;
-
-    Ok(())
-}
-
-/// Helper fn for common setup for disprove tests
-/// Does a single deposit, registers a withdrawal, starts a kickoff from operator 0 and then challenges the kickoff
-/// Afterwards it waits until all asserts are sent by operator.
-/// Returns the actors, the kickoff txid and the kickoff tx
-#[cfg(feature = "automation")]
-pub async fn disprove_tests_common_setup(
-    e2e: &CitreaE2EData<'_>,
-) -> (TestActors<CitreaClient>, Txid, Transaction) {
-    use super::run_single_deposit;
-    use super::tx_utils::create_tx_sender;
-    let mut config = e2e.config.clone();
-    let (actors, deposit_info, move_txid, _deposit_blockhash, _) =
-        run_single_deposit::<CitreaClient>(&mut config, e2e.rpc.clone(), None, None, None)
-            .await
-            .unwrap();
-
-    // generate a withdrawal
-    let (withdrawal_utxo, payout_txout, sig) =
-        get_new_withdrawal_utxo_and_register_to_citrea(move_txid, e2e, &actors).await;
-
-    // withdraw one with a kickoff with operator 0
-    let (op0_db, op0_xonly_pk) = actors.get_operator_db_and_xonly_pk_by_index(0).await;
-    let mut operator0 = actors.get_operator_client_by_index(0);
-
-    let reimburse_connector = payout_and_start_kickoff(
-        operator0.clone(),
-        op0_xonly_pk,
-        &op0_db,
-        0,
-        &withdrawal_utxo,
-        &payout_txout,
-        &sig,
-        e2e,
-        &actors,
-    )
-    .await;
-
-    let kickoff_txid = reimburse_connector.txid;
-
-    // send a challenge
-    let kickoff_tx = e2e.rpc.get_tx_of_txid(&kickoff_txid).await.unwrap();
-
-    // get kickoff utxo index
-    let kickoff_idx = kickoff_tx.input[0].previous_output.vout - 1;
-    let base_tx_req = TransactionRequest {
-        kickoff_id: Some(
-            KickoffData {
-                operator_xonly_pk: op0_xonly_pk,
-                round_idx: crate::operator::RoundIndex::Round(0),
-                kickoff_idx: kickoff_idx as u32,
-            }
-            .into(),
-        ),
-        deposit_outpoint: Some(deposit_info.deposit_outpoint.into()),
-    };
-
-    let all_txs = operator0
-        .internal_create_signed_txs(base_tx_req.clone())
-        .await
-        .unwrap()
-        .into_inner();
-
-    let challenge_tx = bitcoin::consensus::deserialize(
-        &all_txs
-            .signed_txs
-            .iter()
-            .find(|tx| tx.transaction_type == Some(TransactionType::Challenge.into()))
-            .unwrap()
-            .raw_tx,
-    )
-    .unwrap();
-
-    let (tx_sender, tx_sender_db) = create_tx_sender(&config, 0).await.unwrap();
-    let mut db_commit = tx_sender_db.begin_transaction().await.unwrap();
-    tx_sender
-        .insert_try_to_send(
-            &mut db_commit,
-            None,
-            &challenge_tx,
-            FeePayingType::RBF,
-            None,
-            &[],
-            &[],
-            &[],
-            &[],
-        )
-        .await
-        .unwrap();
-    db_commit.commit().await.unwrap();
-
-    e2e.rpc
-        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH, &actors)
-        .await
-        .unwrap();
-
-    let challenge_outpoint = OutPoint {
-        txid: kickoff_txid,
-        vout: UtxoVout::Challenge.get_vout(),
-    };
-    // wait until challenge tx is in mempool and mine
-    mine_once_after_outpoint_spent_in_mempool(e2e.rpc, challenge_outpoint)
-        .await
-        .unwrap();
-
-    // wait until all asserts are mined
-    for i in 0..ClementineBitVMPublicKeys::number_of_assert_txs() {
-        ensure_outpoint_spent_while_waiting_for_state_mngr_sync(
-            e2e.rpc,
-            OutPoint {
-                txid: kickoff_txid,
-                vout: UtxoVout::Assert(i).get_vout(),
-            },
-            &actors,
-        )
-        .await
-        .unwrap();
-    }
-
-    (actors, kickoff_txid, kickoff_tx)
-}
-
 impl CitreaClient {
     /// Update the nofn aggregated key to the given xonly pk
     /// It updates both deposit and replacement scripts on Citrea side.
+    /// To do this it creates a dummy deposit and replacement deposit.
+    /// For the deposit script, it cuts the EVM address (only dynamic part) from the script and
+    /// sends the prefix and suffix of the remaining script to citrea.
+    /// For the replacement script, it cuts the old move txid from the script (again the only dynamic part) instead.
     pub async fn update_nofn_aggregated_key(
         &self,
         nofn_xonly_pk: XOnlyPublicKey,

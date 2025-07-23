@@ -12,30 +12,25 @@ use crate::actor::Actor;
 use crate::bitvm_client::SECP;
 use crate::builder::address::create_taproot_address;
 use crate::builder::script::{CheckSig, Multisig, SpendableScript};
+use crate::builder::sighash::TapTweakData;
 use crate::builder::transaction::input::UtxoVout;
 use crate::builder::transaction::{create_replacement_deposit_txhandler, TxHandler};
 use crate::citrea::CitreaClientT;
 use crate::config::BridgeConfig;
 use crate::database::Database;
-use crate::deposit::{
-    BaseDepositData, DepositInfo, DepositType, ReplacementDepositData, SecurityCouncil,
-};
+use crate::deposit::{BaseDepositData, DepositInfo, DepositType, ReplacementDepositData};
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
-use crate::musig2::{aggregate_nonces, aggregate_partial_signatures, nonce_pair, partial_sign};
 use crate::rpc::clementine::{
     entity_status_with_id, Deposit, Empty, EntityStatuses, GetEntityStatusesRequest,
     SendMoveTxRequest,
 };
 use crate::utils::FeePayingType;
 use crate::EVMAddress;
-use bitcoin::hashes::Hash;
-use bitcoin::key::Keypair;
-use bitcoin::secp256k1::Message;
+use bitcoin::secp256k1::rand;
 use bitcoin::secp256k1::PublicKey;
-use bitcoin::secp256k1::{rand, SecretKey};
 use bitcoin::XOnlyPublicKey;
-use bitcoin::{taproot, BlockHash, OutPoint, Transaction, Txid, Witness};
+use bitcoin::{taproot, BlockHash, OutPoint, Transaction, Txid};
 use bitcoincore_rpc::RpcApi;
 use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
 use eyre::Context;
@@ -48,6 +43,7 @@ use test_actors::TestActors;
 use tonic::Request;
 
 pub mod citrea;
+pub mod clementine_utils;
 mod setup_utils;
 pub mod test_actors;
 pub mod tx_utils;
@@ -559,7 +555,6 @@ pub async fn run_single_replacement_deposit<C: CitreaClientT>(
     old_move_txid: Txid,
     current_actors: TestActors<C>,
     old_nofn_xonly_pk: XOnlyPublicKey,
-    old_secret_keys: Vec<SecretKey>,
 ) -> Result<(TestActors<C>, DepositInfo, Txid, BlockHash), BridgeError> {
     let aggregator_db = Database::new(&BridgeConfig {
         db_name: config.db_name.clone() + "0",
@@ -574,7 +569,6 @@ pub async fn run_single_replacement_deposit<C: CitreaClientT>(
         old_move_txid,
         &current_actors,
         old_nofn_xonly_pk,
-        old_secret_keys,
     )
     .await?;
 
@@ -630,84 +624,59 @@ pub async fn run_single_replacement_deposit<C: CitreaClientT>(
     Ok((current_actors, deposit_info, move_txid, deposit_blockhash))
 }
 
-/// Signs a replacement deposit transaction using the nofn xonly public key and secret keys
-/// of the old signer set (the ones that signed the old deposit).
-fn sign_nofn_replacement_deposit_tx(
+/// Signs a replacement deposit transaction using the security council
+fn sign_replacement_deposit_tx_with_sec_council(
     replacement_deposit: &TxHandler,
     config: &BridgeConfig,
     old_nofn_xonly_pk: XOnlyPublicKey,
-    old_secret_keys: Vec<SecretKey>,
-    security_council: SecurityCouncil,
 ) -> Transaction {
-    let msg = Message::from_digest(
-        replacement_deposit
-            .calculate_script_spend_sighash(
-                0,
-                &CheckSig::new(old_nofn_xonly_pk).to_script_buf(),
-                bitcoin::TapSighashType::SinglePlusAnyoneCanPay,
-            )
-            .unwrap()
-            .to_byte_array(),
-    );
-    let verifiers_public_keys = old_secret_keys
+    let security_council = config.security_council.clone();
+    let multisig_script = Multisig::from_security_council(security_council.clone()).to_script_buf();
+    let sighash = replacement_deposit
+        .calculate_script_spend_sighash(
+            0,
+            &multisig_script,
+            bitcoin::TapSighashType::SinglePlusAnyoneCanPay,
+        )
+        .unwrap();
+
+    // sign using first threshold security council members, for rest do not sign
+    let signatures = config
+        .test_params
+        .sec_council_secret_keys
         .iter()
-        .map(|sk| sk.public_key(&SECP))
-        .collect::<Vec<_>>();
-
-    let kps = old_secret_keys
-        .iter()
-        .map(|sk| Keypair::from_secret_key(&SECP, sk))
-        .collect::<Vec<_>>();
-
-    let nonce_pairs = kps
-        .iter()
-        .map(|kp| nonce_pair(kp).unwrap())
-        .collect::<Vec<_>>();
-
-    let agg_nonce = aggregate_nonces(
-        nonce_pairs
-            .iter()
-            .map(|(_, musig_pub_nonces)| musig_pub_nonces)
-            .collect::<Vec<_>>()
-            .as_slice(),
-    );
-
-    let partial_sigs = kps
-        .into_iter()
-        .zip(nonce_pairs)
-        .map(|(kp, nonce_pair)| {
-            partial_sign(
-                verifiers_public_keys.clone(),
-                None,
-                nonce_pair.0,
-                agg_nonce,
-                kp,
-                msg,
-            )
-            .unwrap()
+        .enumerate()
+        .map(|(idx, sk)| {
+            if idx < security_council.threshold as usize {
+                let actor = Actor::new(*sk, None, config.protocol_paramset().network);
+                let sig = actor
+                    .sign_with_tweak_data(sighash, TapTweakData::ScriptPath, None)
+                    .unwrap();
+                Some(taproot::Signature {
+                    signature: sig,
+                    sighash_type: bitcoin::TapSighashType::SinglePlusAnyoneCanPay,
+                })
+            } else {
+                None
+            }
         })
         .collect::<Vec<_>>();
 
-    let final_signature =
-        aggregate_partial_signatures(verifiers_public_keys, None, agg_nonce, &partial_sigs, msg)
-            .unwrap();
+    let mut witness = Multisig::from_security_council(security_council)
+        .generate_script_inputs(&signatures)
+        .unwrap();
 
-    let final_taproot_sig = taproot::Signature {
-        signature: final_signature,
-        sighash_type: bitcoin::TapSighashType::SinglePlusAnyoneCanPay,
-    };
-
-    let mut witness = Witness::from_slice(&[final_taproot_sig.serialize()]);
-    // get script of movetx
+    // calculate address in movetx vault
     let script_buf = CheckSig::new(old_nofn_xonly_pk).to_script_buf();
-    let multisig_script_buf = Multisig::from_security_council(security_council).to_script_buf();
     let (_, spend_info) = create_taproot_address(
-        &[script_buf.clone(), multisig_script_buf.clone()],
+        &[script_buf.clone(), multisig_script.clone()],
         None,
         config.protocol_paramset().network,
     );
-    Actor::add_script_path_to_witness(&mut witness, &script_buf, &spend_info).unwrap();
+    // add script path to witness
+    Actor::add_script_path_to_witness(&mut witness, &multisig_script, &spend_info).unwrap();
     let mut tx = replacement_deposit.get_cached_tx().clone();
+    // add witness to tx
     tx.input[0].witness = witness;
     tx
 }
@@ -719,7 +688,6 @@ async fn send_replacement_deposit_tx<C: CitreaClientT>(
     old_move_txid: Txid,
     actors: &TestActors<C>,
     old_nofn_xonly_pk: XOnlyPublicKey,
-    old_secret_keys: Vec<SecretKey>,
 ) -> Result<Txid, BridgeError> {
     // create a replacement deposit tx, we will sign it using nofn
     let replacement_txhandler = create_replacement_deposit_txhandler(
@@ -734,12 +702,10 @@ async fn send_replacement_deposit_tx<C: CitreaClientT>(
         config.security_council.clone(),
     )?;
 
-    let signed_replacement_deposit_tx = sign_nofn_replacement_deposit_tx(
+    let signed_replacement_deposit_tx = sign_replacement_deposit_tx_with_sec_council(
         &replacement_txhandler,
         config,
         old_nofn_xonly_pk,
-        old_secret_keys,
-        config.security_council.clone(),
     );
 
     let (tx_sender, tx_sender_db) = create_tx_sender(config, 0).await?;

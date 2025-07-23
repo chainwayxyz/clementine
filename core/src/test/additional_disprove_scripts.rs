@@ -2,6 +2,7 @@ use super::common::citrea::get_bridge_params;
 use crate::builder::transaction::input::UtxoVout;
 use crate::citrea::{CitreaClient, CitreaClientT};
 use crate::test::common::citrea::{CitreaE2EData, SECRET_KEYS};
+use crate::test::common::clementine_utils::disprove_tests_common_setup;
 use crate::test::common::tx_utils::get_txid_where_utxo_is_spent_while_waiting_for_state_mngr_sync;
 use crate::utils::initialize_logger;
 use crate::{
@@ -153,7 +154,7 @@ impl TestCase for AdditionalDisproveTest {
         };
 
         let (actors, kickoff_txid, kickoff_tx) =
-            citrea::disprove_tests_common_setup(&citrea_e2e_data).await;
+            disprove_tests_common_setup(&citrea_e2e_data).await;
 
         let disprove_outpoint = OutPoint {
             txid: kickoff_txid,

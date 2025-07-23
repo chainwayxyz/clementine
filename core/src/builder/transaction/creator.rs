@@ -1311,8 +1311,6 @@ mod tests {
                 .unwrap();
 
         let old_nofn_xonly_pk = actors.get_nofn_aggregated_xonly_pk().unwrap();
-        let old_secret_keys = actors.get_verifiers_secret_keys();
-
         // remove 1 verifier then run a replacement deposit
         actors.remove_verifier(2).await.unwrap();
 
@@ -1327,7 +1325,6 @@ mod tests {
             old_move_txid,
             actors,
             old_nofn_xonly_pk,
-            old_secret_keys,
         )
         .await
         .unwrap();
