@@ -87,6 +87,14 @@ impl TxSender {
                         txid,
                         tx["status"]
                     );
+                    let _ = self
+                        .db
+                        .update_tx_debug_sending_state(
+                            try_to_send_id,
+                            "nonstandard_testnet4_send_submitted",
+                            false,
+                        )
+                        .await;
                     return Ok(()); // Already submitted
                 }
             }

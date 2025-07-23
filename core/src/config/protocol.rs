@@ -316,7 +316,7 @@ pub const TESTNET4_TEST_PARAMSET: ProtocolParamset = ProtocolParamset {
         0x50, 0xab, 0x35, 0x1b, 0xde, 0xf9, 0x4f, 0xc2, 0x78, 0xe8, 0x5c, 0x13, 0x11, 0xe2, 0x72,
         0xfe, 0x6a,
     ],
-    header_chain_proof_batch_size: 100,
+    header_chain_proof_batch_size: 10000,
     bridge_nonstandard: true,
 };
 
