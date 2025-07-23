@@ -413,11 +413,7 @@ pub async fn run_single_deposit<C: CitreaClientT>(
         Some(actors) => actors,
         None => create_actors(config).await,
     };
-    let aggregator_db = Database::new(&BridgeConfig {
-        db_name: config.db_name.clone() + "0",
-        ..config.clone()
-    })
-    .await?;
+    let aggregator_db = Database::new(&actors.aggregator.config).await?;
 
     let evm_address = evm_address.unwrap_or(EVMAddress([1u8; 20]));
     let actor = Actor::new(
@@ -478,6 +474,15 @@ pub async fn run_single_deposit<C: CitreaClientT>(
         .try_into()?;
 
     if !rpc.is_tx_on_chain(&move_txid).await? {
+        // check if deposit outpoint is spent
+        let deposit_outpoint_spent = rpc.is_utxo_spent(&deposit_outpoint).await?;
+        if deposit_outpoint_spent {
+            return Err(eyre::eyre!(
+                "Deposit outpoint is spent but move tx is not in chain. In test_bridge_contract_change 
+                this means move tx does not match the one in saved state"
+            )
+            .into());
+        }
         wait_for_fee_payer_utxos_to_be_in_mempool(&rpc, aggregator_db, move_txid).await?;
         rpc.mine_blocks_while_synced(1, &actors).await?;
         mine_once_after_in_mempool(&rpc, move_txid, Some("Move tx"), Some(180)).await?;
