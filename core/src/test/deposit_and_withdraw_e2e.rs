@@ -19,11 +19,13 @@ use crate::rpc::clementine::{
     SendMoveTxRequest, SendTxRequest, TransactionRequest, WithdrawParams,
 };
 use crate::test::common::citrea::{
-    get_new_withdrawal_utxo_and_register_to_citrea,
-    register_replacement_deposit_to_citrea, start_citrea,
-    update_config_with_citrea_e2e_values, CitreaE2EData, MockCitreaClient, SECRET_KEYS,
+    get_new_withdrawal_utxo_and_register_to_citrea, register_replacement_deposit_to_citrea,
+    start_citrea, update_config_with_citrea_e2e_values, CitreaE2EData, MockCitreaClient,
+    SECRET_KEYS,
 };
-use crate::test::common::clementine_utils::{payout_and_start_kickoff, reimburse_with_optimistic_payout};
+use crate::test::common::clementine_utils::{
+    payout_and_start_kickoff, reimburse_with_optimistic_payout,
+};
 use crate::test::common::tx_utils::{
     ensure_outpoint_spent, ensure_outpoint_spent_while_waiting_for_state_mngr_sync,
     ensure_tx_onchain, get_txid_where_utxo_is_spent,

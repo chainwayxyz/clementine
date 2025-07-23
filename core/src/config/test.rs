@@ -517,7 +517,7 @@ impl Default for TestParams {
                 SecretKey::from_str(
                     "6666666666666666666666666666666666666666666666666666666666666666",
                 )
-                .expect("known valid input")
+                .expect("known valid input"),
             ],
         }
     }
