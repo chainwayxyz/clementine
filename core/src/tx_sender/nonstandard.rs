@@ -20,12 +20,27 @@ impl TxSender {
     /// Returns:
     /// * `true` if the transaction is nonstandard, `false` otherwise.
     pub fn is_bridge_tx_nonstandard(&self, tx: &Transaction) -> bool {
-        // 1. The transaction contains 0 sat outputs. TODO: 0 sat anchor outputs are ok after bitcoin 29.
+        // 1. The transaction contains 0 sat non-anchor (only checks our specific anchor address) outputs.
         // 2. The transaction weight is bigger than 400k
-        tx.output
-            .iter()
-            .any(|output| output.value.to_sat() == 0 && !self.is_p2a_anchor(output))
-            || tx.weight().to_wu() > 400_000
+        // 3. The transaction contains more than 1 0 sat anchor output (multiple outputs with same addresses should be rejected but just in case)
+        // 4. The transaction contains more than 1 op_return output
+        tx.output.iter().any(|output| {
+            output.value.to_sat() == 0
+                && !self.is_p2a_anchor(output)
+                && !output.script_pubkey.is_op_return()
+        }) || tx.weight().to_wu() > 400_000
+            || tx
+                .output
+                .iter()
+                .filter(|output| output.value.to_sat() == 0 && self.is_p2a_anchor(output))
+                .count()
+                > 1
+            || tx
+                .output
+                .iter()
+                .filter(|output| output.script_pubkey.is_op_return())
+                .count()
+                > 1
     }
 
     /// Sends a nonstandard transaction to testnet4 using the mempool.space accelerator.
