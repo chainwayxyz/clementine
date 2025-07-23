@@ -28,7 +28,6 @@ use crate::task::entity_metric_publisher::{
 };
 use crate::task::manager::BackgroundTaskManager;
 use crate::task::payout_checker::{PayoutCheckerTask, PAYOUT_CHECKER_POLL_DELAY};
-use crate::task::sync_status::get_sync_status;
 use crate::task::TaskExt;
 use crate::utils::Last20Bytes;
 use crate::utils::{NamedEntity, TxMetadata};
