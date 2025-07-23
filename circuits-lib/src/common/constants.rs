@@ -1,4 +1,11 @@
-/// Constant bridge amount in sats
+//! # Common Constants
+//! Common constants used for Risc0 circuits in the Clementine protocol.
+//! These constants are used across various modules to ensure consistency and correctness in the circuit operations.
+//! They include constants for the bridge amount, number of outputs, transaction assertions, and watchtowers.
+//! ## Header Chain Method IDs
+//! These constants represent the method IDs for different network header chains, such as Mainnet, Testnet4, Signet, and Regtest.
+
+// Constant bridge amount in sats
 pub const BRIDGE_AMOUNT_SATS: u64 = 1_000_000_000;
 pub const FIRST_FIVE_OUTPUTS: usize = 5;
 pub const NUMBER_OF_ASSERT_TXS: usize = 33;
