@@ -44,6 +44,10 @@ If a Challenger disagrees with the output of the Operator's off-chain execution 
     * Verifies the storage proof for the deposit UTXO using the state root from the verified LCP.
     * Verifies the storage proof for the withdrawal data.
 
+* **Other Checks:**
+    * Checks that the data on the contract matches with the payout transaction data.
+    * Checks that the payout transaction is included in the HCP.
+
 ## High-Level Overview
 > [!WARNING]
 > Before reading this document, please read the [header chain circuit](header-chain-circuit.md) and [work only circuit](work-only-circuit.md) documentations.
