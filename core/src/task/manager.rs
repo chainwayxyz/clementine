@@ -2,6 +2,7 @@ use super::status_monitor::{TaskStatusMonitorTask, TASK_STATUS_MONITOR_POLL_DELA
 use super::{IntoTask, Task, TaskExt, TaskVariant};
 use crate::errors::BridgeError;
 use crate::rpc::clementine::StoppedTasks;
+use crate::utils::timed_request;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -17,6 +18,8 @@ pub enum TaskStatus {
 
 pub type TaskRegistry =
     HashMap<TaskVariant, (TaskStatus, AbortHandle, Option<oneshot::Sender<()>>)>;
+
+const TASK_STATUS_FETCH_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// A background task manager that can hold and manage multiple tasks. When
 /// dropped, it will abort all tasks. Graceful shutdown can be performed with
@@ -106,18 +109,22 @@ impl BackgroundTaskManager {
     }
 
     /// Gets all tasks that are not running
-    pub async fn get_stopped_tasks(&self) -> StoppedTasks {
-        let mut stopped_tasks = vec![];
-        let task_registry = self.task_registry.read().await;
-        for (variant, (status, _, _)) in task_registry.iter() {
-            match status {
-                TaskStatus::Running => {}
-                TaskStatus::NotRunning(reason) => {
-                    stopped_tasks.push(format!("{:?}: {}", variant, reason));
+    /// Returns an error if the task status fetch takes too long
+    pub async fn get_stopped_tasks(&self) -> Result<StoppedTasks, BridgeError> {
+        timed_request(TASK_STATUS_FETCH_TIMEOUT, "get_stopped_tasks", async {
+            let mut stopped_tasks = vec![];
+            let task_registry = self.task_registry.read().await;
+            for (variant, (status, _, _)) in task_registry.iter() {
+                match status {
+                    TaskStatus::Running => {}
+                    TaskStatus::NotRunning(reason) => {
+                        stopped_tasks.push(format!("{:?}: {}", variant, reason));
+                    }
                 }
             }
-        }
-        StoppedTasks { stopped_tasks }
+            Ok(StoppedTasks { stopped_tasks })
+        })
+        .await
     }
 
     /// Gets the status of a single task by checking the task registry
