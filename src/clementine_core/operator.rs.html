@@ -1887,7 +1887,14 @@
 <a href="#1886" id="1886">1886</a>
 <a href="#1887" id="1887">1887</a>
 <a href="#1888" id="1888">1888</a>
-<a href="#1889" id="1889">1889</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_ff::PrimeField;
+<a href="#1889" id="1889">1889</a>
+<a href="#1890" id="1890">1890</a>
+<a href="#1891" id="1891">1891</a>
+<a href="#1892" id="1892">1892</a>
+<a href="#1893" id="1893">1893</a>
+<a href="#1894" id="1894">1894</a>
+<a href="#1895" id="1895">1895</a>
+<a href="#1896" id="1896">1896</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_ff::PrimeField;
 <span class="kw">use </span>circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
 <span class="kw">use </span>risc0_zkvm::is_dev_mode;
 <span class="kw">use </span>std::collections::HashMap;
@@ -2020,7 +2027,8 @@
     <span class="kw">pub</span>(<span class="kw">crate</span>) reimburse_addr: Address,
     <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
     </span><span class="kw">pub </span>tx_sender: TxSenderClient,
-    <span class="kw">pub </span>header_chain_prover: HeaderChainProver,
+    <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
+    </span><span class="kw">pub </span>header_chain_prover: HeaderChainProver,
     <span class="kw">pub </span>citrea_client: C,
 }
 
@@ -2102,7 +2110,7 @@
     }
 
     <span class="kw">pub async fn </span>get_current_status(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span>&lt;EntityStatus, BridgeError&gt; {
-        <span class="kw">let </span>stopped_tasks = <span class="self">self</span>.background_tasks.get_stopped_tasks().<span class="kw">await</span>;
+        <span class="kw">let </span>stopped_tasks = <span class="self">self</span>.background_tasks.get_stopped_tasks().<span class="kw">await</span><span class="question-mark">?</span>;
         <span class="comment">// Determine if automation is enabled
         </span><span class="kw">let </span>automation_enabled = <span class="macro">cfg!</span>(feature = <span class="string">"automation"</span>);
 
@@ -2247,7 +2255,8 @@
             config.db_name
         );
 
-        <span class="kw">let </span>header_chain_prover = HeaderChainProver::new(<span class="kw-2">&amp;</span>config, rpc.clone()).<span class="kw">await</span><span class="question-mark">?</span>;
+        <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
+        </span><span class="kw">let </span>header_chain_prover = HeaderChainProver::new(<span class="kw-2">&amp;</span>config, rpc.clone()).<span class="kw">await</span><span class="question-mark">?</span>;
 
         <span class="prelude-val">Ok</span>(Operator {
             rpc,
@@ -2258,7 +2267,8 @@
             <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
             </span>tx_sender,
             citrea_client,
-            header_chain_prover,
+            <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
+            </span>header_chain_prover,
             reimburse_addr,
         })
     }
@@ -2311,15 +2321,19 @@
         BridgeError,
     &gt; {
         <span class="macro">tracing::info!</span>(<span class="string">"Generating operator params"</span>);
+        <span class="macro">tracing::info!</span>(<span class="string">"Generating kickoff winternitz pubkeys"</span>);
         <span class="kw">let </span>wpks = <span class="self">self</span>.generate_kickoff_winternitz_pubkeys()<span class="question-mark">?</span>;
+        <span class="macro">tracing::info!</span>(<span class="string">"Kickoff winternitz pubkeys generated"</span>);
         <span class="kw">let </span>(wpk_tx, wpk_rx) = mpsc::channel(wpks.len());
         <span class="kw">let </span>kickoff_wpks = KickoffWinternitzKeys::new(
             wpks,
             <span class="self">self</span>.config.protocol_paramset().num_kickoffs_per_round,
             <span class="self">self</span>.config.protocol_paramset().num_round_txs,
         );
+        <span class="macro">tracing::info!</span>(<span class="string">"Starting to generate unspent kickoff signatures"</span>);
         <span class="kw">let </span>kickoff_sigs = <span class="self">self</span>.generate_unspent_kickoff_sigs(<span class="kw-2">&amp;</span>kickoff_wpks)<span class="question-mark">?</span>;
-        <span class="kw">let </span>wpks = kickoff_wpks.keys.clone();
+        <span class="macro">tracing::info!</span>(<span class="string">"Unspent kickoff signatures generated"</span>);
+        <span class="kw">let </span>wpks = kickoff_wpks.keys;
         <span class="kw">let </span>(sig_tx, sig_rx) = mpsc::channel(kickoff_sigs.len());
 
         tokio::spawn(<span class="kw">async move </span>{

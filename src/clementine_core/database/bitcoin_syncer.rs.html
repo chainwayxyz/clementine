@@ -859,8 +859,7 @@
 <a href="#858" id="858">858</a>
 <a href="#859" id="859">859</a>
 <a href="#860" id="860">860</a>
-<a href="#861" id="861">861</a>
-<a href="#862" id="862">862</a></pre></div><pre class="rust"><code><span class="kw">use super</span>::{
+<a href="#861" id="861">861</a></pre></div><pre class="rust"><code><span class="kw">use super</span>::{
     wrapper::{BlockHashDB, TxidDB},
     Database, DatabaseTransaction,
 };
@@ -1185,22 +1184,23 @@
         <span class="prelude-val">Ok</span>(())
     }
 
-    <span class="doccomment">/// Gets a bitcoin syncer event from the database, given the event id
+    <span class="doccomment">/// Gets the block id belonging to the event from the database, given the event id
     /// event id is the serial key of the bitcoin_syncer_events table
-    </span><span class="kw">pub async fn </span>get_event(
+    </span><span class="kw">pub async fn </span>get_block_id_from_event_id(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         tx: DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;,
         event_id: i32,
-    ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;BitcoinSyncerEvent&gt;, BridgeError&gt; {
-        <span class="kw">let </span>event = sqlx::query_as::&lt;<span class="kw">_</span>, (String, i32)&gt;(
-            <span class="string">"SELECT event_type::text, block_id FROM bitcoin_syncer_events WHERE id = $1"</span>,
-        )
-        .bind(event_id)
-        .fetch_optional(tx.deref_mut())
-        .<span class="kw">await</span><span class="question-mark">?</span>;
+    ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;u32&gt;, BridgeError&gt; {
+        <span class="kw">let </span>event =
+            sqlx::query_as::&lt;<span class="kw">_</span>, (i32,)&gt;(<span class="string">"SELECT block_id FROM bitcoin_syncer_events WHERE id = $1"</span>)
+                .bind(event_id)
+                .fetch_optional(tx.deref_mut())
+                .<span class="kw">await</span><span class="question-mark">?</span>;
 
         <span class="kw">match </span>event {
-            <span class="prelude-val">Some</span>(event) =&gt; <span class="prelude-val">Ok</span>(<span class="prelude-val">Some</span>(event.try_into()<span class="question-mark">?</span>)),
+            <span class="prelude-val">Some</span>((block_id,)) =&gt; <span class="prelude-val">Ok</span>(<span class="prelude-val">Some</span>(
+                u32::try_from(block_id).wrap_err(BridgeError::IntConversionError)<span class="question-mark">?</span>,
+            )),
             <span class="prelude-val">None </span>=&gt; <span class="prelude-val">Ok</span>(<span class="prelude-val">None</span>),
         }
     }
@@ -1215,11 +1215,9 @@
         <span class="kw">let </span>event_id = <span class="self">self
             </span>.get_last_processed_event_id(tx, consumer_handle)
             .<span class="kw">await</span><span class="question-mark">?</span>;
-        <span class="kw">let </span>event = <span class="self">self</span>.get_event(tx, event_id).<span class="kw">await</span><span class="question-mark">?</span>;
-        <span class="kw">let </span>block_id = <span class="kw">match </span>event {
-            <span class="prelude-val">Some</span>(BitcoinSyncerEvent::NewBlock(id)) | <span class="prelude-val">Some</span>(BitcoinSyncerEvent::ReorgedBlock(id)) =&gt; {
-                id
-            }
+        <span class="kw">let </span>block_id = <span class="self">self</span>.get_block_id_from_event_id(tx, event_id).<span class="kw">await</span><span class="question-mark">?</span>;
+        <span class="kw">let </span>block_id = <span class="kw">match </span>block_id {
+            <span class="prelude-val">Some</span>(block_id) =&gt; block_id,
             <span class="prelude-val">None </span>=&gt; <span class="kw">return </span><span class="prelude-val">Ok</span>(<span class="prelude-val">None</span>),
         };
         <span class="kw">let </span>block_info = <span class="self">self</span>.get_block_info_from_id(<span class="prelude-val">Some</span>(tx), block_id).<span class="kw">await</span><span class="question-mark">?</span>;

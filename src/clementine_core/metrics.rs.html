@@ -260,13 +260,24 @@
 <a href="#259" id="259">259</a>
 <a href="#260" id="260">260</a>
 <a href="#261" id="261">261</a>
-<a href="#262" id="262">262</a></pre></div><pre class="rust"><code><span class="doccomment">//! This module includes helper functions to get the blockchain synchronization status of the entity.
+<a href="#262" id="262">262</a>
+<a href="#263" id="263">263</a>
+<a href="#264" id="264">264</a>
+<a href="#265" id="265">265</a>
+<a href="#266" id="266">266</a>
+<a href="#267" id="267">267</a>
+<a href="#268" id="268">268</a>
+<a href="#269" id="269">269</a>
+<a href="#270" id="270">270</a>
+<a href="#271" id="271">271</a>
+<a href="#272" id="272">272</a>
+<a href="#273" id="273">273</a></pre></div><pre class="rust"><code><span class="doccomment">//! This module includes helper functions to get the blockchain synchronization status of the entity.
 //! The entity tracks on-chain transactions for many purposes (TxSender,
 //! FinalizedBlockFetcher, HCP) and takes action (header chain proving, payout,
 //! disprove, L2 state sync, etc.)
 //! SyncStatus tracks the latest processed block heights for each of these tasks.
 //!
-</span><span class="kw">use </span>std::sync::LazyLock;
+</span><span class="kw">use </span>std::{sync::LazyLock, time::Duration};
 
 <span class="kw">use </span>bitcoin::Amount;
 <span class="kw">use </span>bitcoincore_rpc::RpcApi;
@@ -275,9 +286,14 @@
 <span class="kw">use </span>tonic::async_trait;
 
 <span class="kw">use crate</span>::{
-    database::Database, errors::BridgeError, extended_rpc::ExtendedRpc, utils::NamedEntity,
+    database::Database,
+    errors::BridgeError,
+    extended_rpc::ExtendedRpc,
+    utils::{timed_request, NamedEntity},
 };
 <span class="kw">use </span>metrics_derive::Metrics;
+
+<span class="kw">const </span>L1_SYNC_STATUS_METRICS_TIMEOUT: Duration = Duration::from_secs(<span class="number">60</span>);
 
 <span class="attr">#[derive(Metrics)]
 #[metrics(scope = <span class="string">"l1_sync_status"</span>)]
@@ -429,28 +445,34 @@
 <span class="attr">#[async_trait]
 </span><span class="kw">impl</span>&lt;T: NamedEntity + Sync + Send + <span class="lifetime">'static</span>&gt; L1SyncStatusProvider <span class="kw">for </span>T {
     <span class="kw">async fn </span>get_l1_status(db: <span class="kw-2">&amp;</span>Database, rpc: <span class="kw-2">&amp;</span>ExtendedRpc) -&gt; <span class="prelude-ty">Result</span>&lt;L1SyncStatus, BridgeError&gt; {
-        <span class="kw">let </span>wallet_balance = get_wallet_balance(rpc).<span class="kw">await</span><span class="question-mark">?</span>;
-        <span class="kw">let </span>rpc_tip_height = get_rpc_tip_height(rpc).<span class="kw">await</span><span class="question-mark">?</span>;
-        <span class="kw">let </span>tx_sender_synced_height =
-            get_btc_syncer_consumer_last_processed_block_height(db, T::TX_SENDER_CONSUMER_ID)
-                .<span class="kw">await</span><span class="question-mark">?</span>;
-        <span class="kw">let </span>finalized_synced_height =
-            get_btc_syncer_consumer_last_processed_block_height(db, T::FINALIZED_BLOCK_CONSUMER_ID)
-                .<span class="kw">await</span><span class="question-mark">?</span>;
-        <span class="kw">let </span>btc_syncer_synced_height = get_btc_syncer_synced_height(db).<span class="kw">await</span><span class="question-mark">?</span>;
-        <span class="kw">let </span>hcp_last_proven_height = get_hcp_last_proven_height(db).<span class="kw">await</span><span class="question-mark">?</span>;
-        <span class="kw">let </span>state_manager_next_height = get_state_manager_next_height(db, T::ENTITY_NAME).<span class="kw">await</span><span class="question-mark">?</span>;
+        timed_request(L1_SYNC_STATUS_METRICS_TIMEOUT, <span class="string">"get_l1_status"</span>, <span class="kw">async </span>{
+            <span class="kw">let </span>wallet_balance = get_wallet_balance(rpc).<span class="kw">await</span><span class="question-mark">?</span>;
+            <span class="kw">let </span>rpc_tip_height = get_rpc_tip_height(rpc).<span class="kw">await</span><span class="question-mark">?</span>;
+            <span class="kw">let </span>tx_sender_synced_height =
+                get_btc_syncer_consumer_last_processed_block_height(db, T::TX_SENDER_CONSUMER_ID)
+                    .<span class="kw">await</span><span class="question-mark">?</span>;
+            <span class="kw">let </span>finalized_synced_height = get_btc_syncer_consumer_last_processed_block_height(
+                db,
+                T::FINALIZED_BLOCK_CONSUMER_ID,
+            )
+            .<span class="kw">await</span><span class="question-mark">?</span>;
+            <span class="kw">let </span>btc_syncer_synced_height = get_btc_syncer_synced_height(db).<span class="kw">await</span><span class="question-mark">?</span>;
+            <span class="kw">let </span>hcp_last_proven_height = get_hcp_last_proven_height(db).<span class="kw">await</span><span class="question-mark">?</span>;
+            <span class="kw">let </span>state_manager_next_height =
+                get_state_manager_next_height(db, T::ENTITY_NAME).<span class="kw">await</span><span class="question-mark">?</span>;
 
-        <span class="prelude-val">Ok</span>(L1SyncStatus {
-            wallet_balance,
-            rpc_tip_height,
-            btc_syncer_synced_height,
-            hcp_last_proven_height,
-            tx_sender_synced_height,
-            finalized_synced_height,
-            state_manager_next_height,
+            <span class="prelude-val">Ok</span>(L1SyncStatus {
+                wallet_balance,
+                rpc_tip_height,
+                btc_syncer_synced_height,
+                hcp_last_proven_height,
+                tx_sender_synced_height,
+                finalized_synced_height,
+                state_manager_next_height,
+            })
         })
-    }
+        .<span class="kw">await
+    </span>}
 }
 
 <span class="attr">#[cfg(test)]

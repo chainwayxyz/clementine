@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["TaskStatus"],"struct":["BackgroundTaskManager"],"type":["TaskRegistry"]};
+window.SIDEBAR_ITEMS = {"constant":["TASK_STATUS_FETCH_TIMEOUT"],"enum":["TaskStatus"],"struct":["BackgroundTaskManager"],"type":["TaskRegistry"]};

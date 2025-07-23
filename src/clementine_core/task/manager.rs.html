@@ -259,10 +259,18 @@
 <a href="#258" id="258">258</a>
 <a href="#259" id="259">259</a>
 <a href="#260" id="260">260</a>
-<a href="#261" id="261">261</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::status_monitor::{TaskStatusMonitorTask, TASK_STATUS_MONITOR_POLL_DELAY};
+<a href="#261" id="261">261</a>
+<a href="#262" id="262">262</a>
+<a href="#263" id="263">263</a>
+<a href="#264" id="264">264</a>
+<a href="#265" id="265">265</a>
+<a href="#266" id="266">266</a>
+<a href="#267" id="267">267</a>
+<a href="#268" id="268">268</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::status_monitor::{TaskStatusMonitorTask, TASK_STATUS_MONITOR_POLL_DELAY};
 <span class="kw">use super</span>::{IntoTask, Task, TaskExt, TaskVariant};
 <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
 <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::StoppedTasks;
+<span class="kw">use </span><span class="kw">crate</span>::utils::timed_request;
 <span class="kw">use </span>std::collections::HashMap;
 <span class="kw">use </span>std::sync::Arc;
 <span class="kw">use </span>std::time::Duration;
@@ -278,6 +286,8 @@
 
 <span class="kw">pub type </span>TaskRegistry =
     HashMap&lt;TaskVariant, (TaskStatus, AbortHandle, <span class="prelude-ty">Option</span>&lt;oneshot::Sender&lt;()&gt;&gt;)&gt;;
+
+<span class="kw">const </span>TASK_STATUS_FETCH_TIMEOUT: Duration = Duration::from_secs(<span class="number">60</span>);
 
 <span class="doccomment">/// A background task manager that can hold and manage multiple tasks. When
 /// dropped, it will abort all tasks. Graceful shutdown can be performed with
@@ -367,19 +377,23 @@
     }
 
     <span class="doccomment">/// Gets all tasks that are not running
-    </span><span class="kw">pub async fn </span>get_stopped_tasks(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; StoppedTasks {
-        <span class="kw">let </span><span class="kw-2">mut </span>stopped_tasks = <span class="macro">vec!</span>[];
-        <span class="kw">let </span>task_registry = <span class="self">self</span>.task_registry.read().<span class="kw">await</span>;
-        <span class="kw">for </span>(variant, (status, <span class="kw">_</span>, <span class="kw">_</span>)) <span class="kw">in </span>task_registry.iter() {
-            <span class="kw">match </span>status {
-                TaskStatus::Running =&gt; {}
-                TaskStatus::NotRunning(reason) =&gt; {
-                    stopped_tasks.push(<span class="macro">format!</span>(<span class="string">"{:?}: {}"</span>, variant, reason));
+    /// Returns an error if the task status fetch takes too long
+    </span><span class="kw">pub async fn </span>get_stopped_tasks(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span>&lt;StoppedTasks, BridgeError&gt; {
+        timed_request(TASK_STATUS_FETCH_TIMEOUT, <span class="string">"get_stopped_tasks"</span>, <span class="kw">async </span>{
+            <span class="kw">let </span><span class="kw-2">mut </span>stopped_tasks = <span class="macro">vec!</span>[];
+            <span class="kw">let </span>task_registry = <span class="self">self</span>.task_registry.read().<span class="kw">await</span>;
+            <span class="kw">for </span>(variant, (status, <span class="kw">_</span>, <span class="kw">_</span>)) <span class="kw">in </span>task_registry.iter() {
+                <span class="kw">match </span>status {
+                    TaskStatus::Running =&gt; {}
+                    TaskStatus::NotRunning(reason) =&gt; {
+                        stopped_tasks.push(<span class="macro">format!</span>(<span class="string">"{:?}: {}"</span>, variant, reason));
+                    }
                 }
             }
-        }
-        StoppedTasks { stopped_tasks }
-    }
+            <span class="prelude-val">Ok</span>(StoppedTasks { stopped_tasks })
+        })
+        .<span class="kw">await
+    </span>}
 
     <span class="doccomment">/// Gets the status of a single task by checking the task registry
     </span><span class="kw">pub async fn </span>get_task_status(<span class="kw-2">&amp;</span><span class="self">self</span>, variant: TaskVariant) -&gt; <span class="prelude-ty">Option</span>&lt;TaskStatus&gt; {

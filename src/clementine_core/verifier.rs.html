@@ -2870,7 +2870,28 @@
 <a href="#2869" id="2869">2869</a>
 <a href="#2870" id="2870">2870</a>
 <a href="#2871" id="2871">2871</a>
-<a href="#2872" id="2872">2872</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
+<a href="#2872" id="2872">2872</a>
+<a href="#2873" id="2873">2873</a>
+<a href="#2874" id="2874">2874</a>
+<a href="#2875" id="2875">2875</a>
+<a href="#2876" id="2876">2876</a>
+<a href="#2877" id="2877">2877</a>
+<a href="#2878" id="2878">2878</a>
+<a href="#2879" id="2879">2879</a>
+<a href="#2880" id="2880">2880</a>
+<a href="#2881" id="2881">2881</a>
+<a href="#2882" id="2882">2882</a>
+<a href="#2883" id="2883">2883</a>
+<a href="#2884" id="2884">2884</a>
+<a href="#2885" id="2885">2885</a>
+<a href="#2886" id="2886">2886</a>
+<a href="#2887" id="2887">2887</a>
+<a href="#2888" id="2888">2888</a>
+<a href="#2889" id="2889">2889</a>
+<a href="#2890" id="2890">2890</a>
+<a href="#2891" id="2891">2891</a>
+<a href="#2892" id="2892">2892</a>
+<a href="#2893" id="2893">2893</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
 <span class="kw">use </span><span class="kw">crate</span>::bitcoin_syncer::BitcoinSyncer;
 <span class="kw">use </span><span class="kw">crate</span>::bitvm_client::{ClementineBitVMPublicKeys, REPLACE_SCRIPTS_LOCK};
 <span class="kw">use </span><span class="kw">crate</span>::builder::address::{create_taproot_address, taproot_builder_with_scripts};
@@ -3028,14 +3049,34 @@
         }
         <span class="attr">#[cfg(not(feature = <span class="string">"automation"</span>))]
         </span>{
+            <span class="kw">use </span><span class="kw">crate</span>::metrics::get_btc_syncer_consumer_last_processed_block_height;
             <span class="kw">use </span><span class="kw">crate</span>::task::TaskExt;
+            <span class="comment">// get current next height from the database
+            // some blocks might still be processed again (if last processed block height is a reorged block)
+            // processing same blocks again is not a problem, here we want to avoid starting from the beginning if verifier
+            // has been restarted
+            </span><span class="kw">let </span>last_processed_height = get_btc_syncer_consumer_last_processed_block_height(
+                <span class="kw-2">&amp;</span><span class="self">self</span>.verifier.db,
+                <span class="kw-2">&amp;</span>Verifier::&lt;C&gt;::FINALIZED_BLOCK_CONSUMER_ID.to_string(),
+            )
+            .<span class="kw">await</span><span class="question-mark">?</span>;
+            <span class="kw">let </span>next_height = <span class="kw">match </span>last_processed_height {
+                <span class="comment">// if last processed height is not None, start from the last processed height - finality depth + 1 as next height
+                </span><span class="prelude-val">Some</span>(height) =&gt; height
+                    .checked_sub(<span class="self">self</span>.verifier.config.protocol_paramset().finality_depth)
+                    .map(|height| height + <span class="number">1</span>)
+                    .unwrap_or(<span class="self">self</span>.verifier.config.protocol_paramset().start_height),
+                <span class="comment">// if db is empty, start from the start height
+                </span><span class="prelude-val">None </span>=&gt; <span class="self">self</span>.verifier.config.protocol_paramset().start_height,
+            };
+
             <span class="self">self</span>.background_tasks
                 .ensure_task_looping(
                     <span class="kw">crate</span>::bitcoin_syncer::FinalizedBlockFetcherTask::new(
                         <span class="self">self</span>.verifier.db.clone(),
                         Verifier::&lt;C&gt;::FINALIZED_BLOCK_CONSUMER_ID.to_string(),
                         <span class="self">self</span>.verifier.config.protocol_paramset(),
-                        <span class="self">self</span>.verifier.config.protocol_paramset().start_height,
+                        next_height,
                         <span class="self">self</span>.verifier.clone(),
                     )
                     .into_buffered_errors(<span class="number">50</span>)
@@ -3066,7 +3107,7 @@
     }
 
     <span class="kw">pub async fn </span>get_current_status(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span>&lt;EntityStatus, BridgeError&gt; {
-        <span class="kw">let </span>stopped_tasks = <span class="self">self</span>.background_tasks.get_stopped_tasks().<span class="kw">await</span>;
+        <span class="kw">let </span>stopped_tasks = <span class="self">self</span>.background_tasks.get_stopped_tasks().<span class="kw">await</span><span class="question-mark">?</span>;
         <span class="comment">// Determine if automation is enabled
         </span><span class="kw">let </span>automation_enabled = <span class="macro">cfg!</span>(feature = <span class="string">"automation"</span>);
 
@@ -3362,6 +3403,7 @@
         operator_winternitz_public_keys: Vec&lt;winternitz::PublicKey&gt;,
         unspent_kickoff_sigs: Vec&lt;Signature&gt;,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
+        <span class="macro">tracing::info!</span>(<span class="string">"Setting operator: {:?}"</span>, operator_xonly_pk);
         <span class="kw">let </span>operator_data = OperatorData {
             xonly_pk: operator_xonly_pk,
             collateral_funding_outpoint,
@@ -3446,7 +3488,7 @@
             .<span class="kw">await</span><span class="question-mark">?</span>;
         }
         dbtx.commit().<span class="kw">await</span><span class="question-mark">?</span>;
-
+        <span class="macro">tracing::info!</span>(<span class="string">"Operator: {:?} set successfully"</span>, operator_xonly_pk);
         <span class="prelude-val">Ok</span>(())
     }
 
