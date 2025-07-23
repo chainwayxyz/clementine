@@ -1,4 +1,4 @@
-name: Clementine Verifier Full Stack
+name: Clementine Verifier
 
 services:
   postgres_db:
@@ -71,9 +71,9 @@ services:
       - SEQUENCER_PUBLIC_KEY=0201edff3b3ee593dbef54e2fbdd421070db55e2de2aebe75f398bd85ac97ed364
       - SEQUENCER_DA_PUB_KEY=03015a7c4d2cc1c771198686e2ebef6fe7004f4136d61f6225b061d1bb9b821b9b
       - PROVER_DA_PUB_KEY=0357d255ab93638a2d880787ebaadfefdfc9bb51a26b4a37e5d588e04e54c60a42
-      - NODE_URL=http://citrea-bitcoin-testnet4:18443/
-      - NODE_USERNAME=citrea
-      - NODE_PASSWORD=citrea
+      - NODE_URL=http://bitcoin_testnet4:20443/
+      - NODE_USERNAME=admin
+      - NODE_PASSWORD=admin
       - NETWORK=testnet
       - TX_BACKUP_DIR=
       - STORAGE_PATH=/mnt/task/citrea-db
@@ -94,7 +94,7 @@ services:
       - JSON_LOGS=1
       - RISC0_DEV_MODE=1
     ports:
-      - "12346:12346"
+      - "12346:8080"
     volumes:
       - citrea_full_node:/mnt/task/citrea-db
     networks:
@@ -112,44 +112,18 @@ services:
     platform: linux/amd64
     container_name: clementine_verifier
     environment:
-      - BITVM_CACHE_PATH=/static/bitvm_cache.bin
+      - BITVM_CACHE_PATH=/bitvm_cache.bin
     command:
-      verifier --config /static/bridge_config.toml --protocol-params /static/protocol_paramset.toml
+      verifier --config /bridge_config.toml --protocol-params /protocol_paramset.toml
     ports:
       - "17001:17000"
     volumes:
-      - ./static:/static
+      - ./configs/testnet4/bridge_config.toml:/bridge_config.toml
+      - ./configs/testnet4/protocol_paramset.toml:/protocol_paramset.toml
+      - ../../bitvm_cache.bin:/bitvm_cache.bin
+      - ../../core/certs:/certs
     networks:
       - clementine-network
-
-  # clementine_operator:
-  #   depends_on:
-  #     postgres_db:
-  #       condition: service_healthy
-  #     bitcoin_testnet4:
-  #       condition: service_healthy
-  #     clementine_verifier:
-  #       condition: service_started
-  #     citrea_full_node:
-  #       condition: service_started
-  #     citrea_light_client_prover:
-  #       condition: service_healthy
-  #   image: chainwayxyz/clementine
-  #   platform: linux/amd64
-  #   container_name: clementine_operator
-  #   environment:
-  #     - BITVM_CACHE_PATH=/bitvm_cache.bin
-  #   command:
-  #     operator --config /config.toml --protocol-params /protocol_paramset.toml
-  #   ports:
-  #     - "17006:17000"
-  #   volumes:
-  #     - ./configs/testnet4/bridge_config.toml:/config.toml
-  #     - ./configs/testnet4/protocol_paramset.toml:/protocol_paramset.toml
-  #     - ../../bitvm_cache.bin:/bitvm_cache.bin
-  #     - ../../core/certs:/certs
-  #   networks:
-  #     - clementine-network
 
 volumes:
   postgres_db:
