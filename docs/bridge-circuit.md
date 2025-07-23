@@ -47,6 +47,7 @@ If a Challenger disagrees with the output of the Operator's off-chain execution 
 ## High-Level Overview
 > [!WARNING]
 > Before reading this document, please read the [header chain circuit](header-chain-circuit.md) and [work only circuit](work-only-circuit.md) documentations.
+
 The bridge circuit in Clementine serves as a critical component that enables secure and (optimistically) verifiable cross-chain interactions between Bitcoin and the Citrea L2 rollup. Its primary function is to allow Operators, when challenged, to prove the correctness of their operations and the validity of state transitions.
 
 At a high level, the circuit performs several key verifications:
