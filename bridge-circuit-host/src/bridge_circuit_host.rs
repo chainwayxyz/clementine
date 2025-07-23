@@ -7,10 +7,12 @@ use ark_bn254::Bn254;
 use bitcoin::Transaction;
 use borsh;
 use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
+use circuits_lib::bridge_circuit::lc_proof::LC_IMAGE_ID;
 use circuits_lib::bridge_circuit::merkle_tree::BitcoinMerkleTree;
 use circuits_lib::bridge_circuit::spv::SPV;
 use circuits_lib::bridge_circuit::structs::WorkOnlyCircuitInput;
 use circuits_lib::bridge_circuit::transaction::CircuitTransaction;
+use citrea_sov_rollup_interface::zk::light_client_proof::output::LightClientCircuitOutput;
 use eyre::{eyre, Result, WrapErr};
 
 use circuits_lib::common::constants::{
@@ -22,6 +24,9 @@ use risc0_zkvm::{compute_image_id, default_prover, is_dev_mode, ExecutorEnv, Pro
 
 pub const REGTEST_BRIDGE_CIRCUIT_ELF: &[u8] =
     include_bytes!("../../risc0-circuits/elfs/regtest-bridge-circuit-guest.bin");
+
+pub const REGTEST_BRIDGE_CIRCUIT_ELF_TEST: &[u8] =
+    include_bytes!("../../risc0-circuits/elfs/test-regtest-bridge-circuit-guest.bin");
 
 pub const TESTNET4_BRIDGE_CIRCUIT_ELF: &[u8] =
     include_bytes!("../../risc0-circuits/elfs/testnet4-bridge-circuit-guest.bin");
@@ -112,10 +117,14 @@ pub fn prove_bridge_circuit(
     tracing::debug!(target: "ci", "Watchtower challenges: {:?}",
         bridge_circuit_input.watchtower_inputs);
 
-    // if bridge_circuit_host_params.lcp_receipt.verify(LC_IMAGE_ID).is_err()
-    // {
-    //     panic!("Light client proof receipt verification failed");
-    // }
+    // Verify light client proof
+    if bridge_circuit_host_params
+        .lcp_receipt
+        .verify(LC_IMAGE_ID)
+        .is_err()
+    {
+        return Err(eyre!("Light client proof verification failed"));
+    }
 
     // Header chain verification
     if header_chain_proof_output_serialized
@@ -124,7 +133,7 @@ pub fn prove_bridge_circuit(
         return Err(eyre!("Header chain proof output mismatch"));
     }
 
-    let header_chain_method_id = match bridge_circuit_host_params.network {
+    let header_chain_method_id = match bridge_circuit_host_params.network.0 {
         bitcoin::Network::Bitcoin => MAINNET_HEADER_CHAIN_METHOD_ID,
         bitcoin::Network::Testnet4 => TESTNET4_HEADER_CHAIN_METHOD_ID,
         bitcoin::Network::Signet => SIGNET_HEADER_CHAIN_METHOD_ID,
@@ -152,6 +161,31 @@ pub fn prove_bridge_circuit(
         return Err(eyre!("SPV verification failed"));
     }
 
+    // Make sure the L1 block hash of the LightClientCircuitOutput matches the payout tx block hash
+    let lc_output: LightClientCircuitOutput = borsh::from_slice(
+        bridge_circuit_host_params
+            .lcp_receipt
+            .journal
+            .bytes
+            .as_slice(),
+    )
+    .wrap_err("Failed to deserialize light client circuit output")?;
+
+    let lc_l1_block_hash = lc_output.latest_da_state.block_hash;
+
+    let spv_l1_block_hash = bridge_circuit_input
+        .payout_spv
+        .block_header
+        .compute_block_hash();
+
+    if lc_l1_block_hash != spv_l1_block_hash {
+        return Err(eyre!(
+            "L1 block hash mismatch: expected {:?}, got {:?}",
+            lc_l1_block_hash,
+            spv_l1_block_hash
+        ));
+    }
+
     let public_inputs: SuccinctBridgeCircuitPublicInputs =
         SuccinctBridgeCircuitPublicInputs::new(bridge_circuit_input.clone())?;
 
@@ -164,19 +198,20 @@ pub fn prove_bridge_circuit(
                 .wrap_err("Failed to serialize bridge circuit input")?,
         )
         .add_assumption(bridge_circuit_host_params.headerchain_receipt)
+        .add_assumption(bridge_circuit_host_params.lcp_receipt)
         .build()
         .map_err(|e| eyre!("Failed to build execution environment: {}", e))?;
 
     let prover = default_prover();
 
-    tracing::info!("Checks complete, proving bridge circuit");
+    tracing::info!("Checks complete, proving bridge circuit to generate STARK proof");
 
     let succinct_receipt = prover
         .prove_with_opts(env, bridge_circuit_elf, &ProverOpts::succinct())
         .map_err(|e| eyre!("Failed to generate bridge circuit proof: {}", e))?
         .receipt;
 
-    tracing::info!("Bridge circuit proof generated");
+    tracing::info!("Bridge circuit proof (STARK) generated");
 
     let succinct_receipt_journal: [u8; 32] = succinct_receipt
         .clone()
@@ -194,6 +229,7 @@ pub fn prove_bridge_circuit(
 
     let combined_method_id_constant =
         calculate_succinct_output_prefix(bridge_circuit_method_id.as_bytes());
+
     let (g16_proof, g16_output) = if is_dev_mode() {
         stark_to_bitvm2_g16_dev_mode(succinct_receipt, &succinct_receipt_journal)?
     } else {
@@ -207,7 +243,7 @@ pub fn prove_bridge_circuit(
         )?
     };
 
-    tracing::info!("Bridge circuit Groth16 proof generated");
+    tracing::info!("Bridge circuit proof (Groth16) generated");
 
     let risc0_g16_seal_vec = g16_proof.to_vec();
     let risc0_g16_256 = risc0_g16_seal_vec[0..256]
@@ -371,23 +407,27 @@ pub fn prove_work_only_header_chain_proof(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mock_zkvm::MockZkvmHost;
+    use crate::{mock_zkvm::MockZkvmHost, utils::total_work_from_wt_tx};
 
     const TESTNET4_HEADER_CHAIN_GUEST_ELF: &[u8] =
         include_bytes!("../../risc0-circuits/elfs/testnet4-header-chain-guest.bin");
-
     const TESTNET4_WORK_ONLY_ELF: &[u8] =
         include_bytes!("../../risc0-circuits/elfs/testnet4-work-only-guest.bin");
 
     use borsh::BorshDeserialize;
     use circuits_lib::{
-        bridge_circuit::structs::WorkOnlyCircuitOutput,
+        bridge_circuit::{
+            constants::REGTEST_WORK_ONLY_METHOD_ID,
+            structs::{ChallengeSendingWatchtowers, TotalWork, WorkOnlyCircuitOutput},
+            total_work_and_watchtower_flags,
+        },
         common::zkvm::ZkvmHost,
         header_chain::{
             header_chain_circuit, BlockHeaderCircuitOutput, ChainState, CircuitBlockHeader,
             HeaderChainCircuitInput, HeaderChainPrevProofType,
         },
     };
+    use risc0_zkvm::default_executor;
 
     const TESTNET4_HEADERS: &[u8] = include_bytes!("../bin-files/testnet4-headers.bin");
 
@@ -429,6 +469,139 @@ mod tests {
         let new_output = BlockHeaderCircuitOutput::try_from_slice(&new_proof.journal).unwrap();
 
         println!("Output: {:?}", new_output);
+    }
+
+    /// Please use RISC0_DDEV_MODE=1 to run the following tests.
+    #[test]
+    #[allow(clippy::print_literal)]
+    fn test_varying_total_works() {
+        eprintln!("\x1b[31mPlease update test data if the elf files are changed. Run the tests on bridge_circuit_test_data.rs to update the test data.\x1b[0m");
+        let bridge_circuit_host_params_serialized =
+            include_bytes!("../bin-files/bch_params_varying_total_works.bin");
+        let bridge_circuit_host_params: BridgeCircuitHostParams =
+            borsh::BorshDeserialize::try_from_slice(bridge_circuit_host_params_serialized)
+                .expect("Failed to deserialize BridgeCircuitHostParams");
+
+        let bridge_circuit_inputs = bridge_circuit_host_params
+            .clone()
+            .into_bridge_circuit_input();
+
+        for watchtower_input in &bridge_circuit_inputs.watchtower_inputs {
+            println!(
+                "Watchtower input: {:?}",
+                watchtower_input.watchtower_challenge_tx.output[2]
+            );
+        }
+
+        let bridge_circuit_elf = REGTEST_BRIDGE_CIRCUIT_ELF_TEST;
+
+        let executor = default_executor();
+
+        let env = ExecutorEnv::builder()
+            .write_slice(&borsh::to_vec(&bridge_circuit_inputs).unwrap())
+            .add_assumption(bridge_circuit_host_params.headerchain_receipt)
+            .add_assumption(bridge_circuit_host_params.lcp_receipt)
+            .build()
+            .expect("Failed to build execution environment");
+
+        let session_info = executor.execute(env, bridge_circuit_elf).unwrap();
+
+        let public_inputs: SuccinctBridgeCircuitPublicInputs =
+            SuccinctBridgeCircuitPublicInputs::new(bridge_circuit_inputs.clone()).unwrap();
+
+        let journal_hash = public_inputs.host_journal_hash();
+
+        assert_eq!(
+            session_info.journal.bytes,
+            *journal_hash.as_bytes(),
+            "Journal hash mismatch"
+        );
+    }
+
+    #[test]
+    #[allow(clippy::print_literal)]
+    #[should_panic(expected = "Insufficient total work")]
+    fn test_insufficient_total_work() {
+        eprintln!("\x1b[31mPlease update test data if the elf files are changed. Run the tests on bridge_circuit_test_data.rs to update the test data.\x1b[0m");
+        let bridge_circuit_host_params_serialized = include_bytes!(
+            "../bin-files/bch_params_varying_total_works_insufficient_total_work.bin"
+        );
+        let bridge_circuit_host_params: BridgeCircuitHostParams =
+            borsh::BorshDeserialize::try_from_slice(bridge_circuit_host_params_serialized)
+                .expect("Failed to deserialize BridgeCircuitHostParams");
+
+        let bridge_circuit_inputs = bridge_circuit_host_params
+            .clone()
+            .into_bridge_circuit_input();
+
+        for watchtower_input in &bridge_circuit_inputs.watchtower_inputs {
+            println!(
+                "Watchtower input: {:?}",
+                watchtower_input.watchtower_challenge_tx.output[2]
+            );
+        }
+
+        let bridge_circuit_elf = REGTEST_BRIDGE_CIRCUIT_ELF_TEST;
+
+        let executor = default_executor();
+
+        let env = ExecutorEnv::builder()
+            .write_slice(&borsh::to_vec(&bridge_circuit_inputs).unwrap())
+            .add_assumption(bridge_circuit_host_params.headerchain_receipt)
+            .add_assumption(bridge_circuit_host_params.lcp_receipt)
+            .build()
+            .expect("Failed to build execution environment");
+
+        executor.execute(env, bridge_circuit_elf).unwrap();
+    }
+    #[cfg(feature = "use-test-vk")]
+    #[test]
+    #[allow(clippy::print_literal)]
+    fn test_varying_total_works_first_two_valid() {
+        eprintln!("{}Please update test data if the elf files are changed. Run the tests on bridge_circuit_test_data.rs to update the test data.{}", "\x1b[31m", "\x1b[0m");
+        let bridge_circuit_host_params_serialized =
+            include_bytes!("../bin-files/bch_params_varying_total_works_first_two_valid.bin");
+        let bridge_circuit_host_params: BridgeCircuitHostParams =
+            borsh::BorshDeserialize::try_from_slice(bridge_circuit_host_params_serialized)
+                .expect("Failed to deserialize BridgeCircuitHostParams");
+
+        let bridge_circuit_input = bridge_circuit_host_params
+            .clone()
+            .into_bridge_circuit_input();
+
+        let mut total_works: Vec<[u8; 16]> =
+            Vec::with_capacity(bridge_circuit_input.watchtower_inputs.len());
+
+        for watchtower_input in &bridge_circuit_input.watchtower_inputs {
+            println!(
+                "Watchtower input: {:?}",
+                watchtower_input.watchtower_challenge_tx.output[2]
+            );
+
+            let total_work = total_work_from_wt_tx(&watchtower_input.watchtower_challenge_tx);
+            total_works.push(total_work);
+        }
+
+        let (total_work, challenge_sending_wts) =
+            total_work_and_watchtower_flags(&bridge_circuit_input, &REGTEST_WORK_ONLY_METHOD_ID);
+
+        println!(
+            "Total work: {:?}, Challenge sending watchtowers: {:?}",
+            total_work, challenge_sending_wts
+        );
+
+        total_works.sort();
+
+        let expected_total_work = TotalWork(total_works[1]);
+        let expected_challenge_sending_wts = ChallengeSendingWatchtowers([
+            15, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        ]);
+
+        assert_eq!(total_work, expected_total_work, "Total work mismatch");
+        assert_eq!(
+            challenge_sending_wts, expected_challenge_sending_wts,
+            "Challenge sending watchtowers mismatch"
+        );
     }
 
     #[test]
@@ -510,5 +683,75 @@ mod tests {
 
         let circuit_g16_proof = CircuitGroth16Proof::from_seal(&seal);
         println!("Circuit G16 proof: {:?}", circuit_g16_proof);
+    }
+
+    #[test]
+    fn test_bridge_circuit_with_annex() {
+        eprintln!("\x1b[31mPlease update test data if the elf files are changed. Run the tests on bridge_circuit_test_data.rs to update the test data.\x1b[0m");
+        let input_bytes: &[u8] =
+            include_bytes!("../bin-files/bch_params_challenge_tx_with_annex.bin");
+        let bridge_circuit_host_params: BridgeCircuitHostParams = borsh::from_slice(input_bytes)
+            .expect("Failed to deserialize BridgeCircuitHostParams from file");
+
+        let (proof, public_output, bitvm_inputs) =
+            prove_bridge_circuit(bridge_circuit_host_params, REGTEST_BRIDGE_CIRCUIT_ELF_TEST)
+                .unwrap();
+        println!("Proof: {:?}", proof);
+        println!("Public Output: {:?}", public_output);
+        println!("BitVM Inputs: {:?}", bitvm_inputs);
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid witness length, expected 1 element")]
+    fn test_bridge_circuit_with_large_input() {
+        eprintln!("\x1b[31mPlease update test data if the elf files are changed. Run the tests on bridge_circuit_test_data.rs to update the test data.\x1b[0m");
+        let input_bytes: &[u8] =
+            include_bytes!("../bin-files/bch_params_challenge_tx_with_large_annex.bin");
+        let mut bridge_circuit_host_params: BridgeCircuitHostParams =
+            borsh::from_slice(input_bytes)
+                .expect("Failed to deserialize BridgeCircuitHostParams from file");
+
+        // Now add the removed witness element back to the watchtower inputs
+        for watchtower_input in &mut bridge_circuit_host_params.watchtower_inputs {
+            let large_data: Vec<u8> = vec![0x80; 3999000];
+            watchtower_input
+                .watchtower_challenge_witness
+                .push(large_data);
+        }
+        let (_, _, _) =
+            prove_bridge_circuit(bridge_circuit_host_params, REGTEST_BRIDGE_CIRCUIT_ELF_TEST)
+                .unwrap();
+    }
+
+    #[test]
+    fn test_bridge_circuit_with_large_output() {
+        eprintln!("\x1b[31mPlease update test data if the elf files are changed. Run the tests on bridge_circuit_test_data.rs to update the test data.\x1b[0m");
+        let input_bytes: &[u8] =
+            include_bytes!("../bin-files/bch_params_challenge_tx_with_large_output.bin");
+        let bridge_circuit_host_params: BridgeCircuitHostParams = borsh::from_slice(input_bytes)
+            .expect("Failed to deserialize BridgeCircuitHostParams from file");
+
+        let (proof, public_output, bitvm_inputs) =
+            prove_bridge_circuit(bridge_circuit_host_params, REGTEST_BRIDGE_CIRCUIT_ELF_TEST)
+                .unwrap();
+        println!("Proof: {:?}", proof);
+        println!("Public Output: {:?}", public_output);
+        println!("BitVM Inputs: {:?}", bitvm_inputs);
+    }
+
+    #[test]
+    fn test_bridge_circuit_with_large_input_and_output() {
+        eprintln!("\x1b[31mPlease update test data if the elf files are changed. Run the tests on bridge_circuit_test_data.rs to update the test data.\x1b[0m");
+        let input_bytes: &[u8] =
+            include_bytes!("../bin-files/bch_params_challenge_tx_with_large_annex_and_output.bin");
+        let bridge_circuit_host_params: BridgeCircuitHostParams = borsh::from_slice(input_bytes)
+            .expect("Failed to deserialize BridgeCircuitHostParams from file");
+
+        let (proof, public_output, bitvm_inputs) =
+            prove_bridge_circuit(bridge_circuit_host_params, REGTEST_BRIDGE_CIRCUIT_ELF_TEST)
+                .unwrap();
+        println!("Proof: {:?}", proof);
+        println!("Public Output: {:?}", public_output);
+        println!("BitVM Inputs: {:?}", bitvm_inputs);
     }
 }

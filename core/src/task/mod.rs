@@ -1,17 +1,21 @@
 use std::time::Duration;
 use tokio::sync::oneshot;
 use tokio::sync::oneshot::error::TryRecvError;
-use tokio::task::JoinHandle;
+use tokio::task::{self, JoinHandle};
 use tokio::time::sleep;
 use tonic::async_trait;
 
 use crate::errors::BridgeError;
 
+pub mod aggregator_metric_publisher;
+pub mod entity_metric_publisher;
 pub mod manager;
 pub mod payout_checker;
 pub mod status_monitor;
-pub mod sync_status;
 
+/// The variant of the task, used for identifying the task in the status monitor
+/// Create a new enum variant for each task that you want to track in the status monitor
+/// BackgroundTaskManager will use TaskVariant to identify the tasks, to not start the same task twice.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TaskVariant {
     PayoutChecker,
@@ -24,6 +28,8 @@ pub enum TaskVariant {
     Counter,
     #[cfg(test)]
     Sleep,
+    /// Used to publish metrics to Prometheus periodically. This
+    MetricPublisher,
 }
 
 /// Task trait defining the core behavior for cancelable background tasks
@@ -33,7 +39,9 @@ pub enum TaskVariant {
 /// indicating whether it did work (true) or needs to wait (false).
 #[async_trait]
 pub trait Task: Send + Sync + 'static {
+    /// The output of the fn run_once
     type Output: Send + Sync + 'static + Sized;
+    /// The variant of the task
     const VARIANT: TaskVariant;
     /// Run the task once, returning whether work was done
     ///
@@ -334,7 +342,14 @@ impl<T: Task + Sized> TaskExt for T {
     }
 
     fn into_bg(mut self) -> JoinHandle<Result<Self::Output, BridgeError>> {
-        tokio::spawn(async move { self.run_once().await })
+        tokio::spawn(async move {
+            tracing::debug!(
+                "Running task {:?} with ID {:?}",
+                Self::VARIANT,
+                task::try_id()
+            );
+            self.run_once().await
+        })
     }
 
     fn into_buffered_errors(self, error_overflow_limit: usize) -> BufferedErrors<Self>

@@ -46,8 +46,8 @@ export PROTOCOL_CONFIG_PATH=${PROTOCOL_CONFIG_PATH:="core/src/config/protocol_pa
 export DBG_PACKAGE_HEX=${DBG_PACKAGE_HEX:=1}
 export RUST_MIN_STACK=${RUST_MIN_STACK:=33554432}
 export RISC0_SKIP_BUILD=${RISC0_SKIP_BUILD:=1}
-export JSON_LOGS=${JSON_LOGS:=1}
-export RUST_LOG=${RUST_LOG:=info}
+export LOG_FORMAT=json
+export RUST_LOG=info
 # TLS
 export CA_CERT_PATH=${CA_CERT_PATH:="core/certs/ca/ca.pem"}
 export SERVER_CERT_PATH=${SERVER_CERT_PATH:="core/certs/server/server.pem"}
@@ -87,7 +87,11 @@ export FINALITY_DEPTH=${FINALITY_DEPTH:=100}
 export START_HEIGHT=${START_HEIGHT:=190}
 export GENESIS_HEIGHT=${GENESIS_HEIGHT:=0}
 export GENESIS_CHAIN_STATE_HASH=${GENESIS_CHAIN_STATE_HASH:=5f7302ad16c8bd9ef2f3be00c8199a86f9e0ba861484abb4af5f7e457f8c2216}
-
+export BRIDGE_NONSTANDARD=${BRIDGE_NONSTANDARD:=false}
+export TELEMETRY_HOST=0.0.0.0
+export TELEMETRY_PORT=8081
+export RUST_MIN_STACK=33554432
+export RISC0_DEV_MODE=1
 
 # Define databases to drop and recreate
 databases=("clementine0" "clementine1" "clementine2" "clementine3")
@@ -110,12 +114,12 @@ done
 
 # Build the project once
 echo "Building clementine-core..."
-cargo build --package clementine-core --bin clementine-core
+cargo build --package clementine-core --all-features --bin clementine-core
 if [ $? -ne 0 ]; then
     echo "Build failed, exiting..."
     exit 1
 fi
-BIN_PATH="./target/release/clementine-core"
+BIN_PATH="./target/debug/clementine-core"
 
 # Corresponding roles
 roles=(
@@ -160,8 +164,8 @@ for i in "${!roles[@]}"; do
     log_file="logs/${filename%.toml}.jsonl"
 
     if [ "$role" == "aggregator" ]; then
-        echo "Waiting 15 seconds before starting aggregator..."
-        sleep 15
+        echo "Waiting 120 seconds before starting aggregator..."
+        sleep 120
     fi
 
     # Set dynamic config vars for each actor
@@ -172,6 +176,7 @@ for i in "${!roles[@]}"; do
 
     # Aggregator overwrites
     if [ $role == "aggregator" ]; then
+        export TELEMETRY_PORT=8082
         export PORT=$((17000))
         export SECRET_KEY=$(printf "%064d" | tr '0' "1")
     fi

@@ -1,6 +1,6 @@
 use crate::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
 use crate::bitcoin_syncer::BitcoinSyncer;
-use crate::bitvm_client::ClementineBitVMPublicKeys;
+use crate::bitvm_client::{ClementineBitVMPublicKeys, REPLACE_SCRIPTS_LOCK};
 use crate::builder::address::{create_taproot_address, taproot_builder_with_scripts};
 use crate::builder::block_cache;
 use crate::builder::script::{
@@ -27,11 +27,14 @@ use crate::deposit::{DepositData, KickoffData, OperatorData};
 use crate::errors::{BridgeError, TxError};
 use crate::extended_rpc::ExtendedRpc;
 use crate::header_chain_prover::HeaderChainProver;
+use crate::metrics::L1SyncStatusProvider;
 use crate::operator::RoundIndex;
 use crate::rpc::clementine::{EntityStatus, NormalSignatureKind, OperatorKeys, TaggedSignature};
+use crate::task::entity_metric_publisher::{
+    EntityMetricPublisher, ENTITY_METRIC_PUBLISHER_INTERVAL,
+};
 use crate::task::manager::BackgroundTaskManager;
-use crate::task::sync_status::get_sync_status;
-use crate::task::IntoTask;
+use crate::task::{IntoTask, TaskExt};
 #[cfg(feature = "automation")]
 use crate::tx_sender::{TxSender, TxSenderClient};
 use crate::utils::NamedEntity;
@@ -39,7 +42,6 @@ use crate::utils::TxMetadata;
 use crate::{musig2, UTXO};
 use bitcoin::hashes::Hash;
 use bitcoin::key::Secp256k1;
-use bitcoin::opcodes::all::OP_RETURN;
 use bitcoin::script::Instruction;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::Message;
@@ -53,12 +55,12 @@ use bitvm::clementine::additional_disprove::{
 };
 use bitvm::signatures::winternitz;
 #[cfg(feature = "automation")]
-use bridge_circuit_host::utils::get_ark_verifying_key;
-use bridge_circuit_host::utils::get_ark_verifying_key_dev_mode_bridge;
 use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
-use circuits_lib::bridge_circuit::{deposit_constant, parse_op_return_data};
+use circuits_lib::bridge_circuit::transaction::CircuitTransaction;
+use circuits_lib::bridge_circuit::{
+    deposit_constant, get_first_op_return_output, parse_op_return_data,
+};
 use eyre::{Context, ContextCompat, OptionExt, Result};
-use risc0_zkvm::is_dev_mode;
 use secp256k1::musig::{AggregatedNonce, PartialSignature, PublicNonce, SecretNonce};
 #[cfg(feature = "automation")]
 use std::collections::BTreeMap;
@@ -83,7 +85,7 @@ pub struct AllSessions {
 
 pub struct VerifierServer<C: CitreaClientT> {
     pub verifier: Verifier<C>,
-    background_tasks: BackgroundTaskManager<Verifier<C>>,
+    background_tasks: BackgroundTaskManager,
 }
 
 impl<C> VerifierServer<C>
@@ -123,7 +125,7 @@ where
             );
 
             self.background_tasks
-                .loop_and_monitor(tx_sender.into_task())
+                .ensure_task_looping(tx_sender.into_task())
                 .await;
             let state_manager = crate::states::StateManager::new(
                 self.verifier.db.clone(),
@@ -145,23 +147,43 @@ where
 
             if should_run_state_mgr {
                 self.background_tasks
-                    .loop_and_monitor(state_manager.block_fetcher_task().await?)
+                    .ensure_task_looping(state_manager.block_fetcher_task().await?)
                     .await;
                 self.background_tasks
-                    .loop_and_monitor(state_manager.into_task())
+                    .ensure_task_looping(state_manager.into_task())
                     .await;
             }
         }
         #[cfg(not(feature = "automation"))]
         {
+            use crate::metrics::get_btc_syncer_consumer_last_processed_block_height;
             use crate::task::TaskExt;
+            // get current next height from the database
+            // some blocks might still be processed again (if last processed block height is a reorged block)
+            // processing same blocks again is not a problem, here we want to avoid starting from the beginning if verifier
+            // has been restarted
+            let last_processed_height = get_btc_syncer_consumer_last_processed_block_height(
+                &self.verifier.db,
+                &Verifier::<C>::FINALIZED_BLOCK_CONSUMER_ID.to_string(),
+            )
+            .await?;
+            let next_height = match last_processed_height {
+                // if last processed height is not None, start from the last processed height - finality depth + 1 as next height
+                Some(height) => height
+                    .checked_sub(self.verifier.config.protocol_paramset().finality_depth)
+                    .map(|height| height + 1)
+                    .unwrap_or(self.verifier.config.protocol_paramset().start_height),
+                // if db is empty, start from the start height
+                None => self.verifier.config.protocol_paramset().start_height,
+            };
+
             self.background_tasks
-                .loop_and_monitor(
+                .ensure_task_looping(
                     crate::bitcoin_syncer::FinalizedBlockFetcherTask::new(
                         self.verifier.db.clone(),
                         Verifier::<C>::FINALIZED_BLOCK_CONSUMER_ID.to_string(),
                         self.verifier.config.protocol_paramset(),
-                        self.verifier.config.protocol_paramset().start_height,
+                        next_height,
                         self.verifier.clone(),
                     )
                     .into_buffered_errors(50)
@@ -172,38 +194,43 @@ where
 
         let syncer = BitcoinSyncer::new(
             self.verifier.db.clone(),
-            rpc,
+            rpc.clone(),
             self.verifier.config.protocol_paramset(),
         )
         .await?;
 
         self.background_tasks
-            .loop_and_monitor(syncer.into_task())
+            .ensure_task_looping(syncer.into_task())
+            .await;
+
+        self.background_tasks
+            .ensure_task_looping(
+                EntityMetricPublisher::<Verifier<C>>::new(self.verifier.db.clone(), rpc.clone())
+                    .with_delay(ENTITY_METRIC_PUBLISHER_INTERVAL),
+            )
             .await;
 
         Ok(())
     }
 
     pub async fn get_current_status(&self) -> Result<EntityStatus, BridgeError> {
-        let stopped_tasks = self.background_tasks.get_stopped_tasks().await;
-        #[cfg(feature = "automation")]
-        let automation_enabled = true;
-        #[cfg(not(feature = "automation"))]
-        let automation_enabled = false;
+        let stopped_tasks = self.background_tasks.get_stopped_tasks().await?;
+        // Determine if automation is enabled
+        let automation_enabled = cfg!(feature = "automation");
 
-        let sync_status =
-            get_sync_status::<Verifier<C>>(&self.verifier.db, &self.verifier.rpc).await?;
+        let l1_sync_status =
+            Verifier::<C>::get_l1_status(&self.verifier.db, &self.verifier.rpc).await?;
 
         Ok(EntityStatus {
             automation: automation_enabled,
-            wallet_balance: sync_status.wallet_balance,
-            tx_sender_synced_height: sync_status.tx_sender_synced_height.unwrap_or(0),
-            finalized_synced_height: sync_status.finalized_synced_height.unwrap_or(0),
-            hcp_last_proven_height: sync_status.hcp_last_proven_height.unwrap_or(0),
-            rpc_tip_height: sync_status.rpc_tip_height,
-            bitcoin_syncer_synced_height: sync_status.btc_syncer_synced_height.unwrap_or(0),
+            wallet_balance: format!("{} BTC", l1_sync_status.wallet_balance.to_btc()),
+            tx_sender_synced_height: l1_sync_status.tx_sender_synced_height.unwrap_or(0),
+            finalized_synced_height: l1_sync_status.finalized_synced_height.unwrap_or(0),
+            hcp_last_proven_height: l1_sync_status.hcp_last_proven_height.unwrap_or(0),
+            rpc_tip_height: l1_sync_status.rpc_tip_height,
+            bitcoin_syncer_synced_height: l1_sync_status.btc_syncer_synced_height.unwrap_or(0),
             stopped_tasks: Some(stopped_tasks),
-            state_manager_next_height: sync_status.state_manager_next_height.unwrap_or(0),
+            state_manager_next_height: l1_sync_status.state_manager_next_height.unwrap_or(0),
         })
     }
 
@@ -483,6 +510,7 @@ where
         operator_winternitz_public_keys: Vec<winternitz::PublicKey>,
         unspent_kickoff_sigs: Vec<Signature>,
     ) -> Result<(), BridgeError> {
+        tracing::info!("Setting operator: {:?}", operator_xonly_pk);
         let operator_data = OperatorData {
             xonly_pk: operator_xonly_pk,
             collateral_funding_outpoint,
@@ -567,7 +595,7 @@ where
             .await?;
         }
         dbtx.commit().await?;
-
+        tracing::info!("Operator: {:?} set successfully", operator_xonly_pk);
         Ok(())
     }
 
@@ -627,11 +655,15 @@ where
             .await?;
 
         tokio::spawn(async move {
-            let mut session_map = verifier.nonces.lock().await;
-            let session = session_map
-                .sessions
-                .get_mut(&session_id)
-                .ok_or_else(|| eyre::eyre!("Could not find session id {session_id}"))?;
+            // Take the lock and extract the session before entering the async block
+            // Extract the session and remove it from the map to release the lock early
+            let mut session = {
+                let mut session_map = verifier.nonces.lock().await;
+                session_map
+                    .sessions
+                    .remove(&session_id)
+                    .ok_or_else(|| eyre::eyre!("Could not find session id {session_id}"))?
+            };
             session.nonces.reverse();
 
             let mut nonce_idx: usize = 0;
@@ -695,6 +727,12 @@ where
                     session.nonces.len()
                 ).into());
             }
+
+            let mut session_map = verifier.nonces.lock().await;
+            session_map
+                .sessions
+                .insert(session_id, session)
+                .ok_or_else(|| eyre::eyre!("Could not find session id {session_id}"))?;
 
             Ok::<(), BridgeError>(())
         });
@@ -1111,8 +1149,7 @@ where
         let withdrawal_utxo = self
             .db
             .get_withdrawal_utxo_from_citrea_withdrawal(None, deposit_id)
-            .await?
-            .ok_or_eyre("Withdrawal utxo not found")?;
+            .await?;
         if withdrawal_utxo != input_outpoint {
             return Err(eyre::eyre!(
                 "Withdrawal utxo is not correct: {:?} != {:?}",
@@ -1260,15 +1297,21 @@ where
             .collect::<Vec<_>>();
 
         // TODO: Use correct verification key and along with a dummy proof.
+        // wrap around a mutex lock to avoid OOM
+        let guard = REPLACE_SCRIPTS_LOCK.lock().await;
         let start = std::time::Instant::now();
         let scripts: Vec<ScriptBuf> = bitvm_pks.get_g16_verifier_disprove_scripts();
 
-        let taproot_builder = taproot_builder_with_scripts(&scripts);
+        let taproot_builder = taproot_builder_with_scripts(scripts);
+
         let root_hash = taproot_builder
             .try_into_taptree()
             .expect("taproot builder always builds a full taptree")
             .root_hash()
             .to_byte_array();
+
+        // bitvm scripts are dropped, release the lock
+        drop(guard);
         tracing::debug!("Built taproot tree in {:?}", start.elapsed());
 
         let latest_blockhash_wots = bitvm_pks.latest_blockhash_pk.to_vec();
@@ -1470,28 +1513,6 @@ where
             .header_chain_prover
             .prove_work_only(current_tip_hcp.0)?;
 
-        #[cfg(test)]
-        {
-            // if in test mode and risc0_dev_mode is enabled, we will not generate real proof
-            // if not in test mode, we should enforce RISC0_DEV_MODE to be disabled
-            if is_dev_mode() {
-                tracing::warn!("Warning, malicious kickoff detected but RISC0_DEV_MODE is enabled, will not generate real proof");
-                let g16_bytes = 128;
-                let mut challenge = vec![0u8; g16_bytes];
-                for (step, i) in (0..g16_bytes).step_by(32).enumerate() {
-                    if i < g16_bytes {
-                        challenge[i] = step as u8;
-                    }
-                }
-                let total_work = borsh::to_vec(&work_output.work_u128)
-                    .wrap_err("Couldn't serialize total work")?;
-                challenge.extend_from_slice(&total_work);
-                return self
-                    .queue_watchtower_challenge(kickoff_data, deposit_data, challenge)
-                    .await;
-            }
-        }
-
         let g16: [u8; 256] = work_only_proof
             .inner
             .groth16()
@@ -1514,6 +1535,22 @@ where
 
         let total_work =
             borsh::to_vec(&work_output.work_u128).wrap_err("Couldn't serialize total work")?;
+
+        #[cfg(test)]
+        {
+            let wt_ind = self
+                .config
+                .test_params
+                .all_verifiers_secret_keys
+                .iter()
+                .position(|x| x == &self.config.secret_key)
+                .ok_or_else(|| eyre::eyre!("Verifier secret key not found in test params"))?;
+
+            self.config
+                .test_params
+                .maybe_disrupt_commit_data_for_total_work(&mut commit_data, wt_ind);
+        }
+
         commit_data.extend_from_slice(&total_work);
 
         tracing::info!("Watchtower prepared commit data, trying to send watchtower challenge");
@@ -1537,6 +1574,16 @@ where
                 &commit_data,
             )
             .await?;
+
+        #[cfg(test)]
+        let mut challenge_tx = challenge_tx;
+
+        #[cfg(test)]
+        {
+            if let Some(annex_bytes) = rbf_info.annex.clone() {
+                challenge_tx.input[0].witness.push(annex_bytes);
+            }
+        }
 
         #[cfg(feature = "automation")]
         {
@@ -1578,29 +1625,30 @@ where
         l2_height_end: u64,
         block_height: u32,
     ) -> Result<(), BridgeError> {
-        tracing::debug!("Updating citrea deposit and withdrawals");
-
         let last_deposit_idx = self.db.get_last_deposit_idx(None).await?;
-        tracing::debug!("Last deposit idx: {:?}", last_deposit_idx);
+        tracing::debug!("Last Citrea deposit idx: {:?}", last_deposit_idx);
 
         let last_withdrawal_idx = self.db.get_last_withdrawal_idx(None).await?;
-        tracing::debug!("Last withdrawal idx: {:?}", last_withdrawal_idx);
+        tracing::debug!("Last Citrea withdrawal idx: {:?}", last_withdrawal_idx);
 
         let new_deposits = self
             .citrea_client
             .collect_deposit_move_txids(last_deposit_idx, l2_height_end)
             .await?;
-        tracing::debug!("New deposits: {:?}", new_deposits);
+        tracing::debug!("New deposits received from Citrea: {:?}", new_deposits);
 
         let new_withdrawals = self
             .citrea_client
             .collect_withdrawal_utxos(last_withdrawal_idx, l2_height_end)
             .await?;
-        tracing::debug!("New Withdrawals: {:?}", new_withdrawals);
+        tracing::debug!(
+            "New withdrawals received from Citrea: {:?}",
+            new_withdrawals
+        );
 
         for (idx, move_to_vault_txid) in new_deposits {
             tracing::info!(
-                "Setting move to vault txid: {:?} with index {}",
+                "Saving move to vault txid {:?} with index {} for Citrea deposits",
                 move_to_vault_txid,
                 idx
             );
@@ -1612,9 +1660,10 @@ where
                 )
                 .await?;
         }
+
         for (idx, withdrawal_utxo_outpoint) in new_withdrawals {
             tracing::info!(
-                "Setting withdrawal utxo: {:?} with index {}",
+                "Saving withdrawal utxo {:?} with index {} for Citrea withdrawals",
                 withdrawal_utxo_outpoint,
                 idx
             );
@@ -1679,11 +1728,9 @@ where
             }
             let payout_tx_idx = payout_tx_idx.expect("Payout tx not found in block cache");
             let payout_tx = &block.txdata[*payout_tx_idx];
-            // Find the output that contains OP_RETURN
-            let op_return_output = payout_tx.output.iter().find(|output| {
-                let script_bytes = output.script_pubkey.to_bytes();
-                !script_bytes.is_empty() && script_bytes[0] == OP_RETURN.to_u8()
-            });
+            // Find the first output that contains OP_RETURN
+            let circuit_payout_tx = CircuitTransaction::from(payout_tx.clone());
+            let op_return_output = get_first_op_return_output(&circuit_payout_tx);
 
             // If OP_RETURN doesn't exist in any outputs, or the data in OP_RETURN is not a valid xonly_pubkey,
             // operator_xonly_pk will be set to None, and the corresponding column in DB set to NULL.
@@ -2148,6 +2195,8 @@ where
         deposit_data: &mut DepositData,
         operator_asserts: &HashMap<usize, Witness>,
     ) -> Result<Option<(usize, StructuredScript)>, BridgeError> {
+        use bridge_circuit_host::utils::get_verifying_key;
+
         let bitvm_pks = self.signer.generate_bitvm_pks_for_deposit(
             deposit_data.get_deposit_outpoint(),
             self.config.protocol_paramset,
@@ -2265,11 +2314,7 @@ where
 
         tracing::info!("Boxes created");
 
-        let vk = if is_dev_mode() {
-            get_ark_verifying_key_dev_mode_bridge()
-        } else {
-            get_ark_verifying_key()
-        };
+        let vk = get_verifying_key();
 
         let res = validate_assertions(
             &vk,
@@ -2416,20 +2461,14 @@ where
         let max_attempts = light_client_proof_wait_interval_secs.unwrap_or(TEN_MINUTES_IN_SECS);
         let timeout = Duration::from_secs(max_attempts as u64);
 
-        let l2_range_result = self
+        let (l2_height_start, l2_height_end) = self
             .citrea_client
             .get_citrea_l2_height_range(block_height.into(), timeout)
-            .await;
-        if let Err(e) = l2_range_result {
-            tracing::error!("Error getting citrea l2 height range: {:?}", e);
-            return Err(e);
-        }
-
-        let (l2_height_start, l2_height_end) =
-            l2_range_result.expect("Failed to get citrea l2 height range");
+            .await
+            .inspect_err(|e| tracing::error!("Error getting citrea l2 height range: {:?}", e))?;
 
         tracing::debug!(
-            "l2_height_start: {:?}, l2_height_end: {:?}, collecting deposits and withdrawals",
+            "l2_height_start: {:?}, l2_height_end: {:?}, collecting deposits and withdrawals...",
             l2_height_start,
             l2_height_end
         );

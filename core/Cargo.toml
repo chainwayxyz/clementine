@@ -13,13 +13,18 @@ tonic-build = "0.12"
 vergen-git2 = { workspace = true }
 
 [dependencies]
+metrics = { workspace = true }
+metrics-derive = { workspace = true }
+metrics-exporter-prometheus = { workspace = true }
+metrics-util = { workspace = true }
+color-eyre = { workspace = true }
 bitcoin = { workspace = true, features = ["rand", "bitcoinconsensus"] }
 bitcoincore-rpc = { workspace = true }
 hex = { workspace = true, features = ["serde"] }
 hex-literal = { workspace = true }
 lazy_static = { workspace = true, features = ["spin_no_std"] }
 sha2 = { workspace = true }
-risc0-zkvm = { version = "2.1.0", features = ["prove"] }
+risc0-zkvm = { workspace = true, features = ["prove"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 secp256k1 = { workspace = true, features = ["serde", "rand", "std"] }
@@ -61,10 +66,15 @@ circuits-lib = { path = "../circuits-lib" }
 bridge-circuit-host = { path = "../bridge-circuit-host" }
 bincode = { workspace = true }
 ark-ff = { workspace = true }
+rustls = { workspace = true }
 rustls-pki-types = { workspace = true }
 once_cell = { workspace = true }
 bitcoin-script = { workspace = true }
 secrecy = { workspace = true }
+
+# UNCOMMENT TO DEBUG TOKIO TASKS
+
+# console-subscriber = { version = "0.4.1" }
 
 [dev-dependencies]
 serial_test = { workspace = true }
@@ -73,6 +83,7 @@ base64 = { workspace = true }
 bridge-circuit-host = { path = "../bridge-circuit-host" }
 ctor = { workspace = true }
 tokio = { workspace = true, features = ["full", "test-util"] }
+rand = { workspace = true }
 
 [[bin]]
 name = "clementine-cli"
@@ -81,3 +92,7 @@ path = "src/bin/cli.rs"
 
 [lints.clippy]
 unwrap_used = { level = "deny" }
+
+[lints.rust]
+# This is used to enable/disable the tokio-console debugging utility
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tokio_unstable)'] }

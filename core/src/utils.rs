@@ -1,4 +1,5 @@
 use crate::builder::transaction::TransactionType;
+use crate::config::TelemetryConfig;
 use crate::errors::BridgeError;
 use crate::operator::RoundIndex;
 use crate::rpc::clementine::VergenResponse;
@@ -6,10 +7,12 @@ use bitcoin::{OutPoint, TapNodeHash, XOnlyPublicKey};
 use eyre::Context as _;
 use futures::future::try_join_all;
 use http::HeaderValue;
+use metrics_exporter_prometheus::PrometheusBuilder;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Display};
 use std::fs::File;
 use std::future::Future;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -22,60 +25,117 @@ use tracing::{debug_span, Instrument, Subscriber};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::{fmt, EnvFilter, Layer as TracingLayer, Registry};
 
-/// Initializes `tracing` as the logger.
+/// Initializes a [`tracing`] subscriber depending on the environment.
+/// [`EnvFilter`] is used with an optional default level. Sets up the
+/// [`color_eyre`] handler.
+///
+/// # Log Formats
+///
+/// - `json` **JSON** is used when `LOG_FORMAT=json`
+/// - `human` **Human-readable** direct logs are used when `LOG_FORMAT` is not
+///   set to `json`.
+///
+/// ## CI
+///
+/// In CI, logging is always in the human-readable format with output to the
+/// console. The `INFO_LOG_FILE` env var can be used to set an optional log file
+/// output. If not set, only console logging is used.
+///
+/// # Backtraces
+///
+/// Backtraces are enabled by default for tests. Error backtraces otherwise
+/// depend on the `RUST_LIB_BACKTRACE` env var. Please read [`color_eyre`]
+/// documentation for more details.
 ///
 /// # Parameters
 ///
-/// - `level`: Level ranges from 0 to 5. 0 defaults to no logs but can be
-///   overwritten with `RUST_LOG` env var. While other numbers sets log level from
-///   lowest level (1) to highest level (5). Is is advised to use 0 on tests and
-///   other values for binaries (get value from user).
+/// - `default_level`: Default level ranges from 0 to 5. This is overwritten through the
+///   `RUST_LOG` env var.
 ///
 /// # Returns
 ///
-/// Returns `Err` if `tracing` can't be initialized. Multiple subscription error
-/// is emitted and will return `Ok(())`.
-pub fn initialize_logger(level: Option<LevelFilter>) -> Result<(), BridgeError> {
+/// Returns `Err` in CI if the file logging cannot be initialized.  Already
+/// initialized errors are ignored, so this function can be called multiple
+/// times safely.
+pub fn initialize_logger(default_level: Option<LevelFilter>) -> Result<(), BridgeError> {
     let is_ci = std::env::var("CI")
         .map(|v| v == "true" || v == "1")
         .unwrap_or(false);
 
+    // UNCOMMENT TO DEBUG TOKIO TASKS
+    // console_subscriber::init();
+
+    if cfg!(test) {
+        // Enable full backtraces for tests
+        std::env::set_var("RUST_LIB_BACKTRACE", "full");
+        std::env::set_var("RUST_BACKTRACE", "full");
+    }
+
+    // Initialize color-eyre for better error handling and backtraces
+    let _ = color_eyre::install();
+
     if is_ci {
         let info_log_file = std::env::var("INFO_LOG_FILE").ok();
         if let Some(file_path) = info_log_file {
-            let subscriber = env_subscriber_with_file(&file_path)?;
-            try_set_global_subscriber(subscriber)?;
+            try_set_global_subscriber(env_subscriber_with_file(&file_path)?);
+            tracing::trace!("Using file logging in CI, outputting to {}", file_path);
         } else {
+            try_set_global_subscriber(env_subscriber_to_human(default_level));
+            tracing::trace!("Using console logging in CI");
             tracing::warn!(
                 "CI is set but INFO_LOG_FILE is missing, only console logs will be used."
             );
-            let subscriber = env_subscriber_to_human(level);
-            try_set_global_subscriber(subscriber)?;
         }
+    } else if is_json_logs() {
+        try_set_global_subscriber(env_subscriber_to_json(default_level));
+        tracing::trace!("Using JSON logging");
     } else {
-        let subscriber: Box<dyn Subscriber + Send + Sync> = if is_json_logs() {
-            Box::new(env_subscriber_to_json(level))
-        } else {
-            Box::new(env_subscriber_to_human(level))
-        };
-        try_set_global_subscriber(subscriber)?;
+        try_set_global_subscriber(env_subscriber_to_human(default_level));
+        tracing::trace!("Using human-readable logging");
     }
 
     tracing::info!("Tracing initialized successfully.");
     Ok(())
 }
 
-fn try_set_global_subscriber<S>(subscriber: S) -> Result<(), BridgeError>
+pub fn initialize_telemetry(config: &TelemetryConfig) -> Result<(), BridgeError> {
+    let telemetry_addr: SocketAddr = format!("{}:{}", config.host, config.port)
+        .parse()
+        .unwrap_or_else(|_| {
+            tracing::warn!(
+                "Invalid telemetry address: {}:{}, using default address: 127.0.0.1:8081",
+                config.host,
+                config.port
+            );
+            SocketAddr::from((Ipv4Addr::new(0, 0, 0, 0), 8081))
+        });
+
+    tracing::debug!("Initializing telemetry at {}", telemetry_addr);
+
+    let builder = PrometheusBuilder::new().with_http_listener(telemetry_addr);
+
+    builder
+        .install()
+        .map_err(|e| eyre::eyre!("Failed to initialize telemetry: {}", e))?;
+
+    Ok(())
+}
+
+fn try_set_global_subscriber<S>(subscriber: S)
 where
     S: Subscriber + Send + Sync + 'static,
 {
     match tracing::subscriber::set_global_default(subscriber) {
-        Ok(_) => Ok(()),
-        Err(e) if e.to_string() == "a global default trace dispatcher has already been set" => {
-            tracing::info!("Tracing is already initialized, skipping without errors...");
-            Ok(())
+        Ok(_) => {}
+        // Statically, the only error possible is "already initialized"
+        Err(_) => {
+            #[cfg(test)]
+            tracing::trace!("Tracing is already initialized, skipping without errors...");
+            #[cfg(not(test))]
+            tracing::info!(
+                "Unexpected double initialization of tracing, skipping without errors..."
+            );
         }
-        Err(e) => Err(BridgeError::ConfigError(e.to_string())),
     }
 }
 
@@ -410,7 +470,7 @@ where
 /// A trait for entities that have a name, operator, verifier, etc.
 /// Used to distinguish between state machines with different owners in the database,
 /// and to provide a human-readable name for the entity for task names.
-pub trait NamedEntity {
+pub trait NamedEntity: Sync + Send + 'static {
     /// A string identifier for this owner type used to distinguish between
     /// state machines with different owners in the database.
     ///
@@ -485,6 +545,8 @@ pub struct RbfSigningInfo {
     pub tweak_merkle_root: Option<TapNodeHash>,
     #[cfg(test)]
     pub annex: Option<Vec<u8>>,
+    #[cfg(test)]
+    pub additional_taproot_output_count: Option<u32>,
 }
 pub trait Last20Bytes {
     fn last_20_bytes(self) -> [u8; 20];

@@ -308,6 +308,7 @@ impl TxSender {
                 if let Some(ref annex_bytes) = rbf_signing_info.annex {
                     let mut witness = Witness::from_slice(&[signature.serialize()]);
                     witness.push(annex_bytes);
+                    decoded_psbt.inputs[input_index].final_script_witness = Some(witness);
                     tracing::info!("Decoded PSBT: {:?}", decoded_psbt);
                 }
             }
@@ -1061,6 +1062,8 @@ pub mod tests {
                     tweak_merkle_root: None,
                     #[cfg(test)]
                     annex: None,
+                    #[cfg(test)]
+                    additional_taproot_output_count: None,
                 }),
                 &[], // No cancel outpoints
                 &[], // No cancel txids
@@ -1085,6 +1088,8 @@ pub mod tests {
                     tweak_merkle_root: None,
                     #[cfg(test)]
                     annex: None,
+                    #[cfg(test)]
+                    additional_taproot_output_count: None,
                 }),
             )
             .await
@@ -1135,6 +1140,8 @@ pub mod tests {
                     tweak_merkle_root: None,
                     #[cfg(test)]
                     annex: None,
+                    #[cfg(test)]
+                    additional_taproot_output_count: None,
                 }),
                 &[], // No cancel outpoints
                 &[], // No cancel txids
@@ -1159,6 +1166,8 @@ pub mod tests {
                     tweak_merkle_root: None,
                     #[cfg(test)]
                     annex: None,
+                    #[cfg(test)]
+                    additional_taproot_output_count: None,
                 }),
             )
             .await
@@ -1292,6 +1301,8 @@ pub mod tests {
                     tweak_merkle_root: None,
                     #[cfg(test)]
                     annex: None,
+                    #[cfg(test)]
+                    additional_taproot_output_count: None,
                 }),
             )
             .await
@@ -1305,8 +1316,9 @@ pub mod tests {
             .expect("Transaction should be have debug info");
 
         // Verify that TX is in mempool
+        let initial_txid = tx_debug_info.txid.unwrap().txid;
         rpc.get_tx_of_txid(&bitcoin::Txid::from_byte_array(
-            tx_debug_info.txid.unwrap().txid.try_into().unwrap(),
+            initial_txid.clone().try_into().unwrap(),
         ))
         .await
         .expect("Transaction should be in mempool");
@@ -1328,6 +1340,8 @@ pub mod tests {
                     tweak_merkle_root: None,
                     #[cfg(test)]
                     annex: None,
+                    #[cfg(test)]
+                    additional_taproot_output_count: None,
                 }),
             )
             .await
@@ -1341,11 +1355,18 @@ pub mod tests {
             .expect("Transaction should be have debug info");
 
         // Verify that TX is in mempool
+        let changed_txid = tx_debug_info.txid.unwrap().txid;
         rpc.get_tx_of_txid(&bitcoin::Txid::from_byte_array(
-            tx_debug_info.txid.unwrap().txid.try_into().unwrap(),
+            changed_txid.clone().try_into().unwrap(),
         ))
         .await
         .expect("Transaction should be in mempool");
+
+        // Verify that tx has changed.
+        assert_ne!(
+            changed_txid, initial_txid,
+            "Transaction should have been bumped"
+        );
 
         Ok(())
     }
@@ -1375,6 +1396,8 @@ pub mod tests {
                     tweak_merkle_root: None,
                     #[cfg(test)]
                     annex: None,
+                    #[cfg(test)]
+                    additional_taproot_output_count: None,
                 }),
                 &[],
                 &[],

@@ -107,6 +107,8 @@ pub(crate) async fn save_block(
     let block_id = db
         .set_block_as_canonical_if_exists(Some(dbtx), block_hash)
         .await?;
+    db.store_full_block(Some(dbtx), block, block_height).await?;
+
     if let Some(block_id) = block_id {
         return Ok(block_id);
     }
@@ -119,8 +121,6 @@ pub(crate) async fn save_block(
             block_height,
         )
         .await?;
-
-    db.store_full_block(Some(dbtx), block, block_height).await?;
 
     tracing::debug!(
         "Saving {} transactions to a block with hash {}",

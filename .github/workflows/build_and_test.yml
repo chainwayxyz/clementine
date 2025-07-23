@@ -104,7 +104,28 @@ jobs:
           shared-key: ${{ runner.os }}-cargo-DEBUG-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
 
       - name: Run unit tests
-        run: cargo test_unit
+        id: unit_tests
+        run: |
+          set -o pipefail
+          cargo test_unit 2>&1 | tee unit_test_output.log
+
+      - name: Check for specific test failure and run generate_deposit_state
+        if: failure()
+        run: |
+          if grep -q "test builder::sighash::tests::test_bridge_contract_change ... FAILED" unit_test_output.log; then
+            echo "Found test_bridge_contract_change failure, running generate_deposit_state test"
+            cargo test generate_deposit_state $CARGOFLAGS_ALL_FEATURES -- --ignored
+          fi
+
+      - name: Upload deposit state artifact
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deposit-state-debug
+          path: core/src/test/data/deposit_state_debug.bincode
+          if-no-files-found: ignore
+          retention-days: 1
+
       - name: Run integration tests
         run: cargo test_integration
 
@@ -162,9 +183,30 @@ jobs:
           shared-key: ${{ runner.os }}-cargo-RELEASE-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
 
       - name: Run unit tests
-        run: cargo test_unit
+        id: unit_tests
+        run: |
+          set -o pipefail
+          cargo test_unit --release 2>&1 | tee unit_test_output.log
+
+      - name: Check for specific test failure and run generate_deposit_state
+        if: failure()
+        run: |
+          if grep -q "test builder::sighash::tests::test_bridge_contract_change ... FAILED" unit_test_output.log; then
+            echo "Found test_bridge_contract_change failure, running generate_deposit_state test"
+            cargo test --release generate_deposit_state $CARGOFLAGS_ALL_FEATURES -- --ignored
+          fi
+
+      - name: Upload deposit state artifact
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deposit-state-release
+          path: core/src/test/data/deposit_state_release.bincode
+          if-no-files-found: ignore
+          retention-days: 1
+
       - name: Run integration tests
-        run: cargo test_integration
+        run: cargo test_integration_release
 
       - name: Upload test logs
         if: failure()
@@ -200,13 +242,16 @@ jobs:
           - test_script_name: additional_disprove_script_test_disrupted_latest_block_hash
             description_suffix: "Add. disprove disrupted latest blockhash path"
             test_name: "additional-disrupted-latest-blockhash"
+          - test_script_name: additional_disprove_script_test_corrupted_public_input
+            description_suffix: "Add. disprove disrupted public input path"
+            test_name: "additional-corrupted-public-input"
           - test_script_name: bitvm_disprove_scripts::disprove_script_test_healthy
             description_suffix: "Disprove healthy path"
             test_name: "disprove-healthy"
           - test_script_name: bitvm_disprove_scripts::disprove_script_test_corrupted_assert
             description_suffix: "Disprove disrupted assert path"
             test_name: "disprove-corrupted-assert"
-          - test_script_name: bitvm_disprove_scripts::citrea_deposit_and_withdraw_e2e_non_zero_genesis_height
+          - test_script_name: citrea_deposit_and_withdraw_e2e_non_zero_genesis_height
             description_suffix: "E2E non-zero genesis height"
             test_name: "citrea-deposit-and-withdraw-non-zero-genesis-height"
 

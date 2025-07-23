@@ -373,6 +373,7 @@ impl TxSender {
         tx: Transaction,
         tx_metadata: Option<TxMetadata>,
     ) -> Result<()> {
+        tracing::debug!(target: "ci", "Sending no funding tx, raw tx: {:?}", hex::encode(bitcoin::consensus::serialize(&tx)));
         match self.rpc.client.send_raw_transaction(&tx).await {
             Ok(sent_txid) => {
                 tracing::debug!(

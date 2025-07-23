@@ -5,7 +5,7 @@
 //!
 //! - Setting up databases, servers
 //! - Creating test configurations
-//! - Making common operetions like deposits
+//! - Making common operations like deposits
 //! - Communicating with Citrea
 
 use crate::actor::Actor;

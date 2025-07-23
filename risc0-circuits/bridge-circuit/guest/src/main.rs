@@ -12,8 +12,8 @@ use circuits_lib::{
 pub static WORK_ONLY_IMAGE_ID: [u8; 32] = match option_env!("BITCOIN_NETWORK") {
     Some(network) if matches!(network.as_bytes(), b"mainnet") => MAINNET_WORK_ONLY_METHOD_ID,
     Some(network) if matches!(network.as_bytes(), b"testnet4") => TESTNET4_WORK_ONLY_METHOD_ID,
-    Some(network) if matches!(network.as_bytes(), b"signet") => REGTEST_WORK_ONLY_METHOD_ID,
-    Some(network) if matches!(network.as_bytes(), b"regtest") => SIGNET_WORK_ONLY_METHOD_ID,
+    Some(network) if matches!(network.as_bytes(), b"signet") => SIGNET_WORK_ONLY_METHOD_ID,
+    Some(network) if matches!(network.as_bytes(), b"regtest") => REGTEST_WORK_ONLY_METHOD_ID,
     None => MAINNET_WORK_ONLY_METHOD_ID,
     _ => panic!("Invalid network type"),
 };
