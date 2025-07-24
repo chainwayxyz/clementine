@@ -760,18 +760,7 @@
 <a href="#759" id="759">759</a>
 <a href="#760" id="760">760</a>
 <a href="#761" id="761">761</a>
-<a href="#762" id="762">762</a>
-<a href="#763" id="763">763</a>
-<a href="#764" id="764">764</a>
-<a href="#765" id="765">765</a>
-<a href="#766" id="766">766</a>
-<a href="#767" id="767">767</a>
-<a href="#768" id="768">768</a>
-<a href="#769" id="769">769</a>
-<a href="#770" id="770">770</a>
-<a href="#771" id="771">771</a>
-<a href="#772" id="772">772</a>
-<a href="#773" id="773">773</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Sighash Builder
+<a href="#762" id="762">762</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Sighash Builder
 //!
 //! This module provides functions and types for constructing signature hashes (sighashes) for the transactions in the Clementine bridge protocol.
 //! Sighash is the message that is signed by the private key of the signer.
@@ -1222,18 +1211,10 @@
         <span class="kw">let </span>regtest = create_regtest_rpc(<span class="kw-2">&amp;mut </span>config).<span class="kw">await</span>;
         <span class="kw">let </span>rpc = regtest.rpc().clone();
 
-        <span class="kw">let </span>(
-            _verifiers,
-            <span class="kw-2">mut </span>operators,
-            _aggregator,
-            _cleanup,
-            deposit_info,
-            move_txid,
-            deposit_blockhash,
-            verifiers_public_keys,
-        ) = run_single_deposit::&lt;MockCitreaClient&gt;(<span class="kw-2">&amp;mut </span>config, rpc.clone(), <span class="prelude-val">None</span>, <span class="prelude-val">None</span>)
-            .<span class="kw">await
-            </span>.unwrap();
+        <span class="kw">let </span>(actors, deposit_info, move_txid, deposit_blockhash, verifiers_public_keys) =
+            run_single_deposit::&lt;MockCitreaClient&gt;(<span class="kw-2">&amp;mut </span>config, rpc.clone(), <span class="prelude-val">None</span>, <span class="prelude-val">None</span>, <span class="prelude-val">None</span>)
+                .<span class="kw">await
+                </span>.unwrap();
 
         <span class="comment">// get generated blocks
         </span><span class="kw">let </span>height = rpc.get_current_chain_height().<span class="kw">await</span>.unwrap();
@@ -1271,8 +1252,10 @@
         )
         .<span class="kw">await</span>;
 
+        <span class="kw">let </span>operator = actors.get_operator_client_by_index(<span class="number">0</span>);
+
         <span class="kw">let </span>round_tx_txid_hash = compute_hash_of_round_txs(
-            operators.remove(<span class="number">0</span>),
+            operator,
             deposit_info.deposit_outpoint,
             operators_xonly_pks[<span class="number">0</span>],
             deposit_blockhash,
@@ -1460,7 +1443,7 @@
             <span class="prelude-val">Some</span>(deposit_state.operator_data.collateral_funding_outpoint);
 
         <span class="comment">// after loading generate some funds to rpc wallet
-        // needed so that the deposit doesn't crash (I dont know why) due to insufficient funds
+        // needed so that the deposit doesn't crash (I don't know why) due to insufficient funds
         </span><span class="kw">let </span>address = rpc
             .client
             .get_new_address(<span class="prelude-val">None</span>, <span class="prelude-val">None</span>)
@@ -1472,23 +1455,16 @@
             .<span class="kw">await
             </span>.expect(<span class="string">"Failed to generate blocks"</span>);
 
-        <span class="kw">let </span>(
-            <span class="kw">_</span>,
-            <span class="kw-2">mut </span>operators,
-            <span class="kw">_</span>,
-            _cleanup,
-            deposit_info,
-            move_txid,
-            deposit_blockhash,
-            verifiers_public_keys,
-        ) = run_single_deposit::&lt;MockCitreaClient&gt;(
-            <span class="kw-2">&amp;mut </span>config,
-            rpc.clone(),
-            <span class="prelude-val">None</span>,
-            <span class="prelude-val">Some</span>(deposit_state.deposit_info.deposit_outpoint),
-        )
-        .<span class="kw">await
-        </span>.unwrap();
+        <span class="kw">let </span>(actors, deposit_info, move_txid, deposit_blockhash, verifiers_public_keys) =
+            run_single_deposit::&lt;MockCitreaClient&gt;(
+                <span class="kw-2">&amp;mut </span>config,
+                rpc.clone(),
+                <span class="prelude-val">None</span>,
+                <span class="prelude-val">None</span>,
+                <span class="prelude-val">Some</span>(deposit_state.deposit_info.deposit_outpoint),
+            )
+            .<span class="kw">await
+            </span>.unwrap();
 
         <span class="comment">// sanity checks, these should be equal if the deposit state saved is still valid
         // if not a new deposit state needs to be generated
@@ -1509,8 +1485,10 @@
             .map(|sk| sk.x_only_public_key(<span class="kw-2">&amp;</span>SECP).<span class="number">0</span>)
             .collect::&lt;Vec&lt;<span class="kw">_</span>&gt;&gt;();
 
+        <span class="kw">let </span>operator = actors.get_operator_client_by_index(<span class="number">0</span>);
+
         <span class="kw">let </span>round_tx_hash = compute_hash_of_round_txs(
-            operators.remove(<span class="number">0</span>),
+            operator,
             deposit_info.deposit_outpoint,
             operators_xonly_pks[<span class="number">0</span>],
             deposit_blockhash,

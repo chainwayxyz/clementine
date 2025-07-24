@@ -491,7 +491,9 @@
 <a href="#490" id="490">490</a>
 <a href="#491" id="491">491</a>
 <a href="#492" id="492">492</a>
-<a href="#493" id="493">493</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Operator Reimburse Transactions
+<a href="#493" id="493">493</a>
+<a href="#494" id="494">494</a>
+<a href="#495" id="495">495</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Operator Reimburse Transactions
 //!
 //! This module contains the logic for creating operator reimbursement and payout-related transactions in the protocol.
 //! These transactions handle the flow of funds for operator compensation, challenge handling, and user withdrawals.
@@ -913,6 +915,7 @@
     <span class="kw">let </span>op_return_txout = op_return_txout(PushBytesBuf::from(operator_xonly_pk.serialize()));
 
     <span class="kw">let </span><span class="kw-2">mut </span>txhandler = TxHandlerBuilder::new(TransactionType::Payout)
+        .with_version(Version::non_standard(<span class="number">3</span>))
         .add_input(
             NormalSignatureKind::NotStored,
             txin,
@@ -964,6 +967,7 @@
     <span class="kw">let </span>output_txout = UnspentTxOut::from_partial(output_txout.clone());
 
     <span class="kw">let </span><span class="kw-2">mut </span>txhandler = TxHandlerBuilder::new(TransactionType::Payout)
+        .with_version(Version::non_standard(<span class="number">3</span>))
         .add_input(
             NormalSignatureKind::NotStored,
             txin,

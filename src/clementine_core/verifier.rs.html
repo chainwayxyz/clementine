@@ -2891,7 +2891,12 @@
 <a href="#2890" id="2890">2890</a>
 <a href="#2891" id="2891">2891</a>
 <a href="#2892" id="2892">2892</a>
-<a href="#2893" id="2893">2893</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
+<a href="#2893" id="2893">2893</a>
+<a href="#2894" id="2894">2894</a>
+<a href="#2895" id="2895">2895</a>
+<a href="#2896" id="2896">2896</a>
+<a href="#2897" id="2897">2897</a>
+<a href="#2898" id="2898">2898</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
 <span class="kw">use </span><span class="kw">crate</span>::bitcoin_syncer::BitcoinSyncer;
 <span class="kw">use </span><span class="kw">crate</span>::bitvm_client::{ClementineBitVMPublicKeys, REPLACE_SCRIPTS_LOCK};
 <span class="kw">use </span><span class="kw">crate</span>::builder::address::{create_taproot_address, taproot_builder_with_scripts};
@@ -4640,9 +4645,9 @@
             }
 
             <span class="macro">tracing::info!</span>(
-                <span class="string">"A new payout tx detected for withdrawal {}, payout txid: {}, operator xonly pk: {:?}"</span>,
+                <span class="string">"A new payout tx detected for withdrawal {}, payout txid: {:?}, operator xonly pk: {:?}"</span>,
                 idx,
-                hex::encode(payout_txid),
+                payout_txid,
                 operator_xonly_pk
             );
 
@@ -5209,15 +5214,20 @@
 
         <span class="kw">let </span>vk = get_verifying_key();
 
-        <span class="kw">let </span>res = validate_assertions(
-            <span class="kw-2">&amp;</span>vk,
-            (first_box, second_box, third_box),
-            bitvm_pks.bitvm_pks,
-            disprove_scripts
-                .as_slice()
-                .try_into()
-                .expect(<span class="string">"static bitvm_cache contains exactly 364 disprove scripts"</span>),
-        );
+        <span class="kw">let </span>res = tokio::task::spawn_blocking(<span class="kw">move </span>|| {
+            validate_assertions(
+                <span class="kw-2">&amp;</span>vk,
+                (first_box, second_box, third_box),
+                bitvm_pks.bitvm_pks,
+                disprove_scripts
+                    .as_slice()
+                    .try_into()
+                    .expect(<span class="string">"static bitvm_cache contains exactly 364 disprove scripts"</span>),
+            )
+        })
+        .<span class="kw">await
+        </span>.wrap_err(<span class="string">"Validate assertions thread failed with error"</span>)<span class="question-mark">?</span>;
+
         <span class="macro">tracing::info!</span>(<span class="string">"Disprove validation result: {:?}"</span>, res);
 
         <span class="kw">match </span>res {

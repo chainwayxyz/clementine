@@ -2194,32 +2194,7 @@
 <a href="#2193" id="2193">2193</a>
 <a href="#2194" id="2194">2194</a>
 <a href="#2195" id="2195">2195</a>
-<a href="#2196" id="2196">2196</a>
-<a href="#2197" id="2197">2197</a>
-<a href="#2198" id="2198">2198</a>
-<a href="#2199" id="2199">2199</a>
-<a href="#2200" id="2200">2200</a>
-<a href="#2201" id="2201">2201</a>
-<a href="#2202" id="2202">2202</a>
-<a href="#2203" id="2203">2203</a>
-<a href="#2204" id="2204">2204</a>
-<a href="#2205" id="2205">2205</a>
-<a href="#2206" id="2206">2206</a>
-<a href="#2207" id="2207">2207</a>
-<a href="#2208" id="2208">2208</a>
-<a href="#2209" id="2209">2209</a>
-<a href="#2210" id="2210">2210</a>
-<a href="#2211" id="2211">2211</a>
-<a href="#2212" id="2212">2212</a>
-<a href="#2213" id="2213">2213</a>
-<a href="#2214" id="2214">2214</a>
-<a href="#2215" id="2215">2215</a>
-<a href="#2216" id="2216">2216</a>
-<a href="#2217" id="2217">2217</a>
-<a href="#2218" id="2218">2218</a>
-<a href="#2219" id="2219">2219</a>
-<a href="#2220" id="2220">2220</a>
-<a href="#2221" id="2221">2221</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::{
+<a href="#2196" id="2196">2196</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::{
     clementine_aggregator_server::ClementineAggregator, verifier_deposit_finalize_params,
     DepositParams, Empty, VerifierDepositFinalizeParams,
 };
@@ -3858,7 +3833,8 @@
         <span class="kw">let </span>rpc = regtest.rpc();
 
         <span class="kw">let </span>_unused =
-            run_single_deposit::&lt;MockCitreaClient&gt;(<span class="kw-2">&amp;mut </span>config, rpc.clone(), <span class="prelude-val">None</span>, <span class="prelude-val">None</span>).<span class="kw">await</span><span class="question-mark">?</span>;
+            run_single_deposit::&lt;MockCitreaClient&gt;(<span class="kw-2">&amp;mut </span>config, rpc.clone(), <span class="prelude-val">None</span>, <span class="prelude-val">None</span>, <span class="prelude-val">None</span>)
+                .<span class="kw">await</span><span class="question-mark">?</span>;
 
         <span class="prelude-val">Ok</span>(())
     }
@@ -3868,7 +3844,8 @@
         <span class="kw">let </span><span class="kw-2">mut </span>config = create_test_config_with_thread_name().<span class="kw">await</span>;
         <span class="kw">let </span>_regtest = create_regtest_rpc(<span class="kw-2">&amp;mut </span>config).<span class="kw">await</span>;
 
-        <span class="kw">let </span>(<span class="kw">_</span>, <span class="kw">_</span>, <span class="kw-2">mut </span>aggregator, _cleanup) = create_actors::&lt;MockCitreaClient&gt;(<span class="kw-2">&amp;</span>config).<span class="kw">await</span>;
+        <span class="kw">let </span>actors = create_actors::&lt;MockCitreaClient&gt;(<span class="kw-2">&amp;</span>config).<span class="kw">await</span>;
+        <span class="kw">let </span><span class="kw-2">mut </span>aggregator = actors.get_aggregator();
 
         aggregator
             .setup(tonic::Request::new(clementine::Empty {}))
@@ -3886,8 +3863,8 @@
         <span class="kw">let </span><span class="kw-2">mut </span>config = create_test_config_with_thread_name().<span class="kw">await</span>;
         <span class="kw">let </span>regtest = create_regtest_rpc(<span class="kw-2">&amp;mut </span>config).<span class="kw">await</span>;
         <span class="kw">let </span>rpc = regtest.rpc();
-        <span class="kw">let </span>(_verifiers, _operators, <span class="kw-2">mut </span>aggregator, _cleanup) =
-            create_actors::&lt;MockCitreaClient&gt;(<span class="kw-2">&amp;</span>config).<span class="kw">await</span>;
+        <span class="kw">let </span>actors = create_actors::&lt;MockCitreaClient&gt;(<span class="kw-2">&amp;</span>config).<span class="kw">await</span>;
+        <span class="kw">let </span><span class="kw-2">mut </span>aggregator = actors.get_aggregator();
 
         <span class="kw">let </span>evm_address = EVMAddress([<span class="number">1u8</span>; <span class="number">20</span>]);
         <span class="kw">let </span>signer = Actor::new(
@@ -3999,8 +3976,8 @@
         <span class="kw">let </span><span class="kw-2">mut </span>config = create_test_config_with_thread_name().<span class="kw">await</span>;
         <span class="kw">let </span>regtest = create_regtest_rpc(<span class="kw-2">&amp;mut </span>config).<span class="kw">await</span>;
         <span class="kw">let </span>rpc = regtest.rpc();
-        <span class="kw">let </span>(_verifiers, _operators, <span class="kw-2">mut </span>aggregator, _cleanup) =
-            create_actors::&lt;MockCitreaClient&gt;(<span class="kw-2">&amp;</span>config).<span class="kw">await</span>;
+        <span class="kw">let </span>actors = create_actors::&lt;MockCitreaClient&gt;(<span class="kw-2">&amp;</span>config).<span class="kw">await</span>;
+        <span class="kw">let </span><span class="kw-2">mut </span>aggregator = actors.get_aggregator();
 
         <span class="kw">let </span>evm_address = EVMAddress([<span class="number">1u8</span>; <span class="number">20</span>]);
         <span class="kw">let </span>signer = Actor::new(
@@ -4098,8 +4075,8 @@
         <span class="kw">let </span><span class="kw-2">mut </span>config = create_test_config_with_thread_name().<span class="kw">await</span>;
         <span class="kw">let </span>regtest = create_regtest_rpc(<span class="kw-2">&amp;mut </span>config).<span class="kw">await</span>;
         <span class="kw">let </span>rpc = regtest.rpc();
-        <span class="kw">let </span>(_verifiers, _operators, <span class="kw-2">mut </span>aggregator, _cleanup) =
-            create_actors::&lt;MockCitreaClient&gt;(<span class="kw-2">&amp;</span>config).<span class="kw">await</span>;
+        <span class="kw">let </span>actors = create_actors::&lt;MockCitreaClient&gt;(<span class="kw-2">&amp;</span>config).<span class="kw">await</span>;
+        <span class="kw">let </span><span class="kw-2">mut </span>aggregator = actors.get_aggregator();
 
         <span class="kw">let </span>evm_address = EVMAddress([<span class="number">1u8</span>; <span class="number">20</span>]);
         <span class="kw">let </span>signer = Actor::new(
@@ -4394,9 +4371,8 @@
         <span class="kw">let </span><span class="kw-2">mut </span>config = create_test_config_with_thread_name().<span class="kw">await</span>;
         <span class="kw">let </span>_regtest = create_regtest_rpc(<span class="kw-2">&amp;mut </span>config).<span class="kw">await</span>;
 
-        <span class="kw">let </span>(_verifiers, _operators, <span class="kw-2">mut </span>aggregator, <span class="kw-2">mut </span>cleanup) =
-            create_actors::&lt;MockCitreaClient&gt;(<span class="kw-2">&amp;</span>config).<span class="kw">await</span>;
-
+        <span class="kw">let </span>actors = create_actors::&lt;MockCitreaClient&gt;(<span class="kw-2">&amp;</span>config).<span class="kw">await</span>;
+        <span class="kw">let </span><span class="kw-2">mut </span>aggregator = actors.get_aggregator();
         <span class="kw">let </span>status = aggregator
             .get_entity_statuses(Request::new(GetEntityStatusesRequest {
                 restart_tasks: <span class="bool-val">false</span>,
@@ -4412,32 +4388,6 @@
             config.test_params.all_operators_secret_keys.len()
                 + config.test_params.all_verifiers_secret_keys.len()
         );
-
-        <span class="comment">// close an entity
-        </span>cleanup.<span class="number">0 </span>.<span class="number">0</span>.remove(<span class="number">0</span>).send(()).unwrap();
-
-        <span class="kw">let </span>status = aggregator
-            .get_entity_statuses(Request::new(GetEntityStatusesRequest {
-                restart_tasks: <span class="bool-val">false</span>,
-            }))
-            .<span class="kw">await
-            </span>.unwrap()
-            .into_inner();
-
-        <span class="macro">tracing::info!</span>(<span class="string">"Status: {:?}"</span>, status);
-
-        <span class="comment">// count errors
-        </span><span class="kw">let </span>errors = status
-            .entity_statuses
-            .iter()
-            .filter(|entity| {
-                <span class="macro">matches!</span>(
-                    entity.status_result,
-                    <span class="prelude-val">Some</span>(clementine::entity_status_with_id::StatusResult::Err(<span class="kw">_</span>))
-                )
-            })
-            .count();
-        <span class="macro">assert_eq!</span>(errors, <span class="number">1</span>);
     }
 }
 </code></pre></div></section></main></body></html>

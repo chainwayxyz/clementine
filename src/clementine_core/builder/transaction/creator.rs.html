@@ -1411,7 +1411,13 @@
 <a href="#1410" id="1410">1410</a>
 <a href="#1411" id="1411">1411</a>
 <a href="#1412" id="1412">1412</a>
-<a href="#1413" id="1413">1413</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Transaction Handler Creation Logic
+<a href="#1413" id="1413">1413</a>
+<a href="#1414" id="1414">1414</a>
+<a href="#1415" id="1415">1415</a>
+<a href="#1416" id="1416">1416</a>
+<a href="#1417" id="1417">1417</a>
+<a href="#1418" id="1418">1418</a>
+<a href="#1419" id="1419">1419</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Transaction Handler Creation Logic
 //!
 //! This module provides the logic for constructing, caching, and managing transaction handlers (`TxHandler`) for all transaction types in the Clementine bridge.
 //!
@@ -2433,16 +2439,14 @@
 <span class="attr">#[cfg(test)]
 </span><span class="kw">mod </span>tests {
     <span class="kw">use super</span>::<span class="kw-2">*</span>;
-    <span class="kw">use </span><span class="kw">crate</span>::actor::Actor;
     <span class="kw">use </span><span class="kw">crate</span>::bitvm_client::ClementineBitVMPublicKeys;
     <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::sign::get_kickoff_utxos_to_sign;
     <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::{TransactionType, TxHandlerBuilder};
     <span class="kw">use </span><span class="kw">crate</span>::config::BridgeConfig;
     <span class="kw">use </span><span class="kw">crate</span>::deposit::{DepositInfo, KickoffData};
-    <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
-    <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
     <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::{SignedTxsWithType, TransactionRequest};
     <span class="kw">use </span><span class="kw">crate</span>::test::common::citrea::MockCitreaClient;
+    <span class="kw">use </span><span class="kw">crate</span>::test::common::test_actors::TestActors;
     <span class="kw">use </span><span class="kw">crate</span>::test::common::<span class="kw-2">*</span>;
     <span class="kw">use </span>bitcoin::{BlockHash, Transaction, XOnlyPublicKey};
     <span class="kw">use </span>futures::future::try_join_all;
@@ -2464,9 +2468,13 @@
             .collect()
     }
 
-    <span class="kw">async fn </span>check_if_signable(
-        <span class="kw-2">mut </span>verifiers: Vec&lt;ClementineVerifierClient&lt;tonic::transport::Channel&gt;&gt;,
-        <span class="kw-2">mut </span>operators: Vec&lt;ClementineOperatorClient&lt;tonic::transport::Channel&gt;&gt;,
+    <span class="doccomment">/// This test first creates a vec of transaction types the entity should be able to sign.
+    /// Afterwards it calls internal_create_signed_txs for verifiers and operators,
+    /// internal_create_assert_commitment_txs for operators, and internal_create_watchtower_challenge for verifiers
+    /// and checks if all transaction types that should be signed are returned from these functions.
+    /// If a transaction type is not found, it means the entity is not able to sign it.
+    </span><span class="kw">async fn </span>check_if_signable(
+        actors: TestActors&lt;MockCitreaClient&gt;,
         deposit_info: DepositInfo,
         deposit_blockhash: BlockHash,
         config: BridgeConfig,
@@ -2487,30 +2495,20 @@
             TransactionType::LatestBlockhashTimeout,
         ];
         txs_operator_can_sign
-            .extend((<span class="number">0</span>..verifiers.len()).map(TransactionType::OperatorChallengeNack));
+            .extend((<span class="number">0</span>..actors.get_num_verifiers()).map(TransactionType::OperatorChallengeNack));
         txs_operator_can_sign
-            .extend((<span class="number">0</span>..verifiers.len()).map(TransactionType::OperatorChallengeAck));
+            .extend((<span class="number">0</span>..actors.get_num_verifiers()).map(TransactionType::OperatorChallengeAck));
         txs_operator_can_sign.extend(
             (<span class="number">0</span>..ClementineBitVMPublicKeys::number_of_assert_txs())
                 .map(TransactionType::AssertTimeout),
         );
         txs_operator_can_sign
             .extend((<span class="number">0</span>..paramset.num_kickoffs_per_round).map(TransactionType::UnspentKickoff));
-        txs_operator_can_sign
-            .extend((<span class="number">0</span>..verifiers.len()).map(TransactionType::WatchtowerChallengeTimeout));
+        txs_operator_can_sign.extend(
+            (<span class="number">0</span>..actors.get_num_verifiers()).map(TransactionType::WatchtowerChallengeTimeout),
+        );
 
-        <span class="kw">let </span>all_operators_secret_keys = <span class="kw-2">&amp;</span>config.test_params.all_operators_secret_keys;
-        <span class="kw">let </span>operator_xonly_pks: Vec&lt;XOnlyPublicKey&gt; = all_operators_secret_keys
-            .iter()
-            .map(|<span class="kw-2">&amp;</span>sk| {
-                Actor::new(
-                    sk,
-                    config.winternitz_secret_key,
-                    config.protocol_paramset().network,
-                )
-                .xonly_public_key
-            })
-            .collect();
+        <span class="kw">let </span>operator_xonly_pks: Vec&lt;XOnlyPublicKey&gt; = actors.get_operators_xonly_pks();
         <span class="kw">let </span><span class="kw-2">mut </span>utxo_idxs: Vec&lt;Vec&lt;usize&gt;&gt; = Vec::with_capacity(operator_xonly_pks.len());
 
         <span class="kw">for </span>op_xonly_pk <span class="kw">in </span><span class="kw-2">&amp;</span>operator_xonly_pks {
@@ -2527,7 +2525,8 @@
             HashMap::new();
 
         <span class="comment">// try to sign everything for all operators
-        </span><span class="kw">let </span>operator_task_handles: Vec&lt;<span class="kw">_</span>&gt; = operators
+        </span><span class="kw">let </span>operator_task_handles: Vec&lt;<span class="kw">_</span>&gt; = actors
+            .get_operators()
             .iter_mut()
             .enumerate()
             .map(|(operator_idx, operator_rpc)| {
@@ -2600,19 +2599,21 @@
             <span class="comment">//TransactionType::Disprove,
         </span>];
         txs_verifier_can_sign
-            .extend((<span class="number">0</span>..verifiers.len()).map(TransactionType::OperatorChallengeNack));
+            .extend((<span class="number">0</span>..actors.get_num_verifiers()).map(TransactionType::OperatorChallengeNack));
         txs_verifier_can_sign.extend(
             (<span class="number">0</span>..ClementineBitVMPublicKeys::number_of_assert_txs())
                 .map(TransactionType::AssertTimeout),
         );
         txs_verifier_can_sign
             .extend((<span class="number">0</span>..paramset.num_kickoffs_per_round).map(TransactionType::UnspentKickoff));
-        txs_verifier_can_sign
-            .extend((<span class="number">0</span>..verifiers.len()).map(TransactionType::WatchtowerChallengeTimeout));
+        txs_verifier_can_sign.extend(
+            (<span class="number">0</span>..actors.get_num_verifiers()).map(TransactionType::WatchtowerChallengeTimeout),
+        );
 
         <span class="comment">// try to sign everything for all verifiers
         // try signing verifier transactions
-        </span><span class="kw">let </span>verifier_task_handles: Vec&lt;<span class="kw">_</span>&gt; = verifiers
+        </span><span class="kw">let </span>verifier_task_handles: Vec&lt;<span class="kw">_</span>&gt; = actors
+            .get_verifiers()
             .iter_mut()
             .map(|verifier_rpc| {
                 <span class="kw">let </span>txs_verifier_can_sign = txs_verifier_can_sign.clone();
@@ -2709,19 +2710,12 @@
         <span class="kw">let </span><span class="kw-2">mut </span>config = create_test_config_with_thread_name().<span class="kw">await</span>;
         <span class="kw">let </span>WithProcessCleanup(<span class="kw">_</span>, <span class="kw-2">ref </span>rpc, <span class="kw">_</span>, <span class="kw">_</span>) = create_regtest_rpc(<span class="kw-2">&amp;mut </span>config).<span class="kw">await</span>;
 
-        <span class="kw">let </span>(verifiers, operators, <span class="kw">_</span>, _cleanup, deposit_params, <span class="kw">_</span>, deposit_blockhash, <span class="kw">_</span>) =
-            run_single_deposit::&lt;MockCitreaClient&gt;(<span class="kw-2">&amp;mut </span>config, rpc.clone(), <span class="prelude-val">None</span>, <span class="prelude-val">None</span>)
+        <span class="kw">let </span>(actors, deposit_params, <span class="kw">_</span>, deposit_blockhash, <span class="kw">_</span>) =
+            run_single_deposit::&lt;MockCitreaClient&gt;(<span class="kw-2">&amp;mut </span>config, rpc.clone(), <span class="prelude-val">None</span>, <span class="prelude-val">None</span>, <span class="prelude-val">None</span>)
                 .<span class="kw">await
                 </span>.unwrap();
 
-        check_if_signable(
-            verifiers,
-            operators,
-            deposit_params,
-            deposit_blockhash,
-            config.clone(),
-        )
-        .<span class="kw">await</span>;
+        check_if_signable(actors, deposit_params, deposit_blockhash, config.clone()).<span class="kw">await</span>;
     }
 
     <span class="attr">#[tokio::test(flavor = <span class="string">"multi_thread"</span>)]
@@ -2730,16 +2724,34 @@
         <span class="kw">let </span><span class="kw-2">mut </span>config = create_test_config_with_thread_name().<span class="kw">await</span>;
         <span class="kw">let </span>WithProcessCleanup(<span class="kw">_</span>, <span class="kw-2">ref </span>rpc, <span class="kw">_</span>, <span class="kw">_</span>) = create_regtest_rpc(<span class="kw-2">&amp;mut </span>config).<span class="kw">await</span>;
 
-        <span class="kw">let </span>(verifiers, operators, <span class="kw">_</span>, _cleanup, deposit_info, <span class="kw">_</span>, deposit_blockhash) =
-            run_replacement_deposit(<span class="kw-2">&amp;mut </span>config, rpc.clone(), <span class="prelude-val">None</span>)
+        <span class="kw">let </span>(<span class="kw-2">mut </span>actors, _deposit_info, old_move_txid, _deposit_blockhash, _verifiers_public_keys) =
+            run_single_deposit::&lt;MockCitreaClient&gt;(<span class="kw-2">&amp;mut </span>config, rpc.clone(), <span class="prelude-val">None</span>, <span class="prelude-val">None</span>, <span class="prelude-val">None</span>)
                 .<span class="kw">await
                 </span>.unwrap();
 
+        <span class="kw">let </span>old_nofn_xonly_pk = actors.get_nofn_aggregated_xonly_pk().unwrap();
+        <span class="comment">// remove 1 verifier then run a replacement deposit
+        </span>actors.remove_verifier(<span class="number">2</span>).<span class="kw">await</span>.unwrap();
+
+        <span class="kw">let </span>(
+            actors,
+            replacement_deposit_info,
+            _replacement_move_txid,
+            replacement_deposit_blockhash,
+        ) = run_single_replacement_deposit(
+            <span class="kw-2">&amp;mut </span>config,
+            rpc,
+            old_move_txid,
+            actors,
+            old_nofn_xonly_pk,
+        )
+        .<span class="kw">await
+        </span>.unwrap();
+
         check_if_signable(
-            verifiers,
-            operators,
-            deposit_info,
-            deposit_blockhash,
+            actors,
+            replacement_deposit_info,
+            replacement_deposit_blockhash,
             config.clone(),
         )
         .<span class="kw">await</span>;

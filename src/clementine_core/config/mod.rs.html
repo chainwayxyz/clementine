@@ -377,7 +377,15 @@
 <a href="#376" id="376">376</a>
 <a href="#377" id="377">377</a>
 <a href="#378" id="378">378</a>
-<a href="#379" id="379">379</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Configuration Options
+<a href="#379" id="379">379</a>
+<a href="#380" id="380">380</a>
+<a href="#381" id="381">381</a>
+<a href="#382" id="382">382</a>
+<a href="#383" id="383">383</a>
+<a href="#384" id="384">384</a>
+<a href="#385" id="385">385</a>
+<a href="#386" id="386">386</a>
+<a href="#387" id="387">387</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Configuration Options
 //!
 //! This module defines configuration options.
 //!
@@ -389,13 +397,12 @@
 //! Configuration options can be read from a TOML file. File contents are
 //! described in `BridgeConfig` struct.
 
-</span><span class="kw">use </span><span class="kw">crate</span>::bitvm_client::UNSPENDABLE_XONLY_PUBKEY;
-<span class="kw">use </span><span class="kw">crate</span>::config::env::{read_string_from_env, read_string_from_env_then_parse};
+</span><span class="kw">use </span><span class="kw">crate</span>::config::env::{read_string_from_env, read_string_from_env_then_parse};
 <span class="kw">use </span><span class="kw">crate</span>::deposit::SecurityCouncil;
 <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
 <span class="kw">use </span>bitcoin::address::NetworkUnchecked;
 <span class="kw">use </span>bitcoin::secp256k1::SecretKey;
-<span class="kw">use </span>bitcoin::{Address, Amount, OutPoint};
+<span class="kw">use </span>bitcoin::{Address, Amount, OutPoint, XOnlyPublicKey};
 <span class="kw">use </span>protocol::ProtocolParamset;
 <span class="kw">use </span>secrecy::SecretString;
 <span class="kw">use </span>serde::Deserialize;
@@ -636,7 +643,16 @@
             operator_collateral_funding_outpoint: <span class="prelude-val">None</span>,
 
             security_council: SecurityCouncil {
-                pks: <span class="macro">vec!</span>[<span class="kw-2">*</span>UNSPENDABLE_XONLY_PUBKEY],
+                pks: <span class="macro">vec!</span>[
+                    XOnlyPublicKey::from_str(
+                        <span class="string">"9ac20335eb38768d2052be1dbbc3c8f6178407458e51e6b4ad22f1d91758895b"</span>,
+                    )
+                    .expect(<span class="string">"valid xonly"</span>),
+                    XOnlyPublicKey::from_str(
+                        <span class="string">"5ab4689e400a4a160cf01cd44730845a54768df8547dcdf073d964f109f18c30"</span>,
+                    )
+                    .expect(<span class="string">"valid xonly"</span>),
+                ],
                 threshold: <span class="number">1</span>,
             },
 

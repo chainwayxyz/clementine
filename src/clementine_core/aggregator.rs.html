@@ -631,7 +631,10 @@
 <a href="#630" id="630">630</a>
 <a href="#631" id="631">631</a>
 <a href="#632" id="632">632</a>
-<a href="#633" id="633">633</a></pre></div><pre class="rust"><code><span class="kw">use </span>std::ops::Deref;
+<a href="#633" id="633">633</a>
+<a href="#634" id="634">634</a>
+<a href="#635" id="635">635</a>
+<a href="#636" id="636">636</a></pre></div><pre class="rust"><code><span class="kw">use </span>std::ops::Deref;
 
 <span class="kw">use </span><span class="kw">crate</span>::constants::{
     ENTITY_STATUS_POLL_TIMEOUT, OPERATOR_GET_KEYS_TIMEOUT, VERIFIER_SEND_KEYS_TIMEOUT,
@@ -1082,6 +1085,11 @@
                 participating_verifiers
                     .push((<span class="self">self</span>.verifier_clients[pos].clone(), VerifierId(verifier_pk)));
             } <span class="kw">else </span>{
+                <span class="macro">tracing::error!</span>(
+                    <span class="string">"Verifier public key not found. Deposit data verifier keys: {:?}, self verifier keys: {:?}"</span>,
+                    deposit_data.get_verifiers(),
+                    <span class="self">self</span>.verifier_keys
+                );
                 <span class="kw">return </span><span class="prelude-val">Err</span>(BridgeError::VerifierNotFound(verifier_pk));
             }
         }
@@ -1117,11 +1125,11 @@
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         restart_tasks: bool,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;Vec&lt;EntityStatusWithId&gt;, BridgeError&gt; {
-        <span class="macro">tracing::info!</span>(<span class="string">"Getting entities status"</span>);
+        <span class="macro">tracing::debug!</span>(<span class="string">"Getting entities status"</span>);
 
         <span class="kw">let </span>operator_clients = <span class="self">self</span>.get_operator_clients();
         <span class="kw">let </span>verifier_clients = <span class="self">self</span>.get_verifier_clients();
-        <span class="macro">tracing::info!</span>(<span class="string">"Operator clients: {:?}"</span>, operator_clients.len());
+        <span class="macro">tracing::debug!</span>(<span class="string">"Operator clients: {:?}"</span>, operator_clients.len());
 
         <span class="kw">let </span>operator_status = join_all(
             operator_clients
@@ -1179,8 +1187,6 @@
                 }),
         )
         .<span class="kw">await</span>;
-
-        <span class="macro">tracing::info!</span>(<span class="string">"Operator status: {:?}"</span>, operator_status);
 
         <span class="comment">// Combine operator and verifier status into a single vector
         </span><span class="kw">let </span><span class="kw-2">mut </span>entity_statuses = operator_status;

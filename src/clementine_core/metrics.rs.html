@@ -271,7 +271,8 @@
 <a href="#270" id="270">270</a>
 <a href="#271" id="271">271</a>
 <a href="#272" id="272">272</a>
-<a href="#273" id="273">273</a></pre></div><pre class="rust"><code><span class="doccomment">//! This module includes helper functions to get the blockchain synchronization status of the entity.
+<a href="#273" id="273">273</a>
+<a href="#274" id="274">274</a></pre></div><pre class="rust"><code><span class="doccomment">//! This module includes helper functions to get the blockchain synchronization status of the entity.
 //! The entity tracks on-chain transactions for many purposes (TxSender,
 //! FinalizedBlockFetcher, HCP) and takes action (header chain proving, payout,
 //! disprove, L2 state sync, etc.)
@@ -492,7 +493,8 @@
     </span><span class="kw">async fn </span>test_get_sync_status() {
         <span class="kw">let </span><span class="kw-2">mut </span>config = create_test_config_with_thread_name().<span class="kw">await</span>;
         <span class="kw">let </span>_regtest = create_regtest_rpc(<span class="kw-2">&amp;mut </span>config).<span class="kw">await</span>;
-        <span class="kw">let </span>(<span class="kw">_</span>, <span class="kw">_</span>, <span class="kw-2">mut </span>aggregator, _cleanup) = create_actors::&lt;MockCitreaClient&gt;(<span class="kw-2">&amp;</span>config).<span class="kw">await</span>;
+        <span class="kw">let </span>actors = create_actors::&lt;MockCitreaClient&gt;(<span class="kw-2">&amp;</span>config).<span class="kw">await</span>;
+        <span class="kw">let </span><span class="kw-2">mut </span>aggregator = actors.get_aggregator();
         <span class="comment">// wait for entities to sync a bit, this might cause flakiness, if so increase sleep time or make it serial
         </span>tokio::time::sleep(Duration::from_secs(<span class="number">40</span>)).<span class="kw">await</span>;
         <span class="kw">let </span>entity_statuses = aggregator
