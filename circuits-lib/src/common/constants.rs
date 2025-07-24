@@ -1,7 +1,7 @@
 //! # Common Constants
 //! Common constants used for Risc0 circuits in the Clementine protocol.
 //! These constants are used across various modules to ensure consistency and correctness in the circuit operations.
-//! They include constants for the bridge amount, number of outputs, transaction assertions, and watchtowers.
+//! They include constants for the number of outputs, transaction assertions, and watchtowers.
 //! ## Header Chain Method IDs
 //! These constants represent the method IDs for different network header chains, such as Mainnet, Testnet4, Signet, and Regtest.
 
