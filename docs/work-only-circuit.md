@@ -4,7 +4,7 @@ This document details the **Work-Only Circuit**, a specialized zero-knowledge vi
 
 ### Core Logic
 
-The core logic for the work-only circuit is contained within the `mod.rs` module. The main entry point, `work_only_circuit`, receives a `WorkOnlyCircuitInput` which includes the full output of a Header Chain Circuit execution.
+The core logic for the work-only circuit is contained within the [`mod.rs`](../circuits-lib/src/work_only/mod.rs) module. The main entry point, `work_only_circuit`, receives a `WorkOnlyCircuitInput` which includes the full output of a Header Chain Circuit execution.
 
 The circuit begins by performing two crucial validation steps. First, it checks for method ID consistency, ensuring that the input proof's method ID matches a compile-time constant, `HEADER_CHAIN_METHOD_ID`, which is specific to the intended Bitcoin network. This prevents the circuit from verifying proofs from an incorrect or incompatible version of the Header Chain Circuit. Second, it uses the `env::verify()` function to cryptographically validate the entire `header_chain_circuit_output`. This step is a zero-knowledge check that proves the integrity and correctness of the preceding circuit's execution.
 
