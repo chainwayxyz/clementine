@@ -58,6 +58,11 @@ pub struct BridgeConfig {
     pub bitcoin_rpc_user: SecretString,
     /// Bitcoin RPC user password.
     pub bitcoin_rpc_password: SecretString,
+    /// RPC URL for retrieving the fee rate. If None, Bitcoin Core RPC will be used.
+    pub fee_rate_rpc_url: Option<String>,
+    /// RPC endpoint for retrieving the fee rate. If None, Bitcoin Core RPC will be used.
+    pub fee_rate_rpc_endpoint: Option<String>,
+
     /// PostgreSQL database host address.
     pub db_host: String,
     /// PostgreSQL database port.
@@ -239,6 +244,8 @@ impl Default for BridgeConfig {
             bitcoin_rpc_url: "http://127.0.0.1:18443/wallet/admin".to_string(),
             bitcoin_rpc_user: "admin".to_string().into(),
             bitcoin_rpc_password: "admin".to_string().into(),
+            fee_rate_rpc_url: None,
+            fee_rate_rpc_endpoint: None,
 
             db_host: "127.0.0.1".to_string(),
             db_port: 5432,

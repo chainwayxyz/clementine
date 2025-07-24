@@ -27,9 +27,6 @@ mod task;
 pub use client::TxSenderClient;
 pub use task::TxSenderTask;
 
-const MEMPOOL_SPACE_URL: &str = "https://mempool.space/";
-const MEMPOOL_SPACE_RECOMMENDED_FEE_ENDPOINT: &str = "api/v1/fees/recommended";
-
 // Define a macro for logging errors and saving them to the database
 macro_rules! log_error_for_tx {
     ($db:expr, $try_to_send_id:expr, $err:expr) => {{
@@ -132,9 +129,9 @@ impl TxSender {
             Network::Bitcoin | Network::Testnet4 => {
                 tracing::info!("Fetching fee rate for {} network...", self.paramset.network);
 
-                // Fetch fee from mempool.space with a fallback to the RPC node.
+                // Fetch fee from RPC provider with a fallback to the RPC node.
                 let smart_fee_result: Result<Amount> = {
-                    let mempool_fee = get_fee_rate_from_mempool_space(self.paramset.network).await;
+                    let mempool_fee = get_fee_rate_from_rpc_provider(self.paramset.network).await;
 
                     if let Ok(fee_rate) = mempool_fee {
                         Ok(fee_rate)
@@ -441,19 +438,27 @@ impl TxSender {
     }
 }
 
-/// Fetches the current recommended fee rate from Mempool Space API.
+/// Fetches the current recommended fee rate from RPC provider. Currently only supports
+/// Mempool Space API.
 /// This function is used to get the fee rate in sat/vkb (satoshis per kilovbyte).
 /// See [Mempool Space API](https://mempool.space/docs/api/rest#get-recommended-fees) for more details.
-async fn get_fee_rate_from_mempool_space(network: Network) -> Result<Amount> {
-    let url = match network {
+async fn get_fee_rate_from_rpc_provider(config: &BridgeConfig) -> Result<Amount> {
+    let rpc_url = config
+        .fee_rate_rpc_url
+        .as_ref()
+        .ok_or_else(|| eyre!("Fee rate RPC URL is not configured"))?;
+
+    let rpc_endpoint = config
+        .fee_rate_rpc_endpoint
+        .as_ref()
+        .ok_or_else(|| eyre!("Fee rate RPC endpoint is not configured"))?;
+    let url = match config.network {
         Network::Bitcoin => format!(
+            // If the variables are not, return Error to fallback to Bitcoin Core RPC.
             "{}{}",
-            MEMPOOL_SPACE_URL, MEMPOOL_SPACE_RECOMMENDED_FEE_ENDPOINT
+            rpc_url, rpc_endpoint
         ),
-        Network::Testnet4 => format!(
-            "{}testnet4/{}",
-            MEMPOOL_SPACE_URL, MEMPOOL_SPACE_RECOMMENDED_FEE_ENDPOINT
-        ),
+        Network::Testnet4 => format!("{}testnet4/{}", rpc_url, rpc_endpoint),
         // Return early with error for unsupported networks
         _ => return Err(eyre!("Unsupported network for mempool.space: {:?}", network).into()),
     };
