@@ -27,7 +27,6 @@ use crate::test::common::citrea::{
 use crate::test::common::clementine_utils::{
     payout_and_start_kickoff, reimburse_with_optimistic_payout,
 };
-use crate::test::common::{create_test_config_with_thread_name, run_multiple_deposits, run_single_replacement_deposit};
 use crate::test::common::tx_utils::{
     ensure_outpoint_spent, ensure_outpoint_spent_while_waiting_for_state_mngr_sync,
     ensure_tx_onchain, get_tx_from_signed_txs_with_type, get_txid_where_utxo_is_spent,
@@ -37,6 +36,9 @@ use crate::test::common::{
     create_actors, create_regtest_rpc, generate_withdrawal_transaction_and_signature,
     get_deposit_address, mine_once_after_in_mempool, poll_get, poll_until_condition,
     run_single_deposit,
+};
+use crate::test::common::{
+    create_test_config_with_thread_name, run_multiple_deposits, run_single_replacement_deposit,
 };
 use crate::test::sign::sign_optimistic_payout_verification_signature;
 use crate::utils::initialize_logger;
@@ -850,7 +852,7 @@ async fn mock_citrea_run_truthful_opt_payout() {
     assert!(aggregator
         .optimistic_payout(OptimisticWithdrawParams {
             withdrawal: Some(withdrawal_params.clone()),
-            verification_signature: None,
+            verification_signature: Some(verification_signature_str.clone()),
         })
         .await
         .is_err());
@@ -875,7 +877,7 @@ async fn mock_citrea_run_truthful_opt_payout() {
     assert!(aggregator
         .optimistic_payout(OptimisticWithdrawParams {
             withdrawal: Some(withdrawal_params.clone()),
-            verification_signature: None,
+            verification_signature: Some(verification_signature_str.clone()),
         })
         .await
         .is_err());

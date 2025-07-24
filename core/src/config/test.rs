@@ -80,7 +80,6 @@ pub struct TestParams {
     /// some tests will fail.
     pub sec_council_secret_keys: Vec<SecretKey>,
 
-    #[serde(default)]
     pub timeout_params: TimeoutTestParams,
 }
 
