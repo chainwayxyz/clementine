@@ -1,26 +1,96 @@
 name: Clementine test deployment on Regtest
 
+# Common stuff for services ----------------------------------------------------
+x-clementine: &clementine_regtest
+  image: chainwayxyz/clementine
+  platform: linux/amd64
+
+  depends_on:
+    postgres_db_regtest_0:
+      condition: service_healthy
+    postgres_db_regtest_1:
+      condition: service_healthy
+    postgres_db_regtest_2:
+      condition: service_healthy
+    postgres_db_regtest_3:
+      condition: service_healthy
+    postgres_db_regtest_4:
+      condition: service_healthy
+    bitcoin_regtest:
+      condition: service_healthy
+    citrea_sequencer_regtest:
+      condition: service_started
+    citrea_batch_prover_regtest:
+      condition: service_started
+    citrea_light_client_prover_regtest:
+      condition: service_started
+
+  env_file:
+    - ./configs/regtest/.env.regtest
+
+  volumes:
+    - ../../bitvm_cache.bin:/bitvm_cache.bin
+    - ../../core/certs:/certs
+  networks:
+    - clementine-network
+
+x-verifier: &clementine_verifier_regtest
+  <<: *clementine_regtest
+  command:
+    verifier
+
+x-operator: &clementine_operator_regtest
+  <<: *clementine_regtest
+  depends_on:
+    clementine_verifier_regtest_0:
+      condition: service_started
+    clementine_verifier_regtest_1:
+      condition: service_started
+    clementine_verifier_regtest_2:
+      condition: service_started
+    clementine_verifier_regtest_3:
+      condition: service_started
+    clementine_verifier_regtest_4:
+      condition: service_started
+  command:
+    operator
+
+x-postgres: &postgres_db_regtest
+  image: 'postgres:latest'
+  attach: false
+  volumes:
+    - .docker/db/data/:/var/lib/postgresql/data/
+    - .docker/db/init.d/:/docker-entrypoint-initdb.d/
+  environment:
+    POSTGRES_USER: clementine
+    POSTGRES_PASSWORD: clementine
+    POSTGRES_DB: clementine
+    POSTGRES_HOST_AUTH_METHOD: trust
+  healthcheck:
+    test: ["CMD-SHELL", "pg_isready -U clementine -d clementine"]
+    interval: 2s
+    timeout: 5s
+    retries: 10
+  restart: unless-stopped
+  networks:
+    - clementine-network
+
+# Services ---------------------------------------------------------------------
 services:
-  postgres_db_regtest:
-    image: 'postgres:latest'
-    attach: false
-    container_name: postgres_db_regtest
-    volumes:
-      - .docker/db/data/:/var/lib/postgresql/data/
-      - .docker/db/init.d/:/docker-entrypoint-initdb.d/
-    environment:
-      POSTGRES_USER: clementine
-      POSTGRES_PASSWORD: clementine
-      POSTGRES_DB: clementine
-      POSTGRES_HOST_AUTH_METHOD: trust
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U clementine -d clementine"]
-      interval: 2s
-      timeout: 5s
-      retries: 10
-    restart: unless-stopped
-    networks:
-      - clementine-network
+  postgres_db_regtest_0:
+    <<: *postgres_db_regtest
+
+  postgres_db_regtest_1:
+    <<: *postgres_db_regtest
+
+  postgres_db_regtest_2:
+    <<: *postgres_db_regtest
+
+  postgres_db_regtest_3:
+    <<: *postgres_db_regtest
+
+  postgres_db_regtest_4:
+    <<: *postgres_db_regtest
 
   bitcoin_regtest:
     image: bitcoin/bitcoin:29
@@ -122,69 +192,126 @@ services:
     networks:
       - clementine-network
 
-  clementine_verifier_regtest_0:
+# Aggregator --------------------------------------------------------------------
+  clementine_aggregator_regtest:
+    <<: *clementine_verifier_regtest
     depends_on:
-      postgres_db_regtest:
-        condition: service_healthy
-      bitcoin_regtest:
-        condition: service_healthy
-      citrea_sequencer_regtest:
-        condition: service_started
-      citrea_batch_prover_regtest:
-        condition: service_started
-      citrea_light_client_prover_regtest:
-        condition: service_started
-    image: chainwayxyz/clementine
-    platform: linux/amd64
-    container_name: clementine_verifier
-    environment:
-      - SECRET_KEY=1111111111111111111111111111111111111111111111111111111111111111
-    env_file:
-      - ./configs/regtest/.env.regtest
-    command:
-      verifier --config /config.toml --protocol-params /protocol_paramset.toml
-    ports:
-      - "17001:17000"
-    volumes:
-      - ../../bitvm_cache.bin:/bitvm_cache.bin
-      - ../../core/certs:/certs
-    networks:
-      - clementine-network
-
-  clementine_operator_regtest_0:
-    attach: false
-    depends_on:
-      postgres_db_regtest:
-        condition: service_healthy
-      bitcoin_regtest:
-        condition: service_healthy
       clementine_verifier_regtest_0:
         condition: service_started
-      citrea_sequencer_regtest:
+      clementine_verifier_regtest_1:
         condition: service_started
-      citrea_batch_prover_regtest:
+      clementine_verifier_regtest_2:
         condition: service_started
-      citrea_light_client_prover_regtest:
+      clementine_verifier_regtest_3:
         condition: service_started
-    image: chainwayxyz/clementine
-    platform: linux/amd64
-    container_name: clementine_operator
+      clementine_verifier_regtest_4:
+        condition: service_started
+      clementine_operator_regtest_0:
+        condition: service_started
+      clementine_operator_regtest_1:
+        condition: service_started
+      clementine_operator_regtest_2:
+        condition: service_started
+      clementine_operator_regtest_3:
+        condition: service_started
+      clementine_operator_regtest_4:
+        condition: service_started
     environment:
       - SECRET_KEY=1111111111111111111111111111111111111111111111111111111111111111
-    env_file:
-      - ./configs/regtest/.env.regtest
+      - DB_HOST=postgres_db_regtest_0
     command:
-      operator --config /config.toml --protocol-params /protocol_paramset.toml
+      aggregator
+    ports:
+      - "17000:17000"
+
+# Verifiers --------------------------------------------------------------------
+  clementine_verifier_regtest_0:
+    <<: *clementine_verifier_regtest
+    environment:
+      - SECRET_KEY=1111111111111111111111111111111111111111111111111111111111111111
+      - DB_HOST=postgres_db_regtest_0
+    ports:
+      - "17001:17000"
+
+  clementine_verifier_regtest_1:
+    <<: *clementine_verifier_regtest
+    environment:
+      - SECRET_KEY=2222222222222222222222222222222222222222222222222222222222222222
+      - DB_HOST=postgres_db_regtest_1
+    ports:
+      - "17002:17000"
+
+  clementine_verifier_regtest_2:
+    <<: *clementine_verifier_regtest
+    environment:
+      - SECRET_KEY=3333333333333333333333333333333333333333333333333333333333333333
+      - DB_HOST=postgres_db_regtest_2
+    ports:
+      - "17003:17000"
+
+  clementine_verifier_regtest_3:
+    <<: *clementine_verifier_regtest
+    environment:
+      - SECRET_KEY=4444444444444444444444444444444444444444444444444444444444444444
+      - DB_HOST=postgres_db_regtest_3
+    ports:
+      - "17004:17000"
+
+  clementine_verifier_regtest_4:
+    <<: *clementine_verifier_regtest
+    environment:
+      - SECRET_KEY=5555555555555555555555555555555555555555555555555555555555555555
+      - DB_HOST=postgres_db_regtest_4
+    ports:
+      - "17005:17000"
+
+# Operators --------------------------------------------------------------------
+  clementine_operator_regtest_0:
+    <<: *clementine_operator_regtest
+    environment:
+      - SECRET_KEY=1111111111111111111111111111111111111111111111111111111111111111
+      - DB_HOST=postgres_db_regtest_0
     ports:
       - "17006:17000"
-    volumes:
-      - ../../bitvm_cache.bin:/bitvm_cache.bin
-      - ../../core/certs:/certs
-    networks:
-      - clementine-network
+
+  clementine_operator_regtest_1:
+    <<: *clementine_operator_regtest
+    environment:
+      - SECRET_KEY=2222222222222222222222222222222222222222222222222222222222222222
+      - DB_HOST=postgres_db_regtest_1
+    ports:
+      - "17007:17000"
+
+  clementine_operator_regtest_2:
+    <<: *clementine_operator_regtest
+    environment:
+      - SECRET_KEY=3333333333333333333333333333333333333333333333333333333333333333
+      - DB_HOST=postgres_db_regtest_2
+    ports:
+      - "17008:17000"
+
+  clementine_operator_regtest_3:
+    <<: *clementine_operator_regtest
+    environment:
+      - SECRET_KEY=4444444444444444444444444444444444444444444444444444444444444444
+      - DB_HOST=postgres_db_regtest_3
+    ports:
+      - "17009:17000"
+
+  clementine_operator_regtest_4:
+    <<: *clementine_operator_regtest
+    environment:
+      - SECRET_KEY=5555555555555555555555555555555555555555555555555555555555555555
+      - DB_HOST=postgres_db_regtest_4
+    ports:
+      - "17010:17000"
 
 volumes:
-  postgres_db_regtest:
+  postgres_db_regtest_0:
+  postgres_db_regtest_1:
+  postgres_db_regtest_2:
+  postgres_db_regtest_3:
+  postgres_db_regtest_4:
   bitcoin_regtest:
   citrea_sequencer_regtest:
   citrea_batch_prover_regtest:
