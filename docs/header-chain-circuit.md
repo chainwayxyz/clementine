@@ -4,13 +4,13 @@ This document describes the logic and structure of the header chain circuit, whi
 
 ### Merkle Mountain Range (MMR) Implementations
 
-The circuit's core logic is supported by two distinct Merkle Mountain Range (MMR) implementations. The `mmr_guest.rs` module provides an MMR tailored for the constrained environment of a zkVM. This `MMRGuest` implementation is designed to efficiently verify inclusion proofs for block hashes, confirming that a given block header is part of the verified chain without needing to store the entire chain history.
+The circuit's core logic is supported by two distinct Merkle Mountain Range (MMR) implementations. The [`mmr_guest.rs`](../circuits-lib/src/header_chain/mmr_guest.rs) module provides an MMR tailored for the constrained environment of a zkVM. This `MMRGuest` implementation is designed to efficiently verify inclusion proofs for block hashes, confirming that a given block header is part of the verified chain without needing to store the entire chain history.
 
-In contrast, the `mmr_native.rs` module provides a native MMR implementation for use outside the zkVM. This `MMRNative` is used to build the MMR from a sequence of block headers and generate inclusion proofs. These proofs can then be passed to the `MMRGuest` within the zkVM for verification, bridging the gap between off-chain data preparation and on-chain verification.
+In contrast, the [`mmr_native.rs`](../circuits-lib/src/header_chain/mmr_native.rs) module provides a native MMR implementation for use outside the zkVM. This `MMRNative` is used to build the MMR from a sequence of block headers and generate inclusion proofs. These proofs can then be passed to the `MMRGuest` within the zkVM for verification, bridging the gap between off-chain data preparation and on-chain verification.
 
 ### Core Circuit Logic
 
-The central component of the circuit is the main logic module, found in `mod.rs`. This module orchestrates the entire verification process, from handling input and output to performing all necessary cryptographic and protocol-level checks.
+The central component of the circuit is the main logic module, found in [`mod.rs`](../circuits-lib/src/header_chain/mod.rs). This module orchestrates the entire verification process, from handling input and output to performing all necessary cryptographic and protocol-level checks.
 
 The circuit's entry point function, `header_chain_circuit`, takes a list of block headers as input and applies them to a `ChainState` data structure. This `ChainState` keeps track of essential chain parameters such as block height, accumulated proof of work, and the current difficulty target. For each block header, the circuit performs a series of critical validations:
 
