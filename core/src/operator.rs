@@ -1532,7 +1532,7 @@ where
             public_inputs.challenge_sending_watchtowers
         );
 
-        let asserts = {
+        let asserts = tokio::task::spawn_blocking(move || {
             let vk = get_verifying_key();
 
             generate_assertions(g16_proof, vec![public_input_scalar], &vk).map_err(|e| {
@@ -1545,8 +1545,12 @@ where
                     },
                     e
                 )
-            })?
-        };
+            })
+        })
+        .await
+        .wrap_err("Generate assertions thread failed with error")??;
+
+        tracing::warn!("Generated assertions in send_asserts");
 
         #[cfg(test)]
         let asserts = self.config.test_params.maybe_corrupt_asserts(asserts);

@@ -1,3 +1,10 @@
+//! # Bitcoin Merkle Tree Implementation
+//! This module implements a Bitcoin Merkle tree structure, which is used to verify the integrity of transactions in a block.
+//! It provides functions to construct the tree, calculate the root hash, and verify the inclusion of transactions.
+//! The tree is designed to be secure against certain types of attacks, particularly in the context of Simplified Payment Verification (SPV).
+//! It also includes a "mid-state" tree for generating secure SPV proofs.
+//! **⚠️ Warning:** Use the `new_mid_state` function for secure SPV proofs, as the standard tree is vulnerable to certain attacks.
+
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
@@ -72,7 +79,7 @@ impl BitcoinMerkleTree {
         tree
     }
 
-    // Returns the Merkle root. Use this only for Bitcoin merkle tree, not for mid-state trees.
+    /// Returns the Merkle root. Use this only for Bitcoin merkle tree, not for mid-state trees.
     pub fn root(&self) -> [u8; 32] {
         self.nodes[self.nodes.len() - 1][0]
     }

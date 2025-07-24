@@ -1,5 +1,7 @@
+use super::test_actors::TestActors;
 use super::{mine_once_after_in_mempool, poll_until_condition};
 use crate::builder::transaction::TransactionType as TxType;
+use crate::citrea::CitreaClientT;
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::extended_rpc::ExtendedRpc;
@@ -8,9 +10,6 @@ use crate::utils::{FeePayingType, RbfSigningInfo, TxMetadata};
 use bitcoin::consensus::{self};
 use bitcoin::{block, OutPoint, Transaction, Txid};
 use bitcoincore_rpc::RpcApi;
-use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
-use citrea_e2e::config::LightClientProverConfig;
-use citrea_e2e::node::Node;
 use eyre::{bail, Context, Result};
 use std::time::Duration;
 use tokio::time::sleep;
@@ -30,12 +29,12 @@ pub fn get_tx_from_signed_txs_with_type(
     bitcoin::consensus::deserialize(&tx).context("expected valid tx")
 }
 // Cannot use ensure_async due to `Send` requirement being broken upstream
-pub async fn ensure_outpoint_spent_while_waiting_for_light_client_sync(
+pub async fn ensure_outpoint_spent_while_waiting_for_state_mngr_sync<C: CitreaClientT>(
     rpc: &ExtendedRpc,
-    lc_prover: &Node<LightClientProverConfig>,
     outpoint: OutPoint,
+    actors: &TestActors<C>,
 ) -> Result<(), eyre::Error> {
-    let mut timeout_counter = 300;
+    let mut max_blocks_to_mine = 1000;
     while match rpc
         .client
         .get_tx_out(&outpoint.txid, outpoint.vout, Some(false))
@@ -44,26 +43,10 @@ pub async fn ensure_outpoint_spent_while_waiting_for_light_client_sync(
         Err(_) => true,
         Ok(val) => val.is_some(),
     } {
-        // Mine more blocks and wait longer between checks
-        let block_count = retry_get_block_count(rpc, 5, Duration::from_millis(300)).await?;
+        rpc.mine_blocks_while_synced(1, actors).await?;
+        max_blocks_to_mine -= 1;
 
-        let mut total_retry = 0;
-        while let Err(e) = lc_prover
-            .wait_for_l1_height(block_count as u64 - DEFAULT_FINALITY_DEPTH, None)
-            .await
-        {
-            if total_retry > 10 {
-                bail!("Failed to wait for l1 height: {:?}", e);
-            }
-            total_retry += 1;
-            tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
-        }
-        rpc.mine_blocks(1).await?;
-
-        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
-        timeout_counter -= 1;
-
-        if timeout_counter == 0 {
+        if max_blocks_to_mine == 0 {
             bail!(
                 "timeout while waiting for outpoint {:?} to be spent",
                 outpoint
@@ -119,12 +102,12 @@ pub async fn retry_get_block_count(
     unreachable!("retry loop should either return Ok or Err")
 }
 
-pub async fn get_txid_where_utxo_is_spent_while_waiting_for_light_client_sync(
+pub async fn get_txid_where_utxo_is_spent_while_waiting_for_state_mngr_sync<C: CitreaClientT>(
     rpc: &ExtendedRpc,
-    lc_prover: &Node<LightClientProverConfig>,
     utxo: OutPoint,
+    actors: &TestActors<C>,
 ) -> Result<Txid, eyre::Error> {
-    ensure_outpoint_spent_while_waiting_for_light_client_sync(rpc, lc_prover, utxo).await?;
+    ensure_outpoint_spent_while_waiting_for_state_mngr_sync(rpc, utxo, actors).await?;
     let remaining_block_count = 30;
     // look for the txid in the last 30 blocks
     for i in 0..remaining_block_count {

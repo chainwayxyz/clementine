@@ -1833,9 +1833,9 @@ where
             }
 
             tracing::info!(
-                "A new payout tx detected for withdrawal {}, payout txid: {}, operator xonly pk: {:?}",
+                "A new payout tx detected for withdrawal {}, payout txid: {:?}, operator xonly pk: {:?}",
                 idx,
-                hex::encode(payout_txid),
+                payout_txid,
                 operator_xonly_pk
             );
 
@@ -2402,15 +2402,20 @@ where
 
         let vk = get_verifying_key();
 
-        let res = validate_assertions(
-            &vk,
-            (first_box, second_box, third_box),
-            bitvm_pks.bitvm_pks,
-            disprove_scripts
-                .as_slice()
-                .try_into()
-                .expect("static bitvm_cache contains exactly 364 disprove scripts"),
-        );
+        let res = tokio::task::spawn_blocking(move || {
+            validate_assertions(
+                &vk,
+                (first_box, second_box, third_box),
+                bitvm_pks.bitvm_pks,
+                disprove_scripts
+                    .as_slice()
+                    .try_into()
+                    .expect("static bitvm_cache contains exactly 364 disprove scripts"),
+            )
+        })
+        .await
+        .wrap_err("Validate assertions thread failed with error")?;
+
         tracing::info!("Disprove validation result: {:?}", res);
 
         match res {

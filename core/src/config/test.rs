@@ -75,6 +75,12 @@ pub struct TestParams {
     /// It should match the opt_payout_verification_address in BridgeConfig.
     pub opt_payout_verification_secret_key: Option<alloy::signers::k256::ecdsa::SigningKey>,
 
+    /// Secret keys belonging to the security council.
+    /// Should match the xonly public keys in the security council of config, otherwise
+    /// some tests will fail.
+    pub sec_council_secret_keys: Vec<SecretKey>,
+
+    #[serde(default)]
     pub timeout_params: TimeoutTestParams,
 }
 
@@ -516,6 +522,16 @@ impl Default for TestParams {
                 )
                 .expect("valid secret key"),
             ),
+            sec_council_secret_keys: vec![
+                SecretKey::from_str(
+                    "5555555555555555555555555555555555555555555555555555555555555555",
+                )
+                .expect("known valid input"),
+                SecretKey::from_str(
+                    "6666666666666666666666666666666666666666666666666666666666666666",
+                )
+                .expect("known valid input"),
+            ],
         }
     }
 }
