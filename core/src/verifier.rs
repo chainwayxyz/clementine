@@ -1134,6 +1134,17 @@ where
     /// Recover the address from the signature
     /// EIP712 hash is calculated from optimistic payout params
     /// Signature is the signature of the eip712 hash
+    ///
+    /// Parameters:
+    /// - deposit_id: The id of the deposit
+    /// - input_signature: The signature of the withdrawal input
+    /// - input_outpoint: The outpoint of the withdrawal input
+    /// - output_script_pubkey: The script pubkey of the withdrawal output
+    /// - output_amount: The amount of the withdrawal output
+    /// - signature: The signature of the eip712 hash of the withdrawal params
+    ///
+    /// Returns:
+    /// - The address recovered from the signature
     pub fn recover_address_from_ecdsa_signature(
         deposit_id: u32,
         input_signature: Signature,
