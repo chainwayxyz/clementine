@@ -43,6 +43,7 @@ use test_actors::TestActors;
 use tonic::Request;
 
 pub mod citrea;
+#[cfg(feature = "automation")]
 pub mod clementine_utils;
 mod setup_utils;
 pub mod test_actors;
