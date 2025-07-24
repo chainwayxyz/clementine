@@ -46,8 +46,11 @@ pub enum KickoffEvent {
     },
     KickoffFinalizerSpent,
     BurnConnectorSpent,
-    // TODO: add warnings
-    // ChallengeTimeoutNotSent,
+    /// Special event that is used to indicate that it is time for the owner to send latest blockhash tx.
+    /// Matcher for this event is created after all watchtower challenge utxos are spent.
+    /// Latest blockhash is sent some blocks after all watchtower challenge utxos are spent, so that the total work until the block commiitted
+    /// in latest blockhash is definitely higher than the highest work in valid watchtower challenges.
+    TimeToSendLatestBlockhash,
     TimeToSendWatchtowerChallenge,
     /// Special event that is used to indicate that the state machine has been saved to the database and the dirty flag should be reset
     SavedToDb,
@@ -154,27 +157,23 @@ impl<T: Owner> KickoffStateMachine<T> {
         }
     }
 
-    async fn commit_latest_blockhash_if_ready(&mut self, context: &mut StateContext<T>) {
+    async fn create_matcher_for_latest_blockhash_if_ready(
+        &mut self,
+        context: &mut StateContext<T>,
+    ) {
         context
             .capture_error(async |context| {
                 {
                     // if all watchtower challenge utxos are spent, its safe to send asserts
                     if self.spent_watchtower_utxos.len() == self.deposit_data.get_num_watchtowers()
                     {
-                        context
-                            .owner
-                            .handle_duty(Duty::SendLatestBlockhash {
-                                kickoff_data: self.kickoff_data,
-                                deposit_data: self.deposit_data.clone(),
-                                latest_blockhash: context
-                                    .cache
-                                    .block
-                                    .as_ref()
-                                    .ok_or(eyre::eyre!("Block object not found in block cache"))?
-                                    .header
-                                    .block_hash(),
-                            })
-                            .await?;
+                        // create a matcher to send latest blockhash tx after finality depth blocks pass from current block height
+                        self.matchers.insert(
+                            Matcher::BlockHeight(
+                                context.cache.block_height + context.paramset.finality_depth,
+                            ),
+                            KickoffEvent::TimeToSendLatestBlockhash,
+                        );
                     }
                     Ok::<(), BridgeError>(())
                 }
@@ -258,6 +257,31 @@ impl<T: Owner> KickoffStateMachine<T> {
             .await;
     }
 
+    async fn send_latest_blockhash(&mut self, context: &mut StateContext<T>) {
+        context
+            .capture_error(async |context| {
+                {
+                    context
+                        .owner
+                        .handle_duty(Duty::SendLatestBlockhash {
+                            kickoff_data: self.kickoff_data,
+                            deposit_data: self.deposit_data.clone(),
+                            latest_blockhash: context
+                                .cache
+                                .block
+                                .as_ref()
+                                .ok_or(eyre::eyre!("Block object not found in block cache"))?
+                                .header
+                                .block_hash(),
+                        })
+                        .await?;
+                    Ok::<(), BridgeError>(())
+                }
+                .wrap_err(self.kickoff_meta("on send_latest_blockhash"))
+            })
+            .await;
+    }
+
     async fn unhandled_event(&mut self, context: &mut StateContext<T>, event: &KickoffEvent) {
         context
             .capture_error(async |_context| {
@@ -334,7 +358,8 @@ impl<T: Owner> KickoffStateMachine<T> {
                 // save challenge witness
                 self.watchtower_challenges
                     .insert(*watchtower_idx, tx.clone());
-                self.commit_latest_blockhash_if_ready(context).await;
+                self.create_matcher_for_latest_blockhash_if_ready(context)
+                    .await;
                 self.disprove_if_ready(context).await;
                 Handled
             }
@@ -374,7 +399,8 @@ impl<T: Owner> KickoffStateMachine<T> {
             }
             KickoffEvent::WatchtowerChallengeTimeoutSent { watchtower_idx } => {
                 self.spent_watchtower_utxos.insert(*watchtower_idx);
-                self.commit_latest_blockhash_if_ready(context).await;
+                self.create_matcher_for_latest_blockhash_if_ready(context)
+                    .await;
                 Handled
             }
             KickoffEvent::LatestBlockHashSent {
@@ -389,6 +415,11 @@ impl<T: Owner> KickoffStateMachine<T> {
                 // can start sending asserts as latest blockhash is committed and finalized
                 self.send_operator_asserts(context).await;
                 self.disprove_if_ready(context).await;
+                Handled
+            }
+            KickoffEvent::TimeToSendLatestBlockhash => {
+                // tell owner to send latest blockhash tx
+                self.send_latest_blockhash(context).await;
                 Handled
             }
             KickoffEvent::SavedToDb => Handled,
