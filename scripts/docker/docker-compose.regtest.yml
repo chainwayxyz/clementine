@@ -78,18 +78,28 @@ x-postgres: &postgres_db_regtest
 # Services ---------------------------------------------------------------------
 services:
   postgres_db_regtest_0:
+    ports:
+      - "5532:5432"
     <<: *postgres_db_regtest
 
   postgres_db_regtest_1:
+    ports:
+      - "5533:5432"
     <<: *postgres_db_regtest
 
   postgres_db_regtest_2:
+    ports:
+      - "5534:5432"
     <<: *postgres_db_regtest
 
   postgres_db_regtest_3:
+    ports:
+      - "5535:5432"
     <<: *postgres_db_regtest
 
   postgres_db_regtest_4:
+    ports:
+      - "5536:5432"
     <<: *postgres_db_regtest
 
   bitcoin_regtest:
@@ -219,6 +229,7 @@ services:
     environment:
       - SECRET_KEY=1111111111111111111111111111111111111111111111111111111111111111
       - DB_HOST=postgres_db_regtest_0
+      - DB_PORT=5532
     command:
       aggregator
     ports:
@@ -230,6 +241,7 @@ services:
     environment:
       - SECRET_KEY=1111111111111111111111111111111111111111111111111111111111111111
       - DB_HOST=postgres_db_regtest_0
+      - DB_PORT=5532
     ports:
       - "17001:17000"
 
@@ -237,6 +249,7 @@ services:
     <<: *clementine_verifier_regtest
     environment:
       - SECRET_KEY=2222222222222222222222222222222222222222222222222222222222222222
+      - DB_PORT=5533
       - DB_HOST=postgres_db_regtest_1
     ports:
       - "17002:17000"
@@ -245,6 +258,7 @@ services:
     <<: *clementine_verifier_regtest
     environment:
       - SECRET_KEY=3333333333333333333333333333333333333333333333333333333333333333
+      - DB_PORT=5534
       - DB_HOST=postgres_db_regtest_2
     ports:
       - "17003:17000"
@@ -253,6 +267,7 @@ services:
     <<: *clementine_verifier_regtest
     environment:
       - SECRET_KEY=4444444444444444444444444444444444444444444444444444444444444444
+      - DB_PORT=5535
       - DB_HOST=postgres_db_regtest_3
     ports:
       - "17004:17000"
@@ -261,6 +276,7 @@ services:
     <<: *clementine_verifier_regtest
     environment:
       - SECRET_KEY=5555555555555555555555555555555555555555555555555555555555555555
+      - DB_PORT=5536
       - DB_HOST=postgres_db_regtest_4
     ports:
       - "17005:17000"
@@ -270,6 +286,7 @@ services:
     <<: *clementine_operator_regtest
     environment:
       - SECRET_KEY=1111111111111111111111111111111111111111111111111111111111111111
+      - DB_PORT=5532
       - DB_HOST=postgres_db_regtest_0
     ports:
       - "17006:17000"
@@ -278,6 +295,7 @@ services:
     <<: *clementine_operator_regtest
     environment:
       - SECRET_KEY=2222222222222222222222222222222222222222222222222222222222222222
+      - DB_PORT=5533
       - DB_HOST=postgres_db_regtest_1
     ports:
       - "17007:17000"
@@ -286,6 +304,7 @@ services:
     <<: *clementine_operator_regtest
     environment:
       - SECRET_KEY=3333333333333333333333333333333333333333333333333333333333333333
+      - DB_PORT=5534
       - DB_HOST=postgres_db_regtest_2
     ports:
       - "17008:17000"
@@ -294,6 +313,7 @@ services:
     <<: *clementine_operator_regtest
     environment:
       - SECRET_KEY=4444444444444444444444444444444444444444444444444444444444444444
+      - DB_PORT=5535
       - DB_HOST=postgres_db_regtest_3
     ports:
       - "17009:17000"
@@ -302,6 +322,7 @@ services:
     <<: *clementine_operator_regtest
     environment:
       - SECRET_KEY=5555555555555555555555555555555555555555555555555555555555555555
+      - DB_PORT=5536
       - DB_HOST=postgres_db_regtest_4
     ports:
       - "17010:17000"
