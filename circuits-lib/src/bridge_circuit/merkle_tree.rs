@@ -3,7 +3,7 @@
 //! It provides functions to construct the tree, calculate the root hash, and verify the inclusion of transactions.
 //! The tree is designed to be secure against certain types of attacks, particularly in the context of Simplified Payment Verification (SPV).
 //! It also includes a "mid-state" tree for generating secure SPV proofs.
-//! WARNING: Use the `new_mid_state` function for secure SPV proofs, as the standard tree is vulnerable to certain attacks.
+//! **⚠️ Warning:** Use the `new_mid_state` function for secure SPV proofs, as the standard tree is vulnerable to certain attacks.
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
