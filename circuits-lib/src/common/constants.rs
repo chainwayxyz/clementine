@@ -5,12 +5,15 @@
 //! ## Header Chain Method IDs
 //! These constants represent the method IDs for different network header chains, such as Mainnet, Testnet4, Signet, and Regtest.
 
-// Constant bridge amount in sats
-pub const BRIDGE_AMOUNT_SATS: u64 = 1_000_000_000;
+/// The number of special outputs in the kickoff transaction. These outputs
+/// are used to execute the logical operations of the bridge.
 pub const FIRST_FIVE_OUTPUTS: usize = 5;
+/// The number of assertion transactions that a challenged operator should send.
 pub const NUMBER_OF_ASSERT_TXS: usize = 33;
+/// The theoretical maximum number of watchtowers that can be used in the Clementine protocol.
 pub const MAX_NUMBER_OF_WATCHTOWERS: usize = 160;
 
+// Header chain method IDs for different networks.
 pub const MAINNET_HEADER_CHAIN_METHOD_ID: [u32; 8] = [
     3988337386, 3527290003, 3056164372, 1827915447, 200589361, 2693538692, 3777329608, 3936971702,
 ];
