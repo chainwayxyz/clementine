@@ -458,7 +458,21 @@
 <a href="#457" id="457">457</a>
 <a href="#458" id="458">458</a>
 <a href="#459" id="459">459</a>
-<a href="#460" id="460">460</a></pre></div><pre class="rust"><code><span class="kw">use </span>borsh::{BorshDeserialize, BorshSerialize};
+<a href="#460" id="460">460</a>
+<a href="#461" id="461">461</a>
+<a href="#462" id="462">462</a>
+<a href="#463" id="463">463</a>
+<a href="#464" id="464">464</a>
+<a href="#465" id="465">465</a>
+<a href="#466" id="466">466</a>
+<a href="#467" id="467">467</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Bitcoin Merkle Tree Implementation
+//! This module implements a Bitcoin Merkle tree structure, which is used to verify the integrity of transactions in a block.
+//! It provides functions to construct the tree, calculate the root hash, and verify the inclusion of transactions.
+//! The tree is designed to be secure against certain types of attacks, particularly in the context of Simplified Payment Verification (SPV).
+//! It also includes a "mid-state" tree for generating secure SPV proofs.
+//! **⚠️ Warning:** Use the `new_mid_state` function for secure SPV proofs, as the standard tree is vulnerable to certain attacks.
+
+</span><span class="kw">use </span>borsh::{BorshDeserialize, BorshSerialize};
 <span class="kw">use </span>serde::{Deserialize, Serialize};
 
 <span class="kw">use </span><span class="kw">crate</span>::common::hashes::{calculate_double_sha256, calculate_sha256};
@@ -532,7 +546,7 @@
         tree
     }
 
-    <span class="comment">// Returns the Merkle root. Use this only for Bitcoin merkle tree, not for mid-state trees.
+    <span class="doccomment">/// Returns the Merkle root. Use this only for Bitcoin merkle tree, not for mid-state trees.
     </span><span class="kw">pub fn </span>root(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; [u8; <span class="number">32</span>] {
         <span class="self">self</span>.nodes[<span class="self">self</span>.nodes.len() - <span class="number">1</span>][<span class="number">0</span>]
     }

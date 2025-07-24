@@ -65,7 +65,27 @@
 <a href="#64" id="64">64</a>
 <a href="#65" id="65">65</a>
 <a href="#66" id="66">66</a>
-<a href="#67" id="67">67</a></pre></div><pre class="rust"><code><span class="kw">use </span>std::io::Write;
+<a href="#67" id="67">67</a>
+<a href="#68" id="68">68</a>
+<a href="#69" id="69">69</a>
+<a href="#70" id="70">70</a>
+<a href="#71" id="71">71</a>
+<a href="#72" id="72">72</a>
+<a href="#73" id="73">73</a>
+<a href="#74" id="74">74</a>
+<a href="#75" id="75">75</a>
+<a href="#76" id="76">76</a>
+<a href="#77" id="77">77</a></pre></div><pre class="rust"><code><span class="doccomment">//! # ZkVM Module
+//! This module defines the traits and structures for zkVM guest and host interactions.
+//! It includes the `ZkvmGuest` and `ZkvmHost` traits for reading from and writing to the host,
+//! as well as committing data and verifying proofs. The `Risc0Guest` struct implements the `ZkvmGuest` trait
+//! for RISC0 zkVM interactions.
+//! The `VerificationContext` struct is used to represent a proof that can be used in zkVM interactions,
+//! containing a method ID and a journal of data for verification.
+//! The module also provides a default implementation for the `Risc0Guest` struct, which
+//! initializes a new instance of the guest.
+
+</span><span class="kw">use </span>std::io::Write;
 
 <span class="kw">use </span>borsh::BorshDeserialize;
 <span class="kw">use </span>risc0_zkvm::guest::env::{<span class="self">self</span>};

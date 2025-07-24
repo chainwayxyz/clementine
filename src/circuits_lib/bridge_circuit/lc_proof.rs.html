@@ -60,7 +60,15 @@
 <a href="#59" id="59">59</a>
 <a href="#60" id="60">60</a>
 <a href="#61" id="61">61</a>
-<a href="#62" id="62">62</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::structs::LightClientProof;
+<a href="#62" id="62">62</a>
+<a href="#63" id="63">63</a>
+<a href="#64" id="64">64</a>
+<a href="#65" id="65">65</a>
+<a href="#66" id="66">66</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Light Client Proof Verifier
+//! This module implements the light client proof verifier for the bridge circuit.
+//! It includes functions to verify light client proofs and extracting the light client circuit output.
+
+</span><span class="kw">use </span><span class="kw">super</span>::structs::LightClientProof;
 <span class="kw">use </span>citrea_sov_rollup_interface::zk::light_client_proof::output::LightClientCircuitOutput;
 <span class="kw">use </span>risc0_zkvm::guest::env;
 

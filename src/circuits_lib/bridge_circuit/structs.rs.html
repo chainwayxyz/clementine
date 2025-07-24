@@ -555,7 +555,31 @@
 <a href="#554" id="554">554</a>
 <a href="#555" id="555">555</a>
 <a href="#556" id="556">556</a>
-<a href="#557" id="557">557</a></pre></div><pre class="rust"><code><span class="kw">use </span>std::ops::{Deref, DerefMut};
+<a href="#557" id="557">557</a>
+<a href="#558" id="558">558</a>
+<a href="#559" id="559">559</a>
+<a href="#560" id="560">560</a>
+<a href="#561" id="561">561</a>
+<a href="#562" id="562">562</a>
+<a href="#563" id="563">563</a>
+<a href="#564" id="564">564</a>
+<a href="#565" id="565">565</a>
+<a href="#566" id="566">566</a>
+<a href="#567" id="567">567</a>
+<a href="#568" id="568">568</a>
+<a href="#569" id="569">569</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Bridge Circuit Structs
+//! This module defines the data structures used in the Bridge Circuit.
+//! It includes structures for light client proofs, work-only circuit outputs, and various constants used in the circuit.
+//! ## Key Structures
+//! - **LightClientProof:** Represents a light client proof with a journal and L2 height.
+//! - **WorkOnlyCircuitOutput:** Represents the output of a work-only circuit, including work done and genesis state hash.
+//! - **WatchTowerChallengeTxCommitment:** Represents a commitment to a watchtower challenge transaction, including the Groth16 proof and total work.
+//! - **WithdrawalOutpointTxid:** Represents the transaction ID (txid) of a withdrawal outpoint.
+//! - **MoveTxid:** Represents the transaction ID (txid) of a move-to-vault transaction.
+//! - **StorageProof:** Represents the storage proof for Ethereum, including UTXO, vout, and deposit proofs.
+//! - **WatchtowerInput:** Represents the input for a watchtower, including the watchtower index, challenge inputs, and transaction details.
+
+</span><span class="kw">use </span>std::ops::{Deref, DerefMut};
 
 <span class="kw">use </span><span class="kw">crate</span>::common::constants::MAX_NUMBER_OF_WATCHTOWERS;
 <span class="kw">use </span>bitcoin::{

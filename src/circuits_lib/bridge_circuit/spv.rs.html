@@ -137,11 +137,15 @@
 <a href="#136" id="136">136</a>
 <a href="#137" id="137">137</a>
 <a href="#138" id="138">138</a>
-<a href="#139" id="139">139</a></pre></div><pre class="rust"><code><span class="kw">use </span>borsh::{BorshDeserialize, BorshSerialize};
+<a href="#139" id="139">139</a>
+<a href="#140" id="140">140</a>
+<a href="#141" id="141">141</a></pre></div><pre class="rust"><code><span class="doccomment">//! SPV (Simplified Payment Verification)
+//! This module provides the SPV structure and verification logic for the bridge circuit.
+//! It includes the transaction, block inclusion proof, block header, and MMR inclusion proof.
 
+</span><span class="kw">use super</span>::{merkle_tree::BlockInclusionProof, transaction::CircuitTransaction};
 <span class="kw">use </span><span class="kw">crate</span>::header_chain::{mmr_guest::MMRGuest, mmr_native::MMRInclusionProof, CircuitBlockHeader};
-
-<span class="kw">use super</span>::{merkle_tree::BlockInclusionProof, transaction::CircuitTransaction};
+<span class="kw">use </span>borsh::{BorshDeserialize, BorshSerialize};
 
 <span class="doccomment">/// SPV (Simplified Payment Verification) structure that contains
 /// the transaction, block inclusion proof, block header, and MMR inclusion proof.

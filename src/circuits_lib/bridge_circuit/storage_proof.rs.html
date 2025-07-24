@@ -246,7 +246,19 @@
 <a href="#245" id="245">245</a>
 <a href="#246" id="246">246</a>
 <a href="#247" id="247">247</a>
-<a href="#248" id="248">248</a></pre></div><pre class="rust"><code><span class="kw">use </span>alloy_primitives::Bytes;
+<a href="#248" id="248">248</a>
+<a href="#249" id="249">249</a>
+<a href="#250" id="250">250</a>
+<a href="#251" id="251">251</a>
+<a href="#252" id="252">252</a>
+<a href="#253" id="253">253</a>
+<a href="#254" id="254">254</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Ethereum Storage Proof Verifier
+//! This module implements the Ethereum storage proof verifier for the bridge circuit.
+//! It includes functions to verify storage proofs related to deposit and withdrawal UTXOs,
+//! ensuring the integrity of the Bridge contract's state. The verifier checks the storage keys
+//! and values against the expected state root, and it handles the conversion of hexadecimal strings to decimal.
+
+</span><span class="kw">use </span>alloy_primitives::Bytes;
 <span class="kw">use </span>alloy_primitives::{Keccak256, U256};
 <span class="kw">use </span>alloy_rpc_types::EIP1186StorageProof;
 <span class="kw">use </span>jmt::KeyHash;

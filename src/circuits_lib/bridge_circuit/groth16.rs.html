@@ -156,7 +156,31 @@
 <a href="#155" id="155">155</a>
 <a href="#156" id="156">156</a>
 <a href="#157" id="157">157</a>
-<a href="#158" id="158">158</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_bn254::Bn254;
+<a href="#158" id="158">158</a>
+<a href="#159" id="159">159</a>
+<a href="#160" id="160">160</a>
+<a href="#161" id="161">161</a>
+<a href="#162" id="162">162</a>
+<a href="#163" id="163">163</a>
+<a href="#164" id="164">164</a>
+<a href="#165" id="165">165</a>
+<a href="#166" id="166">166</a>
+<a href="#167" id="167">167</a>
+<a href="#168" id="168">168</a>
+<a href="#169" id="169">169</a>
+<a href="#170" id="170">170</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Groth16 Proof Struct
+//! This module defines the `CircuitGroth16Proof` struct, which represents a Groth16 proof
+//! for the bridge circuit. It includes methods for creating a proof from a given Risc0 seal
+//! and converting it to a compressed format. The proof consists of three components: `a`,
+//! `b`, and `c`, which are points on the elliptic curve used in the Groth16 protocol.
+//! ## Key Components
+//! - **G1 and G2 Points:** The proof consists of points `a` and `c` in G1, and point `b` in G2.
+//! - **Serialization/Deserialization:** The proof can be serialized to a compressed format
+//!   and deserialized back, allowing for efficient storage and transmission.
+//! - **Conversion to Groth16 Proof:** The `CircuitGroth16Proof` can be converted to a Groth16 proof
+//!   for use in verification.
+
+</span><span class="kw">use </span>ark_bn254::Bn254;
 <span class="kw">use </span>ark_ff::{Field, PrimeField};
 <span class="kw">use </span>ark_groth16::Proof;
 <span class="kw">use </span>ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, SerializationError};

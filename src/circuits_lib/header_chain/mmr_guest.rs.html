@@ -54,14 +54,37 @@
 <a href="#53" id="53">53</a>
 <a href="#54" id="54">54</a>
 <a href="#55" id="55">55</a>
-<a href="#56" id="56">56</a></pre></div><pre class="rust"><code><span class="kw">use </span>borsh::{BorshDeserialize, BorshSerialize};
+<a href="#56" id="56">56</a>
+<a href="#57" id="57">57</a>
+<a href="#58" id="58">58</a>
+<a href="#59" id="59">59</a>
+<a href="#60" id="60">60</a>
+<a href="#61" id="61">61</a>
+<a href="#62" id="62">62</a>
+<a href="#63" id="63">63</a>
+<a href="#64" id="64">64</a>
+<a href="#65" id="65">65</a>
+<a href="#66" id="66">66</a>
+<a href="#67" id="67">67</a>
+<a href="#68" id="68">68</a>
+<a href="#69" id="69">69</a>
+<a href="#70" id="70">70</a>
+<a href="#71" id="71">71</a></pre></div><pre class="rust"><code><span class="doccomment">//! # MMR Guest - Merkle Mountain Range for zkVM
+//!
+//! Lightweight MMR implementation optimized for zero-knowledge virtual machine environments.
+//! Stores only subroots and size for efficient proof verification within circuit constraints.
+
+</span><span class="kw">use </span>borsh::{BorshDeserialize, BorshSerialize};
 <span class="kw">use </span>serde::{Deserialize, Serialize};
 
 <span class="kw">use </span><span class="kw">crate</span>::common::hashes::hash_pair;
 
 <span class="kw">use </span><span class="kw">super</span>::mmr_native::MMRInclusionProof;
 
-<span class="doccomment">/// Represents the MMR for inside zkVM (guest)
+<span class="doccomment">/// Merkle Mountain Range implementation for zkVM environments.
+///
+/// Maintains only the essential data (subroots and size) needed for proof verification
+/// within the constrained environment of a zero-knowledge proof system.
 </span><span class="attr">#[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
 
 </span><span class="kw">pub struct </span>MMRGuest {
@@ -76,7 +99,7 @@
 }
 
 <span class="kw">impl </span>MMRGuest {
-    <span class="doccomment">/// Creates a new MMR for inside zkVM
+    <span class="doccomment">/// Creates a new empty MMR instance.
     </span><span class="kw">pub fn </span>new() -&gt; <span class="self">Self </span>{
         MMRGuest {
             subroots: <span class="macro">vec!</span>[],
@@ -84,7 +107,11 @@
         }
     }
 
-    <span class="kw">pub fn </span>append(<span class="kw-2">&amp;mut </span><span class="self">self</span>, leaf: [u8; <span class="number">32</span>]) {
+    <span class="doccomment">/// Appends a new leaf to the MMR, updating subroots as needed.
+    ///
+    /// Implements the MMR append algorithm by combining consecutive pairs
+    /// of nodes to maintain the mountain range structure.
+    </span><span class="kw">pub fn </span>append(<span class="kw-2">&amp;mut </span><span class="self">self</span>, leaf: [u8; <span class="number">32</span>]) {
         <span class="kw">let </span><span class="kw-2">mut </span>current = leaf;
         <span class="kw">let </span><span class="kw-2">mut </span>size = <span class="self">self</span>.size;
         <span class="kw">while </span>size % <span class="number">2 </span>== <span class="number">1 </span>{
@@ -96,7 +123,10 @@
         <span class="self">self</span>.size += <span class="number">1</span>;
     }
 
-    <span class="doccomment">/// Verifies an inclusion proof against the current MMR root
+    <span class="doccomment">/// Verifies an inclusion proof against the MMR subroots.
+    ///
+    /// Replays the Merkle path from leaf to subroot and checks if the computed
+    /// subroot matches the stored subroot at the specified index.
     </span><span class="kw">pub fn </span>verify_proof(<span class="kw-2">&amp;</span><span class="self">self</span>, leaf: [u8; <span class="number">32</span>], mmr_proof: <span class="kw-2">&amp;</span>MMRInclusionProof) -&gt; bool {
         <span class="kw">let </span><span class="kw-2">mut </span>current_hash = leaf;
         <span class="kw">for </span>i <span class="kw">in </span><span class="number">0</span>..mmr_proof.inclusion_proof.len() {

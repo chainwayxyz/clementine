@@ -19,13 +19,31 @@
 <a href="#18" id="18">18</a>
 <a href="#19" id="19">19</a>
 <a href="#20" id="20">20</a>
-<a href="#21" id="21">21</a></pre></div><pre class="rust"><code><span class="doccomment">/// Constant bridge amount in sats
-</span><span class="kw">pub const </span>BRIDGE_AMOUNT_SATS: u64 = <span class="number">1_000_000_000</span>;
-<span class="kw">pub const </span>FIRST_FIVE_OUTPUTS: usize = <span class="number">5</span>;
-<span class="kw">pub const </span>NUMBER_OF_ASSERT_TXS: usize = <span class="number">33</span>;
-<span class="kw">pub const </span>MAX_NUMBER_OF_WATCHTOWERS: usize = <span class="number">160</span>;
+<a href="#21" id="21">21</a>
+<a href="#22" id="22">22</a>
+<a href="#23" id="23">23</a>
+<a href="#24" id="24">24</a>
+<a href="#25" id="25">25</a>
+<a href="#26" id="26">26</a>
+<a href="#27" id="27">27</a>
+<a href="#28" id="28">28</a>
+<a href="#29" id="29">29</a>
+<a href="#30" id="30">30</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Common Constants
+//! Common constants used for Risc0 circuits in the Clementine protocol.
+//! These constants are used across various modules to ensure consistency and correctness in the circuit operations.
+//! They include constants for the number of outputs, transaction assertions, and watchtowers.
+//! ## Header Chain Method IDs
+//! These constants represent the method IDs for different network header chains, such as Mainnet, Testnet4, Signet, and Regtest.
 
-<span class="kw">pub const </span>MAINNET_HEADER_CHAIN_METHOD_ID: [u32; <span class="number">8</span>] = [
+/// The number of kickoff outputs before the first assert utxo.
+</span><span class="kw">pub const </span>FIRST_FIVE_OUTPUTS: usize = <span class="number">5</span>;
+<span class="doccomment">/// The number of assertion transactions that a challenged operator should send.
+</span><span class="kw">pub const </span>NUMBER_OF_ASSERT_TXS: usize = <span class="number">33</span>;
+<span class="doccomment">/// The theoretical maximum number of watchtowers that can be used in the Clementine protocol.
+</span><span class="kw">pub const </span>MAX_NUMBER_OF_WATCHTOWERS: usize = <span class="number">160</span>;
+
+<span class="comment">// Header chain method IDs for different networks.
+</span><span class="kw">pub const </span>MAINNET_HEADER_CHAIN_METHOD_ID: [u32; <span class="number">8</span>] = [
     <span class="number">3988337386</span>, <span class="number">3527290003</span>, <span class="number">3056164372</span>, <span class="number">1827915447</span>, <span class="number">200589361</span>, <span class="number">2693538692</span>, <span class="number">3777329608</span>, <span class="number">3936971702</span>,
 ];
 
