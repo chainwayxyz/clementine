@@ -46,7 +46,7 @@ pub enum RoundEvent {
 ///     - `operator_exit`: The operator exit state, when the operator exited the protocol (collateral spent in a non-bridge tx).
 ///
 /// It has following events:
-/// - `KickoffUtxoUsed`: The kickoff utxo is used in a round tx. The state machine stores this utxo as used, and additionaly calls the owner to check if this kickoff utxo was used in a kickoff tx (If so, that will result in creation of a kickoff state machine).
+/// - `KickoffUtxoUsed`: The kickoff utxo is used in a round tx. The state machine stores this utxo as used, and additionally calls the owner to check if this kickoff utxo was used in a kickoff tx (If so, that will result in creation of a kickoff state machine).
 /// - `ReadyToReimburseSent`: The ready to reimburse tx is sent. The state machine transitions to the ready to reimburse state. Additionally, if there are unused kickoff utxos, this information is passed to the owner which can then create a "Unspent Kickoff Connector" tx.
 /// - `RoundSent`: The round tx is sent. The state machine transitions to the round tx state.
 /// - `OperatorExit`: The operator exited the protocol. The state machine transitions to the operator exit state. In this state, all tracking of the operator is stopped as operator is no longer participating in the protocol.

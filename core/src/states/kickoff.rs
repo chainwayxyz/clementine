@@ -70,7 +70,7 @@ pub enum KickoffEvent {
 /// The `KickoffStateMachine` manages the lifecycle of a single kickoff process, which is created after a kickoff transaction is detected on Bitcoin. It tracks the transactions related to the kickoff and the resulting data.
 ///
 /// # States
-/// - `kickoff_started`: The initial state after a kickoff is detected. Waits for further events such as challenges, but still tracks any commited data on Bitcoin (like latest blockhash, operator asserts, watchtower challenges, etc)
+/// - `kickoff_started`: The initial state after a kickoff is detected. Waits for further events such as challenges, but still tracks any committed data on Bitcoin (like latest blockhash, operator asserts, watchtower challenges, etc)
 /// - `challenged`: Entered if the kickoff is challenged. Watchtower challenges are only sent if the kickoff is challenged.
 /// - `closed`: Terminal state indicating the kickoff process has ended, either by kickoff finalizer utxo or burn connector utxo being spent.
 ///
