@@ -219,7 +219,8 @@ mod tests {
     async fn test_get_sync_status() {
         let mut config = create_test_config_with_thread_name().await;
         let _regtest = create_regtest_rpc(&mut config).await;
-        let (_, _, mut aggregator, _cleanup) = create_actors::<MockCitreaClient>(&config).await;
+        let actors = create_actors::<MockCitreaClient>(&config).await;
+        let mut aggregator = actors.get_aggregator();
         // wait for entities to sync a bit, this might cause flakiness, if so increase sleep time or make it serial
         tokio::time::sleep(Duration::from_secs(40)).await;
         let entity_statuses = aggregator
