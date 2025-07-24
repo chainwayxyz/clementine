@@ -64,7 +64,35 @@ pub enum KickoffEvent {
     SavedToDb,
 }
 
-/// State machine for tracking a single kickoff process (Created after a kickoff tx is detected on Bitcoin).
+/// State machine for tracking a single kickoff process in the protocol.
+///
+/// # Purpose
+/// The `KickoffStateMachine` manages the lifecycle of a single kickoff process, which is created after a kickoff transaction is detected on Bitcoin. It tracks the transactions related to the kickoff and the resulting data.
+///
+/// # States
+/// - `kickoff_started`: The initial state after a kickoff is detected. Waits for further events such as challenges, but still tracks any commited data on Bitcoin (like latest blockhash, operator asserts, watchtower challenges, etc)
+/// - `challenged`: Entered if the kickoff is challenged. Watchtower challenges are only sent if the kickoff is challenged.
+/// - `closed`: Terminal state indicating the kickoff process has ended, either by kickoff finalizer utxo or burn connector utxo being spent.
+///
+/// # Events
+/// - `Challenged`: The kickoff is challenged, transitioning to the `challenged` state.
+/// - `WatchtowerChallengeSent`: A watchtower challenge is detected on Bitcoin, stores the watchtower challenge transaction, and stores the watchtower utxo as spent.
+/// - `OperatorAssertSent`: An operator BitVM assert is detected, stores the witness of the assert utxo.
+/// - `WatchtowerChallengeTimeoutSent`: A watchtower challenge timeout is detected, stores watchtower utxo as spent.
+/// - `OperatorChallengeAckSent`: An operator challenge acknowledgment is detected, stores the witness of the challenge ack utxo, which holds the revealed preimage that can be used to disprove if the operator maliciously doesn't include the watchtower challenge in the BitVM proof. After sending this transaction, the operator is forced to use the corresponding watchtower challenge in its BitVM proof, otherwise it can be disproven.
+/// - `LatestBlockHashSent`: The latest blockhash is committed on Bitcoin, stores the witness of the latest blockhash utxo, which holds the blockhash that should be used by the operator in its BitVM proof.
+/// - `KickoffFinalizerSpent`: The kickoff finalizer is spent, ending the kickoff process, transitions to the `closed` state.
+/// - `BurnConnectorSpent`: The burn connector is spent, ending the kickoff process, transitions to the `closed` state.
+/// - `TimeToSendWatchtowerChallenge`: Time to send a watchtower challenge (used in challenged state), this event notifies the owner to create and send a watchtower challenge tx. Verifiers wait after a kickoff to send a watchtower challenge so that the total work in the watchtower challenge is as high as possible.
+/// - `SavedToDb`: Indicates the state machine has been persisted and resets the dirty flag.
+///
+/// # Behavior
+/// - The state machine maintains a set of matchers to detect relevant Bitcoin transactions and trigger corresponding events.
+/// - It tracks the progress of the kickoff, including challenges, operator actions, and finalization.
+/// - When terminal events occur (e.g., finalizer or burn connector spent), the state machine transitions to `closed` and clears all matchers.
+/// - The state machine interacts with the owner to perform protocol duties (e.g., sending challenges, asserts, or disproves) as required by the protocol logic.
+///
+/// This design ensures that all protocol-critical events related to a kickoff are tracked and handled in a robust, stateful manner, supporting both normal and adversarial scenarios.
 #[serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct KickoffStateMachine<T: Owner> {

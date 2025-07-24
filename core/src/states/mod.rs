@@ -1,3 +1,23 @@
+//! State manager module
+//!
+//! This module contains the state manager, which is responsible for holding the state machines
+//! of the system representing the current operator state for each operator, and kickoff state for each kickoff
+//! (Each operator and kickoff process has its own state machine).
+//!
+//! The main responsibility of the state manager is to process each finalized block in Bitcoin and update the state machines.
+//! The blocks are scanned for relevant Clementine tx's and internal state of the state machines is updated. This relevant data
+//! is passed on verifiers/operators when its time to send bridge transactions (like operator asserts, watchtower challenges, etc).
+//!
+//! Operator state machine: Stores where in the collateral chain the operator is. (Which round or ready to reimburse tx)
+//!     Additionally during rounds it stores which kickoff utxos of the round are spent.
+//! Kickoff state machine:
+//!     - Stores if the kickoff was challenged.
+//!     - Stores/tracks watchtower challenges, latest blockhash commit by operator, operator asserts, any relevant information needed
+//!           for proving and disproving the kickoff.
+//!
+//! For state machines we use the [statig](https://github.com/mdeloof/statig) crate.
+//!
+
 pub use crate::builder::block_cache;
 use crate::config::protocol::ProtocolParamset;
 use crate::database::{Database, DatabaseTransaction};
@@ -89,7 +109,11 @@ where
     }
 }
 
-// New state manager to hold and coordinate state machines
+/// State manager stores the state machines.
+/// It is responsible for following:
+///     - Persisting current state of the state machines to the database.
+///     - Collecting new [`SystemEvent`]s from the message queue and passing them to the state machines,
+///           thus updating the state machines.
 #[derive(Debug, Clone)]
 pub struct StateManager<T: Owner> {
     pub db: Database,
