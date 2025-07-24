@@ -597,7 +597,7 @@ trait LightClientProverRpc {
     async fn get_light_client_proof_by_l1_height(
         &self,
         l1_height: u64,
-    ) -> RpcResult<Option<sov_rollup_interface::rpc::LightClientProofResponse>>;
+    ) -> RpcResult<Option<citrea_sov_rollup_interface::rpc::LightClientProofResponse>>;
 }
 
 #[rpc(client, namespace = "eth")]
