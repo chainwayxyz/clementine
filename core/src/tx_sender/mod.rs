@@ -460,7 +460,13 @@ async fn get_fee_rate_from_rpc_provider(config: &BridgeConfig) -> Result<Amount>
         ),
         Network::Testnet4 => format!("{}testnet4/{}", rpc_url, rpc_endpoint),
         // Return early with error for unsupported networks
-        _ => return Err(eyre!("Unsupported network for mempool.space: {:?}", network).into()),
+        _ => {
+            return Err(eyre!(
+                "Unsupported network for mempool.space: {:?}",
+                config.protocol_paramset.network
+            )
+            .into())
+        }
     };
 
     let fee_sat_per_vb = reqwest::get(&url)
@@ -911,18 +917,26 @@ mod tests {
         Ok(())
     }
 
+    use crate::config::BridgeConfig;
+
     #[tokio::test]
     async fn test_mempool_space_fee_rate() {
-        let _fee_rate = get_fee_rate_from_mempool_space(bitcoin::Network::Bitcoin)
+        let mut default_config = BridgeConfig::default();
+        default_config.protocol_paramset.network = bitcoin::Network::Bitcoin;
+        let _fee_rate = get_fee_rate_from_rpc_provider(default_config)
             .await
             .unwrap();
-        let _fee_rate = get_fee_rate_from_mempool_space(bitcoin::Network::Testnet4)
+        default_config.protocol_paramset.network = bitcoin::Network::Testnet4;
+        let _fee_rate = get_fee_rate_from_rpc_provider(default_config)
             .await
             .unwrap();
-        assert!(get_fee_rate_from_mempool_space(bitcoin::Network::Regtest)
+        default_config.protocol_paramset.network = bitcoin::Network::Regtest;
+        // Regtest and Signet should return an error as they use a fixed fee rate.
+        assert!(get_fee_rate_from_rpc_provider(default_config)
             .await
             .is_err());
-        assert!(get_fee_rate_from_mempool_space(bitcoin::Network::Signet)
+        default_config.protocol_paramset.network = bitcoin::Network::Signet;
+        assert!(get_fee_rate_from_rpc_provider(default_config)
             .await
             .is_err());
     }
