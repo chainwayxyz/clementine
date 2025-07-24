@@ -672,10 +672,7 @@ impl TestCase for DisproveTest {
 async fn disprove_script_test_healthy() -> Result<()> {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
-    std::env::set_var(
-        "CITREA_DOCKER_IMAGE",
-        "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
-    );
+    std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
     let additional_disprove_test = DisproveTest {
         variant: DisproveTestVariant::HealthyState,
     };
@@ -701,10 +698,7 @@ async fn disprove_script_test_healthy() -> Result<()> {
 async fn disprove_script_test_corrupted_assert() -> Result<()> {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
-    std::env::set_var(
-        "CITREA_DOCKER_IMAGE",
-        "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
-    );
+    std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
     let additional_disprove_test = DisproveTest {
         variant: DisproveTestVariant::CorruptedAssert,
     };
