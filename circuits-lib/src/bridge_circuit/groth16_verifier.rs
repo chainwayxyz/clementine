@@ -1,3 +1,17 @@
+//! # Bridge Circuit Groth16 Verifier
+//! This module implements the Groth16 verifier for the bridge circuit.
+//! It includes functions to create digests for the work-only circuit output,
+//! verify Groth16 proofs, and handle the conversion of hexadecimal strings to decimal.
+//! The verifier uses the prepared verification keys and constants defined in the `constants.rs` module.
+//!
+//! ## Key Functions
+//! - `create_journal_digest`: Creates a digest for the journal of the work-only circuit output.
+//! - `create_output_digest`: Creates an output digest for the work-only circuit output.
+//! - `create_claim_digest`: Creates a claim digest for the work-only circuit output.
+//! - `CircuitGroth16WithTotalWork`: A struct that encapsulates the Groth16 proof with total work and genesis state hash.
+//! - `verify`: Verifies the Groth16 proof against the prepared verification key and public inputs.
+//! - `to_decimal`: Converts a hexadecimal string to a decimal string representation.
+
 use ark_bn254::{Bn254, Fr};
 use ark_groth16::PreparedVerifyingKey;
 use ark_groth16::Proof;

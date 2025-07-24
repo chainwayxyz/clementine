@@ -1,8 +1,10 @@
-use borsh::{BorshDeserialize, BorshSerialize};
-
-use crate::header_chain::{mmr_guest::MMRGuest, mmr_native::MMRInclusionProof, CircuitBlockHeader};
+//! SPV (Simplified Payment Verification)
+//! This module provides the SPV structure and verification logic for the bridge circuit.
+//! It includes the transaction, block inclusion proof, block header, and MMR inclusion proof.
 
 use super::{merkle_tree::BlockInclusionProof, transaction::CircuitTransaction};
+use crate::header_chain::{mmr_guest::MMRGuest, mmr_native::MMRInclusionProof, CircuitBlockHeader};
+use borsh::{BorshDeserialize, BorshSerialize};
 
 /// SPV (Simplified Payment Verification) structure that contains
 /// the transaction, block inclusion proof, block header, and MMR inclusion proof.
