@@ -1,3 +1,8 @@
+//! # MMR Guest - Merkle Mountain Range for zkVM
+//!
+//! Lightweight MMR implementation optimized for zero-knowledge virtual machine environments.
+//! Stores only subroots and size for efficient proof verification within circuit constraints.
+
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
@@ -5,7 +10,10 @@ use crate::common::hashes::hash_pair;
 
 use super::mmr_native::MMRInclusionProof;
 
-/// Represents the MMR for inside zkVM (guest)
+/// Merkle Mountain Range implementation for zkVM environments.
+///
+/// Maintains only the essential data (subroots and size) needed for proof verification
+/// within the constrained environment of a zero-knowledge proof system.
 #[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
 
 pub struct MMRGuest {
@@ -20,7 +28,7 @@ impl Default for MMRGuest {
 }
 
 impl MMRGuest {
-    /// Creates a new MMR for inside zkVM
+    /// Creates a new empty MMR instance.
     pub fn new() -> Self {
         MMRGuest {
             subroots: vec![],
@@ -28,6 +36,10 @@ impl MMRGuest {
         }
     }
 
+    /// Appends a new leaf to the MMR, updating subroots as needed.
+    ///
+    /// Implements the MMR append algorithm by combining consecutive pairs
+    /// of nodes to maintain the mountain range structure.
     pub fn append(&mut self, leaf: [u8; 32]) {
         let mut current = leaf;
         let mut size = self.size;
@@ -40,7 +52,10 @@ impl MMRGuest {
         self.size += 1;
     }
 
-    /// Verifies an inclusion proof against the current MMR root
+    /// Verifies an inclusion proof against the MMR subroots.
+    ///
+    /// Replays the Merkle path from leaf to subroot and checks if the computed
+    /// subroot matches the stored subroot at the specified index.
     pub fn verify_proof(&self, leaf: [u8; 32], mmr_proof: &MMRInclusionProof) -> bool {
         let mut current_hash = leaf;
         for i in 0..mmr_proof.inclusion_proof.len() {

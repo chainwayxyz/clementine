@@ -449,6 +449,11 @@ impl Aggregator {
                 participating_verifiers
                     .push((self.verifier_clients[pos].clone(), VerifierId(verifier_pk)));
             } else {
+                tracing::error!(
+                    "Verifier public key not found. Deposit data verifier keys: {:?}, self verifier keys: {:?}",
+                    deposit_data.get_verifiers(),
+                    self.verifier_keys
+                );
                 return Err(BridgeError::VerifierNotFound(verifier_pk));
             }
         }
@@ -484,11 +489,11 @@ impl Aggregator {
         &self,
         restart_tasks: bool,
     ) -> Result<Vec<EntityStatusWithId>, BridgeError> {
-        tracing::info!("Getting entities status");
+        tracing::debug!("Getting entities status");
 
         let operator_clients = self.get_operator_clients();
         let verifier_clients = self.get_verifier_clients();
-        tracing::info!("Operator clients: {:?}", operator_clients.len());
+        tracing::debug!("Operator clients: {:?}", operator_clients.len());
 
         let operator_status = join_all(
             operator_clients
@@ -546,8 +551,6 @@ impl Aggregator {
                 }),
         )
         .await;
-
-        tracing::info!("Operator status: {:?}", operator_status);
 
         // Combine operator and verifier status into a single vector
         let mut entity_statuses = operator_status;

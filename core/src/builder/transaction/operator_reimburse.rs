@@ -420,6 +420,7 @@ pub fn create_payout_txhandler(
     let op_return_txout = op_return_txout(PushBytesBuf::from(operator_xonly_pk.serialize()));
 
     let mut txhandler = TxHandlerBuilder::new(TransactionType::Payout)
+        .with_version(Version::non_standard(3))
         .add_input(
             NormalSignatureKind::NotStored,
             txin,
@@ -471,6 +472,7 @@ pub fn create_optimistic_payout_txhandler(
     let output_txout = UnspentTxOut::from_partial(output_txout.clone());
 
     let mut txhandler = TxHandlerBuilder::new(TransactionType::Payout)
+        .with_version(Version::non_standard(3))
         .add_input(
             NormalSignatureKind::NotStored,
             txin,

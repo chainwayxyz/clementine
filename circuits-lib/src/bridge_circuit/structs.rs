@@ -1,3 +1,15 @@
+//! # Bridge Circuit Structs
+//! This module defines the data structures used in the Bridge Circuit.
+//! It includes structures for light client proofs, work-only circuit outputs, and various constants used in the circuit.
+//! ## Key Structures
+//! - **LightClientProof:** Represents a light client proof with a journal and L2 height.
+//! - **WorkOnlyCircuitOutput:** Represents the output of a work-only circuit, including work done and genesis state hash.
+//! - **WatchTowerChallengeTxCommitment:** Represents a commitment to a watchtower challenge transaction, including the Groth16 proof and total work.
+//! - **WithdrawalOutpointTxid:** Represents the transaction ID (txid) of a withdrawal outpoint.
+//! - **MoveTxid:** Represents the transaction ID (txid) of a move-to-vault transaction.
+//! - **StorageProof:** Represents the storage proof for Ethereum, including UTXO, vout, and deposit proofs.
+//! - **WatchtowerInput:** Represents the input for a watchtower, including the watchtower index, challenge inputs, and transaction details.
+
 use std::ops::{Deref, DerefMut};
 
 use crate::common::constants::MAX_NUMBER_OF_WATCHTOWERS;

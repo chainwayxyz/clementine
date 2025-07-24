@@ -2316,15 +2316,20 @@ where
 
         let vk = get_verifying_key();
 
-        let res = validate_assertions(
-            &vk,
-            (first_box, second_box, third_box),
-            bitvm_pks.bitvm_pks,
-            disprove_scripts
-                .as_slice()
-                .try_into()
-                .expect("static bitvm_cache contains exactly 364 disprove scripts"),
-        );
+        let res = tokio::task::spawn_blocking(move || {
+            validate_assertions(
+                &vk,
+                (first_box, second_box, third_box),
+                bitvm_pks.bitvm_pks,
+                disprove_scripts
+                    .as_slice()
+                    .try_into()
+                    .expect("static bitvm_cache contains exactly 364 disprove scripts"),
+            )
+        })
+        .await
+        .wrap_err("Validate assertions thread failed with error")?;
+
         tracing::info!("Disprove validation result: {:?}", res);
 
         match res {
