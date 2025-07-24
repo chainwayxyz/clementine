@@ -1,8 +1,26 @@
+//! # Bridge Circuit Constants
+//!
+//! This module contains constants used in the bridge circuit, including method IDs for different networks,
+//! Groth16 related constants, and prepared verification keys. These constants are essential for the operation
+//! of the bridge circuit and are used in various cryptographic operations.
+//! ## Work-Only Circuit Method IDs
+//! The method IDs for different networks are used to identify the specific work-only circuits.
+//! They are used for verifying the total work done on a Bitcoin blockchain for a given Watchtower challenge.
+//! ## Groth16 Related Constants
+//! These constants are used in the Groth16 proof verification process.
+//! They include the post state, input, assumptions, claim tag, and output tag.
+//! They are used to recover all five public outputs of the Groth16 proof when Risc0 pipeline is used
+//! for generating the proof.
+//! ## Verification Keys
+//! The prepared verification keys are used to verify the Groth16 proofs. They are included in
+//! the binary format. The `get_prepared_vk` function can be used to retrieve the appropriate
+//! verification key according to the feature flags.
+
 use ark_bn254::Fr;
 use ark_ff::BigInt;
 use hex_literal::hex;
 
-/// Work-only circuit method IDs for different networks.
+// Work-only circuit method IDs for different networks.
 pub static MAINNET_WORK_ONLY_METHOD_ID: [u8; 32] =
     hex!("5b166499bace4ab1d4c71c03b0f0f201fc873032c346db5d8e46e8e24a820809");
 pub static TESTNET4_WORK_ONLY_METHOD_ID: [u8; 32] =

@@ -1,52 +1,49 @@
 use super::common::citrea::get_bridge_params;
 use crate::actor::Actor;
-use crate::bitvm_client::{self, SECP};
+use crate::bitvm_client::SECP;
 use crate::builder::address::create_taproot_address;
 use crate::builder::script::SpendPath;
 use crate::builder::transaction::input::{SpendableTxIn, UtxoVout};
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE};
-use crate::citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER};
+use crate::citrea::{CitreaClient, CitreaClientT};
 use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
 use crate::database::Database;
-use crate::deposit::{BaseDepositData, DepositInfo, DepositType, KickoffData};
+use crate::deposit::{BaseDepositData, DepositInfo, DepositType};
+use crate::extended_rpc::ExtendedRpc;
 use crate::header_chain_prover::HeaderChainProver;
-use crate::operator::RoundIndex;
 use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
 use crate::rpc::clementine::{
     Deposit, Empty, FeeType, FinalizedPayoutParams, KickoffId, NormalSignatureKind, RawSignedTx,
     SendMoveTxRequest, SendTxRequest, TransactionRequest, WithdrawParams,
 };
-use crate::test::common::citrea::{get_citrea_safe_withdraw_params, MockCitreaClient, SECRET_KEYS};
-use crate::test::common::tx_utils::{
-    create_tx_sender, ensure_outpoint_spent,
-    ensure_outpoint_spent_while_waiting_for_light_client_sync, ensure_tx_onchain,
-    get_txid_where_utxo_is_spent, mine_once_after_outpoint_spent_in_mempool,
+use crate::test::common::citrea::{
+    get_new_withdrawal_utxo_and_register_to_citrea, register_replacement_deposit_to_citrea,
+    start_citrea, update_config_with_citrea_e2e_values, CitreaE2EData, MockCitreaClient,
+    SECRET_KEYS,
+};
+use crate::test::common::clementine_utils::{
+    payout_and_start_kickoff, reimburse_with_optimistic_payout,
 };
 use crate::test::common::tx_utils::{
-    get_tx_from_signed_txs_with_type,
-    get_txid_where_utxo_is_spent_while_waiting_for_light_client_sync,
-    wait_for_fee_payer_utxos_to_be_in_mempool,
+    ensure_outpoint_spent, ensure_outpoint_spent_while_waiting_for_state_mngr_sync,
+    ensure_tx_onchain, get_txid_where_utxo_is_spent,
+};
+use crate::test::common::tx_utils::{
+    get_tx_from_signed_txs_with_type, wait_for_fee_payer_utxos_to_be_in_mempool,
 };
 use crate::test::common::{
-    create_actors, create_regtest_rpc, generate_withdrawal_transaction_and_signature,
-    get_deposit_address, mine_once_after_in_mempool, poll_get, poll_until_condition,
-    run_single_deposit,
+    create_actors, create_regtest_rpc, create_test_config_with_thread_name,
+    generate_withdrawal_transaction_and_signature, get_deposit_address, mine_once_after_in_mempool,
+    poll_get, poll_until_condition, run_multiple_deposits, run_single_deposit,
+    run_single_replacement_deposit,
 };
-use crate::utils::{initialize_logger, FeePayingType, TxMetadata};
-use crate::{
-    extended_rpc::ExtendedRpc,
-    test::common::{
-        citrea::{self},
-        create_test_config_with_thread_name,
-    },
-};
+use crate::utils::initialize_logger;
 use crate::{EVMAddress, UTXO};
-use alloy::primitives::U256;
 use async_trait::async_trait;
-use bitcoin::{secp256k1::SecretKey, Address, Amount};
-use bitcoin::{OutPoint, Transaction, TxOut, Txid};
+use bitcoin::secp256k1::SecretKey;
+use bitcoin::{Address, Amount, OutPoint, Transaction, TxOut, Txid};
 use bitcoincore_rpc::RpcApi;
 use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
 use citrea_e2e::config::{BatchProverConfig, LightClientProverConfig};
@@ -125,17 +122,15 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
     async fn run_test(&mut self, f: &mut TestFramework) -> citrea_e2e::Result<()> {
         tracing::info!("Starting Citrea");
 
-        let (sequencer, _full_node, lc_prover, batch_prover, da) =
-            citrea::start_citrea(Self::sequencer_config(), f)
-                .await
-                .unwrap();
+        let (sequencer, full_node, lc_prover, batch_prover, da) =
+            start_citrea(Self::sequencer_config(), f).await.unwrap();
 
         let mut config = create_test_config_with_thread_name().await;
 
         let lc_prover = lc_prover.unwrap();
         let batch_prover = batch_prover.unwrap();
 
-        citrea::update_config_with_citrea_e2e_values(
+        update_config_with_citrea_e2e_values(
             &mut config,
             da,
             sequencer,
@@ -152,7 +147,14 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         )
         .await?;
 
-        rpc.mine_blocks(12).await.unwrap();
+        let citrea_client = CitreaClient::new(
+            config.citrea_rpc_url.clone(),
+            config.citrea_light_client_prover_url.clone(),
+            config.citrea_chain_id,
+            Some(SECRET_KEYS[0].to_string().parse().unwrap()),
+        )
+        .await
+        .unwrap();
 
         if self.variant == CitreaDepositAndWithdrawE2EVariant::GenesisHeightNonZero {
             let genesis_height: u32 = 10;
@@ -175,426 +177,261 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             config.protocol_paramset = Box::leak(Box::new(paramset));
         }
 
-        let block_count = da.get_block_count().await?;
-        tracing::debug!("Block count before deposit: {:?}", block_count);
+        // do 2 deposits
+        let (mut actors, _deposit_infos, move_txids, _deposit_blockhashs, _) =
+            run_multiple_deposits::<CitreaClient>(&mut config, rpc.clone(), 2, None).await?;
 
-        tracing::info!(
-            "Deposit starting at block height: {:?}",
-            rpc.client.get_block_count().await?
-        );
-        let (
-            _verifiers,
-            mut operators,
-            mut _aggregator,
-            _cleanup,
-            deposit_params,
-            move_txid,
-            _deposit_blockhash,
-            verifiers_public_keys,
-        ) = run_single_deposit::<CitreaClient>(&mut config, rpc.clone(), None, None).await?;
+        let citrea_e2e_data = CitreaE2EData {
+            sequencer,
+            full_node,
+            lc_prover,
+            batch_prover,
+            da,
+            config: config.clone(),
+            citrea_client: &citrea_client,
+            rpc: &rpc,
+        };
+
+        let mut withdrawal_index: u32 = 0;
+
         tracing::info!(
             "Deposit ending block_height: {:?}",
             rpc.client.get_block_count().await?
         );
 
-        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
-            sequencer.client.send_publish_batch_request().await.unwrap();
+        let mut withdrawal_infos = Vec::new();
+
+        tracing::info!("Mining withdrawal utxos");
+        for move_txid in move_txids.iter() {
+            let (withdrawal_utxo, payout_txout, sig) =
+                get_new_withdrawal_utxo_and_register_to_citrea(
+                    *move_txid,
+                    &citrea_e2e_data,
+                    &actors,
+                )
+                .await;
+            withdrawal_infos.push((withdrawal_index, withdrawal_utxo, payout_txout, sig));
+            withdrawal_index += 1;
         }
 
-        // Send deposit to Citrea
-        let tx = rpc.client.get_raw_transaction(&move_txid, None).await?;
-        let tx_info = rpc
-            .client
-            .get_raw_transaction_info(&move_txid, None)
-            .await?;
-        let block = rpc.client.get_block(&tx_info.blockhash.unwrap()).await?;
-        let block_height = rpc.client.get_block_info(&block.block_hash()).await?.height as u64;
+        tracing::info!("Mining withdrawal utxos done");
 
-        citrea::wait_until_lc_contract_updated(sequencer.client.http_client(), block_height)
+        let mut reimburse_connectors = Vec::new();
+
+        // withdraw one with a kickoff with operator 0
+        let (op0_db, op0_xonly_pk) = actors.get_operator_db_and_xonly_pk_by_index(0).await;
+
+        tracing::info!("Paying and challenging withdrawal 0");
+        reimburse_connectors.push(
+            payout_and_start_kickoff(
+                actors.get_operator_client_by_index(0),
+                op0_xonly_pk,
+                &op0_db,
+                withdrawal_infos[0].0,
+                &withdrawal_infos[0].1,
+                &withdrawal_infos[0].2,
+                &withdrawal_infos[0].3,
+                &citrea_e2e_data,
+                &actors,
+            )
+            .await,
+        );
+
+        tracing::info!("Adding new verifier and operator");
+        // add a new verifier
+        let new_sk = SecretKey::new(&mut bitcoin::secp256k1::rand::thread_rng());
+        actors.add_verifier(new_sk).await.unwrap();
+        // add a new operator too that uses the new verifier
+        let new_op_sk = SecretKey::new(&mut bitcoin::secp256k1::rand::thread_rng());
+        let new_verifier_index = actors.num_total_verifiers - 1;
+        actors
+            .add_operator(new_op_sk, new_verifier_index)
             .await
             .unwrap();
 
-        // Without a deposit, the balance should be 0.
-        assert_eq!(
-            citrea::eth_get_balance(
-                sequencer.client.http_client().clone(),
-                crate::EVMAddress([1; 20]),
-            )
+        let new_agg_key = actors.get_nofn_aggregated_xonly_pk().unwrap();
+        citrea_client
+            .update_nofn_aggregated_key(new_agg_key, config.protocol_paramset(), sequencer)
             .await
-            .unwrap(),
-            0
-        );
+            .unwrap();
 
-        tracing::debug!("Depositing to Citrea...");
+        // do 3 more deposits
+        tracing::info!("Running 3 more deposits");
+        let (
+            mut actors,
+            _new_deposit_infos,
+            new_move_txids,
+            _deposit_blockhashs,
+            _verifiers_public_keys,
+        ) = run_multiple_deposits::<CitreaClient>(&mut config, rpc.clone(), 3, Some(actors))
+            .await?;
 
-        citrea::deposit(
-            &rpc,
-            sequencer.client.http_client().clone(),
-            block,
-            block_height.try_into().unwrap(),
-            tx,
-        )
-        .await?;
-
-        for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
-            sequencer.client.send_publish_batch_request().await.unwrap();
+        tracing::info!("3 more deposits done, doing 3 more withdrawals");
+        // do 3 more withdrawals
+        for move_txid in new_move_txids.iter() {
+            let (withdrawal_utxo, payout_txout, sig) =
+                get_new_withdrawal_utxo_and_register_to_citrea(
+                    *move_txid,
+                    &citrea_e2e_data,
+                    &actors,
+                )
+                .await;
+            withdrawal_infos.push((withdrawal_index, withdrawal_utxo, payout_txout, sig));
+            withdrawal_index += 1;
         }
 
-        // Wait for the deposit to be processed.
-        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-
-        // After the deposit, the balance should be non-zero.
-        assert_ne!(
-            citrea::eth_get_balance(
-                sequencer.client.http_client().clone(),
-                crate::EVMAddress([1; 20]),
-            )
-            .await
-            .unwrap(),
-            0
-        );
-
-        tracing::debug!("Deposit operations are successful.");
-
-        // Prepare withdrawal transaction.
-        let user_sk = SecretKey::from_slice(&[13u8; 32]).unwrap();
-        let withdrawal_address = Address::p2tr(
-            &SECP,
-            user_sk.x_only_public_key(&SECP).0,
-            None,
-            config.protocol_paramset().network,
-        );
-        let (withdrawal_utxo_with_txout, payout_txout, sig) =
-            generate_withdrawal_transaction_and_signature(
-                &config,
-                &rpc,
-                &withdrawal_address,
-                config.protocol_paramset().bridge_amount
-                    - config
-                        .operator_withdrawal_fee_sats
-                        .unwrap_or(Amount::from_sat(0)),
-            )
+        // do 1 kickoff with one of the new deposits using the new operator
+        let new_operator_index = actors.num_total_operators - 1;
+        let (new_operator_db, new_operator_xonly_pk) = actors
+            .get_operator_db_and_xonly_pk_by_index(new_operator_index)
             .await;
 
-        rpc.mine_blocks(1).await.unwrap();
+        reimburse_connectors.push(
+            payout_and_start_kickoff(
+                actors.get_operator_client_by_index(new_operator_index),
+                new_operator_xonly_pk,
+                &new_operator_db,
+                withdrawal_infos[2].0,
+                &withdrawal_infos[2].1,
+                &withdrawal_infos[2].2,
+                &withdrawal_infos[2].3,
+                &citrea_e2e_data,
+                &actors,
+            )
+            .await,
+        );
 
-        let block_height = rpc.client.get_block_count().await.unwrap();
+        // do 2 optimistic payouts, 1 with old 1 with new deposit, they should both work as all verifiers that
+        // signed them still exist
+        tracing::info!("Doing optimistic payout with old deposit");
+        reimburse_with_optimistic_payout(
+            &actors,
+            withdrawal_infos[1].0,
+            &withdrawal_infos[1].1,
+            &withdrawal_infos[1].2,
+            &withdrawal_infos[1].3,
+            &citrea_e2e_data,
+            move_txids[1],
+        )
+        .await
+        .unwrap();
 
-        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
-            sequencer.client.send_publish_batch_request().await.unwrap();
-        }
+        tracing::info!("Doing optimistic payout with new deposit");
+        reimburse_with_optimistic_payout(
+            &actors,
+            withdrawal_infos[3].0,
+            &withdrawal_infos[3].1,
+            &withdrawal_infos[3].2,
+            &withdrawal_infos[3].3,
+            &citrea_e2e_data,
+            new_move_txids[1],
+        )
+        .await
+        .unwrap();
 
-        citrea::wait_until_lc_contract_updated(sequencer.client.http_client(), block_height)
+        // save old nofn, then remove verifier 2
+        let old_nofn_xonly_pk = actors.get_nofn_aggregated_xonly_pk().unwrap();
+        tracing::info!("Removing verifier 2");
+        actors.remove_verifier(2).await.unwrap();
+
+        // update nofn on citrea
+        let new_agg_key = actors.get_nofn_aggregated_xonly_pk().unwrap();
+        citrea_client
+            .update_nofn_aggregated_key(new_agg_key, config.protocol_paramset(), sequencer)
             .await
             .unwrap();
 
-        let params = get_citrea_safe_withdraw_params(
+        // try an optimistic payout, should fail because a verifier that signed the withdrawal was removed
+        tracing::info!("Trying optimistic payout with removed verifier, should fail");
+        let _ = reimburse_with_optimistic_payout(
+            &actors,
+            withdrawal_infos[4].0,
+            &withdrawal_infos[4].1,
+            &withdrawal_infos[4].2,
+            &withdrawal_infos[4].3,
+            &citrea_e2e_data,
+            new_move_txids[2],
+        )
+        .await
+        .unwrap_err();
+
+        // replace the deposit
+        tracing::info!("Replacing deposit");
+        let (
+            mut actors,
+            _replacement_deposit_info,
+            replacement_move_txid,
+            _replacement_deposit_blockhash,
+        ) = run_single_replacement_deposit(
+            &mut config,
             &rpc,
-            withdrawal_utxo_with_txout.clone(),
-            payout_txout.clone(),
-            sig,
+            new_move_txids[2],
+            actors,
+            old_nofn_xonly_pk,
         )
         .await
         .unwrap();
 
-        tracing::info!("Params: {:?}", params);
-
-        let withdrawal_utxo = withdrawal_utxo_with_txout.outpoint;
-        tracing::debug!("Created withdrawal UTXO: {:?}", withdrawal_utxo);
-
-        // Without a withdrawal in Citrea, operator can't withdraw.
-        assert!(operators[0]
-            .withdraw(WithdrawParams {
-                withdrawal_id: 0,
-                input_signature: sig.serialize().to_vec(),
-                input_outpoint: Some(withdrawal_utxo.into()),
-                output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
-                output_amount: payout_txout.value.to_sat(),
-            })
-            .await
-            .is_err());
-
-        let citrea_client = CitreaClient::new(
-            config.citrea_rpc_url.clone(),
-            config.citrea_light_client_prover_url.clone(),
-            config.citrea_chain_id,
-            Some(SECRET_KEYS[0].to_string().parse().unwrap()),
+        tracing::info!("Registering replacement deposit to Citrea");
+        register_replacement_deposit_to_citrea(
+            &citrea_e2e_data,
+            replacement_move_txid,
+            withdrawal_infos[4].0,
+            &actors,
         )
         .await
         .unwrap();
 
-        // let citrea_withdrawal_tx = citrea_client
-        //     .contract
-        //     .withdraw(
-        //         FixedBytes::from(withdrawal_utxo.txid.to_raw_hash().to_byte_array()),
-        //         FixedBytes::from(withdrawal_utxo.vout.to_be_bytes()),
-        //     )
-        //     .value(U256::from(
-        //         config.protocol_paramset().bridge_amount.to_sat() * SATS_TO_WEI_MULTIPLIER,
-        //     ))
-        //     .send()
-        //     .await
-        //     .unwrap();
-        // tracing::debug!("Withdrawal TX sent in Citrea");
-
-        // // 1. force sequencer to commit
-        // for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
-        //     sequencer.client.send_publish_batch_request().await.unwrap();
-        // }
-        // tracing::debug!("Publish batch request sent");
-
-        // let receipt = citrea_withdrawal_tx.get_receipt().await.unwrap();
-        // tracing::debug!("Citrea withdrawal tx receipt: {:?}", receipt);
-
-        let citrea_withdrawal_tx = citrea_client
-            .contract
-            .safeWithdraw(params.0, params.1, params.2, params.3, params.4)
-            .value(U256::from(
-                config.protocol_paramset().bridge_amount.to_sat() * SATS_TO_WEI_MULTIPLIER,
-            ))
-            .send()
-            .await
-            .unwrap();
-        tracing::debug!("Withdrawal TX sent in Citrea");
-
-        // 1. force sequencer to commit
-        for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
-            sequencer.client.send_publish_batch_request().await.unwrap();
-        }
-        tracing::debug!("Publish batch request sent");
-
-        let receipt = citrea_withdrawal_tx.get_receipt().await.unwrap();
-        tracing::debug!("Citrea withdrawal tx receipt: {:?}", receipt);
-
-        // 2. wait until 2 commitment txs (commit, reveal) seen from DA to ensure their reveal prefix nonce is found
-        da.wait_mempool_len(2, None).await?;
-
-        // 3. generate FINALITY_DEPTH da blocks
-        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
-
-        // 4. wait for batch prover to generate proof on the finalized height
-        let finalized_height = da.get_finalized_height(None).await.unwrap();
-        batch_prover
-            .wait_for_l1_height(finalized_height, None)
-            .await?;
-        lc_prover.wait_for_l1_height(finalized_height, None).await?;
-
-        // 5. ensure 2 batch proof txs on DA (commit, reveal)
-        da.wait_mempool_len(2, None).await?;
-
-        // 6. generate FINALITY_DEPTH da blocks
-        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
-
-        let finalized_height = da.get_finalized_height(None).await.unwrap();
-
-        tracing::info!("Finalized height: {:?}", finalized_height);
-        lc_prover.wait_for_l1_height(finalized_height, None).await?;
-        tracing::info!("Waited for L1 height {}", finalized_height);
-
-        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
-
-        // Setup tx_sender for sending transactions
-        let verifier_0_config = {
-            let mut config = config.clone();
-            config.db_name += "0";
-            config
-        };
-
-        let op0_xonly_pk = verifiers_public_keys[0].x_only_public_key().0;
-
-        let db = Database::new(&verifier_0_config)
-            .await
-            .expect("failed to create database");
-
+        // do optimistic payout with new replacement deposit, should work now
+        // mine blocks until the replacement deposit is processed in handle_finalized_block
         loop {
-            let withdrawal_response = operators[0]
-                .withdraw(WithdrawParams {
-                    withdrawal_id: 0,
-                    input_signature: sig.serialize().to_vec(),
-                    input_outpoint: Some(withdrawal_utxo.into()),
-                    output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
-                    output_amount: payout_txout.value.to_sat(),
-                })
-                .await;
-
-            tracing::info!("Withdrawal response: {:?}", withdrawal_response);
-
-            match withdrawal_response {
-                Ok(_) => break,
-                Err(e) => tracing::info!("Withdrawal error: {:?}", e),
-            };
-
-            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            tracing::info!(
+                "Trying to reimburse with optimistic payout for the replacement deposit"
+            );
+            let res = reimburse_with_optimistic_payout(
+                &actors,
+                withdrawal_infos[4].0,
+                &withdrawal_infos[4].1,
+                &withdrawal_infos[4].2,
+                &withdrawal_infos[4].3,
+                &citrea_e2e_data,
+                replacement_move_txid,
+            )
+            .await;
+            if res.is_ok() {
+                break;
+            }
+            rpc.mine_blocks_while_synced(1, &actors).await.unwrap();
         }
 
-        let payout_txid = get_txid_where_utxo_is_spent_while_waiting_for_light_client_sync(
-            &rpc,
-            lc_prover,
-            withdrawal_utxo,
-        )
-        .await
-        .unwrap();
-        tracing::info!("Payout txid: {:?}", payout_txid);
-
-        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
-
-        // wait until payout part is not null
-        while db
-            .get_first_unhandled_payout_by_operator_xonly_pk(None, op0_xonly_pk)
-            .await?
-            .is_none()
-        {
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        }
-
-        tracing::info!("Waiting until payout is handled");
-        // wait until payout is handled
-        while db
-            .get_first_unhandled_payout_by_operator_xonly_pk(None, op0_xonly_pk)
-            .await?
-            .is_some()
-        {
-            tracing::info!("Payout is not handled yet");
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        }
-
-        let kickoff_txid = db
-            .get_handled_payout_kickoff_txid(None, payout_txid)
-            .await?
-            .expect("Payout must be handled");
-
-        let reimburse_connector = OutPoint {
-            txid: kickoff_txid,
-            vout: UtxoVout::ReimburseInKickoff.get_vout(),
-        };
-
-        let kickoff_block_height =
-            mine_once_after_in_mempool(&rpc, kickoff_txid, Some("Kickoff tx"), Some(300)).await?;
-
-        let kickoff_tx = rpc.get_tx_of_txid(&kickoff_txid).await?;
-
-        // wrongfully challenge operator
-        let kickoff_idx = kickoff_tx.input[0].previous_output.vout - 1;
-        let base_tx_req = TransactionRequest {
-            kickoff_id: Some(
-                KickoffData {
-                    operator_xonly_pk: op0_xonly_pk,
-                    round_idx: RoundIndex::Round(0),
-                    kickoff_idx: kickoff_idx as u32,
-                }
-                .into(),
-            ),
-            deposit_outpoint: Some(deposit_params.deposit_outpoint.into()),
-        };
-        let all_txs = operators[0]
-            .internal_create_signed_txs(base_tx_req.clone())
-            .await?
-            .into_inner();
-
-        let challenge_tx = bitcoin::consensus::deserialize(
-            &all_txs
-                .signed_txs
-                .iter()
-                .find(|tx| tx.transaction_type == Some(TransactionType::Challenge.into()))
-                .unwrap()
-                .raw_tx,
-        )
-        .unwrap();
-
-        let kickoff_tx: Transaction = bitcoin::consensus::deserialize(
-            &all_txs
-                .signed_txs
-                .iter()
-                .find(|tx| tx.transaction_type == Some(TransactionType::Kickoff.into()))
-                .unwrap()
-                .raw_tx,
-        )
-        .unwrap();
-
-        assert_eq!(kickoff_txid, kickoff_tx.compute_txid());
-
-        // send wrong challenge tx
-        let (tx_sender, tx_sender_db) = create_tx_sender(&config, 0).await.unwrap();
-        let mut db_commit = tx_sender_db.begin_transaction().await.unwrap();
-        tx_sender
-            .insert_try_to_send(
-                &mut db_commit,
-                Some(TxMetadata {
-                    deposit_outpoint: None,
-                    operator_xonly_pk: None,
-                    round_idx: None,
-                    kickoff_idx: None,
-                    tx_type: TransactionType::Challenge,
-                }),
-                &challenge_tx,
-                FeePayingType::RBF,
-                None,
-                &[],
-                &[],
-                &[],
-                &[],
+        // wait for all past kickoff reimburse connectors to be spent
+        tracing::info!("Waiting for all past kickoff reimburse connectors to be spent");
+        for reimburse_connector in reimburse_connectors.iter() {
+            ensure_outpoint_spent_while_waiting_for_state_mngr_sync(
+                &rpc,
+                *reimburse_connector,
+                &actors,
             )
             .await
             .unwrap();
-        db_commit.commit().await.unwrap();
+        }
 
-        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
-
-        let challenge_outpoint = OutPoint {
-            txid: kickoff_txid,
-            vout: UtxoVout::Challenge.get_vout(),
-        };
-        tracing::warn!(
-            "Wait until challenge tx is in mempool, kickoff block height: {:?}",
-            kickoff_block_height
-        );
-        // wait until challenge tx is in mempool
-        mine_once_after_outpoint_spent_in_mempool(&rpc, challenge_outpoint)
-            .await
-            .unwrap();
-        tracing::warn!("Mined once after challenge tx is in mempool");
-
-        // wait until the light client prover is synced to the same height
-        lc_prover
-            .wait_for_l1_height(kickoff_block_height as u64, None)
-            .await?;
-
-        // Ensure the reimburse connector is spent
-        ensure_outpoint_spent_while_waiting_for_light_client_sync(
-            &rpc,
-            lc_prover,
-            reimburse_connector,
+        // remove an operator and try a deposit, it should fail because the  operator is still in verifiers DB.
+        // to make it not fail, operator data needs to be removed from verifiers DB.
+        // if the behavior is changed in the future, the test should be updated.
+        tracing::info!("Removing operator 1");
+        actors.remove_operator(1).await.unwrap();
+        // try to do a deposit, it should fail.
+        assert!(run_single_deposit::<CitreaClient>(
+            &mut config,
+            rpc.clone(),
+            None,
+            Some(actors),
+            None
         )
         .await
-        .unwrap();
+        .is_err());
 
-        // Create assert transactions for operator 0
-        let assert_txs = operators[0]
-            .internal_create_assert_commitment_txs(base_tx_req)
-            .await?
-            .into_inner();
-
-        // check if asserts were sent due to challenge
-        let operator_assert_txids = (0
-            ..bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs())
-            .map(|i| {
-                let assert_tx =
-                    get_tx_from_signed_txs_with_type(&assert_txs, TransactionType::MiniAssert(i))
-                        .unwrap();
-                assert_tx.compute_txid()
-            })
-            .collect::<Vec<Txid>>();
-        for (idx, txid) in operator_assert_txids.into_iter().enumerate() {
-            assert!(
-                rpc.is_tx_on_chain(&txid).await.unwrap(),
-                "Mini assert {} was not found in the chain",
-                idx
-            );
-        }
         Ok(())
     }
 }
@@ -604,35 +441,28 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 /// # Arrange
 /// * Sets up Citrea infrastructure (sequencer, prover, DA layer)
 /// * Configures bridge parameters and connects to Bitcoin regtest
+/// * At first there are 2 operators; 0 and 1, and 4 verifiers; 0, 1, 2, 3
 ///
 /// # Act
-/// * Executes a deposit from Bitcoin to Citrea
-/// * Waits for deposit finalization and batch proof generation
-/// * Executes a withdrawal from Citrea back to Bitcoin
-/// * Processes the payout transaction
-///
-/// # Assert
-/// * Verifies balance is 0 before deposit and non-zero after deposit
-/// * Confirms withdrawal fails without Citrea-side withdrawal
-/// * Verifies payout transaction is successfully processed
-/// * Confirms kickoff transaction is created and mined
-/// * Verifies reimburse connector is spent (proper payout handling)
-#[tokio::test]
-#[ignore = "This test does the same thing as disprove_script_test_healthy"]
-async fn citrea_deposit_and_withdraw_e2e() -> citrea_e2e::Result<()> {
-    initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
-        .expect("Failed to initialize logger");
-    std::env::set_var(
-        "CITREA_DOCKER_IMAGE",
-        "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
-    );
-    let citrea_e2e = CitreaDepositAndWithdrawE2E {
-        variant: CitreaDepositAndWithdrawE2EVariant::GenesisHeightZero,
-    };
-    TestCaseRunner::new(citrea_e2e).run().await
-}
-
-#[tokio::test]
+/// * Executes 2 deposits 0 and 1 from Bitcoin to Citrea
+/// * Creates 2 withdrawal utxos and registers them to Citrea, no payout performerd yet
+/// * Operator 0 pays and starts the kickoff for deposit 0
+/// * New verifier 4 and new operator 2 that uses verifier 4 are added
+/// * 3 new deposits are performed; 2, 3, 4
+/// * Operator 2 pays and starts the kickoff for deposit 2
+/// * Optimistic payout for deposit 1 is performed
+/// * Optimistic payout for deposit 3 is performed
+/// * Verifier 2 leaves the verifier set
+/// * Optimistic payout for deposit 4 is attempted but fails because verifier 2 is not in signer set anymore,
+/// but it is one of the nofn in deposit 4
+/// * A replacement deposit is performed for deposit 4
+/// * Optimistic payout for deposit 4 is performed with the new replacement deposit
+/// * Remove operator 1, try to do a deposit, it should fail because the operator is still in verifiers DB.
+/// * A check to see if reimburse connectors for the kickoffs created previously (for deposit 0 and 2) are spent,
+///     meaning operators 0 and 2 got their funds back (the kickoff process is independent of actor set changes, they should
+///     always work if the collected signatures are correct from start)
+/// * Removes one operator and tries to do a deposit, it should fail because the operator is still in verifiers DB.
+#[tokio::test(flavor = "multi_thread")]
 #[ignore = "Run in standalone VM in CI"]
 async fn citrea_deposit_and_withdraw_e2e_non_zero_genesis_height() -> citrea_e2e::Result<()> {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
@@ -643,6 +473,21 @@ async fn citrea_deposit_and_withdraw_e2e_non_zero_genesis_height() -> citrea_e2e
     );
     let citrea_e2e = CitreaDepositAndWithdrawE2E {
         variant: CitreaDepositAndWithdrawE2EVariant::GenesisHeightNonZero,
+    };
+    TestCaseRunner::new(citrea_e2e).run().await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "Ignored, currently no specific reason to test with genesis height zero"]
+async fn citrea_deposit_and_withdraw_e2e() -> citrea_e2e::Result<()> {
+    initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
+        .expect("Failed to initialize logger");
+    std::env::set_var(
+        "CITREA_DOCKER_IMAGE",
+        "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
+    );
+    let citrea_e2e = CitreaDepositAndWithdrawE2E {
+        variant: CitreaDepositAndWithdrawE2EVariant::GenesisHeightZero,
     };
     TestCaseRunner::new(citrea_e2e).run().await
 }
@@ -685,18 +530,10 @@ async fn mock_citrea_run_truthful() {
         "Deposit starting block_height: {:?}",
         rpc.client.get_block_count().await.unwrap()
     );
-    let (
-        _verifiers,
-        mut operators,
-        _aggregator,
-        _cleanup,
-        _deposit_params,
-        move_txid,
-        _deposit_blockhash,
-        verifiers_public_keys,
-    ) = run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None)
-        .await
-        .unwrap();
+    let (actors, _deposit_params, move_txid, _deposit_blockhash, verifiers_public_keys) =
+        run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None, None)
+            .await
+            .unwrap();
 
     // sleep for 1 second
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
@@ -776,9 +613,10 @@ async fn mock_citrea_run_truthful() {
     //     .unwrap();
 
     tracing::info!("Withdrawal tx sent");
+    let mut operator0 = actors.get_operator_client_by_index(0);
 
     loop {
-        let withdrawal_response = operators[0]
+        let withdrawal_response = operator0
             .withdraw(WithdrawParams {
                 withdrawal_id: 0,
                 input_signature: sig.serialize().to_vec(),
@@ -931,18 +769,10 @@ async fn mock_citrea_run_truthful_opt_payout() {
         "Deposit starting block_height: {:?}",
         rpc.client.get_block_count().await.unwrap()
     );
-    let (
-        _verifiers,
-        _operators,
-        mut aggregator,
-        _cleanup,
-        _deposit_params,
-        move_txid,
-        _deposit_blockhash,
-        _verifiers_public_keys,
-    ) = run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None)
-        .await
-        .unwrap();
+    let (actors, _deposit_params, move_txid, _deposit_blockhash, _verifiers_public_keys) =
+        run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None, None)
+            .await
+            .unwrap();
 
     // sleep for 1 second
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
@@ -1001,7 +831,7 @@ async fn mock_citrea_run_truthful_opt_payout() {
                 .unwrap_or(Amount::from_sat(0)),
     )
     .await;
-
+    let mut aggregator = actors.get_aggregator();
     // should give err before deposit is confirmed on citrea
     assert!(aggregator
         .optimistic_payout(WithdrawParams {
@@ -1116,18 +946,10 @@ async fn mock_citrea_run_malicious() {
         "Deposit starting block_height: {:?}",
         rpc.client.get_block_count().await.unwrap()
     );
-    let (
-        _verifiers,
-        mut operators,
-        _aggregator,
-        _cleanup,
-        deposit_info,
-        move_txid,
-        _deposit_blockhash,
-        _,
-    ) = run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None)
-        .await
-        .unwrap();
+    let (actors, deposit_info, move_txid, _deposit_blockhash, _) =
+        run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None, None)
+            .await
+            .unwrap();
     let db = Database::new(&BridgeConfig {
         db_name: config.db_name.clone() + "0",
         ..config.clone()
@@ -1215,7 +1037,8 @@ async fn mock_citrea_run_malicious() {
 
     rpc.mine_blocks(DEFAULT_FINALITY_DEPTH + 2).await.unwrap();
 
-    let kickoff_txid: bitcoin::Txid = operators[0]
+    let mut operator0 = actors.get_operator_client_by_index(0);
+    let kickoff_txid: bitcoin::Txid = operator0
         .internal_finalized_payout(FinalizedPayoutParams {
             payout_blockhash: vec![0u8; 32],
             deposit_outpoint: Some(deposit_info.deposit_outpoint.into()),
@@ -1255,7 +1078,7 @@ async fn mock_citrea_run_malicious() {
     }
     assert!(tx.output[0].value == config.protocol_paramset().operator_challenge_amount);
     // send second kickoff tx
-    let kickoff_txid_2: bitcoin::Txid = operators[0]
+    let kickoff_txid_2: bitcoin::Txid = operator0
         .internal_finalized_payout(FinalizedPayoutParams {
             payout_blockhash: vec![0u8; 32],
             deposit_outpoint: Some(deposit_info.deposit_outpoint.into()),
@@ -1331,18 +1154,10 @@ async fn mock_citrea_run_malicious_after_exit() {
         "Deposit starting block_height: {:?}",
         rpc.client.get_block_count().await.unwrap()
     );
-    let (
-        _verifiers,
-        mut operators,
-        mut aggregator,
-        _cleanup,
-        deposit_info,
-        move_txid,
-        _deposit_blockhash,
-        verifier_pks,
-    ) = run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None)
-        .await
-        .unwrap();
+    let (actors, deposit_info, move_txid, _deposit_blockhash, verifier_pks) =
+        run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None, None)
+            .await
+            .unwrap();
 
     // sleep for 1 second
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
@@ -1427,7 +1242,8 @@ async fn mock_citrea_run_malicious_after_exit() {
         config.protocol_paramset().network,
     );
 
-    let first_round_txs = operators[0]
+    let mut operator0 = actors.get_operator_client_by_index(0);
+    let first_round_txs = operator0
         .internal_create_signed_txs(TransactionRequest {
             deposit_outpoint: Some(deposit_info.deposit_outpoint.into()),
             kickoff_id: Some(KickoffId {
@@ -1444,6 +1260,7 @@ async fn mock_citrea_run_malicious_after_exit() {
     let round_tx =
         get_tx_from_signed_txs_with_type(&first_round_txs, TransactionType::Round).unwrap();
     // send first round tx
+    let mut aggregator = actors.get_aggregator();
     aggregator
         .internal_send_tx(SendTxRequest {
             raw_tx: Some(RawSignedTx {
@@ -1500,7 +1317,7 @@ async fn mock_citrea_run_malicious_after_exit() {
     // because operator collaterl was spent outside of the protocol, new deposit with this operator should be rejected
     assert!(aggregator.new_deposit(deposit).await.is_err());
 
-    let kickoff_txid: bitcoin::Txid = operators[0]
+    let kickoff_txid: bitcoin::Txid = operator0
         .internal_finalized_payout(FinalizedPayoutParams {
             payout_blockhash: vec![0u8; 32],
             deposit_outpoint: Some(deposit_info.deposit_outpoint.into()),
@@ -1680,8 +1497,9 @@ async fn concurrent_deposits_and_withdrawals() {
     .await
     .unwrap();
 
-    let (_verifiers, operators, mut aggregator, _cleanup) =
-        create_actors::<MockCitreaClient>(&config).await;
+    let actors = create_actors::<MockCitreaClient>(&config).await;
+    let mut aggregator = actors.get_aggregator();
+
     let verifiers_public_keys: Vec<bitcoin::secp256k1::PublicKey> = aggregator
         .setup(Request::new(Empty {}))
         .await
@@ -1739,14 +1557,17 @@ async fn concurrent_deposits_and_withdrawals() {
         sigs.push(sig);
     }
 
-    rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
+    rpc.mine_blocks(DEFAULT_FINALITY_DEPTH + 2).await.unwrap();
     sleep(Duration::from_secs(10)).await;
 
     let withdrawal_input_outpoints = withdrawal_utxos.clone();
+    let actors_ref = &actors;
 
     poll_get(
         async move || {
-            let mut operator0s = (0..count).map(|_| operators[0].clone()).collect::<Vec<_>>();
+            let mut operator0s = (0..count)
+                .map(|_| actors_ref.get_operator_client_by_index(0))
+                .collect::<Vec<_>>();
             let mut withdrawal_requests = Vec::new();
 
             for (i, operator) in operator0s.iter_mut().enumerate() {
@@ -1775,6 +1596,7 @@ async fn concurrent_deposits_and_withdrawals() {
     .await
     .unwrap();
 
+    tracing::info!("Checking if withdrawal input outpoints are spent");
     // check if withdrawal input outpoints are spent
     for outpoint in withdrawal_input_outpoints.iter() {
         ensure_tx_onchain(&rpc, outpoint.txid).await.unwrap();
@@ -1796,8 +1618,8 @@ async fn concurrent_deposits_and_optimistic_payouts() {
     .await
     .unwrap();
 
-    let (_verifiers, _operators, mut aggregator, _cleanup) =
-        create_actors::<MockCitreaClient>(&config).await;
+    let actors = create_actors::<MockCitreaClient>(&config).await;
+    let mut aggregator = actors.get_aggregator();
     let verifiers_public_keys: Vec<bitcoin::secp256k1::PublicKey> = aggregator
         .setup(Request::new(Empty {}))
         .await
@@ -1855,7 +1677,7 @@ async fn concurrent_deposits_and_optimistic_payouts() {
         sigs.push(sig);
     }
 
-    rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
+    rpc.mine_blocks(DEFAULT_FINALITY_DEPTH + 2).await.unwrap();
     sleep(Duration::from_secs(10)).await;
 
     poll_until_condition(
