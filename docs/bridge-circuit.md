@@ -17,7 +17,7 @@ The Bridge Circuit integrates with the BitVM2 design to enable the verification 
 By using BitVM2, Clementine can enforce the complex rules of the Bridge Circuit in a trust-minimized way, leveraging Bitcoin's security for dispute resolution while keeping the vast majority of the computational work off-chain.
 
 ### The Disprove Process
-If a Challenger disagrees with the output of the Operator's off-chain execution of the bridge program, they can post a Disprove transaction. This transaction pinpoints the specific step of the program where the Operator's computation was incorrect and executes that step on-chain. If the on-chain execution confirms the Operator's error, the Challenger is able to take the Operator's collateral. There are two types of scripts that can be executed in a Disprove transaction:
+If a Challenger finds an error with the output of the Operator's off-chain execution of the bridge program, they can post a Disprove transaction. This transaction pinpoints the specific step of the program where the Operator's computation was incorrect and executes that step on-chain. If the on-chain execution confirms the Operator's error, the Challenger is able to take the Operator's collateral. There are two types of scripts that can be executed in a Disprove transaction:
 - BridgeDisproveScript: This script verifies the main Bridge Circuit. It uses a Groth16 proof to check several critical conditions related to bridge operations.
 - ClementineDisproveScript: This script ensures that the inputs provided to the Bridge Circuit are consistent with the on-chain state of the relevant data, such as Watchtower challenges and block hashes (committed via WOTS). It verifies that the Operator has not censored or ignored any valid challenges from the Watchtowers, and did use the data they committed on-chain.
 
@@ -29,16 +29,16 @@ If a Challenger disagrees with the output of the Operator's off-chain execution 
 * **Watchtower Challenge Processing:**
     * Verifies the Schnorr signature on each Watchtower's challenge transaction and if verification is successful, sets the corresponding bit.
     * Sorts Watchtower challenges that passed the Schnorr signature verification by their `total_work` in descending order.
-    * Verifies the Groth16 proof of the Watchtower with the highest `total_work` to get `max_total_work`.
+    * Verifies the Groth16 proofs of the Watchtowers until the first valid proof. This will be the highest valid `total_work`, hence the name `max_total_work`.
     * Asserts that the Operator's `total_work` from their HCP is greater than the `max_total_work` from the Watchtowers.
 
 * **Simple Payment Verification (SPV):**
     * Verifies the inclusion of the payout transaction within the claimed Bitcoin block using a Merkle tree proof based on `mid_state_txid`.
-    * Verifies the inclusion of the block header in the MMR of the canonical chain.
+    * Verifies the inclusion of the block header in the (Merkle Mountain Range) MMR of the canonical chain.
 
 * **Light Client Proof (LCP) Verification:**
     * Verifies the `LightClientProof` by calling `env::verify` with the correct `LC_IMAGE_ID`.
-    * Performs a sanity check to ensure the L1 block hash from the LCP output matches the payout transaction's block hash.
+    * Performs a check to ensure the L1 block hash from the LCP output matches the payout transaction's block hash.
 
 * **EVM Storage Proof Verification:**
     * Verifies the storage proof for the deposit UTXO using the state root from the verified LCP.
