@@ -5,8 +5,7 @@
 //! ## Header Chain Method IDs
 //! These constants represent the method IDs for different network header chains, such as Mainnet, Testnet4, Signet, and Regtest.
 
-/// The number of special outputs in the kickoff transaction. These outputs
-/// are used to execute the logical operations of the bridge.
+/// The number of kickoff outputs before the first assert utxo.
 pub const FIRST_FIVE_OUTPUTS: usize = 5;
 /// The number of assertion transactions that a challenged operator should send.
 pub const NUMBER_OF_ASSERT_TXS: usize = 33;
