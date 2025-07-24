@@ -71,6 +71,11 @@ pub struct TestParams {
 
     pub generate_varying_total_works_first_two_valid: bool,
 
+    /// Secret keys belonging to the security council.
+    /// Should match the xonly public keys in the security council of config, otherwise
+    /// some tests will fail.
+    pub sec_council_secret_keys: Vec<SecretKey>,
+
     #[serde(default)]
     pub timeout_params: TimeoutTestParams,
 }
@@ -504,6 +509,16 @@ impl Default for TestParams {
             generate_varying_total_works_insufficient_total_work: false,
             generate_varying_total_works: false,
             generate_varying_total_works_first_two_valid: false,
+            sec_council_secret_keys: vec![
+                SecretKey::from_str(
+                    "5555555555555555555555555555555555555555555555555555555555555555",
+                )
+                .expect("known valid input"),
+                SecretKey::from_str(
+                    "6666666666666666666666666666666666666666666666666666666666666666",
+                )
+                .expect("known valid input"),
+            ],
         }
     }
 }

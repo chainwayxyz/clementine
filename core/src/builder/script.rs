@@ -269,6 +269,21 @@ impl Multisig {
             threshold: security_council.threshold,
         }
     }
+
+    pub fn generate_script_inputs(
+        &self,
+        signatures: &[Option<taproot::Signature>],
+    ) -> eyre::Result<Witness> {
+        let mut witness = Witness::new();
+
+        for signature in signatures.iter().rev() {
+            match signature {
+                Some(sig) => witness.push(sig.serialize()),
+                None => witness.push([]),
+            }
+        }
+        Ok(witness)
+    }
 }
 
 /// Struct for scripts that commit to a message using Winternitz keys
