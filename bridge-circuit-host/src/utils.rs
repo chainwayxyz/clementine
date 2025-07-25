@@ -2,7 +2,7 @@ use ark_bn254::{Bn254, Fq, Fq2, G1Affine, G2Affine};
 use ark_groth16::VerifyingKey;
 use bitcoin::{opcodes, script::Instruction, Transaction};
 use risc0_circuit_recursion::control_id::BN254_IDENTITY_CONTROL_ID;
-use risc0_zkvm::{is_dev_mode, sha::Digestible, SuccinctReceiptVerifierParameters, SystemState};
+use risc0_zkvm::{sha::Digestible, SuccinctReceiptVerifierParameters, SystemState};
 use sha2::{Digest, Sha256};
 use std::str::FromStr;
 
@@ -233,6 +233,18 @@ pub fn get_ark_verifying_key_dev_mode_bridge() -> ark_groth16::VerifyingKey<Bn25
         delta_g2,
         gamma_abc_g1,
     }
+}
+
+// Clementine do not use the runtime option to determine dev mode which is newly added in risc0_zkvm.
+// Instead, it uses the environment variable RISC0_DEV_MODE to determine if it is in dev mode.
+// However is_dev_mode function from risc0_zkvm is deprecated.
+// So we implement our own version of is_dev_mode.
+pub fn is_dev_mode() -> bool {
+    std::env::var("RISC0_DEV_MODE")
+        .ok()
+        .map(|x| x.to_lowercase())
+        .filter(|x| x == "1" || x == "true" || x == "yes")
+        .is_some()
 }
 
 pub fn get_verifying_key() -> ark_groth16::VerifyingKey<Bn254> {

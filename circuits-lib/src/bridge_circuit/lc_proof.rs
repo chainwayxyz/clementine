@@ -1,3 +1,7 @@
+//! # Light Client Proof Verifier
+//! This module implements the light client proof verifier for the bridge circuit.
+//! It includes functions to verify light client proofs and extracting the light client circuit output.
+
 use super::structs::LightClientProof;
 use citrea_sov_rollup_interface::zk::light_client_proof::output::LightClientCircuitOutput;
 use risc0_zkvm::guest::env;
