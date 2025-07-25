@@ -2,7 +2,7 @@ use crate::docker::{stark_to_bitvm2_g16, stark_to_bitvm2_g16_dev_mode};
 use crate::structs::{
     BridgeCircuitBitvmInputs, BridgeCircuitHostParams, SuccinctBridgeCircuitPublicInputs,
 };
-use crate::utils::calculate_succinct_output_prefix;
+use crate::utils::{calculate_succinct_output_prefix, is_dev_mode};
 use ark_bn254::Bn254;
 use bitcoin::Transaction;
 use borsh;
@@ -20,7 +20,10 @@ use circuits_lib::common::constants::{
     TESTNET4_HEADER_CHAIN_METHOD_ID,
 };
 use circuits_lib::header_chain::mmr_native::MMRNative;
-use risc0_zkvm::{compute_image_id, default_prover, is_dev_mode, ExecutorEnv, ProverOpts, Receipt};
+use risc0_circuit_recursion::prove::Prover;
+use risc0_zkvm::{
+    compute_image_id, default_prover, ExecutorEnv, ProverOpts, Receipt, VerifierContext,
+};
 
 pub const REGTEST_BRIDGE_CIRCUIT_ELF: &[u8] =
     include_bytes!("../../risc0-circuits/elfs/regtest-bridge-circuit-guest.bin");
@@ -242,6 +245,9 @@ pub fn prove_bridge_circuit(
             &succinct_receipt_journal,
         )?
     };
+
+    let verifier_context = VerifierContext::default();
+    verifier_context.dev_mode();
 
     tracing::info!("Bridge circuit proof (Groth16) generated");
 
