@@ -2,8 +2,8 @@ use crate::builder::transaction::TransactionType;
 use crate::errors::BridgeError;
 use crate::operator::RoundIndex;
 use crate::rpc::clementine::VergenResponse;
-use bitcoin::{OutPoint, TapNodeHash, XOnlyPublicKey};
-use eyre::Context as _;
+use bitcoin::{Address, OutPoint, ScriptBuf, TapNodeHash, WitnessVersion, XOnlyPublicKey};
+use eyre::{Context as _, ContextCompat};
 use futures::future::try_join_all;
 use http::HeaderValue;
 use serde::{Deserialize, Serialize};
@@ -393,11 +393,48 @@ pub trait Last20Bytes {
     fn last_20_bytes(self) -> [u8; 20];
 }
 
+pub trait TryLast20Bytes {
+    fn try_last_20_bytes(self) -> Result<[u8; 20], BridgeError>;
+}
+
 impl Last20Bytes for [u8; 32] {
     fn last_20_bytes(self) -> [u8; 20] {
         let mut result = [0u8; 20];
         result.copy_from_slice(&self[12..32]);
         result
+    }
+}
+
+pub trait ScriptBufExt {
+    fn try_get_taproot_pk(&self) -> Result<XOnlyPublicKey, BridgeError>;
+}
+
+impl ScriptBufExt for ScriptBuf {
+    fn try_get_taproot_pk(&self) -> Result<XOnlyPublicKey, BridgeError> {
+        if WitnessVersion::try_from(self.first_opcode().wrap_err("Script is empty")?)
+            .wrap_err("Script's first opcode is not a valid witness version")?
+            != WitnessVersion::V1
+        {
+            return Err(
+                eyre::eyre!("Script is not a valid P2TR script (not Witness Version 1)").into(),
+            );
+        }
+        if self.len() != 34 {
+            return Err(eyre::eyre!("Script is not a valid P2TR script (not 34 bytes)").into());
+        }
+        Ok(XOnlyPublicKey::from_slice(&self.as_bytes()[2..34])
+            .wrap_err("Failed to parse XOnlyPublicKey from script")?)
+    }
+}
+
+impl TryLast20Bytes for Vec<u8> {
+    fn try_last_20_bytes(self) -> Result<[u8; 20], BridgeError> {
+        if self.len() < 20 {
+            return Err(eyre::eyre!("Input is too short to contain 20 bytes").into());
+        }
+        let mut result = [0u8; 20];
+        result.copy_from_slice(&self[self.len() - 20..]);
+        Ok(result)
     }
 }
 
