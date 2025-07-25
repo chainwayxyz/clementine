@@ -328,12 +328,14 @@ impl CitreaClientT for CitreaClient {
         tracing::info!("Contract created");
 
         let client = HttpClientBuilder::default()
+            .request_timeout(Duration::from_secs(30))
             .build(citrea_rpc_url)
             .wrap_err("Failed to create Citrea RPC client")?;
 
         tracing::info!("Citrea RPC client created");
 
         let light_client_prover_client = HttpClientBuilder::default()
+            .request_timeout(Duration::from_secs(30))
             .build(light_client_prover_url)
             .wrap_err("Failed to create Citrea LCP RPC client")?;
 
