@@ -44,7 +44,7 @@ sov-rollup-interface = { git = "https://github.com/chainwayxyz/citrea.git", rev 
   "native",
 ] }
 
-citrea-sov-rollup-interface = { git = "https://github.com/chainwayxyz/citrea", tag = "v0.7.0", package = "sov-rollup-interface" }
+citrea-sov-rollup-interface = { git = "https://github.com/chainwayxyz/citrea", tag = "v0.7.2", package = "sov-rollup-interface" }
 
 # bitcoin
 bitcoin = { version = "0.32.5", features = ["serde", "base64"] }
