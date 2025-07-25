@@ -1263,6 +1263,7 @@
     TESTNET4_HEADER_CHAIN_ELF, TESTNET4_WORK_ONLY_ELF,
 };
 <span class="kw">use </span>bridge_circuit_host::docker::dev_stark_to_risc0_g16;
+<span class="kw">use </span>bridge_circuit_host::utils::is_dev_mode;
 <span class="kw">use </span>circuits_lib::bridge_circuit::structs::{WorkOnlyCircuitInput, WorkOnlyCircuitOutput};
 <span class="kw">use </span>circuits_lib::header_chain::mmr_guest::MMRGuest;
 <span class="kw">use </span>circuits_lib::header_chain::{
@@ -1271,7 +1272,6 @@
 };
 <span class="kw">use </span>eyre::{eyre, Context, OptionExt};
 <span class="kw">use </span>lazy_static::lazy_static;
-<span class="kw">use </span>risc0_zkvm::is_dev_mode;
 <span class="kw">use </span>risc0_zkvm::{compute_image_id, ExecutorEnv, ProverOpts, Receipt};
 <span class="kw">use </span>std::{
     fs::File,

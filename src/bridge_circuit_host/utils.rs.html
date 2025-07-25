@@ -287,11 +287,23 @@
 <a href="#286" id="286">286</a>
 <a href="#287" id="287">287</a>
 <a href="#288" id="288">288</a>
-<a href="#289" id="289">289</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_bn254::{Bn254, Fq, Fq2, G1Affine, G2Affine};
+<a href="#289" id="289">289</a>
+<a href="#290" id="290">290</a>
+<a href="#291" id="291">291</a>
+<a href="#292" id="292">292</a>
+<a href="#293" id="293">293</a>
+<a href="#294" id="294">294</a>
+<a href="#295" id="295">295</a>
+<a href="#296" id="296">296</a>
+<a href="#297" id="297">297</a>
+<a href="#298" id="298">298</a>
+<a href="#299" id="299">299</a>
+<a href="#300" id="300">300</a>
+<a href="#301" id="301">301</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_bn254::{Bn254, Fq, Fq2, G1Affine, G2Affine};
 <span class="kw">use </span>ark_groth16::VerifyingKey;
 <span class="kw">use </span>bitcoin::{opcodes, script::Instruction, Transaction};
 <span class="kw">use </span>risc0_circuit_recursion::control_id::BN254_IDENTITY_CONTROL_ID;
-<span class="kw">use </span>risc0_zkvm::{is_dev_mode, sha::Digestible, SuccinctReceiptVerifierParameters, SystemState};
+<span class="kw">use </span>risc0_zkvm::{sha::Digestible, SuccinctReceiptVerifierParameters, SystemState};
 <span class="kw">use </span>sha2::{Digest, Sha256};
 <span class="kw">use </span>std::str::FromStr;
 
@@ -522,6 +534,18 @@
         delta_g2,
         gamma_abc_g1,
     }
+}
+
+<span class="comment">// Clementine do not use the runtime option to determine dev mode which is newly added in risc0_zkvm.
+// Instead, it uses the environment variable RISC0_DEV_MODE to determine if it is in dev mode.
+// However is_dev_mode function from risc0_zkvm is deprecated.
+// So we implement our own version of is_dev_mode.
+</span><span class="kw">pub fn </span>is_dev_mode() -&gt; bool {
+    std::env::var(<span class="string">"RISC0_DEV_MODE"</span>)
+        .ok()
+        .map(|x| x.to_lowercase())
+        .filter(|x| x == <span class="string">"1" </span>|| x == <span class="string">"true" </span>|| x == <span class="string">"yes"</span>)
+        .is_some()
 }
 
 <span class="kw">pub fn </span>get_verifying_key() -&gt; ark_groth16::VerifyingKey&lt;Bn254&gt; {

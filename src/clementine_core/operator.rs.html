@@ -1897,10 +1897,8 @@
 <a href="#1896" id="1896">1896</a>
 <a href="#1897" id="1897">1897</a>
 <a href="#1898" id="1898">1898</a>
-<a href="#1899" id="1899">1899</a>
-<a href="#1900" id="1900">1900</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_ff::PrimeField;
+<a href="#1899" id="1899">1899</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_ff::PrimeField;
 <span class="kw">use </span>circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
-<span class="kw">use </span>risc0_zkvm::is_dev_mode;
 <span class="kw">use </span>std::collections::HashMap;
 
 <span class="kw">use </span><span class="kw">crate</span>::actor::{Actor, TweakCache, WinternitzDerivationPath};
@@ -3117,7 +3115,7 @@
         _payout_blockhash: Witness,
         latest_blockhash: Witness,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
-        <span class="kw">use </span>bridge_circuit_host::utils::get_verifying_key;
+        <span class="kw">use </span>bridge_circuit_host::utils::{get_verifying_key, is_dev_mode};
 
         <span class="kw">let </span>context = ContractContext::new_context_for_kickoff(
             kickoff_data,

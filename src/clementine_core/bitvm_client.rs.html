@@ -702,8 +702,7 @@
 <a href="#701" id="701">701</a>
 <a href="#702" id="702">702</a>
 <a href="#703" id="703">703</a>
-<a href="#704" id="704">704</a>
-<a href="#705" id="705">705</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::WinternitzDerivationPath;
+<a href="#704" id="704">704</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::WinternitzDerivationPath;
 <span class="kw">use </span><span class="kw">crate</span>::builder::address::taproot_builder_with_scripts;
 <span class="kw">use </span><span class="kw">crate</span>::builder::script::{SpendableScript, WinternitzCommit};
 
@@ -719,8 +718,7 @@
 <span class="kw">use </span>bitvm::signatures::wots_api::wots160;
 
 <span class="kw">use </span>borsh::{BorshDeserialize, BorshSerialize};
-<span class="kw">use </span>bridge_circuit_host::utils::get_verifying_key;
-<span class="kw">use </span>risc0_zkvm::is_dev_mode;
+<span class="kw">use </span>bridge_circuit_host::utils::{get_verifying_key, is_dev_mode};
 <span class="kw">use </span>std::fs;
 <span class="kw">use </span>tokio::sync::Mutex;
 

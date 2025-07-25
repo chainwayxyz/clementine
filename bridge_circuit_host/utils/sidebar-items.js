@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["calculate_succinct_output_prefix","get_ark_verifying_key_dev_mode_bridge","get_ark_verifying_key_prod","get_verifying_key","total_work_from_wt_tx"]};
+window.SIDEBAR_ITEMS = {"fn":["calculate_succinct_output_prefix","get_ark_verifying_key_dev_mode_bridge","get_ark_verifying_key_prod","get_verifying_key","is_dev_mode","total_work_from_wt_tx"]};

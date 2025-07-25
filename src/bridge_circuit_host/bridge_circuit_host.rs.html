@@ -759,7 +759,7 @@
 <span class="kw">use </span><span class="kw">crate</span>::structs::{
     BridgeCircuitBitvmInputs, BridgeCircuitHostParams, SuccinctBridgeCircuitPublicInputs,
 };
-<span class="kw">use </span><span class="kw">crate</span>::utils::calculate_succinct_output_prefix;
+<span class="kw">use </span><span class="kw">crate</span>::utils::{calculate_succinct_output_prefix, is_dev_mode};
 <span class="kw">use </span>ark_bn254::Bn254;
 <span class="kw">use </span>bitcoin::Transaction;
 <span class="kw">use </span>borsh;
@@ -777,7 +777,7 @@
     TESTNET4_HEADER_CHAIN_METHOD_ID,
 };
 <span class="kw">use </span>circuits_lib::header_chain::mmr_native::MMRNative;
-<span class="kw">use </span>risc0_zkvm::{compute_image_id, default_prover, is_dev_mode, ExecutorEnv, ProverOpts, Receipt};
+<span class="kw">use </span>risc0_zkvm::{compute_image_id, default_prover, ExecutorEnv, ProverOpts, Receipt};
 
 <span class="kw">pub const </span>REGTEST_BRIDGE_CIRCUIT_ELF: <span class="kw-2">&amp;</span>[u8] =
     <span class="macro">include_bytes!</span>(<span class="string">"../../risc0-circuits/elfs/regtest-bridge-circuit-guest.bin"</span>);
