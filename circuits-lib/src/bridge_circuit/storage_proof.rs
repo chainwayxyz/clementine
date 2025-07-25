@@ -1,3 +1,9 @@
+//! # Ethereum Storage Proof Verifier
+//! This module implements the Ethereum storage proof verifier for the bridge circuit.
+//! It includes functions to verify storage proofs related to deposit and withdrawal UTXOs,
+//! ensuring the integrity of the Bridge contract's state. The verifier checks the storage keys
+//! and values against the expected state root, and it handles the conversion of hexadecimal strings to decimal.
+
 use alloy_primitives::Bytes;
 use alloy_primitives::{Keccak256, U256};
 use alloy_rpc_types::EIP1186StorageProof;

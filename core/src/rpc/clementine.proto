@@ -142,6 +142,7 @@ enum FeeType {
   UNSPECIFIED = 0;
   CPFP = 1;
   RBF = 2;
+  NO_FUNDING = 3;
 }
 
 enum NormalTransactionId {
@@ -161,7 +162,6 @@ enum NormalTransactionId {
     CHALLENGE_TIMEOUT = 13;
     BURN_UNUSED_KICKOFF_CONNECTORS = 14;
     YIELD_KICKOFF_TXID = 15;
-    BASE_DEPOSIT = 16;
     REPLACEMENT_DEPOSIT = 17;
     LATEST_BLOCKHASH_TIMEOUT = 18;
     LATEST_BLOCKHASH = 19;
@@ -258,26 +258,6 @@ message WithdrawParams {
   uint64 output_amount = 5;
 }
 
-message WithdrawResponse {
-  // The withdrawal transaction's txid
-  Txid txid = 1;
-}
-
-message WithdrawErrorResponse {
-  string error = 1;
-}
-
-message WithdrawResult {
-  oneof result {
-    WithdrawResponse success = 1;
-    WithdrawErrorResponse error = 2;
-  }
-}
-
-message WithdrawalFinalizedParams {
-  uint32 withdrawal_id = 1;
-  Outpoint deposit_outpoint = 2;
-}
 
 message FinalizedPayoutParams {
   bytes payout_blockhash = 1;
@@ -286,6 +266,49 @@ message FinalizedPayoutParams {
 
 message XOnlyPublicKeyRpc {
   bytes xonly_public_key = 1;
+}
+
+message StoppedTasks {
+  repeated string stopped_tasks = 1;
+}
+
+message EntityError {
+  string error = 1;
+}
+
+message EntityStatus {
+  bool automation = 1;
+  string wallet_balance = 2;
+  uint32 tx_sender_synced_height = 3;
+  uint32 finalized_synced_height = 4;
+  uint32 hcp_last_proven_height = 5;
+  StoppedTasks stopped_tasks = 6;
+  uint32 rpc_tip_height = 7;
+  uint32 bitcoin_syncer_synced_height = 8;
+  uint32 state_manager_next_height = 9;
+}
+
+enum EntityType {
+  ENTITY_UNKNOWN = 0;
+  OPERATOR = 1;
+  VERIFIER = 2;
+}
+
+message EntityId {
+  EntityType kind = 1;
+  string id = 2;
+}
+
+message EntityStatusWithId {
+  EntityId entity_id = 1;
+  oneof status_result {
+    EntityStatus status = 2;
+    EntityError err = 3;
+  }
+}
+
+message EntityStatuses {
+  repeated EntityStatusWithId entity_statuses = 1;
 }
 
 // An operator is responsible for paying withdrawals. It has an unique ID and
@@ -315,6 +338,9 @@ service ClementineOperator {
   // Used by aggregator inside new_deposit
   rpc GetDepositKeys(DepositParams) returns (OperatorKeys) {}
 
+  // Returns the current status of tasks running on the operator and their last synced heights.
+  rpc GetCurrentStatus(Empty) returns (EntityStatus) {}
+
   // Signs everything that includes Operator's burn connector.
   //
   // # Parameters
@@ -327,24 +353,14 @@ service ClementineOperator {
   // - Operator burn Schnorr signature
   rpc DepositSign(DepositSignSession) returns (stream SchnorrSig) {}
 
-  // Prepares a withdrawal if it's profitable and previous sequential_collateral_tx's timelock
-  // has ended, by paying for the withdrawal and locking the current sequential_collateral_tx.
-  rpc Withdraw(WithdrawParams)
-    returns (WithdrawResponse) {}
+  // Restarts the background tasks for the operator.
+  rpc RestartBackgroundTasks(Empty) returns (Empty) {}
 
-  // Checks if a withdrawal is finalized.
-  //
-  // Steps:
-  //
-  // 1. Calculate move_txid and check if the withdrawal idx matches it
-  // 2. Check if it is proved on citrea
-  // 3. Send operator_take_txs
-  //
-  // # Parameters
-  //
-  // - withdrawal_id: Withdrawal's ID
-  // - deposit_outpoint: Withdrawal's deposit UTXO
-  rpc WithdrawalFinalized(WithdrawalFinalizedParams) returns (Empty) {}
+  // Prepares a withdrawal if it's profitable and the withdrawal is correct and registered in Citrea bridge contract/
+  // If withdrawal is accepted, the payout tx will be added to the TxSender and success is returned, otherwise an error is returned.
+  // If automation is disabled, the withdrawal will not be accepted and an error will be returned.
+  rpc Withdraw(WithdrawParams)
+    returns (Empty) {}
 
   // Signs all tx's it can according to given transaction type (use it with AllNeededForDeposit to get almost all tx's)
   // Creates the transactions denoted by the deposit and operator_idx, round_idx, and kickoff_idx.
@@ -533,9 +549,14 @@ service ClementineVerifier {
   // Debug a transaction by retrieving its current state and history
   rpc DebugTx(TxDebugRequest) returns (TxDebugInfo) {}
 
+  // Restarts the background tasks for the verifier.
+  rpc RestartBackgroundTasks(Empty) returns (Empty) {}
 
   // Checks if the kickoff tx is malicious and if so, try to send all necessary txs to punish the operator
   rpc InternalHandleKickoff(Txid) returns (Empty) {}
+
+  // Returns the current status of tasks running on the verifier and their last synced heights.
+  rpc GetCurrentStatus(Empty) returns (EntityStatus) {}
 
   // 1. Signs all tx's it can according to given transaction type (use it with AllNeededForDeposit to get almost all tx's)
   // 2. Creates the transactions denoted by the deposit and operator_idx, round_idx, and kickoff_idx.
@@ -592,7 +613,7 @@ message RawTxWithRbfInfo {
 }
 
 message AggregatorWithdrawResponse {
-  repeated WithdrawResult withdraw_responses = 1;
+  repeated string withdraw_responses = 1;
 }
 
 message CreateEmergencyStopTxRequest {
@@ -603,6 +624,10 @@ message CreateEmergencyStopTxRequest {
 message SendMoveTxRequest {
   RawSignedTx raw_tx = 1;
   Outpoint deposit_outpoint = 2;
+}
+
+message GetEntityStatusesRequest {
+  bool restart_tasks = 1;
 }
 
 service ClementineAggregator {
@@ -640,6 +665,10 @@ service ClementineAggregator {
   rpc InternalSendTx(SendTxRequest) returns (Empty) {}
 
   rpc SendMoveToVaultTx(SendMoveTxRequest) returns (Txid) {}
+
+  // Returns the current status of tasks running on the operators/verifiers.
+  // If restart_tasks is true, it will restart the tasks on the entities if they are stopped.
+  rpc GetEntityStatuses(GetEntityStatusesRequest) returns (EntityStatuses) {}
 
   // Creates an emergency stop tx that won't be broadcasted.
   // Tx will have around 3 sats/vbyte fee.

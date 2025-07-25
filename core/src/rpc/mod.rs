@@ -49,7 +49,7 @@ impl From<(NumberedSignatureKind, i32)> for SignatureId {
 ///
 /// # Returns
 ///
-/// - [`CLIENT`]: [`tonic`] gRPC client.
+/// - `CLIENT`: [`tonic`] gRPC client.
 pub async fn get_clients<CLIENT, F>(
     endpoints: Vec<String>,
     connect: F,
@@ -158,7 +158,9 @@ where
                             .wrap_err("Failed to configure TLS")?
                             .connect()
                             .await
-                            .wrap_err("Failed to connect to endpoint")?
+                            .wrap_err_with(|| {
+                                format!("Failed to connect to endpoint {}", endpoint)
+                            })?
                     };
 
                     Ok(connect(channel))

@@ -323,10 +323,7 @@ mod tests {
         secp256k1::{schnorr::Signature, SecretKey},
         Amount, BlockHash, CompactTarget, OutPoint, ScriptBuf, TxMerkleNode, TxOut, Txid,
     };
-    use secp256k1::{
-        musig::{AggregatedNonce, PublicNonce},
-        SECP256K1,
-    };
+    use secp256k1::{musig::AggregatedNonce, SECP256K1};
     use sqlx::{Executor, Type};
 
     macro_rules! test_encode_decode_invariant {
@@ -572,8 +569,7 @@ mod tests {
         );
 
         let kp = Keypair::from_secret_key(&SECP, &SecretKey::from_slice(&[1u8; 32]).unwrap());
-        let (_sec_nonce, pub_nonce) =
-            musig2::nonce_pair(&kp, &mut secp256k1::rand::thread_rng()).unwrap();
+        let (_sec_nonce, pub_nonce) = musig2::nonce_pair(&kp).unwrap();
         let public_nonce = MusigPubNonceDB(pub_nonce);
         test_encode_decode_invariant!(
             MusigPubNonceDB,
@@ -592,8 +588,7 @@ mod tests {
         );
 
         let kp = Keypair::from_secret_key(&SECP, &SecretKey::from_slice(&[1u8; 32]).unwrap());
-        let (_sec_nonce, pub_nonce) =
-            musig2::nonce_pair(&kp, &mut secp256k1::rand::thread_rng()).unwrap();
+        let (_sec_nonce, pub_nonce) = musig2::nonce_pair(&kp).unwrap();
         let aggregated_nonce = MusigAggNonceDB(AggregatedNonce::new(SECP256K1, &[&pub_nonce]));
         test_encode_decode_invariant!(
             MusigAggNonceDB,

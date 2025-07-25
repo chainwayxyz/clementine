@@ -1,66 +1,52 @@
-use super::common::{create_actors, create_test_config_with_thread_name, tx_utils::*};
+//! # Flow Tests
+//!
+//! This module contains tests that simulate typical flows of Clementine.
+
+use super::common::test_actors::TestActors;
+use super::common::{create_test_config_with_thread_name, tx_utils::*};
 use crate::actor::Actor;
-use crate::bitvm_client::{self};
-use crate::builder::transaction::input::UtxoVout;
 use crate::builder::transaction::sign::get_kickoff_utxos_to_sign;
 use crate::builder::transaction::TransactionType as TxType;
 use crate::config::protocol::BLOCKS_PER_HOUR;
 use crate::config::BridgeConfig;
 use crate::database::Database;
-use crate::deposit::{BaseDepositData, DepositInfo, DepositType, KickoffData};
+use crate::deposit::{DepositInfo, KickoffData};
 use crate::extended_rpc::ExtendedRpc;
 use crate::operator::RoundIndex;
-use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
-use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
-use crate::rpc::clementine::SendMoveTxRequest;
-use crate::rpc::clementine::{
-    Deposit, Empty, FinalizedPayoutParams, SignedTxsWithType, TransactionRequest,
-};
+use crate::rpc::clementine::{Empty, FinalizedPayoutParams, SignedTxsWithType, TransactionRequest};
 use crate::test::common::citrea::MockCitreaClient;
 use crate::test::common::*;
 use crate::tx_sender::TxSenderClient;
 use crate::utils::RbfSigningInfo;
-use crate::EVMAddress;
 use bitcoin::hashes::Hash;
-use bitcoin::secp256k1::PublicKey;
-use bitcoin::{OutPoint, Transaction, Txid, XOnlyPublicKey};
-use bitcoincore_rpc::RpcApi;
+use bitcoin::{OutPoint, Txid, XOnlyPublicKey};
 use eyre::{Context, Result};
 use tonic::Request;
 
 const BLOCKS_PER_DAY: u64 = 144;
 
+/// Makes a deposit and returns the necessary clients and parameters for further testing.
 async fn base_setup(
     config: &mut BridgeConfig,
     rpc: &ExtendedRpc,
 ) -> Result<
     (
-        Vec<ClementineOperatorClient<tonic::transport::Channel>>,
-        Vec<ClementineVerifierClient<tonic::transport::Channel>>,
+        TestActors<MockCitreaClient>,
         Vec<TxSenderClient>,
         DepositInfo,
         u32,
         TransactionRequest,
         SignedTxsWithType,
-        ActorsCleanup,
         XOnlyPublicKey,
     ),
     eyre::Error,
 > {
-    tracing::info!("Setting up environment and actors");
-    let (verifiers, mut operators, mut aggregator, cleanup) =
-        create_actors::<MockCitreaClient>(config).await;
-
-    tracing::info!("Setting up aggregator");
-    let verifiers_public_keys: Vec<PublicKey> = aggregator
-        .setup(Request::new(Empty {}))
-        .await?
-        .into_inner()
-        .try_into()
-        .unwrap();
+    let (actors, deposit_info, _move_txid, deposit_blockhash, _verifiers_public_keys) =
+        run_single_deposit::<MockCitreaClient>(config, rpc.clone(), None, None, None).await?;
+    let deposit_outpoint = deposit_info.deposit_outpoint;
 
     let mut tx_senders = Vec::new();
-    for i in 0..verifiers.len() {
+    for i in 0..actors.get_num_verifiers() {
         let verifier_config = {
             let mut config = config.clone();
             config.db_name += &i.to_string();
@@ -69,57 +55,11 @@ async fn base_setup(
         let tx_sender_db = Database::new(&verifier_config)
             .await
             .expect("failed to create database");
+
         let tx_sender = TxSenderClient::new(tx_sender_db.clone(), format!("full_flow_{}", i));
         tx_senders.push(tx_sender);
     }
-    let evm_address = EVMAddress([1u8; 20]);
-    let (deposit_address, _) =
-        get_deposit_address(config, evm_address, verifiers_public_keys.clone())?;
-    tracing::info!("Generated deposit address: {}", deposit_address);
-    let recovery_taproot_address = Actor::new(
-        config.secret_key,
-        config.winternitz_secret_key,
-        config.protocol_paramset().network,
-    )
-    .address;
-    let withdrawal_amount = config.protocol_paramset().bridge_amount.to_sat()
-        - (2 * config
-            .operator_withdrawal_fee_sats
-            .expect("exists in test config")
-            .to_sat());
-    tracing::info!("Withdrawal amount set to: {} sats", withdrawal_amount);
-    tracing::info!("Making deposit transaction");
-    let deposit_outpoint = rpc
-        .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
-        .await?;
-    rpc.mine_blocks(18).await?;
-    tracing::info!("Deposit transaction mined: {}", deposit_outpoint);
 
-    let deposit_info = DepositInfo {
-        deposit_outpoint: deposit_outpoint.clone(),
-        deposit_type: DepositType::BaseDeposit(BaseDepositData {
-            evm_address,
-            recovery_taproot_address: recovery_taproot_address.as_unchecked().to_owned(),
-        }),
-    };
-
-    let dep_params: Deposit = deposit_info.clone().into();
-
-    tracing::info!("Creating move transaction");
-    let raw_move_tx = aggregator.new_deposit(dep_params).await?.into_inner();
-
-    let move_txid: Txid = aggregator
-        .send_move_to_vault_tx(Request::new(SendMoveTxRequest {
-            raw_tx: Some(raw_move_tx),
-            deposit_outpoint: Some(deposit_outpoint.into()),
-        }))
-        .await?
-        .into_inner()
-        .try_into()
-        .unwrap();
-
-    ensure_tx_onchain(rpc, move_txid).await?;
-    tracing::info!("Move transaction sent: {:x?}", move_txid);
     let op0_xonly_pk = Actor::new(
         config
             .test_params
@@ -131,7 +71,6 @@ async fn base_setup(
         config.protocol_paramset().network,
     )
     .xonly_public_key;
-    let deposit_blockhash = rpc.get_blockhash_of_tx(&deposit_outpoint.txid).await?;
     let kickoff_idx = get_kickoff_utxos_to_sign(
         config.protocol_paramset(),
         op0_xonly_pk,
@@ -149,92 +88,34 @@ async fn base_setup(
         ),
         deposit_outpoint: Some(deposit_outpoint.into()),
     };
-    let all_txs = operators[0]
+    let mut operator0 = actors.get_operator_client_by_index(0);
+    let all_txs = operator0
         .internal_create_signed_txs(base_tx_req.clone())
         .await?
         .into_inner();
+
     Ok((
-        operators,
-        verifiers,
+        actors,
         tx_senders,
         deposit_info,
         kickoff_idx,
         base_tx_req,
         all_txs,
-        cleanup,
         op0_xonly_pk,
     ))
 }
 
 pub async fn run_operator_end_round(
-    config: BridgeConfig,
+    config: &mut BridgeConfig,
     rpc: ExtendedRpc,
     is_challenge: bool,
 ) -> Result<()> {
-    // Setup environment and actors
-    tracing::info!("Setting up environment and actors");
-    let (mut verifiers, mut operators, mut aggregator, _cleanup) =
-        create_actors::<MockCitreaClient>(&config).await;
+    let (actors, deposit_info, move_txid, _deposit_blockhash, _verifiers_public_keys) =
+        run_single_deposit::<MockCitreaClient>(config, rpc.clone(), None, None, None).await?;
+    let deposit_outpoint = deposit_info.deposit_outpoint;
 
-    // Setup Aggregator
-    tracing::info!("Setting up aggregator");
-    let verifiers_public_keys: Vec<PublicKey> = aggregator
-        .setup(Request::new(Empty {}))
-        .await?
-        .into_inner()
-        .try_into()
-        .unwrap();
-
-    let evm_address = EVMAddress([1u8; 20]);
-    let (deposit_address, _) =
-        get_deposit_address(&config, evm_address, verifiers_public_keys.clone())?;
-    tracing::info!("Generated deposit address: {}", deposit_address);
-
-    let recovery_taproot_address = Actor::new(
-        config.secret_key,
-        config.winternitz_secret_key,
-        config.protocol_paramset().network,
-    )
-    .address;
-
-    // Make Deposit
-    tracing::info!("Making deposit transaction");
-    let deposit_outpoint = rpc
-        .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
-        .await?;
-    rpc.mine_blocks(18).await?;
-    tracing::info!("Deposit transaction mined: {}", deposit_outpoint);
-
-    let deposit_info = DepositInfo {
-        deposit_outpoint: deposit_outpoint.clone(),
-        deposit_type: DepositType::BaseDeposit(BaseDepositData {
-            evm_address,
-            recovery_taproot_address: recovery_taproot_address.as_unchecked().to_owned(),
-        }),
-    };
-
-    let dep_params: Deposit = deposit_info.into();
-
-    tracing::info!("Creating move transaction");
-    let raw_move_tx = aggregator.new_deposit(dep_params).await?.into_inner();
-    let move_txid = aggregator
-        .send_move_to_vault_tx(SendMoveTxRequest {
-            deposit_outpoint: Some(deposit_outpoint.into()),
-            raw_tx: Some(raw_move_tx),
-        })
-        .await?
-        .into_inner()
-        .try_into()
-        .unwrap();
-
-    tracing::info!(
-        "Move transaction sent, waiting for on-chain confirmation: {:x?}",
-        move_txid
-    );
-
-    ensure_tx_onchain(&rpc, move_txid).await?;
-
-    let kickoff_txid = operators[0]
+    let mut operator0 = actors.get_operator_client_by_index(0);
+    let kickoff_txid = operator0
         .internal_finalized_payout(FinalizedPayoutParams {
             payout_blockhash: [1u8; 32].to_vec(),
             deposit_outpoint: Some(deposit_outpoint.into()),
@@ -243,14 +124,15 @@ pub async fn run_operator_end_round(
 
     let kickoff_txid = Txid::from_byte_array(kickoff_txid.into_inner().txid.try_into().unwrap());
 
-    operators[0]
-        .internal_end_round(Request::new(Empty {}))
-        .await?;
+    let mut operator0 = actors.get_operator_client_by_index(0);
+    let mut verifier1 = actors.get_verifier_client_by_index(1);
+
+    operator0.internal_end_round(Request::new(Empty {})).await?;
 
     ensure_tx_onchain(&rpc, kickoff_txid).await?;
 
     if is_challenge {
-        verifiers[1]
+        verifier1
             .internal_handle_kickoff(Request::new(crate::rpc::clementine::Txid {
                 txid: kickoff_txid.to_byte_array().to_vec(),
             }))
@@ -269,23 +151,15 @@ pub async fn run_operator_end_round(
         }
     };
     ensure_outpoint_spent(&rpc, wait_to_be_spent).await?;
+
     Ok(())
 }
 
 pub async fn run_happy_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Result<()> {
     tracing::info!("Starting happy path test");
 
-    let (
-        mut operators,
-        _verifiers,
-        tx_senders,
-        _dep_params,
-        _kickoff_idx,
-        base_tx_req,
-        all_txs,
-        _cleanup,
-        op0_xonly_pk,
-    ) = base_setup(config, &rpc).await?;
+    let (actors, tx_senders, _dep_params, _kickoff_idx, base_tx_req, all_txs, op0_xonly_pk) =
+        base_setup(config, &rpc).await?;
 
     let tx_sender = tx_senders[0].clone();
 
@@ -309,7 +183,8 @@ pub async fn run_happy_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
 
     // Send Reimburse Generator 1
     tracing::info!("Sending round 2 transaction");
-    let all_txs_2 = operators[0]
+    let mut operator0 = actors.get_operator_client_by_index(0);
+    let all_txs_2 = operator0
         .internal_create_signed_txs(TransactionRequest {
             kickoff_id: Some(
                 KickoffData {
@@ -349,17 +224,8 @@ pub async fn run_happy_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
 pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Result<()> {
     tracing::info!("Starting Happy Path 2 test");
 
-    let (
-        mut operators,
-        mut verifiers,
-        tx_senders,
-        _deposit_info,
-        _kickoff_idx,
-        base_tx_req,
-        all_txs,
-        _cleanup,
-        op0_xonly_pk,
-    ) = base_setup(config, &rpc).await?;
+    let (actors, tx_senders, _deposit_info, _kickoff_idx, base_tx_req, all_txs, op0_xonly_pk) =
+        base_setup(config, &rpc).await?;
 
     let tx_sender = tx_senders[0].clone();
 
@@ -376,7 +242,7 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
     send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Challenge).await?;
 
     // Send Watchtower Challenge Transactions
-    for (verifier_idx, verifier) in verifiers.iter_mut().enumerate() {
+    for (verifier_idx, verifier) in actors.get_verifiers().iter_mut().enumerate() {
         let watchtower_challenge_tx = verifier
             .internal_create_watchtower_challenge(base_tx_req.clone())
             .await?
@@ -406,12 +272,13 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
     }
 
     // Send Operator Challenge Acknowledgment Transactions
-    for verifier_idx in 0..verifiers.len() {
+    for verifier_idx in 0..actors.get_num_verifiers() {
         tracing::info!(
             "Sending operator challenge ack transaction for verifier {}",
             verifier_idx
         );
-        let operator_challenge_ack_txs = operators[0]
+        let mut operator0 = actors.get_operator_client_by_index(0);
+        let operator_challenge_ack_txs = operator0
             .internal_create_signed_txs(base_tx_req.clone())
             .await?
             .into_inner();
@@ -425,7 +292,8 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
     }
 
     // Send Assert Transactions
-    let assert_txs = operators[0]
+    let mut operator0 = actors.get_operator_client_by_index(0);
+    let assert_txs = operator0
         .internal_create_assert_commitment_txs(base_tx_req.clone())
         .await?
         .into_inner();
@@ -458,7 +326,7 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
 
     // Send Reimburse Generator 1
     tracing::info!("Sending round 2 transaction");
-    let all_txs_2 = operators[0]
+    let all_txs_2 = operator0
         .internal_create_signed_txs(TransactionRequest {
             kickoff_id: Some(
                 KickoffData {
@@ -501,17 +369,8 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
 pub async fn run_simple_assert_flow(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Result<()> {
     tracing::info!("Starting Simple Assert Flow");
 
-    let (
-        mut operators,
-        _watchtowers,
-        tx_senders,
-        _deposit_info,
-        _kickoff_idx,
-        base_tx_req,
-        all_txs,
-        _cleanup,
-        _op0_xonly_pk,
-    ) = base_setup(config, &rpc).await?;
+    let (actors, tx_senders, _deposit_info, _kickoff_idx, base_tx_req, all_txs, _op0_xonly_pk) =
+        base_setup(config, &rpc).await?;
 
     let tx_sender = tx_senders[0].clone();
 
@@ -532,7 +391,8 @@ pub async fn run_simple_assert_flow(config: &mut BridgeConfig, rpc: ExtendedRpc)
     // Get deposit data and kickoff ID for assert creation
     rpc.mine_blocks(8 * BLOCKS_PER_HOUR as u64).await?;
     // Create assert transactions for operator 0
-    let assert_txs = operators[0]
+    let mut operator0 = actors.get_operator_client_by_index(0);
+    let assert_txs = operator0
         .internal_create_assert_commitment_txs(base_tx_req)
         .await?
         .into_inner();
@@ -571,17 +431,8 @@ pub async fn run_simple_assert_flow(config: &mut BridgeConfig, rpc: ExtendedRpc)
 pub async fn run_bad_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Result<()> {
     tracing::info!("Starting Bad Path 1 test");
 
-    let (
-        _operators,
-        mut verifiers,
-        tx_senders,
-        _dep_params,
-        _kickoff_idx,
-        base_tx_req,
-        all_txs,
-        _cleanup,
-        _op0_xonly_pk,
-    ) = base_setup(config, &rpc).await?;
+    let (actors, tx_senders, _dep_params, _kickoff_idx, base_tx_req, all_txs, _op0_xonly_pk) =
+        base_setup(config, &rpc).await?;
 
     let tx_sender = tx_senders[0].clone();
 
@@ -604,7 +455,8 @@ pub async fn run_bad_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
         "Sending watchtower challenge transaction for watchtower {}",
         watchtower_idx
     );
-    let watchtower_challenge_tx = verifiers[watchtower_idx]
+    let mut verifier = actors.get_verifier_client_by_index(watchtower_idx);
+    let watchtower_challenge_tx = verifier
         .internal_create_watchtower_challenge(base_tx_req.clone())
         .await?
         .into_inner();
@@ -659,17 +511,8 @@ pub async fn run_bad_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
 pub async fn run_bad_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Result<()> {
     tracing::info!("Starting Bad Path 2 test");
 
-    let (
-        _operators,
-        _verifiers,
-        tx_senders,
-        _dep_params,
-        _kickoff_idx,
-        _base_tx_req,
-        all_txs,
-        _cleanup,
-        _op0_xonly_pk,
-    ) = base_setup(config, &rpc).await?;
+    let (_actors, tx_senders, _dep_params, _kickoff_idx, _base_tx_req, all_txs, _op0_xonly_pk) =
+        base_setup(config, &rpc).await?;
 
     let tx_sender = tx_senders[0].clone();
 
@@ -708,17 +551,8 @@ pub async fn run_bad_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
 pub async fn run_bad_path_3(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Result<()> {
     tracing::info!("Starting Bad Path 3 test");
 
-    let (
-        _operators,
-        _verifiers,
-        tx_senders,
-        _deposit_info,
-        _kickoff_idx,
-        _base_tx_req,
-        all_txs,
-        _cleanup,
-        _op0_xonly_pk,
-    ) = base_setup(config, &rpc).await?;
+    let (actors, tx_senders, _deposit_info, _kickoff_idx, _base_tx_req, all_txs, _op0_xonly_pk) =
+        base_setup(config, &rpc).await?;
 
     let tx_sender = tx_senders[0].clone();
 
@@ -734,7 +568,7 @@ pub async fn run_bad_path_3(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
     send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Challenge).await?;
 
     // Send Watchtower Challenge Transactions
-    for watchtower_idx in 0.._verifiers.len() {
+    for watchtower_idx in 0..actors.get_num_verifiers() {
         tracing::info!(
             "Sending watchtower challenge transaction for watchtower {}",
             watchtower_idx
@@ -749,7 +583,7 @@ pub async fn run_bad_path_3(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
     }
 
     // Send Operator Challenge Acknowledgment Transactions
-    for verifier_idx in 0.._verifiers.len() {
+    for verifier_idx in 0..actors.get_num_verifiers() {
         tracing::info!(
             "Sending operator challenge ack transaction for watchtower {}",
             verifier_idx
@@ -785,17 +619,8 @@ pub async fn run_unspent_kickoffs_with_state_machine(
     config: &mut BridgeConfig,
     rpc: ExtendedRpc,
 ) -> Result<()> {
-    let (
-        _operators,
-        _verifiers,
-        tx_senders,
-        _deposit_info,
-        _kickoff_idx,
-        _base_tx_req,
-        all_txs,
-        _cleanup,
-        _op0_xonly_pk,
-    ) = base_setup(config, &rpc).await?;
+    let (_actors, tx_senders, _deposit_info, _kickoff_idx, _base_tx_req, all_txs, _op0_xonly_pk) =
+        base_setup(config, &rpc).await?;
 
     let tx_sender = tx_senders[0].clone();
 
@@ -917,7 +742,9 @@ mod tests {
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
 
-        run_operator_end_round(config, rpc, false).await.unwrap();
+        run_operator_end_round(&mut config, rpc, false)
+            .await
+            .unwrap();
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -927,7 +754,9 @@ mod tests {
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
 
-        run_operator_end_round(config, rpc, true).await.unwrap();
+        run_operator_end_round(&mut config, rpc, true)
+            .await
+            .unwrap();
     }
 
     #[tokio::test(flavor = "multi_thread")]

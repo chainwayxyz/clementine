@@ -1,3 +1,15 @@
+//! # Groth16 Proof Struct
+//! This module defines the `CircuitGroth16Proof` struct, which represents a Groth16 proof
+//! for the bridge circuit. It includes methods for creating a proof from a given Risc0 seal
+//! and converting it to a compressed format. The proof consists of three components: `a`,
+//! `b`, and `c`, which are points on the elliptic curve used in the Groth16 protocol.
+//! ## Key Components
+//! - **G1 and G2 Points:** The proof consists of points `a` and `c` in G1, and point `b` in G2.
+//! - **Serialization/Deserialization:** The proof can be serialized to a compressed format
+//!   and deserialized back, allowing for efficient storage and transmission.
+//! - **Conversion to Groth16 Proof:** The `CircuitGroth16Proof` can be converted to a Groth16 proof
+//!   for use in verification.
+
 use ark_bn254::Bn254;
 use ark_ff::{Field, PrimeField};
 use ark_groth16::Proof;
@@ -5,6 +17,7 @@ use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, Serializ
 type G1 = ark_bn254::G1Affine;
 type G2 = ark_bn254::G2Affine;
 
+/// CircuitGroth16Proof represents a Groth16 proof for the circuit.
 #[derive(Copy, Clone, Debug)]
 pub struct CircuitGroth16Proof {
     a: G1,
@@ -17,6 +30,8 @@ impl CircuitGroth16Proof {
         CircuitGroth16Proof { a, b, c }
     }
 
+    /// Creates a new CircuitGroth16Proof from the given risc0 seal, which
+    /// itself is a 256-byte array.
     pub fn from_seal(seal: &[u8; 256]) -> CircuitGroth16Proof {
         let a = G1::new(
             ark_bn254::Fq::from_be_bytes_mod_order(&seal[0..32]),

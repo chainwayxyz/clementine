@@ -22,7 +22,6 @@ export READ_PARAMSET_FROM_ENV=1
 
 export PROTOCOL_PARAMSET=${PROTOCOL_PARAMSET:=regtest}
 export HOST=${HOST:=127.0.0.1}
-export BRIDGE_CIRCUIT_METHOD_ID_CONSTANT=${BRIDGE_CIRCUIT_METHOD_ID_CONSTANT:=ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff}
 export WINTERNITZ_SECRET_KEY=${WINTERNITZ_SECRET_KEY:=2222222222222222222222222222222222222222222222222222222222222222}
 export VERIFIERS_PUBLIC_KEYS=${VERIFIERS_PUBLIC_KEYS:="034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa,02466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27,023c72addb4fdf09af94f0c94d7fe92a386a7e70cf8a1d85916386bb2535c7b1b1,032c0b7cf95324a07d05398b240174dc0c2be444d96b159aa6c7f7b1e668680991"}
 export OPERATOR_XONLY_PKS=${OPERATOR_XONLY_PKS:="4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa,466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27"}
@@ -47,8 +46,8 @@ export PROTOCOL_CONFIG_PATH=${PROTOCOL_CONFIG_PATH:="core/src/config/protocol_pa
 export DBG_PACKAGE_HEX=${DBG_PACKAGE_HEX:=1}
 export RUST_MIN_STACK=${RUST_MIN_STACK:=33554432}
 export RISC0_SKIP_BUILD=${RISC0_SKIP_BUILD:=1}
-export JSON_LOGS=${JSON_LOGS:=1}
-export RUST_LOG=${RUST_LOG:=info}
+export LOG_FORMAT=json
+export RUST_LOG=info
 # TLS
 export CA_CERT_PATH=${CA_CERT_PATH:="core/certs/ca/ca.pem"}
 export SERVER_CERT_PATH=${SERVER_CERT_PATH:="core/certs/server/server.pem"}
@@ -83,13 +82,16 @@ export ASSERT_TIMEOUT_TIMELOCK=${ASSERT_TIMEOUT_TIMELOCK:=576}
 export OPERATOR_REIMBURSE_TIMELOCK=${OPERATOR_REIMBURSE_TIMELOCK:=12}
 export WATCHTOWER_CHALLENGE_TIMEOUT_TIMELOCK=${WATCHTOWER_CHALLENGE_TIMEOUT_TIMELOCK:=288}
 export TIME_TO_SEND_WATCHTOWER_CHALLENGE=${TIME_TO_SEND_WATCHTOWER_CHALLENGE:=216}
-export TIME_TO_DISPROVE=${TIME_TO_DISPROVE:=648}
 export LATEST_BLOCKHASH_TIMEOUT_TIMELOCK=${LATEST_BLOCKHASH_TIMEOUT_TIMELOCK:=360}
 export FINALITY_DEPTH=${FINALITY_DEPTH:=100}
 export START_HEIGHT=${START_HEIGHT:=190}
 export GENESIS_HEIGHT=${GENESIS_HEIGHT:=0}
 export GENESIS_CHAIN_STATE_HASH=${GENESIS_CHAIN_STATE_HASH:=5f7302ad16c8bd9ef2f3be00c8199a86f9e0ba861484abb4af5f7e457f8c2216}
-
+export BRIDGE_NONSTANDARD=${BRIDGE_NONSTANDARD:=false}
+export TELEMETRY_HOST=0.0.0.0
+export TELEMETRY_PORT=8081
+export RUST_MIN_STACK=33554432
+export RISC0_DEV_MODE=1
 
 # Define databases to drop and recreate
 databases=("clementine0" "clementine1" "clementine2" "clementine3")
@@ -112,12 +114,12 @@ done
 
 # Build the project once
 echo "Building clementine-core..."
-cargo build --package clementine-core --bin clementine-core
+cargo build --package clementine-core --all-features --bin clementine-core
 if [ $? -ne 0 ]; then
     echo "Build failed, exiting..."
     exit 1
 fi
-BIN_PATH="./target/release/clementine-core"
+BIN_PATH="./target/debug/clementine-core"
 
 # Corresponding roles
 roles=(
@@ -162,8 +164,8 @@ for i in "${!roles[@]}"; do
     log_file="logs/${filename%.toml}.jsonl"
 
     if [ "$role" == "aggregator" ]; then
-        echo "Waiting 15 seconds before starting aggregator..."
-        sleep 15
+        echo "Waiting 120 seconds before starting aggregator..."
+        sleep 120
     fi
 
     # Set dynamic config vars for each actor
@@ -174,6 +176,7 @@ for i in "${!roles[@]}"; do
 
     # Aggregator overwrites
     if [ $role == "aggregator" ]; then
+        export TELEMETRY_PORT=8082
         export PORT=$((17000))
         export SECRET_KEY=$(printf "%064d" | tr '0' "1")
     fi

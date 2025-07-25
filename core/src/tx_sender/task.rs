@@ -5,7 +5,7 @@ use tonic::async_trait;
 
 use crate::errors::ResultExt;
 
-use crate::task::{IgnoreError, WithDelay};
+use crate::task::{IgnoreError, TaskVariant, WithDelay};
 use crate::{
     bitcoin_syncer::BitcoinSyncerEvent,
     database::Database,
@@ -16,7 +16,7 @@ use crate::{
 use super::TxSender;
 
 const POLL_DELAY: Duration = if cfg!(test) {
-    Duration::from_millis(100)
+    Duration::from_millis(250)
 } else {
     Duration::from_secs(30)
 };
@@ -30,6 +30,7 @@ pub struct TxSenderTask {
 #[async_trait]
 impl Task for TxSenderTask {
     type Output = bool;
+    const VARIANT: TaskVariant = TaskVariant::TxSender;
 
     async fn run_once(&mut self) -> std::result::Result<Self::Output, BridgeError> {
         let mut dbtx = self.db.begin_transaction().await.map_to_eyre()?;
@@ -43,7 +44,7 @@ impl Task for TxSenderTask {
                 return Ok(false);
             };
 
-            tracing::info!("TXSENDER: Event: {:?}", event);
+            tracing::debug!("TXSENDER: Event: {:?}", event);
             Ok::<_, BridgeError>(match event {
                 BitcoinSyncerEvent::NewBlock(block_id) => {
                     self.db.confirm_transactions(&mut dbtx, block_id).await?;

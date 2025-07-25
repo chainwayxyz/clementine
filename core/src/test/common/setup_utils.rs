@@ -3,14 +3,7 @@
 use crate::builder::script::SpendPath;
 use crate::builder::transaction::TransactionType;
 use crate::citrea::CitreaClientT;
-use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
-use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
-use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
 use crate::rpc::clementine::NormalSignatureKind;
-use crate::rpc::get_clients;
-use crate::servers::{
-    create_aggregator_unix_server, create_operator_unix_server, create_verifier_unix_server,
-};
 use crate::utils::initialize_logger;
 use crate::utils::NamedEntity;
 use crate::{
@@ -22,11 +15,7 @@ use bitcoin::secp256k1::schnorr;
 use secrecy::ExposeSecret;
 use std::net::TcpListener;
 
-use tokio::sync::oneshot;
-use tonic::transport::Channel;
-
-#[must_use = "Servers will die if not used"]
-pub struct ActorsCleanup(pub (Vec<oneshot::Sender<()>>, tempfile::TempDir));
+use super::test_actors::TestActors;
 
 pub struct WithProcessCleanup(
     /// Handle to the bitcoind process
@@ -135,7 +124,8 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
     ];
 
     if config.protocol_paramset().bridge_nonstandard {
-        // allow 0 sat outputs in regtest
+        // allow 0 sat non-ephemeral outputs in regtest by not considering them as dust
+        // https://github.com/bitcoin/bitcoin/blob/master/src/policy/policy.cpp
         args.push("-dustrelayfee=0".to_string());
     }
 
@@ -204,11 +194,14 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
         .get_new_address(None, None)
         .await
         .expect("Failed to get new address");
-    client
-        .client
-        .generate_to_address(201, address.assume_checked_ref())
-        .await
-        .expect("Failed to generate blocks");
+
+    if config.test_params.generate_to_address {
+        client
+            .client
+            .generate_to_address(201, address.assume_checked_ref())
+            .await
+            .expect("Failed to generate blocks");
+    }
 
     WithProcessCleanup(Some(process), client.clone(), log_file, bitcoin_rpc_debug)
 }
@@ -225,6 +218,8 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
 ///
 /// - [`BridgeConfig`]: Modified configuration struct
 pub async fn create_test_config_with_thread_name() -> BridgeConfig {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
     let handle = std::thread::current()
         .name()
         .expect("Failed to get thread name")
@@ -312,168 +307,10 @@ pub async fn initialize_database(config: &BridgeConfig) {
 ///
 /// Returns a tuple of vectors of clients, handles, and socket paths for the
 /// verifiers, operators, aggregator and watchtowers, along with shutdown channels.
-pub async fn create_actors<C: CitreaClientT>(
-    config: &BridgeConfig,
-) -> (
-    Vec<ClementineVerifierClient<Channel>>,
-    Vec<ClementineOperatorClient<Channel>>,
-    ClementineAggregatorClient<Channel>,
-    ActorsCleanup,
-) {
-    let all_verifiers_secret_keys = &config.test_params.all_verifiers_secret_keys;
-    // Collect all shutdown channels
-    let mut shutdown_channels = Vec::new();
-
-    // Create temporary directory for Unix sockets
-    let socket_dir = tempfile::tempdir().expect("Failed to create temporary directory for sockets");
-
-    let verifier_futures = all_verifiers_secret_keys
-        .iter()
-        .enumerate()
-        .map(|(i, sk)| {
-            let socket_path = socket_dir.path().join(format!("verifier_{}.sock", i));
-            let i = i.to_string();
-            let mut config_with_new_db = config.clone();
-            async move {
-                config_with_new_db.db_name += &i;
-                initialize_database(&config_with_new_db).await;
-
-                let (socket_path, shutdown_tx) = create_verifier_unix_server::<C>(
-                    BridgeConfig {
-                        secret_key: *sk,
-                        ..config_with_new_db.clone()
-                    },
-                    socket_path,
-                )
-                .await?;
-
-                Ok::<((std::path::PathBuf, oneshot::Sender<()>), BridgeConfig), BridgeError>((
-                    (socket_path, shutdown_tx),
-                    config_with_new_db,
-                ))
-            }
-        })
-        .collect::<Vec<_>>();
-
-    let verifier_results = futures::future::try_join_all(verifier_futures)
+pub async fn create_actors<C: CitreaClientT>(config: &BridgeConfig) -> TestActors<C> {
+    TestActors::new(config)
         .await
-        .expect("Failed to join verifier futures");
-
-    let (verifier_tmp, verifier_configs) =
-        verifier_results.into_iter().unzip::<_, _, Vec<_>, Vec<_>>();
-    let (verifier_paths, verifier_shutdown_channels) =
-        verifier_tmp.into_iter().unzip::<_, _, Vec<_>, Vec<_>>();
-
-    shutdown_channels.extend(verifier_shutdown_channels);
-
-    let all_operators_secret_keys = &config.test_params.all_operators_secret_keys;
-
-    // Create futures for operator Unix socket servers
-    let operator_futures = all_operators_secret_keys
-        .iter()
-        .enumerate()
-        .map(|(i, sk)| {
-            let socket_path = socket_dir.path().join(format!("operator_{}.sock", i));
-            let verifier_config = verifier_configs[i % verifier_configs.len()].clone();
-            async move {
-                let (socket_path, shutdown_tx) = create_operator_unix_server::<C>(
-                    BridgeConfig {
-                        secret_key: *sk,
-                        ..verifier_config.clone()
-                    },
-                    socket_path,
-                )
-                .await?;
-
-                Ok::<((std::path::PathBuf, oneshot::Sender<()>), BridgeConfig), BridgeError>((
-                    (socket_path, shutdown_tx),
-                    verifier_config,
-                ))
-            }
-        })
-        .collect::<Vec<_>>();
-
-    let operator_results = futures::future::try_join_all(operator_futures)
-        .await
-        .expect("Failed to join operator futures");
-
-    let (operator_tmp, operator_configs) =
-        operator_results.into_iter().unzip::<_, _, Vec<_>, Vec<_>>();
-    let (operator_paths, operator_shutdown_channels) =
-        operator_tmp.into_iter().unzip::<_, _, Vec<_>, Vec<_>>();
-
-    shutdown_channels.extend(operator_shutdown_channels);
-
-    let verifier_configs = verifier_configs.clone();
-
-    let aggregator_socket_path = socket_dir.path().join("aggregator.sock");
-
-    let (aggregator_path, aggregator_shutdown_tx) = create_aggregator_unix_server(
-        BridgeConfig {
-            verifier_endpoints: Some(
-                verifier_paths
-                    .iter()
-                    .map(|path| format!("unix://{}", path.display()))
-                    .collect(),
-            ),
-            operator_endpoints: Some(
-                operator_paths
-                    .iter()
-                    .map(|path| format!("unix://{}", path.display()))
-                    .collect(),
-            ),
-            ..verifier_configs[0].clone()
-        },
-        aggregator_socket_path,
-    )
-    .await
-    .expect("Failed to create aggregator");
-
-    // Add aggregator shutdown channel
-    shutdown_channels.push(aggregator_shutdown_tx);
-
-    // Connect to the Unix socket servers
-    let verifiers = get_clients(
-        verifier_paths
-            .iter()
-            .map(|path| format!("unix://{}", path.display()))
-            .collect::<Vec<_>>(),
-        ClementineVerifierClient::new,
-        &verifier_configs[0],
-        false,
-    )
-    .await
-    .expect("could not connect to verifiers");
-
-    let operators = get_clients(
-        operator_paths
-            .iter()
-            .map(|path| format!("unix://{}", path.display()))
-            .collect::<Vec<_>>(),
-        ClementineOperatorClient::new,
-        &operator_configs[0],
-        false,
-    )
-    .await
-    .expect("could not connect to operators");
-
-    let aggregator = get_clients(
-        vec![format!("unix://{}", aggregator_path.display())],
-        ClementineAggregatorClient::new,
-        &verifier_configs[0],
-        false,
-    )
-    .await
-    .expect("could not connect to aggregator")
-    .pop()
-    .expect("could not connect to aggregator");
-
-    (
-        verifiers,
-        operators,
-        aggregator,
-        ActorsCleanup((shutdown_channels, socket_dir)),
-    )
+        .expect("Failed to create actors")
 }
 
 /// Gets the the deposit address for the user.
@@ -553,6 +390,7 @@ pub async fn generate_withdrawal_transaction_and_signature(
     let unspent_txout = builder::transaction::output::UnspentTxOut::from_partial(txout.clone());
 
     let tx = builder::transaction::TxHandlerBuilder::new(TransactionType::Payout)
+        .with_version(bitcoin::transaction::Version::non_standard(3))
         .add_input(
             NormalSignatureKind::NotStored,
             txin,
@@ -599,6 +437,8 @@ impl PartialEq for MockOwner {
 
 impl NamedEntity for MockOwner {
     const ENTITY_NAME: &'static str = "test_owner";
+    const TX_SENDER_CONSUMER_ID: &'static str = "test_tx_sender";
+    const FINALIZED_BLOCK_CONSUMER_ID: &'static str = "test_finalized_block";
 }
 
 #[cfg(feature = "automation")]

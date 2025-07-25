@@ -70,3 +70,7 @@ aggregator_cert_path = "certs/aggregator/aggregator.pem"
 client_verification = true
 
 # socket_path = "/"
+
+[telemetry]
+host = "0.0.0.0"
+port = 8081
