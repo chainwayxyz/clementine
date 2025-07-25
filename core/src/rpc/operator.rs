@@ -137,7 +137,7 @@ where
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn withdraw(&self, request: Request<WithdrawParams>) -> Result<Response<Empty>, Status> {
         let (withdrawal_id, input_signature, input_outpoint, output_script_pubkey, output_amount) =
-            parser::operator::parse_withdrawal_sig_params(request.into_inner()).await?;
+            parser::operator::parse_withdrawal_sig_params(request.into_inner())?;
 
         // try to fulfill withdrawal only if automation is enabled
         #[cfg(feature = "automation")]

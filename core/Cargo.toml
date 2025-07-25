@@ -53,6 +53,7 @@ hyper = { workspace = true }
 tower = { workspace = true }
 hyper-util = { workspace = true }
 alloy = { workspace = true }
+alloy-sol-types = { workspace = true }
 ark-groth16 = { workspace = true, features = ["default"] }
 ark-bn254 = { workspace = true }
 ark-serialize = { workspace = true }

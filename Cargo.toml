@@ -108,6 +108,8 @@ alloy-rpc-types = "0.11.1"
 alloy-primitives = "0.8.25"
 alloy-rpc-types-eth = "0.11.1"
 alloy-rpc-client = "0.11.1"
+alloy-sol-types = { version = "0.8.25", default-features = false, features = ["json"] }
+
 
 rand = "0.8"
 num-bigint = "0.4.6"
