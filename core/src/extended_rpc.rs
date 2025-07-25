@@ -195,8 +195,9 @@ impl ExtendedRpc {
             return Ok(false);
         }
 
-        // if we are on mainnet, we additionally check if collateral utxo is on chain (not in mempool)
-        // because if it is in mempool, the txid of the utxo can change if the fee is bumped
+        // we additionally check if collateral utxo is on chain (so not in mempool)
+        // on mainnet we fail if collateral utxo is not on chain because if it is in mempool,
+        // the txid of the utxo can change if the fee is bumped
         // on other networks, we allow collateral to be in mempool to not wait for collateral to be on chain to do deposits for faster testing
         let is_on_chain = self
             .is_tx_on_chain(&operator_data.collateral_funding_outpoint.txid)
@@ -207,8 +208,6 @@ impl ExtendedRpc {
                 _ => Ok(true),
             };
         }
-
-        // continue if collateral utxo is on chain
 
         let mut current_collateral_outpoint: OutPoint = operator_data.collateral_funding_outpoint;
         let mut prev_ready_to_reimburse: Option<TxHandler> = None;
