@@ -33,7 +33,7 @@ bitcoin_rpc_user = "admin"
 bitcoin_rpc_password = "admin"
 
 # Fee rate RPC
-"fee_rate_rpc_url = "https://mempool.space/"
+fee_rate_rpc_url = "https://mempool.space/"
 fee_rate_rpc_endpoint = "api/v1/fees/recommended"
 
 # PostgreSQL database credentials.
