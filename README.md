@@ -81,7 +81,7 @@ Clementine supports two runtime primary configuration methods:
 
 #### Configuration Files
 
-Running the binary as a verifier, aggregator, operator or watchtower requires a
+Running the binary as a verifier, aggregator, or operator requires a
 configuration file. An example configuration file is located at
 [`core/src/test/data/bridge_config.toml`](core/src/test/data/bridge_config.toml) and can
 be taken as reference. Please copy that configuration file to another location

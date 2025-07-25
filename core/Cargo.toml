@@ -71,6 +71,7 @@ rustls-pki-types = { workspace = true }
 once_cell = { workspace = true }
 bitcoin-script = { workspace = true }
 secrecy = { workspace = true }
+reqwest = { workspace = true }
 
 # UNCOMMENT TO DEBUG TOKIO TASKS
 
