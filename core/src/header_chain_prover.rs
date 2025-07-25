@@ -22,6 +22,7 @@ use bridge_circuit_host::bridge_circuit_host::{
     TESTNET4_HEADER_CHAIN_ELF, TESTNET4_WORK_ONLY_ELF,
 };
 use bridge_circuit_host::docker::dev_stark_to_risc0_g16;
+use bridge_circuit_host::utils::is_dev_mode;
 use circuits_lib::bridge_circuit::structs::{WorkOnlyCircuitInput, WorkOnlyCircuitOutput};
 use circuits_lib::header_chain::mmr_guest::MMRGuest;
 use circuits_lib::header_chain::{
@@ -30,7 +31,6 @@ use circuits_lib::header_chain::{
 };
 use eyre::{eyre, Context, OptionExt};
 use lazy_static::lazy_static;
-use risc0_zkvm::is_dev_mode;
 use risc0_zkvm::{compute_image_id, ExecutorEnv, ProverOpts, Receipt};
 use std::{
     fs::File,
