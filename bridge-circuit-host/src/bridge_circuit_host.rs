@@ -246,9 +246,6 @@ pub fn prove_bridge_circuit(
         )?
     };
 
-    let verifier_context = VerifierContext::default();
-    verifier_context.dev_mode();
-
     tracing::info!("Bridge circuit proof (Groth16) generated");
 
     let risc0_g16_seal_vec = g16_proof.to_vec();
