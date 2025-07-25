@@ -6,15 +6,7 @@ x-clementine: &clementine_regtest
   platform: linux/amd64
 
   depends_on:
-    postgres_db_regtest_0:
-      condition: service_healthy
-    postgres_db_regtest_1:
-      condition: service_healthy
-    postgres_db_regtest_2:
-      condition: service_healthy
-    postgres_db_regtest_3:
-      condition: service_healthy
-    postgres_db_regtest_4:
+    postgres_db_regtest:
       condition: service_healthy
     bitcoin_regtest:
       condition: service_healthy
@@ -55,57 +47,27 @@ x-operator: &clementine_operator_regtest
   command:
     operator
 
-x-postgres: &postgres_db_regtest
-  image: 'postgres:latest'
-  attach: false
-  volumes:
-    - .docker/db/data/:/var/lib/postgresql/data/
-    - .docker/db/init.d/:/docker-entrypoint-initdb.d/
-  environment:
-    POSTGRES_USER: clementine
-    POSTGRES_PASSWORD: clementine
-    POSTGRES_DB: clementine
-    POSTGRES_HOST_AUTH_METHOD: trust
-  healthcheck:
-    test: ["CMD-SHELL", "pg_isready -U clementine -d clementine"]
-    interval: 2s
-    timeout: 5s
-    retries: 10
-  restart: unless-stopped
-  networks:
-    - clementine-network
-
 # Services ---------------------------------------------------------------------
 services:
-  postgres_db_regtest_0:
-    container_name: postgres_db_regtest_0
-    ports:
-      - "15532:5432"
-    <<: *postgres_db_regtest
-
-  postgres_db_regtest_1:
-    container_name: postgres_db_regtest_1
-    ports:
-      - "15533:5432"
-    <<: *postgres_db_regtest
-
-  postgres_db_regtest_2:
-    container_name: postgres_db_regtest_2
-    ports:
-      - "15534:5432"
-    <<: *postgres_db_regtest
-
-  postgres_db_regtest_3:
-    container_name: postgres_db_regtest_3
-    ports:
-      - "15535:5432"
-    <<: *postgres_db_regtest
-
-  postgres_db_regtest_4:
-    container_name: postgres_db_regtest_4
-    ports:
-      - "15536:5432"
-    <<: *postgres_db_regtest
+  postgres_db_regtest:
+    image: 'postgres:latest'
+    attach: false
+    container_name: postgres_db_regtest
+    volumes:
+      - ./configs/regtest/create-multiple-postgresql-databases.sh:/docker-entrypoint-initdb.d/init.sh
+    environment:
+      POSTGRES_MULTIPLE_DATABASES: clementine0,clementine1,clementine2,clementine3,clementine4
+      POSTGRES_USER: clementine
+      POSTGRES_PASSWORD: clementine
+      POSTGRES_HOST_AUTH_METHOD: trust
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U clementine -d clementine"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    networks:
+      - clementine-network
 
   bitcoin_regtest:
     image: bitcoin/bitcoin:29
@@ -233,8 +195,7 @@ services:
         condition: service_started
     environment:
       - SECRET_KEY=1111111111111111111111111111111111111111111111111111111111111111
-      - DB_HOST=postgres_db_regtest_0
-      - DB_PORT=15532
+      - DB_NAME=clementine0
     command:
       aggregator
     ports:
@@ -245,8 +206,7 @@ services:
     <<: *clementine_verifier_regtest
     environment:
       - SECRET_KEY=1111111111111111111111111111111111111111111111111111111111111111
-      - DB_HOST=postgres_db_regtest_0
-      - DB_PORT=15532
+      - DB_NAME=clementine0
     ports:
       - "17001:17000"
 
@@ -254,8 +214,7 @@ services:
     <<: *clementine_verifier_regtest
     environment:
       - SECRET_KEY=2222222222222222222222222222222222222222222222222222222222222222
-      - DB_PORT=15533
-      - DB_HOST=postgres_db_regtest_1
+      - DB_NAME=clementine1
     ports:
       - "17002:17000"
 
@@ -263,8 +222,7 @@ services:
     <<: *clementine_verifier_regtest
     environment:
       - SECRET_KEY=3333333333333333333333333333333333333333333333333333333333333333
-      - DB_PORT=15534
-      - DB_HOST=postgres_db_regtest_2
+      - DB_NAME=clementine2
     ports:
       - "17003:17000"
 
@@ -272,8 +230,7 @@ services:
     <<: *clementine_verifier_regtest
     environment:
       - SECRET_KEY=4444444444444444444444444444444444444444444444444444444444444444
-      - DB_PORT=15535
-      - DB_HOST=postgres_db_regtest_3
+      - DB_NAME=clementine3
     ports:
       - "17004:17000"
 
@@ -281,8 +238,7 @@ services:
     <<: *clementine_verifier_regtest
     environment:
       - SECRET_KEY=5555555555555555555555555555555555555555555555555555555555555555
-      - DB_PORT=15536
-      - DB_HOST=postgres_db_regtest_4
+      - DB_NAME=clementine4
     ports:
       - "17005:17000"
 
@@ -291,8 +247,7 @@ services:
     <<: *clementine_operator_regtest
     environment:
       - SECRET_KEY=1111111111111111111111111111111111111111111111111111111111111111
-      - DB_PORT=15532
-      - DB_HOST=postgres_db_regtest_0
+      - DB_NAME=clementine0
     ports:
       - "17006:17000"
 
@@ -300,8 +255,7 @@ services:
     <<: *clementine_operator_regtest
     environment:
       - SECRET_KEY=2222222222222222222222222222222222222222222222222222222222222222
-      - DB_PORT=15533
-      - DB_HOST=postgres_db_regtest_1
+      - DB_NAME=clementine1
     ports:
       - "17007:17000"
 
@@ -309,8 +263,7 @@ services:
     <<: *clementine_operator_regtest
     environment:
       - SECRET_KEY=3333333333333333333333333333333333333333333333333333333333333333
-      - DB_PORT=15534
-      - DB_HOST=postgres_db_regtest_2
+      - DB_NAME=clementine2
     ports:
       - "17008:17000"
 
@@ -318,8 +271,7 @@ services:
     <<: *clementine_operator_regtest
     environment:
       - SECRET_KEY=4444444444444444444444444444444444444444444444444444444444444444
-      - DB_PORT=15535
-      - DB_HOST=postgres_db_regtest_3
+      - DB_NAME=clementine3
     ports:
       - "17009:17000"
 
@@ -327,17 +279,12 @@ services:
     <<: *clementine_operator_regtest
     environment:
       - SECRET_KEY=5555555555555555555555555555555555555555555555555555555555555555
-      - DB_PORT=15536
-      - DB_HOST=postgres_db_regtest_4
+      - DB_NAME=clementine4
     ports:
       - "17010:17000"
 
 volumes:
-  postgres_db_regtest_0:
-  postgres_db_regtest_1:
-  postgres_db_regtest_2:
-  postgres_db_regtest_3:
-  postgres_db_regtest_4:
+  postgres_db_regtest:
   bitcoin_regtest:
   citrea_sequencer_regtest:
   citrea_batch_prover_regtest:
