@@ -20,10 +20,7 @@ use circuits_lib::common::constants::{
     TESTNET4_HEADER_CHAIN_METHOD_ID,
 };
 use circuits_lib::header_chain::mmr_native::MMRNative;
-use risc0_circuit_recursion::prove::Prover;
-use risc0_zkvm::{
-    compute_image_id, default_prover, ExecutorEnv, ProverOpts, Receipt, VerifierContext,
-};
+use risc0_zkvm::{compute_image_id, default_prover, ExecutorEnv, ProverOpts, Receipt};
 
 pub const REGTEST_BRIDGE_CIRCUIT_ELF: &[u8] =
     include_bytes!("../../risc0-circuits/elfs/regtest-bridge-circuit-guest.bin");
