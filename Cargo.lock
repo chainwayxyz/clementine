@@ -1853,7 +1853,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "sov-rollup-interface 0.7.0",
+ "sov-rollup-interface 0.7.2",
  "tempfile",
  "thiserror 1.0.69",
  "tokio",
@@ -2043,7 +2043,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "sov-rollup-interface 0.7.0",
+ "sov-rollup-interface 0.7.2",
  "tracing",
 ]
 
@@ -4419,7 +4419,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "07033963ba89ebaf1584d767badaa2e8fcec21aedea6b8c0346d487d49c28667"
 dependencies = [
  "cfg-if",
- "windows-targets 0.52.6",
+ "windows-targets 0.53.2",
 ]
 
 [[package]]
@@ -6005,9 +6005,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-build"
-version = "2.2.0"
+version = "2.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "714776c8ccf3e206ecf499dab6561259beef6e7a82dfb49ccf5c911c7350dd5e"
+checksum = "62ffc0f135e6c1e9851e7e19438d03ff41a9d49199ee4f6c17b8bb30b4f83910"
 dependencies = [
  "anyhow",
  "cargo_metadata",
@@ -6252,9 +6252,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-zkvm"
-version = "2.2.0"
+version = "2.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c59aaf1898f2f5d526a79d53dbe6288aeb1ce52a17184b85af84d06dedb1a367"
+checksum = "9684b333c1c5d83f29ce2a92314ccfafd9d8cdfa6c4e19c07b97015d2f1eb9d0"
 dependencies = [
  "addr2line 0.22.0",
  "anyhow",
@@ -7167,10 +7167,9 @@ dependencies = [
 
 [[package]]
 name = "sov-keys"
-version = "0.7.0"
-source = "git+https://github.com/chainwayxyz/citrea?tag=v0.7.0#7e2d3c4ec25c282ad36b0f4a44ce53f50b6b9931"
+version = "0.7.2"
+source = "git+https://github.com/chainwayxyz/citrea?tag=v0.7.2-mempool-fixes#53ababe3f1584a88e55ec10944ad21a140ebba86"
 dependencies = [
- "anyhow",
  "borsh",
  "derive_more 1.0.0",
  "digest 0.10.7",
@@ -7210,8 +7209,8 @@ dependencies = [
 
 [[package]]
 name = "sov-rollup-interface"
-version = "0.7.0"
-source = "git+https://github.com/chainwayxyz/citrea?tag=v0.7.0#7e2d3c4ec25c282ad36b0f4a44ce53f50b6b9931"
+version = "0.7.2"
+source = "git+https://github.com/chainwayxyz/citrea?tag=v0.7.2-mempool-fixes#53ababe3f1584a88e55ec10944ad21a140ebba86"
 dependencies = [
  "anyhow",
  "borsh",
@@ -7220,7 +7219,7 @@ dependencies = [
  "jmt 0.11.0 (git+https://github.com/penumbra-zone/jmt.git?rev=550a2f2)",
  "serde",
  "sha2",
- "sov-keys 0.7.0",
+ "sov-keys 0.7.2",
 ]
 
 [[package]]
