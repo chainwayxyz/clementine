@@ -16,6 +16,7 @@ use errors::BridgeError;
 use eyre::Context;
 use rustls_pki_types::pem::PemObject;
 use std::thread;
+use std::time::Duration;
 use tokio::sync::oneshot;
 use tonic::server::NamedService;
 use tonic::service::interceptor::InterceptedService;
@@ -152,6 +153,10 @@ where
 
             let server_builder = tonic::transport::Server::builder()
                 .layer(AddMethodMiddlewareLayer)
+                .timeout(Duration::from_secs(config.grpc.timeout_secs))
+                .tcp_keepalive(Some(Duration::from_secs(config.grpc.tpc_keepalive_secs)))
+                .concurrency_limit_per_connection(config.grpc.req_concurrency_limit)
+                .http2_adaptive_window(Some(true))
                 .tls_config(tls_config)
                 .wrap_err("Failed to configure TLS")?
                 .add_service(service);
@@ -176,6 +181,8 @@ where
         ServerAddr::Unix(ref socket_path) => {
             let server_builder = tonic::transport::Server::builder()
                 .layer(AddMethodMiddlewareLayer)
+                .timeout(Duration::from_secs(43200)) // 12 hours
+                .concurrency_limit_per_connection(1000)
                 .add_service(service);
             tracing::info!(
                 "Starting {} gRPC server with Unix socket: {:?}",
@@ -234,7 +241,9 @@ pub async fn create_verifier_grpc_server<C: CitreaClientT>(
         .parse()
         .wrap_err("Failed to parse address")?;
     let verifier = VerifierServer::<C>::new(config.clone()).await?;
-    let svc = ClementineVerifierServer::new(verifier);
+    let svc = ClementineVerifierServer::new(verifier)
+        .max_encoding_message_size(config.grpc.max_message_size)
+        .max_decoding_message_size(config.grpc.max_message_size);
 
     let (server_addr, shutdown_tx) =
         create_grpc_server(addr.into(), svc, "Verifier", &config).await?;
@@ -261,7 +270,9 @@ pub async fn create_operator_grpc_server<C: CitreaClientT>(
     let operator = OperatorServer::<C>::new(config.clone()).await?;
 
     tracing::info!("Creating ClementineOperatorServer");
-    let svc = ClementineOperatorServer::new(operator);
+    let svc = ClementineOperatorServer::new(operator)
+        .max_encoding_message_size(config.grpc.max_message_size)
+        .max_decoding_message_size(config.grpc.max_message_size);
     let (server_addr, shutdown_tx) =
         create_grpc_server(addr.into(), svc, "Operator", &config).await?;
     tracing::info!("Operator gRPC server created");
@@ -279,7 +290,9 @@ pub async fn create_aggregator_grpc_server(
         .parse()
         .wrap_err("Failed to parse address")?;
     let aggregator = Aggregator::new(config.clone()).await?;
-    let svc = ClementineAggregatorServer::new(aggregator);
+    let svc = ClementineAggregatorServer::new(aggregator)
+        .max_encoding_message_size(config.grpc.max_message_size)
+        .max_decoding_message_size(config.grpc.max_message_size);
 
     if config.client_verification {
         tracing::warn!(
@@ -314,7 +327,9 @@ pub async fn create_verifier_unix_server<C: CitreaClientT>(
     .wrap_err("Failed to connect to Bitcoin RPC")?;
 
     let verifier = VerifierServer::<C>::new(config.clone()).await?;
-    let svc = ClementineVerifierServer::new(verifier);
+    let svc = ClementineVerifierServer::new(verifier)
+        .max_encoding_message_size(config.grpc.max_message_size)
+        .max_decoding_message_size(config.grpc.max_message_size);
 
     let (server_addr, shutdown_tx) =
         create_grpc_server(socket_path.into(), svc, "Verifier", &config).await?;
@@ -349,7 +364,9 @@ pub async fn create_operator_unix_server<C: CitreaClientT>(
     .wrap_err("Failed to connect to Bitcoin RPC")?;
 
     let operator = OperatorServer::<C>::new(config.clone()).await?;
-    let svc = ClementineOperatorServer::new(operator);
+    let svc = ClementineOperatorServer::new(operator)
+        .max_encoding_message_size(config.grpc.max_message_size)
+        .max_decoding_message_size(config.grpc.max_message_size);
 
     let (server_addr, shutdown_tx) =
         create_grpc_server(socket_path.into(), svc, "Operator", &config).await?;
@@ -376,7 +393,9 @@ pub async fn create_aggregator_unix_server(
     socket_path: std::path::PathBuf,
 ) -> Result<(std::path::PathBuf, oneshot::Sender<()>), BridgeError> {
     let aggregator = Aggregator::new(config.clone()).await?;
-    let svc = ClementineAggregatorServer::new(aggregator);
+    let svc = ClementineAggregatorServer::new(aggregator)
+        .max_encoding_message_size(config.grpc.max_message_size)
+        .max_decoding_message_size(config.grpc.max_message_size);
 
     let (server_addr, shutdown_tx) =
         create_grpc_server(socket_path.into(), svc, "Aggregator", &config).await?;

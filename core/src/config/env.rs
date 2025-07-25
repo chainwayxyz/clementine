@@ -1,7 +1,7 @@
 //! # Environment Variable Support For [`BridgeConfig`]
 
 use super::BridgeConfig;
-use crate::{deposit::SecurityCouncil, errors::BridgeError};
+use crate::{config::GrpcLimits, deposit::SecurityCouncil, errors::BridgeError};
 use bitcoin::{address::NetworkUnchecked, secp256k1::SecretKey, Amount};
 use std::{path::PathBuf, str::FromStr};
 
@@ -18,6 +18,19 @@ where
     read_string_from_env(env_var)?
         .parse::<T>()
         .map_err(|e| BridgeError::EnvVarMalformed(env_var, format!("{:?}", e)))
+}
+
+impl GrpcLimits {
+    pub fn from_env() -> Result<Self, BridgeError> {
+        Ok(GrpcLimits {
+            max_message_size: read_string_from_env_then_parse::<usize>("GRPC_MAX_MESSAGE_SIZE")?,
+            timeout_secs: read_string_from_env_then_parse::<u64>("GRPC_TIMEOUT_SECS")?,
+            tpc_keepalive_secs: read_string_from_env_then_parse::<u64>("GRPC_KEEPALIVE_SECS")?,
+            req_concurrency_limit: read_string_from_env_then_parse::<usize>(
+                "GRPC_CONCURRENCY_LIMIT",
+            )?,
+        })
+    }
 }
 
 impl BridgeConfig {
@@ -155,6 +168,8 @@ impl BridgeConfig {
             client_cert_path,
             client_key_path,
             aggregator_cert_path,
+
+            grpc: GrpcLimits::from_env()?,
 
             #[cfg(test)]
             test_params: super::TestParams::default(),
