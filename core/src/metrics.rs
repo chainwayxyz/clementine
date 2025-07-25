@@ -16,11 +16,11 @@ use crate::{
     database::Database,
     errors::BridgeError,
     extended_rpc::ExtendedRpc,
-    utils::{timed_request, NamedEntity},
+    utils::{timed_request_base, NamedEntity},
 };
 use metrics_derive::Metrics;
 
-const L1_SYNC_STATUS_METRICS_TIMEOUT: Duration = Duration::from_secs(60);
+const L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT: Duration = Duration::from_secs(45);
 
 #[derive(Metrics)]
 #[metrics(scope = "l1_sync_status")]
@@ -87,8 +87,8 @@ pub static L1_SYNC_STATUS: LazyLock<L1SyncStatusMetrics> = LazyLock::new(|| {
 /// A struct containing the current sync status of the entity.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct L1SyncStatus {
-    pub wallet_balance: Amount,
-    pub rpc_tip_height: u32,
+    pub wallet_balance: Option<Amount>,
+    pub rpc_tip_height: Option<u32>,
     pub btc_syncer_synced_height: Option<u32>,
     pub hcp_last_proven_height: Option<u32>,
     pub tx_sender_synced_height: Option<u32>,
@@ -172,33 +172,80 @@ pub trait L1SyncStatusProvider: NamedEntity {
 #[async_trait]
 impl<T: NamedEntity + Sync + Send + 'static> L1SyncStatusProvider for T {
     async fn get_l1_status(db: &Database, rpc: &ExtendedRpc) -> Result<L1SyncStatus, BridgeError> {
-        timed_request(L1_SYNC_STATUS_METRICS_TIMEOUT, "get_l1_status", async {
-            let wallet_balance = get_wallet_balance(rpc).await?;
-            let rpc_tip_height = get_rpc_tip_height(rpc).await?;
-            let tx_sender_synced_height =
-                get_btc_syncer_consumer_last_processed_block_height(db, T::TX_SENDER_CONSUMER_ID)
-                    .await?;
-            let finalized_synced_height = get_btc_syncer_consumer_last_processed_block_height(
-                db,
-                T::FINALIZED_BLOCK_CONSUMER_ID,
-            )
-            .await?;
-            let btc_syncer_synced_height = get_btc_syncer_synced_height(db).await?;
-            let hcp_last_proven_height = get_hcp_last_proven_height(db).await?;
-            let state_manager_next_height =
-                get_state_manager_next_height(db, T::ENTITY_NAME).await?;
-
-            Ok(L1SyncStatus {
-                wallet_balance,
-                rpc_tip_height,
-                btc_syncer_synced_height,
-                hcp_last_proven_height,
-                tx_sender_synced_height,
-                finalized_synced_height,
-                state_manager_next_height,
-            })
-        })
+        let wallet_balance = timed_request_base(
+            L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
+            "get_wallet_balance",
+            get_wallet_balance(rpc),
+        )
         .await
+        .ok()
+        .transpose()?;
+
+        let rpc_tip_height = timed_request_base(
+            L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
+            "get_rpc_tip_height",
+            get_rpc_tip_height(rpc),
+        )
+        .await
+        .ok()
+        .transpose()?;
+
+        let tx_sender_synced_height = timed_request_base(
+            L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
+            "get_tx_sender_synced_height",
+            get_btc_syncer_consumer_last_processed_block_height(db, T::TX_SENDER_CONSUMER_ID),
+        )
+        .await
+        .ok()
+        .transpose()?
+        .flatten();
+
+        let finalized_synced_height = timed_request_base(
+            L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
+            "get_finalized_synced_height",
+            get_btc_syncer_consumer_last_processed_block_height(db, T::FINALIZED_BLOCK_CONSUMER_ID),
+        )
+        .await
+        .ok()
+        .transpose()?
+        .flatten();
+        let btc_syncer_synced_height = timed_request_base(
+            L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
+            "get_btc_syncer_synced_height",
+            get_btc_syncer_synced_height(db),
+        )
+        .await
+        .ok()
+        .transpose()?
+        .flatten();
+        let hcp_last_proven_height = timed_request_base(
+            L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
+            "get_hcp_last_proven_height",
+            get_hcp_last_proven_height(db),
+        )
+        .await
+        .ok()
+        .transpose()?
+        .flatten();
+        let state_manager_next_height = timed_request_base(
+            L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
+            "get_state_manager_next_height",
+            get_state_manager_next_height(db, T::ENTITY_NAME),
+        )
+        .await
+        .ok()
+        .transpose()?
+        .flatten();
+
+        Ok(L1SyncStatus {
+            wallet_balance,
+            rpc_tip_height,
+            btc_syncer_synced_height,
+            hcp_last_proven_height,
+            tx_sender_synced_height,
+            finalized_synced_height,
+            state_manager_next_height,
+        })
     }
 }
 
