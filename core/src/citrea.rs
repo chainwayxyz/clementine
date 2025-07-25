@@ -61,6 +61,7 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
         light_client_prover_url: String,
         chain_id: u32,
         secret_key: Option<PrivateKeySigner>,
+        timeout: Option<Duration>,
     ) -> Result<Self, BridgeError>;
 
     /// Fetches an UTXO from Citrea for the given withdrawal index.
@@ -301,6 +302,7 @@ impl CitreaClientT for CitreaClient {
         light_client_prover_url: String,
         chain_id: u32,
         secret_key: Option<PrivateKeySigner>,
+        timeout: Option<Duration>,
     ) -> Result<Self, BridgeError> {
         let citrea_rpc_url = Url::parse(&citrea_rpc_url).wrap_err("Can't parse Citrea RPC URL")?;
         let light_client_prover_url =
@@ -328,14 +330,14 @@ impl CitreaClientT for CitreaClient {
         tracing::info!("Contract created");
 
         let client = HttpClientBuilder::default()
-            .request_timeout(Duration::from_secs(30))
+            .request_timeout(timeout.unwrap_or(Duration::from_secs(30)))
             .build(citrea_rpc_url)
             .wrap_err("Failed to create Citrea RPC client")?;
 
         tracing::info!("Citrea RPC client created");
 
         let light_client_prover_client = HttpClientBuilder::default()
-            .request_timeout(Duration::from_secs(30))
+            .request_timeout(timeout.unwrap_or(Duration::from_secs(30)))
             .build(light_client_prover_url)
             .wrap_err("Failed to create Citrea LCP RPC client")?;
 
