@@ -134,6 +134,8 @@ pub trait Owner: Clone + NamedEntity {
     ) -> Result<(), BridgeError>;
 }
 
+/// Context for the state machine
+/// Every state can access the context
 #[derive(Debug, Clone)]
 pub struct StateContext<T: Owner> {
     pub db: Database,
