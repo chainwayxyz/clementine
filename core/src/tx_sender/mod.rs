@@ -1,4 +1,5 @@
 use crate::config::protocol::ProtocolParamset;
+use crate::config::BridgeConfig;
 use crate::errors::ResultExt;
 use crate::utils::FeePayingType;
 use crate::{
@@ -114,7 +115,7 @@ impl TxSender {
     }
 
     /// Gets the current recommended fee rate in sat/vb from Mempool Space or Bitcoin Core.
-    async fn _get_fee_rate_as_sat_vb(&self) -> Result<FeeRate> {
+    async fn _get_fee_rate_as_sat_vb(&self, config: &BridgeConfig) -> Result<FeeRate> {
         match self.paramset.network {
             // Regtest and Signet use a fixed, low fee rate.
             Network::Regtest | Network::Signet => {
@@ -130,31 +131,35 @@ impl TxSender {
                 tracing::info!("Fetching fee rate for {} network...", self.paramset.network);
 
                 // Fetch fee from RPC provider with a fallback to the RPC node.
-                let smart_fee_result: Result<Amount> = {
-                    let mempool_fee = get_fee_rate_from_rpc_provider(self.paramset.network).await;
+                let smart_fee_result: Result<Amount> =
+                    {
+                        let mempool_fee = get_fee_rate_from_rpc_provider(
+                            &config.fee_rate_rpc_url,
+                            &config.fee_rate_rpc_endpoint,
+                            self.paramset.network,
+                        )
+                        .await;
 
-                    if let Ok(fee_rate) = mempool_fee {
-                        Ok(fee_rate)
-                    } else {
-                        if let Err(e) = &mempool_fee {
-                            tracing::warn!(
+                        if let Ok(fee_rate) = mempool_fee {
+                            Ok(fee_rate)
+                        } else {
+                            if let Err(e) = &mempool_fee {
+                                tracing::warn!(
                     "Mempool.space fee fetch failed, falling back to Bitcoin Core RPC: {:#}",
                     e
                 );
+                            }
+
+                            let fee_estimate =
+                                self.rpc.client.estimate_smart_fee(1, None).await.wrap_err(
+                                    "Failed to estimate smart fee using Bitcoin Core RPC",
+                                )?;
+
+                            fee_estimate.fee_rate.ok_or_else(|| {
+                                eyre!("Bitcoin Core RPC returned no fee estimate").into()
+                            })
                         }
-
-                        let fee_estimate = self
-                            .rpc
-                            .client
-                            .estimate_smart_fee(1, None)
-                            .await
-                            .wrap_err("Failed to estimate smart fee using Bitcoin Core RPC")?;
-
-                        fee_estimate.fee_rate.ok_or_else(|| {
-                            eyre!("Bitcoin Core RPC returned no fee estimate").into()
-                        })
-                    }
-                };
+                    };
 
                 let sat_vkb = smart_fee_result.map_or_else(
                     |err| {
@@ -184,10 +189,9 @@ impl TxSender {
         }
     }
 
-    #[allow(dead_code)]
-    async fn _get_fee_rate(&self) -> Result<FeeRate> {
+    async fn _get_fee_rate(&self, config: &BridgeConfig) -> Result<FeeRate> {
         tracing::info!("Getting fee rate");
-        let fee_rate = self._get_fee_rate_as_sat_vb().await?;
+        let fee_rate = self._get_fee_rate_as_sat_vb(config).await?;
         Ok(fee_rate)
     }
 
@@ -442,17 +446,20 @@ impl TxSender {
 /// Mempool Space API.
 /// This function is used to get the fee rate in sat/vkb (satoshis per kilovbyte).
 /// See [Mempool Space API](https://mempool.space/docs/api/rest#get-recommended-fees) for more details.
-async fn get_fee_rate_from_rpc_provider(config: &BridgeConfig) -> Result<Amount> {
-    let rpc_url = config
-        .fee_rate_rpc_url
+#[allow(dead_code)]
+async fn get_fee_rate_from_rpc_provider(
+    rpc_url: &Option<String>,
+    rpc_endpoint: &Option<String>,
+    network: Network,
+) -> Result<Amount> {
+    let rpc_url = rpc_url
         .as_ref()
         .ok_or_else(|| eyre!("Fee rate RPC URL is not configured"))?;
 
-    let rpc_endpoint = config
-        .fee_rate_rpc_endpoint
+    let rpc_endpoint = rpc_endpoint
         .as_ref()
         .ok_or_else(|| eyre!("Fee rate RPC endpoint is not configured"))?;
-    let url = match config.network {
+    let url = match network {
         Network::Bitcoin => format!(
             // If the variables are not, return Error to fallback to Bitcoin Core RPC.
             "{}{}",
@@ -460,13 +467,7 @@ async fn get_fee_rate_from_rpc_provider(config: &BridgeConfig) -> Result<Amount>
         ),
         Network::Testnet4 => format!("{}testnet4/{}", rpc_url, rpc_endpoint),
         // Return early with error for unsupported networks
-        _ => {
-            return Err(eyre!(
-                "Unsupported network for mempool.space: {:?}",
-                config.protocol_paramset.network
-            )
-            .into())
-        }
+        _ => return Err(eyre!("Unsupported network for mempool.space: {:?}", network).into()),
     };
 
     let fee_sat_per_vb = reqwest::get(&url)
@@ -817,7 +818,7 @@ mod tests {
         }
 
         // Calculate and send with fee.
-        let fee_rate = tx_sender._get_fee_rate().await.unwrap();
+        let fee_rate = tx_sender._get_fee_rate(&config).await.unwrap();
         let fee = TxSender::calculate_required_fee(
             will_fail_tx.weight(),
             1,
@@ -917,27 +918,49 @@ mod tests {
         Ok(())
     }
 
-    use crate::config::BridgeConfig;
+    #[tokio::test]
+    async fn test_mempool_space_fee_rate_mainnet() {
+        get_fee_rate_from_rpc_provider(
+            &Some("https://mempool.space/".to_string()),
+            &Some("api/v1/fees/recommended".to_string()),
+            bitcoin::Network::Bitcoin,
+        )
+        .await
+        .unwrap();
+    }
 
     #[tokio::test]
-    async fn test_mempool_space_fee_rate() {
-        let mut default_config = BridgeConfig::default();
-        default_config.protocol_paramset.network = bitcoin::Network::Bitcoin;
-        let _fee_rate = get_fee_rate_from_rpc_provider(default_config)
-            .await
-            .unwrap();
-        default_config.protocol_paramset.network = bitcoin::Network::Testnet4;
-        let _fee_rate = get_fee_rate_from_rpc_provider(default_config)
-            .await
-            .unwrap();
-        default_config.protocol_paramset.network = bitcoin::Network::Regtest;
-        // Regtest and Signet should return an error as they use a fixed fee rate.
-        assert!(get_fee_rate_from_rpc_provider(default_config)
-            .await
-            .is_err());
-        default_config.protocol_paramset.network = bitcoin::Network::Signet;
-        assert!(get_fee_rate_from_rpc_provider(default_config)
-            .await
-            .is_err());
+    async fn test_mempool_space_fee_rate_testnet4() {
+        get_fee_rate_from_rpc_provider(
+            &Some("https://mempool.space/".to_string()),
+            &Some("api/v1/fees/recommended".to_string()),
+            bitcoin::Network::Testnet4,
+        )
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    #[should_panic(expected = "Unsupported network for mempool.space: Regtest")]
+    async fn test_mempool_space_fee_rate_regtest() {
+        get_fee_rate_from_rpc_provider(
+            &Some("https://mempool.space/".to_string()),
+            &Some("api/v1/fees/recommended".to_string()),
+            bitcoin::Network::Regtest,
+        )
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    #[should_panic(expected = "Unsupported network for mempool.space: Signet")]
+    async fn test_mempool_space_fee_rate_signet() {
+        get_fee_rate_from_rpc_provider(
+            &Some("https://mempool.space/".to_string()),
+            &Some("api/v1/fees/recommended".to_string()),
+            bitcoin::Network::Signet,
+        )
+        .await
+        .unwrap();
     }
 }
