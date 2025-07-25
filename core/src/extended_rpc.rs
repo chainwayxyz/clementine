@@ -171,18 +171,6 @@ impl ExtendedRpc {
                 operator_data.collateral_funding_outpoint
             ))?;
 
-        // if we are on mainnet, we additionally check if collateral utxo is on chain (not in mempool)
-        // because if it is in mempool, the txid of the utxo can change if the fee is bumped
-        // on other networks, we do not check this to not wait for collateral to be on chain to do deposits for faster testing
-        if paramset.network == Network::Mainnet {
-            let is_on_chain = self
-                .is_tx_on_chain(&operator_data.collateral_funding_outpoint.txid)
-                .await?;
-            if !is_on_chain {
-                return Ok(false);
-            }
-        }
-
         let input_amount = match tx
             .output
             .get(operator_data.collateral_funding_outpoint.vout as usize)
@@ -206,6 +194,21 @@ impl ExtendedRpc {
             );
             return Ok(false);
         }
+
+        // if we are on mainnet, we additionally check if collateral utxo is on chain (not in mempool)
+        // because if it is in mempool, the txid of the utxo can change if the fee is bumped
+        // on other networks, we allow collateral to be in mempool to not wait for collateral to be on chain to do deposits for faster testing
+        let is_on_chain = self
+            .is_tx_on_chain(&operator_data.collateral_funding_outpoint.txid)
+            .await?;
+        if !is_on_chain {
+            return match paramset.network {
+                bitcoin::Network::Bitcoin => Ok(false),
+                _ => Ok(true),
+            };
+        }
+
+        // continue if collateral utxo is on chain
 
         let mut current_collateral_outpoint: OutPoint = operator_data.collateral_funding_outpoint;
         let mut prev_ready_to_reimburse: Option<TxHandler> = None;
