@@ -162,7 +162,7 @@ impl ExtendedRpc {
         kickoff_wpks: &KickoffWinternitzKeys,
         paramset: &'static ProtocolParamset,
     ) -> std::result::Result<bool, BridgeError> {
-        // first check if the collateral utxo is
+        // first check if the collateral utxo is on chain or mempool
         let tx = self
             .get_tx_of_txid(&operator_data.collateral_funding_outpoint.txid)
             .await
@@ -170,6 +170,19 @@ impl ExtendedRpc {
                 "Failed to find collateral utxo in chain for outpoint {:?}",
                 operator_data.collateral_funding_outpoint
             ))?;
+
+        // if we are on mainnet, we additionally check if collateral utxo is on chain (not in mempool)
+        // because if it is in mempool, the txid of the utxo can change if the fee is bumped
+        // on other networks, we do not check this to not wait for collateral to be on chain to do deposits for faster testing
+        if paramset.network == Network::Mainnet {
+            let is_on_chain = self
+                .is_tx_on_chain(&operator_data.collateral_funding_outpoint.txid)
+                .await?;
+            if !is_on_chain {
+                return Ok(false);
+            }
+        }
+
         let input_amount = match tx
             .output
             .get(operator_data.collateral_funding_outpoint.vout as usize)
