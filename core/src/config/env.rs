@@ -1,7 +1,11 @@
 //! # Environment Variable Support For [`BridgeConfig`]
 
 use super::BridgeConfig;
-use crate::{config::GrpcLimits, deposit::SecurityCouncil, errors::BridgeError};
+use crate::{
+    config::{default_grpc_limits, GrpcLimits},
+    deposit::SecurityCouncil,
+    errors::BridgeError,
+};
 use bitcoin::{address::NetworkUnchecked, secp256k1::SecretKey, Amount};
 use std::{path::PathBuf, str::FromStr};
 
@@ -22,13 +26,22 @@ where
 
 impl GrpcLimits {
     pub fn from_env() -> Result<Self, BridgeError> {
+        let defaults = default_grpc_limits();
         Ok(GrpcLimits {
-            max_message_size: read_string_from_env_then_parse::<usize>("GRPC_MAX_MESSAGE_SIZE")?,
-            timeout_secs: read_string_from_env_then_parse::<u64>("GRPC_TIMEOUT_SECS")?,
-            tpc_keepalive_secs: read_string_from_env_then_parse::<u64>("GRPC_KEEPALIVE_SECS")?,
+            max_message_size: read_string_from_env_then_parse::<usize>("GRPC_MAX_MESSAGE_SIZE")
+                .ok()
+                .unwrap_or(defaults.max_message_size),
+            timeout_secs: read_string_from_env_then_parse::<u64>("GRPC_TIMEOUT_SECS")
+                .ok()
+                .unwrap_or(defaults.timeout_secs),
+            tpc_keepalive_secs: read_string_from_env_then_parse::<u64>("GRPC_KEEPALIVE_SECS")
+                .ok()
+                .unwrap_or(defaults.tpc_keepalive_secs),
             req_concurrency_limit: read_string_from_env_then_parse::<usize>(
                 "GRPC_CONCURRENCY_LIMIT",
-            )?,
+            )
+            .ok()
+            .unwrap_or(defaults.req_concurrency_limit),
         })
     }
 }
