@@ -15,6 +15,7 @@ use crate::{config::BridgeConfig, errors};
 use errors::BridgeError;
 use eyre::Context;
 use rustls_pki_types::pem::PemObject;
+use tower::limit::RateLimitLayer;
 use std::thread;
 use std::time::Duration;
 use tokio::sync::oneshot;
@@ -153,6 +154,10 @@ where
 
             let server_builder = tonic::transport::Server::builder()
                 .layer(AddMethodMiddlewareLayer)
+                .layer(RateLimitLayer::new(
+                    config.grpc.ratelimit_req_count as u64,
+                    Duration::from_secs(config.grpc.ratelimit_req_interval_secs),
+                ))
                 .timeout(Duration::from_secs(config.grpc.timeout_secs))
                 .tcp_keepalive(Some(Duration::from_secs(config.grpc.tpc_keepalive_secs)))
                 .concurrency_limit_per_connection(config.grpc.req_concurrency_limit)

@@ -29,6 +29,12 @@ impl GrpcLimits {
             req_concurrency_limit: read_string_from_env_then_parse::<usize>(
                 "GRPC_CONCURRENCY_LIMIT",
             )?,
+            ratelimit_req_count: read_string_from_env_then_parse::<usize>(
+                "GRPC_RATELIMIT_REQ_COUNT",
+            )?,
+            ratelimit_req_interval_secs: read_string_from_env_then_parse::<u64>(
+                "GRPC_RATELIMIT_REQ_INTERVAL_SECS",
+            )?,
         })
     }
 }
