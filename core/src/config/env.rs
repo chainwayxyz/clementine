@@ -42,6 +42,16 @@ impl GrpcLimits {
             )
             .ok()
             .unwrap_or(defaults.req_concurrency_limit),
+            ratelimit_req_count: read_string_from_env_then_parse::<usize>(
+                "GRPC_RATELIMIT_REQ_COUNT",
+            )
+            .ok()
+            .unwrap_or(defaults.ratelimit_req_count),
+            ratelimit_req_interval_secs: read_string_from_env_then_parse::<u64>(
+                "GRPC_RATELIMIT_REQ_INTERVAL_SECS",
+            )
+            .ok()
+            .unwrap_or(defaults.ratelimit_req_interval_secs),
         })
     }
 }
