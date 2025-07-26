@@ -1,6 +1,5 @@
 use ark_ff::PrimeField;
 use circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
-use risc0_zkvm::is_dev_mode;
 use std::collections::HashMap;
 
 use crate::actor::{Actor, TweakCache, WinternitzDerivationPath};
@@ -1220,7 +1219,7 @@ where
         _payout_blockhash: Witness,
         latest_blockhash: Witness,
     ) -> Result<(), BridgeError> {
-        use bridge_circuit_host::utils::get_verifying_key;
+        use bridge_circuit_host::utils::{get_verifying_key, is_dev_mode};
 
         let context = ContractContext::new_context_for_kickoff(
             kickoff_data,
