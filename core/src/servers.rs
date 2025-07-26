@@ -187,8 +187,6 @@ where
         }
         #[cfg(unix)]
         ServerAddr::Unix(ref socket_path) => {
-            let layer = ServiceBuilder::new()
-
             let server_builder = tonic::transport::Server::builder()
                 .layer(AddMethodMiddlewareLayer)
                 .layer(BufferLayer::new(config.grpc.req_concurrency_limit as usize))
