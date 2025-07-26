@@ -15,13 +15,15 @@ use crate::{config::BridgeConfig, errors};
 use errors::BridgeError;
 use eyre::Context;
 use rustls_pki_types::pem::PemObject;
-use tower::limit::RateLimitLayer;
 use std::thread;
 use std::time::Duration;
 use tokio::sync::oneshot;
 use tonic::server::NamedService;
 use tonic::service::interceptor::InterceptedService;
 use tonic::transport::{Certificate, CertificateDer, Identity, ServerTlsConfig};
+use tower::buffer::BufferLayer;
+use tower::limit::RateLimitLayer;
+use tower::ServiceBuilder;
 
 #[cfg(test)]
 use crate::test::common::ensure_test_certificates;
@@ -154,6 +156,7 @@ where
 
             let server_builder = tonic::transport::Server::builder()
                 .layer(AddMethodMiddlewareLayer)
+                .layer(BufferLayer::new(config.grpc.req_concurrency_limit as usize))
                 .layer(RateLimitLayer::new(
                     config.grpc.ratelimit_req_count as u64,
                     Duration::from_secs(config.grpc.ratelimit_req_interval_secs),
@@ -184,10 +187,17 @@ where
         }
         #[cfg(unix)]
         ServerAddr::Unix(ref socket_path) => {
+            let layer = ServiceBuilder::new()
+
             let server_builder = tonic::transport::Server::builder()
                 .layer(AddMethodMiddlewareLayer)
+                .layer(BufferLayer::new(config.grpc.req_concurrency_limit as usize))
+                .layer(RateLimitLayer::new(
+                    config.grpc.ratelimit_req_count as u64,
+                    Duration::from_secs(config.grpc.ratelimit_req_interval_secs),
+                ))
                 .timeout(Duration::from_secs(43200)) // 12 hours
-                .concurrency_limit_per_connection(1000)
+                .concurrency_limit_per_connection(config.grpc.req_concurrency_limit)
                 .add_service(service);
             tracing::info!(
                 "Starting {} gRPC server with Unix socket: {:?}",
