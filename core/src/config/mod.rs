@@ -130,6 +130,27 @@ pub struct BridgeConfig {
     #[cfg(test)]
     #[serde(skip)]
     pub test_params: test::TestParams,
+
+    /// gRPC client/server limits
+    #[serde(default = "default_grpc_limits")]
+    pub grpc: GrpcLimits,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct GrpcLimits {
+    pub max_message_size: usize,
+    pub timeout_secs: u64,
+    pub tpc_keepalive_secs: u64,
+    pub req_concurrency_limit: usize,
+}
+
+fn default_grpc_limits() -> GrpcLimits {
+    GrpcLimits {
+        max_message_size: 4 * 1024 * 1024,
+        timeout_secs: 30,
+        tpc_keepalive_secs: 60,
+        req_concurrency_limit: 100,
+    }
 }
 
 impl BridgeConfig {
@@ -210,7 +231,8 @@ impl PartialEq for BridgeConfig {
             && self.ca_cert_path == other.ca_cert_path
             && self.client_verification == other.client_verification
             && self.aggregator_cert_path == other.aggregator_cert_path
-            && self.test_params == other.test_params;
+            && self.test_params == other.test_params
+            && self.grpc == other.grpc;
 
         all_eq
     }
@@ -274,6 +296,9 @@ impl Default for BridgeConfig {
 
             #[cfg(test)]
             test_params: test::TestParams::default(),
+
+            // New hardening parameters, optional so they don't break existing configs.
+            grpc: default_grpc_limits(),
         }
     }
 }
