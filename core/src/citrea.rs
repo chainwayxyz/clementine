@@ -21,8 +21,12 @@ use alloy::{
 };
 use bitcoin::{hashes::Hash, OutPoint, Txid, XOnlyPublicKey};
 use bridge_circuit_host::receipt_from_inner;
-use circuits_lib::bridge_circuit::{constants::{DEVNET_LC_IMAGE_ID, MAINNET_LC_IMAGE_ID, REGTEST_LC_IMAGE_ID, TESTNET_LC_IMAGE_ID}, structs::{LightClientProof, StorageProof}}
-;
+use circuits_lib::bridge_circuit::{
+    constants::{
+        DEVNET_LC_IMAGE_ID, MAINNET_LC_IMAGE_ID, REGTEST_LC_IMAGE_ID, TESTNET_LC_IMAGE_ID,
+    },
+    structs::{LightClientProof, StorageProof},
+};
 use eyre::Context;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::proc_macros::rpc;
@@ -512,7 +516,6 @@ impl CitreaClientT for CitreaClient {
             tokio::time::sleep(Duration::from_secs(1)).await;
         };
 
-        
         let lc_image_id = match network {
             bitcoin::Network::Bitcoin => MAINNET_LC_IMAGE_ID,
             bitcoin::Network::Testnet4 => TESTNET_LC_IMAGE_ID,
@@ -520,7 +523,7 @@ impl CitreaClientT for CitreaClient {
             bitcoin::Network::Regtest => REGTEST_LC_IMAGE_ID,
             _ => return Err(eyre::eyre!("Unsupported Bitcoin network").into()),
         };
-        
+
         if proof_current.1.verify(lc_image_id).is_err() {
             return Err(eyre::eyre!("Current light client proof verification failed").into());
         }

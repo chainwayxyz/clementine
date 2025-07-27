@@ -6,7 +6,9 @@ use crate::utils::{calculate_succinct_output_prefix, is_dev_mode};
 use ark_bn254::Bn254;
 use bitcoin::Transaction;
 use borsh;
-use circuits_lib::bridge_circuit::constants::{DEVNET_LC_IMAGE_ID, MAINNET_LC_IMAGE_ID, REGTEST_LC_IMAGE_ID, TESTNET_LC_IMAGE_ID};
+use circuits_lib::bridge_circuit::constants::{
+    DEVNET_LC_IMAGE_ID, MAINNET_LC_IMAGE_ID, REGTEST_LC_IMAGE_ID, TESTNET_LC_IMAGE_ID,
+};
 use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
 use circuits_lib::bridge_circuit::merkle_tree::BitcoinMerkleTree;
 use circuits_lib::bridge_circuit::spv::SPV;
