@@ -72,7 +72,33 @@ pub fn initialize_logger(default_level: Option<LevelFilter>) -> Result<(), Bridg
     }
 
     // Initialize color-eyre for better error handling and backtraces
-    let _ = color_eyre::install();
+    let _ = color_eyre::config::HookBuilder::default()
+        .add_frame_filter(Box::new(|frames| {
+            // Frames with names starting with any of the str's below will be filtered out
+            let filters = &[
+                "std::",
+                "test::",
+                "tokio::",
+                "core::",
+                "<core::",
+                "<alloc::",
+                "start_thread",
+                "clone",
+            ];
+
+            frames.retain(|frame| {
+                !filters.iter().any(|f| {
+                    let name = if let Some(name) = frame.name.as_ref() {
+                        name.as_str()
+                    } else {
+                        return true;
+                    };
+
+                    name.starts_with(f)
+                })
+            });
+        }))
+        .install();
 
     if is_ci {
         let info_log_file = std::env::var("INFO_LOG_FILE").ok();
