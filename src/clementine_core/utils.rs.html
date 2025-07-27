@@ -717,7 +717,33 @@
 <a href="#716" id="716">716</a>
 <a href="#717" id="717">717</a>
 <a href="#718" id="718">718</a>
-<a href="#719" id="719">719</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::builder::transaction::TransactionType;
+<a href="#719" id="719">719</a>
+<a href="#720" id="720">720</a>
+<a href="#721" id="721">721</a>
+<a href="#722" id="722">722</a>
+<a href="#723" id="723">723</a>
+<a href="#724" id="724">724</a>
+<a href="#725" id="725">725</a>
+<a href="#726" id="726">726</a>
+<a href="#727" id="727">727</a>
+<a href="#728" id="728">728</a>
+<a href="#729" id="729">729</a>
+<a href="#730" id="730">730</a>
+<a href="#731" id="731">731</a>
+<a href="#732" id="732">732</a>
+<a href="#733" id="733">733</a>
+<a href="#734" id="734">734</a>
+<a href="#735" id="735">735</a>
+<a href="#736" id="736">736</a>
+<a href="#737" id="737">737</a>
+<a href="#738" id="738">738</a>
+<a href="#739" id="739">739</a>
+<a href="#740" id="740">740</a>
+<a href="#741" id="741">741</a>
+<a href="#742" id="742">742</a>
+<a href="#743" id="743">743</a>
+<a href="#744" id="744">744</a>
+<a href="#745" id="745">745</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::builder::transaction::TransactionType;
 <span class="kw">use </span><span class="kw">crate</span>::config::TelemetryConfig;
 <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
 <span class="kw">use </span><span class="kw">crate</span>::operator::RoundIndex;
@@ -791,7 +817,33 @@
     }
 
     <span class="comment">// Initialize color-eyre for better error handling and backtraces
-    </span><span class="kw">let _ </span>= color_eyre::install();
+    </span><span class="kw">let _ </span>= color_eyre::config::HookBuilder::default()
+        .add_frame_filter(Box::new(|frames| {
+            <span class="comment">// Frames with names starting with any of the str's below will be filtered out
+            </span><span class="kw">let </span>filters = <span class="kw-2">&amp;</span>[
+                <span class="string">"std::"</span>,
+                <span class="string">"test::"</span>,
+                <span class="string">"tokio::"</span>,
+                <span class="string">"core::"</span>,
+                <span class="string">"&lt;core::"</span>,
+                <span class="string">"&lt;alloc::"</span>,
+                <span class="string">"start_thread"</span>,
+                <span class="string">"clone"</span>,
+            ];
+
+            frames.retain(|frame| {
+                !filters.iter().any(|f| {
+                    <span class="kw">let </span>name = <span class="kw">if let </span><span class="prelude-val">Some</span>(name) = frame.name.as_ref() {
+                        name.as_str()
+                    } <span class="kw">else </span>{
+                        <span class="kw">return </span><span class="bool-val">true</span>;
+                    };
+
+                    name.starts_with(f)
+                })
+            });
+        }))
+        .install();
 
     <span class="kw">if </span>is_ci {
         <span class="kw">let </span>info_log_file = std::env::var(<span class="string">"INFO_LOG_FILE"</span>).ok();
