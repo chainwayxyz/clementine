@@ -39,7 +39,7 @@ rand_chacha = "0.9.0"
 secrecy = { version = "0.10.0", features = ["serde"] }
 
 # Citrea dependencies
-citrea-e2e = { git = "https://github.com/chainwayxyz/citrea-e2e", rev = "d45a29afa4de9d7e00dad9e8d9c59f95fe22e557" }
+citrea-e2e = { git = "https://github.com/chainwayxyz/citrea-e2e", rev = "7777859" }
 
 citrea-sov-rollup-interface = { git = "https://github.com/chainwayxyz/citrea", tag = "v0.7.2-mempool-fixes", package = "sov-rollup-interface" }
 
