@@ -21,10 +21,8 @@ use alloy::{
 };
 use bitcoin::{hashes::Hash, OutPoint, Txid, XOnlyPublicKey};
 use bridge_circuit_host::receipt_from_inner;
-use circuits_lib::bridge_circuit::{
-    lc_proof::LC_IMAGE_ID,
-    structs::{LightClientProof, StorageProof},
-};
+use circuits_lib::bridge_circuit::{constants::{DEVNET_LC_IMAGE_ID, MAINNET_LC_IMAGE_ID, REGTEST_LC_IMAGE_ID, TESTNET_LC_IMAGE_ID}, structs::{LightClientProof, StorageProof}}
+;
 use eyre::Context;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::proc_macros::rpc;
@@ -137,6 +135,7 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
         &self,
         block_height: u64,
         timeout: Duration,
+        network: bitcoin::Network,
     ) -> Result<(u64, u64), BridgeError>;
 
     /// Returns the replacement deposit move txids for the given range of blocks.
@@ -493,6 +492,7 @@ impl CitreaClientT for CitreaClient {
         &self,
         block_height: u64,
         timeout: Duration,
+        network: bitcoin::Network,
     ) -> Result<(u64, u64), BridgeError> {
         let start = std::time::Instant::now();
         let proof_current = loop {
@@ -512,7 +512,16 @@ impl CitreaClientT for CitreaClient {
             tokio::time::sleep(Duration::from_secs(1)).await;
         };
 
-        if proof_current.1.verify(LC_IMAGE_ID).is_err() {
+        
+        let lc_image_id = match network {
+            bitcoin::Network::Bitcoin => MAINNET_LC_IMAGE_ID,
+            bitcoin::Network::Testnet4 => TESTNET_LC_IMAGE_ID,
+            bitcoin::Network::Signet => DEVNET_LC_IMAGE_ID,
+            bitcoin::Network::Regtest => REGTEST_LC_IMAGE_ID,
+            _ => return Err(eyre::eyre!("Unsupported Bitcoin network").into()),
+        };
+        
+        if proof_current.1.verify(lc_image_id).is_err() {
             return Err(eyre::eyre!("Current light client proof verification failed").into());
         }
 
@@ -524,7 +533,7 @@ impl CitreaClientT for CitreaClient {
                     block_height - 1
                 ))?;
 
-        if proof_previous.1.verify(LC_IMAGE_ID).is_err() {
+        if proof_previous.1.verify(lc_image_id).is_err() {
             return Err(eyre::eyre!("Previous light client proof verification failed").into());
         }
 

@@ -2468,7 +2468,7 @@ where
 
         let (l2_height_start, l2_height_end) = self
             .citrea_client
-            .get_citrea_l2_height_range(block_height.into(), timeout)
+            .get_citrea_l2_height_range(block_height.into(), timeout, self.config.protocol_paramset().network)
             .await
             .inspect_err(|e| tracing::error!("Error getting citrea l2 height range: {:?}", e))?;
 

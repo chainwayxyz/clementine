@@ -196,6 +196,7 @@ impl CitreaClientT for MockCitreaClient {
         &self,
         block_height: u64,
         _timeout: Duration,
+        _network: bitcoin::Network,
     ) -> Result<(u64, u64), BridgeError> {
         Ok((
             if block_height == 0 {
