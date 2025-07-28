@@ -19,7 +19,7 @@ pub const NUM_NONCES_LIMIT: u32 = 150 * 1_000_000 / MUSIG_SECNONCE_LEN as u32;
 
 /// The maximum number of bytes that can be used by all nonce sessions.
 /// If it exceeds this limit, the verifier will delete the oldest nonce sessions.
-pub const MAX_ALL_SESSIONS_BYTES: u64 = 1_000_000_000;
+pub const MAX_ALL_SESSIONS_BYTES: usize = 2_000_000_000;
 
 use secp256k1::ffi::MUSIG_SECNONCE_LEN;
 pub use timeout::*;
