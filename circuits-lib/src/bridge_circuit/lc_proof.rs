@@ -1,4 +1,3 @@
-
 use super::structs::LightClientProof;
 use citrea_sov_rollup_interface::zk::light_client_proof::output::LightClientCircuitOutput;
 use risc0_zkvm::guest::env;

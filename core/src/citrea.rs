@@ -21,7 +21,10 @@ use alloy::{
 };
 use bitcoin::{hashes::Hash, OutPoint, Txid, XOnlyPublicKey};
 use bridge_circuit_host::receipt_from_inner;
-use circuits_lib::bridge_circuit::{lc_proof::LC_IMAGE_ID, structs::{LightClientProof, StorageProof}};
+use circuits_lib::bridge_circuit::{
+    lc_proof::LC_IMAGE_ID,
+    structs::{LightClientProof, StorageProof},
+};
 use eyre::Context;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::proc_macros::rpc;
