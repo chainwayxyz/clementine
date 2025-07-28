@@ -63,17 +63,6 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
         secret_key: Option<PrivateKeySigner>,
     ) -> Result<Self, BridgeError>;
 
-    /// Fetches an UTXO from Citrea for the given withdrawal index.
-    ///
-    /// # Parameters
-    ///
-    /// - `withdrawal_index`: Index of the withdrawal.
-    ///
-    /// # Returns
-    ///
-    /// - [`OutPoint`]: UTXO for the given withdrawal.
-    async fn withdrawal_utxos(&self, withdrawal_index: u64) -> Result<OutPoint, BridgeError>;
-
     /// Returns deposit move txids, starting from the last deposit index.
     ///
     /// # Parameters
@@ -345,23 +334,6 @@ impl CitreaClientT for CitreaClient {
             wallet_address,
             contract,
         })
-    }
-
-    async fn withdrawal_utxos(&self, withdrawal_index: u64) -> Result<OutPoint, BridgeError> {
-        let withdrawal_utxo = self
-            .contract
-            .withdrawalUTXOs(U256::from(withdrawal_index))
-            .call()
-            .await
-            .wrap_err("Failed to get withdrawal UTXO")?;
-
-        let txid = withdrawal_utxo.txId.0;
-        let txid = Txid::from_slice(txid.as_slice())?;
-
-        let vout = withdrawal_utxo.outputId.0;
-        let vout = u32::from_be_bytes(vout);
-
-        Ok(OutPoint { txid, vout })
     }
 
     async fn collect_deposit_move_txids(

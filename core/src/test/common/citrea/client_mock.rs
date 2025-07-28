@@ -115,23 +115,6 @@ impl CitreaClientT for MockCitreaClient {
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::DEBUG))]
-    async fn withdrawal_utxos(&self, withdrawal_index: u64) -> Result<OutPoint, BridgeError> {
-        Ok(*self
-            .get_storage()
-            .await
-            .withdrawals
-            .iter()
-            .find_map(|Withdrawal { idx, utxo, .. }| {
-                if *idx == withdrawal_index as u32 {
-                    Some(utxo)
-                } else {
-                    None
-                }
-            })
-            .unwrap())
-    }
-
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::DEBUG))]
     async fn collect_deposit_move_txids(
         &self,
         last_deposit_idx: Option<u32>,
@@ -335,12 +318,6 @@ mod tests {
         assert_eq!(utxos.len(), 1);
         assert_eq!(
             utxos[0].1,
-            bitcoin::OutPoint::new(bitcoin::Txid::from_slice(&[2; 32]).unwrap(), 1)
-        );
-
-        let utxo_from_index = client.withdrawal_utxos(1).await.unwrap();
-        assert_eq!(
-            utxo_from_index,
             bitcoin::OutPoint::new(bitcoin::Txid::from_slice(&[2; 32]).unwrap(), 1)
         );
     }
