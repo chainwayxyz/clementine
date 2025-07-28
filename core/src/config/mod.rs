@@ -140,7 +140,7 @@ pub struct BridgeConfig {
 pub struct GrpcLimits {
     pub max_message_size: usize,
     pub timeout_secs: u64,
-    pub tpc_keepalive_secs: u64,
+    pub tcp_keepalive_secs: u64,
     pub req_concurrency_limit: usize,
     pub ratelimit_req_count: usize,
     pub ratelimit_req_interval_secs: u64,
@@ -150,7 +150,7 @@ fn default_grpc_limits() -> GrpcLimits {
     GrpcLimits {
         max_message_size: 4 * 1024 * 1024,
         timeout_secs: 12 * 60 * 60, // 12 hours
-        tpc_keepalive_secs: 60,
+        tcp_keepalive_secs: 60,
         req_concurrency_limit: 300, // 100 deposits at the same time
         ratelimit_req_count: 1000,
         ratelimit_req_interval_secs: 60,

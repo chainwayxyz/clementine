@@ -32,8 +32,8 @@ impl GrpcLimits {
                 .unwrap_or(defaults.max_message_size),
             timeout_secs: read_string_from_env_then_parse::<u64>("GRPC_TIMEOUT_SECS")
                 .unwrap_or(defaults.timeout_secs),
-            tpc_keepalive_secs: read_string_from_env_then_parse::<u64>("GRPC_KEEPALIVE_SECS")
-                .unwrap_or(defaults.tpc_keepalive_secs),
+            tcp_keepalive_secs: read_string_from_env_then_parse::<u64>("GRPC_KEEPALIVE_SECS")
+                .unwrap_or(defaults.tcp_keepalive_secs),
             req_concurrency_limit: read_string_from_env_then_parse::<usize>(
                 "GRPC_CONCURRENCY_LIMIT",
             )

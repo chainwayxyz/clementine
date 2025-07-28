@@ -162,7 +162,7 @@ where
                     Duration::from_secs(config.grpc.ratelimit_req_interval_secs),
                 ))
                 .timeout(Duration::from_secs(config.grpc.timeout_secs))
-                .tcp_keepalive(Some(Duration::from_secs(config.grpc.tpc_keepalive_secs)))
+                .tcp_keepalive(Some(Duration::from_secs(config.grpc.tcp_keepalive_secs)))
                 .concurrency_limit_per_connection(config.grpc.req_concurrency_limit)
                 .http2_adaptive_window(Some(true))
                 .tls_config(tls_config)
@@ -194,7 +194,7 @@ where
                     config.grpc.ratelimit_req_count as u64,
                     Duration::from_secs(config.grpc.ratelimit_req_interval_secs),
                 ))
-                .timeout(Duration::from_secs(43200)) // 12 hours
+                .timeout(Duration::from_secs(config.grpc.timeout_secs))
                 .concurrency_limit_per_connection(config.grpc.req_concurrency_limit)
                 .add_service(service);
             tracing::info!(

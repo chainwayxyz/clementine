@@ -165,7 +165,7 @@ where
                         Channel::builder(uri)
                             .timeout(Duration::from_secs(config.grpc.timeout_secs))
                             .concurrency_limit(config.grpc.req_concurrency_limit)
-                            .keep_alive_timeout(Duration::from_secs(config.grpc.tpc_keepalive_secs))
+                            .keep_alive_timeout(Duration::from_secs(config.grpc.tcp_keepalive_secs))
                             .tls_config(tls_config)
                             .wrap_err("Failed to configure TLS")?
                             .connect()
