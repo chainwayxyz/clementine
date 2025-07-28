@@ -781,6 +781,7 @@ pub async fn create_txhandlers(
     let challenge_txhandler = builder::transaction::create_challenge_txhandler(
         get_txhandler(&txhandlers, TransactionType::Kickoff)?,
         &operator_data.reimburse_addr,
+        context.signer.map(|s| s.get_evm_address()).transpose()?,
         paramset,
     )?;
     txhandlers.insert(
