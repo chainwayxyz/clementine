@@ -9,6 +9,7 @@ use crate::{
     builder::transaction::{
         input::UtxoVout, remove_txhandler_from_map, ContractContext, TransactionType,
     },
+    database::DatabaseTransaction,
     deposit::{DepositData, KickoffData},
     errors::BridgeError,
 };
@@ -155,7 +156,10 @@ impl<T: Owner> KickoffStateMachine<T> {
         }
     }
 
-    async fn check_if_time_to_commit_latest_blockhash(&mut self, context: &mut StateContext<T>) {
+    async fn check_if_time_to_commit_latest_blockhash<'a>(
+        &'a mut self,
+        context: &mut StateContext<T>,
+    ) {
         context
             .capture_error(async |context| {
                 {
@@ -163,8 +167,7 @@ impl<T: Owner> KickoffStateMachine<T> {
                     if self.spent_watchtower_utxos.len() == self.deposit_data.get_num_watchtowers()
                     {
                         context
-                            .owner
-                            .handle_duty(Duty::SendLatestBlockhash {
+                            .dispatch_duty(Duty::SendLatestBlockhash {
                                 kickoff_data: self.kickoff_data,
                                 deposit_data: self.deposit_data.clone(),
                                 latest_blockhash: context
@@ -184,7 +187,7 @@ impl<T: Owner> KickoffStateMachine<T> {
             .await;
     }
 
-    async fn send_operator_asserts(&mut self, context: &mut StateContext<T>) {
+    async fn send_operator_asserts<'a>(&'a mut self, context: &mut StateContext<T>) {
         context
             .capture_error(async |context| {
                 {
@@ -193,8 +196,7 @@ impl<T: Owner> KickoffStateMachine<T> {
                         && self.latest_blockhash != Witness::default()
                     {
                         context
-                            .owner
-                            .handle_duty(Duty::SendOperatorAsserts {
+                            .dispatch_duty(Duty::SendOperatorAsserts {
                                 kickoff_data: self.kickoff_data,
                                 deposit_data: self.deposit_data.clone(),
                                 watchtower_challenges: self.watchtower_challenges.clone(),
@@ -210,13 +212,12 @@ impl<T: Owner> KickoffStateMachine<T> {
             .await;
     }
 
-    async fn send_watchtower_challenge(&mut self, context: &mut StateContext<T>) {
+    async fn send_watchtower_challenge<'a>(&'a mut self, context: &mut StateContext<T>) {
         context
             .capture_error(async |context| {
                 {
                     context
-                        .owner
-                        .handle_duty(Duty::WatchtowerChallenge {
+                        .dispatch_duty(Duty::WatchtowerChallenge {
                             kickoff_data: self.kickoff_data,
                             deposit_data: self.deposit_data.clone(),
                         })
@@ -228,13 +229,12 @@ impl<T: Owner> KickoffStateMachine<T> {
             .await;
     }
 
-    async fn send_disprove(&mut self, context: &mut StateContext<T>) {
+    async fn send_disprove<'a>(&'a mut self, context: &mut StateContext<T>) {
         context
             .capture_error(async |context| {
                 {
                     context
-                        .owner
-                        .handle_duty(Duty::VerifierDisprove {
+                        .dispatch_duty(Duty::VerifierDisprove {
                             kickoff_data: self.kickoff_data,
                             deposit_data: self.deposit_data.clone(),
                             operator_asserts: self.operator_asserts.clone(),
@@ -250,7 +250,11 @@ impl<T: Owner> KickoffStateMachine<T> {
             .await;
     }
 
-    async fn unhandled_event(&mut self, context: &mut StateContext<T>, event: &KickoffEvent) {
+    async fn unhandled_event<'a>(
+        &'a mut self,
+        context: &mut StateContext<T>,
+        event: &KickoffEvent,
+    ) {
         context
             .capture_error(async |_context| {
                 let event_str = format!("{:?}", event);
@@ -263,7 +267,7 @@ impl<T: Owner> KickoffStateMachine<T> {
     #[action]
     pub(crate) async fn on_challenged_entry(&mut self, context: &mut StateContext<T>) {
         context
-            .capture_error(async |context| {
+            .capture_error(async |_context| {
                 {
                     // create times to send necessary challenge asserts
                     self.matchers.insert(
@@ -430,8 +434,8 @@ impl<T: Owner> KickoffStateMachine<T> {
         }
     }
 
-    async fn add_default_kickoff_matchers(
-        &mut self,
+    async fn add_default_kickoff_matchers<'a>(
+        &'a mut self,
         context: &mut StateContext<T>,
     ) -> Result<(), BridgeError> {
         let contract_context = ContractContext::new_context_for_kickoff(
@@ -441,7 +445,13 @@ impl<T: Owner> KickoffStateMachine<T> {
         );
         let mut txhandlers = context
             .owner
-            .create_txhandlers(TransactionType::AllNeededForDeposit, contract_context)
+            .create_txhandlers(
+                context.dbtx.as_mut().expect(
+                    "Missing DBTX in State Manager when creating txhandlers, this shouldn't happen",
+                ),
+                TransactionType::AllNeededForDeposit,
+                contract_context,
+            )
             .await?;
         let kickoff_txhandler =
             remove_txhandler_from_map(&mut txhandlers, TransactionType::Kickoff)?;

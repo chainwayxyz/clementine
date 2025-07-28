@@ -9,6 +9,8 @@ use bitcoin::Transaction;
 use bitcoin::Txid;
 use bitcoin::Witness;
 use bitcoin::XOnlyPublicKey;
+use eyre::ContextCompat;
+use sqlx::Postgres;
 use statig::awaitable::InitializedStateMachine;
 use tonic::async_trait;
 
@@ -101,7 +103,7 @@ pub enum Duty {
 }
 
 /// Result of handling a duty
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DutyResult {
     /// Duty was handled, no return value is necessary
     Handled,
@@ -113,9 +115,14 @@ pub enum DutyResult {
 #[async_trait]
 pub trait Owner: Send + Sync + Clone + NamedEntity {
     /// Handle a duty
-    async fn handle_duty(&self, duty: Duty) -> Result<DutyResult, BridgeError>;
-    async fn create_txhandlers(
-        &self,
+    async fn handle_duty<'a>(
+        &'a self,
+        dbtx: DatabaseTransaction<'a, '_>,
+        duty: Duty,
+    ) -> Result<DutyResult, BridgeError>;
+    async fn create_txhandlers<'a>(
+        &'a self,
+        dbtx: DatabaseTransaction<'a, '_>,
         tx_type: TransactionType,
         contract_context: ContractContext,
     ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError>;
@@ -139,6 +146,7 @@ pub struct StateContext<T: Owner> {
     pub errors: Vec<Arc<eyre::Report>>,
     pub paramset: &'static ProtocolParamset,
     pub owner_type: String,
+    pub dbtx: Option<sqlx::Transaction<'static, Postgres>>,
 }
 
 impl<T: Owner> StateContext<T> {
@@ -158,11 +166,31 @@ impl<T: Owner> StateContext<T> {
             errors: Vec::new(),
             paramset,
             owner_type,
+            dbtx: None,
         }
     }
 
-    pub async fn dispatch_duty(&self, duty: Duty) -> Result<DutyResult, BridgeError> {
-        self.owner.handle_duty(duty).await
+    pub fn set_dbtx(&mut self, dbtx: sqlx::Transaction<'static, Postgres>) -> &mut Self {
+        self.dbtx = Some(dbtx);
+        self
+    }
+
+    pub async fn commit_dbtx(&mut self) -> Result<(), BridgeError> {
+        if let Some(dbtx) = self.dbtx.take() {
+            dbtx.commit().await?;
+        }
+        Ok(())
+    }
+    
+    pub async fn dispatch_duty(&mut self, duty: Duty) -> Result<DutyResult, BridgeError> {
+        self.owner
+            .handle_duty(
+                self.dbtx.as_mut().wrap_err(
+                    "Missing DBTX in State Manager when dispatching duty, this shouldn't happen",
+                )?,
+                duty,
+            )
+            .await
     }
 
     /// Run an async closure and capture any errors in execution.

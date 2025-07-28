@@ -1667,11 +1667,12 @@ where
         Ok(())
     }
 
-    async fn send_unspent_kickoff_connectors(
-        &self,
+    async fn send_unspent_kickoff_connectors<'a>(
+        &'a self,
         round_idx: RoundIndex,
         operator_xonly_pk: XOnlyPublicKey,
         used_kickoffs: HashSet<usize>,
+        mut dbtx: DatabaseTransaction<'a, '_>,
     ) -> Result<(), BridgeError> {
         if used_kickoffs.len() == self.config.protocol_paramset().num_kickoffs_per_round {
             // ok, every kickoff spent
@@ -1679,9 +1680,12 @@ where
         }
 
         let unspent_kickoff_txs = self
-            .create_and_sign_unspent_kickoff_connector_txs(round_idx, operator_xonly_pk, None)
+            .create_and_sign_unspent_kickoff_connector_txs(
+                round_idx,
+                operator_xonly_pk,
+                Some(&mut dbtx),
+            )
             .await?;
-        let mut dbtx = self.db.begin_transaction().await?;
         for (tx_type, tx) in unspent_kickoff_txs {
             if let TransactionType::UnspentKickoff(kickoff_idx) = tx_type {
                 if used_kickoffs.contains(&kickoff_idx) {
@@ -1707,7 +1711,6 @@ where
                     .await?;
             }
         }
-        dbtx.commit().await?;
         Ok(())
     }
 
@@ -1732,8 +1735,8 @@ where
     /// - `Ok(None)` if the operator's claims are valid under this specific challenge, and no disprove is possible.
     /// - `Err(BridgeError)` if any error occurs during script reconstruction or validation.
     #[cfg(feature = "automation")]
-    async fn verify_additional_disprove_conditions(
-        &self,
+    async fn verify_additional_disprove_conditions<'a>(
+        &'a self,
         deposit_data: &mut DepositData,
         kickoff_data: &KickoffData,
         latest_blockhash: &Witness,
@@ -1741,7 +1744,7 @@ where
         operator_asserts: &HashMap<usize, Witness>,
         operator_acks: &HashMap<usize, Witness>,
         txhandlers: &BTreeMap<TransactionType, TxHandler>,
-        dbtx: Option<DatabaseTransaction<'_, '_>>,
+        dbtx: DatabaseTransaction<'a, '_>,
     ) -> Result<Option<bitcoin::Witness>, BridgeError> {
         use crate::builder::transaction::ReimburseDbCache;
 
@@ -1750,7 +1753,7 @@ where
             kickoff_data.operator_xonly_pk,
             deposit_data.get_deposit_outpoint(),
             self.config.protocol_paramset(),
-            dbtx,
+            Some(dbtx),
         );
 
         let nofn_key = deposit_data.get_nofn_xonly_pk().inspect_err(|e| {
@@ -1944,12 +1947,13 @@ where
     /// - `Ok(())` on successful broadcast of the transaction.
     /// - `Err(BridgeError)` if signing or broadcasting fails.
     #[cfg(feature = "automation")]
-    async fn send_disprove_tx_additional(
-        &self,
+    async fn send_disprove_tx_additional<'a>(
+        &'a self,
         txhandlers: &BTreeMap<TransactionType, TxHandler>,
         kickoff_data: KickoffData,
         deposit_data: DepositData,
         additional_disprove_witness: Witness,
+        dbtx: DatabaseTransaction<'a, '_>,
     ) -> Result<(), BridgeError> {
         let verifier_xonly_pk = self.signer.xonly_public_key;
 
@@ -1972,7 +1976,7 @@ where
         let operators_sig = self
             .db
             .get_deposit_signatures(
-                None,
+                Some(dbtx),
                 deposit_data.get_deposit_outpoint(),
                 kickoff_data.operator_xonly_pk,
                 kickoff_data.round_idx,
@@ -2035,10 +2039,11 @@ where
     /// - `Ok(None)` if the ZK proof is valid.
     /// - `Err(BridgeError)` if any error occurs during data processing or ZK proof verification.
     #[cfg(feature = "automation")]
-    async fn verify_disprove_conditions(
-        &self,
+    async fn verify_disprove_conditions<'a>(
+        &'a self,
         deposit_data: &mut DepositData,
         operator_asserts: &HashMap<usize, Witness>,
+        dbtx: DatabaseTransaction<'a, '_>,
     ) -> Result<Option<(usize, StructuredScript)>, BridgeError> {
         let bitvm_pks = self.signer.generate_bitvm_pks_for_deposit(
             deposit_data.get_deposit_outpoint(),
@@ -2074,7 +2079,11 @@ where
 
             let mut commits = extract_winternitz_commits_with_sigs(
                 witness,
-                &ClementineBitVMPublicKeys::get_assert_derivations(i, deposit_outpoint, paramset),
+                &ClementineBitVMPublicKeys::get_assert_derivations(
+                    i,
+                    deposit_data.get_deposit_outpoint(),
+                    self.config.protocol_paramset(),
+                ),
                 self.config.protocol_paramset(),
             )?;
 
@@ -2203,12 +2212,13 @@ where
     /// - `Ok(())` on successful broadcast of the transaction.
     /// - `Err(BridgeError)` if signing or broadcasting fails.
     #[cfg(feature = "automation")]
-    async fn send_disprove_tx(
-        &self,
+    async fn send_disprove_tx<'a>(
+        &'a self,
         txhandlers: &BTreeMap<TransactionType, TxHandler>,
         kickoff_data: KickoffData,
         deposit_data: DepositData,
         disprove_script: (usize, StructuredScript),
+        mut dbtx: DatabaseTransaction<'a, '_>,
     ) -> Result<(), BridgeError> {
         let verifier_xonly_pk = self.signer.xonly_public_key;
 
@@ -2217,8 +2227,9 @@ where
             .wrap_err("Disprove txhandler not found in txhandlers")?
             .clone();
 
+        let (disprove_idx, disprove_script) = disprove_script;
+
         let disprove_inputs: Vec<Vec<u8>> = disprove_script
-            .1
             .compile()
             .instructions()
             .filter_map(|ins_res| match ins_res {
@@ -2228,7 +2239,7 @@ where
             .collect();
 
         disprove_txhandler
-            .set_p2tr_script_spend_witness(&disprove_inputs, 0, disprove_script.0 + 2)
+            .set_p2tr_script_spend_witness(&disprove_inputs, 0, disprove_idx + 2)
             .inspect_err(|e| {
                 tracing::error!("Error setting disprove input witness: {:?}", e);
             })?;
@@ -2236,7 +2247,7 @@ where
         let operators_sig = self
             .db
             .get_deposit_signatures(
-                None,
+                Some(&mut dbtx),
                 deposit_data.get_deposit_outpoint(),
                 kickoff_data.operator_xonly_pk,
                 kickoff_data.round_idx,
@@ -2250,7 +2261,7 @@ where
         self.signer
             .tx_sign_and_fill_sigs(
                 &mut disprove_txhandler,
-                operators_sig.as_ref(),
+                &operators_sig,
                 Some(&mut tweak_cache),
             )
             .inspect_err(|e| {
@@ -2342,9 +2353,9 @@ impl<C> BlockHandler for Verifier<C>
 where
     C: CitreaClientT,
 {
-    async fn handle_new_block(
-        &mut self,
-        dbtx: DatabaseTransaction<'_, '_>,
+    async fn handle_new_block<'a>(
+        &'a mut self,
+        dbtx: DatabaseTransaction<'a, '_>,
         block_id: u32,
         block: bitcoin::Block,
         height: u32,
@@ -2384,7 +2395,11 @@ mod states {
     where
         C: CitreaClientT,
     {
-        async fn handle_duty(&self, duty: Duty) -> Result<DutyResult, BridgeError> {
+        async fn handle_duty<'a>(
+            &'a self,
+            dbtx: DatabaseTransaction<'a, '_>,
+            duty: Duty,
+        ) -> Result<DutyResult, BridgeError> {
             let verifier_xonly_pk = &self.signer.xonly_public_key;
             match duty {
                 Duty::NewReadyToReimburse {
@@ -2400,6 +2415,7 @@ mod states {
                         round_idx,
                         operator_xonly_pk,
                         used_kickoffs,
+                        dbtx,
                     )
                     .await?;
                     Ok(DutyResult::Handled)
@@ -2412,7 +2428,7 @@ mod states {
                     "Verifier {:?} called watchtower challenge with kickoff_data: {:?}, deposit_data: {:?}",
                     verifier_xonly_pk, kickoff_data, deposit_data
                 );
-                    self.send_watchtower_challenge(kickoff_data, deposit_data, None)
+                    self.send_watchtower_challenge(kickoff_data, deposit_data, Some(dbtx))
                         .await?;
 
                     tracing::info!("Verifier sent watchtower challenge",);
@@ -2435,7 +2451,7 @@ mod states {
                         self.signer.clone(),
                     );
                     let mut db_cache =
-                        ReimburseDbCache::from_context(self.db.clone(), &context, None);
+                        ReimburseDbCache::from_context(self.db.clone(), &context, Some(dbtx));
 
                     let txhandlers = create_txhandlers(
                         TransactionType::Disprove,
@@ -2455,7 +2471,7 @@ mod states {
                             &operator_asserts,
                             &operator_acks,
                             &txhandlers,
-                            None,
+                            dbtx,
                         )
                         .await?
                     {
@@ -2468,6 +2484,7 @@ mod states {
                             kickoff_data,
                             deposit_data,
                             additional_disprove_witness,
+                            dbtx,
                         )
                         .await?;
                     } else {
@@ -2478,7 +2495,7 @@ mod states {
 
                         // If no additional witness, try to find a standard disprove witness
                         match self
-                            .verify_disprove_conditions(&mut deposit_data, &operator_asserts)
+                            .verify_disprove_conditions(&mut deposit_data, &operator_asserts, dbtx)
                             .await?
                         {
                             Some((index, disprove_script)) => {
@@ -2492,6 +2509,7 @@ mod states {
                                     kickoff_data,
                                     deposit_data,
                                     (index, disprove_script),
+                                    dbtx,
                                 )
                                 .await?;
                             }
@@ -2521,7 +2539,7 @@ mod states {
                     );
                     let db_kickoff_data = self
                         .db
-                        .get_deposit_data_with_kickoff_txid(None, txid)
+                        .get_deposit_data_with_kickoff_txid(Some(dbtx), txid)
                         .await?;
                     let mut challenged = false;
                     if let Some((deposit_data, kickoff_data)) = db_kickoff_data {
@@ -2531,10 +2549,9 @@ mod states {
                             deposit_data.get_deposit_outpoint()
                         );
                         // add kickoff machine if there is a new kickoff
-                        let mut dbtx = self.db.begin_transaction().await?;
                         StateManager::<Self>::dispatch_new_kickoff_machine(
                             self.db.clone(),
-                            &mut dbtx,
+                            dbtx,
                             kickoff_data,
                             block_height,
                             deposit_data.clone(),
@@ -2543,27 +2560,27 @@ mod states {
                         .await?;
                         challenged = self
                             .handle_kickoff(
-                                &mut dbtx,
+                                dbtx,
                                 witness,
                                 deposit_data,
                                 kickoff_data,
                                 challenged_before,
                             )
                             .await?;
-                        dbtx.commit().await?;
                     }
                     Ok(DutyResult::CheckIfKickoff { challenged })
                 }
             }
         }
 
-        async fn create_txhandlers(
-            &self,
+        async fn create_txhandlers<'a>(
+            &'a self,
+            dbtx: DatabaseTransaction<'a, '_>,
             tx_type: TransactionType,
             contract_context: ContractContext,
         ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
             let mut db_cache =
-                ReimburseDbCache::from_context(self.db.clone(), &contract_context, None);
+                ReimburseDbCache::from_context(self.db.clone(), &contract_context, Some(dbtx));
             let txhandlers = create_txhandlers(
                 tx_type,
                 contract_context,
@@ -2576,7 +2593,7 @@ mod states {
 
         async fn handle_finalized_block(
             &self,
-            mut dbtx: DatabaseTransaction<'_, '_>,
+            dbtx: DatabaseTransaction<'_, '_>,
             block_id: u32,
             block_height: u32,
             block_cache: Arc<block_cache::BlockCache>,

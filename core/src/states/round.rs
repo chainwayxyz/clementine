@@ -5,6 +5,7 @@ use crate::deposit::OperatorData;
 use crate::operator::RoundIndex;
 use crate::{
     builder::transaction::{input::UtxoVout, ContractContext, TransactionType},
+    database::DatabaseTransaction,
     errors::{BridgeError, TxError},
 };
 use bitcoin::OutPoint;
@@ -164,7 +165,13 @@ impl<T: Owner> RoundStateMachine<T> {
                     );
                     let round_txhandlers = context
                         .owner
-                        .create_txhandlers(TransactionType::Round, contract_context)
+                        .create_txhandlers(
+                            context.dbtx.as_mut().expect(
+                                "Missing DBTX in State Manager when creating txhandlers, this shouldn't happen",
+                            ),
+                            TransactionType::Round,
+                            contract_context,
+                        )
                         .await?;
                     let round_txid = round_txhandlers
                         .get(&TransactionType::Round)
@@ -216,8 +223,7 @@ impl<T: Owner> RoundStateMachine<T> {
                     .capture_error(async |context| {
                         {
                             let duty_result = context
-                                .owner
-                                .handle_duty(Duty::CheckIfKickoff {
+                                .dispatch_duty(Duty::CheckIfKickoff {
                                     txid,
                                     block_height: context.cache.block_height,
                                     witness: context
@@ -281,8 +287,7 @@ impl<T: Owner> RoundStateMachine<T> {
             .capture_error(async |context| {
                 {
                     context
-                        .owner
-                        .handle_duty(Duty::NewReadyToReimburse {
+                        .dispatch_duty(Duty::NewReadyToReimburse {
                             round_idx: *round_idx,
                             used_kickoffs: used_kickoffs.clone(),
                             operator_xonly_pk: self.operator_data.xonly_pk,
@@ -320,7 +325,13 @@ impl<T: Owner> RoundStateMachine<T> {
                         );
                         let mut txhandlers = context
                             .owner
-                            .create_txhandlers(TransactionType::Round, contract_context)
+                            .create_txhandlers(
+                                context.dbtx.as_mut().expect(
+                                    "Missing DBTX in State Manager when creating txhandlers, this shouldn't happen",
+                                ),
+                                TransactionType::Round,
+                                contract_context,
+                            )
                             .await?;
                         let round_txhandler = txhandlers
                             .remove(&TransactionType::Round)
@@ -406,7 +417,13 @@ impl<T: Owner> RoundStateMachine<T> {
                     );
                     let next_round_txhandlers = context
                         .owner
-                        .create_txhandlers(TransactionType::Round, next_round_context)
+                        .create_txhandlers(
+                            context.dbtx.as_mut().expect(
+                                "Missing DBTX in State Manager when creating txhandlers, this shouldn't happen",
+                            ),
+                            TransactionType::Round,
+                            next_round_context,
+                        )
                         .await?;
                     let next_round_txid = next_round_txhandlers
                         .get(&TransactionType::Round)
@@ -425,7 +442,13 @@ impl<T: Owner> RoundStateMachine<T> {
                     );
                     let current_round_txhandlers = context
                         .owner
-                        .create_txhandlers(TransactionType::Round, current_round_context)
+                        .create_txhandlers(
+                            context.dbtx.as_mut().expect(
+                                "Missing DBTX in State Manager when creating txhandlers, this shouldn't happen",
+                            ),
+                            TransactionType::Round,
+                            current_round_context,
+                        )
                         .await?;
                     let current_ready_to_reimburse_txid = current_round_txhandlers
                         .get(&TransactionType::ReadyToReimburse)
