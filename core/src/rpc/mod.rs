@@ -4,7 +4,10 @@ use eyre::Context;
 use hyper_util::rt::TokioIo;
 use std::path::PathBuf;
 use tagged_signature::SignatureId;
-use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity, Uri};
+use tonic::{
+    transport::{Certificate, Channel, ClientTlsConfig, Identity, Uri},
+    Status,
+};
 
 #[cfg(test)]
 use crate::test::common::ensure_test_certificates;
@@ -167,4 +170,22 @@ where
             .collect::<Vec<_>>(),
     )
     .await
+}
+
+/// Sends the same message to all the clients.
+async fn send_to_all<T: Clone + Send + 'static>(
+    txs: &[tokio::sync::mpsc::Sender<T>],
+    msg: T,
+) -> Result<(), Status> {
+    futures::future::try_join_all(txs.iter().cloned().map(|tx| {
+        let msg = msg.clone();
+        async move {
+            tx.send(msg)
+                .await
+                .map_err(|e| Status::internal(format!("broadcast failed: {}", e)))?;
+            Ok::<(), Status>(())
+        }
+    }))
+    .await?;
+    Ok(())
 }

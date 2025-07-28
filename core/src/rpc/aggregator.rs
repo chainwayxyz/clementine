@@ -7,6 +7,7 @@ use super::clementine::{
     OptimisticPayoutParams, OptimisticPayoutResponse, RawSignedTx, VergenResponse,
     VerifierPublicKeys, WithdrawParams,
 };
+use super::send_to_all;
 use crate::aggregator::{ParticipatingOperators, ParticipatingVerifiers};
 use crate::builder::sighash::SignatureInfo;
 use crate::builder::transaction::{
@@ -900,33 +901,27 @@ impl ClementineAggregator for Aggregator {
                 })
                 .unzip();
             // send the rpc request to the verifiers
-            let opt_payout_resp_streams = try_join_all(verifiers.0.iter().zip(opt_param_rxs).map(
-                |((client, id), rx)| {
-                    let mut client = client.clone();
-                    let rx = tokio_stream::wrappers::ReceiverStream::new(rx);
-                    async move {
-                        let resp_stream = client.optimistic_payout_sign(rx).await?;
-                        Ok::<_, Status>(resp_stream.into_inner())
-                    }
-                },
-            ))
-            .await?;
+            let opt_payout_resp_streams =
+                try_join_all(verifiers.clients().into_iter().zip(opt_param_rxs).map(
+                    |(mut client, rx)| {
+                        let rx = tokio_stream::wrappers::ReceiverStream::new(rx);
+                        async move {
+                            let resp_stream = client.optimistic_payout_sign(rx).await?;
+                            Ok::<_, Status>(resp_stream.into_inner())
+                        }
+                    },
+                ))
+                .await?;
 
             // send the withdrawal params to the verifiers
-            try_join_all(opt_param_txs.iter().map(|tx| {
-                let tx = tx.clone();
-                let withdraw_params = withdraw_params.clone();
-                async move {
-                    tx.send(OptimisticPayoutParams {
-                        params: Some(optimistic_payout_params::Params::Withdrawal(
-                            withdraw_params,
-                        )),
-                    })
-                    .await
-                    .map_err(|e| Status::internal(format!("Failed to send params: {}", e)))?;
-                    Ok::<_, Status>(())
-                }
-            }))
+            send_to_all(
+                &opt_param_txs,
+                OptimisticPayoutParams {
+                    params: Some(optimistic_payout_params::Params::Withdrawal(
+                        withdraw_params,
+                    )),
+                },
+            )
             .await?;
             // get pub nonces from the verifiers
             let results = try_join_all(opt_payout_resp_streams.into_iter().map(
@@ -949,19 +944,14 @@ impl ClementineAggregator for Aggregator {
 
             let agg_nonce = aggregate_nonces(pub_nonces.iter().collect::<Vec<_>>().as_slice());
             // send the agg nonce to the verifiers to sign the optimistic payout tx
-            try_join_all(opt_param_txs.iter().map(|tx| {
-                let tx = tx.clone();
-                async move {
-                    tx.send(OptimisticPayoutParams {
-                        params: Some(optimistic_payout_params::Params::AggNonce(
-                            agg_nonce.serialize().to_vec(),
-                        )),
-                    })
-                    .await
-                    .map_err(|e| Status::internal(format!("Failed to send agg nonce: {}", e)))?;
-                    Ok::<_, Status>(())
-                }
-            }))
+            send_to_all(
+                &opt_param_txs,
+                OptimisticPayoutParams {
+                    params: Some(optimistic_payout_params::Params::AggNonce(
+                        agg_nonce.serialize().to_vec(),
+                    )),
+                },
+            )
             .await?;
 
             // get partial sigs from the verifiers
