@@ -35,15 +35,13 @@ x-operator: &clementine_operator_regtest
   <<: *clementine_regtest
   depends_on:
     clementine_verifier_regtest_0:
-      condition: service_started
+      condition: service_healthy
     clementine_verifier_regtest_1:
-      condition: service_started
+      condition: service_healthy
     clementine_verifier_regtest_2:
-      condition: service_started
+      condition: service_healthy
     clementine_verifier_regtest_3:
-      condition: service_started
-    clementine_verifier_regtest_4:
-      condition: service_started
+      condition: service_healthy
   command:
     operator
 
@@ -56,7 +54,7 @@ services:
     volumes:
       - ./configs/regtest/create-multiple-postgresql-databases.sh:/docker-entrypoint-initdb.d/init.sh
     environment:
-      POSTGRES_MULTIPLE_DATABASES: clementine0,clementine1,clementine2,clementine3,clementine4
+      POSTGRES_MULTIPLE_DATABASES: clementine0,clementine1,clementine2,clementine3
       POSTGRES_USER: clementine
       POSTGRES_PASSWORD: clementine
       POSTGRES_HOST_AUTH_METHOD: trust
@@ -174,25 +172,17 @@ services:
     <<: *clementine_regtest
     depends_on:
       clementine_verifier_regtest_0:
-        condition: service_started
+        condition: service_healthy
       clementine_verifier_regtest_1:
-        condition: service_started
+        condition: service_healthy
       clementine_verifier_regtest_2:
-        condition: service_started
+        condition: service_healthy
       clementine_verifier_regtest_3:
-        condition: service_started
-      clementine_verifier_regtest_4:
-        condition: service_started
+        condition: service_healthy
       clementine_operator_regtest_0:
-        condition: service_started
+        condition: service_healthy
       clementine_operator_regtest_1:
-        condition: service_started
-      clementine_operator_regtest_2:
-        condition: service_started
-      clementine_operator_regtest_3:
-        condition: service_started
-      clementine_operator_regtest_4:
-        condition: service_started
+        condition: service_healthy
     environment:
       - SECRET_KEY=1111111111111111111111111111111111111111111111111111111111111111
       - DB_NAME=clementine0
@@ -209,6 +199,11 @@ services:
       - DB_NAME=clementine0
     ports:
       - "17001:17000"
+    healthcheck:
+      test: ["CMD-SHELL", "sleep 1;"]
+      interval: 1s
+      timeout: 5s
+      retries: 1
 
   clementine_verifier_regtest_1:
     <<: *clementine_verifier_regtest
@@ -217,6 +212,11 @@ services:
       - DB_NAME=clementine1
     ports:
       - "17002:17000"
+    healthcheck:
+      test: ["CMD-SHELL", "sleep 1;"]
+      interval: 1s
+      timeout: 5s
+      retries: 1
 
   clementine_verifier_regtest_2:
     <<: *clementine_verifier_regtest
@@ -225,6 +225,11 @@ services:
       - DB_NAME=clementine2
     ports:
       - "17003:17000"
+    healthcheck:
+      test: ["CMD-SHELL", "sleep 1;"]
+      interval: 1s
+      timeout: 5s
+      retries: 1
 
   clementine_verifier_regtest_3:
     <<: *clementine_verifier_regtest
@@ -233,14 +238,11 @@ services:
       - DB_NAME=clementine3
     ports:
       - "17004:17000"
-
-  clementine_verifier_regtest_4:
-    <<: *clementine_verifier_regtest
-    environment:
-      - SECRET_KEY=5555555555555555555555555555555555555555555555555555555555555555
-      - DB_NAME=clementine4
-    ports:
-      - "17005:17000"
+    healthcheck:
+      test: ["CMD-SHELL", "sleep 1;"]
+      interval: 1s
+      timeout: 5s
+      retries: 1
 
 # Operators --------------------------------------------------------------------
   clementine_operator_regtest_0:
@@ -249,7 +251,12 @@ services:
       - SECRET_KEY=1111111111111111111111111111111111111111111111111111111111111111
       - DB_NAME=clementine0
     ports:
-      - "17006:17000"
+      - "17005:17000"
+    healthcheck:
+      test: ["CMD-SHELL", "sleep 4"]
+      interval: 1s
+      timeout: 10s
+      retries: 1
 
   clementine_operator_regtest_1:
     <<: *clementine_operator_regtest
@@ -257,31 +264,12 @@ services:
       - SECRET_KEY=2222222222222222222222222222222222222222222222222222222222222222
       - DB_NAME=clementine1
     ports:
-      - "17007:17000"
-
-  clementine_operator_regtest_2:
-    <<: *clementine_operator_regtest
-    environment:
-      - SECRET_KEY=3333333333333333333333333333333333333333333333333333333333333333
-      - DB_NAME=clementine2
-    ports:
-      - "17008:17000"
-
-  clementine_operator_regtest_3:
-    <<: *clementine_operator_regtest
-    environment:
-      - SECRET_KEY=4444444444444444444444444444444444444444444444444444444444444444
-      - DB_NAME=clementine3
-    ports:
-      - "17009:17000"
-
-  clementine_operator_regtest_4:
-    <<: *clementine_operator_regtest
-    environment:
-      - SECRET_KEY=5555555555555555555555555555555555555555555555555555555555555555
-      - DB_NAME=clementine4
-    ports:
-      - "17010:17000"
+      - "17006:17000"
+    healthcheck:
+      test: ["CMD-SHELL", "sleep 15"]
+      interval: 1s
+      timeout: 20s
+      retries: 1
 
 volumes:
   postgres_db_regtest:
