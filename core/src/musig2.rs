@@ -85,6 +85,11 @@ fn create_key_agg_cache(
     mut public_keys: Vec<PublicKey>,
     mode: Option<Musig2Mode>,
 ) -> Result<KeyAggCache, BridgeError> {
+    if public_keys.is_empty() {
+        return Err(BridgeError::from(eyre::eyre!(
+            "MuSig2 Error: cannot create key aggregation cache (no public keys provided)"
+        )));
+    }
     public_keys.sort();
     let secp_pubkeys: Vec<secp256k1::PublicKey> =
         public_keys.iter().map(|pk| to_secp_pk(*pk)).collect();
