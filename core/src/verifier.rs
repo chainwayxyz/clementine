@@ -1026,7 +1026,7 @@ where
 
     pub async fn sign_optimistic_payout(
         &self,
-        nonce_session_id: u128,
+        opt_payout_sec_nonce: SecretNonce,
         agg_nonce: AggregatedNonce,
         deposit_id: u32,
         input_signature: Signature,
@@ -1103,22 +1103,10 @@ where
             bitcoin::TapSighashType::Default,
         )?;
 
-        let opt_payout_secnonce = {
-            let mut session_map = self.nonces.lock().await;
-            let session = session_map
-                .sessions
-                .get_mut(&nonce_session_id)
-                .ok_or_else(|| eyre::eyre!("Could not find session id {nonce_session_id}"))?;
-            session
-                .nonces
-                .pop()
-                .ok_or_eyre("No move tx secnonce in session")?
-        };
-
         let opt_payout_partial_sig = musig2::partial_sign(
             deposit_data.get_verifiers(),
             None,
-            opt_payout_secnonce,
+            opt_payout_sec_nonce,
             agg_nonce,
             self.signer.keypair,
             Message::from_digest(sighash.to_byte_array()),

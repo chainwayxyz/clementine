@@ -408,9 +408,17 @@ message NonceGenResponse {
 }
 
 message OptimisticPayoutParams {
-  WithdrawParams withdrawal = 1;
-  NonceGenFirstResponse nonce_gen = 2;
-  bytes agg_nonce = 3;
+  oneof params {
+    WithdrawParams withdrawal = 1;
+    bytes agg_nonce = 2;
+  }
+}
+
+message OptimisticPayoutResponse {
+  oneof response {
+    PartialSig partial_sig = 1;
+    bytes pub_nonce = 2;
+  }
 }
 
 message VerifierDepositSignParams {
@@ -523,7 +531,7 @@ service ClementineVerifier {
     returns (stream PartialSig) {}
 
   // Signs the optimistic payout tx with given aggNonce and withdrawal info.
-  rpc OptimisticPayoutSign(OptimisticPayoutParams) returns (PartialSig) {}
+  rpc OptimisticPayoutSign(stream OptimisticPayoutParams) returns (stream OptimisticPayoutResponse) {}
 
   // Verifies every signature and signs move_tx.
   //

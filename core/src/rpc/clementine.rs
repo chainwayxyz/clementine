@@ -338,12 +338,33 @@ pub mod nonce_gen_response {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct OptimisticPayoutParams {
-    #[prost(message, optional, tag = "1")]
-    pub withdrawal: ::core::option::Option<WithdrawParams>,
-    #[prost(message, optional, tag = "2")]
-    pub nonce_gen: ::core::option::Option<NonceGenFirstResponse>,
-    #[prost(bytes = "vec", tag = "3")]
-    pub agg_nonce: ::prost::alloc::vec::Vec<u8>,
+    #[prost(oneof = "optimistic_payout_params::Params", tags = "1, 2")]
+    pub params: ::core::option::Option<optimistic_payout_params::Params>,
+}
+/// Nested message and enum types in `OptimisticPayoutParams`.
+pub mod optimistic_payout_params {
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Params {
+        #[prost(message, tag = "1")]
+        Withdrawal(super::WithdrawParams),
+        #[prost(bytes, tag = "2")]
+        AggNonce(::prost::alloc::vec::Vec<u8>),
+    }
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct OptimisticPayoutResponse {
+    #[prost(oneof = "optimistic_payout_response::Response", tags = "1, 2")]
+    pub response: ::core::option::Option<optimistic_payout_response::Response>,
+}
+/// Nested message and enum types in `OptimisticPayoutResponse`.
+pub mod optimistic_payout_response {
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Response {
+        #[prost(message, tag = "1")]
+        PartialSig(super::PartialSig),
+        #[prost(bytes, tag = "2")]
+        PubNonce(::prost::alloc::vec::Vec<u8>),
+    }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct VerifierDepositSignParams {
@@ -1496,8 +1517,13 @@ pub mod clementine_verifier_client {
         /// Signs the optimistic payout tx with given aggNonce and withdrawal info.
         pub async fn optimistic_payout_sign(
             &mut self,
-            request: impl tonic::IntoRequest<super::OptimisticPayoutParams>,
-        ) -> std::result::Result<tonic::Response<super::PartialSig>, tonic::Status> {
+            request: impl tonic::IntoStreamingRequest<
+                Message = super::OptimisticPayoutParams,
+            >,
+        ) -> std::result::Result<
+            tonic::Response<tonic::codec::Streaming<super::OptimisticPayoutResponse>>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -1510,7 +1536,7 @@ pub mod clementine_verifier_client {
             let path = http::uri::PathAndQuery::from_static(
                 "/clementine.ClementineVerifier/OptimisticPayoutSign",
             );
-            let mut req = request.into_request();
+            let mut req = request.into_streaming_request();
             req.extensions_mut()
                 .insert(
                     GrpcMethod::new(
@@ -1518,7 +1544,7 @@ pub mod clementine_verifier_client {
                         "OptimisticPayoutSign",
                     ),
                 );
-            self.inner.unary(req, path, codec).await
+            self.inner.streaming(req, path, codec).await
         }
         /// Verifies every signature and signs move_tx.
         ///
@@ -2885,11 +2911,23 @@ pub mod clementine_verifier_server {
             tonic::Response<Self::DepositSignStream>,
             tonic::Status,
         >;
+        /// Server streaming response type for the OptimisticPayoutSign method.
+        type OptimisticPayoutSignStream: tonic::codegen::tokio_stream::Stream<
+                Item = std::result::Result<
+                    super::OptimisticPayoutResponse,
+                    tonic::Status,
+                >,
+            >
+            + std::marker::Send
+            + 'static;
         /// Signs the optimistic payout tx with given aggNonce and withdrawal info.
         async fn optimistic_payout_sign(
             &self,
-            request: tonic::Request<super::OptimisticPayoutParams>,
-        ) -> std::result::Result<tonic::Response<super::PartialSig>, tonic::Status>;
+            request: tonic::Request<tonic::Streaming<super::OptimisticPayoutParams>>,
+        ) -> std::result::Result<
+            tonic::Response<Self::OptimisticPayoutSignStream>,
+            tonic::Status,
+        >;
         /// Verifies every signature and signs move_tx.
         ///
         /// Used by aggregator inside new_deposit
@@ -3260,16 +3298,19 @@ pub mod clementine_verifier_server {
                     struct OptimisticPayoutSignSvc<T: ClementineVerifier>(pub Arc<T>);
                     impl<
                         T: ClementineVerifier,
-                    > tonic::server::UnaryService<super::OptimisticPayoutParams>
+                    > tonic::server::StreamingService<super::OptimisticPayoutParams>
                     for OptimisticPayoutSignSvc<T> {
-                        type Response = super::PartialSig;
+                        type Response = super::OptimisticPayoutResponse;
+                        type ResponseStream = T::OptimisticPayoutSignStream;
                         type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
+                            tonic::Response<Self::ResponseStream>,
                             tonic::Status,
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::OptimisticPayoutParams>,
+                            request: tonic::Request<
+                                tonic::Streaming<super::OptimisticPayoutParams>,
+                            >,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
@@ -3299,7 +3340,7 @@ pub mod clementine_verifier_server {
                                 max_decoding_message_size,
                                 max_encoding_message_size,
                             );
-                        let res = grpc.unary(method, req).await;
+                        let res = grpc.streaming(method, req).await;
                         Ok(res)
                     };
                     Box::pin(fut)
