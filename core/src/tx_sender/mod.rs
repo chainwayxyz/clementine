@@ -1,5 +1,4 @@
 use crate::config::protocol::ProtocolParamset;
-use crate::config::BridgeConfig;
 use crate::errors::ResultExt;
 use crate::utils::FeePayingType;
 use crate::{
@@ -61,6 +60,8 @@ pub struct TxSender {
     pub btc_syncer_consumer_id: String,
     paramset: &'static ProtocolParamset,
     cached_spendinfo: TaprootSpendInfo,
+    pub mempool_api_host: Option<String>,
+    pub mempool_api_endpoint: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
@@ -98,6 +99,8 @@ impl TxSender {
         db: Database,
         btc_syncer_consumer_id: String,
         paramset: &'static ProtocolParamset,
+        mempool_api_host: Option<String>,
+        mempool_api_endpoint: Option<String>,
     ) -> Self {
         Self {
             cached_spendinfo: builder::address::create_taproot_address(
@@ -111,15 +114,17 @@ impl TxSender {
             db,
             btc_syncer_consumer_id,
             paramset,
+            mempool_api_host,
+            mempool_api_endpoint,
         }
     }
 
     /// Gets the current recommended fee rate in sat/vb from Mempool Space or Bitcoin Core.
-    async fn _get_fee_rate_as_sat_vb(&self, config: &BridgeConfig) -> Result<FeeRate> {
+    async fn get_fee_rate(&self) -> Result<FeeRate> {
         match self.paramset.network {
             // Regtest and Signet use a fixed, low fee rate.
             Network::Regtest | Network::Signet => {
-                tracing::info!(
+                tracing::debug!(
                     "Using fixed fee rate of 1 sat/vB for {} network",
                     self.paramset.network
                 );
@@ -128,14 +133,14 @@ impl TxSender {
 
             // Mainnet and Testnet4 fetch fees from Mempool Space or Bitcoin Core RPC.
             Network::Bitcoin | Network::Testnet4 => {
-                tracing::info!("Fetching fee rate for {} network...", self.paramset.network);
+                tracing::debug!("Fetching fee rate for {} network...", self.paramset.network);
 
                 // Fetch fee from RPC provider with a fallback to the RPC node.
                 let smart_fee_result: Result<Amount> =
                     {
                         let mempool_fee = get_fee_rate_from_mempool_space(
-                            &config.mempool_api_host,
-                            &config.mempool_api_endpoint,
+                            &self.mempool_api_host,
+                            &self.mempool_api_endpoint,
                             self.paramset.network,
                         )
                         .await;
@@ -187,12 +192,6 @@ impl TxSender {
             )
             .into()),
         }
-    }
-
-    async fn _get_fee_rate(&self, config: &BridgeConfig) -> Result<FeeRate> {
-        tracing::info!("Getting fee rate");
-        let fee_rate = self._get_fee_rate_as_sat_vb(config).await?;
-        Ok(fee_rate)
     }
 
     /// Calculates the total fee required for a transaction package based on the fee bumping strategy.
@@ -543,6 +542,8 @@ mod tests {
             db.clone(),
             "tx_sender".into(),
             config.protocol_paramset(),
+            config.mempool_api_host.clone(),
+            config.mempool_api_endpoint.clone(),
         );
 
         (
@@ -760,6 +761,8 @@ mod tests {
             db,
             "tx_sender".into(),
             config.protocol_paramset(),
+            config.mempool_api_host.clone(),
+            config.mempool_api_endpoint.clone(),
         );
 
         let scripts: Vec<Arc<dyn SpendableScript>> =
@@ -818,7 +821,7 @@ mod tests {
         }
 
         // Calculate and send with fee.
-        let fee_rate = tx_sender._get_fee_rate(&config).await.unwrap();
+        let fee_rate = tx_sender.get_fee_rate().await.unwrap();
         let fee = TxSender::calculate_required_fee(
             will_fail_tx.weight(),
             1,
@@ -881,9 +884,6 @@ mod tests {
             )
             .await?;
         dbtx.commit().await?;
-
-        // Get the current fee rate and increase it for RBF
-        // let current_fee_rate = tx_sender._get_fee_rate().await?;
 
         // Test send_rbf_tx
         tx_sender

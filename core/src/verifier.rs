@@ -122,6 +122,8 @@ where
                 self.verifier.db.clone(),
                 Verifier::<C>::TX_SENDER_CONSUMER_ID.to_string(),
                 self.verifier.config.protocol_paramset(),
+                self.verifier.config.mempool_api_host.clone(),
+                self.verifier.config.mempool_api_endpoint.clone(),
             );
 
             self.background_tasks
