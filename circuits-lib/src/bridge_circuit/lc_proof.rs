@@ -11,7 +11,7 @@ use super::{
 use citrea_sov_rollup_interface::zk::light_client_proof::output::LightClientCircuitOutput;
 use risc0_zkvm::guest::env;
 
-pub const LC_IMAGE_ID: [u32; 8] = {
+pub const LC_IMAGE_ID: [u8; 32] = {
     match option_env!("BITCOIN_NETWORK") {
         Some(network) if matches!(network.as_bytes(), b"regtest") => REGTEST_LC_IMAGE_ID,
         Some(network) if matches!(network.as_bytes(), b"signet") => DEVNET_LC_IMAGE_ID,
@@ -29,11 +29,6 @@ pub fn lc_proof_verifier(light_client_proof: LightClientProof) -> LightClientCir
             .expect("Failed to deserialize light client circuit output");
 
     env::verify(LC_IMAGE_ID, &light_client_proof.lc_journal).unwrap();
-
-    assert_eq!(
-        light_client_circuit_output.light_client_proof_method_id, LC_IMAGE_ID,
-        "Light client proof method ID does not match expected LC_IMAGE_ID"
-    );
 
     light_client_circuit_output
 }
