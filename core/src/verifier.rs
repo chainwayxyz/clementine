@@ -1167,7 +1167,7 @@ where
                 &hashes,
             )
             .await?;
-        
+
         if keys.winternitz_pubkeys.len() != ClementineBitVMPublicKeys::number_of_flattened_wpks() {
             tracing::error!(
                 "Invalid number of winternitz keys received from operator {:?}: got: {} expected: {}",
@@ -1189,7 +1189,6 @@ where
             .into_iter()
             .map(|x| x.try_into())
             .collect::<Result<_, BridgeError>>()?;
-
 
         let bitvm_pks = ClementineBitVMPublicKeys::from_flattened_vec(&winternitz_keys);
 
