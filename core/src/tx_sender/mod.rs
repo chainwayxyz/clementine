@@ -133,9 +133,9 @@ impl TxSender {
                 // Fetch fee from RPC provider with a fallback to the RPC node.
                 let smart_fee_result: Result<Amount> =
                     {
-                        let mempool_fee = get_fee_rate_from_rpc_provider(
-                            &config.fee_rate_rpc_url,
-                            &config.fee_rate_rpc_endpoint,
+                        let mempool_fee = get_fee_rate_from_mempool_space(
+                            &config.mempool_api_host,
+                            &config.mempool_api_endpoint,
                             self.paramset.network,
                         )
                         .await;
@@ -447,18 +447,18 @@ impl TxSender {
 /// This function is used to get the fee rate in sat/vkb (satoshis per kilovbyte).
 /// See [Mempool Space API](https://mempool.space/docs/api/rest#get-recommended-fees) for more details.
 #[allow(dead_code)]
-async fn get_fee_rate_from_rpc_provider(
+async fn get_fee_rate_from_mempool_space(
     rpc_url: &Option<String>,
     rpc_endpoint: &Option<String>,
     network: Network,
 ) -> Result<Amount> {
     let rpc_url = rpc_url
         .as_ref()
-        .ok_or_else(|| eyre!("Fee rate RPC URL is not configured"))?;
+        .ok_or_else(|| eyre!("Fee rate API host is not configured"))?;
 
     let rpc_endpoint = rpc_endpoint
         .as_ref()
-        .ok_or_else(|| eyre!("Fee rate RPC endpoint is not configured"))?;
+        .ok_or_else(|| eyre!("Fee rate API endpoint is not configured"))?;
     let url = match network {
         Network::Bitcoin => format!(
             // If the variables are not, return Error to fallback to Bitcoin Core RPC.
@@ -920,7 +920,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_mempool_space_fee_rate_mainnet() {
-        get_fee_rate_from_rpc_provider(
+        get_fee_rate_from_mempool_space(
             &Some("https://mempool.space/".to_string()),
             &Some("api/v1/fees/recommended".to_string()),
             bitcoin::Network::Bitcoin,
@@ -931,7 +931,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_mempool_space_fee_rate_testnet4() {
-        get_fee_rate_from_rpc_provider(
+        get_fee_rate_from_mempool_space(
             &Some("https://mempool.space/".to_string()),
             &Some("api/v1/fees/recommended".to_string()),
             bitcoin::Network::Testnet4,
@@ -943,7 +943,7 @@ mod tests {
     #[tokio::test]
     #[should_panic(expected = "Unsupported network for mempool.space: Regtest")]
     async fn test_mempool_space_fee_rate_regtest() {
-        get_fee_rate_from_rpc_provider(
+        get_fee_rate_from_mempool_space(
             &Some("https://mempool.space/".to_string()),
             &Some("api/v1/fees/recommended".to_string()),
             bitcoin::Network::Regtest,
@@ -955,7 +955,7 @@ mod tests {
     #[tokio::test]
     #[should_panic(expected = "Unsupported network for mempool.space: Signet")]
     async fn test_mempool_space_fee_rate_signet() {
-        get_fee_rate_from_rpc_provider(
+        get_fee_rate_from_mempool_space(
             &Some("https://mempool.space/".to_string()),
             &Some("api/v1/fees/recommended".to_string()),
             bitcoin::Network::Signet,
