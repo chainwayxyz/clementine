@@ -2088,6 +2088,7 @@ dependencies = [
  "futures-util",
  "hex",
  "hex-literal",
+ "hkdf",
  "http",
  "hyper",
  "hyper-util",
