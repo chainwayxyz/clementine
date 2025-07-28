@@ -164,6 +164,11 @@ pub enum BridgeError {
     #[error(transparent)]
     RPC(#[from] Status),
 
+    #[error("Arithmetic overflow occurred: {0}")]
+    ArithmeticOverflow(&'static str),
+    #[error("Insufficient funds: {0}")]
+    InsufficientFunds(&'static str),
+
     // Base wrapper for eyre
     #[error(transparent)]
     Eyre(#[from] eyre::Report),
