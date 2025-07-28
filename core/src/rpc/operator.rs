@@ -237,6 +237,7 @@ where
             self.operator.config.clone(),
             transaction_data,
             Some([0u8; 20]), // dummy blockhash
+            None,
         )
         .await?;
 

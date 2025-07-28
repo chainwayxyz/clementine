@@ -875,6 +875,7 @@ where
             self.config.clone(),
             transaction_data,
             Some(payout_tx_blockhash),
+            Some(dbtx),
         )
         .await?;
 

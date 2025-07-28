@@ -12,7 +12,7 @@ use crate::builder::transaction::TransactionType;
 use crate::citrea::CitreaClientT;
 use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
-use crate::database::Database;
+use crate::database::{Database, DatabaseTransaction};
 use crate::deposit::KickoffData;
 use crate::errors::{BridgeError, TxError};
 use crate::operator::{Operator, RoundIndex};
@@ -91,6 +91,7 @@ pub async fn create_and_sign_txs(
     config: BridgeConfig,
     transaction_data: TransactionRequestData,
     block_hash: Option<[u8; 20]>, //to sign kickoff
+    db_tx: Option<DatabaseTransaction<'_, '_>>,
 ) -> Result<Vec<(TransactionType, Transaction)>, BridgeError> {
     let deposit_data = db
         .get_deposit_data(None, transaction_data.deposit_outpoint)
@@ -115,6 +116,7 @@ pub async fn create_and_sign_txs(
             transaction_data.kickoff_data.operator_xonly_pk,
             deposit_data.get_deposit_outpoint(),
             config.protocol_paramset(),
+            db_tx,
         ),
     )
     .await?;
