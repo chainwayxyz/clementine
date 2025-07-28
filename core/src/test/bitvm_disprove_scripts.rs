@@ -233,7 +233,7 @@ impl DisproveTest {
             config.citrea_light_client_prover_url.clone(),
             config.citrea_chain_id,
             Some(SECRET_KEYS[0].to_string().parse().unwrap()),
-            config.citrea_timeout,
+            config.citrea_request_timeout,
         )
         .await
         .unwrap();

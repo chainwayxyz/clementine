@@ -210,7 +210,7 @@ where
             config.citrea_light_client_prover_url.clone(),
             config.citrea_chain_id,
             None,
-            config.citrea_timeout,
+            config.citrea_request_timeout,
         )
         .await?;
 
