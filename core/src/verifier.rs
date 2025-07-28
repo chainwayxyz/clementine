@@ -1256,6 +1256,7 @@ where
         kickoff_witness: Witness,
         deposit_data: &mut DepositData,
         kickoff_data: KickoffData,
+        dbtx: Option<DatabaseTransaction<'_, '_>>,
     ) -> Result<bool, BridgeError> {
         let move_txid =
             create_move_to_vault_txhandler(deposit_data, self.config.protocol_paramset())?
@@ -1263,7 +1264,7 @@ where
                 .compute_txid();
         let payout_info = self
             .db
-            .get_payout_info_from_move_txid(None, move_txid)
+            .get_payout_info_from_move_txid(dbtx, move_txid)
             .await;
         if let Err(e) = &payout_info {
             tracing::warn!(
@@ -1324,7 +1325,7 @@ where
         challenged_before: bool,
     ) -> Result<bool, BridgeError> {
         let is_malicious = self
-            .is_kickoff_malicious(kickoff_witness, &mut deposit_data, kickoff_data)
+            .is_kickoff_malicious(kickoff_witness, &mut deposit_data, kickoff_data, Some(dbtx))
             .await?;
         if !is_malicious {
             return Ok(false);
@@ -1347,6 +1348,7 @@ where
             self.config.clone(),
             transaction_data,
             None, // No need
+            Some(dbtx),
         )
         .await?;
 
@@ -1398,6 +1400,7 @@ where
         &self,
         kickoff_data: KickoffData,
         deposit_data: DepositData,
+        dbtx: Option<DatabaseTransaction<'_, '_>>,
     ) -> Result<(), BridgeError> {
         let hcp_prover = self
             .header_chain_prover
@@ -1424,7 +1427,7 @@ where
                     .wrap_err("Couldn't serialize total work")?;
                 challenge.extend_from_slice(&total_work);
                 return self
-                    .queue_watchtower_challenge(kickoff_data, deposit_data, challenge)
+                    .queue_watchtower_challenge(kickoff_data, deposit_data, challenge, dbtx)
                     .await;
             }
         }
@@ -1455,7 +1458,7 @@ where
 
         tracing::info!("Watchtower prepared commit data, trying to send watchtower challenge");
 
-        self.queue_watchtower_challenge(kickoff_data, deposit_data, commit_data)
+        self.queue_watchtower_challenge(kickoff_data, deposit_data, commit_data, dbtx)
             .await
     }
 
@@ -1464,6 +1467,7 @@ where
         kickoff_data: KickoffData,
         deposit_data: DepositData,
         commit_data: Vec<u8>,
+        dbtx: Option<DatabaseTransaction<'_, '_>>,
     ) -> Result<(), BridgeError> {
         let (tx_type, challenge_tx, rbf_info) = self
             .create_watchtower_challenge(
@@ -1472,6 +1476,7 @@ where
                     kickoff_data,
                 },
                 &commit_data,
+                dbtx,
             )
             .await?;
 
@@ -1674,7 +1679,7 @@ where
         }
 
         let unspent_kickoff_txs = self
-            .create_and_sign_unspent_kickoff_connector_txs(round_idx, operator_xonly_pk)
+            .create_and_sign_unspent_kickoff_connector_txs(round_idx, operator_xonly_pk, None)
             .await?;
         let mut dbtx = self.db.begin_transaction().await?;
         for (tx_type, tx) in unspent_kickoff_txs {
@@ -1736,6 +1741,7 @@ where
         operator_asserts: &HashMap<usize, Witness>,
         operator_acks: &HashMap<usize, Witness>,
         txhandlers: &BTreeMap<TransactionType, TxHandler>,
+        dbtx: Option<DatabaseTransaction<'_, '_>>,
     ) -> Result<Option<bitcoin::Witness>, BridgeError> {
         use crate::builder::transaction::ReimburseDbCache;
 
@@ -1744,6 +1750,7 @@ where
             kickoff_data.operator_xonly_pk,
             deposit_data.get_deposit_outpoint(),
             self.config.protocol_paramset(),
+            dbtx,
         );
 
         let nofn_key = deposit_data.get_nofn_xonly_pk().inspect_err(|e| {
@@ -2405,7 +2412,7 @@ mod states {
                     "Verifier {:?} called watchtower challenge with kickoff_data: {:?}, deposit_data: {:?}",
                     verifier_xonly_pk, kickoff_data, deposit_data
                 );
-                    self.send_watchtower_challenge(kickoff_data, deposit_data)
+                    self.send_watchtower_challenge(kickoff_data, deposit_data, None)
                         .await?;
 
                     tracing::info!("Verifier sent watchtower challenge",);
@@ -2427,7 +2434,8 @@ mod states {
                         self.config.protocol_paramset(),
                         self.signer.clone(),
                     );
-                    let mut db_cache = ReimburseDbCache::from_context(self.db.clone(), &context);
+                    let mut db_cache =
+                        ReimburseDbCache::from_context(self.db.clone(), &context, None);
 
                     let txhandlers = create_txhandlers(
                         TransactionType::Disprove,
@@ -2447,6 +2455,7 @@ mod states {
                             &operator_asserts,
                             &operator_acks,
                             &txhandlers,
+                            None,
                         )
                         .await?
                     {
@@ -2553,7 +2562,8 @@ mod states {
             tx_type: TransactionType,
             contract_context: ContractContext,
         ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
-            let mut db_cache = ReimburseDbCache::from_context(self.db.clone(), &contract_context);
+            let mut db_cache =
+                ReimburseDbCache::from_context(self.db.clone(), &contract_context, None);
             let txhandlers = create_txhandlers(
                 tx_type,
                 contract_context,

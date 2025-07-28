@@ -1203,8 +1203,11 @@ where
             deposit_data.clone(),
             self.config.protocol_paramset(),
         );
-        let mut db_cache =
-            crate::builder::transaction::ReimburseDbCache::from_context(self.db.clone(), &context);
+        let mut db_cache = crate::builder::transaction::ReimburseDbCache::from_context(
+            self.db.clone(),
+            &context,
+            None,
+        );
         let txhandlers = builder::transaction::create_txhandlers(
             TransactionType::Kickoff,
             context,
@@ -1492,6 +1495,7 @@ where
                     asserts,
                     &public_inputs.challenge_sending_watchtowers,
                 ),
+                None,
             )
             .await?;
 
@@ -1544,6 +1548,7 @@ where
                     kickoff_data,
                 },
                 latest_blockhash,
+                None,
             )
             .await?;
         if tx_type != TransactionType::LatestBlockhash {
@@ -1678,7 +1683,8 @@ mod states {
             tx_type: TransactionType,
             contract_context: ContractContext,
         ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
-            let mut db_cache = ReimburseDbCache::from_context(self.db.clone(), &contract_context);
+            let mut db_cache =
+                ReimburseDbCache::from_context(self.db.clone(), &contract_context, None);
             let txhandlers = create_txhandlers(
                 tx_type,
                 contract_context,
