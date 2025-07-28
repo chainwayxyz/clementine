@@ -1167,6 +1167,22 @@ where
                 &hashes,
             )
             .await?;
+        
+        if keys.winternitz_pubkeys.len() != ClementineBitVMPublicKeys::number_of_flattened_wpks() {
+            tracing::error!(
+                "Invalid number of winternitz keys received from operator {:?}: got: {} expected: {}",
+                operator_xonly_pk,
+                keys.winternitz_pubkeys.len(),
+                ClementineBitVMPublicKeys::number_of_flattened_wpks()
+            );
+            return Err(eyre::eyre!(
+                "Invalid number of winternitz keys received from operator {:?}: got: {} expected: {}",
+                operator_xonly_pk,
+                keys.winternitz_pubkeys.len(),
+                ClementineBitVMPublicKeys::number_of_flattened_wpks()
+            )
+            .into());
+        }
 
         let winternitz_keys: Vec<winternitz::PublicKey> = keys
             .winternitz_pubkeys
@@ -1174,21 +1190,6 @@ where
             .map(|x| x.try_into())
             .collect::<Result<_, BridgeError>>()?;
 
-        if winternitz_keys.len() != ClementineBitVMPublicKeys::number_of_flattened_wpks() {
-            tracing::error!(
-                "Invalid number of winternitz keys received from operator {:?}: got: {} expected: {}",
-                operator_xonly_pk,
-                winternitz_keys.len(),
-                ClementineBitVMPublicKeys::number_of_flattened_wpks()
-            );
-            return Err(eyre::eyre!(
-                "Invalid number of winternitz keys received from operator {:?}: got: {} expected: {}",
-                operator_xonly_pk,
-                winternitz_keys.len(),
-                ClementineBitVMPublicKeys::number_of_flattened_wpks()
-            )
-            .into());
-        }
 
         let bitvm_pks = ClementineBitVMPublicKeys::from_flattened_vec(&winternitz_keys);
 
