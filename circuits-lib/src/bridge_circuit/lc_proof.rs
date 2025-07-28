@@ -36,7 +36,11 @@ mod tests {
             lc_journal: lcp_receipt.journal.bytes.to_vec(),
         };
 
-        let light_client_circuit_output = lc_proof_verifier(light_client_proof);
+        lcp_receipt.verify(LC_IMAGE_ID).unwrap();
+
+        let light_client_circuit_output: LightClientCircuitOutput =
+            borsh::from_slice(light_client_proof.lc_journal.as_slice())
+                .expect("Failed to deserialize light client circuit output");
 
         let expected_state_root =
             "20476f2cc8568476d4ca3c2e34d2f9889c1cce06289873ed5ed46c31be0ce55e";
