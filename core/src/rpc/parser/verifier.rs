@@ -126,7 +126,7 @@ impl From<PartialSignature> for PartialSig {
 pub fn parse_deposit_sign_session(
     deposit_sign_session: clementine::DepositSignSession,
     verifier_pk: &PublicKey,
-) -> Result<(DepositData, u32), Status> {
+) -> Result<(DepositData, u128), Status> {
     let deposit_params = deposit_sign_session
         .deposit_params
         .ok_or(Status::invalid_argument("No deposit params received"))?;
@@ -137,7 +137,10 @@ pub fn parse_deposit_sign_session(
         .get_verifier_index(verifier_pk)
         .map_err(|e| Status::invalid_argument(e.to_string()))?;
 
-    let session_id = deposit_sign_session.nonce_gen_first_responses[verifier_idx].id;
+    let session_id: u128 = deposit_sign_session.nonce_gen_first_responses[verifier_idx]
+        .id
+        .parse()
+        .map_err(|e| Status::invalid_argument(format!("Invalid nonce session id: {}", e)))?;
 
     Ok((deposit_data, session_id))
 }

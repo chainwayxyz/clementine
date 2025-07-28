@@ -395,7 +395,8 @@ message NonceGenRequest {
 
 message NonceGenFirstResponse {
   // ID of the nonce session (used to store nonces in verifier's memory)
-  uint32 id = 1;
+  // The id is string representation of a u128 number
+  string id = 1;
   // Number of nonces to generate
   uint32 num_nonces = 2;
 }

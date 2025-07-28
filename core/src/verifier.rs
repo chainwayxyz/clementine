@@ -79,8 +79,8 @@ pub struct NonceSession {
 
 #[derive(Debug)]
 pub struct AllSessions {
-    pub cur_id: u32,
-    pub sessions: HashMap<u32, NonceSession>,
+    pub cur_id: u128,
+    pub sessions: HashMap<u128, NonceSession>,
 }
 
 pub struct VerifierServer<C: CitreaClientT> {
@@ -518,7 +518,10 @@ where
         Ok(())
     }
 
-    pub async fn nonce_gen(&self, num_nonces: u32) -> Result<(u32, Vec<PublicNonce>), BridgeError> {
+    pub async fn nonce_gen(
+        &self,
+        num_nonces: u32,
+    ) -> Result<(u128, Vec<PublicNonce>), BridgeError> {
         let (sec_nonces, pub_nonces): (Vec<SecretNonce>, Vec<PublicNonce>) = (0..num_nonces)
             .map(|_| {
                 // nonce pair needs keypair and a rng
@@ -547,7 +550,7 @@ where
     pub async fn deposit_sign(
         &self,
         mut deposit_data: DepositData,
-        session_id: u32,
+        session_id: u128,
         mut agg_nonce_rx: mpsc::Receiver<AggregatedNonce>,
     ) -> Result<mpsc::Receiver<PartialSignature>, BridgeError> {
         self.citrea_client
@@ -654,7 +657,7 @@ where
     pub async fn deposit_finalize(
         &self,
         deposit_data: &mut DepositData,
-        session_id: u32,
+        session_id: u128,
         mut sig_receiver: mpsc::Receiver<Signature>,
         mut agg_nonce_receiver: mpsc::Receiver<AggregatedNonce>,
         mut operator_sig_receiver: mpsc::Receiver<Signature>,
@@ -1023,7 +1026,7 @@ where
 
     pub async fn sign_optimistic_payout(
         &self,
-        nonce_session_id: u32,
+        nonce_session_id: u128,
         agg_nonce: AggregatedNonce,
         deposit_id: u32,
         input_signature: Signature,

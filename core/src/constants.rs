@@ -12,6 +12,16 @@ pub const TEN_MINUTES_IN_SECS: u32 = 600;
 
 pub const DEFAULT_CHANNEL_SIZE: usize = 1280;
 
+/// The maximum number of nonces that can be generated in a single nonce generation session.
+/// A single nonce takes 132 (musig2 secret nonce) bytes. We calculate NUM_NONCES so that a nonce
+/// session takes at maximum 150MB.
+pub const NUM_NONCES_LIMIT: u32 = 150 * 1_000_000 / MUSIG_SECNONCE_LEN as u32;
+
+/// The maximum number of bytes that can be used by all nonce sessions.
+/// If it exceeds this limit, the verifier will delete the oldest nonce sessions.
+pub const MAX_ALL_SESSIONS_BYTES: u64 = 1_000_000_000;
+
+use secp256k1::ffi::MUSIG_SECNONCE_LEN;
 pub use timeout::*;
 
 mod timeout {

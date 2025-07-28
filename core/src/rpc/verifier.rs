@@ -45,12 +45,14 @@ where
                 .map_err(|_| Status::invalid_argument("agg_nonce must be exactly 66 bytes"))?,
         )
         .map_err(|e| Status::invalid_argument(format!("Invalid musigagg nonce: {}", e)))?;
-        let nonce_session_id = params
+        let nonce_session_id: u128 = params
             .nonce_gen
             .ok_or(Status::invalid_argument(
                 "Nonce params not found for optimistic payout",
             ))?
-            .id;
+            .id
+            .parse()
+            .map_err(|e| Status::invalid_argument(format!("Invalid nonce session id: {}", e)))?;
         let withdraw_params = params.withdrawal.ok_or(Status::invalid_argument(
             "Withdrawal params not found for optimistic payout",
         ))?;
@@ -183,7 +185,7 @@ where
 
         tokio::spawn(async move {
             let nonce_gen_first_response = clementine::NonceGenFirstResponse {
-                id: session_id,
+                id: session_id.to_string(),
                 num_nonces,
             };
             let session_id: NonceGenResponse = nonce_gen_first_response.into();
