@@ -385,10 +385,7 @@ impl CitreaClientT for CitreaClient {
                 .await;
             match deposit_txid {
                 Err(e) if e.to_string().contains("execution reverted") => {
-                    tracing::trace!(
-                        "Deposit txid not found for index, error: {:?}",
-                        e
-                    );
+                    tracing::trace!("Deposit txid not found for index, error: {:?}", e);
                     break;
                 }
                 Err(e) => return Err(e.into()),
