@@ -383,12 +383,16 @@ impl CitreaClientT for CitreaClient {
                 .block(BlockId::Number(BlockNumberOrTag::Number(to_height)))
                 .call()
                 .await;
-            if deposit_txid.is_err() {
-                tracing::trace!(
-                    "Deposit txid not found for index, error: {:?}",
-                    deposit_txid
-                );
-                break;
+            match deposit_txid {
+                Err(e) if e.to_string().contains("execution reverted") => {
+                    tracing::trace!(
+                        "Deposit txid not found for index, error: {:?}",
+                        e
+                    );
+                    break;
+                }
+                Err(e) => return Err(e.into()),
+                Ok(_) => {}
             }
             tracing::info!("Deposit txid found for index: {:?}", deposit_txid);
 
