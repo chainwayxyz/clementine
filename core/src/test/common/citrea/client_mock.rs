@@ -88,6 +88,7 @@ impl CitreaClientT for MockCitreaClient {
         _light_client_prover_url: String,
         _chain_id: u32,
         _secret_key: Option<PrivateKeySigner>,
+        _timeout: Option<Duration>,
     ) -> Result<Self, BridgeError> {
         tracing::info!(
             "Using the mock Citrea client ({citrea_rpc_url}), beware that data returned from this client is not real"
@@ -243,6 +244,7 @@ mod tests {
             "".to_string(),
             config.citrea_chain_id,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -283,6 +285,7 @@ mod tests {
             config.citrea_rpc_url,
             "".to_string(),
             config.citrea_chain_id,
+            None,
             None,
         )
         .await
