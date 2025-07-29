@@ -108,12 +108,8 @@
 <a href="#107" id="107">107</a>
 <a href="#108" id="108">108</a>
 <a href="#109" id="109">109</a>
-<a href="#110" id="110">110</a>
-<a href="#111" id="111">111</a>
-<a href="#112" id="112">112</a>
-<a href="#113" id="113">113</a></pre></div><pre class="rust"><code><span class="kw">use </span>std::time::Duration;
+<a href="#110" id="110">110</a></pre></div><pre class="rust"><code><span class="kw">use </span>std::time::Duration;
 
-<span class="kw">use </span>bitcoin::FeeRate;
 <span class="kw">use </span>tonic::async_trait;
 
 <span class="kw">use </span><span class="kw">crate</span>::errors::ResultExt;
@@ -196,12 +192,10 @@
             </span><span class="kw">return </span><span class="prelude-val">Ok</span>(<span class="bool-val">true</span>);
         }
 
-        <span class="comment">// tracing::info!("TXSENDER: Getting fee rate");
-        // let fee_rate_result = self.inner.get_fee_rate().await;
-        // tracing::info!("TXSENDER: Fee rate result: {:?}", fee_rate_result);
-        // let fee_rate = fee_rate_result?;
-        // tracing::info!("TXSENDER: Trying to send unconfirmed txs");
-        </span><span class="kw">let </span>fee_rate = FeeRate::from_sat_per_vb_unchecked(<span class="number">1</span>);
+        <span class="macro">tracing::info!</span>(<span class="string">"TXSENDER: Getting fee rate"</span>);
+        <span class="kw">let </span>fee_rate_result = <span class="self">self</span>.inner.get_fee_rate().<span class="kw">await</span>;
+        <span class="macro">tracing::info!</span>(<span class="string">"TXSENDER: Fee rate result: {:?}"</span>, fee_rate_result);
+        <span class="kw">let </span>fee_rate = fee_rate_result<span class="question-mark">?</span>;
 
         <span class="self">self</span>.inner
             .try_to_send_unconfirmed_txs(fee_rate, <span class="self">self</span>.current_tip_height)

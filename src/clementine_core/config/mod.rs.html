@@ -385,7 +385,14 @@
 <a href="#384" id="384">384</a>
 <a href="#385" id="385">385</a>
 <a href="#386" id="386">386</a>
-<a href="#387" id="387">387</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Configuration Options
+<a href="#387" id="387">387</a>
+<a href="#388" id="388">388</a>
+<a href="#389" id="389">389</a>
+<a href="#390" id="390">390</a>
+<a href="#391" id="391">391</a>
+<a href="#392" id="392">392</a>
+<a href="#393" id="393">393</a>
+<a href="#394" id="394">394</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Configuration Options
 //!
 //! This module defines configuration options.
 //!
@@ -444,6 +451,11 @@
     </span><span class="kw">pub </span>bitcoin_rpc_user: SecretString,
     <span class="doccomment">/// Bitcoin RPC user password.
     </span><span class="kw">pub </span>bitcoin_rpc_password: SecretString,
+    <span class="doccomment">/// mempool.space API host for retrieving the fee rate. If None, Bitcoin Core RPC will be used.
+    </span><span class="kw">pub </span>mempool_api_host: <span class="prelude-ty">Option</span>&lt;String&gt;,
+    <span class="doccomment">/// mempool.space API endpoint for retrieving the fee rate. If None, Bitcoin Core RPC will be used.
+    </span><span class="kw">pub </span>mempool_api_endpoint: <span class="prelude-ty">Option</span>&lt;String&gt;,
+
     <span class="doccomment">/// PostgreSQL database host address.
     </span><span class="kw">pub </span>db_host: String,
     <span class="doccomment">/// PostgreSQL database port.
@@ -625,6 +637,8 @@
             bitcoin_rpc_url: <span class="string">"http://127.0.0.1:18443/wallet/admin"</span>.to_string(),
             bitcoin_rpc_user: <span class="string">"admin"</span>.to_string().into(),
             bitcoin_rpc_password: <span class="string">"admin"</span>.to_string().into(),
+            mempool_api_host: <span class="prelude-val">None</span>,
+            mempool_api_endpoint: <span class="prelude-val">None</span>,
 
             db_host: <span class="string">"127.0.0.1"</span>.to_string(),
             db_port: <span class="number">5432</span>,

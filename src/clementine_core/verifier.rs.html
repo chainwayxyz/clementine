@@ -2900,7 +2900,9 @@
 <a href="#2899" id="2899">2899</a>
 <a href="#2900" id="2900">2900</a>
 <a href="#2901" id="2901">2901</a>
-<a href="#2902" id="2902">2902</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
+<a href="#2902" id="2902">2902</a>
+<a href="#2903" id="2903">2903</a>
+<a href="#2904" id="2904">2904</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
 <span class="kw">use </span><span class="kw">crate</span>::bitcoin_syncer::BitcoinSyncer;
 <span class="kw">use </span><span class="kw">crate</span>::bitvm_client::{ClementineBitVMPublicKeys, REPLACE_SCRIPTS_LOCK};
 <span class="kw">use </span><span class="kw">crate</span>::builder::address::{create_taproot_address, taproot_builder_with_scripts};
@@ -3024,6 +3026,8 @@
                 <span class="self">self</span>.verifier.db.clone(),
                 Verifier::&lt;C&gt;::TX_SENDER_CONSUMER_ID.to_string(),
                 <span class="self">self</span>.verifier.config.protocol_paramset(),
+                <span class="self">self</span>.verifier.config.mempool_api_host.clone(),
+                <span class="self">self</span>.verifier.config.mempool_api_endpoint.clone(),
             );
 
             <span class="self">self</span>.background_tasks

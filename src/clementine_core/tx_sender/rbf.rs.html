@@ -2442,7 +2442,7 @@
         dbtx.commit().<span class="kw">await</span><span class="question-mark">?</span>;
 
         <span class="comment">// Get the current fee rate and increase it for RBF
-        </span><span class="kw">let </span>current_fee_rate = tx_sender._get_fee_rate().<span class="kw">await</span><span class="question-mark">?</span>;
+        </span><span class="kw">let </span>current_fee_rate = tx_sender.get_fee_rate().<span class="kw">await</span><span class="question-mark">?</span>;
 
         <span class="comment">// Test send_rbf_tx
         </span>tx_sender
@@ -2507,7 +2507,7 @@
         dbtx.commit().<span class="kw">await</span><span class="question-mark">?</span>;
 
         <span class="comment">// Get the current fee rate and increase it for RBF
-        </span><span class="kw">let </span>current_fee_rate = tx_sender._get_fee_rate().<span class="kw">await</span><span class="question-mark">?</span>;
+        </span><span class="kw">let </span>current_fee_rate = tx_sender.get_fee_rate().<span class="kw">await</span><span class="question-mark">?</span>;
 
         <span class="comment">// Test send_rbf_tx
         </span>tx_sender
@@ -2585,7 +2585,7 @@
         dbtx.commit().<span class="kw">await</span><span class="question-mark">?</span>;
 
         <span class="comment">// Get the current fee rate and increase it for RBF
-        </span><span class="kw">let </span>current_fee_rate = tx_sender._get_fee_rate().<span class="kw">await</span><span class="question-mark">?</span>;
+        </span><span class="kw">let </span>current_fee_rate = tx_sender.get_fee_rate().<span class="kw">await</span><span class="question-mark">?</span>;
 
         <span class="comment">// Test send_rbf_tx
         </span>tx_sender
@@ -2662,7 +2662,7 @@
         dbtx.commit().<span class="kw">await</span><span class="question-mark">?</span>;
 
         <span class="comment">// Get the current fee rate and increase it for RBF
-        </span><span class="kw">let </span>current_fee_rate = tx_sender._get_fee_rate().<span class="kw">await</span><span class="question-mark">?</span>;
+        </span><span class="kw">let </span>current_fee_rate = tx_sender.get_fee_rate().<span class="kw">await</span><span class="question-mark">?</span>;
 
         <span class="comment">// Test send_rbf_tx
         </span>tx_sender
@@ -2720,7 +2720,7 @@
             .<span class="kw">await</span><span class="question-mark">?</span>;
         dbtx.commit().<span class="kw">await</span><span class="question-mark">?</span>;
 
-        <span class="kw">let </span>current_fee_rate = tx_sender._get_fee_rate().<span class="kw">await</span><span class="question-mark">?</span>;
+        <span class="kw">let </span>current_fee_rate = tx_sender.get_fee_rate().<span class="kw">await</span><span class="question-mark">?</span>;
 
         <span class="comment">// Create initial TX
         </span>tx_sender
