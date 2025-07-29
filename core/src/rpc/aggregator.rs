@@ -28,7 +28,7 @@ use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
 use crate::rpc::clementine::VerifierDepositSignParams;
 use crate::rpc::parser;
-use crate::utils::{get_vergen_response, timed_request, timed_try_join_all};
+use crate::utils::{get_vergen_response, timed_request, timed_try_join_all, ScriptBufExt};
 use crate::utils::{FeePayingType, TxMetadata};
 use crate::UTXO;
 use crate::{
@@ -885,11 +885,15 @@ impl ClementineAggregator for Aggregator {
                 .await
                 .map_to_status()?;
 
-            let user_xonly_pk =
-                XOnlyPublicKey::from_slice(&withdrawal_prevout.script_pubkey.as_bytes()[2..34])
-                    .map_err(|_| {
-                        Status::internal("Failed to parse user xonly public key from output script")
-                    })?;
+            let user_xonly_pk = withdrawal_prevout
+                .script_pubkey
+                .try_get_taproot_pk()
+                .map_err(|_| {
+                    Status::invalid_argument(format!(
+                        "Withdrawal prevout script_pubkey is not a Taproot output: {:?}",
+                        withdrawal_prevout.script_pubkey
+                    ))
+                })?;
 
             let withdrawal_utxo = UTXO {
                 outpoint: input_outpoint,
