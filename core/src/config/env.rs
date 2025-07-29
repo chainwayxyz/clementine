@@ -32,10 +32,10 @@ impl GrpcLimits {
                 .unwrap_or(defaults.max_message_size),
             timeout_secs: read_string_from_env_then_parse::<u64>("GRPC_TIMEOUT_SECS")
                 .unwrap_or(defaults.timeout_secs),
-            tcp_keepalive_secs: read_string_from_env_then_parse::<u64>("GRPC_KEEPALIVE_SECS")
+            tcp_keepalive_secs: read_string_from_env_then_parse::<u64>("GRPC_TCP_KEEPALIVE_SECS")
                 .unwrap_or(defaults.tcp_keepalive_secs),
             req_concurrency_limit: read_string_from_env_then_parse::<usize>(
-                "GRPC_CONCURRENCY_LIMIT",
+                "GRPC_REQ_CONCURRENCY_LIMIT",
             )
             .unwrap_or(defaults.req_concurrency_limit),
             ratelimit_req_count: read_string_from_env_then_parse::<usize>(
@@ -316,8 +316,8 @@ mod tests {
             default_config.grpc.timeout_secs.to_string(),
         );
         std::env::set_var(
-            "GRPC_KEEPALIVE_SECS",
-            default_config.grpc.tpc_keepalive_secs.to_string(),
+            "GRPC_TCP_KEEPALIVE_SECS",
+            default_config.grpc.tcp_keepalive_secs.to_string(),
         );
         std::env::set_var(
             "GRPC_CONCURRENCY_LIMIT",
