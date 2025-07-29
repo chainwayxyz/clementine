@@ -130,8 +130,9 @@ pub trait Owner: Send + Sync + Clone + NamedEntity {
     ) -> Result<(), BridgeError>;
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct StateContext<T: Owner> {
+    pub db: Database,
     pub owner: Arc<T>,
     pub cache: Arc<block_cache::BlockCache>,
     pub new_round_machines: Vec<InitializedStateMachine<round::RoundStateMachine<T>>>,
@@ -143,6 +144,7 @@ pub struct StateContext<T: Owner> {
 
 impl<T: Owner> StateContext<T> {
     pub fn new(
+        db: Database,
         owner: Arc<T>,
         cache: Arc<block_cache::BlockCache>,
         paramset: &'static ProtocolParamset,
@@ -151,6 +153,7 @@ impl<T: Owner> StateContext<T> {
         let owner_type = T::ENTITY_NAME.to_string();
 
         Self {
+            db,
             owner,
             cache,
             new_round_machines: Vec::new(),
