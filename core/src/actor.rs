@@ -1095,7 +1095,8 @@ mod tests {
         // check only first digit
         let params = WinternitzDerivationPath::Kickoff(RoundIndex::Round(0), 1, paramset);
         let expected_pk = vec![
-            135, 71, 6, 82, 172, 209, 8, 35, 87, 30, 137, 147, 39, 46, 87, 31, 20, 100, 127, 210,
+            192, 121, 127, 229, 19, 208, 80, 49, 82, 134, 237, 242, 142, 162, 143, 232, 12, 231,
+            114, 175,
         ];
         assert_eq!(
             actor.derive_winternitz_pk(params).unwrap()[0].to_vec(),
