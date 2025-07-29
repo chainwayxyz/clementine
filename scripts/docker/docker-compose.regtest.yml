@@ -194,6 +194,7 @@ services:
 # Verifiers --------------------------------------------------------------------
   clementine_verifier_regtest_0:
     <<: *clementine_verifier_regtest
+    hostname: regtest0_verifier.docker.internal
     environment:
       - SECRET_KEY=1111111111111111111111111111111111111111111111111111111111111111
       - DB_NAME=clementine0
@@ -207,6 +208,7 @@ services:
 
   clementine_verifier_regtest_1:
     <<: *clementine_verifier_regtest
+    hostname: regtest1_verifier.docker.internal
     environment:
       - SECRET_KEY=2222222222222222222222222222222222222222222222222222222222222222
       - DB_NAME=clementine1
@@ -220,6 +222,7 @@ services:
 
   clementine_verifier_regtest_2:
     <<: *clementine_verifier_regtest
+    hostname: regtest2_verifier.docker.internal
     environment:
       - SECRET_KEY=3333333333333333333333333333333333333333333333333333333333333333
       - DB_NAME=clementine2
@@ -233,6 +236,7 @@ services:
 
   clementine_verifier_regtest_3:
     <<: *clementine_verifier_regtest
+    hostname: regtest3_verifier.docker.internal
     environment:
       - SECRET_KEY=4444444444444444444444444444444444444444444444444444444444444444
       - DB_NAME=clementine3
@@ -247,6 +251,7 @@ services:
 # Operators --------------------------------------------------------------------
   clementine_operator_regtest_0:
     <<: *clementine_operator_regtest
+    hostname: regtest0_operator.docker.internal
     environment:
       - SECRET_KEY=1111111111111111111111111111111111111111111111111111111111111111
       - DB_NAME=clementine0
@@ -260,6 +265,7 @@ services:
 
   clementine_operator_regtest_1:
     <<: *clementine_operator_regtest
+    hostname: regtest1_operator.docker.internal
     environment:
       - SECRET_KEY=2222222222222222222222222222222222222222222222222222222222222222
       - DB_NAME=clementine1
