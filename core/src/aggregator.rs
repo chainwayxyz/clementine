@@ -608,7 +608,7 @@ impl Aggregator {
         let verifier_clients = self.get_verifier_clients();
         tracing::debug!("Operator clients: {:?}", operator_clients.len());
 
-        // try to reach all operators and verifiers to collect keys, but do not return err if some of them cant be reached
+        // try to reach all operators and verifiers to collect keys, but do not return err if some of them can't be reached
         let _ = self.fetch_operator_keys().await;
         let _ = self.fetch_verifier_keys().await;
 
