@@ -438,7 +438,7 @@ pub async fn create_actors<C: CitreaClientT>(
             .iter()
             .map(|path| format!("unix://{}", path.display()))
             .collect::<Vec<_>>(),
-        ClementineVerifierClient::new,
+        crate::rpc::verifier_client_builder(&config),
         &verifier_configs[0],
         false,
     )
@@ -450,7 +450,7 @@ pub async fn create_actors<C: CitreaClientT>(
             .iter()
             .map(|path| format!("unix://{}", path.display()))
             .collect::<Vec<_>>(),
-        ClementineOperatorClient::new,
+        crate::rpc::operator_client_builder(&config),
         &operator_configs[0],
         false,
     )

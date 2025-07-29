@@ -1,7 +1,11 @@
 //! # Environment Variable Support For [`BridgeConfig`]
 
 use super::BridgeConfig;
-use crate::{deposit::SecurityCouncil, errors::BridgeError};
+use crate::{
+    config::{default_grpc_limits, GrpcLimits},
+    deposit::SecurityCouncil,
+    errors::BridgeError,
+};
 use bitcoin::{address::NetworkUnchecked, secp256k1::SecretKey, Amount};
 use std::{path::PathBuf, str::FromStr, time::Duration};
 
@@ -18,6 +22,32 @@ where
     read_string_from_env(env_var)?
         .parse::<T>()
         .map_err(|e| BridgeError::EnvVarMalformed(env_var, format!("{:?}", e)))
+}
+
+impl GrpcLimits {
+    pub fn from_env() -> Result<Self, BridgeError> {
+        let defaults = default_grpc_limits();
+        Ok(GrpcLimits {
+            max_message_size: read_string_from_env_then_parse::<usize>("GRPC_MAX_MESSAGE_SIZE")
+                .unwrap_or(defaults.max_message_size),
+            timeout_secs: read_string_from_env_then_parse::<u64>("GRPC_TIMEOUT_SECS")
+                .unwrap_or(defaults.timeout_secs),
+            tcp_keepalive_secs: read_string_from_env_then_parse::<u64>("GRPC_TCP_KEEPALIVE_SECS")
+                .unwrap_or(defaults.tcp_keepalive_secs),
+            req_concurrency_limit: read_string_from_env_then_parse::<usize>(
+                "GRPC_REQ_CONCURRENCY_LIMIT",
+            )
+            .unwrap_or(defaults.req_concurrency_limit),
+            ratelimit_req_count: read_string_from_env_then_parse::<usize>(
+                "GRPC_RATELIMIT_REQ_COUNT",
+            )
+            .unwrap_or(defaults.ratelimit_req_count),
+            ratelimit_req_interval_secs: read_string_from_env_then_parse::<u64>(
+                "GRPC_RATELIMIT_REQ_INTERVAL_SECS",
+            )
+            .unwrap_or(defaults.ratelimit_req_interval_secs),
+        })
+    }
 }
 
 impl BridgeConfig {
@@ -162,6 +192,8 @@ impl BridgeConfig {
             client_key_path,
             aggregator_cert_path,
 
+            grpc: GrpcLimits::from_env()?,
+
             #[cfg(test)]
             test_params: super::TestParams::default(),
         };
@@ -280,6 +312,27 @@ mod tests {
                 operator_collateral_funding_outpoint.to_string(),
             );
         }
+
+        std::env::set_var(
+            "GRPC_MAX_MESSAGE_SIZE",
+            default_config.grpc.max_message_size.to_string(),
+        );
+        std::env::set_var(
+            "GRPC_TIMEOUT_SECS",
+            default_config.grpc.timeout_secs.to_string(),
+        );
+        std::env::set_var(
+            "GRPC_TCP_KEEPALIVE_SECS",
+            default_config.grpc.tcp_keepalive_secs.to_string(),
+        );
+        std::env::set_var(
+            "GRPC_CONCURRENCY_LIMIT",
+            default_config.grpc.req_concurrency_limit.to_string(),
+        );
+        std::env::set_var(
+            "GRPC_RATELIMIT_REQ_COUNT",
+            default_config.grpc.ratelimit_req_count.to_string(),
+        );
 
         assert_eq!(super::BridgeConfig::from_env().unwrap(), default_config);
     }
