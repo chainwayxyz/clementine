@@ -702,7 +702,7 @@ pub async fn create_txhandlers(
         let actor = context.signer.clone().ok_or(TxError::InsufficientContext)?;
         let bitvm_pks =
             actor.generate_bitvm_pks_for_deposit(deposit_data.get_deposit_outpoint(), paramset)?;
-        let disprove_scripts = bitvm_pks.get_g16_verifier_disprove_scripts();
+        let disprove_scripts = bitvm_pks.get_g16_verifier_disprove_scripts()?;
         DisprovePath::Scripts(disprove_scripts)
     } else {
         DisprovePath::HiddenNode(&disprove_root_hash)
@@ -781,6 +781,7 @@ pub async fn create_txhandlers(
     let challenge_txhandler = builder::transaction::create_challenge_txhandler(
         get_txhandler(&txhandlers, TransactionType::Kickoff)?,
         &operator_data.reimburse_addr,
+        context.signer.map(|s| s.get_evm_address()).transpose()?,
         paramset,
     )?;
     txhandlers.insert(

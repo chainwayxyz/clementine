@@ -324,7 +324,7 @@ mod tests {
     // const PAYOUT_TX: &[u8; 303] = include_bytes!("../bin-files/payout_tx.bin");
     // const TESTNET_BLOCK_72041: &[u8] = include_bytes!("../bin-files/testnet4_block_72041.bin");
 
-    // const LCP_RECEIPT: &[u8] = include_bytes!("../bin-files/lcp_receipt.bin");
+    // const LCP_RECEIPT: &[u8] = include_bytes!("../../circuits-lib/test_data/lcp_receipt.bin");
     // const LIGHT_CLIENT_PROOF: &[u8] = include_bytes!("../bin-files/light_client_proof.bin");
     // const STORAGE_PROOF: &[u8] = include_bytes!("../bin-files/storage_proof.bin");
 

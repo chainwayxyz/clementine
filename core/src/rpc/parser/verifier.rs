@@ -137,9 +137,13 @@ pub fn parse_deposit_sign_session(
         .get_verifier_index(verifier_pk)
         .map_err(|e| Status::invalid_argument(e.to_string()))?;
 
-    let session_id: u128 = deposit_sign_session.nonce_gen_first_responses[verifier_idx]
-        .id
-        .parse()
+    let session_id = deposit_sign_session
+        .nonce_gen_first_responses
+        .get(verifier_idx)
+        .ok_or(Status::invalid_argument(format!(
+            "Verifier with index {verifier_idx} and public key of {verifier_pk} doesn't exists in nonce_gen_first_responses!"
+        )))?
+        .id.parse()
         .map_err(|e| Status::invalid_argument(format!("Invalid nonce session id: {}", e)))?;
 
     Ok((deposit_data, session_id))
