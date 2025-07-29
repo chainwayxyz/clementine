@@ -21,7 +21,10 @@ use alloy::{
 };
 use bitcoin::{hashes::Hash, OutPoint, Txid, XOnlyPublicKey};
 use bridge_circuit_host::receipt_from_inner;
-use circuits_lib::bridge_circuit::structs::{LightClientProof, StorageProof};
+use circuits_lib::bridge_circuit::{
+    lc_proof::LC_IMAGE_ID,
+    structs::{LightClientProof, StorageProof},
+};
 use eyre::Context;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::proc_macros::rpc;
@@ -61,18 +64,8 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
         light_client_prover_url: String,
         chain_id: u32,
         secret_key: Option<PrivateKeySigner>,
+        timeout: Option<Duration>,
     ) -> Result<Self, BridgeError>;
-
-    /// Fetches an UTXO from Citrea for the given withdrawal index.
-    ///
-    /// # Parameters
-    ///
-    /// - `withdrawal_index`: Index of the withdrawal.
-    ///
-    /// # Returns
-    ///
-    /// - [`OutPoint`]: UTXO for the given withdrawal.
-    async fn withdrawal_utxos(&self, withdrawal_index: u64) -> Result<OutPoint, BridgeError>;
 
     /// Returns deposit move txids, starting from the last deposit index.
     ///
@@ -301,6 +294,7 @@ impl CitreaClientT for CitreaClient {
         light_client_prover_url: String,
         chain_id: u32,
         secret_key: Option<PrivateKeySigner>,
+        timeout: Option<Duration>,
     ) -> Result<Self, BridgeError> {
         let citrea_rpc_url = Url::parse(&citrea_rpc_url).wrap_err("Can't parse Citrea RPC URL")?;
         let light_client_prover_url =
@@ -328,12 +322,14 @@ impl CitreaClientT for CitreaClient {
         tracing::info!("Contract created");
 
         let client = HttpClientBuilder::default()
+            .request_timeout(timeout.unwrap_or(Duration::from_secs(60)))
             .build(citrea_rpc_url)
             .wrap_err("Failed to create Citrea RPC client")?;
 
         tracing::info!("Citrea RPC client created");
 
         let light_client_prover_client = HttpClientBuilder::default()
+            .request_timeout(timeout.unwrap_or(Duration::from_secs(60)))
             .build(light_client_prover_url)
             .wrap_err("Failed to create Citrea LCP RPC client")?;
 
@@ -345,23 +341,6 @@ impl CitreaClientT for CitreaClient {
             wallet_address,
             contract,
         })
-    }
-
-    async fn withdrawal_utxos(&self, withdrawal_index: u64) -> Result<OutPoint, BridgeError> {
-        let withdrawal_utxo = self
-            .contract
-            .withdrawalUTXOs(U256::from(withdrawal_index))
-            .call()
-            .await
-            .wrap_err("Failed to get withdrawal UTXO")?;
-
-        let txid = withdrawal_utxo.txId.0;
-        let txid = Txid::from_slice(txid.as_slice())?;
-
-        let vout = withdrawal_utxo.outputId.0;
-        let vout = u32::from_be_bytes(vout);
-
-        Ok(OutPoint { txid, vout })
     }
 
     async fn collect_deposit_move_txids(
@@ -499,6 +478,10 @@ impl CitreaClientT for CitreaClient {
             tokio::time::sleep(Duration::from_secs(1)).await;
         };
 
+        if proof_current.1.verify(LC_IMAGE_ID).is_err() {
+            return Err(eyre::eyre!("Current light client proof verification failed").into());
+        }
+
         let proof_previous =
             self.get_light_client_proof(block_height - 1)
                 .await?
@@ -506,6 +489,10 @@ impl CitreaClientT for CitreaClient {
                     "Light client proof not found for block height: {}",
                     block_height - 1
                 ))?;
+
+        if proof_previous.1.verify(LC_IMAGE_ID).is_err() {
+            return Err(eyre::eyre!("Previous light client proof verification failed").into());
+        }
 
         let l2_height_end: u64 = proof_current.2;
         let l2_height_start: u64 = proof_previous.2;

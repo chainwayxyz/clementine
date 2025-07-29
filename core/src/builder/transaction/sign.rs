@@ -16,7 +16,7 @@ use crate::database::Database;
 use crate::deposit::KickoffData;
 use crate::errors::{BridgeError, TxError};
 use crate::operator::{Operator, RoundIndex};
-use crate::utils::RbfSigningInfo;
+use crate::utils::{Last20Bytes, RbfSigningInfo};
 use crate::verifier::Verifier;
 use bitcoin::hashes::Hash;
 use bitcoin::{BlockHash, OutPoint, Transaction, XOnlyPublicKey};
@@ -180,7 +180,7 @@ pub async fn create_and_sign_txs(
             }
             Err(e) => {
                 tracing::trace!(
-                    "Couldn't sign transaction {:?} in create_and_sign_all_txs: {:?}. 
+                    "Couldn't sign transaction {:?} in create_and_sign_all_txs: {:?}.
                     This might be normal if the transaction is not needed to be/cannot be signed.",
                     tx_type,
                     e
@@ -496,7 +496,7 @@ where
             }
         }
 
-        let block_hash_last_20 = block_hash[block_hash.len() - 20..].to_vec();
+        let block_hash_last_20 = block_hash.last_20_bytes().to_vec();
 
         tracing::info!(
             "Creating latest blockhash tx with block hash's last 20 bytes: {:?}",

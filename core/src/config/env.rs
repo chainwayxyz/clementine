@@ -3,7 +3,7 @@
 use super::BridgeConfig;
 use crate::{deposit::SecurityCouncil, errors::BridgeError};
 use bitcoin::{address::NetworkUnchecked, secp256k1::SecretKey, Amount};
-use std::{path::PathBuf, str::FromStr};
+use std::{path::PathBuf, str::FromStr, time::Duration};
 
 pub(crate) fn read_string_from_env(env_var: &'static str) -> Result<String, BridgeError> {
     std::env::var(env_var).map_err(|e| BridgeError::EnvVarNotSet(e, env_var))
@@ -121,6 +121,11 @@ impl BridgeConfig {
 
         let security_council = SecurityCouncil::from_str(&security_council_string)?;
 
+        let citrea_request_timeout = std::env::var("CITREA_REQUEST_TIMEOUT")
+            .ok()
+            .and_then(|timeout| timeout.parse::<u64>().ok())
+            .map(Duration::from_secs);
+
         let config = BridgeConfig {
             // Protocol paramset's source is independently defined
             protocol_paramset: Default::default(),
@@ -142,6 +147,7 @@ impl BridgeConfig {
             citrea_rpc_url: read_string_from_env("CITREA_RPC_URL")?,
             citrea_light_client_prover_url: read_string_from_env("CITREA_LIGHT_CLIENT_PROVER_URL")?,
             citrea_chain_id: read_string_from_env_then_parse::<u32>("CITREA_CHAIN_ID")?,
+            citrea_request_timeout,
             bridge_contract_address: read_string_from_env("BRIDGE_CONTRACT_ADDRESS")?,
             header_chain_proof_path,
             verifier_endpoints,

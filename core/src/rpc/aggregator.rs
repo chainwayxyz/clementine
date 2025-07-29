@@ -137,7 +137,7 @@ async fn nonce_aggregator(
         );
 
         // TODO: consider spawn_blocking here
-        let agg_nonce = aggregate_nonces(pub_nonces.iter().collect::<Vec<_>>().as_slice());
+        let agg_nonce = aggregate_nonces(pub_nonces.iter().collect::<Vec<_>>().as_slice())?;
 
         agg_nonce_sender
             .send(AggNonceQueueItem { agg_nonce, sighash })
@@ -174,7 +174,7 @@ async fn nonce_aggregator(
     tracing::trace!("Received nonces for movetx in nonce_aggregator");
 
     // TODO: consider spawn_blocking here
-    let move_tx_agg_nonce = aggregate_nonces(pub_nonces.iter().collect::<Vec<_>>().as_slice());
+    let move_tx_agg_nonce = aggregate_nonces(pub_nonces.iter().collect::<Vec<_>>().as_slice())?;
 
     let pub_nonces = try_join_all(nonce_streams.iter_mut().map(|s| async {
         s.next()
@@ -192,7 +192,7 @@ async fn nonce_aggregator(
     .wrap_err("Failed to aggregate nonces for the emergency stop tx")?;
 
     let emergency_stop_agg_nonce =
-        aggregate_nonces(pub_nonces.iter().collect::<Vec<_>>().as_slice());
+        aggregate_nonces(pub_nonces.iter().collect::<Vec<_>>().as_slice())?;
 
     Ok((move_tx_agg_nonce, emergency_stop_agg_nonce))
 }
@@ -903,7 +903,7 @@ impl ClementineAggregator for Aggregator {
                 .await
                 .wrap_err("Failed to aggregate nonces for optimistic payout")
                 .map_to_status()?;
-            let agg_nonce = aggregate_nonces(pub_nonces.iter().collect::<Vec<_>>().as_slice());
+            let agg_nonce = aggregate_nonces(pub_nonces.iter().collect::<Vec<_>>().as_slice())?;
             // send the agg nonce to the verifiers to sign the optimistic payout tx
             let verifier_clients = self.get_verifier_clients();
             let payout_sigs = verifier_clients
