@@ -158,14 +158,34 @@ where
         }
         #[cfg(not(feature = "automation"))]
         {
+            use crate::metrics::get_btc_syncer_consumer_last_processed_block_height;
             use crate::task::TaskExt;
+            // get current next height from the database
+            // some blocks might still be processed again (if last processed block height is a reorged block)
+            // processing same blocks again is not a problem, here we want to avoid starting from the beginning if verifier
+            // has been restarted
+            let last_processed_height = get_btc_syncer_consumer_last_processed_block_height(
+                &self.verifier.db,
+                &Verifier::<C>::FINALIZED_BLOCK_CONSUMER_ID.to_string(),
+            )
+            .await?;
+            let next_height = match last_processed_height {
+                // if last processed height is not None, start from the last processed height - finality depth + 1 as next height
+                Some(height) => height
+                    .checked_sub(self.verifier.config.protocol_paramset().finality_depth)
+                    .map(|height| height + 1)
+                    .unwrap_or(self.verifier.config.protocol_paramset().start_height),
+                // if db is empty, start from the start height
+                None => self.verifier.config.protocol_paramset().start_height,
+            };
+
             self.background_tasks
                 .ensure_task_looping(
                     crate::bitcoin_syncer::FinalizedBlockFetcherTask::new(
                         self.verifier.db.clone(),
                         Verifier::<C>::FINALIZED_BLOCK_CONSUMER_ID.to_string(),
                         self.verifier.config.protocol_paramset(),
-                        self.verifier.config.protocol_paramset().start_height,
+                        next_height,
                         self.verifier.clone(),
                     )
                     .into_buffered_errors(50)
@@ -196,7 +216,7 @@ where
     }
 
     pub async fn get_current_status(&self) -> Result<EntityStatus, BridgeError> {
-        let stopped_tasks = self.background_tasks.get_stopped_tasks().await;
+        let stopped_tasks = self.background_tasks.get_stopped_tasks().await?;
         // Determine if automation is enabled
         let automation_enabled = cfg!(feature = "automation");
 
@@ -492,6 +512,7 @@ where
         operator_winternitz_public_keys: Vec<winternitz::PublicKey>,
         unspent_kickoff_sigs: Vec<Signature>,
     ) -> Result<(), BridgeError> {
+        tracing::info!("Setting operator: {:?}", operator_xonly_pk);
         let operator_data = OperatorData {
             xonly_pk: operator_xonly_pk,
             collateral_funding_outpoint,
@@ -576,7 +597,7 @@ where
             .await?;
         }
         dbtx.commit().await?;
-
+        tracing::info!("Operator: {:?} set successfully", operator_xonly_pk);
         Ok(())
     }
 
@@ -1728,9 +1749,9 @@ where
             }
 
             tracing::info!(
-                "A new payout tx detected for withdrawal {}, payout txid: {}, operator xonly pk: {:?}",
+                "A new payout tx detected for withdrawal {}, payout txid: {:?}, operator xonly pk: {:?}",
                 idx,
-                hex::encode(payout_txid),
+                payout_txid,
                 operator_xonly_pk
             );
 
@@ -2297,15 +2318,20 @@ where
 
         let vk = get_verifying_key();
 
-        let res = validate_assertions(
-            &vk,
-            (first_box, second_box, third_box),
-            bitvm_pks.bitvm_pks,
-            disprove_scripts
-                .as_slice()
-                .try_into()
-                .expect("static bitvm_cache contains exactly 364 disprove scripts"),
-        );
+        let res = tokio::task::spawn_blocking(move || {
+            validate_assertions(
+                &vk,
+                (first_box, second_box, third_box),
+                bitvm_pks.bitvm_pks,
+                disprove_scripts
+                    .as_slice()
+                    .try_into()
+                    .expect("static bitvm_cache contains exactly 364 disprove scripts"),
+            )
+        })
+        .await
+        .wrap_err("Validate assertions thread failed with error")?;
+
         tracing::info!("Disprove validation result: {:?}", res);
 
         match res {

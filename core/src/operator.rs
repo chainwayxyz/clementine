@@ -1,6 +1,5 @@
 use ark_ff::PrimeField;
 use circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
-use risc0_zkvm::is_dev_mode;
 use std::collections::HashMap;
 
 use crate::actor::{Actor, TweakCache, WinternitzDerivationPath};
@@ -131,6 +130,7 @@ pub struct Operator<C: CitreaClientT> {
     pub(crate) reimburse_addr: Address,
     #[cfg(feature = "automation")]
     pub tx_sender: TxSenderClient,
+    #[cfg(feature = "automation")]
     pub header_chain_prover: HeaderChainProver,
     pub citrea_client: C,
 }
@@ -213,7 +213,7 @@ where
     }
 
     pub async fn get_current_status(&self) -> Result<EntityStatus, BridgeError> {
-        let stopped_tasks = self.background_tasks.get_stopped_tasks().await;
+        let stopped_tasks = self.background_tasks.get_stopped_tasks().await?;
         // Determine if automation is enabled
         let automation_enabled = cfg!(feature = "automation");
 
@@ -358,6 +358,7 @@ where
             config.db_name
         );
 
+        #[cfg(feature = "automation")]
         let header_chain_prover = HeaderChainProver::new(&config, rpc.clone()).await?;
 
         Ok(Operator {
@@ -369,6 +370,7 @@ where
             #[cfg(feature = "automation")]
             tx_sender,
             citrea_client,
+            #[cfg(feature = "automation")]
             header_chain_prover,
             reimburse_addr,
         })
@@ -422,15 +424,19 @@ where
         BridgeError,
     > {
         tracing::info!("Generating operator params");
+        tracing::info!("Generating kickoff winternitz pubkeys");
         let wpks = self.generate_kickoff_winternitz_pubkeys()?;
+        tracing::info!("Kickoff winternitz pubkeys generated");
         let (wpk_tx, wpk_rx) = mpsc::channel(wpks.len());
         let kickoff_wpks = KickoffWinternitzKeys::new(
             wpks,
             self.config.protocol_paramset().num_kickoffs_per_round,
             self.config.protocol_paramset().num_round_txs,
         );
+        tracing::info!("Starting to generate unspent kickoff signatures");
         let kickoff_sigs = self.generate_unspent_kickoff_sigs(&kickoff_wpks)?;
-        let wpks = kickoff_wpks.keys.clone();
+        tracing::info!("Unspent kickoff signatures generated");
+        let wpks = kickoff_wpks.keys;
         let (sig_tx, sig_rx) = mpsc::channel(kickoff_sigs.len());
 
         tokio::spawn(async move {
@@ -1210,7 +1216,7 @@ where
         _payout_blockhash: Witness,
         latest_blockhash: Witness,
     ) -> Result<(), BridgeError> {
-        use bridge_circuit_host::utils::get_verifying_key;
+        use bridge_circuit_host::utils::{get_verifying_key, is_dev_mode};
 
         let context = ContractContext::new_context_for_kickoff(
             kickoff_data,
@@ -1525,7 +1531,7 @@ where
             public_inputs.challenge_sending_watchtowers
         );
 
-        let asserts = {
+        let asserts = tokio::task::spawn_blocking(move || {
             let vk = get_verifying_key();
 
             generate_assertions(g16_proof, vec![public_input_scalar], &vk).map_err(|e| {
@@ -1538,8 +1544,12 @@ where
                     },
                     e
                 )
-            })?
-        };
+            })
+        })
+        .await
+        .wrap_err("Generate assertions thread failed with error")??;
+
+        tracing::warn!("Generated assertions in send_asserts");
 
         #[cfg(test)]
         let asserts = self.config.test_params.maybe_corrupt_asserts(asserts);

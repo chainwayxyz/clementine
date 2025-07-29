@@ -1,3 +1,13 @@
+//! # ZkVM Module
+//! This module defines the traits and structures for zkVM guest and host interactions.
+//! It includes the `ZkvmGuest` and `ZkvmHost` traits for reading from and writing to the host,
+//! as well as committing data and verifying proofs. The `Risc0Guest` struct implements the `ZkvmGuest` trait
+//! for RISC0 zkVM interactions.
+//! The `VerificationContext` struct is used to represent a proof that can be used in zkVM interactions,
+//! containing a method ID and a journal of data for verification.
+//! The module also provides a default implementation for the `Risc0Guest` struct, which
+//! initializes a new instance of the guest.
+
 use std::io::Write;
 
 use borsh::BorshDeserialize;
