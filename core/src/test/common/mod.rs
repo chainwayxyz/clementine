@@ -439,7 +439,7 @@ fn sign_nofn_deposit_tx(
     config: &BridgeConfig,
     verifiers_public_keys: Vec<PublicKey>,
     security_council: SecurityCouncil,
-) -> Transaction {
+) -> Result<Transaction, BridgeError> {
     let nofn_xonly_pk =
         bitcoin::XOnlyPublicKey::from_musig2_pks(verifiers_public_keys.clone(), None).unwrap();
     let msg = Message::from_digest(
@@ -471,7 +471,7 @@ fn sign_nofn_deposit_tx(
             .map(|(_, musig_pub_nonces)| musig_pub_nonces)
             .collect::<Vec<_>>()
             .as_slice(),
-    );
+    )?;
 
     let partial_sigs = kps
         .into_iter()
@@ -510,7 +510,7 @@ fn sign_nofn_deposit_tx(
     Actor::add_script_path_to_witness(&mut witness, &script_buf, &spend_info).unwrap();
     let mut tx = deposit_tx.get_cached_tx().clone();
     tx.input[0].witness = witness;
-    tx
+    Ok(tx)
 }
 
 #[cfg(feature = "automation")]
@@ -597,7 +597,7 @@ pub async fn run_replacement_deposit(
         config,
         verifiers_public_keys.clone(),
         config.security_council.clone(),
-    );
+    )?;
 
     let (tx_sender, tx_sender_db) = create_tx_sender(config, 0).await?;
     let mut db_commit = tx_sender_db.begin_transaction().await?;

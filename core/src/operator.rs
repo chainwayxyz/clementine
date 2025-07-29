@@ -26,7 +26,7 @@ use crate::header_chain_prover::HeaderChainProver;
 use crate::task::manager::BackgroundTaskManager;
 use crate::task::payout_checker::{PayoutCheckerTask, PAYOUT_CHECKER_POLL_DELAY};
 use crate::task::TaskExt;
-use crate::utils::Last20Bytes;
+use crate::utils::{Last20Bytes, ScriptBufExt};
 use crate::utils::{NamedEntity, TxMetadata};
 use crate::{builder, constants, UTXO};
 use bitcoin::consensus::deserialize;
@@ -304,6 +304,7 @@ where
             config.citrea_light_client_prover_url.clone(),
             config.citrea_chain_id,
             None,
+            config.citrea_request_timeout,
         )
         .await?;
 
@@ -486,16 +487,24 @@ where
         bridge_amount_sats: Amount,
         operator_withdrawal_fee_sats: Amount,
     ) -> bool {
-        if withdrawal_amount
+        // Use checked_sub to safely handle potential underflow
+        let withdrawal_diff = match withdrawal_amount
             .to_sat()
-            .wrapping_sub(input_amount.to_sat())
-            > bridge_amount_sats.to_sat()
+            .checked_sub(input_amount.to_sat())
         {
+            Some(diff) => diff,
+            None => return false, // If underflow occurs, it's not profitable
+        };
+
+        if withdrawal_diff > bridge_amount_sats.to_sat() {
             return false;
         }
 
-        // Calculate net profit after the withdrawal.
-        let net_profit = bridge_amount_sats - withdrawal_amount;
+        // Calculate net profit after the withdrawal using checked_sub to prevent panic
+        let net_profit = match bridge_amount_sats.checked_sub(withdrawal_amount) {
+            Some(profit) => profit,
+            None => return false, // If underflow occurs, it's not profitable
+        };
 
         // Net profit must be bigger than withdrawal fee.
         net_profit >= operator_withdrawal_fee_sats
@@ -586,9 +595,11 @@ where
             return Err(eyre::eyre!("Not enough fee for operator").into());
         }
 
-        let user_xonly_pk =
-            XOnlyPublicKey::from_slice(&input_utxo.txout.script_pubkey.as_bytes()[2..34])
-                .wrap_err("Failed to extract xonly public key from input utxo script pubkey")?;
+        let user_xonly_pk = &input_utxo
+            .txout
+            .script_pubkey
+            .try_get_taproot_pk()
+            .wrap_err("Input utxo script pubkey is not a valid taproot script")?;
 
         let payout_txhandler = builder::transaction::create_payout_txhandler(
             input_utxo,
@@ -1197,6 +1208,8 @@ where
         _payout_blockhash: Witness,
         latest_blockhash: Witness,
     ) -> Result<(), BridgeError> {
+        use crate::utils::TryLast20Bytes;
+
         let context = ContractContext::new_context_for_kickoff(
             kickoff_data,
             deposit_data.clone(),
@@ -1343,11 +1356,15 @@ where
             }
         }
 
+        let latest_blockhash_bytes = latest_blockhash
+            .try_last_20_bytes()
+            .wrap_err("Invalid latest blockhash commitment")?;
+
         // find out which blockhash is latest_blockhash (only last 20 bytes is committed to Witness)
         let latest_blockhash_index = block_hashes
             .iter()
             .position(|(block_hash, _)| {
-                block_hash.to_byte_array()[12..].to_vec() == latest_blockhash
+                block_hash.as_byte_array().last_20_bytes() == latest_blockhash_bytes
             })
             .ok_or_eyre("Failed to find latest blockhash in send_asserts")?;
 

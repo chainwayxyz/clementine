@@ -3,8 +3,8 @@ use citrea_sov_rollup_interface::zk::light_client_proof::output::LightClientCirc
 
 // use risc0_zkvm::guest::env;
 
-// const LC_IMAGE_ID: [u8; 32] =
-//     hex_literal::hex!("95d94770d8aa1803f1e63d373b92319b024c1db5d79aad0e78bcf0984c75e813");
+pub const LC_IMAGE_ID: [u8; 32] =
+    hex_literal::hex!("d02f2eda4c0a0d04b13e630d4ec03d3f5ac5fd63a0b229b2438e90a26b63308b");
 
 pub fn lc_proof_verifier(light_client_proof: LightClientProof) -> LightClientCircuitOutput {
     // env::verify(LC_IMAGE_ID, &light_client_proof.lc_journal).unwrap();
@@ -35,12 +35,16 @@ mod tests {
             lc_journal: lcp_receipt.journal.bytes.to_vec(),
         };
 
-        let light_client_circuit_output = lc_proof_verifier(light_client_proof);
+        lcp_receipt.verify(LC_IMAGE_ID).unwrap();
+
+        let light_client_circuit_output: LightClientCircuitOutput =
+            borsh::from_slice(light_client_proof.lc_journal.as_slice())
+                .expect("Failed to deserialize light client circuit output");
 
         let expected_state_root =
-            "20476f2cc8568476d4ca3c2e34d2f9889c1cce06289873ed5ed46c31be0ce55e";
+            "c2703b6d58a7d93198460425be2a1e292cf8d6b04184fbea867ca3ea7efa1165";
         let expected_last_block_hash =
-            "cdac10c915210c36f5b182eed334c0834a616302f1a393a3bcbfc2303b030000";
+            "6d9663d16b35884803a7345ce6e92e93ebe436cd8b1ebb010f6766c7c9d49670";
 
         assert_eq!(
             hex::encode(light_client_circuit_output.l2_state_root),
