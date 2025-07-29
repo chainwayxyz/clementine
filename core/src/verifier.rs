@@ -23,7 +23,7 @@ use crate::citrea::CitreaClientT;
 use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
 use crate::constants::{
-    self, MAX_ALL_SESSIONS_BYTES, NON_EPHEMERAL_ANCHOR_AMOUNT, NUM_NONCES_LIMIT,
+    self, MAX_ALL_SESSIONS_BYTES, MAX_NUM_SESSIONS, NON_EPHEMERAL_ANCHOR_AMOUNT, NUM_NONCES_LIMIT,
     TEN_MINUTES_IN_SECS,
 };
 use crate::database::{Database, DatabaseTransaction};
@@ -108,12 +108,14 @@ impl AllSessions {
             return Err(eyre::eyre!("Empty session attempted to be added"));
         }
 
-        let mut total_needed = Self::session_bytes(&new_nonce_session)
-            .checked_add(self.current_bytes())
-            .ok_or_else(|| eyre::eyre!("Session size calculation overflow"))?;
+        let mut total_needed = Self::session_bytes(&new_nonce_session)?
+            .checked_add(self.total_sessions_byte_size()?)
+            .ok_or_else(|| eyre::eyre!("Session size calculation overflow in add_new_session"))?;
 
         loop {
-            if total_needed <= MAX_ALL_SESSIONS_BYTES {
+            // check byte size and session count, if session count is already at the limit or byte size is higher than limit
+            // we remove the oldest session until the conditions are met
+            if total_needed <= MAX_ALL_SESSIONS_BYTES && self.sessions.len() < MAX_NUM_SESSIONS {
                 break;
             }
             total_needed = total_needed
@@ -123,11 +125,14 @@ impl AllSessions {
 
         // generate unused id
         let random_id = self.get_new_unused_id();
+        // save the session to the HashMap and the session id queue
         self.sessions.insert(random_id, new_nonce_session);
         self.session_queue.push_back(random_id);
         Ok(random_id)
     }
 
+    /// Generates a new unused id for a nonce session.
+    /// The important thing it that the id not easily predictable.
     fn get_new_unused_id(&mut self) -> u128 {
         let mut random_id = bitcoin::secp256k1::rand::thread_rng().gen_range(0..=u128::MAX);
         while self.sessions.contains_key(&random_id) {
@@ -137,16 +142,14 @@ impl AllSessions {
     }
 
     /// Removes the oldest session from the AllSessions.
-    /// Technically the oldest session can be a session that was already removed from the AllSessions,
-    /// but it is still in the session_queue. This doesn't matter.
-    /// Returns the number of bytes removed (+ 32 for the bytes in session queue).
+    /// Returns the number of bytes removed.
     fn remove_oldest_session(&mut self) -> Result<usize, eyre::Report> {
         match self.session_queue.pop_front() {
             Some(oldest_id) => {
                 let removed_session = self.sessions.remove(&oldest_id);
                 match removed_session {
-                    Some(session) => Ok(Self::session_bytes(&session) + 32),
-                    None => Ok(32),
+                    Some(session) => Ok(Self::session_bytes(&session)?),
+                    None => Ok(0),
                 }
             }
             None => {
@@ -155,23 +158,27 @@ impl AllSessions {
         }
     }
 
-    fn session_bytes(session: &NonceSession) -> usize {
-        // 132 bytes per nonce + 32 bytes per session id (u128)
-        session.nonces.len() * MUSIG_SECNONCE_LEN + 32
+    fn session_bytes(session: &NonceSession) -> Result<usize, eyre::Report> {
+        // 132 bytes per nonce
+        Ok(session
+            .nonces
+            .len()
+            .checked_mul(MUSIG_SECNONCE_LEN)
+            .ok_or_eyre("Calculation overflow in session_bytes")?)
     }
 
-    fn queue_bytes(&self) -> usize {
+    /// Returns the total byte size of all secnonces in the AllSessions.
+    pub fn total_sessions_byte_size(&self) -> Result<usize, eyre::Report> {
         // Should never overflow as it counts bytes in usize
-        self.session_queue.len() * 32
-    }
+        let mut total_bytes: usize = 0;
 
-    pub fn current_bytes(&self) -> usize {
-        // Should never overflow as it counts bytes in usize
-        self.sessions
-            .iter()
-            .map(|(_, session)| Self::session_bytes(session))
-            .sum::<usize>()
-            + self.queue_bytes()
+        for (_, session) in self.sessions.iter() {
+            total_bytes = total_bytes
+                .checked_add(Self::session_bytes(session)?)
+                .ok_or_eyre("Calculation overflow in total_byte_size")?;
+        }
+
+        Ok(total_bytes)
     }
 }
 

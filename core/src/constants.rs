@@ -19,7 +19,13 @@ pub const NUM_NONCES_LIMIT: u32 = 150 * 1_000_000 / MUSIG_SECNONCE_LEN as u32;
 
 /// The maximum number of bytes that can be used by all nonce sessions.
 /// If it exceeds this limit, the verifier will delete the oldest nonce sessions.
+/// This limit is approximate, because it doesn't take into account the internal extra bytes used in
+/// HashMap and VecDeque used in the AllSessions.
 pub const MAX_ALL_SESSIONS_BYTES: usize = 2_000_000_000;
+
+/// The maximum number of nonce sessions that can be stored in the verifier.
+/// It is used so that the allsessions do not store too many small (1 nonce) sessions.
+pub const MAX_NUM_SESSIONS: usize = 2000;
 
 use secp256k1::ffi::MUSIG_SECNONCE_LEN;
 pub use timeout::*;
