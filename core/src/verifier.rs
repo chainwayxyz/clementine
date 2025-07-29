@@ -314,6 +314,7 @@ where
     }
 
     /// Checks if all operators in verifier's db that are still in protocol are in the deposit.
+    /// Checks if all operators in the deposit data from aggregator are in the verifier's DB.
     /// Afterwards, it checks if the given deposit outpoint is valid. First it checks if the tx exists on chain,
     /// then it checks if the amount in TxOut is equal to bridge_amount and if the script is correct.
     ///
@@ -321,33 +322,33 @@ where
     /// * `deposit_data` - The deposit data to check.
     ///
     /// # Returns
-    /// * `true` if the deposit is valid, `false` otherwise.
-    async fn is_deposit_valid(&self, deposit_data: &mut DepositData) -> Result<bool, BridgeError> {
+    /// * `()` if the deposit is valid, `BridgeError::InvalidDeposit` if the deposit is invalid.
+    async fn is_deposit_valid(&self, deposit_data: &mut DepositData) -> Result<(), BridgeError> {
         // check if security council is the same as in our config
         if deposit_data.security_council != self.config.security_council {
-            tracing::warn!(
+            let reason = format!(
                 "Security council in deposit is not the same as in the config, expected {:?}, got {:?}",
                 self.config.security_council,
                 deposit_data.security_council
             );
-            return Ok(false);
+            tracing::error!("{reason}");
+            return Err(BridgeError::InvalidDeposit(reason));
         }
-        let operator_xonly_pks = deposit_data.get_operators();
+        let operators_in_deposit_data = deposit_data.get_operators();
         // check if all operators that still have collateral are in the deposit
-        let are_all_operators_in_deposit = self.db.get_operators(None).await?;
-        for (xonly_pk, reimburse_addr, collateral_funding_outpoint) in are_all_operators_in_deposit
-        {
+        let operators_in_db = self.db.get_operators(None).await?;
+        for (xonly_pk, reimburse_addr, collateral_funding_outpoint) in operators_in_db.iter() {
             let operator_data = OperatorData {
-                xonly_pk,
-                collateral_funding_outpoint,
-                reimburse_addr,
+                xonly_pk: *xonly_pk,
+                collateral_funding_outpoint: *collateral_funding_outpoint,
+                reimburse_addr: reimburse_addr.clone(),
             };
-            let kickoff_wpks = self
+            let kickoff_winternitz_pks = self
                 .db
-                .get_operator_kickoff_winternitz_public_keys(None, xonly_pk)
+                .get_operator_kickoff_winternitz_public_keys(None, *xonly_pk)
                 .await?;
             let kickoff_wpks = KickoffWinternitzKeys::new(
-                kickoff_wpks,
+                kickoff_winternitz_pks,
                 self.config.protocol_paramset().num_kickoffs_per_round,
                 self.config.protocol_paramset().num_round_txs,
             );
@@ -360,20 +361,36 @@ where
                 )
                 .await?;
             // if operator is not in deposit but its collateral is still on chain, return false
-            if !operator_xonly_pks.contains(&xonly_pk) && is_collateral_usable {
-                tracing::warn!(
-                    "Operator {:?} is is still in protocol but not in the deposit",
+            if !operators_in_deposit_data.contains(xonly_pk) && is_collateral_usable {
+                let reason = format!(
+                    "Operator {:?} is is still in protocol but not in the deposit data from aggregator",
                     xonly_pk
                 );
-                return Ok(false);
+                tracing::error!("{reason}");
+                return Err(BridgeError::InvalidDeposit(reason));
             }
             // if operator is in deposit, but the collateral is not usable, return false
-            if operator_xonly_pks.contains(&xonly_pk) && !is_collateral_usable {
-                tracing::warn!(
-                    "Operator {:?} is in the deposit but its collateral is spent, operator cannot fulfill withdrawals anymore",
+            if operators_in_deposit_data.contains(xonly_pk) && !is_collateral_usable {
+                let reason = format!(
+                    "Operator {:?} is in the deposit data from aggregator but its collateral is spent, operator cannot fulfill withdrawals anymore",
                     xonly_pk
                 );
-                return Ok(false);
+                tracing::error!("{reason}");
+                return Err(BridgeError::InvalidDeposit(reason));
+            }
+        }
+        // check if there are any operators in the deposit that are not in the DB.
+        for operator_xonly_pk in operators_in_deposit_data {
+            if !operators_in_db
+                .iter()
+                .any(|(xonly_pk, _, _)| xonly_pk == &operator_xonly_pk)
+            {
+                let reason = format!(
+                    "Operator {:?} is in the deposit data from aggregator but not in the verifier's DB, cannot sign deposit",
+                    operator_xonly_pk
+                );
+                tracing::error!("{reason}");
+                return Err(BridgeError::InvalidDeposit(reason));
             }
         }
         // check if deposit script in deposit_outpoint is valid
@@ -382,7 +399,8 @@ where
             .into_iter()
             .map(|s| s.to_script_buf())
             .collect();
-        let deposit_txout_pubkey = create_taproot_address(
+        // what the deposit scriptpubkey is in the deposit_outpoint should be according to the deposit data
+        let expected_scriptpubkey = create_taproot_address(
             &deposit_scripts,
             None,
             self.config.protocol_paramset().network,
@@ -396,7 +414,7 @@ where
             .get_tx_of_txid(&deposit_txid)
             .await
             .wrap_err("Deposit tx could not be found on chain")?;
-        let deposit_txout = deposit_tx
+        let deposit_txout_in_chain = deposit_tx
             .output
             .get(deposit_outpoint.vout as usize)
             .ok_or(eyre::eyre!(
@@ -404,23 +422,25 @@ where
                 deposit_txid,
                 deposit_outpoint.vout
             ))?;
-        if deposit_txout.value != self.config.protocol_paramset().bridge_amount {
-            tracing::warn!(
+        if deposit_txout_in_chain.value != self.config.protocol_paramset().bridge_amount {
+            let reason = format!(
                 "Deposit amount is not correct, expected {}, got {}",
                 self.config.protocol_paramset().bridge_amount,
-                deposit_txout.value
+                deposit_txout_in_chain.value
             );
-            return Ok(false);
+            tracing::error!("{reason}");
+            return Err(BridgeError::InvalidDeposit(reason));
         }
-        if deposit_txout.script_pubkey != deposit_txout_pubkey {
-            tracing::warn!(
+        if deposit_txout_in_chain.script_pubkey != expected_scriptpubkey {
+            let reason = format!(
                 "Deposit script pubkey in deposit outpoint does not match the deposit data, expected {:?}, got {:?}",
-                deposit_txout_pubkey,
-                deposit_txout.script_pubkey
+                expected_scriptpubkey,
+                deposit_txout_in_chain.script_pubkey
             );
-            return Ok(false);
+            tracing::error!("{reason}");
+            return Err(BridgeError::InvalidDeposit(reason));
         }
-        Ok(true)
+        Ok(())
     }
 
     pub async fn set_operator(
@@ -555,9 +575,7 @@ where
             .check_nofn_correctness(deposit_data.get_nofn_xonly_pk()?)
             .await?;
 
-        if !self.is_deposit_valid(&mut deposit_data).await? {
-            return Err(BridgeError::InvalidDeposit);
-        }
+        self.is_deposit_valid(&mut deposit_data).await?;
 
         // set deposit data to db before starting to sign, ensures that if the deposit data already exists in db, it matches the one
         // given by the aggregator currently. We do not want to sign 2 different deposits for same deposit_outpoint
@@ -664,9 +682,7 @@ where
             .check_nofn_correctness(deposit_data.get_nofn_xonly_pk()?)
             .await?;
 
-        if !self.is_deposit_valid(deposit_data).await? {
-            return Err(BridgeError::InvalidDeposit);
-        }
+        self.is_deposit_valid(deposit_data).await?;
 
         let mut tweak_cache = TweakCache::default();
         let deposit_blockhash = self
@@ -1138,6 +1154,12 @@ where
         keys: OperatorKeys,
         operator_xonly_pk: XOnlyPublicKey,
     ) -> Result<(), BridgeError> {
+        self.citrea_client
+            .check_nofn_correctness(deposit_data.get_nofn_xonly_pk()?)
+            .await?;
+
+        self.is_deposit_valid(&mut deposit_data).await?;
+
         self.db
             .set_deposit_data(None, &mut deposit_data, self.config.protocol_paramset())
             .await?;

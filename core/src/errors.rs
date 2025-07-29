@@ -123,8 +123,8 @@ pub enum BridgeError {
     VerifierNotFound(PublicKey),
     #[error("Deposit not found in DB: {0:?}")]
     DepositNotFound(OutPoint),
-    #[error("Deposit is invalid")]
-    InvalidDeposit,
+    #[error("Deposit is invalid due to {0}")]
+    InvalidDeposit(String),
     #[error("Operator data mismatch. Data already stored in DB and received by set_operator doesn't match for xonly_pk: {0}")]
     OperatorDataMismatch(XOnlyPublicKey),
     #[error("Deposit data mismatch. Data already stored in DB doesn't match the new data for deposit {0:?}")]
