@@ -136,35 +136,34 @@ impl TxSender {
                 tracing::debug!("Fetching fee rate for {} network...", self.paramset.network);
 
                 // Fetch fee from RPC provider with a fallback to the RPC node.
-                let smart_fee_result: Result<Amount> =
-                    {
-                        let mempool_fee = get_fee_rate_from_mempool_space(
-                            &self.mempool_api_host,
-                            &self.mempool_api_endpoint,
-                            self.paramset.network,
-                        )
-                        .await;
+                let mempool_fee = get_fee_rate_from_mempool_space(
+                    &self.mempool_api_host,
+                    &self.mempool_api_endpoint,
+                    self.paramset.network,
+                )
+                .await;
 
-                        if let Ok(fee_rate) = mempool_fee {
-                            Ok(fee_rate)
-                        } else {
-                            if let Err(e) = &mempool_fee {
-                                tracing::warn!(
-                    "Mempool.space fee fetch failed, falling back to Bitcoin Core RPC: {:#}",
-                    e
-                );
-                            }
+                let smart_fee_result: Result<Amount> = if let Ok(fee_rate) = mempool_fee {
+                    Ok(fee_rate)
+                } else {
+                    if let Err(e) = &mempool_fee {
+                        tracing::warn!(
+                        "Mempool.space fee fetch failed, falling back to Bitcoin Core RPC: {:#}",
+                        e
+                    );
+                    }
 
-                            let fee_estimate =
-                                self.rpc.client.estimate_smart_fee(1, None).await.wrap_err(
-                                    "Failed to estimate smart fee using Bitcoin Core RPC",
-                                )?;
+                    let fee_estimate = self
+                        .rpc
+                        .client
+                        .estimate_smart_fee(1, None)
+                        .await
+                        .wrap_err("Failed to estimate smart fee using Bitcoin Core RPC")?;
 
-                            fee_estimate.fee_rate.ok_or_else(|| {
-                                eyre!("Bitcoin Core RPC returned no fee estimate").into()
-                            })
-                        }
-                    };
+                    Ok(fee_estimate
+                        .fee_rate
+                        .wrap_err("Failed to extract fee rate from Bitcoin Core RPC response")?)
+                };
 
                 let sat_vkb = smart_fee_result.map_or_else(
                     |err| {
