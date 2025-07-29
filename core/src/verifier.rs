@@ -22,7 +22,10 @@ use crate::builder::transaction::{create_round_txhandlers, KickoffWinternitzKeys
 use crate::citrea::CitreaClientT;
 use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
-use crate::constants::{self, NON_EPHEMERAL_ANCHOR_AMOUNT, TEN_MINUTES_IN_SECS};
+use crate::constants::{
+    self, MAX_ALL_SESSIONS_BYTES, MAX_NUM_SESSIONS, NON_EPHEMERAL_ANCHOR_AMOUNT, NUM_NONCES_LIMIT,
+    TEN_MINUTES_IN_SECS,
+};
 use crate::database::{Database, DatabaseTransaction};
 use crate::deposit::{DepositData, KickoffData, OperatorData};
 use crate::errors::{BridgeError, TxError};
@@ -38,6 +41,7 @@ use crate::utils::NamedEntity;
 use crate::utils::TxMetadata;
 use crate::{musig2, UTXO};
 use bitcoin::hashes::Hash;
+use bitcoin::key::rand::Rng;
 use bitcoin::key::Secp256k1;
 use bitcoin::opcodes::all::OP_RETURN;
 use bitcoin::script::Instruction;
@@ -60,10 +64,11 @@ use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
 use circuits_lib::bridge_circuit::{deposit_constant, parse_op_return_data};
 use eyre::{Context, ContextCompat, OptionExt, Result};
 use risc0_zkvm::is_dev_mode;
+use secp256k1::ffi::MUSIG_SECNONCE_LEN;
 use secp256k1::musig::{AggregatedNonce, PartialSignature, PublicNonce, SecretNonce};
 #[cfg(feature = "automation")]
 use std::collections::BTreeMap;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::pin::pin;
 use std::sync::Arc;
 use std::time::Duration;
@@ -79,8 +84,102 @@ pub struct NonceSession {
 
 #[derive(Debug)]
 pub struct AllSessions {
-    pub cur_id: u32,
-    pub sessions: HashMap<u32, NonceSession>,
+    sessions: HashMap<u128, NonceSession>,
+    session_queue: VecDeque<u128>,
+}
+
+impl AllSessions {
+    pub fn new() -> Self {
+        Self {
+            sessions: HashMap::new(),
+            session_queue: VecDeque::new(),
+        }
+    }
+
+    /// Adds a new session to the AllSessions.
+    /// If the current byte size of all sessions exceeds MAX_ALL_SESSIONS_BYTES, the oldest session is removed until the byte size is under the limit.
+    /// Then a new random u128 id is generated and the session is added to the AllSessions.
+    pub fn add_new_session(
+        &mut self,
+        new_nonce_session: NonceSession,
+    ) -> Result<u128, eyre::Report> {
+        if new_nonce_session.nonces.len() == 0 {
+            // empty session, return error
+            return Err(eyre::eyre!("Empty session attempted to be added"));
+        }
+
+        let mut total_needed = Self::session_bytes(&new_nonce_session)?
+            .checked_add(self.total_sessions_byte_size()?)
+            .ok_or_else(|| eyre::eyre!("Session size calculation overflow in add_new_session"))?;
+
+        loop {
+            // check byte size and session count, if session count is already at the limit or byte size is higher than limit
+            // we remove the oldest session until the conditions are met
+            if total_needed <= MAX_ALL_SESSIONS_BYTES && self.sessions.len() < MAX_NUM_SESSIONS {
+                break;
+            }
+            total_needed = total_needed
+                .checked_sub(self.remove_oldest_session()?)
+                .ok_or_else(|| eyre::eyre!("Session size calculation overflow"))?;
+        }
+
+        // generate unused id
+        let random_id = self.get_new_unused_id();
+        // save the session to the HashMap and the session id queue
+        self.sessions.insert(random_id, new_nonce_session);
+        self.session_queue.push_back(random_id);
+        Ok(random_id)
+    }
+
+    /// Generates a new unused id for a nonce session.
+    /// The important thing it that the id not easily predictable.
+    fn get_new_unused_id(&mut self) -> u128 {
+        let mut random_id = bitcoin::secp256k1::rand::thread_rng().gen_range(0..=u128::MAX);
+        while self.sessions.contains_key(&random_id) {
+            random_id = bitcoin::secp256k1::rand::thread_rng().gen_range(0..=u128::MAX);
+        }
+        random_id
+    }
+
+    /// Removes the oldest session from the AllSessions.
+    /// Returns the number of bytes removed.
+    fn remove_oldest_session(&mut self) -> Result<usize, eyre::Report> {
+        match self.session_queue.pop_front() {
+            Some(oldest_id) => {
+                let removed_session = self.sessions.remove(&oldest_id);
+                match removed_session {
+                    Some(session) => Ok(Self::session_bytes(&session)?),
+                    None => Ok(0),
+                }
+            }
+            None => {
+                return Err(eyre::eyre!("No session to remove"));
+            }
+        }
+    }
+
+    fn session_bytes(session: &NonceSession) -> Result<usize, eyre::Report> {
+        // 132 bytes per nonce
+        Ok(session
+            .nonces
+            .len()
+            .checked_mul(MUSIG_SECNONCE_LEN)
+            .ok_or_eyre("Calculation overflow in session_bytes")?)
+    }
+
+    /// Returns the total byte size of all secnonces in the AllSessions.
+    pub fn total_sessions_byte_size(&self) -> Result<usize, eyre::Report> {
+        // Should never overflow as it counts bytes in usize
+        let mut total_bytes: usize = 0;
+
+        for (_, session) in self.sessions.iter() {
+            total_bytes = total_bytes
+                .checked_add(Self::session_bytes(session)?)
+                .ok_or_eyre("Calculation overflow in total_byte_size")?;
+        }
+
+        Ok(total_bytes)
+    }
 }
 
 pub struct VerifierServer<C: CitreaClientT> {
@@ -214,10 +313,7 @@ where
         )
         .await?;
 
-        let all_sessions = AllSessions {
-            cur_id: 0,
-            sessions: HashMap::new(),
-        };
+        let all_sessions = AllSessions::new();
 
         // TODO: Removing index causes to remove the index from the tx_sender handle as well
         #[cfg(feature = "automation")]
@@ -539,7 +635,19 @@ where
         Ok(())
     }
 
-    pub async fn nonce_gen(&self, num_nonces: u32) -> Result<(u32, Vec<PublicNonce>), BridgeError> {
+    pub async fn nonce_gen(
+        &self,
+        num_nonces: u32,
+    ) -> Result<(u128, Vec<PublicNonce>), BridgeError> {
+        // reject if too many nonces are requested
+        if num_nonces > NUM_NONCES_LIMIT {
+            return Err(eyre::eyre!(
+                "Number of nonces requested is too high, max allowed is {}, requested: {}",
+                NUM_NONCES_LIMIT,
+                num_nonces
+            )
+            .into());
+        }
         let (sec_nonces, pub_nonces): (Vec<SecretNonce>, Vec<PublicNonce>) = (0..num_nonces)
             .map(|_| {
                 // nonce pair needs keypair and a rng
@@ -556,9 +664,7 @@ where
         // save the session
         let session_id = {
             let all_sessions = &mut *self.nonces.lock().await;
-            let session_id = all_sessions.cur_id;
-            all_sessions.sessions.insert(session_id, session);
-            all_sessions.cur_id += 1;
+            let session_id = all_sessions.add_new_session(session)?;
             session_id
         };
 
@@ -568,7 +674,7 @@ where
     pub async fn deposit_sign(
         &self,
         mut deposit_data: DepositData,
-        session_id: u32,
+        session_id: u128,
         mut agg_nonce_rx: mpsc::Receiver<AggregatedNonce>,
     ) -> Result<mpsc::Receiver<PartialSignature>, BridgeError> {
         self.citrea_client
@@ -673,7 +779,7 @@ where
     pub async fn deposit_finalize(
         &self,
         deposit_data: &mut DepositData,
-        session_id: u32,
+        session_id: u128,
         mut sig_receiver: mpsc::Receiver<Signature>,
         mut agg_nonce_receiver: mpsc::Receiver<AggregatedNonce>,
         mut operator_sig_receiver: mpsc::Receiver<Signature>,
@@ -1040,7 +1146,7 @@ where
 
     pub async fn sign_optimistic_payout(
         &self,
-        nonce_session_id: u32,
+        nonce_session_id: u128,
         agg_nonce: AggregatedNonce,
         deposit_id: u32,
         input_signature: Signature,

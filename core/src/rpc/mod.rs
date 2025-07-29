@@ -11,7 +11,10 @@ use eyre::Context;
 use hyper_util::rt::TokioIo;
 use std::{path::PathBuf, time::Duration};
 use tagged_signature::SignatureId;
-use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity, Uri};
+use tonic::{
+    transport::{Certificate, Channel, ClientTlsConfig, Identity, Uri},
+    Status,
+};
 
 #[cfg(test)]
 use crate::test::common::ensure_test_certificates;
