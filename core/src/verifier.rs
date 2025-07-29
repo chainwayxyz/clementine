@@ -1032,6 +1032,13 @@ where
         output_script_pubkey: ScriptBuf,
         output_amount: Amount,
     ) -> Result<PartialSignature, BridgeError> {
+        // if the withdrawal utxo is spent, no reason to sign optimistic payout
+        if self.rpc.is_utxo_spent(&input_outpoint).await? {
+            return Err(
+                eyre::eyre!("Withdrawal utxo {:?} is already spent", input_outpoint).into(),
+            );
+        }
+
         // check if withdrawal is valid first
         let move_txid = self
             .db

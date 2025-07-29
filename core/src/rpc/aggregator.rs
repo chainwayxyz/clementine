@@ -855,6 +855,19 @@ impl ClementineAggregator for Aggregator {
         let withdraw_params = request.into_inner();
         let (deposit_id, input_signature, input_outpoint, output_script_pubkey, output_amount) =
             parser::operator::parse_withdrawal_sig_params(withdraw_params.clone()).await?;
+
+        // if the withdrawal utxo is spent, no reason to sign optimistic payout
+        if self
+            .rpc
+            .is_utxo_spent(&input_outpoint)
+            .await
+            .map_to_status()?
+        {
+            return Err(Status::invalid_argument(format!(
+                "Withdrawal utxo is already spent: {:?}",
+                input_outpoint
+            )));
+        }
         // get which deposit the withdrawal belongs to
         let withdrawal = self
             .db
