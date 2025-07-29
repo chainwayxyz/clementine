@@ -21,7 +21,10 @@ use alloy::{
 };
 use bitcoin::{hashes::Hash, OutPoint, Txid, XOnlyPublicKey};
 use bridge_circuit_host::receipt_from_inner;
-use circuits_lib::bridge_circuit::structs::{LightClientProof, StorageProof};
+use circuits_lib::bridge_circuit::{
+    lc_proof::LC_IMAGE_ID,
+    structs::{LightClientProof, StorageProof},
+};
 use eyre::Context;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::proc_macros::rpc;
@@ -475,6 +478,10 @@ impl CitreaClientT for CitreaClient {
             tokio::time::sleep(Duration::from_secs(1)).await;
         };
 
+        if proof_current.1.verify(LC_IMAGE_ID).is_err() {
+            return Err(eyre::eyre!("Current light client proof verification failed").into());
+        }
+
         let proof_previous =
             self.get_light_client_proof(block_height - 1)
                 .await?
@@ -482,6 +489,10 @@ impl CitreaClientT for CitreaClient {
                     "Light client proof not found for block height: {}",
                     block_height - 1
                 ))?;
+
+        if proof_previous.1.verify(LC_IMAGE_ID).is_err() {
+            return Err(eyre::eyre!("Previous light client proof verification failed").into());
+        }
 
         let l2_height_end: u64 = proof_current.2;
         let l2_height_start: u64 = proof_previous.2;
