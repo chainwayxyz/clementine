@@ -133,6 +133,8 @@ pub enum BridgeError {
     OperatorWinternitzPublicKeysMismatch(XOnlyPublicKey),
     #[error("BitVM setup data mismatch. Data already stored in DB doesn't match the new data for operator {0} and deposit {1:?}")]
     BitvmSetupDataMismatch(XOnlyPublicKey, OutPoint),
+    #[error("BitVM replacement data will exhaust memory. The maximum number of operations is {0}")]
+    BitvmReplacementResourceExhaustion(usize),
     #[error("Operator challenge ack hashes mismatch. Data already stored in DB doesn't match the new data for operator {0} and deposit {1:?}")]
     OperatorChallengeAckHashesMismatch(XOnlyPublicKey, OutPoint),
     #[error("Invalid BitVM public keys")]

@@ -1201,7 +1201,7 @@ where
 
         // TODO: Use correct verification key and along with a dummy proof.
         let start = std::time::Instant::now();
-        let scripts: Vec<ScriptBuf> = bitvm_pks.get_g16_verifier_disprove_scripts();
+        let scripts: Vec<ScriptBuf> = bitvm_pks.get_g16_verifier_disprove_scripts()?;
 
         let taproot_builder = taproot_builder_with_scripts(&scripts);
         let root_hash = taproot_builder
@@ -2038,7 +2038,7 @@ where
             deposit_data.get_deposit_outpoint(),
             self.config.protocol_paramset,
         )?;
-        let disprove_scripts = bitvm_pks.get_g16_verifier_disprove_scripts();
+        let disprove_scripts = bitvm_pks.get_g16_verifier_disprove_scripts()?;
 
         let deposit_outpoint = deposit_data.get_deposit_outpoint();
         let paramset = self.config.protocol_paramset();

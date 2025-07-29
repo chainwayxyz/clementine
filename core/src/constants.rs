@@ -12,6 +12,25 @@ pub const TEN_MINUTES_IN_SECS: u32 = 600;
 
 pub const DEFAULT_CHANNEL_SIZE: usize = 1280;
 
+/// The maximum number of Winternitz digits per key.
+/// This is used to limit the size of the Winternitz public keys in the protocol
+/// to prevent excessive memory usage and ensure efficient processing.
+/// This value is achieved when signing a 32-byte message with a Winternitz key,
+/// resulting in a maximum of 64 + 4 digits per key, where the last 4 digits are used for
+/// the sum-check operation.
+pub const MAX_WINTERNITZ_DIGITS_PER_KEY: usize = 68;
+
+/// The maximum number of script replacement operations allowed in a single BitVM operation.
+/// This is a safeguard to prevent excessive resource usage and ensure that the BitVM protocol
+/// remains efficient and manageable.
+/// The limit is set to 100,000 operations, which is a reasonable upper bound for
+/// script replacement operations in the context of BitVM, which is normally a constant
+/// equal to 47544.
+pub const MAX_SCRIPT_REPLACEMENT_OPERATIONS: usize = 100_000;
+
+/// The maximum number of bytes per Winternitz key.
+pub const MAX_BYTES_PER_WINTERNITZ_KEY: usize = MAX_WINTERNITZ_DIGITS_PER_KEY * 20;
+
 pub use timeout::*;
 
 mod timeout {
