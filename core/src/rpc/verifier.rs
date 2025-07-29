@@ -98,6 +98,7 @@ where
                     }
                     challenge
                 }, // dummy challenge with 1u8, 2u8 every 32 bytes
+                None,
             )
             .await?;
 
@@ -477,6 +478,7 @@ where
             self.verifier.config.clone(),
             transaction_data,
             None, // empty blockhash, will not sign this
+            None,
         )
         .await?;
 
