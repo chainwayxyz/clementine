@@ -487,16 +487,24 @@ where
         bridge_amount_sats: Amount,
         operator_withdrawal_fee_sats: Amount,
     ) -> bool {
-        if withdrawal_amount
+        // Use checked_sub to safely handle potential underflow
+        let withdrawal_diff = match withdrawal_amount
             .to_sat()
-            .wrapping_sub(input_amount.to_sat())
-            > bridge_amount_sats.to_sat()
+            .checked_sub(input_amount.to_sat())
         {
+            Some(diff) => diff,
+            None => return false, // If underflow occurs, it's not profitable
+        };
+
+        if withdrawal_diff > bridge_amount_sats.to_sat() {
             return false;
         }
 
-        // Calculate net profit after the withdrawal.
-        let net_profit = bridge_amount_sats - withdrawal_amount;
+        // Calculate net profit after the withdrawal using checked_sub to prevent panic
+        let net_profit = match bridge_amount_sats.checked_sub(withdrawal_amount) {
+            Some(profit) => profit,
+            None => return false, // If underflow occurs, it's not profitable
+        };
 
         // Net profit must be bigger than withdrawal fee.
         net_profit >= operator_withdrawal_fee_sats
