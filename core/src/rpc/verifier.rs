@@ -4,7 +4,6 @@ use super::clementine::{
     SignedTxsWithType, VergenResponse, VerifierDepositFinalizeParams, VerifierDepositSignParams,
     VerifierParams,
 };
-use super::clementine::{OptimisticPayoutResponse, WithdrawParams};
 use super::error;
 use super::parser::ParserError;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
@@ -19,7 +18,6 @@ use crate::{
 };
 use bitcoin::Witness;
 use clementine::verifier_deposit_finalize_params::Params;
-use futures::StreamExt;
 use secp256k1::musig::AggregatedNonce;
 use tokio::sync::mpsc::{self, error::SendError};
 use tokio_stream::wrappers::ReceiverStream;
@@ -36,70 +34,43 @@ where
 
     async fn optimistic_payout_sign(
         &self,
-        request: Request<Streaming<OptimisticPayoutParams>>,
-    ) -> Result<Response<Self::OptimisticPayoutSignStream>, Status> {
-        let mut stream = request.into_inner();
-        let (tx, rx) = mpsc::channel(2);
-        let out_stream: Self::OptimisticPayoutSignStream = ReceiverStream::new(rx);
-
-        // spawn a task to first create a nonce pair, send it to aggregator, receive aggregated nonce and sign the optimistic payout
-        // finally send the partial sig to aggregator
-        let verifier = self.verifier.clone();
-        tokio::spawn(async move {
-            // get withdrawal params from aggregator
-            let withdrawal_params: WithdrawParams = stream
-                .message()
-                .await?
-                .ok_or(Status::invalid_argument(
-                    "No withdrawal params received from aggregator",
-                ))?
-                .try_into()?;
-            let (
+        request: Request<OptimisticPayoutParams>,
+    ) -> Result<Response<PartialSig>, Status> {
+        let params = request.into_inner();
+        let agg_nonce = AggregatedNonce::from_byte_array(
+            params
+                .agg_nonce
+                .as_slice()
+                .try_into()
+                .map_err(|_| Status::invalid_argument("agg_nonce must be exactly 66 bytes"))?,
+        )
+        .map_err(|e| Status::invalid_argument(format!("Invalid musigagg nonce: {}", e)))?;
+        let nonce_session_id = params
+            .nonce_gen
+            .ok_or(Status::invalid_argument(
+                "Nonce params not found for optimistic payout",
+            ))?
+            .id
+            .parse::<u128>()
+            .map_err(|e| Status::invalid_argument(format!("Invalid nonce session id: {}", e)))?;
+        let withdraw_params = params.withdrawal.ok_or(Status::invalid_argument(
+            "Withdrawal params not found for optimistic payout",
+        ))?;
+        let (withdrawal_id, input_signature, input_outpoint, output_script_pubkey, output_amount) =
+            parser::operator::parse_withdrawal_sig_params(withdraw_params).await?;
+        let partial_sig = self
+            .verifier
+            .sign_optimistic_payout(
+                nonce_session_id,
+                agg_nonce,
                 withdrawal_id,
                 input_signature,
                 input_outpoint,
                 output_script_pubkey,
                 output_amount,
-            ) = parser::operator::parse_withdrawal_sig_params(withdrawal_params).await?;
-            // generate new nonce pair
-            let (sec_nonce, pub_nonce) = crate::musig2::nonce_pair(
-                &verifier.signer.keypair,
-                &mut secp256k1::rand::thread_rng(),
-            )?;
-            // send pub nonce to aggregator
-            tx.send(Ok(OptimisticPayoutResponse::from(pub_nonce)))
-                .await
-                .map_err(error::output_stream_ended_prematurely)?;
-            // get agg nonce from aggregator
-            let agg_nonce: AggregatedNonce = stream
-                .message()
-                .await?
-                .ok_or(Status::invalid_argument(
-                    "No agg nonce received from aggregator",
-                ))?
-                .try_into()?;
-            // sign optimistic payout
-            let partial_sig = verifier
-                .sign_optimistic_payout(
-                    sec_nonce,
-                    agg_nonce,
-                    withdrawal_id,
-                    input_signature,
-                    input_outpoint,
-                    output_script_pubkey,
-                    output_amount,
-                )
-                .await?;
-
-            // send partial sig to aggregator
-            tx.send(Ok(OptimisticPayoutResponse::from(partial_sig)))
-                .await
-                .map_err(error::output_stream_ended_prematurely)?;
-
-            Ok::<_, Status>(())
-        });
-
-        Ok(Response::new(out_stream))
+            )
+            .await?;
+        Ok(Response::new(partial_sig.into()))
     }
 
     async fn internal_create_watchtower_challenge(
@@ -137,7 +108,6 @@ where
     }
     type NonceGenStream = ReceiverStream<Result<NonceGenResponse, Status>>;
     type DepositSignStream = ReceiverStream<Result<PartialSig, Status>>;
-    type OptimisticPayoutSignStream = ReceiverStream<Result<OptimisticPayoutResponse, Status>>;
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn get_params(&self, _: Request<Empty>) -> Result<Response<VerifierParams>, Status> {

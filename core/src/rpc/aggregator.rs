@@ -3,11 +3,9 @@ use super::clementine::{
     DepositParams, Empty, VerifierDepositFinalizeParams,
 };
 use super::clementine::{
-    optimistic_payout_params, optimistic_payout_response, AggregatorWithdrawResponse, Deposit,
-    OptimisticPayoutParams, OptimisticPayoutResponse, RawSignedTx, VergenResponse,
+    AggregatorWithdrawResponse, Deposit, OptimisticPayoutParams, RawSignedTx, VergenResponse,
     VerifierPublicKeys, WithdrawParams,
 };
-use super::send_to_all;
 use crate::aggregator::{ParticipatingOperators, ParticipatingVerifiers};
 use crate::builder::sighash::SignatureInfo;
 use crate::builder::transaction::{
@@ -891,87 +889,41 @@ impl ClementineAggregator for Aggregator {
 
             // get which verifiers participated in the deposit to collect the optimistic payout tx signature
             let verifiers = self.get_participating_verifiers(&deposit_data).await?;
-            let (opt_param_txs, opt_param_rxs): (
-                Vec<Sender<OptimisticPayoutParams>>,
-                Vec<Receiver<OptimisticPayoutParams>>,
-            ) = (0..verifiers.ids().len())
-                .map(|_| {
-                    let (tx, rx) = tokio::sync::mpsc::channel(2);
-                    (tx, rx)
-                })
-                .unzip();
-            // send the rpc request to the verifiers
-            let opt_payout_resp_streams =
-                try_join_all(verifiers.clients().into_iter().zip(opt_param_rxs).map(
-                    |(mut client, rx)| {
-                        let rx = tokio_stream::wrappers::ReceiverStream::new(rx);
-                        async move {
-                            let mut request = Request::new(rx);
-                            request.set_timeout(crate::constants::OPTIMISTIC_PAYOUT_TIMEOUT);
-                            let resp_stream = client.optimistic_payout_sign(request).await?;
-                            Ok::<_, Status>(resp_stream.into_inner())
-                        }
-                    },
-                ))
-                .await?;
-
-            // send the withdrawal params to the verifiers
-            send_to_all(
-                &opt_param_txs,
-                OptimisticPayoutParams {
-                    params: Some(optimistic_payout_params::Params::Withdrawal(
-                        withdraw_params,
-                    )),
-                },
-            )
-            .await?;
-            // get pub nonces from the verifiers
-            let results = try_join_all(opt_payout_resp_streams.into_iter().map(
-                |mut resp_stream| async move {
-                    let opt_payout_resp =
-                        resp_stream
-                            .message()
-                            .await?
-                            .ok_or(Status::invalid_argument(
-                                "No pub nonce received from verifier, stream ended early",
-                            ))?;
-                    let pub_nonce: PublicNonce = opt_payout_resp.try_into()?;
-                    Ok::<_, Status>((pub_nonce, resp_stream))
-                },
-            ))
-            .await?;
-
-            let (pub_nonces, opt_payout_resp_streams): (Vec<_>, Vec<_>) =
-                results.into_iter().unzip();
-
+            let (first_responses, mut nonce_streams) = {
+                create_nonce_streams(
+                    verifiers.clone(),
+                    1,
+                    #[cfg(test)]
+                    &self.config,
+                )
+                .await?
+            };
+            // collect nonces
+            let pub_nonces = get_next_pub_nonces(&mut nonce_streams)
+                .await
+                .wrap_err("Failed to aggregate nonces for optimistic payout")
+                .map_to_status()?;
             let agg_nonce = aggregate_nonces(pub_nonces.iter().collect::<Vec<_>>().as_slice());
             // send the agg nonce to the verifiers to sign the optimistic payout tx
-            send_to_all(
-                &opt_param_txs,
-                OptimisticPayoutParams {
-                    params: Some(optimistic_payout_params::Params::AggNonce(
-                        agg_nonce.serialize().to_vec(),
-                    )),
-                },
-            )
-            .await?;
-
-            // get partial sigs from the verifiers
-            let musig_partial_sigs: Vec<PartialSignature> =
-                try_join_all(opt_payout_resp_streams.into_iter().map(
-                    |mut resp_stream| async move {
-                        let opt_payout_resp =
-                            resp_stream
-                                .message()
-                                .await?
-                                .ok_or(Status::invalid_argument(
-                                    "No partial sig received from verifier, stream ended early",
-                                ))?;
-                        let partial_sig: PartialSignature = opt_payout_resp.try_into()?;
-                        Ok::<_, Status>(partial_sig)
-                    },
-                ))
-                .await?;
+            let verifier_clients = self.get_verifier_clients();
+            let payout_sigs = verifier_clients
+                .iter()
+                .zip(first_responses)
+                .map(|(client, first_response)| {
+                    let mut client = client.clone();
+                    let withdrawal_params = withdraw_params.clone();
+                    let agg_nonce_bytes = agg_nonce.serialize().to_vec();
+                    async move {
+                        client
+                            .optimistic_payout_sign(OptimisticPayoutParams {
+                                withdrawal: Some(withdrawal_params),
+                                agg_nonce: agg_nonce_bytes,
+                                nonce_gen: Some(first_response),
+                            })
+                            .await
+                    }
+                })
+                .collect::<Vec<_>>();
 
             // Prepare input and output of the payout transaction.
             let withdrawal_prevout = self
@@ -1001,6 +953,23 @@ impl ClementineAggregator for Aggregator {
                 0,
                 bitcoin::TapSighashType::Default,
             )?;
+
+            // calculate final sig
+            let payout_sig = try_join_all(payout_sigs).await?;
+
+            let musig_partial_sigs = payout_sig
+                .iter()
+                .map(|sig| {
+                    PartialSignature::from_byte_array(
+                        &sig.get_ref()
+                            .partial_sig
+                            .clone()
+                            .try_into()
+                            .map_err(|_| secp256k1::musig::ParseError::MalformedArg)?,
+                    )
+                })
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| Status::internal(format!("Failed to parse partial sig: {:?}", e)))?;
 
             let final_sig = bitcoin::taproot::Signature {
                 signature: crate::musig2::aggregate_partial_signatures(

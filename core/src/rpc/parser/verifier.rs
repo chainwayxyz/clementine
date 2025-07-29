@@ -1,12 +1,11 @@
 use super::ParserError;
 use crate::citrea::CitreaClientT;
 use crate::deposit::DepositData;
-use crate::errors::{BridgeError, ResultExt};
+use crate::errors::BridgeError;
 use crate::fetch_next_optional_message_from_stream;
 use crate::rpc::clementine::{
     nonce_gen_response, verifier_deposit_sign_params, DepositSignSession, NonceGenFirstResponse,
-    OperatorKeys, OperatorKeysWithDeposit, OptimisticPayoutParams, OptimisticPayoutResponse,
-    PartialSig, VerifierDepositSignParams, VerifierParams, WithdrawParams,
+    OperatorKeys, OperatorKeysWithDeposit, PartialSig, VerifierDepositSignParams, VerifierParams,
 };
 use crate::verifier::Verifier;
 use crate::{
@@ -110,114 +109,6 @@ impl From<&PublicNonce> for NonceGenResponse {
         NonceGenResponse {
             response: Some(nonce_gen_response::Response::PubNonce(
                 value.serialize().to_vec(),
-            )),
-        }
-    }
-}
-
-impl From<PublicNonce> for OptimisticPayoutResponse {
-    fn from(value: PublicNonce) -> Self {
-        OptimisticPayoutResponse {
-            response: Some(clementine::optimistic_payout_response::Response::PubNonce(
-                value.serialize().to_vec(),
-            )),
-        }
-    }
-}
-
-impl From<PartialSignature> for OptimisticPayoutResponse {
-    fn from(value: PartialSignature) -> Self {
-        OptimisticPayoutResponse {
-            response: Some(
-                clementine::optimistic_payout_response::Response::PartialSig(value.into()),
-            ),
-        }
-    }
-}
-
-impl TryFrom<OptimisticPayoutResponse> for PublicNonce {
-    type Error = Status;
-    fn try_from(value: OptimisticPayoutResponse) -> Result<Self, Self::Error> {
-        let resp = value.response.ok_or(Status::invalid_argument(
-            "No pub nonce received from verifier",
-        ))?;
-        match resp {
-            clementine::optimistic_payout_response::Response::PubNonce(pub_nonce) => {
-                Ok(PublicNonce::from_byte_array(
-                    &pub_nonce
-                        .as_slice()
-                        .try_into()
-                        .wrap_err("PubNonce must be 66 bytes")
-                        .map_to_status()?,
-                )
-                .wrap_err("Failed to parse pub nonce")
-                .map_to_status()?)
-            }
-            _ => Err(Status::invalid_argument(
-                "No pub nonce received from verifier",
-            )),
-        }
-    }
-}
-
-impl TryFrom<OptimisticPayoutResponse> for PartialSignature {
-    type Error = Status;
-    fn try_from(value: OptimisticPayoutResponse) -> Result<Self, Self::Error> {
-        let resp = value.response.ok_or(Status::invalid_argument(
-            "No partial sig received from verifier",
-        ))?;
-        match resp {
-            clementine::optimistic_payout_response::Response::PartialSig(partial_sig) => {
-                Ok(PartialSignature::from_byte_array(
-                    &partial_sig
-                        .partial_sig
-                        .try_into()
-                        .map_err(|_| Status::invalid_argument("PartialSig must be 32 bytes"))?,
-                )
-                .wrap_err("Failed to parse partial sig")
-                .map_to_status()?)
-            }
-            _ => Err(Status::invalid_argument(
-                "No partial sig received from verifier",
-            )),
-        }
-    }
-}
-
-impl TryFrom<OptimisticPayoutParams> for AggregatedNonce {
-    type Error = Status;
-    fn try_from(value: OptimisticPayoutParams) -> Result<Self, Self::Error> {
-        let resp = value.params.ok_or(Status::invalid_argument(
-            "No agg nonce received from verifier",
-        ))?;
-        match resp {
-            clementine::optimistic_payout_params::Params::AggNonce(agg_nonce) => {
-                Ok(AggregatedNonce::from_byte_array(
-                    &agg_nonce.try_into().map_err(|_| {
-                        Status::invalid_argument("AggregatedNonce must be 66 bytes")
-                    })?,
-                )
-                .map_err(|_| Status::invalid_argument("AggregatedNonce must be 66 bytes"))?)
-            }
-            _ => Err(Status::invalid_argument(
-                "No agg nonce received from verifier",
-            )),
-        }
-    }
-}
-
-impl TryFrom<OptimisticPayoutParams> for WithdrawParams {
-    type Error = Status;
-    fn try_from(value: OptimisticPayoutParams) -> Result<Self, Self::Error> {
-        let resp = value.params.ok_or(Status::invalid_argument(
-            "No withdrawal params received from verifier",
-        ))?;
-        match resp {
-            clementine::optimistic_payout_params::Params::Withdrawal(withdraw_params) => {
-                Ok(withdraw_params)
-            }
-            _ => Err(Status::invalid_argument(
-                "No withdrawal params received from verifier",
             )),
         }
     }
