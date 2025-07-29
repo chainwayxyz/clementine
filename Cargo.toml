@@ -59,8 +59,8 @@ bitcoin-script = { git = "https://github.com/BitVM/rust-bitcoin-script" }
 
 # async + gRPC
 # revert
-tonic = { path = "../tonic/tonic", features = ["tls"] }
-# tonic = { version = "0.12.3", features = ["tls"] }
+# tonic = { path = "../tonic/tonic", features = ["tls"] }
+tonic = { version = "0.12.3", features = ["tls"] }
 prost = "0.13.3"
 tokio = { version = "1.40.0", features = ["full"] }
 tokio-stream = { version = "0.1.16", features = ["sync"] }
