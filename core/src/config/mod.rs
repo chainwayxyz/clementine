@@ -20,6 +20,7 @@ use protocol::ProtocolParamset;
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
+use std::time::Duration;
 use std::{fs::File, io::Read, path::PathBuf};
 
 pub mod env;
@@ -73,6 +74,8 @@ pub struct BridgeConfig {
     pub citrea_light_client_prover_url: String,
     /// Citrea's EVM Chain ID.
     pub citrea_chain_id: u32,
+    /// Timeout in seconds for Citrea RPC calls.
+    pub citrea_request_timeout: Option<Duration>,
     /// Bridge contract address.
     pub bridge_contract_address: String,
     // Initial header chain proof receipt's file path.
@@ -244,6 +247,7 @@ impl Default for BridgeConfig {
             citrea_light_client_prover_url: "".to_string(),
             citrea_chain_id: 5655,
             bridge_contract_address: "3100000000000000000000000000000000000002".to_string(),
+            citrea_request_timeout: None,
 
             header_chain_proof_path: None,
 

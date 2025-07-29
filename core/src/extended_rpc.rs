@@ -162,7 +162,7 @@ impl ExtendedRpc {
         kickoff_wpks: &KickoffWinternitzKeys,
         paramset: &'static ProtocolParamset,
     ) -> std::result::Result<bool, BridgeError> {
-        // first check if the collateral utxo is
+        // first check if the collateral utxo is on chain or mempool
         let tx = self
             .get_tx_of_txid(&operator_data.collateral_funding_outpoint.txid)
             .await
@@ -170,6 +170,7 @@ impl ExtendedRpc {
                 "Failed to find collateral utxo in chain for outpoint {:?}",
                 operator_data.collateral_funding_outpoint
             ))?;
+
         let input_amount = match tx
             .output
             .get(operator_data.collateral_funding_outpoint.vout as usize)
@@ -192,6 +193,20 @@ impl ExtendedRpc {
                 input_amount
             );
             return Ok(false);
+        }
+
+        // we additionally check if collateral utxo is on chain (so not in mempool)
+        // on mainnet we fail if collateral utxo is not on chain because if it is in mempool,
+        // the txid of the utxo can change if the fee is bumped
+        // on other networks, we allow collateral to be in mempool to not wait for collateral to be on chain to do deposits for faster testing
+        let is_on_chain = self
+            .is_tx_on_chain(&operator_data.collateral_funding_outpoint.txid)
+            .await?;
+        if !is_on_chain {
+            return match paramset.network {
+                bitcoin::Network::Bitcoin => Ok(false),
+                _ => Ok(true),
+            };
         }
 
         let mut current_collateral_outpoint: OutPoint = operator_data.collateral_funding_outpoint;
@@ -264,16 +279,7 @@ impl ExtendedRpc {
         // if the collateral utxo we found latest in the round tx chain is spent, operators collateral is spent from Clementine
         // bridge protocol, thus it is unusable and operator cannot fulfill withdrawals anymore
         // if not spent, it should exist in chain, which is checked below
-        Ok(self
-            .client
-            .get_tx_out(
-                &current_collateral_outpoint.txid,
-                current_collateral_outpoint.vout,
-                Some(true), // include mempool too
-            )
-            .await
-            .wrap_err("Failed to get transaction output")?
-            .is_some())
+        Ok(!self.is_utxo_spent(&current_collateral_outpoint).await?)
     }
 
     /// Returns block hash of a transaction, if confirmed.
