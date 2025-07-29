@@ -906,7 +906,9 @@ impl ClementineAggregator for Aggregator {
                     |(mut client, rx)| {
                         let rx = tokio_stream::wrappers::ReceiverStream::new(rx);
                         async move {
-                            let resp_stream = client.optimistic_payout_sign(rx).await?;
+                            let mut request = Request::new(rx);
+                            request.set_timeout(crate::constants::OPTIMISTIC_PAYOUT_TIMEOUT);
+                            let resp_stream = client.optimistic_payout_sign(request).await?;
                             Ok::<_, Status>(resp_stream.into_inner())
                         }
                     },
