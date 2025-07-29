@@ -22,6 +22,8 @@ use bitcoin::{
 use bitcoin::{OutPoint, TapNodeHash, TapSighashType, Witness};
 use bitvm::signatures::winternitz::{self, BinarysearchVerifier, ToBytesConverter, Winternitz};
 use eyre::{Context, OptionExt};
+use hkdf::Hkdf;
+use sha2::Sha256;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, thiserror::Error)]
 pub enum VerificationError {
@@ -267,7 +269,14 @@ impl Actor {
         let wsk = self
             .winternitz_secret_key
             .ok_or_eyre("Root Winternitz secret key is not provided in configuration file")?;
-        Ok([wsk.as_ref().to_vec(), path.to_bytes()].concat())
+
+        let hk = Hkdf::<Sha256>::new(None, wsk.as_ref());
+        let path_bytes = path.to_bytes();
+        let mut derived_key = vec![0u8; 32];
+        hk.expand(&path_bytes, &mut derived_key)
+            .map_err(|e| eyre::eyre!("Key derivation failed: {:?}", e))?;
+
+        Ok(derived_key)
     }
 
     /// Generates a Winternitz public key for the given path.
