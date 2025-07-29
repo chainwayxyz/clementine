@@ -1262,7 +1262,7 @@ mod tests {
 
     #[test]
     fn test_operator_xonlypk_from_op_return() {
-        let payout_tx = include_bytes!("../../../bridge-circuit-host/bin-files/payout_tx.bin");
+        let payout_tx = include_bytes!("../../test_data/payout_tx.bin");
         let mut payout_tx: Transaction =
             Decodable::consensus_decode(&mut Cursor::new(&payout_tx)).unwrap();
 
