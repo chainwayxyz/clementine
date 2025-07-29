@@ -38,7 +38,7 @@ type BatchedStream<T> = FlatMap<
 
 fn batched_stream_from_rx<T>(rx: mpsc::Receiver<T>) -> BatchedStream<T> {
     ReceiverStream::new(rx)
-        .chunks_timeout(64, Duration::from_secs(1))
+        .chunks_timeout(64, Duration::from_millis(1))
         .flat_map(stream::iter)
 }
 
