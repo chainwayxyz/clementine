@@ -7,6 +7,7 @@ use super::clementine::{
     VerifierPublicKeys, WithdrawParams,
 };
 use crate::aggregator::{ParticipatingOperators, ParticipatingVerifiers};
+use crate::bitvm_client::SECP;
 use crate::builder::sighash::SignatureInfo;
 use crate::builder::transaction::{
     combine_emergency_stop_txhandler, create_emergency_stop_txhandler,
@@ -27,7 +28,7 @@ use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
 use crate::rpc::clementine::VerifierDepositSignParams;
 use crate::rpc::parser;
-use crate::utils::{get_vergen_response, timed_request, timed_try_join_all};
+use crate::utils::{get_vergen_response, timed_request, timed_try_join_all, ScriptBufExt};
 use crate::utils::{FeePayingType, TxMetadata};
 use crate::UTXO;
 use crate::{
@@ -38,7 +39,7 @@ use crate::{
     rpc::clementine::{self, DepositSignSession},
 };
 use bitcoin::hashes::Hash;
-use bitcoin::secp256k1::schnorr::Signature;
+use bitcoin::secp256k1::schnorr::{self, Signature};
 use bitcoin::secp256k1::{Message, PublicKey};
 use bitcoin::taproot::Signature as TaprootSignature;
 use bitcoin::{TapSighash, TxOut, Txid, XOnlyPublicKey};
@@ -889,16 +890,68 @@ impl ClementineAggregator for Aggregator {
                     withdrawal_utxo, input_outpoint
                 )));
             }
+
+            // Prepare input and output of the payout transaction.
+            let withdrawal_prevout = self
+                .rpc
+                .get_txout_from_outpoint(&input_outpoint)
+                .await
+                .map_to_status()?;
+
+            let user_xonly_pk = withdrawal_prevout
+                .script_pubkey
+                .try_get_taproot_pk()
+                .map_err(|_| {
+                    Status::invalid_argument(format!(
+                        "Withdrawal prevout script_pubkey is not a Taproot output: {:?}",
+                        withdrawal_prevout.script_pubkey
+                    ))
+                })?;
+
+            let withdrawal_utxo = UTXO {
+                outpoint: input_outpoint,
+                txout: withdrawal_prevout,
+            };
+
+            let output_txout = TxOut {
+                value: output_amount,
+                script_pubkey: output_script_pubkey,
+            };
+
             let deposit_data = self
                 .db
                 .get_deposit_data_with_move_tx(None, move_txid)
                 .await?;
+
             let mut deposit_data = deposit_data
                 .ok_or(eyre::eyre!(
                     "Deposit data not found for move txid {}",
                     move_txid
                 ))
                 .map_err(BridgeError::from)?;
+
+            let mut opt_payout_txhandler = create_optimistic_payout_txhandler(
+                &mut deposit_data,
+                withdrawal_utxo,
+                output_txout,
+                input_signature,
+                self.config.protocol_paramset(),
+            )?;
+
+            let sighash = opt_payout_txhandler.calculate_pubkey_spend_sighash(
+                0,
+                bitcoin::TapSighashType::SinglePlusAnyoneCanPay,
+            )?;
+
+            let message = Message::from_digest(sighash.to_byte_array());
+
+            let sig =
+                schnorr::Signature::from_slice(&input_signature.serialize()).map_err(|_| {
+                    Status::internal("Failed to parse signature from optimistic payout tx witness")
+                })?;
+
+            SECP.verify_schnorr(&sig, &message, &user_xonly_pk)
+                .map_err(|_| Status::internal("Invalid signature for optimistic payout tx"))?;
 
             // get which verifiers participated in the deposit to collect the optimistic payout tx signature
             let verifiers = self.get_participating_verifiers(&deposit_data).await?;
@@ -938,28 +991,6 @@ impl ClementineAggregator for Aggregator {
                 })
                 .collect::<Vec<_>>();
 
-            // Prepare input and output of the payout transaction.
-            let withdrawal_prevout = self
-                .rpc
-                .get_txout_from_outpoint(&input_outpoint)
-                .await
-                .map_to_status()?;
-            let withdrawal_utxo = UTXO {
-                outpoint: input_outpoint,
-                txout: withdrawal_prevout,
-            };
-            let output_txout = TxOut {
-                value: output_amount,
-                script_pubkey: output_script_pubkey,
-            };
-
-            let mut opt_payout_txhandler = create_optimistic_payout_txhandler(
-                &mut deposit_data,
-                withdrawal_utxo,
-                output_txout,
-                input_signature,
-                self.config.protocol_paramset(),
-            )?;
             // txin at index 1 is deposited utxo in movetx
             let sighash = opt_payout_txhandler.calculate_script_spend_sighash_indexed(
                 1,
