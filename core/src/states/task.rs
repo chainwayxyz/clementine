@@ -204,19 +204,14 @@ mod tests {
 
     #[async_trait]
     impl Owner for MockHandler {
-        async fn handle_duty<'a>(
-            &'a self,
-            _: DatabaseTransaction<'a, '_>,
-            _: Duty,
-        ) -> Result<DutyResult, BridgeError> {
+        async fn handle_duty(&self, _: Duty) -> Result<DutyResult, BridgeError> {
             Ok(DutyResult::Handled)
         }
 
-        async fn create_txhandlers<'a>(
-            &'a self,
-            dbtx: DatabaseTransaction<'a, '_>,
-            tx_type: TransactionType,
-            contract_context: ContractContext,
+        async fn create_txhandlers(
+            &self,
+            _: TransactionType,
+            _: ContractContext,
         ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
             Ok(BTreeMap::new())
         }

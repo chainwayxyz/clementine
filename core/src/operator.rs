@@ -1192,7 +1192,6 @@ where
     #[cfg(feature = "automation")]
     async fn send_asserts(
         &self,
-        dbtx: DatabaseTransaction<'_, '_>,
         kickoff_data: KickoffData,
         deposit_data: DepositData,
         watchtower_challenges: HashMap<usize, Transaction>,
@@ -1207,7 +1206,7 @@ where
         let mut db_cache = crate::builder::transaction::ReimburseDbCache::from_context(
             self.db.clone(),
             &context,
-            Some(dbtx),
+            None,
         );
         let txhandlers = builder::transaction::create_txhandlers(
             TransactionType::Kickoff,
@@ -1230,7 +1229,7 @@ where
 
         let (payout_op_xonly_pk_opt, payout_block_hash, payout_txid, deposit_idx) = self
             .db
-            .get_payout_info_from_move_txid(Some(dbtx), move_txid)
+            .get_payout_info_from_move_txid(None, move_txid)
             .await
             .wrap_err("Failed to get payout info from db during sending asserts.")?
             .ok_or_eyre(format!(
@@ -1254,7 +1253,7 @@ where
 
         let (payout_block_height, payout_block) = self
             .db
-            .get_full_block_from_hash(Some(dbtx), payout_block_hash)
+            .get_full_block_from_hash(None, payout_block_hash)
             .await?
             .ok_or_eyre(format!(
                 "Payout block {:?} {:?} not found in db",
@@ -1314,7 +1313,6 @@ where
             .saturating_sub(self.config.protocol_paramset().finality_depth);
 
         // update headers in case the sync (state machine handle_finalized_block) is behind
-        // this does not need to be in a transaction because it depends only on the rpc
         self.db
             .fetch_and_save_missing_blocks(
                 &self.rpc,
@@ -1325,14 +1323,14 @@ where
 
         let current_height = self
             .db
-            .get_latest_finalized_block_height(Some(dbtx))
+            .get_latest_finalized_block_height(None)
             .await?
             .ok_or_eyre("Failed to get current finalized block height")?;
 
         let block_hashes = self
             .db
             .get_block_info_from_range(
-                Some(dbtx),
+                None,
                 self.config.protocol_paramset().genesis_height as u64,
                 current_height,
             )
@@ -1497,14 +1495,15 @@ where
                     asserts,
                     &public_inputs.challenge_sending_watchtowers,
                 ),
-                Some(dbtx),
+                None,
             )
             .await?;
 
+        let mut dbtx = self.db.begin_transaction().await?;
         for (tx_type, tx) in assert_txs {
             self.tx_sender
                 .add_tx_to_queue(
-                    dbtx,
+                    &mut dbtx,
                     tx_type,
                     &tx,
                     &[],
@@ -1520,6 +1519,7 @@ where
                 )
                 .await?;
         }
+        dbtx.commit().await?;
         Ok(())
     }
 
@@ -1533,9 +1533,8 @@ where
     }
 
     #[cfg(feature = "automation")]
-    async fn send_latest_blockhash<'a>(
-        &'a self,
-        dbtx: DatabaseTransaction<'a, '_>,
+    async fn send_latest_blockhash(
+        &self,
         kickoff_data: KickoffData,
         deposit_data: DepositData,
         latest_blockhash: BlockHash,
@@ -1549,15 +1548,16 @@ where
                     kickoff_data,
                 },
                 latest_blockhash,
-                Some(dbtx),
+                None,
             )
             .await?;
         if tx_type != TransactionType::LatestBlockhash {
             return Err(eyre::eyre!("Latest blockhash tx type is not LatestBlockhash").into());
         }
+        let mut dbtx = self.db.begin_transaction().await?;
         self.tx_sender
             .add_tx_to_queue(
-                dbtx,
+                &mut dbtx,
                 tx_type,
                 &tx,
                 &[],
@@ -1572,6 +1572,7 @@ where
                 None,
             )
             .await?;
+        dbtx.commit().await?;
         Ok(())
     }
 }
@@ -1600,11 +1601,7 @@ mod states {
     where
         C: CitreaClientT,
     {
-        async fn handle_duty<'a>(
-            &'a self,
-            dbtx: DatabaseTransaction<'a, '_>,
-            duty: Duty,
-        ) -> Result<DutyResult, BridgeError> {
+        async fn handle_duty(&self, duty: Duty) -> Result<DutyResult, BridgeError> {
             match duty {
                 Duty::NewReadyToReimburse {
                     round_idx,
@@ -1626,7 +1623,6 @@ mod states {
                     tracing::warn!("Operator {:?} called send operator asserts with kickoff_data: {:?}, deposit_data: {:?}, watchtower_challenges: {:?}",
                     self.signer.xonly_public_key, kickoff_data, deposit_data, watchtower_challenges.len());
                     self.send_asserts(
-                        dbtx,
                         kickoff_data,
                         deposit_data,
                         watchtower_challenges,
@@ -1643,7 +1639,7 @@ mod states {
                     latest_blockhash,
                 } => {
                     tracing::warn!("Operator {:?} called send latest blockhash with kickoff_id: {:?}, deposit_data: {:?}, latest_blockhash: {:?}", self.signer.xonly_public_key, kickoff_data, deposit_data, latest_blockhash);
-                    self.send_latest_blockhash(dbtx, kickoff_data, deposit_data, latest_blockhash)
+                    self.send_latest_blockhash(kickoff_data, deposit_data, latest_blockhash)
                         .await?;
                     Ok(DutyResult::Handled)
                 }
@@ -1661,33 +1657,34 @@ mod states {
                     );
                     let kickoff_data = self
                         .db
-                        .get_deposit_data_with_kickoff_txid(Some(dbtx), txid)
+                        .get_deposit_data_with_kickoff_txid(None, txid)
                         .await?;
                     if let Some((deposit_data, kickoff_data)) = kickoff_data {
                         // add kickoff machine if there is a new kickoff
+                        let mut dbtx = self.db.begin_transaction().await?;
                         StateManager::<Self>::dispatch_new_kickoff_machine(
                             self.db.clone(),
-                            dbtx,
+                            &mut dbtx,
                             kickoff_data,
                             block_height,
                             deposit_data,
                             witness,
                         )
                         .await?;
+                        dbtx.commit().await?;
                     }
                     Ok(DutyResult::Handled)
                 }
             }
         }
 
-        async fn create_txhandlers<'a>(
-            &'a self,
-            dbtx: DatabaseTransaction<'a, '_>,
+        async fn create_txhandlers(
+            &self,
             tx_type: TransactionType,
             contract_context: ContractContext,
         ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
             let mut db_cache =
-                ReimburseDbCache::from_context(self.db.clone(), &contract_context, Some(dbtx));
+                ReimburseDbCache::from_context(self.db.clone(), &contract_context, None);
             let txhandlers = create_txhandlers(
                 tx_type,
                 contract_context,
