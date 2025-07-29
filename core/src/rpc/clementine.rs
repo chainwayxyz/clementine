@@ -1005,7 +1005,7 @@ pub mod clementine_operator_client {
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;
-            let codec = tonic::codec::ProstCodec::default();
+            let codec = crate::utils::BatchingCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/clementine.ClementineOperator/GetXOnlyPublicKey",
             );
@@ -1040,7 +1040,7 @@ pub mod clementine_operator_client {
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;
-            let codec = tonic::codec::ProstCodec::default();
+            let codec = crate::utils::BatchingCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/clementine.ClementineOperator/GetParams",
             );
@@ -1065,7 +1065,7 @@ pub mod clementine_operator_client {
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;
-            let codec = tonic::codec::ProstCodec::default();
+            let codec = crate::utils::BatchingCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/clementine.ClementineOperator/GetDepositKeys",
             );
@@ -1089,7 +1089,7 @@ pub mod clementine_operator_client {
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;
-            let codec = tonic::codec::ProstCodec::default();
+            let codec = crate::utils::BatchingCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/clementine.ClementineOperator/GetCurrentStatus",
             );
@@ -1125,7 +1125,7 @@ pub mod clementine_operator_client {
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;
-            let codec = tonic::codec::ProstCodec::default();
+            let codec = crate::utils::BatchingCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/clementine.ClementineOperator/DepositSign",
             );
@@ -1147,7 +1147,7 @@ pub mod clementine_operator_client {
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;
-            let codec = tonic::codec::ProstCodec::default();
+            let codec = crate::utils::BatchingCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/clementine.ClementineOperator/RestartBackgroundTasks",
             );
@@ -1176,7 +1176,7 @@ pub mod clementine_operator_client {
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;
-            let codec = tonic::codec::ProstCodec::default();
+            let codec = crate::utils::BatchingCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/clementine.ClementineOperator/Withdraw",
             );
@@ -1213,7 +1213,7 @@ pub mod clementine_operator_client {
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;
-            let codec = tonic::codec::ProstCodec::default();
+            let codec = crate::utils::BatchingCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/clementine.ClementineOperator/InternalCreateSignedTxs",
             );
@@ -1251,7 +1251,7 @@ pub mod clementine_operator_client {
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;
-            let codec = tonic::codec::ProstCodec::default();
+            let codec = crate::utils::BatchingCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/clementine.ClementineOperator/InternalCreateAssertCommitmentTxs",
             );
@@ -1277,7 +1277,7 @@ pub mod clementine_operator_client {
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;
-            let codec = tonic::codec::ProstCodec::default();
+            let codec = crate::utils::BatchingCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/clementine.ClementineOperator/InternalFinalizedPayout",
             );
@@ -1303,7 +1303,7 @@ pub mod clementine_operator_client {
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;
-            let codec = tonic::codec::ProstCodec::default();
+            let codec = crate::utils::BatchingCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/clementine.ClementineOperator/InternalEndRound",
             );
@@ -1326,7 +1326,7 @@ pub mod clementine_operator_client {
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;
-            let codec = tonic::codec::ProstCodec::default();
+            let codec = crate::utils::BatchingCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/clementine.ClementineOperator/Vergen",
             );
@@ -1443,7 +1443,7 @@ pub mod clementine_verifier_client {
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;
-            let codec = tonic::codec::ProstCodec::default();
+            let codec = crate::utils::BatchingCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/clementine.ClementineVerifier/GetParams",
             );
@@ -1467,7 +1467,7 @@ pub mod clementine_verifier_client {
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;
-            let codec = tonic::codec::ProstCodec::default();
+            let codec = crate::utils::BatchingCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/clementine.ClementineVerifier/SetOperator",
             );
@@ -1492,7 +1492,7 @@ pub mod clementine_verifier_client {
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;
-            let codec = tonic::codec::ProstCodec::default();
+            let codec = crate::utils::BatchingCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/clementine.ClementineVerifier/SetOperatorKeys",
             );
@@ -1525,7 +1525,7 @@ pub mod clementine_verifier_client {
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;
-            let codec = tonic::codec::ProstCodec::default();
+            let codec = crate::utils::BatchingCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/clementine.ClementineVerifier/NonceGen",
             );
@@ -1555,7 +1555,7 @@ pub mod clementine_verifier_client {
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;
-            let codec = tonic::codec::ProstCodec::default();
+            let codec = crate::utils::BatchingCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/clementine.ClementineVerifier/DepositSign",
             );
@@ -1577,7 +1577,7 @@ pub mod clementine_verifier_client {
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;
-            let codec = tonic::codec::ProstCodec::default();
+            let codec = crate::utils::BatchingCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/clementine.ClementineVerifier/OptimisticPayoutSign",
             );
@@ -1611,7 +1611,7 @@ pub mod clementine_verifier_client {
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;
-            let codec = tonic::codec::ProstCodec::default();
+            let codec = crate::utils::BatchingCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/clementine.ClementineVerifier/DepositFinalize",
             );
@@ -1635,7 +1635,7 @@ pub mod clementine_verifier_client {
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;
-            let codec = tonic::codec::ProstCodec::default();
+            let codec = crate::utils::BatchingCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/clementine.ClementineVerifier/DebugTx",
             );
@@ -1657,7 +1657,7 @@ pub mod clementine_verifier_client {
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;
-            let codec = tonic::codec::ProstCodec::default();
+            let codec = crate::utils::BatchingCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/clementine.ClementineVerifier/RestartBackgroundTasks",
             );
@@ -1684,7 +1684,7 @@ pub mod clementine_verifier_client {
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;
-            let codec = tonic::codec::ProstCodec::default();
+            let codec = crate::utils::BatchingCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/clementine.ClementineVerifier/InternalHandleKickoff",
             );
@@ -1711,7 +1711,7 @@ pub mod clementine_verifier_client {
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;
-            let codec = tonic::codec::ProstCodec::default();
+            let codec = crate::utils::BatchingCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/clementine.ClementineVerifier/GetCurrentStatus",
             );
@@ -1748,7 +1748,7 @@ pub mod clementine_verifier_client {
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;
-            let codec = tonic::codec::ProstCodec::default();
+            let codec = crate::utils::BatchingCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/clementine.ClementineVerifier/InternalCreateSignedTxs",
             );
@@ -1779,7 +1779,7 @@ pub mod clementine_verifier_client {
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;
-            let codec = tonic::codec::ProstCodec::default();
+            let codec = crate::utils::BatchingCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/clementine.ClementineVerifier/InternalCreateWatchtowerChallenge",
             );
@@ -1805,7 +1805,7 @@ pub mod clementine_verifier_client {
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;
-            let codec = tonic::codec::ProstCodec::default();
+            let codec = crate::utils::BatchingCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/clementine.ClementineVerifier/Vergen",
             );
@@ -1919,7 +1919,7 @@ pub mod clementine_aggregator_client {
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;
-            let codec = tonic::codec::ProstCodec::default();
+            let codec = crate::utils::BatchingCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/clementine.ClementineAggregator/GetNofnAggregatedXonlyPk",
             );
@@ -1956,7 +1956,7 @@ pub mod clementine_aggregator_client {
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;
-            let codec = tonic::codec::ProstCodec::default();
+            let codec = crate::utils::BatchingCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/clementine.ClementineAggregator/Setup",
             );
@@ -1985,7 +1985,7 @@ pub mod clementine_aggregator_client {
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;
-            let codec = tonic::codec::ProstCodec::default();
+            let codec = crate::utils::BatchingCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/clementine.ClementineAggregator/NewDeposit",
             );
@@ -2013,7 +2013,7 @@ pub mod clementine_aggregator_client {
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;
-            let codec = tonic::codec::ProstCodec::default();
+            let codec = crate::utils::BatchingCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/clementine.ClementineAggregator/Withdraw",
             );
@@ -2035,7 +2035,7 @@ pub mod clementine_aggregator_client {
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;
-            let codec = tonic::codec::ProstCodec::default();
+            let codec = crate::utils::BatchingCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/clementine.ClementineAggregator/OptimisticPayout",
             );
@@ -2062,7 +2062,7 @@ pub mod clementine_aggregator_client {
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;
-            let codec = tonic::codec::ProstCodec::default();
+            let codec = crate::utils::BatchingCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/clementine.ClementineAggregator/InternalSendTx",
             );
@@ -2085,7 +2085,7 @@ pub mod clementine_aggregator_client {
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;
-            let codec = tonic::codec::ProstCodec::default();
+            let codec = crate::utils::BatchingCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/clementine.ClementineAggregator/SendMoveToVaultTx",
             );
@@ -2113,7 +2113,7 @@ pub mod clementine_aggregator_client {
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;
-            let codec = tonic::codec::ProstCodec::default();
+            let codec = crate::utils::BatchingCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/clementine.ClementineAggregator/GetEntityStatuses",
             );
@@ -2145,7 +2145,7 @@ pub mod clementine_aggregator_client {
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;
-            let codec = tonic::codec::ProstCodec::default();
+            let codec = crate::utils::BatchingCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/clementine.ClementineAggregator/InternalCreateEmergencyStopTx",
             );
@@ -2171,7 +2171,7 @@ pub mod clementine_aggregator_client {
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;
-            let codec = tonic::codec::ProstCodec::default();
+            let codec = crate::utils::BatchingCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/clementine.ClementineAggregator/Vergen",
             );
@@ -2433,7 +2433,7 @@ pub mod clementine_operator_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = GetXOnlyPublicKeySvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
+                        let codec = crate::utils::BatchingCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
                                 accept_compression_encodings,
@@ -2479,7 +2479,7 @@ pub mod clementine_operator_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = GetParamsSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
+                        let codec = crate::utils::BatchingCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
                                 accept_compression_encodings,
@@ -2525,7 +2525,7 @@ pub mod clementine_operator_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = GetDepositKeysSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
+                        let codec = crate::utils::BatchingCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
                                 accept_compression_encodings,
@@ -2572,7 +2572,7 @@ pub mod clementine_operator_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = GetCurrentStatusSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
+                        let codec = crate::utils::BatchingCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
                                 accept_compression_encodings,
@@ -2619,7 +2619,7 @@ pub mod clementine_operator_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = DepositSignSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
+                        let codec = crate::utils::BatchingCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
                                 accept_compression_encodings,
@@ -2666,7 +2666,7 @@ pub mod clementine_operator_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = RestartBackgroundTasksSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
+                        let codec = crate::utils::BatchingCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
                                 accept_compression_encodings,
@@ -2711,7 +2711,7 @@ pub mod clementine_operator_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = WithdrawSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
+                        let codec = crate::utils::BatchingCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
                                 accept_compression_encodings,
@@ -2760,7 +2760,7 @@ pub mod clementine_operator_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = InternalCreateSignedTxsSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
+                        let codec = crate::utils::BatchingCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
                                 accept_compression_encodings,
@@ -2811,7 +2811,7 @@ pub mod clementine_operator_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = InternalCreateAssertCommitmentTxsSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
+                        let codec = crate::utils::BatchingCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
                                 accept_compression_encodings,
@@ -2860,7 +2860,7 @@ pub mod clementine_operator_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = InternalFinalizedPayoutSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
+                        let codec = crate::utils::BatchingCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
                                 accept_compression_encodings,
@@ -2907,7 +2907,7 @@ pub mod clementine_operator_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = InternalEndRoundSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
+                        let codec = crate::utils::BatchingCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
                                 accept_compression_encodings,
@@ -2950,7 +2950,7 @@ pub mod clementine_operator_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = VergenSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
+                        let codec = crate::utils::BatchingCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
                                 accept_compression_encodings,
@@ -3245,7 +3245,7 @@ pub mod clementine_verifier_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = GetParamsSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
+                        let codec = crate::utils::BatchingCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
                                 accept_compression_encodings,
@@ -3293,7 +3293,7 @@ pub mod clementine_verifier_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = SetOperatorSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
+                        let codec = crate::utils::BatchingCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
                                 accept_compression_encodings,
@@ -3342,7 +3342,7 @@ pub mod clementine_verifier_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = SetOperatorKeysSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
+                        let codec = crate::utils::BatchingCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
                                 accept_compression_encodings,
@@ -3388,7 +3388,7 @@ pub mod clementine_verifier_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = NonceGenSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
+                        let codec = crate::utils::BatchingCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
                                 accept_compression_encodings,
@@ -3437,7 +3437,7 @@ pub mod clementine_verifier_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = DepositSignSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
+                        let codec = crate::utils::BatchingCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
                                 accept_compression_encodings,
@@ -3486,7 +3486,7 @@ pub mod clementine_verifier_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = OptimisticPayoutSignSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
+                        let codec = crate::utils::BatchingCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
                                 accept_compression_encodings,
@@ -3535,7 +3535,7 @@ pub mod clementine_verifier_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = DepositFinalizeSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
+                        let codec = crate::utils::BatchingCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
                                 accept_compression_encodings,
@@ -3580,7 +3580,7 @@ pub mod clementine_verifier_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = DebugTxSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
+                        let codec = crate::utils::BatchingCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
                                 accept_compression_encodings,
@@ -3627,7 +3627,7 @@ pub mod clementine_verifier_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = RestartBackgroundTasksSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
+                        let codec = crate::utils::BatchingCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
                                 accept_compression_encodings,
@@ -3674,7 +3674,7 @@ pub mod clementine_verifier_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = InternalHandleKickoffSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
+                        let codec = crate::utils::BatchingCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
                                 accept_compression_encodings,
@@ -3721,7 +3721,7 @@ pub mod clementine_verifier_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = GetCurrentStatusSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
+                        let codec = crate::utils::BatchingCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
                                 accept_compression_encodings,
@@ -3770,7 +3770,7 @@ pub mod clementine_verifier_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = InternalCreateSignedTxsSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
+                        let codec = crate::utils::BatchingCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
                                 accept_compression_encodings,
@@ -3821,7 +3821,7 @@ pub mod clementine_verifier_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = InternalCreateWatchtowerChallengeSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
+                        let codec = crate::utils::BatchingCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
                                 accept_compression_encodings,
@@ -3864,7 +3864,7 @@ pub mod clementine_verifier_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = VergenSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
+                        let codec = crate::utils::BatchingCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
                                 accept_compression_encodings,
@@ -4118,7 +4118,7 @@ pub mod clementine_aggregator_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = GetNofnAggregatedXonlyPkSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
+                        let codec = crate::utils::BatchingCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
                                 accept_compression_encodings,
@@ -4162,7 +4162,7 @@ pub mod clementine_aggregator_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = SetupSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
+                        let codec = crate::utils::BatchingCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
                                 accept_compression_encodings,
@@ -4207,7 +4207,7 @@ pub mod clementine_aggregator_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = NewDepositSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
+                        let codec = crate::utils::BatchingCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
                                 accept_compression_encodings,
@@ -4252,7 +4252,7 @@ pub mod clementine_aggregator_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = WithdrawSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
+                        let codec = crate::utils::BatchingCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
                                 accept_compression_encodings,
@@ -4301,7 +4301,7 @@ pub mod clementine_aggregator_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = OptimisticPayoutSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
+                        let codec = crate::utils::BatchingCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
                                 accept_compression_encodings,
@@ -4350,7 +4350,7 @@ pub mod clementine_aggregator_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = InternalSendTxSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
+                        let codec = crate::utils::BatchingCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
                                 accept_compression_encodings,
@@ -4399,7 +4399,7 @@ pub mod clementine_aggregator_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = SendMoveToVaultTxSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
+                        let codec = crate::utils::BatchingCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
                                 accept_compression_encodings,
@@ -4448,7 +4448,7 @@ pub mod clementine_aggregator_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = GetEntityStatusesSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
+                        let codec = crate::utils::BatchingCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
                                 accept_compression_encodings,
@@ -4499,7 +4499,7 @@ pub mod clementine_aggregator_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = InternalCreateEmergencyStopTxSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
+                        let codec = crate::utils::BatchingCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
                                 accept_compression_encodings,
@@ -4543,7 +4543,7 @@ pub mod clementine_aggregator_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = VergenSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
+                        let codec = crate::utils::BatchingCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
                                 accept_compression_encodings,

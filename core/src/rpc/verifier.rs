@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use super::clementine::{
     self, clementine_verifier_server::ClementineVerifier, Empty, NonceGenRequest, NonceGenResponse,
     OperatorParams, OptimisticPayoutParams, PartialSig, RawTxWithRbfInfo, SignedTxWithType,
@@ -19,10 +21,26 @@ use crate::{
 };
 use bitcoin::Witness;
 use clementine::verifier_deposit_finalize_params::Params;
+use futures::stream::FlatMap;
+use futures::{stream, StreamExt as _};
 use secp256k1::musig::AggregatedNonce;
 use tokio::sync::mpsc::{self, error::SendError};
+use tokio_stream::adapters::ChunksTimeout;
 use tokio_stream::wrappers::ReceiverStream;
+use tokio_stream::StreamExt as _;
 use tonic::{async_trait, Request, Response, Status, Streaming};
+
+type BatchedStream<T> = FlatMap<
+    ChunksTimeout<ReceiverStream<T>>,
+    stream::Iter<std::vec::IntoIter<T>>,
+    fn(Vec<T>) -> stream::Iter<std::vec::IntoIter<T>>,
+>;
+
+fn batched_stream_from_rx<T>(rx: mpsc::Receiver<T>) -> BatchedStream<T> {
+    ReceiverStream::new(rx)
+        .chunks_timeout(64, Duration::from_secs(1))
+        .flat_map(stream::iter)
+}
 
 #[async_trait]
 impl<C> ClementineVerifier for VerifierServer<C>
@@ -120,7 +138,6 @@ where
         }))
     }
     type NonceGenStream = ReceiverStream<Result<NonceGenResponse, Status>>;
-    type DepositSignStream = ReceiverStream<Result<PartialSig, Status>>;
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn get_params(&self, _: Request<Empty>) -> Result<Response<VerifierParams>, Status> {
@@ -215,6 +232,7 @@ where
         Ok(Response::new(ReceiverStream::new(rx)))
     }
 
+    type DepositSignStream = BatchedStream<Result<PartialSig, Status>>;
     async fn deposit_sign(
         &self,
         req: Request<Streaming<VerifierDepositSignParams>>,
@@ -223,7 +241,7 @@ where
         let verifier = self.verifier.clone();
 
         let (tx, rx) = mpsc::channel(constants::DEFAULT_CHANNEL_SIZE);
-        let out_stream: Self::DepositSignStream = ReceiverStream::new(rx);
+        let out_stream = batched_stream_from_rx(rx);
 
         let (param_tx, mut param_rx) = mpsc::channel(1);
         let (agg_nonce_tx, agg_nonce_rx) = mpsc::channel(constants::DEFAULT_CHANNEL_SIZE);

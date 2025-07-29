@@ -6,6 +6,7 @@ use crate::rpc::clementine::VergenResponse;
 use bitcoin::{OutPoint, TapNodeHash, XOnlyPublicKey};
 use eyre::Context as _;
 use futures::future::try_join_all;
+use futures::{ready, Stream};
 use http::HeaderValue;
 use metrics_exporter_prometheus::PrometheusBuilder;
 use serde::{Deserialize, Serialize};
@@ -656,6 +657,73 @@ where
     .instrument(debug_span!("timed_try_join_all", description = description))
     .await
 }
+
+use std::marker::PhantomData;
+
+use prost::Message;
+use tonic::codec::{BufferSettings, Codec, ProstCodec};
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct BatchingCodec<T, U>(PhantomData<(T, U)>);
+
+impl<T, U> Codec for BatchingCodec<T, U>
+where
+    T: Message + Send + 'static,
+    U: Message + Default + Send + 'static,
+{
+    type Encode = T;
+    type Decode = U;
+
+    type Encoder = <ProstCodec<T, U> as Codec>::Encoder;
+    type Decoder = <ProstCodec<T, U> as Codec>::Decoder;
+
+    fn encoder(&mut self) -> Self::Encoder {
+        // Here, we will just customize the prost codec's internal buffer settings.
+        // You can of course implement a complete Codec, Encoder, and Decoder if
+        // you wish!
+        ProstCodec::<T, U>::raw_encoder(BufferSettings::new(32 * 1024, 4 * 1024 * 1024))
+    }
+
+    fn decoder(&mut self) -> Self::Decoder {
+        ProstCodec::<T, U>::raw_decoder(BufferSettings::new(32 * 1024, 4 * 1024 * 1024))
+    }
+}
+
+// use futures_util::stream::Chunks;
+// use pin_project::pin_project;
+
+// pin_project! {
+//     pub struct BatchedStream<S: Stream> {
+//         inner: Chunks<S>,
+//         buf: Vec<S::Item>,
+//         finished: bool,
+//     }
+// }
+
+// impl<S: Stream> Stream for BatchedStream<S> {
+//     type Item = <S as Stream>::Item;
+
+//     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+//         let this = self.as_mut().project();
+//         if this.buf.is_empty() && !this.finished {
+//             let next = this.inner.poll_next(cx);
+//             match ready!(next) {
+//                 Some(chunk) => {
+//                     this.buf.extend(chunk);
+//                 }
+//                 None => {
+//                     this.finished = true;
+//                     return Poll::Pending;
+//                 }
+//             }
+//         }
+//         if this.buf.is_empty() && this.finished {
+//             return Poll::Ready(None);
+//         }
+
+//         Poll::Ready(Some(this.buf.pop().expect("buf is not empty")))
+//     }
+// }
 
 #[cfg(test)]
 mod tests {
