@@ -608,14 +608,28 @@ impl Aggregator {
         let verifier_clients = self.get_verifier_clients();
         tracing::debug!("Operator clients: {:?}", operator_clients.len());
 
+        // try to reach all operators and verifiers to collect keys, but do not return err if some of them cant be reached
+        let _ = self.fetch_operator_keys().await;
+        let _ = self.fetch_verifier_keys().await;
+
+        let operator_keys = self.operator_keys.read().await.clone();
+        let verifier_keys = self.verifier_keys.read().await.clone();
+
         let operator_status = join_all(
             operator_clients
                 .iter()
-                .zip(self.fetch_operator_keys().await?.iter())
-                .map(|(client, key)| {
+                .zip(operator_keys.iter().enumerate())
+                .map(|(client, (idx, key))| {
                     let mut client = client.clone();
                     async move {
-                        tracing::debug!("Getting operator status for {}", key.to_string());
+                        let key = match key {
+                            Some(key) => key.to_string(),
+                            None => format!(
+                                "Operator with index {} (order in config), key unknown",
+                                idx
+                            ),
+                        };
+                        tracing::debug!("Getting operator status for {}", key);
                         let mut request = Request::new(Empty {});
                         request.set_timeout(ENTITY_STATUS_POLL_TIMEOUT);
                         let response = client.get_current_status(request).await;
@@ -623,7 +637,7 @@ impl Aggregator {
                         EntityStatusWithId {
                             entity_id: Some(RPCEntityId {
                                 kind: EntityType::Operator as i32,
-                                id: key.to_string(),
+                                id: key,
                             }),
                             status_result: match response {
                                 Ok(response) => Some(StatusResult::Status(response.into_inner())),
@@ -640,10 +654,17 @@ impl Aggregator {
         let verifier_status = join_all(
             verifier_clients
                 .iter()
-                .zip(self.fetch_verifier_keys().await?.iter())
-                .map(|(client, key)| {
+                .zip(verifier_keys.iter().enumerate())
+                .map(|(client, (idx, key))| {
                     let mut client = client.clone();
                     async move {
+                        let key = match key {
+                            Some(key) => key.to_string(),
+                            None => format!(
+                                "Verifier with index {} (order in config), key unknown",
+                                idx
+                            ),
+                        };
                         let mut request = Request::new(Empty {});
                         request.set_timeout(ENTITY_STATUS_POLL_TIMEOUT);
                         let response = client.get_current_status(request).await;
@@ -651,7 +672,7 @@ impl Aggregator {
                         EntityStatusWithId {
                             entity_id: Some(RPCEntityId {
                                 kind: EntityType::Verifier as i32,
-                                id: key.to_string(),
+                                id: key,
                             }),
                             status_result: match response {
                                 Ok(response) => Some(StatusResult::Status(response.into_inner())),

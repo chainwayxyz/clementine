@@ -23,8 +23,6 @@ use crate::constants::{
 use crate::deposit::{Actors, DepositData, DepositInfo};
 use crate::errors::ResultExt;
 use crate::musig2::AggregateFromPublicKeys;
-use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
-use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
 use crate::rpc::clementine::VerifierDepositSignParams;
 use crate::rpc::parser;
 use crate::utils::{get_vergen_response, timed_request, timed_try_join_all};
@@ -40,7 +38,7 @@ use crate::{
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::{Message, PublicKey};
-use bitcoin::{TapSighash, TxOut, Txid, XOnlyPublicKey};
+use bitcoin::{TapSighash, TxOut, Txid};
 use eyre::{Context, OptionExt};
 use futures::{
     future::try_join_all,
@@ -989,14 +987,6 @@ impl ClementineAggregator for AggregatorServer {
         &self,
         _request: Request<Empty>,
     ) -> Result<Response<VerifierPublicKeys>, Status> {
-        let verifier_public_keys = self.collect_verifier_public_keys().await?;
-        let _ = self.collect_operator_xonly_public_keys().await?;
-
-        tracing::debug!(
-            "Verifier public keys: {:?}",
-            verifier_public_keys.verifier_public_keys
-        );
-
         // Propagate Operators configurations to all verifier clients
         const CHANNEL_CAPACITY: usize = 1024 * 16;
         let (operator_params_tx, operator_params_rx) =
@@ -1060,7 +1050,11 @@ impl ClementineAggregator for AggregatorServer {
         .into_iter()
         .collect::<Result<Vec<_>, Status>>()?;
 
-        Ok(Response::new(verifier_public_keys))
+        let verifier_public_keys = self.fetch_verifier_keys().await?;
+
+        Ok(Response::new(VerifierPublicKeys::from(
+            verifier_public_keys,
+        )))
     }
 
     /// Handles a new deposit request from a user. This function coordinates the signing process
