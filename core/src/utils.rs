@@ -398,13 +398,6 @@ pub trait TryLast20Bytes {
     fn try_last_20_bytes(self) -> Result<[u8; 20], BridgeError>;
 }
 
-const fn larger_than_20<const N: usize>() {
-    if N < 20 {
-        panic!("Input is too short to contain 20 bytes");
-    }
-    ()
-}
-
 impl Last20Bytes for [u8; 32] {
     fn last_20_bytes(&self) -> [u8; 20] {
         self.try_last_20_bytes().expect("will not happen")
