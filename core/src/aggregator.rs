@@ -1,7 +1,9 @@
 use std::ops::Deref;
+use std::sync::Arc;
 
 use crate::constants::{
-    ENTITY_STATUS_POLL_TIMEOUT, OPERATOR_GET_KEYS_TIMEOUT, VERIFIER_SEND_KEYS_TIMEOUT,
+    ENTITY_STATUS_POLL_TIMEOUT, OPERATOR_GET_KEYS_TIMEOUT, PUBLIC_KEY_COLLECTION_TIMEOUT,
+    VERIFIER_SEND_KEYS_TIMEOUT,
 };
 use crate::deposit::DepositData;
 use crate::extended_rpc::ExtendedRpc;
@@ -33,8 +35,9 @@ use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::{schnorr, Message, PublicKey};
 use bitcoin::XOnlyPublicKey;
 use eyre::Context;
-use futures::future::join_all;
+use futures::future::{join_all, try_join_all};
 use secp256k1::musig::{AggregatedNonce, PartialSignature};
+use tokio::sync::RwLock;
 use tonic::{Request, Status};
 use tracing::{debug_span, Instrument};
 
@@ -55,8 +58,8 @@ pub struct Aggregator {
     pub(crate) tx_sender: TxSenderClient,
     operator_clients: Vec<ClementineOperatorClient<tonic::transport::Channel>>,
     verifier_clients: Vec<ClementineVerifierClient<tonic::transport::Channel>>,
-    verifier_keys: Vec<PublicKey>,
-    operator_keys: Vec<XOnlyPublicKey>,
+    verifier_keys: Arc<RwLock<Vec<Option<PublicKey>>>>,
+    operator_keys: Arc<RwLock<Vec<Option<XOnlyPublicKey>>>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -204,11 +207,8 @@ impl Aggregator {
             operator_clients.len(),
         );
 
-        let operator_keys =
-            Aggregator::collect_operator_xonly_public_keys_with_clients(&operator_clients).await?;
-
-        let (_, verifier_keys) =
-            Aggregator::collect_verifier_public_keys_with_clients(&verifier_clients).await?;
+        let operator_keys = Arc::new(RwLock::new(vec![None; operator_clients.len()]));
+        let verifier_keys = Arc::new(RwLock::new(vec![None; verifier_clients.len()]));
 
         Ok(Aggregator {
             rpc,
@@ -227,12 +227,125 @@ impl Aggregator {
         &self.verifier_clients
     }
 
-    pub fn get_verifier_keys(&self) -> Vec<PublicKey> {
-        self.verifier_keys.clone()
+    /// If all verifier keys are already collected, returns them.
+    /// Otherwise, it tries to collect them from the verifiers, saves them and returns them.
+    pub async fn fetch_verifier_keys(&self) -> Result<Vec<PublicKey>, BridgeError> {
+        // if all verifier keys are not collected, get a write lock and collect them
+        if !self.check_verifier_keys_collected().await {
+            let mut verifier_keys = self.verifier_keys.write().await;
+
+            let futures = self
+                .verifier_clients
+                .iter()
+                .zip(verifier_keys.iter())
+                .filter(|(_, key)| key.is_none())
+                .map(|(verifier_client, _)| {
+                    let mut client = verifier_client.clone();
+                    async move {
+                        let mut request = Request::new(Empty {});
+                        request.set_timeout(PUBLIC_KEY_COLLECTION_TIMEOUT);
+                        let verifier_params = client.get_params(request).await?.into_inner();
+                        let public_key = PublicKey::from_slice(&verifier_params.public_key)
+                            .map_err(|e| {
+                                eyre::eyre!("Failed to parse verifier public key: {}", e)
+                            })?;
+                        Ok::<_, BridgeError>(public_key)
+                    }
+                });
+
+            let remaining_keys = try_join_all(futures).await?;
+
+            // now fill in None entries
+            let mut new_keys_iter = remaining_keys.into_iter();
+
+            for key in verifier_keys.iter_mut() {
+                if key.is_none() {
+                    if let Some(new_key) = new_keys_iter.next() {
+                        *key = Some(new_key);
+                    } else {
+                        return Err(eyre::eyre!(
+                            "Not enough verifier keys collected, internal logic error"
+                        )
+                        .into());
+                    }
+                }
+            }
+        }
+        // just get a read lock and return the keys
+        Ok(self
+            .verifier_keys
+            .read()
+            .await
+            .iter()
+            .enumerate()
+            .map(|(idx, key)| key.ok_or(eyre::eyre!("Verifier {} key not collected yet", idx)))
+            .collect::<Result<Vec<_>, _>>()?)
     }
 
-    pub fn get_operator_keys(&self) -> Vec<XOnlyPublicKey> {
-        self.operator_keys.clone()
+    async fn check_verifier_keys_collected(&self) -> bool {
+        let verifier_keys = self.verifier_keys.read().await;
+        verifier_keys.iter().all(|key| key.is_some())
+    }
+
+    async fn check_operator_keys_collected(&self) -> bool {
+        let operator_keys = self.operator_keys.read().await;
+        operator_keys.iter().all(|key| key.is_some())
+    }
+
+    /// If all operator keys are already collected, returns them.
+    /// Otherwise, it tries to collect them from the operators, saves them and returns them.
+    pub async fn fetch_operator_keys(&self) -> Result<Vec<XOnlyPublicKey>, BridgeError> {
+        // if all operator keys are not collected, get a write lock and collect them
+        if !self.check_operator_keys_collected().await {
+            let mut operator_keys = self.operator_keys.write().await;
+
+            // collect the keys from the operators that we didn't collect from yet
+            let futures = self
+                .operator_clients
+                .iter()
+                .zip(operator_keys.iter())
+                .filter(|(_, key)| key.is_none())
+                .map(|(operator_client, _)| {
+                    let mut client = operator_client.clone();
+                    async move {
+                        let mut request = Request::new(Empty {});
+                        request.set_timeout(PUBLIC_KEY_COLLECTION_TIMEOUT);
+                        let operator_keys: XOnlyPublicKey = client
+                            .get_x_only_public_key(Request::new(Empty {}))
+                            .await?
+                            .into_inner()
+                            .try_into()?;
+                        Ok::<_, BridgeError>(operator_keys)
+                    }
+                });
+
+            let collected_keys = try_join_all(futures).await?;
+
+            // now fill in None entries
+            let mut new_keys_iter = collected_keys.into_iter();
+
+            for key in operator_keys.iter_mut() {
+                if key.is_none() {
+                    if let Some(new_key) = new_keys_iter.next() {
+                        *key = Some(new_key);
+                    } else {
+                        return Err(eyre::eyre!(
+                            "Not enough operator keys collected, internal logic error"
+                        )
+                        .into());
+                    }
+                }
+            }
+        }
+        // just get a read lock and return the keys
+        Ok(self
+            .operator_keys
+            .read()
+            .await
+            .iter()
+            .enumerate()
+            .map(|(idx, key)| key.ok_or(eyre::eyre!("Operator {} key not collected yet", idx)))
+            .collect::<Result<Vec<_>, _>>()?)
     }
 
     pub fn get_operator_clients(&self) -> &[ClementineOperatorClient<tonic::transport::Channel>] {
@@ -439,7 +552,7 @@ impl Aggregator {
         &self,
         deposit_data: &DepositData,
     ) -> Result<ParticipatingVerifiers, BridgeError> {
-        let verifier_keys = self.get_verifier_keys();
+        let verifier_keys = self.fetch_verifier_keys().await?;
         let mut participating_verifiers = Vec::new();
 
         let verifiers = deposit_data.get_verifiers();
@@ -466,7 +579,7 @@ impl Aggregator {
         &self,
         deposit_data: &DepositData,
     ) -> Result<ParticipatingOperators, BridgeError> {
-        let operator_keys = self.get_operator_keys();
+        let operator_keys = self.fetch_operator_keys().await?;
         let mut participating_operators = Vec::new();
 
         let operators = deposit_data.get_operators();
@@ -498,7 +611,7 @@ impl Aggregator {
         let operator_status = join_all(
             operator_clients
                 .iter()
-                .zip(self.get_operator_keys().iter())
+                .zip(self.fetch_operator_keys().await?.iter())
                 .map(|(client, key)| {
                     let mut client = client.clone();
                     async move {
@@ -527,7 +640,7 @@ impl Aggregator {
         let verifier_status = join_all(
             verifier_clients
                 .iter()
-                .zip(self.get_verifier_keys().iter())
+                .zip(self.fetch_verifier_keys().await?.iter())
                 .map(|(client, key)| {
                     let mut client = client.clone();
                     async move {

@@ -711,85 +711,6 @@ impl Aggregator {
         Ok(())
     }
 
-    /// Fetches operator xonly public keys from operators.
-    pub async fn collect_operator_xonly_public_keys_with_clients(
-        operator_clients: &[ClementineOperatorClient<tonic::transport::Channel>],
-    ) -> Result<Vec<XOnlyPublicKey>, BridgeError> {
-        tracing::info!("Collecting operator xonly public keys...");
-
-        let operator_xonly_pks = try_join_all(operator_clients.iter().map(|client| {
-            let mut client = client.clone();
-
-            async move {
-                let response = client
-                    .get_x_only_public_key(Request::new(Empty {}))
-                    .await?
-                    .into_inner();
-
-                XOnlyPublicKey::from_slice(&response.xonly_public_key).map_err(|e| {
-                    Status::internal(format!(
-                        "Failed to parse operator xonly public key: {:?}",
-                        e
-                    ))
-                })
-            }
-        }))
-        .await
-        .wrap_err("Failed to collect operator xonly public keys")?;
-
-        Ok(operator_xonly_pks)
-    }
-
-    /// Fetches operator xonly public keys from operators.
-    pub async fn collect_operator_xonly_public_keys(
-        &self,
-    ) -> Result<Vec<XOnlyPublicKey>, BridgeError> {
-        Aggregator::collect_operator_xonly_public_keys_with_clients(self.get_operator_clients())
-            .await
-    }
-
-    pub async fn collect_verifier_public_keys_with_clients(
-        verifier_clients: &[ClementineVerifierClient<tonic::transport::Channel>],
-    ) -> Result<(Vec<Vec<u8>>, Vec<PublicKey>), BridgeError> {
-        tracing::info!("Collecting verifier public keys...");
-
-        let (vpks, verifier_public_keys): (Vec<Vec<u8>>, Vec<PublicKey>) =
-            try_join_all(verifier_clients.iter().map(|client| {
-                let mut client = client.clone();
-
-                async move {
-                    let verifier_params = client
-                        .get_params(Request::new(Empty {}))
-                        .await?
-                        .into_inner();
-                    let encoded_verifier_public_key = verifier_params.public_key;
-                    let decoded_verifier_public_key =
-                        PublicKey::from_slice(&encoded_verifier_public_key).map_err(|e| {
-                            Status::internal(format!("Failed to parse public key: {:?}", e))
-                        })?;
-
-                    Ok::<_, Status>((encoded_verifier_public_key, decoded_verifier_public_key))
-                }
-            }))
-            .await
-            .wrap_err("Failed to collect verifier public keys")?
-            .into_iter()
-            .unzip();
-
-        Ok((vpks, verifier_public_keys))
-    }
-
-    /// Fetches verifier public keys from verifiers and sets up N-of-N.
-    pub async fn collect_verifier_public_keys(&self) -> Result<VerifierPublicKeys, BridgeError> {
-        let (vpks, _) =
-            Aggregator::collect_verifier_public_keys_with_clients(self.get_verifier_clients())
-                .await?;
-
-        Ok(VerifierPublicKeys {
-            verifier_public_keys: vpks,
-        })
-    }
-
     pub async fn generate_combined_emergency_stop_tx(
         &self,
         move_txids: Vec<Txid>,
@@ -1173,9 +1094,9 @@ impl ClementineAggregator for AggregatorServer {
                 deposit: deposit_info,
                 nofn_xonly_pk: None,
                 actors: Actors {
-                    verifiers: self.get_verifier_keys(),
+                    verifiers: self.fetch_verifier_keys().await?,
                     watchtowers: vec![],
-                    operators: self.get_operator_keys(),
+                    operators: self.fetch_operator_keys().await?,
                 },
                 security_council: self.config.security_council.clone(),
             };
@@ -1518,7 +1439,7 @@ impl ClementineAggregator for AggregatorServer {
         &self,
         _: tonic::Request<super::Empty>,
     ) -> std::result::Result<tonic::Response<super::NofnResponse>, tonic::Status> {
-        let verifier_keys = self.get_verifier_keys();
+        let verifier_keys = self.fetch_verifier_keys().await?;
         let num_verifiers = verifier_keys.len();
         let nofn_xonly_pk = bitcoin::XOnlyPublicKey::from_musig2_pks(verifier_keys, None)
             .expect("Failed to aggregate verifier public keys");
