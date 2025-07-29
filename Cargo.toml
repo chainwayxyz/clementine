@@ -40,10 +40,7 @@ secrecy = { version = "0.10.0", features = ["serde"] }
 reqwest = { version = "0.12.12", features = ["rustls-tls", "json", "http2"], default-features = false }
 
 # Citrea dependencies
-citrea-e2e = { git = "https://github.com/chainwayxyz/citrea-e2e", rev = "d45a29afa4de9d7e00dad9e8d9c59f95fe22e557" }
-sov-rollup-interface = { git = "https://github.com/chainwayxyz/citrea.git", rev = "b1fbe83fdd60d29", features = [
-  "native",
-] }
+citrea-e2e = { git = "https://github.com/chainwayxyz/citrea-e2e", rev = "7777859" }
 
 citrea-sov-rollup-interface = { git = "https://github.com/chainwayxyz/citrea", tag = "v0.7.2-mempool-fixes", package = "sov-rollup-interface" }
 
