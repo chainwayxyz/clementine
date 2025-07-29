@@ -373,10 +373,12 @@ where
                 }
             }
             if nonce_idx < num_required_nofn_sigs {
-                panic!(
-                    "Expected more nofn sigs {} < {}",
+                let err_msg = format!(
+                    "Insufficient N-of-N signatures received: got {}, expected {}",
                     nonce_idx, num_required_nofn_sigs
-                )
+                );
+                tracing::error!(err_msg);
+                return Err(Status::invalid_argument(err_msg));
             }
 
             let move_tx_agg_nonce =
@@ -432,10 +434,12 @@ where
             }
 
             if total_op_sig_count < num_required_total_op_sigs {
-                panic!(
-                    "Not enough operator signatures. Needed: {}, received: {}",
-                    num_required_total_op_sigs, total_op_sig_count
+                let err_msg = format!(
+                    "Insufficient operator signatures received: got {}, expected {}",
+                    total_op_sig_count, num_required_total_op_sigs
                 );
+                tracing::error!(err_msg);
+                return Err(Status::invalid_argument(err_msg));
             }
 
             Ok::<(), Status>(())
