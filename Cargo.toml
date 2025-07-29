@@ -37,6 +37,7 @@ pgmq = "0.30.0"
 serde_with = "3.12.0"
 rand_chacha = "0.9.0"
 secrecy = { version = "0.10.0", features = ["serde"] }
+reqwest = { version = "0.12.12", features = ["rustls-tls", "json", "http2"], default-features = false }
 
 # Citrea dependencies
 citrea-e2e = { git = "https://github.com/chainwayxyz/citrea-e2e", rev = "7777859" }
@@ -90,10 +91,10 @@ ark-bn254 = { version = "0.5.0", features = [
 ], default-features = false }
 
 # Bridge Circuit Host
-risc0-circuit-recursion = "3.0.0"
-risc0-zkp = "2.0.2"
-risc0-groth16 = "2.0.2"
-risc0-binfmt = { version = "2.0.2" }
+risc0-circuit-recursion = "=3.0.0"
+risc0-zkp = "=2.0.2"
+risc0-groth16 = "=2.0.2"
+risc0-binfmt = { version = "=2.0.2" }
 
 ark-ff = "0.5.0"
 ark-ec = "0.5.0"
