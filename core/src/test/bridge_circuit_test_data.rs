@@ -180,7 +180,7 @@ async fn bridge_circuit_test_data_diverse_hcp_lengths() -> Result<()> {
         .expect("Failed to initialize logger");
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
-        "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
+        "chainwayxyz/citrea-test:738e68ee8321eb2e5d78e2f94dfe0b99b4957dd2",
     );
     let bridge_circuit_test_data = BridgeCircuitTestData {
         variant: BridgeCircuitTestDataVariant::Valid,
@@ -195,7 +195,7 @@ async fn bridge_circuit_test_data_insuff_total_work_diverse_hcp_lens() -> Result
         .expect("Failed to initialize logger");
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
-        "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
+        "chainwayxyz/citrea-test:738e68ee8321eb2e5d78e2f94dfe0b99b4957dd2",
     );
 
     let bridge_circuit_test_data = BridgeCircuitTestData {
@@ -209,7 +209,7 @@ async fn bridge_circuit_test_data_insuff_total_work_diverse_hcp_lens() -> Result
 async fn bridge_circuit_test_data_diverse_hcp_lens_first_two_valid() -> Result<()> {
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
-        "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
+        "chainwayxyz/citrea-test:738e68ee8321eb2e5d78e2f94dfe0b99b4957dd2",
     );
 
     let bridge_circuit_test_data = BridgeCircuitTestData {
@@ -226,7 +226,7 @@ async fn challenge_tx_with_annex() -> Result<()> {
         .expect("Failed to initialize logger");
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
-        "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
+        "chainwayxyz/citrea-test:738e68ee8321eb2e5d78e2f94dfe0b99b4957dd2",
     );
     let watchtower_challenge_tx_variant = BridgeCircuitTestData {
         variant: BridgeCircuitTestDataVariant::WithAnnex,
@@ -241,7 +241,7 @@ async fn challenge_tx_with_annex() -> Result<()> {
 async fn challenge_tx_with_large_input() -> Result<()> {
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
-        "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
+        "chainwayxyz/citrea-test:738e68ee8321eb2e5d78e2f94dfe0b99b4957dd2",
     );
     let watchtower_challenge_tx_variant = BridgeCircuitTestData {
         variant: BridgeCircuitTestDataVariant::LargeInput,
@@ -256,7 +256,7 @@ async fn challenge_tx_with_large_input() -> Result<()> {
 async fn challenge_tx_with_large_output() -> Result<()> {
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
-        "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
+        "chainwayxyz/citrea-test:738e68ee8321eb2e5d78e2f94dfe0b99b4957dd2",
     );
     let watchtower_challenge_tx_variant = BridgeCircuitTestData {
         variant: BridgeCircuitTestDataVariant::LargeOutput,
@@ -271,7 +271,7 @@ async fn challenge_tx_with_large_output() -> Result<()> {
 async fn challenge_tx_with_both_large_input_and_output() -> Result<()> {
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
-        "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
+        "chainwayxyz/citrea-test:738e68ee8321eb2e5d78e2f94dfe0b99b4957dd2",
     );
     let watchtower_challenge_tx_variant = BridgeCircuitTestData {
         variant: BridgeCircuitTestDataVariant::LargeInputAndOutput,

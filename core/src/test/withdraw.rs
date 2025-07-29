@@ -164,7 +164,7 @@ async fn citrea_withdraw_and_get_utxo() -> Result<()> {
         .expect("Failed to initialize logger");
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
-        "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
+        "chainwayxyz/citrea-test:738e68ee8321eb2e5d78e2f94dfe0b99b4957dd2",
     );
     TestCaseRunner::new(CitreaWithdrawAndGetUTXO).run().await
 }
