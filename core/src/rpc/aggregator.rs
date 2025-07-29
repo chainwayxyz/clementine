@@ -954,10 +954,10 @@ impl ClementineAggregator for Aggregator {
                 .map_err(|_| Status::internal("Invalid signature for optimistic payout tx"))?;
 
             // get which verifiers participated in the deposit to collect the optimistic payout tx signature
-            let verifiers = self.get_participating_verifiers(&deposit_data).await?;
+            let participating_verifiers = self.get_participating_verifiers(&deposit_data).await?;
             let (first_responses, mut nonce_streams) = {
                 create_nonce_streams(
-                    verifiers.clone(),
+                    participating_verifiers.clone(),
                     1,
                     #[cfg(test)]
                     &self.config,
@@ -971,12 +971,11 @@ impl ClementineAggregator for Aggregator {
                 .map_to_status()?;
             let agg_nonce = aggregate_nonces(pub_nonces.iter().collect::<Vec<_>>().as_slice())?;
             // send the agg nonce to the verifiers to sign the optimistic payout tx
-            let verifier_clients = self.get_verifier_clients();
-            let payout_sigs = verifier_clients
-                .iter()
+            let payout_sigs = participating_verifiers
+                .clients()
+                .into_iter()
                 .zip(first_responses)
-                .map(|(client, first_response)| {
-                    let mut client = client.clone();
+                .map(|(mut client, first_response)| {
                     let withdrawal_params = withdraw_params.clone();
                     let agg_nonce_bytes = agg_nonce.serialize().to_vec();
                     async move {
