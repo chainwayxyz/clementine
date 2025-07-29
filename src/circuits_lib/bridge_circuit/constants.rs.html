@@ -123,7 +123,20 @@
 <a href="#122" id="122">122</a>
 <a href="#123" id="123">123</a>
 <a href="#124" id="124">124</a>
-<a href="#125" id="125">125</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Bridge Circuit Constants
+<a href="#125" id="125">125</a>
+<a href="#126" id="126">126</a>
+<a href="#127" id="127">127</a>
+<a href="#128" id="128">128</a>
+<a href="#129" id="129">129</a>
+<a href="#130" id="130">130</a>
+<a href="#131" id="131">131</a>
+<a href="#132" id="132">132</a>
+<a href="#133" id="133">133</a>
+<a href="#134" id="134">134</a>
+<a href="#135" id="135">135</a>
+<a href="#136" id="136">136</a>
+<a href="#137" id="137">137</a>
+<a href="#138" id="138">138</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Bridge Circuit Constants
 //!
 //! This module contains constants used in the bridge circuit, including method IDs for different networks,
 //! Groth16 related constants, and prepared verification keys. These constants are essential for the operation
@@ -145,15 +158,28 @@
 <span class="kw">use </span>ark_ff::BigInt;
 <span class="kw">use </span>hex_literal::hex;
 
+<span class="kw">pub const </span>REGTEST_LC_IMAGE_ID: [u8; <span class="number">32</span>] =
+    <span class="macro">hex!</span>(<span class="string">"d02f2eda4c0a0d04b13e630d4ec03d3f5ac5fd63a0b229b2438e90a26b63308b"</span>);
+
+<span class="kw">pub const </span>DEVNET_LC_IMAGE_ID: [u8; <span class="number">32</span>] =
+    <span class="macro">hex!</span>(<span class="string">"f62aaca40b6b26d197624f55471341b32ed38cd2443c3b416160f073d25612af"</span>);
+
+<span class="kw">pub const </span>TESTNET_LC_IMAGE_ID: [u8; <span class="number">32</span>] =
+    <span class="macro">hex!</span>(<span class="string">"ff207fa9858277eca6caa9b771fa00e87f861d34b4c29388dca6f7cc227ac367"</span>);
+
+<span class="comment">// MAINNET LC_IMAGE_ID is not yet provided by CITREA, so we use a placeholder.
+</span><span class="kw">pub const </span>MAINNET_LC_IMAGE_ID: [u8; <span class="number">32</span>] =
+    <span class="macro">hex!</span>(<span class="string">"0000000000000000000000000000000000000000000000000000000000000000"</span>);
+
 <span class="comment">// Work-only circuit method IDs for different networks.
 </span><span class="kw">pub static </span>MAINNET_WORK_ONLY_METHOD_ID: [u8; <span class="number">32</span>] =
-    <span class="macro">hex!</span>(<span class="string">"5b166499bace4ab1d4c71c03b0f0f201fc873032c346db5d8e46e8e24a820809"</span>);
+    <span class="macro">hex!</span>(<span class="string">"ba2bd4e46597ab3341f0ed4fde263f35b82da3ec3fe6f42d85399b8c61a4fba2"</span>);
 <span class="kw">pub static </span>TESTNET4_WORK_ONLY_METHOD_ID: [u8; <span class="number">32</span>] =
-    <span class="macro">hex!</span>(<span class="string">"931ecaa5a6566b577f10729763bcaf0a0e00ec4a365505f393ea6557d404588b"</span>);
+    <span class="macro">hex!</span>(<span class="string">"f32a967a3557f87e3d67821ae8cfa845429edc224c0f1df86996dd41914b2596"</span>);
 <span class="kw">pub static </span>REGTEST_WORK_ONLY_METHOD_ID: [u8; <span class="number">32</span>] =
-    <span class="macro">hex!</span>(<span class="string">"5e61cc4a91a47746a9ecf5f70c834f1884d58005d69645fd1d4bab115a649c24"</span>);
+    <span class="macro">hex!</span>(<span class="string">"11bb884b51d9d33de10ea449927b932ada1c540acd9dfc03e9af806dc8180979"</span>);
 <span class="kw">pub static </span>SIGNET_WORK_ONLY_METHOD_ID: [u8; <span class="number">32</span>] =
-    <span class="macro">hex!</span>(<span class="string">"269912faf4bd668784a5eef4bb3fa0b1d7e3fe26ec0232589e5481f1a3418d69"</span>);
+    <span class="macro">hex!</span>(<span class="string">"35d88de6b8a13cfe34df05e103d14f926d1a56671792c2ce85b89f055193f225"</span>);
 
 <span class="comment">// GROTH16 RELATED CONSTANTS
 </span><span class="kw">pub static </span>POST_STATE: [u8; <span class="number">32</span>] =
