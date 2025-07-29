@@ -2676,7 +2676,7 @@
 
     <span class="attr">#[test]
     </span><span class="kw">fn </span>test_operator_xonlypk_from_op_return() {
-        <span class="kw">let </span>payout_tx = <span class="macro">include_bytes!</span>(<span class="string">"../../../bridge-circuit-host/bin-files/payout_tx.bin"</span>);
+        <span class="kw">let </span>payout_tx = <span class="macro">include_bytes!</span>(<span class="string">"../../test_data/payout_tx.bin"</span>);
         <span class="kw">let </span><span class="kw-2">mut </span>payout_tx: Transaction =
             Decodable::consensus_decode(<span class="kw-2">&amp;mut </span>Cursor::new(<span class="kw-2">&amp;</span>payout_tx)).unwrap();
 

@@ -251,8 +251,7 @@
 <a href="#250" id="250">250</a>
 <a href="#251" id="251">251</a>
 <a href="#252" id="252">252</a>
-<a href="#253" id="253">253</a>
-<a href="#254" id="254">254</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Ethereum Storage Proof Verifier
+<a href="#253" id="253">253</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Ethereum Storage Proof Verifier
 //! This module implements the Ethereum storage proof verifier for the bridge circuit.
 //! It includes functions to verify storage proofs related to deposit and withdrawal UTXOs,
 //! ensuring the integrity of the Bridge contract's state. The verifier checks the storage keys
@@ -435,8 +434,7 @@
 </span><span class="kw">mod </span>tests {
     <span class="kw">use super</span>::<span class="kw-2">*</span>;
 
-    <span class="kw">const </span>STORAGE_PROOF: <span class="kw-2">&amp;</span>[u8] =
-        <span class="macro">include_bytes!</span>(<span class="string">"../../../bridge-circuit-host/bin-files/storage_proof.bin"</span>);
+    <span class="kw">const </span>STORAGE_PROOF: <span class="kw-2">&amp;</span>[u8] = <span class="macro">include_bytes!</span>(<span class="string">"../../test_data/storage_proof.bin"</span>);
 
     <span class="attr">#[test]
     </span><span class="kw">fn </span>test_verify_storage_proofs() {
