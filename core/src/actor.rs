@@ -11,6 +11,9 @@ use crate::errors::{BridgeError, TxError};
 use crate::operator::{PublicHash, RoundIndex};
 use crate::rpc::clementine::tagged_signature::SignatureId;
 use crate::rpc::clementine::TaggedSignature;
+use crate::EVMAddress;
+use alloy::signers::k256;
+use alloy::signers::local::PrivateKeySigner;
 use bitcoin::hashes::hash160;
 use bitcoin::secp256k1::PublicKey;
 use bitcoin::taproot::{self, LeafVersion, TaprootSpendInfo};
@@ -259,6 +262,16 @@ impl Actor {
             TapTweakData::ScriptPath => Ok(self.sign(sighash)),
             TapTweakData::Unknown => Err(eyre::eyre!("Spend Data Unknown").into()),
         }
+    }
+
+    pub fn get_evm_address(&self) -> Result<EVMAddress, BridgeError> {
+        let x =
+            k256::ecdsa::SigningKey::from_bytes(&self.keypair.secret_key().secret_bytes().into())
+                .wrap_err("Failed to convert secret key to signing key")?;
+        let key: PrivateKeySigner = x.into();
+        let wallet_address = key.address();
+
+        Ok(EVMAddress(wallet_address.into_array()))
     }
 
     /// Returns derivied Winternitz secret key from given path.
