@@ -9,7 +9,6 @@ use futures::future::try_join_all;
 use http::HeaderValue;
 use metrics_exporter_prometheus::PrometheusBuilder;
 use serde::{Deserialize, Serialize};
-use tokio_stream::wrappers::ReceiverStream;
 use std::any::type_name;
 use std::fmt::{Debug, Display};
 use std::fs::File;
@@ -21,6 +20,7 @@ use std::task::{Context, Poll};
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time::timeout;
+use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::StreamExt as _;
 use tonic::Status;
 use tower::{Layer, Service};
@@ -692,77 +692,32 @@ where
     }
 }
 
-// use futures_util::stream::Chunks;
-// use pin_project::pin_project;
-
-// pin_project! {
-//     pub struct BatchedStream<S: Stream> {
-//         inner: Chunks<S>,
-//         buf: Vec<S::Item>,
-//         finished: bool,
-//     }
-// }
-
-// impl<S: Stream> Stream for BatchedStream<S> {
-//     type Item = <S as Stream>::Item;
-
-//     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-//         let this = self.as_mut().project();
-//         if this.buf.is_empty() && !this.finished {
-//             let next = this.inner.poll_next(cx);
-//             match ready!(next) {
-//                 Some(chunk) => {
-//                     this.buf.extend(chunk);
-//                 }
-//                 None => {
-//                     this.finished = true;
-//                     return Poll::Pending;
-//                 }
-//             }
-//         }
-//         if this.buf.is_empty() && this.finished {
-//             return Poll::Ready(None);
-//         }
-
-//         Poll::Ready(Some(this.buf.pop().expect("buf is not empty")))
-//     }
-// }
-
 use futures::stream::FlatMap;
 use futures::{stream, StreamExt as _};
 use tokio_stream::adapters::ChunksTimeout;
-// use tokio_stream::wrappers::ReceiverStream;
 
+/// Helper type to batch a stream of items into chunks of 128 at a time
 pub type BatchedStream<T> = FlatMap<
     ChunksTimeout<ReceiverStream<T>>,
     stream::Iter<std::vec::IntoIter<T>>,
     fn(Vec<T>) -> stream::Iter<std::vec::IntoIter<T>>,
 >;
 
+/// Helper function to observe batch sizes
 fn iter_with_log<T>(iter: Vec<T>) -> stream::Iter<std::vec::IntoIter<T>> {
     tracing::debug!("[{}] batching {}", type_name::<T>(), iter.len());
     stream::iter(iter)
 }
 
-// #[derive(Debug)]
-// pub struct ReceiverStreamDbg<T> {
-//     inner: mpsc::Receiver<T>,
-// }
-
-// impl<T> Stream for ReceiverStreamDbg<T> {
-//     type Item = T;
-
-//     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-//         // tracing::info!(
-//         //     "[{}] polling, pending={} capacity={}",
-//         //     type_name::<T>(),
-//         //     self.inner.len(),
-//         //     self.inner.capacity()
-//         // );
-//         self.inner.poll_recv(cx)
-//     }
-// }
-
+/// Batches the receiver stream by flushing batches of items either every 128 items
+/// or after 2 milliseconds without any new messages.
+///
+/// The resulting stream is a stream of the same item, but it will batch 128 items
+/// by consecutively returning Poll::Ready(Some(item)) until the batch is sent.
+///
+/// This enables us to use tonic's internal batching that batches items up to a yield_threshold
+/// when returned consecutively in Poll::Ready variants. Tonic will not batch if the return is interrupted
+/// by a Poll::Pending variant.
 pub fn batched_stream_from_rx<T>(rx: mpsc::Receiver<T>) -> BatchedStream<T> {
     ReceiverStream::new(rx)
         .chunks_timeout(128, Duration::from_millis(2))
