@@ -70,12 +70,28 @@
 <a href="#69" id="69">69</a>
 <a href="#70" id="70">70</a>
 <a href="#71" id="71">71</a>
-<a href="#72" id="72">72</a></pre></div><pre class="rust"><code><span class="kw">use </span>bitcoin::{OutPoint, Txid};
+<a href="#72" id="72">72</a>
+<a href="#73" id="73">73</a>
+<a href="#74" id="74">74</a>
+<a href="#75" id="75">75</a>
+<a href="#76" id="76">76</a>
+<a href="#77" id="77">77</a>
+<a href="#78" id="78">78</a>
+<a href="#79" id="79">79</a>
+<a href="#80" id="80">80</a>
+<a href="#81" id="81">81</a>
+<a href="#82" id="82">82</a>
+<a href="#83" id="83">83</a>
+<a href="#84" id="84">84</a>
+<a href="#85" id="85">85</a>
+<a href="#86" id="86">86</a>
+<a href="#87" id="87">87</a></pre></div><pre class="rust"><code><span class="kw">use </span>bitcoin::{OutPoint, Txid};
 <span class="kw">use </span>std::cmp::Ordering;
 
 <span class="kw">use </span><span class="kw">super</span>::block_cache::BlockCache;
 
-<span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">trait </span>BlockMatcher {
+<span class="doccomment">/// A trait that will return a single event when a block matches any of the matchers.
+</span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">trait </span>BlockMatcher {
     <span class="kw">type </span>StateEvent;
 
     <span class="kw">fn </span>match_block(<span class="kw-2">&amp;</span><span class="self">self</span>, block: <span class="kw-2">&amp;</span><span class="kw">super</span>::block_cache::BlockCache) -&gt; Vec&lt;<span class="self">Self</span>::StateEvent&gt;;
@@ -90,15 +106,28 @@
     SpentUtxo(OutPoint),
     <span class="doccomment">/// This matcher is used to determine that an outpoint was spent, but the txid of the tx that spent the outpoint
     /// is not equal to any of the txids in the vector.
-    /// It is used either to detect timeouts (like AssertTimeout) or exit from the protocol (like when Operator sends its collateral back to its wallet, instead of using it for the next round).
+    /// For many transactions in clementine, there are many utxos that can be spent in two ways:
+    /// 1. A nofn-presigned timeout transaction. These timeout transactions have fixed txid (because they are nofn signed)
+    ///     and can be sent after the utxo is not spent by operator before the timelock.
+    /// 2. A transaction that spends the utxo to reveal/inscribe something in Bitcoin. These transactions are not nofn presigned and
+    ///     can be spent by operators/verifiers in any way they want as long as the witness is valid so there are
+    ///     no fixed txids for these transactions. (Transactions like Watchtower Challenge, Operator Assert, etc.)
+    ///
+    /// This matcher is used to detect the second case, and the Txid vector is used to check if utxo is instead spent by a timeout transaction.
+    /// This matcher is used for detection of transactions like Watchtower Challenge, Operator Assert, etc.
     </span>SpentUtxoButNotTxid(OutPoint, Vec&lt;Txid&gt;),
     BlockHeight(u32),
 }
 
-<span class="attr">#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+<span class="doccomment">/// An enum that represents the order of the matchers.
+/// The reason for the order is to make sure if a transaction has lower index in the block,
+/// any events resulting from that transaction are processed first.
+</span><span class="attr">#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 </span><span class="kw">pub enum </span>MatcherOrd {
-    TxIndex(usize),
-    BlockHeight,
+    <span class="doccomment">/// Matcher ordering for matchers concerning a single tx
+    </span>TxIndex(usize),
+    <span class="doccomment">/// Matcher ordering for matchers concerning a block height
+    </span>BlockHeight,
 }
 
 <span class="kw">impl </span>PartialOrd <span class="kw">for </span>MatcherOrd {
@@ -119,7 +148,8 @@
 }
 
 <span class="kw">impl </span>Matcher {
-    <span class="kw">pub fn </span>matches(<span class="kw-2">&amp;</span><span class="self">self</span>, block: <span class="kw-2">&amp;</span>BlockCache) -&gt; <span class="prelude-ty">Option</span>&lt;MatcherOrd&gt; {
+    <span class="doccomment">/// Returns the order of the matcher if the block matches the matcher.
+    </span><span class="kw">pub fn </span>matches(<span class="kw-2">&amp;</span><span class="self">self</span>, block: <span class="kw-2">&amp;</span>BlockCache) -&gt; <span class="prelude-ty">Option</span>&lt;MatcherOrd&gt; {
         <span class="kw">match </span><span class="self">self </span>{
             Matcher::SentTx(txid) <span class="kw">if </span>block.contains_txid(txid) =&gt; <span class="prelude-val">Some</span>(MatcherOrd::TxIndex(
                 <span class="kw-2">*</span>block.txids.get(txid).expect(<span class="string">"txid is in cache"</span>),

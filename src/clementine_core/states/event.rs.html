@@ -152,7 +152,38 @@
 <a href="#151" id="151">151</a>
 <a href="#152" id="152">152</a>
 <a href="#153" id="153">153</a>
-<a href="#154" id="154">154</a></pre></div><pre class="rust"><code><span class="kw">use </span>std::sync::Arc;
+<a href="#154" id="154">154</a>
+<a href="#155" id="155">155</a>
+<a href="#156" id="156">156</a>
+<a href="#157" id="157">157</a>
+<a href="#158" id="158">158</a>
+<a href="#159" id="159">159</a>
+<a href="#160" id="160">160</a>
+<a href="#161" id="161">161</a>
+<a href="#162" id="162">162</a>
+<a href="#163" id="163">163</a>
+<a href="#164" id="164">164</a>
+<a href="#165" id="165">165</a>
+<a href="#166" id="166">166</a>
+<a href="#167" id="167">167</a>
+<a href="#168" id="168">168</a>
+<a href="#169" id="169">169</a>
+<a href="#170" id="170">170</a>
+<a href="#171" id="171">171</a>
+<a href="#172" id="172">172</a>
+<a href="#173" id="173">173</a>
+<a href="#174" id="174">174</a>
+<a href="#175" id="175">175</a>
+<a href="#176" id="176">176</a>
+<a href="#177" id="177">177</a>
+<a href="#178" id="178">178</a>
+<a href="#179" id="179">179</a>
+<a href="#180" id="180">180</a>
+<a href="#181" id="181">181</a>
+<a href="#182" id="182">182</a>
+<a href="#183" id="183">183</a>
+<a href="#184" id="184">184</a>
+<a href="#185" id="185">185</a></pre></div><pre class="rust"><code><span class="kw">use </span>std::sync::Arc;
 
 <span class="kw">use </span>bitcoin::Witness;
 <span class="kw">use </span>pgmq::PGMQueueExt;
@@ -168,18 +199,25 @@
     block_cache, kickoff::KickoffStateMachine, round::RoundStateMachine, Owner, StateManager,
 };
 
-<span class="attr">#[derive(Debug, serde::Serialize, Clone, serde::Deserialize)]
+<span class="doccomment">/// System events are events that are sent by other parts of clementine to the state machine
+/// They are used to update the state machine
+/// They are sent by the state manager to the state machine
+</span><span class="attr">#[derive(Debug, serde::Serialize, Clone, serde::Deserialize)]
 #[allow(clippy::large_enum_variant)]
 </span><span class="kw">pub enum </span>SystemEvent {
-    NewBlock {
+    <span class="doccomment">/// An event for a new finalized block
+    /// So that state manager can update the states of all current state machines
+    </span>NewFinalizedBlock {
         block_id: u32,
         block: bitcoin::Block,
         height: u32,
     },
-    NewOperator {
-        operator_data: OperatorData,
-    },
-    NewKickoff {
+    <span class="doccomment">/// An event for when a new operator is set in clementine
+    /// So that the state machine can create a new round state machine to track the operator
+    </span>NewOperator { operator_data: OperatorData },
+    <span class="doccomment">/// An event for when a new kickoff is set in clementine
+    /// So that the state machine can create a new kickoff state machine to track the kickoff status
+    </span>NewKickoff {
         kickoff_data: KickoffData,
         kickoff_height: u32,
         deposit_data: DepositData,
@@ -188,7 +226,8 @@
 }
 
 <span class="kw">impl</span>&lt;T: Owner + std::fmt::Debug + <span class="lifetime">'static</span>&gt; StateManager&lt;T&gt; {
-    <span class="kw">pub async fn </span>dispatch_new_round_machine(
+    <span class="doccomment">/// Appends a  message to the state manager's message queue to create a new round state machine
+    </span><span class="kw">pub async fn </span>dispatch_new_round_machine(
         db: Database,
         tx: DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;,
         operator_data: OperatorData,
@@ -203,7 +242,8 @@
         <span class="prelude-val">Ok</span>(())
     }
 
-    <span class="kw">pub async fn </span>dispatch_new_kickoff_machine(
+    <span class="doccomment">/// Appends a  message to the state manager's message queue to create a new kickoff state machine
+    </span><span class="kw">pub async fn </span>dispatch_new_kickoff_machine(
         db: Database,
         tx: DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;,
         kickoff_data: KickoffData,
@@ -226,26 +266,31 @@
         <span class="prelude-val">Ok</span>(())
     }
 
-    <span class="kw">pub fn </span>update_block_cache(<span class="kw-2">&amp;mut </span><span class="self">self</span>, block: <span class="kw-2">&amp;</span>bitcoin::Block, block_height: u32) {
+    <span class="doccomment">/// Updates the block cache with the new block
+    /// Sets the block cache in the context
+    </span><span class="kw">pub fn </span>update_block_cache(<span class="kw-2">&amp;mut </span><span class="self">self</span>, block: <span class="kw-2">&amp;</span>bitcoin::Block, block_height: u32) {
         <span class="kw">let </span><span class="kw-2">mut </span>cache: block_cache::BlockCache = Default::default();
         cache.update_with_block(block, block_height);
         <span class="self">self</span>.context.cache = Arc::new(cache);
     }
 
-    <span class="kw">pub async fn </span>handle_event(
+    <span class="doccomment">/// Handles the system events
+    </span><span class="kw">pub async fn </span>handle_event(
         <span class="kw-2">&amp;mut </span><span class="self">self</span>,
         event: SystemEvent,
         dbtx: DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
         <span class="kw">match </span>event {
-            SystemEvent::NewBlock {
+            <span class="comment">// Received when a block is finalized in Bitcoin
+            </span>SystemEvent::NewFinalizedBlock {
                 block_id,
                 block,
                 height,
             } =&gt; {
                 <span class="self">self</span>.update_block_cache(<span class="kw-2">&amp;</span>block, height);
 
-                <span class="self">self</span>.owner
+                <span class="comment">// Handle the finalized block on the owner (verifier or operator)
+                </span><span class="self">self</span>.owner
                     .handle_finalized_block(
                         dbtx,
                         block_id,
@@ -254,9 +299,11 @@
                         <span class="prelude-val">None</span>,
                     )
                     .<span class="kw">await</span><span class="question-mark">?</span>;
-                <span class="self">self</span>.process_block_parallel(height).<span class="kw">await</span><span class="question-mark">?</span>;
+                <span class="comment">// Process the block on all state machines
+                </span><span class="self">self</span>.process_block_parallel(height).<span class="kw">await</span><span class="question-mark">?</span>;
             }
-            SystemEvent::NewOperator { operator_data } =&gt; {
+            <span class="comment">// Received when a new operator is set in clementine
+            </span>SystemEvent::NewOperator { operator_data } =&gt; {
                 <span class="comment">// Check if operator's state machine already exists.
                 // This can happen if aggregator calls set_operator for the same operator multiple times.
                 // In this case, we don't want to create a new state machine.
@@ -277,12 +324,26 @@
                 )
                 .<span class="kw">await</span><span class="question-mark">?</span>;
             }
-            SystemEvent::NewKickoff {
+            <span class="comment">// Received when a new kickoff is detected
+            </span>SystemEvent::NewKickoff {
                 kickoff_data,
                 kickoff_height,
                 deposit_data,
                 payout_blockhash,
             } =&gt; {
+                <span class="comment">// Check if the kickoff machine already exists. If so do not add a new one.
+                // This can happen if during block processing an error happens, reverting the state machines
+                // but a new kickoff state was already dispatched during block processing.
+                </span><span class="kw">for </span>kickoff_machine <span class="kw">in </span><span class="self">self</span>.kickoff_machines.iter() {
+                    <span class="kw">if </span>kickoff_machine.kickoff_data == kickoff_data
+                        &amp;&amp; kickoff_machine.deposit_data == deposit_data
+                        &amp;&amp; kickoff_machine.payout_blockhash == payout_blockhash
+                        &amp;&amp; kickoff_machine.kickoff_height == kickoff_height
+                    {
+                        <span class="kw">return </span><span class="prelude-val">Ok</span>(());
+                    }
+                }
+
                 <span class="kw">let </span>kickoff_machine = KickoffStateMachine::new(
                     kickoff_data,
                     kickoff_height,
@@ -301,6 +362,7 @@
             }
         }
         <span class="comment">// Save the state machines to the database with the current block height
+        // So that in case of a node restart the state machines can be restored
         </span><span class="self">self</span>.save_state_to_db(<span class="self">self</span>.next_height_to_process, <span class="prelude-val">Some</span>(dbtx))
             .<span class="kw">await</span><span class="question-mark">?</span>;
         <span class="prelude-val">Ok</span>(())

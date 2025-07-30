@@ -262,7 +262,14 @@
 <a href="#261" id="261">261</a>
 <a href="#262" id="262">262</a>
 <a href="#263" id="263">263</a>
-<a href="#264" id="264">264</a></pre></div><pre class="rust"><code><span class="kw">use crate</span>::{
+<a href="#264" id="264">264</a>
+<a href="#265" id="265">265</a>
+<a href="#266" id="266">266</a>
+<a href="#267" id="267">267</a>
+<a href="#268" id="268">268</a>
+<a href="#269" id="269">269</a>
+<a href="#270" id="270">270</a>
+<a href="#271" id="271">271</a></pre></div><pre class="rust"><code><span class="kw">use crate</span>::{
     bitcoin_syncer::{BlockHandler, FinalizedBlockFetcherTask},
     database::{Database, DatabaseTransaction},
     task::{BufferedErrors, IntoTask, TaskVariant, WithDelay},
@@ -296,14 +303,16 @@
 
 <span class="attr">#[async_trait]
 </span><span class="kw">impl </span>BlockHandler <span class="kw">for </span>QueueBlockHandler {
-    <span class="kw">async fn </span>handle_new_block(
+    <span class="doccomment">/// Handles a new block by sending a new block event to the queue.
+    /// State manager will process the block after reading the event from the queue.
+    </span><span class="kw">async fn </span>handle_new_block(
         <span class="kw-2">&amp;mut </span><span class="self">self</span>,
         dbtx: DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;,
         block_id: u32,
         block: bitcoin::Block,
         height: u32,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
-        <span class="kw">let </span>event = SystemEvent::NewBlock {
+        <span class="kw">let </span>event = SystemEvent::NewFinalizedBlock {
             block_id,
             block,
             height,
@@ -317,7 +326,7 @@
     }
 }
 
-<span class="doccomment">/// A task that fetches new blocks from Bitcoin and adds them to the state management queue
+<span class="doccomment">/// A task that fetches new finalized blocks from Bitcoin and adds them to the state management queue
 </span><span class="attr">#[derive(Debug)]
 </span><span class="kw">pub struct </span>BlockFetcherTask&lt;T: Owner + std::fmt::Debug + <span class="lifetime">'static</span>&gt; {
     <span class="doccomment">/// Owner type marker
@@ -325,7 +334,7 @@
 }
 
 <span class="kw">impl</span>&lt;T: Owner + std::fmt::Debug + <span class="lifetime">'static</span>&gt; BlockFetcherTask&lt;T&gt; {
-    <span class="doccomment">/// Creates a new block fetcher task
+    <span class="doccomment">/// Creates a new finalized block fetcher task that sends new finalized blocks to the message queue.
     </span><span class="kw">pub async fn </span>new_finalized_block_fetcher_task(
         next_height: u32,
         db: Database,
@@ -355,7 +364,8 @@
     }
 }
 
-<span class="attr">#[derive(Debug)]
+<span class="doccomment">/// A task that reads new events from the message queue and processes them.
+</span><span class="attr">#[derive(Debug)]
 </span><span class="kw">pub struct </span>MessageConsumerTask&lt;T: Owner + std::fmt::Debug + <span class="lifetime">'static</span>&gt; {
     db: Database,
     inner: StateManager&lt;T&gt;,
@@ -379,6 +389,7 @@
                 </span>.inner
                 .queue
                 <span class="comment">// 2nd param of read_with_cxn is the visibility timeout, set to 0 as we only have 1 consumer of the queue, which is the state machine
+                // visibility timeout is the time after which the message is visible again to other consumers
                 </span>.read_with_cxn(<span class="kw-2">&amp;</span><span class="self">self</span>.queue_name, <span class="number">0</span>, <span class="kw-2">&amp;mut *</span>dbtx)
                 .<span class="kw">await
                 </span>.wrap_err(<span class="string">"Reading event from queue"</span>)<span class="question-mark">?
@@ -408,20 +419,22 @@
 <span class="kw">impl</span>&lt;T: Owner + std::fmt::Debug + <span class="lifetime">'static</span>&gt; IntoTask <span class="kw">for </span>StateManager&lt;T&gt; {
     <span class="kw">type </span>Task = WithDelay&lt;BufferedErrors&lt;MessageConsumerTask&lt;T&gt;&gt;&gt;;
 
-    <span class="doccomment">/// Converts the StateManager into the consumer task with a delay
+    <span class="doccomment">/// Converts the StateManager into the consumer task with a polling delay.
     </span><span class="kw">fn </span>into_task(<span class="self">self</span>) -&gt; <span class="self">Self</span>::Task {
         MessageConsumerTask {
             db: <span class="self">self</span>.db.clone(),
             inner: <span class="self">self</span>,
             queue_name: StateManager::&lt;T&gt;::queue_name(),
         }
-        .into_buffered_errors(<span class="number">50</span>)
+        .into_buffered_errors(<span class="number">20</span>)
         .with_delay(POLL_DELAY)
     }
 }
 
 <span class="kw">impl</span>&lt;T: Owner + std::fmt::Debug + <span class="lifetime">'static</span>&gt; StateManager&lt;T&gt; {
-    <span class="kw">pub async fn </span>block_fetcher_task(
+    <span class="comment">// TODO: this task is not tracked by the task manager, so it will not be restarted if it fails but
+    // the state manager task doesn't fail.
+    </span><span class="kw">pub async fn </span>block_fetcher_task(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;WithDelay&lt;<span class="kw">impl </span>Task&lt;Output = bool&gt; + std::fmt::Debug&gt;, BridgeError&gt; {
         <span class="prelude-val">Ok</span>(BlockFetcherTask::&lt;T&gt;::new_finalized_block_fetcher_task(
@@ -430,7 +443,8 @@
             <span class="self">self</span>.paramset,
         )
         .<span class="kw">await</span><span class="question-mark">?
-        </span>.with_delay(POLL_DELAY))
+        </span>.into_buffered_errors(<span class="number">20</span>)
+        .with_delay(POLL_DELAY))
     }
 }
 

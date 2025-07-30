@@ -70,7 +70,9 @@
 <a href="#69" id="69">69</a>
 <a href="#70" id="70">70</a>
 <a href="#71" id="71">71</a>
-<a href="#72" id="72">72</a></pre></div><pre class="rust"><code><span class="kw">use </span>bitcoin::{Block, OutPoint, Transaction, Txid, Witness};
+<a href="#72" id="72">72</a>
+<a href="#73" id="73">73</a>
+<a href="#74" id="74">74</a></pre></div><pre class="rust"><code><span class="kw">use </span>bitcoin::{Block, OutPoint, Transaction, Txid, Witness};
 <span class="kw">use </span>std::collections::HashMap;
 
 <span class="doccomment">/// Block cache to optimize Txid and UTXO lookups for a block
@@ -98,7 +100,9 @@
         block_cache
     }
 
-    <span class="kw">pub fn </span>update_with_block(<span class="kw-2">&amp;mut </span><span class="self">self</span>, block: <span class="kw-2">&amp;</span>Block, block_height: u32) {
+    <span class="doccomment">/// Updates the block cache with the new block
+    /// Creates HashMap's of txids and spent utxos for efficient lookups
+    </span><span class="kw">pub fn </span>update_with_block(<span class="kw-2">&amp;mut </span><span class="self">self</span>, block: <span class="kw-2">&amp;</span>Block, block_height: u32) {
         <span class="self">self</span>.block_height = block_height;
         <span class="kw">for </span>(idx, tx) <span class="kw">in </span>block.txdata.iter().enumerate() {
             <span class="self">self</span>.txids.insert(tx.compute_txid(), idx);

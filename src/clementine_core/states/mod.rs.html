@@ -565,7 +565,50 @@
 <a href="#564" id="564">564</a>
 <a href="#565" id="565">565</a>
 <a href="#566" id="566">566</a>
-<a href="#567" id="567">567</a></pre></div><pre class="rust"><code><span class="kw">pub use </span><span class="kw">crate</span>::builder::block_cache;
+<a href="#567" id="567">567</a>
+<a href="#568" id="568">568</a>
+<a href="#569" id="569">569</a>
+<a href="#570" id="570">570</a>
+<a href="#571" id="571">571</a>
+<a href="#572" id="572">572</a>
+<a href="#573" id="573">573</a>
+<a href="#574" id="574">574</a>
+<a href="#575" id="575">575</a>
+<a href="#576" id="576">576</a>
+<a href="#577" id="577">577</a>
+<a href="#578" id="578">578</a>
+<a href="#579" id="579">579</a>
+<a href="#580" id="580">580</a>
+<a href="#581" id="581">581</a>
+<a href="#582" id="582">582</a>
+<a href="#583" id="583">583</a>
+<a href="#584" id="584">584</a>
+<a href="#585" id="585">585</a>
+<a href="#586" id="586">586</a>
+<a href="#587" id="587">587</a>
+<a href="#588" id="588">588</a>
+<a href="#589" id="589">589</a>
+<a href="#590" id="590">590</a></pre></div><pre class="rust"><code><span class="doccomment">//! State manager module
+//!
+//! This module contains the state manager, which is responsible for holding the state machines
+//! of the system representing the current operator state for each operator, and kickoff state for each kickoff
+//! (Each operator and kickoff process has its own state machine).
+//!
+//! The main responsibility of the state manager is to process each finalized block in Bitcoin and update the state machines.
+//! The blocks are scanned for relevant Clementine tx's and internal state of the state machines is updated. This relevant data
+//! is passed on verifiers/operators when its time to send bridge transactions (like operator asserts, watchtower challenges, etc).
+//!
+//! Operator state machine: Stores where in the collateral chain the operator is. (Which round or ready to reimburse tx)
+//!     Additionally during rounds it stores which kickoff utxos of the round are spent.
+//! Kickoff state machine:
+//!     - Stores if the kickoff was challenged.
+//!     - Stores/tracks watchtower challenges, latest blockhash commit by operator, operator asserts, any relevant information needed
+//!           for proving and disproving the kickoff.
+//!
+//! For state machines we use the [statig](https://github.com/mdeloof/statig) crate.
+//!
+
+</span><span class="kw">pub use </span><span class="kw">crate</span>::builder::block_cache;
 <span class="kw">use </span><span class="kw">crate</span>::config::protocol::ProtocolParamset;
 <span class="kw">use </span><span class="kw">crate</span>::database::{Database, DatabaseTransaction};
 <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
@@ -656,8 +699,12 @@
     }
 }
 
-<span class="comment">// New state manager to hold and coordinate state machines
-</span><span class="attr">#[derive(Debug)]
+<span class="doccomment">/// State manager stores the state machines.
+/// It is responsible for following:
+///     - Persisting current state of the state machines to the database.
+///     - Collecting new [`SystemEvent`]s from the message queue and passing them to the state machines,
+///           thus updating the state machines.
+</span><span class="attr">#[derive(Debug, Clone)]
 </span><span class="kw">pub struct </span>StateManager&lt;T: Owner&gt; {
     <span class="kw">pub </span>db: Database,
     queue: PGMQueueExt,
@@ -670,7 +717,8 @@
 }
 
 <span class="kw">impl</span>&lt;T: Owner + std::fmt::Debug + <span class="lifetime">'static</span>&gt; StateManager&lt;T&gt; {
-    <span class="kw">pub fn </span>queue_name() -&gt; String {
+    <span class="doccomment">/// Returns message queue name for the state manager.
+    </span><span class="kw">pub fn </span>queue_name() -&gt; String {
         <span class="macro">format!</span>(<span class="string">"{}_state_mgr_events"</span>, T::ENTITY_NAME)
     }
 
@@ -711,32 +759,25 @@
     /// # Errors
     /// Returns a `BridgeError` if the database operation fails
     </span><span class="kw">pub async fn </span>load_from_db(<span class="kw-2">&amp;mut </span><span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
-        <span class="comment">// Start a transaction
-        </span><span class="kw">let </span><span class="kw-2">mut </span>tx = <span class="self">self</span>.db.begin_transaction().<span class="kw">await</span><span class="question-mark">?</span>;
-
         <span class="comment">// Get the owner type from the context
         </span><span class="kw">let </span>owner_type = <span class="kw-2">&amp;</span><span class="self">self</span>.context.owner_type;
 
         <span class="comment">// First, check if we have any state saved
-        </span><span class="kw">let </span>status = <span class="self">self
-            </span>.db
-            .get_next_height_to_process(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>tx), owner_type)
-            .<span class="kw">await</span><span class="question-mark">?</span>;
+        </span><span class="kw">let </span>status = <span class="self">self</span>.db.get_next_height_to_process(<span class="prelude-val">None</span>, owner_type).<span class="kw">await</span><span class="question-mark">?</span>;
 
         <span class="comment">// If no state is saved, return early
         </span><span class="kw">let </span><span class="prelude-val">Some</span>(block_height) = status <span class="kw">else </span>{
             <span class="macro">tracing::info!</span>(<span class="string">"No state machines found in the database"</span>);
-            tx.commit().<span class="kw">await</span><span class="question-mark">?</span>;
             <span class="kw">return </span><span class="prelude-val">Ok</span>(());
         };
 
         <span class="macro">tracing::info!</span>(<span class="string">"Loading state machines from block height {}"</span>, block_height);
 
         <span class="comment">// Load kickoff machines
-        </span><span class="kw">let </span>kickoff_machines = <span class="self">self
-            </span>.db
-            .load_kickoff_machines(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>tx), owner_type)
-            .<span class="kw">await</span><span class="question-mark">?</span>;
+        </span><span class="kw">let </span>kickoff_machines = <span class="self">self</span>.db.load_kickoff_machines(<span class="prelude-val">None</span>, owner_type).<span class="kw">await</span><span class="question-mark">?</span>;
+
+        <span class="comment">// Load round machines
+        </span><span class="kw">let </span>round_machines = <span class="self">self</span>.db.load_round_machines(<span class="prelude-val">None</span>, owner_type).<span class="kw">await</span><span class="question-mark">?</span>;
 
         <span class="comment">// Process and recreate kickoff machines
         </span><span class="kw">for </span>(state_json, kickoff_id, saved_block_height) <span class="kw">in </span><span class="kw-2">&amp;</span>kickoff_machines {
@@ -773,12 +814,6 @@
                 }
             }
         }
-
-        <span class="comment">// Load round machines
-        </span><span class="kw">let </span>round_machines = <span class="self">self
-            </span>.db
-            .load_round_machines(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>tx), owner_type)
-            .<span class="kw">await</span><span class="question-mark">?</span>;
 
         <span class="comment">// Process and recreate round machines
         </span><span class="kw">for </span>(state_json, operator_xonly_pk, saved_block_height) <span class="kw">in </span><span class="kw-2">&amp;</span>round_machines {
@@ -822,7 +857,6 @@
             round_machines.len()
         );
 
-        tx.commit().<span class="kw">await</span><span class="question-mark">?</span>;
         <span class="self">self</span>.next_height_to_process =
             u32::try_from(block_height).wrap_err(BridgeError::IntConversionError)<span class="question-mark">?</span>;
         <span class="prelude-val">Ok</span>(())
@@ -841,13 +875,11 @@
         <span class="self">self</span>.kickoff_machines.clone()
     }
 
-    <span class="doccomment">/// Saves the state machines to the database. Resets the dirty flag for all machines after successful save.
+    <span class="doccomment">/// Saves the state machines with dirty flag set to the database.
+    /// Resets the dirty flag for all machines after successful save.
     ///
     /// # Errors
     /// Returns a `BridgeError` if the database operation fails.
-    ///
-    /// # TODO
-    /// We should only save `dirty` machines but we currently save all of them.
     </span><span class="kw">pub async fn </span>save_state_to_db(
         <span class="kw-2">&amp;mut </span><span class="self">self</span>,
         block_height: u32,
@@ -860,18 +892,17 @@
         </span><span class="kw">let </span>kickoff_machines: eyre::Result&lt;Vec&lt;<span class="kw">_</span>&gt;&gt; = <span class="self">self
             </span>.kickoff_machines
             .iter()
+            <span class="comment">// Only serialize machines that are dirty
+            </span>.filter(|machine| machine.dirty)
             .map(|machine| -&gt; eyre::Result&lt;<span class="kw">_</span>&gt; {
-                <span class="comment">// Directly serialize the machine
-                </span><span class="kw">let </span>state_json = serde_json::to_string(<span class="kw-2">&amp;</span>machine).wrap_err_with(|| {
+                <span class="kw">let </span>state_json = serde_json::to_string(<span class="kw-2">&amp;</span>machine).wrap_err_with(|| {
                     <span class="macro">format!</span>(<span class="string">"Failed to serialize kickoff machine: {:?}"</span>, machine)
                 })<span class="question-mark">?</span>;
                 <span class="kw">let </span>kickoff_id =
                     serde_json::to_string(<span class="kw-2">&amp;</span>machine.kickoff_data).wrap_err_with(|| {
                         <span class="macro">format!</span>(<span class="string">"Failed to serialize kickoff id for machine: {:?}"</span>, machine)
                     })<span class="question-mark">?</span>;
-
-                <span class="comment">// Use the machine's dirty flag to determine if it needs updating
-                </span><span class="prelude-val">Ok</span>((state_json, (kickoff_id), machine.dirty))
+                <span class="prelude-val">Ok</span>((state_json, (kickoff_id)))
             })
             .collect();
 
@@ -879,6 +910,8 @@
         </span><span class="kw">let </span>round_machines: eyre::Result&lt;Vec&lt;<span class="kw">_</span>&gt;&gt; = <span class="self">self
             </span>.round_machines
             .iter()
+            <span class="comment">// Only serialize machines that are dirty
+            </span>.filter(|machine| machine.dirty)
             .map(|machine| -&gt; eyre::Result&lt;<span class="kw">_</span>&gt; {
                 <span class="kw">let </span>state_json = serde_json::to_string(machine).wrap_err_with(|| {
                     <span class="macro">format!</span>(<span class="string">"Failed to serialize round machine: {:?}"</span>, machine)
@@ -886,7 +919,7 @@
                 <span class="kw">let </span>operator_xonly_pk = machine.operator_data.xonly_pk;
 
                 <span class="comment">// Use the machine's dirty flag to determine if it needs updating
-                </span><span class="prelude-val">Ok</span>((state_json, (operator_xonly_pk), machine.dirty))
+                </span><span class="prelude-val">Ok</span>((state_json, (operator_xonly_pk)))
             })
             .collect();
 
@@ -968,24 +1001,29 @@
         (unchanged_machines, processing_futures)
     }
 
-    <span class="kw">pub async fn </span>process_and_add_new_states_from_height(
+    <span class="doccomment">/// Given some new states and a start height, process the states from the given start height until the next height to process.
+    /// Then append the new states to the current state machines.
+    </span><span class="kw">pub async fn </span>process_and_add_new_states_from_height(
         <span class="kw-2">&amp;mut </span><span class="self">self</span>,
         new_round_machines: Vec&lt;InitializedStateMachine&lt;round::RoundStateMachine&lt;T&gt;&gt;&gt;,
         new_kickoff_machines: Vec&lt;InitializedStateMachine&lt;kickoff::KickoffStateMachine&lt;T&gt;&gt;&gt;,
         start_height: u32,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;(), eyre::Report&gt; {
-        <span class="comment">// save old round machines, only process new ones and then append old machines back
-        </span><span class="kw">let </span>saved_round_machines = std::mem::take(<span class="kw-2">&amp;mut </span><span class="self">self</span>.round_machines);
-        <span class="kw">let </span>saved_kickoff_machines = std::mem::take(<span class="kw-2">&amp;mut </span><span class="self">self</span>.kickoff_machines);
+        <span class="comment">// create a temporary state manager that only includes the new states
+        </span><span class="kw">let </span><span class="kw-2">mut </span>temporary_manager = <span class="self">self</span>.clone();
+        temporary_manager.round_machines = new_round_machines;
+        temporary_manager.kickoff_machines = new_kickoff_machines;
 
-        <span class="self">self</span>.round_machines = new_round_machines;
-        <span class="self">self</span>.kickoff_machines = new_kickoff_machines;
-
-        <span class="kw">for </span>block_height <span class="kw">in </span>start_height..<span class="self">self</span>.next_height_to_process {
-            <span class="kw">let </span>block = <span class="self">self</span>.db.get_full_block(<span class="prelude-val">None</span>, block_height).<span class="kw">await</span><span class="question-mark">?</span>;
+        <span class="kw">for </span>block_height <span class="kw">in </span>start_height..temporary_manager.next_height_to_process {
+            <span class="kw">let </span>block = temporary_manager
+                .db
+                .get_full_block(<span class="prelude-val">None</span>, block_height)
+                .<span class="kw">await</span><span class="question-mark">?</span>;
             <span class="kw">if let </span><span class="prelude-val">Some</span>(block) = block {
-                <span class="self">self</span>.update_block_cache(<span class="kw-2">&amp;</span>block, block_height);
-                <span class="self">self</span>.process_block_parallel(block_height).<span class="kw">await</span><span class="question-mark">?</span>;
+                temporary_manager.update_block_cache(<span class="kw-2">&amp;</span>block, block_height);
+                temporary_manager
+                    .process_block_parallel(block_height)
+                    .<span class="kw">await</span><span class="question-mark">?</span>;
             } <span class="kw">else </span>{
                 <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(
                     <span class="string">"Block at height {} not found in process_and_add_new_states_from_height"</span>,
@@ -994,9 +1032,10 @@
             }
         }
 
-        <span class="comment">// append saved states
-        </span><span class="self">self</span>.round_machines.extend(saved_round_machines);
-        <span class="self">self</span>.kickoff_machines.extend(saved_kickoff_machines);
+        <span class="comment">// append new states to the current state manager
+        </span><span class="self">self</span>.round_machines.extend(temporary_manager.round_machines);
+        <span class="self">self</span>.kickoff_machines
+            .extend(temporary_manager.kickoff_machines);
 
         <span class="prelude-val">Ok</span>(())
     }
@@ -1014,7 +1053,11 @@
             <span class="string">"Block cache is not updated"
         </span>);
 
-        <span class="kw">let </span>kickoff_machines_checkpoint = <span class="self">self</span>.kickoff_machines.clone();
+        <span class="comment">// Store the original machines to revert to in case of an error happens during processing
+        // If an error is encountered, the block processing will retry. If we don't store and revert all
+        // state machines during processing, some state machines can be left in an invalid state
+        // depending on where the error occurred. To be safe, we revert to the original machines.
+        </span><span class="kw">let </span>kickoff_machines_checkpoint = <span class="self">self</span>.kickoff_machines.clone();
         <span class="kw">let </span>round_machines_checkpoint = <span class="self">self</span>.round_machines.clone();
 
         <span class="comment">// Process all machines, for those unaffected collect them them, otherwise return
@@ -1024,7 +1067,10 @@
         <span class="kw">let </span>(<span class="kw-2">mut </span>final_round_machines, <span class="kw-2">mut </span>round_futures) =
             <span class="self">Self</span>::update_machines(<span class="kw-2">&amp;mut </span><span class="self">self</span>.round_machines, <span class="kw-2">&amp;</span><span class="self">self</span>.context);
 
-        <span class="kw">let </span><span class="kw-2">mut </span>iterations = <span class="number">0</span>;
+        <span class="comment">// Here we store number of iterations to detect if the machines do not stabilize after a while
+        // to prevent infinite loops. If a matcher is used, it is deleted, but a bug in implementation
+        // can technically cause infinite loops.
+        </span><span class="kw">let </span><span class="kw-2">mut </span>iterations = <span class="number">0</span>;
 
         <span class="comment">// On each iteration, we'll update the changed machines until all machines
         // stabilize in their state.
