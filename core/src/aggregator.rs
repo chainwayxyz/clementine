@@ -251,64 +251,63 @@ impl Aggregator {
         if !all_collected {
             // get a write lock early, so that only one thread can try to collect keys
             let mut keys = keys_storage.write().await;
-            
-            let futures = clients
-                .iter()
-                .zip(keys.iter())
-                .filter(|(_, key)| key.is_none())
-                .map(|(client, _)| pubkey_fetcher(client.clone()));
 
-            let collected_keys = join_all(futures).await;
+            // sanity check because we directly use indexes below
+            if keys.len() != clients.len() {
+                return Err(eyre::eyre!(
+                    "Keys storage length does not match clients length, should not happen, keys length: {}, clients length: {}",
+                    keys.len(),
+                    clients.len()
+                )
+                .into());
+            }
+
+            let key_collection_futures = clients
+                .iter()
+                .zip(keys.iter().enumerate())
+                .filter_map(|(client, (idx, key))| {
+                    if key.is_none() {
+                        Some((idx, pubkey_fetcher(client.clone())))
+                    } else {
+                        None
+                    }
+                })
+                .map(|(idx, fut)| async move { (idx, fut.await) });
+
+            let collected_keys = join_all(key_collection_futures).await;
+            let mut missing_keys = Vec::new();
 
             // Fill in keys with the results of the futures
-            let mut new_keys_iter = collected_keys.into_iter();
-
-            for (idx, key) in keys.iter_mut().enumerate() {
-                if key.is_none() {
-                    if let Some(new_key) = new_keys_iter.next() {
-                        match new_key {
-                            Ok(new_key) => *key = Some(new_key),
-                            Err(e) => {
-                                tracing::debug!(
-                                    "Failed to collect {} {} (order in config) key: {}",
-                                    key_type_name,
-                                    idx,
-                                    e
-                                );
-                                continue;
-                            }
-                        }
-                    } else {
-                        return Err(eyre::eyre!(
-                            "Not enough {} keys collected, internal logic error, should not happen",
-                            key_type_name
-                        )
-                        .into());
+            for (idx, new_key) in collected_keys {
+                match new_key {
+                    Ok(new_key) => keys[idx] = Some(new_key),
+                    Err(e) => {
+                        tracing::debug!(
+                            "Failed to collect {} {} (order in config) key: {}",
+                            key_type_name,
+                            idx,
+                            e
+                        );
+                        missing_keys.push(idx);
                     }
                 }
             }
-        }
 
-        let keys = keys_storage.read().await;
-
-        // collect indices of keys that were not collected
-        let missing_indices: Vec<_> = keys
-            .iter()
-            .enumerate()
-            .filter_map(|(idx, key)| key.is_none().then_some(idx))
-            .collect();
-
-        if !missing_indices.is_empty() {
-            return Err(eyre::eyre!(
-                "Not enough {} keys collected, missing keys at indices: {:?}",
-                key_type_name,
-                missing_indices
-            )
-            .into());
+            // if not all keys were collected, return an error
+            if keys.iter().any(|key| key.is_none()) {
+                return Err(eyre::eyre!(
+                    "Not all {} keys were able to be collected, missing keys at indices: {:?}",
+                    key_type_name,
+                    missing_keys
+                )
+                .into());
+            }
         }
 
         // return all keys if they were all collected
-        Ok(keys
+        Ok(keys_storage
+            .read()
+            .await
             .iter()
             .map(|key| key.clone().expect("should all be collected"))
             .collect())
