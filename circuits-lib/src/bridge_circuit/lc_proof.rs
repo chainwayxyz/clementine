@@ -1,13 +1,14 @@
 use super::structs::LightClientProof;
 use citrea_sov_rollup_interface::zk::light_client_proof::output::LightClientCircuitOutput;
+use risc0_zkvm::guest::env;
 
 // use risc0_zkvm::guest::env;
 
-// const LC_IMAGE_ID: [u8; 32] =
-//     hex_literal::hex!("95d94770d8aa1803f1e63d373b92319b024c1db5d79aad0e78bcf0984c75e813");
+const LC_IMAGE_ID: [u8; 32] =
+    hex_literal::hex!("95d94770d8aa1803f1e63d373b92319b024c1db5d79aad0e78bcf0984c75e813");
 
 pub fn lc_proof_verifier(light_client_proof: LightClientProof) -> LightClientCircuitOutput {
-    // env::verify(LC_IMAGE_ID, &light_client_proof.lc_journal).unwrap();
+    env::verify(LC_IMAGE_ID, &light_client_proof.lc_journal).unwrap();
 
     if light_client_proof.lc_journal.len() < 32 {
         panic!("Invalid light client journal");
@@ -35,7 +36,11 @@ mod tests {
             lc_journal: lcp_receipt.journal.bytes.to_vec(),
         };
 
-        let light_client_circuit_output = lc_proof_verifier(light_client_proof);
+        lcp_receipt.verify(LC_IMAGE_ID).unwrap();
+
+        let light_client_circuit_output: LightClientCircuitOutput =
+            borsh::from_slice(light_client_proof.lc_journal.as_slice())
+                .expect("Failed to deserialize light client circuit output");
 
         let expected_state_root =
             "20476f2cc8568476d4ca3c2e34d2f9889c1cce06289873ed5ed46c31be0ce55e";
