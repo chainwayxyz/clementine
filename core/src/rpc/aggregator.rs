@@ -1534,7 +1534,10 @@ mod tests {
     use crate::config::BridgeConfig;
     use crate::deposit::{BaseDepositData, DepositInfo, DepositType};
     use crate::musig2::AggregateFromPublicKeys;
+    use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
     use crate::rpc::clementine::{self, GetEntityStatusesRequest, SendMoveTxRequest};
+    use crate::rpc::get_clients;
+    use crate::servers::create_aggregator_unix_server;
     use crate::test::common::citrea::MockCitreaClient;
     use crate::test::common::tx_utils::ensure_tx_onchain;
     use crate::test::common::*;
@@ -2106,6 +2109,66 @@ mod tests {
             status.entity_statuses.len(),
             config.test_params.all_operators_secret_keys.len()
                 + config.test_params.all_verifiers_secret_keys.len()
+        );
+    }
+
+    #[tokio::test]
+    async fn aggregator_start_with_offline_verifier() {
+        let mut config = create_test_config_with_thread_name().await;
+        // random ips
+        config.verifier_endpoints = Some(vec!["https://142.143.144.145:17001".to_string()]);
+        config.operator_endpoints = Some(vec!["https://142.143.144.145:17002".to_string()]);
+        // Create temporary directory for aggregator socket
+        let socket_dir = tempfile::tempdir().unwrap();
+        let socket_path = socket_dir.path().join("aggregator.sock");
+
+        tracing::info!("Creating unix aggregator server");
+
+        let (_, _shutdown_tx) = create_aggregator_unix_server(config.clone(), socket_path.clone())
+            .await
+            .unwrap();
+
+        tracing::info!("Created unix aggregator server");
+
+        let mut aggregator_client = get_clients(
+            vec![format!("unix://{}", socket_path.display())],
+            ClementineAggregatorClient::new,
+            &config,
+            false,
+        )
+        .await
+        .unwrap()
+        .pop()
+        .unwrap();
+
+        tracing::info!("Got aggregator client");
+
+        // vergen should work
+        assert!(aggregator_client
+            .vergen(Request::new(clementine::Empty {}))
+            .await
+            .is_ok());
+
+        tracing::info!("After vergen");
+
+        // setup should give error as it can't connect to the verifier
+        assert!(aggregator_client
+            .setup(Request::new(clementine::Empty {}))
+            .await
+            .is_err());
+
+        tracing::info!("After setup");
+
+        // aggregator should still be up even after not connecting to the verifier
+        // and should be able to get metrics
+        tracing::info!(
+            "Entity statuses: {:?}",
+            aggregator_client
+                .get_entity_statuses(Request::new(GetEntityStatusesRequest {
+                    restart_tasks: false,
+                }))
+                .await
+                .unwrap()
         );
     }
 }
