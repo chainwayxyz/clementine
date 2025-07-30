@@ -37,6 +37,7 @@ use bitcoin::XOnlyPublicKey;
 use eyre::Context;
 use futures::future::join_all;
 use secp256k1::musig::{AggregatedNonce, PartialSignature};
+use std::future::Future;
 use tokio::sync::RwLock;
 use tonic::{Request, Status};
 use tracing::{debug_span, Instrument};
@@ -227,159 +228,130 @@ impl Aggregator {
         &self.verifier_clients
     }
 
-    /// If all verifier keys are already collected, returns them.
-    /// Otherwise, it tries to collect them from the verifiers, saves them and returns them.
-    pub async fn fetch_verifier_keys(&self) -> Result<Vec<PublicKey>, BridgeError> {
-        // if all verifier keys are not collected, get a write lock and collect them
-        if !self.check_verifier_keys_collected().await {
-            let mut verifier_keys = self.verifier_keys.write().await;
+    /// Generic helper function to fetch keys from clients
+    async fn fetch_pubkeys_from_entities<T, C, F, Fut>(
+        &self,
+        clients: &[C],
+        keys_storage: &RwLock<Vec<Option<T>>>,
+        pubkey_fetcher: F,
+        key_type_name: &str,
+    ) -> Result<Vec<T>, BridgeError>
+    where
+        T: Clone + Send + Sync,
+        C: Clone + Send + Sync,
+        F: Fn(C) -> Fut + Send + Sync,
+        Fut: Future<Output = Result<T, BridgeError>> + Send,
+    {
+        // Check if all keys are collected
+        let all_collected = {
+            let keys = keys_storage.read().await;
+            keys.iter().all(|key| key.is_some())
+        };
 
-            let futures = self
-                .verifier_clients
+        if !all_collected {
+            // get a read lock early, so that only one thread can try to collect keys
+            let mut keys = keys_storage.write().await;
+
+            let futures = clients
                 .iter()
-                .zip(verifier_keys.iter())
+                .zip(keys.iter())
                 .filter(|(_, key)| key.is_none())
-                .map(|(verifier_client, _)| {
-                    let mut client = verifier_client.clone();
-                    async move {
-                        let mut request = Request::new(Empty {});
-                        request.set_timeout(PUBLIC_KEY_COLLECTION_TIMEOUT);
-                        let verifier_params = client.get_params(request).await?.into_inner();
-                        let public_key = PublicKey::from_slice(&verifier_params.public_key)
-                            .map_err(|e| {
-                                eyre::eyre!("Failed to parse verifier public key: {}", e)
-                            })?;
-                        Ok::<_, BridgeError>(public_key)
-                    }
-                });
+                .map(|(client, _)| pubkey_fetcher(client.clone()));
 
-            let remaining_keys = join_all(futures).await;
+            let collected_keys = join_all(futures).await;
 
-            // now fill in keys with the results of the futures (If they evaluate to Ok, meaning the key was collected)
-            let mut new_keys_iter = remaining_keys.into_iter();
-            // we will return an error if we did not collect all keys
-            let mut not_collected = false;
+            // Fill in keys with the results of the futures
+            let mut new_keys_iter = collected_keys.into_iter();
 
-            for (idx, key) in verifier_keys.iter_mut().enumerate() {
+            for (idx, key) in keys.iter_mut().enumerate() {
                 if key.is_none() {
                     if let Some(new_key) = new_keys_iter.next() {
                         match new_key {
                             Ok(new_key) => *key = Some(new_key),
                             Err(e) => {
                                 tracing::debug!(
-                                    "Failed to collect verifier {} (order in config) key: {}",
+                                    "Failed to collect {} {} (order in config) key: {}",
+                                    key_type_name,
                                     idx,
                                     e
                                 );
-                                // mark that we have not collected all keys
-                                not_collected = true;
                                 continue;
                             }
                         }
                     } else {
                         return Err(eyre::eyre!(
-                            "Not enough verifier keys collected, internal logic error, should not happen"
+                            "Not enough {} keys collected, internal logic error, should not happen",
+                            key_type_name
                         )
                         .into());
                     }
                 }
             }
-            if not_collected {
-                return Err(eyre::eyre!("Not all verifier keys could be collected").into());
-            }
         }
-        // just get a read lock and return the keys
-        Ok(self
-            .verifier_keys
-            .read()
-            .await
+
+        let keys = keys_storage.read().await;
+
+        // collect indices of keys that were not collected
+        let missing_indices: Vec<_> = keys
             .iter()
             .enumerate()
-            .map(|(idx, key)| key.ok_or(eyre::eyre!("Verifier {} key not collected yet", idx)))
-            .collect::<Result<Vec<_>, _>>()?)
+            .filter_map(|(idx, key)| key.is_none().then_some(idx))
+            .collect();
+
+        if !missing_indices.is_empty() {
+            return Err(eyre::eyre!(
+                "Not enough {} keys collected, missing keys at indices: {:?}",
+                key_type_name,
+                missing_indices
+            )
+            .into());
+        }
+
+        // return all keys if they were all collected
+        Ok(keys
+            .iter()
+            .map(|key| key.clone().expect("should all be collected"))
+            .collect())
     }
 
-    async fn check_verifier_keys_collected(&self) -> bool {
-        let verifier_keys = self.verifier_keys.read().await;
-        verifier_keys.iter().all(|key| key.is_some())
-    }
-
-    async fn check_operator_keys_collected(&self) -> bool {
-        let operator_keys = self.operator_keys.read().await;
-        operator_keys.iter().all(|key| key.is_some())
+    /// If all verifier keys are already collected, returns them.
+    /// Otherwise, it tries to collect them from the verifiers, saves them and returns them.
+    pub async fn fetch_verifier_keys(&self) -> Result<Vec<PublicKey>, BridgeError> {
+        self.fetch_pubkeys_from_entities(
+            &self.verifier_clients,
+            &self.verifier_keys,
+            |mut client| async move {
+                let mut request = Request::new(Empty {});
+                request.set_timeout(PUBLIC_KEY_COLLECTION_TIMEOUT);
+                let verifier_params = client.get_params(request).await?.into_inner();
+                let public_key = PublicKey::from_slice(&verifier_params.public_key)
+                    .map_err(|e| eyre::eyre!("Failed to parse verifier public key: {}", e))?;
+                Ok::<_, BridgeError>(public_key)
+            },
+            "verifier",
+        )
+        .await
     }
 
     /// If all operator keys are already collected, returns them.
     /// Otherwise, it tries to collect them from the operators, saves them and returns them.
     pub async fn fetch_operator_keys(&self) -> Result<Vec<XOnlyPublicKey>, BridgeError> {
-        // if all operator keys are not collected, get a write lock and collect them
-        if !self.check_operator_keys_collected().await {
-            let mut operator_keys = self.operator_keys.write().await;
-
-            // collect the keys from the operators that we didn't collect from yet
-            let futures = self
-                .operator_clients
-                .iter()
-                .zip(operator_keys.iter())
-                .filter(|(_, key)| key.is_none())
-                .map(|(operator_client, _)| {
-                    let mut client = operator_client.clone();
-                    async move {
-                        let mut request = Request::new(Empty {});
-                        request.set_timeout(PUBLIC_KEY_COLLECTION_TIMEOUT);
-                        let operator_keys: XOnlyPublicKey = client
-                            .get_x_only_public_key(request)
-                            .await?
-                            .into_inner()
-                            .try_into()?;
-                        Ok::<_, BridgeError>(operator_keys)
-                    }
-                });
-
-            let collected_keys = join_all(futures).await;
-
-            // now fill in keys with the results of the futures (If they evaluate to Ok, meaning the key was collected)
-            let mut new_keys_iter = collected_keys.into_iter();
-            // we will return an error if we did not collect all keys
-            let mut not_collected = false;
-
-            for (idx, key) in operator_keys.iter_mut().enumerate() {
-                if key.is_none() {
-                    if let Some(new_key) = new_keys_iter.next() {
-                        match new_key {
-                            Ok(new_key) => *key = Some(new_key),
-                            Err(e) => {
-                                tracing::debug!(
-                                    "Failed to collect operator {} (order in config) key: {}",
-                                    idx,
-                                    e
-                                );
-                                // mark that we have not collected all keys
-                                not_collected = true;
-                                continue;
-                            }
-                        }
-                    } else {
-                        return Err(eyre::eyre!(
-                            "Not enough operator keys collected, internal logic error, should not happen"
-                        )
-                        .into());
-                    }
-                }
-            }
-            if not_collected {
-                return Err(eyre::eyre!("Not all operator keys could be collected").into());
-            }
-        }
-        // just get a read lock and return the keys
-        Ok(self
-            .operator_keys
-            .read()
-            .await
-            .iter()
-            .enumerate()
-            .map(|(idx, key)| key.ok_or(eyre::eyre!("Operator {} key not collected yet", idx)))
-            .collect::<Result<Vec<_>, _>>()?)
+        self.fetch_pubkeys_from_entities(
+            &self.operator_clients,
+            &self.operator_keys,
+            |mut client| async move {
+                let mut request = Request::new(Empty {});
+                request.set_timeout(PUBLIC_KEY_COLLECTION_TIMEOUT);
+                let operator_xonly_pk: XOnlyPublicKey = client
+                    .get_x_only_public_key(request)
+                    .await?
+                    .into_inner()
+                    .try_into()?;
+                Ok::<_, BridgeError>(operator_xonly_pk)
+            },
+            "operator",
+        )
+        .await
     }
 
     pub fn get_operator_clients(&self) -> &[ClementineOperatorClient<tonic::transport::Channel>] {
