@@ -64,6 +64,7 @@ impl TxSenderClient {
     ///
     /// - [`u32`]: The database ID (`try_to_send_id`) assigned to this send attempt.
     #[tracing::instrument(err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE), skip_all, fields(?tx_metadata, consumer = self.tx_sender_consumer_id))]
+    #[allow(clippy::too_many_arguments)]
     pub async fn insert_try_to_send(
         &self,
         dbtx: DatabaseTransaction<'_, '_>,
@@ -204,6 +205,7 @@ impl TxSenderClient {
     /// # Returns
     ///
     /// - [`u32`]: The database ID (`try_to_send_id`) assigned to this send attempt.
+    #[allow(clippy::too_many_arguments)]
     pub async fn add_tx_to_queue<'a>(
         &'a self,
         dbtx: DatabaseTransaction<'a, '_>,
@@ -227,9 +229,7 @@ impl TxSenderClient {
             | TransactionType::Round
             | TransactionType::OperatorChallengeNack(_)
             | TransactionType::UnspentKickoff(_)
-            | TransactionType::Payout
             | TransactionType::MoveToVault
-            | TransactionType::Disprove
             | TransactionType::BurnUnusedKickoffConnectors
             | TransactionType::KickoffNotFinalized
             | TransactionType::MiniAssert(_)
@@ -254,7 +254,9 @@ impl TxSenderClient {
                 )
                 .await
             }
-            TransactionType::Challenge | TransactionType::WatchtowerChallenge(_) => {
+            TransactionType::Challenge
+            | TransactionType::WatchtowerChallenge(_)
+            | TransactionType::Payout => {
                 self.insert_try_to_send(
                     dbtx,
                     tx_metadata,
@@ -329,10 +331,23 @@ impl TxSenderClient {
                 )
                 .await
             }
+            TransactionType::Disprove => {
+                self.insert_try_to_send(
+                    dbtx,
+                    tx_metadata,
+                    signed_tx,
+                    FeePayingType::NoFunding,
+                    rbf_info,
+                    &[],
+                    &[],
+                    &[],
+                    &[],
+                )
+                .await
+            }
             TransactionType::AllNeededForDeposit | TransactionType::YieldKickoffTxid => {
                 unreachable!()
             }
-            TransactionType::BaseDeposit => unimplemented!(),
         }
     }
 
@@ -387,7 +402,7 @@ impl TxSenderClient {
             .collect::<Result<Vec<_>>>()?;
 
         let txid = match fee_paying_type {
-            FeePayingType::CPFP => tx.compute_txid(),
+            FeePayingType::CPFP | FeePayingType::NoFunding => tx.compute_txid(),
             FeePayingType::RBF => self
                 .db
                 .get_last_rbf_txid(None, id)

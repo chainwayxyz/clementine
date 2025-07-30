@@ -1,3 +1,8 @@
+//! # MMR Guest - Merkle Mountain Range for zkVM
+//!
+//! Lightweight MMR implementation optimized for zero-knowledge virtual machine environments.
+//! Stores only subroots and size for efficient proof verification within circuit constraints.
+
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
@@ -5,7 +10,10 @@ use crate::common::hashes::hash_pair;
 
 use super::mmr_native::MMRInclusionProof;
 
-/// Represents the MMR for inside zkVM (guest)
+/// Merkle Mountain Range implementation for zkVM environments.
+///
+/// Maintains only the essential data (subroots and size) needed for proof verification
+/// within the constrained environment of a zero-knowledge proof system.
 #[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
 
 pub struct MMRGuest {
@@ -20,7 +28,7 @@ impl Default for MMRGuest {
 }
 
 impl MMRGuest {
-    /// Creates a new MMR for inside zkVM
+    /// Creates a new empty MMR instance.
     pub fn new() -> Self {
         MMRGuest {
             subroots: vec![],
@@ -28,6 +36,10 @@ impl MMRGuest {
         }
     }
 
+    /// Appends a new leaf to the MMR, updating subroots as needed.
+    ///
+    /// Implements the MMR append algorithm by combining consecutive pairs
+    /// of nodes to maintain the mountain range structure.
     pub fn append(&mut self, leaf: [u8; 32]) {
         let mut current = leaf;
         let mut size = self.size;
@@ -40,34 +52,11 @@ impl MMRGuest {
         self.size += 1;
     }
 
-    // fn get_helpers_from_index(&self, index: u32) -> (usize, usize, u32) {
-    //     let xor = self.size ^ index;
-    //     let xor_leading_digit = 31 - xor.leading_zeros() as usize;
-    //     let internal_idx = index & ((1 << xor_leading_digit) - 1);
-
-    //     let leading_zeros_size = 31 - self.size.leading_zeros() as usize;
-    //     let mut tree_idx = 0;
-    //     for i in xor_leading_digit + 1..=leading_zeros_size {
-    //         if self.size & (1 << i) != 0 {
-    //             tree_idx += 1;
-    //         }
-    //     }
-    //     (tree_idx, xor_leading_digit, internal_idx)
-    // }
-
-    // pub fn get_root(&self) -> [u8; 32] {
-    //     let mut preimage: Vec<u8> = vec![];
-    //     for i in 0..self.subroots.len() {
-    //         preimage.extend_from_slice(&self.subroots[i]);
-    //     }
-    //     calculate_sha256(&preimage)
-    // }
-
-    /// Verifies an inclusion proof against the current MMR root
+    /// Verifies an inclusion proof against the MMR subroots.
+    ///
+    /// Replays the Merkle path from leaf to subroot and checks if the computed
+    /// subroot matches the stored subroot at the specified index.
     pub fn verify_proof(&self, leaf: [u8; 32], mmr_proof: &MMRInclusionProof) -> bool {
-        println!("GUEST: mmr_proof: {:?}", mmr_proof);
-        println!("GUEST: leaf: {:?}", leaf);
-        // let (subroot_idx, subtree_size, internal_idx) = self.get_helpers_from_index(index);
         let mut current_hash = leaf;
         for i in 0..mmr_proof.inclusion_proof.len() {
             let sibling = mmr_proof.inclusion_proof[i];
@@ -77,18 +66,6 @@ impl MMRGuest {
                 current_hash = hash_pair(sibling, current_hash);
             }
         }
-        println!("GUEST: calculated subroot: {:?}", current_hash);
-        println!("GUEST: subroots: {:?}", self.subroots);
         self.subroots[mmr_proof.subroot_idx] == current_hash
-        // let mut preimage: Vec<u8> = vec![];
-        // for i in 0..subroot_idx {
-        //     preimage.extend_from_slice(&self.subroots[i]);
-        // }
-        // preimage.extend_from_slice(&current_hash);
-        // for i in subroot_idx + 1..self.subroots.len() {
-        //     preimage.extend_from_slice(&self.subroots[i]);
-        // }
-        // let calculated_root = calculate_sha256(&preimage);
-        // calculated_root == self.get_root()
     }
 }

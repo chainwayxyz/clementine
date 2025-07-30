@@ -12,16 +12,41 @@ runs:
   using: "composite"
 
   steps:
+    - name: Cache bitvm cache files
+      uses: actions/cache@v4
+      id: cache-bitvm
+      with:
+        path: |
+          core/bitvm_cache.bin
+          core/bitvm_cache_dev.bin
+        key: bitvm-cache-v3-dev
+
     - name: Download bitvm cache bin
+      if: steps.cache-bitvm.outputs.cache-hit != 'true'
       shell: bash
       run: wget https://static.testnet.citrea.xyz/common/bitvm_cache_v3.bin -O core/bitvm_cache.bin
+
     - name: Download bitvm cache dev bin
+      if: steps.cache-bitvm.outputs.cache-hit != 'true'
       shell: bash
       run: wget https://static.testnet.citrea.xyz/common/bitvm_cache_dev.bin -O core/bitvm_cache_dev.bin
+
+    - name: Cache Bitcoin binaries
+      uses: actions/cache@v4
+      id: cache-bitcoin
+      with:
+        path: |
+          bitcoin-29.0-x86_64-linux-gnu.tar.gz
+          bitcoin-29.0/
+        key: bitcoin-29.0-x86_64-linux-gnu
+
     - name: Download Bitcoin
+      if: steps.cache-bitcoin.outputs.cache-hit != 'true'
       shell: bash
       run: wget https://bitcoincore.org/bin/bitcoin-core-29.0/bitcoin-29.0-x86_64-linux-gnu.tar.gz
+
     - name: Unpack Bitcoin
+      if: steps.cache-bitcoin.outputs.cache-hit != 'true'
       shell: bash
       run: tar -xzvf bitcoin-29.0-x86_64-linux-gnu.tar.gz
 
@@ -32,3 +57,13 @@ runs:
     - name: Add bitcoin to path
       shell: bash
       run: echo "$PWD/bitcoin-29.0/bin" >> $GITHUB_PATH
+
+    - name: Install risc0
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+      run: |
+        curl -L https://risczero.com/install | bash
+        export PATH="$PATH:$HOME/.risc0/bin"
+        rzup install
+        rzup install rust 1.85.0

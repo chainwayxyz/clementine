@@ -310,7 +310,7 @@ impl TxSender {
     /// * `bumped_id` - The database ID of the parent transaction whose fee payer UTXOs need bumping.
     /// * `fee_rate` - The target fee rate for bumping the fee payer transactions.
     #[tracing::instrument(skip_all, fields(sender = self.btc_syncer_consumer_id, bumped_id, fee_rate))]
-    async fn bump_fees_of_unconfirmed_fee_payer_txs(
+    async fn _bump_fees_of_unconfirmed_fee_payer_txs(
         &self,
         bumped_id: u32,
         fee_rate: FeeRate,

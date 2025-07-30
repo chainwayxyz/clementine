@@ -9,12 +9,17 @@ members = [
 ] # Add "risc0-circuits/operator", "risc0-circuits/watchtower" later
 
 [workspace.dependencies]
+color-eyre = "0.6.5"
 ctor = "0.4.2"
 hex = "0.4.3"
 lazy_static = { version = "1.5.0", default-features = false }
 serde = { version = "1.0", default-features = false, features = ["derive"] }
 serde_json = "1.0.128"
 thiserror = "1.0.64"
+metrics = { version = "0.23.0" }
+metrics-derive = { version = "0.1.0" }
+metrics-exporter-prometheus = { version = "0.15.3" }
+metrics-util = { version = "0.17.0" }
 tracing = { version = "0.1.40", default-features = false }
 tracing-subscriber = { version = "0.3.18", features = ["json"] }
 log = "0.4"
@@ -32,14 +37,12 @@ pgmq = "0.30.0"
 serde_with = "3.12.0"
 rand_chacha = "0.9.0"
 secrecy = { version = "0.10.0", features = ["serde"] }
+reqwest = { version = "0.12.12", features = ["rustls-tls", "json", "http2"], default-features = false }
 
 # Citrea dependencies
-citrea-e2e = { git = "https://github.com/chainwayxyz/citrea-e2e", rev = "d45a29afa4de9d7e00dad9e8d9c59f95fe22e557" }
-sov-rollup-interface = { git = "https://github.com/chainwayxyz/citrea.git", rev = "b1fbe83fdd60d29", features = [
-  "native",
-] }
+citrea-e2e = { git = "https://github.com/chainwayxyz/citrea-e2e", rev = "812156b" }
 
-citrea-sov-rollup-interface = { git = "https://github.com/chainwayxyz/citrea", tag = "v0.7.0", package = "sov-rollup-interface" }
+citrea-sov-rollup-interface = { git = "https://github.com/chainwayxyz/citrea", tag = "v0.7.2-mempool-fixes", package = "sov-rollup-interface" }
 
 # bitcoin
 bitcoin = { version = "0.32.5", features = ["serde", "base64"] }
@@ -71,15 +74,14 @@ sha2 = { version = "=0.10.8", default-features = false }
 crypto-bigint = { version = "=0.5.5", features = ["rand_core"] }
 borsh = { version = "1.5.1", features = ["derive"] }
 k256 = { version = "=0.13.4" }
-risc0-build = "2.1.2"
-risc0-zkvm = "2.1.0"
-ripemd = "0.1.3"
+risc0-build = "2.3.1"
+risc0-zkvm = "2.3.1"
 once_cell = "1.10.0"
 jmt = "0.11.0"
 derive_more = { version = "1.0.0", features = ["display"] }
 blake3 = "1.6.1"
 itertools = "0.14.0"
-bitvm = { git = "https://github.com/chainwayxyz/BitVM", rev = "0b15c5e7b6b4c16beda365d8c19825867666f712" }
+bitvm = { git = "https://github.com/chainwayxyz/BitVM", rev = "898618219c07e84f57d9727283fa8abbe3823eaf" }
 
 ark-groth16 = { version = "0.5.0", default-features = false }
 ark-serialize = "0.5.0"
@@ -89,9 +91,10 @@ ark-bn254 = { version = "0.5.0", features = [
 ], default-features = false }
 
 # Bridge Circuit Host
-risc0-circuit-recursion = "2.0.2"
-risc0-zkp = "2.0.1"
-risc0-groth16 = "2.0.1"
+risc0-circuit-recursion = "=3.0.0"
+risc0-zkp = "=2.0.2"
+risc0-groth16 = "=2.0.2"
+risc0-binfmt = { version = "=2.0.2" }
 
 ark-ff = "0.5.0"
 ark-ec = "0.5.0"
@@ -109,6 +112,7 @@ num-bigint = "0.4.6"
 num-traits = "0.2.19"
 bincode = "1.3.3"
 hex-literal = "0.4.1"
+rustls = "0.23.27"
 rustls-pki-types = "1.11.0"
 
 base64 = "0.22.1"
@@ -122,6 +126,9 @@ vergen-git2 = { version = "1.0.0", features = [
 [patch.crates-io]
 bitcoincore-rpc = { version = "0.18.0", git = "https://github.com/chainwayxyz/rust-bitcoincore-rpc.git", rev = "5da45109a2de352472a6056ef90a517b66bc106f" }
 secp256k1 = { git = "https://github.com/rust-bitcoin/rust-secp256k1", rev = "4d36fefdddb118425bb9bcf611bb6e4dff306cfc" }
+
+[profile.dev.package.backtrace]
+opt-level = 3
 
 [profile.release]
 lto = true

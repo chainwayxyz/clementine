@@ -8,7 +8,7 @@ risc0-zkvm = { workspace = true, features = ["metal", "bonsai", "client", "prove
 risc0-circuit-recursion = { workspace = true }
 risc0-zkp = { workspace = true }
 risc0-groth16 = { workspace = true }
-risc0-binfmt = { version = "2.0.1" }
+risc0-binfmt = { workspace = true }
 
 ark-bn254 = { workspace = true }
 ark-ff = { workspace = true }
@@ -19,11 +19,7 @@ ark-serialize = { workspace = true }
 ark-relations = { workspace = true }
 ark-groth16 = { workspace = true }
 
-alloy = { workspace = true, features = ["provider-http", "serde"]}
 alloy-rpc-types = { workspace = true }
-alloy-primitives = { workspace = true, features = ["serde"] }
-alloy-rpc-types-eth = { workspace = true, features = ["serde"] } 
-alloy-rpc-client = { workspace = true }
 
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -44,7 +40,9 @@ thiserror = { workspace = true }
 eyre = { workspace = true }
 once_cell = { workspace = true }
 
-circuits-lib = { path = "../circuits-lib", features = ["not_patched"] }
+circuits-lib = { path = "../circuits-lib" }
+
+citrea-sov-rollup-interface = { workspace = true }
 
 
 
@@ -52,3 +50,4 @@ circuits-lib = { path = "../circuits-lib", features = ["not_patched"] }
 
 [features]
 metal = ["risc0-zkvm/metal"]
+use-test-vk = ["circuits-lib/use-test-vk"]

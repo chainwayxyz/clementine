@@ -1,7 +1,7 @@
 use crate::{
-    bitcoin_syncer::{BitcoinSyncerEvent, BlockHandler, FinalizedBlockFetcherTask},
+    bitcoin_syncer::{BlockHandler, FinalizedBlockFetcherTask},
     database::{Database, DatabaseTransaction},
-    task::{BufferedErrors, IntoTask, WithDelay},
+    task::{BufferedErrors, IntoTask, TaskVariant, WithDelay},
 };
 use eyre::Context as _;
 use pgmq::{Message, PGMQueueExt};
@@ -18,9 +18,9 @@ use crate::{
 use super::{context::Owner, StateManager};
 
 const POLL_DELAY: Duration = if cfg!(test) {
-    Duration::from_millis(100)
+    Duration::from_millis(250)
 } else {
-    Duration::from_secs(1)
+    Duration::from_secs(30)
 };
 
 /// Block handler that sends events to a PostgreSQL message queue
@@ -32,6 +32,8 @@ pub struct QueueBlockHandler {
 
 #[async_trait]
 impl BlockHandler for QueueBlockHandler {
+    /// Handles a new block by sending a new block event to the queue.
+    /// State manager will process the block after reading the event from the queue.
     async fn handle_new_block(
         &mut self,
         dbtx: DatabaseTransaction<'_, '_>,
@@ -39,7 +41,7 @@ impl BlockHandler for QueueBlockHandler {
         block: bitcoin::Block,
         height: u32,
     ) -> Result<(), BridgeError> {
-        let event = SystemEvent::NewBlock {
+        let event = SystemEvent::NewFinalizedBlock {
             block_id,
             block,
             height,
@@ -53,26 +55,16 @@ impl BlockHandler for QueueBlockHandler {
     }
 }
 
-/// A task that fetches new blocks from Bitcoin and adds them to the state management queue
+/// A task that fetches new finalized blocks from Bitcoin and adds them to the state management queue
 #[derive(Debug)]
 pub struct BlockFetcherTask<T: Owner + std::fmt::Debug + 'static> {
-    /// The database to fetch events from
-    db: Database,
-    /// Queue for sending events
-    queue: PGMQueueExt,
-    /// Queue name for this owner type
-    queue_name: String,
-    /// The next height to process
-    next_height: u32,
-    /// Protocol parameters
-    paramset: &'static ProtocolParamset,
     /// Owner type marker
     _phantom: std::marker::PhantomData<T>,
 }
 
 impl<T: Owner + std::fmt::Debug + 'static> BlockFetcherTask<T> {
-    /// Creates a new block fetcher task
-    pub async fn new(
+    /// Creates a new finalized block fetcher task that sends new finalized blocks to the message queue.
+    pub async fn new_finalized_block_fetcher_task(
         next_height: u32,
         db: Database,
         paramset: &'static ProtocolParamset,
@@ -93,7 +85,7 @@ impl<T: Owner + std::fmt::Debug + 'static> BlockFetcherTask<T> {
 
         Ok(crate::bitcoin_syncer::FinalizedBlockFetcherTask::new(
             db,
-            queue_name,
+            T::FINALIZED_BLOCK_CONSUMER_ID.to_string(),
             paramset,
             next_height,
             handler,
@@ -101,6 +93,7 @@ impl<T: Owner + std::fmt::Debug + 'static> BlockFetcherTask<T> {
     }
 }
 
+/// A task that reads new events from the message queue and processes them.
 #[derive(Debug)]
 pub struct MessageConsumerTask<T: Owner + std::fmt::Debug + 'static> {
     db: Database,
@@ -112,6 +105,7 @@ pub struct MessageConsumerTask<T: Owner + std::fmt::Debug + 'static> {
 #[async_trait]
 impl<T: Owner + std::fmt::Debug + 'static> Task for MessageConsumerTask<T> {
     type Output = bool;
+    const VARIANT: TaskVariant = TaskVariant::StateManager;
 
     async fn run_once(&mut self) -> Result<Self::Output, BridgeError> {
         let new_event_received = async {
@@ -124,6 +118,7 @@ impl<T: Owner + std::fmt::Debug + 'static> Task for MessageConsumerTask<T> {
                 .inner
                 .queue
                 // 2nd param of read_with_cxn is the visibility timeout, set to 0 as we only have 1 consumer of the queue, which is the state machine
+                // visibility timeout is the time after which the message is visible again to other consumers
                 .read_with_cxn(&self.queue_name, 0, &mut *dbtx)
                 .await
                 .wrap_err("Reading event from queue")?
@@ -153,27 +148,32 @@ impl<T: Owner + std::fmt::Debug + 'static> Task for MessageConsumerTask<T> {
 impl<T: Owner + std::fmt::Debug + 'static> IntoTask for StateManager<T> {
     type Task = WithDelay<BufferedErrors<MessageConsumerTask<T>>>;
 
-    /// Converts the StateManager into the consumer task with a delay
+    /// Converts the StateManager into the consumer task with a polling delay.
     fn into_task(self) -> Self::Task {
         MessageConsumerTask {
             db: self.db.clone(),
             inner: self,
             queue_name: StateManager::<T>::queue_name(),
         }
-        .into_buffered_errors(50)
+        .into_buffered_errors(20)
         .with_delay(POLL_DELAY)
     }
 }
 
 impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
+    // TODO: this task is not tracked by the task manager, so it will not be restarted if it fails but
+    // the state manager task doesn't fail.
     pub async fn block_fetcher_task(
         &self,
     ) -> Result<WithDelay<impl Task<Output = bool> + std::fmt::Debug>, BridgeError> {
-        Ok(
-            BlockFetcherTask::<T>::new(self.next_height_to_process, self.db.clone(), self.paramset)
-                .await?
-                .with_delay(POLL_DELAY),
+        Ok(BlockFetcherTask::<T>::new_finalized_block_fetcher_task(
+            self.next_height_to_process,
+            self.db.clone(),
+            self.paramset,
         )
+        .await?
+        .into_buffered_errors(20)
+        .with_delay(POLL_DELAY))
     }
 }
 
@@ -200,6 +200,8 @@ mod tests {
 
     impl NamedEntity for MockHandler {
         const ENTITY_NAME: &'static str = "MockHandler";
+        const TX_SENDER_CONSUMER_ID: &'static str = "mock_tx_sender";
+        const FINALIZED_BLOCK_CONSUMER_ID: &'static str = "mock_finalized_block";
     }
 
     #[async_trait]

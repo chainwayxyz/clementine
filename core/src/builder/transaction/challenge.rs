@@ -47,12 +47,13 @@ pub fn create_watchtower_challenge_txhandler(
     watchtower_idx: usize,
     commit_data: &[u8],
     paramset: &'static ProtocolParamset,
+    #[cfg(test)] test_params: &crate::config::TestParams,
 ) -> Result<TxHandler, BridgeError> {
     if commit_data.len() != paramset.watchtower_challenge_bytes {
         return Err(TxError::IncorrectWatchtowerChallengeDataLength.into());
     }
     let mut builder = TxHandlerBuilder::new(TransactionType::WatchtowerChallenge(watchtower_idx))
-        .with_version(Version::non_standard(3))
+        .with_version(Version::TWO)
         .add_input(
             (
                 NumberedSignatureKind::WatchtowerChallenge,
@@ -86,6 +87,11 @@ pub fn create_watchtower_challenge_txhandler(
         let remaining_data = PushBytesBuf::try_from(commit_data[current_idx..].to_vec())
             .wrap_err("Failed to create pushbytesbuf for watchtower challenge op_return")?;
         builder = builder.add_output(UnspentTxOut::from_partial(op_return_txout(remaining_data)));
+    }
+
+    #[cfg(test)]
+    {
+        builder = test_params.maybe_add_large_test_outputs(builder)?;
     }
 
     Ok(builder.finalize())
@@ -283,7 +289,6 @@ pub fn create_operator_challenge_ack_txhandler(
 pub fn create_disprove_txhandler(
     kickoff_txhandler: &TxHandler,
     round_txhandler: &TxHandler,
-    paramset: &'static ProtocolParamset,
 ) -> Result<TxHandler, BridgeError> {
     Ok(TxHandlerBuilder::new(TransactionType::Disprove)
         .with_version(Version::TWO)
@@ -300,7 +305,7 @@ pub fn create_disprove_txhandler(
             DEFAULT_SEQUENCE,
         )
         .add_output(UnspentTxOut::from_partial(
-            builder::transaction::anchor_output(paramset.anchor_amount()),
+            builder::transaction::non_ephemeral_anchor_output(), // must be non-ephemeral, because tx is v2
         ))
         .finalize())
 }

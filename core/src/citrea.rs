@@ -21,7 +21,12 @@ use alloy::{
 };
 use bitcoin::{hashes::Hash, OutPoint, Txid, XOnlyPublicKey};
 use bridge_circuit_host::receipt_from_inner;
-use circuits_lib::bridge_circuit::structs::{LightClientProof, StorageProof};
+use circuits_lib::bridge_circuit::{
+    constants::{
+        DEVNET_LC_IMAGE_ID, MAINNET_LC_IMAGE_ID, REGTEST_LC_IMAGE_ID, TESTNET_LC_IMAGE_ID,
+    },
+    structs::{LightClientProof, StorageProof},
+};
 use eyre::Context;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::proc_macros::rpc;
@@ -134,6 +139,7 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
         &self,
         block_height: u64,
         timeout: Duration,
+        network: bitcoin::Network,
     ) -> Result<(u64, u64), BridgeError>;
 
     /// Returns the replacement deposit move txids for the given range of blocks.
@@ -278,6 +284,16 @@ impl CitreaClientT for CitreaClient {
 
         let response: EIP1186AccountProofResponse = serde_json::from_value(response)
             .wrap_err("Failed to deserialize EIP1186AccountProofResponse")?;
+
+        // It does not seem possible to get a storage proof with less than 3 items. But still
+        // we check it to avoid panics.
+        if response.storage_proof.len() < 3 {
+            return Err(eyre::eyre!(
+                "Expected at least 3 storage proofs, got {}",
+                response.storage_proof.len()
+            )
+            .into());
+        }
 
         let serialized_utxo = serde_json::to_string(&response.storage_proof[0])
             .wrap_err("Failed to serialize storage proof utxo")?;
@@ -480,6 +496,7 @@ impl CitreaClientT for CitreaClient {
         &self,
         block_height: u64,
         timeout: Duration,
+        network: bitcoin::Network,
     ) -> Result<(u64, u64), BridgeError> {
         let start = std::time::Instant::now();
         let proof_current = loop {
@@ -499,6 +516,18 @@ impl CitreaClientT for CitreaClient {
             tokio::time::sleep(Duration::from_secs(1)).await;
         };
 
+        let lc_image_id = match network {
+            bitcoin::Network::Bitcoin => MAINNET_LC_IMAGE_ID,
+            bitcoin::Network::Testnet4 => TESTNET_LC_IMAGE_ID,
+            bitcoin::Network::Signet => DEVNET_LC_IMAGE_ID,
+            bitcoin::Network::Regtest => REGTEST_LC_IMAGE_ID,
+            _ => return Err(eyre::eyre!("Unsupported Bitcoin network").into()),
+        };
+
+        if proof_current.1.verify(lc_image_id).is_err() {
+            return Err(eyre::eyre!("Current light client proof verification failed").into());
+        }
+
         let proof_previous =
             self.get_light_client_proof(block_height - 1)
                 .await?
@@ -506,6 +535,10 @@ impl CitreaClientT for CitreaClient {
                     "Light client proof not found for block height: {}",
                     block_height - 1
                 ))?;
+
+        if proof_previous.1.verify(lc_image_id).is_err() {
+            return Err(eyre::eyre!("Previous light client proof verification failed").into());
+        }
 
         let l2_height_end: u64 = proof_current.2;
         let l2_height_start: u64 = proof_previous.2;
@@ -576,7 +609,7 @@ trait LightClientProverRpc {
     async fn get_light_client_proof_by_l1_height(
         &self,
         l1_height: u64,
-    ) -> RpcResult<Option<sov_rollup_interface::rpc::LightClientProofResponse>>;
+    ) -> RpcResult<Option<citrea_sov_rollup_interface::rpc::LightClientProofResponse>>;
 }
 
 #[rpc(client, namespace = "eth")]

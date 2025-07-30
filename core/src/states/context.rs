@@ -78,7 +78,8 @@ pub enum Duty {
         latest_blockhash: Witness,
     },
     /// This duty is only sent if a kickoff was challenged.
-    /// This duty is sent after some time (paramset.time_to_disprove number of blocks) passes after a kickoff was sent to chain.
+    /// This duty is sent after all asserts and latest blockhash commit are finalized on chain, and all watchtower challenge
+    /// utxos are spent.
     /// It denotes to the owner that it is time to send a disprove to the corresponding kickoff.
     /// It includes the operator asserts, operator acks and the payout blockhash so that they can be used in the disprove tx if the proof
     /// is invalid.
@@ -111,15 +112,18 @@ pub enum DutyResult {
 
 /// Owner trait with async handling and tx handler creation
 #[async_trait]
-pub trait Owner: Send + Sync + Clone + NamedEntity {
-    /// Handle a duty
+pub trait Owner: Clone + NamedEntity {
+    /// Handle a protocol-related duty
     async fn handle_duty(&self, duty: Duty) -> Result<DutyResult, BridgeError>;
+
+    /// Create the transactions for an instance of the L1 contract
     async fn create_txhandlers(
         &self,
         tx_type: TransactionType,
         contract_context: ContractContext,
     ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError>;
 
+    /// Handle a new finalized block
     async fn handle_finalized_block(
         &self,
         dbtx: DatabaseTransaction<'_, '_>,
@@ -130,6 +134,8 @@ pub trait Owner: Send + Sync + Clone + NamedEntity {
     ) -> Result<(), BridgeError>;
 }
 
+/// Context for the state machine
+/// Every state can access the context
 #[derive(Debug, Clone)]
 pub struct StateContext<T: Owner> {
     pub db: Database,
@@ -175,7 +181,7 @@ impl<T: Owner> StateContext<T> {
     /// ensures that all errors are collected and reported in a single place.
     /// In general, it's expected that the closure attaches context about the
     /// state machine to the error report.  You may check
-    /// [`KickoffStateMachine::wrap_err`] and [`RoundStateMachine::wrap_err`]
+    /// `KickoffStateMachine::wrap_err` and `RoundStateMachine::wrap_err`
     /// for an example implementation of an error wrapper utility function.
     ///
     /// # Parameters

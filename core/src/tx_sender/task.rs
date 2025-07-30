@@ -8,7 +8,7 @@
 
 use super::TxSender;
 use crate::errors::ResultExt;
-use crate::task::{IgnoreError, WithDelay};
+use crate::task::{IgnoreError, TaskVariant, WithDelay};
 use crate::{
     bitcoin_syncer::BitcoinSyncerEvent,
     database::Database,
@@ -20,7 +20,7 @@ use std::time::Duration;
 use tonic::async_trait;
 
 const POLL_DELAY: Duration = if cfg!(test) {
-    Duration::from_millis(100)
+    Duration::from_millis(250)
 } else {
     Duration::from_secs(30)
 };
@@ -35,6 +35,7 @@ pub struct TxSenderTask {
 #[async_trait]
 impl Task for TxSenderTask {
     type Output = bool;
+    const VARIANT: TaskVariant = TaskVariant::TxSender;
 
     #[tracing::instrument(skip(self), name = "tx_sender_task")]
     async fn run_once(&mut self) -> std::result::Result<Self::Output, BridgeError> {
@@ -50,6 +51,7 @@ impl Task for TxSenderTask {
             };
             tracing::info!("Received Bitcoin syncer event: {:?}", event);
 
+            tracing::debug!("TXSENDER: Event: {:?}", event);
             Ok::<_, BridgeError>(match event {
                 BitcoinSyncerEvent::NewBlock(block_id) => {
                     self.current_tip_height = self
@@ -97,13 +99,10 @@ impl Task for TxSenderTask {
             return Ok(true);
         }
 
-        // TODO: Get actual fee rate.
-        // tracing::info!("TXSENDER: Getting fee rate");
-        // let fee_rate_result = self.inner.get_fee_rate().await;
-        // tracing::info!("TXSENDER: Fee rate result: {:?}", fee_rate_result);
-        // let fee_rate = fee_rate_result?;
-        // tracing::info!("TXSENDER: Trying to send unconfirmed txs");
-        let fee_rate = FeeRate::from_sat_per_vb_unchecked(1);
+        tracing::info!("TXSENDER: Getting fee rate");
+        let fee_rate_result = self.inner.get_fee_rate().await;
+        tracing::info!("TXSENDER: Fee rate result: {:?}", fee_rate_result);
+        let fee_rate = fee_rate_result?;
 
         self.inner
             .try_to_send_unconfirmed_txs(fee_rate, self.current_tip_height)

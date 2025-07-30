@@ -1,7 +1,7 @@
 //! # Environment Variable Support For [`BridgeConfig`]
 
 use super::BridgeConfig;
-use crate::{deposit::SecurityCouncil, errors::BridgeError};
+use crate::{config::TelemetryConfig, deposit::SecurityCouncil, errors::BridgeError};
 use bitcoin::{address::NetworkUnchecked, secp256k1::SecretKey, Amount};
 use std::{path::PathBuf, str::FromStr};
 
@@ -134,6 +134,8 @@ impl BridgeConfig {
             bitcoin_rpc_url: read_string_from_env("BITCOIN_RPC_URL")?,
             bitcoin_rpc_user: read_string_from_env("BITCOIN_RPC_USER")?.into(),
             bitcoin_rpc_password: read_string_from_env("BITCOIN_RPC_PASSWORD")?.into(),
+            mempool_api_host: read_string_from_env("FEE_RATE_API_HOST").ok(),
+            mempool_api_endpoint: read_string_from_env("FEE_RATE_API_ENDPOINT").ok(),
             db_host: read_string_from_env("DB_HOST")?,
             db_port: read_string_from_env_then_parse::<usize>("DB_PORT")?,
             db_user: read_string_from_env("DB_USER")?.into(),
@@ -155,6 +157,8 @@ impl BridgeConfig {
             client_cert_path,
             client_key_path,
             aggregator_cert_path,
+
+            telemetry: TelemetryConfig::from_env().ok(),
 
             #[cfg(test)]
             test_params: super::TestParams::default(),
@@ -201,16 +205,16 @@ mod tests {
         std::env::set_var("BITCOIN_RPC_URL", &default_config.bitcoin_rpc_url);
         std::env::set_var(
             "BITCOIN_RPC_USER",
-            &default_config.bitcoin_rpc_user.expose_secret(),
+            default_config.bitcoin_rpc_user.expose_secret(),
         );
         std::env::set_var(
             "BITCOIN_RPC_PASSWORD",
-            &default_config.bitcoin_rpc_password.expose_secret(),
+            default_config.bitcoin_rpc_password.expose_secret(),
         );
         std::env::set_var("DB_HOST", default_config.db_host.clone());
         std::env::set_var("DB_PORT", default_config.db_port.to_string());
-        std::env::set_var("DB_USER", &default_config.db_user.expose_secret());
-        std::env::set_var("DB_PASSWORD", &default_config.db_password.expose_secret());
+        std::env::set_var("DB_USER", default_config.db_user.expose_secret());
+        std::env::set_var("DB_PASSWORD", default_config.db_password.expose_secret());
         std::env::set_var("DB_NAME", &default_config.db_name);
         std::env::set_var("CITREA_RPC_URL", &default_config.citrea_rpc_url);
         std::env::set_var(
@@ -274,6 +278,15 @@ mod tests {
                 operator_collateral_funding_outpoint.to_string(),
             );
         }
+
+        std::env::set_var(
+            "TELEMETRY_HOST",
+            default_config.telemetry.as_ref().unwrap().host.clone(),
+        );
+        std::env::set_var(
+            "TELEMETRY_PORT",
+            default_config.telemetry.as_ref().unwrap().port.to_string(),
+        );
 
         assert_eq!(super::BridgeConfig::from_env().unwrap(), default_config);
     }
@@ -363,10 +376,6 @@ mod tests {
             "TIME_TO_SEND_WATCHTOWER_CHALLENGE",
             default_config.time_to_send_watchtower_challenge.to_string(),
         );
-        std::env::set_var(
-            "TIME_TO_DISPROVE",
-            default_config.time_to_disprove.to_string(),
-        );
         std::env::set_var("FINALITY_DEPTH", default_config.finality_depth.to_string());
         std::env::set_var("START_HEIGHT", default_config.start_height.to_string());
         std::env::set_var("GENESIS_HEIGHT", default_config.genesis_height.to_string());
@@ -383,10 +392,6 @@ mod tests {
             default_config.header_chain_proof_batch_size.to_string(),
         );
 
-        std::env::set_var(
-            "BRIDGE_CIRCUIT_METHOD_ID_CONSTANT",
-            hex::encode(default_config.bridge_circuit_method_id_constant),
-        );
         std::env::set_var(
             "BRIDGE_NONSTANDARD",
             default_config.bridge_nonstandard.to_string(),

@@ -1,4 +1,5 @@
 use crate::builder::transaction::TransactionType;
+use crate::config::TelemetryConfig;
 use crate::errors::BridgeError;
 use crate::operator::RoundIndex;
 use crate::rpc::clementine::VergenResponse;
@@ -6,9 +7,12 @@ use bitcoin::{OutPoint, TapNodeHash, XOnlyPublicKey};
 use eyre::Context as _;
 use futures::future::try_join_all;
 use http::HeaderValue;
+use metrics_exporter_prometheus::PrometheusBuilder;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Display};
+use std::fs::File;
 use std::future::Future;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -17,25 +21,203 @@ use tokio::time::timeout;
 use tonic::Status;
 use tower::{Layer, Service};
 use tracing::level_filters::LevelFilter;
-use tracing::{debug_span, Instrument};
+use tracing::{debug_span, Instrument, Subscriber};
 use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::{fmt, EnvFilter, Registry};
+use tracing_subscriber::{fmt, EnvFilter, Layer as TracingLayer, Registry};
 
-/// Initializes `tracing` as the logger.
+/// Initializes a [`tracing`] subscriber depending on the environment.
+/// [`EnvFilter`] is used with an optional default level. Sets up the
+/// [`color_eyre`] handler.
+///
+/// # Log Formats
+///
+/// - `json` **JSON** is used when `LOG_FORMAT=json`
+/// - `human` **Human-readable** direct logs are used when `LOG_FORMAT` is not
+///   set to `json`.
+///
+/// ## CI
+///
+/// In CI, logging is always in the human-readable format with output to the
+/// console. The `INFO_LOG_FILE` env var can be used to set an optional log file
+/// output. If not set, only console logging is used.
+///
+/// # Backtraces
+///
+/// Backtraces are enabled by default for tests. Error backtraces otherwise
+/// depend on the `RUST_LIB_BACKTRACE` env var. Please read [`color_eyre`]
+/// documentation for more details.
 ///
 /// # Parameters
 ///
-/// - `level`: Level ranges from 0 to 5. 0 defaults to no logs but can be
-///   overwritten with `RUST_LOG` env var. While other numbers sets log level from
-///   lowest level (1) to highest level (5). Is is advised to use 0 on tests and
-///   other values for binaries (get value from user).
+/// - `default_level`: Default level ranges from 0 to 5. This is overwritten through the
+///   `RUST_LOG` env var.
 ///
 /// # Returns
 ///
-/// Returns `Err` if `tracing` can't be initialized. Multiple subscription error
-/// is emitted and will return `Ok(())`.
-pub fn initialize_logger(level: Option<LevelFilter>) -> Result<(), BridgeError> {
-    // Configure JSON formatting with additional fields
+/// Returns `Err` in CI if the file logging cannot be initialized.  Already
+/// initialized errors are ignored, so this function can be called multiple
+/// times safely.
+pub fn initialize_logger(default_level: Option<LevelFilter>) -> Result<(), BridgeError> {
+    let is_ci = std::env::var("CI")
+        .map(|v| v == "true" || v == "1")
+        .unwrap_or(false);
+
+    // UNCOMMENT TO DEBUG TOKIO TASKS
+    // console_subscriber::init();
+
+    if cfg!(test) {
+        // Enable full backtraces for tests
+        std::env::set_var("RUST_LIB_BACKTRACE", "full");
+        std::env::set_var("RUST_BACKTRACE", "full");
+    }
+
+    // Initialize color-eyre for better error handling and backtraces
+    let _ = color_eyre::config::HookBuilder::default()
+        .add_frame_filter(Box::new(|frames| {
+            // Frames with names starting with any of the str's below will be filtered out
+            let filters = &[
+                "std::",
+                "test::",
+                "tokio::",
+                "core::",
+                "<core::",
+                "<alloc::",
+                "start_thread",
+                "clone",
+            ];
+
+            frames.retain(|frame| {
+                !filters.iter().any(|f| {
+                    let name = if let Some(name) = frame.name.as_ref() {
+                        name.as_str()
+                    } else {
+                        return true;
+                    };
+
+                    name.starts_with(f)
+                })
+            });
+        }))
+        .install();
+
+    if is_ci {
+        let info_log_file = std::env::var("INFO_LOG_FILE").ok();
+        if let Some(file_path) = info_log_file {
+            try_set_global_subscriber(env_subscriber_with_file(&file_path)?);
+            tracing::trace!("Using file logging in CI, outputting to {}", file_path);
+        } else {
+            try_set_global_subscriber(env_subscriber_to_human(default_level));
+            tracing::trace!("Using console logging in CI");
+            tracing::warn!(
+                "CI is set but INFO_LOG_FILE is missing, only console logs will be used."
+            );
+        }
+    } else if is_json_logs() {
+        try_set_global_subscriber(env_subscriber_to_json(default_level));
+        tracing::trace!("Using JSON logging");
+    } else {
+        try_set_global_subscriber(env_subscriber_to_human(default_level));
+        tracing::trace!("Using human-readable logging");
+    }
+
+    tracing::info!("Tracing initialized successfully.");
+    Ok(())
+}
+
+pub fn initialize_telemetry(config: &TelemetryConfig) -> Result<(), BridgeError> {
+    let telemetry_addr: SocketAddr = format!("{}:{}", config.host, config.port)
+        .parse()
+        .unwrap_or_else(|_| {
+            tracing::warn!(
+                "Invalid telemetry address: {}:{}, using default address: 127.0.0.1:8081",
+                config.host,
+                config.port
+            );
+            SocketAddr::from((Ipv4Addr::new(0, 0, 0, 0), 8081))
+        });
+
+    tracing::debug!("Initializing telemetry at {}", telemetry_addr);
+
+    let builder = PrometheusBuilder::new().with_http_listener(telemetry_addr);
+
+    builder
+        .install()
+        .map_err(|e| eyre::eyre!("Failed to initialize telemetry: {}", e))?;
+
+    Ok(())
+}
+
+fn try_set_global_subscriber<S>(subscriber: S)
+where
+    S: Subscriber + Send + Sync + 'static,
+{
+    match tracing::subscriber::set_global_default(subscriber) {
+        Ok(_) => {}
+        // Statically, the only error possible is "already initialized"
+        Err(_) => {
+            #[cfg(test)]
+            tracing::trace!("Tracing is already initialized, skipping without errors...");
+            #[cfg(not(test))]
+            tracing::info!(
+                "Unexpected double initialization of tracing, skipping without errors..."
+            );
+        }
+    }
+}
+
+fn env_subscriber_with_file(path: &str) -> Result<Box<dyn Subscriber + Send + Sync>, BridgeError> {
+    if let Some(parent_dir) = std::path::Path::new(path).parent() {
+        std::fs::create_dir_all(parent_dir).map_err(|e| {
+            BridgeError::ConfigError(format!(
+                "Failed to create log directory '{}': {}",
+                parent_dir.display(),
+                e
+            ))
+        })?;
+    }
+
+    let file = File::create(path).map_err(|e| BridgeError::ConfigError(e.to_string()))?;
+
+    let file_filter = EnvFilter::from_default_env()
+        .add_directive("info".parse().expect("It should parse info level"))
+        .add_directive("ci=debug".parse().expect("It should parse ci debug level"));
+
+    let console_filter = EnvFilter::builder()
+        .with_default_directive(LevelFilter::WARN.into())
+        .from_env_lossy();
+
+    let file_layer = fmt::layer()
+        .with_writer(file)
+        .with_ansi(false)
+        .with_file(true)
+        .with_line_number(true)
+        .with_target(true)
+        .with_thread_ids(true)
+        .with_thread_names(true)
+        .with_filter(file_filter)
+        .boxed();
+
+    let console_layer = fmt::layer()
+        .with_test_writer()
+        .with_file(true)
+        .with_line_number(true)
+        .with_target(true)
+        .with_filter(console_filter)
+        .boxed();
+
+    Ok(Box::new(
+        Registry::default().with(file_layer).with(console_layer),
+    ))
+}
+
+fn env_subscriber_to_json(level: Option<LevelFilter>) -> Box<dyn Subscriber + Send + Sync> {
+    let filter = match level {
+        Some(lvl) => EnvFilter::builder()
+            .with_default_directive(lvl.into())
+            .from_env_lossy(),
+        None => EnvFilter::from_default_env(),
+    };
+
     let json_layer = fmt::layer::<Registry>()
         .with_test_writer()
         // .with_timer(time::UtcTime::rfc_3339())
@@ -44,13 +226,23 @@ pub fn initialize_logger(level: Option<LevelFilter>) -> Result<(), BridgeError> 
         .with_thread_ids(true)
         .with_thread_names(true)
         .with_target(true)
-        // .with_current_span(true)
-        // .with_span_list(true)
-        // To see how long each span takes, uncomment this.
-        // .with_span_events(FmtSpan::CLOSE)
         .json();
+    // .with_current_span(true)z
+    // .with_span_list(true)
+    // To see how long each span takes, uncomment this.
+    // .with_span_events(FmtSpan::CLOSE)
 
-    // Standard human-readable layer for non-JSON output
+    Box::new(tracing_subscriber::registry().with(json_layer).with(filter))
+}
+
+fn env_subscriber_to_human(level: Option<LevelFilter>) -> Box<dyn Subscriber + Send + Sync> {
+    let filter = match level {
+        Some(lvl) => EnvFilter::builder()
+            .with_default_directive(lvl.into())
+            .from_env_lossy(),
+        None => EnvFilter::from_default_env(),
+    };
+
     let standard_layer = fmt::layer()
         .with_test_writer()
         // .with_timer(time::UtcTime::rfc_3339())
@@ -60,37 +252,17 @@ pub fn initialize_logger(level: Option<LevelFilter>) -> Result<(), BridgeError> 
         // .with_span_events(FmtSpan::CLOSE)
         .with_target(true);
 
-    let filter = match level {
-        Some(level) => EnvFilter::builder()
-            .with_default_directive(level.into())
-            .from_env_lossy(),
-        None => EnvFilter::from_default_env(),
-    };
+    Box::new(
+        tracing_subscriber::registry()
+            .with(standard_layer)
+            .with(filter),
+    )
+}
 
-    // Try to initialize tracing, depending on the `JSON_LOGS` env var
-    let res = if std::env::var("JSON_LOGS").is_ok() {
-        tracing_subscriber::util::SubscriberInitExt::try_init(
-            tracing_subscriber::registry().with(json_layer).with(filter),
-        )
-    } else {
-        tracing_subscriber::util::SubscriberInitExt::try_init(
-            tracing_subscriber::registry()
-                .with(standard_layer)
-                .with(filter),
-        )
-    };
-
-    if let Err(e) = res {
-        // If it failed because of a re-initialization, do not care about
-        // the error.
-        if e.to_string() != "a global default trace dispatcher has already been set" {
-            return Err(BridgeError::ConfigError(e.to_string()));
-        }
-
-        tracing::trace!("Tracing is already initialized, skipping without errors...");
-    };
-
-    Ok(())
+fn is_json_logs() -> bool {
+    std::env::var("LOG_FORMAT")
+        .map(|v| v.eq_ignore_ascii_case("json"))
+        .unwrap_or(false)
 }
 
 pub fn get_vergen_response() -> VergenResponse {
@@ -321,16 +493,22 @@ where
     }
 }
 
-/// A trait for entities that have a name, operator, watchtower, verifier, etc.
+/// A trait for entities that have a name, operator, verifier, etc.
 /// Used to distinguish between state machines with different owners in the database,
 /// and to provide a human-readable name for the entity for task names.
-pub trait NamedEntity {
+pub trait NamedEntity: Sync + Send + 'static {
     /// A string identifier for this owner type used to distinguish between
     /// state machines with different owners in the database.
     ///
     /// ## Example
-    /// "operator", "watchtower", "verifier", "user"
+    /// "operator", "verifier", "user"
     const ENTITY_NAME: &'static str;
+
+    /// Consumer ID for the tx sender task.
+    const TX_SENDER_CONSUMER_ID: &'static str;
+
+    /// Consumer ID for the finalized block task.
+    const FINALIZED_BLOCK_CONSUMER_ID: &'static str;
 }
 
 #[derive(Copy, Clone, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -375,6 +553,9 @@ pub enum FeePayingType {
     /// version that includes a higher fee. The original transaction must signal
     /// RBF enablement (e.g., via nSequence). Bitcoin Core's `bumpfee` RPC is often used.
     RBF,
+    /// The transaction has already been funded and no fee is needed.
+    /// Currently used for disprove tx as it has operator's collateral as input.
+    NoFunding,
 }
 
 /// Information to re-sign an RBF transaction.
@@ -388,6 +569,10 @@ pub enum FeePayingType {
 pub struct RbfSigningInfo {
     pub vout: u32,
     pub tweak_merkle_root: Option<TapNodeHash>,
+    #[cfg(test)]
+    pub annex: Option<Vec<u8>>,
+    #[cfg(test)]
+    pub additional_taproot_output_count: Option<u32>,
 }
 pub trait Last20Bytes {
     fn last_20_bytes(self) -> [u8; 20];
@@ -472,7 +657,7 @@ where
     try_join_all(iter.into_iter().enumerate().map(|item| {
         let ids = ids.clone();
         async move {
-            let id = Option::as_ref(&ids).map(|ids| ids.get(item.0)).flatten();
+            let id = Option::as_ref(&ids).and_then(|ids| ids.get(item.0));
 
             timeout(duration, item.1)
                 .await
@@ -496,4 +681,65 @@ where
     }))
     .instrument(debug_span!("timed_try_join_all", description = description))
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::io::Read;
+    use tempfile::NamedTempFile;
+    use tracing::level_filters::LevelFilter;
+
+    #[test]
+    #[ignore = "This test changes environment variables so it should not be run in CI since it might affect other tests."]
+    fn test_ci_logging_setup() {
+        let temp_file = NamedTempFile::new().expect("Failed to create temp file");
+        let temp_path = temp_file.path().to_string_lossy().to_string();
+
+        std::env::set_var("CI", "true");
+        std::env::set_var("INFO_LOG_FILE", &temp_path);
+
+        let result = initialize_logger(Some(LevelFilter::DEBUG));
+        assert!(result.is_ok(), "Logger initialization should succeed");
+
+        tracing::error!("Test error message");
+        tracing::warn!("Test warn message");
+        tracing::info!("Test info message");
+        tracing::debug!(target: "ci", "Test CI debug message");
+        tracing::debug!("Test debug message");
+
+        std::thread::sleep(std::time::Duration::from_millis(100));
+
+        let mut file_contents = String::new();
+        let mut file = fs::File::open(&temp_path).expect("Failed to open log file");
+        file.read_to_string(&mut file_contents)
+            .expect("Failed to read log file");
+
+        assert!(
+            file_contents.contains("Test error message"),
+            "Error message should be in file"
+        );
+        assert!(
+            file_contents.contains("Test warn message"),
+            "Warn message should be in file"
+        );
+        assert!(
+            file_contents.contains("Test info message"),
+            "Info message should be in file"
+        );
+
+        assert!(
+            file_contents.contains("Test CI debug message"),
+            "Debug message for CI should be in file"
+        );
+
+        assert!(
+            !file_contents.contains("Test debug message"),
+            "Debug message should not be in file"
+        );
+
+        std::env::remove_var("CI");
+        std::env::remove_var("INFO_LOG_FILE");
+    }
 }
