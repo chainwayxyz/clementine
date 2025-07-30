@@ -15,7 +15,7 @@ use std::fs::File;
 use std::future::Future;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::task::{Context, Poll};
 use std::time::Duration;
 use tokio::sync::mpsc;
@@ -705,9 +705,34 @@ pub type BatchedStream<T> = FlatMap<
 
 /// Helper function to observe batch sizes
 fn iter_with_log<T>(iter: Vec<T>) -> stream::Iter<std::vec::IntoIter<T>> {
-    tracing::debug!("[{}] batching {}", type_name::<T>(), iter.len());
+    tracing::debug!(
+        batch_size = iter.len(),
+        type_name = type_name::<T>(),
+        "batching"
+    );
     stream::iter(iter)
 }
+
+/// Static used to benchmark different batch sizes
+pub static BATCH_SIZE: LazyLock<usize> = LazyLock::new(|| {
+    // WILL REMOVE BEFORE `main` MERGE
+    std::env::var("GRPC_BATCH_SIZE")
+        .map(|v| {
+            v.parse::<usize>()
+                .expect("Expected GRPC_BATCH_SIZE environment to be a number")
+        })
+        .expect("Expected GRPC_BATCH_SIZE environment to be set")
+});
+
+/// Static used to benchmark different batch message timeouts
+pub static BATCH_MSG_TIMEOUT_MILLIS: LazyLock<u64> = LazyLock::new(|| {
+    std::env::var("GRPC_BATCH_MSG_TIMEOUT_MILLIS")
+        .map(|v| {
+            v.parse::<u64>()
+                .expect("Expected GRPC_BATCH_MSG_TIMEOUT_MILLIS environment to be a number")
+        })
+        .unwrap_or(2)
+});
 
 /// Batches the receiver stream by flushing batches of items either every 128 items
 /// or after 2 milliseconds without any new messages.
@@ -720,7 +745,10 @@ fn iter_with_log<T>(iter: Vec<T>) -> stream::Iter<std::vec::IntoIter<T>> {
 /// by a Poll::Pending variant.
 pub fn batched_stream_from_rx<T>(rx: mpsc::Receiver<T>) -> BatchedStream<T> {
     ReceiverStream::new(rx)
-        .chunks_timeout(128, Duration::from_millis(2))
+        .chunks_timeout(
+            *BATCH_SIZE,
+            Duration::from_millis(*BATCH_MSG_TIMEOUT_MILLIS),
+        )
         .flat_map(iter_with_log)
 }
 
