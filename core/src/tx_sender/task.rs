@@ -15,7 +15,6 @@ use crate::{
     errors::BridgeError,
     task::{IntoTask, Task, TaskExt},
 };
-use bitcoin::FeeRate;
 use std::time::Duration;
 use tonic::async_trait;
 

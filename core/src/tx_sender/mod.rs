@@ -47,19 +47,12 @@ use crate::{
     utils::TxMetadata,
 };
 use bitcoin::taproot::TaprootSpendInfo;
-use bitcoin::taproot::TaprootSpendInfo;
-use bitcoin::TapNodeHash;
-use bitcoin::XOnlyPublicKey;
 use bitcoin::{Amount, FeeRate, Network, OutPoint, Transaction, TxOut, Txid, Weight};
-use bitcoin::{Amount, FeeRate, OutPoint, Transaction, TxOut, Txid, Weight};
 use bitcoincore_rpc::RpcApi;
-use bitcoincore_rpc::{json::EstimateMode, RpcApi};
 use eyre::eyre;
 use eyre::ContextCompat;
 use eyre::OptionExt;
-use eyre::OptionExt;
 use eyre::WrapErr;
-use serde::{Deserialize, Serialize};
 
 #[cfg(test)]
 use std::env;
