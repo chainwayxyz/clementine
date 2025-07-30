@@ -6,10 +6,10 @@ use crate::rpc::clementine::VergenResponse;
 use bitcoin::{OutPoint, TapNodeHash, XOnlyPublicKey};
 use eyre::Context as _;
 use futures::future::try_join_all;
-use futures::{ready, Stream};
 use http::HeaderValue;
 use metrics_exporter_prometheus::PrometheusBuilder;
 use serde::{Deserialize, Serialize};
+use tokio_stream::wrappers::ReceiverStream;
 use std::any::type_name;
 use std::fmt::{Debug, Display};
 use std::fs::File;
@@ -734,37 +734,37 @@ use tokio_stream::adapters::ChunksTimeout;
 // use tokio_stream::wrappers::ReceiverStream;
 
 pub type BatchedStream<T> = FlatMap<
-    ChunksTimeout<ReceiverStreamDbg<T>>,
+    ChunksTimeout<ReceiverStream<T>>,
     stream::Iter<std::vec::IntoIter<T>>,
     fn(Vec<T>) -> stream::Iter<std::vec::IntoIter<T>>,
 >;
 
 fn iter_with_log<T>(iter: Vec<T>) -> stream::Iter<std::vec::IntoIter<T>> {
-    tracing::info!("[{}] batching {}", type_name::<T>(), iter.len());
+    tracing::debug!("[{}] batching {}", type_name::<T>(), iter.len());
     stream::iter(iter)
 }
 
-#[derive(Debug)]
-pub struct ReceiverStreamDbg<T> {
-    inner: mpsc::Receiver<T>,
-}
+// #[derive(Debug)]
+// pub struct ReceiverStreamDbg<T> {
+//     inner: mpsc::Receiver<T>,
+// }
 
-impl<T> Stream for ReceiverStreamDbg<T> {
-    type Item = T;
+// impl<T> Stream for ReceiverStreamDbg<T> {
+//     type Item = T;
 
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        // tracing::info!(
-        //     "[{}] polling, pending={} capacity={}",
-        //     type_name::<T>(),
-        //     self.inner.len(),
-        //     self.inner.capacity()
-        // );
-        self.inner.poll_recv(cx)
-    }
-}
+//     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+//         // tracing::info!(
+//         //     "[{}] polling, pending={} capacity={}",
+//         //     type_name::<T>(),
+//         //     self.inner.len(),
+//         //     self.inner.capacity()
+//         // );
+//         self.inner.poll_recv(cx)
+//     }
+// }
 
 pub fn batched_stream_from_rx<T>(rx: mpsc::Receiver<T>) -> BatchedStream<T> {
-    ReceiverStreamDbg { inner: rx }
+    rx.into()
         .chunks_timeout(128, Duration::from_millis(2))
         .flat_map(iter_with_log)
 }

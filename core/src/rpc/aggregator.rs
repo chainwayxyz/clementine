@@ -51,11 +51,9 @@ use futures::{
     FutureExt, Stream, StreamExt, TryFutureExt,
 };
 use secp256k1::musig::{AggregatedNonce, PartialSignature, PublicNonce};
-use std::collections::VecDeque;
 use std::future::Future;
 use tokio::join;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
-use tokio::sync::Mutex;
 use tonic::{async_trait, Request, Response, Status, Streaming};
 
 #[derive(Debug, Clone)]

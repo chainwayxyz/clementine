@@ -22,7 +22,7 @@ use crate::{
 use bitcoin::Witness;
 use clementine::verifier_deposit_finalize_params::Params;
 use secp256k1::musig::AggregatedNonce;
-use tokio::sync::mpsc::{self, error::SendError};
+use tokio::sync::mpsc::{self};
 use tonic::{async_trait, Request, Response, Status, Streaming};
 
 #[async_trait]
