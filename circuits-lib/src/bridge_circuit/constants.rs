@@ -20,15 +20,28 @@ use ark_bn254::Fr;
 use ark_ff::BigInt;
 use hex_literal::hex;
 
+pub const REGTEST_LC_IMAGE_ID: [u8; 32] =
+    hex!("e02f42a01d0cb5a6dbc2f5d26b28a9881808a3023c8330a5aea2a0bea754c216");
+
+pub const DEVNET_LC_IMAGE_ID: [u8; 32] =
+    hex!("f62aaca40b6b26d197624f55471341b32ed38cd2443c3b416160f073d25612af");
+
+pub const TESTNET_LC_IMAGE_ID: [u8; 32] =
+    hex!("ff207fa9858277eca6caa9b771fa00e87f861d34b4c29388dca6f7cc227ac367");
+
+// MAINNET LC_IMAGE_ID is not yet provided by CITREA, so we use a placeholder.
+pub const MAINNET_LC_IMAGE_ID: [u8; 32] =
+    hex!("0000000000000000000000000000000000000000000000000000000000000000");
+
 // Work-only circuit method IDs for different networks.
 pub static MAINNET_WORK_ONLY_METHOD_ID: [u8; 32] =
-    hex!("5b166499bace4ab1d4c71c03b0f0f201fc873032c346db5d8e46e8e24a820809");
+    hex!("ba2bd4e46597ab3341f0ed4fde263f35b82da3ec3fe6f42d85399b8c61a4fba2");
 pub static TESTNET4_WORK_ONLY_METHOD_ID: [u8; 32] =
-    hex!("931ecaa5a6566b577f10729763bcaf0a0e00ec4a365505f393ea6557d404588b");
+    hex!("f32a967a3557f87e3d67821ae8cfa845429edc224c0f1df86996dd41914b2596");
 pub static REGTEST_WORK_ONLY_METHOD_ID: [u8; 32] =
-    hex!("5e61cc4a91a47746a9ecf5f70c834f1884d58005d69645fd1d4bab115a649c24");
+    hex!("11bb884b51d9d33de10ea449927b932ada1c540acd9dfc03e9af806dc8180979");
 pub static SIGNET_WORK_ONLY_METHOD_ID: [u8; 32] =
-    hex!("269912faf4bd668784a5eef4bb3fa0b1d7e3fe26ec0232589e5481f1a3418d69");
+    hex!("35d88de6b8a13cfe34df05e103d14f926d1a56671792c2ce85b89f055193f225");
 
 // GROTH16 RELATED CONSTANTS
 pub static POST_STATE: [u8; 32] =
