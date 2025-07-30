@@ -35,7 +35,7 @@ use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::{schnorr, Message, PublicKey};
 use bitcoin::XOnlyPublicKey;
 use eyre::Context;
-use futures::future::{join_all, try_join_all};
+use futures::future::join_all;
 use secp256k1::musig::{AggregatedNonce, PartialSignature};
 use tokio::sync::RwLock;
 use tonic::{Request, Status};
@@ -253,15 +253,29 @@ impl Aggregator {
                     }
                 });
 
-            let remaining_keys = try_join_all(futures).await?;
+            let remaining_keys = join_all(futures).await;
 
-            // now fill in None entries
+            // now fill in keys with the results of the futures (If they evaluate to Ok, meaning the key was collected)
             let mut new_keys_iter = remaining_keys.into_iter();
+            // we will return an error if we did not collect all keys
+            let mut not_collected = false;
 
-            for key in verifier_keys.iter_mut() {
+            for (idx, key) in verifier_keys.iter_mut().enumerate() {
                 if key.is_none() {
                     if let Some(new_key) = new_keys_iter.next() {
-                        *key = Some(new_key);
+                        match new_key {
+                            Ok(new_key) => *key = Some(new_key),
+                            Err(e) => {
+                                tracing::debug!(
+                                    "Failed to collect verifier {} (order in config) key: {}",
+                                    idx,
+                                    e
+                                );
+                                // mark that we have not collected all keys
+                                not_collected = true;
+                                continue;
+                            }
+                        }
                     } else {
                         return Err(eyre::eyre!(
                             "Not enough verifier keys collected, internal logic error"
@@ -269,6 +283,9 @@ impl Aggregator {
                         .into());
                     }
                 }
+            }
+            if not_collected {
+                return Err(eyre::eyre!("Not all verifier keys could be collected").into());
             }
         }
         // just get a read lock and return the keys
@@ -319,15 +336,29 @@ impl Aggregator {
                     }
                 });
 
-            let collected_keys = try_join_all(futures).await?;
+            let collected_keys = join_all(futures).await;
 
-            // now fill in None entries
+            // now fill in keys with the results of the futures (If they evaluate to Ok, meaning the key was collected)
             let mut new_keys_iter = collected_keys.into_iter();
+            // we will return an error if we did not collect all keys
+            let mut not_collected = false;
 
-            for key in operator_keys.iter_mut() {
+            for (idx, key) in operator_keys.iter_mut().enumerate() {
                 if key.is_none() {
                     if let Some(new_key) = new_keys_iter.next() {
-                        *key = Some(new_key);
+                        match new_key {
+                            Ok(new_key) => *key = Some(new_key),
+                            Err(e) => {
+                                tracing::debug!(
+                                    "Failed to collect operator {} (order in config) key: {}",
+                                    idx,
+                                    e
+                                );
+                                // mark that we have not collected all keys
+                                not_collected = true;
+                                continue;
+                            }
+                        }
                     } else {
                         return Err(eyre::eyre!(
                             "Not enough operator keys collected, internal logic error"
@@ -335,6 +366,9 @@ impl Aggregator {
                         .into());
                     }
                 }
+            }
+            if not_collected {
+                return Err(eyre::eyre!("Not all operator keys could be collected").into());
             }
         }
         // just get a read lock and return the keys
@@ -615,21 +649,18 @@ impl Aggregator {
         let operator_keys = self.operator_keys.read().await.clone();
         let verifier_keys = self.verifier_keys.read().await.clone();
 
+        // we will only ask status of entities that we could collect keys for, others are unreachable
+
         let operator_status = join_all(
             operator_clients
                 .iter()
-                .zip(operator_keys.iter().enumerate())
-                .map(|(client, (idx, key))| {
+                .zip(operator_keys.iter())
+                // filter out operators that have None as key
+                .filter_map(|(client, key)| key.map(|key| (client, key)))
+                .map(|(client, key)| {
                     let mut client = client.clone();
                     async move {
-                        let key = match key {
-                            Some(key) => key.to_string(),
-                            None => format!(
-                                "Operator with index {} (order in config), key unknown",
-                                idx
-                            ),
-                        };
-                        tracing::debug!("Getting operator status for {}", key);
+                        tracing::debug!("Getting operator status for {}", key.to_string());
                         let mut request = Request::new(Empty {});
                         request.set_timeout(ENTITY_STATUS_POLL_TIMEOUT);
                         let response = client.get_current_status(request).await;
@@ -637,7 +668,7 @@ impl Aggregator {
                         EntityStatusWithId {
                             entity_id: Some(RPCEntityId {
                                 kind: EntityType::Operator as i32,
-                                id: key,
+                                id: key.to_string(),
                             }),
                             status_result: match response {
                                 Ok(response) => Some(StatusResult::Status(response.into_inner())),
@@ -654,17 +685,12 @@ impl Aggregator {
         let verifier_status = join_all(
             verifier_clients
                 .iter()
-                .zip(verifier_keys.iter().enumerate())
-                .map(|(client, (idx, key))| {
+                .zip(verifier_keys.iter())
+                .filter_map(|(client, key)| key.map(|key| (client, key)))
+                .map(|(client, key)| {
                     let mut client = client.clone();
                     async move {
-                        let key = match key {
-                            Some(key) => key.to_string(),
-                            None => format!(
-                                "Verifier with index {} (order in config), key unknown",
-                                idx
-                            ),
-                        };
+                        tracing::debug!("Getting verifier status for {}", key.to_string());
                         let mut request = Request::new(Empty {});
                         request.set_timeout(ENTITY_STATUS_POLL_TIMEOUT);
                         let response = client.get_current_status(request).await;
@@ -672,7 +698,7 @@ impl Aggregator {
                         EntityStatusWithId {
                             entity_id: Some(RPCEntityId {
                                 kind: EntityType::Verifier as i32,
-                                id: key,
+                                id: key.to_string(),
                             }),
                             status_result: match response {
                                 Ok(response) => Some(StatusResult::Status(response.into_inner())),
