@@ -1,5 +1,6 @@
 use super::structs::LightClientProof;
 use citrea_sov_rollup_interface::zk::light_client_proof::output::LightClientCircuitOutput;
+use risc0_zkvm::guest::env;
 
 // use risc0_zkvm::guest::env;
 
@@ -7,7 +8,7 @@ pub const LC_IMAGE_ID: [u8; 32] =
     hex_literal::hex!("d02f2eda4c0a0d04b13e630d4ec03d3f5ac5fd63a0b229b2438e90a26b63308b");
 
 pub fn lc_proof_verifier(light_client_proof: LightClientProof) -> LightClientCircuitOutput {
-    // env::verify(LC_IMAGE_ID, &light_client_proof.lc_journal).unwrap();
+    env::verify(LC_IMAGE_ID, &light_client_proof.lc_journal).unwrap();
 
     if light_client_proof.lc_journal.len() < 32 {
         panic!("Invalid light client journal");
