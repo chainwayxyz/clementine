@@ -151,7 +151,7 @@ impl Database {
             AND txs.seen_block_id IS NULL",
                 common_ctes
             ))
-            .bind(block_id as i32)
+            .bind(block_id)
             .fetch_all(&bg_db.connection)
             .await
             else {
@@ -168,7 +168,7 @@ impl Database {
             AND txs.seen_block_id IS NULL",
                 common_ctes
             ))
-            .bind(block_id as i32)
+            .bind(block_id)
             .fetch_all(&bg_db.connection)
             .await
             else {
