@@ -481,7 +481,7 @@ async fn citrea_deposit_and_withdraw_e2e() -> citrea_e2e::Result<()> {
         .expect("Failed to initialize logger");
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
-        "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
+        "chainwayxyz/citrea-test:738e68ee8321eb2e5d78e2f94dfe0b99b4957dd2",
     );
     let citrea_e2e = CitreaDepositAndWithdrawE2E {
         variant: CitreaDepositAndWithdrawE2EVariant::GenesisHeightZero,
