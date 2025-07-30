@@ -278,7 +278,7 @@ impl Aggregator {
                         }
                     } else {
                         return Err(eyre::eyre!(
-                            "Not enough verifier keys collected, internal logic error"
+                            "Not enough verifier keys collected, internal logic error, should not happen"
                         )
                         .into());
                     }
@@ -328,7 +328,7 @@ impl Aggregator {
                         let mut request = Request::new(Empty {});
                         request.set_timeout(PUBLIC_KEY_COLLECTION_TIMEOUT);
                         let operator_keys: XOnlyPublicKey = client
-                            .get_x_only_public_key(Request::new(Empty {}))
+                            .get_x_only_public_key(request)
                             .await?
                             .into_inner()
                             .try_into()?;
@@ -361,7 +361,7 @@ impl Aggregator {
                         }
                     } else {
                         return Err(eyre::eyre!(
-                            "Not enough operator keys collected, internal logic error"
+                            "Not enough operator keys collected, internal logic error, should not happen"
                         )
                         .into());
                     }
@@ -660,7 +660,7 @@ impl Aggregator {
                 .map(|(client, key)| {
                     let mut client = client.clone();
                     async move {
-                        tracing::debug!("Getting operator status for {}", key.to_string());
+                        tracing::debug!("Getting operator status for {:?}", key);
                         let mut request = Request::new(Empty {});
                         request.set_timeout(ENTITY_STATUS_POLL_TIMEOUT);
                         let response = client.get_current_status(request).await;
@@ -690,7 +690,7 @@ impl Aggregator {
                 .map(|(client, key)| {
                     let mut client = client.clone();
                     async move {
-                        tracing::debug!("Getting verifier status for {}", key.to_string());
+                        tracing::debug!("Getting verifier status for {:?}", key);
                         let mut request = Request::new(Empty {});
                         request.set_timeout(ENTITY_STATUS_POLL_TIMEOUT);
                         let response = client.get_current_status(request).await;
