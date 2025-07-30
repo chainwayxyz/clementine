@@ -26,6 +26,8 @@ impl BlockCache {
         block_cache
     }
 
+    /// Updates the block cache with the new block
+    /// Creates HashMap's of txids and spent utxos for efficient lookups
     pub fn update_with_block(&mut self, block: &Block, block_height: u32) {
         self.block_height = block_height;
         for (idx, tx) in block.txdata.iter().enumerate() {
