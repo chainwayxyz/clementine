@@ -44,7 +44,6 @@ use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::{Message, PublicKey};
 use bitcoin::{TapSighash, TxOut, Txid, XOnlyPublicKey};
 use eyre::{Context, OptionExt};
-use futures::SinkExt;
 use futures::{
     future::try_join_all,
     stream::{BoxStream, TryStreamExt},
