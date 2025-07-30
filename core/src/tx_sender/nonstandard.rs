@@ -12,9 +12,9 @@ impl TxSender {
     /// Checks if a bridge transaction is nonstandard. Keep in mind that these are not all cases where a transaction is nonstandard.
     /// We only check non-standard types that clementine generates by default in non-standard mode.
     /// Currently checks these cases:
-    // 1. The transaction contains 0 sat non-anchor (only checks our specific anchor address)
-    //    and non-op return output.
-    // 2. The transaction weight is bigger than 400k
+    /// 1. The transaction contains 0 sat non-anchor (only checks our specific anchor address)
+    ///    and non-op return output.
+    /// 2. The transaction weight is bigger than 400k
     ///
     /// Arguments:
     /// * `tx` - The transaction to check.
@@ -71,6 +71,8 @@ impl TxSender {
                 ))
             })?;
         if response.status().is_success() {
+            // Try to parse the response, if for some reason response cant be parsed,
+            // don't return errors, so we continue with sending the transaction to the accelerator.
             let text = response.text().await.unwrap_or_default();
             let previously_sent_txs: serde_json::Value =
                 serde_json::from_str(&text).unwrap_or_else(|_| serde_json::json!([]));
