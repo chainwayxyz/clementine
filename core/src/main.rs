@@ -17,7 +17,6 @@ use clementine_core::{
     utils::{initialize_logger, initialize_telemetry},
 };
 use std::str::FromStr;
-use tokio::io::AsyncWriteExt;
 use tracing::{level_filters::LevelFilter, Level};
 
 #[tokio::main]
@@ -80,13 +79,4 @@ async fn main() {
     println!("Server has started successfully.");
 
     handle.closed().await;
-
-    tokio::io::stdout()
-        .flush()
-        .await
-        .expect("Failed to flush stdout");
-    tokio::io::stderr()
-        .flush()
-        .await
-        .expect("Failed to flush stderr");
 }
