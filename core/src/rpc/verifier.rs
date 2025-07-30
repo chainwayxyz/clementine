@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::vec::IntoIter;
 
 use super::clementine::{
     self, clementine_verifier_server::ClementineVerifier, Empty, NonceGenRequest, NonceGenResponse,
@@ -12,7 +12,7 @@ use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestD
 use crate::citrea::CitreaClientT;
 use crate::constants::RESTART_BACKGROUND_TASKS_TIMEOUT;
 use crate::rpc::clementine::VerifierDepositFinalizeResponse;
-use crate::utils::{get_vergen_response, timed_request};
+use crate::utils::{batched_stream_from_rx, get_vergen_response, timed_request, BatchedStream};
 use crate::verifier::VerifierServer;
 use crate::{constants, fetch_next_optional_message_from_stream};
 use crate::{
@@ -21,26 +21,9 @@ use crate::{
 };
 use bitcoin::Witness;
 use clementine::verifier_deposit_finalize_params::Params;
-use futures::stream::FlatMap;
-use futures::{stream, StreamExt as _};
 use secp256k1::musig::AggregatedNonce;
 use tokio::sync::mpsc::{self, error::SendError};
-use tokio_stream::adapters::ChunksTimeout;
-use tokio_stream::wrappers::ReceiverStream;
-use tokio_stream::StreamExt as _;
 use tonic::{async_trait, Request, Response, Status, Streaming};
-
-type BatchedStream<T> = FlatMap<
-    ChunksTimeout<ReceiverStream<T>>,
-    stream::Iter<std::vec::IntoIter<T>>,
-    fn(Vec<T>) -> stream::Iter<std::vec::IntoIter<T>>,
->;
-
-fn batched_stream_from_rx<T>(rx: mpsc::Receiver<T>) -> BatchedStream<T> {
-    ReceiverStream::new(rx)
-        .chunks_timeout(64, Duration::from_millis(1))
-        .flat_map(stream::iter)
-}
 
 #[async_trait]
 impl<C> ClementineVerifier for VerifierServer<C>
@@ -137,7 +120,6 @@ where
             rbf_info: Some(rbf_info.into()),
         }))
     }
-    type NonceGenStream = ReceiverStream<Result<NonceGenResponse, Status>>;
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn get_params(&self, _: Request<Empty>) -> Result<Response<VerifierParams>, Status> {
@@ -202,6 +184,8 @@ where
         Ok(Response::new(Empty {}))
     }
 
+    type NonceGenStream = futures::stream::Iter<IntoIter<Result<NonceGenResponse, Status>>>;
+
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn nonce_gen(
         &self,
@@ -211,25 +195,21 @@ where
 
         let (session_id, pub_nonces) = self.verifier.nonce_gen(num_nonces).await?;
 
-        let (tx, rx) = mpsc::channel(pub_nonces.len() + 1);
+        let mut response = vec![];
 
-        tokio::spawn(async move {
-            let nonce_gen_first_response = clementine::NonceGenFirstResponse {
-                id: session_id,
-                num_nonces,
-            };
-            let session_id: NonceGenResponse = nonce_gen_first_response.into();
-            tx.send(Ok(session_id)).await?;
+        let nonce_gen_first_response = clementine::NonceGenFirstResponse {
+            id: session_id,
+            num_nonces,
+        };
+        let session_id: NonceGenResponse = nonce_gen_first_response.into();
+        response.push(Ok(session_id));
 
-            for pub_nonce in &pub_nonces {
-                let pub_nonce: NonceGenResponse = pub_nonce.into();
-                tx.send(Ok(pub_nonce)).await?;
-            }
+        for pub_nonce in &pub_nonces {
+            let pub_nonce: NonceGenResponse = pub_nonce.into();
+            response.push(Ok(pub_nonce));
+        }
 
-            Ok::<(), SendError<_>>(())
-        });
-
-        Ok(Response::new(ReceiverStream::new(rx)))
+        Ok(Response::new(futures::stream::iter(response)))
     }
 
     type DepositSignStream = BatchedStream<Result<PartialSig, Status>>;

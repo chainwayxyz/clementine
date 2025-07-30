@@ -12,7 +12,7 @@ use crate::constants::DEFAULT_CHANNEL_SIZE;
 use crate::deposit::DepositData;
 use crate::operator::OperatorServer;
 use crate::rpc::parser;
-use crate::utils::get_vergen_response;
+use crate::utils::{batched_stream_from_rx, get_vergen_response, BatchedStream};
 use bitcoin::hashes::Hash;
 use bitcoin::{BlockHash, OutPoint};
 use bitvm::chunk::api::{NUM_HASH, NUM_PUBS, NUM_U256};
@@ -26,7 +26,7 @@ impl<C> ClementineOperator for OperatorServer<C>
 where
     C: CitreaClientT,
 {
-    type DepositSignStream = ReceiverStream<Result<SchnorrSig, Status>>;
+    type DepositSignStream = BatchedStream<Result<SchnorrSig, Status>>;
     type GetParamsStream = ReceiverStream<Result<OperatorParams, Status>>;
 
     async fn vergen(&self, _request: Request<Empty>) -> Result<Response<VergenResponse>, Status> {
@@ -131,7 +131,7 @@ where
             }
         });
 
-        Ok(Response::new(ReceiverStream::new(rx)))
+        Ok(Response::new(batched_stream_from_rx(rx)))
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
