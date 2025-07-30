@@ -21,7 +21,7 @@ use ark_ff::BigInt;
 use hex_literal::hex;
 
 pub const REGTEST_LC_IMAGE_ID: [u8; 32] =
-    hex!("d02f2eda4c0a0d04b13e630d4ec03d3f5ac5fd63a0b229b2438e90a26b63308b");
+    hex!("e02f42a01d0cb5a6dbc2f5d26b28a9881808a3023c8330a5aea2a0bea754c216");
 
 pub const DEVNET_LC_IMAGE_ID: [u8; 32] =
     hex!("f62aaca40b6b26d197624f55471341b32ed38cd2443c3b416160f073d25612af");
