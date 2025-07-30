@@ -37,14 +37,12 @@ pgmq = "0.30.0"
 serde_with = "3.12.0"
 rand_chacha = "0.9.0"
 secrecy = { version = "0.10.0", features = ["serde"] }
+reqwest = { version = "0.12.12", features = ["rustls-tls", "json", "http2"], default-features = false }
 
 # Citrea dependencies
-citrea-e2e = { git = "https://github.com/chainwayxyz/citrea-e2e", rev = "d45a29afa4de9d7e00dad9e8d9c59f95fe22e557" }
-sov-rollup-interface = { git = "https://github.com/chainwayxyz/citrea.git", rev = "b1fbe83fdd60d29", features = [
-  "native",
-] }
+citrea-e2e = { git = "https://github.com/chainwayxyz/citrea-e2e", rev = "812156b" }
 
-citrea-sov-rollup-interface = { git = "https://github.com/chainwayxyz/citrea", tag = "v0.7.0", package = "sov-rollup-interface" }
+citrea-sov-rollup-interface = { git = "https://github.com/chainwayxyz/citrea", tag = "v0.7.2-mempool-fixes", package = "sov-rollup-interface" }
 
 # bitcoin
 bitcoin = { version = "0.32.5", features = ["serde", "base64"] }
@@ -76,8 +74,8 @@ sha2 = { version = "=0.10.8", default-features = false }
 crypto-bigint = { version = "=0.5.5", features = ["rand_core"] }
 borsh = { version = "1.5.1", features = ["derive"] }
 k256 = { version = "=0.13.4" }
-risc0-build = "2.2.0"
-risc0-zkvm = "2.2.0"
+risc0-build = "2.3.1"
+risc0-zkvm = "2.3.1"
 once_cell = "1.10.0"
 jmt = "0.11.0"
 derive_more = { version = "1.0.0", features = ["display"] }
@@ -93,10 +91,10 @@ ark-bn254 = { version = "0.5.0", features = [
 ], default-features = false }
 
 # Bridge Circuit Host
-risc0-circuit-recursion = "3.0.0"
-risc0-zkp = "2.0.2"
-risc0-groth16 = "2.0.2"
-risc0-binfmt = { version = "2.0.2" }
+risc0-circuit-recursion = "=3.0.0"
+risc0-zkp = "=2.0.2"
+risc0-groth16 = "=2.0.2"
+risc0-binfmt = { version = "=2.0.2" }
 
 ark-ff = "0.5.0"
 ark-ec = "0.5.0"

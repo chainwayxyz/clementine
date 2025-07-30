@@ -10,13 +10,12 @@
 //! Configuration options can be read from a TOML file. File contents are
 //! described in `BridgeConfig` struct.
 
-use crate::bitvm_client::UNSPENDABLE_XONLY_PUBKEY;
 use crate::config::env::{read_string_from_env, read_string_from_env_then_parse};
 use crate::deposit::SecurityCouncil;
 use crate::errors::BridgeError;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::secp256k1::SecretKey;
-use bitcoin::{Address, Amount, OutPoint};
+use bitcoin::{Address, Amount, OutPoint, XOnlyPublicKey};
 use protocol::ProtocolParamset;
 use secrecy::SecretString;
 use serde::Deserialize;
@@ -58,6 +57,11 @@ pub struct BridgeConfig {
     pub bitcoin_rpc_user: SecretString,
     /// Bitcoin RPC user password.
     pub bitcoin_rpc_password: SecretString,
+    /// mempool.space API host for retrieving the fee rate. If None, Bitcoin Core RPC will be used.
+    pub mempool_api_host: Option<String>,
+    /// mempool.space API endpoint for retrieving the fee rate. If None, Bitcoin Core RPC will be used.
+    pub mempool_api_endpoint: Option<String>,
+
     /// PostgreSQL database host address.
     pub db_host: String,
     /// PostgreSQL database port.
@@ -239,6 +243,8 @@ impl Default for BridgeConfig {
             bitcoin_rpc_url: "http://127.0.0.1:18443/wallet/admin".to_string(),
             bitcoin_rpc_user: "admin".to_string().into(),
             bitcoin_rpc_password: "admin".to_string().into(),
+            mempool_api_host: None,
+            mempool_api_endpoint: None,
 
             db_host: "127.0.0.1".to_string(),
             db_port: 5432,
@@ -257,7 +263,16 @@ impl Default for BridgeConfig {
             operator_collateral_funding_outpoint: None,
 
             security_council: SecurityCouncil {
-                pks: vec![*UNSPENDABLE_XONLY_PUBKEY],
+                pks: vec![
+                    XOnlyPublicKey::from_str(
+                        "9ac20335eb38768d2052be1dbbc3c8f6178407458e51e6b4ad22f1d91758895b",
+                    )
+                    .expect("valid xonly"),
+                    XOnlyPublicKey::from_str(
+                        "5ab4689e400a4a160cf01cd44730845a54768df8547dcdf073d964f109f18c30",
+                    )
+                    .expect("valid xonly"),
+                ],
                 threshold: 1,
             },
 

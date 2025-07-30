@@ -185,7 +185,7 @@ impl CitreaClientT for MockCitreaClient {
                 l2_height: l1_height.to_string(),
             },
             borsh::from_slice(include_bytes!(
-                "../../../../../bridge-circuit-host/bin-files/lcp_receipt.bin"
+                "../../../../../circuits-lib/test_data/lcp_receipt.bin"
             ))
             .wrap_err("Couldn't create mock receipt")?,
             l1_height,
@@ -196,6 +196,7 @@ impl CitreaClientT for MockCitreaClient {
         &self,
         block_height: u64,
         _timeout: Duration,
+        _network: bitcoin::Network,
     ) -> Result<(u64, u64), BridgeError> {
         Ok((
             if block_height == 0 {

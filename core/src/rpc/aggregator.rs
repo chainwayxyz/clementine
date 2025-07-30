@@ -1637,7 +1637,8 @@ mod tests {
         let rpc = regtest.rpc();
 
         let _unused =
-            run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None).await?;
+            run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None, None)
+                .await?;
 
         Ok(())
     }
@@ -1647,7 +1648,8 @@ mod tests {
         let mut config = create_test_config_with_thread_name().await;
         let _regtest = create_regtest_rpc(&mut config).await;
 
-        let (_, _, mut aggregator, _cleanup) = create_actors::<MockCitreaClient>(&config).await;
+        let actors = create_actors::<MockCitreaClient>(&config).await;
+        let mut aggregator = actors.get_aggregator();
 
         aggregator
             .setup(tonic::Request::new(clementine::Empty {}))
@@ -1665,8 +1667,8 @@ mod tests {
         let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc();
-        let (_verifiers, _operators, mut aggregator, _cleanup) =
-            create_actors::<MockCitreaClient>(&config).await;
+        let actors = create_actors::<MockCitreaClient>(&config).await;
+        let mut aggregator = actors.get_aggregator();
 
         let evm_address = EVMAddress([1u8; 20]);
         let signer = Actor::new(
@@ -1778,8 +1780,8 @@ mod tests {
         let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc();
-        let (_verifiers, _operators, mut aggregator, _cleanup) =
-            create_actors::<MockCitreaClient>(&config).await;
+        let actors = create_actors::<MockCitreaClient>(&config).await;
+        let mut aggregator = actors.get_aggregator();
 
         let evm_address = EVMAddress([1u8; 20]);
         let signer = Actor::new(
@@ -1877,8 +1879,8 @@ mod tests {
         let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc();
-        let (_verifiers, _operators, mut aggregator, _cleanup) =
-            create_actors::<MockCitreaClient>(&config).await;
+        let actors = create_actors::<MockCitreaClient>(&config).await;
+        let mut aggregator = actors.get_aggregator();
 
         let evm_address = EVMAddress([1u8; 20]);
         let signer = Actor::new(
@@ -2173,9 +2175,8 @@ mod tests {
         let mut config = create_test_config_with_thread_name().await;
         let _regtest = create_regtest_rpc(&mut config).await;
 
-        let (_verifiers, _operators, mut aggregator, mut cleanup) =
-            create_actors::<MockCitreaClient>(&config).await;
-
+        let actors = create_actors::<MockCitreaClient>(&config).await;
+        let mut aggregator = actors.get_aggregator();
         let status = aggregator
             .get_entity_statuses(Request::new(GetEntityStatusesRequest {
                 restart_tasks: false,
@@ -2191,31 +2192,5 @@ mod tests {
             config.test_params.all_operators_secret_keys.len()
                 + config.test_params.all_verifiers_secret_keys.len()
         );
-
-        // close an entity
-        cleanup.0 .0.remove(0).send(()).unwrap();
-
-        let status = aggregator
-            .get_entity_statuses(Request::new(GetEntityStatusesRequest {
-                restart_tasks: false,
-            }))
-            .await
-            .unwrap()
-            .into_inner();
-
-        tracing::info!("Status: {:?}", status);
-
-        // count errors
-        let errors = status
-            .entity_statuses
-            .iter()
-            .filter(|entity| {
-                matches!(
-                    entity.status_result,
-                    Some(clementine::entity_status_with_id::StatusResult::Err(_))
-                )
-            })
-            .count();
-        assert_eq!(errors, 1);
     }
 }

@@ -59,7 +59,7 @@ ark-serialize = { workspace = true }
 statig = { workspace = true, features = ["async", "serde"] }
 pgmq = { workspace = true }
 serde_with = { workspace = true }
-sov-rollup-interface = { workspace = true, features = ["native"] }
+citrea-sov-rollup-interface = { workspace = true, features = ["native"] }
 rand_chacha = { workspace = true }
 log = { workspace = true }
 circuits-lib = { path = "../circuits-lib" }
@@ -71,6 +71,7 @@ rustls-pki-types = { workspace = true }
 once_cell = { workspace = true }
 bitcoin-script = { workspace = true }
 secrecy = { workspace = true }
+reqwest = { workspace = true }
 
 # UNCOMMENT TO DEBUG TOKIO TASKS
 

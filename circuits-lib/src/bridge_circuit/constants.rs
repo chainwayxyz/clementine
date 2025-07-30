@@ -1,16 +1,47 @@
+//! # Bridge Circuit Constants
+//!
+//! This module contains constants used in the bridge circuit, including method IDs for different networks,
+//! Groth16 related constants, and prepared verification keys. These constants are essential for the operation
+//! of the bridge circuit and are used in various cryptographic operations.
+//! ## Work-Only Circuit Method IDs
+//! The method IDs for different networks are used to identify the specific work-only circuits.
+//! They are used for verifying the total work done on a Bitcoin blockchain for a given Watchtower challenge.
+//! ## Groth16 Related Constants
+//! These constants are used in the Groth16 proof verification process.
+//! They include the post state, input, assumptions, claim tag, and output tag.
+//! They are used to recover all five public outputs of the Groth16 proof when Risc0 pipeline is used
+//! for generating the proof.
+//! ## Verification Keys
+//! The prepared verification keys are used to verify the Groth16 proofs. They are included in
+//! the binary format. The `get_prepared_vk` function can be used to retrieve the appropriate
+//! verification key according to the feature flags.
+
 use ark_bn254::Fr;
 use ark_ff::BigInt;
 use hex_literal::hex;
 
-/// Work-only circuit method IDs for different networks.
+pub const REGTEST_LC_IMAGE_ID: [u8; 32] =
+    hex!("e02f42a01d0cb5a6dbc2f5d26b28a9881808a3023c8330a5aea2a0bea754c216");
+
+pub const DEVNET_LC_IMAGE_ID: [u8; 32] =
+    hex!("f62aaca40b6b26d197624f55471341b32ed38cd2443c3b416160f073d25612af");
+
+pub const TESTNET_LC_IMAGE_ID: [u8; 32] =
+    hex!("ff207fa9858277eca6caa9b771fa00e87f861d34b4c29388dca6f7cc227ac367");
+
+// MAINNET LC_IMAGE_ID is not yet provided by CITREA, so we use a placeholder.
+pub const MAINNET_LC_IMAGE_ID: [u8; 32] =
+    hex!("0000000000000000000000000000000000000000000000000000000000000000");
+
+// Work-only circuit method IDs for different networks.
 pub static MAINNET_WORK_ONLY_METHOD_ID: [u8; 32] =
-    hex!("5b166499bace4ab1d4c71c03b0f0f201fc873032c346db5d8e46e8e24a820809");
+    hex!("ba2bd4e46597ab3341f0ed4fde263f35b82da3ec3fe6f42d85399b8c61a4fba2");
 pub static TESTNET4_WORK_ONLY_METHOD_ID: [u8; 32] =
-    hex!("931ecaa5a6566b577f10729763bcaf0a0e00ec4a365505f393ea6557d404588b");
+    hex!("f32a967a3557f87e3d67821ae8cfa845429edc224c0f1df86996dd41914b2596");
 pub static REGTEST_WORK_ONLY_METHOD_ID: [u8; 32] =
-    hex!("5e61cc4a91a47746a9ecf5f70c834f1884d58005d69645fd1d4bab115a649c24");
+    hex!("11bb884b51d9d33de10ea449927b932ada1c540acd9dfc03e9af806dc8180979");
 pub static SIGNET_WORK_ONLY_METHOD_ID: [u8; 32] =
-    hex!("269912faf4bd668784a5eef4bb3fa0b1d7e3fe26ec0232589e5481f1a3418d69");
+    hex!("35d88de6b8a13cfe34df05e103d14f926d1a56671792c2ce85b89f055193f225");
 
 // GROTH16 RELATED CONSTANTS
 pub static POST_STATE: [u8; 32] =

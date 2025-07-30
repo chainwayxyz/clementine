@@ -2,12 +2,14 @@ use crate::docker::{stark_to_bitvm2_g16, stark_to_bitvm2_g16_dev_mode};
 use crate::structs::{
     BridgeCircuitBitvmInputs, BridgeCircuitHostParams, SuccinctBridgeCircuitPublicInputs,
 };
-use crate::utils::calculate_succinct_output_prefix;
+use crate::utils::{calculate_succinct_output_prefix, is_dev_mode};
 use ark_bn254::Bn254;
 use bitcoin::Transaction;
 use borsh;
+use circuits_lib::bridge_circuit::constants::{
+    DEVNET_LC_IMAGE_ID, MAINNET_LC_IMAGE_ID, REGTEST_LC_IMAGE_ID, TESTNET_LC_IMAGE_ID,
+};
 use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
-use circuits_lib::bridge_circuit::lc_proof::LC_IMAGE_ID;
 use circuits_lib::bridge_circuit::merkle_tree::BitcoinMerkleTree;
 use circuits_lib::bridge_circuit::spv::SPV;
 use circuits_lib::bridge_circuit::structs::WorkOnlyCircuitInput;
@@ -20,7 +22,7 @@ use circuits_lib::common::constants::{
     TESTNET4_HEADER_CHAIN_METHOD_ID,
 };
 use circuits_lib::header_chain::mmr_native::MMRNative;
-use risc0_zkvm::{compute_image_id, default_prover, is_dev_mode, ExecutorEnv, ProverOpts, Receipt};
+use risc0_zkvm::{compute_image_id, default_prover, ExecutorEnv, ProverOpts, Receipt};
 
 pub const REGTEST_BRIDGE_CIRCUIT_ELF: &[u8] =
     include_bytes!("../../risc0-circuits/elfs/regtest-bridge-circuit-guest.bin");
@@ -117,10 +119,18 @@ pub fn prove_bridge_circuit(
     tracing::debug!(target: "ci", "Watchtower challenges: {:?}",
         bridge_circuit_input.watchtower_inputs);
 
+    let lc_image_id = match bridge_circuit_host_params.network.0 {
+        bitcoin::Network::Bitcoin => MAINNET_LC_IMAGE_ID,
+        bitcoin::Network::Testnet4 => TESTNET_LC_IMAGE_ID,
+        bitcoin::Network::Signet => DEVNET_LC_IMAGE_ID,
+        bitcoin::Network::Regtest => REGTEST_LC_IMAGE_ID,
+        _ => return Err(eyre!("Unsupported network")),
+    };
+
     // Verify light client proof
     if bridge_circuit_host_params
         .lcp_receipt
-        .verify(LC_IMAGE_ID)
+        .verify(lc_image_id)
         .is_err()
     {
         return Err(eyre!("Light client proof verification failed"));
@@ -411,7 +421,6 @@ mod tests {
 
     const TESTNET4_HEADER_CHAIN_GUEST_ELF: &[u8] =
         include_bytes!("../../risc0-circuits/elfs/testnet4-header-chain-guest.bin");
-
     const TESTNET4_WORK_ONLY_ELF: &[u8] =
         include_bytes!("../../risc0-circuits/elfs/testnet4-work-only-guest.bin");
 

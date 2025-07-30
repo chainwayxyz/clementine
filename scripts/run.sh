@@ -46,8 +46,8 @@ export PROTOCOL_CONFIG_PATH=${PROTOCOL_CONFIG_PATH:="core/src/config/protocol_pa
 export DBG_PACKAGE_HEX=${DBG_PACKAGE_HEX:=1}
 export RUST_MIN_STACK=${RUST_MIN_STACK:=33554432}
 export RISC0_SKIP_BUILD=${RISC0_SKIP_BUILD:=1}
-export JSON_LOGS=${JSON_LOGS:=1}
-export RUST_LOG=${RUST_LOG:=info}
+export LOG_FORMAT=json
+export RUST_LOG=info
 # TLS
 export CA_CERT_PATH=${CA_CERT_PATH:="core/certs/ca/ca.pem"}
 export SERVER_CERT_PATH=${SERVER_CERT_PATH:="core/certs/server/server.pem"}

@@ -1,3 +1,7 @@
+//! # Bitcoin Transaction Wrapper
+//! This module provides a wrapper around Bitcoin's `Transaction` type, adding functionality
+//! for calculating transaction IDs, serializing and deserializing transactions, and providing
+//! a more convenient interface for working with Bitcoin transactions in the context of the bridge circuit.
 /// Code is taken from Citrea
 /// https://github.com/chainwayxyz/citrea/blob/0acb887b1a766fac1a482a68c6d51ecf9661f538/crates/bitcoin-da/src/spec/transaction.rs
 ///

@@ -1,3 +1,43 @@
+//! # Bridge Circuit Module
+//!
+//! This module implements the Bridge Circuit for Clementine protocol.
+//! It defines the main entry point, `bridge_circuit`, which executes a comprehensive sequence
+//! of cryptographic verifications to securely validate a payout (fronting) transaction
+//! for a valid peg-out request for an existing peg-in transaction. The circuit
+//! ensures that an operator's claimed Bitcoin chain state is valid and that it has more
+//! cumulative proof-of-work than any challenging watchtower.
+//!
+//! ## Core Workflow
+//! The `bridge_circuit` function orchestrates the entire verification process:
+//! 1.  **Input Reading:** Reads the `BridgeCircuitInput` from the host environment.
+//! 2.  **Header Chain Proof (HCP) Verification:** Validates the operator's proof of the
+//!     Bitcoin header chain.
+//! 3.  **Watchtower Challenge Processing:** Iterates through all submitted watchtower challenges,
+//!     verifying their transaction signatures (`verify_watchtower_challenges`) and their
+//!     accompanying Groth16 proofs of work. It identifies the valid challenger with the
+//!     highest total work (`total_work_and_watchtower_flags`).
+//! 4.  **Work Comparison:** Asserts that the operator's claimed work is greater than the
+//!     maximum work submitted by any valid watchtower.
+//! 5.  **SPV Proof Verification:** Confirms the inclusion of the payout transaction in the
+//!     operator's claimed Bitcoin chain using a Simple Payment Verification (SPV) proof.
+//! 6.  **Light Client & Storage Verification:** Validates the Citrea rollup's state via a light
+//!     client proof (`lc_proof_verifier`) and verifies EVM storage proofs to confirm deposit
+//!     and withdrawal details (`verify_storage_proofs`).
+//! 7.  **Final Output Generation:** Computes a unique `deposit_constant` and a final
+//!     `journal_hash` from critical data points across the proofs. This hash is committed
+//!     to the zkVM journal, serving as the circuit's public, verifiable output.
+//!
+//! ## Key Components and Sub-modules
+//! This module relies on several specialized sub-modules for handling specific cryptographic tasks:
+//! - `groth16` & `groth16_verifier`: For handling Groth16 proof deserialization and verification.
+//! - `spv`: Implements SPV proof logic.
+//! - `lc_proof`: Verifies light client proofs of the rollup state.
+//! - `storage_proof`: Verifies EVM storage proofs.
+//! - `transaction` & `sighash`: Provides utilities for handling Bitcoin transactions and
+//!   computing Taproot sighashes for signature verification.
+//! - `structs`: Defines the data structures used for circuit inputs and outputs.
+//! - `constants`: Contains network-specific constants like method IDs.
+
 pub mod constants;
 pub mod groth16;
 pub mod groth16_verifier;
@@ -1222,7 +1262,7 @@ mod tests {
 
     #[test]
     fn test_operator_xonlypk_from_op_return() {
-        let payout_tx = include_bytes!("../../../bridge-circuit-host/bin-files/payout_tx.bin");
+        let payout_tx = include_bytes!("../../test_data/payout_tx.bin");
         let mut payout_tx: Transaction =
             Decodable::consensus_decode(&mut Cursor::new(&payout_tx)).unwrap();
 
