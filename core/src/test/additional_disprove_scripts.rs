@@ -224,7 +224,7 @@ async fn additional_disprove_script_test_disrupted_latest_block_hash() -> Result
         .expect("Failed to initialize logger");
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
-        "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
+        "chainwayxyz/citrea-test:738e68ee8321eb2e5d78e2f94dfe0b99b4957dd2",
     );
     let additional_disprove_test = AdditionalDisproveTest {
         variant: TestVariant::CorruptedLatestBlockHash,
@@ -253,7 +253,7 @@ async fn additional_disprove_script_test_disrupted_payout_tx_block_hash() -> Res
         .expect("Failed to initialize logger");
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
-        "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
+        "chainwayxyz/citrea-test:738e68ee8321eb2e5d78e2f94dfe0b99b4957dd2",
     );
     let additional_disprove_test = AdditionalDisproveTest {
         variant: TestVariant::CorruptedPayoutTxBlockHash,
@@ -282,7 +282,7 @@ async fn additional_disprove_script_test_disrupt_chal_sending_wts() -> Result<()
         .expect("Failed to initialize logger");
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
-        "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
+        "chainwayxyz/citrea-test:738e68ee8321eb2e5d78e2f94dfe0b99b4957dd2",
     );
     let additional_disprove_test = AdditionalDisproveTest {
         variant: TestVariant::CorruptedChallengeSendingWatchtowers,
@@ -311,7 +311,7 @@ async fn additional_disprove_script_test_operator_forgot_wt_challenge() -> Resul
         .expect("Failed to initialize logger");
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
-        "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
+        "chainwayxyz/citrea-test:738e68ee8321eb2e5d78e2f94dfe0b99b4957dd2",
     );
     let additional_disprove_test = AdditionalDisproveTest {
         variant: TestVariant::OperatorForgotWatchtowerChallenge,
@@ -340,7 +340,7 @@ async fn additional_disprove_script_test_corrupted_public_input() -> Result<()> 
         .expect("Failed to initialize logger");
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
-        "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
+        "chainwayxyz/citrea-test:738e68ee8321eb2e5d78e2f94dfe0b99b4957dd2",
     );
     let additional_disprove_test = AdditionalDisproveTest {
         variant: TestVariant::CorruptedPublicInput,

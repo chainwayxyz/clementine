@@ -32,6 +32,10 @@ bitcoin_rpc_url = "http://127.0.0.1:18443"
 bitcoin_rpc_user = "admin"
 bitcoin_rpc_password = "admin"
 
+# Fee rate RPC
+mempool_api_host = "https://mempool.space/"
+mempool_api_endpoint = "api/v1/fees/recommended"
+
 # PostgreSQL database credentials.
 db_host = "127.0.0.1"
 db_port = 5432

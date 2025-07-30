@@ -181,8 +181,7 @@ fn storage_verify(storage_proof: &EIP1186StorageProof, expected_root_hash: [u8; 
 mod tests {
     use super::*;
 
-    const STORAGE_PROOF: &[u8] =
-        include_bytes!("../../../bridge-circuit-host/bin-files/storage_proof.bin");
+    const STORAGE_PROOF: &[u8] = include_bytes!("../../test_data/storage_proof.bin");
 
     #[test]
     fn test_verify_storage_proofs() {

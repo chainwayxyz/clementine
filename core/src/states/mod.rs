@@ -1,3 +1,23 @@
+//! State manager module
+//!
+//! This module contains the state manager, which is responsible for holding the state machines
+//! of the system representing the current operator state for each operator, and kickoff state for each kickoff
+//! (Each operator and kickoff process has its own state machine).
+//!
+//! The main responsibility of the state manager is to process each finalized block in Bitcoin and update the state machines.
+//! The blocks are scanned for relevant Clementine tx's and internal state of the state machines is updated. This relevant data
+//! is passed on verifiers/operators when its time to send bridge transactions (like operator asserts, watchtower challenges, etc).
+//!
+//! Operator state machine: Stores where in the collateral chain the operator is. (Which round or ready to reimburse tx)
+//!     Additionally during rounds it stores which kickoff utxos of the round are spent.
+//! Kickoff state machine:
+//!     - Stores if the kickoff was challenged.
+//!     - Stores/tracks watchtower challenges, latest blockhash commit by operator, operator asserts, any relevant information needed
+//!           for proving and disproving the kickoff.
+//!
+//! For state machines we use the [statig](https://github.com/mdeloof/statig) crate.
+//!
+
 pub use crate::builder::block_cache;
 use crate::config::protocol::ProtocolParamset;
 use crate::database::{Database, DatabaseTransaction};
@@ -89,8 +109,12 @@ where
     }
 }
 
-// New state manager to hold and coordinate state machines
-#[derive(Debug)]
+/// State manager stores the state machines.
+/// It is responsible for following:
+///     - Persisting current state of the state machines to the database.
+///     - Collecting new [`SystemEvent`]s from the message queue and passing them to the state machines,
+///           thus updating the state machines.
+#[derive(Debug, Clone)]
 pub struct StateManager<T: Owner> {
     pub db: Database,
     queue: PGMQueueExt,
@@ -103,6 +127,7 @@ pub struct StateManager<T: Owner> {
 }
 
 impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
+    /// Returns message queue name for the state manager.
     pub fn queue_name() -> String {
         format!("{}_state_mgr_events", T::ENTITY_NAME)
     }
@@ -144,32 +169,25 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
     /// # Errors
     /// Returns a `BridgeError` if the database operation fails
     pub async fn load_from_db(&mut self) -> Result<(), BridgeError> {
-        // Start a transaction
-        let mut tx = self.db.begin_transaction().await?;
-
         // Get the owner type from the context
         let owner_type = &self.context.owner_type;
 
         // First, check if we have any state saved
-        let status = self
-            .db
-            .get_next_height_to_process(Some(&mut tx), owner_type)
-            .await?;
+        let status = self.db.get_next_height_to_process(None, owner_type).await?;
 
         // If no state is saved, return early
         let Some(block_height) = status else {
             tracing::info!("No state machines found in the database");
-            tx.commit().await?;
             return Ok(());
         };
 
         tracing::info!("Loading state machines from block height {}", block_height);
 
         // Load kickoff machines
-        let kickoff_machines = self
-            .db
-            .load_kickoff_machines(Some(&mut tx), owner_type)
-            .await?;
+        let kickoff_machines = self.db.load_kickoff_machines(None, owner_type).await?;
+
+        // Load round machines
+        let round_machines = self.db.load_round_machines(None, owner_type).await?;
 
         // Process and recreate kickoff machines
         for (state_json, kickoff_id, saved_block_height) in &kickoff_machines {
@@ -206,12 +224,6 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 }
             }
         }
-
-        // Load round machines
-        let round_machines = self
-            .db
-            .load_round_machines(Some(&mut tx), owner_type)
-            .await?;
 
         // Process and recreate round machines
         for (state_json, operator_xonly_pk, saved_block_height) in &round_machines {
@@ -255,7 +267,6 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             round_machines.len()
         );
 
-        tx.commit().await?;
         self.next_height_to_process =
             u32::try_from(block_height).wrap_err(BridgeError::IntConversionError)?;
         Ok(())
@@ -274,13 +285,11 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         self.kickoff_machines.clone()
     }
 
-    /// Saves the state machines to the database. Resets the dirty flag for all machines after successful save.
+    /// Saves the state machines with dirty flag set to the database.
+    /// Resets the dirty flag for all machines after successful save.
     ///
     /// # Errors
     /// Returns a `BridgeError` if the database operation fails.
-    ///
-    /// # TODO
-    /// We should only save `dirty` machines but we currently save all of them.
     pub async fn save_state_to_db(
         &mut self,
         block_height: u32,
@@ -293,8 +302,9 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         let kickoff_machines: eyre::Result<Vec<_>> = self
             .kickoff_machines
             .iter()
+            // Only serialize machines that are dirty
+            .filter(|machine| machine.dirty)
             .map(|machine| -> eyre::Result<_> {
-                // Directly serialize the machine
                 let state_json = serde_json::to_string(&machine).wrap_err_with(|| {
                     format!("Failed to serialize kickoff machine: {:?}", machine)
                 })?;
@@ -302,9 +312,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                     serde_json::to_string(&machine.kickoff_data).wrap_err_with(|| {
                         format!("Failed to serialize kickoff id for machine: {:?}", machine)
                     })?;
-
-                // Use the machine's dirty flag to determine if it needs updating
-                Ok((state_json, (kickoff_id), machine.dirty))
+                Ok((state_json, (kickoff_id)))
             })
             .collect();
 
@@ -312,6 +320,8 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         let round_machines: eyre::Result<Vec<_>> = self
             .round_machines
             .iter()
+            // Only serialize machines that are dirty
+            .filter(|machine| machine.dirty)
             .map(|machine| -> eyre::Result<_> {
                 let state_json = serde_json::to_string(machine).wrap_err_with(|| {
                     format!("Failed to serialize round machine: {:?}", machine)
@@ -319,7 +329,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 let operator_xonly_pk = machine.operator_data.xonly_pk;
 
                 // Use the machine's dirty flag to determine if it needs updating
-                Ok((state_json, (operator_xonly_pk), machine.dirty))
+                Ok((state_json, (operator_xonly_pk)))
             })
             .collect();
 
@@ -401,24 +411,29 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         (unchanged_machines, processing_futures)
     }
 
+    /// Given some new states and a start height, process the states from the given start height until the next height to process.
+    /// Then append the new states to the current state machines.
     pub async fn process_and_add_new_states_from_height(
         &mut self,
         new_round_machines: Vec<InitializedStateMachine<round::RoundStateMachine<T>>>,
         new_kickoff_machines: Vec<InitializedStateMachine<kickoff::KickoffStateMachine<T>>>,
         start_height: u32,
     ) -> Result<(), eyre::Report> {
-        // save old round machines, only process new ones and then append old machines back
-        let saved_round_machines = std::mem::take(&mut self.round_machines);
-        let saved_kickoff_machines = std::mem::take(&mut self.kickoff_machines);
+        // create a temporary state manager that only includes the new states
+        let mut temporary_manager = self.clone();
+        temporary_manager.round_machines = new_round_machines;
+        temporary_manager.kickoff_machines = new_kickoff_machines;
 
-        self.round_machines = new_round_machines;
-        self.kickoff_machines = new_kickoff_machines;
-
-        for block_height in start_height..self.next_height_to_process {
-            let block = self.db.get_full_block(None, block_height).await?;
+        for block_height in start_height..temporary_manager.next_height_to_process {
+            let block = temporary_manager
+                .db
+                .get_full_block(None, block_height)
+                .await?;
             if let Some(block) = block {
-                self.update_block_cache(&block, block_height);
-                self.process_block_parallel(block_height).await?;
+                temporary_manager.update_block_cache(&block, block_height);
+                temporary_manager
+                    .process_block_parallel(block_height)
+                    .await?;
             } else {
                 return Err(eyre::eyre!(
                     "Block at height {} not found in process_and_add_new_states_from_height",
@@ -427,9 +442,10 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             }
         }
 
-        // append saved states
-        self.round_machines.extend(saved_round_machines);
-        self.kickoff_machines.extend(saved_kickoff_machines);
+        // append new states to the current state manager
+        self.round_machines.extend(temporary_manager.round_machines);
+        self.kickoff_machines
+            .extend(temporary_manager.kickoff_machines);
 
         Ok(())
     }
@@ -447,6 +463,10 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             "Block cache is not updated"
         );
 
+        // Store the original machines to revert to in case of an error happens during processing
+        // If an error is encountered, the block processing will retry. If we don't store and revert all
+        // state machines during processing, some state machines can be left in an invalid state
+        // depending on where the error occurred. To be safe, we revert to the original machines.
         let kickoff_machines_checkpoint = self.kickoff_machines.clone();
         let round_machines_checkpoint = self.round_machines.clone();
 
@@ -457,6 +477,9 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         let (mut final_round_machines, mut round_futures) =
             Self::update_machines(&mut self.round_machines, &self.context);
 
+        // Here we store number of iterations to detect if the machines do not stabilize after a while
+        // to prevent infinite loops. If a matcher is used, it is deleted, but a bug in implementation
+        // can technically cause infinite loops.
         let mut iterations = 0;
 
         // On each iteration, we'll update the changed machines until all machines

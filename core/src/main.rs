@@ -6,8 +6,6 @@
 //! spawn multiple actor servers that it needs, in different processes. Meaning
 //! Clementine binary should be run multiple times with different arguments.
 
-use std::{str::FromStr as _, time::Duration};
-
 use clementine_core::{
     bitvm_client::{load_or_generate_bitvm_cache, BITVM_CACHE},
     citrea::CitreaClient,
@@ -18,6 +16,7 @@ use clementine_core::{
     },
     utils::{initialize_logger, initialize_telemetry},
 };
+use std::str::FromStr;
 use tracing::{level_filters::LevelFilter, Level};
 
 #[tokio::main]
@@ -71,25 +70,13 @@ async fn main() {
         cli::Actors::Aggregator => {
             println!("Starting aggregator server...");
 
-            let result = create_aggregator_grpc_server(config.clone()).await;
-
-            match result {
-                Ok(server) => server.1,
-                Err(e) => {
-                    eprintln!("Error creating aggregator server: {}", e);
-                    eprintln!("Error creating aggregator server: {:?}", e);
-                    println!("Error creating aggregator server: {}", e);
-                    println!("Error creating aggregator server: {:?}", e);
-                    tracing::error!("Error creating aggregator server: {}", e);
-                    tracing::error!("Error creating aggregator server: {}", e.to_string());
-                    tracing::error!("Error creating aggregator server: {:?}", e);
-                    return;
-                }
-            }
+            create_aggregator_grpc_server(config.clone())
+                .await
+                .expect("Can't create aggregator server")
+                .1
         }
     };
     println!("Server has started successfully.");
-    tokio::time::sleep(Duration::from_secs(10000)).await;
 
     handle.closed().await;
 }

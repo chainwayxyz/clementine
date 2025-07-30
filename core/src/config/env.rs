@@ -134,6 +134,8 @@ impl BridgeConfig {
             bitcoin_rpc_url: read_string_from_env("BITCOIN_RPC_URL")?,
             bitcoin_rpc_user: read_string_from_env("BITCOIN_RPC_USER")?.into(),
             bitcoin_rpc_password: read_string_from_env("BITCOIN_RPC_PASSWORD")?.into(),
+            mempool_api_host: read_string_from_env("MEMPOOL_API_HOST").ok(),
+            mempool_api_endpoint: read_string_from_env("MEMPOOL_API_ENDPOINT").ok(),
             db_host: read_string_from_env("DB_HOST")?,
             db_port: read_string_from_env_then_parse::<usize>("DB_PORT")?,
             db_user: read_string_from_env("DB_USER")?.into(),
