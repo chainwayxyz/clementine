@@ -764,7 +764,7 @@ fn iter_with_log<T>(iter: Vec<T>) -> stream::Iter<std::vec::IntoIter<T>> {
 // }
 
 pub fn batched_stream_from_rx<T>(rx: mpsc::Receiver<T>) -> BatchedStream<T> {
-    rx.into()
+    ReceiverStream::new(rx)
         .chunks_timeout(128, Duration::from_millis(2))
         .flat_map(iter_with_log)
 }
