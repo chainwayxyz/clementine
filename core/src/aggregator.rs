@@ -249,9 +249,9 @@ impl Aggregator {
         };
 
         if !all_collected {
-            // get a read lock early, so that only one thread can try to collect keys
+            // get a write lock early, so that only one thread can try to collect keys
             let mut keys = keys_storage.write().await;
-
+            
             let futures = clients
                 .iter()
                 .zip(keys.iter())

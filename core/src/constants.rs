@@ -35,7 +35,7 @@ mod timeout {
 
     pub const ENTITY_STATUS_POLL_TIMEOUT: Duration = Duration::from_secs(120);
 
-    pub const PUBLIC_KEY_COLLECTION_TIMEOUT: Duration = Duration::from_secs(60);
+    pub const PUBLIC_KEY_COLLECTION_TIMEOUT: Duration = Duration::from_secs(40);
 }
 
 lazy_static::lazy_static! {
