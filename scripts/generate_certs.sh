@@ -37,6 +37,7 @@ basicConstraints = CA:true
 DNS.1 = localhost
 DNS.2 = *.docker.internal
 IP.1 = 127.0.0.1
+IP.2 = 172.17.0.1
 EOF
 
 # Generate CA key and certificate
