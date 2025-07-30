@@ -228,8 +228,8 @@ They are configured for a typical deployment and needs modification before deplo
 any funds and users are responsible for configuring their own address.
 
 ```sh
-docker compose -f scripts/docker/docker-compose.testnet4.yml up
-docker compose -f scripts/docker/docker-compose.regtest.yml up
+docker compose -f scripts/docker/docker-compose.verifier.testnet4.yml up
+docker compose -f scripts/docker/docker-compose.full.regtest.yml up
 ```
 
 ### Testing
