@@ -119,12 +119,8 @@ pub async fn get_btc_syncer_consumer_last_processed_block_height(
     db: &Database,
     consumer_handle: &str,
 ) -> Result<Option<u32>, BridgeError> {
-    let mut dbtx = db.begin_transaction().await?;
-    let height = db
-        .get_last_processed_event_block_height(&mut dbtx, consumer_handle)
-        .await?;
-    dbtx.commit().await?;
-    Ok(height)
+    db.get_last_processed_event_block_height(None, consumer_handle)
+        .await
 }
 
 /// Get the last processed block height of the Bitcoin Syncer or None if no
