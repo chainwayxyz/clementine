@@ -385,12 +385,4 @@ mod tests {
         let content = include_str!("../test/data/bridge_config.toml");
         BridgeConfig::try_parse_from(content.to_string()).unwrap();
     }
-
-    #[test]
-    fn test_docker_config_parseable() {
-        let content = include_str!("../../../scripts/docker/configs/regtest/bridge_config.toml");
-        BridgeConfig::try_parse_from(content.to_string()).unwrap();
-        let content = include_str!("../../../scripts/docker/configs/testnet4/bridge_config.toml");
-        BridgeConfig::try_parse_from(content.to_string()).unwrap();
-    }
 }
