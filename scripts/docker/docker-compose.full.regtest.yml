@@ -105,7 +105,7 @@ services:
       - clementine-network
 
   citrea_sequencer_regtest:
-    image: chainwayxyz/citrea-test:91e8047ecf0eb13ef422733a68db5e6eead4a6a3
+    image: chainwayxyz/citrea-test:ca479a4147be1c3a472e76a3f117124683d81ab5
     attach: false
     depends_on:
       bitcoin_regtest:
@@ -124,7 +124,7 @@ services:
       - clementine-network
 
   citrea_batch_prover_regtest:
-    image: chainwayxyz/citrea-test:91e8047ecf0eb13ef422733a68db5e6eead4a6a3
+    image: chainwayxyz/citrea-test:ca479a4147be1c3a472e76a3f117124683d81ab5
     attach: false
     depends_on:
       bitcoin_regtest:
@@ -145,7 +145,7 @@ services:
       - clementine-network
 
   citrea_light_client_prover_regtest:
-    image: chainwayxyz/citrea-test:91e8047ecf0eb13ef422733a68db5e6eead4a6a3
+    image: chainwayxyz/citrea-test:ca479a4147be1c3a472e76a3f117124683d81ab5
     attach: false
     depends_on:
       bitcoin_regtest:
@@ -186,6 +186,8 @@ services:
     environment:
       - SECRET_KEY=1111111111111111111111111111111111111111111111111111111111111111
       - DB_NAME=clementine0
+      - CLIENT_CERT_PATH=/certs/aggregator/aggregator.pem
+      - CLIENT_KEY_PATH=/certs/aggregator/aggregator.key
     command:
       aggregator
     ports:
