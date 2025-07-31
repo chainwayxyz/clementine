@@ -1,11 +1,13 @@
-# Set up OS
-FROM rust:1.85.0
-
 # Compile Clementine
+FROM rust:1.85.0
 COPY . .
 WORKDIR /clementine
 RUN cargo +1.85.0 build --release --bin clementine-core
 
+# Copy only the compiled binary to a new image
+FROM ubuntu:22.04
+COPY --from=0 /target/release/clementine-core /clementine-core
+
 # Set up Clementine
-ENTRYPOINT [ "/target/release/clementine-core" ]
+ENTRYPOINT [ "/clementine-core" ]
 EXPOSE 17000
