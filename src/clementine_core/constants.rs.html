@@ -43,7 +43,9 @@
 <a href="#42" id="42">42</a>
 <a href="#43" id="43">43</a>
 <a href="#44" id="44">44</a>
-<a href="#45" id="45">45</a></pre></div><pre class="rust"><code><span class="kw">use </span>bitcoin::{Address, Amount, ScriptBuf};
+<a href="#45" id="45">45</a>
+<a href="#46" id="46">46</a>
+<a href="#47" id="47">47</a></pre></div><pre class="rust"><code><span class="kw">use </span>bitcoin::{Address, Amount, ScriptBuf};
 
 <span class="doccomment">/// The amount of the non-ephemeral P2A anchor output.
 </span><span class="kw">pub const </span>NON_EPHEMERAL_ANCHOR_AMOUNT: Amount = Amount::from_sat(<span class="number">240</span>);
@@ -79,6 +81,8 @@
     </span><span class="kw">pub const </span>RESTART_BACKGROUND_TASKS_TIMEOUT: Duration = Duration::from_secs(<span class="number">60</span>);
 
     <span class="kw">pub const </span>ENTITY_STATUS_POLL_TIMEOUT: Duration = Duration::from_secs(<span class="number">120</span>);
+
+    <span class="kw">pub const </span>PUBLIC_KEY_COLLECTION_TIMEOUT: Duration = Duration::from_secs(<span class="number">30</span>);
 }
 
 <span class="macro">lazy_static::lazy_static!</span> {

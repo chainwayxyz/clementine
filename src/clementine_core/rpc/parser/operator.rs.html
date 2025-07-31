@@ -158,14 +158,28 @@
 <a href="#157" id="157">157</a>
 <a href="#158" id="158">158</a>
 <a href="#159" id="159">159</a>
-<a href="#160" id="160">160</a></pre></div><pre class="rust"><code><span class="kw">use crate</span>::{
+<a href="#160" id="160">160</a>
+<a href="#161" id="161">161</a>
+<a href="#162" id="162">162</a>
+<a href="#163" id="163">163</a>
+<a href="#164" id="164">164</a>
+<a href="#165" id="165">165</a>
+<a href="#166" id="166">166</a>
+<a href="#167" id="167">167</a>
+<a href="#168" id="168">168</a>
+<a href="#169" id="169">169</a>
+<a href="#170" id="170">170</a>
+<a href="#171" id="171">171</a>
+<a href="#172" id="172">172</a>
+<a href="#173" id="173">173</a></pre></div><pre class="rust"><code><span class="kw">use crate</span>::{
     citrea::CitreaClientT,
+    errors::BridgeError,
     fetch_next_message_from_stream,
     operator::Operator,
     rpc::{
         clementine::{
             operator_params, DepositParams, DepositSignSession, OperatorConfig, OperatorParams,
-            Outpoint, SchnorrSig, WithdrawParams,
+            Outpoint, SchnorrSig, WithdrawParams, XOnlyPublicKeyRpc,
         },
         error::{<span class="self">self</span>, expected_msg_got_none},
     },
@@ -175,6 +189,7 @@
     XOnlyPublicKey,
 };
 <span class="kw">use </span>bitvm::signatures::winternitz;
+<span class="kw">use </span>eyre::Context;
 <span class="kw">use </span>std::str::FromStr;
 <span class="kw">use </span>tonic::Status;
 
@@ -226,6 +241,17 @@
             <span class="prelude-val">Some</span>(deposit_params) =&gt; <span class="prelude-val">Ok</span>(deposit_params),
             <span class="prelude-val">None </span>=&gt; <span class="prelude-val">Err</span>(expected_msg_got_none(<span class="string">"Deposit Params"</span>)()),
         }
+    }
+}
+
+<span class="kw">impl </span>TryFrom&lt;XOnlyPublicKeyRpc&gt; <span class="kw">for </span>XOnlyPublicKey {
+    <span class="kw">type </span>Error = BridgeError;
+
+    <span class="kw">fn </span>try_from(xonly_public_key_rpc: XOnlyPublicKeyRpc) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="self">Self</span>, <span class="self">Self</span>::Error&gt; {
+        <span class="prelude-val">Ok</span>(
+            XOnlyPublicKey::from_slice(<span class="kw-2">&amp;</span>xonly_public_key_rpc.xonly_public_key)
+                .wrap_err(<span class="string">"Failed to parse XOnlyPublicKey"</span>)<span class="question-mark">?</span>,
+        )
     }
 }
 

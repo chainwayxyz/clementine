@@ -2172,29 +2172,7 @@
 <a href="#2171" id="2171">2171</a>
 <a href="#2172" id="2172">2172</a>
 <a href="#2173" id="2173">2173</a>
-<a href="#2174" id="2174">2174</a>
-<a href="#2175" id="2175">2175</a>
-<a href="#2176" id="2176">2176</a>
-<a href="#2177" id="2177">2177</a>
-<a href="#2178" id="2178">2178</a>
-<a href="#2179" id="2179">2179</a>
-<a href="#2180" id="2180">2180</a>
-<a href="#2181" id="2181">2181</a>
-<a href="#2182" id="2182">2182</a>
-<a href="#2183" id="2183">2183</a>
-<a href="#2184" id="2184">2184</a>
-<a href="#2185" id="2185">2185</a>
-<a href="#2186" id="2186">2186</a>
-<a href="#2187" id="2187">2187</a>
-<a href="#2188" id="2188">2188</a>
-<a href="#2189" id="2189">2189</a>
-<a href="#2190" id="2190">2190</a>
-<a href="#2191" id="2191">2191</a>
-<a href="#2192" id="2192">2192</a>
-<a href="#2193" id="2193">2193</a>
-<a href="#2194" id="2194">2194</a>
-<a href="#2195" id="2195">2195</a>
-<a href="#2196" id="2196">2196</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::{
+<a href="#2174" id="2174">2174</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::{
     clementine_aggregator_server::ClementineAggregator, verifier_deposit_finalize_params,
     DepositParams, Empty, VerifierDepositFinalizeParams,
 };
@@ -2219,8 +2197,6 @@
 <span class="kw">use </span><span class="kw">crate</span>::deposit::{Actors, DepositData, DepositInfo};
 <span class="kw">use </span><span class="kw">crate</span>::errors::ResultExt;
 <span class="kw">use </span><span class="kw">crate</span>::musig2::AggregateFromPublicKeys;
-<span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
-<span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
 <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::VerifierDepositSignParams;
 <span class="kw">use </span><span class="kw">crate</span>::rpc::parser;
 <span class="kw">use </span><span class="kw">crate</span>::utils::{get_vergen_response, timed_request, timed_try_join_all};
@@ -2236,7 +2212,7 @@
 <span class="kw">use </span>bitcoin::hashes::Hash;
 <span class="kw">use </span>bitcoin::secp256k1::schnorr::Signature;
 <span class="kw">use </span>bitcoin::secp256k1::{Message, PublicKey};
-<span class="kw">use </span>bitcoin::{TapSighash, TxOut, Txid, XOnlyPublicKey};
+<span class="kw">use </span>bitcoin::{TapSighash, TxOut, Txid};
 <span class="kw">use </span>eyre::{Context, OptionExt};
 <span class="kw">use </span>futures::{
     future::try_join_all,
@@ -2907,85 +2883,6 @@
         <span class="prelude-val">Ok</span>(())
     }
 
-    <span class="doccomment">/// Fetches operator xonly public keys from operators.
-    </span><span class="kw">pub async fn </span>collect_operator_xonly_public_keys_with_clients(
-        operator_clients: <span class="kw-2">&amp;</span>[ClementineOperatorClient&lt;tonic::transport::Channel&gt;],
-    ) -&gt; <span class="prelude-ty">Result</span>&lt;Vec&lt;XOnlyPublicKey&gt;, BridgeError&gt; {
-        <span class="macro">tracing::info!</span>(<span class="string">"Collecting operator xonly public keys..."</span>);
-
-        <span class="kw">let </span>operator_xonly_pks = try_join_all(operator_clients.iter().map(|client| {
-            <span class="kw">let </span><span class="kw-2">mut </span>client = client.clone();
-
-            <span class="kw">async move </span>{
-                <span class="kw">let </span>response = client
-                    .get_x_only_public_key(Request::new(Empty {}))
-                    .<span class="kw">await</span><span class="question-mark">?
-                    </span>.into_inner();
-
-                XOnlyPublicKey::from_slice(<span class="kw-2">&amp;</span>response.xonly_public_key).map_err(|e| {
-                    Status::internal(<span class="macro">format!</span>(
-                        <span class="string">"Failed to parse operator xonly public key: {:?}"</span>,
-                        e
-                    ))
-                })
-            }
-        }))
-        .<span class="kw">await
-        </span>.wrap_err(<span class="string">"Failed to collect operator xonly public keys"</span>)<span class="question-mark">?</span>;
-
-        <span class="prelude-val">Ok</span>(operator_xonly_pks)
-    }
-
-    <span class="doccomment">/// Fetches operator xonly public keys from operators.
-    </span><span class="kw">pub async fn </span>collect_operator_xonly_public_keys(
-        <span class="kw-2">&amp;</span><span class="self">self</span>,
-    ) -&gt; <span class="prelude-ty">Result</span>&lt;Vec&lt;XOnlyPublicKey&gt;, BridgeError&gt; {
-        Aggregator::collect_operator_xonly_public_keys_with_clients(<span class="self">self</span>.get_operator_clients())
-            .<span class="kw">await
-    </span>}
-
-    <span class="kw">pub async fn </span>collect_verifier_public_keys_with_clients(
-        verifier_clients: <span class="kw-2">&amp;</span>[ClementineVerifierClient&lt;tonic::transport::Channel&gt;],
-    ) -&gt; <span class="prelude-ty">Result</span>&lt;(Vec&lt;Vec&lt;u8&gt;&gt;, Vec&lt;PublicKey&gt;), BridgeError&gt; {
-        <span class="macro">tracing::info!</span>(<span class="string">"Collecting verifier public keys..."</span>);
-
-        <span class="kw">let </span>(vpks, verifier_public_keys): (Vec&lt;Vec&lt;u8&gt;&gt;, Vec&lt;PublicKey&gt;) =
-            try_join_all(verifier_clients.iter().map(|client| {
-                <span class="kw">let </span><span class="kw-2">mut </span>client = client.clone();
-
-                <span class="kw">async move </span>{
-                    <span class="kw">let </span>verifier_params = client
-                        .get_params(Request::new(Empty {}))
-                        .<span class="kw">await</span><span class="question-mark">?
-                        </span>.into_inner();
-                    <span class="kw">let </span>encoded_verifier_public_key = verifier_params.public_key;
-                    <span class="kw">let </span>decoded_verifier_public_key =
-                        PublicKey::from_slice(<span class="kw-2">&amp;</span>encoded_verifier_public_key).map_err(|e| {
-                            Status::internal(<span class="macro">format!</span>(<span class="string">"Failed to parse public key: {:?}"</span>, e))
-                        })<span class="question-mark">?</span>;
-
-                    <span class="prelude-val">Ok</span>::&lt;<span class="kw">_</span>, Status&gt;((encoded_verifier_public_key, decoded_verifier_public_key))
-                }
-            }))
-            .<span class="kw">await
-            </span>.wrap_err(<span class="string">"Failed to collect verifier public keys"</span>)<span class="question-mark">?
-            </span>.into_iter()
-            .unzip();
-
-        <span class="prelude-val">Ok</span>((vpks, verifier_public_keys))
-    }
-
-    <span class="doccomment">/// Fetches verifier public keys from verifiers and sets up N-of-N.
-    </span><span class="kw">pub async fn </span>collect_verifier_public_keys(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span>&lt;VerifierPublicKeys, BridgeError&gt; {
-        <span class="kw">let </span>(vpks, <span class="kw">_</span>) =
-            Aggregator::collect_verifier_public_keys_with_clients(<span class="self">self</span>.get_verifier_clients())
-                .<span class="kw">await</span><span class="question-mark">?</span>;
-
-        <span class="prelude-val">Ok</span>(VerifierPublicKeys {
-            verifier_public_keys: vpks,
-        })
-    }
-
     <span class="kw">pub async fn </span>generate_combined_emergency_stop_tx(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         move_txids: Vec&lt;Txid&gt;,
@@ -3264,14 +3161,6 @@
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         _request: Request&lt;Empty&gt;,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;Response&lt;VerifierPublicKeys&gt;, Status&gt; {
-        <span class="kw">let </span>verifier_public_keys = <span class="self">self</span>.collect_verifier_public_keys().<span class="kw">await</span><span class="question-mark">?</span>;
-        <span class="kw">let _ </span>= <span class="self">self</span>.collect_operator_xonly_public_keys().<span class="kw">await</span><span class="question-mark">?</span>;
-
-        <span class="macro">tracing::debug!</span>(
-            <span class="string">"Verifier public keys: {:?}"</span>,
-            verifier_public_keys.verifier_public_keys
-        );
-
         <span class="comment">// Propagate Operators configurations to all verifier clients
         </span><span class="kw">const </span>CHANNEL_CAPACITY: usize = <span class="number">1024 </span>* <span class="number">16</span>;
         <span class="kw">let </span>(operator_params_tx, operator_params_rx) =
@@ -3335,7 +3224,11 @@
         </span>.into_iter()
         .collect::&lt;<span class="prelude-ty">Result</span>&lt;Vec&lt;<span class="kw">_</span>&gt;, Status&gt;&gt;()<span class="question-mark">?</span>;
 
-        <span class="prelude-val">Ok</span>(Response::new(verifier_public_keys))
+        <span class="kw">let </span>verifier_public_keys = <span class="self">self</span>.fetch_verifier_keys().<span class="kw">await</span><span class="question-mark">?</span>;
+
+        <span class="prelude-val">Ok</span>(Response::new(VerifierPublicKeys::from(
+            verifier_public_keys,
+        )))
     }
 
     <span class="doccomment">/// Handles a new deposit request from a user. This function coordinates the signing process
@@ -3369,9 +3262,9 @@
                 deposit: deposit_info,
                 nofn_xonly_pk: <span class="prelude-val">None</span>,
                 actors: Actors {
-                    verifiers: <span class="self">self</span>.get_verifier_keys(),
+                    verifiers: <span class="self">self</span>.fetch_verifier_keys().<span class="kw">await</span><span class="question-mark">?</span>,
                     watchtowers: <span class="macro">vec!</span>[],
-                    operators: <span class="self">self</span>.get_operator_keys(),
+                    operators: <span class="self">self</span>.fetch_operator_keys().<span class="kw">await</span><span class="question-mark">?</span>,
                 },
                 security_council: <span class="self">self</span>.config.security_council.clone(),
             };
@@ -3714,7 +3607,7 @@
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         <span class="kw">_</span>: tonic::Request&lt;<span class="kw">super</span>::Empty&gt;,
     ) -&gt; std::result::Result&lt;tonic::Response&lt;<span class="kw">super</span>::NofnResponse&gt;, tonic::Status&gt; {
-        <span class="kw">let </span>verifier_keys = <span class="self">self</span>.get_verifier_keys();
+        <span class="kw">let </span>verifier_keys = <span class="self">self</span>.fetch_verifier_keys().<span class="kw">await</span><span class="question-mark">?</span>;
         <span class="kw">let </span>num_verifiers = verifier_keys.len();
         <span class="kw">let </span>nofn_xonly_pk = bitcoin::XOnlyPublicKey::from_musig2_pks(verifier_keys, <span class="prelude-val">None</span>)
             .expect(<span class="string">"Failed to aggregate verifier public keys"</span>);
@@ -3815,7 +3708,10 @@
     <span class="kw">use </span><span class="kw">crate</span>::config::BridgeConfig;
     <span class="kw">use </span><span class="kw">crate</span>::deposit::{BaseDepositData, DepositInfo, DepositType};
     <span class="kw">use </span><span class="kw">crate</span>::musig2::AggregateFromPublicKeys;
+    <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
     <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::{<span class="self">self</span>, GetEntityStatusesRequest, SendMoveTxRequest};
+    <span class="kw">use </span><span class="kw">crate</span>::rpc::get_clients;
+    <span class="kw">use </span><span class="kw">crate</span>::servers::create_aggregator_unix_server;
     <span class="kw">use </span><span class="kw">crate</span>::test::common::citrea::MockCitreaClient;
     <span class="kw">use </span><span class="kw">crate</span>::test::common::tx_utils::ensure_tx_onchain;
     <span class="kw">use </span><span class="kw">crate</span>::test::common::<span class="kw-2">*</span>;
@@ -4387,6 +4283,66 @@
             status.entity_statuses.len(),
             config.test_params.all_operators_secret_keys.len()
                 + config.test_params.all_verifiers_secret_keys.len()
+        );
+    }
+
+    <span class="attr">#[tokio::test]
+    </span><span class="kw">async fn </span>aggregator_start_with_offline_verifier() {
+        <span class="kw">let </span><span class="kw-2">mut </span>config = create_test_config_with_thread_name().<span class="kw">await</span>;
+        <span class="comment">// random ips
+        </span>config.verifier_endpoints = <span class="prelude-val">Some</span>(<span class="macro">vec!</span>[<span class="string">"https://142.143.144.145:17001"</span>.to_string()]);
+        config.operator_endpoints = <span class="prelude-val">Some</span>(<span class="macro">vec!</span>[<span class="string">"https://142.143.144.145:17002"</span>.to_string()]);
+        <span class="comment">// Create temporary directory for aggregator socket
+        </span><span class="kw">let </span>socket_dir = tempfile::tempdir().unwrap();
+        <span class="kw">let </span>socket_path = socket_dir.path().join(<span class="string">"aggregator.sock"</span>);
+
+        <span class="macro">tracing::info!</span>(<span class="string">"Creating unix aggregator server"</span>);
+
+        <span class="kw">let </span>(<span class="kw">_</span>, _shutdown_tx) = create_aggregator_unix_server(config.clone(), socket_path.clone())
+            .<span class="kw">await
+            </span>.unwrap();
+
+        <span class="macro">tracing::info!</span>(<span class="string">"Created unix aggregator server"</span>);
+
+        <span class="kw">let </span><span class="kw-2">mut </span>aggregator_client = get_clients(
+            <span class="macro">vec!</span>[<span class="macro">format!</span>(<span class="string">"unix://{}"</span>, socket_path.display())],
+            ClementineAggregatorClient::new,
+            <span class="kw-2">&amp;</span>config,
+            <span class="bool-val">false</span>,
+        )
+        .<span class="kw">await
+        </span>.unwrap()
+        .pop()
+        .unwrap();
+
+        <span class="macro">tracing::info!</span>(<span class="string">"Got aggregator client"</span>);
+
+        <span class="comment">// vergen should work
+        </span><span class="macro">assert!</span>(aggregator_client
+            .vergen(Request::new(clementine::Empty {}))
+            .<span class="kw">await
+            </span>.is_ok());
+
+        <span class="macro">tracing::info!</span>(<span class="string">"After vergen"</span>);
+
+        <span class="comment">// setup should give error as it can't connect to the verifier
+        </span><span class="macro">assert!</span>(aggregator_client
+            .setup(Request::new(clementine::Empty {}))
+            .<span class="kw">await
+            </span>.is_err());
+
+        <span class="macro">tracing::info!</span>(<span class="string">"After setup"</span>);
+
+        <span class="comment">// aggregator should still be up even after not connecting to the verifier
+        // and should be able to get metrics
+        </span><span class="macro">tracing::info!</span>(
+            <span class="string">"Entity statuses: {:?}"</span>,
+            aggregator_client
+                .get_entity_statuses(Request::new(GetEntityStatusesRequest {
+                    restart_tasks: <span class="bool-val">false</span>,
+                }))
+                .<span class="kw">await
+                </span>.unwrap()
         );
     }
 }
