@@ -156,11 +156,7 @@ where
                         Channel::builder(uri)
                             .tls_config(tls_config)
                             .wrap_err("Failed to configure TLS")?
-                            .connect()
-                            .await
-                            .wrap_err_with(|| {
-                                format!("Failed to connect to endpoint {}", endpoint)
-                            })?
+                            .connect_lazy()
                     };
 
                     Ok(connect(channel))
