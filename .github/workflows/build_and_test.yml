@@ -301,3 +301,48 @@ jobs:
           name: standalone-test-logs-${{ matrix.test_name }}
           path: test-logs/standalone/
           retention-days: 7
+
+  docker_compose_regtest_deposit:
+    name: Deposit | Docker Compose | Regtest
+    runs-on: ubicloud-standard-16
+
+    env:
+      INFO_LOG_FILE: ${{ github.workspace }}/test-logs/debug/debug-all-features-test.log
+
+    steps:
+      - name: Collect Workflow Telemetry
+        uses: catchpoint/workflow-telemetry-action@v2
+        with:
+          comment_on_pr: false
+
+      - uses: actions/checkout@v4
+      # - uses: ./.github/actions/build-prerequisites
+      # - uses: ./.github/actions/test-prerequisites
+      #   with:
+      #     github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create test log directories
+        run: mkdir -p test-logs/debug
+
+      # - name: Save/restore build artifacts
+      #   uses: Swatinem/rust-cache@v2
+      #   with:
+      #     shared-key: ${{ runner.os }}-cargo-DEBUG-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
+
+      - name: Generate certificates
+        run: scripts/generate_certs.sh
+
+      - name: Start docker compose in background
+        run: |
+          docker compose -f ./scripts/docker/docker-compose.full.regtest.yml up --build --no-deps --force-recreate --remove-orphans --abort-on-container-failure &
+          echo $! > docker_compose_pid.txt
+
+      - name: Run deposit script with retries and timeout
+        run: |
+          set -e
+          cd core
+          for i in {1..30}; do
+            timeout 20 ../scripts/run-deposit.sh && break
+            echo "run-deposit.sh failed, retrying in 1 seconds ($i/30)..."
+            sleep 1
+          done
