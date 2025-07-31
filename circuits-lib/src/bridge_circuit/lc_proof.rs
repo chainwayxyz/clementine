@@ -48,7 +48,7 @@ pub fn check_method_id(
         .flat_map(|&x| x.to_le_bytes())
         .collect::<Vec<u8>>()
         .try_into()
-        .expect("Failed to convert light client proof method ID to bytes");
+        .expect("Conversion from [u32; 8] to [u8; 32] cannot fail");
 
     light_client_method_id_bytes == lc_image_id_circuit
 }
