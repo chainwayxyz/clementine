@@ -268,11 +268,7 @@
 <a href="#267" id="267">267</a>
 <a href="#268" id="268">268</a>
 <a href="#269" id="269">269</a>
-<a href="#270" id="270">270</a>
-<a href="#271" id="271">271</a>
-<a href="#272" id="272">272</a>
-<a href="#273" id="273">273</a>
-<a href="#274" id="274">274</a></pre></div><pre class="rust"><code><span class="doccomment">//! This module includes helper functions to get the blockchain synchronization status of the entity.
+<a href="#270" id="270">270</a></pre></div><pre class="rust"><code><span class="doccomment">//! This module includes helper functions to get the blockchain synchronization status of the entity.
 //! The entity tracks on-chain transactions for many purposes (TxSender,
 //! FinalizedBlockFetcher, HCP) and takes action (header chain proving, payout,
 //! disprove, L2 state sync, etc.)
@@ -393,13 +389,9 @@
     db: <span class="kw-2">&amp;</span>Database,
     consumer_handle: <span class="kw-2">&amp;</span>str,
 ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;u32&gt;, BridgeError&gt; {
-    <span class="kw">let </span><span class="kw-2">mut </span>dbtx = db.begin_transaction().<span class="kw">await</span><span class="question-mark">?</span>;
-    <span class="kw">let </span>height = db
-        .get_last_processed_event_block_height(<span class="kw-2">&amp;mut </span>dbtx, consumer_handle)
-        .<span class="kw">await</span><span class="question-mark">?</span>;
-    dbtx.commit().<span class="kw">await</span><span class="question-mark">?</span>;
-    <span class="prelude-val">Ok</span>(height)
-}
+    db.get_last_processed_event_block_height(<span class="prelude-val">None</span>, consumer_handle)
+        .<span class="kw">await
+</span>}
 
 <span class="doccomment">/// Get the last processed block height of the Bitcoin Syncer or None if no
 /// block is present in the database.
