@@ -22,9 +22,10 @@ use alloy::{
 use bitcoin::{hashes::Hash, OutPoint, Txid, XOnlyPublicKey};
 use bridge_circuit_host::receipt_from_inner;
 use circuits_lib::bridge_circuit::{
-    lc_proof::LC_IMAGE_ID,
+    lc_proof::{check_method_id, LC_IMAGE_ID},
     structs::{LightClientProof, StorageProof},
 };
+use citrea_sov_rollup_interface::zk::light_client_proof::output::LightClientCircuitOutput;
 use eyre::Context;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::proc_macros::rpc;
@@ -483,6 +484,17 @@ impl CitreaClientT for CitreaClient {
             return Err(eyre::eyre!("Current light client proof verification failed").into());
         }
 
+        let current_proof_output: LightClientCircuitOutput =
+            borsh::from_slice(&proof_current.1.journal.bytes)
+                .wrap_err("Failed to deserialize light client circuit output")?;
+
+        if !check_method_id(&current_proof_output) {
+            return Err(eyre::eyre!(
+                "Light client proof method ID does not match the expected LC image ID"
+            )
+            .into());
+        }
+
         let proof_previous =
             self.get_light_client_proof(block_height - 1)
                 .await?
@@ -493,6 +505,17 @@ impl CitreaClientT for CitreaClient {
 
         if proof_previous.1.verify(LC_IMAGE_ID).is_err() {
             return Err(eyre::eyre!("Previous light client proof verification failed").into());
+        }
+
+        let previous_proof_output: LightClientCircuitOutput =
+            borsh::from_slice(&proof_previous.1.journal.bytes)
+                .wrap_err("Failed to deserialize previous light client circuit output")?;
+
+        if !check_method_id(&previous_proof_output) {
+            return Err(eyre::eyre!(
+                "Previous light client proof method ID does not match the expected LC image ID"
+            )
+            .into());
         }
 
         let l2_height_end: u64 = proof_current.2;
@@ -564,7 +587,7 @@ trait LightClientProverRpc {
     async fn get_light_client_proof_by_l1_height(
         &self,
         l1_height: u64,
-    ) -> RpcResult<Option<sov_rollup_interface::rpc::LightClientProofResponse>>;
+    ) -> RpcResult<Option<citrea_sov_rollup_interface::rpc::LightClientProofResponse>>;
 }
 
 #[rpc(client, namespace = "eth")]
