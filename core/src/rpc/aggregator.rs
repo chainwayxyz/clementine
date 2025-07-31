@@ -23,8 +23,6 @@ use crate::constants::{
 use crate::deposit::{Actors, DepositData, DepositInfo};
 use crate::errors::ResultExt;
 use crate::musig2::AggregateFromPublicKeys;
-use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
-use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
 use crate::rpc::clementine::VerifierDepositSignParams;
 use crate::rpc::parser;
 use crate::utils::{get_vergen_response, timed_request, timed_try_join_all};
@@ -40,7 +38,7 @@ use crate::{
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::{Message, PublicKey};
-use bitcoin::{TapSighash, TxOut, Txid, XOnlyPublicKey};
+use bitcoin::{TapSighash, TxOut, Txid};
 use eyre::{Context, OptionExt};
 use futures::{
     future::try_join_all,
@@ -711,85 +709,6 @@ impl Aggregator {
         Ok(())
     }
 
-    /// Fetches operator xonly public keys from operators.
-    pub async fn collect_operator_xonly_public_keys_with_clients(
-        operator_clients: &[ClementineOperatorClient<tonic::transport::Channel>],
-    ) -> Result<Vec<XOnlyPublicKey>, BridgeError> {
-        tracing::info!("Collecting operator xonly public keys...");
-
-        let operator_xonly_pks = try_join_all(operator_clients.iter().map(|client| {
-            let mut client = client.clone();
-
-            async move {
-                let response = client
-                    .get_x_only_public_key(Request::new(Empty {}))
-                    .await?
-                    .into_inner();
-
-                XOnlyPublicKey::from_slice(&response.xonly_public_key).map_err(|e| {
-                    Status::internal(format!(
-                        "Failed to parse operator xonly public key: {:?}",
-                        e
-                    ))
-                })
-            }
-        }))
-        .await
-        .wrap_err("Failed to collect operator xonly public keys")?;
-
-        Ok(operator_xonly_pks)
-    }
-
-    /// Fetches operator xonly public keys from operators.
-    pub async fn collect_operator_xonly_public_keys(
-        &self,
-    ) -> Result<Vec<XOnlyPublicKey>, BridgeError> {
-        Aggregator::collect_operator_xonly_public_keys_with_clients(self.get_operator_clients())
-            .await
-    }
-
-    pub async fn collect_verifier_public_keys_with_clients(
-        verifier_clients: &[ClementineVerifierClient<tonic::transport::Channel>],
-    ) -> Result<(Vec<Vec<u8>>, Vec<PublicKey>), BridgeError> {
-        tracing::info!("Collecting verifier public keys...");
-
-        let (vpks, verifier_public_keys): (Vec<Vec<u8>>, Vec<PublicKey>) =
-            try_join_all(verifier_clients.iter().map(|client| {
-                let mut client = client.clone();
-
-                async move {
-                    let verifier_params = client
-                        .get_params(Request::new(Empty {}))
-                        .await?
-                        .into_inner();
-                    let encoded_verifier_public_key = verifier_params.public_key;
-                    let decoded_verifier_public_key =
-                        PublicKey::from_slice(&encoded_verifier_public_key).map_err(|e| {
-                            Status::internal(format!("Failed to parse public key: {:?}", e))
-                        })?;
-
-                    Ok::<_, Status>((encoded_verifier_public_key, decoded_verifier_public_key))
-                }
-            }))
-            .await
-            .wrap_err("Failed to collect verifier public keys")?
-            .into_iter()
-            .unzip();
-
-        Ok((vpks, verifier_public_keys))
-    }
-
-    /// Fetches verifier public keys from verifiers and sets up N-of-N.
-    pub async fn collect_verifier_public_keys(&self) -> Result<VerifierPublicKeys, BridgeError> {
-        let (vpks, _) =
-            Aggregator::collect_verifier_public_keys_with_clients(self.get_verifier_clients())
-                .await?;
-
-        Ok(VerifierPublicKeys {
-            verifier_public_keys: vpks,
-        })
-    }
-
     pub async fn generate_combined_emergency_stop_tx(
         &self,
         move_txids: Vec<Txid>,
@@ -1077,14 +996,6 @@ impl ClementineAggregator for AggregatorServer {
         &self,
         _request: Request<Empty>,
     ) -> Result<Response<VerifierPublicKeys>, Status> {
-        let verifier_public_keys = self.collect_verifier_public_keys().await?;
-        let _ = self.collect_operator_xonly_public_keys().await?;
-
-        tracing::debug!(
-            "Verifier public keys: {:?}",
-            verifier_public_keys.verifier_public_keys
-        );
-
         // Propagate Operators configurations to all verifier clients
         const CHANNEL_CAPACITY: usize = 1024 * 16;
         let (operator_params_tx, operator_params_rx) =
@@ -1148,7 +1059,11 @@ impl ClementineAggregator for AggregatorServer {
         .into_iter()
         .collect::<Result<Vec<_>, Status>>()?;
 
-        Ok(Response::new(verifier_public_keys))
+        let verifier_public_keys = self.fetch_verifier_keys().await?;
+
+        Ok(Response::new(VerifierPublicKeys::from(
+            verifier_public_keys,
+        )))
     }
 
     /// Handles a new deposit request from a user. This function coordinates the signing process
@@ -1182,9 +1097,9 @@ impl ClementineAggregator for AggregatorServer {
                 deposit: deposit_info,
                 nofn_xonly_pk: None,
                 actors: Actors {
-                    verifiers: self.get_verifier_keys(),
+                    verifiers: self.fetch_verifier_keys().await?,
                     watchtowers: vec![],
-                    operators: self.get_operator_keys(),
+                    operators: self.fetch_operator_keys().await?,
                 },
                 security_council: self.config.security_council.clone(),
             };
@@ -1527,7 +1442,7 @@ impl ClementineAggregator for AggregatorServer {
         &self,
         _: tonic::Request<super::Empty>,
     ) -> std::result::Result<tonic::Response<super::NofnResponse>, tonic::Status> {
-        let verifier_keys = self.get_verifier_keys();
+        let verifier_keys = self.fetch_verifier_keys().await?;
         let num_verifiers = verifier_keys.len();
         let nofn_xonly_pk = bitcoin::XOnlyPublicKey::from_musig2_pks(verifier_keys, None)
             .expect("Failed to aggregate verifier public keys");
@@ -1628,7 +1543,10 @@ mod tests {
     use crate::config::BridgeConfig;
     use crate::deposit::{BaseDepositData, DepositInfo, DepositType};
     use crate::musig2::AggregateFromPublicKeys;
+    use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
     use crate::rpc::clementine::{self, GetEntityStatusesRequest, SendMoveTxRequest};
+    use crate::rpc::get_clients;
+    use crate::servers::create_aggregator_unix_server;
     use crate::test::common::citrea::MockCitreaClient;
     use crate::test::common::tx_utils::ensure_tx_onchain;
     use crate::test::common::*;
@@ -2200,6 +2118,66 @@ mod tests {
             status.entity_statuses.len(),
             config.test_params.all_operators_secret_keys.len()
                 + config.test_params.all_verifiers_secret_keys.len()
+        );
+    }
+
+    #[tokio::test]
+    async fn aggregator_start_with_offline_verifier() {
+        let mut config = create_test_config_with_thread_name().await;
+        // random ips
+        config.verifier_endpoints = Some(vec!["https://142.143.144.145:17001".to_string()]);
+        config.operator_endpoints = Some(vec!["https://142.143.144.145:17002".to_string()]);
+        // Create temporary directory for aggregator socket
+        let socket_dir = tempfile::tempdir().unwrap();
+        let socket_path = socket_dir.path().join("aggregator.sock");
+
+        tracing::info!("Creating unix aggregator server");
+
+        let (_, _shutdown_tx) = create_aggregator_unix_server(config.clone(), socket_path.clone())
+            .await
+            .unwrap();
+
+        tracing::info!("Created unix aggregator server");
+
+        let mut aggregator_client = get_clients(
+            vec![format!("unix://{}", socket_path.display())],
+            ClementineAggregatorClient::new,
+            &config,
+            false,
+        )
+        .await
+        .unwrap()
+        .pop()
+        .unwrap();
+
+        tracing::info!("Got aggregator client");
+
+        // vergen should work
+        assert!(aggregator_client
+            .vergen(Request::new(clementine::Empty {}))
+            .await
+            .is_ok());
+
+        tracing::info!("After vergen");
+
+        // setup should give error as it can't connect to the verifier
+        assert!(aggregator_client
+            .setup(Request::new(clementine::Empty {}))
+            .await
+            .is_err());
+
+        tracing::info!("After setup");
+
+        // aggregator should still be up even after not connecting to the verifier
+        // and should be able to get metrics
+        tracing::info!(
+            "Entity statuses: {:?}",
+            aggregator_client
+                .get_entity_statuses(Request::new(GetEntityStatusesRequest {
+                    restart_tasks: false,
+                }))
+                .await
+                .unwrap()
         );
     }
 }
