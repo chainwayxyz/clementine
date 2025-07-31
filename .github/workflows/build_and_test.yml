@@ -317,9 +317,9 @@ jobs:
 
       - uses: actions/checkout@v4
       # - uses: ./.github/actions/build-prerequisites
-      # - uses: ./.github/actions/test-prerequisites
-      #   with:
-      #     github_token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: ./.github/actions/test-prerequisites
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create test log directories
         run: mkdir -p test-logs/debug
