@@ -340,13 +340,16 @@ jobs:
       - name: Run deposit script with retries and timeout
         run: |
           set -e
+          wget https://static.testnet.citrea.xyz/common/bitvm_cache_v4.bin -O bitvm_cache.bin
           scripts/generate_certs.sh
           docker compose -f ./scripts/docker/docker-compose.full.regtest.yml up --build --no-deps --force-recreate --remove-orphans --abort-on-container-failure &
           echo $! > docker_compose_pid.txt
           sleep 100
           cd core
+          export BQR_ALIAS="bitcoin-cli -regtest -rpcport=20443 -rpcuser=admin -rpcpassword=admin"
+          export BITCOIN_RPC_URL="http://127.0.0.1:20443"
           for i in {1..30}; do
-            BQR_ALIAS="bitcoin-cli -regtest -rpcport=20443 -rpcuser=admin -rpcpassword=admin" BITCOIN_RPC_URL="http://127.0.0.1:20443" timeout 20 ../scripts/run-deposit.sh && break
+            timeout 20 ../scripts/run-deposit.sh && break
             echo "run-deposit.sh failed, retrying in 10 seconds ($i/30)..."
             sleep 10
           done
