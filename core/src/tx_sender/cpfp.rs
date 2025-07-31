@@ -1,9 +1,7 @@
 use eyre::eyre;
 use std::env;
 
-use bitcoin::{
-    transaction::Version, Amount, FeeRate, OutPoint, Transaction, TxOut, Weight,
-};
+use bitcoin::{transaction::Version, Amount, FeeRate, OutPoint, Transaction, TxOut, Weight};
 use bitcoincore_rpc::PackageSubmissionResult;
 use bitcoincore_rpc::{PackageTransactionResult, RpcApi};
 use eyre::Context;
