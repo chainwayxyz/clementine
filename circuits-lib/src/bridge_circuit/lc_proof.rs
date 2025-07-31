@@ -30,15 +30,18 @@ pub fn lc_proof_verifier(light_client_proof: LightClientProof) -> LightClientCir
         borsh::from_slice(light_client_proof.lc_journal.as_slice())
             .expect("Failed to deserialize light client circuit output");
 
-    check_method_id(&light_client_circuit_output, LC_IMAGE_ID);
+    assert!(
+        check_method_id(&light_client_circuit_output, LC_IMAGE_ID),
+        "Light client proof method ID does not match the expected LC image ID"
+    );
 
     light_client_circuit_output
 }
 
-fn check_method_id(
+pub fn check_method_id(
     light_client_circuit_output: &LightClientCircuitOutput,
     lc_image_id_circuit: [u8; 32],
-) {
+) -> bool {
     let light_client_method_id_bytes: [u8; 32] = light_client_circuit_output
         .light_client_proof_method_id
         .iter()
@@ -47,10 +50,7 @@ fn check_method_id(
         .try_into()
         .expect("Failed to convert light client proof method ID to bytes");
 
-    assert_eq!(
-        light_client_method_id_bytes, lc_image_id_circuit,
-        "Light client proof method ID does not match expected LC_IMAGE_ID"
-    );
+    light_client_method_id_bytes == lc_image_id_circuit
 }
 
 #[cfg(test)]
@@ -72,7 +72,10 @@ mod tests {
             borsh::from_slice(light_client_proof.lc_journal.as_slice())
                 .expect("Failed to deserialize light client circuit output");
 
-        check_method_id(&light_client_circuit_output, REGTEST_LC_IMAGE_ID);
+        assert!(
+            check_method_id(&light_client_circuit_output, REGTEST_LC_IMAGE_ID),
+            "Light client proof method ID does not match the expected LC image ID"
+        );
 
         println!("LCP Receipt: {:?}", lcp_receipt.clone());
 
