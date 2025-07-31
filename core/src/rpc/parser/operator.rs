@@ -1,11 +1,12 @@
 use crate::{
     citrea::CitreaClientT,
+    errors::BridgeError,
     fetch_next_message_from_stream,
     operator::Operator,
     rpc::{
         clementine::{
             operator_params, DepositParams, DepositSignSession, OperatorConfig, OperatorParams,
-            Outpoint, SchnorrSig, WithdrawParams,
+            Outpoint, SchnorrSig, WithdrawParams, XOnlyPublicKeyRpc,
         },
         error::{self, expected_msg_got_none},
     },
@@ -15,6 +16,7 @@ use bitcoin::{
     XOnlyPublicKey,
 };
 use bitvm::signatures::winternitz;
+use eyre::Context;
 use std::str::FromStr;
 use tonic::Status;
 
@@ -66,6 +68,17 @@ impl TryFrom<DepositSignSession> for DepositParams {
             Some(deposit_params) => Ok(deposit_params),
             None => Err(expected_msg_got_none("Deposit Params")()),
         }
+    }
+}
+
+impl TryFrom<XOnlyPublicKeyRpc> for XOnlyPublicKey {
+    type Error = BridgeError;
+
+    fn try_from(xonly_public_key_rpc: XOnlyPublicKeyRpc) -> Result<Self, Self::Error> {
+        Ok(
+            XOnlyPublicKey::from_slice(&xonly_public_key_rpc.xonly_public_key)
+                .wrap_err("Failed to parse XOnlyPublicKey")?,
+        )
     }
 }
 
