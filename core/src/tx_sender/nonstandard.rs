@@ -71,7 +71,7 @@ impl TxSender {
                 ))
             })?;
         if response.status().is_success() {
-            // Try to parse the response, if for some reason response cant be parsed,
+            // Try to parse the response, if for some reason response can't be parsed,
             // don't return errors, so we continue with sending the transaction to the accelerator.
             let text = response.text().await.unwrap_or_default();
             let previously_sent_txs: serde_json::Value =
