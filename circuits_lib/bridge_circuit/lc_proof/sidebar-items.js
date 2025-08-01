@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["LC_IMAGE_ID"],"fn":["lc_proof_verifier"]};
+window.SIDEBAR_ITEMS = {"constant":["LC_IMAGE_ID"],"fn":["check_method_id","lc_proof_verifier"]};
