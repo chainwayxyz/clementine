@@ -300,16 +300,13 @@ impl ExtendedRpc {
         F: FnMut() -> Fut,
         Fut: std::future::Future<Output = Result<T>>,
     {
-        let backoff = ExponentialBackoff::from_millis(config.initial_delay.as_millis() as u64)
-            .max_delay(config.max_delay)
-            .factor(config.backoff_multiplier as u64)
-            .take(config.max_attempts);
-
-        let mut backoff: Box<dyn Iterator<Item = Duration>> = if config.jitter {
-            Box::new(backoff.map(jitter))
-        } else {
-            Box::new(backoff)
-        };
+        let backoff_delays: Vec<Duration> =
+            ExponentialBackoff::from_millis(config.initial_delay.as_millis() as u64)
+                .max_delay(config.max_delay)
+                .factor(config.backoff_multiplier as u64)
+                .take(config.max_attempts)
+                .map(|delay| if config.jitter { jitter(delay) } else { delay })
+                .collect();
 
         let mut attempt = 0;
         loop {
@@ -331,14 +328,14 @@ impl ExtendedRpc {
                         return Err(error);
                     }
 
-                    if let Some(delay) = backoff.next() {
+                    if let Some(delay) = backoff_delays.get(attempt - 1) {
                         tracing::debug!(
                             "ExtendedRpc operation failed on attempt {}/{}, retrying in {:?}",
                             attempt,
                             config.max_attempts,
                             delay
                         );
-                        sleep(delay).await;
+                        sleep(*delay).await;
                     } else {
                         tracing::error!(
                             "ExtendedRpc operation failed after {} attempts: {}",
@@ -365,16 +362,13 @@ impl ExtendedRpc {
         let user_clone = user.clone();
         let password_clone = password.clone();
 
-        let backoff = ExponentialBackoff::from_millis(config.initial_delay.as_millis() as u64)
-            .max_delay(config.max_delay)
-            .factor(config.backoff_multiplier as u64)
-            .take(config.max_attempts);
-
-        let mut backoff: Box<dyn Iterator<Item = Duration>> = if config.jitter {
-            Box::new(backoff.map(jitter))
-        } else {
-            Box::new(backoff)
-        };
+        let backoff_delays: Vec<Duration> =
+            ExponentialBackoff::from_millis(config.initial_delay.as_millis() as u64)
+                .max_delay(config.max_delay)
+                .factor(config.backoff_multiplier as u64)
+                .take(config.max_attempts)
+                .map(|delay| if config.jitter { jitter(delay) } else { delay })
+                .collect();
 
         let mut attempt = 0;
         loop {
@@ -402,14 +396,14 @@ impl ExtendedRpc {
                         return Err(error);
                     }
 
-                    if let Some(delay) = backoff.next() {
+                    if let Some(delay) = backoff_delays.get(attempt - 1) {
                         tracing::debug!(
                             "Bitcoin RPC connection attempt {}/{} failed, retrying in {:?}",
                             attempt,
                             config.max_attempts,
                             delay
                         );
-                        sleep(delay).await;
+                        sleep(*delay).await;
                     } else {
                         tracing::error!(
                             "Failed to connect to Bitcoin RPC after {} attempts: {}",
