@@ -28,6 +28,9 @@ use secrecy::ExposeSecret;
 use secrecy::SecretString;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Duration;
+use tokio::time::sleep;
+use tokio_retry::strategy::{jitter, ExponentialBackoff};
 
 use crate::builder::address::create_taproot_address;
 use crate::builder::transaction::create_round_txhandlers;
@@ -47,6 +50,180 @@ use crate::{
 };
 
 type Result<T> = std::result::Result<T, BitcoinRPCError>;
+
+/// Configuration for exponential backoff retry mechanism
+#[derive(Debug, Clone)]
+pub struct RetryConfig {
+    /// Initial delay between retries
+    pub initial_delay: Duration,
+    /// Maximum delay between retries
+    pub max_delay: Duration,
+    /// Maximum number of retry attempts
+    pub max_attempts: usize,
+    /// Multiplier for exponential backoff (typically 2.0)
+    pub backoff_multiplier: f64,
+    /// Whether to add jitter to prevent thundering herd
+    pub jitter: bool,
+}
+
+impl Default for RetryConfig {
+    fn default() -> Self {
+        Self {
+            initial_delay: Duration::from_millis(100),
+            max_delay: Duration::from_secs(30),
+            max_attempts: 5,
+            backoff_multiplier: 2.0,
+            jitter: true,
+        }
+    }
+}
+
+impl RetryConfig {
+    /// Create a fast retry config for quick operations
+    pub fn fast() -> Self {
+        Self {
+            initial_delay: Duration::from_millis(50),
+            max_delay: Duration::from_secs(5),
+            max_attempts: 3,
+            ..Default::default()
+        }
+    }
+
+    /// Create a slow retry config for heavy operations  
+    pub fn slow() -> Self {
+        Self {
+            initial_delay: Duration::from_millis(500),
+            max_delay: Duration::from_secs(60),
+            max_attempts: 10,
+            ..Default::default()
+        }
+    }
+
+    /// Create a custom retry config
+    pub fn custom(initial_delay: Duration, max_delay: Duration, max_attempts: usize) -> Self {
+        Self {
+            initial_delay,
+            max_delay,
+            max_attempts,
+            ..Default::default()
+        }
+    }
+}
+
+/// Trait to determine if an error is retryable
+pub trait RetryableError {
+    fn is_retryable(&self) -> bool;
+}
+
+impl RetryableError for bitcoincore_rpc::Error {
+    fn is_retryable(&self) -> bool {
+        match self {
+            // JSON-RPC errors - check specific error patterns
+            bitcoincore_rpc::Error::JsonRpc(jsonrpc_error) => {
+                let error_str = jsonrpc_error.to_string().to_lowercase();
+                // Retry on connection issues, timeouts, temporary failures
+                error_str.contains("timeout")
+                    || error_str.contains("connection")
+                    || error_str.contains("temporary")
+                    || error_str.contains("busy")
+                    || error_str.contains("unavailable")
+                    || error_str.contains("network")
+                    || error_str.contains("broken pipe")
+                    || error_str.contains("connection reset")
+                    || error_str.contains("connection refused")
+                    || error_str.contains("host unreachable")
+            }
+
+            // I/O errors are typically network-related and retryable
+            bitcoincore_rpc::Error::Io(io_error) => {
+                use std::io::ErrorKind;
+                match io_error.kind() {
+                    // These are typically temporary network issues
+                    ErrorKind::ConnectionRefused
+                    | ErrorKind::ConnectionReset
+                    | ErrorKind::ConnectionAborted
+                    | ErrorKind::NotConnected
+                    | ErrorKind::BrokenPipe
+                    | ErrorKind::TimedOut
+                    | ErrorKind::Interrupted
+                    | ErrorKind::UnexpectedEof => true,
+
+                    // These are typically permanent issues
+                    ErrorKind::PermissionDenied
+                    | ErrorKind::NotFound
+                    | ErrorKind::InvalidInput
+                    | ErrorKind::InvalidData => false,
+
+                    // For other kinds, be conservative and retry
+                    _ => true,
+                }
+            }
+
+            // Authentication errors are typically permanent
+            bitcoincore_rpc::Error::Auth(_) => false,
+
+            // URL parse errors are permanent
+            bitcoincore_rpc::Error::UrlParse(_) => false,
+
+            // Invalid cookie file is usually a config issue (permanent)
+            bitcoincore_rpc::Error::InvalidCookieFile => false,
+
+            // Daemon returned error - check the error message
+            bitcoincore_rpc::Error::ReturnedError(error_msg) => {
+                let error_str = error_msg.to_lowercase();
+                // Retry on temporary RPC errors
+                error_str.contains("loading") ||
+                error_str.contains("warming up") ||
+                error_str.contains("verifying") ||
+                error_str.contains("busy") ||
+                error_str.contains("temporary") ||
+                error_str.contains("try again") ||
+                error_str.contains("timeout") ||
+                // Don't retry on wallet/transaction specific errors
+                !(error_str.contains("insufficient funds") ||
+                  error_str.contains("transaction already") ||
+                  error_str.contains("invalid") ||
+                  error_str.contains("not found") ||
+                  error_str.contains("conflict"))
+            }
+
+            // Unexpected structure might be due to version mismatch or temporary parsing issues
+            // Be conservative and retry once
+            bitcoincore_rpc::Error::UnexpectedStructure => true,
+
+            // Serialization errors are typically permanent
+            bitcoincore_rpc::Error::BitcoinSerialization(_) => false,
+            bitcoincore_rpc::Error::Hex(_) => false,
+            bitcoincore_rpc::Error::Json(_) => false,
+            bitcoincore_rpc::Error::Secp256k1(_) => false,
+            bitcoincore_rpc::Error::InvalidAmount(_) => false,
+        }
+    }
+}
+
+impl RetryableError for BitcoinRPCError {
+    fn is_retryable(&self) -> bool {
+        match self {
+            // These are permanent errors - don't retry
+            BitcoinRPCError::TransactionNotConfirmed => false,
+            BitcoinRPCError::TransactionAlreadyInBlock(_) => false,
+            BitcoinRPCError::BumpFeeUTXOSpent(_) => false,
+
+            // These might be temporary - retry
+            BitcoinRPCError::BumpFeeError(_, _) => true,
+
+            // Check underlying error
+            BitcoinRPCError::Other(err) => {
+                let err_str = err.to_string().to_lowercase();
+                err_str.contains("timeout")
+                    || err_str.contains("connection")
+                    || err_str.contains("temporary")
+                    || err_str.contains("busy")
+                    || err_str.contains("network")
+            }
+        }
+    }
+}
 
 /// Bitcoin RPC wrapper. Extended RPC provides useful wrapper functions for
 /// common operations, as well as direct access to Bitcoin RPC. Bitcoin RPC can
@@ -102,6 +279,74 @@ impl ExtendedRpc {
             #[cfg(test)]
             cached_mining_address: Arc::new(tokio::sync::RwLock::new(None)),
         })
+    }
+
+    /// Generic retry wrapper using tokio-retry with default config
+    pub async fn with_retry<F, Fut, T>(&self, operation: F) -> Result<T>
+    where
+        F: FnMut() -> Fut,
+        Fut: std::future::Future<Output = Result<T>>,
+    {
+        self.with_retry_config(RetryConfig::default(), operation)
+            .await
+    }
+
+    pub async fn with_retry_config<F, Fut, T>(
+        &self,
+        config: RetryConfig,
+        mut operation: F,
+    ) -> Result<T>
+    where
+        F: FnMut() -> Fut,
+        Fut: std::future::Future<Output = Result<T>>,
+    {
+        let backoff_delays: Vec<Duration> =
+            ExponentialBackoff::from_millis(config.initial_delay.as_millis() as u64)
+                .max_delay(config.max_delay)
+                .factor(config.backoff_multiplier as u64)
+                .take(config.max_attempts)
+                .map(|delay| if config.jitter { jitter(delay) } else { delay })
+                .collect();
+
+        let mut attempt = 0;
+        loop {
+            attempt += 1;
+            match operation().await {
+                Ok(result) => {
+                    if attempt > 1 {
+                        tracing::info!(
+                            "ExtendedRpc operation succeeded on attempt {}/{}",
+                            attempt,
+                            config.max_attempts
+                        );
+                    }
+                    return Ok(result);
+                }
+                Err(error) => {
+                    if !error.is_retryable() {
+                        tracing::debug!("Non-retryable error: {}", error);
+                        return Err(error);
+                    }
+
+                    if let Some(delay) = backoff_delays.get(attempt - 1) {
+                        tracing::debug!(
+                            "ExtendedRpc operation failed on attempt {}/{}, retrying in {:?}",
+                            attempt,
+                            config.max_attempts,
+                            delay
+                        );
+                        sleep(*delay).await;
+                    } else {
+                        tracing::error!(
+                            "ExtendedRpc operation failed after {} attempts: {}",
+                            config.max_attempts,
+                            error
+                        );
+                        return Err(error);
+                    }
+                }
+            }
+        }
     }
 
     /// Returns the number of confirmations for a transaction.
@@ -521,38 +766,14 @@ impl ExtendedRpc {
     /// - `Err`: If mining fails after all retry attempts.
     #[cfg(test)]
     pub async fn mine_blocks(&self, block_num: u64) -> Result<Vec<BlockHash>> {
-        use std::time::Duration;
-        use tokio::time::sleep;
-
         if block_num == 0 {
             return Ok(vec![]);
         }
 
-        let max_attempts = 5;
-
-        for attempt in 1..=max_attempts {
-            match self.try_mine(block_num).await {
-                Ok(blocks) => return Ok(blocks),
-                Err(e) => {
-                    if attempt == max_attempts {
-                        return Err(eyre::Report::from(e)
-                            .wrap_err("Failed to mine blocks after maximum attempts")
-                            .into());
-                    }
-                    let delay = Duration::from_millis(100 * 2u64.pow(attempt));
-                    tracing::debug!(
-                        "Retry {}/{}: {}. Retrying in {:?}",
-                        attempt,
-                        max_attempts,
-                        e,
-                        delay
-                    );
-                    sleep(delay).await;
-                }
-            }
-        }
-
-        unreachable!()
+        self.with_retry_config(RetryConfig::fast(), || async {
+            self.try_mine(block_num).await
+        })
+        .await
     }
 
     /// A helper fn to safely mine blocks while waiting for all actors to be synced
@@ -845,6 +1066,44 @@ impl ExtendedRpc {
             cached_mining_address: self.cached_mining_address.clone(),
         })
     }
+
+    // Convenience methods with retry built-in
+
+    /// Get block hash with retry
+    pub async fn get_block_hash_with_retry(&self, height: u64) -> Result<BlockHash> {
+        self.with_retry(|| async {
+            self.client
+                .get_block_hash(height)
+                .await
+                .wrap_err_with(|| format!("Failed to get block hash at height {}", height))
+                .map_err(Into::into)
+        })
+        .await
+    }
+
+    /// Get transaction with retry
+    pub async fn get_tx_with_retry(&self, txid: &Txid) -> Result<bitcoin::Transaction> {
+        let txid = *txid;
+        self.with_retry(|| async { self.get_tx_of_txid(&txid).await })
+            .await
+    }
+
+    /// Send to address with retry
+    pub async fn send_to_address_with_retry(
+        &self,
+        address: &Address,
+        amount_sats: Amount,
+    ) -> Result<OutPoint> {
+        let address = address.clone();
+        self.with_retry(|| async { self.send_to_address(&address, amount_sats).await })
+            .await
+    }
+
+    /// Bump fee with retry
+    pub async fn bump_fee_with_retry(&self, txid: Txid, fee_rate: FeeRate) -> Result<Txid> {
+        self.with_retry(|| async { self.bump_fee_with_fee_rate(txid, fee_rate).await })
+            .await
+    }
 }
 
 #[cfg(test)]
@@ -1087,5 +1346,571 @@ mod tests {
     #[tokio::test]
     async fn reorg_checks() -> Result<()> {
         TestCaseRunner::new(ReorgChecks).run().await
+    }
+
+    mod retry_config_tests {
+        use crate::extended_rpc::RetryConfig;
+
+        use std::time::Duration;
+
+        #[test]
+        fn test_retry_config_default() {
+            let config = RetryConfig::default();
+            assert_eq!(config.initial_delay, Duration::from_millis(100));
+            assert_eq!(config.max_delay, Duration::from_secs(30));
+            assert_eq!(config.max_attempts, 5);
+            assert_eq!(config.backoff_multiplier, 2.0);
+            assert!(config.jitter);
+        }
+
+        #[test]
+        fn test_retry_config_fast() {
+            let config = RetryConfig::fast();
+            assert_eq!(config.initial_delay, Duration::from_millis(50));
+            assert_eq!(config.max_delay, Duration::from_secs(5));
+            assert_eq!(config.max_attempts, 3);
+            assert_eq!(config.backoff_multiplier, 2.0);
+            assert!(config.jitter);
+        }
+
+        #[test]
+        fn test_retry_config_slow() {
+            let config = RetryConfig::slow();
+            assert_eq!(config.initial_delay, Duration::from_millis(500));
+            assert_eq!(config.max_delay, Duration::from_secs(60));
+            assert_eq!(config.max_attempts, 10);
+            assert_eq!(config.backoff_multiplier, 2.0);
+            assert!(config.jitter);
+        }
+
+        #[test]
+        fn test_retry_config_custom() {
+            let initial = Duration::from_millis(200);
+            let max = Duration::from_secs(10);
+            let attempts = 7;
+
+            let config = RetryConfig::custom(initial, max, attempts);
+            assert_eq!(config.initial_delay, initial);
+            assert_eq!(config.max_delay, max);
+            assert_eq!(config.max_attempts, attempts);
+            assert_eq!(config.backoff_multiplier, 2.0);
+            assert!(config.jitter);
+        }
+    }
+
+    mod retryable_error_tests {
+        use bitcoin::{hashes::Hash, BlockHash, Txid};
+
+        use crate::extended_rpc::RetryableError;
+
+        use super::*;
+        use std::io::{Error as IoError, ErrorKind};
+
+        #[test]
+        fn test_bitcoin_rpc_error_retryable_io_errors() {
+            let retryable_kinds = [
+                ErrorKind::ConnectionRefused,
+                ErrorKind::ConnectionReset,
+                ErrorKind::ConnectionAborted,
+                ErrorKind::NotConnected,
+                ErrorKind::BrokenPipe,
+                ErrorKind::TimedOut,
+                ErrorKind::Interrupted,
+                ErrorKind::UnexpectedEof,
+            ];
+
+            for kind in retryable_kinds {
+                let io_error = IoError::new(kind, "test error");
+                let rpc_error = bitcoincore_rpc::Error::Io(io_error);
+                assert!(
+                    rpc_error.is_retryable(),
+                    "ErrorKind::{:?} should be retryable",
+                    kind
+                );
+            }
+        }
+
+        #[test]
+        fn test_bitcoin_rpc_error_non_retryable_io_errors() {
+            let non_retryable_kinds = [
+                ErrorKind::PermissionDenied,
+                ErrorKind::NotFound,
+                ErrorKind::InvalidInput,
+                ErrorKind::InvalidData,
+            ];
+
+            for kind in non_retryable_kinds {
+                let io_error = IoError::new(kind, "test error");
+                let rpc_error = bitcoincore_rpc::Error::Io(io_error);
+                assert!(
+                    !rpc_error.is_retryable(),
+                    "ErrorKind::{:?} should not be retryable",
+                    kind
+                );
+            }
+        }
+
+        #[test]
+        fn test_bitcoin_rpc_error_auth_not_retryable() {
+            let auth_error = bitcoincore_rpc::Error::Auth("Invalid credentials".to_string());
+            assert!(!auth_error.is_retryable());
+        }
+
+        #[test]
+        fn test_bitcoin_rpc_error_url_parse_not_retryable() {
+            let url_error = url::ParseError::EmptyHost;
+            let rpc_error = bitcoincore_rpc::Error::UrlParse(url_error);
+            assert!(!rpc_error.is_retryable());
+        }
+
+        #[test]
+        fn test_bitcoin_rpc_error_invalid_cookie_not_retryable() {
+            let rpc_error = bitcoincore_rpc::Error::InvalidCookieFile;
+            assert!(!rpc_error.is_retryable());
+        }
+
+        #[test]
+        fn test_bitcoin_rpc_error_json_rpc_retryable_patterns() {
+            let retryable_messages = [
+                "timeout occurred",
+                "connection failed",
+                "temporary unavailable",
+                "server busy",
+                "network error",
+                "broken pipe detected",
+                "connection reset by peer",
+                "connection refused",
+                "host unreachable",
+            ];
+
+            for msg in retryable_messages {
+                let json_rpc_error = jsonrpc_async::Error::NonceMismatch;
+                let rpc_error = bitcoincore_rpc::Error::JsonRpc(json_rpc_error);
+                assert!(
+                    rpc_error.is_retryable(),
+                    "Message '{}' should be retryable",
+                    msg
+                );
+            }
+        }
+
+        #[test]
+        fn test_bitcoin_rpc_error_returned_error_retryable_patterns() {
+            let retryable_messages = [
+                "loading blocks",
+                "warming up",
+                "verifying blocks",
+                "busy processing",
+                "temporary failure",
+                "try again later",
+                "timeout waiting",
+            ];
+
+            for msg in retryable_messages {
+                let rpc_error = bitcoincore_rpc::Error::ReturnedError(msg.to_string());
+                assert!(
+                    rpc_error.is_retryable(),
+                    "Message '{}' should be retryable",
+                    msg
+                );
+            }
+        }
+
+        #[test]
+        fn test_bitcoin_rpc_error_returned_error_non_retryable_patterns() {
+            let non_retryable_messages = [
+                "insufficient funds",
+                "transaction already in blockchain",
+                "invalid transaction",
+                "not found in mempool",
+                "transaction conflict",
+            ];
+
+            for msg in non_retryable_messages {
+                let rpc_error = bitcoincore_rpc::Error::ReturnedError(msg.to_string());
+                assert!(
+                    !rpc_error.is_retryable(),
+                    "Message '{}' should not be retryable",
+                    msg
+                );
+            }
+        }
+
+        #[test]
+        fn test_bitcoin_rpc_error_unexpected_structure_retryable() {
+            let rpc_error = bitcoincore_rpc::Error::UnexpectedStructure;
+            assert!(rpc_error.is_retryable());
+        }
+
+        #[test]
+        fn test_bitcoin_rpc_error_serialization_errors_not_retryable() {
+            use bitcoin::consensus::encode::Error as EncodeError;
+
+            let serialization_errors = [
+                bitcoincore_rpc::Error::BitcoinSerialization(EncodeError::Io(
+                    IoError::new(ErrorKind::Other, "test").into(),
+                )),
+                // bitcoincore_rpc::Error::Hex(HexToBytesError::InvalidChar(InvalidCharError{invalid: 0})),
+                bitcoincore_rpc::Error::Json(serde_json::Error::io(IoError::new(
+                    ErrorKind::Other,
+                    "test",
+                ))),
+            ];
+
+            for error in serialization_errors {
+                assert!(
+                    !error.is_retryable(),
+                    "Serialization error should not be retryable"
+                );
+            }
+        }
+
+        #[test]
+        fn test_bridge_rpc_error_retryable() {
+            // Test permanent errors
+            assert!(!BitcoinRPCError::TransactionNotConfirmed.is_retryable());
+            assert!(
+                !BitcoinRPCError::TransactionAlreadyInBlock(BlockHash::all_zeros()).is_retryable()
+            );
+            assert!(!BitcoinRPCError::BumpFeeUTXOSpent(Default::default()).is_retryable());
+
+            // Test potentially retryable errors
+            let txid = Txid::all_zeros();
+            let fee_rate = FeeRate::from_sat_per_vb_unchecked(1);
+            assert!(BitcoinRPCError::BumpFeeError(txid, fee_rate).is_retryable());
+
+            // Test Other error with retryable patterns
+            let retryable_other = BitcoinRPCError::Other(eyre::eyre!("timeout occurred"));
+            assert!(retryable_other.is_retryable());
+
+            let non_retryable_other = BitcoinRPCError::Other(eyre::eyre!("permission denied"));
+            assert!(!non_retryable_other.is_retryable());
+        }
+    }
+
+    mod retry_mechanism_tests {
+        use crate::extended_rpc::RetryConfig;
+
+        use super::*;
+        use std::sync::atomic::{AtomicU32, Ordering};
+        use std::sync::Arc;
+        use std::time::{Duration, Instant};
+
+        // Mock ExtendedRpc for testing retry logic without actual Bitcoin RPC
+        struct MockExtendedRpc {
+            call_count: Arc<AtomicU32>,
+            fail_until: u32,
+            should_be_retryable: bool,
+        }
+
+        impl MockExtendedRpc {
+            fn new(fail_until: u32, should_be_retryable: bool) -> Self {
+                Self {
+                    call_count: Arc::new(AtomicU32::new(0)),
+                    fail_until,
+                    should_be_retryable,
+                }
+            }
+
+            async fn mock_operation(&self) -> std::result::Result<String, BitcoinRPCError> {
+                let count = self.call_count.fetch_add(1, Ordering::SeqCst) + 1;
+
+                if count <= self.fail_until {
+                    if self.should_be_retryable {
+                        Err(BitcoinRPCError::Other(eyre::eyre!("timeout occurred")))
+                    } else {
+                        Err(BitcoinRPCError::TransactionNotConfirmed)
+                    }
+                } else {
+                    Ok(format!("Success after {} attempts", count))
+                }
+            }
+
+            fn get_call_count(&self) -> u32 {
+                self.call_count.load(Ordering::SeqCst)
+            }
+
+            // Create a real ExtendedRpc instance for testing the retry wrapper methods
+            async fn create_real_instance() -> ExtendedRpc {
+                let mut config = create_test_config_with_thread_name().await;
+                let regtest = create_regtest_rpc(&mut config).await;
+                regtest.rpc().clone()
+            }
+        }
+
+        #[tokio::test]
+        async fn test_with_retry_config_success_on_first_attempt() {
+            let mock = MockExtendedRpc::new(0, true); // Never fail
+            let real_rpc = MockExtendedRpc::create_real_instance().await;
+
+            let config = RetryConfig::fast();
+            let result = real_rpc
+                .with_retry_config(config, || async { mock.mock_operation().await })
+                .await;
+
+            assert!(result.is_ok());
+            assert_eq!(result.unwrap(), "Success after 1 attempts");
+            assert_eq!(mock.get_call_count(), 1);
+        }
+
+        #[tokio::test]
+        async fn test_with_retry_config_success_after_retries() {
+            let mock = MockExtendedRpc::new(2, true); // Fail first 2 attempts
+            let real_rpc = MockExtendedRpc::create_real_instance().await;
+
+            let config = RetryConfig::custom(
+                Duration::from_millis(10), // Very short delays for test speed
+                Duration::from_millis(50),
+                5,
+            );
+
+            let start = Instant::now();
+            let result = real_rpc
+                .with_retry_config(config, || async { mock.mock_operation().await })
+                .await;
+
+            let elapsed = start.elapsed();
+            assert!(result.is_ok());
+            assert_eq!(result.unwrap(), "Success after 3 attempts");
+            assert_eq!(mock.get_call_count(), 3);
+
+            // Should have waited for at least 2 retry delays
+            assert!(elapsed >= Duration::from_millis(20));
+        }
+
+        #[tokio::test]
+        async fn test_with_retry_config_max_attempts_exceeded() {
+            let mock = MockExtendedRpc::new(5, true); // Fail 5 attempts
+            let real_rpc = MockExtendedRpc::create_real_instance().await;
+
+            let config = RetryConfig::custom(
+                Duration::from_millis(5),
+                Duration::from_millis(20),
+                3, // Only allow 3 attempts
+            );
+
+            let result = real_rpc
+                .with_retry_config(config, || async { mock.mock_operation().await })
+                .await;
+
+            assert!(result.is_err());
+            assert_eq!(mock.get_call_count(), 3); // Should stop after max attempts
+        }
+
+        #[tokio::test]
+        async fn test_with_retry_config_non_retryable_error() {
+            let mock = MockExtendedRpc::new(1, false); // Fail with non-retryable error
+            let real_rpc = MockExtendedRpc::create_real_instance().await;
+
+            let config = RetryConfig::fast();
+            let result = real_rpc
+                .with_retry_config(config, || async { mock.mock_operation().await })
+                .await;
+
+            assert!(result.is_err());
+            assert_eq!(mock.get_call_count(), 1); // Should not retry non-retryable errors
+
+            match result.unwrap_err() {
+                BitcoinRPCError::TransactionNotConfirmed => {} // Expected
+                other => panic!("Expected TransactionNotConfirmed, got {:?}", other),
+            }
+        }
+
+        #[tokio::test]
+        async fn test_with_retry_default_config() {
+            let mock = MockExtendedRpc::new(1, true); // Fail first attempt
+            let real_rpc = MockExtendedRpc::create_real_instance().await;
+
+            let result = real_rpc
+                .with_retry(|| async { mock.mock_operation().await })
+                .await;
+
+            assert!(result.is_ok());
+            assert_eq!(result.unwrap(), "Success after 2 attempts");
+            assert_eq!(mock.get_call_count(), 2);
+        }
+
+        #[tokio::test]
+        async fn test_retry_backoff_timing() {
+            let mock = MockExtendedRpc::new(2, true); // Fail first 2 attempts
+            let real_rpc = MockExtendedRpc::create_real_instance().await;
+
+            let config = RetryConfig {
+                initial_delay: Duration::from_millis(100),
+                max_delay: Duration::from_secs(1),
+                max_attempts: 3,
+                backoff_multiplier: 2.0,
+                jitter: false, // Disable jitter for predictable timing
+            };
+
+            let start = Instant::now();
+            let result = real_rpc
+                .with_retry_config(config, || async { mock.mock_operation().await })
+                .await;
+            let elapsed = start.elapsed();
+
+            assert!(result.is_ok());
+            assert_eq!(mock.get_call_count(), 3);
+
+            // Should wait approximately 100ms + 200ms = 300ms (without jitter)
+            // Allow some tolerance for test execution time
+            assert!(elapsed >= Duration::from_millis(250));
+            assert!(elapsed <= Duration::from_millis(400));
+        }
+    }
+    mod rpc_call_retry_tests {
+        use std::time::{Duration, Instant};
+
+        use crate::extended_rpc::RetryConfig;
+
+        use super::*;
+        use secrecy::SecretString;
+
+        #[tokio::test]
+        async fn test_rpc_call_retry_with_invalid_credentials() {
+            let mut config = create_test_config_with_thread_name().await;
+            let regtest = create_regtest_rpc(&mut config).await;
+
+            // Get a working connection first
+            let working_rpc = regtest.rpc();
+            let url = working_rpc.url.clone();
+
+            // Create connection with invalid credentials
+            let invalid_user = SecretString::new("invalid_user".to_string().into());
+            let invalid_password = SecretString::new("invalid_password".to_string().into());
+
+            let rpc = ExtendedRpc::connect(url, invalid_user, invalid_password)
+                .await
+                .unwrap(); // Connection creation should succeed (lazy)
+
+            // Test retry mechanism on actual RPC call
+            let result = rpc
+                .with_retry_config(RetryConfig::fast(), || async {
+                    rpc.client
+                        .get_blockchain_info()
+                        .await
+                        .map_err(|e| BitcoinRPCError::Other(e.into()))
+                })
+                .await;
+
+            // Should fail - auth errors are not retryable
+            assert!(result.is_err());
+        }
+
+        #[tokio::test]
+        async fn test_rpc_call_retry_with_invalid_host() {
+            let user = SecretString::new("user".to_string().into());
+            let password = SecretString::new("password".to_string().into());
+            let invalid_url = "http://nonexistent-host:8332".to_string();
+
+            let rpc = ExtendedRpc::connect(invalid_url, user, password)
+                .await
+                .unwrap(); // Connection creation should succeed (lazy)
+
+            let start = Instant::now();
+            let result = rpc
+                .with_retry_config(
+                    RetryConfig::custom(Duration::from_millis(10), Duration::from_millis(50), 2),
+                    || async {
+                        rpc.client
+                            .get_blockchain_info()
+                            .await
+                            .map_err(|e| BitcoinRPCError::Other(e.into()))
+                    },
+                )
+                .await;
+            let elapsed = start.elapsed();
+
+            // Should fail after retries due to network error
+            assert!(result.is_err());
+            // Should have taken at least one retry delay
+            assert!(elapsed >= Duration::from_millis(10));
+        }
+    }
+
+    mod convenience_method_tests {
+        use super::*;
+
+        #[tokio::test]
+        async fn test_get_block_hash_with_retry() {
+            let mut config = create_test_config_with_thread_name().await;
+            let regtest = create_regtest_rpc(&mut config).await;
+            let rpc = regtest.rpc();
+
+            // Mine a block first
+            rpc.mine_blocks(1).await.unwrap();
+            let height = rpc.client.get_block_count().await.unwrap();
+
+            let result = rpc.get_block_hash_with_retry(height).await;
+            assert!(result.is_ok());
+
+            let expected_hash = rpc.client.get_block_hash(height).await.unwrap();
+            assert_eq!(result.unwrap(), expected_hash);
+        }
+
+        #[tokio::test]
+        async fn test_get_tx_with_retry() {
+            let mut config = create_test_config_with_thread_name().await;
+            let regtest = create_regtest_rpc(&mut config).await;
+            let rpc = regtest.rpc();
+
+            // Create a transaction
+            let keypair = Keypair::from_secret_key(&SECP, &config.secret_key);
+            let (xonly, _parity) = XOnlyPublicKey::from_keypair(&keypair);
+            let address = Address::p2tr(&SECP, xonly, None, config.protocol_paramset.network);
+            let amount = Amount::from_sat(10000);
+
+            let utxo = rpc.send_to_address(&address, amount).await.unwrap();
+
+            let result = rpc.get_tx_with_retry(&utxo.txid).await;
+            assert!(result.is_ok());
+
+            let tx = result.unwrap();
+            assert_eq!(tx.compute_txid(), utxo.txid);
+        }
+
+        #[tokio::test]
+        async fn test_send_to_address_with_retry() {
+            let mut config = create_test_config_with_thread_name().await;
+            let regtest = create_regtest_rpc(&mut config).await;
+            let rpc = regtest.rpc();
+
+            let keypair = Keypair::from_secret_key(&SECP, &config.secret_key);
+            let (xonly, _parity) = XOnlyPublicKey::from_keypair(&keypair);
+            let address = Address::p2tr(&SECP, xonly, None, config.protocol_paramset.network);
+            let amount = Amount::from_sat(10000);
+
+            let result = rpc.send_to_address_with_retry(&address, amount).await;
+            assert!(result.is_ok());
+
+            let outpoint = result.unwrap();
+
+            // Verify the transaction exists
+            let tx = rpc.get_tx_of_txid(&outpoint.txid).await.unwrap();
+            assert_eq!(tx.output[outpoint.vout as usize].value, amount);
+        }
+
+        #[tokio::test]
+        async fn test_bump_fee_with_retry() {
+            let mut config = create_test_config_with_thread_name().await;
+            let regtest = create_regtest_rpc(&mut config).await;
+            let rpc = regtest.rpc();
+
+            let keypair = Keypair::from_secret_key(&SECP, &config.secret_key);
+            let (xonly, _parity) = XOnlyPublicKey::from_keypair(&keypair);
+            let address = Address::p2tr(&SECP, xonly, None, config.protocol_paramset.network);
+            let amount = Amount::from_sat(10000);
+
+            // Create an unconfirmed transaction
+            let utxo = rpc.send_to_address(&address, amount).await.unwrap();
+            let new_fee_rate = FeeRate::from_sat_per_vb_unchecked(10000);
+
+            let result = rpc.bump_fee_with_retry(utxo.txid, new_fee_rate).await;
+            assert!(result.is_ok());
+
+            let new_txid = result.unwrap();
+            // Should return a different txid since fee was actually bumped
+            assert_ne!(new_txid, utxo.txid);
+        }
     }
 }
