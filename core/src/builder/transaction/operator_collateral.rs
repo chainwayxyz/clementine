@@ -100,11 +100,19 @@ pub fn create_round_txhandler(
     let timeout_block_count_locked_script =
         Arc::new(TimelockScript::new(Some(operator_xonly_pk), 1));
 
+    let total_required = (paramset.kickoff_amount + paramset.default_utxo_amount())
+        .checked_mul(paramset.num_kickoffs_per_round as u64)
+        .and_then(|kickoff_total| kickoff_total.checked_add(paramset.anchor_amount()))
+        .ok_or_else(|| {
+            BridgeError::ArithmeticOverflow("Total required amount calculation overflow")
+        })?;
+
+    let remaining_amount = input_amount.checked_sub(total_required).ok_or_else(|| {
+        BridgeError::InsufficientFunds("Input amount insufficient for required outputs")
+    })?;
+
     builder = builder.add_output(UnspentTxOut::from_scripts(
-        input_amount
-            - (paramset.kickoff_amount + paramset.default_utxo_amount())
-                * (paramset.num_kickoffs_per_round as u64)
-            - paramset.anchor_amount(),
+        remaining_amount,
         vec![],
         Some(operator_xonly_pk),
         paramset.network,

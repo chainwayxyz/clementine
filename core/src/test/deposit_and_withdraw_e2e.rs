@@ -152,6 +152,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             config.citrea_light_client_prover_url.clone(),
             config.citrea_chain_id,
             Some(SECRET_KEYS[0].to_string().parse().unwrap()),
+            config.citrea_request_timeout,
         )
         .await
         .unwrap();
@@ -520,6 +521,7 @@ async fn mock_citrea_run_truthful() {
         "".to_string(),
         config.citrea_chain_id,
         None,
+        config.citrea_request_timeout,
     )
     .await
     .unwrap();
@@ -759,6 +761,7 @@ async fn mock_citrea_run_truthful_opt_payout() {
         "".to_string(),
         config.citrea_chain_id,
         None,
+        config.citrea_request_timeout,
     )
     .await
     .unwrap();
@@ -936,6 +939,7 @@ async fn mock_citrea_run_malicious() {
         "".to_string(),
         config.citrea_chain_id,
         None,
+        config.citrea_request_timeout,
     )
     .await
     .unwrap();
@@ -1144,6 +1148,7 @@ async fn mock_citrea_run_malicious_after_exit() {
         "".to_string(),
         config.citrea_chain_id,
         None,
+        config.citrea_request_timeout,
     )
     .await
     .unwrap();
@@ -1493,6 +1498,7 @@ async fn concurrent_deposits_and_withdrawals() {
         "".to_string(),
         config.citrea_chain_id,
         None,
+        config.citrea_request_timeout,
     )
     .await
     .unwrap();
@@ -1614,6 +1620,7 @@ async fn concurrent_deposits_and_optimistic_payouts() {
         "".to_string(),
         config.citrea_chain_id,
         None,
+        config.citrea_request_timeout,
     )
     .await
     .unwrap();

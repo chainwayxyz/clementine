@@ -65,7 +65,9 @@ where
             .ok_or(Status::invalid_argument(
                 "Nonce params not found for optimistic payout",
             ))?
-            .id;
+            .id
+            .parse::<u128>()
+            .map_err(|e| Status::invalid_argument(format!("Invalid nonce session id: {}", e)))?;
         let withdraw_params = params.withdrawal.ok_or(Status::invalid_argument(
             "Withdrawal params not found for optimistic payout",
         ))?;
@@ -111,6 +113,7 @@ where
                     }
                     challenge
                 }, // dummy challenge with 1u8, 2u8 every 32 bytes
+                None,
             )
             .await?;
 
@@ -198,7 +201,7 @@ where
 
         tokio::spawn(async move {
             let nonce_gen_first_response = clementine::NonceGenFirstResponse {
-                id: session_id,
+                id: session_id.to_string(),
                 num_nonces,
             };
             let session_id: NonceGenResponse = nonce_gen_first_response.into();
@@ -385,10 +388,12 @@ where
                 }
             }
             if nonce_idx < num_required_nofn_sigs {
-                panic!(
-                    "Expected more nofn sigs {} < {}",
+                let err_msg = format!(
+                    "Insufficient N-of-N signatures received: got {}, expected {}",
                     nonce_idx, num_required_nofn_sigs
-                )
+                );
+                tracing::error!(err_msg);
+                return Err(Status::invalid_argument(err_msg));
             }
 
             let move_tx_agg_nonce =
@@ -444,10 +449,12 @@ where
             }
 
             if total_op_sig_count < num_required_total_op_sigs {
-                panic!(
-                    "Not enough operator signatures. Needed: {}, received: {}",
-                    num_required_total_op_sigs, total_op_sig_count
+                let err_msg = format!(
+                    "Insufficient operator signatures received: got {}, expected {}",
+                    total_op_sig_count, num_required_total_op_sigs
                 );
+                tracing::error!(err_msg);
+                return Err(Status::invalid_argument(err_msg));
             }
 
             Ok::<(), Status>(())
@@ -490,6 +497,7 @@ where
             self.verifier.config.clone(),
             transaction_data,
             None, // empty blockhash, will not sign this
+            None,
         )
         .await?;
 

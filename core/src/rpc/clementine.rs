@@ -338,11 +338,12 @@ pub struct NonceGenRequest {
     #[prost(uint32, tag = "1")]
     pub num_nonces: u32,
 }
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct NonceGenFirstResponse {
     /// ID of the nonce session (used to store nonces in verifier's memory)
-    #[prost(uint32, tag = "1")]
-    pub id: u32,
+    /// The id is string representation of a u128 number
+    #[prost(string, tag = "1")]
+    pub id: ::prost::alloc::string::String,
     /// Number of nonces to generate
     #[prost(uint32, tag = "2")]
     pub num_nonces: u32,

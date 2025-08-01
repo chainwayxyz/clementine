@@ -7,6 +7,7 @@ use super::clementine::{
     OptimisticPayoutParams, RawSignedTx, VergenResponse, VerifierPublicKeys, WithdrawParams,
 };
 use crate::aggregator::{AggregatorServer, ParticipatingOperators, ParticipatingVerifiers};
+use crate::bitvm_client::SECP;
 use crate::builder::sighash::SignatureInfo;
 use crate::builder::transaction::{
     combine_emergency_stop_txhandler, create_emergency_stop_txhandler,
@@ -25,7 +26,7 @@ use crate::errors::ResultExt;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::rpc::clementine::VerifierDepositSignParams;
 use crate::rpc::parser;
-use crate::utils::{get_vergen_response, timed_request, timed_try_join_all};
+use crate::utils::{get_vergen_response, timed_request, timed_try_join_all, ScriptBufExt};
 use crate::utils::{FeePayingType, TxMetadata};
 use crate::UTXO;
 use crate::{
@@ -36,7 +37,7 @@ use crate::{
     rpc::clementine::{self, DepositSignSession},
 };
 use bitcoin::hashes::Hash;
-use bitcoin::secp256k1::schnorr::Signature;
+use bitcoin::secp256k1::schnorr::{self, Signature};
 use bitcoin::secp256k1::{Message, PublicKey};
 use bitcoin::{TapSighash, TxOut, Txid};
 use eyre::{Context, OptionExt};
@@ -130,7 +131,7 @@ async fn nonce_aggregator(
         );
 
         // TODO: consider spawn_blocking here
-        let agg_nonce = aggregate_nonces(pub_nonces.iter().collect::<Vec<_>>().as_slice());
+        let agg_nonce = aggregate_nonces(pub_nonces.iter().collect::<Vec<_>>().as_slice())?;
 
         agg_nonce_sender
             .send(AggNonceQueueItem { agg_nonce, sighash })
@@ -167,7 +168,7 @@ async fn nonce_aggregator(
     tracing::trace!("Received nonces for movetx in nonce_aggregator");
 
     // TODO: consider spawn_blocking here
-    let move_tx_agg_nonce = aggregate_nonces(pub_nonces.iter().collect::<Vec<_>>().as_slice());
+    let move_tx_agg_nonce = aggregate_nonces(pub_nonces.iter().collect::<Vec<_>>().as_slice())?;
 
     let pub_nonces = try_join_all(nonce_streams.iter_mut().map(|s| async {
         s.next()
@@ -185,7 +186,7 @@ async fn nonce_aggregator(
     .wrap_err("Failed to aggregate nonces for the emergency stop tx")?;
 
     let emergency_stop_agg_nonce =
-        aggregate_nonces(pub_nonces.iter().collect::<Vec<_>>().as_slice());
+        aggregate_nonces(pub_nonces.iter().collect::<Vec<_>>().as_slice())?;
 
     Ok((move_tx_agg_nonce, emergency_stop_agg_nonce))
 }
@@ -781,6 +782,19 @@ impl ClementineAggregator for AggregatorServer {
         let withdraw_params = request.into_inner();
         let (deposit_id, input_signature, input_outpoint, output_script_pubkey, output_amount) =
             parser::operator::parse_withdrawal_sig_params(withdraw_params.clone()).await?;
+
+        // if the withdrawal utxo is spent, no reason to sign optimistic payout
+        if self
+            .rpc
+            .is_utxo_spent(&input_outpoint)
+            .await
+            .map_to_status()?
+        {
+            return Err(Status::invalid_argument(format!(
+                "Withdrawal utxo is already spent: {:?}",
+                input_outpoint
+            )));
+        }
         // get which deposit the withdrawal belongs to
         let withdrawal = self
             .db
@@ -798,10 +812,39 @@ impl ClementineAggregator for AggregatorServer {
                     withdrawal_utxo, input_outpoint
                 )));
             }
+
+            // Prepare input and output of the payout transaction.
+            let withdrawal_prevout = self
+                .rpc
+                .get_txout_from_outpoint(&input_outpoint)
+                .await
+                .map_to_status()?;
+
+            let user_xonly_pk = withdrawal_prevout
+                .script_pubkey
+                .try_get_taproot_pk()
+                .map_err(|_| {
+                    Status::invalid_argument(format!(
+                        "Withdrawal prevout script_pubkey is not a Taproot output: {:?}",
+                        withdrawal_prevout.script_pubkey
+                    ))
+                })?;
+
+            let withdrawal_utxo = UTXO {
+                outpoint: input_outpoint,
+                txout: withdrawal_prevout,
+            };
+
+            let output_txout = TxOut {
+                value: output_amount,
+                script_pubkey: output_script_pubkey,
+            };
+
             let deposit_data = self
                 .db
                 .get_deposit_data_with_move_tx(None, move_txid)
                 .await?;
+
             let mut deposit_data = deposit_data
                 .ok_or(eyre::eyre!(
                     "Deposit data not found for move txid {}",
@@ -809,11 +852,34 @@ impl ClementineAggregator for AggregatorServer {
                 ))
                 .map_err(BridgeError::from)?;
 
+            let mut opt_payout_txhandler = create_optimistic_payout_txhandler(
+                &mut deposit_data,
+                withdrawal_utxo,
+                output_txout,
+                input_signature,
+                self.config.protocol_paramset(),
+            )?;
+
+            let sighash = opt_payout_txhandler.calculate_pubkey_spend_sighash(
+                0,
+                bitcoin::TapSighashType::SinglePlusAnyoneCanPay,
+            )?;
+
+            let message = Message::from_digest(sighash.to_byte_array());
+
+            let sig =
+                schnorr::Signature::from_slice(&input_signature.serialize()).map_err(|_| {
+                    Status::internal("Failed to parse signature from optimistic payout tx witness")
+                })?;
+
+            SECP.verify_schnorr(&sig, &message, &user_xonly_pk)
+                .map_err(|_| Status::internal("Invalid signature for optimistic payout tx"))?;
+
             // get which verifiers participated in the deposit to collect the optimistic payout tx signature
-            let verifiers = self.get_participating_verifiers(&deposit_data).await?;
+            let participating_verifiers = self.get_participating_verifiers(&deposit_data).await?;
             let (first_responses, mut nonce_streams) = {
                 create_nonce_streams(
-                    verifiers.clone(),
+                    participating_verifiers.clone(),
                     1,
                     #[cfg(test)]
                     &self.config,
@@ -825,14 +891,13 @@ impl ClementineAggregator for AggregatorServer {
                 .await
                 .wrap_err("Failed to aggregate nonces for optimistic payout")
                 .map_to_status()?;
-            let agg_nonce = aggregate_nonces(pub_nonces.iter().collect::<Vec<_>>().as_slice());
+            let agg_nonce = aggregate_nonces(pub_nonces.iter().collect::<Vec<_>>().as_slice())?;
             // send the agg nonce to the verifiers to sign the optimistic payout tx
-            let verifier_clients = verifiers.clients();
-            let payout_sigs = verifier_clients
+            let payout_sigs = participating_verifiers
+                .clients()
                 .into_iter()
                 .zip(first_responses)
-                .map(|(client, first_response)| {
-                    let mut client = client.clone();
+                .map(|(mut client, first_response)| {
                     let withdrawal_params = withdraw_params.clone();
                     let agg_nonce_bytes = agg_nonce.serialize().to_vec();
                     async move {
@@ -847,28 +912,6 @@ impl ClementineAggregator for AggregatorServer {
                 })
                 .collect::<Vec<_>>();
 
-            // Prepare input and output of the payout transaction.
-            let withdrawal_prevout = self
-                .rpc
-                .get_txout_from_outpoint(&input_outpoint)
-                .await
-                .map_to_status()?;
-            let withdrawal_utxo = UTXO {
-                outpoint: input_outpoint,
-                txout: withdrawal_prevout,
-            };
-            let output_txout = TxOut {
-                value: output_amount,
-                script_pubkey: output_script_pubkey,
-            };
-
-            let mut opt_payout_txhandler = create_optimistic_payout_txhandler(
-                &mut deposit_data,
-                withdrawal_utxo,
-                output_txout,
-                input_signature,
-                self.config.protocol_paramset(),
-            )?;
             // txin at index 1 is deposited utxo in movetx
             let sighash = opt_payout_txhandler.calculate_script_spend_sighash_indexed(
                 1,

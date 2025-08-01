@@ -183,6 +183,7 @@ where
                     ),
                     &[0u8; 20],
                 ),
+                None,
             )
             .await?;
 
@@ -238,6 +239,7 @@ where
             self.operator.config.clone(),
             transaction_data,
             Some([0u8; 20]), // dummy blockhash
+            None,
         )
         .await?;
 

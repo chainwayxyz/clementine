@@ -11,6 +11,9 @@ use crate::errors::{BridgeError, TxError};
 use crate::operator::{PublicHash, RoundIndex};
 use crate::rpc::clementine::tagged_signature::SignatureId;
 use crate::rpc::clementine::TaggedSignature;
+use crate::EVMAddress;
+use alloy::signers::k256;
+use alloy::signers::local::PrivateKeySigner;
 use bitcoin::hashes::hash160;
 use bitcoin::secp256k1::PublicKey;
 use bitcoin::taproot::{self, LeafVersion, TaprootSpendInfo};
@@ -22,6 +25,8 @@ use bitcoin::{
 use bitcoin::{OutPoint, TapNodeHash, TapSighashType, Witness};
 use bitvm::signatures::winternitz::{self, BinarysearchVerifier, ToBytesConverter, Winternitz};
 use eyre::{Context, OptionExt};
+use hkdf::Hkdf;
+use sha2::Sha256;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, thiserror::Error)]
 pub enum VerificationError {
@@ -259,6 +264,16 @@ impl Actor {
         }
     }
 
+    pub fn get_evm_address(&self) -> Result<EVMAddress, BridgeError> {
+        let x =
+            k256::ecdsa::SigningKey::from_bytes(&self.keypair.secret_key().secret_bytes().into())
+                .wrap_err("Failed to convert secret key to signing key")?;
+        let key: PrivateKeySigner = x.into();
+        let wallet_address = key.address();
+
+        Ok(EVMAddress(wallet_address.into_array()))
+    }
+
     /// Returns derivied Winternitz secret key from given path.
     pub fn get_derived_winternitz_sk(
         &self,
@@ -267,7 +282,14 @@ impl Actor {
         let wsk = self
             .winternitz_secret_key
             .ok_or_eyre("Root Winternitz secret key is not provided in configuration file")?;
-        Ok([wsk.as_ref().to_vec(), path.to_bytes()].concat())
+
+        let hk = Hkdf::<Sha256>::new(None, wsk.as_ref());
+        let path_bytes = path.to_bytes();
+        let mut derived_key = vec![0u8; 32];
+        hk.expand(&path_bytes, &mut derived_key)
+            .map_err(|e| eyre::eyre!("Key derivation failed: {:?}", e))?;
+
+        Ok(derived_key)
     }
 
     /// Generates a Winternitz public key for the given path.
@@ -1086,7 +1108,8 @@ mod tests {
         // check only first digit
         let params = WinternitzDerivationPath::Kickoff(RoundIndex::Round(0), 1, paramset);
         let expected_pk = vec![
-            135, 71, 6, 82, 172, 209, 8, 35, 87, 30, 137, 147, 39, 46, 87, 31, 20, 100, 127, 210,
+            192, 121, 127, 229, 19, 208, 80, 49, 82, 134, 237, 242, 142, 162, 143, 232, 12, 231,
+            114, 175,
         ];
         assert_eq!(
             actor.derive_winternitz_pk(params).unwrap()[0].to_vec(),
@@ -1100,8 +1123,8 @@ mod tests {
 
         let params = WinternitzDerivationPath::BitvmAssert(3, 0, 0, deposit_outpoint, paramset);
         let expected_pk = vec![
-            109, 153, 145, 11, 185, 140, 236, 205, 105, 93, 80, 123, 62, 218, 228, 193, 124, 151,
-            200, 208,
+            218, 227, 228, 186, 246, 108, 123, 3, 33, 207, 96, 230, 46, 129, 189, 62, 72, 179, 83,
+            181,
         ];
         assert_eq!(
             actor.derive_winternitz_pk(params).unwrap()[0].to_vec(),
@@ -1110,8 +1133,7 @@ mod tests {
 
         let params = WinternitzDerivationPath::ChallengeAckHash(0, deposit_outpoint, paramset);
         let expected_pk = vec![
-            113, 255, 129, 122, 93, 181, 207, 47, 113, 140, 166, 79, 160, 116, 58, 199, 27, 162,
-            163, 142,
+            179, 152, 124, 47, 40, 83, 205, 159, 21, 85, 233, 82, 128, 55, 176, 166, 37, 43, 80, 0,
         ];
         assert_eq!(
             actor.derive_winternitz_pk(params).unwrap()[0].to_vec(),
