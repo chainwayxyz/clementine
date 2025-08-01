@@ -1,3 +1,7 @@
+//! # Bitcoin Transaction Wrapper
+//! This module provides a wrapper around Bitcoin's `Transaction` type, adding functionality
+//! for calculating transaction IDs, serializing and deserializing transactions, and providing
+//! a more convenient interface for working with Bitcoin transactions in the context of the bridge circuit.
 /// Code is taken from Citrea
 /// https://github.com/chainwayxyz/citrea/blob/0acb887b1a766fac1a482a68c6d51ecf9661f538/crates/bitcoin-da/src/spec/transaction.rs
 ///
@@ -12,6 +16,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 
 use crate::common::hashes::calculate_sha256;
 
+/// A wrapper around Bitcoin's `Transaction` type that provides additional and simpler functionality.
 #[derive(Clone, PartialEq, Eq, Debug, Hash)]
 pub struct CircuitTransaction(pub Transaction);
 

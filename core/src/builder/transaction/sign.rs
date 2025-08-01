@@ -16,7 +16,7 @@ use crate::database::Database;
 use crate::deposit::KickoffData;
 use crate::errors::{BridgeError, TxError};
 use crate::operator::{Operator, RoundIndex};
-use crate::utils::RbfSigningInfo;
+use crate::utils::{Last20Bytes, RbfSigningInfo};
 use crate::verifier::Verifier;
 use bitcoin::hashes::Hash;
 use bitcoin::{BlockHash, OutPoint, Transaction, XOnlyPublicKey};
@@ -32,6 +32,7 @@ pub struct TransactionRequestData {
 }
 
 /// Deterministically (given same seed) generates a set of kickoff indices for an operator to sign, using the operator's public key, deposit block hash, and deposit outpoint as the seed.
+/// To make the output consistent across versions, a fixed rng algorithm (ChaCha12Rng) is used.
 ///
 /// This function creates a deterministic seed from the operator's public key, deposit block hash,
 /// and deposit outpoint, then uses it to select a subset of kickoff indices.
@@ -146,8 +147,7 @@ pub async fn create_and_sign_txs(
     let mut tweak_cache = TweakCache::default();
 
     for (tx_type, mut txhandler) in txhandlers.into_iter() {
-        let result =
-            signer.tx_sign_and_fill_sigs(&mut txhandler, &signatures, Some(&mut tweak_cache));
+        let _ = signer.tx_sign_and_fill_sigs(&mut txhandler, &signatures, Some(&mut tweak_cache));
 
         if let TransactionType::OperatorChallengeAck(watchtower_idx) = tx_type {
             let path = WinternitzDerivationPath::ChallengeAckHash(
@@ -256,9 +256,31 @@ where
             watchtower_index,
             commit_data,
             self.config.protocol_paramset(),
+            #[cfg(test)]
+            &self.config.test_params,
         )?;
 
         let merkle_root = watchtower_challenge_txhandler.get_merkle_root_of_txin(0)?;
+
+        #[cfg(test)]
+        let mut annex: Option<Vec<u8>> = None;
+
+        #[cfg(test)]
+        let mut additional_taproot_output_count = None;
+
+        #[cfg(test)]
+        {
+            if self.config.test_params.use_small_annex {
+                annex = Some(vec![80u8; 10000]);
+            } else if self.config.test_params.use_large_annex {
+                annex = Some(vec![80u8; 3990000]);
+            } else if self.config.test_params.use_large_annex_and_output {
+                annex = Some(vec![80u8; 3000000]);
+                additional_taproot_output_count = Some(2300);
+            } else if self.config.test_params.use_large_output {
+                additional_taproot_output_count = Some(2300);
+            }
+        }
 
         Ok((
             TransactionType::WatchtowerChallenge(watchtower_index),
@@ -266,6 +288,10 @@ where
             RbfSigningInfo {
                 vout: 0,
                 tweak_merkle_root: merkle_root,
+                #[cfg(test)]
+                annex,
+                #[cfg(test)]
+                additional_taproot_output_count,
             },
         ))
     }
@@ -481,22 +507,22 @@ where
                 .remove(&TransactionType::LatestBlockhash)
                 .ok_or(TxError::TxHandlerNotFound(TransactionType::LatestBlockhash))?;
 
-        // get last 20 bytes of block_hash
-        let block_hash = block_hash.to_byte_array();
+        let block_hash: [u8; 32] = {
+            let raw = block_hash.to_byte_array();
 
-        #[cfg(test)]
-        let mut block_hash = block_hash;
-
-        #[cfg(test)]
-        {
-            if self.config.test_params.disrupt_latest_block_hash_commit {
-                tracing::info!("Disrupting block hash commitment for testing purposes");
-                tracing::info!("Original block hash: {:?}", block_hash);
-                block_hash[31] ^= 0x01;
+            #[cfg(test)]
+            {
+                self.config.test_params.maybe_disrupt_block_hash(raw)
             }
-        }
 
-        let block_hash_last_20 = block_hash[block_hash.len() - 20..].to_vec();
+            #[cfg(not(test))]
+            {
+                raw
+            }
+        };
+
+        // get last 20 bytes of block_hash
+        let block_hash_last_20 = block_hash.last_20_bytes().to_vec();
 
         tracing::info!(
             "Creating latest blockhash tx with block hash's last 20 bytes: {:?}",
@@ -525,5 +551,71 @@ where
             latest_blockhash_txhandler.get_transaction_type(),
             latest_blockhash_txhandler.get_cached_tx().to_owned(),
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use crate::test::common::create_test_config_with_thread_name;
+
+    use super::*;
+
+    #[tokio::test]
+    /// Checks if get_kickoff_utxos_to_sign returns the same values as before.
+    /// This test should never fail, do not make changes to code that changes the result of
+    /// get_kickoff_utxos_to_sign, as doing so will invalidate all past deposits.
+    async fn test_get_kickoff_utxos_to_sign_consistency() {
+        let config = create_test_config_with_thread_name().await;
+        let mut paramset = config.protocol_paramset().clone();
+        paramset.num_kickoffs_per_round = 2000;
+        paramset.num_signed_kickoffs = 20;
+        let paramset_ref: &'static ProtocolParamset = Box::leak(Box::new(paramset));
+        let op_xonly_pk = XOnlyPublicKey::from_str(
+            "50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0",
+        )
+        .unwrap();
+        let deposit_blockhash =
+            BlockHash::from_str("0000000000000000000000000000000000000000000000000000000000000000")
+                .unwrap();
+        let deposit_outpoint = OutPoint::from_str(
+            "0000000000000000000000000000000000000000000000000000000000000000:0",
+        )
+        .unwrap();
+        let utxos_to_sign = get_kickoff_utxos_to_sign(
+            paramset_ref,
+            op_xonly_pk,
+            deposit_blockhash,
+            deposit_outpoint,
+        );
+        assert_eq!(utxos_to_sign.len(), 20);
+        assert_eq!(
+            utxos_to_sign,
+            vec![
+                1124, 447, 224, 1664, 1673, 1920, 713, 125, 1936, 1150, 1079, 1922, 596, 984, 567,
+                1134, 530, 539, 700, 1864
+            ]
+        );
+
+        // one more test
+        let deposit_blockhash =
+            BlockHash::from_str("1100000000000000000000000000000000000000000000000000000000000000")
+                .unwrap();
+        let utxos_to_sign = get_kickoff_utxos_to_sign(
+            paramset_ref,
+            op_xonly_pk,
+            deposit_blockhash,
+            deposit_outpoint,
+        );
+
+        assert_eq!(utxos_to_sign.len(), 20);
+        assert_eq!(
+            utxos_to_sign,
+            vec![
+                1454, 26, 157, 1900, 451, 1796, 881, 544, 23, 1080, 1112, 1503, 1233, 1583, 1054,
+                603, 329, 1635, 213, 1331
+            ]
+        );
     }
 }

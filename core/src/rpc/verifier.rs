@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use super::clementine::{
     self, clementine_verifier_server::ClementineVerifier, Empty, NonceGenRequest, NonceGenResponse,
     OperatorParams, OptimisticPayoutParams, PartialSig, RawTxWithRbfInfo, SignedTxWithType,
@@ -8,14 +10,16 @@ use super::error;
 use super::parser::ParserError;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::citrea::CitreaClientT;
+use crate::constants::RESTART_BACKGROUND_TASKS_TIMEOUT;
 use crate::rpc::clementine::VerifierDepositFinalizeResponse;
-use crate::utils::get_vergen_response;
+use crate::utils::{get_vergen_response, timed_request};
 use crate::verifier::VerifierServer;
 use crate::{constants, fetch_next_optional_message_from_stream};
 use crate::{
     fetch_next_message_from_stream,
     rpc::parser::{self},
 };
+use alloy::primitives::PrimitiveSignature;
 use bitcoin::Witness;
 use clementine::verifier_deposit_finalize_params::Params;
 use secp256k1::musig::AggregatedNonce;
@@ -30,6 +34,20 @@ where
 {
     async fn vergen(&self, _request: Request<Empty>) -> Result<Response<VergenResponse>, Status> {
         Ok(Response::new(get_vergen_response()))
+    }
+
+    async fn restart_background_tasks(
+        &self,
+        _request: tonic::Request<super::Empty>,
+    ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status> {
+        // because start_background_tasks uses a RwLock, we set a timeout to be safe
+        timed_request(
+            RESTART_BACKGROUND_TASKS_TIMEOUT,
+            "Restarting background tasks",
+            self.start_background_tasks(),
+        )
+        .await?;
+        Ok(Response::new(Empty {}))
     }
 
     async fn optimistic_payout_sign(
@@ -51,11 +69,26 @@ where
                 "Nonce params not found for optimistic payout",
             ))?
             .id;
-        let withdraw_params = params.withdrawal.ok_or(Status::invalid_argument(
+        let opt_withdraw_params = params.opt_withdrawal.ok_or(Status::invalid_argument(
             "Withdrawal params not found for optimistic payout",
         ))?;
+        let verification_signature_str = opt_withdraw_params.verification_signature.clone();
+        let withdrawal_params = opt_withdraw_params
+            .withdrawal
+            .ok_or(Status::invalid_argument(
+                "Withdrawal params not found for optimistic payout",
+            ))?;
         let (withdrawal_id, input_signature, input_outpoint, output_script_pubkey, output_amount) =
-            parser::operator::parse_withdrawal_sig_params(withdraw_params).await?;
+            parser::operator::parse_withdrawal_sig_params(withdrawal_params)?;
+
+        let verification_signature = verification_signature_str
+            .map(|sig| {
+                PrimitiveSignature::from_str(&sig).map_err(|e| {
+                    Status::invalid_argument(format!("Invalid verification signature: {}", e))
+                })
+            })
+            .transpose()?;
+
         let partial_sig = self
             .verifier
             .sign_optimistic_payout(
@@ -66,6 +99,7 @@ where
                 input_outpoint,
                 output_script_pubkey,
                 output_amount,
+                verification_signature,
             )
             .await?;
         Ok(Response::new(partial_sig.into()))
@@ -537,5 +571,13 @@ where
                 ))),
             }
         }
+    }
+
+    async fn get_current_status(
+        &self,
+        _request: Request<Empty>,
+    ) -> Result<Response<clementine::EntityStatus>, Status> {
+        let status = self.get_current_status().await?;
+        Ok(Response::new(status))
     }
 }

@@ -57,7 +57,7 @@ Before compiling Clementine:
 
 Before running Clementine:
 
-1. Install and configure a Bitcoin node (at least v28.0)
+1. Install and configure a Bitcoin node (at least v29.0)
 2. Install and configure PostgreSQL
 3. Set `RUST_MIN_STACK` to at least 33554432
 
@@ -81,7 +81,7 @@ Clementine supports two runtime primary configuration methods:
 
 #### Configuration Files
 
-Running the binary as a verifier, aggregator, operator or watchtower requires a
+Running the binary as a verifier, aggregator, or operator requires a
 configuration file. An example configuration file is located at
 [`core/src/test/data/bridge_config.toml`](core/src/test/data/bridge_config.toml) and can
 be taken as reference. Please copy that configuration file to another location
@@ -102,6 +102,7 @@ The [`.env.example`] file can be taken as a reference for this matter.
 Clementine uses the following logic to determine the configuration source:
 
 1. **Main Configuration**:
+
    - If `READ_CONFIG_FROM_ENV=1` or `READ_CONFIG_FROM_ENV=on`, configuration is read from environment variables
    - If `READ_CONFIG_FROM_ENV=0` or `READ_CONFIG_FROM_ENV=off` or not set, configuration is read from the specified config file
 
@@ -181,6 +182,12 @@ A server's log level can be specified with `--verbose` flag:
 
 ```sh
 ./target/release/clementine-core operator --config /path/to/config.toml --verbose 5 # Logs everything
+```
+
+Setting `RUST_LIB_BACKTRACE` to `full` will enable full backtraces for errors
+
+```sh
+RUST_LIB_BACKTRACE=full ./target/release/clementine-core operator --config /path/to/config.toml
 ```
 
 For more information, use `--help` flag:
@@ -270,6 +277,14 @@ To run all tests:
 cargo test --all-features
 ```
 
+Also, due to the test directory hierarchy, unit and integration tests can be
+run separately:
+
+```sh
+cargo test_unit
+cargo test_integration
+```
+
 #### Helper Scripts
 
 There are handful amount of scripts in [scripts](scripts) directory. Most of
@@ -278,11 +293,25 @@ can change quite frequently. So, please check for useful ones.
 
 Each script should have a name and comment inside that explain its purpose.
 
+#### Debugging Tokio Tasks (`tokio-console`)
+
+To debug tokio tasks, you can uncomment the `console-subscriber` dependency in `Cargo.toml` and the `console_subscriber::init();` line in `src/utils.rs`. Then, rebuild the project with `cargo build_console` which is an alias defined with the necessary flags.
+
+```sh
+cargo build_console
+```
+
+After running Clementine, you can access the console by running the following command:
+
+```sh
+tokio-console
+```
+
 ## Security Considerations
 
 ### TLS Certificates
 
-- Keep private keys (*.key) secure and don't commit them to version control
+- Keep private keys (\*.key) secure and don't commit them to version control
 - In production, use properly signed certificates from a trusted CA
 - Rotate certificates regularly
 - Consider using distinct client certificates for different clients/services

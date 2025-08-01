@@ -1,9 +1,13 @@
-use borsh::{BorshDeserialize, BorshSerialize};
-
-use crate::header_chain::{mmr_guest::MMRGuest, mmr_native::MMRInclusionProof, CircuitBlockHeader};
+//! SPV (Simplified Payment Verification)
+//! This module provides the SPV structure and verification logic for the bridge circuit.
+//! It includes the transaction, block inclusion proof, block header, and MMR inclusion proof.
 
 use super::{merkle_tree::BlockInclusionProof, transaction::CircuitTransaction};
+use crate::header_chain::{mmr_guest::MMRGuest, mmr_native::MMRInclusionProof, CircuitBlockHeader};
+use borsh::{BorshDeserialize, BorshSerialize};
 
+/// SPV (Simplified Payment Verification) structure that contains
+/// the transaction, block inclusion proof, block header, and MMR inclusion proof.
 #[derive(Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
 pub struct SPV {
     pub transaction: CircuitTransaction,
@@ -27,12 +31,13 @@ impl SPV {
         }
     }
 
+    /// Verifies the SPV proof using the provided MMRGuest.
     pub fn verify(&self, mmr_guest: MMRGuest) -> bool {
-        let txid: [u8; 32] = self.transaction.txid();
-        println!("txid: {:?}", txid);
-        let block_merkle_root = self.block_inclusion_proof.get_root(txid);
-        println!("block_merkle_root: {:?}", block_merkle_root);
-        assert_eq!(block_merkle_root, self.block_header.merkle_root);
+        let mid_state_txid: [u8; 32] = self.transaction.mid_state_txid();
+        let block_merkle_root = self.block_inclusion_proof.get_root(mid_state_txid);
+        assert_eq!(block_merkle_root, self.block_header.merkle_root,
+            "Calculated block Merkle root from the block inclusion proof does not match the one in the block header"
+        );
         let block_hash = self.block_header.compute_block_hash();
         mmr_guest.verify_proof(block_hash, &self.mmr_inclusion_proof)
     }
@@ -49,6 +54,7 @@ mod tests {
             spv::SPV,
             transaction::CircuitTransaction,
         },
+        common::hashes::calculate_sha256,
         header_chain::{mmr_guest::MMRGuest, mmr_native::MMRNative, CircuitBlockHeader},
     };
 
@@ -102,21 +108,16 @@ mod tests {
             .collect::<Vec<CircuitBlockHeader>>();
         let txs = MAINNET_BLOCK_TRANSACTIONS
             .iter()
-            .map(|tx| {
-                println!("{:?}", tx);
-                CircuitTransaction(bitcoin::consensus::deserialize(tx).unwrap())
-            })
+            .map(|tx| CircuitTransaction(bitcoin::consensus::deserialize(tx).unwrap()))
             .collect::<Vec<CircuitTransaction>>();
         let mut bitcoin_merkle_proofs: Vec<BlockInclusionProof> = vec![];
-        for tx in txs.iter() {
-            let txid = tx.txid();
-            println!("txid: {:?}", txid);
-            let bitcoin_merkle_tree = BitcoinMerkleTree::new(vec![txid]);
+        for tx in txs.clone().into_iter() {
+            let bitcoin_merkle_tree = BitcoinMerkleTree::new_mid_state(&[tx.clone()]);
             let bitcoin_merkle_proof = bitcoin_merkle_tree.generate_proof(0);
             assert!(verify_merkle_proof(
-                txid,
+                tx.mid_state_txid(),
                 &bitcoin_merkle_proof,
-                bitcoin_merkle_tree.root()
+                calculate_sha256(&bitcoin_merkle_tree.root())
             ));
             bitcoin_merkle_proofs.push(bitcoin_merkle_proof);
         }
@@ -124,7 +125,7 @@ mod tests {
             mmr_native.append(header.compute_block_hash());
             mmr_guest.append(header.compute_block_hash());
             for j in 0..i {
-                let (mmr_leaf, mmr_proof) = mmr_native.generate_proof(j as u32);
+                let (mmr_leaf, mmr_proof) = mmr_native.generate_proof(j as u32).unwrap();
                 assert!(mmr_native.verify_proof(mmr_leaf, &mmr_proof));
                 assert_eq!(mmr_leaf, block_headers[j].compute_block_hash());
                 let spv = SPV::new(

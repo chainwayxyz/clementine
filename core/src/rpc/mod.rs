@@ -17,7 +17,7 @@ pub mod aggregator;
 mod error;
 pub mod interceptors;
 pub mod operator;
-mod parser;
+pub mod parser;
 pub mod verifier;
 
 pub use parser::ParserError;
@@ -49,7 +49,7 @@ impl From<(NumberedSignatureKind, i32)> for SignatureId {
 ///
 /// # Returns
 ///
-/// - [`CLIENT`]: [`tonic`] gRPC client.
+/// - `CLIENT`: [`tonic`] gRPC client.
 pub async fn get_clients<CLIENT, F>(
     endpoints: Vec<String>,
     connect: F,
@@ -156,9 +156,7 @@ where
                         Channel::builder(uri)
                             .tls_config(tls_config)
                             .wrap_err("Failed to configure TLS")?
-                            .connect()
-                            .await
-                            .wrap_err("Failed to connect to endpoint")?
+                            .connect_lazy()
                     };
 
                     Ok(connect(channel))

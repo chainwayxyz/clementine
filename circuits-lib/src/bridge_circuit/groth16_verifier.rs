@@ -1,3 +1,17 @@
+//! # Bridge Circuit Groth16 Verifier
+//! This module implements the Groth16 verifier for the bridge circuit.
+//! It includes functions to create digests for the work-only circuit output,
+//! verify Groth16 proofs, and handle the conversion of hexadecimal strings to decimal.
+//! The verifier uses the prepared verification keys and constants defined in the `constants.rs` module.
+//!
+//! ## Key Functions
+//! - `create_journal_digest`: Creates a digest for the journal of the work-only circuit output.
+//! - `create_output_digest`: Creates an output digest for the work-only circuit output.
+//! - `create_claim_digest`: Creates a claim digest for the work-only circuit output.
+//! - `CircuitGroth16WithTotalWork`: A struct that encapsulates the Groth16 proof with total work and genesis state hash.
+//! - `verify`: Verifies the Groth16 proof against the prepared verification key and public inputs.
+//! - `to_decimal`: Converts a hexadecimal string to a decimal string representation.
+
 use ark_bn254::{Bn254, Fr};
 use ark_groth16::PreparedVerifyingKey;
 use ark_groth16::Proof;
@@ -6,8 +20,8 @@ use num_bigint::BigUint;
 use num_traits::Num;
 
 use super::constants::{
-    A0_ARK, A1_ARK, ASSUMPTIONS, BN_254_CONTROL_ID_ARK, CLAIM_TAG, INPUT, OUTPUT_TAG, POST_STATE,
-    PREPARED_VK,
+    get_prepared_vk, A0_ARK, A1_ARK, ASSUMPTIONS, BN_254_CONTROL_ID_ARK, CLAIM_TAG, INPUT,
+    OUTPUT_TAG, POST_STATE,
 };
 use super::groth16::CircuitGroth16Proof;
 use super::structs::WorkOnlyCircuitOutput;
@@ -15,11 +29,13 @@ use hex::ToHex;
 use sha2::{Digest, Sha256};
 use std::str::FromStr;
 
+/// Creates a digest for the journal of the work-only circuit output.
 pub fn create_journal_digest(work_only_circuit_output: &WorkOnlyCircuitOutput) -> [u8; 32] {
     let pre_digest = borsh::to_vec(work_only_circuit_output).unwrap();
     Sha256::digest(pre_digest).into()
 }
 
+/// Creates an output digest for the work-only circuit output.
 pub fn create_output_digest(work_only_circuit_output: &WorkOnlyCircuitOutput) -> [u8; 32] {
     let journal_digest: [u8; 32] = create_journal_digest(work_only_circuit_output);
     let len_output: u16 = 2;
@@ -32,11 +48,12 @@ pub fn create_output_digest(work_only_circuit_output: &WorkOnlyCircuitOutput) ->
     ]
     .concat()
     .try_into()
-    .expect("slice has correct length");
+    .expect("Slice has correct length");
 
     Sha256::digest(output_pre_digest).into()
 }
 
+/// Creates a claim digest for the work-only circuit output.
 pub fn create_claim_digest(output_digest: &[u8; 32], pre_state: &[u8; 32]) -> [u8; 32] {
     let data: [u8; 8] = [0; 8];
 
@@ -58,6 +75,11 @@ pub fn create_claim_digest(output_digest: &[u8; 32], pre_state: &[u8; 32]) -> [u
 
     claim_digest.into()
 }
+
+/// Groth16 proof with total work and genesis state hash. In Clementine, this is provided by
+/// the watchtowers who challenge the operator whom they suspect of malicious behavior. Just
+/// by knowing the Groth16 proof and the total work, we can reconstruct the public outputs of
+/// the proof and verify it against the Verifying Key (VK) of the Groth16 proof.
 pub struct CircuitGroth16WithTotalWork {
     groth16_seal: CircuitGroth16Proof,
     total_work: [u8; 16],
@@ -65,6 +87,7 @@ pub struct CircuitGroth16WithTotalWork {
 }
 
 impl CircuitGroth16WithTotalWork {
+    /// Creates a new instance of `CircuitGroth16WithTotalWork`.
     pub fn new(
         groth16_seal: CircuitGroth16Proof,
         total_work: [u8; 16],
@@ -77,10 +100,15 @@ impl CircuitGroth16WithTotalWork {
         }
     }
 
+    /// Given the `pre_state` (which is actually the `method ID` of the work-only circuit),
+    /// verifies the Groth16 proof against the prepared Verifying Key (VK) and the public inputs.
     pub fn verify(&self, pre_state: &[u8; 32]) -> bool {
         let ark_proof: Proof<Bn254> = self.groth16_seal.into();
+
+        let prepared_vk: &[u8] = get_prepared_vk();
+
         let prepared_vk: PreparedVerifyingKey<ark_ec::bn::Bn<ark_bn254::Config>> =
-            CanonicalDeserialize::deserialize_uncompressed(PREPARED_VK).unwrap();
+            CanonicalDeserialize::deserialize_uncompressed(prepared_vk).unwrap();
 
         let output_digest = create_output_digest(&WorkOnlyCircuitOutput {
             work_u128: self.total_work,
@@ -106,6 +134,7 @@ impl CircuitGroth16WithTotalWork {
     }
 }
 
+/// Converts a hexadecimal string to a decimal string representation.
 pub fn to_decimal(s: &str) -> Option<String> {
     let int = BigUint::from_str_radix(s, 16).ok();
     int.map(|n| n.to_str_radix(10))

@@ -1,3 +1,15 @@
+//! # Bridge Circuit Structs
+//! This module defines the data structures used in the Bridge Circuit.
+//! It includes structures for light client proofs, work-only circuit outputs, and various constants used in the circuit.
+//! ## Key Structures
+//! - **LightClientProof:** Represents a light client proof with a journal and L2 height.
+//! - **WorkOnlyCircuitOutput:** Represents the output of a work-only circuit, including work done and genesis state hash.
+//! - **WatchTowerChallengeTxCommitment:** Represents a commitment to a watchtower challenge transaction, including the Groth16 proof and total work.
+//! - **WithdrawalOutpointTxid:** Represents the transaction ID (txid) of a withdrawal outpoint.
+//! - **MoveTxid:** Represents the transaction ID (txid) of a move-to-vault transaction.
+//! - **StorageProof:** Represents the storage proof for Ethereum, including UTXO, vout, and deposit proofs.
+//! - **WatchtowerInput:** Represents the input for a watchtower, including the watchtower index, challenge inputs, and transaction details.
+
 use std::ops::{Deref, DerefMut};
 
 use crate::common::constants::MAX_NUMBER_OF_WATCHTOWERS;
@@ -37,6 +49,7 @@ impl Deref for MoveTxid {
     }
 }
 
+/// Represents a constant value used for each deposit in the bridge circuit.
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, BorshDeserialize, BorshSerialize)]
 pub struct DepositConstant(pub [u8; 32]);
 
@@ -128,19 +141,9 @@ pub struct LightClientProof {
 pub struct StorageProof {
     pub storage_proof_utxo: String,         // This will be an Outpoint
     pub storage_proof_vout: String,         // This is the vout of the txid
-    pub storage_proof_deposit_txid: String, // This is the index of the withdrawal
-    pub index: u32,                         // For now this is 18, for a specific withdrawal
+    pub storage_proof_deposit_txid: String, // This is the txid of the deposit tx
+    pub index: u32, // This is the index of the storage proof in the contract
 }
-
-// #[derive(Clone, Debug, BorshDeserialize, BorshSerialize)]
-// pub struct WatchtowerInputs {
-//     pub watchtower_idxs: Vec<u8>, // Which watchtower this is
-//     pub watchtower_pubkeys: Vec<Vec<u8>>, // We do not know what these will be for sure right now
-//     pub watchtower_challenge_input_idxs: Vec<u8>,
-//     pub watchtower_challenge_utxos: Vec<Vec<Vec<u8>>>, // BridgeCircuitUTXO
-//     pub watchtower_challenge_txs: Vec<Vec<u8>>, // BridgeCircuitTransaction
-//     pub watchtower_challenge_witnesses: Vec<Vec<u8>>, // BridgeCircuitTransactionWitness Vec<Some(Witness)>
-// }
 
 #[derive(Clone, Debug, BorshDeserialize, BorshSerialize)]
 pub struct WatchtowerInput {
@@ -274,7 +277,16 @@ impl WatchtowerInput {
         let mut watchtower_challenge_tx = CircuitTransaction::from(watchtower_tx);
 
         let watchtower_challenge_annex: Option<Annex> = {
-            if let Some(last_witness_element) = watchtower_challenge_tx.input
+            // If there are at most one element in the witness, then there are no annexes
+            if watchtower_challenge_tx.input[watchtower_challenge_input_idx as usize]
+                .witness
+                .len()
+                <= 1
+            {
+                None
+            }
+            // Otherwise, if the last element starts with 0x50, then it is an Annex
+            else if let Some(last_witness_element) = watchtower_challenge_tx.input
                 [watchtower_challenge_input_idx as usize]
                 .witness
                 .last()
@@ -308,11 +320,20 @@ impl WatchtowerInput {
             }
         });
 
-        let watchtower_challenge_witness = CircuitWitness::from(
-            watchtower_challenge_tx.input[watchtower_challenge_input_idx as usize]
-                .witness
-                .clone(),
-        );
+        // Get the first witness item, returning an error if it doesn't exist.
+        let Some(signature) = watchtower_challenge_tx.input
+            [watchtower_challenge_input_idx as usize]
+            .witness
+            .nth(0)
+        else {
+            return Err("Watchtower challenge input witness is empty");
+        };
+
+        // The rest of the logic proceeds with the guaranteed `signature`.
+        let mut witness = Witness::new();
+        witness.push(signature);
+
+        let watchtower_challenge_witness = CircuitWitness::from(witness);
 
         for input in &mut watchtower_challenge_tx.input {
             input.witness.clear();
@@ -373,7 +394,7 @@ impl BridgeCircuitInput {
 #[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug)]
 pub struct WatchtowerChallengeSet {
     pub challenge_senders: [u8; 20],
-    pub challenge_outputs: Vec<[TxOut; 3]>,
+    pub challenge_outputs: Vec<Vec<TxOut>>,
 }
 
 fn serialize_txout<W: borsh::io::Write>(txout: &TxOut, writer: &mut W) -> borsh::io::Result<()> {

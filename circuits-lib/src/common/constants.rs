@@ -1,21 +1,30 @@
-/// Constant bridge amount in sats
-pub const BRIDGE_AMOUNT_SATS: u64 = 1_000_000_000;
+//! # Common Constants
+//! Common constants used for Risc0 circuits in the Clementine protocol.
+//! These constants are used across various modules to ensure consistency and correctness in the circuit operations.
+//! They include constants for the number of outputs, transaction assertions, and watchtowers.
+//! ## Header Chain Method IDs
+//! These constants represent the method IDs for different network header chains, such as Mainnet, Testnet4, Signet, and Regtest.
+
+/// The number of kickoff outputs before the first assert utxo.
 pub const FIRST_FIVE_OUTPUTS: usize = 5;
+/// The number of assertion transactions that a challenged operator should send.
 pub const NUMBER_OF_ASSERT_TXS: usize = 33;
+/// The theoretical maximum number of watchtowers that can be used in the Clementine protocol.
 pub const MAX_NUMBER_OF_WATCHTOWERS: usize = 160;
 
+// Header chain method IDs for different networks.
 pub const MAINNET_HEADER_CHAIN_METHOD_ID: [u32; 8] = [
-    2828598111, 4098193592, 3494626909, 1325569329, 1552726101, 455678563, 48065395, 241300384,
+    3652626281, 3002766787, 3722627615, 4039790070, 4147537278, 1544178083, 1650283956, 1173916822,
 ];
 
 pub const TESTNET4_HEADER_CHAIN_METHOD_ID: [u32; 8] = [
-    1468244244, 1800076587, 4080612645, 254146503, 3388096845, 3113073391, 3260391615, 3896028932,
+    1238069516, 2440952130, 296067507, 548718500, 2300908118, 2762236706, 1765400336, 2839141719,
 ];
 
 pub const SIGNET_HEADER_CHAIN_METHOD_ID: [u32; 8] = [
-    1308144088, 3978434433, 3532346338, 1873546347, 2829516822, 1247482657, 77995441, 53017038,
+    805076607, 3918709423, 1059613400, 4117586246, 1585144107, 652222522, 1455179921, 993675895,
 ];
 
 pub const REGTEST_HEADER_CHAIN_METHOD_ID: [u32; 8] = [
-    963286175, 2518840500, 1702030878, 1501962083, 2944827571, 2461833252, 968655091, 3443362857,
+    1301496876, 1115288630, 3669357080, 2302899584, 2983230370, 2760464479, 2701535872, 2516705902,
 ];
