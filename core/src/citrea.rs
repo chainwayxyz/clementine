@@ -25,8 +25,10 @@ use circuits_lib::bridge_circuit::{
     constants::{
         DEVNET_LC_IMAGE_ID, MAINNET_LC_IMAGE_ID, REGTEST_LC_IMAGE_ID, TESTNET_LC_IMAGE_ID,
     },
+    lc_proof::check_method_id,
     structs::{LightClientProof, StorageProof},
 };
+use citrea_sov_rollup_interface::zk::light_client_proof::output::LightClientCircuitOutput;
 use eyre::Context;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::proc_macros::rpc;
@@ -528,6 +530,17 @@ impl CitreaClientT for CitreaClient {
             return Err(eyre::eyre!("Current light client proof verification failed").into());
         }
 
+        let current_proof_output: LightClientCircuitOutput =
+            borsh::from_slice(&proof_current.1.journal.bytes)
+                .expect("Failed to deserialize light client circuit output");
+
+        if !check_method_id(&current_proof_output, lc_image_id) {
+            return Err(eyre::eyre!(
+                "Current light client proof method ID does not match the expected LC image ID"
+            )
+            .into());
+        }
+
         let proof_previous =
             self.get_light_client_proof(block_height - 1)
                 .await?
@@ -538,6 +551,17 @@ impl CitreaClientT for CitreaClient {
 
         if proof_previous.1.verify(lc_image_id).is_err() {
             return Err(eyre::eyre!("Previous light client proof verification failed").into());
+        }
+
+        let previous_proof_output: LightClientCircuitOutput =
+            borsh::from_slice(&proof_previous.1.journal.bytes)
+                .expect("Failed to deserialize light client circuit output");
+
+        if !check_method_id(&previous_proof_output, lc_image_id) {
+            return Err(eyre::eyre!(
+                "Previous light client proof method ID does not match the expected LC image ID"
+            )
+            .into());
         }
 
         let l2_height_end: u64 = proof_current.2;
