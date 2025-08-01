@@ -14,7 +14,7 @@ use std::fs::File;
 use std::future::Future;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::task::{Context, Poll};
 use std::time::Duration;
 use tokio::time::timeout;
@@ -24,6 +24,16 @@ use tracing::level_filters::LevelFilter;
 use tracing::{debug_span, Instrument, Subscriber};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::{fmt, EnvFilter, Layer as TracingLayer, Registry};
+
+// Will remove before merge to `main`
+pub static DEPOSIT_SIGNING_STREAM_BATCH_SIZE: LazyLock<u32> = LazyLock::new(|| {
+    std::env::var("DEPOSIT_SIGNING_STREAM_BATCH_SIZE")
+        .map(|v| {
+            v.parse()
+                .expect("Expected DEPOSIT_SIGNING_STREAM_BATCH_SIZE to be a number")
+        })
+        .expect("Expected DEPOSIT_SIGNING_STREAM_BATCH_SIZE to be defined")
+});
 
 /// Initializes a [`tracing`] subscriber depending on the environment.
 /// [`EnvFilter`] is used with an optional default level. Sets up the

@@ -4,8 +4,7 @@ use crate::deposit::DepositData;
 use crate::errors::BridgeError;
 use crate::fetch_next_optional_message_from_stream;
 use crate::rpc::clementine::{
-    nonce_gen_response, verifier_deposit_sign_params, DepositSignSession, NonceGenFirstResponse,
-    OperatorKeys, OperatorKeysWithDeposit, PartialSig, VerifierDepositSignParams, VerifierParams,
+    nonce_gen_response, verifier_deposit_sign_params, DepositSignSession, NonceGenFirstResponse, OperatorKeys, OperatorKeysWithDeposit, PartialSig, PartialSigBatch, VerifierDepositSignParams, VerifierParams
 };
 use crate::verifier::Verifier;
 use crate::{
@@ -118,6 +117,14 @@ impl From<PartialSignature> for PartialSig {
     fn from(value: PartialSignature) -> Self {
         PartialSig {
             partial_sig: value.serialize().to_vec(),
+        }
+    }
+}
+
+impl From<&[PartialSignature]> for PartialSigBatch {
+    fn from(value: &[PartialSignature]) -> Self {
+        PartialSigBatch {
+            partial_sigs: value.iter().map(|v| v.serialize().to_vec()).collect(),
         }
     }
 }

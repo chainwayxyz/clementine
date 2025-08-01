@@ -405,6 +405,10 @@ message PartialSig {
   bytes partial_sig = 1;
 }
 
+message PartialSigBatch {
+  repeated bytes partial_sigs = 1;
+}
+
 message NonceGenRequest {
   uint32 num_nonces = 1;
 }
@@ -535,7 +539,7 @@ service ClementineVerifier {
   //
   // Used by aggregator inside new_deposit
   rpc DepositSign(stream VerifierDepositSignParams)
-    returns (stream PartialSig) {}
+    returns (stream PartialSigBatch) {}
 
   // Signs the optimistic payout tx with given aggNonce and withdrawal info.
   rpc OptimisticPayoutSign(OptimisticPayoutParams) returns (PartialSig) {}

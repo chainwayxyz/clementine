@@ -42,6 +42,7 @@ use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::{Message, PublicKey};
 use bitcoin::{TapSighash, TxOut, Txid, XOnlyPublicKey};
 use eyre::{Context, OptionExt};
+use futures::stream;
 use futures::{
     future::try_join_all,
     stream::{BoxStream, TryStreamExt},
@@ -196,13 +197,14 @@ async fn nonce_aggregator(
 async fn nonce_distributor(
     mut agg_nonce_receiver: Receiver<AggNonceQueueItem>,
     partial_sig_streams: Vec<(
-        Streaming<clementine::PartialSig>,
+        Streaming<clementine::PartialSigBatch>,
         Sender<clementine::VerifierDepositSignParams>,
     )>,
     partial_sig_sender: Sender<(Vec<PartialSignature>, AggNonceQueueItem)>,
 ) -> Result<(), BridgeError> {
     let mut sig_count = 0;
-    let (mut partial_sig_rx, mut partial_sig_tx): (Vec<_>, Vec<_>) =
+    // to independently send aggnonces and rx partial sigs, we split the streams into two vectors
+    let (partial_sig_rx, mut deposit_sign_tx): (Vec<_>, Vec<_>) =
         partial_sig_streams.into_iter().unzip();
 
     let (queue_tx, mut queue_rx) = channel(crate::constants::DEFAULT_CHANNEL_SIZE);
@@ -223,7 +225,7 @@ async fn nonce_distributor(
             };
 
             // Broadcast aggregated nonce to all streams
-            try_join_all(partial_sig_tx.iter_mut().enumerate().map(|(idx, tx)| {
+            try_join_all(deposit_sign_tx.iter_mut().enumerate().map(|(idx, tx)| {
                 let agg_nonce_wrapped = agg_nonce_wrapped.clone();
                 async move {
                     tx.send(agg_nonce_wrapped).await.wrap_err_with(|| {
@@ -250,30 +252,48 @@ async fn nonce_distributor(
         Ok::<(), BridgeError>(())
     });
 
+    // unbatch the incoming partial sig batches into individual partial sigs
+    let mut unbatched_partial_sig_rx = partial_sig_rx
+        .into_iter()
+        .enumerate()
+        .map(|(idx, stream)| {
+            stream
+                .map(move |val| {
+                    let partial_sig = val.wrap_err_with(|| AggregatorError::RequestFailed {
+                        request_name: format!("Partial sig stream {idx}"),
+                    });
+
+                    stream::iter(match partial_sig {
+                        Err(e) => vec![Err(e.into())],
+                        Ok(partial_sig) => partial_sig
+                            .partial_sigs
+                            .into_iter()
+                            .map(|v| -> Result<_, eyre::Report> {
+                                PartialSignature::from_byte_array(
+                                    &TryInto::<[u8; 32]>::try_into(v).map_err(|v| {
+                                        eyre::eyre!("Invalid partial sig len: {:?}", v.len())
+                                    })?,
+                                )
+                                .wrap_err("Failed to parse partial sig")
+                            })
+                            .collect::<Vec<_>>(),
+                    })
+                })
+                .flatten()
+        })
+        .collect::<Vec<_>>();
+
     let handle_2 = tokio::spawn(async move {
         while let Some(queue_item) = queue_rx.recv().await {
-            let partial_sigs = try_join_all(partial_sig_rx.iter_mut().enumerate().map(
+            let partial_sigs = try_join_all(unbatched_partial_sig_rx.iter_mut().enumerate().map(
                 |(idx, stream)| async move {
-                    let partial_sig = stream
-                        .message()
+                    stream
+                        .next()
                         .await
-                        .wrap_err_with(|| AggregatorError::RequestFailed {
-                            request_name: format!("Partial sig stream {idx}"),
-                        })?
                         .ok_or_eyre(AggregatorError::InputStreamEndedEarlyUnknownSize {
                             stream_name: format!("Partial sig stream {idx}"),
-                        })?;
-
-                    Ok::<_, BridgeError>(
-                        PartialSignature::from_byte_array(
-                            &partial_sig
-                                .partial_sig
-                                .as_slice()
-                                .try_into()
-                                .wrap_err("PartialSignature must be 32 bytes")?,
-                        )
-                        .wrap_err("Failed to parse partial signature")?,
-                    )
+                        })?
+                        .wrap_err("Failed to get collect partial sigs across verifiers")
                 },
             ))
             .await?;
@@ -984,12 +1004,11 @@ impl ClementineAggregator for AggregatorServer {
             let payout_sig = try_join_all(payout_sigs).await?;
 
             let musig_partial_sigs = payout_sig
-                .iter()
+                .into_iter()
                 .map(|sig| {
                     PartialSignature::from_byte_array(
-                        &sig.get_ref()
+                        &sig.into_inner()
                             .partial_sig
-                            .clone()
                             .try_into()
                             .map_err(|_| secp256k1::musig::ParseError::MalformedArg)?,
                     )

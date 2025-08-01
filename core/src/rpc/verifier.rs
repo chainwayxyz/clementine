@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use super::clementine::{
     self, clementine_verifier_server::ClementineVerifier, Empty, NonceGenRequest, NonceGenResponse,
     OperatorParams, OptimisticPayoutParams, PartialSig, RawTxWithRbfInfo, SignedTxWithType,
@@ -9,8 +11,8 @@ use super::parser::ParserError;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::citrea::CitreaClientT;
 use crate::constants::RESTART_BACKGROUND_TASKS_TIMEOUT;
-use crate::rpc::clementine::VerifierDepositFinalizeResponse;
-use crate::utils::{get_vergen_response, timed_request};
+use crate::rpc::clementine::{PartialSigBatch, VerifierDepositFinalizeResponse};
+use crate::utils::{get_vergen_response, timed_request, DEPOSIT_SIGNING_STREAM_BATCH_SIZE};
 use crate::verifier::VerifierServer;
 use crate::{constants, fetch_next_optional_message_from_stream};
 use crate::{
@@ -22,6 +24,7 @@ use clementine::verifier_deposit_finalize_params::Params;
 use secp256k1::musig::AggregatedNonce;
 use tokio::sync::mpsc::{self, error::SendError};
 use tokio_stream::wrappers::ReceiverStream;
+use tokio_stream::StreamExt as _;
 use tonic::{async_trait, Request, Response, Status, Streaming};
 
 #[async_trait]
@@ -120,7 +123,7 @@ where
         }))
     }
     type NonceGenStream = ReceiverStream<Result<NonceGenResponse, Status>>;
-    type DepositSignStream = ReceiverStream<Result<PartialSig, Status>>;
+    type DepositSignStream = ReceiverStream<Result<PartialSigBatch, Status>>;
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn get_params(&self, _: Request<Empty>) -> Result<Response<VerifierParams>, Status> {
@@ -270,20 +273,31 @@ where
 
         // Start partial sig job and return partial sig responses.
         tokio::spawn(async move {
-            let (deposit_data, session_id) = param_rx
+            let (partial_sig_rx, session_id) = param_rx
                 .recv()
                 .await
                 .ok_or(error::expected_msg_got_none("parameters")())?;
 
-            let mut partial_sig_receiver = verifier
-                .deposit_sign(deposit_data.clone(), session_id, agg_nonce_rx)
+            let partial_sig_receiver = verifier
+                .deposit_sign(partial_sig_rx.clone(), session_id, agg_nonce_rx)
                 .await?;
+            let chunked_partial_sig_rx = ReceiverStream::new(partial_sig_receiver)
+                .chunks_timeout(*DEPOSIT_SIGNING_STREAM_BATCH_SIZE as usize, Duration::from_millis(2));
 
             let mut nonce_idx = 0;
-            let num_required_sigs = verifier.config.get_num_required_nofn_sigs(&deposit_data);
-            while let Some(partial_sig) = partial_sig_receiver.recv().await {
-                tx.send(Ok(PartialSig {
-                    partial_sig: partial_sig.serialize().to_vec(),
+            let num_required_sigs = verifier.config.get_num_required_nofn_sigs(&partial_sig_rx);
+
+
+            tokio::pin!(chunked_partial_sig_rx);
+
+            while let Some(partial_sig) = chunked_partial_sig_rx.next().await {
+                nonce_idx += partial_sig.len();
+
+                tx.send(Ok(PartialSigBatch {
+                    partial_sigs: partial_sig
+                        .into_iter()
+                        .map(|sig| sig.serialize().to_vec())
+                        .collect::<Vec<_>>(),
                 }))
                 .await
                 .map_err(|e| {
@@ -292,14 +306,13 @@ where
                     ))
                 })?;
 
-                nonce_idx += 1;
                 tracing::trace!(
                     "Verifier {:?} signed and sent sighash {} of {} through rpc deposit_sign",
                     verifier.signer.public_key,
                     nonce_idx,
                     num_required_sigs
                 );
-                if nonce_idx == num_required_sigs {
+                if nonce_idx >= num_required_sigs {
                     break;
                 }
             }
