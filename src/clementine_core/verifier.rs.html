@@ -2902,7 +2902,125 @@
 <a href="#2901" id="2901">2901</a>
 <a href="#2902" id="2902">2902</a>
 <a href="#2903" id="2903">2903</a>
-<a href="#2904" id="2904">2904</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
+<a href="#2904" id="2904">2904</a>
+<a href="#2905" id="2905">2905</a>
+<a href="#2906" id="2906">2906</a>
+<a href="#2907" id="2907">2907</a>
+<a href="#2908" id="2908">2908</a>
+<a href="#2909" id="2909">2909</a>
+<a href="#2910" id="2910">2910</a>
+<a href="#2911" id="2911">2911</a>
+<a href="#2912" id="2912">2912</a>
+<a href="#2913" id="2913">2913</a>
+<a href="#2914" id="2914">2914</a>
+<a href="#2915" id="2915">2915</a>
+<a href="#2916" id="2916">2916</a>
+<a href="#2917" id="2917">2917</a>
+<a href="#2918" id="2918">2918</a>
+<a href="#2919" id="2919">2919</a>
+<a href="#2920" id="2920">2920</a>
+<a href="#2921" id="2921">2921</a>
+<a href="#2922" id="2922">2922</a>
+<a href="#2923" id="2923">2923</a>
+<a href="#2924" id="2924">2924</a>
+<a href="#2925" id="2925">2925</a>
+<a href="#2926" id="2926">2926</a>
+<a href="#2927" id="2927">2927</a>
+<a href="#2928" id="2928">2928</a>
+<a href="#2929" id="2929">2929</a>
+<a href="#2930" id="2930">2930</a>
+<a href="#2931" id="2931">2931</a>
+<a href="#2932" id="2932">2932</a>
+<a href="#2933" id="2933">2933</a>
+<a href="#2934" id="2934">2934</a>
+<a href="#2935" id="2935">2935</a>
+<a href="#2936" id="2936">2936</a>
+<a href="#2937" id="2937">2937</a>
+<a href="#2938" id="2938">2938</a>
+<a href="#2939" id="2939">2939</a>
+<a href="#2940" id="2940">2940</a>
+<a href="#2941" id="2941">2941</a>
+<a href="#2942" id="2942">2942</a>
+<a href="#2943" id="2943">2943</a>
+<a href="#2944" id="2944">2944</a>
+<a href="#2945" id="2945">2945</a>
+<a href="#2946" id="2946">2946</a>
+<a href="#2947" id="2947">2947</a>
+<a href="#2948" id="2948">2948</a>
+<a href="#2949" id="2949">2949</a>
+<a href="#2950" id="2950">2950</a>
+<a href="#2951" id="2951">2951</a>
+<a href="#2952" id="2952">2952</a>
+<a href="#2953" id="2953">2953</a>
+<a href="#2954" id="2954">2954</a>
+<a href="#2955" id="2955">2955</a>
+<a href="#2956" id="2956">2956</a>
+<a href="#2957" id="2957">2957</a>
+<a href="#2958" id="2958">2958</a>
+<a href="#2959" id="2959">2959</a>
+<a href="#2960" id="2960">2960</a>
+<a href="#2961" id="2961">2961</a>
+<a href="#2962" id="2962">2962</a>
+<a href="#2963" id="2963">2963</a>
+<a href="#2964" id="2964">2964</a>
+<a href="#2965" id="2965">2965</a>
+<a href="#2966" id="2966">2966</a>
+<a href="#2967" id="2967">2967</a>
+<a href="#2968" id="2968">2968</a>
+<a href="#2969" id="2969">2969</a>
+<a href="#2970" id="2970">2970</a>
+<a href="#2971" id="2971">2971</a>
+<a href="#2972" id="2972">2972</a>
+<a href="#2973" id="2973">2973</a>
+<a href="#2974" id="2974">2974</a>
+<a href="#2975" id="2975">2975</a>
+<a href="#2976" id="2976">2976</a>
+<a href="#2977" id="2977">2977</a>
+<a href="#2978" id="2978">2978</a>
+<a href="#2979" id="2979">2979</a>
+<a href="#2980" id="2980">2980</a>
+<a href="#2981" id="2981">2981</a>
+<a href="#2982" id="2982">2982</a>
+<a href="#2983" id="2983">2983</a>
+<a href="#2984" id="2984">2984</a>
+<a href="#2985" id="2985">2985</a>
+<a href="#2986" id="2986">2986</a>
+<a href="#2987" id="2987">2987</a>
+<a href="#2988" id="2988">2988</a>
+<a href="#2989" id="2989">2989</a>
+<a href="#2990" id="2990">2990</a>
+<a href="#2991" id="2991">2991</a>
+<a href="#2992" id="2992">2992</a>
+<a href="#2993" id="2993">2993</a>
+<a href="#2994" id="2994">2994</a>
+<a href="#2995" id="2995">2995</a>
+<a href="#2996" id="2996">2996</a>
+<a href="#2997" id="2997">2997</a>
+<a href="#2998" id="2998">2998</a>
+<a href="#2999" id="2999">2999</a>
+<a href="#3000" id="3000">3000</a>
+<a href="#3001" id="3001">3001</a>
+<a href="#3002" id="3002">3002</a>
+<a href="#3003" id="3003">3003</a>
+<a href="#3004" id="3004">3004</a>
+<a href="#3005" id="3005">3005</a>
+<a href="#3006" id="3006">3006</a>
+<a href="#3007" id="3007">3007</a>
+<a href="#3008" id="3008">3008</a>
+<a href="#3009" id="3009">3009</a>
+<a href="#3010" id="3010">3010</a>
+<a href="#3011" id="3011">3011</a>
+<a href="#3012" id="3012">3012</a>
+<a href="#3013" id="3013">3013</a>
+<a href="#3014" id="3014">3014</a>
+<a href="#3015" id="3015">3015</a>
+<a href="#3016" id="3016">3016</a>
+<a href="#3017" id="3017">3017</a>
+<a href="#3018" id="3018">3018</a>
+<a href="#3019" id="3019">3019</a>
+<a href="#3020" id="3020">3020</a>
+<a href="#3021" id="3021">3021</a>
+<a href="#3022" id="3022">3022</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
 <span class="kw">use </span><span class="kw">crate</span>::bitcoin_syncer::BitcoinSyncer;
 <span class="kw">use </span><span class="kw">crate</span>::bitvm_client::{ClementineBitVMPublicKeys, REPLACE_SCRIPTS_LOCK};
 <span class="kw">use </span><span class="kw">crate</span>::builder::address::{create_taproot_address, taproot_builder_with_scripts};
@@ -2944,6 +3062,9 @@
 <span class="kw">use </span><span class="kw">crate</span>::utils::NamedEntity;
 <span class="kw">use </span><span class="kw">crate</span>::utils::TxMetadata;
 <span class="kw">use crate</span>::{musig2, UTXO};
+<span class="kw">use </span>alloy::primitives::PrimitiveSignature;
+<span class="kw">use </span>alloy::sol_types::Eip712Domain;
+<span class="kw">use </span>alloy_sol_types::SolStruct;
 <span class="kw">use </span>bitcoin::hashes::Hash;
 <span class="kw">use </span>bitcoin::key::Secp256k1;
 <span class="kw">use </span>bitcoin::script::Instruction;
@@ -2974,6 +3095,23 @@
 <span class="kw">use </span>std::time::Duration;
 <span class="kw">use </span>tokio::sync::mpsc;
 <span class="kw">use </span>tokio_stream::StreamExt;
+
+<span class="macro">alloy_sol_types::sol!</span> {
+    <span class="attr">#[derive(Debug)]
+    </span><span class="kw">struct </span>ClementineOptimisticPayoutMessage {
+        uint32 withdrawal_id;
+        bytes input_signature;
+        bytes32 input_outpoint_txid;
+        uint32 input_outpoint_vout;
+        bytes output_script_pubkey;
+        uint64 output_amount;
+    }
+}
+
+<span class="kw">pub static </span>DOMAIN: Eip712Domain = <span class="macro">alloy_sol_types::eip712_domain!</span> {
+    name: <span class="string">"ClementineOptimisticPayoutMessage"</span>,
+    version: <span class="string">"1"</span>,
+};
 
 <span class="attr">#[derive(Debug)]
 </span><span class="kw">pub struct </span>NonceSession {
@@ -4017,6 +4155,48 @@
         <span class="prelude-val">Ok</span>((move_tx_partial_sig, emergency_stop_partial_sig))
     }
 
+    <span class="doccomment">/// Recover the address from the signature
+    /// EIP712 hash is calculated from optimistic payout params
+    /// Signature is the signature of the eip712 hash
+    ///
+    /// Parameters:
+    /// - deposit_id: The id of the deposit
+    /// - input_signature: The signature of the withdrawal input
+    /// - input_outpoint: The outpoint of the withdrawal input
+    /// - output_script_pubkey: The script pubkey of the withdrawal output
+    /// - output_amount: The amount of the withdrawal output
+    /// - signature: The signature of the eip712 hash of the withdrawal params
+    ///
+    /// Returns:
+    /// - The address recovered from the signature
+    </span><span class="kw">pub fn </span>recover_address_from_ecdsa_signature(
+        deposit_id: u32,
+        input_signature: Signature,
+        input_outpoint: OutPoint,
+        output_script_pubkey: ScriptBuf,
+        output_amount: Amount,
+        signature: PrimitiveSignature,
+    ) -&gt; <span class="prelude-ty">Result</span>&lt;alloy::primitives::Address, BridgeError&gt; {
+        <span class="kw">let </span>input_sig_bytes = input_signature.serialize().to_vec();
+        <span class="kw">let </span>outpoint_txid_bytes = input_outpoint.txid.to_byte_array();
+        <span class="kw">let </span>script_pubkey_bytes = output_script_pubkey.as_bytes().to_vec();
+        <span class="kw">let </span>params = ClementineOptimisticPayoutMessage {
+            withdrawal_id: deposit_id,
+            input_signature: input_sig_bytes.into(),
+            input_outpoint_txid: outpoint_txid_bytes.into(),
+            input_outpoint_vout: input_outpoint.vout,
+            output_script_pubkey: script_pubkey_bytes.into(),
+            output_amount: output_amount.to_sat(),
+        };
+
+        <span class="kw">let </span>eip712_hash = params.eip712_signing_hash(<span class="kw-2">&amp;</span>DOMAIN);
+
+        <span class="kw">let </span>address = signature
+            .recover_address_from_prehash(<span class="kw-2">&amp;</span>eip712_hash)
+            .wrap_err(<span class="string">"Invalid signature"</span>)<span class="question-mark">?</span>;
+        <span class="prelude-val">Ok</span>(address)
+    }
+
     <span class="attr">#[allow(clippy::too_many_arguments)]
     </span><span class="kw">pub async fn </span>sign_optimistic_payout(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
@@ -4027,7 +4207,31 @@
         input_outpoint: OutPoint,
         output_script_pubkey: ScriptBuf,
         output_amount: Amount,
+        verification_signature: <span class="prelude-ty">Option</span>&lt;PrimitiveSignature&gt;,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;PartialSignature, BridgeError&gt; {
+        <span class="comment">// if verification address is set in config, check if verification signature is valid
+        </span><span class="kw">if let </span><span class="prelude-val">Some</span>(address_in_config) = <span class="self">self</span>.config.opt_payout_verification_address {
+            <span class="comment">// check if verification signature is provided by aggregator
+            </span><span class="kw">if let </span><span class="prelude-val">Some</span>(verification_signature) = verification_signature {
+                <span class="kw">let </span>address_from_sig = <span class="self">Self</span>::recover_address_from_ecdsa_signature(
+                    deposit_id,
+                    input_signature,
+                    input_outpoint,
+                    output_script_pubkey.clone(),
+                    output_amount,
+                    verification_signature,
+                )<span class="question-mark">?</span>;
+
+                <span class="comment">// check if verification signature is signed by the address in config
+                </span><span class="kw">if </span>address_from_sig != address_in_config {
+                    <span class="kw">return </span><span class="prelude-val">Err</span>(BridgeError::InvalidOptPayoutVerificationSignature);
+                }
+            } <span class="kw">else </span>{
+                <span class="comment">// if verification signature is not provided, but verification address is set in config, return error
+                </span><span class="kw">return </span><span class="prelude-val">Err</span>(BridgeError::OptPayoutVerificationSignatureMissing);
+            }
+        }
+
         <span class="comment">// check if withdrawal is valid first
         </span><span class="kw">let </span>move_txid = <span class="self">self
             </span>.db
@@ -5690,6 +5894,7 @@
     <span class="kw">use </span><span class="kw">crate</span>::test::common::citrea::MockCitreaClient;
     <span class="kw">use </span><span class="kw">crate</span>::test::common::<span class="kw-2">*</span>;
     <span class="kw">use </span>bitcoin::Block;
+    <span class="kw">use </span>std::str::FromStr;
     <span class="kw">use </span>std::sync::Arc;
 
     <span class="attr">#[tokio::test]
@@ -5804,6 +6009,37 @@
             .<span class="kw">await</span>;
         <span class="macro">assert!</span>(result2.is_ok(), <span class="string">"Second save should succeed (idempotent)"</span>);
         dbtx2.commit().<span class="kw">await</span>.unwrap();
+    }
+
+    <span class="attr">#[tokio::test]
+    </span><span class="kw">async fn </span>test_recover_address_from_signature() {
+        <span class="kw">let </span>signature = PrimitiveSignature::from_str(<span class="string">"0x93907632f97f51a91e684a88a9b8ad9bb1e0f7679686f79d6538972f4a759c0c38dddc0c449b7336963275189fb26ea3bb2055ba5d140f5a536c6fac6997ae061b"</span>)
+            .unwrap();
+        <span class="kw">let </span>input_signature = Signature::from_str(<span class="string">"e8b82defd5e7745731737d210ad3f649541fd1e3173424fe6f9152b11cf8a1f9e24a176690c2ab243fb80ccc43369b2aba095b011d7a3a7c2a6953ef6b102643"</span>)
+            .unwrap();
+        <span class="kw">let </span>input_outpoint = OutPoint::from_str(
+            <span class="string">"0000000000000000000000000000000000000000000000000000000000000000:0"</span>,
+        )
+        .unwrap();
+        <span class="kw">let </span>output_script_pubkey =
+            ScriptBuf::from_hex(<span class="string">"0000000000000000000000000000000000000000000000000000000000000000"</span>)
+                .unwrap();
+        <span class="kw">let </span>output_amount = Amount::from_sat(<span class="number">1000000000000000000</span>);
+        <span class="kw">let </span>deposit_id = <span class="number">1</span>;
+        <span class="kw">let </span>address = Verifier::&lt;MockCitreaClient&gt;::recover_address_from_ecdsa_signature(
+            deposit_id,
+            input_signature,
+            input_outpoint,
+            output_script_pubkey,
+            output_amount,
+            signature,
+        )
+        .unwrap();
+        <span class="macro">assert_eq!</span>(
+            address,
+            alloy::primitives::Address::from_str(<span class="string">"0xc9f597cbdd1235c986fb079184c785bf25b273b9"</span>)
+                .unwrap()
+        );
     }
 }
 </code></pre></div></section></main></body></html>

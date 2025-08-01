@@ -471,7 +471,7 @@
     <span class="attr">#[tracing::instrument(skip(<span class="self">self</span>), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     </span><span class="kw">async fn </span>withdraw(<span class="kw-2">&amp;</span><span class="self">self</span>, request: Request&lt;WithdrawParams&gt;) -&gt; <span class="prelude-ty">Result</span>&lt;Response&lt;Empty&gt;, Status&gt; {
         <span class="kw">let </span>(withdrawal_id, input_signature, input_outpoint, output_script_pubkey, output_amount) =
-            parser::operator::parse_withdrawal_sig_params(request.into_inner()).<span class="kw">await</span><span class="question-mark">?</span>;
+            parser::operator::parse_withdrawal_sig_params(request.into_inner())<span class="question-mark">?</span>;
 
         <span class="comment">// try to fulfill withdrawal only if automation is enabled
         </span><span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]

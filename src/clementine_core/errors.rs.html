@@ -272,7 +272,11 @@
 <a href="#271" id="271">271</a>
 <a href="#272" id="272">272</a>
 <a href="#273" id="273">273</a>
-<a href="#274" id="274">274</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Errors
+<a href="#274" id="274">274</a>
+<a href="#275" id="275">275</a>
+<a href="#276" id="276">276</a>
+<a href="#277" id="277">277</a>
+<a href="#278" id="278">278</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Errors
 //!
 //! This module defines globally shared error messages, the crate-level error wrapper and extension traits for error/results.
 //! Our error paradigm is as follows:
@@ -419,6 +423,10 @@
     </span>InvalidProtocolParamset,
     <span class="attr">#[error(<span class="string">"Deposit already signed and move txid {0} is in chain"</span>)]
     </span>DepositAlreadySigned(Txid),
+    <span class="attr">#[error(<span class="string">"Invalid optimistic payout verification signature"</span>)]
+    </span>InvalidOptPayoutVerificationSignature,
+    <span class="attr">#[error(<span class="string">"Optimistic payout verification signature missing"</span>)]
+    </span>OptPayoutVerificationSignatureMissing,
 
     <span class="comment">// External crate error wrappers
     </span><span class="attr">#[error(<span class="string">"Failed to call database: {0}"</span>)]

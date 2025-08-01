@@ -2172,7 +2172,16 @@
 <a href="#2171" id="2171">2171</a>
 <a href="#2172" id="2172">2172</a>
 <a href="#2173" id="2173">2173</a>
-<a href="#2174" id="2174">2174</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::{
+<a href="#2174" id="2174">2174</a>
+<a href="#2175" id="2175">2175</a>
+<a href="#2176" id="2176">2176</a>
+<a href="#2177" id="2177">2177</a>
+<a href="#2178" id="2178">2178</a>
+<a href="#2179" id="2179">2179</a>
+<a href="#2180" id="2180">2180</a>
+<a href="#2181" id="2181">2181</a>
+<a href="#2182" id="2182">2182</a>
+<a href="#2183" id="2183">2183</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::{
     clementine_aggregator_server::ClementineAggregator, verifier_deposit_finalize_params,
     DepositParams, Empty, VerifierDepositFinalizeParams,
 };
@@ -2950,11 +2959,20 @@
 
     <span class="kw">async fn </span>optimistic_payout(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
-        request: tonic::Request&lt;<span class="kw">super</span>::WithdrawParams&gt;,
+        request: tonic::Request&lt;<span class="kw">super</span>::OptimisticWithdrawParams&gt;,
     ) -&gt; std::result::Result&lt;tonic::Response&lt;<span class="kw">super</span>::RawSignedTx&gt;, tonic::Status&gt; {
-        <span class="kw">let </span>withdraw_params = request.into_inner();
+        <span class="kw">let </span>opt_withdraw_params = request.into_inner();
+
+        <span class="kw">let </span>withdraw_params =
+            opt_withdraw_params
+                .withdrawal
+                .clone()
+                .ok_or(Status::invalid_argument(
+                    <span class="string">"Withdrawal params not found for optimistic payout"</span>,
+                ))<span class="question-mark">?</span>;
         <span class="kw">let </span>(deposit_id, input_signature, input_outpoint, output_script_pubkey, output_amount) =
-            parser::operator::parse_withdrawal_sig_params(withdraw_params.clone()).<span class="kw">await</span><span class="question-mark">?</span>;
+            parser::operator::parse_withdrawal_sig_params(withdraw_params)<span class="question-mark">?</span>;
+
         <span class="comment">// get which deposit the withdrawal belongs to
         </span><span class="kw">let </span>withdrawal = <span class="self">self
             </span>.db
@@ -3007,12 +3025,12 @@
                 .zip(first_responses)
                 .map(|(client, first_response)| {
                     <span class="kw">let </span><span class="kw-2">mut </span>client = client.clone();
-                    <span class="kw">let </span>withdrawal_params = withdraw_params.clone();
+                    <span class="kw">let </span>opt_withdraw_params = opt_withdraw_params.clone();
                     <span class="kw">let </span>agg_nonce_bytes = agg_nonce.serialize().to_vec();
                     <span class="kw">async move </span>{
                         client
                             .optimistic_payout_sign(OptimisticPayoutParams {
-                                withdrawal: <span class="prelude-val">Some</span>(withdrawal_params),
+                                opt_withdrawal: <span class="prelude-val">Some</span>(opt_withdraw_params),
                                 agg_nonce: agg_nonce_bytes,
                                 nonce_gen: <span class="prelude-val">Some</span>(first_response),
                             })

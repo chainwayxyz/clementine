@@ -562,7 +562,28 @@
 <a href="#561" id="561">561</a>
 <a href="#562" id="562">562</a>
 <a href="#563" id="563">563</a>
-<a href="#564" id="564">564</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::{
+<a href="#564" id="564">564</a>
+<a href="#565" id="565">565</a>
+<a href="#566" id="566">566</a>
+<a href="#567" id="567">567</a>
+<a href="#568" id="568">568</a>
+<a href="#569" id="569">569</a>
+<a href="#570" id="570">570</a>
+<a href="#571" id="571">571</a>
+<a href="#572" id="572">572</a>
+<a href="#573" id="573">573</a>
+<a href="#574" id="574">574</a>
+<a href="#575" id="575">575</a>
+<a href="#576" id="576">576</a>
+<a href="#577" id="577">577</a>
+<a href="#578" id="578">578</a>
+<a href="#579" id="579">579</a>
+<a href="#580" id="580">580</a>
+<a href="#581" id="581">581</a>
+<a href="#582" id="582">582</a>
+<a href="#583" id="583">583</a></pre></div><pre class="rust"><code><span class="kw">use </span>std::str::FromStr;
+
+<span class="kw">use </span><span class="kw">super</span>::clementine::{
     <span class="self">self</span>, clementine_verifier_server::ClementineVerifier, Empty, NonceGenRequest, NonceGenResponse,
     OperatorParams, OptimisticPayoutParams, PartialSig, RawTxWithRbfInfo, SignedTxWithType,
     SignedTxsWithType, VergenResponse, VerifierDepositFinalizeParams, VerifierDepositSignParams,
@@ -581,6 +602,7 @@
     fetch_next_message_from_stream,
     rpc::parser::{<span class="self">self</span>},
 };
+<span class="kw">use </span>alloy::primitives::PrimitiveSignature;
 <span class="kw">use </span>bitcoin::Witness;
 <span class="kw">use </span>clementine::verifier_deposit_finalize_params::Params;
 <span class="kw">use </span>secp256k1::musig::AggregatedNonce;
@@ -630,11 +652,26 @@
                 <span class="string">"Nonce params not found for optimistic payout"</span>,
             ))<span class="question-mark">?
             </span>.id;
-        <span class="kw">let </span>withdraw_params = params.withdrawal.ok_or(Status::invalid_argument(
+        <span class="kw">let </span>opt_withdraw_params = params.opt_withdrawal.ok_or(Status::invalid_argument(
             <span class="string">"Withdrawal params not found for optimistic payout"</span>,
         ))<span class="question-mark">?</span>;
+        <span class="kw">let </span>verification_signature_str = opt_withdraw_params.verification_signature.clone();
+        <span class="kw">let </span>withdrawal_params = opt_withdraw_params
+            .withdrawal
+            .ok_or(Status::invalid_argument(
+                <span class="string">"Withdrawal params not found for optimistic payout"</span>,
+            ))<span class="question-mark">?</span>;
         <span class="kw">let </span>(withdrawal_id, input_signature, input_outpoint, output_script_pubkey, output_amount) =
-            parser::operator::parse_withdrawal_sig_params(withdraw_params).<span class="kw">await</span><span class="question-mark">?</span>;
+            parser::operator::parse_withdrawal_sig_params(withdrawal_params)<span class="question-mark">?</span>;
+
+        <span class="kw">let </span>verification_signature = verification_signature_str
+            .map(|sig| {
+                PrimitiveSignature::from_str(<span class="kw-2">&amp;</span>sig).map_err(|e| {
+                    Status::invalid_argument(<span class="macro">format!</span>(<span class="string">"Invalid verification signature: {}"</span>, e))
+                })
+            })
+            .transpose()<span class="question-mark">?</span>;
+
         <span class="kw">let </span>partial_sig = <span class="self">self
             </span>.verifier
             .sign_optimistic_payout(
@@ -645,6 +682,7 @@
                 input_outpoint,
                 output_script_pubkey,
                 output_amount,
+                verification_signature,
             )
             .<span class="kw">await</span><span class="question-mark">?</span>;
         <span class="prelude-val">Ok</span>(Response::new(partial_sig.into()))
