@@ -113,6 +113,7 @@ services:
     container_name: clementine_verifier
     environment:
       - BITVM_CACHE_PATH=/bitvm_cache.bin
+      - RISC0_DEV_MODE=1
     command:
       verifier --config /bridge_config.toml --protocol-params /protocol_paramset.toml
     ports:
