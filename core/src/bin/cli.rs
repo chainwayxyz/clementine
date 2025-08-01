@@ -918,10 +918,11 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             move_txid: _,
         } => {
             unimplemented!()
-            // let extended_rpc = extended_rpc::ExtendedRpc::connect(
+            // let extended_rpc = extended_rpc::ExtendedRpc::connect_with_retry(
             //     bitcoin_rpc_url,
             //     bitcoin_rpc_user,
             //     bitcoin_rpc_password,
+            //     None,
             // )
             // .await
             // .expect("Failed to connect to Bitcoin RPC");

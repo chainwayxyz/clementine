@@ -126,10 +126,11 @@ impl TestCase for AdditionalDisproveTest {
             )),
         );
 
-        let rpc = ExtendedRpc::connect(
+        let rpc = ExtendedRpc::connect_with_retry(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
+            None,
         )
         .await?;
 

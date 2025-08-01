@@ -93,10 +93,11 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
         // Bitcoind is already running on port 18443, use existing port.
         return WithProcessCleanup(
             None,
-            ExtendedRpc::connect(
+            ExtendedRpc::connect_with_retry(
                 "http://127.0.0.1:18443".into(),
                 config.bitcoin_rpc_user.clone(),
                 config.bitcoin_rpc_password.clone(),
+                None,
             )
             .await
             .unwrap(),
@@ -151,10 +152,11 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
     // Create RPC client
     let rpc_url = format!("http://127.0.0.1:{}", rpc_port);
 
-    let client = ExtendedRpc::connect(
+    let client = ExtendedRpc::connect_with_retry(
         rpc_url,
         config.bitcoin_rpc_user.clone(),
         config.bitcoin_rpc_password.clone(),
+        None,
     )
     .await
     .expect("Failed to create RPC client");
