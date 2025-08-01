@@ -105,11 +105,10 @@ where
     /// Starts the background tasks for the verifier.
     /// If called multiple times, it will restart only the tasks that are not already running.
     pub async fn start_background_tasks(&self) -> Result<(), BridgeError> {
-        let rpc = ExtendedRpc::connect_with_retry(
+        let rpc = ExtendedRpc::connect(
             self.verifier.config.bitcoin_rpc_url.clone(),
             self.verifier.config.bitcoin_rpc_user.clone(),
             self.verifier.config.bitcoin_rpc_password.clone(),
-            None,
         )
         .await?;
 
@@ -268,11 +267,10 @@ where
             config.protocol_paramset().network,
         );
 
-        let rpc = ExtendedRpc::connect_with_retry(
+        let rpc = ExtendedRpc::connect(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
-            None,
         )
         .await?;
 
