@@ -509,11 +509,11 @@ impl CitreaClientT for CitreaClient {
 
         let current_proof_output: LightClientCircuitOutput =
             borsh::from_slice(&proof_current.1.journal.bytes)
-                .wrap_err("Failed to deserialize light client circuit output")?;
+                .expect("Failed to deserialize light client circuit output");
 
         if !check_method_id(&current_proof_output, lc_image_id) {
             return Err(eyre::eyre!(
-                "Light client proof method ID does not match the expected LC image ID"
+                "Current light client proof method ID does not match the expected LC image ID"
             )
             .into());
         }

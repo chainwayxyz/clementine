@@ -64,6 +64,20 @@ mod tests {
         let lcp_receipt_bytes = include_bytes!("../../test_data/lcp_receipt.bin");
         let lcp_receipt: Receipt = borsh::from_slice(lcp_receipt_bytes).unwrap();
 
+        let light_client_proof: LightClientProof = LightClientProof {
+            l2_height: "0x0".to_string(),
+            lc_journal: lcp_receipt.journal.bytes.to_vec(),
+        };
+
+        let light_client_circuit_output: LightClientCircuitOutput =
+            borsh::from_slice(light_client_proof.lc_journal.as_slice())
+                .expect("Failed to deserialize light client circuit output");
+
+        assert!(
+            check_method_id(&light_client_circuit_output, REGTEST_LC_IMAGE_ID),
+            "Light client proof method ID does not match the expected LC image ID"
+        );
+
         println!("LCP Receipt: {:?}", lcp_receipt.clone());
 
         lcp_receipt.verify(REGTEST_LC_IMAGE_ID).unwrap();
