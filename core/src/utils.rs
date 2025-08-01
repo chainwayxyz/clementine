@@ -9,15 +9,19 @@ use futures::future::try_join_all;
 use http::HeaderValue;
 use metrics_exporter_prometheus::PrometheusBuilder;
 use serde::{Deserialize, Serialize};
+use std::any::type_name;
 use std::fmt::{Debug, Display};
 use std::fs::File;
 use std::future::Future;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::task::{Context, Poll};
 use std::time::Duration;
+use tokio::sync::mpsc;
 use tokio::time::timeout;
+use tokio_stream::wrappers::ReceiverStream;
+use tokio_stream::StreamExt as _;
 use tonic::Status;
 use tower::{Layer, Service};
 use tracing::level_filters::LevelFilter;
@@ -681,6 +685,97 @@ where
     }))
     .instrument(debug_span!("timed_try_join_all", description = description))
     .await
+}
+
+use std::marker::PhantomData;
+
+use prost::Message;
+use tonic::codec::{BufferSettings, Codec, ProstCodec};
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct BatchingCodec<T, U>(PhantomData<(T, U)>);
+
+impl<T, U> Codec for BatchingCodec<T, U>
+where
+    T: Message + Send + 'static,
+    U: Message + Default + Send + 'static,
+{
+    type Encode = T;
+    type Decode = U;
+
+    type Encoder = <ProstCodec<T, U> as Codec>::Encoder;
+    type Decoder = <ProstCodec<T, U> as Codec>::Decoder;
+
+    fn encoder(&mut self) -> Self::Encoder {
+        // Here, we will just customize the prost codec's internal buffer settings.
+        // You can of course implement a complete Codec, Encoder, and Decoder if
+        // you wish!
+        ProstCodec::<T, U>::raw_encoder(BufferSettings::new(32 * 1024, 4 * 1024 * 1024))
+    }
+
+    fn decoder(&mut self) -> Self::Decoder {
+        ProstCodec::<T, U>::raw_decoder(BufferSettings::new(32 * 1024, 4 * 1024 * 1024))
+    }
+}
+
+use futures::stream::FlatMap;
+use futures::{stream, StreamExt as _};
+use tokio_stream::adapters::ChunksTimeout;
+
+/// Helper type to batch a stream of items into chunks of 128 at a time
+pub type BatchedStream<T> = FlatMap<
+    ChunksTimeout<ReceiverStream<T>>,
+    stream::Iter<std::vec::IntoIter<T>>,
+    fn(Vec<T>) -> stream::Iter<std::vec::IntoIter<T>>,
+>;
+
+/// Helper function to observe batch sizes
+fn iter_with_log<T>(iter: Vec<T>) -> stream::Iter<std::vec::IntoIter<T>> {
+    tracing::debug!(
+        batch_size = iter.len(),
+        type_name = type_name::<T>(),
+        "batching"
+    );
+    stream::iter(iter)
+}
+
+/// Static used to benchmark different batch sizes
+pub static BATCH_SIZE: LazyLock<usize> = LazyLock::new(|| {
+    // WILL REMOVE BEFORE `main` MERGE
+    std::env::var("GRPC_BATCH_SIZE")
+        .map(|v| {
+            v.parse::<usize>()
+                .expect("Expected GRPC_BATCH_SIZE environment to be a number")
+        })
+        .expect("Expected GRPC_BATCH_SIZE environment to be set")
+});
+
+/// Static used to benchmark different batch message timeouts
+pub static BATCH_MSG_TIMEOUT_MILLIS: LazyLock<u64> = LazyLock::new(|| {
+    std::env::var("GRPC_BATCH_MSG_TIMEOUT_MILLIS")
+        .map(|v| {
+            v.parse::<u64>()
+                .expect("Expected GRPC_BATCH_MSG_TIMEOUT_MILLIS environment to be a number")
+        })
+        .unwrap_or(2)
+});
+
+/// Batches the receiver stream by flushing batches of items either every 128 items
+/// or after 2 milliseconds without any new messages.
+///
+/// The resulting stream is a stream of the same item, but it will batch 128 items
+/// by consecutively returning Poll::Ready(Some(item)) until the batch is sent.
+///
+/// This enables us to use tonic's internal batching that batches items up to a yield_threshold
+/// when returned consecutively in Poll::Ready variants. Tonic will not batch if the return is interrupted
+/// by a Poll::Pending variant.
+pub fn batched_stream_from_rx<T>(rx: mpsc::Receiver<T>) -> BatchedStream<T> {
+    ReceiverStream::new(rx)
+        .chunks_timeout(
+            *BATCH_SIZE,
+            Duration::from_millis(*BATCH_MSG_TIMEOUT_MILLIS),
+        )
+        .flat_map(iter_with_log)
 }
 
 #[cfg(test)]
