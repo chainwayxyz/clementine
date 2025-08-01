@@ -577,11 +577,11 @@ impl TxHandlerCache {
 /// # Returns
 ///
 /// A map of [`TransactionType`] to [`TxHandler`] for all constructed transactions, or a [`BridgeError`] if construction fails.
-pub async fn create_txhandlers<'a, 'b>(
+pub async fn create_txhandlers(
     transaction_type: TransactionType,
     context: ContractContext,
     txhandler_cache: &mut TxHandlerCache,
-    db_cache: &mut ReimburseDbCache<'a, 'b>,
+    db_cache: &mut ReimburseDbCache<'_, '_>,
 ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
     let paramset = db_cache.paramset;
 
