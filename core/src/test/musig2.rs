@@ -63,7 +63,7 @@ fn get_nonces(
             .map(|(_, musig_pub_nonces)| musig_pub_nonces)
             .collect::<Vec<_>>()
             .as_slice(),
-    );
+    )?;
 
     Ok((nonce_pairs, agg_nonce))
 }

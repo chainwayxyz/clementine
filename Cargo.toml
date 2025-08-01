@@ -35,9 +35,6 @@ secrecy = { version = "0.10.0", features = ["serde"] }
 
 # Citrea dependencies
 citrea-e2e = { git = "https://github.com/chainwayxyz/citrea-e2e", rev = "d45a29afa4de9d7e00dad9e8d9c59f95fe22e557" }
-sov-rollup-interface = { git = "https://github.com/chainwayxyz/citrea.git", rev = "b1fbe83fdd60d29", features = [
-  "native",
-] }
 
 citrea-sov-rollup-interface = { git = "https://github.com/chainwayxyz/citrea", tag = "v0.7.0", package = "sov-rollup-interface" }
 
@@ -68,6 +65,7 @@ hyper-util = { version = "0.1" }
 
 # Circuits
 sha2 = { version = "=0.10.8", default-features = false }
+hkdf = { version = "0.12.4", default-features = false }
 crypto-bigint = { version = "=0.5.5", features = ["rand_core"] }
 borsh = { version = "1.5.1", features = ["derive"] }
 k256 = { version = "=0.13.4" }
