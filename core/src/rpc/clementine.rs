@@ -333,6 +333,11 @@ pub struct PartialSig {
     #[prost(bytes = "vec", tag = "1")]
     pub partial_sig: ::prost::alloc::vec::Vec<u8>,
 }
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PartialSigBatch {
+    #[prost(bytes = "vec", repeated, tag = "1")]
+    pub partial_sigs: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
+}
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct NonceGenRequest {
     #[prost(uint32, tag = "1")]
@@ -1544,7 +1549,7 @@ pub mod clementine_verifier_client {
                 Message = super::VerifierDepositSignParams,
             >,
         ) -> std::result::Result<
-            tonic::Response<tonic::codec::Streaming<super::PartialSig>>,
+            tonic::Response<tonic::codec::Streaming<super::PartialSigBatch>>,
             tonic::Status,
         > {
             self.inner
@@ -3057,7 +3062,7 @@ pub mod clementine_verifier_server {
         ) -> std::result::Result<tonic::Response<Self::NonceGenStream>, tonic::Status>;
         /// Server streaming response type for the DepositSign method.
         type DepositSignStream: tonic::codegen::tokio_stream::Stream<
-                Item = std::result::Result<super::PartialSig, tonic::Status>,
+                Item = std::result::Result<super::PartialSigBatch, tonic::Status>,
             >
             + std::marker::Send
             + 'static;
@@ -3410,7 +3415,7 @@ pub mod clementine_verifier_server {
                         T: ClementineVerifier,
                     > tonic::server::StreamingService<super::VerifierDepositSignParams>
                     for DepositSignSvc<T> {
-                        type Response = super::PartialSig;
+                        type Response = super::PartialSigBatch;
                         type ResponseStream = T::DepositSignStream;
                         type Future = BoxFuture<
                             tonic::Response<Self::ResponseStream>,
