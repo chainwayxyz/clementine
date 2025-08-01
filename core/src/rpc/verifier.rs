@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use super::clementine::{
     self, clementine_verifier_server::ClementineVerifier, Empty, NonceGenRequest, NonceGenResponse,
     OperatorParams, OptimisticPayoutParams, PartialSig, RawTxWithRbfInfo, SignedTxWithType,
@@ -17,6 +19,7 @@ use crate::{
     fetch_next_message_from_stream,
     rpc::parser::{self},
 };
+use alloy::primitives::PrimitiveSignature;
 use bitcoin::Witness;
 use clementine::verifier_deposit_finalize_params::Params;
 use secp256k1::musig::AggregatedNonce;
@@ -66,11 +69,26 @@ where
                 "Nonce params not found for optimistic payout",
             ))?
             .id;
-        let withdraw_params = params.withdrawal.ok_or(Status::invalid_argument(
+        let opt_withdraw_params = params.opt_withdrawal.ok_or(Status::invalid_argument(
             "Withdrawal params not found for optimistic payout",
         ))?;
+        let verification_signature_str = opt_withdraw_params.verification_signature.clone();
+        let withdrawal_params = opt_withdraw_params
+            .withdrawal
+            .ok_or(Status::invalid_argument(
+                "Withdrawal params not found for optimistic payout",
+            ))?;
         let (withdrawal_id, input_signature, input_outpoint, output_script_pubkey, output_amount) =
-            parser::operator::parse_withdrawal_sig_params(withdraw_params).await?;
+            parser::operator::parse_withdrawal_sig_params(withdrawal_params)?;
+
+        let verification_signature = verification_signature_str
+            .map(|sig| {
+                PrimitiveSignature::from_str(&sig).map_err(|e| {
+                    Status::invalid_argument(format!("Invalid verification signature: {}", e))
+                })
+            })
+            .transpose()?;
+
         let partial_sig = self
             .verifier
             .sign_optimistic_payout(
@@ -81,6 +99,7 @@ where
                 input_outpoint,
                 output_script_pubkey,
                 output_amount,
+                verification_signature,
             )
             .await?;
         Ok(Response::new(partial_sig.into()))

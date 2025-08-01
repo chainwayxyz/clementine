@@ -3,6 +3,7 @@
 use super::BridgeConfig;
 use crate::{config::TelemetryConfig, deposit::SecurityCouncil, errors::BridgeError};
 use bitcoin::{address::NetworkUnchecked, secp256k1::SecretKey, Amount};
+use eyre::Context;
 use std::{path::PathBuf, str::FromStr};
 
 pub(crate) fn read_string_from_env(env_var: &'static str) -> Result<String, BridgeError> {
@@ -106,6 +107,14 @@ impl BridgeConfig {
             None
         };
 
+        let opt_payout_verification_address = std::env::var("OPT_PAYOUT_VERIFICATION_ADDRESS")
+            .ok()
+            .map(|addr| {
+                addr.parse::<alloy::primitives::Address>()
+                    .wrap_err("Failed to parse OPT_PAYOUT_VERIFICATION_ADDRESS")
+            })
+            .transpose()?;
+
         // TLS certificate and key paths
         let server_cert_path = read_string_from_env("SERVER_CERT_PATH").map(PathBuf::from)?;
         let server_key_path = read_string_from_env("SERVER_KEY_PATH").map(PathBuf::from)?;
@@ -149,7 +158,7 @@ impl BridgeConfig {
             verifier_endpoints,
             operator_endpoints,
             security_council,
-
+            opt_payout_verification_address,
             client_verification,
             server_cert_path,
             server_key_path,
@@ -287,6 +296,15 @@ mod tests {
             "TELEMETRY_PORT",
             default_config.telemetry.as_ref().unwrap().port.to_string(),
         );
+
+        if let Some(ref opt_payout_verification_address) =
+            default_config.opt_payout_verification_address
+        {
+            std::env::set_var(
+                "OPT_PAYOUT_VERIFICATION_ADDRESS",
+                opt_payout_verification_address.to_string(),
+            );
+        }
 
         assert_eq!(super::BridgeConfig::from_env().unwrap(), default_config);
     }
