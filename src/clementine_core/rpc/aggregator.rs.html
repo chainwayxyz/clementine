@@ -2181,7 +2181,30 @@
 <a href="#2180" id="2180">2180</a>
 <a href="#2181" id="2181">2181</a>
 <a href="#2182" id="2182">2182</a>
-<a href="#2183" id="2183">2183</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::{
+<a href="#2183" id="2183">2183</a>
+<a href="#2184" id="2184">2184</a>
+<a href="#2185" id="2185">2185</a>
+<a href="#2186" id="2186">2186</a>
+<a href="#2187" id="2187">2187</a>
+<a href="#2188" id="2188">2188</a>
+<a href="#2189" id="2189">2189</a>
+<a href="#2190" id="2190">2190</a>
+<a href="#2191" id="2191">2191</a>
+<a href="#2192" id="2192">2192</a>
+<a href="#2193" id="2193">2193</a>
+<a href="#2194" id="2194">2194</a>
+<a href="#2195" id="2195">2195</a>
+<a href="#2196" id="2196">2196</a>
+<a href="#2197" id="2197">2197</a>
+<a href="#2198" id="2198">2198</a>
+<a href="#2199" id="2199">2199</a>
+<a href="#2200" id="2200">2200</a>
+<a href="#2201" id="2201">2201</a>
+<a href="#2202" id="2202">2202</a>
+<a href="#2203" id="2203">2203</a>
+<a href="#2204" id="2204">2204</a>
+<a href="#2205" id="2205">2205</a>
+<a href="#2206" id="2206">2206</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::{
     clementine_aggregator_server::ClementineAggregator, verifier_deposit_finalize_params,
     DepositParams, Empty, VerifierDepositFinalizeParams,
 };
@@ -2376,96 +2399,119 @@
 <span class="doccomment">/// Reroutes aggregated nonces to the signature aggregator.
 </span><span class="kw">async fn </span>nonce_distributor(
     <span class="kw-2">mut </span>agg_nonce_receiver: Receiver&lt;AggNonceQueueItem&gt;,
-    <span class="kw-2">mut </span>partial_sig_streams: Vec&lt;(
+    partial_sig_streams: Vec&lt;(
         Streaming&lt;clementine::PartialSig&gt;,
         Sender&lt;clementine::VerifierDepositSignParams&gt;,
     )&gt;,
     partial_sig_sender: Sender&lt;(Vec&lt;PartialSignature&gt;, AggNonceQueueItem)&gt;,
 ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
     <span class="kw">let </span><span class="kw-2">mut </span>sig_count = <span class="number">0</span>;
-    <span class="kw">while let </span><span class="prelude-val">Some</span>(queue_item) = agg_nonce_receiver.recv().<span class="kw">await </span>{
-        sig_count += <span class="number">1</span>;
+    <span class="kw">let </span>(<span class="kw-2">mut </span>partial_sig_rx, <span class="kw-2">mut </span>partial_sig_tx): (Vec&lt;<span class="kw">_</span>&gt;, Vec&lt;<span class="kw">_</span>&gt;) =
+        partial_sig_streams.into_iter().unzip();
 
-        <span class="macro">tracing::trace!</span>(
-            <span class="string">"Received aggregated nonce {} in nonce_distributor"</span>,
-            sig_count
-        );
+    <span class="kw">let </span>(queue_tx, <span class="kw-2">mut </span>queue_rx) = channel(<span class="kw">crate</span>::constants::DEFAULT_CHANNEL_SIZE);
 
-        <span class="kw">let </span>agg_nonce_wrapped = clementine::VerifierDepositSignParams {
-            params: <span class="prelude-val">Some</span>(clementine::verifier_deposit_sign_params::Params::AggNonce(
-                queue_item.agg_nonce.serialize().to_vec(),
-            )),
-        };
+    <span class="kw">let </span>handle_1 = tokio::spawn(<span class="kw">async move </span>{
+        <span class="kw">while let </span><span class="prelude-val">Some</span>(queue_item) = agg_nonce_receiver.recv().<span class="kw">await </span>{
+            sig_count += <span class="number">1</span>;
 
-        <span class="comment">// Broadcast aggregated nonce to all streams
-        </span>try_join_all(
-            partial_sig_streams
-                .iter_mut()
-                .enumerate()
-                .map(|(idx, (<span class="kw">_</span>, tx))| {
-                    <span class="kw">let </span>agg_nonce_wrapped = agg_nonce_wrapped.clone();
-                    <span class="kw">async move </span>{
-                        tx.send(agg_nonce_wrapped).<span class="kw">await</span>.wrap_err_with(|| {
-                            AggregatorError::OutputStreamEndedEarly {
-                                stream_name: <span class="macro">format!</span>(<span class="string">"Partial sig stream {idx}"</span>),
-                            }
-                        })
-                    }
-                }),
-        )
-        .<span class="kw">await
-        </span>.wrap_err(<span class="string">"Failed to send aggregated nonces to verifiers"</span>)<span class="question-mark">?</span>;
+            <span class="macro">tracing::trace!</span>(
+                <span class="string">"Received aggregated nonce {} in nonce_distributor"</span>,
+                sig_count
+            );
 
-        <span class="macro">tracing::trace!</span>(
-            <span class="string">"Sent aggregated nonce {} to verifiers in nonce_distributor"</span>,
-            sig_count
-        );
+            <span class="kw">let </span>agg_nonce_wrapped = clementine::VerifierDepositSignParams {
+                params: <span class="prelude-val">Some</span>(clementine::verifier_deposit_sign_params::Params::AggNonce(
+                    queue_item.agg_nonce.serialize().to_vec(),
+                )),
+            };
 
-        <span class="kw">let </span>partial_sigs = try_join_all(partial_sig_streams.iter_mut().enumerate().map(
-            |(idx, (stream, <span class="kw">_</span>))| <span class="kw">async move </span>{
-                <span class="kw">let </span>partial_sig = stream
-                    .message()
-                    .<span class="kw">await
-                    </span>.wrap_err_with(|| AggregatorError::RequestFailed {
-                        request_name: <span class="macro">format!</span>(<span class="string">"Partial sig stream {idx}"</span>),
-                    })<span class="question-mark">?
-                    </span>.ok_or_eyre(AggregatorError::InputStreamEndedEarlyUnknownSize {
-                        stream_name: <span class="macro">format!</span>(<span class="string">"Partial sig stream {idx}"</span>),
-                    })<span class="question-mark">?</span>;
-
-                <span class="prelude-val">Ok</span>::&lt;<span class="kw">_</span>, BridgeError&gt;(
-                    PartialSignature::from_byte_array(
-                        <span class="kw-2">&amp;</span>partial_sig
-                            .partial_sig
-                            .as_slice()
-                            .try_into()
-                            .wrap_err(<span class="string">"PartialSignature must be 32 bytes"</span>)<span class="question-mark">?</span>,
-                    )
-                    .wrap_err(<span class="string">"Failed to parse partial signature"</span>)<span class="question-mark">?</span>,
-                )
-            },
-        ))
-        .<span class="kw">await</span><span class="question-mark">?</span>;
-
-        <span class="macro">tracing::trace!</span>(
-            <span class="string">"Received partial signature {} from verifiers in nonce_distributor"</span>,
-            sig_count
-        );
-
-        partial_sig_sender
-            .send((partial_sigs, queue_item))
+            <span class="comment">// Broadcast aggregated nonce to all streams
+            </span>try_join_all(partial_sig_tx.iter_mut().enumerate().map(|(idx, tx)| {
+                <span class="kw">let </span>agg_nonce_wrapped = agg_nonce_wrapped.clone();
+                <span class="kw">async move </span>{
+                    tx.send(agg_nonce_wrapped).<span class="kw">await</span>.wrap_err_with(|| {
+                        AggregatorError::OutputStreamEndedEarly {
+                            stream_name: <span class="macro">format!</span>(<span class="string">"Partial sig stream {idx}"</span>),
+                        }
+                    })
+                }
+            }))
             .<span class="kw">await
-            </span>.map_err(|<span class="kw">_</span>| {
-                <span class="macro">eyre::eyre!</span>(AggregatorError::OutputStreamEndedEarly {
-                    stream_name: <span class="string">"partial_sig_sender"</span>.into(),
-                })
-            })<span class="question-mark">?</span>;
+            </span>.wrap_err(<span class="string">"Failed to send aggregated nonces to verifiers"</span>)<span class="question-mark">?</span>;
 
-        <span class="macro">tracing::trace!</span>(
-            <span class="string">"Sent partial signature {} to signature_aggregator in nonce_distributor"</span>,
-            sig_count
-        );
-    }
+            queue_tx
+                .send(queue_item)
+                .<span class="kw">await
+                </span>.wrap_err(<span class="string">"Other end of channel closed"</span>)<span class="question-mark">?</span>;
+
+            <span class="macro">tracing::trace!</span>(
+                <span class="string">"Sent aggregated nonce {} to verifiers in nonce_distributor"</span>,
+                sig_count
+            );
+        }
+
+        <span class="prelude-val">Ok</span>::&lt;(), BridgeError&gt;(())
+    });
+
+    <span class="kw">let </span>handle_2 = tokio::spawn(<span class="kw">async move </span>{
+        <span class="kw">while let </span><span class="prelude-val">Some</span>(queue_item) = queue_rx.recv().<span class="kw">await </span>{
+            <span class="kw">let </span>partial_sigs = try_join_all(partial_sig_rx.iter_mut().enumerate().map(
+                |(idx, stream)| <span class="kw">async move </span>{
+                    <span class="kw">let </span>partial_sig = stream
+                        .message()
+                        .<span class="kw">await
+                        </span>.wrap_err_with(|| AggregatorError::RequestFailed {
+                            request_name: <span class="macro">format!</span>(<span class="string">"Partial sig stream {idx}"</span>),
+                        })<span class="question-mark">?
+                        </span>.ok_or_eyre(AggregatorError::InputStreamEndedEarlyUnknownSize {
+                            stream_name: <span class="macro">format!</span>(<span class="string">"Partial sig stream {idx}"</span>),
+                        })<span class="question-mark">?</span>;
+
+                    <span class="prelude-val">Ok</span>::&lt;<span class="kw">_</span>, BridgeError&gt;(
+                        PartialSignature::from_byte_array(
+                            <span class="kw-2">&amp;</span>partial_sig
+                                .partial_sig
+                                .as_slice()
+                                .try_into()
+                                .wrap_err(<span class="string">"PartialSignature must be 32 bytes"</span>)<span class="question-mark">?</span>,
+                        )
+                        .wrap_err(<span class="string">"Failed to parse partial signature"</span>)<span class="question-mark">?</span>,
+                    )
+                },
+            ))
+            .<span class="kw">await</span><span class="question-mark">?</span>;
+
+            <span class="macro">tracing::trace!</span>(
+                <span class="string">"Received partial signature {} from verifiers in nonce_distributor"</span>,
+                sig_count
+            );
+
+            partial_sig_sender
+                .send((partial_sigs, queue_item))
+                .<span class="kw">await
+                </span>.map_err(|<span class="kw">_</span>| {
+                    <span class="macro">eyre::eyre!</span>(AggregatorError::OutputStreamEndedEarly {
+                        stream_name: <span class="string">"partial_sig_sender"</span>.into(),
+                    })
+                })<span class="question-mark">?</span>;
+
+            <span class="macro">tracing::trace!</span>(
+                <span class="string">"Sent partial signature {} to signature_aggregator in nonce_distributor"</span>,
+                sig_count
+            );
+        }
+        <span class="prelude-val">Ok</span>::&lt;(), BridgeError&gt;(())
+    });
+
+    <span class="kw">let </span>(result_1, result_2) = <span class="macro">tokio::join!</span>(handle_1, handle_2);
+
+    result_1
+        .wrap_err(<span class="string">"Task crashed while distributing aggnonces"</span>)<span class="question-mark">?
+        </span>.wrap_err(<span class="string">"Error while distributing aggnonces"</span>)<span class="question-mark">?</span>;
+    result_2
+        .wrap_err(<span class="string">"Task crashed while receiving partial sigs"</span>)<span class="question-mark">?
+        </span>.wrap_err(<span class="string">"Error while receiving partial sigs"</span>)<span class="question-mark">?</span>;
 
     <span class="prelude-val">Ok</span>(())
 }
