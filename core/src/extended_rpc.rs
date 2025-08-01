@@ -1468,10 +1468,7 @@ mod tests {
     }
 
     mod retryable_error_tests {
-        use bitcoin::{
-            hashes::Hash,
-            BlockHash, Txid,
-        };
+        use bitcoin::{hashes::Hash, BlockHash, Txid};
 
         use crate::extended_rpc::RetryableError;
 
