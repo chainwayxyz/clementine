@@ -576,12 +576,14 @@
 <a href="#575" id="575">575</a>
 <a href="#576" id="576">576</a>
 <a href="#577" id="577">577</a>
-<a href="#578" id="578">578</a></pre></div><pre class="rust"><code><span class="kw">use </span>eyre::eyre;
+<a href="#578" id="578">578</a>
+<a href="#579" id="579">579</a>
+<a href="#580" id="580">580</a>
+<a href="#581" id="581">581</a>
+<a href="#582" id="582">582</a></pre></div><pre class="rust"><code><span class="kw">use </span>eyre::eyre;
 <span class="kw">use </span>std::env;
 
-<span class="kw">use </span>bitcoin::{
-    transaction::Version, Address, Amount, FeeRate, OutPoint, Transaction, TxOut, Weight,
-};
+<span class="kw">use </span>bitcoin::{transaction::Version, Amount, FeeRate, OutPoint, Transaction, TxOut, Weight};
 <span class="kw">use </span>bitcoincore_rpc::PackageSubmissionResult;
 <span class="kw">use </span>bitcoincore_rpc::{PackageTransactionResult, RpcApi};
 <span class="kw">use </span>eyre::Context;
@@ -693,14 +695,13 @@
     ///
     /// # Returns
     /// The constructed and partially signed child transaction.
-    </span><span class="kw">fn </span>create_child_tx(
+    </span><span class="kw">async fn </span>create_child_tx(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         p2a_anchor: OutPoint,
         anchor_sat: Amount,
         fee_payer_utxos: Vec&lt;SpendableTxIn&gt;,
         parent_tx_size: Weight,
         fee_rate: FeeRate,
-        change_address: Address,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;Transaction&gt; {
         <span class="macro">tracing::debug!</span>(
             <span class="string">"Creating child tx with {} fee payer utxos"</span>,
@@ -713,6 +714,12 @@
             FeePayingType::CPFP,
         )
         .map_err(|e| <span class="macro">eyre!</span>(e))<span class="question-mark">?</span>;
+
+        <span class="kw">let </span>change_address = <span class="self">self
+            </span>.rpc
+            .get_new_wallet_address()
+            .<span class="kw">await
+            </span>.wrap_err(<span class="string">"Failed to get new wallet address"</span>)<span class="question-mark">?</span>;
 
         <span class="kw">let </span>total_fee_payer_amount = fee_payer_utxos
             .iter()
@@ -783,7 +790,7 @@
     /// # Returns
     /// A `Vec` containing the parent transaction followed by the child transaction,
     /// ready for submission via the `submitpackage` RPC.
-    </span><span class="kw">fn </span>create_package(
+    </span><span class="kw">async fn </span>create_package(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         tx: Transaction,
         fee_rate: FeeRate,
@@ -812,9 +819,9 @@
                 fee_payer_utxos,
                 tx.weight(),
                 fee_rate,
-                <span class="self">self</span>.signer.address.clone(),
             )
-            .wrap_err(<span class="string">"Failed to create child tx"</span>)<span class="question-mark">?</span>;
+            .<span class="kw">await
+            </span>.wrap_err(<span class="string">"Failed to create child tx"</span>)<span class="question-mark">?</span>;
 
         <span class="prelude-val">Ok</span>(<span class="macro">vec!</span>[tx, child_tx])
     }
@@ -1002,7 +1009,8 @@
 
         <span class="kw">let </span>package = <span class="self">self
             </span>.create_package(tx.clone(), fee_rate, confirmed_fee_payers)
-            .wrap_err(<span class="string">"Failed to create CPFP package"</span>);
+            .<span class="kw">await
+            </span>.wrap_err(<span class="string">"Failed to create CPFP package"</span>);
 
         <span class="kw">let </span>package = <span class="kw">match </span>package {
             <span class="prelude-val">Ok</span>(package) =&gt; package,

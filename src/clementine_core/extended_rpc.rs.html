@@ -1089,7 +1089,21 @@
 <a href="#1088" id="1088">1088</a>
 <a href="#1089" id="1089">1089</a>
 <a href="#1090" id="1090">1090</a>
-<a href="#1091" id="1091">1091</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Bitcoin Extended RPC Interface
+<a href="#1091" id="1091">1091</a>
+<a href="#1092" id="1092">1092</a>
+<a href="#1093" id="1093">1093</a>
+<a href="#1094" id="1094">1094</a>
+<a href="#1095" id="1095">1095</a>
+<a href="#1096" id="1096">1096</a>
+<a href="#1097" id="1097">1097</a>
+<a href="#1098" id="1098">1098</a>
+<a href="#1099" id="1099">1099</a>
+<a href="#1100" id="1100">1100</a>
+<a href="#1101" id="1101">1101</a>
+<a href="#1102" id="1102">1102</a>
+<a href="#1103" id="1103">1103</a>
+<a href="#1104" id="1104">1104</a>
+<a href="#1105" id="1105">1105</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Bitcoin Extended RPC Interface
 //!
 //! Extended RPC interface communicates with the Bitcoin node. It features some
 //! common wrappers around typical RPC operations as well as direct
@@ -1193,6 +1207,20 @@
             <span class="attr">#[cfg(test)]
             </span>cached_mining_address: Arc::new(tokio::sync::RwLock::new(<span class="prelude-val">None</span>)),
         })
+    }
+
+    <span class="doccomment">/// Generates a new Bitcoin address for the wallet. TODO: Make sure this
+    /// is either flexible in terms of address type or fixed to a specific type
+    /// like P2TR.
+    </span><span class="kw">pub async fn </span>get_new_wallet_address(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span>&lt;Address&gt; {
+        <span class="kw">let </span>address = <span class="self">self
+            </span>.client
+            .get_new_address(<span class="prelude-val">None</span>, <span class="prelude-val">None</span>)
+            .<span class="kw">await
+            </span>.wrap_err(<span class="string">"Failed to get new address"</span>)<span class="question-mark">?
+            </span>.assume_checked();
+
+        <span class="prelude-val">Ok</span>(address)
     }
 
     <span class="doccomment">/// Returns the number of confirmations for a transaction.
