@@ -12,7 +12,7 @@ use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestD
 use crate::citrea::CitreaClientT;
 use crate::constants::RESTART_BACKGROUND_TASKS_TIMEOUT;
 use crate::rpc::clementine::{PartialSigBatch, VerifierDepositFinalizeResponse};
-use crate::utils::{get_vergen_response, timed_request, DEPOSIT_SIGNING_STREAM_BATCH_SIZE};
+use crate::utils::{get_vergen_response, timed_request, DEPOSIT_SIGNING_STREAM_BATCH_SIZE, NONCE_AGGREGATION_BATCH_SIZE};
 use crate::verifier::VerifierServer;
 use crate::{constants, fetch_next_optional_message_from_stream};
 use crate::{
@@ -207,9 +207,9 @@ where
             let session_id: NonceGenResponse = nonce_gen_first_response.into();
             tx.send(Ok(session_id)).await?;
 
-            for pub_nonce in &pub_nonces {
-                let pub_nonce: NonceGenResponse = pub_nonce.into();
-                tx.send(Ok(pub_nonce)).await?;
+            for pub_nonces in pub_nonces.chunks(*NONCE_AGGREGATION_BATCH_SIZE as usize) {
+                let resp: NonceGenResponse = pub_nonces.into();
+                tx.send(Ok(resp)).await?;
             }
 
             Ok::<(), SendError<_>>(())
@@ -251,22 +251,28 @@ where
             while let Some(result) =
                 fetch_next_optional_message_from_stream!(&mut in_stream, params)
             {
-                let agg_nonce = match result {
-                    clementine::verifier_deposit_sign_params::Params::AggNonce(agg_nonce) => {
-                        AggregatedNonce::from_byte_array(
-                            agg_nonce.as_slice().try_into().map_err(|_| {
-                                ParserError::RPCParamMalformed("AggNonce".to_string())
-                            })?,
-                        )
-                        .map_err(|_| ParserError::RPCParamMalformed("AggNonce".to_string()))?
-                    }
-                    _ => return Err(Status::invalid_argument("Expected AggNonce")),
-                };
+                match result {
+                    clementine::verifier_deposit_sign_params::Params::AggNonceBatch(
+                        agg_nonce_batch,
+                    ) => {
+                        for agg_nonce_bytes in agg_nonce_batch.agg_nonces {
+                            let agg_nonce = AggregatedNonce::from_byte_array(
+                                agg_nonce_bytes.as_slice().try_into().map_err(|_| {
+                                    ParserError::RPCParamMalformed("AggNonceBatch".to_string())
+                                })?,
+                            )
+                            .map_err(|_| {
+                                ParserError::RPCParamMalformed("AggNonceBatch".to_string())
+                            })?;
 
-                agg_nonce_tx
-                    .send(agg_nonce)
-                    .await
-                    .map_err(error::output_stream_ended_prematurely)?;
+                            agg_nonce_tx
+                                .send(agg_nonce)
+                                .await
+                                .map_err(error::output_stream_ended_prematurely)?;
+                        }
+                    }
+                    _ => return Err(Status::invalid_argument("Expected AggNonceBatch")),
+                }
             }
             Ok(())
         });
@@ -281,12 +287,13 @@ where
             let partial_sig_receiver = verifier
                 .deposit_sign(partial_sig_rx.clone(), session_id, agg_nonce_rx)
                 .await?;
-            let chunked_partial_sig_rx = ReceiverStream::new(partial_sig_receiver)
-                .chunks_timeout(*DEPOSIT_SIGNING_STREAM_BATCH_SIZE as usize, Duration::from_millis(2));
+            let chunked_partial_sig_rx = ReceiverStream::new(partial_sig_receiver).chunks_timeout(
+                *DEPOSIT_SIGNING_STREAM_BATCH_SIZE as usize,
+                Duration::from_millis(2),
+            );
 
             let mut nonce_idx = 0;
             let num_required_sigs = verifier.config.get_num_required_nofn_sigs(&partial_sig_rx);
-
 
             tokio::pin!(chunked_partial_sig_rx);
 
@@ -338,7 +345,7 @@ where
         );
 
         let (sig_tx, sig_rx) = mpsc::channel(constants::DEFAULT_CHANNEL_SIZE);
-        let (agg_nonce_tx, agg_nonce_rx) = mpsc::channel(1);
+        let (agg_nonce_tx, agg_nonce_rx) = mpsc::channel(constants::DEFAULT_CHANNEL_SIZE);
         let (operator_sig_tx, operator_sig_rx) = mpsc::channel(constants::DEFAULT_CHANNEL_SIZE);
 
         let params = fetch_next_message_from_stream!(in_stream, params)?;

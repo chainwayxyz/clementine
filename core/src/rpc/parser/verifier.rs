@@ -4,7 +4,7 @@ use crate::deposit::DepositData;
 use crate::errors::BridgeError;
 use crate::fetch_next_optional_message_from_stream;
 use crate::rpc::clementine::{
-    nonce_gen_response, verifier_deposit_sign_params, DepositSignSession, NonceGenFirstResponse, OperatorKeys, OperatorKeysWithDeposit, PartialSig, PartialSigBatch, VerifierDepositSignParams, VerifierParams
+    nonce_gen_response, verifier_deposit_sign_params, DepositSignSession, NonceBatch, NonceGenFirstResponse, OperatorKeys, OperatorKeysWithDeposit, PartialSig, PartialSigBatch, VerifierDepositSignParams, VerifierParams
 };
 use crate::verifier::Verifier;
 use crate::{
@@ -103,11 +103,13 @@ impl From<NonceGenFirstResponse> for NonceGenResponse {
     }
 }
 
-impl From<&PublicNonce> for NonceGenResponse {
-    fn from(value: &PublicNonce) -> Self {
+impl From<&[PublicNonce]> for NonceGenResponse {
+    fn from(value: &[PublicNonce]) -> Self {
         NonceGenResponse {
-            response: Some(nonce_gen_response::Response::PubNonce(
-                value.serialize().to_vec(),
+            response: Some(nonce_gen_response::Response::PubNonceBatch(
+                NonceBatch {
+                    pub_nonces: value.iter().map(|v| v.serialize().to_vec()).collect(),
+                },
             )),
         }
     }

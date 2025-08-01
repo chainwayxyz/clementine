@@ -338,6 +338,16 @@ pub struct PartialSigBatch {
     #[prost(bytes = "vec", repeated, tag = "1")]
     pub partial_sigs: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
 }
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct NonceBatch {
+    #[prost(bytes = "vec", repeated, tag = "1")]
+    pub pub_nonces: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AggNonceBatch {
+    #[prost(bytes = "vec", repeated, tag = "1")]
+    pub agg_nonces: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
+}
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct NonceGenRequest {
     #[prost(uint32, tag = "1")]
@@ -363,8 +373,8 @@ pub mod nonce_gen_response {
     pub enum Response {
         #[prost(message, tag = "1")]
         FirstResponse(super::NonceGenFirstResponse),
-        #[prost(bytes, tag = "2")]
-        PubNonce(::prost::alloc::vec::Vec<u8>),
+        #[prost(message, tag = "2")]
+        PubNonceBatch(super::NonceBatch),
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -378,7 +388,7 @@ pub struct OptimisticPayoutParams {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct VerifierDepositSignParams {
-    #[prost(oneof = "verifier_deposit_sign_params::Params", tags = "1, 2")]
+    #[prost(oneof = "verifier_deposit_sign_params::Params", tags = "1, 3")]
     pub params: ::core::option::Option<verifier_deposit_sign_params::Params>,
 }
 /// Nested message and enum types in `VerifierDepositSignParams`.
@@ -387,8 +397,8 @@ pub mod verifier_deposit_sign_params {
     pub enum Params {
         #[prost(message, tag = "1")]
         DepositSignFirstParam(super::DepositSignSession),
-        #[prost(bytes, tag = "2")]
-        AggNonce(::prost::alloc::vec::Vec<u8>),
+        #[prost(message, tag = "3")]
+        AggNonceBatch(super::AggNonceBatch),
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]

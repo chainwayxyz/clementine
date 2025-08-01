@@ -35,6 +35,24 @@ pub static DEPOSIT_SIGNING_STREAM_BATCH_SIZE: LazyLock<u32> = LazyLock::new(|| {
         .expect("Expected DEPOSIT_SIGNING_STREAM_BATCH_SIZE to be defined")
 });
 
+pub static NONCE_AGGREGATION_BATCH_SIZE: LazyLock<u32> = LazyLock::new(|| {
+    std::env::var("NONCE_AGGREGATION_BATCH_SIZE")
+        .map(|v| {
+            v.parse()
+                .expect("Expected NONCE_AGGREGATION_BATCH_SIZE to be a number")
+        })
+        .unwrap_or(5) // Default to 5 if not set
+});
+
+pub static AGG_NONCE_DISTRIBUTION_BATCH_SIZE: LazyLock<u32> = LazyLock::new(|| {
+    std::env::var("AGG_NONCE_DISTRIBUTION_BATCH_SIZE")
+        .map(|v| {
+            v.parse()
+                .expect("Expected AGG_NONCE_DISTRIBUTION_BATCH_SIZE to be a number")
+        })
+        .unwrap_or(5) // Default to 5 if not set
+});
+
 /// Initializes a [`tracing`] subscriber depending on the environment.
 /// [`EnvFilter`] is used with an optional default level. Sets up the
 /// [`color_eyre`] handler.

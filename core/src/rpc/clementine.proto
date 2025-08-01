@@ -409,6 +409,14 @@ message PartialSigBatch {
   repeated bytes partial_sigs = 1;
 }
 
+message NonceBatch {
+  repeated bytes pub_nonces = 1;
+}
+
+message AggNonceBatch {
+  repeated bytes agg_nonces = 1;
+}
+
 message NonceGenRequest {
   uint32 num_nonces = 1;
 }
@@ -422,7 +430,7 @@ message NonceGenFirstResponse {
 message NonceGenResponse {
   oneof response {
     NonceGenFirstResponse first_response = 1;
-    bytes pub_nonce = 2;
+    NonceBatch pub_nonce_batch = 2;
   }
 }
 
@@ -435,7 +443,7 @@ message OptimisticPayoutParams {
 message VerifierDepositSignParams {
   oneof params {
     DepositSignSession deposit_sign_first_param = 1;
-    bytes agg_nonce = 2;
+    AggNonceBatch agg_nonce_batch = 3;
   }
 }
 
