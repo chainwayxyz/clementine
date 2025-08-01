@@ -1991,7 +1991,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "sov-rollup-interface 0.7.0",
+ "sov-rollup-interface",
 ]
 
 [[package]]
@@ -2108,7 +2108,7 @@ dependencies = [
  "serde_with",
  "serial_test",
  "sha2",
- "sov-rollup-interface 0.7.0-rc.4",
+ "sov-rollup-interface",
  "sqlx",
  "statig",
  "tempfile",
@@ -6790,24 +6790,6 @@ dependencies = [
 
 [[package]]
 name = "sov-keys"
-version = "0.7.0-rc.4"
-source = "git+https://github.com/chainwayxyz/citrea.git?rev=b1fbe83fdd60d29#b1fbe83fdd60d291a5c06f890650899ad7029193"
-dependencies = [
- "anyhow",
- "borsh",
- "derive_more 1.0.0",
- "digest 0.10.7",
- "hex",
- "k256",
- "rand 0.8.5",
- "schemars",
- "serde",
- "sha2",
- "thiserror 2.0.12",
-]
-
-[[package]]
-name = "sov-keys"
 version = "0.7.0"
 source = "git+https://github.com/chainwayxyz/citrea?tag=v0.7.0#7e2d3c4ec25c282ad36b0f4a44ce53f50b6b9931"
 dependencies = [
@@ -6826,8 +6808,8 @@ dependencies = [
 
 [[package]]
 name = "sov-rollup-interface"
-version = "0.7.0-rc.4"
-source = "git+https://github.com/chainwayxyz/citrea.git?rev=b1fbe83fdd60d29#b1fbe83fdd60d291a5c06f890650899ad7029193"
+version = "0.7.0"
+source = "git+https://github.com/chainwayxyz/citrea?tag=v0.7.0#7e2d3c4ec25c282ad36b0f4a44ce53f50b6b9931"
 dependencies = [
  "alloy-primitives",
  "anyhow",
@@ -6842,26 +6824,11 @@ dependencies = [
  "risc0-zkp",
  "serde",
  "sha2",
- "sov-keys 0.7.0-rc.4",
+ "sov-keys",
  "thiserror 2.0.12",
  "tokio",
  "tracing",
  "uuid",
-]
-
-[[package]]
-name = "sov-rollup-interface"
-version = "0.7.0"
-source = "git+https://github.com/chainwayxyz/citrea?tag=v0.7.0#7e2d3c4ec25c282ad36b0f4a44ce53f50b6b9931"
-dependencies = [
- "anyhow",
- "borsh",
- "bytes",
- "digest 0.10.7",
- "jmt 0.11.0 (git+https://github.com/penumbra-zone/jmt.git?rev=550a2f2)",
- "serde",
- "sha2",
- "sov-keys 0.7.0",
 ]
 
 [[package]]

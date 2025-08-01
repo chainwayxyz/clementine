@@ -1,13 +1,12 @@
 use super::structs::LightClientProof;
 use citrea_sov_rollup_interface::zk::light_client_proof::output::LightClientCircuitOutput;
-
-// use risc0_zkvm::guest::env;
+use risc0_zkvm::guest::env;
 
 pub const LC_IMAGE_ID: [u8; 32] =
     hex_literal::hex!("d02f2eda4c0a0d04b13e630d4ec03d3f5ac5fd63a0b229b2438e90a26b63308b");
 
 pub fn lc_proof_verifier(light_client_proof: LightClientProof) -> LightClientCircuitOutput {
-    // env::verify(LC_IMAGE_ID, &light_client_proof.lc_journal).unwrap();
+    env::verify(LC_IMAGE_ID, &light_client_proof.lc_journal).unwrap();
 
     if light_client_proof.lc_journal.len() < 32 {
         panic!("Invalid light client journal");
@@ -17,11 +16,29 @@ pub fn lc_proof_verifier(light_client_proof: LightClientProof) -> LightClientCir
         borsh::from_slice(light_client_proof.lc_journal.as_slice())
             .expect("Failed to deserialize light client circuit output");
 
+    assert!(
+        check_method_id(&light_client_circuit_output),
+        "Light client proof method ID does not match the expected LC image ID"
+    );
+
     light_client_circuit_output
+}
+
+pub fn check_method_id(light_client_circuit_output: &LightClientCircuitOutput) -> bool {
+    let light_client_method_id_bytes: [u8; 32] = light_client_circuit_output
+        .light_client_proof_method_id
+        .iter()
+        .flat_map(|&x| x.to_le_bytes())
+        .collect::<Vec<u8>>()
+        .try_into()
+        .expect("Conversion from [u32; 8] to [u8; 32] cannot fail");
+
+    light_client_method_id_bytes == LC_IMAGE_ID
 }
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
     use risc0_zkvm::Receipt;
 
@@ -40,6 +57,11 @@ mod tests {
         let light_client_circuit_output: LightClientCircuitOutput =
             borsh::from_slice(light_client_proof.lc_journal.as_slice())
                 .expect("Failed to deserialize light client circuit output");
+
+        assert!(
+            check_method_id(&light_client_circuit_output),
+            "Light client proof method ID does not match the expected LC image ID"
+        );
 
         let expected_state_root =
             "c2703b6d58a7d93198460425be2a1e292cf8d6b04184fbea867ca3ea7efa1165";
