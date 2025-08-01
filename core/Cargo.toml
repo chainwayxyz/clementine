@@ -72,6 +72,7 @@ once_cell = { workspace = true }
 bitcoin-script = { workspace = true }
 secrecy = { workspace = true }
 reqwest = { workspace = true }
+hkdf = { workspace = true }
 
 # UNCOMMENT TO DEBUG TOKIO TASKS
 

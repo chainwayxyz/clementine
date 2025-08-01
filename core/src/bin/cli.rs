@@ -435,11 +435,15 @@ async fn create_move_transaction(
 
 async fn handle_operator_call(url: String, command: OperatorCommands) {
     let config = create_minimal_config();
-    let mut operator =
-        clementine_core::rpc::get_clients(vec![url], ClementineOperatorClient::new, &config, true)
-            .await
-            .expect("Exists")[0]
-            .clone();
+    let mut operator = clementine_core::rpc::get_clients(
+        vec![url],
+        clementine_core::rpc::operator_client_builder(&config),
+        &config,
+        true,
+    )
+    .await
+    .expect("Exists")[0]
+        .clone();
 
     match command {
         OperatorCommands::GetDepositKeys {
@@ -534,11 +538,15 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
 async fn handle_verifier_call(url: String, command: VerifierCommands) {
     println!("Connecting to verifier at {}", url);
     let config = create_minimal_config();
-    let mut verifier =
-        clementine_core::rpc::get_clients(vec![url], ClementineVerifierClient::new, &config, true)
-            .await
-            .expect("Exists")[0]
-            .clone();
+    let mut verifier = clementine_core::rpc::get_clients(
+        vec![url],
+        clementine_core::rpc::verifier_client_builder(&config),
+        &config,
+        true,
+    )
+    .await
+    .expect("Exists")[0]
+        .clone();
 
     match command {
         VerifierCommands::GetParams => {
