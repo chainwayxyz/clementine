@@ -104,6 +104,20 @@ impl ExtendedRpc {
         })
     }
 
+    /// Generates a new Bitcoin address for the wallet. TODO: Make sure this
+    /// is either flexible in terms of address type or fixed to a specific type
+    /// like P2TR.
+    pub async fn get_new_wallet_address(&self) -> Result<Address> {
+        let address = self
+            .client
+            .get_new_address(None, None)
+            .await
+            .wrap_err("Failed to get new address")?
+            .assume_checked();
+
+        Ok(address)
+    }
+
     /// Returns the number of confirmations for a transaction.
     ///
     /// # Parameters
