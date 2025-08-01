@@ -2517,27 +2517,28 @@ where
 
         // Helper closure to parse commit data into the ([u8; 20], u8) format.
         // This avoids code repetition and improves readability.
-        let fill_from_commits =
-            |source: &Vec<Vec<u8>>, target: &mut [[u8; 21]]| -> Result<(), BridgeError> {
-                // We iterate over chunks of 2 `Vec<u8>` elements at a time.
-                for (i, chunk) in source.chunks_exact(2).enumerate() {
-                    let mut sig_array: [u8; 21] = [0; 21];
-                    let sig: [u8; 20] = chunk[0].clone().try_into().map_err(|e: Vec<u8>| {
-                        eyre::eyre!(
-                            "Invalid signature length, expected 20 bytes, got {}",
-                            e.len()
-                        )
-                    })?;
+        let fill_from_commits = |source: &Vec<Vec<u8>>,
+                                 target: &mut [[u8; 21]]|
+         -> Result<(), BridgeError> {
+            // We iterate over chunks of 2 `Vec<u8>` elements at a time.
+            for (i, chunk) in source.chunks_exact(2).enumerate() {
+                let mut sig_array: [u8; 21] = [0; 21];
+                let sig: [u8; 20] = <[u8; 20]>::try_from(chunk[0].as_slice()).map_err(|_| {
+                    eyre::eyre!(
+                        "Invalid signature length, expected 20 bytes, got {}",
+                        chunk[0].len()
+                    )
+                })?;
 
-                    sig_array[..20].copy_from_slice(&sig);
+                sig_array[..20].copy_from_slice(&sig);
 
-                    let u8_part: u8 = *chunk[1].first().unwrap_or(&0);
-                    sig_array[20] = u8_part;
+                let u8_part: u8 = *chunk[1].first().unwrap_or(&0);
+                sig_array[20] = u8_part;
 
-                    target[i] = sig_array;
-                }
-                Ok(())
-            };
+                target[i] = sig_array;
+            }
+            Ok(())
+        };
 
         let mut first_box = Box::new([[[0u8; 21]; 68]; 1]);
         fill_from_commits(&g16_public_input_commit[0], &mut first_box[0])?;
