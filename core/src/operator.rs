@@ -34,9 +34,7 @@ use crate::{builder, constants, UTXO};
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::{schnorr, Message};
-use bitcoin::{
-    Address, Amount, BlockHash, OutPoint, ScriptBuf, Transaction, TxOut, XOnlyPublicKey,
-};
+use bitcoin::{Address, Amount, BlockHash, OutPoint, ScriptBuf, Transaction, TxOut};
 use bitcoincore_rpc::json::AddressType;
 use bitcoincore_rpc::RpcApi;
 use bitvm::chunk::api::generate_assertions;
@@ -659,7 +657,7 @@ where
         SECP.verify_schnorr(
             &in_signature,
             &Message::from_digest(*sighash.as_byte_array()),
-            &user_xonly_pk,
+            user_xonly_pk,
         )
         .wrap_err("Failed to verify signature received from user for payout txin")?;
 
@@ -1228,7 +1226,6 @@ where
         _payout_blockhash: Witness,
         latest_blockhash: Witness,
     ) -> Result<(), BridgeError> {
-        use crate::utils::TryLast20Bytes;
         use bridge_circuit_host::utils::{get_verifying_key, is_dev_mode};
 
         let context = ContractContext::new_context_for_kickoff(
@@ -1334,20 +1331,18 @@ where
             self.config.protocol_paramset(),
         )?;
 
-        let latest_blockhash = commits
+        let latest_blockhash_last_20: [u8; 20] = commits
             .first()
             .ok_or_eyre("Failed to get latest blockhash in send_asserts")?
-            .to_owned();
+            .to_owned()
+            .try_into()
+            .map_err(|_| eyre::eyre!("Committed latest blockhash is not 20 bytes long"))?;
 
         #[cfg(test)]
-        let latest_blockhash = self
+        let latest_blockhash_last_20 = self
             .config
             .test_params
-            .maybe_disrupt_latest_block_hash_commit(
-                latest_blockhash
-                    .try_into()
-                    .expect("Latest blockhash is 20 bytes long, cannot fail"),
-            );
+            .maybe_disrupt_latest_block_hash_commit(latest_blockhash_last_20);
 
         let rpc_current_finalized_height = self
             .rpc
@@ -1383,7 +1378,7 @@ where
         let latest_blockhash_index = block_hashes
             .iter()
             .position(|(block_hash, _)| {
-                block_hash.as_byte_array().last_20_bytes() == latest_blockhash_bytes
+                block_hash.as_byte_array().last_20_bytes() == latest_blockhash_last_20
             })
             .ok_or_eyre("Failed to find latest blockhash in send_asserts")?;
 

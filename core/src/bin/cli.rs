@@ -10,11 +10,9 @@ use clementine_core::{
     deposit::SecurityCouncil,
     errors::BridgeError,
     rpc::clementine::{
-        self, clementine_aggregator_client::ClementineAggregatorClient,
-        clementine_operator_client::ClementineOperatorClient,
-        clementine_verifier_client::ClementineVerifierClient, deposit::DepositData, Actors,
-        BaseDeposit, Deposit, Empty, GetEntityStatusesRequest, Outpoint, ReplacementDeposit,
-        SendMoveTxRequest, VerifierPublicKeys, XOnlyPublicKeys,
+        self, clementine_aggregator_client::ClementineAggregatorClient, deposit::DepositData,
+        Actors, BaseDeposit, Deposit, Empty, GetEntityStatusesRequest, Outpoint,
+        ReplacementDeposit, SendMoveTxRequest, VerifierPublicKeys, XOnlyPublicKeys,
     },
     EVMAddress,
 };

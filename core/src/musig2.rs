@@ -755,7 +755,7 @@ mod tests {
 
         let (sec_nonce1, pub_nonce1) = nonce_pair(&kp1).unwrap();
         let (sec_nonce2, pub_nonce2) = nonce_pair(&kp2).unwrap();
-        let agg_nonce = aggregate_nonces(&[&pub_nonce1, &pub_nonce2]);
+        let agg_nonce = aggregate_nonces(&[&pub_nonce1, &pub_nonce2]).unwrap();
 
         let partial_sig1 = partial_sign(
             public_keys.clone(),

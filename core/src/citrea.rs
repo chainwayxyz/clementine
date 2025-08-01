@@ -511,7 +511,7 @@ impl CitreaClientT for CitreaClient {
             borsh::from_slice(&proof_current.1.journal.bytes)
                 .wrap_err("Failed to deserialize light client circuit output")?;
 
-        if !check_method_id(&current_proof_output) {
+        if !check_method_id(&current_proof_output, lc_image_id) {
             return Err(eyre::eyre!(
                 "Light client proof method ID does not match the expected LC image ID"
             )
@@ -534,7 +534,7 @@ impl CitreaClientT for CitreaClient {
             borsh::from_slice(&proof_previous.1.journal.bytes)
                 .wrap_err("Failed to deserialize previous light client circuit output")?;
 
-        if !check_method_id(&previous_proof_output) {
+        if !check_method_id(&previous_proof_output, lc_image_id) {
             return Err(eyre::eyre!(
                 "Previous light client proof method ID does not match the expected LC image ID"
             )

@@ -24,20 +24,24 @@ pub const LC_IMAGE_ID: [u8; 32] = {
 
 /// Verifies the light client proof and returns the light client circuit output.
 pub fn lc_proof_verifier(light_client_proof: LightClientProof) -> LightClientCircuitOutput {
+    env::verify(LC_IMAGE_ID, &light_client_proof.lc_journal).unwrap();
+
     let light_client_circuit_output: LightClientCircuitOutput =
         borsh::from_slice(light_client_proof.lc_journal.as_slice())
             .expect("Failed to deserialize light client circuit output");
 
-    env::verify(LC_IMAGE_ID, &light_client_proof.lc_journal).unwrap();
     assert!(
-        check_method_id(&light_client_circuit_output),
+        check_method_id(&light_client_circuit_output, LC_IMAGE_ID),
         "Light client proof method ID does not match the expected LC image ID"
     );
 
     light_client_circuit_output
 }
 
-pub fn check_method_id(light_client_circuit_output: &LightClientCircuitOutput) -> bool {
+pub fn check_method_id(
+    light_client_circuit_output: &LightClientCircuitOutput,
+    lc_image_id_circuit: [u8; 32],
+) -> bool {
     let light_client_method_id_bytes: [u8; 32] = light_client_circuit_output
         .light_client_proof_method_id
         .iter()
@@ -46,7 +50,7 @@ pub fn check_method_id(light_client_circuit_output: &LightClientCircuitOutput) -
         .try_into()
         .expect("Conversion from [u32; 8] to [u8; 32] cannot fail");
 
-    light_client_method_id_bytes == LC_IMAGE_ID
+    light_client_method_id_bytes == lc_image_id_circuit
 }
 
 #[cfg(test)]
@@ -64,12 +68,17 @@ mod tests {
 
         lcp_receipt.verify(REGTEST_LC_IMAGE_ID).unwrap();
 
+        let light_client_proof: LightClientProof = LightClientProof {
+            l2_height: "0x0".to_string(),
+            lc_journal: lcp_receipt.journal.bytes.to_vec(),
+        };
+
         let light_client_circuit_output: LightClientCircuitOutput =
             borsh::from_slice(light_client_proof.lc_journal.as_slice())
                 .expect("Failed to deserialize light client circuit output");
 
         assert!(
-            check_method_id(&light_client_circuit_output),
+            check_method_id(&light_client_circuit_output, REGTEST_LC_IMAGE_ID),
             "Light client proof method ID does not match the expected LC image ID"
         );
 

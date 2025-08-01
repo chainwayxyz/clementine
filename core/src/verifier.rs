@@ -103,7 +103,7 @@ impl AllSessions {
         &mut self,
         new_nonce_session: NonceSession,
     ) -> Result<u128, eyre::Report> {
-        if new_nonce_session.nonces.len() == 0 {
+        if new_nonce_session.nonces.is_empty() {
             // empty session, return error
             return Err(eyre::eyre!("Empty session attempted to be added"));
         }
@@ -152,19 +152,17 @@ impl AllSessions {
                     None => Ok(0),
                 }
             }
-            None => {
-                return Err(eyre::eyre!("No session to remove"));
-            }
+            None => Err(eyre::eyre!("No session to remove")),
         }
     }
 
     fn session_bytes(session: &NonceSession) -> Result<usize, eyre::Report> {
         // 132 bytes per nonce
-        Ok(session
+        session
             .nonces
             .len()
             .checked_mul(MUSIG_SECNONCE_LEN)
-            .ok_or_eyre("Calculation overflow in session_bytes")?)
+            .ok_or_eyre("Calculation overflow in session_bytes")
     }
 
     /// Returns the total byte size of all secnonces in the AllSessions.
@@ -179,6 +177,12 @@ impl AllSessions {
         }
 
         Ok(total_bytes)
+    }
+}
+
+impl Default for AllSessions {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -558,19 +562,6 @@ where
                 return Err(BridgeError::InvalidDeposit(reason));
             }
         }
-        // check if there are any operators in the deposit that are not in the DB.
-        for operator_xonly_pk in operators_in_deposit {
-            if !operators_in_db
-                .iter()
-                .any(|(xonly_pk, _, _)| xonly_pk == &operator_xonly_pk)
-            {
-                tracing::error!(
-                    "Operator {:?} is in the deposit but not in the DB, cannot sign deposit",
-                    operator_xonly_pk
-                );
-                return Ok(false);
-            }
-        }
         // check if deposit script in deposit_outpoint is valid
         let deposit_scripts: Vec<ScriptBuf> = deposit_data
             .get_deposit_scripts(self.config.protocol_paramset())?
@@ -746,8 +737,7 @@ where
         // save the session
         let session_id = {
             let all_sessions = &mut *self.nonces.lock().await;
-            let session_id = all_sessions.add_new_session(session)?;
-            session_id
+            all_sessions.add_new_session(session)?
         };
 
         Ok((session_id, pub_nonces))

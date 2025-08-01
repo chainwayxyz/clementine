@@ -15,7 +15,6 @@ use crate::{config::BridgeConfig, errors};
 use errors::BridgeError;
 use eyre::Context;
 use rustls_pki_types::pem::PemObject;
-use std::thread;
 use std::time::Duration;
 use tokio::sync::oneshot;
 use tonic::server::NamedService;
@@ -23,7 +22,6 @@ use tonic::service::interceptor::InterceptedService;
 use tonic::transport::{Certificate, CertificateDer, Identity, ServerTlsConfig};
 use tower::buffer::BufferLayer;
 use tower::limit::RateLimitLayer;
-use tower::ServiceBuilder;
 
 #[cfg(test)]
 use crate::test::common::ensure_test_certificates;
@@ -150,7 +148,7 @@ where
 
             let server_builder = tonic::transport::Server::builder()
                 .layer(AddMethodMiddlewareLayer)
-                .layer(BufferLayer::new(config.grpc.req_concurrency_limit as usize))
+                .layer(BufferLayer::new(config.grpc.req_concurrency_limit))
                 .layer(RateLimitLayer::new(
                     config.grpc.ratelimit_req_count as u64,
                     Duration::from_secs(config.grpc.ratelimit_req_interval_secs),
@@ -183,7 +181,7 @@ where
         ServerAddr::Unix(ref socket_path) => {
             let server_builder = tonic::transport::Server::builder()
                 .layer(AddMethodMiddlewareLayer)
-                .layer(BufferLayer::new(config.grpc.req_concurrency_limit as usize))
+                .layer(BufferLayer::new(config.grpc.req_concurrency_limit))
                 .layer(RateLimitLayer::new(
                     config.grpc.ratelimit_req_count as u64,
                     Duration::from_secs(config.grpc.ratelimit_req_interval_secs),
@@ -249,7 +247,7 @@ pub async fn create_verifier_grpc_server<C: CitreaClientT>(
         .wrap_err("Failed to parse address")?;
     let verifier = VerifierServer::<C>::new(config.clone()).await?;
     verifier.start_background_tasks().await?;
-    
+
     let svc = ClementineVerifierServer::new(verifier)
         .max_encoding_message_size(config.grpc.max_message_size)
         .max_decoding_message_size(config.grpc.max_message_size);
@@ -302,7 +300,7 @@ pub async fn create_aggregator_grpc_server(
     let aggregator_server = AggregatorServer::new(config.clone()).await?;
     aggregator_server.start_background_tasks().await?;
 
-    let svc = ClementineAggregatorServer::new(aggregator)
+    let svc = ClementineAggregatorServer::new(aggregator_server)
         .max_encoding_message_size(config.grpc.max_message_size)
         .max_decoding_message_size(config.grpc.max_message_size);
 
@@ -340,7 +338,7 @@ pub async fn create_verifier_unix_server<C: CitreaClientT>(
 
     let verifier = VerifierServer::<C>::new(config.clone()).await?;
     verifier.start_background_tasks().await?;
-    
+
     let svc = ClementineVerifierServer::new(verifier)
         .max_encoding_message_size(config.grpc.max_message_size)
         .max_decoding_message_size(config.grpc.max_message_size);
@@ -379,7 +377,7 @@ pub async fn create_operator_unix_server<C: CitreaClientT>(
 
     let operator = OperatorServer::<C>::new(config.clone()).await?;
     operator.start_background_tasks().await?;
-    
+
     let svc = ClementineOperatorServer::new(operator)
         .max_encoding_message_size(config.grpc.max_message_size)
         .max_decoding_message_size(config.grpc.max_message_size);
@@ -411,7 +409,7 @@ pub async fn create_aggregator_unix_server(
     let aggregator_server = AggregatorServer::new(config.clone()).await?;
     aggregator_server.start_background_tasks().await?;
 
-    let svc = ClementineAggregatorServer::new(aggregator)
+    let svc = ClementineAggregatorServer::new(aggregator_server)
         .max_encoding_message_size(config.grpc.max_message_size)
         .max_decoding_message_size(config.grpc.max_message_size);
 
