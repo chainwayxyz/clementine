@@ -96,13 +96,13 @@ impl AllSessions {
         }
     }
 
-    /// Adds a new session to the AllSessions.
+    /// Adds a new session to the AllSessions with the given id..
     /// If the current byte size of all sessions exceeds MAX_ALL_SESSIONS_BYTES, the oldest session is removed until the byte size is under the limit.
-    /// Then a new random u128 id is generated and the session is added to the AllSessions.
-    pub fn add_new_session(
+    pub fn add_new_session_with_id(
         &mut self,
         new_nonce_session: NonceSession,
-    ) -> Result<u128, eyre::Report> {
+        id: u128,
+    ) -> Result<(), eyre::Report> {
         if new_nonce_session.nonces.is_empty() {
             // empty session, return error
             return Err(eyre::eyre!("Empty session attempted to be added"));
@@ -123,12 +123,33 @@ impl AllSessions {
                 .ok_or_else(|| eyre::eyre!("Session size calculation overflow"))?;
         }
 
+        // save the session to the HashMap and the session id queue
+        self.sessions.insert(id, new_nonce_session);
+        self.session_queue.push_back(id);
+        Ok(())
+    }
+
+    /// Adds a new session to the AllSessions with a random id.
+    /// Returns the id of the added session.
+    pub fn add_new_session_with_random_id(
+        &mut self,
+        new_nonce_session: NonceSession,
+    ) -> Result<u128, eyre::Report> {
         // generate unused id
         let random_id = self.get_new_unused_id();
-        // save the session to the HashMap and the session id queue
-        self.sessions.insert(random_id, new_nonce_session);
-        self.session_queue.push_back(random_id);
+        self.add_new_session_with_id(new_nonce_session, random_id)?;
         Ok(random_id)
+    }
+
+    /// Removes a session from the AllSessions with the given id.
+    /// Also removes it from the session queue, because we might add the session with the same id later
+    /// (as in [`deposit_sign`]).
+    /// Returns the removed session.
+    pub fn remove_session_with_id(&mut self, id: u128) -> Result<NonceSession, eyre::Report> {
+        let session = self.sessions.remove(&id).ok_or_eyre("Session not found")?;
+        // remove the id from the session queue
+        self.session_queue.retain(|x| *x != id);
+        Ok(session)
     }
 
     /// Generates a new unused id for a nonce session.
@@ -722,6 +743,11 @@ where
             )
             .into());
         }
+        if num_nonces == 0 {
+            return Err(
+                eyre::eyre!("Number of nonces requested is 0, cannot generate nonces").into(),
+            );
+        }
         let (sec_nonces, pub_nonces): (Vec<SecretNonce>, Vec<PublicNonce>) = (0..num_nonces)
             .map(|_| {
                 // nonce pair needs keypair and a rng
@@ -737,7 +763,7 @@ where
         // save the session
         let session_id = {
             let all_sessions = &mut *self.nonces.lock().await;
-            all_sessions.add_new_session(session)?
+            all_sessions.add_new_session_with_random_id(session)?
         };
 
         Ok((session_id, pub_nonces))
@@ -776,10 +802,7 @@ where
             // Extract the session and remove it from the map to release the lock early
             let mut session = {
                 let mut session_map = verifier.nonces.lock().await;
-                session_map
-                    .sessions
-                    .remove(&session_id)
-                    .ok_or_else(|| eyre::eyre!("Could not find session id {session_id}"))?
+                session_map.remove_session_with_id(session_id)?
             };
             session.nonces.reverse();
 
@@ -846,10 +869,7 @@ where
             }
 
             let mut session_map = verifier.nonces.lock().await;
-            session_map
-                .sessions
-                .insert(session_id, session)
-                .ok_or_else(|| eyre::eyre!("Could not find session id {session_id}"))?;
+            session_map.add_new_session_with_id(session, session_id)?;
 
             Ok::<(), BridgeError>(())
         });
