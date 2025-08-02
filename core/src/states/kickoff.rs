@@ -41,9 +41,7 @@ pub enum KickoffEvent {
         assert_outpoint: OutPoint,
     },
     /// Event that is dispatched when a watchtower challenge timeout is detected in Bitcoin
-    WatchtowerChallengeTimeoutSent {
-        watchtower_idx: usize,
-    },
+    WatchtowerChallengeTimeoutSent { watchtower_idx: usize },
     /// Event that is dispatched when an operator challenge ack is detected in Bitcoin
     /// Operator challenge acks are sent by operators to acknowledge watchtower challenges
     OperatorChallengeAckSent {
@@ -51,14 +49,19 @@ pub enum KickoffEvent {
         challenge_ack_outpoint: OutPoint,
     },
     /// Event that is dispatched when the latest blockhash is detected in Bitcoin
-    LatestBlockHashSent {
-        latest_blockhash_outpoint: OutPoint,
-    },
+    LatestBlockHashSent { latest_blockhash_outpoint: OutPoint },
     /// Event that is dispatched when the kickoff finalizer is spent in Bitcoin
     /// Irrespective of whether the kickoff is malicious or not, the kickoff process is finished when the kickoff finalizer is spent.
     KickoffFinalizerSpent,
     /// Event that is dispatched when the burn connector is spent in Bitcoin
     BurnConnectorSpent,
+    /// Vvent that is used to indicate that it is time for the owner to send latest blockhash tx.
+    /// Matcher for this event is created after all watchtower challenge utxos are spent.
+    /// Latest blockhash is sent some blocks after all watchtower challenge utxos are spent, so that the total work until the block commiitted
+    /// in latest blockhash is definitely higher than the highest work in valid watchtower challenges.
+    TimeToSendLatestBlockhash,
+    /// Event that is used to indicate that it is time for the owner to send watchtower challenge tx.
+    /// Watchtower challenges are sent after some blocks pass since the kickoff tx, so that the total work in the watchtower challenge is as high as possible.
     TimeToSendWatchtowerChallenge,
     /// Special event that is used to indicate that the state machine has been saved to the database and the dirty flag should be reset to false
     SavedToDb,
@@ -216,30 +219,26 @@ impl<T: Owner> KickoffStateMachine<T> {
         }
     }
 
-    /// Checks if the latest blockhash is ready to be committed on Bitcoin
-    /// The check is done by checking if all watchtower challenge utxos are spent
-    /// If the check is successful, the latest blockhash is committed on Bitcoin
-    async fn commit_latest_blockhash_if_ready(&mut self, context: &mut StateContext<T>) {
+    /// Checks if the latest blockhash is ready to be committed on Bitcoin.
+    /// The check is done by checking if all watchtower challenge utxos are spent.
+    /// If the check is successful, the a new matcher is created to send latest blockhash tx after finality depth blocks pass from current block height.
+    async fn create_matcher_for_latest_blockhash_if_ready(
+        &mut self,
+        context: &mut StateContext<T>,
+    ) {
         context
             .capture_error(async |context| {
                 {
                     // if all watchtower challenge utxos are spent, its safe to send latest blockhash commit tx
                     if self.spent_watchtower_utxos.len() == self.deposit_data.get_num_watchtowers()
                     {
-                        context
-                            .owner
-                            .handle_duty(Duty::SendLatestBlockhash {
-                                kickoff_data: self.kickoff_data,
-                                deposit_data: self.deposit_data.clone(),
-                                latest_blockhash: context
-                                    .cache
-                                    .block
-                                    .as_ref()
-                                    .ok_or(eyre::eyre!("Block object not found in block cache"))?
-                                    .header
-                                    .block_hash(),
-                            })
-                            .await?;
+                        // create a matcher to send latest blockhash tx after finality depth blocks pass from current block height
+                        self.matchers.insert(
+                            Matcher::BlockHeight(
+                                context.cache.block_height + context.paramset.finality_depth,
+                            ),
+                            KickoffEvent::TimeToSendLatestBlockhash,
+                        );
                     }
                     Ok::<(), BridgeError>(())
                 }
@@ -330,6 +329,31 @@ impl<T: Owner> KickoffStateMachine<T> {
             .await;
     }
 
+    async fn send_latest_blockhash(&mut self, context: &mut StateContext<T>) {
+        context
+            .capture_error(async |context| {
+                {
+                    context
+                        .owner
+                        .handle_duty(Duty::SendLatestBlockhash {
+                            kickoff_data: self.kickoff_data,
+                            deposit_data: self.deposit_data.clone(),
+                            latest_blockhash: context
+                                .cache
+                                .block
+                                .as_ref()
+                                .ok_or(eyre::eyre!("Block object not found in block cache"))?
+                                .header
+                                .block_hash(),
+                        })
+                        .await?;
+                    Ok::<(), BridgeError>(())
+                }
+                .wrap_err(self.kickoff_meta("on send_latest_blockhash"))
+            })
+            .await;
+    }
+
     async fn unhandled_event(&mut self, context: &mut StateContext<T>, event: &KickoffEvent) {
         context
             .capture_error(async |_context| {
@@ -383,6 +407,7 @@ impl<T: Owner> KickoffStateMachine<T> {
             | KickoffEvent::BurnConnectorSpent
             | KickoffEvent::WatchtowerChallengeTimeoutSent { .. }
             | KickoffEvent::LatestBlockHashSent { .. }
+            | KickoffEvent::TimeToSendLatestBlockhash
             | KickoffEvent::SavedToDb => Super,
             KickoffEvent::TimeToSendWatchtowerChallenge => {
                 self.send_watchtower_challenge(context).await;
@@ -418,7 +443,8 @@ impl<T: Owner> KickoffStateMachine<T> {
                 // save challenge witness
                 self.watchtower_challenges
                     .insert(*watchtower_idx, tx.clone());
-                self.commit_latest_blockhash_if_ready(context).await;
+                self.create_matcher_for_latest_blockhash_if_ready(context)
+                    .await;
                 self.disprove_if_ready(context).await;
                 Handled
             }
@@ -471,7 +497,8 @@ impl<T: Owner> KickoffStateMachine<T> {
             // set the watchtower utxo as spent and check if the latest blockhash can be committed
             KickoffEvent::WatchtowerChallengeTimeoutSent { watchtower_idx } => {
                 self.spent_watchtower_utxos.insert(*watchtower_idx);
-                self.commit_latest_blockhash_if_ready(context).await;
+                self.create_matcher_for_latest_blockhash_if_ready(context)
+                    .await;
                 Handled
             }
             // When the latest blockhash is detected in Bitcoin,
@@ -489,6 +516,11 @@ impl<T: Owner> KickoffStateMachine<T> {
                 // can start sending asserts as latest blockhash is committed and finalized
                 self.send_operator_asserts_if_ready(context).await;
                 self.disprove_if_ready(context).await;
+                Handled
+            }
+            KickoffEvent::TimeToSendLatestBlockhash => {
+                // tell owner to send latest blockhash tx
+                self.send_latest_blockhash(context).await;
                 Handled
             }
             KickoffEvent::SavedToDb => Handled,
@@ -519,6 +551,7 @@ impl<T: Owner> KickoffStateMachine<T> {
             | KickoffEvent::BurnConnectorSpent
             | KickoffEvent::WatchtowerChallengeTimeoutSent { .. }
             | KickoffEvent::LatestBlockHashSent { .. }
+            | KickoffEvent::TimeToSendLatestBlockhash
             | KickoffEvent::SavedToDb => Super,
             _ => {
                 self.unhandled_event(context, event).await;
