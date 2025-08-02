@@ -11,6 +11,9 @@ env:
   RUST_LOG: warn,risc0_zkvm=error,risc0_circuit_rv32im=error
   RISC0_DEV_MODE: 1
   RUST_MIN_STACK: 33554432
+  DEPOSIT_SIGNING_STREAM_BATCH_SIZE: 128
+  AGG_NONCE_DISTRIBUTION_BATCH_SIZE: 128
+  NONCE_DISTRIBUTION_BATCH_SIZE: 128
 
   CARGOFLAGS: --workspace --all-targets
   CARGOFLAGS_ALL_FEATURES: --workspace --all-targets --all-features
