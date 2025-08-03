@@ -162,7 +162,6 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
         );
     }
 
-    // MMR WILL BE FETCHED FROM LC PROOF WHEN IT IS READY - THIS IS JUST FOR PROOF OF CONCEPT
     let mmr = input.hcp.chain_state.block_hashes_mmr.clone();
 
     if !input.payout_spv.verify(mmr) {
@@ -369,9 +368,9 @@ pub fn verify_watchtower_challenges(circuit_input: &BridgeCircuitInput) -> Watch
                         sighash_type,
                         signature[0..64].try_into().expect("Cannot fail"),
                     ),
-                    Err(_) => panic!(
-                        "Invalid sighash type, watchtower index: {}",
-                        watchtower_input.watchtower_idx
+                    Err(_) => (
+                        TapSighashType::Default,
+                        signature[0..64].try_into().expect("Cannot fail"),
                     ),
                 }
             } else {
@@ -532,7 +531,7 @@ pub fn total_work_and_watchtower_flags(
             // Single OP_RETURN output with 144 bytes
             [op_return_output, ..] if op_return_output.script_pubkey.is_op_return() => {
                 // If the first output is OP_RETURN, we expect a single output with 144 bytes
-                let Some(Ok(whole_output)) = parse_op_return_data(&outputs[2].script_pubkey)
+                let Some(Ok(whole_output)) = parse_op_return_data(&op_return_output.script_pubkey)
                     .map(TryInto::<[u8; 144]>::try_into)
                 else {
                     continue;
@@ -540,8 +539,9 @@ pub fn total_work_and_watchtower_flags(
                 compressed_g16_proof = whole_output[0..128]
                     .try_into()
                     .expect("Cannot fail: slicing 128 bytes from 144-byte array");
-                total_work = borsh::from_slice(&whole_output[128..144])
-                    .expect("Cannot fail: deserializing 16 bytes from a 16-byte slice");
+                total_work = whole_output[128..144]
+                    .try_into()
+                    .expect("Cannot fail: slicing 16 bytes from 144-byte array");
             }
             // Otherwise, we expect three outputs:
             // 1. [out1, out2, out3] where out1 and out2 are P2TR outputs
@@ -717,6 +717,7 @@ fn sighash(
 
 /// Encodes the BIP341 signing data for any flag type into a given object implementing the
 /// [`io::Write`] trait. This version takes a pre-computed annex hash and panics on error.
+/// Code mostly taken from: https://github.com/rust-bitcoin/rust-bitcoin/blob/9782fa8412e1c767998d018f6c915e51553a83d6/bitcoin/src/crypto/sighash.rs#L619
 pub fn taproot_encode_signing_data_to_with_annex_digest<
     W: io::Write + ?Sized,
     T: Borrow<TxOut>,
