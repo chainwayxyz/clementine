@@ -362,6 +362,17 @@ service ClementineOperator {
   rpc Withdraw(WithdrawParams)
     returns (Empty) {}
 
+  // For a given deposit outpoint, determines the next step in the kickoff process the operator is in,
+  // and returns the raw signed txs that the operator needs to send next, for enabling reimbursement process
+  // without automation.
+  //
+  // # Parameters
+  // - deposit_outpoint: Deposit outpoint to create the kickoff for
+  //
+  // # Returns
+  // - Raw signed txs that the operator needs to send next
+  rpc GetReimbursementTxs(Outpoint) returns (SignedTxsWithType) {}
+
   // Signs all tx's it can according to given transaction type (use it with AllNeededForDeposit to get almost all tx's)
   // Creates the transactions denoted by the deposit and operator_idx, round_idx, and kickoff_idx.
   // It will create the transaction and sign it with the operator's private key and/or saved nofn signatures.

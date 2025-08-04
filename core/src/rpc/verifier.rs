@@ -2,9 +2,8 @@ use std::str::FromStr;
 
 use super::clementine::{
     self, clementine_verifier_server::ClementineVerifier, Empty, NonceGenRequest, NonceGenResponse,
-    OperatorParams, OptimisticPayoutParams, PartialSig, RawTxWithRbfInfo, SignedTxWithType,
-    SignedTxsWithType, VergenResponse, VerifierDepositFinalizeParams, VerifierDepositSignParams,
-    VerifierParams,
+    OperatorParams, OptimisticPayoutParams, PartialSig, RawTxWithRbfInfo, VergenResponse,
+    VerifierDepositFinalizeParams, VerifierDepositSignParams, VerifierParams,
 };
 use super::error;
 use super::parser::ParserError;
@@ -512,15 +511,7 @@ where
         )
         .await?;
 
-        Ok(Response::new(SignedTxsWithType {
-            signed_txs: raw_txs
-                .into_iter()
-                .map(|(tx_type, signed_tx)| SignedTxWithType {
-                    transaction_type: Some(tx_type.into()),
-                    raw_tx: bitcoin::consensus::serialize(&signed_tx),
-                })
-                .collect(),
-        }))
+        Ok(Response::new(raw_txs.into()))
     }
 
     async fn internal_handle_kickoff(

@@ -309,6 +309,38 @@ impl Database {
             .transpose()
     }
 
+    pub async fn get_payer_xonly_pk_blockhash_and_kickoff_txid_from_deposit_id(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        deposit_id: u32,
+    ) -> Result<(Option<XOnlyPublicKey>, Option<BlockHash>, Option<Txid>), BridgeError> {
+        let query = sqlx::query_as::<
+            _,
+            (
+                Option<XOnlyPublicKeyDB>,
+                Option<BlockHashDB>,
+                Option<TxidDB>,
+            ),
+        >(
+            "SELECT w.payout_payer_operator_xonly_pk, w.payout_tx_blockhash, w.kickoff_txid
+             FROM withdrawals w
+             WHERE w.deposit_id = $1",
+        )
+        .bind(i32::try_from(deposit_id).wrap_err("Failed to convert deposit id to i32")?);
+
+        let result: (
+            Option<XOnlyPublicKeyDB>,
+            Option<BlockHashDB>,
+            Option<TxidDB>,
+        ) = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
+
+        Ok((
+            result.0.map(|pk| pk.0),
+            result.1.map(|block_hash| block_hash.0),
+            result.2.map(|txid| txid.0),
+        ))
+    }
+
     pub async fn set_payout_handled(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,

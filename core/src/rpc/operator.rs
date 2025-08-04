@@ -331,4 +331,16 @@ where
         let status = self.get_current_status().await?;
         Ok(Response::new(status))
     }
+
+    async fn get_reimbursement_txs(
+        &self,
+        request: Request<clementine::Outpoint>,
+    ) -> Result<Response<SignedTxsWithType>, Status> {
+        let deposit_outpoint: OutPoint = request.into_inner().try_into()?;
+        let txs = self
+            .operator
+            .get_reimbursement_txs(deposit_outpoint)
+            .await?;
+        Ok(Response::new(txs.into()))
+    }
 }

@@ -80,6 +80,13 @@ enum OperatorCommands {
     },
     /// Get vergen build information
     Vergen,
+    /// Get kickoff related txs for sending kickoff manually
+    GetReimbursementTxs {
+        #[arg(long)]
+        deposit_outpoint_txid: String,
+        #[arg(long)]
+        deposit_outpoint_vout: u32,
+    },
     // Add other operator commands as needed
 }
 
@@ -483,14 +490,14 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
             let response = operator
                 .get_deposit_keys(Request::new(params))
                 .await
-                .expect("Failed to make a request");
+                .expect("Failed to make a request to operator");
             println!("Get deposit keys response: {:?}", response);
         }
         OperatorCommands::GetParams => {
             let params = operator
                 .get_params(Empty {})
                 .await
-                .expect("Failed to make a request");
+                .expect("Failed to make a request to operator");
             println!("Operator params: {:?}", params);
         }
         OperatorCommands::Withdraw {
@@ -518,15 +525,41 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
             operator
                 .withdraw(Request::new(params))
                 .await
-                .expect("Failed to make a request");
+                .expect("ailed to make a request to operator");
         }
         OperatorCommands::Vergen => {
             let params = Empty {};
             let response = operator
                 .vergen(Request::new(params))
                 .await
-                .expect("Failed to make a request");
+                .expect("ailed to make a request to operator");
             println!("Vergen response:\n{}", response.into_inner().response);
+        }
+        OperatorCommands::GetReimbursementTxs {
+            deposit_outpoint_txid,
+            deposit_outpoint_vout,
+        } => {
+            #[cfg(feature = "automation")]
+            {
+                println!("WARNING: Automation is enabled, do not use this command unless some error happens with the automation \n 
+                Automation should handle the reimbursement process automatically");
+            }
+
+            println!(
+                "Getting kickoff txs for outpoint {}:{}",
+                deposit_outpoint_txid, deposit_outpoint_vout
+            );
+            let response = operator
+                .get_reimbursement_txs(Request::new(Outpoint {
+                    txid: Some(clementine_core::rpc::clementine::Txid {
+                        txid: hex::decode(deposit_outpoint_txid).expect("Failed to decode txid"),
+                    }),
+                    vout: deposit_outpoint_vout,
+                }))
+                .await
+                .expect("Failed to make a request to operator")
+                .into_inner();
+            println!("Get kickoff txs response: {:?}", response.signed_txs);
         }
     }
 }

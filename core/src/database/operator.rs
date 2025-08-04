@@ -799,6 +799,31 @@ impl Database {
         Ok(())
     }
 
+    pub async fn get_kickoff_connector_for_kickoff_txid(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        kickoff_txid: Txid,
+    ) -> Result<(RoundIndex, u32), BridgeError> {
+        let query = sqlx::query_as::<_, (i32, i32)>(
+            "SELECT round_idx, kickoff_connector_idx FROM used_kickoff_connectors WHERE kickoff_txid = $1;",
+        )
+        .bind(TxidDB(kickoff_txid));
+
+        let result: (i32, i32) = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
+        Ok((
+            RoundIndex::from_index(
+                result
+                    .0
+                    .try_into()
+                    .wrap_err(BridgeError::IntConversionError)?,
+            ),
+            result
+                .1
+                .try_into()
+                .wrap_err(BridgeError::IntConversionError)?,
+        ))
+    }
+
     pub async fn get_kickoff_txid_for_used_kickoff_connector(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
