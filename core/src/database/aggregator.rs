@@ -4,7 +4,7 @@
 
 use super::{wrapper::TxidDB, Database, DatabaseTransaction};
 use crate::{errors::BridgeError, execute_query_with_tx};
-use bitcoin::{Transaction, Txid};
+use bitcoin::Txid;
 use eyre;
 use sqlx::QueryBuilder;
 
