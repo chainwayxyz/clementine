@@ -555,8 +555,15 @@ pub struct AggregatorWithdrawResponse {
 pub struct CreateEmergencyStopTxRequest {
     #[prost(message, repeated, tag = "1")]
     pub txids: ::prost::alloc::vec::Vec<Txid>,
-    #[prost(bool, tag = "2")]
-    pub add_anchor: bool,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CreateEmergencyStopTxResponse {
+    #[prost(message, repeated, tag = "1")]
+    pub txids: ::prost::alloc::vec::Vec<Txid>,
+    #[prost(bytes = "vec", repeated, tag = "2")]
+    pub encrypted_emergency_stop_txs: ::prost::alloc::vec::Vec<
+        ::prost::alloc::vec::Vec<u8>,
+    >,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SendMoveTxRequest {
@@ -2144,7 +2151,7 @@ pub mod clementine_aggregator_client {
             &mut self,
             request: impl tonic::IntoRequest<super::CreateEmergencyStopTxRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::SignedTxWithType>,
+            tonic::Response<super::CreateEmergencyStopTxResponse>,
             tonic::Status,
         > {
             self.inner
@@ -4007,7 +4014,7 @@ pub mod clementine_aggregator_server {
             &self,
             request: tonic::Request<super::CreateEmergencyStopTxRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::SignedTxWithType>,
+            tonic::Response<super::CreateEmergencyStopTxResponse>,
             tonic::Status,
         >;
         async fn vergen(
@@ -4482,7 +4489,7 @@ pub mod clementine_aggregator_server {
                         T: ClementineAggregator,
                     > tonic::server::UnaryService<super::CreateEmergencyStopTxRequest>
                     for InternalCreateEmergencyStopTxSvc<T> {
-                        type Response = super::SignedTxWithType;
+                        type Response = super::CreateEmergencyStopTxResponse;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,

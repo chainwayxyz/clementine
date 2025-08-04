@@ -139,6 +139,9 @@ pub struct BridgeConfig {
     /// after manual verification of the optimistic payout.
     pub opt_payout_verification_address: Option<alloy::primitives::Address>,
 
+    /// The ECDSA key that will be used to encrypt the emergency stop message.
+    pub emergency_stop_encryption_public_key: Option<[u8; 32]>,
+
     #[cfg(test)]
     #[serde(skip)]
     pub test_params: test::TestParams,
@@ -299,6 +302,12 @@ impl Default for BridgeConfig {
             opt_payout_verification_address: Some(
                 alloy::primitives::Address::from_str("0x242fbec93465ce42b3d7c0e1901824a2697193fd")
                     .expect("valid address"),
+            ),
+            emergency_stop_encryption_public_key: Some(
+                hex::decode("e900eb5d43385ec46fea86f50c0c7ee39c8be780aadbc4bb803fbe56a1e4a550")
+                    .expect("valid hex")
+                    .try_into()
+                    .expect("valid key"),
             ),
 
             telemetry: Some(TelemetryConfig::default()),

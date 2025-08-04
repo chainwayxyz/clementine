@@ -166,6 +166,16 @@ impl BridgeConfig {
             client_cert_path,
             client_key_path,
             aggregator_cert_path,
+            emergency_stop_encryption_public_key: read_string_from_env(
+                "EMERGENCY_STOP_ENCRYPTION_PUBLIC_KEY",
+            )
+            .ok()
+            .map(|key| {
+                hex::decode(key)
+                    .expect("valid hex")
+                    .try_into()
+                    .expect("valid key")
+            }),
 
             telemetry: TelemetryConfig::from_env().ok(),
 
@@ -303,6 +313,15 @@ mod tests {
             std::env::set_var(
                 "OPT_PAYOUT_VERIFICATION_ADDRESS",
                 opt_payout_verification_address.to_string(),
+            );
+        }
+
+        if let Some(ref emergency_stop_encryption_public_key) =
+            default_config.emergency_stop_encryption_public_key
+        {
+            std::env::set_var(
+                "EMERGENCY_STOP_ENCRYPTION_PUBLIC_KEY",
+                hex::encode(emergency_stop_encryption_public_key),
             );
         }
 

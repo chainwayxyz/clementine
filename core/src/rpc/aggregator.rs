@@ -50,7 +50,13 @@ use std::future::Future;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tonic::{async_trait, Request, Response, Status, Streaming};
 
-#[derive(Debug, Clone)]
+use bitcoin::secp256k1::rand::{self, RngCore};
+use chacha20poly1305::{
+    aead::{Aead, KeyInit},
+    XChaCha20Poly1305, XNonce,
+};
+use x25519_dalek::{EphemeralSecret, PublicKey as X25519PublicKey};
+
 struct AggNonceQueueItem {
     agg_nonce: AggregatedNonce,
     sighash: TapSighash,
@@ -673,6 +679,31 @@ impl Aggregator {
         Ok(move_txhandler.promote()?)
     }
 
+    fn encrypt_bytes(recipient_pubkey: [u8; 32], message: &[u8]) -> Result<Vec<u8>, eyre::Report> {
+        let recipient_pubkey = X25519PublicKey::from(recipient_pubkey);
+
+        let ephemeral_secret = EphemeralSecret::random_from_rng(rand::thread_rng());
+        let ephemeral_public = X25519PublicKey::from(&ephemeral_secret);
+
+        let shared_secret = ephemeral_secret.diffie_hellman(&recipient_pubkey);
+        let cipher = XChaCha20Poly1305::new_from_slice(shared_secret.as_bytes())
+            .map_err(|e| eyre::eyre!("Failed to create cipher: {e}"))?;
+
+        let mut nonce_bytes = [0u8; 24];
+        rand::thread_rng().fill_bytes(&mut nonce_bytes);
+        let nonce = XNonce::from_slice(&nonce_bytes);
+
+        let ciphertext = cipher
+            .encrypt(nonce, message)
+            .map_err(|e| eyre::eyre!("Failed to encrypt message: {e}"))?;
+
+        let mut output = vec![];
+        output.extend_from_slice(ephemeral_public.as_bytes());
+        output.extend_from_slice(&nonce_bytes);
+        output.extend_from_slice(&ciphertext);
+        Ok(output)
+    }
+
     async fn verify_and_save_emergency_stop_sigs(
         &self,
         emergency_stop_sigs: Vec<Vec<u8>>,
@@ -725,23 +756,18 @@ impl Aggregator {
 
         tracing::debug!("Move to vault tx id: {}", move_to_vault_txid.to_string());
 
+        let encrypted_emergency_stop_tx = Self::encrypt_bytes(
+            self.config
+                .emergency_stop_encryption_public_key
+                .expect("Emergency stop encryption public key is not set"),
+            &bitcoin::consensus::serialize(&emergency_stop_tx),
+        )?;
+
         self.db
-            .set_signed_emergency_stop_tx(None, move_to_vault_txid, emergency_stop_tx)
+            .set_signed_emergency_stop_tx(None, move_to_vault_txid, &encrypted_emergency_stop_tx)
             .await?;
 
         Ok(())
-    }
-
-    pub async fn generate_combined_emergency_stop_tx(
-        &self,
-        move_txids: Vec<Txid>,
-        add_anchor: bool,
-    ) -> Result<bitcoin::Transaction, BridgeError> {
-        let stop_txs = self.db.get_emergency_stop_txs(None, move_txids).await?;
-        let combined_stop_tx =
-            combine_emergency_stop_txhandler(stop_txs, add_anchor, self.config.protocol_paramset());
-
-        Ok(combined_stop_tx)
     }
 
     #[cfg(feature = "automation")]
@@ -1478,7 +1504,7 @@ impl ClementineAggregator for AggregatorServer {
     async fn internal_create_emergency_stop_tx(
         &self,
         request: Request<clementine::CreateEmergencyStopTxRequest>,
-    ) -> Result<Response<clementine::SignedTxWithType>, Status> {
+    ) -> Result<Response<clementine::CreateEmergencyStopTxResponse>, Status> {
         let inner_request = request.into_inner();
         let txids: Vec<Txid> = inner_request
             .txids
@@ -1490,15 +1516,14 @@ impl ClementineAggregator for AggregatorServer {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        let add_anchor = inner_request.add_anchor;
+        let emergency_stop_txs = self.db.get_emergency_stop_txs(None, txids).await?;
 
-        let combined_stop_tx = self
-            .generate_combined_emergency_stop_tx(txids, add_anchor)
-            .await?;
+        let (txids, encrypted_emergency_stop_txs): (Vec<Txid>, Vec<Vec<u8>>) =
+            emergency_stop_txs.into_iter().unzip();
 
-        Ok(Response::new(clementine::SignedTxWithType {
-            transaction_type: Some(TransactionType::EmergencyStop.into()),
-            raw_tx: bitcoin::consensus::serialize(&combined_stop_tx).to_vec(),
+        Ok(Response::new(clementine::CreateEmergencyStopTxResponse {
+            txids: txids.into_iter().map(|txid| txid.into()).collect(),
+            encrypted_emergency_stop_txs,
         }))
     }
 
@@ -1958,22 +1983,22 @@ mod tests {
                             txid: txid.to_byte_array().to_vec(),
                         })
                         .collect(),
-                    add_anchor: true,
                 },
             ))
             .await
             .unwrap()
             .into_inner();
 
-        let raw_tx: bitcoin::Transaction =
-            bitcoin::consensus::deserialize(&emergency_txid.raw_tx).expect("Failed to deserialize");
+        let emergency_stop_tx: bitcoin::Transaction =
+            bitcoin::consensus::deserialize(&emergency_txid.encrypted_emergency_stop_txs[0])
+                .expect("Failed to deserialize");
 
         rpc.client
-            .send_raw_transaction(&raw_tx)
+            .send_raw_transaction(&emergency_stop_tx)
             .await
             .expect("Failed to send emergency stop tx");
 
-        let emergency_stop_txid = raw_tx.compute_txid();
+        let emergency_stop_txid = emergency_stop_tx.compute_txid();
         rpc.mine_blocks(1).await.unwrap();
 
         let _emergencty_tx = poll_get(
