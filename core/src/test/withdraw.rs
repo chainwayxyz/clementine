@@ -163,6 +163,9 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
 async fn citrea_withdraw_and_get_utxo() -> Result<()> {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
-    std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
+    std::env::set_var(
+        "CITREA_DOCKER_IMAGE",
+        "chainwayxyz/citrea-test:ca479a4147be1c3a472e76a3f117124683d81ab5",
+    );
     TestCaseRunner::new(CitreaWithdrawAndGetUTXO).run().await
 }
