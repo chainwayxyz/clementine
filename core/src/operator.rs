@@ -10,7 +10,8 @@ use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::input::UtxoVout;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::builder::transaction::{
-    create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler, create_round_txhandlers, create_txhandlers, ContractContext, KickoffWinternitzKeys, ReimburseDbCache, TransactionType, TxHandler, TxHandlerCache
+    create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler,
+    create_round_txhandlers, ContractContext, KickoffWinternitzKeys, TransactionType, TxHandler,
 };
 use crate::citrea::CitreaClientT;
 use crate::config::BridgeConfig;
@@ -35,7 +36,7 @@ use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::{schnorr, Message};
 use bitcoin::{
-    Address, Amount, BlockHash, OutPoint, ScriptBuf, Transaction, TxOut, XOnlyPublicKey,
+    Address, Amount, BlockHash, OutPoint, ScriptBuf, Transaction, TxOut, Txid, XOnlyPublicKey,
 };
 use bitcoincore_rpc::json::AddressType;
 use bitcoincore_rpc::RpcApi;
@@ -828,7 +829,7 @@ where
         deposit_outpoint: OutPoint,
         payout_tx_blockhash: BlockHash,
     ) -> Result<bitcoin::Txid, BridgeError> {
-        let (deposit_id, _) = self
+        let (deposit_id, deposit_data) = self
             .db
             .get_deposit_data(Some(dbtx), deposit_outpoint)
             .await?
@@ -845,12 +846,7 @@ where
             .await?
             .ok_or(BridgeError::DatabaseError(sqlx::Error::RowNotFound))?;
 
-        let current_round_index = self
-            .db
-            .get_current_round_index(Some(dbtx))
-            .await?
-            .ok_or(BridgeError::DatabaseError(sqlx::Error::RowNotFound))?;
-
+        let current_round_index = self.db.get_current_round_index(Some(dbtx)).await?;
         #[cfg(feature = "automation")]
         if current_round_index != round_idx {
             // we currently have no free kickoff connectors in the current round, so we need to end round first
@@ -875,11 +871,6 @@ where
             kickoff_idx,
         };
 
-        let transaction_data = TransactionRequestData {
-            deposit_outpoint,
-            kickoff_data,
-        };
-
         let payout_tx_blockhash = payout_tx_blockhash.as_byte_array().last_20_bytes();
 
         #[cfg(test)]
@@ -888,11 +879,17 @@ where
             .test_params
             .maybe_disrupt_payout_tx_block_hash_commit(payout_tx_blockhash);
 
+        let context = ContractContext::new_context_for_kickoff(
+            kickoff_data,
+            deposit_data,
+            self.config.protocol_paramset(),
+        );
+
         let signed_txs = create_and_sign_txs(
             self.db.clone(),
             &self.signer,
             self.config.clone(),
-            transaction_data,
+            context,
             Some(payout_tx_blockhash),
         )
         .await?;
@@ -1006,7 +1003,6 @@ where
     ) -> Result<(), BridgeError> {
         // get current round index
         let current_round_index = self.db.get_current_round_index(Some(dbtx)).await?;
-        let current_round_index = current_round_index.unwrap_or(0);
 
         let mut activation_prerequisites = Vec::new();
 
@@ -1087,7 +1083,7 @@ where
                     activation_prerequisites.push(ActivatedWithOutpoint {
                         outpoint: OutPoint {
                             txid: kickoff_txid,
-                            vout: 1, // Kickoff finalizer output index
+                            vout: UtxoVout::KickoffFinalizer.get_vout(), // Kickoff finalizer output index
                         },
                         relative_block_height: self.config.protocol_paramset().finality_depth,
                     });
@@ -1095,7 +1091,7 @@ where
                 None => {
                     let unspent_kickoff_connector = OutPoint {
                         txid: current_round_txid,
-                        vout: kickoff_connector_idx + 1, // add 1 since the first output is collateral
+                        vout: UtxoVout::Kickoff(kickoff_connector_idx as usize).get_vout(),
                     };
                     unspent_kickoff_connector_indices.push(kickoff_connector_idx as usize);
                     self.db
@@ -1643,25 +1639,14 @@ where
         Ok(())
     }
 
-    pub async fn get_reimbursement_txs(
+    async fn validate_payer_is_operator(
         &self,
-        deposit_outpoint: OutPoint,
-    ) -> Result<Vec<(TransactionType, Transaction)>, BridgeError> {
-        // first check if we reimbursed this deposit
-        let (deposit_id, _deposit_data) = self
-            .db
-            .get_deposit_data(None, deposit_outpoint)
-            .await?
-            .ok_or(BridgeError::DatabaseError(sqlx::Error::RowNotFound))?;
-
-        tracing::info!(
-            "Deposit data found for the requested deposit outpoint: {:?}",
-            deposit_outpoint
-        );
-
+        dbtx: Option<DatabaseTransaction<'_, '_>>,
+        deposit_id: u32,
+    ) -> Result<(BlockHash, Txid), BridgeError> {
         let (payer_xonly_pk, payout_blockhash, kickoff_txid) = self
             .db
-            .get_payer_xonly_pk_blockhash_and_kickoff_txid_from_deposit_id(None, deposit_id)
+            .get_payer_xonly_pk_blockhash_and_kickoff_txid_from_deposit_id(dbtx, deposit_id)
             .await?;
 
         tracing::info!(
@@ -1673,7 +1658,7 @@ where
 
         // first check if the payer is the operator, and the kickoff is handled
         // by the PayoutCheckerTask, meaning kickoff_txid is set
-        let (payer_xonly_pk, payout_blockhash, kickoff_txid) = match (
+        let (payout_blockhash, kickoff_txid) = match (
             payer_xonly_pk,
             payout_blockhash,
             kickoff_txid,
@@ -1688,7 +1673,7 @@ where
                     )
                     .into());
                 }
-                (payer_xonly_pk, payout_blockhash, kickoff_txid)
+                (payout_blockhash, kickoff_txid)
             }
             _ => {
                 return Err(eyre::eyre!("Payer info not found for deposit id: {}, payout blockhash: {:?}, kickoff txid: {:?}", deposit_id, payout_blockhash, kickoff_txid).into());
@@ -1703,60 +1688,76 @@ where
             kickoff_txid
         );
 
-        // get used kickoff connector for the kickoff txid
-        let (round_idx, kickoff_connector_idx) = self
-            .db
-            .get_kickoff_connector_for_kickoff_txid(None, kickoff_txid)
-            .await?;
+        Ok((payout_blockhash, kickoff_txid))
+    }
 
-        let current_round_idx = RoundIndex::from_index(
-            self.db.get_current_round_index(None).await?.unwrap_or(0) as usize,
-        );
+    async fn get_next_txs_to_send(
+        &self,
+        dbtx: Option<DatabaseTransaction<'_, '_>>,
+        deposit_data: &DepositData,
+        payout_blockhash: BlockHash,
+        kickoff_txid: Txid,
+        kickoff_round_idx: RoundIndex,
+        kickoff_connector_idx: u32,
+        current_round_idx: RoundIndex,
+    ) -> Result<Vec<(TransactionType, Transaction)>, BridgeError> {
         let mut txs_to_send = Vec::new();
+
+        let context = ContractContext::new_context_for_kickoff(
+            KickoffData {
+                operator_xonly_pk: self.signer.xonly_public_key,
+                round_idx: kickoff_round_idx,
+                kickoff_idx: kickoff_connector_idx,
+            },
+            deposit_data.clone(),
+            self.config.protocol_paramset(),
+        );
 
         // get txs for the kickoff
         let kickoff_txs = create_and_sign_txs(
             self.db.clone(),
             &self.signer,
             self.config.clone(),
-            TransactionRequestData {
-                deposit_outpoint,
-                kickoff_data: KickoffData {
-                    operator_xonly_pk: payer_xonly_pk,
-                    round_idx,
-                    kickoff_idx: kickoff_connector_idx,
-                },
-            },
+            context,
             Some(payout_blockhash.to_byte_array().last_20_bytes()),
         )
         .await?;
 
         // check the current round status compared to the round of the assigned kickoff tx
-        match current_round_idx.to_index().cmp(&round_idx.to_index()) {
+        match current_round_idx
+            .to_index()
+            .cmp(&kickoff_round_idx.to_index())
+        {
             std::cmp::Ordering::Less => {
                 // We need to advance the round manually to be able to start the kickoff
-                let txs = self.advance_round_manually(current_round_idx).await?;
+                tracing::info!("We need to advance the round manually to be able to start the kickoff, current round idx: {:?}, kickoff round idx: {:?}", current_round_idx, kickoff_round_idx);
+                let txs = self.advance_round_manually(dbtx, current_round_idx).await?;
                 txs_to_send.extend(txs);
             }
             std::cmp::Ordering::Greater => {
+                tracing::info!("We are at least on the next round, meaning we can get the reimbursement as reimbursement utxos are in the next round, current round idx: {:?}, kickoff round idx: {:?}", current_round_idx, kickoff_round_idx);
                 // we are at least on the next round, meaning we can get the reimbursement as reimbursement utxos are in the next roun
                 let reimbursement_tx = kickoff_txs
                     .iter()
-                    .find(|(tx_type, tx)| tx_type == &TransactionType::Reimburse)
+                    .find(|(tx_type, _)| tx_type == &TransactionType::Reimburse)
                     .ok_or(eyre::eyre!("Reimburse tx not found in kickoff txs"))?;
                 txs_to_send.push(reimbursement_tx.clone());
             }
             std::cmp::Ordering::Equal => {
                 // first check if the kickoff is in chain
                 if !self.rpc.is_tx_on_chain(&kickoff_txid).await? {
+                    tracing::info!(
+                        "Kickoff tx is not on chain, can send it, kickoff txid: {:?}",
+                        kickoff_txid
+                    );
                     let kickoff_tx = kickoff_txs
                         .iter()
-                        .find(|(tx_type, tx)| tx_type == &TransactionType::Kickoff)
+                        .find(|(tx_type, _)| tx_type == &TransactionType::Kickoff)
                         .ok_or(eyre::eyre!("Kickoff tx not found in kickoff txs"))?;
                     // sanity check
                     if kickoff_tx.1.compute_txid() != kickoff_txid {
-                        return Err(eyre::eyre!("Kickoff txid mismatch for deposit id: {}, kickoff txid: {:?}, computed txid: {:?}", 
-                        deposit_id, kickoff_txid, kickoff_tx.1.compute_txid()).into());
+                        return Err(eyre::eyre!("Kickoff txid mismatch for deposit outpoint: {}, kickoff txid: {:?}, computed txid: {:?}", 
+                        deposit_data.get_deposit_outpoint(), kickoff_txid, kickoff_tx.1.compute_txid()).into());
                     }
                     txs_to_send.push(kickoff_tx.clone());
                 }
@@ -1770,7 +1771,10 @@ where
                     .await?
                 {
                     // kickoff finalizer is not spent, we need to send challenge timeout
-
+                    tracing::info!(
+                        "Kickoff finalizer is not spent, can send challenge timeout, kickoff txid: {:?}",
+                        kickoff_txid
+                    );
                     // first check if challenge tx was sent, then we need automation enabled to be able to answer the challenge
                     if self
                         .rpc
@@ -1781,21 +1785,78 @@ where
                         .await?
                     {
                         // challenge tx was sent, we need automation enabled to be able to answer the challenge
-                        return Err(eyre::eyre!("WARNING: Challenge tx was sent for deposit id: {}, but automation is not enabled, enable automation!", deposit_id).into());
+                        tracing::warn!(
+                            "Challenge tx was sent for deposit outpoint: {:?}, but automation is not enabled, enable automation!",
+                            deposit_data.get_deposit_outpoint()
+                        );
+                        return Err(eyre::eyre!("WARNING: Challenge tx was sent to kickoff connector {:?}, but automation is not enabled, enable automation!", kickoff_txid).into());
                     }
                     let challenge_timeout_tx = kickoff_txs
                         .iter()
-                        .find(|(tx_type, tx)| tx_type == &TransactionType::ChallengeTimeout)
+                        .find(|(tx_type, _)| tx_type == &TransactionType::ChallengeTimeout)
                         .ok_or(eyre::eyre!("Challenge timeout tx not found in kickoff txs"))?;
                     txs_to_send.push(challenge_timeout_tx.clone());
                 } else {
                     // if kickoff finalizer is spent, it is time to get the reimbursement
-                    let txs = self.advance_round_manually(current_round_idx).await?;
+                    tracing::info!(
+                        "Kickoff finalizer is spent, can advance the round manually to get the reimbursement, current round idx: {:?}, kickoff round idx: {:?}",
+                        current_round_idx,
+                        kickoff_round_idx
+                    );
+                    let txs = self.advance_round_manually(dbtx, current_round_idx).await?;
                     txs_to_send.extend(txs);
                 }
             }
         }
-        // TODO: real return
+        Ok(txs_to_send)
+    }
+
+    /// For a given deposit outpoint, get the txs that are needed to reimburse the deposit.
+    /// To avoid operator getting slashed, this function only returns the next tx that needs to be sent/
+    pub async fn get_reimbursement_txs(
+        &self,
+        deposit_outpoint: OutPoint,
+    ) -> Result<Vec<(TransactionType, Transaction)>, BridgeError> {
+        let mut dbtx = self.db.begin_transaction().await?;
+        // first check if we reimbursed this deposit
+        let (deposit_id, deposit_data) = self
+            .db
+            .get_deposit_data(Some(&mut dbtx), deposit_outpoint)
+            .await?
+            .ok_or(BridgeError::DatabaseError(sqlx::Error::RowNotFound))?;
+
+        tracing::info!(
+            "Deposit data found for the requested deposit outpoint: {:?}",
+            deposit_outpoint
+        );
+
+        // validate payer is operator and get payer xonly pk, payout blockhash and kickoff txid
+        let (payout_blockhash, kickoff_txid) = self
+            .validate_payer_is_operator(Some(&mut dbtx), deposit_id)
+            .await?;
+
+        // get used kickoff connector for the kickoff txid
+        let (kickoff_round_idx, kickoff_connector_idx) = self
+            .db
+            .get_kickoff_connector_for_kickoff_txid(Some(&mut dbtx), kickoff_txid)
+            .await?;
+
+        let current_round_idx =
+            RoundIndex::from_index(self.db.get_current_round_index(None).await? as usize);
+
+        let txs_to_send = self
+            .get_next_txs_to_send(
+                Some(&mut dbtx),
+                &deposit_data,
+                payout_blockhash,
+                kickoff_txid,
+                kickoff_round_idx,
+                kickoff_connector_idx,
+                current_round_idx,
+            )
+            .await?;
+
+        dbtx.commit().await?;
         Ok(txs_to_send)
     }
 
@@ -1803,6 +1864,7 @@ where
     /// able to advance to the next round.
     async fn advance_round_manually(
         &self,
+        dbtx: Option<DatabaseTransaction<'_, '_>>,
         round_idx: RoundIndex,
     ) -> Result<Vec<(TransactionType, Transaction)>, BridgeError> {
         // get round txhandlers
@@ -1811,10 +1873,177 @@ where
             round_idx,
             self.config.protocol_paramset(),
         );
-        
-        
-        let round_tx
-        Ok(vec![])
+
+        let txs = create_and_sign_txs(
+            self.db.clone(),
+            &self.signer,
+            self.config.clone(),
+            context,
+            None,
+        )
+        .await?;
+
+        let round_tx = txs
+            .iter()
+            .find(|(tx_type, _)| tx_type == &TransactionType::Round)
+            .ok_or(eyre::eyre!("Round tx not found in txs"))?;
+
+        if !self.rpc.is_tx_on_chain(&round_tx.1.compute_txid()).await? {
+            return Err(eyre::eyre!("Round tx for round {:?} is not on chain, but the database shows we are on this round, error", round_idx).into());
+        }
+
+        // check if ready to reimburse tx was sent
+        let ready_to_reimburse_tx = txs
+            .iter()
+            .find(|(tx_type, _)| tx_type == &TransactionType::ReadyToReimburse)
+            .ok_or(eyre::eyre!("Ready to reimburse tx not found in txs"))?;
+
+        let mut txs_to_send = Vec::new();
+
+        if !self
+            .rpc
+            .is_tx_on_chain(&ready_to_reimburse_tx.1.compute_txid())
+            .await?
+        {
+            tracing::info!("Ready to reimburse tx for round {:?} is not on chain, checking prerequisites to see if we are able to send it
+            Prerequisites:
+            - all kickoff utxos are spent
+            - for all kickoffs, all kickoff finalizers are spent
+            ", round_idx);
+            let round_txid = round_tx.1.compute_txid();
+            // to be able to send ready to reimburse tx, we need to make sure, all kickoff utxos are spent, and for all kickoffs, all kickoff finalizers are spent
+            // check and collect all kickoff utxos that are not spent first
+            let mut unspent_kickoff_utxos = Vec::new();
+            for kickoff_idx in 0..self.config.protocol_paramset().num_kickoffs_per_round {
+                let kickoff_utxo = OutPoint {
+                    txid: round_txid,
+                    vout: UtxoVout::Kickoff(kickoff_idx).get_vout(),
+                };
+                if !self.rpc.is_utxo_spent(&kickoff_utxo).await? {
+                    unspent_kickoff_utxos.push(kickoff_idx);
+                } else {
+                    // set the kickoff connector as used (it will do nothing if the utxo is already in db, so it won't overwrite the kickoff txid)
+                    // mark so that we don't try to use this utxo anymore
+                    self.db
+                        .set_kickoff_connector_as_used(None, round_idx, kickoff_idx as u32, None)
+                        .await?;
+                }
+            }
+            if !unspent_kickoff_utxos.is_empty() {
+                tracing::info!(
+                    "There are unspent kickoff utxos {:?}, creating a tx that spends them",
+                    unspent_kickoff_utxos
+                );
+                let operator_winternitz_public_keys = self.generate_kickoff_winternitz_pubkeys()?;
+                let kickoff_wpks = KickoffWinternitzKeys::new(
+                    operator_winternitz_public_keys,
+                    self.config.protocol_paramset().num_kickoffs_per_round,
+                    self.config.protocol_paramset().num_round_txs,
+                );
+                // if there are unspent kickoff utxos, create a tx that spends them
+                let (round_txhandler, _ready_to_reimburse_txhandler) = create_round_nth_txhandler(
+                    self.signer.xonly_public_key,
+                    self.collateral_funding_outpoint,
+                    self.config.protocol_paramset().collateral_funding_amount,
+                    round_idx,
+                    &kickoff_wpks,
+                    self.config.protocol_paramset(),
+                )?;
+                let mut burn_unused_kickoff_connectors_txhandler =
+                    create_burn_unused_kickoff_connectors_txhandler(
+                        &round_txhandler,
+                        &unspent_kickoff_utxos,
+                        &self.reimburse_addr,
+                        self.config.protocol_paramset(),
+                    )?;
+
+                // sign burn unused kickoff connectors tx
+                self.signer.tx_sign_and_fill_sigs(
+                    &mut burn_unused_kickoff_connectors_txhandler,
+                    &[],
+                    None,
+                )?;
+                let burn_unused_kickoff_connectors_txhandler =
+                    burn_unused_kickoff_connectors_txhandler.promote()?;
+                txs_to_send.push((
+                    TransactionType::BurnUnusedKickoffConnectors,
+                    burn_unused_kickoff_connectors_txhandler
+                        .get_cached_tx()
+                        .clone(),
+                ));
+            } else {
+                // every kickoff utxo is spent, but we need to check if all kickoff finalizers are spent
+                // if not, we return and error and wait until they are spent
+                // if all finalizers are spent, it is safe to send ready to reimburse tx
+                // we need to check if all finalizers are spent
+                for kickoff_idx in 0..self.config.protocol_paramset().num_kickoffs_per_round {
+                    let kickoff_txid = self
+                        .db
+                        .get_kickoff_txid_for_used_kickoff_connector(
+                            None,
+                            round_idx,
+                            kickoff_idx as u32,
+                        )
+                        .await?;
+                    if let Some(kickoff_txid) = kickoff_txid {
+                        let deposit_outpoint = self
+                            .db
+                            .get_deposit_outpoint_for_kickoff_txid(None, kickoff_txid)
+                            .await?;
+                        if !self.rpc.is_tx_on_chain(&kickoff_txid).await? {
+                            return Err(eyre::eyre!("For round {:?} and kickoff utxo {:?}, the kickoff tx {:?} is not on chain, 
+                            reimburse the deposit {:?} corresponding to this kickoff first. "
+                            , round_idx, kickoff_idx, kickoff_txid, deposit_outpoint).into());
+                        } else if !self
+                            .rpc
+                            .is_utxo_spent(&OutPoint {
+                                txid: kickoff_txid,
+                                vout: UtxoVout::KickoffFinalizer.get_vout(),
+                            })
+                            .await?
+                        {
+                            return Err(eyre::eyre!("For round {:?} and kickoff utxo {:?}, the kickoff finalizer {:?} is not spent, 
+                            send the challenge timeout tx for the deposit {:?} first", round_idx, kickoff_idx, kickoff_txid, deposit_outpoint).into());
+                        }
+                    }
+                }
+                // all finalizers and kickoff utxos are spent, it is safe to send ready to reimburse tx
+                txs_to_send.push(ready_to_reimburse_tx.clone());
+            }
+        } else {
+            // ready to reimburse tx is on chain, we need to wait for the timelock to send the next round tx
+            // first check if next round tx is already sent, that means we can update the database
+            let next_round_context = ContractContext::new_context_for_round(
+                self.signer.xonly_public_key,
+                round_idx.next_round(),
+                self.config.protocol_paramset(),
+            );
+            let next_round_txs = create_and_sign_txs(
+                self.db.clone(),
+                &self.signer,
+                self.config.clone(),
+                next_round_context,
+                None,
+            )
+            .await?;
+            let next_round_tx = next_round_txs
+                .iter()
+                .find(|(tx_type, _)| tx_type == &TransactionType::Round)
+                .ok_or(eyre::eyre!("Next round tx not found in txs"))?;
+            let next_round_txid = next_round_tx.1.compute_txid();
+
+            if !self.rpc.is_tx_on_chain(&next_round_txid).await? {
+                // if next round tx is not on chain, we need to wait for the timelock to send it
+                txs_to_send.push(next_round_tx.clone());
+            } else {
+                // if next round tx is on chain, we need to update the database
+                self.db
+                    .update_current_round_index(None, round_idx.next_round())
+                    .await?;
+            }
+        }
+
+        Ok(txs_to_send)
     }
 }
 

@@ -7,6 +7,7 @@ use super::clementine::{
 use super::error::*;
 use crate::bitvm_client::ClementineBitVMPublicKeys;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
+use crate::builder::transaction::ContractContext;
 use crate::citrea::CitreaClientT;
 use crate::constants::DEFAULT_CHANNEL_SIZE;
 use crate::deposit::DepositData;
@@ -232,11 +233,22 @@ where
     ) -> std::result::Result<tonic::Response<super::SignedTxsWithType>, tonic::Status> {
         let transaction_request = request.into_inner();
         let transaction_data: TransactionRequestData = transaction_request.try_into()?;
+        let (_, deposit_data) = self
+            .operator
+            .db
+            .get_deposit_data(None, transaction_data.deposit_outpoint)
+            .await?
+            .ok_or(Status::invalid_argument("Deposit not found in database"))?;
+        let context = ContractContext::new_context_for_kickoff(
+            transaction_data.kickoff_data,
+            deposit_data,
+            self.operator.config.protocol_paramset(),
+        );
         let raw_txs = create_and_sign_txs(
             self.operator.db.clone(),
             &self.operator.signer,
             self.operator.config.clone(),
-            transaction_data,
+            context,
             Some([0u8; 20]), // dummy blockhash
         )
         .await?;

@@ -15,7 +15,7 @@ use crate::builder::transaction::input::UtxoVout;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::builder::transaction::{
     create_emergency_stop_txhandler, create_move_to_vault_txhandler,
-    create_optimistic_payout_txhandler, TransactionType, TxHandler,
+    create_optimistic_payout_txhandler, ContractContext, TransactionType, TxHandler,
 };
 use crate::builder::transaction::{create_round_txhandlers, KickoffWinternitzKeys};
 use crate::citrea::CitreaClientT;
@@ -1528,17 +1528,19 @@ where
             deposit_data
         );
 
-        let transaction_data = TransactionRequestData {
-            deposit_outpoint: deposit_data.get_deposit_outpoint(),
+        let context = ContractContext::new_context_with_signer(
             kickoff_data,
-        };
+            deposit_data.clone(),
+            self.config.protocol_paramset(),
+            self.signer.clone(),
+        );
 
         let signed_txs = create_and_sign_txs(
             self.db.clone(),
             &self.signer,
             self.config.clone(),
-            transaction_data,
-            None, // No need
+            context,
+            None, // No need, verifier will not send kickoff tx
         )
         .await?;
 
