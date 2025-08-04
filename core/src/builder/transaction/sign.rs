@@ -12,7 +12,7 @@ use crate::builder::transaction::TransactionType;
 use crate::citrea::CitreaClientT;
 use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
-use crate::database::Database;
+use crate::database::{Database, DatabaseTransaction};
 use crate::deposit::KickoffData;
 use crate::errors::{BridgeError, TxError};
 use crate::operator::{Operator, RoundIndex};
@@ -92,6 +92,7 @@ pub async fn create_and_sign_txs(
     config: BridgeConfig,
     context: ContractContext,
     block_hash: Option<[u8; 20]>, //to sign kickoff
+    dbtx: Option<DatabaseTransaction<'_, '_>>,
 ) -> Result<Vec<(TransactionType, Transaction)>, BridgeError> {
     let txhandlers = builder::transaction::create_txhandlers(
         match context.is_context_for_kickoff() {
@@ -111,11 +112,13 @@ pub async fn create_and_sign_txs(
                     .expect("Already checked existence of deposit data")
                     .get_deposit_outpoint(),
                 config.protocol_paramset(),
+                dbtx,
             ),
             false => ReimburseDbCache::new_for_rounds(
                 db.clone(),
                 context.operator_xonly_pk,
                 config.protocol_paramset(),
+                dbtx,
             ),
         },
     )
@@ -193,7 +196,7 @@ pub async fn create_and_sign_txs(
             }
             Err(e) => {
                 tracing::trace!(
-                    "Couldn't sign transaction {:?} in create_and_sign_all_txs: {:?}. 
+                    "Couldn't sign transaction {:?} in create_and_sign_all_txs: {:?}.
                     This might be normal if the transaction is not needed to be/cannot be signed.",
                     tx_type,
                     e
@@ -224,6 +227,7 @@ where
         &self,
         transaction_data: TransactionRequestData,
         commit_data: &[u8],
+        dbtx: Option<DatabaseTransaction<'_, '_>>,
     ) -> Result<(TransactionType, Transaction, RbfSigningInfo), BridgeError> {
         if commit_data.len() != self.config.protocol_paramset().watchtower_challenge_bytes {
             return Err(TxError::IncorrectWatchtowerChallengeDataLength.into());
@@ -254,6 +258,7 @@ where
                 transaction_data.kickoff_data.operator_xonly_pk,
                 transaction_data.deposit_outpoint,
                 self.config.protocol_paramset(),
+                dbtx,
             ),
         )
         .await?;
@@ -324,6 +329,7 @@ where
         &self,
         round_idx: RoundIndex,
         operator_xonly_pk: XOnlyPublicKey,
+        dbtx: Option<DatabaseTransaction<'_, '_>>,
     ) -> Result<Vec<(TransactionType, Transaction)>, BridgeError> {
         let context = ContractContext::new_context_for_round(
             operator_xonly_pk,
@@ -339,6 +345,7 @@ where
                 self.db.clone(),
                 operator_xonly_pk,
                 self.config.protocol_paramset(),
+                dbtx,
             ),
         )
         .await?;
@@ -406,6 +413,7 @@ where
         &self,
         assert_data: TransactionRequestData,
         commit_data: Vec<Vec<Vec<u8>>>,
+        dbtx: Option<DatabaseTransaction<'_, '_>>,
     ) -> Result<Vec<(TransactionType, Transaction)>, BridgeError> {
         let deposit_data = self
             .db
@@ -430,6 +438,7 @@ where
                 self.signer.xonly_public_key,
                 assert_data.deposit_outpoint,
                 self.config.protocol_paramset(),
+                dbtx,
             ),
         )
         .await?;
@@ -487,6 +496,7 @@ where
         &self,
         assert_data: TransactionRequestData,
         block_hash: BlockHash,
+        dbtx: Option<DatabaseTransaction<'_, '_>>,
     ) -> Result<(TransactionType, Transaction), BridgeError> {
         let deposit_data = self
             .db
@@ -511,6 +521,7 @@ where
                 assert_data.kickoff_data.operator_xonly_pk,
                 assert_data.deposit_outpoint,
                 self.config.protocol_paramset(),
+                dbtx,
             ),
         )
         .await?;

@@ -29,7 +29,7 @@ use crate::task::entity_metric_publisher::{
 use crate::task::manager::BackgroundTaskManager;
 use crate::task::payout_checker::{PayoutCheckerTask, PAYOUT_CHECKER_POLL_DELAY};
 use crate::task::TaskExt;
-use crate::utils::Last20Bytes;
+use crate::utils::{Last20Bytes, ScriptBufExt};
 use crate::utils::{NamedEntity, TxMetadata};
 use crate::{builder, constants, UTXO};
 use bitcoin::hashes::Hash;
@@ -350,6 +350,7 @@ where
             config.citrea_light_client_prover_url.clone(),
             config.citrea_chain_id,
             None,
+            config.citrea_request_timeout,
         )
         .await?;
 
@@ -538,16 +539,24 @@ where
         bridge_amount_sats: Amount,
         operator_withdrawal_fee_sats: Amount,
     ) -> bool {
-        if withdrawal_amount
+        // Use checked_sub to safely handle potential underflow
+        let withdrawal_diff = match withdrawal_amount
             .to_sat()
-            .wrapping_sub(input_amount.to_sat())
-            > bridge_amount_sats.to_sat()
+            .checked_sub(input_amount.to_sat())
         {
+            Some(diff) => diff,
+            None => return false, // If underflow occurs, it's not profitable
+        };
+
+        if withdrawal_diff > bridge_amount_sats.to_sat() {
             return false;
         }
 
-        // Calculate net profit after the withdrawal.
-        let net_profit = bridge_amount_sats - withdrawal_amount;
+        // Calculate net profit after the withdrawal using checked_sub to prevent panic
+        let net_profit = match bridge_amount_sats.checked_sub(withdrawal_amount) {
+            Some(profit) => profit,
+            None => return false, // If underflow occurs, it's not profitable
+        };
 
         // Net profit must be bigger than withdrawal fee.
         net_profit >= operator_withdrawal_fee_sats
@@ -629,9 +638,11 @@ where
             return Err(eyre::eyre!("Not enough fee for operator").into());
         }
 
-        let user_xonly_pk =
-            XOnlyPublicKey::from_slice(&input_utxo.txout.script_pubkey.as_bytes()[2..34])
-                .wrap_err("Failed to extract xonly public key from input utxo script pubkey")?;
+        let user_xonly_pk = &input_utxo
+            .txout
+            .script_pubkey
+            .try_get_taproot_pk()
+            .wrap_err("Input utxo script pubkey is not a valid taproot script")?;
 
         let payout_txhandler = builder::transaction::create_payout_txhandler(
             input_utxo,
@@ -649,7 +660,7 @@ where
         SECP.verify_schnorr(
             &in_signature,
             &Message::from_digest(*sighash.as_byte_array()),
-            &user_xonly_pk,
+            user_xonly_pk,
         )
         .wrap_err("Failed to verify signature received from user for payout txin")?;
 
@@ -891,6 +902,7 @@ where
             self.config.clone(),
             context,
             Some(payout_tx_blockhash),
+            Some(dbtx),
         )
         .await?;
 
@@ -1219,8 +1231,11 @@ where
             deposit_data.clone(),
             self.config.protocol_paramset(),
         );
-        let mut db_cache =
-            crate::builder::transaction::ReimburseDbCache::from_context(self.db.clone(), &context);
+        let mut db_cache = crate::builder::transaction::ReimburseDbCache::from_context(
+            self.db.clone(),
+            &context,
+            None,
+        );
         let txhandlers = builder::transaction::create_txhandlers(
             TransactionType::Kickoff,
             context,
@@ -1314,20 +1329,18 @@ where
             self.config.protocol_paramset(),
         )?;
 
-        let latest_blockhash = commits
+        let latest_blockhash_last_20: [u8; 20] = commits
             .first()
             .ok_or_eyre("Failed to get latest blockhash in send_asserts")?
-            .to_owned();
+            .to_owned()
+            .try_into()
+            .map_err(|_| eyre::eyre!("Committed latest blockhash is not 20 bytes long"))?;
 
         #[cfg(test)]
-        let latest_blockhash = self
+        let latest_blockhash_last_20 = self
             .config
             .test_params
-            .maybe_disrupt_latest_block_hash_commit(
-                latest_blockhash
-                    .try_into()
-                    .expect("Latest blockhash is 20 bytes long, cannot fail"),
-            );
+            .maybe_disrupt_latest_block_hash_commit(latest_blockhash_last_20);
 
         let rpc_current_finalized_height = self
             .rpc
@@ -1363,7 +1376,7 @@ where
         let latest_blockhash_index = block_hashes
             .iter()
             .position(|(block_hash, _)| {
-                block_hash.to_byte_array()[12..].to_vec() == latest_blockhash
+                block_hash.as_byte_array().last_20_bytes() == latest_blockhash_last_20
             })
             .ok_or_eyre("Failed to find latest blockhash in send_asserts")?;
 
@@ -1560,6 +1573,7 @@ where
                     asserts,
                     &public_inputs.challenge_sending_watchtowers,
                 ),
+                None,
             )
             .await?;
 
@@ -1612,6 +1626,7 @@ where
                     kickoff_data,
                 },
                 latest_blockhash,
+                None,
             )
             .await?;
         if tx_type != TransactionType::LatestBlockhash {
@@ -2155,7 +2170,8 @@ mod states {
             tx_type: TransactionType,
             contract_context: ContractContext,
         ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
-            let mut db_cache = ReimburseDbCache::from_context(self.db.clone(), &contract_context);
+            let mut db_cache =
+                ReimburseDbCache::from_context(self.db.clone(), &contract_context, None);
             let txhandlers = create_txhandlers(
                 tx_type,
                 contract_context,

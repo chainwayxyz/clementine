@@ -10,6 +10,41 @@ pub const TEN_MINUTES_IN_SECS: u32 = 600;
 
 pub const DEFAULT_CHANNEL_SIZE: usize = 1280;
 
+/// The maximum number of nonces that can be generated in a single nonce generation session.
+/// A single nonce takes 132 (musig2 secret nonce) bytes. We calculate NUM_NONCES so that a nonce
+/// session takes at maximum 150MB.
+pub const NUM_NONCES_LIMIT: u32 = 150 * 1_000_000 / MUSIG_SECNONCE_LEN as u32;
+
+/// The maximum number of bytes that can be used by all nonce sessions.
+/// If it exceeds this limit, the verifier will delete the oldest nonce sessions.
+/// This limit is approximate, because it doesn't take into account the internal extra bytes used in
+/// HashMap and VecDeque used in the AllSessions. It only takes into account bytes used for the secnonces.
+pub const MAX_ALL_SESSIONS_BYTES: usize = 2_000_000_000;
+
+/// The maximum number of nonce sessions that can be stored in the verifier.
+/// It is used so that the allsessions do not store too many small (1 nonce) sessions.
+pub const MAX_NUM_SESSIONS: usize = 2000;
+
+use secp256k1::ffi::MUSIG_SECNONCE_LEN;
+/// The maximum number of Winternitz digits per key.
+/// This is used to limit the size of the Winternitz public keys in the protocol
+/// to prevent excessive memory usage and ensure efficient processing.
+/// This value is achieved when signing a 32-byte message with a Winternitz key,
+/// resulting in a maximum of 64 + 4 digits per key, where the last 4 digits are used for
+/// the sum-check operation.
+pub const MAX_WINTERNITZ_DIGITS_PER_KEY: usize = 68;
+
+/// The maximum number of script replacement operations allowed in a single BitVM operation.
+/// This is a safeguard to prevent excessive resource usage and ensure that the BitVM protocol
+/// remains efficient and manageable.
+/// The limit is set to 100,000 operations, which is a reasonable upper bound for
+/// script replacement operations in the context of BitVM, which is normally a constant
+/// equal to 47544.
+pub const MAX_SCRIPT_REPLACEMENT_OPERATIONS: usize = 100_000;
+
+/// The maximum number of bytes per Winternitz key.
+pub const MAX_BYTES_PER_WINTERNITZ_KEY: usize = MAX_WINTERNITZ_DIGITS_PER_KEY * 20;
+
 pub use timeout::*;
 
 mod timeout {
