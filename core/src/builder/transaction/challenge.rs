@@ -3,6 +3,7 @@
 //! This module provides functions for constructing and challenge related transactions in the protocol.
 //! The transactions are: Challenge, ChallengeTimeout, OperatorChallengeNack, OperatorChallengeAck, Disprove.
 
+use crate::builder;
 use crate::builder::script::SpendPath;
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::txhandler::{TxHandler, DEFAULT_SEQUENCE};
@@ -11,7 +12,6 @@ use crate::config::protocol::ProtocolParamset;
 use crate::constants::MIN_TAPROOT_AMOUNT;
 use crate::errors::BridgeError;
 use crate::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind};
-use crate::{builder, EVMAddress};
 use bitcoin::script::PushBytesBuf;
 use bitcoin::{Sequence, TxOut, WitnessVersion};
 use eyre::Context;
@@ -337,10 +337,9 @@ pub fn create_disprove_txhandler(
 pub fn create_challenge_txhandler(
     kickoff_txhandler: &TxHandler,
     operator_reimbursement_address: &bitcoin::Address,
-    challenger_evm_address: Option<EVMAddress>,
     paramset: &'static ProtocolParamset,
 ) -> Result<TxHandler, BridgeError> {
-    let mut builder = TxHandlerBuilder::new(TransactionType::Challenge)
+    Ok(TxHandlerBuilder::new(TransactionType::Challenge)
         .with_version(Version::non_standard(3))
         .add_input(
             NormalSignatureKind::Challenge,
@@ -351,15 +350,8 @@ pub fn create_challenge_txhandler(
         .add_output(UnspentTxOut::from_partial(TxOut {
             value: paramset.operator_challenge_amount,
             script_pubkey: operator_reimbursement_address.script_pubkey(),
-        }));
-
-    if let Some(challenger_evm_address) = challenger_evm_address {
-        builder = builder.add_output(UnspentTxOut::from_partial(op_return_txout(
-            challenger_evm_address.0,
-        )));
-    }
-
-    Ok(builder.finalize())
+        }))
+        .finalize())
 }
 
 /// Creates a [`TxHandler`] for the `challenge_timeout` transaction.

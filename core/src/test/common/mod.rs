@@ -635,14 +635,16 @@ fn sign_replacement_deposit_tx_with_sec_council(
     replacement_deposit: &TxHandler,
     config: &BridgeConfig,
     old_nofn_xonly_pk: XOnlyPublicKey,
-) -> Result<Transaction, BridgeError> {
+) -> Transaction {
     let security_council = config.security_council.clone();
     let multisig_script = Multisig::from_security_council(security_council.clone()).to_script_buf();
-    let sighash = replacement_deposit.calculate_script_spend_sighash(
-        0,
-        &multisig_script,
-        bitcoin::TapSighashType::SinglePlusAnyoneCanPay,
-    )?;
+    let sighash = replacement_deposit
+        .calculate_script_spend_sighash(
+            0,
+            &multisig_script,
+            bitcoin::TapSighashType::SinglePlusAnyoneCanPay,
+        )
+        .unwrap();
 
     // sign using first threshold security council members, for rest do not sign
     let signatures = config
@@ -666,8 +668,9 @@ fn sign_replacement_deposit_tx_with_sec_council(
         })
         .collect::<Vec<_>>();
 
-    let mut witness =
-        Multisig::from_security_council(security_council).generate_script_inputs(&signatures)?;
+    let mut witness = Multisig::from_security_council(security_council)
+        .generate_script_inputs(&signatures)
+        .unwrap();
 
     // calculate address in movetx vault
     let script_buf = CheckSig::new(old_nofn_xonly_pk).to_script_buf();
@@ -677,11 +680,11 @@ fn sign_replacement_deposit_tx_with_sec_council(
         config.protocol_paramset().network,
     );
     // add script path to witness
-    Actor::add_script_path_to_witness(&mut witness, &multisig_script, &spend_info)?;
+    Actor::add_script_path_to_witness(&mut witness, &multisig_script, &spend_info).unwrap();
     let mut tx = replacement_deposit.get_cached_tx().clone();
     // add witness to tx
     tx.input[0].witness = witness;
-    Ok(tx)
+    tx
 }
 
 #[cfg(feature = "automation")]
@@ -709,7 +712,7 @@ async fn send_replacement_deposit_tx<C: CitreaClientT>(
         &replacement_txhandler,
         config,
         old_nofn_xonly_pk,
-    )?;
+    );
 
     let (tx_sender, tx_sender_db) = create_tx_sender(config, 0).await?;
     let mut db_commit = tx_sender_db.begin_transaction().await?;

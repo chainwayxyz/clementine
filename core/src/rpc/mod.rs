@@ -1,15 +1,8 @@
-use crate::{
-    config::BridgeConfig,
-    errors::BridgeError,
-    rpc::clementine::{
-        clementine_operator_client::ClementineOperatorClient,
-        clementine_verifier_client::ClementineVerifierClient,
-    },
-};
+use crate::errors::BridgeError;
 use clementine::*;
 use eyre::Context;
 use hyper_util::rt::TokioIo;
-use std::{path::PathBuf, time::Duration};
+use std::path::PathBuf;
 use tagged_signature::SignatureId;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity, Uri};
 
@@ -64,7 +57,7 @@ pub async fn get_clients<CLIENT, F>(
     use_client_cert: bool,
 ) -> Result<Vec<CLIENT>, BridgeError>
 where
-    F: Fn(Channel) -> CLIENT,
+    F: FnOnce(Channel) -> CLIENT + Copy,
 {
     // Ensure certificates exist in test mode
     #[cfg(test)]
@@ -122,8 +115,6 @@ where
                     ClientTlsConfig::new().ca_certificate(client_ca)
                 };
 
-                let connect = &connect;
-
                 async move {
                     let channel = if endpoint.starts_with("unix://") {
                         #[cfg(unix)]
@@ -163,9 +154,6 @@ where
                         })?;
 
                         Channel::builder(uri)
-                            .timeout(Duration::from_secs(config.grpc.timeout_secs))
-                            .concurrency_limit(config.grpc.req_concurrency_limit)
-                            .keep_alive_timeout(Duration::from_secs(config.grpc.tcp_keepalive_secs))
                             .tls_config(tls_config)
                             .wrap_err("Failed to configure TLS")?
                             .connect_lazy()
@@ -177,26 +165,4 @@ where
             .collect::<Vec<_>>(),
     )
     .await
-}
-
-pub fn operator_client_builder(
-    config: &BridgeConfig,
-) -> impl Fn(Channel) -> ClementineOperatorClient<Channel> {
-    let max_msg_size = config.grpc.max_message_size;
-    move |channel| {
-        ClementineOperatorClient::new(channel)
-            .max_decoding_message_size(max_msg_size)
-            .max_encoding_message_size(max_msg_size)
-    }
-}
-
-pub fn verifier_client_builder(
-    config: &BridgeConfig,
-) -> impl Fn(Channel) -> ClementineVerifierClient<Channel> {
-    let max_msg_size = config.grpc.max_message_size;
-    move |channel| {
-        ClementineVerifierClient::new(channel)
-            .max_decoding_message_size(max_msg_size)
-            .max_encoding_message_size(max_msg_size)
-    }
 }

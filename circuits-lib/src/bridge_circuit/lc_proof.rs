@@ -55,7 +55,6 @@ pub fn check_method_id(
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
     use risc0_zkvm::Receipt;
 
@@ -81,33 +80,5 @@ mod tests {
         println!("LCP Receipt: {:?}", lcp_receipt.clone());
 
         lcp_receipt.verify(REGTEST_LC_IMAGE_ID).unwrap();
-
-        let light_client_proof: LightClientProof = LightClientProof {
-            l2_height: "0x0".to_string(),
-            lc_journal: lcp_receipt.journal.bytes.to_vec(),
-        };
-
-        let light_client_circuit_output: LightClientCircuitOutput =
-            borsh::from_slice(light_client_proof.lc_journal.as_slice())
-                .expect("Failed to deserialize light client circuit output");
-
-        assert!(
-            check_method_id(&light_client_circuit_output, REGTEST_LC_IMAGE_ID),
-            "Light client proof method ID does not match the expected LC image ID"
-        );
-
-        let expected_state_root =
-            "8b1e363db80a6c20eb1a31db96d185eb7d5bb4f1e0ef458eb6ae288d58139ca5";
-        let expected_last_block_hash =
-            "6d378db6ada554cb29e67826a320be79bdd3f2138447c24302d6b31dd8951552";
-
-        assert_eq!(
-            hex::encode(light_client_circuit_output.l2_state_root),
-            expected_state_root
-        );
-        assert_eq!(
-            hex::encode(light_client_circuit_output.latest_da_state.block_hash),
-            expected_last_block_hash
-        );
     }
 }

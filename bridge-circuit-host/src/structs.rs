@@ -372,10 +372,6 @@ pub fn get_all_pubkeys(
     for i in (start_index..end_index).step_by(2) {
         let output = &kickoff_tx.output[i];
 
-        if !output.script_pubkey.is_p2tr() {
-            return Err(BridgeCircuitHostParamsError::InvalidPubkey);
-        }
-
         let xonly_public_key = XOnlyPublicKey::from_slice(&output.script_pubkey.as_bytes()[2..34])
             .map_err(|_| BridgeCircuitHostParamsError::InvalidPubkey)?;
 

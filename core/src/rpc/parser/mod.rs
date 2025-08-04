@@ -4,7 +4,6 @@ use super::clementine::{
 };
 use super::error;
 use crate::builder::transaction::sign::TransactionRequestData;
-use crate::constants::{MAX_BYTES_PER_WINTERNITZ_KEY, MAX_WINTERNITZ_DIGITS_PER_KEY};
 use crate::deposit::{
     Actors, BaseDepositData, DepositData, DepositInfo, DepositType, ReplacementDepositData,
     SecurityCouncil,
@@ -31,8 +30,6 @@ pub enum ParserError {
     RPCRequiredParam(&'static str),
     #[error("RPC function parameter {0} is malformed")]
     RPCParamMalformed(String),
-    #[error("RPC function parameter {0} is oversized: {1}")]
-    RPCParamOversized(String, usize),
 }
 
 impl From<ParserError> for tonic::Status {
@@ -44,10 +41,6 @@ impl From<ParserError> for tonic::Status {
             ParserError::RPCParamMalformed(field) => {
                 Status::invalid_argument(format!("RPC function parameter {} is malformed.", field))
             }
-            ParserError::RPCParamOversized(field, size) => Status::invalid_argument(format!(
-                "RPC function parameter {} is oversized: {}",
-                field, size
-            )),
         }
     }
 }
@@ -179,23 +172,6 @@ impl TryFrom<WinternitzPubkey> for winternitz::PublicKey {
 
     fn try_from(value: WinternitzPubkey) -> Result<Self, Self::Error> {
         let inner = value.digit_pubkey;
-
-        // Add reasonable size limit per key
-        if inner.len() > MAX_WINTERNITZ_DIGITS_PER_KEY {
-            return Err(BridgeError::Parser(ParserError::RPCParamOversized(
-                "digit_pubkey".to_string(),
-                inner.len(),
-            )));
-        }
-
-        // Add total memory limit check
-        let total_bytes = inner.len() * 20;
-        if total_bytes > MAX_BYTES_PER_WINTERNITZ_KEY {
-            return Err(BridgeError::Parser(ParserError::RPCParamOversized(
-                "digit_pubkey".to_string(),
-                inner.len(),
-            )));
-        }
 
         inner
             .into_iter()

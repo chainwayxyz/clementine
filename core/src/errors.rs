@@ -123,8 +123,8 @@ pub enum BridgeError {
     VerifierNotFound(PublicKey),
     #[error("Deposit not found in DB: {0:?}")]
     DepositNotFound(OutPoint),
-    #[error("Deposit is invalid due to {0}")]
-    InvalidDeposit(String),
+    #[error("Deposit is invalid")]
+    InvalidDeposit,
     #[error("Operator data mismatch. Data already stored in DB and received by set_operator doesn't match for xonly_pk: {0}")]
     OperatorDataMismatch(XOnlyPublicKey),
     #[error("Deposit data mismatch. Data already stored in DB doesn't match the new data for deposit {0:?}")]
@@ -133,8 +133,6 @@ pub enum BridgeError {
     OperatorWinternitzPublicKeysMismatch(XOnlyPublicKey),
     #[error("BitVM setup data mismatch. Data already stored in DB doesn't match the new data for operator {0} and deposit {1:?}")]
     BitvmSetupDataMismatch(XOnlyPublicKey, OutPoint),
-    #[error("BitVM replacement data will exhaust memory. The maximum number of operations is {0}")]
-    BitvmReplacementResourceExhaustion(usize),
     #[error("Operator challenge ack hashes mismatch. Data already stored in DB doesn't match the new data for operator {0} and deposit {1:?}")]
     OperatorChallengeAckHashesMismatch(XOnlyPublicKey, OutPoint),
     #[error("Invalid BitVM public keys")]
@@ -169,11 +167,6 @@ pub enum BridgeError {
     CLIDisplayAndExit(StyledStr),
     #[error(transparent)]
     RPC(#[from] Status),
-
-    #[error("Arithmetic overflow occurred: {0}")]
-    ArithmeticOverflow(&'static str),
-    #[error("Insufficient funds: {0}")]
-    InsufficientFunds(&'static str),
 
     // Base wrapper for eyre
     #[error(transparent)]

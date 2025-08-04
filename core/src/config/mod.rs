@@ -20,7 +20,6 @@ use protocol::ProtocolParamset;
 use secrecy::SecretString;
 use serde::Deserialize;
 use std::str::FromStr;
-use std::time::Duration;
 use std::{fs::File, io::Read, path::PathBuf};
 
 pub mod env;
@@ -79,8 +78,6 @@ pub struct BridgeConfig {
     pub citrea_light_client_prover_url: String,
     /// Citrea's EVM Chain ID.
     pub citrea_chain_id: u32,
-    /// Timeout in seconds for Citrea RPC calls.
-    pub citrea_request_timeout: Option<Duration>,
     /// Bridge contract address.
     pub bridge_contract_address: String,
     // Initial header chain proof receipt's file path.
@@ -148,31 +145,6 @@ pub struct BridgeConfig {
     #[cfg(test)]
     #[serde(skip)]
     pub test_params: test::TestParams,
-
-    /// gRPC client/server limits
-    #[serde(default = "default_grpc_limits")]
-    pub grpc: GrpcLimits,
-}
-
-#[derive(Debug, Clone, Deserialize, PartialEq)]
-pub struct GrpcLimits {
-    pub max_message_size: usize,
-    pub timeout_secs: u64,
-    pub tcp_keepalive_secs: u64,
-    pub req_concurrency_limit: usize,
-    pub ratelimit_req_count: usize,
-    pub ratelimit_req_interval_secs: u64,
-}
-
-fn default_grpc_limits() -> GrpcLimits {
-    GrpcLimits {
-        max_message_size: 4 * 1024 * 1024,
-        timeout_secs: 12 * 60 * 60, // 12 hours
-        tcp_keepalive_secs: 60,
-        req_concurrency_limit: 300, // 100 deposits at the same time
-        ratelimit_req_count: 1000,
-        ratelimit_req_interval_secs: 60,
-    }
 }
 
 impl BridgeConfig {
@@ -255,8 +227,7 @@ impl PartialEq for BridgeConfig {
             && self.ca_cert_path == other.ca_cert_path
             && self.client_verification == other.client_verification
             && self.aggregator_cert_path == other.aggregator_cert_path
-            && self.test_params == other.test_params
-            && self.grpc == other.grpc;
+            && self.test_params == other.test_params;
 
         all_eq
     }
@@ -292,7 +263,6 @@ impl Default for BridgeConfig {
             citrea_light_client_prover_url: "".to_string(),
             citrea_chain_id: 5655,
             bridge_contract_address: "3100000000000000000000000000000000000002".to_string(),
-            citrea_request_timeout: None,
 
             header_chain_proof_path: None,
 
@@ -344,9 +314,6 @@ impl Default for BridgeConfig {
 
             #[cfg(test)]
             test_params: test::TestParams::default(),
-
-            // New hardening parameters, optional so they don't break existing configs.
-            grpc: default_grpc_limits(),
         }
     }
 }

@@ -184,7 +184,7 @@ impl Aggregator {
         // Create clients to connect to all verifiers
         let verifier_clients = rpc::get_clients(
             verifier_endpoints,
-            crate::rpc::verifier_client_builder(&config),
+            ClementineVerifierClient::new,
             &config,
             true,
         )
@@ -193,7 +193,7 @@ impl Aggregator {
         // Create clients to connect to all operators
         let operator_clients = rpc::get_clients(
             operator_endpoints,
-            crate::rpc::operator_client_builder(&config),
+            ClementineOperatorClient::new,
             &config,
             true,
         )

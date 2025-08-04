@@ -11,7 +11,6 @@ use super::script::{
 use crate::bitvm_client::SECP;
 use crate::deposit::SecurityCouncil;
 use crate::errors::BridgeError;
-use crate::utils::ScriptBufExt;
 use crate::{bitvm_client, EVMAddress};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::{
@@ -166,9 +165,9 @@ pub fn generate_deposit_address(
         .assume_checked()
         .script_pubkey();
 
-    let recovery_extracted_xonly_pk = recovery_script_pubkey
-        .try_get_taproot_pk()
-        .wrap_err("Recovery taproot address is not a valid taproot address")?;
+    let recovery_extracted_xonly_pk =
+        XOnlyPublicKey::from_slice(&recovery_script_pubkey.as_bytes()[2..34])
+            .wrap_err("Failed to extract xonly public key from recovery taproot address")?;
 
     let script_timelock =
         TimelockScript::new(Some(recovery_extracted_xonly_pk), user_takes_after).to_script_buf();

@@ -232,7 +232,7 @@ pub fn create_nofn_sighash_stream(
                 deposit_data.get_deposit_outpoint(),
             );
             // need to create new TxHandlerDbData for each operator
-            let mut tx_db_data = ReimburseDbCache::new_for_deposit(db.clone(), *op_xonly_pk, deposit_data.get_deposit_outpoint(), config.protocol_paramset(), None);
+            let mut tx_db_data = ReimburseDbCache::new_for_deposit(db.clone(), *op_xonly_pk, deposit_data.get_deposit_outpoint(), config.protocol_paramset());
 
             let mut txhandler_cache = TxHandlerCache::new();
 
@@ -319,7 +319,7 @@ pub fn create_operator_sighash_stream(
     deposit_blockhash: bitcoin::BlockHash,
 ) -> impl Stream<Item = Result<(TapSighash, SignatureInfo), BridgeError>> {
     try_stream! {
-        let mut tx_db_data = ReimburseDbCache::new_for_deposit(db.clone(), operator_xonly_pk, deposit_data.get_deposit_outpoint(), config.protocol_paramset(), None);
+        let mut tx_db_data = ReimburseDbCache::new_for_deposit(db.clone(), operator_xonly_pk, deposit_data.get_deposit_outpoint(), config.protocol_paramset());
 
         let operator = db.get_operator(None, operator_xonly_pk).await?;
 
