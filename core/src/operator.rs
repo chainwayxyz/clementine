@@ -35,9 +35,7 @@ use crate::{builder, constants, UTXO};
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::{schnorr, Message};
-use bitcoin::{
-    Address, Amount, BlockHash, OutPoint, ScriptBuf, Transaction, TxOut, Txid, XOnlyPublicKey,
-};
+use bitcoin::{Address, Amount, BlockHash, OutPoint, ScriptBuf, Transaction, TxOut, Txid};
 use bitcoincore_rpc::json::AddressType;
 use bitcoincore_rpc::RpcApi;
 use bitvm::chunk::api::generate_assertions;
@@ -1708,15 +1706,19 @@ where
 
     async fn get_next_txs_to_send(
         &self,
-        dbtx: Option<DatabaseTransaction<'_, '_>>,
+        mut dbtx: Option<DatabaseTransaction<'_, '_>>,
         deposit_data: &DepositData,
         payout_blockhash: BlockHash,
         kickoff_txid: Txid,
-        kickoff_round_idx: RoundIndex,
-        kickoff_connector_idx: u32,
         current_round_idx: RoundIndex,
     ) -> Result<Vec<(TransactionType, Transaction)>, BridgeError> {
         let mut txs_to_send = Vec::new();
+
+        // get used kickoff connector for the kickoff txid
+        let (kickoff_round_idx, kickoff_connector_idx) = self
+            .db
+            .get_kickoff_connector_for_kickoff_txid(dbtx.as_deref_mut(), kickoff_txid)
+            .await?;
 
         let context = ContractContext::new_context_for_kickoff(
             KickoffData {
@@ -1735,6 +1737,7 @@ where
             self.config.clone(),
             context,
             Some(payout_blockhash.to_byte_array().last_20_bytes()),
+            dbtx.as_deref_mut(),
         )
         .await?;
 
@@ -1850,26 +1853,35 @@ where
             .validate_payer_is_operator(Some(&mut dbtx), deposit_id)
             .await?;
 
-        // get used kickoff connector for the kickoff txid
-        let (kickoff_round_idx, kickoff_connector_idx) = self
-            .db
-            .get_kickoff_connector_for_kickoff_txid(Some(&mut dbtx), kickoff_txid)
-            .await?;
+        let mut current_round_idx = RoundIndex::from_index(
+            self.db.get_current_round_index(Some(&mut dbtx)).await? as usize,
+        );
 
-        let current_round_idx =
-            RoundIndex::from_index(self.db.get_current_round_index(None).await? as usize);
+        let mut txs_to_send: Vec<(TransactionType, Transaction)>;
 
-        let txs_to_send = self
-            .get_next_txs_to_send(
-                Some(&mut dbtx),
-                &deposit_data,
-                payout_blockhash,
-                kickoff_txid,
-                kickoff_round_idx,
-                kickoff_connector_idx,
-                current_round_idx,
-            )
-            .await?;
+        loop {
+            txs_to_send = self
+                .get_next_txs_to_send(
+                    Some(&mut dbtx),
+                    &deposit_data,
+                    payout_blockhash,
+                    kickoff_txid,
+                    current_round_idx,
+                )
+                .await?;
+            if txs_to_send.is_empty() {
+                // if no txs were returned, and we advanced the round in the db, ask for the next txs again
+                // with the new round index
+                let round_idx_now = RoundIndex::from_index(
+                    self.db.get_current_round_index(Some(&mut dbtx)).await? as usize,
+                );
+                if round_idx_now != current_round_idx {
+                    current_round_idx = round_idx_now;
+                    continue;
+                }
+            }
+            break;
+        }
 
         dbtx.commit().await?;
         Ok(txs_to_send)
@@ -1879,7 +1891,7 @@ where
     /// able to advance to the next round.
     async fn advance_round_manually(
         &self,
-        dbtx: Option<DatabaseTransaction<'_, '_>>,
+        mut dbtx: Option<DatabaseTransaction<'_, '_>>,
         round_idx: RoundIndex,
     ) -> Result<Vec<(TransactionType, Transaction)>, BridgeError> {
         // get round txhandlers
@@ -1895,6 +1907,7 @@ where
             self.config.clone(),
             context,
             None,
+            dbtx.as_deref_mut(),
         )
         .await?;
 
@@ -1940,7 +1953,12 @@ where
                     // set the kickoff connector as used (it will do nothing if the utxo is already in db, so it won't overwrite the kickoff txid)
                     // mark so that we don't try to use this utxo anymore
                     self.db
-                        .set_kickoff_connector_as_used(None, round_idx, kickoff_idx as u32, None)
+                        .set_kickoff_connector_as_used(
+                            dbtx.as_deref_mut(),
+                            round_idx,
+                            kickoff_idx as u32,
+                            None,
+                        )
                         .await?;
                 }
             }
@@ -1995,7 +2013,7 @@ where
                     let kickoff_txid = self
                         .db
                         .get_kickoff_txid_for_used_kickoff_connector(
-                            None,
+                            dbtx.as_deref_mut(),
                             round_idx,
                             kickoff_idx as u32,
                         )
@@ -2003,7 +2021,10 @@ where
                     if let Some(kickoff_txid) = kickoff_txid {
                         let deposit_outpoint = self
                             .db
-                            .get_deposit_outpoint_for_kickoff_txid(None, kickoff_txid)
+                            .get_deposit_outpoint_for_kickoff_txid(
+                                dbtx.as_deref_mut(),
+                                kickoff_txid,
+                            )
                             .await?;
                         if !self.rpc.is_tx_on_chain(&kickoff_txid).await? {
                             return Err(eyre::eyre!("For round {:?} and kickoff utxo {:?}, the kickoff tx {:?} is not on chain, 
@@ -2039,6 +2060,7 @@ where
                 self.config.clone(),
                 next_round_context,
                 None,
+                dbtx.as_deref_mut(),
             )
             .await?;
             let next_round_tx = next_round_txs
@@ -2053,7 +2075,7 @@ where
             } else {
                 // if next round tx is on chain, we need to update the database
                 self.db
-                    .update_current_round_index(None, round_idx.next_round())
+                    .update_current_round_index(dbtx, round_idx.next_round())
                     .await?;
             }
         }
