@@ -7,6 +7,9 @@ use x25519_dalek::{
     EphemeralSecret, PublicKey as X25519PublicKey, StaticSecret as X25519StaticSecret,
 };
 
+const MIN_ENCRYPTED_LEN: usize = 56;
+const EPHEMERAL_PUBKEY_LEN: usize = 32;
+
 /// Encrypts a message for a recipient using X25519 key agreement and XChaCha20Poly1305 authenticated encryption.
 ///
 /// # Parameters

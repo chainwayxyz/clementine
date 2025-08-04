@@ -728,9 +728,7 @@ impl Aggregator {
         let emergency_stop_pubkey = self
             .config
             .emergency_stop_encryption_public_key
-            .ok_or_else(|| {
-                BridgeError::Other("Emergency stop encryption public key is not set".to_string())
-            })?;
+            .ok_or_else(|| eyre::eyre!("Emergency stop encryption public key is not set"))?;
         let encrypted_emergency_stop_tx = crate::encryption::encrypt_bytes(
             emergency_stop_pubkey,
             &bitcoin::consensus::serialize(&emergency_stop_tx),
