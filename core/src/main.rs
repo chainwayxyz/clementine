@@ -83,20 +83,32 @@ async fn main() {
     if let Some(command) = args.command {
         match command {
             cli::Commands::DumpConfig => {
-                println!("Configuration: {:#?}", config);
                 let rpc = ExtendedRpc::connect(
-                    config.bitcoin_rpc_url,
-                    config.bitcoin_rpc_user,
-                    config.bitcoin_rpc_password,
+                    config.bitcoin_rpc_url.clone(),
+                    config.bitcoin_rpc_user.clone(),
+                    config.bitcoin_rpc_password.clone(),
                 )
                 .await
                 .expect("Failed to connect to Bitcoin RPC");
-                let addresses = rpc
+                let unspents = rpc
                     .client
-                    .get_node_addresses(None)
+                    .list_unspent(None, None, None, None, None)
                     .await
-                    .expect("Failed to get node addresses");
-                println!("Node addresses: {:#?}", addresses);
+                    .expect("Failed to get unspent outputs");
+                let mut addresses = vec![];
+                // iter unspents and find different addresses than put them in addresses
+                for unspent in unspents {
+                    if let Some(address) = unspent.address {
+                        let serialized_address = address.assume_checked().to_string();
+
+                        if !addresses.contains(&serialized_address) {
+                            addresses.push(serialized_address);
+                        }
+                    }
+                }
+
+                println!("Configuration: {:#?}", config);
+                println!("Bitcoin node addresses: {:?}", addresses);
                 return;
             }
         }
