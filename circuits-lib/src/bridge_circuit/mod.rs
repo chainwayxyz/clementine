@@ -149,7 +149,6 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
     let (max_total_work, challenge_sending_watchtowers) =
         total_work_and_watchtower_flags(&input, &work_only_image_id);
 
-    // Why is that 32 bytes in the first place?
     let total_work: TotalWork = input.hcp.chain_state.total_work[16..32]
         .try_into()
         .expect("Cannot fail");
@@ -237,10 +236,8 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
     let latest_blockhash: LatestBlockhash = input.hcp.chain_state.best_block_hash[12..32]
         .try_into()
         .unwrap();
-    let payout_tx_blockhash: PayoutTxBlockhash = input.payout_spv.block_header.compute_block_hash()
-        [12..32]
-        .try_into()
-        .unwrap();
+
+    let payout_tx_blockhash: PayoutTxBlockhash = spv_l1_block_hash[12..32].try_into().unwrap();
 
     let journal_hash = journal_hash(
         payout_tx_blockhash,
