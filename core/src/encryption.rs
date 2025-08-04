@@ -7,6 +7,20 @@ use x25519_dalek::{
     EphemeralSecret, PublicKey as X25519PublicKey, StaticSecret as X25519StaticSecret,
 };
 
+/// Encrypts a message for a recipient using X25519 key agreement and XChaCha20Poly1305 authenticated encryption.
+///
+/// # Parameters
+/// - `recipient_pubkey`: The recipient's X25519 public key as a 32-byte array.
+/// - `message`: The plaintext message to encrypt.
+///
+/// # Returns
+/// Returns a `Result` containing the encrypted message as a `Vec<u8>`, or an error.
+/// The output format is: `[ephemeral_public_key (32 bytes)] || [nonce (24 bytes)] || [ciphertext (variable length)]`.
+///
+/// # Encryption Scheme
+/// - Uses X25519 to perform an ECDH key agreement between a randomly generated ephemeral key and the recipient's public key.
+/// - The shared secret is used as the key for XChaCha20Poly1305 authenticated encryption.
+/// - The output includes the ephemeral public key and nonce required for decryption.
 pub fn encrypt_bytes(recipient_pubkey: [u8; 32], message: &[u8]) -> Result<Vec<u8>, eyre::Report> {
     let recipient_pubkey = X25519PublicKey::from(recipient_pubkey);
 
