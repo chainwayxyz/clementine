@@ -21,11 +21,7 @@ pub enum Actors {
     Verifier,
     Operator,
     Aggregator,
-}
-
-#[derive(Debug, Clone, Copy, ValueEnum, Eq, PartialEq)]
-pub enum Commands {
-    DumpConfig,
+    TestActor,
 }
 
 /// Clementine (C) 2025 Chainway Limited
@@ -34,8 +30,6 @@ pub enum Commands {
 pub struct Args {
     /// Actor to run.
     pub actor: Actors,
-    /// Optional commands.
-    pub command: Option<Commands>,
     /// TOML formatted configuration file.
     #[arg(short, long)]
     pub config: Option<PathBuf>,
