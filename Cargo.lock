@@ -2129,6 +2129,7 @@ name = "clementine-core"
 version = "0.3.1"
 dependencies = [
  "alloy",
+ "alloy-sol-types",
  "ark-bn254",
  "ark-ff 0.5.0",
  "ark-groth16",
