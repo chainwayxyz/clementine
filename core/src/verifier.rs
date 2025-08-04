@@ -1069,7 +1069,7 @@ where
 
                 tracing::debug!(
                     "Verifying Final operator signature {} for operator {}, signature info {:?}",
-                    nonce_idx + 1,
+                    op_sig_count + 1,
                     operator_idx,
                     typed_sighash.1
                 );
