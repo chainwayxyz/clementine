@@ -576,17 +576,19 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
                         println!("Round tx is on chain, time to send the kickoff tx. This tx is non-standard and cannot be sent by using normal Bitcoin RPC");
                     }
                     TransactionType::BurnUnusedKickoffConnectors => {
-                        println!("To be able to send ready to reimburse tx, all unused kickoff connectors must be burned, otherwise the operator will get slashed");
+                        println!("To be able to send ready to reimburse tx, all unused kickoff connectors must be burned, otherwise the operator will get slashed.
+                        This tx is standard and requires CPFP to be sent (last output is the anchor output)");
                     }
                     TransactionType::ReadyToReimburse => {
                         println!("All unused kickoff connectors are burned, and all live kickoffs kickoff finalizer utxo's are 
-                        spent, meaning it is safe to send ready to reimburse tx");
+                        spent, meaning it is safe to send ready to reimburse tx. This tx is standard and requires CPFP to be sent (last output is the anchor output)");
                     }
                     TransactionType::Reimburse => {
-                        println!("Next round tx is sent, so the reimbursement tx is now ready to be sent");
+                        println!("Reimburse tx is ready to be sent. This tx is standard and requires CPFP to be sent (last output is the anchor output)");
                     }
                     TransactionType::ChallengeTimeout => {
-                        println!("After kickoff, challenge timeout tx needs to be sent. Due to the timelock, it can only be sent after {} blocks pass from the kickoff tx {:?}", 
+                        println!("After kickoff, challenge timeout tx needs to be sent. Due to the timelock, it can only be sent after {} blocks pass from the kickoff tx {:?}. 
+                        This tx is standard and requires CPFP to be sent (last output is the anchor output)", 
                         config.protocol_paramset.operator_challenge_timeout_timelock, transaction.input[0].previous_output.txid);
                     }
                     TransactionType::Round => {
