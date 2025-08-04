@@ -725,10 +725,11 @@ impl Aggregator {
 
         tracing::debug!("Move to vault tx id: {}", move_to_vault_txid.to_string());
 
+        let emergency_stop_pubkey = self.config
+            .emergency_stop_encryption_public_key
+            .ok_or_else(|| BridgeError::Other("Emergency stop encryption public key is not set".to_string()))?;
         let encrypted_emergency_stop_tx = crate::encryption::encrypt_bytes(
-            self.config
-                .emergency_stop_encryption_public_key
-                .expect("Emergency stop encryption public key is not set"),
+            emergency_stop_pubkey,
             &bitcoin::consensus::serialize(&emergency_stop_tx),
         )?;
 
