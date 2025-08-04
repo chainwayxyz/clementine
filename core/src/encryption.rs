@@ -47,16 +47,16 @@ pub fn encrypt_bytes(recipient_pubkey: [u8; 32], message: &[u8]) -> Result<Vec<u
 }
 
 pub fn decrypt_bytes(recipient_privkey: &[u8], encrypted: &[u8]) -> Result<Vec<u8>, eyre::Report> {
-    if encrypted.len() < 56 {
+    if encrypted.len() < MIN_ENCRYPTED_LEN {
         return Err(eyre::eyre!("Invalid encrypted length"));
     }
 
-    let ephemeral_pubkey_bytes: [u8; 32] = encrypted[0..32]
+    let ephemeral_pubkey_bytes: [u8; EPHEMERAL_PUBKEY_LEN] = encrypted[0..EPHEMERAL_PUBKEY_LEN]
         .try_into()
         .map_err(|_| eyre::eyre!("Invalid ephemeral public key length"))?;
     let ephemeral_pubkey = X25519PublicKey::from(ephemeral_pubkey_bytes);
-    let nonce = XNonce::from_slice(&encrypted[32..56]);
-    let ciphertext = &encrypted[56..];
+    let nonce = XNonce::from_slice(&encrypted[EPHEMERAL_PUBKEY_LEN..MIN_ENCRYPTED_LEN]);
+    let ciphertext = &encrypted[MIN_ENCRYPTED_LEN..];
 
     let recipient_priv_bytes: [u8; 32] = recipient_privkey
         .try_into()
