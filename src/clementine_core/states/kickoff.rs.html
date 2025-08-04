@@ -726,7 +726,40 @@
 <a href="#725" id="725">725</a>
 <a href="#726" id="726">726</a>
 <a href="#727" id="727">727</a>
-<a href="#728" id="728">728</a></pre></div><pre class="rust"><code><span class="kw">use </span>std::collections::{HashMap, HashSet};
+<a href="#728" id="728">728</a>
+<a href="#729" id="729">729</a>
+<a href="#730" id="730">730</a>
+<a href="#731" id="731">731</a>
+<a href="#732" id="732">732</a>
+<a href="#733" id="733">733</a>
+<a href="#734" id="734">734</a>
+<a href="#735" id="735">735</a>
+<a href="#736" id="736">736</a>
+<a href="#737" id="737">737</a>
+<a href="#738" id="738">738</a>
+<a href="#739" id="739">739</a>
+<a href="#740" id="740">740</a>
+<a href="#741" id="741">741</a>
+<a href="#742" id="742">742</a>
+<a href="#743" id="743">743</a>
+<a href="#744" id="744">744</a>
+<a href="#745" id="745">745</a>
+<a href="#746" id="746">746</a>
+<a href="#747" id="747">747</a>
+<a href="#748" id="748">748</a>
+<a href="#749" id="749">749</a>
+<a href="#750" id="750">750</a>
+<a href="#751" id="751">751</a>
+<a href="#752" id="752">752</a>
+<a href="#753" id="753">753</a>
+<a href="#754" id="754">754</a>
+<a href="#755" id="755">755</a>
+<a href="#756" id="756">756</a>
+<a href="#757" id="757">757</a>
+<a href="#758" id="758">758</a>
+<a href="#759" id="759">759</a>
+<a href="#760" id="760">760</a>
+<a href="#761" id="761">761</a></pre></div><pre class="rust"><code><span class="kw">use </span>std::collections::{HashMap, HashSet};
 
 <span class="kw">use </span>bitcoin::{OutPoint, Transaction, Witness};
 <span class="kw">use </span>eyre::Context;
@@ -769,9 +802,7 @@
         assert_outpoint: OutPoint,
     },
     <span class="doccomment">/// Event that is dispatched when a watchtower challenge timeout is detected in Bitcoin
-    </span>WatchtowerChallengeTimeoutSent {
-        watchtower_idx: usize,
-    },
+    </span>WatchtowerChallengeTimeoutSent { watchtower_idx: usize },
     <span class="doccomment">/// Event that is dispatched when an operator challenge ack is detected in Bitcoin
     /// Operator challenge acks are sent by operators to acknowledge watchtower challenges
     </span>OperatorChallengeAckSent {
@@ -779,15 +810,20 @@
         challenge_ack_outpoint: OutPoint,
     },
     <span class="doccomment">/// Event that is dispatched when the latest blockhash is detected in Bitcoin
-    </span>LatestBlockHashSent {
-        latest_blockhash_outpoint: OutPoint,
-    },
+    </span>LatestBlockHashSent { latest_blockhash_outpoint: OutPoint },
     <span class="doccomment">/// Event that is dispatched when the kickoff finalizer is spent in Bitcoin
     /// Irrespective of whether the kickoff is malicious or not, the kickoff process is finished when the kickoff finalizer is spent.
     </span>KickoffFinalizerSpent,
     <span class="doccomment">/// Event that is dispatched when the burn connector is spent in Bitcoin
     </span>BurnConnectorSpent,
-    TimeToSendWatchtowerChallenge,
+    <span class="doccomment">/// Vvent that is used to indicate that it is time for the owner to send latest blockhash tx.
+    /// Matcher for this event is created after all watchtower challenge utxos are spent.
+    /// Latest blockhash is sent some blocks after all watchtower challenge utxos are spent, so that the total work until the block commiitted
+    /// in latest blockhash is definitely higher than the highest work in valid watchtower challenges.
+    </span>TimeToSendLatestBlockhash,
+    <span class="doccomment">/// Event that is used to indicate that it is time for the owner to send watchtower challenge tx.
+    /// Watchtower challenges are sent after some blocks pass since the kickoff tx, so that the total work in the watchtower challenge is as high as possible.
+    </span>TimeToSendWatchtowerChallenge,
     <span class="doccomment">/// Special event that is used to indicate that the state machine has been saved to the database and the dirty flag should be reset to false
     </span>SavedToDb,
 }
@@ -944,30 +980,26 @@
         }
     }
 
-    <span class="doccomment">/// Checks if the latest blockhash is ready to be committed on Bitcoin
-    /// The check is done by checking if all watchtower challenge utxos are spent
-    /// If the check is successful, the latest blockhash is committed on Bitcoin
-    </span><span class="kw">async fn </span>commit_latest_blockhash_if_ready(<span class="kw-2">&amp;mut </span><span class="self">self</span>, context: <span class="kw-2">&amp;mut </span>StateContext&lt;T&gt;) {
+    <span class="doccomment">/// Checks if the latest blockhash is ready to be committed on Bitcoin.
+    /// The check is done by checking if all watchtower challenge utxos are spent.
+    /// If the check is successful, the a new matcher is created to send latest blockhash tx after finality depth blocks pass from current block height.
+    </span><span class="kw">async fn </span>create_matcher_for_latest_blockhash_if_ready(
+        <span class="kw-2">&amp;mut </span><span class="self">self</span>,
+        context: <span class="kw-2">&amp;mut </span>StateContext&lt;T&gt;,
+    ) {
         context
             .capture_error(<span class="kw">async </span>|context| {
                 {
                     <span class="comment">// if all watchtower challenge utxos are spent, its safe to send latest blockhash commit tx
                     </span><span class="kw">if </span><span class="self">self</span>.spent_watchtower_utxos.len() == <span class="self">self</span>.deposit_data.get_num_watchtowers()
                     {
-                        context
-                            .owner
-                            .handle_duty(Duty::SendLatestBlockhash {
-                                kickoff_data: <span class="self">self</span>.kickoff_data,
-                                deposit_data: <span class="self">self</span>.deposit_data.clone(),
-                                latest_blockhash: context
-                                    .cache
-                                    .block
-                                    .as_ref()
-                                    .ok_or(<span class="macro">eyre::eyre!</span>(<span class="string">"Block object not found in block cache"</span>))<span class="question-mark">?
-                                    </span>.header
-                                    .block_hash(),
-                            })
-                            .<span class="kw">await</span><span class="question-mark">?</span>;
+                        <span class="comment">// create a matcher to send latest blockhash tx after finality depth blocks pass from current block height
+                        </span><span class="self">self</span>.matchers.insert(
+                            Matcher::BlockHeight(
+                                context.cache.block_height + context.paramset.finality_depth,
+                            ),
+                            KickoffEvent::TimeToSendLatestBlockhash,
+                        );
                     }
                     <span class="prelude-val">Ok</span>::&lt;(), BridgeError&gt;(())
                 }
@@ -1058,6 +1090,31 @@
             .<span class="kw">await</span>;
     }
 
+    <span class="kw">async fn </span>send_latest_blockhash(<span class="kw-2">&amp;mut </span><span class="self">self</span>, context: <span class="kw-2">&amp;mut </span>StateContext&lt;T&gt;) {
+        context
+            .capture_error(<span class="kw">async </span>|context| {
+                {
+                    context
+                        .owner
+                        .handle_duty(Duty::SendLatestBlockhash {
+                            kickoff_data: <span class="self">self</span>.kickoff_data,
+                            deposit_data: <span class="self">self</span>.deposit_data.clone(),
+                            latest_blockhash: context
+                                .cache
+                                .block
+                                .as_ref()
+                                .ok_or(<span class="macro">eyre::eyre!</span>(<span class="string">"Block object not found in block cache"</span>))<span class="question-mark">?
+                                </span>.header
+                                .block_hash(),
+                        })
+                        .<span class="kw">await</span><span class="question-mark">?</span>;
+                    <span class="prelude-val">Ok</span>::&lt;(), BridgeError&gt;(())
+                }
+                .wrap_err(<span class="self">self</span>.kickoff_meta(<span class="string">"on send_latest_blockhash"</span>))
+            })
+            .<span class="kw">await</span>;
+    }
+
     <span class="kw">async fn </span>unhandled_event(<span class="kw-2">&amp;mut </span><span class="self">self</span>, context: <span class="kw-2">&amp;mut </span>StateContext&lt;T&gt;, event: <span class="kw-2">&amp;</span>KickoffEvent) {
         context
             .capture_error(<span class="kw">async </span>|_context| {
@@ -1111,6 +1168,7 @@
             | KickoffEvent::BurnConnectorSpent
             | KickoffEvent::WatchtowerChallengeTimeoutSent { .. }
             | KickoffEvent::LatestBlockHashSent { .. }
+            | KickoffEvent::TimeToSendLatestBlockhash
             | KickoffEvent::SavedToDb =&gt; Super,
             KickoffEvent::TimeToSendWatchtowerChallenge =&gt; {
                 <span class="self">self</span>.send_watchtower_challenge(context).<span class="kw">await</span>;
@@ -1146,7 +1204,8 @@
                 <span class="comment">// save challenge witness
                 </span><span class="self">self</span>.watchtower_challenges
                     .insert(<span class="kw-2">*</span>watchtower_idx, tx.clone());
-                <span class="self">self</span>.commit_latest_blockhash_if_ready(context).<span class="kw">await</span>;
+                <span class="self">self</span>.create_matcher_for_latest_blockhash_if_ready(context)
+                    .<span class="kw">await</span>;
                 <span class="self">self</span>.disprove_if_ready(context).<span class="kw">await</span>;
                 Handled
             }
@@ -1199,7 +1258,8 @@
             // set the watchtower utxo as spent and check if the latest blockhash can be committed
             </span>KickoffEvent::WatchtowerChallengeTimeoutSent { watchtower_idx } =&gt; {
                 <span class="self">self</span>.spent_watchtower_utxos.insert(<span class="kw-2">*</span>watchtower_idx);
-                <span class="self">self</span>.commit_latest_blockhash_if_ready(context).<span class="kw">await</span>;
+                <span class="self">self</span>.create_matcher_for_latest_blockhash_if_ready(context)
+                    .<span class="kw">await</span>;
                 Handled
             }
             <span class="comment">// When the latest blockhash is detected in Bitcoin,
@@ -1217,6 +1277,11 @@
                 <span class="comment">// can start sending asserts as latest blockhash is committed and finalized
                 </span><span class="self">self</span>.send_operator_asserts_if_ready(context).<span class="kw">await</span>;
                 <span class="self">self</span>.disprove_if_ready(context).<span class="kw">await</span>;
+                Handled
+            }
+            KickoffEvent::TimeToSendLatestBlockhash =&gt; {
+                <span class="comment">// tell owner to send latest blockhash tx
+                </span><span class="self">self</span>.send_latest_blockhash(context).<span class="kw">await</span>;
                 Handled
             }
             KickoffEvent::SavedToDb =&gt; Handled,
@@ -1247,6 +1312,7 @@
             | KickoffEvent::BurnConnectorSpent
             | KickoffEvent::WatchtowerChallengeTimeoutSent { .. }
             | KickoffEvent::LatestBlockHashSent { .. }
+            | KickoffEvent::TimeToSendLatestBlockhash
             | KickoffEvent::SavedToDb =&gt; Super,
             <span class="kw">_ </span>=&gt; {
                 <span class="self">self</span>.unhandled_event(context, event).<span class="kw">await</span>;
