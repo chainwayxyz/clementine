@@ -1,4 +1,4 @@
-use bitcoin::{Address, Amount, ScriptBuf};
+use bitcoin::{transaction::Version, Address, Amount, ScriptBuf};
 
 /// The amount of the non-ephemeral P2A anchor output.
 pub const NON_EPHEMERAL_ANCHOR_AMOUNT: Amount = Amount::from_sat(240);
@@ -79,4 +79,7 @@ lazy_static::lazy_static! {
           .expect("valid burn address")
           .assume_checked()
           .script_pubkey();
+
+  pub static ref NON_STANDARD_V3: Version = Version::non_standard(3);
+
 }

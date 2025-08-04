@@ -1,11 +1,12 @@
 use eyre::eyre;
 use std::env;
 
-use bitcoin::{transaction::Version, Amount, FeeRate, OutPoint, Transaction, TxOut, Weight};
+use bitcoin::{Amount, FeeRate, OutPoint, Transaction, TxOut, Weight};
 use bitcoincore_rpc::PackageSubmissionResult;
 use bitcoincore_rpc::{PackageTransactionResult, RpcApi};
 use eyre::Context;
 
+use crate::constants::NON_STANDARD_V3;
 use crate::errors::{ErrorExt, ResultExt};
 use crate::extended_rpc::BitcoinRPCError;
 use crate::utils::FeePayingType;
@@ -150,7 +151,7 @@ impl TxSender {
         }
 
         let mut builder = TxHandlerBuilder::new(TransactionType::Dummy)
-            .with_version(Version::non_standard(3))
+            .with_version(*NON_STANDARD_V3)
             .add_input(
                 NormalSignatureKind::OperatorSighashDefault,
                 SpendableTxIn::new_partial(

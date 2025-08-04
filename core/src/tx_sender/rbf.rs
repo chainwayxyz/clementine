@@ -861,7 +861,7 @@ pub mod tests {
     use crate::builder::transaction::{
         op_return_txout, TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE,
     };
-    use crate::constants::MIN_TAPROOT_AMOUNT;
+    use crate::constants::{MIN_TAPROOT_AMOUNT, NON_STANDARD_V3};
     use crate::errors::BridgeError;
     use crate::extended_rpc::ExtendedRpc;
     use crate::rpc::clementine::tagged_signature::SignatureId;
@@ -943,7 +943,7 @@ pub mod tests {
 
         rpc.mine_blocks(1).await?;
 
-        let version = Version::non_standard(3);
+        let version = *NON_STANDARD_V3;
 
         let mut txhandler = TxHandlerBuilder::new(TransactionType::Challenge)
             .with_version(version)

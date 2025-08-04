@@ -8,7 +8,7 @@ use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::txhandler::{TxHandler, DEFAULT_SEQUENCE};
 use crate::builder::transaction::*;
 use crate::config::protocol::ProtocolParamset;
-use crate::constants::MIN_TAPROOT_AMOUNT;
+use crate::constants::{MIN_TAPROOT_AMOUNT, NON_STANDARD_V3};
 use crate::errors::BridgeError;
 use crate::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind};
 use crate::{builder, EVMAddress};
@@ -128,7 +128,7 @@ pub fn create_watchtower_challenge_timeout_txhandler(
     let challenge_ack_vout = UtxoVout::WatchtowerChallengeAck(watchtower_idx);
     Ok(
         TxHandlerBuilder::new(TransactionType::WatchtowerChallengeTimeout(watchtower_idx))
-            .with_version(Version::non_standard(3))
+            .with_version(*NON_STANDARD_V3)
             .add_input(
                 (
                     NumberedSignatureKind::WatchtowerChallengeTimeout1,
@@ -186,7 +186,7 @@ pub fn create_operator_challenge_nack_txhandler(
 ) -> Result<TxHandler, BridgeError> {
     Ok(
         TxHandlerBuilder::new(TransactionType::OperatorChallengeNack(watchtower_idx))
-            .with_version(Version::non_standard(3))
+            .with_version(*NON_STANDARD_V3)
             .add_input(
                 (
                     NumberedSignatureKind::OperatorChallengeNack1,
@@ -249,7 +249,7 @@ pub fn create_operator_challenge_ack_txhandler(
 ) -> Result<TxHandler, BridgeError> {
     Ok(
         TxHandlerBuilder::new(TransactionType::OperatorChallengeAck(watchtower_idx))
-            .with_version(Version::non_standard(3))
+            .with_version(*NON_STANDARD_V3)
             .add_input(
                 NormalSignatureKind::OperatorChallengeAck1,
                 kickoff_txhandler
@@ -341,7 +341,7 @@ pub fn create_challenge_txhandler(
     paramset: &'static ProtocolParamset,
 ) -> Result<TxHandler, BridgeError> {
     let mut builder = TxHandlerBuilder::new(TransactionType::Challenge)
-        .with_version(Version::non_standard(3))
+        .with_version(*NON_STANDARD_V3)
         .add_input(
             NormalSignatureKind::Challenge,
             kickoff_txhandler.get_spendable_output(UtxoVout::Challenge)?,
@@ -386,7 +386,7 @@ pub fn create_challenge_timeout_txhandler(
     paramset: &'static ProtocolParamset,
 ) -> Result<TxHandler, BridgeError> {
     Ok(TxHandlerBuilder::new(TransactionType::ChallengeTimeout)
-        .with_version(Version::non_standard(3))
+        .with_version(*NON_STANDARD_V3)
         .add_input(
             NormalSignatureKind::OperatorSighashDefault,
             kickoff_txhandler.get_spendable_output(UtxoVout::Challenge)?,

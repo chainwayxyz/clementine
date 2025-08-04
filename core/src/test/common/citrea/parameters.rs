@@ -5,6 +5,7 @@ use crate::builder::script::SpendPath;
 use crate::builder::transaction::TransactionType;
 use crate::citrea::Bridge::MerkleProof as CitreaMerkleProof;
 use crate::citrea::Bridge::Transaction as CitreaTransaction;
+use crate::constants::NON_STANDARD_V3;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::rpc::clementine::NormalSignatureKind;
@@ -237,7 +238,7 @@ pub async fn get_citrea_safe_withdraw_params(
         builder::transaction::output::UnspentTxOut::from_partial(payout_output.clone());
 
     let mut tx = builder::transaction::TxHandlerBuilder::new(TransactionType::Payout)
-        .with_version(bitcoin::transaction::Version::non_standard(3))
+        .with_version(*NON_STANDARD_V3)
         .add_input(
             NormalSignatureKind::NotStored,
             txin,

@@ -3,6 +3,7 @@
 use crate::builder::script::SpendPath;
 use crate::builder::transaction::TransactionType;
 use crate::citrea::CitreaClientT;
+use crate::constants::NON_STANDARD_V3;
 use crate::rpc::clementine::NormalSignatureKind;
 use crate::utils::initialize_logger;
 use crate::utils::NamedEntity;
@@ -390,7 +391,7 @@ pub async fn generate_withdrawal_transaction_and_signature(
     let unspent_txout = builder::transaction::output::UnspentTxOut::from_partial(txout.clone());
 
     let tx = builder::transaction::TxHandlerBuilder::new(TransactionType::Payout)
-        .with_version(bitcoin::transaction::Version::non_standard(3))
+        .with_version(*NON_STANDARD_V3)
         .add_input(
             NormalSignatureKind::NotStored,
             txin,
