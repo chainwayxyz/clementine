@@ -1772,7 +1772,7 @@ where
             }
             std::cmp::Ordering::Greater => {
                 tracing::info!("We are at least on the next round, meaning we can get the reimbursement as reimbursement utxos are in the next round, current round idx: {:?}, kickoff round idx: {:?}", current_round_idx, kickoff_round_idx);
-                // we are at least on the next round, meaning we can get the reimbursement as reimbursement utxos are in the next roun
+                // we are at least on the next round, meaning we can get the reimbursement as reimbursement utxos are in the next round
                 let reimbursement_tx = kickoff_txs
                     .iter()
                     .find(|(tx_type, _)| tx_type == &TransactionType::Reimburse)
@@ -1848,7 +1848,16 @@ where
     }
 
     /// For a given deposit outpoint, get the txs that are needed to reimburse the deposit.
-    /// To avoid operator getting slashed, this function only returns the next tx that needs to be sent/
+    /// To avoid operator getting slashed, this function only returns the next tx that needs to be sent
+    /// This fn can track and enable sending of these transactions during a normal reimbursement process.
+    ///
+    /// - First, if the current round is less than the round of the kickoff assigned to the deposit by PayoutCheckerTask, it returns the Round TX.
+    /// - After Round tx is sent, it returns the Kickoff tx.
+    /// - After Kickoff tx is sent, it returns the challenge timeout tx.
+    /// - After challenge timeout tx is sent, it returns BurnUnusedKickoffConnectors tx. If challenge timeout tx is not sent, and but challenge utxo was spent, it means the kickoff was challenged, thus the fn returns an error as it cannot handle the challenge process. Automation is required to answer the challenge.
+    /// - After all kickoff utxos are spent, and for any live kickoff, all kickoff finalizers are spent, it returns the ReadyToReimburse tx.
+    /// - After ReadyToReimburse tx is sent, it returns the next Round tx to generate reimbursement utxos.
+    /// - Finally, after the next round tx is sent, it returns the Reimburse tx.
     pub async fn get_reimbursement_txs(
         &self,
         deposit_outpoint: OutPoint,
