@@ -61,7 +61,7 @@ pub fn create_round_txhandler(
     pubkeys: &[bitvm::signatures::winternitz::PublicKey],
     paramset: &'static ProtocolParamset,
 ) -> Result<TxHandler, BridgeError> {
-    let mut builder = TxHandlerBuilder::new(TransactionType::Round).with_version(*NON_STANDARD_V3);
+    let mut builder = TxHandlerBuilder::new(TransactionType::Round).with_version(NON_STANDARD_V3);
     let input_amount;
     match txin {
         RoundTxInput::Prevout(prevout) => {
@@ -177,7 +177,7 @@ pub fn create_assert_timeout_txhandlers(
     for idx in 0..num_asserts {
         txhandlers.push(
             TxHandlerBuilder::new(TransactionType::AssertTimeout(idx))
-                .with_version(*NON_STANDARD_V3)
+                .with_version(NON_STANDARD_V3)
                 .add_input(
                     (NumberedSignatureKind::AssertTimeout1, idx as i32),
                     kickoff_txhandler.get_spendable_output(UtxoVout::Assert(idx))?,
@@ -292,7 +292,7 @@ pub fn create_ready_to_reimburse_txhandler(
     let prev_value = prevout.get_prevout().value;
 
     Ok(TxHandlerBuilder::new(TransactionType::ReadyToReimburse)
-        .with_version(*NON_STANDARD_V3)
+        .with_version(NON_STANDARD_V3)
         .add_input(
             NormalSignatureKind::OperatorSighashDefault,
             prevout,
@@ -337,7 +337,7 @@ pub fn create_unspent_kickoff_txhandlers(
     for idx in 0..paramset.num_kickoffs_per_round {
         txhandlers.push(
             TxHandlerBuilder::new(TransactionType::UnspentKickoff(idx))
-                .with_version(*NON_STANDARD_V3)
+                .with_version(NON_STANDARD_V3)
                 .add_input(
                     (NumberedSignatureKind::UnspentKickoff1, idx as i32),
                     ready_to_reimburse_txhandler
@@ -384,7 +384,7 @@ pub fn create_burn_unused_kickoff_connectors_txhandler(
 ) -> Result<TxHandler, BridgeError> {
     let mut tx_handler_builder =
         TxHandlerBuilder::new(TransactionType::BurnUnusedKickoffConnectors)
-            .with_version(*NON_STANDARD_V3);
+            .with_version(NON_STANDARD_V3);
     for &idx in unused_kickoff_connectors_indices {
         tx_handler_builder = tx_handler_builder.add_input(
             NormalSignatureKind::OperatorSighashDefault,

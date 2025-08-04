@@ -238,7 +238,7 @@ pub async fn get_citrea_safe_withdraw_params(
         builder::transaction::output::UnspentTxOut::from_partial(payout_output.clone());
 
     let mut tx = builder::transaction::TxHandlerBuilder::new(TransactionType::Payout)
-        .with_version(*NON_STANDARD_V3)
+        .with_version(NON_STANDARD_V3)
         .add_input(
             NormalSignatureKind::NotStored,
             txin,

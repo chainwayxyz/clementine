@@ -151,7 +151,7 @@ impl TxSender {
         }
 
         let mut builder = TxHandlerBuilder::new(TransactionType::Dummy)
-            .with_version(*NON_STANDARD_V3)
+            .with_version(NON_STANDARD_V3)
             .add_input(
                 NormalSignatureKind::OperatorSighashDefault,
                 SpendableTxIn::new_partial(

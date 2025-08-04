@@ -391,7 +391,7 @@ pub async fn generate_withdrawal_transaction_and_signature(
     let unspent_txout = builder::transaction::output::UnspentTxOut::from_partial(txout.clone());
 
     let tx = builder::transaction::TxHandlerBuilder::new(TransactionType::Payout)
-        .with_version(*NON_STANDARD_V3)
+        .with_version(NON_STANDARD_V3)
         .add_input(
             NormalSignatureKind::NotStored,
             txin,

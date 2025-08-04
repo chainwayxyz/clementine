@@ -943,7 +943,7 @@ pub mod tests {
 
         rpc.mine_blocks(1).await?;
 
-        let version = *NON_STANDARD_V3;
+        let version = NON_STANDARD_V3;
 
         let mut txhandler = TxHandlerBuilder::new(TransactionType::Challenge)
             .with_version(version)

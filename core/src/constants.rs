@@ -73,13 +73,13 @@ mod timeout {
     pub const PUBLIC_KEY_COLLECTION_TIMEOUT: Duration = Duration::from_secs(30);
 }
 
+pub const NON_STANDARD_V3: Version = Version(3);
+
 lazy_static::lazy_static! {
   pub static ref BURN_SCRIPT: ScriptBuf = ("1111111111111111111114oLvT2")
           .parse::<Address<_>>()
           .expect("valid burn address")
           .assume_checked()
           .script_pubkey();
-
-  pub static ref NON_STANDARD_V3: Version = Version::non_standard(3);
 
 }

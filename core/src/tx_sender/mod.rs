@@ -602,7 +602,7 @@ mod tests {
         rpc.mine_blocks(1).await?;
 
         let version = match fee_paying_type {
-            FeePayingType::CPFP => *NON_STANDARD_V3,
+            FeePayingType::CPFP => NON_STANDARD_V3,
             FeePayingType::RBF | FeePayingType::NoFunding => Version::TWO,
         };
 

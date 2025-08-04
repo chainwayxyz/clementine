@@ -403,7 +403,7 @@ pub fn create_move_to_vault_txhandler(
     let deposit_scripts = deposit_data.get_deposit_scripts(paramset)?;
 
     Ok(TxHandlerBuilder::new(TransactionType::MoveToVault)
-        .with_version(*NON_STANDARD_V3)
+        .with_version(NON_STANDARD_V3)
         .add_input(
             NormalSignatureKind::NotStored,
             SpendableTxIn::from_scripts(
@@ -531,7 +531,7 @@ pub fn create_replacement_deposit_txhandler(
     security_council: SecurityCouncil,
 ) -> Result<TxHandler, BridgeError> {
     Ok(TxHandlerBuilder::new(TransactionType::ReplacementDeposit)
-        .with_version(*NON_STANDARD_V3)
+        .with_version(NON_STANDARD_V3)
         .add_input(
             NormalSignatureKind::NoSignature,
             SpendableTxIn::from_scripts(
