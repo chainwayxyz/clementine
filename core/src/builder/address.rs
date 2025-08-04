@@ -116,16 +116,12 @@ pub fn create_taproot_address(
             .finalize(&SECP, *bitvm_client::UNSPENDABLE_XONLY_PUBKEY)
             .expect("builder return is finalizable"),
     };
+    
     // Create the address
-    let taproot_address = match internal_key {
-        Some(xonly_pk) => Address::p2tr(&SECP, xonly_pk, tree_info.merkle_root(), network),
-        None => Address::p2tr(
-            &SECP,
-            *bitvm_client::UNSPENDABLE_XONLY_PUBKEY,
-            tree_info.merkle_root(),
-            network,
-        ),
-    };
+    let taproot_address: Address = Address::p2tr_tweaked(
+        tree_info.output_key(),
+        network,
+    );
 
     (taproot_address, tree_info)
 }
