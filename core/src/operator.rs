@@ -1667,6 +1667,7 @@ where
         Ok(())
     }
 
+    /// For a deposit_id checks that the payer for that deposit is the operator, and the payout blockhash and kickoff txid are set.
     async fn validate_payer_is_operator(
         &self,
         dbtx: Option<DatabaseTransaction<'_, '_>>,
@@ -1863,7 +1864,7 @@ where
         deposit_outpoint: OutPoint,
     ) -> Result<Vec<(TransactionType, Transaction)>, BridgeError> {
         let mut dbtx = self.db.begin_transaction().await?;
-        // first check if we reimbursed this deposit
+        // first check if the deposit is in the database
         let (deposit_id, deposit_data) = self
             .db
             .get_deposit_data(Some(&mut dbtx), deposit_outpoint)
