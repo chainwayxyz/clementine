@@ -132,14 +132,13 @@ impl TxSender {
     ///
     /// # Returns
     /// The constructed and partially signed child transaction.
-    fn create_child_tx(
+    async fn create_child_tx(
         &self,
         p2a_anchor: OutPoint,
         anchor_sat: Amount,
         fee_payer_utxos: Vec<SpendableTxIn>,
         parent_tx_size: Weight,
         fee_rate: FeeRate,
-        change_address: Address,
     ) -> Result<Transaction> {
         tracing::debug!(
             "Creating child tx with {} fee payer utxos",
@@ -152,6 +151,12 @@ impl TxSender {
             FeePayingType::CPFP,
         )
         .map_err(|e| eyre!(e))?;
+
+        let change_address = self
+            .rpc
+            .get_new_wallet_address()
+            .await
+            .wrap_err("Failed to get new wallet address")?;
 
         let total_fee_payer_amount = fee_payer_utxos
             .iter()
@@ -222,8 +227,8 @@ impl TxSender {
     /// # Returns
     ///
     /// - [`Vec<Transaction>`]: Parent transaction followed by the child
-    ///   transaction.
-    fn create_package(
+    ///   transaction ready for submission via the `submitpackage` RPC.
+    async fn create_package(
         &self,
         tx: Transaction,
         fee_rate: FeeRate,
@@ -252,8 +257,8 @@ impl TxSender {
                 fee_payer_utxos,
                 tx.weight(),
                 fee_rate,
-                self.signer.address.clone(),
             )
+            .await
             .wrap_err("Failed to create child tx")?;
 
         Ok(vec![tx, child_tx])
@@ -454,6 +459,7 @@ impl TxSender {
 
         let package = self
             .create_package(tx.clone(), fee_rate, confirmed_fee_payers)
+            .await
             .wrap_err("Failed to create CPFP package");
 
         let package = match package {

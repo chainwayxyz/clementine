@@ -40,7 +40,7 @@ async fn test_mtls_connection() -> Result<(), eyre::Report> {
     let clients =
         crate::rpc::get_clients::<ClementineOperatorClient<tonic::transport::Channel>, _>(
             vec![endpoint],
-            ClementineOperatorClient::new,
+            crate::rpc::operator_client_builder(&config),
             &config,
             true,
         )
@@ -84,7 +84,7 @@ async fn test_auth_interceptor() -> Result<(), eyre::Report> {
 
     let mut clients = get_clients(
         vec![endpoint.clone()],
-        ClementineOperatorClient::new,
+        crate::rpc::operator_client_builder(&config),
         &agg_config,
         true,
     )
@@ -106,7 +106,7 @@ async fn test_auth_interceptor() -> Result<(), eyre::Report> {
 
     let mut clients = get_clients(
         vec![endpoint.clone()],
-        ClementineOperatorClient::new,
+        crate::rpc::operator_client_builder(&config),
         &bad_config,
         true,
     )
@@ -128,7 +128,7 @@ async fn test_auth_interceptor() -> Result<(), eyre::Report> {
 
     let mut clients = get_clients(
         vec![endpoint.clone()],
-        ClementineOperatorClient::new,
+        crate::rpc::operator_client_builder(&config),
         &internal_client_config,
         true,
     )
