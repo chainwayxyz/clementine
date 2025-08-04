@@ -470,10 +470,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 async fn citrea_deposit_and_withdraw_e2e_non_zero_genesis_height() -> citrea_e2e::Result<()> {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
-    std::env::set_var(
-        "CITREA_DOCKER_IMAGE",
-        "chainwayxyz/citrea-test:ca479a4147be1c3a472e76a3f117124683d81ab5",
-    );
+    std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
     let citrea_e2e = CitreaDepositAndWithdrawE2E {
         variant: CitreaDepositAndWithdrawE2EVariant::GenesisHeightNonZero,
     };
