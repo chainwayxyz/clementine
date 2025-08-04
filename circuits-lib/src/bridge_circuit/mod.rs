@@ -256,6 +256,7 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
 /// - `compressed_proof`: A reference to a 128-byte array containing the compressed Groth16 proof.
 /// - `total_work`: A 16-byte array representing the total accumulated work associated with the proof.
 /// - `image_id`: A reference to a 32-byte array representing the image ID used for verification.
+/// - `genesis_state_hash`: A 32-byte array representing the genesis state hash.
 ///
 /// # Returns
 ///
@@ -297,12 +298,11 @@ fn convert_to_groth16_and_verify(
 ///
 /// # Parameters
 /// - `circuit_input`: Data structure holding serialized watchtower transactions, UTXOs, input indices, and pubkeys.
-/// - `kickoff_txid`: The transaction ID of the `kickoff_tx`.
 ///
 /// # Returns
-/// A tuple containing:
-/// - A 20-byte bitmap indicating which watchtower challenges were valid,
-/// - A vector of vectors containing the outputs of valid watchtower challenge transactions.
+/// A `WatchtowerChallengeSet` containing:
+/// - `challenge_senders`: A 20-byte bitmap indicating which watchtower challenges were valid,
+/// - `challenge_outputs`: A vector of vectors containing the outputs of valid watchtower challenge transactions.
 ///   These outputs should conform to the expected structure of either a single OP_RETURN output
 ///   or a combination of two P2TR outputs and one OP_RETURN output for the challenge to be
 ///   considered when calculating the maximum work). However, it is enough to have a valid signature
@@ -486,15 +486,14 @@ pub fn verify_watchtower_challenges(circuit_input: &BridgeCircuitInput) -> Watch
 ///
 /// # Parameters
 ///
-/// - `kickoff_txid`: The transaction ID of the kickoff transaction.
 /// - `circuit_input`: The `BridgeCircuitInput` containing all watchtower inputs and related data.
 /// - `work_only_image_id`: A 32-byte identifier used for Groth16 verification against the work-only circuit.
 ///
 /// # Returns
 ///
 /// A tuple containing:
-/// - `[u8; 16]`: The total work from the highest valid watchtower challenge (after successful Groth16 verification).
-/// - `[u8; 20]`: Bitflags representing which watchtowers sent valid challenges (1 bit per watchtower).
+/// - `TotalWork`: The total work from the highest valid watchtower challenge (after successful Groth16 verification).
+/// - `ChallengeSendingWatchtowers`: Bitflags representing which watchtowers sent valid challenges (1 bit per watchtower).
 ///
 /// # Notes
 ///
@@ -626,6 +625,7 @@ pub fn parse_op_return_data(script: &Script) -> Option<&[u8]> {
 /// - `move_txid`: A 32-byte array representing the transaction ID of the move transaction.
 /// - `round_txid`: A 32-byte array representing the transaction ID of the round transaction.
 /// - `kickoff_round_vout`: A 32-bit unsigned integer indicating the vout of the kickoff round transaction.
+/// - `genesis_state_hash`: A 32-byte array representing the genesis state hash.
 ///
 /// # Returns
 ///
@@ -1308,11 +1308,7 @@ mod tests {
                     let hash = sha256::Hash::from_engine(enc);
                     Some(hash.to_byte_array()) // Use to_byte_array() for owned array
                 }
-                Err(_) => {
-                    // In a production environment, you might want more robust error handling/logging here.
-                    // For now, returning None if encoding fails
-                    None
-                }
+                Err(_) => None,
             }
         })
     }
