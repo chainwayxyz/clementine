@@ -1,7 +1,8 @@
 //! # Bitcoin Syncer
 //!
 //! This module provides common utilities to fetch Bitcoin state. Other modules
-//! can use this module to operate over Bitcoin.
+//! can use this module to operate over Bitcoin. Every block starting from
+//! `paramset.start_height` is fetched and stored in the database.
 
 use crate::{
     config::protocol::ProtocolParamset,

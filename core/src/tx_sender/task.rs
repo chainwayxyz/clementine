@@ -1,10 +1,12 @@
 //! # Transaction Sender Task
 //!
-//! This module provides [`Task`] implementation for [`TxSender`].
+//! This module provides the [`Task`] implementation for the [`TxSender`].
 //!
-//! This task will fetch block events from Bitcoin Syncer and confirms or
-//! unconfirms transaction based on the event. Finally, it will try to send
-//! candidate transactions.
+//! This task will fetch block events from [`Bitcoin Syncer`](crate::bitcoin_syncer)
+//! and confirms or unconfirms transaction based on the event. Finally, it will
+//! try to send transactions that are in the queue. Transactions are picked from
+//! the database and sent to the Bitcoin network if a transaction is in queue
+//! and not in the [`Bitcoin Syncer`](crate::bitcoin_syncer) database.
 
 use super::TxSender;
 use crate::errors::ResultExt;

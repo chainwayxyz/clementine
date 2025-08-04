@@ -1,35 +1,14 @@
 //! # Transaction Sender
 //!
 //! Transaction sender is responsible for sending Bitcoin transactions, bumping
-//! fees and making sure that transactions are finalized until the deadline, all
-//! in background.
+//! fees and making sure that transactions are finalized until the deadline. It
+//! can utilize [Child-Pays-For-Parent (CPFP)](crate::tx_sender::cpfp) and
+//! [Replace-By-Fee (RBF)](crate::tx_sender::rbf) strategies for sending
+//! transactions.
 //!
-//! ## Concepts
-//!
-//! ### Transaction/UTXO Activation and Cancelation
-//!
-//! Transactions and UTXOs can be marked as active, non-active or cancelled.
-//!
-//! Transactions/UTXOS that are marked as active are candidate transactions for
-//! transaction sender. Non-active transactions/UTXOS on the other hand are, not
-//! yet processed by the transaction sender.
-//!
-//! If a transaction/UTXO is marked as cancelled, it can't be used in
-//! transaction sender anymore. Spent transactions/UTXOs are examples for that.
-//!
-//! An active transaction can be send if its UTXOs are also marked as active
-//! and doesn't have any cancelled UTXO bounds which is specified when the send
-//! transaction call is issued.
-//!
-//! ### Confirmed and Unconfirmed Blocks
-//!
-//! Blocks are marked as confirmed when they are confirmed in the Bitcoin. And
-//! if a reorg happens, the blocks are marked as unconfirmed.
-//!
-//! After a block is confirmed, all of the transactions and UTXOs in that block
-//! gets assigned with the corresponding block id. Similarly, when a block is
-//! unconfirmed, all of the transactions and UTXOs in that block gets their
-//! block id removed.
+//! Sending transactions is done by the [`TxSenderClient`], which is a client
+//! that puts transactions into the sending queue and the [`TxSenderTask`] is
+//! responsible for processing this queue and sending them.
 //!
 //! ## Debugging Transaction Sender
 //!
@@ -328,9 +307,11 @@ impl TxSender {
     ///
     /// 1.  **Send/Bump Main Tx:** Calls `send_tx` to either perform RBF or CPFP on the main
     ///     transaction (`id`) using the `new_fee_rate`.
-    /// 2.  **Handle Errors:**    ///     - `UnconfirmedFeePayerUTXOsLeft`: Skips the current tx, waiting for fee payers to confirm.
-    ///     - `InsufficientFeePayerAmount`: Calls `create_fee_payer_utxo` to provision more funds
-    ///       for a future CPFP attempt.
+    /// 2.  **Handle Errors:**
+    ///     - [`SendTxError::UnconfirmedFeePayerUTXOsLeft`]: Skips the current tx, waiting for fee
+    ///       payers to confirm.
+    ///     - [`SendTxError::InsufficientFeePayerAmount`]: Calls `create_fee_payer_utxo` to
+    ///       provision more funds for a future CPFP attempt.
     ///     - Other errors are logged.
     ///
     /// # Arguments

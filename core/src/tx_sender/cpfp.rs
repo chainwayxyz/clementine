@@ -1,4 +1,4 @@
-//! # Child Pays For Parent (CPFP) Transactions
+//! # Child Pays For Parent (CPFP) Support For Transaction Sender
 //!
 //! This module implements the Child Pays For Parent (CPFP) strategy for sending
 //! Bitcoin transactions with transaction sender.
