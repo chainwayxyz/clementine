@@ -46,6 +46,18 @@ pub fn encrypt_bytes(recipient_pubkey: [u8; 32], message: &[u8]) -> Result<Vec<u
     Ok(output)
 }
 
+/// Decrypts a message encrypted with `encrypt_bytes` using the recipient's X25519 private key.
+///
+/// # Parameters
+/// - `recipient_privkey`: A 32-byte slice representing the recipient's X25519 private key.
+/// - `encrypted`: A byte slice containing the encrypted data. The expected format is:
+///     - 32 bytes: ephemeral public key
+///     - 24 bytes: XChaCha20-Poly1305 nonce
+///     - remaining bytes: ciphertext (including authentication tag)
+///
+/// # Returns
+/// - `Ok(Vec<u8>)`: The decrypted message bytes.
+/// - `Err(eyre::Report)`: If decryption fails or the input is invalid.
 pub fn decrypt_bytes(recipient_privkey: &[u8], encrypted: &[u8]) -> Result<Vec<u8>, eyre::Report> {
     if encrypted.len() < MIN_ENCRYPTED_LEN {
         return Err(eyre::eyre!("Invalid encrypted length"));
