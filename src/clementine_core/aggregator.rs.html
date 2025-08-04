@@ -951,7 +951,7 @@
         <span class="comment">// Create clients to connect to all verifiers
         </span><span class="kw">let </span>verifier_clients = rpc::get_clients(
             verifier_endpoints,
-            ClementineVerifierClient::new,
+            <span class="kw">crate</span>::rpc::verifier_client_builder(<span class="kw-2">&amp;</span>config),
             <span class="kw-2">&amp;</span>config,
             <span class="bool-val">true</span>,
         )
@@ -960,7 +960,7 @@
         <span class="comment">// Create clients to connect to all operators
         </span><span class="kw">let </span>operator_clients = rpc::get_clients(
             operator_endpoints,
-            ClementineOperatorClient::new,
+            <span class="kw">crate</span>::rpc::operator_client_builder(<span class="kw-2">&amp;</span>config),
             <span class="kw-2">&amp;</span>config,
             <span class="bool-val">true</span>,
         )

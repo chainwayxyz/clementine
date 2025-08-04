@@ -994,7 +994,7 @@
                 deposit_data.get_deposit_outpoint(),
             );
             <span class="comment">// need to create new TxHandlerDbData for each operator
-            </span><span class="kw">let </span><span class="kw-2">mut </span>tx_db_data = ReimburseDbCache::new_for_deposit(db.clone(), <span class="kw-2">*</span>op_xonly_pk, deposit_data.get_deposit_outpoint(), config.protocol_paramset());
+            </span><span class="kw">let </span><span class="kw-2">mut </span>tx_db_data = ReimburseDbCache::new_for_deposit(db.clone(), <span class="kw-2">*</span>op_xonly_pk, deposit_data.get_deposit_outpoint(), config.protocol_paramset(), <span class="prelude-val">None</span>);
 
             <span class="kw">let </span><span class="kw-2">mut </span>txhandler_cache = TxHandlerCache::new();
 
@@ -1081,7 +1081,7 @@
     deposit_blockhash: bitcoin::BlockHash,
 ) -&gt; <span class="kw">impl </span>Stream&lt;Item = <span class="prelude-ty">Result</span>&lt;(TapSighash, SignatureInfo), BridgeError&gt;&gt; {
     <span class="macro">try_stream!</span> {
-        <span class="kw">let </span><span class="kw-2">mut </span>tx_db_data = ReimburseDbCache::new_for_deposit(db.clone(), operator_xonly_pk, deposit_data.get_deposit_outpoint(), config.protocol_paramset());
+        <span class="kw">let </span><span class="kw-2">mut </span>tx_db_data = ReimburseDbCache::new_for_deposit(db.clone(), operator_xonly_pk, deposit_data.get_deposit_outpoint(), config.protocol_paramset(), <span class="prelude-val">None</span>);
 
         <span class="kw">let </span>operator = db.get_operator(<span class="prelude-val">None</span>, operator_xonly_pk).<span class="kw">await</span><span class="question-mark">?</span>;
 

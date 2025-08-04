@@ -1897,7 +1897,21 @@
 <a href="#1896" id="1896">1896</a>
 <a href="#1897" id="1897">1897</a>
 <a href="#1898" id="1898">1898</a>
-<a href="#1899" id="1899">1899</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_ff::PrimeField;
+<a href="#1899" id="1899">1899</a>
+<a href="#1900" id="1900">1900</a>
+<a href="#1901" id="1901">1901</a>
+<a href="#1902" id="1902">1902</a>
+<a href="#1903" id="1903">1903</a>
+<a href="#1904" id="1904">1904</a>
+<a href="#1905" id="1905">1905</a>
+<a href="#1906" id="1906">1906</a>
+<a href="#1907" id="1907">1907</a>
+<a href="#1908" id="1908">1908</a>
+<a href="#1909" id="1909">1909</a>
+<a href="#1910" id="1910">1910</a>
+<a href="#1911" id="1911">1911</a>
+<a href="#1912" id="1912">1912</a>
+<a href="#1913" id="1913">1913</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_ff::PrimeField;
 <span class="kw">use </span>circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
 <span class="kw">use </span>std::collections::HashMap;
 
@@ -1927,15 +1941,13 @@
 <span class="kw">use </span><span class="kw">crate</span>::task::manager::BackgroundTaskManager;
 <span class="kw">use </span><span class="kw">crate</span>::task::payout_checker::{PayoutCheckerTask, PAYOUT_CHECKER_POLL_DELAY};
 <span class="kw">use </span><span class="kw">crate</span>::task::TaskExt;
-<span class="kw">use </span><span class="kw">crate</span>::utils::Last20Bytes;
+<span class="kw">use </span><span class="kw">crate</span>::utils::{Last20Bytes, ScriptBufExt};
 <span class="kw">use </span><span class="kw">crate</span>::utils::{NamedEntity, TxMetadata};
 <span class="kw">use crate</span>::{builder, constants, UTXO};
 <span class="kw">use </span>bitcoin::hashes::Hash;
 <span class="kw">use </span>bitcoin::secp256k1::schnorr::Signature;
 <span class="kw">use </span>bitcoin::secp256k1::{schnorr, Message};
-<span class="kw">use </span>bitcoin::{
-    Address, Amount, BlockHash, OutPoint, ScriptBuf, Transaction, TxOut, XOnlyPublicKey,
-};
+<span class="kw">use </span>bitcoin::{Address, Amount, BlockHash, OutPoint, ScriptBuf, Transaction, TxOut};
 <span class="kw">use </span>bitcoincore_rpc::json::AddressType;
 <span class="kw">use </span>bitcoincore_rpc::RpcApi;
 <span class="kw">use </span>bitvm::chunk::api::generate_assertions;
@@ -2248,6 +2260,7 @@
             config.citrea_light_client_prover_url.clone(),
             config.citrea_chain_id,
             <span class="prelude-val">None</span>,
+            config.citrea_request_timeout,
         )
         .<span class="kw">await</span><span class="question-mark">?</span>;
 
@@ -2436,16 +2449,24 @@
         bridge_amount_sats: Amount,
         operator_withdrawal_fee_sats: Amount,
     ) -&gt; bool {
-        <span class="kw">if </span>withdrawal_amount
+        <span class="comment">// Use checked_sub to safely handle potential underflow
+        </span><span class="kw">let </span>withdrawal_diff = <span class="kw">match </span>withdrawal_amount
             .to_sat()
-            .wrapping_sub(input_amount.to_sat())
-            &gt; bridge_amount_sats.to_sat()
+            .checked_sub(input_amount.to_sat())
         {
+            <span class="prelude-val">Some</span>(diff) =&gt; diff,
+            <span class="prelude-val">None </span>=&gt; <span class="kw">return </span><span class="bool-val">false</span>, <span class="comment">// If underflow occurs, it's not profitable
+        </span>};
+
+        <span class="kw">if </span>withdrawal_diff &gt; bridge_amount_sats.to_sat() {
             <span class="kw">return </span><span class="bool-val">false</span>;
         }
 
-        <span class="comment">// Calculate net profit after the withdrawal.
-        </span><span class="kw">let </span>net_profit = bridge_amount_sats - withdrawal_amount;
+        <span class="comment">// Calculate net profit after the withdrawal using checked_sub to prevent panic
+        </span><span class="kw">let </span>net_profit = <span class="kw">match </span>bridge_amount_sats.checked_sub(withdrawal_amount) {
+            <span class="prelude-val">Some</span>(profit) =&gt; profit,
+            <span class="prelude-val">None </span>=&gt; <span class="kw">return </span><span class="bool-val">false</span>, <span class="comment">// If underflow occurs, it's not profitable
+        </span>};
 
         <span class="comment">// Net profit must be bigger than withdrawal fee.
         </span>net_profit &gt;= operator_withdrawal_fee_sats
@@ -2527,9 +2548,11 @@
             <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(<span class="string">"Not enough fee for operator"</span>).into());
         }
 
-        <span class="kw">let </span>user_xonly_pk =
-            XOnlyPublicKey::from_slice(<span class="kw-2">&amp;</span>input_utxo.txout.script_pubkey.as_bytes()[<span class="number">2</span>..<span class="number">34</span>])
-                .wrap_err(<span class="string">"Failed to extract xonly public key from input utxo script pubkey"</span>)<span class="question-mark">?</span>;
+        <span class="kw">let </span>user_xonly_pk = <span class="kw-2">&amp;</span>input_utxo
+            .txout
+            .script_pubkey
+            .try_get_taproot_pk()
+            .wrap_err(<span class="string">"Input utxo script pubkey is not a valid taproot script"</span>)<span class="question-mark">?</span>;
 
         <span class="kw">let </span>payout_txhandler = builder::transaction::create_payout_txhandler(
             input_utxo,
@@ -2547,7 +2570,7 @@
         SECP.verify_schnorr(
             <span class="kw-2">&amp;</span>in_signature,
             <span class="kw-2">&amp;</span>Message::from_digest(<span class="kw-2">*</span>sighash.as_byte_array()),
-            <span class="kw-2">&amp;</span>user_xonly_pk,
+            user_xonly_pk,
         )
         .wrap_err(<span class="string">"Failed to verify signature received from user for payout txin"</span>)<span class="question-mark">?</span>;
 
@@ -2793,6 +2816,7 @@
             <span class="self">self</span>.config.clone(),
             transaction_data,
             <span class="prelude-val">Some</span>(payout_tx_blockhash),
+            <span class="prelude-val">Some</span>(dbtx),
         )
         .<span class="kw">await</span><span class="question-mark">?</span>;
 
@@ -3122,8 +3146,11 @@
             deposit_data.clone(),
             <span class="self">self</span>.config.protocol_paramset(),
         );
-        <span class="kw">let </span><span class="kw-2">mut </span>db_cache =
-            <span class="kw">crate</span>::builder::transaction::ReimburseDbCache::from_context(<span class="self">self</span>.db.clone(), <span class="kw-2">&amp;</span>context);
+        <span class="kw">let </span><span class="kw-2">mut </span>db_cache = <span class="kw">crate</span>::builder::transaction::ReimburseDbCache::from_context(
+            <span class="self">self</span>.db.clone(),
+            <span class="kw-2">&amp;</span>context,
+            <span class="prelude-val">None</span>,
+        );
         <span class="kw">let </span>txhandlers = builder::transaction::create_txhandlers(
             TransactionType::Kickoff,
             context,
@@ -3217,20 +3244,18 @@
             <span class="self">self</span>.config.protocol_paramset(),
         )<span class="question-mark">?</span>;
 
-        <span class="kw">let </span>latest_blockhash = commits
+        <span class="kw">let </span>latest_blockhash_last_20: [u8; <span class="number">20</span>] = commits
             .first()
             .ok_or_eyre(<span class="string">"Failed to get latest blockhash in send_asserts"</span>)<span class="question-mark">?
-            </span>.to_owned();
+            </span>.to_owned()
+            .try_into()
+            .map_err(|<span class="kw">_</span>| <span class="macro">eyre::eyre!</span>(<span class="string">"Committed latest blockhash is not 20 bytes long"</span>))<span class="question-mark">?</span>;
 
         <span class="attr">#[cfg(test)]
-        </span><span class="kw">let </span>latest_blockhash = <span class="self">self
+        </span><span class="kw">let </span>latest_blockhash_last_20 = <span class="self">self
             </span>.config
             .test_params
-            .maybe_disrupt_latest_block_hash_commit(
-                latest_blockhash
-                    .try_into()
-                    .expect(<span class="string">"Latest blockhash is 20 bytes long, cannot fail"</span>),
-            );
+            .maybe_disrupt_latest_block_hash_commit(latest_blockhash_last_20);
 
         <span class="kw">let </span>rpc_current_finalized_height = <span class="self">self
             </span>.rpc
@@ -3266,7 +3291,7 @@
         </span><span class="kw">let </span>latest_blockhash_index = block_hashes
             .iter()
             .position(|(block_hash, <span class="kw">_</span>)| {
-                block_hash.to_byte_array()[<span class="number">12</span>..].to_vec() == latest_blockhash
+                block_hash.as_byte_array().last_20_bytes() == latest_blockhash_last_20
             })
             .ok_or_eyre(<span class="string">"Failed to find latest blockhash in send_asserts"</span>)<span class="question-mark">?</span>;
 
@@ -3463,6 +3488,7 @@
                     asserts,
                     <span class="kw-2">&amp;</span>public_inputs.challenge_sending_watchtowers,
                 ),
+                <span class="prelude-val">None</span>,
             )
             .<span class="kw">await</span><span class="question-mark">?</span>;
 
@@ -3515,6 +3541,7 @@
                     kickoff_data,
                 },
                 latest_blockhash,
+                <span class="prelude-val">None</span>,
             )
             .<span class="kw">await</span><span class="question-mark">?</span>;
         <span class="kw">if </span>tx_type != TransactionType::LatestBlockhash {
@@ -3651,7 +3678,8 @@
             tx_type: TransactionType,
             contract_context: ContractContext,
         ) -&gt; <span class="prelude-ty">Result</span>&lt;BTreeMap&lt;TransactionType, TxHandler&gt;, BridgeError&gt; {
-            <span class="kw">let </span><span class="kw-2">mut </span>db_cache = ReimburseDbCache::from_context(<span class="self">self</span>.db.clone(), <span class="kw-2">&amp;</span>contract_context);
+            <span class="kw">let </span><span class="kw-2">mut </span>db_cache =
+                ReimburseDbCache::from_context(<span class="self">self</span>.db.clone(), <span class="kw-2">&amp;</span>contract_context, <span class="prelude-val">None</span>);
             <span class="kw">let </span>txhandlers = create_txhandlers(
                 tx_type,
                 contract_context,

@@ -581,7 +581,16 @@
 <a href="#580" id="580">580</a>
 <a href="#581" id="581">581</a>
 <a href="#582" id="582">582</a>
-<a href="#583" id="583">583</a></pre></div><pre class="rust"><code><span class="kw">use </span>std::str::FromStr;
+<a href="#583" id="583">583</a>
+<a href="#584" id="584">584</a>
+<a href="#585" id="585">585</a>
+<a href="#586" id="586">586</a>
+<a href="#587" id="587">587</a>
+<a href="#588" id="588">588</a>
+<a href="#589" id="589">589</a>
+<a href="#590" id="590">590</a>
+<a href="#591" id="591">591</a>
+<a href="#592" id="592">592</a></pre></div><pre class="rust"><code><span class="kw">use </span>std::str::FromStr;
 
 <span class="kw">use </span><span class="kw">super</span>::clementine::{
     <span class="self">self</span>, clementine_verifier_server::ClementineVerifier, Empty, NonceGenRequest, NonceGenResponse,
@@ -651,7 +660,10 @@
             .ok_or(Status::invalid_argument(
                 <span class="string">"Nonce params not found for optimistic payout"</span>,
             ))<span class="question-mark">?
-            </span>.id;
+            </span>.id
+            .parse::&lt;u128&gt;()
+            .map_err(|e| Status::invalid_argument(<span class="macro">format!</span>(<span class="string">"Invalid nonce session id: {}"</span>, e)))<span class="question-mark">?</span>;
+
         <span class="kw">let </span>opt_withdraw_params = params.opt_withdrawal.ok_or(Status::invalid_argument(
             <span class="string">"Withdrawal params not found for optimistic payout"</span>,
         ))<span class="question-mark">?</span>;
@@ -713,7 +725,8 @@
                     }
                     challenge
                 }, <span class="comment">// dummy challenge with 1u8, 2u8 every 32 bytes
-            </span>)
+                </span><span class="prelude-val">None</span>,
+            )
             .<span class="kw">await</span><span class="question-mark">?</span>;
 
         <span class="prelude-val">Ok</span>(Response::new(RawTxWithRbfInfo {
@@ -800,7 +813,7 @@
 
         tokio::spawn(<span class="kw">async move </span>{
             <span class="kw">let </span>nonce_gen_first_response = clementine::NonceGenFirstResponse {
-                id: session_id,
+                id: session_id.to_string(),
                 num_nonces,
             };
             <span class="kw">let </span>session_id: NonceGenResponse = nonce_gen_first_response.into();
@@ -987,10 +1000,12 @@
                 }
             }
             <span class="kw">if </span>nonce_idx &lt; num_required_nofn_sigs {
-                <span class="macro">panic!</span>(
-                    <span class="string">"Expected more nofn sigs {} &lt; {}"</span>,
+                <span class="kw">let </span>err_msg = <span class="macro">format!</span>(
+                    <span class="string">"Insufficient N-of-N signatures received: got {}, expected {}"</span>,
                     nonce_idx, num_required_nofn_sigs
-                )
+                );
+                <span class="macro">tracing::error!</span>(err_msg);
+                <span class="kw">return </span><span class="prelude-val">Err</span>(Status::invalid_argument(err_msg));
             }
 
             <span class="kw">let </span>move_tx_agg_nonce =
@@ -1046,10 +1061,12 @@
             }
 
             <span class="kw">if </span>total_op_sig_count &lt; num_required_total_op_sigs {
-                <span class="macro">panic!</span>(
-                    <span class="string">"Not enough operator signatures. Needed: {}, received: {}"</span>,
-                    num_required_total_op_sigs, total_op_sig_count
+                <span class="kw">let </span>err_msg = <span class="macro">format!</span>(
+                    <span class="string">"Insufficient operator signatures received: got {}, expected {}"</span>,
+                    total_op_sig_count, num_required_total_op_sigs
                 );
+                <span class="macro">tracing::error!</span>(err_msg);
+                <span class="kw">return </span><span class="prelude-val">Err</span>(Status::invalid_argument(err_msg));
             }
 
             <span class="prelude-val">Ok</span>::&lt;(), Status&gt;(())
@@ -1092,7 +1109,8 @@
             <span class="self">self</span>.verifier.config.clone(),
             transaction_data,
             <span class="prelude-val">None</span>, <span class="comment">// empty blockhash, will not sign this
-        </span>)
+            </span><span class="prelude-val">None</span>,
+        )
         .<span class="kw">await</span><span class="question-mark">?</span>;
 
         <span class="prelude-val">Ok</span>(Response::new(SignedTxsWithType {

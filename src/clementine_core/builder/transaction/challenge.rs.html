@@ -396,13 +396,20 @@
 <a href="#395" id="395">395</a>
 <a href="#396" id="396">396</a>
 <a href="#397" id="397">397</a>
-<a href="#398" id="398">398</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Challenge Transaction Logic
+<a href="#398" id="398">398</a>
+<a href="#399" id="399">399</a>
+<a href="#400" id="400">400</a>
+<a href="#401" id="401">401</a>
+<a href="#402" id="402">402</a>
+<a href="#403" id="403">403</a>
+<a href="#404" id="404">404</a>
+<a href="#405" id="405">405</a>
+<a href="#406" id="406">406</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Challenge Transaction Logic
 //!
 //! This module provides functions for constructing and challenge related transactions in the protocol.
 //! The transactions are: Challenge, ChallengeTimeout, OperatorChallengeNack, OperatorChallengeAck, Disprove.
 
-</span><span class="kw">use </span><span class="kw">crate</span>::builder;
-<span class="kw">use </span><span class="kw">crate</span>::builder::script::SpendPath;
+</span><span class="kw">use </span><span class="kw">crate</span>::builder::script::SpendPath;
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::output::UnspentTxOut;
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::txhandler::{TxHandler, DEFAULT_SEQUENCE};
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::<span class="kw-2">*</span>;
@@ -410,6 +417,7 @@
 <span class="kw">use </span><span class="kw">crate</span>::constants::MIN_TAPROOT_AMOUNT;
 <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
 <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind};
+<span class="kw">use crate</span>::{builder, EVMAddress};
 <span class="kw">use </span>bitcoin::script::PushBytesBuf;
 <span class="kw">use </span>bitcoin::{Sequence, TxOut, WitnessVersion};
 <span class="kw">use </span>eyre::Context;
@@ -735,9 +743,10 @@
 </span><span class="kw">pub fn </span>create_challenge_txhandler(
     kickoff_txhandler: <span class="kw-2">&amp;</span>TxHandler,
     operator_reimbursement_address: <span class="kw-2">&amp;</span>bitcoin::Address,
+    challenger_evm_address: <span class="prelude-ty">Option</span>&lt;EVMAddress&gt;,
     paramset: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>ProtocolParamset,
 ) -&gt; <span class="prelude-ty">Result</span>&lt;TxHandler, BridgeError&gt; {
-    <span class="prelude-val">Ok</span>(TxHandlerBuilder::new(TransactionType::Challenge)
+    <span class="kw">let </span><span class="kw-2">mut </span>builder = TxHandlerBuilder::new(TransactionType::Challenge)
         .with_version(Version::non_standard(<span class="number">3</span>))
         .add_input(
             NormalSignatureKind::Challenge,
@@ -748,8 +757,15 @@
         .add_output(UnspentTxOut::from_partial(TxOut {
             value: paramset.operator_challenge_amount,
             script_pubkey: operator_reimbursement_address.script_pubkey(),
-        }))
-        .finalize())
+        }));
+
+    <span class="kw">if let </span><span class="prelude-val">Some</span>(challenger_evm_address) = challenger_evm_address {
+        builder = builder.add_output(UnspentTxOut::from_partial(op_return_txout(
+            challenger_evm_address.<span class="number">0</span>,
+        )));
+    }
+
+    <span class="prelude-val">Ok</span>(builder.finalize())
 }
 
 <span class="doccomment">/// Creates a [`TxHandler`] for the `challenge_timeout` transaction.

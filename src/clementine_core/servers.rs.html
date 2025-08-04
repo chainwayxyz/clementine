@@ -396,7 +396,42 @@
 <a href="#395" id="395">395</a>
 <a href="#396" id="396">396</a>
 <a href="#397" id="397">397</a>
-<a href="#398" id="398">398</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Servers
+<a href="#398" id="398">398</a>
+<a href="#399" id="399">399</a>
+<a href="#400" id="400">400</a>
+<a href="#401" id="401">401</a>
+<a href="#402" id="402">402</a>
+<a href="#403" id="403">403</a>
+<a href="#404" id="404">404</a>
+<a href="#405" id="405">405</a>
+<a href="#406" id="406">406</a>
+<a href="#407" id="407">407</a>
+<a href="#408" id="408">408</a>
+<a href="#409" id="409">409</a>
+<a href="#410" id="410">410</a>
+<a href="#411" id="411">411</a>
+<a href="#412" id="412">412</a>
+<a href="#413" id="413">413</a>
+<a href="#414" id="414">414</a>
+<a href="#415" id="415">415</a>
+<a href="#416" id="416">416</a>
+<a href="#417" id="417">417</a>
+<a href="#418" id="418">418</a>
+<a href="#419" id="419">419</a>
+<a href="#420" id="420">420</a>
+<a href="#421" id="421">421</a>
+<a href="#422" id="422">422</a>
+<a href="#423" id="423">423</a>
+<a href="#424" id="424">424</a>
+<a href="#425" id="425">425</a>
+<a href="#426" id="426">426</a>
+<a href="#427" id="427">427</a>
+<a href="#428" id="428">428</a>
+<a href="#429" id="429">429</a>
+<a href="#430" id="430">430</a>
+<a href="#431" id="431">431</a>
+<a href="#432" id="432">432</a>
+<a href="#433" id="433">433</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Servers
 //!
 //! Utilities for operator and verifier servers.
 </span><span class="kw">use </span><span class="kw">crate</span>::aggregator::AggregatorServer;
@@ -413,10 +448,13 @@
 <span class="kw">use </span>errors::BridgeError;
 <span class="kw">use </span>eyre::Context;
 <span class="kw">use </span>rustls_pki_types::pem::PemObject;
+<span class="kw">use </span>std::time::Duration;
 <span class="kw">use </span>tokio::sync::oneshot;
 <span class="kw">use </span>tonic::server::NamedService;
 <span class="kw">use </span>tonic::service::interceptor::InterceptedService;
 <span class="kw">use </span>tonic::transport::{Certificate, CertificateDer, Identity, ServerTlsConfig};
+<span class="kw">use </span>tower::buffer::BufferLayer;
+<span class="kw">use </span>tower::limit::RateLimitLayer;
 
 <span class="attr">#[cfg(test)]
 </span><span class="kw">use </span><span class="kw">crate</span>::test::common::ensure_test_certificates;
@@ -543,6 +581,15 @@
 
             <span class="kw">let </span>server_builder = tonic::transport::Server::builder()
                 .layer(AddMethodMiddlewareLayer)
+                .layer(BufferLayer::new(config.grpc.req_concurrency_limit))
+                .layer(RateLimitLayer::new(
+                    config.grpc.ratelimit_req_count <span class="kw">as </span>u64,
+                    Duration::from_secs(config.grpc.ratelimit_req_interval_secs),
+                ))
+                .timeout(Duration::from_secs(config.grpc.timeout_secs))
+                .tcp_keepalive(<span class="prelude-val">Some</span>(Duration::from_secs(config.grpc.tcp_keepalive_secs)))
+                .concurrency_limit_per_connection(config.grpc.req_concurrency_limit)
+                .http2_adaptive_window(<span class="prelude-val">Some</span>(<span class="bool-val">true</span>))
                 .tls_config(tls_config)
                 .wrap_err(<span class="string">"Failed to configure TLS"</span>)<span class="question-mark">?
                 </span>.add_service(service);
@@ -567,6 +614,13 @@
         </span>ServerAddr::Unix(<span class="kw-2">ref </span>socket_path) =&gt; {
             <span class="kw">let </span>server_builder = tonic::transport::Server::builder()
                 .layer(AddMethodMiddlewareLayer)
+                .layer(BufferLayer::new(config.grpc.req_concurrency_limit))
+                .layer(RateLimitLayer::new(
+                    config.grpc.ratelimit_req_count <span class="kw">as </span>u64,
+                    Duration::from_secs(config.grpc.ratelimit_req_interval_secs),
+                ))
+                .timeout(Duration::from_secs(config.grpc.timeout_secs))
+                .concurrency_limit_per_connection(config.grpc.req_concurrency_limit)
                 .add_service(service);
             <span class="macro">tracing::info!</span>(
                 <span class="string">"Starting {} gRPC server with Unix socket: {:?}"</span>,
@@ -626,7 +680,10 @@
         .wrap_err(<span class="string">"Failed to parse address"</span>)<span class="question-mark">?</span>;
     <span class="kw">let </span>verifier = VerifierServer::&lt;C&gt;::new(config.clone()).<span class="kw">await</span><span class="question-mark">?</span>;
     verifier.start_background_tasks().<span class="kw">await</span><span class="question-mark">?</span>;
-    <span class="kw">let </span>svc = ClementineVerifierServer::new(verifier);
+
+    <span class="kw">let </span>svc = ClementineVerifierServer::new(verifier)
+        .max_encoding_message_size(config.grpc.max_message_size)
+        .max_decoding_message_size(config.grpc.max_message_size);
 
     <span class="kw">let </span>(server_addr, shutdown_tx) =
         create_grpc_server(addr.into(), svc, <span class="string">"Verifier"</span>, <span class="kw-2">&amp;</span>config).<span class="kw">await</span><span class="question-mark">?</span>;
@@ -654,7 +711,9 @@
     operator.start_background_tasks().<span class="kw">await</span><span class="question-mark">?</span>;
 
     <span class="macro">tracing::info!</span>(<span class="string">"Creating ClementineOperatorServer"</span>);
-    <span class="kw">let </span>svc = ClementineOperatorServer::new(operator);
+    <span class="kw">let </span>svc = ClementineOperatorServer::new(operator)
+        .max_encoding_message_size(config.grpc.max_message_size)
+        .max_decoding_message_size(config.grpc.max_message_size);
     <span class="kw">let </span>(server_addr, shutdown_tx) =
         create_grpc_server(addr.into(), svc, <span class="string">"Operator"</span>, <span class="kw-2">&amp;</span>config).<span class="kw">await</span><span class="question-mark">?</span>;
     <span class="macro">tracing::info!</span>(<span class="string">"Operator gRPC server created"</span>);
@@ -674,7 +733,9 @@
     <span class="kw">let </span>aggregator_server = AggregatorServer::new(config.clone()).<span class="kw">await</span><span class="question-mark">?</span>;
     aggregator_server.start_background_tasks().<span class="kw">await</span><span class="question-mark">?</span>;
 
-    <span class="kw">let </span>svc = ClementineAggregatorServer::new(aggregator_server);
+    <span class="kw">let </span>svc = ClementineAggregatorServer::new(aggregator_server)
+        .max_encoding_message_size(config.grpc.max_message_size)
+        .max_decoding_message_size(config.grpc.max_message_size);
 
     <span class="kw">if </span>config.client_verification {
         <span class="macro">tracing::warn!</span>(
@@ -710,7 +771,10 @@
 
     <span class="kw">let </span>verifier = VerifierServer::&lt;C&gt;::new(config.clone()).<span class="kw">await</span><span class="question-mark">?</span>;
     verifier.start_background_tasks().<span class="kw">await</span><span class="question-mark">?</span>;
-    <span class="kw">let </span>svc = ClementineVerifierServer::new(verifier);
+
+    <span class="kw">let </span>svc = ClementineVerifierServer::new(verifier)
+        .max_encoding_message_size(config.grpc.max_message_size)
+        .max_decoding_message_size(config.grpc.max_message_size);
 
     <span class="kw">let </span>(server_addr, shutdown_tx) =
         create_grpc_server(socket_path.into(), svc, <span class="string">"Verifier"</span>, <span class="kw-2">&amp;</span>config).<span class="kw">await</span><span class="question-mark">?</span>;
@@ -746,7 +810,10 @@
 
     <span class="kw">let </span>operator = OperatorServer::&lt;C&gt;::new(config.clone()).<span class="kw">await</span><span class="question-mark">?</span>;
     operator.start_background_tasks().<span class="kw">await</span><span class="question-mark">?</span>;
-    <span class="kw">let </span>svc = ClementineOperatorServer::new(operator);
+
+    <span class="kw">let </span>svc = ClementineOperatorServer::new(operator)
+        .max_encoding_message_size(config.grpc.max_message_size)
+        .max_decoding_message_size(config.grpc.max_message_size);
 
     <span class="kw">let </span>(server_addr, shutdown_tx) =
         create_grpc_server(socket_path.into(), svc, <span class="string">"Operator"</span>, <span class="kw-2">&amp;</span>config).<span class="kw">await</span><span class="question-mark">?</span>;
@@ -774,7 +841,10 @@
 ) -&gt; <span class="prelude-ty">Result</span>&lt;(std::path::PathBuf, oneshot::Sender&lt;()&gt;), BridgeError&gt; {
     <span class="kw">let </span>aggregator_server = AggregatorServer::new(config.clone()).<span class="kw">await</span><span class="question-mark">?</span>;
     aggregator_server.start_background_tasks().<span class="kw">await</span><span class="question-mark">?</span>;
-    <span class="kw">let </span>svc = ClementineAggregatorServer::new(aggregator_server);
+
+    <span class="kw">let </span>svc = ClementineAggregatorServer::new(aggregator_server)
+        .max_encoding_message_size(config.grpc.max_message_size)
+        .max_decoding_message_size(config.grpc.max_message_size);
 
     <span class="kw">let </span>(server_addr, shutdown_tx) =
         create_grpc_server(socket_path.into(), svc, <span class="string">"Aggregator"</span>, <span class="kw-2">&amp;</span>config).<span class="kw">await</span><span class="question-mark">?</span>;

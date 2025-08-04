@@ -4,7 +4,7 @@
 }</code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Bitcoin RPC wrapper. Extended RPC provides useful wrapper functions for
 common operations, as well as direct access to Bitcoin RPC. Bitcoin RPC can
 be directly accessed via <code>client</code> member.</p>
-</div></details><h2 id="fields" class="fields section-header">Fields<a href="#fields" class="anchor">§</a></h2><span id="structfield.url" class="structfield section-header"><a href="#structfield.url" class="anchor field">§</a><code>url: <a class="struct" href="https://doc.rust-lang.org/1.85.1/alloc/string/struct.String.html" title="struct alloc::string::String">String</a></code></span><span id="structfield.client" class="structfield section-header"><a href="#structfield.client" class="anchor field">§</a><code>client: <a class="struct" href="https://doc.rust-lang.org/1.85.1/alloc/sync/struct.Arc.html" title="struct alloc::sync::Arc">Arc</a>&lt;Client&gt;</code></span><h2 id="implementations" class="section-header">Implementations<a href="#implementations" class="anchor">§</a></h2><div id="implementations-list"><details class="toggle implementors-toggle" open><summary><section id="impl-ExtendedRpc" class="impl"><a class="src rightside" href="../../src/clementine_core/extended_rpc.rs.html#87-862">Source</a><a href="#impl-ExtendedRpc" class="anchor">§</a><h3 class="code-header">impl <a class="struct" href="struct.ExtendedRpc.html" title="struct clementine_core::extended_rpc::ExtendedRpc">ExtendedRpc</a></h3></section></summary><div class="impl-items"><details class="toggle method-toggle" open><summary><section id="method.connect" class="method"><a class="src rightside" href="../../src/clementine_core/extended_rpc.rs.html#89-105">Source</a><h4 class="code-header">pub async fn <a href="#method.connect" class="fn">connect</a>(
+</div></details><h2 id="fields" class="fields section-header">Fields<a href="#fields" class="anchor">§</a></h2><span id="structfield.url" class="structfield section-header"><a href="#structfield.url" class="anchor field">§</a><code>url: <a class="struct" href="https://doc.rust-lang.org/1.85.1/alloc/string/struct.String.html" title="struct alloc::string::String">String</a></code></span><span id="structfield.client" class="structfield section-header"><a href="#structfield.client" class="anchor field">§</a><code>client: <a class="struct" href="https://doc.rust-lang.org/1.85.1/alloc/sync/struct.Arc.html" title="struct alloc::sync::Arc">Arc</a>&lt;Client&gt;</code></span><h2 id="implementations" class="section-header">Implementations<a href="#implementations" class="anchor">§</a></h2><div id="implementations-list"><details class="toggle implementors-toggle" open><summary><section id="impl-ExtendedRpc" class="impl"><a class="src rightside" href="../../src/clementine_core/extended_rpc.rs.html#87-867">Source</a><a href="#impl-ExtendedRpc" class="anchor">§</a><h3 class="code-header">impl <a class="struct" href="struct.ExtendedRpc.html" title="struct clementine_core::extended_rpc::ExtendedRpc">ExtendedRpc</a></h3></section></summary><div class="impl-items"><details class="toggle method-toggle" open><summary><section id="method.connect" class="method"><a class="src rightside" href="../../src/clementine_core/extended_rpc.rs.html#89-105">Source</a><h4 class="code-header">pub async fn <a href="#method.connect" class="fn">connect</a>(
     url: <a class="struct" href="https://doc.rust-lang.org/1.85.1/alloc/string/struct.String.html" title="struct alloc::string::String">String</a>,
     user: SecretString,
     password: SecretString,
@@ -34,7 +34,7 @@ there was an error retrieving the transaction info.</li>
 <ul>
 <li><a href="https://doc.rust-lang.org/1.85.1/std/primitive.u32.html" title="primitive u32"><code>u32</code></a>: Current block height</li>
 </ul>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.collateral_check" class="method"><a class="src rightside" href="../../src/clementine_core/extended_rpc.rs.html#184-335">Source</a><h4 class="code-header">pub async fn <a href="#method.collateral_check" class="fn">collateral_check</a>(
+</div></details><details class="toggle method-toggle" open><summary><section id="method.collateral_check" class="method"><a class="src rightside" href="../../src/clementine_core/extended_rpc.rs.html#184-340">Source</a><h4 class="code-header">pub async fn <a href="#method.collateral_check" class="fn">collateral_check</a>(
     &amp;self,
     operator_data: &amp;<a class="struct" href="../deposit/struct.OperatorData.html" title="struct clementine_core::deposit::OperatorData">OperatorData</a>,
     kickoff_wpks: &amp;<a class="struct" href="../builder/transaction/struct.KickoffWinternitzKeys.html" title="struct clementine_core::builder::transaction::KickoffWinternitzKeys">KickoffWinternitzKeys</a>,
@@ -61,7 +61,7 @@ there was an error retrieving the transaction info.</li>
 <li><a href="../errors/enum.BridgeError.html" title="enum clementine_core::errors::BridgeError"><code>BridgeError</code></a>: If there was an error retrieving transaction data, creating round transactions,
 or checking UTXO status</li>
 </ul>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.get_blockhash_of_tx" class="method"><a class="src rightside" href="../../src/clementine_core/extended_rpc.rs.html#352-364">Source</a><h4 class="code-header">pub async fn <a href="#method.get_blockhash_of_tx" class="fn">get_blockhash_of_tx</a>(
+</div></details><details class="toggle method-toggle" open><summary><section id="method.get_blockhash_of_tx" class="method"><a class="src rightside" href="../../src/clementine_core/extended_rpc.rs.html#357-369">Source</a><h4 class="code-header">pub async fn <a href="#method.get_blockhash_of_tx" class="fn">get_blockhash_of_tx</a>(
     &amp;self,
     txid: &amp;Txid,
 ) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.85.1/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;BlockHash, <a class="enum" href="enum.BitcoinRPCError.html" title="enum clementine_core::extended_rpc::BitcoinRPCError">BitcoinRPCError</a>&gt;</h4></section></summary><div class="docblock"><p>Returns block hash of a transaction, if confirmed.</p>
@@ -79,7 +79,7 @@ is in.</li>
 <li><a href="enum.BitcoinRPCError.html" title="enum clementine_core::extended_rpc::BitcoinRPCError"><code>BitcoinRPCError</code></a>: If the transaction is not confirmed (0) or if
 there was an error retrieving the transaction info.</li>
 </ul>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.get_block_info_by_height" class="method"><a class="src rightside" href="../../src/clementine_core/extended_rpc.rs.html#376-394">Source</a><h4 class="code-header">pub async fn <a href="#method.get_block_info_by_height" class="fn">get_block_info_by_height</a>(
+</div></details><details class="toggle method-toggle" open><summary><section id="method.get_block_info_by_height" class="method"><a class="src rightside" href="../../src/clementine_core/extended_rpc.rs.html#381-399">Source</a><h4 class="code-header">pub async fn <a href="#method.get_block_info_by_height" class="fn">get_block_info_by_height</a>(
     &amp;self,
     height: <a class="primitive" href="https://doc.rust-lang.org/1.85.1/std/primitive.u64.html">u64</a>,
 ) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.85.1/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;(BlockHash, Header), <a class="enum" href="enum.BitcoinRPCError.html" title="enum clementine_core::extended_rpc::BitcoinRPCError">BitcoinRPCError</a>&gt;</h4></section></summary><div class="docblock"><p>Retrieves the block header and hash for a given block height.</p>
@@ -92,7 +92,7 @@ there was an error retrieving the transaction info.</li>
 <li>([<code>bitcoin::BlockHash</code>], [<code>bitcoin::block::Header</code>]): A tuple
 containing the block hash and header.</li>
 </ul>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.get_prevout_txs" class="method"><a class="src rightside" href="../../src/clementine_core/extended_rpc.rs.html#406-416">Source</a><h4 class="code-header">pub async fn <a href="#method.get_prevout_txs" class="fn">get_prevout_txs</a>(
+</div></details><details class="toggle method-toggle" open><summary><section id="method.get_prevout_txs" class="method"><a class="src rightside" href="../../src/clementine_core/extended_rpc.rs.html#411-421">Source</a><h4 class="code-header">pub async fn <a href="#method.get_prevout_txs" class="fn">get_prevout_txs</a>(
     &amp;self,
     tx: &amp;Transaction,
 ) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.85.1/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.85.1/alloc/vec/struct.Vec.html" title="struct alloc::vec::Vec">Vec</a>&lt;Transaction&gt;, <a class="enum" href="enum.BitcoinRPCError.html" title="enum clementine_core::extended_rpc::BitcoinRPCError">BitcoinRPCError</a>&gt;</h4></section></summary><div class="docblock"><p>Gets the transactions that created the inputs of a given transaction.</p>
@@ -102,7 +102,7 @@ containing the block hash and header.</li>
 </ul>
 <h5 id="returns-5"><a class="doc-anchor" href="#returns-5">§</a>Returns</h5>
 <p>A vector of transactions that created the inputs of the given transaction.</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.get_tx_of_txid" class="method"><a class="src rightside" href="../../src/clementine_core/extended_rpc.rs.html#427-434">Source</a><h4 class="code-header">pub async fn <a href="#method.get_tx_of_txid" class="fn">get_tx_of_txid</a>(
+</div></details><details class="toggle method-toggle" open><summary><section id="method.get_tx_of_txid" class="method"><a class="src rightside" href="../../src/clementine_core/extended_rpc.rs.html#432-439">Source</a><h4 class="code-header">pub async fn <a href="#method.get_tx_of_txid" class="fn">get_tx_of_txid</a>(
     &amp;self,
     txid: &amp;Txid,
 ) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.85.1/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;Transaction, <a class="enum" href="enum.BitcoinRPCError.html" title="enum clementine_core::extended_rpc::BitcoinRPCError">BitcoinRPCError</a>&gt;</h4></section></summary><div class="docblock"><p>Gets the transaction data for a given transaction ID.</p>
@@ -114,7 +114,7 @@ containing the block hash and header.</li>
 <ul>
 <li>[<code>bitcoin::Transaction</code>]: Transaction itself.</li>
 </ul>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.is_tx_on_chain" class="method"><a class="src rightside" href="../../src/clementine_core/extended_rpc.rs.html#445-453">Source</a><h4 class="code-header">pub async fn <a href="#method.is_tx_on_chain" class="fn">is_tx_on_chain</a>(&amp;self, txid: &amp;Txid) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.85.1/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.85.1/std/primitive.bool.html">bool</a>, <a class="enum" href="enum.BitcoinRPCError.html" title="enum clementine_core::extended_rpc::BitcoinRPCError">BitcoinRPCError</a>&gt;</h4></section></summary><div class="docblock"><p>Checks if a transaction is on-chain.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.is_tx_on_chain" class="method"><a class="src rightside" href="../../src/clementine_core/extended_rpc.rs.html#450-458">Source</a><h4 class="code-header">pub async fn <a href="#method.is_tx_on_chain" class="fn">is_tx_on_chain</a>(&amp;self, txid: &amp;Txid) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.85.1/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.85.1/std/primitive.bool.html">bool</a>, <a class="enum" href="enum.BitcoinRPCError.html" title="enum clementine_core::extended_rpc::BitcoinRPCError">BitcoinRPCError</a>&gt;</h4></section></summary><div class="docblock"><p>Checks if a transaction is on-chain.</p>
 <h5 id="parameters-4"><a class="doc-anchor" href="#parameters-4">§</a>Parameters</h5>
 <ul>
 <li><code>txid</code>: TXID of the transaction to check.</li>
@@ -123,7 +123,7 @@ containing the block hash and header.</li>
 <ul>
 <li><a href="https://doc.rust-lang.org/1.85.1/std/primitive.bool.html" title="primitive bool"><code>bool</code></a>: <code>true</code> if the transaction is on-chain, <code>false</code> otherwise.</li>
 </ul>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.check_utxo_address_and_amount" class="method"><a class="src rightside" href="../../src/clementine_core/extended_rpc.rs.html#466-494">Source</a><h4 class="code-header">pub async fn <a href="#method.check_utxo_address_and_amount" class="fn">check_utxo_address_and_amount</a>(
+</div></details><details class="toggle method-toggle" open><summary><section id="method.check_utxo_address_and_amount" class="method"><a class="src rightside" href="../../src/clementine_core/extended_rpc.rs.html#471-499">Source</a><h4 class="code-header">pub async fn <a href="#method.check_utxo_address_and_amount" class="fn">check_utxo_address_and_amount</a>(
     &amp;self,
     outpoint: &amp;OutPoint,
     address: &amp;ScriptBuf,
@@ -139,7 +139,7 @@ containing the block hash and header.</li>
 <ul>
 <li><a href="https://doc.rust-lang.org/1.85.1/std/primitive.bool.html" title="primitive bool"><code>bool</code></a>: <code>true</code> if the UTXO has the expected address and amount, <code>false</code> otherwise.</li>
 </ul>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.is_utxo_spent" class="method"><a class="src rightside" href="../../src/clementine_core/extended_rpc.rs.html#510-522">Source</a><h4 class="code-header">pub async fn <a href="#method.is_utxo_spent" class="fn">is_utxo_spent</a>(
+</div></details><details class="toggle method-toggle" open><summary><section id="method.is_utxo_spent" class="method"><a class="src rightside" href="../../src/clementine_core/extended_rpc.rs.html#515-527">Source</a><h4 class="code-header">pub async fn <a href="#method.is_utxo_spent" class="fn">is_utxo_spent</a>(
     &amp;self,
     outpoint: &amp;OutPoint,
 ) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.85.1/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.85.1/std/primitive.bool.html">bool</a>, <a class="enum" href="enum.BitcoinRPCError.html" title="enum clementine_core::extended_rpc::BitcoinRPCError">BitcoinRPCError</a>&gt;</h4></section></summary><div class="docblock"><p>Checks if an UTXO is spent.</p>
@@ -156,12 +156,12 @@ containing the block hash and header.</li>
 <li><a href="enum.BitcoinRPCError.html" title="enum clementine_core::extended_rpc::BitcoinRPCError"><code>BitcoinRPCError</code></a>: If the transaction is not confirmed or if there
 was an error retrieving the transaction output.</li>
 </ul>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.mempool_size" class="method"><a class="src rightside" href="../../src/clementine_core/extended_rpc.rs.html#646-653">Source</a><h4 class="code-header">pub async fn <a href="#method.mempool_size" class="fn">mempool_size</a>(&amp;self) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.85.1/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.85.1/std/primitive.usize.html">usize</a>, <a class="enum" href="enum.BitcoinRPCError.html" title="enum clementine_core::extended_rpc::BitcoinRPCError">BitcoinRPCError</a>&gt;</h4></section></summary><div class="docblock"><p>Gets the number of transactions in the mempool.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.mempool_size" class="method"><a class="src rightside" href="../../src/clementine_core/extended_rpc.rs.html#651-658">Source</a><h4 class="code-header">pub async fn <a href="#method.mempool_size" class="fn">mempool_size</a>(&amp;self) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.85.1/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.85.1/std/primitive.usize.html">usize</a>, <a class="enum" href="enum.BitcoinRPCError.html" title="enum clementine_core::extended_rpc::BitcoinRPCError">BitcoinRPCError</a>&gt;</h4></section></summary><div class="docblock"><p>Gets the number of transactions in the mempool.</p>
 <h5 id="returns-10"><a class="doc-anchor" href="#returns-10">§</a>Returns</h5>
 <ul>
 <li><a href="https://doc.rust-lang.org/1.85.1/std/primitive.usize.html" title="primitive usize"><code>usize</code></a>: The number of transactions in the mempool.</li>
 </ul>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.send_to_address" class="method"><a class="src rightside" href="../../src/clementine_core/extended_rpc.rs.html#665-684">Source</a><h4 class="code-header">pub async fn <a href="#method.send_to_address" class="fn">send_to_address</a>(
+</div></details><details class="toggle method-toggle" open><summary><section id="method.send_to_address" class="method"><a class="src rightside" href="../../src/clementine_core/extended_rpc.rs.html#670-689">Source</a><h4 class="code-header">pub async fn <a href="#method.send_to_address" class="fn">send_to_address</a>(
     &amp;self,
     address: &amp;Address,
     amount_sats: Amount,
@@ -175,7 +175,7 @@ was an error retrieving the transaction output.</li>
 <ul>
 <li>[<code>OutPoint</code>]: The outpoint (txid and vout) of the newly created output.</li>
 </ul>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.get_txout_from_outpoint" class="method"><a class="src rightside" href="../../src/clementine_core/extended_rpc.rs.html#695-712">Source</a><h4 class="code-header">pub async fn <a href="#method.get_txout_from_outpoint" class="fn">get_txout_from_outpoint</a>(
+</div></details><details class="toggle method-toggle" open><summary><section id="method.get_txout_from_outpoint" class="method"><a class="src rightside" href="../../src/clementine_core/extended_rpc.rs.html#700-717">Source</a><h4 class="code-header">pub async fn <a href="#method.get_txout_from_outpoint" class="fn">get_txout_from_outpoint</a>(
     &amp;self,
     outpoint: &amp;OutPoint,
 ) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.85.1/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;TxOut, <a class="enum" href="enum.BitcoinRPCError.html" title="enum clementine_core::extended_rpc::BitcoinRPCError">BitcoinRPCError</a>&gt;</h4></section></summary><div class="docblock"><p>Retrieves the transaction output for a given outpoint.</p>
@@ -187,7 +187,7 @@ was an error retrieving the transaction output.</li>
 <ul>
 <li>[<code>TxOut</code>]: The transaction output at the specified outpoint.</li>
 </ul>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.bump_fee_with_fee_rate" class="method"><a class="src rightside" href="../../src/clementine_core/extended_rpc.rs.html#739-845">Source</a><h4 class="code-header">pub async fn <a href="#method.bump_fee_with_fee_rate" class="fn">bump_fee_with_fee_rate</a>(
+</div></details><details class="toggle method-toggle" open><summary><section id="method.bump_fee_with_fee_rate" class="method"><a class="src rightside" href="../../src/clementine_core/extended_rpc.rs.html#744-850">Source</a><h4 class="code-header">pub async fn <a href="#method.bump_fee_with_fee_rate" class="fn">bump_fee_with_fee_rate</a>(
     &amp;self,
     txid: Txid,
     fee_rate: FeeRate,
@@ -217,7 +217,7 @@ It works as follows:</p>
 <li><code>BumpFeeUTXOSpent</code> - If the UTXO being spent by the transaction is already spent</li>
 <li><code>BumpFeeError</code> - For other errors with fee bumping</li>
 </ul>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.clone_inner" class="method"><a class="src rightside" href="../../src/clementine_core/extended_rpc.rs.html#854-861">Source</a><h4 class="code-header">pub async fn <a href="#method.clone_inner" class="fn">clone_inner</a>(&amp;self) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.85.1/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;Self, Error&gt;</h4></section></summary><div class="docblock"><p>Creates a new instance of the <a href="struct.ExtendedRpc.html" title="struct clementine_core::extended_rpc::ExtendedRpc"><code>ExtendedRpc</code></a> with a new client
+</div></details><details class="toggle method-toggle" open><summary><section id="method.clone_inner" class="method"><a class="src rightside" href="../../src/clementine_core/extended_rpc.rs.html#859-866">Source</a><h4 class="code-header">pub async fn <a href="#method.clone_inner" class="fn">clone_inner</a>(&amp;self) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.85.1/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;Self, Error&gt;</h4></section></summary><div class="docblock"><p>Creates a new instance of the <a href="struct.ExtendedRpc.html" title="struct clementine_core::extended_rpc::ExtendedRpc"><code>ExtendedRpc</code></a> with a new client
 connection for cloning. This is needed when you need a separate
 connection to the Bitcoin RPC server.</p>
 <h5 id="returns-14"><a class="doc-anchor" href="#returns-14">§</a>Returns</h5>

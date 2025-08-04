@@ -405,7 +405,8 @@
 <a href="#404" id="404">404</a>
 <a href="#405" id="405">405</a>
 <a href="#406" id="406">406</a>
-<a href="#407" id="407">407</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Bitcoin Address Construction
+<a href="#407" id="407">407</a>
+<a href="#408" id="408">408</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Bitcoin Address Construction
 //!
 //! Contains helper functions to create taproot addresses with given scripts and internal key.
 //! Contains helper functions to create correct deposit addresses. Addresses need to be of a specific format to be
@@ -418,6 +419,7 @@
 <span class="kw">use </span><span class="kw">crate</span>::bitvm_client::SECP;
 <span class="kw">use </span><span class="kw">crate</span>::deposit::SecurityCouncil;
 <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
+<span class="kw">use </span><span class="kw">crate</span>::utils::ScriptBufExt;
 <span class="kw">use crate</span>::{bitvm_client, EVMAddress};
 <span class="kw">use </span>bitcoin::address::NetworkUnchecked;
 <span class="kw">use </span>bitcoin::{
@@ -572,9 +574,9 @@
         .assume_checked()
         .script_pubkey();
 
-    <span class="kw">let </span>recovery_extracted_xonly_pk =
-        XOnlyPublicKey::from_slice(<span class="kw-2">&amp;</span>recovery_script_pubkey.as_bytes()[<span class="number">2</span>..<span class="number">34</span>])
-            .wrap_err(<span class="string">"Failed to extract xonly public key from recovery taproot address"</span>)<span class="question-mark">?</span>;
+    <span class="kw">let </span>recovery_extracted_xonly_pk = recovery_script_pubkey
+        .try_get_taproot_pk()
+        .wrap_err(<span class="string">"Recovery taproot address is not a valid taproot address"</span>)<span class="question-mark">?</span>;
 
     <span class="kw">let </span>script_timelock =
         TimelockScript::new(<span class="prelude-val">Some</span>(recovery_extracted_xonly_pk), user_takes_after).to_script_buf();

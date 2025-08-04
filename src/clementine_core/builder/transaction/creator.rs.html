@@ -1417,7 +1417,36 @@
 <a href="#1416" id="1416">1416</a>
 <a href="#1417" id="1417">1417</a>
 <a href="#1418" id="1418">1418</a>
-<a href="#1419" id="1419">1419</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Transaction Handler Creation Logic
+<a href="#1419" id="1419">1419</a>
+<a href="#1420" id="1420">1420</a>
+<a href="#1421" id="1421">1421</a>
+<a href="#1422" id="1422">1422</a>
+<a href="#1423" id="1423">1423</a>
+<a href="#1424" id="1424">1424</a>
+<a href="#1425" id="1425">1425</a>
+<a href="#1426" id="1426">1426</a>
+<a href="#1427" id="1427">1427</a>
+<a href="#1428" id="1428">1428</a>
+<a href="#1429" id="1429">1429</a>
+<a href="#1430" id="1430">1430</a>
+<a href="#1431" id="1431">1431</a>
+<a href="#1432" id="1432">1432</a>
+<a href="#1433" id="1433">1433</a>
+<a href="#1434" id="1434">1434</a>
+<a href="#1435" id="1435">1435</a>
+<a href="#1436" id="1436">1436</a>
+<a href="#1437" id="1437">1437</a>
+<a href="#1438" id="1438">1438</a>
+<a href="#1439" id="1439">1439</a>
+<a href="#1440" id="1440">1440</a>
+<a href="#1441" id="1441">1441</a>
+<a href="#1442" id="1442">1442</a>
+<a href="#1443" id="1443">1443</a>
+<a href="#1444" id="1444">1444</a>
+<a href="#1445" id="1445">1445</a>
+<a href="#1446" id="1446">1446</a>
+<a href="#1447" id="1447">1447</a>
+<a href="#1448" id="1448">1448</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Transaction Handler Creation Logic
 //!
 //! This module provides the logic for constructing, caching, and managing transaction handlers (`TxHandler`) for all transaction types in the Clementine bridge.
 //!
@@ -1452,7 +1481,7 @@
     TransactionType, TxHandler,
 };
 <span class="kw">use </span><span class="kw">crate</span>::config::protocol::ProtocolParamset;
-<span class="kw">use </span><span class="kw">crate</span>::database::Database;
+<span class="kw">use </span><span class="kw">crate</span>::database::{Database, DatabaseTransaction};
 <span class="kw">use </span><span class="kw">crate</span>::deposit::{DepositData, KickoffData, OperatorData};
 <span class="kw">use </span><span class="kw">crate</span>::errors::{BridgeError, TxError};
 <span class="kw">use </span><span class="kw">crate</span>::operator::{PublicHash, RoundIndex};
@@ -1537,12 +1566,14 @@
 /// Round context can only create transactions that do not depend on the deposit, like the round tx and ready to reimburse tx.
 /// Deposit context can create all transactions.
 /// Note: This cache is specific to a single operator, for each operator a new cache is needed.
-</span><span class="attr">#[derive(Debug, Clone)]
-</span><span class="kw">pub struct </span>ReimburseDbCache {
+</span><span class="attr">#[derive(Debug)]
+</span><span class="kw">pub struct </span>ReimburseDbCache&lt;<span class="lifetime">'a</span>, <span class="lifetime">'b</span>&gt; {
     <span class="kw">pub </span>db: Database,
     <span class="kw">pub </span>operator_xonly_pk: XOnlyPublicKey,
     <span class="kw">pub </span>deposit_outpoint: <span class="prelude-ty">Option</span>&lt;bitcoin::OutPoint&gt;,
     <span class="kw">pub </span>paramset: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>ProtocolParamset,
+    <span class="doccomment">/// Optional database transaction to use for the cache.
+    </span>dbtx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'a</span>, <span class="lifetime">'b</span>&gt;&gt;,
     <span class="doccomment">/// winternitz keys to sign the kickoff tx with the blockhash
     </span>kickoff_winternitz_keys: <span class="prelude-ty">Option</span>&lt;KickoffWinternitzKeys&gt;,
     <span class="doccomment">/// bitvm assert scripts for each assert utxo
@@ -1559,19 +1590,21 @@
     </span>replaceable_additional_disprove_script: <span class="prelude-ty">Option</span>&lt;Vec&lt;u8&gt;&gt;,
 }
 
-<span class="kw">impl </span>ReimburseDbCache {
+<span class="kw">impl</span>&lt;<span class="lifetime">'a</span>, <span class="lifetime">'b</span>&gt; ReimburseDbCache&lt;<span class="lifetime">'a</span>, <span class="lifetime">'b</span>&gt; {
     <span class="doccomment">/// Creates a db cache that can be used to create txhandlers for a specific operator and deposit/kickoff
     </span><span class="kw">pub fn </span>new_for_deposit(
         db: Database,
         operator_xonly_pk: XOnlyPublicKey,
         deposit_outpoint: bitcoin::OutPoint,
         paramset: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>ProtocolParamset,
+        dbtx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'a</span>, <span class="lifetime">'b</span>&gt;&gt;,
     ) -&gt; <span class="self">Self </span>{
         <span class="self">Self </span>{
             db,
             operator_xonly_pk,
             deposit_outpoint: <span class="prelude-val">Some</span>(deposit_outpoint),
             paramset,
+            dbtx,
             kickoff_winternitz_keys: <span class="prelude-val">None</span>,
             bitvm_assert_addr: <span class="prelude-val">None</span>,
             bitvm_disprove_root_hash: <span class="prelude-val">None</span>,
@@ -1587,12 +1620,14 @@
         db: Database,
         operator_xonly_pk: XOnlyPublicKey,
         paramset: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>ProtocolParamset,
+        dbtx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'a</span>, <span class="lifetime">'b</span>&gt;&gt;,
     ) -&gt; <span class="self">Self </span>{
         <span class="self">Self </span>{
             db,
             operator_xonly_pk,
             deposit_outpoint: <span class="prelude-val">None</span>,
             paramset,
+            dbtx,
             kickoff_winternitz_keys: <span class="prelude-val">None</span>,
             bitvm_assert_addr: <span class="prelude-val">None</span>,
             bitvm_disprove_root_hash: <span class="prelude-val">None</span>,
@@ -1604,7 +1639,11 @@
     }
 
     <span class="doccomment">/// Creates a db cache from a contract context. This context can possible include a deposit data, for which it will be equivalent to new_for_deposit, otherwise it will be equivalent to new_for_rounds.
-    </span><span class="kw">pub fn </span>from_context(db: Database, context: <span class="kw-2">&amp;</span>ContractContext) -&gt; <span class="self">Self </span>{
+    </span><span class="kw">pub fn </span>from_context(
+        db: Database,
+        context: <span class="kw-2">&amp;</span>ContractContext,
+        dbtx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'a</span>, <span class="lifetime">'b</span>&gt;&gt;,
+    ) -&gt; <span class="self">Self </span>{
         <span class="kw">if </span>context.deposit_data.is_some() {
             <span class="kw">let </span>deposit_data = context
                 .deposit_data
@@ -1615,9 +1654,10 @@
                 context.operator_xonly_pk,
                 deposit_data.get_deposit_outpoint(),
                 context.paramset,
+                dbtx,
             )
         } <span class="kw">else </span>{
-            <span class="self">Self</span>::new_for_rounds(db, context.operator_xonly_pk, context.paramset)
+            <span class="self">Self</span>::new_for_rounds(db, context.operator_xonly_pk, context.paramset, dbtx)
         }
     }
 
@@ -1627,7 +1667,7 @@
             <span class="prelude-val">None </span>=&gt; {
                 <span class="self">self</span>.operator_data = <span class="prelude-val">Some</span>(
                     <span class="self">self</span>.db
-                        .get_operator(<span class="prelude-val">None</span>, <span class="self">self</span>.operator_xonly_pk)
+                        .get_operator(<span class="self">self</span>.dbtx.as_deref_mut(), <span class="self">self</span>.operator_xonly_pk)
                         .<span class="kw">await
                         </span>.wrap_err(<span class="string">"Failed to get operator data from database"</span>)<span class="question-mark">?
                         </span>.ok_or_eyre(<span class="macro">format!</span>(
@@ -1643,7 +1683,11 @@
     <span class="kw">async fn </span>get_bitvm_setup(<span class="kw-2">&amp;mut </span><span class="self">self</span>, deposit_outpoint: OutPoint) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
         <span class="kw">let </span>(assert_addr, bitvm_hash, latest_blockhash_root_hash) = <span class="self">self
             </span>.db
-            .get_bitvm_setup(<span class="prelude-val">None</span>, <span class="self">self</span>.operator_xonly_pk, deposit_outpoint)
+            .get_bitvm_setup(
+                <span class="self">self</span>.dbtx.as_deref_mut(),
+                <span class="self">self</span>.operator_xonly_pk,
+                deposit_outpoint,
+            )
             .<span class="kw">await
             </span>.wrap_err(<span class="string">"Failed to get bitvm setup in ReimburseDbCache::get_bitvm_setup"</span>)<span class="question-mark">?
             </span>.ok_or(TxError::BitvmSetupNotFound(
@@ -1664,7 +1708,10 @@
             <span class="prelude-val">None </span>=&gt; {
                 <span class="self">self</span>.kickoff_winternitz_keys = <span class="prelude-val">Some</span>(KickoffWinternitzKeys::new(
                     <span class="self">self</span>.db
-                        .get_operator_kickoff_winternitz_public_keys(<span class="prelude-val">None</span>, <span class="self">self</span>.operator_xonly_pk)
+                        .get_operator_kickoff_winternitz_public_keys(
+                            <span class="self">self</span>.dbtx.as_deref_mut(),
+                            <span class="self">self</span>.operator_xonly_pk,
+                        )
                         .<span class="kw">await
                         </span>.wrap_err(<span class="string">"Failed to get kickoff winternitz keys from database"</span>)<span class="question-mark">?</span>,
                     <span class="self">self</span>.paramset.num_kickoffs_per_round,
@@ -1703,12 +1750,20 @@
 
         <span class="kw">let </span>bitvm_wpks = <span class="self">self
             </span>.db
-            .get_operator_bitvm_keys(<span class="prelude-val">None</span>, <span class="self">self</span>.operator_xonly_pk, deposit_outpoint)
+            .get_operator_bitvm_keys(
+                <span class="self">self</span>.dbtx.as_deref_mut(),
+                <span class="self">self</span>.operator_xonly_pk,
+                deposit_outpoint,
+            )
             .<span class="kw">await</span><span class="question-mark">?</span>;
 
         <span class="kw">let </span>challenge_ack_hashes = <span class="self">self
             </span>.db
-            .get_operators_challenge_ack_hashes(<span class="prelude-val">None</span>, <span class="self">self</span>.operator_xonly_pk, deposit_outpoint)
+            .get_operators_challenge_ack_hashes(
+                <span class="self">self</span>.dbtx.as_deref_mut(),
+                <span class="self">self</span>.operator_xonly_pk,
+                deposit_outpoint,
+            )
             .<span class="kw">await</span><span class="question-mark">?
             </span>.ok_or(BridgeError::InvalidChallengeAckHashes)<span class="question-mark">?</span>;
 
@@ -1737,7 +1792,7 @@
                     <span class="self">self</span>.challenge_ack_hashes = <span class="prelude-val">Some</span>(
                         <span class="self">self</span>.db
                             .get_operators_challenge_ack_hashes(
-                                <span class="prelude-val">None</span>,
+                                <span class="self">self</span>.dbtx.as_deref_mut(),
                                 <span class="self">self</span>.operator_xonly_pk,
                                 <span class="kw-2">*</span>deposit_outpoint,
                             )
@@ -1974,9 +2029,9 @@
     transaction_type: TransactionType,
     context: ContractContext,
     txhandler_cache: <span class="kw-2">&amp;mut </span>TxHandlerCache,
-    db_cache: <span class="kw-2">&amp;mut </span>ReimburseDbCache,
+    db_cache: <span class="kw-2">&amp;mut </span>ReimburseDbCache&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;,
 ) -&gt; <span class="prelude-ty">Result</span>&lt;BTreeMap&lt;TransactionType, TxHandler&gt;, BridgeError&gt; {
-    <span class="kw">let </span>ReimburseDbCache { paramset, .. } = db_cache.clone();
+    <span class="kw">let </span>paramset = db_cache.paramset;
 
     <span class="kw">let </span>operator_data = db_cache.get_operator_data().<span class="kw">await</span><span class="question-mark">?</span>.clone();
     <span class="kw">let </span>kickoff_winternitz_keys = db_cache.get_kickoff_winternitz_keys().<span class="kw">await</span><span class="question-mark">?</span>.clone();
@@ -2140,7 +2195,7 @@
         <span class="kw">let </span>actor = context.signer.clone().ok_or(TxError::InsufficientContext)<span class="question-mark">?</span>;
         <span class="kw">let </span>bitvm_pks =
             actor.generate_bitvm_pks_for_deposit(deposit_data.get_deposit_outpoint(), paramset)<span class="question-mark">?</span>;
-        <span class="kw">let </span>disprove_scripts = bitvm_pks.get_g16_verifier_disprove_scripts();
+        <span class="kw">let </span>disprove_scripts = bitvm_pks.get_g16_verifier_disprove_scripts()<span class="question-mark">?</span>;
         DisprovePath::Scripts(disprove_scripts)
     } <span class="kw">else </span>{
         DisprovePath::HiddenNode(<span class="kw-2">&amp;</span>disprove_root_hash)
@@ -2219,6 +2274,7 @@
     </span><span class="kw">let </span>challenge_txhandler = builder::transaction::create_challenge_txhandler(
         get_txhandler(<span class="kw-2">&amp;</span>txhandlers, TransactionType::Kickoff)<span class="question-mark">?</span>,
         <span class="kw-2">&amp;</span>operator_data.reimburse_addr,
+        context.signer.map(|s| s.get_evm_address()).transpose()<span class="question-mark">?</span>,
         paramset,
     )<span class="question-mark">?</span>;
     txhandlers.insert(
@@ -2706,6 +2762,7 @@
 
     <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
     #[tokio::test(flavor = <span class="string">"multi_thread"</span>)]
+    #[serial_test::serial]
     </span><span class="kw">async fn </span>test_deposit_and_sign_txs() {
         <span class="kw">let </span><span class="kw-2">mut </span>config = create_test_config_with_thread_name().<span class="kw">await</span>;
         <span class="kw">let </span>WithProcessCleanup(<span class="kw">_</span>, <span class="kw-2">ref </span>rpc, <span class="kw">_</span>, <span class="kw">_</span>) = create_regtest_rpc(<span class="kw-2">&amp;mut </span>config).<span class="kw">await</span>;
@@ -2720,6 +2777,7 @@
 
     <span class="attr">#[tokio::test(flavor = <span class="string">"multi_thread"</span>)]
     #[cfg(feature = <span class="string">"automation"</span>)]
+    #[serial_test::serial]
     </span><span class="kw">async fn </span>test_replacement_deposit_and_sign_txs() {
         <span class="kw">let </span><span class="kw-2">mut </span>config = create_test_config_with_thread_name().<span class="kw">await</span>;
         <span class="kw">let </span>WithProcessCleanup(<span class="kw">_</span>, <span class="kw-2">ref </span>rpc, <span class="kw">_</span>, <span class="kw">_</span>) = create_regtest_rpc(<span class="kw-2">&amp;mut </span>config).<span class="kw">await</span>;

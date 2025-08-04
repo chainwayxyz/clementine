@@ -1283,7 +1283,29 @@
 <a href="#1282" id="1282">1282</a>
 <a href="#1283" id="1283">1283</a>
 <a href="#1284" id="1284">1284</a>
-<a href="#1285" id="1285">1285</a></pre></div><pre class="rust"><code><span class="kw">use </span>std::collections::hash_map::Entry;
+<a href="#1285" id="1285">1285</a>
+<a href="#1286" id="1286">1286</a>
+<a href="#1287" id="1287">1287</a>
+<a href="#1288" id="1288">1288</a>
+<a href="#1289" id="1289">1289</a>
+<a href="#1290" id="1290">1290</a>
+<a href="#1291" id="1291">1291</a>
+<a href="#1292" id="1292">1292</a>
+<a href="#1293" id="1293">1293</a>
+<a href="#1294" id="1294">1294</a>
+<a href="#1295" id="1295">1295</a>
+<a href="#1296" id="1296">1296</a>
+<a href="#1297" id="1297">1297</a>
+<a href="#1298" id="1298">1298</a>
+<a href="#1299" id="1299">1299</a>
+<a href="#1300" id="1300">1300</a>
+<a href="#1301" id="1301">1301</a>
+<a href="#1302" id="1302">1302</a>
+<a href="#1303" id="1303">1303</a>
+<a href="#1304" id="1304">1304</a>
+<a href="#1305" id="1305">1305</a>
+<a href="#1306" id="1306">1306</a>
+<a href="#1307" id="1307">1307</a></pre></div><pre class="rust"><code><span class="kw">use </span>std::collections::hash_map::Entry;
 <span class="kw">use </span>std::collections::HashMap;
 
 <span class="kw">use </span><span class="kw">crate</span>::bitvm_client::{<span class="self">self</span>, ClementineBitVMPublicKeys, SECP};
@@ -1296,6 +1318,9 @@
 <span class="kw">use </span><span class="kw">crate</span>::operator::{PublicHash, RoundIndex};
 <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::tagged_signature::SignatureId;
 <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::TaggedSignature;
+<span class="kw">use </span><span class="kw">crate</span>::EVMAddress;
+<span class="kw">use </span>alloy::signers::k256;
+<span class="kw">use </span>alloy::signers::local::PrivateKeySigner;
 <span class="kw">use </span>bitcoin::hashes::hash160;
 <span class="kw">use </span>bitcoin::secp256k1::PublicKey;
 <span class="kw">use </span>bitcoin::taproot::{<span class="self">self</span>, LeafVersion, TaprootSpendInfo};
@@ -1307,6 +1332,8 @@
 <span class="kw">use </span>bitcoin::{OutPoint, TapNodeHash, TapSighashType, Witness};
 <span class="kw">use </span>bitvm::signatures::winternitz::{<span class="self">self</span>, BinarysearchVerifier, ToBytesConverter, Winternitz};
 <span class="kw">use </span>eyre::{Context, OptionExt};
+<span class="kw">use </span>hkdf::Hkdf;
+<span class="kw">use </span>sha2::Sha256;
 
 <span class="attr">#[derive(Debug, Clone, PartialEq, Eq, Hash, thiserror::Error)]
 </span><span class="kw">pub enum </span>VerificationError {
@@ -1544,6 +1571,16 @@
         }
     }
 
+    <span class="kw">pub fn </span>get_evm_address(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span>&lt;EVMAddress, BridgeError&gt; {
+        <span class="kw">let </span>x =
+            k256::ecdsa::SigningKey::from_bytes(<span class="kw-2">&amp;</span><span class="self">self</span>.keypair.secret_key().secret_bytes().into())
+                .wrap_err(<span class="string">"Failed to convert secret key to signing key"</span>)<span class="question-mark">?</span>;
+        <span class="kw">let </span>key: PrivateKeySigner = x.into();
+        <span class="kw">let </span>wallet_address = key.address();
+
+        <span class="prelude-val">Ok</span>(EVMAddress(wallet_address.into_array()))
+    }
+
     <span class="doccomment">/// Returns derivied Winternitz secret key from given path.
     </span><span class="kw">pub fn </span>get_derived_winternitz_sk(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
@@ -1552,7 +1589,14 @@
         <span class="kw">let </span>wsk = <span class="self">self
             </span>.winternitz_secret_key
             .ok_or_eyre(<span class="string">"Root Winternitz secret key is not provided in configuration file"</span>)<span class="question-mark">?</span>;
-        <span class="prelude-val">Ok</span>([wsk.as_ref().to_vec(), path.to_bytes()].concat())
+
+        <span class="kw">let </span>hk = Hkdf::&lt;Sha256&gt;::new(<span class="prelude-val">None</span>, wsk.as_ref());
+        <span class="kw">let </span>path_bytes = path.to_bytes();
+        <span class="kw">let </span><span class="kw-2">mut </span>derived_key = <span class="macro">vec!</span>[<span class="number">0u8</span>; <span class="number">32</span>];
+        hk.expand(<span class="kw-2">&amp;</span>path_bytes, <span class="kw-2">&amp;mut </span>derived_key)
+            .map_err(|e| <span class="macro">eyre::eyre!</span>(<span class="string">"Key derivation failed: {:?}"</span>, e))<span class="question-mark">?</span>;
+
+        <span class="prelude-val">Ok</span>(derived_key)
     }
 
     <span class="doccomment">/// Generates a Winternitz public key for the given path.
@@ -2371,7 +2415,8 @@
         // check only first digit
         </span><span class="kw">let </span>params = WinternitzDerivationPath::Kickoff(RoundIndex::Round(<span class="number">0</span>), <span class="number">1</span>, paramset);
         <span class="kw">let </span>expected_pk = <span class="macro">vec!</span>[
-            <span class="number">135</span>, <span class="number">71</span>, <span class="number">6</span>, <span class="number">82</span>, <span class="number">172</span>, <span class="number">209</span>, <span class="number">8</span>, <span class="number">35</span>, <span class="number">87</span>, <span class="number">30</span>, <span class="number">137</span>, <span class="number">147</span>, <span class="number">39</span>, <span class="number">46</span>, <span class="number">87</span>, <span class="number">31</span>, <span class="number">20</span>, <span class="number">100</span>, <span class="number">127</span>, <span class="number">210</span>,
+            <span class="number">192</span>, <span class="number">121</span>, <span class="number">127</span>, <span class="number">229</span>, <span class="number">19</span>, <span class="number">208</span>, <span class="number">80</span>, <span class="number">49</span>, <span class="number">82</span>, <span class="number">134</span>, <span class="number">237</span>, <span class="number">242</span>, <span class="number">142</span>, <span class="number">162</span>, <span class="number">143</span>, <span class="number">232</span>, <span class="number">12</span>, <span class="number">231</span>,
+            <span class="number">114</span>, <span class="number">175</span>,
         ];
         <span class="macro">assert_eq!</span>(
             actor.derive_winternitz_pk(params).unwrap()[<span class="number">0</span>].to_vec(),
@@ -2385,8 +2430,8 @@
 
         <span class="kw">let </span>params = WinternitzDerivationPath::BitvmAssert(<span class="number">3</span>, <span class="number">0</span>, <span class="number">0</span>, deposit_outpoint, paramset);
         <span class="kw">let </span>expected_pk = <span class="macro">vec!</span>[
-            <span class="number">109</span>, <span class="number">153</span>, <span class="number">145</span>, <span class="number">11</span>, <span class="number">185</span>, <span class="number">140</span>, <span class="number">236</span>, <span class="number">205</span>, <span class="number">105</span>, <span class="number">93</span>, <span class="number">80</span>, <span class="number">123</span>, <span class="number">62</span>, <span class="number">218</span>, <span class="number">228</span>, <span class="number">193</span>, <span class="number">124</span>, <span class="number">151</span>,
-            <span class="number">200</span>, <span class="number">208</span>,
+            <span class="number">218</span>, <span class="number">227</span>, <span class="number">228</span>, <span class="number">186</span>, <span class="number">246</span>, <span class="number">108</span>, <span class="number">123</span>, <span class="number">3</span>, <span class="number">33</span>, <span class="number">207</span>, <span class="number">96</span>, <span class="number">230</span>, <span class="number">46</span>, <span class="number">129</span>, <span class="number">189</span>, <span class="number">62</span>, <span class="number">72</span>, <span class="number">179</span>, <span class="number">83</span>,
+            <span class="number">181</span>,
         ];
         <span class="macro">assert_eq!</span>(
             actor.derive_winternitz_pk(params).unwrap()[<span class="number">0</span>].to_vec(),
@@ -2395,8 +2440,7 @@
 
         <span class="kw">let </span>params = WinternitzDerivationPath::ChallengeAckHash(<span class="number">0</span>, deposit_outpoint, paramset);
         <span class="kw">let </span>expected_pk = <span class="macro">vec!</span>[
-            <span class="number">113</span>, <span class="number">255</span>, <span class="number">129</span>, <span class="number">122</span>, <span class="number">93</span>, <span class="number">181</span>, <span class="number">207</span>, <span class="number">47</span>, <span class="number">113</span>, <span class="number">140</span>, <span class="number">166</span>, <span class="number">79</span>, <span class="number">160</span>, <span class="number">116</span>, <span class="number">58</span>, <span class="number">199</span>, <span class="number">27</span>, <span class="number">162</span>,
-            <span class="number">163</span>, <span class="number">142</span>,
+            <span class="number">179</span>, <span class="number">152</span>, <span class="number">124</span>, <span class="number">47</span>, <span class="number">40</span>, <span class="number">83</span>, <span class="number">205</span>, <span class="number">159</span>, <span class="number">21</span>, <span class="number">85</span>, <span class="number">233</span>, <span class="number">82</span>, <span class="number">128</span>, <span class="number">55</span>, <span class="number">176</span>, <span class="number">166</span>, <span class="number">37</span>, <span class="number">43</span>, <span class="number">80</span>, <span class="number">0</span>,
         ];
         <span class="macro">assert_eq!</span>(
             actor.derive_winternitz_pk(params).unwrap()[<span class="number">0</span>].to_vec(),

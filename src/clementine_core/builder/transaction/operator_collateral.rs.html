@@ -463,7 +463,15 @@
 <a href="#462" id="462">462</a>
 <a href="#463" id="463">463</a>
 <a href="#464" id="464">464</a>
-<a href="#465" id="465">465</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Collaterals
+<a href="#465" id="465">465</a>
+<a href="#466" id="466">466</a>
+<a href="#467" id="467">467</a>
+<a href="#468" id="468">468</a>
+<a href="#469" id="469">469</a>
+<a href="#470" id="470">470</a>
+<a href="#471" id="471">471</a>
+<a href="#472" id="472">472</a>
+<a href="#473" id="473">473</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Collaterals
 //!
 //! This module contains the logic for creating the `round_tx`, `ready_to_reimburse_tx`,
 //! and `unspent_kickoff_tx` transactions. These transactions are used to control the sequence of transactions
@@ -565,11 +573,19 @@
     </span><span class="kw">let </span>timeout_block_count_locked_script =
         Arc::new(TimelockScript::new(<span class="prelude-val">Some</span>(operator_xonly_pk), <span class="number">1</span>));
 
+    <span class="kw">let </span>total_required = (paramset.kickoff_amount + paramset.default_utxo_amount())
+        .checked_mul(paramset.num_kickoffs_per_round <span class="kw">as </span>u64)
+        .and_then(|kickoff_total| kickoff_total.checked_add(paramset.anchor_amount()))
+        .ok_or_else(|| {
+            BridgeError::ArithmeticOverflow(<span class="string">"Total required amount calculation overflow"</span>)
+        })<span class="question-mark">?</span>;
+
+    <span class="kw">let </span>remaining_amount = input_amount.checked_sub(total_required).ok_or_else(|| {
+        BridgeError::InsufficientFunds(<span class="string">"Input amount insufficient for required outputs"</span>)
+    })<span class="question-mark">?</span>;
+
     builder = builder.add_output(UnspentTxOut::from_scripts(
-        input_amount
-            - (paramset.kickoff_amount + paramset.default_utxo_amount())
-                * (paramset.num_kickoffs_per_round <span class="kw">as </span>u64)
-            - paramset.anchor_amount(),
+        remaining_amount,
         <span class="macro">vec!</span>[],
         <span class="prelude-val">Some</span>(operator_xonly_pk),
         paramset.network,

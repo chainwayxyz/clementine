@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"mod":["env","protocol"],"struct":["BridgeConfig","TelemetryConfig"]};
+window.SIDEBAR_ITEMS = {"fn":["default_grpc_limits"],"mod":["env","protocol"],"struct":["BridgeConfig","GrpcLimits","TelemetryConfig"]};

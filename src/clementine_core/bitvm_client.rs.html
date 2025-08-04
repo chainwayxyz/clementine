@@ -702,11 +702,80 @@
 <a href="#701" id="701">701</a>
 <a href="#702" id="702">702</a>
 <a href="#703" id="703">703</a>
-<a href="#704" id="704">704</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::WinternitzDerivationPath;
+<a href="#704" id="704">704</a>
+<a href="#705" id="705">705</a>
+<a href="#706" id="706">706</a>
+<a href="#707" id="707">707</a>
+<a href="#708" id="708">708</a>
+<a href="#709" id="709">709</a>
+<a href="#710" id="710">710</a>
+<a href="#711" id="711">711</a>
+<a href="#712" id="712">712</a>
+<a href="#713" id="713">713</a>
+<a href="#714" id="714">714</a>
+<a href="#715" id="715">715</a>
+<a href="#716" id="716">716</a>
+<a href="#717" id="717">717</a>
+<a href="#718" id="718">718</a>
+<a href="#719" id="719">719</a>
+<a href="#720" id="720">720</a>
+<a href="#721" id="721">721</a>
+<a href="#722" id="722">722</a>
+<a href="#723" id="723">723</a>
+<a href="#724" id="724">724</a>
+<a href="#725" id="725">725</a>
+<a href="#726" id="726">726</a>
+<a href="#727" id="727">727</a>
+<a href="#728" id="728">728</a>
+<a href="#729" id="729">729</a>
+<a href="#730" id="730">730</a>
+<a href="#731" id="731">731</a>
+<a href="#732" id="732">732</a>
+<a href="#733" id="733">733</a>
+<a href="#734" id="734">734</a>
+<a href="#735" id="735">735</a>
+<a href="#736" id="736">736</a>
+<a href="#737" id="737">737</a>
+<a href="#738" id="738">738</a>
+<a href="#739" id="739">739</a>
+<a href="#740" id="740">740</a>
+<a href="#741" id="741">741</a>
+<a href="#742" id="742">742</a>
+<a href="#743" id="743">743</a>
+<a href="#744" id="744">744</a>
+<a href="#745" id="745">745</a>
+<a href="#746" id="746">746</a>
+<a href="#747" id="747">747</a>
+<a href="#748" id="748">748</a>
+<a href="#749" id="749">749</a>
+<a href="#750" id="750">750</a>
+<a href="#751" id="751">751</a>
+<a href="#752" id="752">752</a>
+<a href="#753" id="753">753</a>
+<a href="#754" id="754">754</a>
+<a href="#755" id="755">755</a>
+<a href="#756" id="756">756</a>
+<a href="#757" id="757">757</a>
+<a href="#758" id="758">758</a>
+<a href="#759" id="759">759</a>
+<a href="#760" id="760">760</a>
+<a href="#761" id="761">761</a>
+<a href="#762" id="762">762</a>
+<a href="#763" id="763">763</a>
+<a href="#764" id="764">764</a>
+<a href="#765" id="765">765</a>
+<a href="#766" id="766">766</a>
+<a href="#767" id="767">767</a>
+<a href="#768" id="768">768</a>
+<a href="#769" id="769">769</a>
+<a href="#770" id="770">770</a>
+<a href="#771" id="771">771</a>
+<a href="#772" id="772">772</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::WinternitzDerivationPath;
 <span class="kw">use </span><span class="kw">crate</span>::builder::address::taproot_builder_with_scripts;
 <span class="kw">use </span><span class="kw">crate</span>::builder::script::{SpendableScript, WinternitzCommit};
 
 <span class="kw">use </span><span class="kw">crate</span>::config::protocol::ProtocolParamset;
+<span class="kw">use </span><span class="kw">crate</span>::constants::MAX_SCRIPT_REPLACEMENT_OPERATIONS;
 <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
 <span class="kw">use </span>bitcoin::{<span class="self">self</span>};
 <span class="kw">use </span>bitcoin::{ScriptBuf, XOnlyPublicKey};
@@ -1287,22 +1356,44 @@
             .collect::&lt;Vec&lt;<span class="kw">_</span>&gt;&gt;()
     }
 
-    <span class="kw">pub fn </span>get_g16_verifier_disprove_scripts(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; Vec&lt;ScriptBuf&gt; {
+    <span class="kw">pub fn </span>get_g16_verifier_disprove_scripts(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span>&lt;Vec&lt;ScriptBuf&gt;, BridgeError&gt; {
         <span class="kw">if </span><span class="macro">cfg!</span>(debug_assertions) {
-            <span class="macro">vec!</span>[ScriptBuf::from_bytes(<span class="macro">vec!</span>[<span class="number">0x51</span>])] <span class="comment">// OP_TRUE
+            <span class="prelude-val">Ok</span>(<span class="macro">vec!</span>[ScriptBuf::from_bytes(<span class="macro">vec!</span>[<span class="number">0x51</span>])]) <span class="comment">// OP_TRUE
         </span>} <span class="kw">else </span>{
-            replace_disprove_scripts(<span class="self">self</span>)
+            <span class="prelude-val">Ok</span>(replace_disprove_scripts(<span class="self">self</span>)<span class="question-mark">?</span>)
         }
     }
 }
 
-<span class="kw">pub fn </span>replace_disprove_scripts(pks: <span class="kw-2">&amp;</span>ClementineBitVMPublicKeys) -&gt; Vec&lt;ScriptBuf&gt; {
+<span class="kw">pub fn </span>replace_disprove_scripts(
+    pks: <span class="kw-2">&amp;</span>ClementineBitVMPublicKeys,
+) -&gt; <span class="prelude-ty">Result</span>&lt;Vec&lt;ScriptBuf&gt;, BridgeError&gt; {
     <span class="kw">let </span>start = Instant::now();
     <span class="macro">tracing::info!</span>(<span class="string">"Starting script replacement"</span>);
 
     <span class="kw">let </span>cache = BITVM_CACHE.get_or_init(load_or_generate_bitvm_cache);
-    <span class="kw">let </span><span class="kw-2">mut </span>result: Vec&lt;Vec&lt;u8&gt;&gt; = cache.disprove_scripts.clone();
     <span class="kw">let </span>replacement_places = <span class="kw-2">&amp;</span>cache.replacement_places;
+
+    <span class="comment">// Calculate estimated operations to prevent DoS attacks
+    </span><span class="kw">let </span>estimated_operations = calculate_replacement_operations(replacement_places);
+    <span class="macro">tracing::info!</span>(
+        <span class="string">"Estimated operations for script replacement: {}"</span>,
+        estimated_operations
+    );
+    <span class="kw">if </span>estimated_operations &gt; MAX_SCRIPT_REPLACEMENT_OPERATIONS {
+        <span class="macro">tracing::warn!</span>(
+            <span class="string">"Rejecting script replacement: estimated {} operations exceeds limit of {}"</span>,
+            estimated_operations,
+            MAX_SCRIPT_REPLACEMENT_OPERATIONS
+        );
+        <span class="kw">return </span><span class="prelude-val">Err</span>(BridgeError::BitvmReplacementResourceExhaustion(
+            estimated_operations,
+        ));
+    }
+
+    <span class="macro">tracing::info!</span>(<span class="string">"Estimated operations: {}"</span>, estimated_operations);
+
+    <span class="kw">let </span><span class="kw-2">mut </span>result: Vec&lt;Vec&lt;u8&gt;&gt; = cache.disprove_scripts.clone();
 
     <span class="kw">for </span>(digit, places) <span class="kw">in </span>replacement_places.payout_tx_blockhash_pk.iter().enumerate() {
         <span class="kw">for </span>(script_idx, pos) <span class="kw">in </span>places.iter() {
@@ -1358,9 +1449,54 @@
     <span class="kw">let </span>result: Vec&lt;ScriptBuf&gt; = result.into_iter().map(ScriptBuf::from_bytes).collect();
 
     <span class="kw">let </span>elapsed = start.elapsed();
-    <span class="macro">tracing::info!</span>(<span class="string">"Script replacement completed in {:?}"</span>, elapsed);
+    <span class="macro">tracing::info!</span>(
+        <span class="string">"Script replacement completed in {:?} with {} operations"</span>,
+        elapsed,
+        estimated_operations
+    );
 
-    result
+    <span class="prelude-val">Ok</span>(result)
+}
+
+<span class="doccomment">/// Helper function to calculate the total number of replacement operations
+</span><span class="kw">fn </span>calculate_replacement_operations(replacement_places: <span class="kw-2">&amp;</span>ClementineBitVMReplacementData) -&gt; usize {
+    <span class="kw">let </span><span class="kw-2">mut </span>total_operations = <span class="number">0</span>;
+
+    <span class="comment">// Count payout_tx_blockhash_pk operations
+    </span><span class="kw">for </span>places <span class="kw">in </span><span class="kw-2">&amp;</span>replacement_places.payout_tx_blockhash_pk {
+        total_operations += places.len();
+    }
+
+    <span class="comment">// Count latest_blockhash_pk operations
+    </span><span class="kw">for </span>places <span class="kw">in </span><span class="kw-2">&amp;</span>replacement_places.latest_blockhash_pk {
+        total_operations += places.len();
+    }
+
+    <span class="comment">// Count challenge_sending_watchtowers_pk operations
+    </span><span class="kw">for </span>places <span class="kw">in </span><span class="kw-2">&amp;</span>replacement_places.challenge_sending_watchtowers_pk {
+        total_operations += places.len();
+    }
+
+    <span class="comment">// Count bitvm_pks operations (this is typically the largest contributor)
+    </span><span class="kw">for </span>digit_places <span class="kw">in </span><span class="kw-2">&amp;</span>replacement_places.bitvm_pks.<span class="number">0 </span>{
+        <span class="kw">for </span>places <span class="kw">in </span>digit_places {
+            total_operations += places.len();
+        }
+    }
+
+    <span class="kw">for </span>digit_places <span class="kw">in </span><span class="kw-2">&amp;</span>replacement_places.bitvm_pks.<span class="number">1 </span>{
+        <span class="kw">for </span>places <span class="kw">in </span>digit_places {
+            total_operations += places.len();
+        }
+    }
+
+    <span class="kw">for </span>digit_places <span class="kw">in </span><span class="kw-2">&amp;</span>replacement_places.bitvm_pks.<span class="number">2 </span>{
+        <span class="kw">for </span>places <span class="kw">in </span>digit_places {
+            total_operations += places.len();
+        }
+    }
+
+    total_operations
 }
 
 <span class="attr">#[cfg(test)]

@@ -254,7 +254,14 @@
 <a href="#253" id="253">253</a>
 <a href="#254" id="254">254</a>
 <a href="#255" id="255">255</a>
-<a href="#256" id="256">256</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::ParserError;
+<a href="#256" id="256">256</a>
+<a href="#257" id="257">257</a>
+<a href="#258" id="258">258</a>
+<a href="#259" id="259">259</a>
+<a href="#260" id="260">260</a>
+<a href="#261" id="261">261</a>
+<a href="#262" id="262">262</a>
+<a href="#263" id="263">263</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::ParserError;
 <span class="kw">use </span><span class="kw">crate</span>::citrea::CitreaClientT;
 <span class="kw">use </span><span class="kw">crate</span>::deposit::DepositData;
 <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
@@ -382,7 +389,7 @@
 </span><span class="kw">pub fn </span>parse_deposit_sign_session(
     deposit_sign_session: clementine::DepositSignSession,
     verifier_pk: <span class="kw-2">&amp;</span>PublicKey,
-) -&gt; <span class="prelude-ty">Result</span>&lt;(DepositData, u32), Status&gt; {
+) -&gt; <span class="prelude-ty">Result</span>&lt;(DepositData, u128), Status&gt; {
     <span class="kw">let </span>deposit_params = deposit_sign_session
         .deposit_params
         .ok_or(Status::invalid_argument(<span class="string">"No deposit params received"</span>))<span class="question-mark">?</span>;
@@ -393,7 +400,14 @@
         .get_verifier_index(verifier_pk)
         .map_err(|e| Status::invalid_argument(e.to_string()))<span class="question-mark">?</span>;
 
-    <span class="kw">let </span>session_id = deposit_sign_session.nonce_gen_first_responses[verifier_idx].id;
+    <span class="kw">let </span>session_id = deposit_sign_session
+        .nonce_gen_first_responses
+        .get(verifier_idx)
+        .ok_or(Status::invalid_argument(<span class="macro">format!</span>(
+            <span class="string">"Verifier with index {verifier_idx} and public key of {verifier_pk} doesn't exists in nonce_gen_first_responses!"
+        </span>)))<span class="question-mark">?
+        </span>.id.parse()
+        .map_err(|e| Status::invalid_argument(<span class="macro">format!</span>(<span class="string">"Invalid nonce session id: {}"</span>, e)))<span class="question-mark">?</span>;
 
     <span class="prelude-val">Ok</span>((deposit_data, session_id))
 }

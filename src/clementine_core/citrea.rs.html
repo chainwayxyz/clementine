@@ -638,30 +638,7 @@
 <a href="#637" id="637">637</a>
 <a href="#638" id="638">638</a>
 <a href="#639" id="639">639</a>
-<a href="#640" id="640">640</a>
-<a href="#641" id="641">641</a>
-<a href="#642" id="642">642</a>
-<a href="#643" id="643">643</a>
-<a href="#644" id="644">644</a>
-<a href="#645" id="645">645</a>
-<a href="#646" id="646">646</a>
-<a href="#647" id="647">647</a>
-<a href="#648" id="648">648</a>
-<a href="#649" id="649">649</a>
-<a href="#650" id="650">650</a>
-<a href="#651" id="651">651</a>
-<a href="#652" id="652">652</a>
-<a href="#653" id="653">653</a>
-<a href="#654" id="654">654</a>
-<a href="#655" id="655">655</a>
-<a href="#656" id="656">656</a>
-<a href="#657" id="657">657</a>
-<a href="#658" id="658">658</a>
-<a href="#659" id="659">659</a>
-<a href="#660" id="660">660</a>
-<a href="#661" id="661">661</a>
-<a href="#662" id="662">662</a>
-<a href="#663" id="663">663</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Citrea Related Utilities
+<a href="#640" id="640">640</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Citrea Related Utilities
 
 </span><span class="kw">use </span><span class="kw">crate</span>::citrea::BRIDGE_CONTRACT::DepositReplaced;
 <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
@@ -731,18 +708,8 @@
         light_client_prover_url: String,
         chain_id: u32,
         secret_key: <span class="prelude-ty">Option</span>&lt;PrivateKeySigner&gt;,
+        timeout: <span class="prelude-ty">Option</span>&lt;Duration&gt;,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="self">Self</span>, BridgeError&gt;;
-
-    <span class="doccomment">/// Fetches an UTXO from Citrea for the given withdrawal index.
-    ///
-    /// # Parameters
-    ///
-    /// - `withdrawal_index`: Index of the withdrawal.
-    ///
-    /// # Returns
-    ///
-    /// - [`OutPoint`]: UTXO for the given withdrawal.
-    </span><span class="kw">async fn </span>withdrawal_utxos(<span class="kw-2">&amp;</span><span class="self">self</span>, withdrawal_index: u64) -&gt; <span class="prelude-ty">Result</span>&lt;OutPoint, BridgeError&gt;;
 
     <span class="doccomment">/// Returns deposit move txids, starting from the last deposit index.
     ///
@@ -982,6 +949,7 @@
         light_client_prover_url: String,
         chain_id: u32,
         secret_key: <span class="prelude-ty">Option</span>&lt;PrivateKeySigner&gt;,
+        timeout: <span class="prelude-ty">Option</span>&lt;Duration&gt;,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="self">Self</span>, BridgeError&gt; {
         <span class="kw">let </span>citrea_rpc_url = Url::parse(<span class="kw-2">&amp;</span>citrea_rpc_url).wrap_err(<span class="string">"Can't parse Citrea RPC URL"</span>)<span class="question-mark">?</span>;
         <span class="kw">let </span>light_client_prover_url =
@@ -1009,12 +977,14 @@
         <span class="macro">tracing::info!</span>(<span class="string">"Contract created"</span>);
 
         <span class="kw">let </span>client = HttpClientBuilder::default()
+            .request_timeout(timeout.unwrap_or(Duration::from_secs(<span class="number">60</span>)))
             .build(citrea_rpc_url)
             .wrap_err(<span class="string">"Failed to create Citrea RPC client"</span>)<span class="question-mark">?</span>;
 
         <span class="macro">tracing::info!</span>(<span class="string">"Citrea RPC client created"</span>);
 
         <span class="kw">let </span>light_client_prover_client = HttpClientBuilder::default()
+            .request_timeout(timeout.unwrap_or(Duration::from_secs(<span class="number">60</span>)))
             .build(light_client_prover_url)
             .wrap_err(<span class="string">"Failed to create Citrea LCP RPC client"</span>)<span class="question-mark">?</span>;
 
@@ -1026,23 +996,6 @@
             wallet_address,
             contract,
         })
-    }
-
-    <span class="kw">async fn </span>withdrawal_utxos(<span class="kw-2">&amp;</span><span class="self">self</span>, withdrawal_index: u64) -&gt; <span class="prelude-ty">Result</span>&lt;OutPoint, BridgeError&gt; {
-        <span class="kw">let </span>withdrawal_utxo = <span class="self">self
-            </span>.contract
-            .withdrawalUTXOs(U256::from(withdrawal_index))
-            .call()
-            .<span class="kw">await
-            </span>.wrap_err(<span class="string">"Failed to get withdrawal UTXO"</span>)<span class="question-mark">?</span>;
-
-        <span class="kw">let </span>txid = withdrawal_utxo.txId.<span class="number">0</span>;
-        <span class="kw">let </span>txid = Txid::from_slice(txid.as_slice())<span class="question-mark">?</span>;
-
-        <span class="kw">let </span>vout = withdrawal_utxo.outputId.<span class="number">0</span>;
-        <span class="kw">let </span>vout = u32::from_be_bytes(vout);
-
-        <span class="prelude-val">Ok</span>(OutPoint { txid, vout })
     }
 
     <span class="kw">async fn </span>collect_deposit_move_txids(
@@ -1064,12 +1017,13 @@
                 .block(BlockId::Number(BlockNumberOrTag::Number(to_height)))
                 .call()
                 .<span class="kw">await</span>;
-            <span class="kw">if </span>deposit_txid.is_err() {
-                <span class="macro">tracing::trace!</span>(
-                    <span class="string">"Deposit txid not found for index, error: {:?}"</span>,
-                    deposit_txid
-                );
-                <span class="kw">break</span>;
+            <span class="kw">match </span>deposit_txid {
+                <span class="prelude-val">Err</span>(e) <span class="kw">if </span>e.to_string().contains(<span class="string">"execution reverted"</span>) =&gt; {
+                    <span class="macro">tracing::trace!</span>(<span class="string">"Deposit txid not found for index, error: {:?}"</span>, e);
+                    <span class="kw">break</span>;
+                }
+                <span class="prelude-val">Err</span>(e) =&gt; <span class="kw">return </span><span class="prelude-val">Err</span>(e.into()),
+                <span class="prelude-val">Ok</span>(<span class="kw">_</span>) =&gt; {}
             }
             <span class="macro">tracing::info!</span>(<span class="string">"Deposit txid found for index: {:?}"</span>, deposit_txid);
 
@@ -1195,7 +1149,7 @@
 
         <span class="kw">let </span>current_proof_output: LightClientCircuitOutput =
             borsh::from_slice(<span class="kw-2">&amp;</span>proof_current.<span class="number">1</span>.journal.bytes)
-                .expect(<span class="string">"Failed to deserialize light client circuit output"</span>);
+                .wrap_err(<span class="string">"Failed to deserialize light client circuit output"</span>)<span class="question-mark">?</span>;
 
         <span class="kw">if </span>!check_method_id(<span class="kw-2">&amp;</span>current_proof_output, lc_image_id) {
             <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(
@@ -1218,7 +1172,7 @@
 
         <span class="kw">let </span>previous_proof_output: LightClientCircuitOutput =
             borsh::from_slice(<span class="kw-2">&amp;</span>proof_previous.<span class="number">1</span>.journal.bytes)
-                .expect(<span class="string">"Failed to deserialize light client circuit output"</span>);
+                .wrap_err(<span class="string">"Failed to deserialize previous light client circuit output"</span>)<span class="question-mark">?</span>;
 
         <span class="kw">if </span>!check_method_id(<span class="kw-2">&amp;</span>previous_proof_output, lc_image_id) {
             <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(

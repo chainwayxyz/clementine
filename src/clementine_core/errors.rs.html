@@ -276,7 +276,14 @@
 <a href="#275" id="275">275</a>
 <a href="#276" id="276">276</a>
 <a href="#277" id="277">277</a>
-<a href="#278" id="278">278</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Errors
+<a href="#278" id="278">278</a>
+<a href="#279" id="279">279</a>
+<a href="#280" id="280">280</a>
+<a href="#281" id="281">281</a>
+<a href="#282" id="282">282</a>
+<a href="#283" id="283">283</a>
+<a href="#284" id="284">284</a>
+<a href="#285" id="285">285</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Errors
 //!
 //! This module defines globally shared error messages, the crate-level error wrapper and extension traits for error/results.
 //! Our error paradigm is as follows:
@@ -401,8 +408,8 @@
     </span>VerifierNotFound(PublicKey),
     <span class="attr">#[error(<span class="string">"Deposit not found in DB: {0:?}"</span>)]
     </span>DepositNotFound(OutPoint),
-    <span class="attr">#[error(<span class="string">"Deposit is invalid"</span>)]
-    </span>InvalidDeposit,
+    <span class="attr">#[error(<span class="string">"Deposit is invalid due to {0}"</span>)]
+    </span>InvalidDeposit(String),
     <span class="attr">#[error(<span class="string">"Operator data mismatch. Data already stored in DB and received by set_operator doesn't match for xonly_pk: {0}"</span>)]
     </span>OperatorDataMismatch(XOnlyPublicKey),
     <span class="attr">#[error(<span class="string">"Deposit data mismatch. Data already stored in DB doesn't match the new data for deposit {0:?}"</span>)]
@@ -411,6 +418,8 @@
     </span>OperatorWinternitzPublicKeysMismatch(XOnlyPublicKey),
     <span class="attr">#[error(<span class="string">"BitVM setup data mismatch. Data already stored in DB doesn't match the new data for operator {0} and deposit {1:?}"</span>)]
     </span>BitvmSetupDataMismatch(XOnlyPublicKey, OutPoint),
+    <span class="attr">#[error(<span class="string">"BitVM replacement data will exhaust memory. The maximum number of operations is {0}"</span>)]
+    </span>BitvmReplacementResourceExhaustion(usize),
     <span class="attr">#[error(<span class="string">"Operator challenge ack hashes mismatch. Data already stored in DB doesn't match the new data for operator {0} and deposit {1:?}"</span>)]
     </span>OperatorChallengeAckHashesMismatch(XOnlyPublicKey, OutPoint),
     <span class="attr">#[error(<span class="string">"Invalid BitVM public keys"</span>)]
@@ -445,6 +454,11 @@
     </span>CLIDisplayAndExit(StyledStr),
     <span class="attr">#[error(transparent)]
     </span>RPC(<span class="attr">#[from] </span>Status),
+
+    <span class="attr">#[error(<span class="string">"Arithmetic overflow occurred: {0}"</span>)]
+    </span>ArithmeticOverflow(<span class="kw-2">&amp;</span><span class="lifetime">'static </span>str),
+    <span class="attr">#[error(<span class="string">"Insufficient funds: {0}"</span>)]
+    </span>InsufficientFunds(<span class="kw-2">&amp;</span><span class="lifetime">'static </span>str),
 
     <span class="comment">// Base wrapper for eyre
     </span><span class="attr">#[error(transparent)]

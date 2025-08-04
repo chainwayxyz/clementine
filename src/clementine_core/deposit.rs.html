@@ -344,8 +344,7 @@
 <a href="#343" id="343">343</a>
 <a href="#344" id="344">344</a>
 <a href="#345" id="345">345</a>
-<a href="#346" id="346">346</a>
-<a href="#347" id="347">347</a></pre></div><pre class="rust"><code><span class="doccomment">//! This module defines the data structures related to Citrea deposits in the Clementine bridge.
+<a href="#346" id="346">346</a></pre></div><pre class="rust"><code><span class="doccomment">//! This module defines the data structures related to Citrea deposits in the Clementine bridge.
 //!
 //! It includes structures for representing deposit data, actors involved (verifiers, watchtowers, operators),
 //! and security council configurations. The module also provides functionality for managing different types
@@ -360,6 +359,7 @@
 <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
 <span class="kw">use </span><span class="kw">crate</span>::musig2::AggregateFromPublicKeys;
 <span class="kw">use </span><span class="kw">crate</span>::operator::RoundIndex;
+<span class="kw">use </span><span class="kw">crate</span>::utils::ScriptBufExt;
 <span class="kw">use </span><span class="kw">crate</span>::EVMAddress;
 <span class="kw">use </span>bitcoin::address::NetworkUnchecked;
 <span class="kw">use </span>bitcoin::secp256k1::PublicKey;
@@ -517,11 +517,9 @@
                     .assume_checked()
                     .script_pubkey();
 
-                <span class="kw">let </span>recovery_extracted_xonly_pk =
-                    XOnlyPublicKey::from_slice(<span class="kw-2">&amp;</span>recovery_script_pubkey.as_bytes()[<span class="number">2</span>..<span class="number">34</span>])
-                        .wrap_err(
-                            <span class="string">"Failed to extract xonly public key from recovery script pubkey"</span>,
-                        )<span class="question-mark">?</span>;
+                <span class="kw">let </span>recovery_extracted_xonly_pk = recovery_script_pubkey
+                    .try_get_taproot_pk()
+                    .wrap_err(<span class="string">"Recovery taproot address is not a valid taproot address"</span>)<span class="question-mark">?</span>;
 
                 <span class="kw">let </span>script_timelock = Arc::new(TimelockScript::new(
                     <span class="prelude-val">Some</span>(recovery_extracted_xonly_pk),

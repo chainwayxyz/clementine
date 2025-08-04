@@ -2204,7 +2204,51 @@
 <a href="#2203" id="2203">2203</a>
 <a href="#2204" id="2204">2204</a>
 <a href="#2205" id="2205">2205</a>
-<a href="#2206" id="2206">2206</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::{
+<a href="#2206" id="2206">2206</a>
+<a href="#2207" id="2207">2207</a>
+<a href="#2208" id="2208">2208</a>
+<a href="#2209" id="2209">2209</a>
+<a href="#2210" id="2210">2210</a>
+<a href="#2211" id="2211">2211</a>
+<a href="#2212" id="2212">2212</a>
+<a href="#2213" id="2213">2213</a>
+<a href="#2214" id="2214">2214</a>
+<a href="#2215" id="2215">2215</a>
+<a href="#2216" id="2216">2216</a>
+<a href="#2217" id="2217">2217</a>
+<a href="#2218" id="2218">2218</a>
+<a href="#2219" id="2219">2219</a>
+<a href="#2220" id="2220">2220</a>
+<a href="#2221" id="2221">2221</a>
+<a href="#2222" id="2222">2222</a>
+<a href="#2223" id="2223">2223</a>
+<a href="#2224" id="2224">2224</a>
+<a href="#2225" id="2225">2225</a>
+<a href="#2226" id="2226">2226</a>
+<a href="#2227" id="2227">2227</a>
+<a href="#2228" id="2228">2228</a>
+<a href="#2229" id="2229">2229</a>
+<a href="#2230" id="2230">2230</a>
+<a href="#2231" id="2231">2231</a>
+<a href="#2232" id="2232">2232</a>
+<a href="#2233" id="2233">2233</a>
+<a href="#2234" id="2234">2234</a>
+<a href="#2235" id="2235">2235</a>
+<a href="#2236" id="2236">2236</a>
+<a href="#2237" id="2237">2237</a>
+<a href="#2238" id="2238">2238</a>
+<a href="#2239" id="2239">2239</a>
+<a href="#2240" id="2240">2240</a>
+<a href="#2241" id="2241">2241</a>
+<a href="#2242" id="2242">2242</a>
+<a href="#2243" id="2243">2243</a>
+<a href="#2244" id="2244">2244</a>
+<a href="#2245" id="2245">2245</a>
+<a href="#2246" id="2246">2246</a>
+<a href="#2247" id="2247">2247</a>
+<a href="#2248" id="2248">2248</a>
+<a href="#2249" id="2249">2249</a>
+<a href="#2250" id="2250">2250</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::{
     clementine_aggregator_server::ClementineAggregator, verifier_deposit_finalize_params,
     DepositParams, Empty, VerifierDepositFinalizeParams,
 };
@@ -2213,6 +2257,7 @@
     OptimisticPayoutParams, RawSignedTx, VergenResponse, VerifierPublicKeys, WithdrawParams,
 };
 <span class="kw">use </span><span class="kw">crate</span>::aggregator::{AggregatorServer, ParticipatingOperators, ParticipatingVerifiers};
+<span class="kw">use </span><span class="kw">crate</span>::bitvm_client::SECP;
 <span class="kw">use </span><span class="kw">crate</span>::builder::sighash::SignatureInfo;
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::{
     combine_emergency_stop_txhandler, create_emergency_stop_txhandler,
@@ -2231,7 +2276,7 @@
 <span class="kw">use </span><span class="kw">crate</span>::musig2::AggregateFromPublicKeys;
 <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::VerifierDepositSignParams;
 <span class="kw">use </span><span class="kw">crate</span>::rpc::parser;
-<span class="kw">use </span><span class="kw">crate</span>::utils::{get_vergen_response, timed_request, timed_try_join_all};
+<span class="kw">use </span><span class="kw">crate</span>::utils::{get_vergen_response, timed_request, timed_try_join_all, ScriptBufExt};
 <span class="kw">use </span><span class="kw">crate</span>::utils::{FeePayingType, TxMetadata};
 <span class="kw">use </span><span class="kw">crate</span>::UTXO;
 <span class="kw">use crate</span>::{
@@ -2242,7 +2287,7 @@
     rpc::clementine::{<span class="self">self</span>, DepositSignSession},
 };
 <span class="kw">use </span>bitcoin::hashes::Hash;
-<span class="kw">use </span>bitcoin::secp256k1::schnorr::Signature;
+<span class="kw">use </span>bitcoin::secp256k1::schnorr::{<span class="self">self</span>, Signature};
 <span class="kw">use </span>bitcoin::secp256k1::{Message, PublicKey};
 <span class="kw">use </span>bitcoin::{TapSighash, TxOut, Txid};
 <span class="kw">use </span>eyre::{Context, OptionExt};
@@ -2336,7 +2381,7 @@
         );
 
         <span class="comment">// TODO: consider spawn_blocking here
-        </span><span class="kw">let </span>agg_nonce = aggregate_nonces(pub_nonces.iter().collect::&lt;Vec&lt;<span class="kw">_</span>&gt;&gt;().as_slice());
+        </span><span class="kw">let </span>agg_nonce = aggregate_nonces(pub_nonces.iter().collect::&lt;Vec&lt;<span class="kw">_</span>&gt;&gt;().as_slice())<span class="question-mark">?</span>;
 
         agg_nonce_sender
             .send(AggNonceQueueItem { agg_nonce, sighash })
@@ -2373,7 +2418,7 @@
     <span class="macro">tracing::trace!</span>(<span class="string">"Received nonces for movetx in nonce_aggregator"</span>);
 
     <span class="comment">// TODO: consider spawn_blocking here
-    </span><span class="kw">let </span>move_tx_agg_nonce = aggregate_nonces(pub_nonces.iter().collect::&lt;Vec&lt;<span class="kw">_</span>&gt;&gt;().as_slice());
+    </span><span class="kw">let </span>move_tx_agg_nonce = aggregate_nonces(pub_nonces.iter().collect::&lt;Vec&lt;<span class="kw">_</span>&gt;&gt;().as_slice())<span class="question-mark">?</span>;
 
     <span class="kw">let </span>pub_nonces = try_join_all(nonce_streams.iter_mut().map(|s| <span class="kw">async </span>{
         s.next()
@@ -2391,7 +2436,7 @@
     </span>.wrap_err(<span class="string">"Failed to aggregate nonces for the emergency stop tx"</span>)<span class="question-mark">?</span>;
 
     <span class="kw">let </span>emergency_stop_agg_nonce =
-        aggregate_nonces(pub_nonces.iter().collect::&lt;Vec&lt;<span class="kw">_</span>&gt;&gt;().as_slice());
+        aggregate_nonces(pub_nonces.iter().collect::&lt;Vec&lt;<span class="kw">_</span>&gt;&gt;().as_slice())<span class="question-mark">?</span>;
 
     <span class="prelude-val">Ok</span>((move_tx_agg_nonce, emergency_stop_agg_nonce))
 }
@@ -3019,6 +3064,19 @@
         <span class="kw">let </span>(deposit_id, input_signature, input_outpoint, output_script_pubkey, output_amount) =
             parser::operator::parse_withdrawal_sig_params(withdraw_params)<span class="question-mark">?</span>;
 
+        <span class="comment">// if the withdrawal utxo is spent, no reason to sign optimistic payout
+        </span><span class="kw">if </span><span class="self">self
+            </span>.rpc
+            .is_utxo_spent(<span class="kw-2">&amp;</span>input_outpoint)
+            .<span class="kw">await
+            </span>.map_to_status()<span class="question-mark">?
+        </span>{
+            <span class="kw">return </span><span class="prelude-val">Err</span>(Status::invalid_argument(<span class="macro">format!</span>(
+                <span class="string">"Withdrawal utxo is already spent: {:?}"</span>,
+                input_outpoint
+            )));
+        }
+
         <span class="comment">// get which deposit the withdrawal belongs to
         </span><span class="kw">let </span>withdrawal = <span class="self">self
             </span>.db
@@ -3036,10 +3094,39 @@
                     withdrawal_utxo, input_outpoint
                 )));
             }
+
+            <span class="comment">// Prepare input and output of the payout transaction.
+            </span><span class="kw">let </span>withdrawal_prevout = <span class="self">self
+                </span>.rpc
+                .get_txout_from_outpoint(<span class="kw-2">&amp;</span>input_outpoint)
+                .<span class="kw">await
+                </span>.map_to_status()<span class="question-mark">?</span>;
+
+            <span class="kw">let </span>user_xonly_pk = withdrawal_prevout
+                .script_pubkey
+                .try_get_taproot_pk()
+                .map_err(|<span class="kw">_</span>| {
+                    Status::invalid_argument(<span class="macro">format!</span>(
+                        <span class="string">"Withdrawal prevout script_pubkey is not a Taproot output: {:?}"</span>,
+                        withdrawal_prevout.script_pubkey
+                    ))
+                })<span class="question-mark">?</span>;
+
+            <span class="kw">let </span>withdrawal_utxo = UTXO {
+                outpoint: input_outpoint,
+                txout: withdrawal_prevout,
+            };
+
+            <span class="kw">let </span>output_txout = TxOut {
+                value: output_amount,
+                script_pubkey: output_script_pubkey,
+            };
+
             <span class="kw">let </span>deposit_data = <span class="self">self
                 </span>.db
                 .get_deposit_data_with_move_tx(<span class="prelude-val">None</span>, move_txid)
                 .<span class="kw">await</span><span class="question-mark">?</span>;
+
             <span class="kw">let </span><span class="kw-2">mut </span>deposit_data = deposit_data
                 .ok_or(<span class="macro">eyre::eyre!</span>(
                     <span class="string">"Deposit data not found for move txid {}"</span>,
@@ -3047,11 +3134,34 @@
                 ))
                 .map_err(BridgeError::from)<span class="question-mark">?</span>;
 
+            <span class="kw">let </span><span class="kw-2">mut </span>opt_payout_txhandler = create_optimistic_payout_txhandler(
+                <span class="kw-2">&amp;mut </span>deposit_data,
+                withdrawal_utxo,
+                output_txout,
+                input_signature,
+                <span class="self">self</span>.config.protocol_paramset(),
+            )<span class="question-mark">?</span>;
+
+            <span class="kw">let </span>sighash = opt_payout_txhandler.calculate_pubkey_spend_sighash(
+                <span class="number">0</span>,
+                bitcoin::TapSighashType::SinglePlusAnyoneCanPay,
+            )<span class="question-mark">?</span>;
+
+            <span class="kw">let </span>message = Message::from_digest(sighash.to_byte_array());
+
+            <span class="kw">let </span>sig =
+                schnorr::Signature::from_slice(<span class="kw-2">&amp;</span>input_signature.serialize()).map_err(|<span class="kw">_</span>| {
+                    Status::internal(<span class="string">"Failed to parse signature from optimistic payout tx witness"</span>)
+                })<span class="question-mark">?</span>;
+
+            SECP.verify_schnorr(<span class="kw-2">&amp;</span>sig, <span class="kw-2">&amp;</span>message, <span class="kw-2">&amp;</span>user_xonly_pk)
+                .map_err(|<span class="kw">_</span>| Status::internal(<span class="string">"Invalid signature for optimistic payout tx"</span>))<span class="question-mark">?</span>;
+
             <span class="comment">// get which verifiers participated in the deposit to collect the optimistic payout tx signature
-            </span><span class="kw">let </span>verifiers = <span class="self">self</span>.get_participating_verifiers(<span class="kw-2">&amp;</span>deposit_data).<span class="kw">await</span><span class="question-mark">?</span>;
+            </span><span class="kw">let </span>participating_verifiers = <span class="self">self</span>.get_participating_verifiers(<span class="kw-2">&amp;</span>deposit_data).<span class="kw">await</span><span class="question-mark">?</span>;
             <span class="kw">let </span>(first_responses, <span class="kw-2">mut </span>nonce_streams) = {
                 create_nonce_streams(
-                    verifiers.clone(),
+                    participating_verifiers.clone(),
                     <span class="number">1</span>,
                     <span class="attr">#[cfg(test)]
                     </span><span class="kw-2">&amp;</span><span class="self">self</span>.config,
@@ -3063,10 +3173,10 @@
                 .<span class="kw">await
                 </span>.wrap_err(<span class="string">"Failed to aggregate nonces for optimistic payout"</span>)
                 .map_to_status()<span class="question-mark">?</span>;
-            <span class="kw">let </span>agg_nonce = aggregate_nonces(pub_nonces.iter().collect::&lt;Vec&lt;<span class="kw">_</span>&gt;&gt;().as_slice());
+            <span class="kw">let </span>agg_nonce = aggregate_nonces(pub_nonces.iter().collect::&lt;Vec&lt;<span class="kw">_</span>&gt;&gt;().as_slice())<span class="question-mark">?</span>;
             <span class="comment">// send the agg nonce to the verifiers to sign the optimistic payout tx
-            </span><span class="kw">let </span>verifier_clients = verifiers.clients();
-            <span class="kw">let </span>payout_sigs = verifier_clients
+            </span><span class="kw">let </span>payout_sigs = participating_verifiers
+                .clients()
                 .into_iter()
                 .zip(first_responses)
                 .map(|(client, first_response)| {
@@ -3085,28 +3195,6 @@
                 })
                 .collect::&lt;Vec&lt;<span class="kw">_</span>&gt;&gt;();
 
-            <span class="comment">// Prepare input and output of the payout transaction.
-            </span><span class="kw">let </span>withdrawal_prevout = <span class="self">self
-                </span>.rpc
-                .get_txout_from_outpoint(<span class="kw-2">&amp;</span>input_outpoint)
-                .<span class="kw">await
-                </span>.map_to_status()<span class="question-mark">?</span>;
-            <span class="kw">let </span>withdrawal_utxo = UTXO {
-                outpoint: input_outpoint,
-                txout: withdrawal_prevout,
-            };
-            <span class="kw">let </span>output_txout = TxOut {
-                value: output_amount,
-                script_pubkey: output_script_pubkey,
-            };
-
-            <span class="kw">let </span><span class="kw-2">mut </span>opt_payout_txhandler = create_optimistic_payout_txhandler(
-                <span class="kw-2">&amp;mut </span>deposit_data,
-                withdrawal_utxo,
-                output_txout,
-                input_signature,
-                <span class="self">self</span>.config.protocol_paramset(),
-            )<span class="question-mark">?</span>;
             <span class="comment">// txin at index 1 is deposited utxo in movetx
             </span><span class="kw">let </span>sighash = opt_payout_txhandler.calculate_script_spend_sighash_indexed(
                 <span class="number">1</span>,
