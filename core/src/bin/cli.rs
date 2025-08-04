@@ -6,6 +6,7 @@ use std::str::FromStr;
 use bitcoin::{hashes::Hash, Block, ScriptBuf, Txid};
 use clap::{Parser, Subcommand};
 use clementine_core::{
+    builder::transaction::TransactionType,
     config::BridgeConfig,
     deposit::SecurityCouncil,
     errors::BridgeError,
@@ -561,7 +562,43 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
                 .await
                 .expect("Failed to make a request to operator")
                 .into_inner();
-            println!("Get kickoff txs response: {:?}", response.signed_txs);
+            for signed_tx in &response.signed_txs {
+                let tx_type: TransactionType = signed_tx
+                    .transaction_type
+                    .expect("Tx type should not be None")
+                    .try_into()
+                    .expect("Failed to convert tx type");
+                let transaction: bitcoin::Transaction =
+                    bitcoin::consensus::deserialize(&signed_tx.raw_tx)
+                        .expect("Failed to decode transaction");
+                match tx_type {
+                    TransactionType::Kickoff => {
+                        println!("Round tx is on chain, time to send the kickoff tx. This tx is non-standard and cannot be sent by using normal Bitcoin RPC");
+                    }
+                    TransactionType::BurnUnusedKickoffConnectors => {
+                        println!("To be able to send ready to reimburse tx, all unused kickoff connectors must be burned, otherwise the operator will get slashed");
+                    }
+                    TransactionType::ReadyToReimburse => {
+                        println!("All unused kickoff connectors are burned, and all live kickoffs kickoff finalizer utxo's are 
+                        spent, meaning it is safe to send ready to reimburse tx");
+                    }
+                    TransactionType::Reimburse => {
+                        println!("Next round tx is sent, so the reimbursement tx is now ready to be sent");
+                    }
+                    TransactionType::ChallengeTimeout => {
+                        println!("After kickoff, challenge timeout tx needs to be sent. Due to the timelock, it can only be sent after {} blocks pass from the kickoff tx {:?}", 
+                        config.protocol_paramset.operator_challenge_timeout_timelock, transaction.input[0].previous_output.txid);
+                    }
+                    TransactionType::Round => {
+                        println!("Time to send the round tx either for sending the kickoff tx, or getting the reimbursement for the past kickoff by advancing the round. Round tx is a non-standard tx and cannot be sent by using normal Bitcoin RPC.
+                        If the round is not the first round, {} number of blocks need to pass from the previous ready to reimburse tx {:?} (If this is not collateral)", 
+                        config.protocol_paramset.operator_reimburse_timelock, transaction.input[0].previous_output.txid);
+                    }
+                    _ => {}
+                }
+                let hex_tx = hex::encode(&signed_tx.raw_tx);
+                println!("Tx type: {:?}, Tx hex: {:?}", tx_type, hex_tx);
+            }
         }
     }
 }

@@ -11,6 +11,9 @@ mod full_flow;
 #[cfg(feature = "integration-tests")]
 mod musig2;
 
+#[cfg(not(feature = "automation"))]
+mod manual_reimbursement;
+
 #[cfg(feature = "integration-tests")]
 mod rpc_auth;
 #[cfg(all(feature = "automation", feature = "integration-tests"))]

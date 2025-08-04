@@ -129,6 +129,13 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
         args.push("-dustrelayfee=0".to_string());
     }
 
+    if config.test_params.mine_0_fee_txs {
+        // allow mining of 0-fee transactions
+        args.push("-minrelaytxfee=0".to_string());
+        args.push("-acceptnonstdtxn=1".to_string());
+        args.push("-blockmintxfee=0".to_string());
+    }
+
     // Create log file in temp directory
     let log_file = data_dir.join("debug.log");
     let log_file_path = log_file

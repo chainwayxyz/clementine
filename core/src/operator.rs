@@ -581,7 +581,6 @@ where
     ///
     /// - Ok(()) if the withdrawal checks are successful and a payout transaction is added to the TxSender
     /// - Err(BridgeError) if the withdrawal checks fail
-    #[cfg(feature = "automation")]
     pub async fn withdraw(
         &self,
         withdrawal_index: u32,
@@ -589,7 +588,7 @@ where
         in_outpoint: OutPoint,
         out_script_pubkey: ScriptBuf,
         out_amount: Amount,
-    ) -> Result<(), BridgeError> {
+    ) -> Result<Transaction, BridgeError> {
         tracing::info!(
             "Withdrawing with index: {}, in_signature: {}, in_outpoint: {:?}, out_script_pubkey: {}, out_amount: {}",
             withdrawal_index,
@@ -663,28 +662,48 @@ where
         .wrap_err("Failed to verify signature received from user for payout txin")?;
 
         // send payout tx using RBF
-        let payout_tx = payout_txhandler.get_cached_tx();
-        let mut dbtx = self.db.begin_transaction().await?;
-        self.tx_sender
-            .add_tx_to_queue(
-                &mut dbtx,
-                TransactionType::Payout,
-                payout_tx,
-                &[],
-                Some(TxMetadata {
-                    tx_type: TransactionType::Payout,
-                    operator_xonly_pk: Some(self.signer.xonly_public_key),
-                    round_idx: None,
-                    kickoff_idx: None,
-                    deposit_outpoint: None,
+        let funded_tx = self
+            .rpc
+            .client
+            .fund_raw_transaction(
+                payout_txhandler.get_cached_tx(),
+                Some(&bitcoincore_rpc::json::FundRawTransactionOptions {
+                    add_inputs: Some(true),
+                    change_address: None,
+                    change_position: Some(1),
+                    change_type: None,
+                    include_watching: None,
+                    lock_unspents: Some(true),
+                    fee_rate: None,
+                    subtract_fee_from_outputs: None,
+                    replaceable: None,
+                    conf_target: None,
+                    estimate_mode: None,
                 }),
-                &self.config,
                 None,
             )
-            .await?;
-        dbtx.commit().await?;
+            .await
+            .wrap_err("Failed to fund raw transaction")?
+            .hex;
 
-        Ok(())
+        let signed_tx: Transaction = bitcoin::consensus::deserialize(
+            &self
+                .rpc
+                .client
+                .sign_raw_transaction_with_wallet(&funded_tx, None, None)
+                .await
+                .wrap_err("Failed to sign funded tx through bitcoin RPC")?
+                .hex,
+        )
+        .wrap_err("Failed to deserialize signed tx")?;
+
+        self.rpc
+            .client
+            .send_raw_transaction(&signed_tx)
+            .await
+            .wrap_err("Failed to send transaction to signed tx")?;
+
+        Ok(signed_tx)
     }
 
     /// Generates Winternitz public keys for every  BitVM assert tx for a deposit.
@@ -861,17 +880,15 @@ where
             // we currently have no free kickoff connectors in the current round, so we need to end round first
             // if current_round_index should only be smaller than round_idx, and should not be smaller by more than 1
             // so sanity check:
-            if current_round_index + 1 != round_idx {
+            if current_round_index.next_round() != round_idx {
                 return Err(eyre::eyre!(
-                    "Internal error: Expected the current round ({}) to be equal to or 1 less than the round of the first available kickoff for deposit reimbursement ({}) for deposit {:?}. If the round is less than the current round, there is an issue with the logic of the fn that gets the first available kickoff. If the round is greater, that means the next round do not have any kickoff connectors available for reimbursement, which should not be possible.",
+                    "Internal error: Expected the current round ({:?}) to be equal to or 1 less than the round of the first available kickoff for deposit reimbursement ({:?}) for deposit {:?}. If the round is less than the current round, there is an issue with the logic of the fn that gets the first available kickoff. If the round is greater, that means the next round do not have any kickoff connectors available for reimbursement, which should not be possible.",
                     current_round_index, round_idx, deposit_outpoint
                 ).into());
             }
             // start the next round to be able to get reimbursement for the payout
             self.end_round(dbtx).await?;
         }
-
-        let round_idx = RoundIndex::from_index(round_idx as usize);
 
         // get signed txs,
         let kickoff_data = KickoffData {
@@ -1026,10 +1043,8 @@ where
             self.config.protocol_paramset().num_round_txs,
         );
 
-        let current_round = RoundIndex::from_index(current_round_index as usize);
-
         // if we are at round 0, which is just the collateral, we need to start the first round
-        if current_round == RoundIndex::Collateral {
+        if current_round_index == RoundIndex::Collateral {
             return self.start_first_round(dbtx, kickoff_wpks).await;
         }
 
@@ -1038,7 +1053,7 @@ where
                 self.signer.xonly_public_key,
                 self.collateral_funding_outpoint,
                 self.config.protocol_paramset().collateral_funding_amount,
-                current_round,
+                current_round_index,
                 &kickoff_wpks,
                 self.config.protocol_paramset(),
             )?;
@@ -1047,7 +1062,7 @@ where
             self.signer.xonly_public_key,
             self.collateral_funding_outpoint,
             self.config.protocol_paramset().collateral_funding_amount,
-            current_round.next_round(),
+            current_round_index.next_round(),
             &kickoff_wpks,
             self.config.protocol_paramset(),
         )?;
@@ -1084,7 +1099,7 @@ where
                 .db
                 .get_kickoff_txid_for_used_kickoff_connector(
                     Some(dbtx),
-                    current_round,
+                    current_round_index,
                     kickoff_connector_idx,
                 )
                 .await?;
@@ -1107,7 +1122,7 @@ where
                     self.db
                         .set_kickoff_connector_as_used(
                             Some(dbtx),
-                            current_round,
+                            current_round_index,
                             kickoff_connector_idx,
                             None,
                         )
@@ -1142,7 +1157,7 @@ where
                 Some(TxMetadata {
                     tx_type: TransactionType::BurnUnusedKickoffConnectors,
                     operator_xonly_pk: Some(self.signer.xonly_public_key),
-                    round_idx: Some(current_round),
+                    round_idx: Some(current_round_index),
                     kickoff_idx: None,
                     deposit_outpoint: None,
                 }),
@@ -1163,7 +1178,7 @@ where
                 Some(TxMetadata {
                     tx_type: TransactionType::ReadyToReimburse,
                     operator_xonly_pk: Some(self.signer.xonly_public_key),
-                    round_idx: Some(current_round),
+                    round_idx: Some(current_round_index),
                     kickoff_idx: None,
                     deposit_outpoint: None,
                 }),
@@ -1184,7 +1199,7 @@ where
                 Some(TxMetadata {
                     tx_type: TransactionType::Round,
                     operator_xonly_pk: Some(self.signer.xonly_public_key),
-                    round_idx: Some(current_round.next_round()),
+                    round_idx: Some(current_round_index.next_round()),
                     kickoff_idx: None,
                     deposit_outpoint: None,
                 }),
@@ -1207,7 +1222,7 @@ where
 
         // update current round index
         self.db
-            .update_current_round_index(Some(dbtx), current_round.next_round())
+            .update_current_round_index(Some(dbtx), current_round_index.next_round())
             .await?;
 
         Ok(())
@@ -1663,8 +1678,7 @@ where
             .await?;
 
         tracing::info!(
-            "Payer xonly pk and kickoff txid found for the requested deposit id: {}, payer xonly pk: {:?}, kickoff txid: {:?}",
-            deposit_id,
+            "Payer xonly pk and kickoff txid found for the requested deposit, payer xonly pk: {:?}, kickoff txid: {:?}",
             payer_xonly_pk,
             kickoff_txid
         );
@@ -1679,8 +1693,7 @@ where
             (Some(payer_xonly_pk), Some(payout_blockhash), Some(kickoff_txid)) => {
                 if payer_xonly_pk != self.signer.xonly_public_key {
                     return Err(eyre::eyre!(
-                        "Payer is not own operator for deposit id: {}, payer xonly pk: {:?}, operator xonly pk: {:?}",
-                        deposit_id,
+                        "Payer is not own operator for deposit, payer xonly pk: {:?}, operator xonly pk: {:?}",
                         payer_xonly_pk,
                         self.signer.xonly_public_key
                     )
@@ -1689,7 +1702,12 @@ where
                 (payout_blockhash, kickoff_txid)
             }
             _ => {
-                return Err(eyre::eyre!("Payer info not found for deposit id: {}, payout blockhash: {:?}, kickoff txid: {:?}", deposit_id, payout_blockhash, kickoff_txid).into());
+                return Err(eyre::eyre!(
+                    "Payer info not found for deposit, payout blockhash: {:?}, kickoff txid: {:?}",
+                    payout_blockhash,
+                    kickoff_txid
+                )
+                .into());
             }
         };
 
@@ -1844,8 +1862,9 @@ where
             .ok_or(BridgeError::DatabaseError(sqlx::Error::RowNotFound))?;
 
         tracing::info!(
-            "Deposit data found for the requested deposit outpoint: {:?}",
-            deposit_outpoint
+            "Deposit data found for the requested deposit outpoint: {:?}, deposit id: {:?}",
+            deposit_outpoint,
+            deposit_id
         );
 
         // validate payer is operator and get payer xonly pk, payout blockhash and kickoff txid
@@ -1853,9 +1872,7 @@ where
             .validate_payer_is_operator(Some(&mut dbtx), deposit_id)
             .await?;
 
-        let mut current_round_idx = RoundIndex::from_index(
-            self.db.get_current_round_index(Some(&mut dbtx)).await? as usize,
-        );
+        let mut current_round_idx = self.db.get_current_round_index(Some(&mut dbtx)).await?;
 
         let mut txs_to_send: Vec<(TransactionType, Transaction)>;
 
@@ -1872,11 +1889,10 @@ where
             if txs_to_send.is_empty() {
                 // if no txs were returned, and we advanced the round in the db, ask for the next txs again
                 // with the new round index
-                let round_idx_now = RoundIndex::from_index(
-                    self.db.get_current_round_index(Some(&mut dbtx)).await? as usize,
-                );
-                if round_idx_now != current_round_idx {
-                    current_round_idx = round_idx_now;
+                let round_idx_after_operations =
+                    self.db.get_current_round_index(Some(&mut dbtx)).await?;
+                if round_idx_after_operations != current_round_idx {
+                    current_round_idx = round_idx_after_operations;
                     continue;
                 }
             }
@@ -1894,6 +1910,10 @@ where
         mut dbtx: Option<DatabaseTransaction<'_, '_>>,
         round_idx: RoundIndex,
     ) -> Result<Vec<(TransactionType, Transaction)>, BridgeError> {
+        if round_idx == RoundIndex::Collateral {
+            // if current round is collateral, nothing to do except send the first round tx
+            return self.send_next_round_tx(dbtx, round_idx).await;
+        }
         // get round txhandlers
         let context = ContractContext::new_context_for_round(
             self.signer.xonly_public_key,
@@ -2049,38 +2069,48 @@ where
         } else {
             // ready to reimburse tx is on chain, we need to wait for the timelock to send the next round tx
             // first check if next round tx is already sent, that means we can update the database
-            let next_round_context = ContractContext::new_context_for_round(
-                self.signer.xonly_public_key,
-                round_idx.next_round(),
-                self.config.protocol_paramset(),
-            );
-            let next_round_txs = create_and_sign_txs(
-                self.db.clone(),
-                &self.signer,
-                self.config.clone(),
-                next_round_context,
-                None,
-                dbtx.as_deref_mut(),
-            )
-            .await?;
-            let next_round_tx = next_round_txs
-                .iter()
-                .find(|(tx_type, _)| tx_type == &TransactionType::Round)
-                .ok_or(eyre::eyre!("Next round tx not found in txs"))?;
-            let next_round_txid = next_round_tx.1.compute_txid();
-
-            if !self.rpc.is_tx_on_chain(&next_round_txid).await? {
-                // if next round tx is not on chain, we need to wait for the timelock to send it
-                txs_to_send.push(next_round_tx.clone());
-            } else {
-                // if next round tx is on chain, we need to update the database
-                self.db
-                    .update_current_round_index(dbtx, round_idx.next_round())
-                    .await?;
-            }
+            txs_to_send.extend(self.send_next_round_tx(dbtx, round_idx).await?);
         }
 
         Ok(txs_to_send)
+    }
+
+    /// Checks if the next round tx is on chain, if it is, updates the database, otherwise returns the round tx that needs to be sent.
+    async fn send_next_round_tx(
+        &self,
+        mut dbtx: Option<DatabaseTransaction<'_, '_>>,
+        round_idx: RoundIndex,
+    ) -> Result<Vec<(TransactionType, Transaction)>, BridgeError> {
+        let next_round_context = ContractContext::new_context_for_round(
+            self.signer.xonly_public_key,
+            round_idx.next_round(),
+            self.config.protocol_paramset(),
+        );
+        let next_round_txs = create_and_sign_txs(
+            self.db.clone(),
+            &self.signer,
+            self.config.clone(),
+            next_round_context,
+            None,
+            dbtx.as_deref_mut(),
+        )
+        .await?;
+        let next_round_tx = next_round_txs
+            .iter()
+            .find(|(tx_type, _)| tx_type == &TransactionType::Round)
+            .ok_or(eyre::eyre!("Next round tx not found in txs"))?;
+        let next_round_txid = next_round_tx.1.compute_txid();
+
+        if !self.rpc.is_tx_on_chain(&next_round_txid).await? {
+            // if next round tx is not on chain, we need to wait for the timelock to send it
+            Ok(vec![next_round_tx.clone()])
+        } else {
+            // if next round tx is on chain, we need to update the database
+            self.db
+                .update_current_round_index(dbtx, round_idx.next_round())
+                .await?;
+            Ok(vec![])
+        }
     }
 }
 

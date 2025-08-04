@@ -12,6 +12,7 @@ use crate::citrea::CitreaClientT;
 use crate::constants::DEFAULT_CHANNEL_SIZE;
 use crate::deposit::DepositData;
 use crate::operator::OperatorServer;
+use crate::rpc::clementine::RawSignedTx;
 use crate::rpc::parser;
 use crate::utils::get_vergen_response;
 use bitcoin::hashes::Hash;
@@ -136,32 +137,25 @@ where
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    async fn withdraw(&self, request: Request<WithdrawParams>) -> Result<Response<Empty>, Status> {
+    async fn withdraw(
+        &self,
+        request: Request<WithdrawParams>,
+    ) -> Result<Response<RawSignedTx>, Status> {
         let (withdrawal_id, input_signature, input_outpoint, output_script_pubkey, output_amount) =
             parser::operator::parse_withdrawal_sig_params(request.into_inner())?;
 
-        // try to fulfill withdrawal only if automation is enabled
-        #[cfg(feature = "automation")]
-        {
-            self.operator
-                .withdraw(
-                    withdrawal_id,
-                    input_signature,
-                    input_outpoint,
-                    output_script_pubkey,
-                    output_amount,
-                )
-                .await?;
+        let payout_tx = self
+            .operator
+            .withdraw(
+                withdrawal_id,
+                input_signature,
+                input_outpoint,
+                output_script_pubkey,
+                output_amount,
+            )
+            .await?;
 
-            Ok(Response::new(Empty {}))
-        }
-
-        #[cfg(not(feature = "automation"))]
-        {
-            return Err(Status::unavailable(
-                "Automation is not enabled. Operator will not fulfill withdrawals.",
-            ));
-        }
+        Ok(Response::new(RawSignedTx::from(&payout_tx)))
     }
 
     #[tracing::instrument(skip(self, request), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]

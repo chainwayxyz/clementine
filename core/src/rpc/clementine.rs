@@ -1178,7 +1178,7 @@ pub mod clementine_operator_client {
         pub async fn withdraw(
             &mut self,
             request: impl tonic::IntoRequest<super::WithdrawParams>,
-        ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status> {
+        ) -> std::result::Result<tonic::Response<super::RawSignedTx>, tonic::Status> {
             self.inner
                 .ready()
                 .await
@@ -2320,7 +2320,7 @@ pub mod clementine_operator_server {
         async fn withdraw(
             &self,
             request: tonic::Request<super::WithdrawParams>,
-        ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
+        ) -> std::result::Result<tonic::Response<super::RawSignedTx>, tonic::Status>;
         /// For a given deposit outpoint, determines the next step in the kickoff process the operator is in,
         /// and returns the raw signed txs that the operator needs to send next, for enabling reimbursement process
         /// without automation.
@@ -2753,7 +2753,7 @@ pub mod clementine_operator_server {
                         T: ClementineOperator,
                     > tonic::server::UnaryService<super::WithdrawParams>
                     for WithdrawSvc<T> {
-                        type Response = super::Empty;
+                        type Response = super::RawSignedTx;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,

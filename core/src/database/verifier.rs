@@ -324,7 +324,8 @@ impl Database {
         >(
             "SELECT w.payout_payer_operator_xonly_pk, w.payout_tx_blockhash, w.kickoff_txid
              FROM withdrawals w
-             WHERE w.deposit_id = $1",
+             INNER JOIN deposits d ON d.move_to_vault_txid = w.move_to_vault_txid
+             WHERE d.deposit_id = $1",
         )
         .bind(i32::try_from(deposit_id).wrap_err("Failed to convert deposit id to i32")?);
 

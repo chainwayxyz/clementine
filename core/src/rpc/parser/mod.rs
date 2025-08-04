@@ -584,6 +584,37 @@ impl From<Vec<(TransactionType, Transaction)>> for SignedTxsWithType {
     }
 }
 
+impl TryFrom<SignedTxWithType> for (TransactionType, Transaction) {
+    type Error = Status;
+
+    fn try_from(value: SignedTxWithType) -> Result<Self, Self::Error> {
+        Ok((
+            value
+                .transaction_type
+                .ok_or(Status::invalid_argument("No transaction type received"))?
+                .try_into()
+                .map_err(|e| {
+                    Status::invalid_argument(format!("Failed to parse transaction type: {}", e))
+                })?,
+            bitcoin::consensus::encode::deserialize(&value.raw_tx).map_err(|e| {
+                Status::invalid_argument(format!("Failed to parse raw signed tx: {}", e))
+            })?,
+        ))
+    }
+}
+
+impl TryFrom<clementine::SignedTxsWithType> for Vec<(TransactionType, Transaction)> {
+    type Error = Status;
+
+    fn try_from(value: clementine::SignedTxsWithType) -> Result<Self, Self::Error> {
+        value
+            .signed_txs
+            .into_iter()
+            .map(|signed_tx| signed_tx.try_into())
+            .collect::<Result<Vec<_>, _>>()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::rpc::clementine::{self, Outpoint, WinternitzPubkey};

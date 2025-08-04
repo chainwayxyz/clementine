@@ -847,7 +847,7 @@ impl Database {
         round_idx: RoundIndex,
         kickoff_connector_idx: u32,
     ) -> Result<Option<Txid>, BridgeError> {
-        let query = sqlx::query_as::<_, (TxidDB,)>(
+        let query = sqlx::query_as::<_, (Option<TxidDB>,)>(
             "SELECT kickoff_txid FROM used_kickoff_connectors WHERE round_idx = $1 AND kickoff_connector_idx = $2;",
         )
         .bind(round_idx.to_index() as i32)
@@ -856,7 +856,7 @@ impl Database {
         let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
         match result {
-            Some((txid,)) => Ok(Some(txid.0)),
+            Some((txid,)) => Ok(txid.map(|txid| txid.0)),
             None => Ok(None),
         }
     }
@@ -866,7 +866,7 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
         deposit_id: u32,
         operator_xonly_pk: XOnlyPublicKey,
-    ) -> Result<Option<(u32, u32)>, BridgeError> {
+    ) -> Result<Option<(RoundIndex, u32)>, BridgeError> {
         // TODO: check if AND ds.round_idx >= cr.round_idx is correct or if we should use = instead
         let query = sqlx::query_as::<_, (i32, i32)>(
             "WITH current_round AS (
@@ -898,7 +898,9 @@ impl Database {
 
         match result {
             Some((round_idx, kickoff_connector_idx)) => Ok(Some((
-                u32::try_from(round_idx).wrap_err("Failed to convert round idx to u32")?,
+                RoundIndex::from_index(
+                    usize::try_from(round_idx).wrap_err("Failed to convert round idx to u32")?,
+                ),
                 u32::try_from(kickoff_connector_idx)
                     .wrap_err("Failed to convert kickoff connector idx to u32")?,
             ))),
@@ -909,11 +911,13 @@ impl Database {
     pub async fn get_current_round_index(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
-    ) -> Result<u32, BridgeError> {
+    ) -> Result<RoundIndex, BridgeError> {
         let query =
             sqlx::query_as::<_, (i32,)>("SELECT round_idx FROM current_round_index WHERE id = 1");
         let result = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
-        Ok(u32::try_from(result.0).wrap_err(BridgeError::IntConversionError)?)
+        Ok(RoundIndex::from_index(
+            usize::try_from(result.0).wrap_err(BridgeError::IntConversionError)?,
+        ))
     }
 
     pub async fn update_current_round_index(

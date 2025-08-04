@@ -360,7 +360,7 @@ service ClementineOperator {
   // If withdrawal is accepted, the payout tx will be added to the TxSender and success is returned, otherwise an error is returned.
   // If automation is disabled, the withdrawal will not be accepted and an error will be returned.
   rpc Withdraw(WithdrawParams)
-    returns (Empty) {}
+    returns (RawSignedTx) {}
 
   // For a given deposit outpoint, determines the next step in the kickoff process the operator is in,
   // and returns the raw signed txs that the operator needs to send next, for enabling reimbursement process
