@@ -812,7 +812,7 @@ impl ClementineAggregator for AggregatorServer {
                     "Withdrawal params not found for optimistic payout",
                 ))?;
         let (deposit_id, input_signature, input_outpoint, output_script_pubkey, output_amount) =
-            parser::operator::parse_withdrawal_sig_params(withdraw_params).await?;
+            parser::operator::parse_withdrawal_sig_params(withdraw_params)?;
 
         // if the withdrawal utxo is spent, no reason to sign optimistic payout
         if self
