@@ -492,8 +492,7 @@
 <a href="#491" id="491">491</a>
 <a href="#492" id="492">492</a>
 <a href="#493" id="493">493</a>
-<a href="#494" id="494">494</a>
-<a href="#495" id="495">495</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Operator Reimburse Transactions
+<a href="#494" id="494">494</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Operator Reimburse Transactions
 //!
 //! This module contains the logic for creating operator reimbursement and payout-related transactions in the protocol.
 //! These transactions handle the flow of funds for operator compensation, challenge handling, and user withdrawals.
@@ -518,6 +517,7 @@
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::output::UnspentTxOut;
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::txhandler::{TxHandler, TxHandlerBuilder};
 <span class="kw">use </span><span class="kw">crate</span>::config::protocol::ProtocolParamset;
+<span class="kw">use </span><span class="kw">crate</span>::constants::NON_STANDARD_V3;
 <span class="kw">use </span><span class="kw">crate</span>::deposit::{DepositData, KickoffData};
 <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
 <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::NormalSignatureKind;
@@ -525,7 +525,6 @@
 <span class="kw">use </span>bitcoin::hashes::Hash;
 <span class="kw">use </span>bitcoin::script::PushBytesBuf;
 <span class="kw">use </span>bitcoin::secp256k1::schnorr::Signature;
-<span class="kw">use </span>bitcoin::transaction::Version;
 <span class="kw">use </span>bitcoin::ScriptBuf;
 <span class="kw">use </span>bitcoin::XOnlyPublicKey;
 <span class="kw">use </span>bitcoin::{TxOut, Txid};
@@ -594,8 +593,7 @@
 ) -&gt; <span class="prelude-ty">Result</span>&lt;TxHandler, BridgeError&gt; {
     <span class="kw">let </span>kickoff_idx = kickoff_data.kickoff_idx <span class="kw">as </span>usize;
     <span class="kw">let </span>move_txid: Txid = <span class="kw-2">*</span>move_txhandler.get_txid();
-    <span class="kw">let </span><span class="kw-2">mut </span>builder =
-        TxHandlerBuilder::new(TransactionType::Kickoff).with_version(Version::non_standard(<span class="number">3</span>));
+    <span class="kw">let </span><span class="kw-2">mut </span>builder = TxHandlerBuilder::new(TransactionType::Kickoff).with_version(NON_STANDARD_V3);
     builder = builder.add_input(
         NormalSignatureKind::OperatorSighashDefault,
         round_txhandler.get_spendable_output(UtxoVout::Kickoff(kickoff_idx))<span class="question-mark">?</span>,
@@ -790,7 +788,7 @@
     paramset: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>ProtocolParamset,
 ) -&gt; <span class="prelude-ty">Result</span>&lt;TxHandler, BridgeError&gt; {
     <span class="prelude-val">Ok</span>(TxHandlerBuilder::new(TransactionType::KickoffNotFinalized)
-        .with_version(Version::non_standard(<span class="number">3</span>))
+        .with_version(NON_STANDARD_V3)
         .add_input(
             NormalSignatureKind::KickoffNotFinalized1,
             kickoff_txhandler.get_spendable_output(UtxoVout::KickoffFinalizer)<span class="question-mark">?</span>,
@@ -842,7 +840,7 @@
     operator_reimbursement_address: <span class="kw-2">&amp;</span>bitcoin::Address,
 ) -&gt; <span class="prelude-ty">Result</span>&lt;TxHandler, BridgeError&gt; {
     <span class="kw">let </span>builder = TxHandlerBuilder::new(TransactionType::Reimburse)
-        .with_version(Version::non_standard(<span class="number">3</span>))
+        .with_version(NON_STANDARD_V3)
         .add_input(
             NormalSignatureKind::Reimburse1,
             move_txhandler.get_spendable_output(UtxoVout::DepositInMove)<span class="question-mark">?</span>,
@@ -915,7 +913,7 @@
     <span class="kw">let </span>op_return_txout = op_return_txout(PushBytesBuf::from(operator_xonly_pk.serialize()));
 
     <span class="kw">let </span><span class="kw-2">mut </span>txhandler = TxHandlerBuilder::new(TransactionType::Payout)
-        .with_version(Version::non_standard(<span class="number">3</span>))
+        .with_version(NON_STANDARD_V3)
         .add_input(
             NormalSignatureKind::NotStored,
             txin,
@@ -967,7 +965,7 @@
     <span class="kw">let </span>output_txout = UnspentTxOut::from_partial(output_txout.clone());
 
     <span class="kw">let </span><span class="kw-2">mut </span>txhandler = TxHandlerBuilder::new(TransactionType::Payout)
-        .with_version(Version::non_standard(<span class="number">3</span>))
+        .with_version(NON_STANDARD_V3)
         .add_input(
             NormalSignatureKind::NotStored,
             txin,

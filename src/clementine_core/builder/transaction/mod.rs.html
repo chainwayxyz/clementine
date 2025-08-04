@@ -819,7 +819,7 @@
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::operator_reimburse::<span class="kw-2">*</span>;
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::output::UnspentTxOut;
 <span class="kw">use </span><span class="kw">crate</span>::config::protocol::ProtocolParamset;
-<span class="kw">use </span><span class="kw">crate</span>::constants::NON_EPHEMERAL_ANCHOR_AMOUNT;
+<span class="kw">use </span><span class="kw">crate</span>::constants::{NON_EPHEMERAL_ANCHOR_AMOUNT, NON_STANDARD_V3};
 <span class="kw">use </span><span class="kw">crate</span>::deposit::{DepositData, SecurityCouncil};
 <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
 <span class="kw">use </span><span class="kw">crate</span>::operator::RoundIndex;
@@ -1182,7 +1182,7 @@
     <span class="kw">let </span>deposit_scripts = deposit_data.get_deposit_scripts(paramset)<span class="question-mark">?</span>;
 
     <span class="prelude-val">Ok</span>(TxHandlerBuilder::new(TransactionType::MoveToVault)
-        .with_version(Version::non_standard(<span class="number">3</span>))
+        .with_version(NON_STANDARD_V3)
         .add_input(
             NormalSignatureKind::NotStored,
             SpendableTxIn::from_scripts(
@@ -1310,7 +1310,7 @@
     security_council: SecurityCouncil,
 ) -&gt; <span class="prelude-ty">Result</span>&lt;TxHandler, BridgeError&gt; {
     <span class="prelude-val">Ok</span>(TxHandlerBuilder::new(TransactionType::ReplacementDeposit)
-        .with_version(Version::non_standard(<span class="number">3</span>))
+        .with_version(NON_STANDARD_V3)
         .add_input(
             NormalSignatureKind::NoSignature,
             SpendableTxIn::from_scripts(

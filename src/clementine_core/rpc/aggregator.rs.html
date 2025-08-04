@@ -2248,7 +2248,11 @@
 <a href="#2247" id="2247">2247</a>
 <a href="#2248" id="2248">2248</a>
 <a href="#2249" id="2249">2249</a>
-<a href="#2250" id="2250">2250</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::{
+<a href="#2250" id="2250">2250</a>
+<a href="#2251" id="2251">2251</a>
+<a href="#2252" id="2252">2252</a>
+<a href="#2253" id="2253">2253</a>
+<a href="#2254" id="2254">2254</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::{
     clementine_aggregator_server::ClementineAggregator, verifier_deposit_finalize_params,
     DepositParams, Empty, VerifierDepositFinalizeParams,
 };
@@ -3174,6 +3178,8 @@
                 </span>.wrap_err(<span class="string">"Failed to aggregate nonces for optimistic payout"</span>)
                 .map_to_status()<span class="question-mark">?</span>;
             <span class="kw">let </span>agg_nonce = aggregate_nonces(pub_nonces.iter().collect::&lt;Vec&lt;<span class="kw">_</span>&gt;&gt;().as_slice())<span class="question-mark">?</span>;
+
+            <span class="kw">let </span>agg_nonce_bytes = agg_nonce.serialize().to_vec();
             <span class="comment">// send the agg nonce to the verifiers to sign the optimistic payout tx
             </span><span class="kw">let </span>payout_sigs = participating_verifiers
                 .clients()
@@ -3182,16 +3188,18 @@
                 .map(|(client, first_response)| {
                     <span class="kw">let </span><span class="kw-2">mut </span>client = client.clone();
                     <span class="kw">let </span>opt_withdraw_params = opt_withdraw_params.clone();
-                    <span class="kw">let </span>agg_nonce_bytes = agg_nonce.serialize().to_vec();
-                    <span class="kw">async move </span>{
-                        client
-                            .optimistic_payout_sign(OptimisticPayoutParams {
-                                opt_withdrawal: <span class="prelude-val">Some</span>(opt_withdraw_params),
-                                agg_nonce: agg_nonce_bytes,
-                                nonce_gen: <span class="prelude-val">Some</span>(first_response),
-                            })
-                            .<span class="kw">await
-                    </span>}
+                    {
+                        <span class="kw">let </span>agg_nonce_serialized = agg_nonce_bytes.clone();
+                        <span class="kw">async move </span>{
+                            client
+                                .optimistic_payout_sign(OptimisticPayoutParams {
+                                    opt_withdrawal: <span class="prelude-val">Some</span>(opt_withdraw_params),
+                                    agg_nonce: agg_nonce_serialized,
+                                    nonce_gen: <span class="prelude-val">Some</span>(first_response),
+                                })
+                                .<span class="kw">await
+                        </span>}
+                    }
                 })
                 .collect::&lt;Vec&lt;<span class="kw">_</span>&gt;&gt;();
 

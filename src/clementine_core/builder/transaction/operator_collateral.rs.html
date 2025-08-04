@@ -470,8 +470,7 @@
 <a href="#469" id="469">469</a>
 <a href="#470" id="470">470</a>
 <a href="#471" id="471">471</a>
-<a href="#472" id="472">472</a>
-<a href="#473" id="473">473</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Collaterals
+<a href="#472" id="472">472</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Collaterals
 //!
 //! This module contains the logic for creating the `round_tx`, `ready_to_reimburse_tx`,
 //! and `unspent_kickoff_tx` transactions. These transactions are used to control the sequence of transactions
@@ -534,8 +533,7 @@
     pubkeys: <span class="kw-2">&amp;</span>[bitvm::signatures::winternitz::PublicKey],
     paramset: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>ProtocolParamset,
 ) -&gt; <span class="prelude-ty">Result</span>&lt;TxHandler, BridgeError&gt; {
-    <span class="kw">let </span><span class="kw-2">mut </span>builder =
-        TxHandlerBuilder::new(TransactionType::Round).with_version(Version::non_standard(<span class="number">3</span>));
+    <span class="kw">let </span><span class="kw-2">mut </span>builder = TxHandlerBuilder::new(TransactionType::Round).with_version(NON_STANDARD_V3);
     <span class="kw">let </span>input_amount;
     <span class="kw">match </span>txin {
         RoundTxInput::Prevout(prevout) =&gt; {
@@ -651,7 +649,7 @@
     <span class="kw">for </span>idx <span class="kw">in </span><span class="number">0</span>..num_asserts {
         txhandlers.push(
             TxHandlerBuilder::new(TransactionType::AssertTimeout(idx))
-                .with_version(Version::non_standard(<span class="number">3</span>))
+                .with_version(NON_STANDARD_V3)
                 .add_input(
                     (NumberedSignatureKind::AssertTimeout1, idx <span class="kw">as </span>i32),
                     kickoff_txhandler.get_spendable_output(UtxoVout::Assert(idx))<span class="question-mark">?</span>,
@@ -766,7 +764,7 @@
     <span class="kw">let </span>prev_value = prevout.get_prevout().value;
 
     <span class="prelude-val">Ok</span>(TxHandlerBuilder::new(TransactionType::ReadyToReimburse)
-        .with_version(Version::non_standard(<span class="number">3</span>))
+        .with_version(NON_STANDARD_V3)
         .add_input(
             NormalSignatureKind::OperatorSighashDefault,
             prevout,
@@ -811,7 +809,7 @@
     <span class="kw">for </span>idx <span class="kw">in </span><span class="number">0</span>..paramset.num_kickoffs_per_round {
         txhandlers.push(
             TxHandlerBuilder::new(TransactionType::UnspentKickoff(idx))
-                .with_version(Version::non_standard(<span class="number">3</span>))
+                .with_version(NON_STANDARD_V3)
                 .add_input(
                     (NumberedSignatureKind::UnspentKickoff1, idx <span class="kw">as </span>i32),
                     ready_to_reimburse_txhandler
@@ -858,7 +856,7 @@
 ) -&gt; <span class="prelude-ty">Result</span>&lt;TxHandler, BridgeError&gt; {
     <span class="kw">let </span><span class="kw-2">mut </span>tx_handler_builder =
         TxHandlerBuilder::new(TransactionType::BurnUnusedKickoffConnectors)
-            .with_version(Version::non_standard(<span class="number">3</span>));
+            .with_version(NON_STANDARD_V3);
     <span class="kw">for </span><span class="kw-2">&amp;</span>idx <span class="kw">in </span>unused_kickoff_connectors_indices {
         tx_handler_builder = tx_handler_builder.add_input(
             NormalSignatureKind::OperatorSighashDefault,

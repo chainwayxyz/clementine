@@ -1459,7 +1459,7 @@
     <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::input::SpendableTxIn;
     <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::output::UnspentTxOut;
     <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE};
-    <span class="kw">use </span><span class="kw">crate</span>::constants::{MIN_TAPROOT_AMOUNT, NON_EPHEMERAL_ANCHOR_AMOUNT};
+    <span class="kw">use </span><span class="kw">crate</span>::constants::{MIN_TAPROOT_AMOUNT, NON_EPHEMERAL_ANCHOR_AMOUNT, NON_STANDARD_V3};
     <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
     <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::tagged_signature::SignatureId;
     <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind};
@@ -1567,7 +1567,7 @@
         rpc.mine_blocks(<span class="number">1</span>).<span class="kw">await</span><span class="question-mark">?</span>;
 
         <span class="kw">let </span>version = <span class="kw">match </span>fee_paying_type {
-            FeePayingType::CPFP =&gt; Version::non_standard(<span class="number">3</span>),
+            FeePayingType::CPFP =&gt; NON_STANDARD_V3,
             FeePayingType::RBF | FeePayingType::NoFunding =&gt; Version::TWO,
         };
 

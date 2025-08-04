@@ -319,7 +319,7 @@
     <span class="kw">if let </span>operator_params::Response::UnspentKickoffSig(wpk) = operator_param {
         <span class="prelude-val">Ok</span>(wpk.try_into()<span class="question-mark">?</span>)
     } <span class="kw">else </span>{
-        <span class="prelude-val">Err</span>(expected_msg_got_none(<span class="string">"WinternitzPubkeys"</span>)())
+        <span class="prelude-val">Err</span>(expected_msg_got_none(<span class="string">"UnspentKickoffSig"</span>)())
     }
 }
 

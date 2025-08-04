@@ -4238,7 +4238,7 @@
 
                 <span class="macro">tracing::debug!</span>(
                     <span class="string">"Verifying Final operator signature {} for operator {}, signature info {:?}"</span>,
-                    nonce_idx + <span class="number">1</span>,
+                    op_sig_count + <span class="number">1</span>,
                     operator_idx,
                     typed_sighash.<span class="number">1
                 </span>);
@@ -4522,10 +4522,10 @@
         </span><span class="kw">let </span>move_txid = <span class="self">self
             </span>.db
             .get_move_to_vault_txid_from_citrea_deposit(<span class="prelude-val">None</span>, deposit_id)
-            .<span class="kw">await</span><span class="question-mark">?</span>;
-        <span class="kw">if </span>move_txid.is_none() {
-            <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(<span class="string">"Deposit not found for id: {}"</span>, deposit_id).into());
-        }
+            .<span class="kw">await</span><span class="question-mark">?
+            </span>.ok_or_else(|| {
+                BridgeError::from(<span class="macro">eyre::eyre!</span>(<span class="string">"Deposit not found for id: {}"</span>, deposit_id))
+            })<span class="question-mark">?</span>;
 
         <span class="comment">// amount in move_tx is exactly the bridge amount
         </span><span class="kw">if </span>output_amount
@@ -4546,6 +4546,7 @@
             </span>.db
             .get_withdrawal_utxo_from_citrea_withdrawal(<span class="prelude-val">None</span>, deposit_id)
             .<span class="kw">await</span><span class="question-mark">?</span>;
+
         <span class="kw">if </span>withdrawal_utxo != input_outpoint {
             <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(
                 <span class="string">"Withdrawal utxo is not correct: {:?} != {:?}"</span>,
@@ -4555,7 +4556,6 @@
             .into());
         }
 
-        <span class="kw">let </span>move_txid = move_txid.expect(<span class="string">"Withdrawal must be Some"</span>);
         <span class="kw">let </span><span class="kw-2">mut </span>deposit_data = <span class="self">self
             </span>.db
             .get_deposit_data_with_move_tx(<span class="prelude-val">None</span>, move_txid)

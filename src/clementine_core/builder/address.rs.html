@@ -399,14 +399,7 @@
 <a href="#398" id="398">398</a>
 <a href="#399" id="399">399</a>
 <a href="#400" id="400">400</a>
-<a href="#401" id="401">401</a>
-<a href="#402" id="402">402</a>
-<a href="#403" id="403">403</a>
-<a href="#404" id="404">404</a>
-<a href="#405" id="405">405</a>
-<a href="#406" id="406">406</a>
-<a href="#407" id="407">407</a>
-<a href="#408" id="408">408</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Bitcoin Address Construction
+<a href="#401" id="401">401</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Bitcoin Address Construction
 //!
 //! Contains helper functions to create taproot addresses with given scripts and internal key.
 //! Contains helper functions to create correct deposit addresses. Addresses need to be of a specific format to be
@@ -524,21 +517,14 @@
             .finalize(<span class="kw-2">&amp;</span>SECP, <span class="kw-2">*</span>bitvm_client::UNSPENDABLE_XONLY_PUBKEY)
             .expect(<span class="string">"builder return is finalizable"</span>),
     };
+
     <span class="comment">// Create the address
-    </span><span class="kw">let </span>taproot_address = <span class="kw">match </span>internal_key {
-        <span class="prelude-val">Some</span>(xonly_pk) =&gt; Address::p2tr(<span class="kw-2">&amp;</span>SECP, xonly_pk, tree_info.merkle_root(), network),
-        <span class="prelude-val">None </span>=&gt; Address::p2tr(
-            <span class="kw-2">&amp;</span>SECP,
-            <span class="kw-2">*</span>bitvm_client::UNSPENDABLE_XONLY_PUBKEY,
-            tree_info.merkle_root(),
-            network,
-        ),
-    };
+    </span><span class="kw">let </span>taproot_address: Address = Address::p2tr_tweaked(tree_info.output_key(), network);
 
     (taproot_address, tree_info)
 }
 
-<span class="doccomment">/// Generates a deposit address for the user. Funds can be spend by N-of-N or
+<span class="doccomment">/// Generates a deposit address for the user. Funds can be spent by N-of-N or
 /// user can take after specified time should the deposit fail.
 ///
 /// # Parameters

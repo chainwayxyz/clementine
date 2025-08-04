@@ -2538,7 +2538,7 @@
         };
 
         <span class="kw">let </span>operator_xonly_pk = generate_random_xonly_pk();
-        <span class="kw">let </span>non_existant_xonly_pk = generate_random_xonly_pk();
+        <span class="kw">let </span>non_existent_xonly_pk = generate_random_xonly_pk();
 
         <span class="comment">// Test inserting new data
         </span>database
@@ -2571,7 +2571,7 @@
 
         <span class="comment">// Test non-existent entry
         </span><span class="kw">let </span>non_existent = database
-            .get_operators_challenge_ack_hashes(<span class="prelude-val">None</span>, non_existant_xonly_pk, deposit_outpoint)
+            .get_operators_challenge_ack_hashes(<span class="prelude-val">None</span>, non_existent_xonly_pk, deposit_outpoint)
             .<span class="kw">await
             </span>.unwrap();
         <span class="macro">assert!</span>(non_existent.is_none());
@@ -2623,7 +2623,7 @@
         };
 
         <span class="kw">let </span>operator_xonly_pk = generate_random_xonly_pk();
-        <span class="kw">let </span>non_existant_xonly_pk = generate_random_xonly_pk();
+        <span class="kw">let </span>non_existent_xonly_pk = generate_random_xonly_pk();
 
         database
             .set_unspent_kickoff_sigs(
@@ -2643,7 +2643,7 @@
         <span class="macro">assert_eq!</span>(result, signatures.signatures);
 
         <span class="kw">let </span>non_existent = database
-            .get_unspent_kickoff_sigs(<span class="prelude-val">None</span>, non_existant_xonly_pk, RoundIndex::Round(round_idx))
+            .get_unspent_kickoff_sigs(<span class="prelude-val">None</span>, non_existent_xonly_pk, RoundIndex::Round(round_idx))
             .<span class="kw">await
             </span>.unwrap();
         <span class="macro">assert!</span>(non_existent.is_none());
@@ -2651,7 +2651,7 @@
         <span class="kw">let </span>non_existent = database
             .get_unspent_kickoff_sigs(
                 <span class="prelude-val">None</span>,
-                non_existant_xonly_pk,
+                non_existent_xonly_pk,
                 RoundIndex::Round(round_idx + <span class="number">1</span>),
             )
             .<span class="kw">await
@@ -2705,7 +2705,7 @@
             vout: <span class="number">0</span>,
         };
         <span class="kw">let </span>operator_xonly_pk = generate_random_xonly_pk();
-        <span class="kw">let </span>non_existant_xonly_pk = generate_random_xonly_pk();
+        <span class="kw">let </span>non_existent_xonly_pk = generate_random_xonly_pk();
 
         <span class="comment">// Test inserting new BitVM setup
         </span>database
@@ -2745,7 +2745,7 @@
 
         <span class="comment">// Test non-existent entry
         </span><span class="kw">let </span>non_existent = database
-            .get_bitvm_setup(<span class="prelude-val">None</span>, non_existant_xonly_pk, deposit_outpoint)
+            .get_bitvm_setup(<span class="prelude-val">None</span>, non_existent_xonly_pk, deposit_outpoint)
             .<span class="kw">await
             </span>.unwrap();
         <span class="macro">assert!</span>(non_existent.is_none());

@@ -2477,7 +2477,7 @@
     /// 1. Checking if the withdrawal has been made on Citrea
     /// 2. Verifying the given signature
     /// 3. Checking if the withdrawal is profitable or not
-    /// 4. Funding the witdhrawal transaction using TxSender RBF option
+    /// 4. Funding the withdrawal transaction using TxSender RBF option
     ///
     /// # Parameters
     ///
@@ -2682,7 +2682,7 @@
                     txhandler.get_transaction_type()
                 {
                     <span class="kw">let </span>partial = PartialSignatureInfo {
-                        operator_idx: <span class="number">0</span>, <span class="comment">// dummy value, doesn't
+                        operator_idx: <span class="number">0</span>, <span class="comment">// dummy value
                         </span>round_idx,
                         kickoff_utxo_idx: kickoff_idx,
                     };

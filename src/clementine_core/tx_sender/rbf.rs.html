@@ -2294,7 +2294,7 @@
     <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::{
         op_return_txout, TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE,
     };
-    <span class="kw">use </span><span class="kw">crate</span>::constants::MIN_TAPROOT_AMOUNT;
+    <span class="kw">use </span><span class="kw">crate</span>::constants::{MIN_TAPROOT_AMOUNT, NON_STANDARD_V3};
     <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
     <span class="kw">use </span><span class="kw">crate</span>::extended_rpc::ExtendedRpc;
     <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::tagged_signature::SignatureId;
@@ -2376,7 +2376,7 @@
 
         rpc.mine_blocks(<span class="number">1</span>).<span class="kw">await</span><span class="question-mark">?</span>;
 
-        <span class="kw">let </span>version = Version::non_standard(<span class="number">3</span>);
+        <span class="kw">let </span>version = NON_STANDARD_V3;
 
         <span class="kw">let </span><span class="kw-2">mut </span>txhandler = TxHandlerBuilder::new(TransactionType::Challenge)
             .with_version(version)

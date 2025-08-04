@@ -80,7 +80,10 @@
 <a href="#79" id="79">79</a>
 <a href="#80" id="80">80</a>
 <a href="#81" id="81">81</a>
-<a href="#82" id="82">82</a></pre></div><pre class="rust"><code><span class="kw">use </span>bitcoin::{Address, Amount, ScriptBuf};
+<a href="#82" id="82">82</a>
+<a href="#83" id="83">83</a>
+<a href="#84" id="84">84</a>
+<a href="#85" id="85">85</a></pre></div><pre class="rust"><code><span class="kw">use </span>bitcoin::{transaction::Version, Address, Amount, ScriptBuf};
 
 <span class="doccomment">/// The amount of the non-ephemeral P2A anchor output.
 </span><span class="kw">pub const </span>NON_EPHEMERAL_ANCHOR_AMOUNT: Amount = Amount::from_sat(<span class="number">240</span>);
@@ -155,11 +158,14 @@
     <span class="kw">pub const </span>PUBLIC_KEY_COLLECTION_TIMEOUT: Duration = Duration::from_secs(<span class="number">30</span>);
 }
 
+<span class="kw">pub const </span>NON_STANDARD_V3: Version = Version(<span class="number">3</span>);
+
 <span class="macro">lazy_static::lazy_static!</span> {
   <span class="kw">pub static </span><span class="kw-2">ref </span>BURN_SCRIPT: ScriptBuf = (<span class="string">"1111111111111111111114oLvT2"</span>)
           .parse::&lt;Address&lt;<span class="kw">_</span>&gt;&gt;()
           .expect(<span class="string">"valid burn address"</span>)
           .assume_checked()
           .script_pubkey();
+
 }
 </code></pre></div></section></main></body></html>

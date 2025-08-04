@@ -414,7 +414,7 @@
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::txhandler::{TxHandler, DEFAULT_SEQUENCE};
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::<span class="kw-2">*</span>;
 <span class="kw">use </span><span class="kw">crate</span>::config::protocol::ProtocolParamset;
-<span class="kw">use </span><span class="kw">crate</span>::constants::MIN_TAPROOT_AMOUNT;
+<span class="kw">use </span><span class="kw">crate</span>::constants::{MIN_TAPROOT_AMOUNT, NON_STANDARD_V3};
 <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
 <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind};
 <span class="kw">use crate</span>::{builder, EVMAddress};
@@ -534,7 +534,7 @@
     <span class="kw">let </span>challenge_ack_vout = UtxoVout::WatchtowerChallengeAck(watchtower_idx);
     <span class="prelude-val">Ok</span>(
         TxHandlerBuilder::new(TransactionType::WatchtowerChallengeTimeout(watchtower_idx))
-            .with_version(Version::non_standard(<span class="number">3</span>))
+            .with_version(NON_STANDARD_V3)
             .add_input(
                 (
                     NumberedSignatureKind::WatchtowerChallengeTimeout1,
@@ -592,7 +592,7 @@
 ) -&gt; <span class="prelude-ty">Result</span>&lt;TxHandler, BridgeError&gt; {
     <span class="prelude-val">Ok</span>(
         TxHandlerBuilder::new(TransactionType::OperatorChallengeNack(watchtower_idx))
-            .with_version(Version::non_standard(<span class="number">3</span>))
+            .with_version(NON_STANDARD_V3)
             .add_input(
                 (
                     NumberedSignatureKind::OperatorChallengeNack1,
@@ -655,7 +655,7 @@
 ) -&gt; <span class="prelude-ty">Result</span>&lt;TxHandler, BridgeError&gt; {
     <span class="prelude-val">Ok</span>(
         TxHandlerBuilder::new(TransactionType::OperatorChallengeAck(watchtower_idx))
-            .with_version(Version::non_standard(<span class="number">3</span>))
+            .with_version(NON_STANDARD_V3)
             .add_input(
                 NormalSignatureKind::OperatorChallengeAck1,
                 kickoff_txhandler
@@ -747,7 +747,7 @@
     paramset: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>ProtocolParamset,
 ) -&gt; <span class="prelude-ty">Result</span>&lt;TxHandler, BridgeError&gt; {
     <span class="kw">let </span><span class="kw-2">mut </span>builder = TxHandlerBuilder::new(TransactionType::Challenge)
-        .with_version(Version::non_standard(<span class="number">3</span>))
+        .with_version(NON_STANDARD_V3)
         .add_input(
             NormalSignatureKind::Challenge,
             kickoff_txhandler.get_spendable_output(UtxoVout::Challenge)<span class="question-mark">?</span>,
@@ -792,7 +792,7 @@
     paramset: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>ProtocolParamset,
 ) -&gt; <span class="prelude-ty">Result</span>&lt;TxHandler, BridgeError&gt; {
     <span class="prelude-val">Ok</span>(TxHandlerBuilder::new(TransactionType::ChallengeTimeout)
-        .with_version(Version::non_standard(<span class="number">3</span>))
+        .with_version(NON_STANDARD_V3)
         .add_input(
             NormalSignatureKind::OperatorSighashDefault,
             kickoff_txhandler.get_spendable_output(UtxoVout::Challenge)<span class="question-mark">?</span>,
