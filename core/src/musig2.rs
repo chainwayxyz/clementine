@@ -189,9 +189,7 @@ pub fn aggregate_partial_signatures(
         )
         .wrap_err("Failed to verify schnorr signature")?;
 
-    Ok(from_secp_sig(
-        session.partial_sig_agg(&partial_sigs).assume_valid(),
-    ))
+    Ok(from_secp_sig(final_sig.assume_valid()))
 }
 
 /// Generates a pair of nonces, one secret and one public. Be careful,
