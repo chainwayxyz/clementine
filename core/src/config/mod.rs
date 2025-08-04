@@ -142,7 +142,7 @@ pub struct BridgeConfig {
     /// after manual verification of the optimistic payout.
     pub opt_payout_verification_address: Option<alloy::primitives::Address>,
 
-    /// The ECDSA key that will be used to encrypt the emergency stop message.
+    /// The X25519 public key that will be used to encrypt the emergency stop message.
     pub emergency_stop_encryption_public_key: Option<[u8; 32]>,
 
     #[cfg(test)]
