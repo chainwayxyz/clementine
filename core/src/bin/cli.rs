@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use bitcoin::{hashes::Hash, Block, ScriptBuf, Txid};
+use bitcoin::{hashes::Hash, Amount, Block, Psbt, ScriptBuf, Transaction, Txid};
 use clap::{Parser, Subcommand};
 use clementine_core::{
     builder::transaction::TransactionType,
@@ -146,6 +146,21 @@ enum AggregatorCommands {
         recovery_taproot_address: Option<String>,
         #[arg(long)]
         fee_rate: Option<f64>, // sat/vB
+        #[arg(long)]
+        bitcoin_rpc_url: String,
+        #[arg(long)]
+        bitcoin_rpc_user: String,
+        #[arg(long)]
+        bitcoin_rpc_password: String,
+    },
+    /// Send a transaction with CPFP package
+    SendTxWithCpfp {
+        #[arg(long)]
+        raw_tx: String,
+        #[arg(long)]
+        fee_payer_address: Option<String>,
+        #[arg(long)]
+        fee_rate: Option<f64>,
         #[arg(long)]
         bitcoin_rpc_url: String,
         #[arg(long)]
@@ -764,6 +779,230 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             println!(
                 "bitcoin-cli -regtest -rpcport=18443 -rpcuser=admin -rpcpassword=admin -generate 1"
             );
+        }
+        AggregatorCommands::SendTxWithCpfp {
+            raw_tx,
+            fee_payer_address,
+            fee_rate,
+            bitcoin_rpc_url,
+            bitcoin_rpc_user,
+            bitcoin_rpc_password,
+        } => {
+            let tx_hex = hex::decode(raw_tx).expect("Failed to decode transaction");
+            let tx: bitcoin::Transaction = bitcoin::consensus::deserialize(&tx_hex)
+                .expect("Failed to deserialize transaction");
+
+            println!("Transaction created: {}", tx.compute_txid());
+            println!("Raw transaction: {}", hex::encode(tx_hex));
+
+            // Find P2A anchor output (script: 51024e73)
+            let p2a_vout = tx
+                .output
+                .iter()
+                .position(|output| {
+                    output.script_pubkey == ScriptBuf::from_hex("51024e73").expect("valid script")
+                })
+                .expect("P2A anchor output not found in transaction");
+
+            println!("Found P2A anchor output at vout: {}", p2a_vout);
+
+            // Connect to Bitcoin RPC
+            use bitcoincore_rpc::{Auth, Client, RpcApi};
+            let rpc = Client::new(
+                &bitcoin_rpc_url,
+                Auth::UserPass(bitcoin_rpc_user, bitcoin_rpc_password),
+            )
+            .await
+            .expect("Failed to connect to Bitcoin RPC");
+
+            if fee_payer_address.is_none() {
+                let temp_address = rpc
+                    .get_new_address(
+                        Some("fee_payer_address"),
+                        Some(bitcoincore_rpc::json::AddressType::Bech32m),
+                    )
+                    .await
+                    .expect("Failed to get new address");
+                println!(
+                    "You haven't provided a fee payer address, so a new one was generated: {}",
+                    temp_address.assume_checked()
+                );
+                println!("Please use this address for the fee payer in the next command");
+                return;
+            }
+
+            let fee_payer_address = bitcoin::Address::from_str(
+                &fee_payer_address.expect("Fee payer address is required"),
+            )
+            .expect("Failed to parse fee payer address")
+            .assume_checked();
+
+            let fee_rate_sat_vb = fee_rate.unwrap_or(10.0) as u64;
+
+            // Calculate package fee requirements
+            let parent_weight = tx.weight();
+            let estimated_child_weight = bitcoin::Weight::from_wu(500);
+            let total_weight = parent_weight + estimated_child_weight;
+            let required_fee_sats =
+                (total_weight.to_wu() as f64 * fee_rate_sat_vb as f64 / 4.0) as u64;
+            let required_fee = bitcoin::Amount::from_sat(required_fee_sats);
+
+            println!(
+                "Parent weight: {}, estimated total: {}, required fee: {} sats",
+                parent_weight,
+                total_weight,
+                required_fee.to_sat()
+            );
+
+            let unspent = rpc
+                .list_unspent(
+                    Some(1),
+                    Some(999999999),
+                    Some(&[&fee_payer_address.clone()]),
+                    None,
+                    None,
+                )
+                .await
+                .expect("Failed to list unspent outputs");
+
+            if unspent.is_empty() {
+                let unspent = rpc
+                    .list_unspent(None, None, Some(&[&fee_payer_address.clone()]), None, None)
+                    .await
+                    .expect("Failed to list unspent outputs");
+                if unspent.is_empty() {
+                    println!("No unspent outputs available for fee payment.");
+                    println!("Please send some funds to the fee payer address.");
+                    println!("Fee payer address: {}", fee_payer_address);
+                } else {
+                    println!("Unspent outputs: {:?}", unspent);
+                    println!("Please wait for them to confirm.");
+                }
+                return;
+            }
+
+            let fee_payer_utxo = unspent
+                .iter()
+                .find(|utxo| utxo.amount > required_fee)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "No UTXO found with enough balance for fee payment, required fee is: {}",
+                        required_fee
+                    )
+                });
+
+            // Create child transaction
+            use bitcoin::{transaction::Version, OutPoint, Sequence, TxIn, TxOut};
+
+            let child_input = TxIn {
+                previous_output: OutPoint {
+                    txid: tx.compute_txid(),
+                    vout: p2a_vout as u32,
+                },
+                script_sig: bitcoin::ScriptBuf::new(),
+                sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+                witness: bitcoin::Witness::new(),
+            };
+
+            let fee_payer_input = TxIn {
+                previous_output: OutPoint {
+                    txid: fee_payer_utxo.txid,
+                    vout: fee_payer_utxo.vout,
+                },
+                script_sig: bitcoin::ScriptBuf::new(),
+                sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+                witness: bitcoin::Witness::new(),
+            };
+
+            let total_input_value = bitcoin::Amount::from_sat(240) + fee_payer_utxo.amount;
+            let change_amount = total_input_value
+                .checked_sub(required_fee)
+                .expect("Insufficient funds for required fee");
+
+            let child_output = TxOut {
+                value: change_amount,
+                script_pubkey: fee_payer_address.script_pubkey(),
+            };
+
+            let mut child_tx = bitcoin::Transaction {
+                version: Version::non_standard(3),
+                lock_time: bitcoin::absolute::LockTime::ZERO,
+                input: vec![child_input, fee_payer_input],
+                output: vec![child_output],
+            };
+
+            let psbt = Psbt::from_unsigned_tx(child_tx.clone()).expect("Failed to create PSBT");
+            println!("Child transaction PSBT: {}", psbt);
+
+            let signed_tx = rpc
+                .wallet_process_psbt(&psbt.to_string(), Some(true), None, None)
+                .await
+                .expect("Failed to sign child transaction");
+
+            println!("Signed transaction: {}", signed_tx.psbt);
+
+            // if !signed_tx.complete {
+            //     println!("Failed to sign child transaction");
+            //     return;
+            // }
+
+            let mut new_psbt = Psbt::from_str(&signed_tx.psbt).expect("Failed to parse PSBT");
+
+            new_psbt.inputs[0] = bitcoin::psbt::Input {
+                witness_utxo: Some(TxOut {
+                    value: Amount::from_sat(0),
+                    script_pubkey: ScriptBuf::from_hex("51024e73").expect("valid script"),
+                }),
+                ..new_psbt.inputs[0].clone()
+            };
+
+            println!("New PSBT: {}", new_psbt);
+
+            // sign again
+            let signed_tx = rpc
+                .wallet_process_psbt(&new_psbt.to_string(), Some(true), None, None)
+                .await
+                .expect("Failed to sign child transaction");
+
+            let signed_tx = Psbt::from_str(&signed_tx.psbt).expect("Failed to parse PSBT");
+            println!("Signed transaction: {}", signed_tx);
+
+            let signed_child_tx = signed_tx
+                .extract_tx()
+                .expect("Failed to extract transaction");
+
+            println!(
+                "Child transaction signed: {}",
+                signed_child_tx.compute_txid()
+            );
+
+            // Submit CPFP package
+            let package = vec![&tx, &signed_child_tx];
+            println!("Submitting CPFP package");
+
+            match rpc
+                .submit_package(&package, Some(bitcoin::Amount::ZERO), None)
+                .await
+            {
+                Ok(result) => {
+                    println!("CPFP package submitted successfully");
+                    println!("Package result: {:?}", result);
+                    println!("Parent transaction TXID: {}", tx.compute_txid());
+                    println!("Child transaction TXID: {}", signed_child_tx.compute_txid());
+                }
+                Err(e) => {
+                    println!("Failed to submit CPFP package: {}", e);
+                    println!("Manual submission options:");
+                    println!(
+                        "Parent tx: {}",
+                        hex::encode(bitcoin::consensus::serialize(&tx))
+                    );
+                    println!(
+                        "Child tx: {}",
+                        hex::encode(bitcoin::consensus::serialize(&signed_child_tx))
+                    );
+                }
+            }
         }
         AggregatorCommands::SendMoveTransactionCPFP {
             deposit_outpoint_txid,
