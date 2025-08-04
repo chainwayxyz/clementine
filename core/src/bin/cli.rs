@@ -528,14 +528,14 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
             operator
                 .withdraw(Request::new(params))
                 .await
-                .expect("ailed to make a request to operator");
+                .expect("Failed to make a request to operator");
         }
         OperatorCommands::Vergen => {
             let params = Empty {};
             let response = operator
                 .vergen(Request::new(params))
                 .await
-                .expect("ailed to make a request to operator");
+                .expect("Failed to make a request to operator");
             println!("Vergen response:\n{}", response.into_inner().response);
         }
         OperatorCommands::GetReimbursementTxs {
