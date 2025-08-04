@@ -10,9 +10,8 @@ use crate::aggregator::{AggregatorServer, ParticipatingOperators, ParticipatingV
 use crate::bitvm_client::SECP;
 use crate::builder::sighash::SignatureInfo;
 use crate::builder::transaction::{
-    combine_emergency_stop_txhandler, create_emergency_stop_txhandler,
-    create_move_to_vault_txhandler, create_optimistic_payout_txhandler, Signed, TransactionType,
-    TxHandler,
+    create_emergency_stop_txhandler, create_move_to_vault_txhandler,
+    create_optimistic_payout_txhandler, Signed, TxHandler,
 };
 use crate::config::BridgeConfig;
 use crate::constants::{
