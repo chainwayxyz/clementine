@@ -116,17 +116,14 @@ pub fn create_taproot_address(
             .finalize(&SECP, *bitvm_client::UNSPENDABLE_XONLY_PUBKEY)
             .expect("builder return is finalizable"),
     };
-    
+
     // Create the address
-    let taproot_address: Address = Address::p2tr_tweaked(
-        tree_info.output_key(),
-        network,
-    );
+    let taproot_address: Address = Address::p2tr_tweaked(tree_info.output_key(), network);
 
     (taproot_address, tree_info)
 }
 
-/// Generates a deposit address for the user. Funds can be spend by N-of-N or
+/// Generates a deposit address for the user. Funds can be spent by N-of-N or
 /// user can take after specified time should the deposit fail.
 ///
 /// # Parameters
