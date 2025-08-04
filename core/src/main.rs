@@ -6,11 +6,13 @@
 //! spawn multiple actor servers that it needs, in different processes. Meaning
 //! Clementine binary should be run multiple times with different arguments.
 
+use bitcoincore_rpc::RpcApi;
 use clementine_core::{
     bitvm_client::{load_or_generate_bitvm_cache, BITVM_CACHE},
     citrea::CitreaClient,
     cli::{self, get_cli_config},
     database::Database,
+    extended_rpc::ExtendedRpc,
     servers::{
         create_aggregator_grpc_server, create_operator_grpc_server, create_verifier_grpc_server,
     },
@@ -77,6 +79,28 @@ async fn main() {
         }
     };
     println!("Server has started successfully.");
+
+    if let Some(command) = args.command {
+        match command {
+            cli::Commands::DumpConfig => {
+                println!("Configuration: {:#?}", config);
+                let rpc = ExtendedRpc::connect(
+                    config.bitcoin_rpc_url,
+                    config.bitcoin_rpc_user,
+                    config.bitcoin_rpc_password,
+                )
+                .await
+                .expect("Failed to connect to Bitcoin RPC");
+                let addresses = rpc
+                    .client
+                    .get_node_addresses(None)
+                    .await
+                    .expect("Failed to get node addresses");
+                println!("Node addresses: {:#?}", addresses);
+                return;
+            }
+        }
+    }
 
     handle.closed().await;
 }
