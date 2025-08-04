@@ -50,13 +50,6 @@ use std::future::Future;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tonic::{async_trait, Request, Response, Status, Streaming};
 
-use bitcoin::secp256k1::rand::{self, RngCore};
-use chacha20poly1305::{
-    aead::{Aead, KeyInit},
-    XChaCha20Poly1305, XNonce,
-};
-use x25519_dalek::{EphemeralSecret, PublicKey as X25519PublicKey};
-
 struct AggNonceQueueItem {
     agg_nonce: AggregatedNonce,
     sighash: TapSighash,
@@ -679,31 +672,6 @@ impl Aggregator {
         Ok(move_txhandler.promote()?)
     }
 
-    fn encrypt_bytes(recipient_pubkey: [u8; 32], message: &[u8]) -> Result<Vec<u8>, eyre::Report> {
-        let recipient_pubkey = X25519PublicKey::from(recipient_pubkey);
-
-        let ephemeral_secret = EphemeralSecret::random_from_rng(rand::thread_rng());
-        let ephemeral_public = X25519PublicKey::from(&ephemeral_secret);
-
-        let shared_secret = ephemeral_secret.diffie_hellman(&recipient_pubkey);
-        let cipher = XChaCha20Poly1305::new_from_slice(shared_secret.as_bytes())
-            .map_err(|e| eyre::eyre!("Failed to create cipher: {e}"))?;
-
-        let mut nonce_bytes = [0u8; 24];
-        rand::thread_rng().fill_bytes(&mut nonce_bytes);
-        let nonce = XNonce::from_slice(&nonce_bytes);
-
-        let ciphertext = cipher
-            .encrypt(nonce, message)
-            .map_err(|e| eyre::eyre!("Failed to encrypt message: {e}"))?;
-
-        let mut output = vec![];
-        output.extend_from_slice(ephemeral_public.as_bytes());
-        output.extend_from_slice(&nonce_bytes);
-        output.extend_from_slice(&ciphertext);
-        Ok(output)
-    }
-
     async fn verify_and_save_emergency_stop_sigs(
         &self,
         emergency_stop_sigs: Vec<Vec<u8>>,
@@ -756,7 +724,7 @@ impl Aggregator {
 
         tracing::debug!("Move to vault tx id: {}", move_to_vault_txid.to_string());
 
-        let encrypted_emergency_stop_tx = Self::encrypt_bytes(
+        let encrypted_emergency_stop_tx = crate::encryption::encrypt_bytes(
             self.config
                 .emergency_stop_encryption_public_key
                 .expect("Emergency stop encryption public key is not set"),
@@ -1989,9 +1957,17 @@ mod tests {
             .unwrap()
             .into_inner();
 
-        let emergency_stop_tx: bitcoin::Transaction =
-            bitcoin::consensus::deserialize(&emergency_txid.encrypted_emergency_stop_txs[0])
-                .expect("Failed to deserialize");
+        let decryption_priv_key =
+            hex::decode("a80bc8cf095c2b37d4c6233114e0dd91f43d75de5602466232dbfcc1fc66c542")
+                .expect("Failed to parse emergency stop encryption public key");
+        let emergency_stop_tx: bitcoin::Transaction = bitcoin::consensus::deserialize(
+            &crate::encryption::decrypt_bytes(
+                &decryption_priv_key,
+                &emergency_txid.encrypted_emergency_stop_txs[0],
+            )
+            .expect("Failed to decrypt emergency stop tx"),
+        )
+        .expect("Failed to deserialize");
 
         rpc.client
             .send_raw_transaction(&emergency_stop_tx)

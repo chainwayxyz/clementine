@@ -304,7 +304,7 @@ impl Default for BridgeConfig {
                     .expect("valid address"),
             ),
             emergency_stop_encryption_public_key: Some(
-                hex::decode("e900eb5d43385ec46fea86f50c0c7ee39c8be780aadbc4bb803fbe56a1e4a550")
+                hex::decode("025d32d10ec7b899df4eeb4d80918b7f0a1f2a28f6af24f71aa2a59c69c0d531")
                     .expect("valid hex")
                     .try_into()
                     .expect("valid key"),
