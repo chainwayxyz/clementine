@@ -68,18 +68,8 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
         light_client_prover_url: String,
         chain_id: u32,
         secret_key: Option<PrivateKeySigner>,
+        timeout: Option<Duration>,
     ) -> Result<Self, BridgeError>;
-
-    /// Fetches an UTXO from Citrea for the given withdrawal index.
-    ///
-    /// # Parameters
-    ///
-    /// - `withdrawal_index`: Index of the withdrawal.
-    ///
-    /// # Returns
-    ///
-    /// - [`OutPoint`]: UTXO for the given withdrawal.
-    async fn withdrawal_utxos(&self, withdrawal_index: u64) -> Result<OutPoint, BridgeError>;
 
     /// Returns deposit move txids, starting from the last deposit index.
     ///
@@ -319,6 +309,7 @@ impl CitreaClientT for CitreaClient {
         light_client_prover_url: String,
         chain_id: u32,
         secret_key: Option<PrivateKeySigner>,
+        timeout: Option<Duration>,
     ) -> Result<Self, BridgeError> {
         let citrea_rpc_url = Url::parse(&citrea_rpc_url).wrap_err("Can't parse Citrea RPC URL")?;
         let light_client_prover_url =
@@ -346,12 +337,14 @@ impl CitreaClientT for CitreaClient {
         tracing::info!("Contract created");
 
         let client = HttpClientBuilder::default()
+            .request_timeout(timeout.unwrap_or(Duration::from_secs(60)))
             .build(citrea_rpc_url)
             .wrap_err("Failed to create Citrea RPC client")?;
 
         tracing::info!("Citrea RPC client created");
 
         let light_client_prover_client = HttpClientBuilder::default()
+            .request_timeout(timeout.unwrap_or(Duration::from_secs(60)))
             .build(light_client_prover_url)
             .wrap_err("Failed to create Citrea LCP RPC client")?;
 
@@ -363,23 +356,6 @@ impl CitreaClientT for CitreaClient {
             wallet_address,
             contract,
         })
-    }
-
-    async fn withdrawal_utxos(&self, withdrawal_index: u64) -> Result<OutPoint, BridgeError> {
-        let withdrawal_utxo = self
-            .contract
-            .withdrawalUTXOs(U256::from(withdrawal_index))
-            .call()
-            .await
-            .wrap_err("Failed to get withdrawal UTXO")?;
-
-        let txid = withdrawal_utxo.txId.0;
-        let txid = Txid::from_slice(txid.as_slice())?;
-
-        let vout = withdrawal_utxo.outputId.0;
-        let vout = u32::from_be_bytes(vout);
-
-        Ok(OutPoint { txid, vout })
     }
 
     async fn collect_deposit_move_txids(
@@ -401,12 +377,13 @@ impl CitreaClientT for CitreaClient {
                 .block(BlockId::Number(BlockNumberOrTag::Number(to_height)))
                 .call()
                 .await;
-            if deposit_txid.is_err() {
-                tracing::trace!(
-                    "Deposit txid not found for index, error: {:?}",
-                    deposit_txid
-                );
-                break;
+            match deposit_txid {
+                Err(e) if e.to_string().contains("execution reverted") => {
+                    tracing::trace!("Deposit txid not found for index, error: {:?}", e);
+                    break;
+                }
+                Err(e) => return Err(e.into()),
+                Ok(_) => {}
             }
             tracing::info!("Deposit txid found for index: {:?}", deposit_txid);
 
@@ -532,7 +509,7 @@ impl CitreaClientT for CitreaClient {
 
         let current_proof_output: LightClientCircuitOutput =
             borsh::from_slice(&proof_current.1.journal.bytes)
-                .expect("Failed to deserialize light client circuit output");
+                .wrap_err("Failed to deserialize light client circuit output")?;
 
         if !check_method_id(&current_proof_output, lc_image_id) {
             return Err(eyre::eyre!(
@@ -555,7 +532,7 @@ impl CitreaClientT for CitreaClient {
 
         let previous_proof_output: LightClientCircuitOutput =
             borsh::from_slice(&proof_previous.1.journal.bytes)
-                .expect("Failed to deserialize light client circuit output");
+                .wrap_err("Failed to deserialize previous light client circuit output")?;
 
         if !check_method_id(&previous_proof_output, lc_image_id) {
             return Err(eyre::eyre!(
