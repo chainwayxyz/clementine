@@ -411,7 +411,8 @@ message NonceGenRequest {
 
 message NonceGenFirstResponse {
   // ID of the nonce session (used to store nonces in verifier's memory)
-  uint32 id = 1;
+  // The id is string representation of a u128 number
+  string id = 1;
   // Number of nonces to generate
   uint32 num_nonces = 2;
 }
@@ -422,8 +423,16 @@ message NonceGenResponse {
   }
 }
 
-message OptimisticPayoutParams {
+message OptimisticWithdrawParams {
   WithdrawParams withdrawal = 1;
+  // An ECDSA signature (of citrea/aggregator) over the withdrawal params
+  // to authenticate the withdrawal params. This will be signed manually by citrea 
+  // after manual verification of the optimistic payout.
+  optional string verification_signature = 2;
+}
+
+message OptimisticPayoutParams {
+  OptimisticWithdrawParams opt_withdrawal = 1;
   NonceGenFirstResponse nonce_gen = 2;
   bytes agg_nonce = 3;
 }
@@ -659,7 +668,7 @@ service ClementineAggregator {
     returns (AggregatorWithdrawResponse) {}
 
   // Perform an optimistic payout to reimburse a peg-out from Citrea
-  rpc OptimisticPayout(WithdrawParams) returns (RawSignedTx)  {}
+  rpc OptimisticPayout(OptimisticWithdrawParams) returns (RawSignedTx)  {}
 
   // Send a pre-signed tx to the network
   rpc InternalSendTx(SendTxRequest) returns (Empty) {}
