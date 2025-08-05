@@ -427,13 +427,7 @@
 <a href="#426" id="426">426</a>
 <a href="#427" id="427">427</a>
 <a href="#428" id="428">428</a>
-<a href="#429" id="429">429</a>
-<a href="#430" id="430">430</a>
-<a href="#431" id="431">431</a>
-<a href="#432" id="432">432</a>
-<a href="#433" id="433">433</a>
-<a href="#434" id="434">434</a>
-<a href="#435" id="435">435</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Configuration Options
+<a href="#429" id="429">429</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Configuration Options
 //!
 //! This module defines configuration options.
 //!
@@ -859,12 +853,6 @@
     <span class="attr">#[test]
     </span><span class="kw">fn </span>test_test_config_parseable() {
         <span class="kw">let </span>content = <span class="macro">include_str!</span>(<span class="string">"../test/data/bridge_config.toml"</span>);
-        BridgeConfig::try_parse_from(content.to_string()).unwrap();
-    }
-
-    <span class="attr">#[test]
-    </span><span class="kw">fn </span>test_docker_config_parseable() {
-        <span class="kw">let </span>content = <span class="macro">include_str!</span>(<span class="string">"../../../scripts/docker/docker_config.toml"</span>);
         BridgeConfig::try_parse_from(content.to_string()).unwrap();
     }
 }
