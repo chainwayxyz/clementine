@@ -458,7 +458,6 @@ impl ClementineBitVMPublicKeys {
             "Getting assert commit data, challenge_sending_watchtowers: {:?}",
             challenge_sending_watchtowers
         );
-        // TODO: this might be wrong, add clementine specific ones too @aoengin
         commit_data.push(vec![
             challenge_sending_watchtowers.to_vec(),
             asserts.0[0].to_vec(),
