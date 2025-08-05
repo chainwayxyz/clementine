@@ -282,25 +282,6 @@ where
             )
             .await?;
 
-            // start tracking operators if they exist in the db
-            let operators = self.verifier.db.get_operators(None).await?;
-            if !operators.is_empty() {
-                let mut dbtx = self.verifier.db.begin_transaction().await?;
-                for operator in operators {
-                    StateManager::<Verifier<C>>::dispatch_new_round_machine(
-                        self.verifier.db.clone(),
-                        &mut dbtx,
-                        OperatorData {
-                            xonly_pk: operator.0,
-                            reimburse_addr: operator.1,
-                            collateral_funding_outpoint: operator.2,
-                        },
-                    )
-                    .await?;
-                }
-                dbtx.commit().await?;
-            }
-
             let should_run_state_mgr = {
                 #[cfg(test)]
                 {
@@ -458,6 +439,28 @@ where
 
         #[cfg(feature = "automation")]
         let header_chain_prover = HeaderChainProver::new(&config, rpc.clone()).await?;
+
+        #[cfg(feature = "automation")]
+        {
+            // start tracking operators if they exist in the db
+            let operators = db.get_operators(None).await?;
+            if !operators.is_empty() {
+                let mut dbtx = db.begin_transaction().await?;
+                for operator in operators {
+                    StateManager::<Verifier<C>>::dispatch_new_round_machine(
+                        db.clone(),
+                        &mut dbtx,
+                        OperatorData {
+                            xonly_pk: operator.0,
+                            reimburse_addr: operator.1,
+                            collateral_funding_outpoint: operator.2,
+                        },
+                    )
+                    .await?;
+                }
+                dbtx.commit().await?;
+            }
+        }
 
         let verifier = Verifier {
             rpc,
