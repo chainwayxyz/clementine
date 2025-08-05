@@ -61,8 +61,7 @@ pub fn create_round_txhandler(
     pubkeys: &[bitvm::signatures::winternitz::PublicKey],
     paramset: &'static ProtocolParamset,
 ) -> Result<TxHandler, BridgeError> {
-    let mut builder =
-        TxHandlerBuilder::new(TransactionType::Round).with_version(Version::non_standard(3));
+    let mut builder = TxHandlerBuilder::new(TransactionType::Round).with_version(NON_STANDARD_V3);
     let input_amount;
     match txin {
         RoundTxInput::Prevout(prevout) => {
@@ -100,11 +99,19 @@ pub fn create_round_txhandler(
     let timeout_block_count_locked_script =
         Arc::new(TimelockScript::new(Some(operator_xonly_pk), 1));
 
+    let total_required = (paramset.kickoff_amount + paramset.default_utxo_amount())
+        .checked_mul(paramset.num_kickoffs_per_round as u64)
+        .and_then(|kickoff_total| kickoff_total.checked_add(paramset.anchor_amount()))
+        .ok_or_else(|| {
+            BridgeError::ArithmeticOverflow("Total required amount calculation overflow")
+        })?;
+
+    let remaining_amount = input_amount.checked_sub(total_required).ok_or_else(|| {
+        BridgeError::InsufficientFunds("Input amount insufficient for required outputs")
+    })?;
+
     builder = builder.add_output(UnspentTxOut::from_scripts(
-        input_amount
-            - (paramset.kickoff_amount + paramset.default_utxo_amount())
-                * (paramset.num_kickoffs_per_round as u64)
-            - paramset.anchor_amount(),
+        remaining_amount,
         vec![],
         Some(operator_xonly_pk),
         paramset.network,
@@ -170,7 +177,7 @@ pub fn create_assert_timeout_txhandlers(
     for idx in 0..num_asserts {
         txhandlers.push(
             TxHandlerBuilder::new(TransactionType::AssertTimeout(idx))
-                .with_version(Version::non_standard(3))
+                .with_version(NON_STANDARD_V3)
                 .add_input(
                     (NumberedSignatureKind::AssertTimeout1, idx as i32),
                     kickoff_txhandler.get_spendable_output(UtxoVout::Assert(idx))?,
@@ -285,7 +292,7 @@ pub fn create_ready_to_reimburse_txhandler(
     let prev_value = prevout.get_prevout().value;
 
     Ok(TxHandlerBuilder::new(TransactionType::ReadyToReimburse)
-        .with_version(Version::non_standard(3))
+        .with_version(NON_STANDARD_V3)
         .add_input(
             NormalSignatureKind::OperatorSighashDefault,
             prevout,
@@ -330,7 +337,7 @@ pub fn create_unspent_kickoff_txhandlers(
     for idx in 0..paramset.num_kickoffs_per_round {
         txhandlers.push(
             TxHandlerBuilder::new(TransactionType::UnspentKickoff(idx))
-                .with_version(Version::non_standard(3))
+                .with_version(NON_STANDARD_V3)
                 .add_input(
                     (NumberedSignatureKind::UnspentKickoff1, idx as i32),
                     ready_to_reimburse_txhandler
@@ -377,7 +384,7 @@ pub fn create_burn_unused_kickoff_connectors_txhandler(
 ) -> Result<TxHandler, BridgeError> {
     let mut tx_handler_builder =
         TxHandlerBuilder::new(TransactionType::BurnUnusedKickoffConnectors)
-            .with_version(Version::non_standard(3));
+            .with_version(NON_STANDARD_V3);
     for &idx in unused_kickoff_connectors_indices {
         tx_handler_builder = tx_handler_builder.add_input(
             NormalSignatureKind::OperatorSighashDefault,

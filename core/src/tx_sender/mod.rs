@@ -508,7 +508,7 @@ mod tests {
     use crate::builder::transaction::input::SpendableTxIn;
     use crate::builder::transaction::output::UnspentTxOut;
     use crate::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE};
-    use crate::constants::{MIN_TAPROOT_AMOUNT, NON_EPHEMERAL_ANCHOR_AMOUNT};
+    use crate::constants::{MIN_TAPROOT_AMOUNT, NON_EPHEMERAL_ANCHOR_AMOUNT, NON_STANDARD_V3};
     use crate::errors::BridgeError;
     use crate::rpc::clementine::tagged_signature::SignatureId;
     use crate::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind};
@@ -616,7 +616,7 @@ mod tests {
         rpc.mine_blocks(1).await?;
 
         let version = match fee_paying_type {
-            FeePayingType::CPFP => Version::non_standard(3),
+            FeePayingType::CPFP => NON_STANDARD_V3,
             FeePayingType::RBF | FeePayingType::NoFunding => Version::TWO,
         };
 

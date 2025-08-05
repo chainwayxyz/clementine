@@ -11,6 +11,7 @@ use super::script::{
 use crate::bitvm_client::SECP;
 use crate::deposit::SecurityCouncil;
 use crate::errors::BridgeError;
+use crate::utils::ScriptBufExt;
 use crate::{bitvm_client, EVMAddress};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::{
@@ -115,21 +116,14 @@ pub fn create_taproot_address(
             .finalize(&SECP, *bitvm_client::UNSPENDABLE_XONLY_PUBKEY)
             .expect("builder return is finalizable"),
     };
+
     // Create the address
-    let taproot_address = match internal_key {
-        Some(xonly_pk) => Address::p2tr(&SECP, xonly_pk, tree_info.merkle_root(), network),
-        None => Address::p2tr(
-            &SECP,
-            *bitvm_client::UNSPENDABLE_XONLY_PUBKEY,
-            tree_info.merkle_root(),
-            network,
-        ),
-    };
+    let taproot_address: Address = Address::p2tr_tweaked(tree_info.output_key(), network);
 
     (taproot_address, tree_info)
 }
 
-/// Generates a deposit address for the user. Funds can be spend by N-of-N or
+/// Generates a deposit address for the user. Funds can be spent by N-of-N or
 /// user can take after specified time should the deposit fail.
 ///
 /// # Parameters
@@ -165,9 +159,9 @@ pub fn generate_deposit_address(
         .assume_checked()
         .script_pubkey();
 
-    let recovery_extracted_xonly_pk =
-        XOnlyPublicKey::from_slice(&recovery_script_pubkey.as_bytes()[2..34])
-            .wrap_err("Failed to extract xonly public key from recovery taproot address")?;
+    let recovery_extracted_xonly_pk = recovery_script_pubkey
+        .try_get_taproot_pk()
+        .wrap_err("Recovery taproot address is not a valid taproot address")?;
 
     let script_timelock =
         TimelockScript::new(Some(recovery_extracted_xonly_pk), user_takes_after).to_script_buf();

@@ -40,9 +40,9 @@ secrecy = { version = "0.10.0", features = ["serde"] }
 reqwest = { version = "0.12.12", features = ["rustls-tls", "json", "http2"], default-features = false }
 
 # Citrea dependencies
-citrea-e2e = { git = "https://github.com/chainwayxyz/citrea-e2e", rev = "812156b" }
+citrea-e2e = { git = "https://github.com/chainwayxyz/citrea-e2e", rev = "859cddf" }
 
-citrea-sov-rollup-interface = { git = "https://github.com/chainwayxyz/citrea", tag = "v0.7.2-mempool-fixes", package = "sov-rollup-interface" }
+citrea-sov-rollup-interface = { git = "https://github.com/chainwayxyz/citrea", tag = "v0.7.3-rc.5", package = "sov-rollup-interface" }
 
 # bitcoin
 bitcoin = { version = "0.32.5", features = ["serde", "base64"] }
@@ -71,6 +71,7 @@ hyper-util = { version = "0.1" }
 
 # Circuits
 sha2 = { version = "=0.10.8", default-features = false }
+hkdf = { version = "0.12.4", default-features = false }
 crypto-bigint = { version = "=0.5.5", features = ["rand_core"] }
 borsh = { version = "1.5.1", features = ["derive"] }
 k256 = { version = "=0.13.4" }
@@ -106,6 +107,8 @@ alloy-rpc-types = "0.11.1"
 alloy-primitives = "0.8.25"
 alloy-rpc-types-eth = "0.11.1"
 alloy-rpc-client = "0.11.1"
+alloy-sol-types = { version = "0.8.25", default-features = false, features = ["json"] }
+
 
 rand = "0.8"
 num-bigint = "0.4.6"

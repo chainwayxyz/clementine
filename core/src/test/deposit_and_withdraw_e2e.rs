@@ -15,8 +15,9 @@ use crate::extended_rpc::ExtendedRpc;
 use crate::header_chain_prover::HeaderChainProver;
 use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
 use crate::rpc::clementine::{
-    Deposit, Empty, FeeType, FinalizedPayoutParams, KickoffId, NormalSignatureKind, RawSignedTx,
-    SendMoveTxRequest, SendTxRequest, TransactionRequest, WithdrawParams,
+    Deposit, Empty, FeeType, FinalizedPayoutParams, KickoffId, NormalSignatureKind,
+    OptimisticWithdrawParams, RawSignedTx, SendMoveTxRequest, SendTxRequest, TransactionRequest,
+    WithdrawParams,
 };
 use crate::test::common::citrea::{
     get_new_withdrawal_utxo_and_register_to_citrea, register_replacement_deposit_to_citrea,
@@ -28,17 +29,18 @@ use crate::test::common::clementine_utils::{
 };
 use crate::test::common::tx_utils::{
     ensure_outpoint_spent, ensure_outpoint_spent_while_waiting_for_state_mngr_sync,
-    ensure_tx_onchain, get_txid_where_utxo_is_spent,
-};
-use crate::test::common::tx_utils::{
-    get_tx_from_signed_txs_with_type, wait_for_fee_payer_utxos_to_be_in_mempool,
+    ensure_tx_onchain, get_tx_from_signed_txs_with_type, get_txid_where_utxo_is_spent,
+    wait_for_fee_payer_utxos_to_be_in_mempool,
 };
 use crate::test::common::{
-    create_actors, create_regtest_rpc, create_test_config_with_thread_name,
-    generate_withdrawal_transaction_and_signature, get_deposit_address, mine_once_after_in_mempool,
-    poll_get, poll_until_condition, run_multiple_deposits, run_single_deposit,
-    run_single_replacement_deposit,
+    create_actors, create_regtest_rpc, generate_withdrawal_transaction_and_signature,
+    get_deposit_address, mine_once_after_in_mempool, poll_get, poll_until_condition,
+    run_single_deposit,
 };
+use crate::test::common::{
+    create_test_config_with_thread_name, run_multiple_deposits, run_single_replacement_deposit,
+};
+use crate::test::sign::sign_optimistic_payout_verification_signature;
 use crate::utils::initialize_logger;
 use crate::{EVMAddress, UTXO};
 use async_trait::async_trait;
@@ -154,6 +156,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             config.citrea_light_client_prover_url.clone(),
             config.citrea_chain_id,
             Some(SECRET_KEYS[0].to_string().parse().unwrap()),
+            config.citrea_request_timeout,
         )
         .await
         .unwrap();
@@ -469,10 +472,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 async fn citrea_deposit_and_withdraw_e2e_non_zero_genesis_height() -> citrea_e2e::Result<()> {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
-    std::env::set_var(
-        "CITREA_DOCKER_IMAGE",
-        "chainwayxyz/citrea-test:738e68ee8321eb2e5d78e2f94dfe0b99b4957dd2",
-    );
+    std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
     let citrea_e2e = CitreaDepositAndWithdrawE2E {
         variant: CitreaDepositAndWithdrawE2EVariant::GenesisHeightNonZero,
     };
@@ -486,7 +486,7 @@ async fn citrea_deposit_and_withdraw_e2e() -> citrea_e2e::Result<()> {
         .expect("Failed to initialize logger");
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
-        "chainwayxyz/citrea-test:738e68ee8321eb2e5d78e2f94dfe0b99b4957dd2",
+        "chainwayxyz/citrea-test:ca479a4147be1c3a472e76a3f117124683d81ab5",
     );
     let citrea_e2e = CitreaDepositAndWithdrawE2E {
         variant: CitreaDepositAndWithdrawE2EVariant::GenesisHeightZero,
@@ -522,6 +522,7 @@ async fn mock_citrea_run_truthful() {
         "".to_string(),
         config.citrea_chain_id,
         None,
+        config.citrea_request_timeout,
     )
     .await
     .unwrap();
@@ -989,6 +990,7 @@ async fn mock_citrea_run_truthful_opt_payout() {
         "".to_string(),
         config.citrea_chain_id,
         None,
+        config.citrea_request_timeout,
     )
     .await
     .unwrap();
@@ -1061,15 +1063,26 @@ async fn mock_citrea_run_truthful_opt_payout() {
                 .unwrap_or(Amount::from_sat(0)),
     )
     .await;
+
+    let withdrawal_params = WithdrawParams {
+        withdrawal_id: 0,
+        input_signature: sig.serialize().to_vec(),
+        input_outpoint: Some(withdrawal_utxo.into()),
+        output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
+        output_amount: payout_txout.value.to_sat(),
+    };
+
+    let verification_signature =
+        sign_optimistic_payout_verification_signature(&config, withdrawal_params.clone());
+
+    let verification_signature_str = verification_signature.to_string();
+
     let mut aggregator = actors.get_aggregator();
     // should give err before deposit is confirmed on citrea
     assert!(aggregator
-        .optimistic_payout(WithdrawParams {
-            withdrawal_id: 0,
-            input_signature: sig.serialize().to_vec(),
-            input_outpoint: Some(withdrawal_utxo.into()),
-            output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
-            output_amount: payout_txout.value.to_sat(),
+        .optimistic_payout(OptimisticWithdrawParams {
+            withdrawal: Some(withdrawal_params.clone()),
+            verification_signature: Some(verification_signature_str.clone()),
         })
         .await
         .is_err());
@@ -1092,12 +1105,9 @@ async fn mock_citrea_run_truthful_opt_payout() {
 
     // should give err before withdrawal is confirmed on citrea
     assert!(aggregator
-        .optimistic_payout(WithdrawParams {
-            withdrawal_id: 0,
-            input_signature: sig.serialize().to_vec(),
-            input_outpoint: Some(withdrawal_utxo.into()),
-            output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
-            output_amount: payout_txout.value.to_sat(),
+        .optimistic_payout(OptimisticWithdrawParams {
+            withdrawal: Some(withdrawal_params.clone()),
+            verification_signature: Some(verification_signature_str.clone()),
         })
         .await
         .is_err());
@@ -1113,12 +1123,9 @@ async fn mock_citrea_run_truthful_opt_payout() {
     let opt_payout_tx = poll_get(
         async || {
             let payout_resp = aggregator
-                .optimistic_payout(WithdrawParams {
-                    withdrawal_id: 0,
-                    input_signature: sig.serialize().to_vec(),
-                    input_outpoint: Some(withdrawal_utxo.into()),
-                    output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
-                    output_amount: payout_txout.value.to_sat(),
+                .optimistic_payout(OptimisticWithdrawParams {
+                    withdrawal: Some(withdrawal_params.clone()),
+                    verification_signature: Some(verification_signature_str.clone()),
                 })
                 .await;
 
@@ -1166,6 +1173,7 @@ async fn mock_citrea_run_malicious() {
         "".to_string(),
         config.citrea_chain_id,
         None,
+        config.citrea_request_timeout,
     )
     .await
     .unwrap();
@@ -1345,7 +1353,7 @@ async fn mock_citrea_run_malicious() {
     // tx_2 should not have challenge amount output
     assert!(tx_2.output[0].value != config.protocol_paramset().operator_challenge_amount);
 
-    // TODO: check that operators collateral got burned. It can't be checked right now as we dont have auto disprove implemented.
+    // TODO: check that operators collateral got burned. It can't be checked right now as we don't have auto disprove implemented.
 }
 
 /// Tests protocol safety when an operator exits before a challenge can be made.
@@ -1374,6 +1382,7 @@ async fn mock_citrea_run_malicious_after_exit() {
         "".to_string(),
         config.citrea_chain_id,
         None,
+        config.citrea_request_timeout,
     )
     .await
     .unwrap();
@@ -1723,6 +1732,7 @@ async fn concurrent_deposits_and_withdrawals() {
         "".to_string(),
         config.citrea_chain_id,
         None,
+        config.citrea_request_timeout,
     )
     .await
     .unwrap();
@@ -1844,6 +1854,7 @@ async fn concurrent_deposits_and_optimistic_payouts() {
         "".to_string(),
         config.citrea_chain_id,
         None,
+        config.citrea_request_timeout,
     )
     .await
     .unwrap();
@@ -1916,12 +1927,24 @@ async fn concurrent_deposits_and_optimistic_payouts() {
             let mut withdrawal_requests = Vec::new();
 
             for (i, aggregator) in aggregators.iter_mut().enumerate() {
-                withdrawal_requests.push(aggregator.optimistic_payout(WithdrawParams {
+                let withdrawal_params = WithdrawParams {
                     withdrawal_id: i as u32,
                     input_signature: sigs[i].serialize().to_vec(),
                     input_outpoint: Some(withdrawal_utxos[i].into()),
                     output_script_pubkey: payout_txouts[i].script_pubkey.to_bytes(),
                     output_amount: payout_txouts[i].value.to_sat(),
+                };
+
+                let verification_signature = sign_optimistic_payout_verification_signature(
+                    &config,
+                    withdrawal_params.clone(),
+                );
+
+                let verification_signature_str = verification_signature.to_string();
+
+                withdrawal_requests.push(aggregator.optimistic_payout(OptimisticWithdrawParams {
+                    withdrawal: Some(withdrawal_params.clone()),
+                    verification_signature: Some(verification_signature_str),
                 }));
             }
 
