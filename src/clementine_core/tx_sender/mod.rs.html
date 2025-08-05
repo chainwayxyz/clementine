@@ -963,7 +963,21 @@
 <a href="#962" id="962">962</a>
 <a href="#963" id="963">963</a>
 <a href="#964" id="964">964</a>
-<a href="#965" id="965">965</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::config::protocol::ProtocolParamset;
+<a href="#965" id="965">965</a>
+<a href="#966" id="966">966</a>
+<a href="#967" id="967">967</a>
+<a href="#968" id="968">968</a>
+<a href="#969" id="969">969</a>
+<a href="#970" id="970">970</a>
+<a href="#971" id="971">971</a>
+<a href="#972" id="972">972</a>
+<a href="#973" id="973">973</a>
+<a href="#974" id="974">974</a>
+<a href="#975" id="975">975</a>
+<a href="#976" id="976">976</a>
+<a href="#977" id="977">977</a>
+<a href="#978" id="978">978</a>
+<a href="#979" id="979">979</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::config::protocol::ProtocolParamset;
 <span class="kw">use </span><span class="kw">crate</span>::errors::ResultExt;
 <span class="kw">use </span><span class="kw">crate</span>::utils::FeePayingType;
 <span class="kw">use crate</span>::{
@@ -973,6 +987,7 @@
     extended_rpc::ExtendedRpc,
     utils::TxMetadata,
 };
+<span class="kw">use </span>alloy::transports::http::reqwest;
 <span class="kw">use </span>bitcoin::taproot::TaprootSpendInfo;
 <span class="kw">use </span>bitcoin::{Amount, FeeRate, Network, OutPoint, Transaction, TxOut, Txid, Weight};
 <span class="kw">use </span>bitcoincore_rpc::RpcApi;
@@ -986,6 +1001,7 @@
 
 <span class="kw">mod </span>client;
 <span class="kw">mod </span>cpfp;
+<span class="kw">mod </span>nonstandard;
 <span class="kw">mod </span>rbf;
 <span class="kw">mod </span>task;
 
@@ -1025,6 +1041,7 @@
     <span class="kw">pub </span>btc_syncer_consumer_id: String,
     paramset: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>ProtocolParamset,
     cached_spendinfo: TaprootSpendInfo,
+    http_client: reqwest::Client,
     <span class="kw">pub </span>mempool_api_host: <span class="prelude-ty">Option</span>&lt;String&gt;,
     <span class="kw">pub </span>mempool_api_endpoint: <span class="prelude-ty">Option</span>&lt;String&gt;,
 }
@@ -1050,6 +1067,9 @@
 
     <span class="attr">#[error(<span class="string">"Failed to create a PSBT for fee bump"</span>)]
     </span>PsbtError(String),
+
+    <span class="attr">#[error(<span class="string">"Network error: {0}"</span>)]
+    </span>NetworkError(String),
 
     <span class="attr">#[error(transparent)]
     </span>Other(<span class="attr">#[from] </span>eyre::Report),
@@ -1079,6 +1099,7 @@
             db,
             btc_syncer_consumer_id,
             paramset,
+            http_client: reqwest::Client::new(),
             mempool_api_host,
             mempool_api_endpoint,
         }
@@ -1326,6 +1347,13 @@
             }
 
             <span class="kw">let </span>result = <span class="kw">match </span>fee_paying_type {
+                <span class="comment">// Send nonstandard transactions to testnet4 using the mempool.space accelerator.
+                // As mempool uses out of band payment, we don't need to do cpfp or rbf.
+                </span><span class="kw">_ if </span><span class="self">self</span>.paramset.network == bitcoin::Network::Testnet4
+                    &amp;&amp; <span class="self">self</span>.is_bridge_tx_nonstandard(<span class="kw-2">&amp;</span>tx) =&gt;
+                {
+                    <span class="self">self</span>.send_testnet4_nonstandard_tx(<span class="kw-2">&amp;</span>tx, id).<span class="kw">await
+                </span>}
                 FeePayingType::CPFP =&gt; <span class="self">self</span>.send_cpfp_tx(id, tx, tx_metadata, new_fee_rate).<span class="kw">await</span>,
                 FeePayingType::RBF =&gt; {
                     <span class="self">self</span>.send_rbf_tx(id, tx, tx_metadata, new_fee_rate, rbf_signing_info)

@@ -499,7 +499,40 @@
 <a href="#498" id="498">498</a>
 <a href="#499" id="499">499</a>
 <a href="#500" id="500">500</a>
-<a href="#501" id="501">501</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::config::env::read_string_from_env_then_parse;
+<a href="#501" id="501">501</a>
+<a href="#502" id="502">502</a>
+<a href="#503" id="503">503</a>
+<a href="#504" id="504">504</a>
+<a href="#505" id="505">505</a>
+<a href="#506" id="506">506</a>
+<a href="#507" id="507">507</a>
+<a href="#508" id="508">508</a>
+<a href="#509" id="509">509</a>
+<a href="#510" id="510">510</a>
+<a href="#511" id="511">511</a>
+<a href="#512" id="512">512</a>
+<a href="#513" id="513">513</a>
+<a href="#514" id="514">514</a>
+<a href="#515" id="515">515</a>
+<a href="#516" id="516">516</a>
+<a href="#517" id="517">517</a>
+<a href="#518" id="518">518</a>
+<a href="#519" id="519">519</a>
+<a href="#520" id="520">520</a>
+<a href="#521" id="521">521</a>
+<a href="#522" id="522">522</a>
+<a href="#523" id="523">523</a>
+<a href="#524" id="524">524</a>
+<a href="#525" id="525">525</a>
+<a href="#526" id="526">526</a>
+<a href="#527" id="527">527</a>
+<a href="#528" id="528">528</a>
+<a href="#529" id="529">529</a>
+<a href="#530" id="530">530</a>
+<a href="#531" id="531">531</a>
+<a href="#532" id="532">532</a>
+<a href="#533" id="533">533</a>
+<a href="#534" id="534">534</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::config::env::read_string_from_env_then_parse;
 <span class="kw">use </span><span class="kw">crate</span>::constants::{MIN_TAPROOT_AMOUNT, NON_EPHEMERAL_ANCHOR_AMOUNT};
 <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
 <span class="kw">use </span>bitcoin::{Amount, Network};
@@ -785,6 +818,39 @@
         <span class="number">134</span>, <span class="number">20</span>, <span class="number">132</span>, <span class="number">171</span>, <span class="number">180</span>, <span class="number">175</span>, <span class="number">95</span>, <span class="number">126</span>, <span class="number">69</span>, <span class="number">127</span>, <span class="number">140</span>, <span class="number">34</span>, <span class="number">22</span>,
     ],
     header_chain_proof_batch_size: <span class="number">100</span>,
+    bridge_nonstandard: <span class="bool-val">true</span>,
+};
+
+<span class="kw">pub const </span>TESTNET4_TEST_PARAMSET: ProtocolParamset = ProtocolParamset {
+    network: Network::Testnet4,
+    num_round_txs: <span class="number">2</span>,
+    num_kickoffs_per_round: <span class="number">10</span>,
+    num_signed_kickoffs: <span class="number">2</span>,
+    bridge_amount: Amount::from_sat(<span class="number">1_000_000</span>),
+    kickoff_amount: Amount::from_sat(<span class="number">0</span>),
+    operator_challenge_amount: Amount::from_sat(<span class="number">200_000</span>),
+    collateral_funding_amount: Amount::from_sat(<span class="number">99_000</span>),
+    watchtower_challenge_bytes: <span class="number">144</span>,
+    kickoff_blockhash_commit_length: <span class="number">40</span>,
+    winternitz_log_d: WINTERNITZ_LOG_D,
+    user_takes_after: <span class="number">200</span>,
+    operator_challenge_timeout_timelock: <span class="number">4 </span>* BLOCKS_PER_HOUR,
+    operator_challenge_nack_timelock: <span class="number">4 </span>* BLOCKS_PER_HOUR * <span class="number">3</span>,
+    disprove_timeout_timelock: <span class="number">4 </span>* BLOCKS_PER_HOUR * <span class="number">5</span>,
+    assert_timeout_timelock: <span class="number">4 </span>* BLOCKS_PER_HOUR * <span class="number">4</span>,
+    operator_reimburse_timelock: <span class="number">2</span>,
+    watchtower_challenge_timeout_timelock: <span class="number">4 </span>* BLOCKS_PER_HOUR * <span class="number">2</span>,
+    time_to_send_watchtower_challenge: <span class="number">4 </span>* BLOCKS_PER_HOUR * <span class="number">3 </span>/ <span class="number">2</span>,
+    latest_blockhash_timeout_timelock: <span class="number">4 </span>* BLOCKS_PER_HOUR * <span class="number">5 </span>/ <span class="number">2</span>,
+    finality_depth: <span class="number">1</span>,
+    start_height: <span class="number">92700</span>,
+    genesis_height: <span class="number">92700</span>,
+    genesis_chain_state_hash: [
+        <span class="number">0xe4</span>, <span class="number">0xe1</span>, <span class="number">0x28</span>, <span class="number">0xa8</span>, <span class="number">0x99</span>, <span class="number">0xaf</span>, <span class="number">0xee</span>, <span class="number">0xb1</span>, <span class="number">0x85</span>, <span class="number">0x5b</span>, <span class="number">0x4a</span>, <span class="number">0xb7</span>, <span class="number">0x2e</span>, <span class="number">0x4d</span>, <span class="number">0x88</span>,
+        <span class="number">0x50</span>, <span class="number">0xab</span>, <span class="number">0x35</span>, <span class="number">0x1b</span>, <span class="number">0xde</span>, <span class="number">0xf9</span>, <span class="number">0x4f</span>, <span class="number">0xc2</span>, <span class="number">0x78</span>, <span class="number">0xe8</span>, <span class="number">0x5c</span>, <span class="number">0x13</span>, <span class="number">0x11</span>, <span class="number">0xe2</span>, <span class="number">0x72</span>,
+        <span class="number">0xfe</span>, <span class="number">0x6a</span>,
+    ],
+    header_chain_proof_batch_size: <span class="number">10000</span>,
     bridge_nonstandard: <span class="bool-val">true</span>,
 };
 
