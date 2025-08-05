@@ -203,10 +203,10 @@ services:
     ports:
       - "17001:17000"
     healthcheck:
-      test: ["CMD-SHELL", "sleep 1;"]
+      test: ["CMD-SHELL", "timeout 1 bash -c '</dev/tcp/localhost/17000'"]
       interval: 1s
       timeout: 5s
-      retries: 1
+      retries: 100
 
   clementine_verifier_regtest_1:
     <<: *clementine_verifier_regtest
@@ -217,10 +217,10 @@ services:
     ports:
       - "17002:17000"
     healthcheck:
-      test: ["CMD-SHELL", "sleep 1;"]
+      test: ["CMD-SHELL", "timeout 1 bash -c '</dev/tcp/localhost/17000'"]
       interval: 1s
       timeout: 5s
-      retries: 1
+      retries: 100
 
   clementine_verifier_regtest_2:
     <<: *clementine_verifier_regtest
@@ -231,10 +231,10 @@ services:
     ports:
       - "17003:17000"
     healthcheck:
-      test: ["CMD-SHELL", "sleep 1;"]
+      test: ["CMD-SHELL", "timeout 1 bash -c '</dev/tcp/localhost/17000'"]
       interval: 1s
       timeout: 5s
-      retries: 1
+      retries: 100
 
   clementine_verifier_regtest_3:
     <<: *clementine_verifier_regtest
@@ -245,10 +245,10 @@ services:
     ports:
       - "17004:17000"
     healthcheck:
-      test: ["CMD-SHELL", "sleep 1;"]
+      test: ["CMD-SHELL", "timeout 1 bash -c '</dev/tcp/localhost/17000'"]
       interval: 1s
       timeout: 5s
-      retries: 1
+      retries: 100
 
 # Operators --------------------------------------------------------------------
   clementine_operator_regtest_0:
@@ -260,10 +260,10 @@ services:
     ports:
       - "17005:17000"
     healthcheck:
-      test: ["CMD-SHELL", "sleep 4"]
+      test: ["CMD-SHELL", "timeout 1 bash -c '</dev/tcp/localhost/17000'"]
       interval: 1s
-      timeout: 10s
-      retries: 1
+      timeout: 5s
+      retries: 100
 
   clementine_operator_regtest_1:
     <<: *clementine_operator_regtest
@@ -274,10 +274,10 @@ services:
     ports:
       - "17006:17000"
     healthcheck:
-      test: ["CMD-SHELL", "sleep 15"]
+      test: ["CMD-SHELL", "timeout 1 bash -c '</dev/tcp/localhost/17000'"]
       interval: 1s
-      timeout: 20s
-      retries: 1
+      timeout: 5s
+      retries: 100
 
 volumes:
   postgres_db_regtest:
