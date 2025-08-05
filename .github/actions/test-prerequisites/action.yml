@@ -19,7 +19,7 @@ runs:
         path: |
           core/bitvm_cache.bin
           core/bitvm_cache_dev.bin
-        key: bitvm-cache-v3-dev
+        key: bitvm-cache-05-08-2025
 
     - name: Download bitvm cache bin
       if: steps.cache-bitvm.outputs.cache-hit != 'true'
