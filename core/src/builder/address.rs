@@ -226,15 +226,13 @@ mod tests {
     use crate::{
         bitvm_client::{self, SECP},
         builder::{self, address::calculate_taproot_leaf_depths},
-        musig2::AggregateFromPublicKeys,
     };
     use bitcoin::secp256k1::rand;
     use bitcoin::{
         key::{Keypair, TapTweak},
-        secp256k1::{PublicKey, SecretKey},
-        Address, AddressType, ScriptBuf, XOnlyPublicKey,
+        secp256k1::SecretKey,
+        AddressType, ScriptBuf, XOnlyPublicKey,
     };
-    use std::str::FromStr;
 
     #[test]
     fn create_taproot_address() {
