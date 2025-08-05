@@ -34,4 +34,4 @@ jobs:
           context: .
           file: ./scripts/docker/Dockerfile
           push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/clementine:latest
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/clementine:${{ github.sha }}

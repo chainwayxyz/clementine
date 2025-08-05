@@ -12,8 +12,6 @@ More info on BitVM2: https://bitvm.org/bitvm_bridge.pdf and http://bitvm.org/bit
 
 ![Clementine Tx Graph](images/clementine_diagram.png)
 
-For more up-to-date graph, see: [https://link.excalidraw.com/l/VtMON1sWKQ/61dFLxZMlGt](https://link.excalidraw.com/l/VtMON1sWKQ/61dFLxZMlGt)
-
 ---
 
 ## FAQ
@@ -51,13 +49,6 @@ Currently our codebase is a bit messy, but all you need to focus is the /core pa
 
 We also have several repos to support the bridge:
 
-- **bridge-backend** [https://github.com/chainwayxyz/bridge-backend/](https://github.com/chainwayxyz/bridge-backend/)
-
-  > This is a nodejs repository maintained by Berk, it does several things:
-
-  - Sending the deposits to our Aggregator
-  - Testnet Faucet
-  - [CPFP](https://bitcoinops.org/en/topics/cpfp/) for Transaction fee bumping
 - **risc0-to-bitvm2** [https://github.com/chainwayxyz/risc0-to-fflonk/](https://github.com/chainwayxyz/risc0-to-fflonk/)
 
   > This will include all required circuits for the bridge, current /circuits folder in clementine is outdated. This repo includes:

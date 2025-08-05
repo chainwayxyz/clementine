@@ -1,0 +1,59 @@
+network = "testnet4" # "bitcoin", "testnet4", or "regtest"
+num_round_txs = 2
+num_kickoffs_per_round = 10
+num_signed_kickoffs = 2
+bridge_amount = 1000000000 # in satoshis
+kickoff_amount = 0 # in satoshis
+operator_challenge_amount = 200000000 # in satoshis
+collateral_funding_amount = 99000000
+kickoff_blockhash_commit_length = 40
+watchtower_challenge_bytes = 144
+winternitz_log_d = 4
+user_takes_after = 200
+operator_challenge_timeout_timelock = 144 # BLOCKS_PER_DAY
+operator_challenge_nack_timelock = 432 # BLOCKS_PER_DAY * 3
+disprove_timeout_timelock = 720 # BLOCKS_PER_DAY * 5
+assert_timeout_timelock = 576 # BLOCKS_PER_DAY * 4
+operator_reimburse_timelock = 12 # BLOCKS_PER_HOUR * 2
+watchtower_challenge_timeout_timelock = 288 # BLOCKS_PER_DAY * 2
+time_to_send_watchtower_challenge = 216 # BLOCKS_PER_DAY * 3 / 2
+latest_blockhash_timeout_timelock = 360 # BLOCKS_PER_DAY * 5 / 2
+finality_depth = 6
+start_height = 92752
+genesis_height = 0
+genesis_chain_state_hash = [
+    95,
+    115,
+    2,
+    173,
+    22,
+    200,
+    189,
+    158,
+    242,
+    243,
+    190,
+    0,
+    200,
+    25,
+    154,
+    134,
+    249,
+    224,
+    186,
+    134,
+    20,
+    132,
+    171,
+    180,
+    175,
+    95,
+    126,
+    69,
+    127,
+    140,
+    34,
+    22,
+]
+header_chain_proof_batch_size = 100
+bridge_nonstandard = true
