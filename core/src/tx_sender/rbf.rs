@@ -489,7 +489,6 @@ impl TxSender {
                     psbt: Some(psbt), ..
                 }) => psbt,
                 Ok(BumpFeeResult { errors, .. }) if !errors.is_empty() => {
-                    // TODO: handle errors here and update the state
                     self.handle_err(
                         format!("psbt_bump_fee failed: {:?}", errors),
                         "rbf_psbt_bump_failed",
