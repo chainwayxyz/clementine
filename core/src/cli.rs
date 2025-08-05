@@ -21,6 +21,7 @@ pub enum Actors {
     Verifier,
     Operator,
     Aggregator,
+    TestActor,
 }
 
 /// Clementine (C) 2025 Chainway Limited
