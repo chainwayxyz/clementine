@@ -497,7 +497,6 @@ impl TxSender {
                     return Err(SendTxError::Other(eyre!(errors.join(", "))));
                 }
                 Ok(BumpFeeResult { psbt: None, .. }) => {
-                    // TODO: print better msg and update state
                     self.handle_err(
                         "psbt_bump_fee returned no psbt",
                         "rbf_psbt_bump_failed",
