@@ -29,7 +29,7 @@ The problem you would think is what if one of these signers reject to sign any m
 
 1. Why bridge denominator is 10 BTC not 1 BTC?
 
-> This is still open research question. But from current observations, 1 BTC doesn’t seem feasible. The reason is, every opreator puts some collateral to be used in every withdrawal. An operator can make a withdrawal once at a time to use that collateral efficiently. (If operator can make two withdrawals concurrently, we would have to send 2 disprove txs thus collateral would not be enough.) Thus our number of withdrawals are rate limited. So making it 1 BTC would make the total max TVL very low. Even 10 BTC requires a lot of operators to make this efficient. See more: https://dune.com/ekrem/bitvm-bridges-research
+> This is still open research question. But from current observations, 1 BTC doesn’t seem feasible. The reason is, every operator puts some collateral to be used in every withdrawal. An operator can make a withdrawal once at a time to use that collateral efficiently. (If operator can make two withdrawals concurrently, we would have to send 2 disprove txs thus collateral would not be enough.) Thus our number of withdrawals are rate limited. So making it 1 BTC would make the total max TVL very low. Even 10 BTC requires a lot of operators to make this efficient. See more: https://dune.com/ekrem/bitvm-bridges-research
 
 1. Why We Use Winternitz One-Time Signatures
 
@@ -53,7 +53,7 @@ We also have several repos to support the bridge:
 
 - **bridge-backend** [https://github.com/chainwayxyz/bridge-backend/](https://github.com/chainwayxyz/bridge-backend/)
 
-  > This is a nodejs repository maintaned by Berk, it does several things:
+  > This is a nodejs repository maintained by Berk, it does several things:
 
   - Sending the deposits to our Aggregator
   - Testnet Faucet
