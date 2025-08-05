@@ -770,6 +770,7 @@ async fn testnet4_mock_citrea_run_truthful() {
         "".to_string(),
         config.citrea_chain_id,
         None,
+        config.citrea_request_timeout,
     )
     .await
     .unwrap();
