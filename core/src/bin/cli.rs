@@ -710,7 +710,7 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                 hex::decode(deposit_outpoint_txid).expect("Failed to decode txid");
             deposit_outpoint_txid.reverse();
 
-            let deposit = aggregator
+            let move_to_vault_tx = aggregator
                 .new_deposit(Deposit {
                     deposit_outpoint: Some(Outpoint {
                         txid: Some(clementine_core::rpc::clementine::Txid {
@@ -727,9 +727,12 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                 })
                 .await
                 .expect("Failed to make a request");
+
+            let move_to_vault_tx = move_to_vault_tx.into_inner();
+
             let deposit = aggregator
                 .send_move_to_vault_tx(SendMoveTxRequest {
-                    raw_tx: Some(deposit.into_inner()),
+                    raw_tx: Some(move_to_vault_tx.clone()),
                     deposit_outpoint: Some(Outpoint {
                         txid: Some(clementine_core::rpc::clementine::Txid {
                             txid: deposit_outpoint_txid,
@@ -737,15 +740,26 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                         vout: deposit_outpoint_vout,
                     }),
                 })
-                .await
-                .expect("Failed to make a request");
-            let move_txid = deposit.get_ref().txid.clone();
-            let txid = bitcoin::Txid::from_byte_array(
-                move_txid
-                    .try_into()
-                    .expect("Failed to convert txid to array"),
-            );
-            println!("Move txid: {}", txid);
+                .await;
+
+            match deposit {
+                Ok(deposit) => {
+                    let move_txid = deposit.get_ref().txid.clone();
+                    let txid = bitcoin::Txid::from_byte_array(
+                        move_txid
+                            .try_into()
+                            .expect("Failed to convert txid to array"),
+                    );
+                    println!("Move txid: {}", txid);
+                }
+                Err(e) => {
+                    println!("Failed to send move transaction: {}", e);
+                    println!(
+                        "Please send manually: {}",
+                        hex::encode(move_to_vault_tx.raw_tx)
+                    );
+                }
+            }
         }
         AggregatorCommands::GetMoveTransaction {
             deposit_outpoint_txid,
