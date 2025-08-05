@@ -304,26 +304,18 @@ where
         }
         #[cfg(not(feature = "automation"))]
         {
-            use crate::metrics::get_btc_syncer_consumer_last_processed_block_height;
+            use crate::database::bitcoin_syncer::get_next_finalized_block_height_for_consumer;
             use crate::task::TaskExt;
-            // get current next height from the database
-            // some blocks might still be processed again (if last processed block height is a reorged block)
-            // processing same blocks again is not a problem, here we want to avoid starting from the beginning if verifier
-            // has been restarted
-            let last_processed_height = get_btc_syncer_consumer_last_processed_block_height(
-                &self.verifier.db,
-                &Verifier::<C>::FINALIZED_BLOCK_CONSUMER_ID.to_string(),
-            )
-            .await?;
-            let next_height = match last_processed_height {
-                // if last processed height is not None, start from the last processed height - finality depth + 1 as next height
-                Some(height) => height
-                    .checked_sub(self.verifier.config.protocol_paramset().finality_depth)
-                    .map(|height| height + 1)
-                    .unwrap_or(self.verifier.config.protocol_paramset().start_height),
-                // if db is empty, start from the start height
-                None => self.verifier.config.protocol_paramset().start_height,
-            };
+            // get the next finalized block height to start from
+            let next_height = self
+                .verifier
+                .db
+                .get_next_finalized_block_height_for_consumer(
+                    None,
+                    Verifier::<C>::FINALIZED_BLOCK_CONSUMER_ID.to_string(),
+                    self.verifier.config.protocol_paramset(),
+                )
+                .await?;
 
             self.background_tasks
                 .ensure_task_looping(
