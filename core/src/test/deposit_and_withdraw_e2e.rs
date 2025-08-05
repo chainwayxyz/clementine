@@ -1123,7 +1123,7 @@ async fn mock_citrea_run_malicious() {
     // tx_2 should not have challenge amount output
     assert!(tx_2.output[0].value != config.protocol_paramset().operator_challenge_amount);
 
-    // TODO: check that operators collateral got burned. It can't be checked right now as we dont have auto disprove implemented.
+    // TODO: check that operators collateral got burned. It can't be checked right now as we don't have auto disprove implemented.
 }
 
 /// Tests protocol safety when an operator exits before a challenge can be made.

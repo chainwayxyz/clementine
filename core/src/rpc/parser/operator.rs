@@ -146,7 +146,7 @@ pub async fn parse_schnorr_sig(
     if let operator_params::Response::UnspentKickoffSig(wpk) = operator_param {
         Ok(wpk.try_into()?)
     } else {
-        Err(expected_msg_got_none("WinternitzPubkeys")())
+        Err(expected_msg_got_none("UnspentKickoffSig")())
     }
 }
 

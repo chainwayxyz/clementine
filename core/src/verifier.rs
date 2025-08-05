@@ -1069,7 +1069,7 @@ where
 
                 tracing::debug!(
                     "Verifying Final operator signature {} for operator {}, signature info {:?}",
-                    nonce_idx + 1,
+                    op_sig_count + 1,
                     operator_idx,
                     typed_sighash.1
                 );
@@ -1353,10 +1353,10 @@ where
         let move_txid = self
             .db
             .get_move_to_vault_txid_from_citrea_deposit(None, deposit_id)
-            .await?;
-        if move_txid.is_none() {
-            return Err(eyre::eyre!("Deposit not found for id: {}", deposit_id).into());
-        }
+            .await?
+            .ok_or_else(|| {
+                BridgeError::from(eyre::eyre!("Deposit not found for id: {}", deposit_id))
+            })?;
 
         // amount in move_tx is exactly the bridge amount
         if output_amount
@@ -1377,6 +1377,7 @@ where
             .db
             .get_withdrawal_utxo_from_citrea_withdrawal(None, deposit_id)
             .await?;
+
         if withdrawal_utxo != input_outpoint {
             return Err(eyre::eyre!(
                 "Withdrawal utxo is not correct: {:?} != {:?}",
@@ -1386,7 +1387,6 @@ where
             .into());
         }
 
-        let move_txid = move_txid.expect("Withdrawal must be Some");
         let mut deposit_data = self
             .db
             .get_deposit_data_with_move_tx(None, move_txid)

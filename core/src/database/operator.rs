@@ -1072,7 +1072,7 @@ mod tests {
         };
 
         let operator_xonly_pk = generate_random_xonly_pk();
-        let non_existant_xonly_pk = generate_random_xonly_pk();
+        let non_existent_xonly_pk = generate_random_xonly_pk();
 
         // Test inserting new data
         database
@@ -1105,7 +1105,7 @@ mod tests {
 
         // Test non-existent entry
         let non_existent = database
-            .get_operators_challenge_ack_hashes(None, non_existant_xonly_pk, deposit_outpoint)
+            .get_operators_challenge_ack_hashes(None, non_existent_xonly_pk, deposit_outpoint)
             .await
             .unwrap();
         assert!(non_existent.is_none());
@@ -1157,7 +1157,7 @@ mod tests {
         };
 
         let operator_xonly_pk = generate_random_xonly_pk();
-        let non_existant_xonly_pk = generate_random_xonly_pk();
+        let non_existent_xonly_pk = generate_random_xonly_pk();
 
         database
             .set_unspent_kickoff_sigs(
@@ -1177,7 +1177,7 @@ mod tests {
         assert_eq!(result, signatures.signatures);
 
         let non_existent = database
-            .get_unspent_kickoff_sigs(None, non_existant_xonly_pk, RoundIndex::Round(round_idx))
+            .get_unspent_kickoff_sigs(None, non_existent_xonly_pk, RoundIndex::Round(round_idx))
             .await
             .unwrap();
         assert!(non_existent.is_none());
@@ -1185,7 +1185,7 @@ mod tests {
         let non_existent = database
             .get_unspent_kickoff_sigs(
                 None,
-                non_existant_xonly_pk,
+                non_existent_xonly_pk,
                 RoundIndex::Round(round_idx + 1),
             )
             .await
@@ -1239,7 +1239,7 @@ mod tests {
             vout: 0,
         };
         let operator_xonly_pk = generate_random_xonly_pk();
-        let non_existant_xonly_pk = generate_random_xonly_pk();
+        let non_existent_xonly_pk = generate_random_xonly_pk();
 
         // Test inserting new BitVM setup
         database
@@ -1279,7 +1279,7 @@ mod tests {
 
         // Test non-existent entry
         let non_existent = database
-            .get_bitvm_setup(None, non_existant_xonly_pk, deposit_outpoint)
+            .get_bitvm_setup(None, non_existent_xonly_pk, deposit_outpoint)
             .await
             .unwrap();
         assert!(non_existent.is_none());
