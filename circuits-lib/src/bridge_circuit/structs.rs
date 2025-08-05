@@ -191,23 +191,19 @@ impl WatchtowerInput {
     /// Constructs a `WatchtowerInput` instance from the kickoff transaction, the watchtower transaction and
     /// an optional slice of previous transactions.
     ///
-    /// # Arguments
+    /// # Parameters
+    /// - `kickoff_tx_id`: The kickoff transaction id whose output is consumed by an input of the watchtower transaction
+    /// - `watchtower_tx`: The watchtower challenge transaction that includes an input referencing the `kickoff_tx`
+    /// - `prevout_txs`: A slice of transactions, each including at least one output spent as input in `watchtower_tx`
+    /// - `watchtower_challenge_connector_start_idx`: Starting index for watchtower challenge connectors
     ///
-    /// - `kickoff_tx_id`: The kickoff transaction id whose output is consumed by an input of the watchtower transaction.
-    /// * `watchtower_tx` - The watchtower challenge transaction that includes an input
-    ///   referencing the `kickoff_tx`.
-    /// * `prevout_txs` - An optional slice of transactions, each of which should include
-    ///   at least one output that is later spent as an input in `watchtower_tx`. ( Txs should be in the same order as the inputs in the watchtower tx )
+    /// # Returns
+    /// Result containing the WatchtowerInput or an error message
     ///
     /// # Note
     ///
     /// All previous transactions other than kickoff tx whose outputs are spent by the `watchtower_tx`
     /// should be supplied in `prevout_txs` if they exist.
-    ///
-    /// # Returns
-    ///
-    /// Returns `Ok(WatchtowerInput)` if all required data is successfully extracted and validated.
-    /// Returns `Err(&'static str)` if any error occurs during the process.
     ///
     /// # Errors
     ///

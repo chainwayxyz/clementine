@@ -12,8 +12,8 @@ use bitvm::chunk::api::{
     api_generate_full_tapscripts, api_generate_partial_script, Assertions, NUM_HASH, NUM_PUBS,
     NUM_U256,
 };
-use bitvm::signatures::wots_api::wots160;
 
+use bitvm::signatures::{Wots, Wots20};
 use borsh::{BorshDeserialize, BorshSerialize};
 use bridge_circuit_host::utils::{get_verifying_key, is_dev_mode};
 use std::fs;
@@ -216,9 +216,9 @@ fn generate_fresh_data() -> BitvmCache {
 pub struct ClementineBitVMPublicKeys {
     pub combined_method_id_constant: [u8; 32],
     pub deposit_constant: [u8; 32],
-    pub payout_tx_blockhash_pk: wots160::PublicKey,
-    pub latest_blockhash_pk: wots160::PublicKey,
-    pub challenge_sending_watchtowers_pk: wots160::PublicKey,
+    pub payout_tx_blockhash_pk: <Wots20 as Wots>::PublicKey,
+    pub latest_blockhash_pk: <Wots20 as Wots>::PublicKey,
+    pub challenge_sending_watchtowers_pk: <Wots20 as Wots>::PublicKey,
     pub bitvm_pks: bitvm::chunk::api::PublicKeys,
 }
 

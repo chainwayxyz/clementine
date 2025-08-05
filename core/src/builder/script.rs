@@ -309,7 +309,7 @@ impl SpendableScript for WinternitzCommit {
         let mut total_script = ScriptBuf::new();
         for (index, (pubkey, _size)) in self.commitments.iter().enumerate() {
             let params = self.get_params(index);
-            let a = bitvm::signatures::winternitz_hash::WINTERNITZ_MESSAGE_VERIFIER
+            let a = bitvm::signatures::signing_winternitz::WINTERNITZ_MESSAGE_VERIFIER
                 .checksig_verify_and_clear_stack(&params, pubkey);
             total_script.extend(a.compile().instructions().map(|x| x.expect("just created")));
         }
@@ -346,7 +346,7 @@ impl WinternitzCommit {
                     );
                 }
             }
-            bitvm::signatures::winternitz_hash::WINTERNITZ_MESSAGE_VERIFIER
+            bitvm::signatures::signing_winternitz::WINTERNITZ_MESSAGE_VERIFIER
                 .sign(&self.get_params(index), secret_key, data)
                 .into_iter()
                 .for_each(|x| witness.push(x));
