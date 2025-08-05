@@ -395,7 +395,7 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
         consumer_handle: &str,
     ) -> Result<Option<u32>, BridgeError> {
-        let query = sqlx::query_scalar::<_, i32>(
+        let query = sqlx::query_scalar::<_, Option<i32>>(
             r#"SELECT MAX(bs.height)
              FROM bitcoin_syncer_events bse
              INNER JOIN bitcoin_syncer bs ON bse.block_id = bs.id
@@ -407,8 +407,7 @@ impl Database {
         )
         .bind(consumer_handle);
 
-        let result: Option<i32> =
-            execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+        let result: Option<i32> = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
 
         result
             .map(|h| {
