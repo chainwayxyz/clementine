@@ -774,7 +774,7 @@ where
             })
             .collect::<Result<Vec<(SecretNonce, PublicNonce)>, BridgeError>>()?
             .into_iter()
-            .unzip(); // TODO: fix extra copies
+            .unzip();
 
         let session = NonceSession { nonces: sec_nonces };
 
@@ -895,7 +895,6 @@ where
         Ok(partial_sig_rx)
     }
 
-    /// TODO: This function should be split in to multiple functions
     pub async fn deposit_finalize(
         &self,
         deposit_data: &mut DepositData,
