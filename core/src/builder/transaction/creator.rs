@@ -662,7 +662,7 @@ pub async fn create_txhandlers(
         .get_txid()
         .to_byte_array();
 
-    let vout = kickoff_data.kickoff_idx + 1; // TODO: Extract directly from round tx - not safe
+    let vout = kickoff_data.kickoff_idx + 1;
     let watchtower_challenge_start_idx = (FIRST_FIVE_OUTPUTS + NUMBER_OF_ASSERT_TXS) as u16;
     let secp = Secp256k1::verification_only();
 
