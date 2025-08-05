@@ -919,6 +919,8 @@ impl ClementineAggregator for AggregatorServer {
                 .wrap_err("Failed to aggregate nonces for optimistic payout")
                 .map_to_status()?;
             let agg_nonce = aggregate_nonces(pub_nonces.iter().collect::<Vec<_>>().as_slice())?;
+
+            let agg_nonce_bytes = agg_nonce.serialize().to_vec();
             // send the agg nonce to the verifiers to sign the optimistic payout tx
             let payout_sigs = participating_verifiers
                 .clients()
@@ -927,15 +929,17 @@ impl ClementineAggregator for AggregatorServer {
                 .map(|(client, first_response)| {
                     let mut client = client.clone();
                     let opt_withdraw_params = opt_withdraw_params.clone();
-                    let agg_nonce_bytes = agg_nonce.serialize().to_vec();
-                    async move {
-                        client
-                            .optimistic_payout_sign(OptimisticPayoutParams {
-                                opt_withdrawal: Some(opt_withdraw_params),
-                                agg_nonce: agg_nonce_bytes,
-                                nonce_gen: Some(first_response),
-                            })
-                            .await
+                    {
+                        let agg_nonce_serialized = agg_nonce_bytes.clone();
+                        async move {
+                            client
+                                .optimistic_payout_sign(OptimisticPayoutParams {
+                                    opt_withdrawal: Some(opt_withdraw_params),
+                                    agg_nonce: agg_nonce_serialized,
+                                    nonce_gen: Some(first_response),
+                                })
+                                .await
+                        }
                     }
                 })
                 .collect::<Vec<_>>();
