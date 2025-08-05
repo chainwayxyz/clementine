@@ -1406,13 +1406,7 @@
 <a href="#1405" id="1405">1405</a>
 <a href="#1406" id="1406">1406</a>
 <a href="#1407" id="1407">1407</a>
-<a href="#1408" id="1408">1408</a>
-<a href="#1409" id="1409">1409</a>
-<a href="#1410" id="1410">1410</a>
-<a href="#1411" id="1411">1411</a>
-<a href="#1412" id="1412">1412</a>
-<a href="#1413" id="1413">1413</a>
-<a href="#1414" id="1414">1414</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Bridge Circuit Module
+<a href="#1408" id="1408">1408</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Bridge Circuit Module
 //!
 //! This module implements the Bridge Circuit for Clementine protocol.
 //! It defines the main entry point, `bridge_circuit`, which executes a comprehensive sequence
@@ -1563,8 +1557,7 @@
     <span class="kw">let </span>(max_total_work, challenge_sending_watchtowers) =
         total_work_and_watchtower_flags(<span class="kw-2">&amp;</span>input, <span class="kw-2">&amp;</span>work_only_image_id);
 
-    <span class="comment">// Why is that 32 bytes in the first place?
-    </span><span class="kw">let </span>total_work: TotalWork = input.hcp.chain_state.total_work[<span class="number">16</span>..<span class="number">32</span>]
+    <span class="kw">let </span>total_work: TotalWork = input.hcp.chain_state.total_work[<span class="number">16</span>..<span class="number">32</span>]
         .try_into()
         .expect(<span class="string">"Cannot fail"</span>);
 
@@ -1576,8 +1569,7 @@
         );
     }
 
-    <span class="comment">// MMR WILL BE FETCHED FROM LC PROOF WHEN IT IS READY - THIS IS JUST FOR PROOF OF CONCEPT
-    </span><span class="kw">let </span>mmr = input.hcp.chain_state.block_hashes_mmr.clone();
+    <span class="kw">let </span>mmr = input.hcp.chain_state.block_hashes_mmr.clone();
 
     <span class="kw">if </span>!input.payout_spv.verify(mmr) {
         <span class="macro">panic!</span>(
@@ -1652,10 +1644,8 @@
     </span><span class="kw">let </span>latest_blockhash: LatestBlockhash = input.hcp.chain_state.best_block_hash[<span class="number">12</span>..<span class="number">32</span>]
         .try_into()
         .unwrap();
-    <span class="kw">let </span>payout_tx_blockhash: PayoutTxBlockhash = input.payout_spv.block_header.compute_block_hash()
-        [<span class="number">12</span>..<span class="number">32</span>]
-        .try_into()
-        .unwrap();
+
+    <span class="kw">let </span>payout_tx_blockhash: PayoutTxBlockhash = spv_l1_block_hash[<span class="number">12</span>..<span class="number">32</span>].try_into().unwrap();
 
     <span class="kw">let </span>journal_hash = journal_hash(
         payout_tx_blockhash,
@@ -1674,6 +1664,7 @@
 /// - `compressed_proof`: A reference to a 128-byte array containing the compressed Groth16 proof.
 /// - `total_work`: A 16-byte array representing the total accumulated work associated with the proof.
 /// - `image_id`: A reference to a 32-byte array representing the image ID used for verification.
+/// - `genesis_state_hash`: A 32-byte array representing the genesis state hash.
 ///
 /// # Returns
 ///
@@ -1715,12 +1706,11 @@
 ///
 /// # Parameters
 /// - `circuit_input`: Data structure holding serialized watchtower transactions, UTXOs, input indices, and pubkeys.
-/// - `kickoff_txid`: The transaction ID of the `kickoff_tx`.
 ///
 /// # Returns
-/// A tuple containing:
-/// - A 20-byte bitmap indicating which watchtower challenges were valid,
-/// - A vector of vectors containing the outputs of valid watchtower challenge transactions.
+/// A `WatchtowerChallengeSet` containing:
+/// - `challenge_senders`: A 20-byte bitmap indicating which watchtower challenges were valid,
+/// - `challenge_outputs`: A vector of vectors containing the outputs of valid watchtower challenge transactions.
 ///   These outputs should conform to the expected structure of either a single OP_RETURN output
 ///   or a combination of two P2TR outputs and one OP_RETURN output for the challenge to be
 ///   considered when calculating the maximum work). However, it is enough to have a valid signature
@@ -1783,9 +1773,9 @@
                         sighash_type,
                         signature[<span class="number">0</span>..<span class="number">64</span>].try_into().expect(<span class="string">"Cannot fail"</span>),
                     ),
-                    <span class="prelude-val">Err</span>(<span class="kw">_</span>) =&gt; <span class="macro">panic!</span>(
-                        <span class="string">"Invalid sighash type, watchtower index: {}"</span>,
-                        watchtower_input.watchtower_idx
+                    <span class="prelude-val">Err</span>(<span class="kw">_</span>) =&gt; (
+                        TapSighashType::Default,
+                        signature[<span class="number">0</span>..<span class="number">64</span>].try_into().expect(<span class="string">"Cannot fail"</span>),
                     ),
                 }
             } <span class="kw">else </span>{
@@ -1904,15 +1894,14 @@
 ///
 /// # Parameters
 ///
-/// - `kickoff_txid`: The transaction ID of the kickoff transaction.
 /// - `circuit_input`: The `BridgeCircuitInput` containing all watchtower inputs and related data.
 /// - `work_only_image_id`: A 32-byte identifier used for Groth16 verification against the work-only circuit.
 ///
 /// # Returns
 ///
 /// A tuple containing:
-/// - `[u8; 16]`: The total work from the highest valid watchtower challenge (after successful Groth16 verification).
-/// - `[u8; 20]`: Bitflags representing which watchtowers sent valid challenges (1 bit per watchtower).
+/// - `TotalWork`: The total work from the highest valid watchtower challenge (after successful Groth16 verification).
+/// - `ChallengeSendingWatchtowers`: Bitflags representing which watchtowers sent valid challenges (1 bit per watchtower).
 ///
 /// # Notes
 ///
@@ -1946,7 +1935,7 @@
             <span class="comment">// Single OP_RETURN output with 144 bytes
             </span>[op_return_output, ..] <span class="kw">if </span>op_return_output.script_pubkey.is_op_return() =&gt; {
                 <span class="comment">// If the first output is OP_RETURN, we expect a single output with 144 bytes
-                </span><span class="kw">let </span><span class="prelude-val">Some</span>(<span class="prelude-val">Ok</span>(whole_output)) = parse_op_return_data(<span class="kw-2">&amp;</span>outputs[<span class="number">2</span>].script_pubkey)
+                </span><span class="kw">let </span><span class="prelude-val">Some</span>(<span class="prelude-val">Ok</span>(whole_output)) = parse_op_return_data(<span class="kw-2">&amp;</span>op_return_output.script_pubkey)
                     .map(TryInto::&lt;[u8; <span class="number">144</span>]&gt;::try_into)
                 <span class="kw">else </span>{
                     <span class="kw">continue</span>;
@@ -1954,8 +1943,9 @@
                 compressed_g16_proof = whole_output[<span class="number">0</span>..<span class="number">128</span>]
                     .try_into()
                     .expect(<span class="string">"Cannot fail: slicing 128 bytes from 144-byte array"</span>);
-                total_work = borsh::from_slice(<span class="kw-2">&amp;</span>whole_output[<span class="number">128</span>..<span class="number">144</span>])
-                    .expect(<span class="string">"Cannot fail: deserializing 16 bytes from a 16-byte slice"</span>);
+                total_work = whole_output[<span class="number">128</span>..<span class="number">144</span>]
+                    .try_into()
+                    .expect(<span class="string">"Cannot fail: slicing 16 bytes from 144-byte array"</span>);
             }
             <span class="comment">// Otherwise, we expect three outputs:
             // 1. [out1, out2, out3] where out1 and out2 are P2TR outputs
@@ -2043,6 +2033,7 @@
 /// - `move_txid`: A 32-byte array representing the transaction ID of the move transaction.
 /// - `round_txid`: A 32-byte array representing the transaction ID of the round transaction.
 /// - `kickoff_round_vout`: A 32-bit unsigned integer indicating the vout of the kickoff round transaction.
+/// - `genesis_state_hash`: A 32-byte array representing the genesis state hash.
 ///
 /// # Returns
 ///
@@ -2131,6 +2122,7 @@
 
 <span class="doccomment">/// Encodes the BIP341 signing data for any flag type into a given object implementing the
 /// [`io::Write`] trait. This version takes a pre-computed annex hash and panics on error.
+/// Code mostly taken from: https://github.com/rust-bitcoin/rust-bitcoin/blob/9782fa8412e1c767998d018f6c915e51553a83d6/bitcoin/src/crypto/sighash.rs#L619
 </span><span class="kw">pub fn </span>taproot_encode_signing_data_to_with_annex_digest&lt;
     W: io::Write + <span class="question-mark">?</span>Sized,
     T: Borrow&lt;TxOut&gt;,
@@ -2724,11 +2716,7 @@
                     <span class="kw">let </span>hash = sha256::Hash::from_engine(enc);
                     <span class="prelude-val">Some</span>(hash.to_byte_array()) <span class="comment">// Use to_byte_array() for owned array
                 </span>}
-                <span class="prelude-val">Err</span>(<span class="kw">_</span>) =&gt; {
-                    <span class="comment">// In a production environment, you might want more robust error handling/logging here.
-                    // For now, returning None if encoding fails
-                    </span><span class="prelude-val">None
-                </span>}
+                <span class="prelude-val">Err</span>(<span class="kw">_</span>) =&gt; <span class="prelude-val">None</span>,
             }
         })
     }

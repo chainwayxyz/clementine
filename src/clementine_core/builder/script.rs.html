@@ -1502,7 +1502,7 @@
         <span class="kw">let </span><span class="kw-2">mut </span>total_script = ScriptBuf::new();
         <span class="kw">for </span>(index, (pubkey, _size)) <span class="kw">in </span><span class="self">self</span>.commitments.iter().enumerate() {
             <span class="kw">let </span>params = <span class="self">self</span>.get_params(index);
-            <span class="kw">let </span>a = bitvm::signatures::winternitz_hash::WINTERNITZ_MESSAGE_VERIFIER
+            <span class="kw">let </span>a = bitvm::signatures::signing_winternitz::WINTERNITZ_MESSAGE_VERIFIER
                 .checksig_verify_and_clear_stack(<span class="kw-2">&amp;</span>params, pubkey);
             total_script.extend(a.compile().instructions().map(|x| x.expect(<span class="string">"just created"</span>)));
         }
@@ -1539,7 +1539,7 @@
                     </span>);
                 }
             }
-            bitvm::signatures::winternitz_hash::WINTERNITZ_MESSAGE_VERIFIER
+            bitvm::signatures::signing_winternitz::WINTERNITZ_MESSAGE_VERIFIER
                 .sign(<span class="kw-2">&amp;</span><span class="self">self</span>.get_params(index), secret_key, data)
                 .into_iter()
                 .for_each(|x| witness.push(x));

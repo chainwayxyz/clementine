@@ -784,8 +784,8 @@
     api_generate_full_tapscripts, api_generate_partial_script, Assertions, NUM_HASH, NUM_PUBS,
     NUM_U256,
 };
-<span class="kw">use </span>bitvm::signatures::wots_api::wots160;
 
+<span class="kw">use </span>bitvm::signatures::{Wots, Wots20};
 <span class="kw">use </span>borsh::{BorshDeserialize, BorshSerialize};
 <span class="kw">use </span>bridge_circuit_host::utils::{get_verifying_key, is_dev_mode};
 <span class="kw">use </span>std::fs;
@@ -988,9 +988,9 @@
 </span><span class="kw">pub struct </span>ClementineBitVMPublicKeys {
     <span class="kw">pub </span>combined_method_id_constant: [u8; <span class="number">32</span>],
     <span class="kw">pub </span>deposit_constant: [u8; <span class="number">32</span>],
-    <span class="kw">pub </span>payout_tx_blockhash_pk: wots160::PublicKey,
-    <span class="kw">pub </span>latest_blockhash_pk: wots160::PublicKey,
-    <span class="kw">pub </span>challenge_sending_watchtowers_pk: wots160::PublicKey,
+    <span class="kw">pub </span>payout_tx_blockhash_pk: &lt;Wots20 <span class="kw">as </span>Wots&gt;::PublicKey,
+    <span class="kw">pub </span>latest_blockhash_pk: &lt;Wots20 <span class="kw">as </span>Wots&gt;::PublicKey,
+    <span class="kw">pub </span>challenge_sending_watchtowers_pk: &lt;Wots20 <span class="kw">as </span>Wots&gt;::PublicKey,
     <span class="kw">pub </span>bitvm_pks: bitvm::chunk::api::PublicKeys,
 }
 

@@ -3167,7 +3167,16 @@
 <a href="#3166" id="3166">3166</a>
 <a href="#3167" id="3167">3167</a>
 <a href="#3168" id="3168">3168</a>
-<a href="#3169" id="3169">3169</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
+<a href="#3169" id="3169">3169</a>
+<a href="#3170" id="3170">3170</a>
+<a href="#3171" id="3171">3171</a>
+<a href="#3172" id="3172">3172</a>
+<a href="#3173" id="3173">3173</a>
+<a href="#3174" id="3174">3174</a>
+<a href="#3175" id="3175">3175</a>
+<a href="#3176" id="3176">3176</a>
+<a href="#3177" id="3177">3177</a>
+<a href="#3178" id="3178">3178</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
 <span class="kw">use </span><span class="kw">crate</span>::bitcoin_syncer::BitcoinSyncer;
 <span class="kw">use </span><span class="kw">crate</span>::bitvm_client::{ClementineBitVMPublicKeys, REPLACE_SCRIPTS_LOCK};
 <span class="kw">use </span><span class="kw">crate</span>::builder::address::{create_taproot_address, taproot_builder_with_scripts};
@@ -5686,31 +5695,40 @@
 
         <span class="comment">// Helper closure to parse commit data into the ([u8; 20], u8) format.
         // This avoids code repetition and improves readability.
-        </span><span class="kw">let </span>fill_from_commits = |source: <span class="kw-2">&amp;</span>Vec&lt;Vec&lt;u8&gt;&gt;, target: <span class="kw-2">&amp;mut </span>[([u8; <span class="number">20</span>], u8)]| {
+        </span><span class="kw">let </span>fill_from_commits = |source: <span class="kw-2">&amp;</span>Vec&lt;Vec&lt;u8&gt;&gt;,
+                                 target: <span class="kw-2">&amp;mut </span>[[u8; <span class="number">21</span>]]|
+         -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
             <span class="comment">// We iterate over chunks of 2 `Vec&lt;u8&gt;` elements at a time.
             </span><span class="kw">for </span>(i, chunk) <span class="kw">in </span>source.chunks_exact(<span class="number">2</span>).enumerate() {
-                <span class="comment">// The first element of the chunk is the 20-byte array.
-                </span><span class="kw">let </span>array_part: [u8; <span class="number">20</span>] = chunk[<span class="number">0</span>]
-                    .as_slice()
-                    .try_into()
-                    .expect(<span class="string">"Slice is not 20 bytes"</span>);
-                <span class="comment">// The second element of the chunk is the single byte (u8).
-                </span><span class="kw">let </span>u8_part: u8 = <span class="kw-2">*</span>chunk[<span class="number">1</span>].first().unwrap_or(<span class="kw-2">&amp;</span><span class="number">0</span>);
-                target[i] = (array_part, u8_part);
+                <span class="kw">let </span><span class="kw-2">mut </span>sig_array: [u8; <span class="number">21</span>] = [<span class="number">0</span>; <span class="number">21</span>];
+                <span class="kw">let </span>sig: [u8; <span class="number">20</span>] = &lt;[u8; <span class="number">20</span>]&gt;::try_from(chunk[<span class="number">0</span>].as_slice()).map_err(|<span class="kw">_</span>| {
+                    <span class="macro">eyre::eyre!</span>(
+                        <span class="string">"Invalid signature length, expected 20 bytes, got {}"</span>,
+                        chunk[<span class="number">0</span>].len()
+                    )
+                })<span class="question-mark">?</span>;
+
+                sig_array[..<span class="number">20</span>].copy_from_slice(<span class="kw-2">&amp;</span>sig);
+
+                <span class="kw">let </span>u8_part: u8 = <span class="kw-2">*</span>chunk[<span class="number">1</span>].first().unwrap_or(<span class="kw-2">&amp;</span><span class="number">0</span>);
+                sig_array[<span class="number">20</span>] = u8_part;
+
+                target[i] = sig_array;
             }
+            <span class="prelude-val">Ok</span>(())
         };
 
-        <span class="kw">let </span><span class="kw-2">mut </span>first_box = Box::new([[([<span class="number">0u8</span>; <span class="number">20</span>], <span class="number">0u8</span>); <span class="number">68</span>]; <span class="number">1</span>]);
-        fill_from_commits(<span class="kw-2">&amp;</span>g16_public_input_commit[<span class="number">0</span>], <span class="kw-2">&amp;mut </span>first_box[<span class="number">0</span>]);
+        <span class="kw">let </span><span class="kw-2">mut </span>first_box = Box::new([[[<span class="number">0u8</span>; <span class="number">21</span>]; <span class="number">68</span>]; <span class="number">1</span>]);
+        fill_from_commits(<span class="kw-2">&amp;</span>g16_public_input_commit[<span class="number">0</span>], <span class="kw-2">&amp;mut </span>first_box[<span class="number">0</span>])<span class="question-mark">?</span>;
 
-        <span class="kw">let </span><span class="kw-2">mut </span>second_box = Box::new([[([<span class="number">0u8</span>; <span class="number">20</span>], <span class="number">0u8</span>); <span class="number">68</span>]; <span class="number">14</span>]);
+        <span class="kw">let </span><span class="kw-2">mut </span>second_box = Box::new([[[<span class="number">0u8</span>; <span class="number">21</span>]; <span class="number">68</span>]; <span class="number">14</span>]);
         <span class="kw">for </span>i <span class="kw">in </span><span class="number">0</span>..<span class="number">14 </span>{
-            fill_from_commits(<span class="kw-2">&amp;</span>num_u256_commits[i], <span class="kw-2">&amp;mut </span>second_box[i]);
+            fill_from_commits(<span class="kw-2">&amp;</span>num_u256_commits[i], <span class="kw-2">&amp;mut </span>second_box[i])<span class="question-mark">?</span>;
         }
 
-        <span class="kw">let </span><span class="kw-2">mut </span>third_box = Box::new([[([<span class="number">0u8</span>; <span class="number">20</span>], <span class="number">0u8</span>); <span class="number">36</span>]; <span class="number">363</span>]);
+        <span class="kw">let </span><span class="kw-2">mut </span>third_box = Box::new([[[<span class="number">0u8</span>; <span class="number">21</span>]; <span class="number">36</span>]; <span class="number">363</span>]);
         <span class="kw">for </span>i <span class="kw">in </span><span class="number">0</span>..<span class="number">363 </span>{
-            fill_from_commits(<span class="kw-2">&amp;</span>intermediate_value_commits[i], <span class="kw-2">&amp;mut </span>third_box[i]);
+            fill_from_commits(<span class="kw-2">&amp;</span>intermediate_value_commits[i], <span class="kw-2">&amp;mut </span>third_box[i])<span class="question-mark">?</span>;
         }
 
         <span class="macro">tracing::info!</span>(<span class="string">"Boxes created"</span>);
