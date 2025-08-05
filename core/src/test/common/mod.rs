@@ -440,7 +440,26 @@ pub async fn run_single_deposit<C: CitreaClientT>(
             let outpoint = rpc
                 .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
                 .await?;
-            mine_once_after_in_mempool(&rpc, outpoint.txid, Some("Deposit outpoint"), None).await?;
+            match config.protocol_paramset().network {
+                bitcoin::Network::Regtest => {
+                    mine_once_after_in_mempool(&rpc, outpoint.txid, Some("Deposit outpoint"), None)
+                        .await?;
+                }
+                bitcoin::Network::Testnet4 => loop {
+                    tracing::info!("Deposit outpoint: {:?}", outpoint);
+                    if rpc.is_tx_on_chain(&outpoint.txid).await? {
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+                },
+                _ => {
+                    return Err(eyre::eyre!(
+                        "Unsupported network: {:?}",
+                        config.protocol_paramset().network
+                    )
+                    .into())
+                }
+            }
             outpoint
         }
     };
@@ -475,20 +494,41 @@ pub async fn run_single_deposit<C: CitreaClientT>(
             .into_inner()
             .try_into()?;
 
-        if !rpc.is_tx_on_chain(&move_txid).await? {
-            let aggregator_db = Database::new(&actors.aggregator.config).await?;
-            // check if deposit outpoint is spent
-            let deposit_outpoint_spent = rpc.is_utxo_spent(&deposit_outpoint).await?;
-            if deposit_outpoint_spent {
-                return Err(eyre::eyre!(
-                    "Deposit outpoint is spent but move tx is not in chain. In test_bridge_contract_change 
-                    this means move tx does not match the one in saved state"
-                )
-                .into());
+        match config.protocol_paramset().network {
+            bitcoin::Network::Regtest => {
+                if !rpc.is_tx_on_chain(&move_txid).await? {
+                    let aggregator_db = Database::new(&actors.aggregator.config).await?;
+                    // check if deposit outpoint is spent
+                    let deposit_outpoint_spent = rpc.is_utxo_spent(&deposit_outpoint).await?;
+                    if deposit_outpoint_spent {
+                        return Err(eyre::eyre!(
+                            "Deposit outpoint is spent but move tx is not in chain. In test_bridge_contract_change 
+                            this means move tx does not match the one in saved state"
+                            )
+                            .into());
+                    }
+                    wait_for_fee_payer_utxos_to_be_in_mempool(&rpc, aggregator_db, move_txid)
+                        .await?;
+                    rpc.mine_blocks_while_synced(1, &actors).await?;
+                    mine_once_after_in_mempool(&rpc, move_txid, Some("Move tx"), Some(180)).await?;
+                }
             }
-            wait_for_fee_payer_utxos_to_be_in_mempool(&rpc, aggregator_db, move_txid).await?;
-            rpc.mine_blocks_while_synced(1, &actors).await?;
-            mine_once_after_in_mempool(&rpc, move_txid, Some("Move tx"), Some(180)).await?;
+            bitcoin::Network::Testnet4 => {
+                tracing::info!("Move txid: {:?}", move_txid);
+                loop {
+                    if rpc.is_tx_on_chain(&move_txid).await? {
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+                }
+            }
+            _ => {
+                return Err(eyre::eyre!(
+                    "Unsupported network: {:?}",
+                    config.protocol_paramset().network
+                )
+                .into())
+            }
         }
 
         // Uncomment below to debug the move tx.

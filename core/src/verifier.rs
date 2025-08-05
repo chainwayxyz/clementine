@@ -33,6 +33,8 @@ use crate::header_chain_prover::HeaderChainProver;
 use crate::metrics::L1SyncStatusProvider;
 use crate::operator::RoundIndex;
 use crate::rpc::clementine::{EntityStatus, NormalSignatureKind, OperatorKeys, TaggedSignature};
+#[cfg(feature = "automation")]
+use crate::states::StateManager;
 use crate::task::entity_metric_publisher::{
     EntityMetricPublisher, ENTITY_METRIC_PUBLISHER_INTERVAL,
 };
@@ -273,7 +275,7 @@ where
             self.background_tasks
                 .ensure_task_looping(tx_sender.into_task())
                 .await;
-            let state_manager = crate::states::StateManager::new(
+            let state_manager = StateManager::new(
                 self.verifier.db.clone(),
                 self.verifier.clone(),
                 self.verifier.config.protocol_paramset(),
@@ -437,6 +439,28 @@ where
 
         #[cfg(feature = "automation")]
         let header_chain_prover = HeaderChainProver::new(&config, rpc.clone()).await?;
+
+        #[cfg(feature = "automation")]
+        {
+            // start tracking operators if they exist in the db
+            let operators = db.get_operators(None).await?;
+            if !operators.is_empty() {
+                let mut dbtx = db.begin_transaction().await?;
+                for operator in operators {
+                    StateManager::<Verifier<C>>::dispatch_new_round_machine(
+                        db.clone(),
+                        &mut dbtx,
+                        OperatorData {
+                            xonly_pk: operator.0,
+                            reimburse_addr: operator.1,
+                            collateral_funding_outpoint: operator.2,
+                        },
+                    )
+                    .await?;
+                }
+                dbtx.commit().await?;
+            }
+        }
 
         let verifier = Verifier {
             rpc,
@@ -738,7 +762,7 @@ where
 
         #[cfg(feature = "automation")]
         {
-            crate::states::StateManager::<Self>::dispatch_new_round_machine(
+            StateManager::<Self>::dispatch_new_round_machine(
                 self.db.clone(),
                 &mut dbtx,
                 operator_data,
@@ -2519,31 +2543,40 @@ where
 
         // Helper closure to parse commit data into the ([u8; 20], u8) format.
         // This avoids code repetition and improves readability.
-        let fill_from_commits = |source: &Vec<Vec<u8>>, target: &mut [([u8; 20], u8)]| {
+        let fill_from_commits = |source: &Vec<Vec<u8>>,
+                                 target: &mut [[u8; 21]]|
+         -> Result<(), BridgeError> {
             // We iterate over chunks of 2 `Vec<u8>` elements at a time.
             for (i, chunk) in source.chunks_exact(2).enumerate() {
-                // The first element of the chunk is the 20-byte array.
-                let array_part: [u8; 20] = chunk[0]
-                    .as_slice()
-                    .try_into()
-                    .expect("Slice is not 20 bytes");
-                // The second element of the chunk is the single byte (u8).
+                let mut sig_array: [u8; 21] = [0; 21];
+                let sig: [u8; 20] = <[u8; 20]>::try_from(chunk[0].as_slice()).map_err(|_| {
+                    eyre::eyre!(
+                        "Invalid signature length, expected 20 bytes, got {}",
+                        chunk[0].len()
+                    )
+                })?;
+
+                sig_array[..20].copy_from_slice(&sig);
+
                 let u8_part: u8 = *chunk[1].first().unwrap_or(&0);
-                target[i] = (array_part, u8_part);
+                sig_array[20] = u8_part;
+
+                target[i] = sig_array;
             }
+            Ok(())
         };
 
-        let mut first_box = Box::new([[([0u8; 20], 0u8); 68]; 1]);
-        fill_from_commits(&g16_public_input_commit[0], &mut first_box[0]);
+        let mut first_box = Box::new([[[0u8; 21]; 68]; 1]);
+        fill_from_commits(&g16_public_input_commit[0], &mut first_box[0])?;
 
-        let mut second_box = Box::new([[([0u8; 20], 0u8); 68]; 14]);
+        let mut second_box = Box::new([[[0u8; 21]; 68]; 14]);
         for i in 0..14 {
-            fill_from_commits(&num_u256_commits[i], &mut second_box[i]);
+            fill_from_commits(&num_u256_commits[i], &mut second_box[i])?;
         }
 
-        let mut third_box = Box::new([[([0u8; 20], 0u8); 36]; 363]);
+        let mut third_box = Box::new([[[0u8; 21]; 36]; 363]);
         for i in 0..363 {
-            fill_from_commits(&intermediate_value_commits[i], &mut third_box[i]);
+            fill_from_commits(&intermediate_value_commits[i], &mut third_box[i])?;
         }
 
         tracing::info!("Boxes created");
@@ -2783,8 +2816,7 @@ mod states {
         create_txhandlers, ContractContext, ReimburseDbCache, TxHandlerCache,
     };
     use crate::states::context::DutyResult;
-    use crate::states::{block_cache, StateManager};
-    use crate::states::{Duty, Owner};
+    use crate::states::{block_cache, Duty, Owner};
     use std::collections::BTreeMap;
     use tonic::async_trait;
 
