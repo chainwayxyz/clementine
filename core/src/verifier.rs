@@ -1518,7 +1518,6 @@ where
             .map(|x| x.to_byte_array())
             .collect::<Vec<_>>();
 
-        // TODO: Use correct verification key and along with a dummy proof.
         // wrap around a mutex lock to avoid OOM
         let guard = REPLACE_SCRIPTS_LOCK.lock().await;
         let start = std::time::Instant::now();
