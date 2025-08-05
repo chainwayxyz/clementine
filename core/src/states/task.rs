@@ -70,11 +70,6 @@ impl<T: Owner + std::fmt::Debug + 'static> BlockFetcherTask<T> {
     ) -> Result<FinalizedBlockFetcherTask<QueueBlockHandler>, BridgeError> {
         let queue = PGMQueueExt::new_with_pool(db.get_pool()).await;
         let queue_name = StateManager::<T>::queue_name();
-        // create the queue if it doesn't exist, doesn't return error if it already exists
-        queue
-            .create(&queue_name)
-            .await
-            .wrap_err_with(|| format!("Error creating pqmq queue with name {}", queue_name))?;
 
         let handler = QueueBlockHandler {
             queue,

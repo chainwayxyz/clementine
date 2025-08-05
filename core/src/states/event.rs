@@ -49,8 +49,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
     ) -> Result<(), eyre::Report> {
         let queue_name = StateManager::<T>::queue_name();
         let queue = PGMQueueExt::new_with_pool(db.get_pool()).await;
-        // create the queue if it doesn't exist, doesn't return error if it already exists
-        queue.create(&queue_name).await?;
+
         let message = SystemEvent::NewOperator { operator_data };
         queue
             .send_with_cxn(&queue_name, &message, &mut *(*tx))
@@ -70,8 +69,6 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
     ) -> Result<(), eyre::Report> {
         let queue_name = StateManager::<T>::queue_name();
         let queue = PGMQueueExt::new_with_pool(db.get_pool()).await;
-        // create the queue if it doesn't exist, doesn't return error if it already exists
-        queue.create(&queue_name).await?;
 
         let message = SystemEvent::NewKickoff {
             kickoff_data,
