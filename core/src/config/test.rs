@@ -200,6 +200,9 @@ impl TestParams {
             ));
         }
 
+        let mut total_works = total_works;
+        total_works.sort();
+
         let second_lowest_total_work = &total_works[1];
         let second_lowest_total_work_index = usize::from_be_bytes(
             second_lowest_total_work[8..16]

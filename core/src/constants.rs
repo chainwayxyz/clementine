@@ -1,4 +1,4 @@
-use bitcoin::{Address, Amount, ScriptBuf};
+use bitcoin::{transaction::Version, Address, Amount, ScriptBuf};
 
 /// The amount of the non-ephemeral P2A anchor output.
 pub const NON_EPHEMERAL_ANCHOR_AMOUNT: Amount = Amount::from_sat(240);
@@ -73,10 +73,13 @@ mod timeout {
     pub const PUBLIC_KEY_COLLECTION_TIMEOUT: Duration = Duration::from_secs(30);
 }
 
+pub const NON_STANDARD_V3: Version = Version(3);
+
 lazy_static::lazy_static! {
   pub static ref BURN_SCRIPT: ScriptBuf = ("1111111111111111111114oLvT2")
           .parse::<Address<_>>()
           .expect("valid burn address")
           .assume_checked()
           .script_pubkey();
+
 }

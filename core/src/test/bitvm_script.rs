@@ -1,14 +1,12 @@
 mod tests {
     use bitcoin::hashes::hash160;
     use bitcoin::hashes::Hash;
+    use bitvm::signatures::signing_winternitz::WINTERNITZ_MESSAGE_VERIFIER;
     use bitvm::{
         clementine::additional_disprove::{
             create_additional_replacable_disprove_script, validate_assertions_for_additional_script,
         },
-        signatures::{
-            winternitz::{generate_public_key, Parameters},
-            winternitz_hash::WINTERNITZ_MESSAGE_VERIFIER,
-        },
+        signatures::winternitz::{generate_public_key, Parameters},
     };
     use bridge_circuit_host::structs::BridgeCircuitBitvmInputs;
 
