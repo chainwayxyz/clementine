@@ -530,14 +530,14 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
 
             let params = clementine_core::rpc::clementine::WithdrawParams {
                 withdrawal_id,
-                input_signature: input_signature.as_bytes().to_vec(),
+                input_signature: hex::decode(input_signature).expect("Failed to decode input signature"),
                 input_outpoint: Some(Outpoint {
                     txid: Some(clementine_core::rpc::clementine::Txid {
-                        txid: hex::decode(input_outpoint_txid).expect("Failed to decode txid"),
+                        txid: Txid::from_str(&input_outpoint_txid).expect("Failed to decode txid").to_byte_array().to_vec(),
                     }),
                     vout: input_outpoint_vout,
                 }),
-                output_script_pubkey: output_script_pubkey.as_bytes().to_vec(),
+                output_script_pubkey: hex::decode(output_script_pubkey).expect("Failed to decode output script pubkey"),
                 output_amount,
             };
             operator
