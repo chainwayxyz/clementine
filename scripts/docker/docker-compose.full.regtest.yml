@@ -200,7 +200,6 @@ services:
     environment:
       - SECRET_KEY=1111111111111111111111111111111111111111111111111111111111111111
       - DB_NAME=clementine0
-      - RISC0_DEV_MODE=1
     ports:
       - "17001:17000"
     healthcheck:
@@ -215,7 +214,6 @@ services:
     environment:
       - SECRET_KEY=2222222222222222222222222222222222222222222222222222222222222222
       - DB_NAME=clementine1
-      - RISC0_DEV_MODE=1
     ports:
       - "17002:17000"
     healthcheck:
@@ -230,7 +228,6 @@ services:
     environment:
       - SECRET_KEY=3333333333333333333333333333333333333333333333333333333333333333
       - DB_NAME=clementine2
-      - RISC0_DEV_MODE=1
     ports:
       - "17003:17000"
     healthcheck:
@@ -245,7 +242,6 @@ services:
     environment:
       - SECRET_KEY=4444444444444444444444444444444444444444444444444444444444444444
       - DB_NAME=clementine3
-      - RISC0_DEV_MODE=1
     ports:
       - "17004:17000"
     healthcheck:
