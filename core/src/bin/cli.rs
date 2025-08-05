@@ -764,8 +764,8 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                 .map(|txid| Txid::from_str(txid).expect("Failed to parse txid"))
                 .collect::<Vec<Txid>>();
             let emergency_stop_tx = aggregator
-                .internal_create_emergency_stop_tx(Request::new(
-                    clementine::CreateEmergencyStopTxRequest {
+                .internal_get_emergency_stop_tx(Request::new(
+                    clementine::GetEmergencyStopTxRequest {
                         txids: move_txids
                             .clone()
                             .into_iter()

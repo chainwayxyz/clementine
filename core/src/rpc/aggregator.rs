@@ -1514,10 +1514,10 @@ impl ClementineAggregator for AggregatorServer {
         }))
     }
 
-    async fn internal_create_emergency_stop_tx(
+    async fn internal_get_emergency_stop_tx(
         &self,
-        request: Request<clementine::CreateEmergencyStopTxRequest>,
-    ) -> Result<Response<clementine::CreateEmergencyStopTxResponse>, Status> {
+        request: Request<clementine::GetEmergencyStopTxRequest>,
+    ) -> Result<Response<clementine::GetEmergencyStopTxResponse>, Status> {
         let inner_request = request.into_inner();
         let txids: Vec<Txid> = inner_request
             .txids
@@ -1534,7 +1534,7 @@ impl ClementineAggregator for AggregatorServer {
         let (txids, encrypted_emergency_stop_txs): (Vec<Txid>, Vec<Vec<u8>>) =
             emergency_stop_txs.into_iter().unzip();
 
-        Ok(Response::new(clementine::CreateEmergencyStopTxResponse {
+        Ok(Response::new(clementine::GetEmergencyStopTxResponse {
             txids: txids.into_iter().map(|txid| txid.into()).collect(),
             encrypted_emergency_stop_txs,
         }))
@@ -1988,8 +1988,8 @@ mod tests {
         tracing::debug!("Move txids: {:?}", move_txids);
 
         let emergency_txid = aggregator
-            .internal_create_emergency_stop_tx(tonic::Request::new(
-                clementine::CreateEmergencyStopTxRequest {
+            .internal_get_emergency_stop_tx(tonic::Request::new(
+                clementine::GetEmergencyStopTxRequest {
                     txids: move_txids
                         .iter()
                         .map(|txid| clementine::Txid {
