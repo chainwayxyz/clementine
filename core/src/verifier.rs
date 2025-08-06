@@ -33,6 +33,8 @@ use crate::header_chain_prover::HeaderChainProver;
 use crate::metrics::L1SyncStatusProvider;
 use crate::operator::RoundIndex;
 use crate::rpc::clementine::{EntityStatus, NormalSignatureKind, OperatorKeys, TaggedSignature};
+#[cfg(feature = "automation")]
+use crate::states::StateManager;
 use crate::task::entity_metric_publisher::{
     EntityMetricPublisher, ENTITY_METRIC_PUBLISHER_INTERVAL,
 };
@@ -272,7 +274,7 @@ where
             self.background_tasks
                 .ensure_task_looping(tx_sender.into_task())
                 .await;
-            let state_manager = crate::states::StateManager::new(
+            let state_manager = StateManager::new(
                 self.verifier.db.clone(),
                 self.verifier.clone(),
                 self.verifier.config.protocol_paramset(),
@@ -435,6 +437,28 @@ where
 
         #[cfg(feature = "automation")]
         let header_chain_prover = HeaderChainProver::new(&config, rpc.clone()).await?;
+
+        #[cfg(feature = "automation")]
+        {
+            // start tracking operators if they exist in the db
+            let operators = db.get_operators(None).await?;
+            if !operators.is_empty() {
+                let mut dbtx = db.begin_transaction().await?;
+                for operator in operators {
+                    StateManager::<Verifier<C>>::dispatch_new_round_machine(
+                        db.clone(),
+                        &mut dbtx,
+                        OperatorData {
+                            xonly_pk: operator.0,
+                            reimburse_addr: operator.1,
+                            collateral_funding_outpoint: operator.2,
+                        },
+                    )
+                    .await?;
+                }
+                dbtx.commit().await?;
+            }
+        }
 
         let verifier = Verifier {
             rpc,
@@ -736,7 +760,7 @@ where
 
         #[cfg(feature = "automation")]
         {
-            crate::states::StateManager::<Self>::dispatch_new_round_machine(
+            StateManager::<Self>::dispatch_new_round_machine(
                 self.db.clone(),
                 &mut dbtx,
                 operator_data,
@@ -2786,8 +2810,7 @@ mod states {
         create_txhandlers, ContractContext, ReimburseDbCache, TxHandlerCache,
     };
     use crate::states::context::DutyResult;
-    use crate::states::{block_cache, StateManager};
-    use crate::states::{Duty, Owner};
+    use crate::states::{block_cache, Duty, Owner};
     use std::collections::BTreeMap;
     use tonic::async_trait;
 
