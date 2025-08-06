@@ -530,14 +530,19 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
 
             let params = clementine_core::rpc::clementine::WithdrawParams {
                 withdrawal_id,
-                input_signature: hex::decode(input_signature).expect("Failed to decode input signature"),
+                input_signature: hex::decode(input_signature)
+                    .expect("Failed to decode input signature"),
                 input_outpoint: Some(Outpoint {
                     txid: Some(clementine_core::rpc::clementine::Txid {
-                        txid: Txid::from_str(&input_outpoint_txid).expect("Failed to decode txid").to_byte_array().to_vec(),
+                        txid: Txid::from_str(&input_outpoint_txid)
+                            .expect("Failed to decode txid")
+                            .to_byte_array()
+                            .to_vec(),
                     }),
                     vout: input_outpoint_vout,
                 }),
-                output_script_pubkey: hex::decode(output_script_pubkey).expect("Failed to decode output script pubkey"),
+                output_script_pubkey: hex::decode(output_script_pubkey)
+                    .expect("Failed to decode output script pubkey"),
                 output_amount,
             };
             operator
@@ -567,11 +572,11 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
                 "Getting kickoff txs for outpoint {}:{}",
                 deposit_outpoint_txid, deposit_outpoint_vout
             );
+            let mut txid_bytes = hex::decode(deposit_outpoint_txid).expect("Failed to decode txid");
+            txid_bytes.reverse();
             let response = operator
                 .get_reimbursement_txs(Request::new(Outpoint {
-                    txid: Some(clementine_core::rpc::clementine::Txid {
-                        txid: hex::decode(deposit_outpoint_txid).expect("Failed to decode txid"),
-                    }),
+                    txid: Some(clementine_core::rpc::clementine::Txid { txid: txid_bytes }),
                     vout: deposit_outpoint_vout,
                 }))
                 .await
@@ -964,7 +969,7 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
 
             new_psbt.inputs[0] = bitcoin::psbt::Input {
                 witness_utxo: Some(TxOut {
-                    value: Amount::from_sat(0),
+                    value: tx.output[p2a_vout].value,
                     script_pubkey: ScriptBuf::from_hex("51024e73").expect("valid script"),
                 }),
                 ..new_psbt.inputs[0].clone()
