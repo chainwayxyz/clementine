@@ -1,3 +1,13 @@
+//! # ECDSA Verification Signature
+//!
+//! This module contains the ECDSA verification signature for the Clementine protocol.
+//! It is for additional verification that the request for optimistic payout and withdrawal is coming from the aggregator, which
+//! is the owner of the address in operator/verifiers config.
+//!
+//! The address who signed the signature is retrieved by calculating the EIP-712 hash of the withdrawal params.
+//! The address is then compared to the address in the config.
+//!
+
 use alloy::primitives::PrimitiveSignature;
 use alloy::sol_types::Eip712Domain;
 use bitcoin::hashes::Hash;

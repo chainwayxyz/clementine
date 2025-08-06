@@ -14,11 +14,6 @@ pub struct Outpoint {
     pub vout: u32,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct XonlyPublicKey {
-    #[prost(bytes = "vec", tag = "1")]
-    pub xonly_pk: ::prost::alloc::vec::Vec<u8>,
-}
-#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct NofnResponse {
     #[prost(bytes = "vec", tag = "1")]
     pub nofn_xonly_pk: ::prost::alloc::vec::Vec<u8>,
@@ -385,6 +380,16 @@ pub struct WithdrawParamsWithSig {
     #[prost(string, optional, tag = "2")]
     pub verification_signature: ::core::option::Option<::prost::alloc::string::String>,
 }
+/// Input of the aggregator's withdraw function.
+/// It contains the withdrawal params along with the verification signature that signs the withdrawal params.
+/// It also contains the operator's xonly public keys that the withdrawal request should be sent to.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AggregatorWithdrawalInput {
+    #[prost(message, optional, tag = "1")]
+    pub withdrawal: ::core::option::Option<WithdrawParamsWithSig>,
+    #[prost(message, repeated, tag = "2")]
+    pub operator_xonly_pks: ::prost::alloc::vec::Vec<XOnlyPublicKeyRpc>,
+}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct OptimisticPayoutParams {
     #[prost(message, optional, tag = "1")]
@@ -470,7 +475,7 @@ pub struct TxMetadata {
     pub deposit_outpoint: ::core::option::Option<Outpoint>,
     /// Deposit identification
     #[prost(message, optional, tag = "2")]
-    pub operator_xonly_pk: ::core::option::Option<XonlyPublicKey>,
+    pub operator_xonly_pk: ::core::option::Option<XOnlyPublicKeyRpc>,
     #[prost(uint32, tag = "4")]
     pub round_idx: u32,
     #[prost(uint32, tag = "5")]
@@ -2086,9 +2091,11 @@ pub mod clementine_aggregator_client {
         }
         /// Call's withdraw on all operators
         /// Used by the clementine-backend service to initiate a withdrawal
+        /// If the operator's xonly public keys list is empty, the withdrawal will be sent to all operators.
+        /// If not, only the operators in the list will be sent the withdrawal request.
         pub async fn withdraw(
             &mut self,
-            request: impl tonic::IntoRequest<super::WithdrawParams>,
+            request: impl tonic::IntoRequest<super::AggregatorWithdrawalInput>,
         ) -> std::result::Result<
             tonic::Response<super::AggregatorWithdrawResponse>,
             tonic::Status,
@@ -4173,9 +4180,11 @@ pub mod clementine_aggregator_server {
         ) -> std::result::Result<tonic::Response<super::RawSignedTx>, tonic::Status>;
         /// Call's withdraw on all operators
         /// Used by the clementine-backend service to initiate a withdrawal
+        /// If the operator's xonly public keys list is empty, the withdrawal will be sent to all operators.
+        /// If not, only the operators in the list will be sent the withdrawal request.
         async fn withdraw(
             &self,
-            request: tonic::Request<super::WithdrawParams>,
+            request: tonic::Request<super::AggregatorWithdrawalInput>,
         ) -> std::result::Result<
             tonic::Response<super::AggregatorWithdrawResponse>,
             tonic::Status,
@@ -4437,7 +4446,7 @@ pub mod clementine_aggregator_server {
                     struct WithdrawSvc<T: ClementineAggregator>(pub Arc<T>);
                     impl<
                         T: ClementineAggregator,
-                    > tonic::server::UnaryService<super::WithdrawParams>
+                    > tonic::server::UnaryService<super::AggregatorWithdrawalInput>
                     for WithdrawSvc<T> {
                         type Response = super::AggregatorWithdrawResponse;
                         type Future = BoxFuture<
@@ -4446,7 +4455,7 @@ pub mod clementine_aggregator_server {
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::WithdrawParams>,
+                            request: tonic::Request<super::AggregatorWithdrawalInput>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {

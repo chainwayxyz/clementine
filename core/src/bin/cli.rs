@@ -526,7 +526,7 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
                 output_amount,
             };
             operator
-                .withdraw(Request::new(params))
+                .internal_withdraw(Request::new(params))
                 .await
                 .expect("Failed to make a request to operator");
         }

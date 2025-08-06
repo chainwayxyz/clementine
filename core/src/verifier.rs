@@ -3128,7 +3128,7 @@ mod tests {
                 .unwrap();
         let output_amount = Amount::from_sat(1000000000000000000);
         let deposit_id = 1;
-        let address = Verifier::<MockCitreaClient>::recover_address_from_ecdsa_signature(
+        let address = recover_address_from_ecdsa_signature::<ClementineOptimisticPayoutMessage>(
             deposit_id,
             input_signature,
             input_outpoint,

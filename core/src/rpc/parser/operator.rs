@@ -71,6 +71,14 @@ impl TryFrom<DepositSignSession> for DepositParams {
     }
 }
 
+impl From<XOnlyPublicKey> for XOnlyPublicKeyRpc {
+    fn from(xonly_public_key: XOnlyPublicKey) -> Self {
+        XOnlyPublicKeyRpc {
+            xonly_public_key: xonly_public_key.serialize().to_vec(),
+        }
+    }
+}
+
 impl TryFrom<XOnlyPublicKeyRpc> for XOnlyPublicKey {
     type Error = BridgeError;
 
