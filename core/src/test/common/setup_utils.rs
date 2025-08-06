@@ -221,7 +221,7 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
 pub async fn create_test_config_with_thread_name() -> BridgeConfig {
     let _ = rustls::crypto::ring::default_provider().install_default();
 
-    let _handle = std::thread::current()
+    let handle = std::thread::current()
         .name()
         .expect("Failed to get thread name")
         .split(':')
@@ -233,7 +233,11 @@ pub async fn create_test_config_with_thread_name() -> BridgeConfig {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
 
-    let config = BridgeConfig::default();
+    let config = BridgeConfig {
+        db_name: handle.to_string(),
+        citrea_rpc_url: handle.to_string(),
+        ..Default::default()
+    };
 
     initialize_database(&config).await;
 
