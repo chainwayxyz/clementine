@@ -1,6 +1,9 @@
 use crate::{
     config::BridgeConfig,
-    rpc::{clementine::WithdrawParams, ecdsa_verification_sig::{WithdrawalMessage, CLEMENTINE_EIP712_DOMAIN}},
+    rpc::{
+        clementine::WithdrawParams,
+        ecdsa_verification_sig::{WithdrawalMessage, CLEMENTINE_EIP712_DOMAIN},
+    },
 };
 use alloy::primitives::PrimitiveSignature;
 use alloy_sol_types::SolStruct;
