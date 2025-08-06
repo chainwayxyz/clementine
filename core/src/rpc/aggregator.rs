@@ -25,8 +25,11 @@ use crate::errors::ResultExt;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::rpc::clementine::VerifierDepositSignParams;
 use crate::rpc::parser;
-use crate::utils::{AGG_NONCE_DISTRIBUTION_BATCH_SIZE, NONCE_AGGREGATION_BATCH_SIZE};
-use crate::utils::{FeePayingType, TxMetadata};
+use crate::utils::{
+    get_vergen_response, timed_request, timed_try_join_all, ScriptBufExt as _,
+    AGG_NONCE_DISTRIBUTION_BATCH_SIZE,
+};
+use crate::UTXO;
 use crate::{
     aggregator::Aggregator,
     builder::sighash::create_nofn_sighash_stream,
@@ -49,7 +52,6 @@ use secp256k1::musig::{AggregatedNonce, PartialSignature, PublicNonce};
 use std::future::Future;
 use std::time::Duration;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
-use tokio_stream::adapters::ChunksTimeout;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{async_trait, Request, Response, Status, Streaming};
 
@@ -97,31 +99,6 @@ async fn get_next_pub_nonces(
             }),
     )
     .await?)
-}
-
-async fn get_next_pub_nonces_batch(
-    nonce_streams: &mut [impl Stream<Item = Result<PublicNonce, BridgeError>>
-              + Unpin
-              + Send
-              + 'static],
-    batch_size: usize,
-) -> Result<Vec<Vec<PublicNonce>>, BridgeError> {
-    let mut nonce_batches = Vec::new();
-
-    for _ in 0..batch_size {
-        match get_next_pub_nonces(nonce_streams).await {
-            Ok(nonces) => nonce_batches.push(nonces),
-            Err(e) => {
-                // If we encounter an error and we have some batches, return what we have
-                if !nonce_batches.is_empty() {
-                    break;
-                }
-                return Err(e);
-            }
-        }
-    }
-
-    Ok(nonce_batches)
 }
 
 /// For each expected sighash, we collect a batch of public nonces from all verifiers. We aggregate and send to the agg_nonce_sender. Then repeat for the next sighash.
@@ -177,16 +154,16 @@ async fn nonce_aggregator(
 
     // aggregate nonces for the movetx signature
     let pub_nonces = get_next_pub_nonces(&mut nonce_streams)
-    .await
-    .wrap_err("Failed to aggregate nonces for the move tx")?;
+        .await
+        .wrap_err("Failed to aggregate nonces for the move tx")?;
 
     tracing::trace!("Received nonces for movetx in nonce_aggregator");
 
     let move_tx_agg_nonce = aggregate_nonces(pub_nonces.iter().collect::<Vec<_>>().as_slice())?;
 
     let pub_nonces = get_next_pub_nonces(&mut nonce_streams)
-    .await
-    .wrap_err("Failed to aggregate nonces for the emergency stop tx")?;
+        .await
+        .wrap_err("Failed to aggregate nonces for the emergency stop tx")?;
 
     let emergency_stop_agg_nonce =
         aggregate_nonces(pub_nonces.iter().collect::<Vec<_>>().as_slice())?;
@@ -590,7 +567,7 @@ impl Aggregator {
     fn extract_pub_nonces(
         response: Option<clementine::nonce_gen_response::Response>,
     ) -> Vec<Result<PublicNonce, BridgeError>> {
-        if let None = response {
+        if response.is_none() {
             return vec![Err(eyre::eyre!("NonceGen response is empty").into())];
         }
 

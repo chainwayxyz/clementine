@@ -417,7 +417,7 @@ pub fn prove_work_only_header_chain_proof(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{mock_zkvm::MockZkvmHost, utils::total_work_from_wt_tx};
+    use crate::mock_zkvm::MockZkvmHost;
 
     const TESTNET4_HEADER_CHAIN_GUEST_ELF: &[u8] =
         include_bytes!("../../risc0-circuits/elfs/testnet4-header-chain-guest.bin");
@@ -426,11 +426,7 @@ mod tests {
 
     use borsh::BorshDeserialize;
     use circuits_lib::{
-        bridge_circuit::{
-            constants::REGTEST_WORK_ONLY_METHOD_ID,
-            structs::{ChallengeSendingWatchtowers, TotalWork, WorkOnlyCircuitOutput},
-            total_work_and_watchtower_flags,
-        },
+        bridge_circuit::structs::WorkOnlyCircuitOutput,
         common::zkvm::ZkvmHost,
         header_chain::{
             header_chain_circuit, BlockHeaderCircuitOutput, ChainState, CircuitBlockHeader,
