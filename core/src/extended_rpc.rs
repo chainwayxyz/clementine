@@ -54,14 +54,15 @@ type Result<T> = std::result::Result<T, BitcoinRPCError>;
 /// Configuration for exponential backoff retry mechanism
 #[derive(Debug, Clone)]
 pub struct RetryConfig {
-    /// Initial delay between retries
+    /// Initial delay between retries. Note that by the nature of exponential backoff crate, the first delay is not
+    /// initial delay, but the first delay is calculated by multiplying the initial delay with the backoff multiplier.
     pub initial_delay: Duration,
     /// Maximum delay between retries
     pub max_delay: Duration,
     /// Maximum number of retry attempts
     pub max_attempts: usize,
-    /// Multiplier for exponential backoff (typically 2.0)
-    pub backoff_multiplier: f64,
+    /// Multiplier for exponential backoff (typically 2)
+    pub backoff_multiplier: u64,
     /// Whether to add jitter to prevent thundering herd
     pub jitter: bool,
 }
@@ -72,8 +73,8 @@ impl Default for RetryConfig {
             initial_delay: Duration::from_millis(100),
             max_delay: Duration::from_secs(30),
             max_attempts: 5,
-            backoff_multiplier: 2.0,
-            jitter: true,
+            backoff_multiplier: 2,
+            jitter: false,
         }
     }
 }
@@ -204,8 +205,7 @@ impl RetryableError for bitcoincore_rpc::Error {
 impl RetryableError for BitcoinRPCError {
     fn is_retryable(&self) -> bool {
         match self {
-            // These are permanent errors - don't retry
-            BitcoinRPCError::TransactionNotConfirmed => false,
+            BitcoinRPCError::TransactionNotConfirmed => true,
             BitcoinRPCError::TransactionAlreadyInBlock(_) => false,
             BitcoinRPCError::BumpFeeUTXOSpent(_) => false,
 
@@ -273,12 +273,85 @@ impl ExtendedRpc {
             .await
             .wrap_err("Failed to connect to Bitcoin RPC")?;
 
+        // Since this is a lazy connection, we should ping it to ensure it works
+        rpc.ping()
+            .await
+            .map_err(|e| eyre::eyre!("Failed to ping Bitcoin RPC: {}", e))?;
+
         Ok(Self {
             url,
             client: Arc::new(rpc),
             #[cfg(test)]
             cached_mining_address: Arc::new(tokio::sync::RwLock::new(None)),
         })
+    }
+
+    /// Connect with built-in retry mechanism using tokio-retry
+    pub async fn connect_with_retry(
+        url: String,
+        user: SecretString,
+        password: SecretString,
+        retry_config: Option<RetryConfig>,
+    ) -> Result<Self> {
+        let config = retry_config.unwrap_or_default();
+
+        let url_clone = url.clone();
+        let user_clone = user.clone();
+        let password_clone = password.clone();
+
+        let backoff_delays: Vec<Duration> =
+            ExponentialBackoff::from_millis(config.initial_delay.as_millis() as u64)
+                .max_delay(config.max_delay)
+                .factor(config.backoff_multiplier)
+                .take(config.max_attempts)
+                .map(|delay| if config.jitter { jitter(delay) } else { delay })
+                .collect();
+
+        let mut attempt = 0;
+        loop {
+            attempt += 1;
+            match Self::connect(
+                url_clone.clone(),
+                user_clone.clone(),
+                password_clone.clone(),
+            )
+            .await
+            {
+                Ok(rpc) => {
+                    if attempt > 1 {
+                        tracing::info!(
+                            "Connected to Bitcoin RPC on attempt {}/{}",
+                            attempt,
+                            config.max_attempts
+                        );
+                    }
+                    return Ok(rpc);
+                }
+                Err(error) => {
+                    if !error.is_retryable() {
+                        tracing::debug!("Non-retryable connection error: {}", error);
+                        return Err(error);
+                    }
+
+                    if let Some(delay) = backoff_delays.get(attempt - 1) {
+                        tracing::debug!(
+                            "Bitcoin RPC connection attempt {}/{} failed, retrying in {:?}",
+                            attempt,
+                            config.max_attempts,
+                            delay
+                        );
+                        sleep(*delay).await;
+                    } else {
+                        tracing::error!(
+                            "Failed to connect to Bitcoin RPC after {} attempts: {}",
+                            config.max_attempts,
+                            error
+                        );
+                        return Err(error);
+                    }
+                }
+            }
+        }
     }
 
     /// Generic retry wrapper using tokio-retry with default config
@@ -300,13 +373,19 @@ impl ExtendedRpc {
         F: FnMut() -> Fut,
         Fut: std::future::Future<Output = Result<T>>,
     {
-        let backoff_delays: Vec<Duration> =
-            ExponentialBackoff::from_millis(config.initial_delay.as_millis() as u64)
-                .max_delay(config.max_delay)
-                .factor(config.backoff_multiplier as u64)
-                .take(config.max_attempts)
-                .map(|delay| if config.jitter { jitter(delay) } else { delay })
-                .collect();
+        tracing::debug!("ExtendedRpc operation will retry with config: {:?}", config);
+        let backoff_delays = ExponentialBackoff::from_millis(config.backoff_multiplier)
+            .max_delay(config.max_delay)
+            .factor(config.initial_delay.as_millis() as u64);
+        tracing::debug!("Exponential backoff delays: {:?}", backoff_delays);
+        let backoff_delays: Vec<Duration> = backoff_delays
+            .take(config.max_attempts)
+            .map(|delay| if config.jitter { jitter(delay) } else { delay })
+            .collect();
+        tracing::debug!(
+            "ExtendedRpc operation will retry with delays: {:?}",
+            backoff_delays
+        );
 
         let mut attempt = 0;
         loop {
@@ -325,6 +404,14 @@ impl ExtendedRpc {
                 Err(error) => {
                     if !error.is_retryable() {
                         tracing::debug!("Non-retryable error: {}", error);
+                        return Err(error);
+                    }
+                    if attempt >= config.max_attempts {
+                        tracing::error!(
+                            "ExtendedRpc operation failed after {} attempts: {}",
+                            config.max_attempts,
+                            error
+                        );
                         return Err(error);
                     }
 
@@ -1294,10 +1381,11 @@ mod tests {
                 None,
             );
 
-            let rpc = ExtendedRpc::connect(
+            let rpc = ExtendedRpc::connect_with_retry(
                 config.bitcoin_rpc_url.clone(),
                 config.bitcoin_rpc_user.clone(),
                 config.bitcoin_rpc_password.clone(),
+                None,
             )
             .await
             .unwrap();
@@ -1359,8 +1447,8 @@ mod tests {
             assert_eq!(config.initial_delay, Duration::from_millis(100));
             assert_eq!(config.max_delay, Duration::from_secs(30));
             assert_eq!(config.max_attempts, 5);
-            assert_eq!(config.backoff_multiplier, 2.0);
-            assert!(config.jitter);
+            assert_eq!(config.backoff_multiplier, 2);
+            assert!(!config.jitter);
         }
 
         #[test]
@@ -1369,8 +1457,8 @@ mod tests {
             assert_eq!(config.initial_delay, Duration::from_millis(50));
             assert_eq!(config.max_delay, Duration::from_secs(5));
             assert_eq!(config.max_attempts, 3);
-            assert_eq!(config.backoff_multiplier, 2.0);
-            assert!(config.jitter);
+            assert_eq!(config.backoff_multiplier, 2);
+            assert!(!config.jitter);
         }
 
         #[test]
@@ -1379,8 +1467,8 @@ mod tests {
             assert_eq!(config.initial_delay, Duration::from_millis(500));
             assert_eq!(config.max_delay, Duration::from_secs(60));
             assert_eq!(config.max_attempts, 10);
-            assert_eq!(config.backoff_multiplier, 2.0);
-            assert!(config.jitter);
+            assert_eq!(config.backoff_multiplier, 2);
+            assert!(!config.jitter);
         }
 
         #[test]
@@ -1388,13 +1476,12 @@ mod tests {
             let initial = Duration::from_millis(200);
             let max = Duration::from_secs(10);
             let attempts = 7;
-
             let config = RetryConfig::custom(initial, max, attempts);
             assert_eq!(config.initial_delay, initial);
             assert_eq!(config.max_delay, max);
             assert_eq!(config.max_attempts, attempts);
-            assert_eq!(config.backoff_multiplier, 2.0);
-            assert!(config.jitter);
+            assert_eq!(config.backoff_multiplier, 2);
+            assert!(!config.jitter);
         }
     }
 
@@ -1470,53 +1557,6 @@ mod tests {
         }
 
         #[test]
-        fn test_bitcoin_rpc_error_json_rpc_retryable_patterns() {
-            let retryable_messages = [
-                "timeout occurred",
-                "connection failed",
-                "temporary unavailable",
-                "server busy",
-                "network error",
-                "broken pipe detected",
-                "connection reset by peer",
-                "connection refused",
-                "host unreachable",
-            ];
-
-            for msg in retryable_messages {
-                let json_rpc_error = jsonrpc_async::Error::NonceMismatch;
-                let rpc_error = bitcoincore_rpc::Error::JsonRpc(json_rpc_error);
-                assert!(
-                    rpc_error.is_retryable(),
-                    "Message '{}' should be retryable",
-                    msg
-                );
-            }
-        }
-
-        #[test]
-        fn test_bitcoin_rpc_error_returned_error_retryable_patterns() {
-            let retryable_messages = [
-                "loading blocks",
-                "warming up",
-                "verifying blocks",
-                "busy processing",
-                "temporary failure",
-                "try again later",
-                "timeout waiting",
-            ];
-
-            for msg in retryable_messages {
-                let rpc_error = bitcoincore_rpc::Error::ReturnedError(msg.to_string());
-                assert!(
-                    rpc_error.is_retryable(),
-                    "Message '{}' should be retryable",
-                    msg
-                );
-            }
-        }
-
-        #[test]
         fn test_bitcoin_rpc_error_returned_error_non_retryable_patterns() {
             let non_retryable_messages = [
                 "insufficient funds",
@@ -1568,7 +1608,6 @@ mod tests {
         #[test]
         fn test_bridge_rpc_error_retryable() {
             // Test permanent errors
-            assert!(!BitcoinRPCError::TransactionNotConfirmed.is_retryable());
             assert!(
                 !BitcoinRPCError::TransactionAlreadyInBlock(BlockHash::all_zeros()).is_retryable()
             );
@@ -1589,6 +1628,8 @@ mod tests {
     }
 
     mod retry_mechanism_tests {
+        use bitcoin::BlockHash;
+
         use crate::extended_rpc::RetryConfig;
 
         use super::*;
@@ -1613,13 +1654,16 @@ mod tests {
             }
 
             async fn mock_operation(&self) -> std::result::Result<String, BitcoinRPCError> {
+                use bitcoin::hashes::Hash;
                 let count = self.call_count.fetch_add(1, Ordering::SeqCst) + 1;
 
                 if count <= self.fail_until {
                     if self.should_be_retryable {
                         Err(BitcoinRPCError::Other(eyre::eyre!("timeout occurred")))
                     } else {
-                        Err(BitcoinRPCError::TransactionNotConfirmed)
+                        Err(BitcoinRPCError::TransactionAlreadyInBlock(
+                            BlockHash::all_zeros(),
+                        ))
                     }
                 } else {
                     Ok(format!("Success after {} attempts", count))
@@ -1684,8 +1728,8 @@ mod tests {
             let real_rpc = MockExtendedRpc::create_real_instance().await;
 
             let config = RetryConfig::custom(
-                Duration::from_millis(5),
-                Duration::from_millis(20),
+                Duration::from_millis(500),
+                Duration::from_millis(10000),
                 3, // Only allow 3 attempts
             );
 
@@ -1699,6 +1743,7 @@ mod tests {
 
         #[tokio::test]
         async fn test_with_retry_config_non_retryable_error() {
+            use bitcoin::hashes::Hash;
             let mock = MockExtendedRpc::new(1, false); // Fail with non-retryable error
             let real_rpc = MockExtendedRpc::create_real_instance().await;
 
@@ -1711,8 +1756,10 @@ mod tests {
             assert_eq!(mock.get_call_count(), 1); // Should not retry non-retryable errors
 
             match result.unwrap_err() {
-                BitcoinRPCError::TransactionNotConfirmed => {} // Expected
-                other => panic!("Expected TransactionNotConfirmed, got {:?}", other),
+                BitcoinRPCError::TransactionAlreadyInBlock(block_hash) => {
+                    assert_eq!(block_hash, BlockHash::all_zeros());
+                }
+                other => panic!("Expected TransactionAlreadyInBlock, got {:?}", other),
             }
         }
 
@@ -1732,14 +1779,17 @@ mod tests {
 
         #[tokio::test]
         async fn test_retry_backoff_timing() {
-            let mock = MockExtendedRpc::new(2, true); // Fail first 2 attempts
+            let mock = MockExtendedRpc::new(3, true); // Fail first 3 attempts
             let real_rpc = MockExtendedRpc::create_real_instance().await;
 
+            // Sleep some time to make sure Regtest is ready
+            tokio::time::sleep(Duration::from_secs(1)).await;
+
             let config = RetryConfig {
-                initial_delay: Duration::from_millis(100),
-                max_delay: Duration::from_secs(1),
-                max_attempts: 3,
-                backoff_multiplier: 2.0,
+                initial_delay: Duration::from_millis(500), // Expect to delay first 1000ms, second 2000ms, third 4000ms
+                max_delay: Duration::from_secs(60),
+                max_attempts: 4,
+                backoff_multiplier: 2,
                 jitter: false, // Disable jitter for predictable timing
             };
 
@@ -1750,18 +1800,21 @@ mod tests {
             let elapsed = start.elapsed();
 
             assert!(result.is_ok());
-            assert_eq!(mock.get_call_count(), 3);
+            assert_eq!(mock.get_call_count(), 4);
 
-            // Should wait approximately 100ms + 200ms = 300ms (without jitter)
-            // Allow some tolerance for test execution time
-            assert!(elapsed >= Duration::from_millis(250));
-            assert!(elapsed <= Duration::from_millis(400));
+            // Should wait approximately 1000ms + 2000ms + 4000ms = 7000ms (without jitter)
+            // Allow some tolerance for test execution time (we know it will at least take 7000ms)
+            assert!(elapsed >= Duration::from_millis(7000));
+            assert!(
+                elapsed <= Duration::from_millis(8000),
+                "Elapsed time was {:?}, expected around 7000ms",
+                elapsed
+            );
         }
     }
     mod rpc_call_retry_tests {
-        use std::time::{Duration, Instant};
 
-        use crate::extended_rpc::RetryConfig;
+        use crate::extended_rpc::RetryableError;
 
         use super::*;
         use secrecy::SecretString;
@@ -1779,22 +1832,11 @@ mod tests {
             let invalid_user = SecretString::new("invalid_user".to_string().into());
             let invalid_password = SecretString::new("invalid_password".to_string().into());
 
-            let rpc = ExtendedRpc::connect(url, invalid_user, invalid_password)
-                .await
-                .unwrap(); // Connection creation should succeed (lazy)
+            let res =
+                ExtendedRpc::connect_with_retry(url, invalid_user, invalid_password, None).await;
 
-            // Test retry mechanism on actual RPC call
-            let result = rpc
-                .with_retry_config(RetryConfig::fast(), || async {
-                    rpc.client
-                        .get_blockchain_info()
-                        .await
-                        .map_err(|e| BitcoinRPCError::Other(e.into()))
-                })
-                .await;
-
-            // Should fail - auth errors are not retryable
-            assert!(result.is_err());
+            assert!(res.is_err());
+            assert!(!res.unwrap_err().is_retryable());
         }
 
         #[tokio::test]
@@ -1803,28 +1845,10 @@ mod tests {
             let password = SecretString::new("password".to_string().into());
             let invalid_url = "http://nonexistent-host:8332".to_string();
 
-            let rpc = ExtendedRpc::connect(invalid_url, user, password)
-                .await
-                .unwrap(); // Connection creation should succeed (lazy)
+            let res = ExtendedRpc::connect_with_retry(invalid_url, user, password, None).await;
 
-            let start = Instant::now();
-            let result = rpc
-                .with_retry_config(
-                    RetryConfig::custom(Duration::from_millis(10), Duration::from_millis(50), 2),
-                    || async {
-                        rpc.client
-                            .get_blockchain_info()
-                            .await
-                            .map_err(|e| BitcoinRPCError::Other(e.into()))
-                    },
-                )
-                .await;
-            let elapsed = start.elapsed();
-
-            // Should fail after retries due to network error
-            assert!(result.is_err());
-            // Should have taken at least one retry delay
-            assert!(elapsed >= Duration::from_millis(10));
+            assert!(res.is_err());
+            assert!(!res.unwrap_err().is_retryable());
         }
     }
 

@@ -93,10 +93,11 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
         // Bitcoind is already running on port 18443, use existing port.
         return WithProcessCleanup(
             None,
-            ExtendedRpc::connect(
+            ExtendedRpc::connect_with_retry(
                 "http://127.0.0.1:18443".into(),
                 config.bitcoin_rpc_user.clone(),
                 config.bitcoin_rpc_password.clone(),
+                None,
             )
             .await
             .unwrap(),
@@ -151,27 +152,27 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
     // Create RPC client
     let rpc_url = format!("http://127.0.0.1:{}", rpc_port);
 
-    let client = ExtendedRpc::connect(
-        rpc_url,
-        config.bitcoin_rpc_user.clone(),
-        config.bitcoin_rpc_password.clone(),
-    )
-    .await
-    .expect("Failed to create RPC client");
-
     // Wait for node to be ready
     let mut attempts = 0;
     let retry_count = 30;
-    while attempts < retry_count {
-        if client.client.get_blockchain_info().await.is_ok() {
-            break;
+    let client = loop {
+        match ExtendedRpc::connect(
+            rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        )
+        .await
+        {
+            Ok(client) => break client,
+            Err(_) => {
+                attempts += 1;
+                if attempts >= retry_count {
+                    panic!("Bitcoin node failed to start in {} seconds", retry_count);
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            }
         }
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        attempts += 1;
-    }
-    if attempts == retry_count {
-        panic!("Bitcoin node failed to start in {} seconds", retry_count);
-    }
+    };
 
     // Get and print bitcoind version
     let network_info = client
