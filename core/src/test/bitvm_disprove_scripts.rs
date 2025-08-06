@@ -129,6 +129,7 @@ impl TestCase for DisproveTest {
             config.citrea_light_client_prover_url.clone(),
             config.citrea_chain_id,
             Some(SECRET_KEYS[0].to_string().parse().unwrap()),
+            config.citrea_request_timeout,
         )
         .await
         .unwrap();
@@ -263,10 +264,7 @@ impl TestCase for DisproveTest {
 async fn disprove_script_test_healthy() -> Result<()> {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
-    std::env::set_var(
-        "CITREA_DOCKER_IMAGE",
-        "chainwayxyz/citrea-test:ca479a4147be1c3a472e76a3f117124683d81ab5",
-    );
+    std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
     let additional_disprove_test = DisproveTest {
         variant: DisproveTestVariant::HealthyState,
     };
@@ -292,10 +290,7 @@ async fn disprove_script_test_healthy() -> Result<()> {
 async fn disprove_script_test_corrupted_assert() -> Result<()> {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
-    std::env::set_var(
-        "CITREA_DOCKER_IMAGE",
-        "chainwayxyz/citrea-test:ca479a4147be1c3a472e76a3f117124683d81ab5",
-    );
+    std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
     let additional_disprove_test = DisproveTest {
         variant: DisproveTestVariant::CorruptedAssert,
     };

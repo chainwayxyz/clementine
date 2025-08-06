@@ -1,0 +1,293 @@
+name: Clementine test deployment on Regtest
+
+# Common stuff for services ----------------------------------------------------
+x-clementine: &clementine_regtest
+  image: chainwayxyz/clementine
+  platform: linux/amd64
+
+  depends_on:
+    postgres_db_regtest:
+      condition: service_healthy
+    bitcoin_regtest:
+      condition: service_healthy
+    citrea_sequencer_regtest:
+      condition: service_started
+    citrea_batch_prover_regtest:
+      condition: service_started
+    citrea_light_client_prover_regtest:
+      condition: service_started
+
+  env_file:
+    - ./configs/regtest/.env.regtest
+
+  volumes:
+    - ../../bitvm_cache.bin:/bitvm_cache.bin
+    - ../../core/certs:/certs
+  networks:
+    - clementine-network
+
+x-verifier: &clementine_verifier_regtest
+  <<: *clementine_regtest
+  command:
+    verifier
+
+x-operator: &clementine_operator_regtest
+  <<: *clementine_regtest
+  depends_on:
+    clementine_verifier_regtest_0:
+      condition: service_healthy
+    clementine_verifier_regtest_1:
+      condition: service_healthy
+    clementine_verifier_regtest_2:
+      condition: service_healthy
+    clementine_verifier_regtest_3:
+      condition: service_healthy
+  command:
+    operator
+
+# Services ---------------------------------------------------------------------
+services:
+  postgres_db_regtest:
+    image: 'postgres:latest'
+    attach: false
+    container_name: postgres_db_regtest
+    volumes:
+      - ./configs/regtest/create-multiple-postgresql-databases.sh:/docker-entrypoint-initdb.d/init.sh
+    environment:
+      POSTGRES_MULTIPLE_DATABASES: clementine0,clementine1,clementine2,clementine3
+      POSTGRES_USER: clementine
+      POSTGRES_PASSWORD: clementine
+      POSTGRES_HOST_AUTH_METHOD: trust
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U clementine -d clementine"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    networks:
+      - clementine-network
+
+  bitcoin_regtest:
+    image: bitcoin/bitcoin:29
+    attach: false
+    container_name: bitcoin_regtest
+    ports:
+      - "20443:20443"
+      - "20444:20444"
+    command:
+      -printtoconsole
+      -regtest=1
+      -rest
+      -rpcbind=0.0.0.0
+      -rpcallowip=0.0.0.0/0
+      -rpcport=20443
+      -rpcuser=admin
+      -rpcpassword=admin
+      -server
+      -txindex=1
+      -fallbackfee=0.00001
+      -maxtxfee=5
+    healthcheck:
+      test: [
+        "CMD-SHELL",
+        "bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 loadwallet admin || bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 createwallet admin; \
+        if [ $(bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 -rpcwallet=admin getblockcount) -eq 0 ]; then \
+          bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 -rpcwallet=admin generatetoaddress 202 $(bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 -rpcwallet=admin getnewaddress); \
+        fi; \
+        bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 getblockchaininfo"
+      ]
+      interval: 2s
+      timeout: 15s
+      retries: 10
+    volumes:
+      - bitcoin_regtest:/home/bitcoin/.bitcoin
+    networks:
+      - clementine-network
+
+  citrea_sequencer_regtest:
+    image: chainwayxyz/citrea-test:ca479a4147be1c3a472e76a3f117124683d81ab5
+    attach: false
+    depends_on:
+      bitcoin_regtest:
+        condition: service_healthy
+    container_name: citrea_sequencer_regtest
+    command:
+      --dev --da-layer bitcoin --rollup-config-path /sequencer_rollup_config.toml --sequencer /sequencer_config.toml --genesis-paths /genesis-bitcoin-regtest/
+    ports:
+      - "12345:12345"
+    volumes:
+      - citrea_sequencer_regtest:/mnt/task/citrea-db
+      - ./configs/regtest/citrea/sequencer_rollup_config.toml:/sequencer_rollup_config.toml
+      - ./configs/regtest/citrea/sequencer_config.toml:/sequencer_config.toml
+      - ./configs/regtest/citrea/genesis-bitcoin-regtest:/bitcoin-regtest
+    networks:
+      - clementine-network
+
+  citrea_batch_prover_regtest:
+    image: chainwayxyz/citrea-test:ca479a4147be1c3a472e76a3f117124683d81ab5
+    attach: false
+    depends_on:
+      bitcoin_regtest:
+        condition: service_healthy
+      citrea_sequencer_regtest:
+        condition: service_started
+    container_name: citrea_batch_prover_regtest
+    command:
+      --dev --da-layer bitcoin --rollup-config-path /batch_prover_rollup_config.toml --batch-prover /batch_prover_config.toml --genesis-paths /bitcoin-regtest
+    ports:
+      - "12348:12348"
+    volumes:
+      - citrea_batch_prover_regtest:/mnt/task/citrea-db
+      - ./configs/regtest/citrea/batch_prover_rollup_config.toml:/batch_prover_rollup_config.toml
+      - ./configs/regtest/citrea/batch_prover_config.toml:/batch_prover_config.toml
+      - ./configs/regtest/citrea/genesis-bitcoin-regtest:/bitcoin-regtest
+    networks:
+      - clementine-network
+
+  citrea_light_client_prover_regtest:
+    image: chainwayxyz/citrea-test:ca479a4147be1c3a472e76a3f117124683d81ab5
+    attach: false
+    depends_on:
+      bitcoin_regtest:
+        condition: service_healthy
+      citrea_sequencer_regtest:
+        condition: service_started
+      citrea_batch_prover_regtest:
+        condition: service_started
+    container_name: citrea_light_client_prover_regtest
+    command:
+      --dev --da-layer bitcoin --rollup-config-path /light_client_prover_rollup_config.toml --light-client-prover /light_client_prover_config.toml --genesis-paths /bitcoin-regtest
+    ports:
+      - "12349:12349"
+    volumes:
+      - citrea_light_client_prover_regtest:/mnt/task/citrea-db
+      - ./configs/regtest/citrea/light_client_prover_rollup_config.toml:/light_client_prover_rollup_config.toml
+      - ./configs/regtest/citrea/light_client_prover_config.toml:/light_client_prover_config.toml
+      - ./configs/regtest/citrea/genesis-bitcoin-regtest:/bitcoin-regtest
+    networks:
+      - clementine-network
+
+# Aggregator --------------------------------------------------------------------
+  clementine_aggregator_regtest:
+    <<: *clementine_regtest
+    depends_on:
+      clementine_verifier_regtest_0:
+        condition: service_healthy
+      clementine_verifier_regtest_1:
+        condition: service_healthy
+      clementine_verifier_regtest_2:
+        condition: service_healthy
+      clementine_verifier_regtest_3:
+        condition: service_healthy
+      clementine_operator_regtest_0:
+        condition: service_healthy
+      clementine_operator_regtest_1:
+        condition: service_healthy
+    environment:
+      - SECRET_KEY=1111111111111111111111111111111111111111111111111111111111111111
+      - DB_NAME=clementine0
+      - CLIENT_CERT_PATH=/certs/aggregator/aggregator.pem
+      - CLIENT_KEY_PATH=/certs/aggregator/aggregator.key
+    command:
+      aggregator
+    ports:
+      - "17000:17000"
+
+# Verifiers --------------------------------------------------------------------
+  clementine_verifier_regtest_0:
+    <<: *clementine_verifier_regtest
+    hostname: regtest0_verifier.docker.internal
+    environment:
+      - SECRET_KEY=1111111111111111111111111111111111111111111111111111111111111111
+      - DB_NAME=clementine0
+    ports:
+      - "17001:17000"
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 1 bash -c '</dev/tcp/localhost/17000'"]
+      interval: 1s
+      timeout: 5s
+      retries: 100
+
+  clementine_verifier_regtest_1:
+    <<: *clementine_verifier_regtest
+    hostname: regtest1_verifier.docker.internal
+    environment:
+      - SECRET_KEY=2222222222222222222222222222222222222222222222222222222222222222
+      - DB_NAME=clementine1
+    ports:
+      - "17002:17000"
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 1 bash -c '</dev/tcp/localhost/17000'"]
+      interval: 1s
+      timeout: 5s
+      retries: 100
+
+  clementine_verifier_regtest_2:
+    <<: *clementine_verifier_regtest
+    hostname: regtest2_verifier.docker.internal
+    environment:
+      - SECRET_KEY=3333333333333333333333333333333333333333333333333333333333333333
+      - DB_NAME=clementine2
+    ports:
+      - "17003:17000"
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 1 bash -c '</dev/tcp/localhost/17000'"]
+      interval: 1s
+      timeout: 5s
+      retries: 100
+
+  clementine_verifier_regtest_3:
+    <<: *clementine_verifier_regtest
+    hostname: regtest3_verifier.docker.internal
+    environment:
+      - SECRET_KEY=4444444444444444444444444444444444444444444444444444444444444444
+      - DB_NAME=clementine3
+    ports:
+      - "17004:17000"
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 1 bash -c '</dev/tcp/localhost/17000'"]
+      interval: 1s
+      timeout: 5s
+      retries: 100
+
+# Operators --------------------------------------------------------------------
+  clementine_operator_regtest_0:
+    <<: *clementine_operator_regtest
+    hostname: regtest0_operator.docker.internal
+    environment:
+      - SECRET_KEY=1111111111111111111111111111111111111111111111111111111111111111
+      - DB_NAME=clementine0
+    ports:
+      - "17005:17000"
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 1 bash -c '</dev/tcp/localhost/17000'"]
+      interval: 1s
+      timeout: 5s
+      retries: 100
+
+  clementine_operator_regtest_1:
+    <<: *clementine_operator_regtest
+    hostname: regtest1_operator.docker.internal
+    environment:
+      - SECRET_KEY=2222222222222222222222222222222222222222222222222222222222222222
+      - DB_NAME=clementine1
+    ports:
+      - "17006:17000"
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 1 bash -c '</dev/tcp/localhost/17000'"]
+      interval: 1s
+      timeout: 5s
+      retries: 100
+
+volumes:
+  postgres_db_regtest:
+  bitcoin_regtest:
+  citrea_sequencer_regtest:
+  citrea_batch_prover_regtest:
+  citrea_light_client_prover_regtest:
+  clementine_verifier_regtest_0:
+  clementine_operator_regtest_0:
+
+networks:
+  clementine-network:
+    driver: bridge
