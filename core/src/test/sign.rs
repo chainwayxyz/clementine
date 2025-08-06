@@ -1,7 +1,7 @@
 use crate::{
     config::BridgeConfig,
     rpc::clementine::WithdrawParams,
-    verifier::{ClementineOptimisticPayoutMessage, DOMAIN},
+    verifier::{ClementineOptimisticPayoutMessage, OPT_PAYOUT_DOMAIN},
 };
 use alloy::primitives::PrimitiveSignature;
 use alloy_sol_types::SolStruct;
@@ -33,7 +33,7 @@ pub fn sign_optimistic_payout_verification_signature(
         output_amount: output_amount.to_sat(),
     };
 
-    let eip712_hash = params.eip712_signing_hash(&DOMAIN);
+    let eip712_hash = params.eip712_signing_hash(&OPT_PAYOUT_DOMAIN);
 
     let signature = signing_key
         .sign_prehash_recoverable(eip712_hash.as_slice())

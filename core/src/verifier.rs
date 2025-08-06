@@ -33,6 +33,9 @@ use crate::header_chain_prover::HeaderChainProver;
 use crate::metrics::L1SyncStatusProvider;
 use crate::operator::RoundIndex;
 use crate::rpc::clementine::{EntityStatus, NormalSignatureKind, OperatorKeys, TaggedSignature};
+use crate::rpc::ecdsa_verification_sig::{
+    recover_address_from_ecdsa_signature, ClementineOptimisticPayoutMessage,
+};
 #[cfg(feature = "automation")]
 use crate::states::StateManager;
 use crate::task::entity_metric_publisher::{
@@ -46,8 +49,6 @@ use crate::utils::NamedEntity;
 use crate::utils::TxMetadata;
 use crate::{musig2, UTXO};
 use alloy::primitives::PrimitiveSignature;
-use alloy::sol_types::Eip712Domain;
-use alloy_sol_types::SolStruct;
 use bitcoin::hashes::Hash;
 use bitcoin::key::rand::Rng;
 use bitcoin::key::Secp256k1;
@@ -80,23 +81,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
-
-alloy_sol_types::sol! {
-    #[derive(Debug)]
-    struct ClementineOptimisticPayoutMessage {
-        uint32 withdrawal_id;
-        bytes input_signature;
-        bytes32 input_outpoint_txid;
-        uint32 input_outpoint_vout;
-        bytes output_script_pubkey;
-        uint64 output_amount;
-    }
-}
-
-pub static DOMAIN: Eip712Domain = alloy_sol_types::eip712_domain! {
-    name: "ClementineOptimisticPayoutMessage",
-    version: "1",
-};
 
 #[derive(Debug)]
 pub struct NonceSession {
@@ -1290,48 +1274,6 @@ where
         Ok((move_tx_partial_sig, emergency_stop_partial_sig))
     }
 
-    /// Recover the address from the signature
-    /// EIP712 hash is calculated from optimistic payout params
-    /// Signature is the signature of the eip712 hash
-    ///
-    /// Parameters:
-    /// - deposit_id: The id of the deposit
-    /// - input_signature: The signature of the withdrawal input
-    /// - input_outpoint: The outpoint of the withdrawal input
-    /// - output_script_pubkey: The script pubkey of the withdrawal output
-    /// - output_amount: The amount of the withdrawal output
-    /// - signature: The signature of the eip712 hash of the withdrawal params
-    ///
-    /// Returns:
-    /// - The address recovered from the signature
-    pub fn recover_address_from_ecdsa_signature(
-        deposit_id: u32,
-        input_signature: Signature,
-        input_outpoint: OutPoint,
-        output_script_pubkey: ScriptBuf,
-        output_amount: Amount,
-        signature: PrimitiveSignature,
-    ) -> Result<alloy::primitives::Address, BridgeError> {
-        let input_sig_bytes = input_signature.serialize().to_vec();
-        let outpoint_txid_bytes = input_outpoint.txid.to_byte_array();
-        let script_pubkey_bytes = output_script_pubkey.as_bytes().to_vec();
-        let params = ClementineOptimisticPayoutMessage {
-            withdrawal_id: deposit_id,
-            input_signature: input_sig_bytes.into(),
-            input_outpoint_txid: outpoint_txid_bytes.into(),
-            input_outpoint_vout: input_outpoint.vout,
-            output_script_pubkey: script_pubkey_bytes.into(),
-            output_amount: output_amount.to_sat(),
-        };
-
-        let eip712_hash = params.eip712_signing_hash(&DOMAIN);
-
-        let address = signature
-            .recover_address_from_prehash(&eip712_hash)
-            .wrap_err("Invalid signature")?;
-        Ok(address)
-    }
-
     #[allow(clippy::too_many_arguments)]
     pub async fn sign_optimistic_payout(
         &self,
@@ -1354,14 +1296,15 @@ where
         if let Some(address_in_config) = self.config.opt_payout_verification_address {
             // check if verification signature is provided by aggregator
             if let Some(verification_signature) = verification_signature {
-                let address_from_sig = Self::recover_address_from_ecdsa_signature(
-                    deposit_id,
-                    input_signature,
-                    input_outpoint,
-                    output_script_pubkey.clone(),
-                    output_amount,
-                    verification_signature,
-                )?;
+                let address_from_sig =
+                    recover_address_from_ecdsa_signature::<ClementineOptimisticPayoutMessage>(
+                        deposit_id,
+                        input_signature,
+                        input_outpoint,
+                        output_script_pubkey.clone(),
+                        output_amount,
+                        verification_signature,
+                    )?;
 
                 // check if verification signature is signed by the address in config
                 if address_from_sig != address_in_config {

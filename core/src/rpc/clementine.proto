@@ -359,7 +359,14 @@ service ClementineOperator {
   // Prepares a withdrawal if it's profitable and the withdrawal is correct and registered in Citrea bridge contract/
   // If withdrawal is accepted, the payout tx will be added to the TxSender and success is returned, otherwise an error is returned.
   // If automation is disabled, the withdrawal will not be accepted and an error will be returned.
-  rpc Withdraw(WithdrawParams)
+  // Note: This is intended for operator's own use, so it doesn't include a signature from aggregator.
+  rpc InternalWithdraw(WithdrawParams)
+    returns (RawSignedTx) {}
+
+  // Prepares a withdrawal if it's profitable and the withdrawal is correct and registered in Citrea bridge contract/
+  // If withdrawal is accepted, the payout tx will be added to the TxSender and success is returned, otherwise an error is returned.
+  // If automation is disabled, the withdrawal will not be accepted and an error will be returned.
+  rpc Withdraw(WithdrawParamsWithSig)
     returns (RawSignedTx) {}
 
   // For a given deposit outpoint, determines the next step in the kickoff process the operator is in,
@@ -439,6 +446,16 @@ message OptimisticWithdrawParams {
   // An ECDSA signature (of citrea/aggregator) over the withdrawal params
   // to authenticate the withdrawal params. This will be signed manually by citrea 
   // after manual verification of the optimistic payout.
+  optional string verification_signature = 2;
+}
+
+message WithdrawParamsWithSig {
+  WithdrawParams withdrawal = 1;
+  // An ECDSA signature (of citrea/aggregator) over the withdrawal params
+  // to authenticate the withdrawal params. This will be signed manually by citrea 
+  // after manual verification of the optimistic payout.
+  // This message contains same data as the one in Optimistic Payout signature, but with a different message name,
+  // so that the same signature can't be used for both optimistic payout and normal withdrawal.
   optional string verification_signature = 2;
 }
 

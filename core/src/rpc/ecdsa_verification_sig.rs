@@ -1,0 +1,133 @@
+use alloy::primitives::PrimitiveSignature;
+use alloy::sol_types::Eip712Domain;
+use bitcoin::hashes::Hash;
+use bitcoin::secp256k1::schnorr::Signature;
+use bitcoin::OutPoint;
+use bitcoin::{Amount, ScriptBuf};
+use eyre::{Context, Result};
+
+use crate::errors::BridgeError;
+
+alloy_sol_types::sol! {
+    #[derive(Debug)]
+    struct ClementineOptimisticPayoutMessage {
+            uint32 withdrawal_id;
+            bytes input_signature;
+            bytes32 input_outpoint_txid;
+            uint32 input_outpoint_vout;
+            bytes output_script_pubkey;
+            uint64 output_amount;
+    }
+
+    #[derive(Debug)]
+    struct ClementineWithdrawalMessage  {
+            uint32 withdrawal_id;
+            bytes input_signature;
+            bytes32 input_outpoint_txid;
+            uint32 input_outpoint_vout;
+            bytes output_script_pubkey;
+            uint64 output_amount;
+    }
+}
+
+pub static OPT_PAYOUT_DOMAIN: Eip712Domain = alloy_sol_types::eip712_domain! {
+    name: "ClementineOptimisticPayoutMessage",
+    version: "1",
+};
+
+pub static WITHDRAWAL_DOMAIN: Eip712Domain = alloy_sol_types::eip712_domain! {
+    name: "ClementineWithdrawalMessage",
+    version: "1",
+};
+
+pub trait WithdrawalMessage {
+    const DOMAIN: &Eip712Domain;
+
+    fn new(
+        deposit_id: u32,
+        input_signature: Signature,
+        input_outpoint: OutPoint,
+        output_script_pubkey: ScriptBuf,
+        output_amount: Amount,
+    ) -> Self;
+}
+
+impl WithdrawalMessage for ClementineOptimisticPayoutMessage {
+    const DOMAIN: &Eip712Domain = &OPT_PAYOUT_DOMAIN;
+
+    fn new(
+        deposit_id: u32,
+        input_signature: Signature,
+        input_outpoint: OutPoint,
+        output_script_pubkey: ScriptBuf,
+        output_amount: Amount,
+    ) -> Self {
+        ClementineOptimisticPayoutMessage {
+            withdrawal_id: deposit_id,
+            input_signature: input_signature.serialize().to_vec().into(),
+            input_outpoint_txid: input_outpoint.txid.to_byte_array().into(),
+            input_outpoint_vout: input_outpoint.vout,
+            output_script_pubkey: output_script_pubkey.as_bytes().to_vec().into(),
+            output_amount: output_amount.to_sat(),
+        }
+    }
+}
+
+impl WithdrawalMessage for ClementineWithdrawalMessage {
+    const DOMAIN: &Eip712Domain = &WITHDRAWAL_DOMAIN;
+
+    fn new(
+        deposit_id: u32,
+        input_signature: Signature,
+        input_outpoint: OutPoint,
+        output_script_pubkey: ScriptBuf,
+        output_amount: Amount,
+    ) -> Self {
+        ClementineWithdrawalMessage {
+            withdrawal_id: deposit_id,
+            input_signature: input_signature.serialize().to_vec().into(),
+            input_outpoint_txid: input_outpoint.txid.to_byte_array().into(),
+            input_outpoint_vout: input_outpoint.vout,
+            output_script_pubkey: output_script_pubkey.as_bytes().to_vec().into(),
+            output_amount: output_amount.to_sat(),
+        }
+    }
+}
+
+/// Recover the address from the signature
+/// EIP712 hash is calculated from optimistic payout params
+/// Signature is the signature of the eip712 hash
+///
+/// Parameters:
+/// - deposit_id: The id of the deposit
+/// - input_signature: The signature of the withdrawal input
+/// - input_outpoint: The outpoint of the withdrawal input
+/// - output_script_pubkey: The script pubkey of the withdrawal output
+/// - output_amount: The amount of the withdrawal output
+/// - signature: The signature of the eip712 hash of the withdrawal params
+///
+/// Returns:
+/// - The address recovered from the signature
+pub fn recover_address_from_ecdsa_signature<M: WithdrawalMessage + alloy_sol_types::SolStruct>(
+    deposit_id: u32,
+    input_signature: Signature,
+    input_outpoint: OutPoint,
+    output_script_pubkey: ScriptBuf,
+    output_amount: Amount,
+    signature: PrimitiveSignature,
+) -> Result<alloy::primitives::Address, BridgeError> {
+    let params = M::new(
+        deposit_id,
+        input_signature,
+        input_outpoint,
+        output_script_pubkey,
+        output_amount,
+    );
+
+    let eip712_hash = params.eip712_signing_hash(M::DOMAIN);
+
+    let address = signature
+        .recover_address_from_prehash(&eip712_hash)
+        .wrap_err("Invalid signature")?;
+    Ok(address)
+}

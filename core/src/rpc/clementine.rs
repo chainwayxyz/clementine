@@ -374,6 +374,18 @@ pub struct OptimisticWithdrawParams {
     pub verification_signature: ::core::option::Option<::prost::alloc::string::String>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct WithdrawParamsWithSig {
+    #[prost(message, optional, tag = "1")]
+    pub withdrawal: ::core::option::Option<WithdrawParams>,
+    /// An ECDSA signature (of citrea/aggregator) over the withdrawal params
+    /// to authenticate the withdrawal params. This will be signed manually by citrea
+    /// after manual verification of the optimistic payout.
+    /// This message contains same data as the one in Optimistic Payout signature, but with a different message name,
+    /// so that the same signature can't be used for both optimistic payout and normal withdrawal.
+    #[prost(string, optional, tag = "2")]
+    pub verification_signature: ::core::option::Option<::prost::alloc::string::String>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct OptimisticPayoutParams {
     #[prost(message, optional, tag = "1")]
     pub opt_withdrawal: ::core::option::Option<OptimisticWithdrawParams>,
@@ -1175,9 +1187,36 @@ pub mod clementine_operator_client {
         /// Prepares a withdrawal if it's profitable and the withdrawal is correct and registered in Citrea bridge contract/
         /// If withdrawal is accepted, the payout tx will be added to the TxSender and success is returned, otherwise an error is returned.
         /// If automation is disabled, the withdrawal will not be accepted and an error will be returned.
-        pub async fn withdraw(
+        /// Note: This is intended for operator's own use, so it doesn't include a signature from aggregator.
+        pub async fn internal_withdraw(
             &mut self,
             request: impl tonic::IntoRequest<super::WithdrawParams>,
+        ) -> std::result::Result<tonic::Response<super::RawSignedTx>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/clementine.ClementineOperator/InternalWithdraw",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new("clementine.ClementineOperator", "InternalWithdraw"),
+                );
+            self.inner.unary(req, path, codec).await
+        }
+        /// Prepares a withdrawal if it's profitable and the withdrawal is correct and registered in Citrea bridge contract/
+        /// If withdrawal is accepted, the payout tx will be added to the TxSender and success is returned, otherwise an error is returned.
+        /// If automation is disabled, the withdrawal will not be accepted and an error will be returned.
+        pub async fn withdraw(
+            &mut self,
+            request: impl tonic::IntoRequest<super::WithdrawParamsWithSig>,
         ) -> std::result::Result<tonic::Response<super::RawSignedTx>, tonic::Status> {
             self.inner
                 .ready()
@@ -2317,9 +2356,17 @@ pub mod clementine_operator_server {
         /// Prepares a withdrawal if it's profitable and the withdrawal is correct and registered in Citrea bridge contract/
         /// If withdrawal is accepted, the payout tx will be added to the TxSender and success is returned, otherwise an error is returned.
         /// If automation is disabled, the withdrawal will not be accepted and an error will be returned.
-        async fn withdraw(
+        /// Note: This is intended for operator's own use, so it doesn't include a signature from aggregator.
+        async fn internal_withdraw(
             &self,
             request: tonic::Request<super::WithdrawParams>,
+        ) -> std::result::Result<tonic::Response<super::RawSignedTx>, tonic::Status>;
+        /// Prepares a withdrawal if it's profitable and the withdrawal is correct and registered in Citrea bridge contract/
+        /// If withdrawal is accepted, the payout tx will be added to the TxSender and success is returned, otherwise an error is returned.
+        /// If automation is disabled, the withdrawal will not be accepted and an error will be returned.
+        async fn withdraw(
+            &self,
+            request: tonic::Request<super::WithdrawParamsWithSig>,
         ) -> std::result::Result<tonic::Response<super::RawSignedTx>, tonic::Status>;
         /// For a given deposit outpoint, determines the next step in the kickoff process the operator is in,
         /// and returns the raw signed txs that the operator needs to send next, for enabling reimbursement process
@@ -2746,13 +2793,13 @@ pub mod clementine_operator_server {
                     };
                     Box::pin(fut)
                 }
-                "/clementine.ClementineOperator/Withdraw" => {
+                "/clementine.ClementineOperator/InternalWithdraw" => {
                     #[allow(non_camel_case_types)]
-                    struct WithdrawSvc<T: ClementineOperator>(pub Arc<T>);
+                    struct InternalWithdrawSvc<T: ClementineOperator>(pub Arc<T>);
                     impl<
                         T: ClementineOperator,
                     > tonic::server::UnaryService<super::WithdrawParams>
-                    for WithdrawSvc<T> {
+                    for InternalWithdrawSvc<T> {
                         type Response = super::RawSignedTx;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
@@ -2761,6 +2808,55 @@ pub mod clementine_operator_server {
                         fn call(
                             &mut self,
                             request: tonic::Request<super::WithdrawParams>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as ClementineOperator>::internal_withdraw(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = InternalWithdrawSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/clementine.ClementineOperator/Withdraw" => {
+                    #[allow(non_camel_case_types)]
+                    struct WithdrawSvc<T: ClementineOperator>(pub Arc<T>);
+                    impl<
+                        T: ClementineOperator,
+                    > tonic::server::UnaryService<super::WithdrawParamsWithSig>
+                    for WithdrawSvc<T> {
+                        type Response = super::RawSignedTx;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::WithdrawParamsWithSig>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
