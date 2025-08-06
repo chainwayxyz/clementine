@@ -56,7 +56,6 @@ impl TxSender {
         })?;
 
         // first check if the transaction is already submitted to the accelerator
-        // TODO: is there a better api for this?? Because right now all previous transactions are returned from API
         let txid = tx.compute_txid();
         let response = self
             .http_client
