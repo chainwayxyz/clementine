@@ -1496,7 +1496,7 @@ impl ClementineAggregator for AggregatorServer {
             request.operator_xonly_pks,
         );
         // convert rpc xonly pks to bitcoin xonly pks
-        let operator_xonly_pks: Vec<XOnlyPublicKey> = operator_xonly_pks
+        let operator_xonly_pks_from_rpc: Vec<XOnlyPublicKey> = operator_xonly_pks
             .into_iter()
             .map(|xonly_pk| {
                 xonly_pk.try_into().map_err(|e| {
@@ -1505,14 +1505,30 @@ impl ClementineAggregator for AggregatorServer {
             })
             .collect::<Result<Vec<_>, Status>>()?;
 
+        // check if all given operator xonly pubkeys are a valid operator xonly pubkey, to warn the caller if
+        // something is wrong with the given operator xonly pubkeys
+        let current_operator_xonly_pks = self.fetch_operator_keys().await?;
+        let invalid_operator_xonly_pks = operator_xonly_pks_from_rpc
+            .iter()
+            .filter(|xonly_pk| !current_operator_xonly_pks.contains(xonly_pk))
+            .collect::<Vec<_>>();
+        if !invalid_operator_xonly_pks.is_empty() {
+            return Err(Status::invalid_argument(format!(
+                "Given xonly public key doesn't belong to any current operator: invalid keys: {:?}, current operators: {:?}",
+                invalid_operator_xonly_pks,
+                current_operator_xonly_pks
+            )));
+        }
+
         let operators = self
             .get_operator_clients()
-            .into_iter()
-            .zip(self.fetch_operator_keys().await?);
+            .iter()
+            .zip(current_operator_xonly_pks.into_iter());
         let withdraw_futures = operators
             .filter(|(_, xonly_pk)| {
                 // check if operator_xonly_pks is empty or contains the operator's xonly public key
-                operator_xonly_pks.is_empty() || operator_xonly_pks.contains(xonly_pk)
+                operator_xonly_pks_from_rpc.is_empty()
+                    || operator_xonly_pks_from_rpc.contains(xonly_pk)
             })
             .map(|(operator, operator_xonly_pk)| {
                 let mut operator = operator.clone();
