@@ -6,8 +6,8 @@ set -e  # Exit on any error
 # Configuration
 AGGREGATOR_URL="https://127.0.0.1:17000"
 DEPOSIT_AMOUNT="10"
-BQR_ALIAS="bitcoin-cli -regtest -rpcport=18443 -rpcuser=admin -rpcpassword=admin"
-BITCOIN_RPC_URL="http://127.0.0.1:18443"
+BQR_ALIAS=${BQR_ALIAS:="bitcoin-cli -regtest -rpcport=18443 -rpcuser=admin -rpcpassword=admin"}
+BITCOIN_RPC_URL=${BITCOIN_RPC_URL:="http://127.0.0.1:18443"}
 BITCOIN_RPC_USER="admin"
 BITCOIN_RPC_PASSWORD="admin"
 FEE_RATE="10.0" # sat/vB
