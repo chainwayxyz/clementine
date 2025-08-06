@@ -963,7 +963,7 @@ pub mod tests {
                 value: Amount::from_btc(1.0).unwrap(),
                 script_pubkey: address.script_pubkey(), // In practice, should be the wallet address, not the signer address
             }))
-            .add_output(UnspentTxOut::from_partial(op_return_txout(b"TODO")))
+            .add_output(UnspentTxOut::from_partial(op_return_txout(b"TEST")))
             .finalize();
 
         signer
