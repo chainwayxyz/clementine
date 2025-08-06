@@ -39,6 +39,11 @@ rand_chacha = "0.9.0"
 secrecy = { version = "0.10.0", features = ["serde"] }
 reqwest = { version = "0.12.12", features = ["rustls-tls", "json", "http2"], default-features = false }
 
+# for emergency stop encryption
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+chacha20poly1305 = { version = "0.10", features = ["stream"] }
+
+
 # Citrea dependencies
 citrea-e2e = { git = "https://github.com/chainwayxyz/citrea-e2e", rev = "859cddf" }
 
