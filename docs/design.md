@@ -8,6 +8,28 @@ more about BitVM.
 
 ![Clementine Tx Graph](images/clementine_diagram.png)
 
+## Depositing
+
+Aggregator is responsible for helping verifiers to finalize deposits, using
+[musig2](https://github.com/bitcoin-core/secp256k1/blob/master/doc/musig.md#signing).
+It has 3 steps:
+
+1. Nonce aggregation
+2. Signature aggregation
+3. Move tx creation
+
+![Move TX creation](images/move_tx_creation.png)
+
+1. In the first step, aggregator will collect nonces from all the verifiers,
+   soon to be aggregated and send back to the verifiers. Aggregation is done by
+   musig2.
+2. At the second step, partial signatures will be requested from verifiers for
+   the provided aggregated nonce. They will be aggregated using musig2, just
+   like nonces. Final Schnorr signature will be sent to verifiers.
+3. Aggregated signatures are used by verifiers to finalize deposit. Then,
+   verifiers will return move tx partial signatures, which will later be
+   aggregated. Finally, aggregator will create a move tx.
+
 ## FAQ
 
 ### Why the bridge funds stays in N-of-N not in M-of-N?
