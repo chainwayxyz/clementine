@@ -387,7 +387,6 @@ impl Database {
         Ok(last_processed_event_id)
     }
 
-    /// Heavy operation
     /// Returns the maximum block height of the blocks that have been processed by the given consumer.
     /// If the last processed event is missing, i.e. there are no processed events for the consumer, returns `None`.
     pub async fn get_max_processed_block_height(
@@ -418,27 +417,8 @@ impl Database {
             .transpose()
     }
 
-    /// Returns the maximum block height of the blocks that have been processed by the given consumer and are finalized.
-    pub async fn get_max_processed_finalized_block_height(
-        &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
-        consumer_handle: &str,
-        paramset: &'static ProtocolParamset,
-    ) -> Result<Option<u32>, BridgeError> {
-        let max_processed_block_height = self
-            .get_max_processed_block_height(tx, consumer_handle)
-            .await?;
-
-        match max_processed_block_height {
-            Some(max_processed_block_height) => {
-                Ok(max_processed_block_height.checked_sub(paramset.finality_depth))
-            }
-            None => Ok(None),
-        }
-    }
-
     /// Returns the next finalized block height that should be processed by the given consumer.
-    /// If there are no processed events, returns the start height.
+    /// If there are no processed events, returns the paramset start height.
     /// Next height is the max height of the processed block - finality depth + 1.
     pub async fn get_next_finalized_block_height_for_consumer(
         &self,
@@ -446,9 +426,16 @@ impl Database {
         consumer_handle: &str,
         paramset: &'static ProtocolParamset,
     ) -> Result<u32, BridgeError> {
-        let max_processed_finalized_block_height = self
-            .get_max_processed_finalized_block_height(tx, consumer_handle, paramset)
+        let max_processed_block_height = self
+            .get_max_processed_block_height(tx, consumer_handle)
             .await?;
+
+        let max_processed_finalized_block_height = match max_processed_block_height {
+            Some(max_processed_block_height) => {
+                max_processed_block_height.checked_sub(paramset.finality_depth)
+            }
+            None => None,
+        };
 
         let next_height = max_processed_finalized_block_height
             .map(|h| h + 1)

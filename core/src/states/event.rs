@@ -104,6 +104,11 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 block,
                 height,
             } => {
+                if self.next_height_to_process != height {
+                    tracing::warn!("Finalized block arrived to state manager out of order. Ignoring block. This can happen for some blocks during restarts. Otherwise it might be due to an error. Expected: {}, Got: {}", self.next_height_to_process, height);
+                    return Ok(());
+                }
+
                 self.update_block_cache(&block, height);
 
                 // Handle the finalized block on the owner (verifier or operator)
