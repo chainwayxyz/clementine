@@ -2195,6 +2195,8 @@ mod tests {
     #[tokio::test]
     async fn aggregator_start_with_offline_verifier() {
         let mut config = create_test_config_with_thread_name().await;
+        // Create regtest rpc
+        let _regtest = create_regtest_rpc(&mut config).await;
         // random ips
         config.verifier_endpoints = Some(vec!["https://142.143.144.145:17001".to_string()]);
         config.operator_endpoints = Some(vec!["https://142.143.144.145:17002".to_string()]);
