@@ -7,7 +7,7 @@ use alloy_sol_types::SolStruct;
 
 /// Signs the optimistic payout verification signature for a given withdrawal params
 /// using the private key in the test_params in the config.
-pub fn sign_optimistic_payout_verification_signature<M: WithdrawalMessage + SolStruct>(
+pub fn sign_withdrawal_verification_signature<M: WithdrawalMessage + SolStruct>(
     config: &BridgeConfig,
     withdrawal_params: WithdrawParams,
 ) -> PrimitiveSignature {
