@@ -5,7 +5,7 @@ prover_da_pub_key = ""
 
 [da]
 # fill here
-node_url = "http://bitcoin_regtest:20443/wallet/admin"
+node_url = "http://bitcoin_regtest:20443/wallet/batch-prover-wallet"
 # fill here
 node_username = "admin"
 # fill here
