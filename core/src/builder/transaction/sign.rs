@@ -102,10 +102,11 @@ pub async fn create_and_sign_txs(
         ))?
         .1;
 
-    let context = ContractContext::new_context_for_kickoff(
+    let context = ContractContext::new_context_with_signer(
         transaction_data.kickoff_data,
         deposit_data.clone(),
         config.protocol_paramset(),
+        signer.clone(),
     );
 
     let txhandlers = builder::transaction::create_txhandlers(
