@@ -423,7 +423,8 @@ message NonceGenRequest {
 
 message NonceGenFirstResponse {
   // ID of the nonce session (used to store nonces in verifier's memory)
-  uint32 id = 1;
+  // The id is string representation of a u128 number
+  string id = 1;
   // Number of nonces to generate
   uint32 num_nonces = 2;
 }
@@ -434,8 +435,16 @@ message NonceGenResponse {
   }
 }
 
-message OptimisticPayoutParams {
+message OptimisticWithdrawParams {
   WithdrawParams withdrawal = 1;
+  // An ECDSA signature (of citrea/aggregator) over the withdrawal params
+  // to authenticate the withdrawal params. This will be signed manually by citrea 
+  // after manual verification of the optimistic payout.
+  optional string verification_signature = 2;
+}
+
+message OptimisticPayoutParams {
+  OptimisticWithdrawParams opt_withdrawal = 1;
   NonceGenFirstResponse nonce_gen = 2;
   bytes agg_nonce = 3;
 }
@@ -628,9 +637,13 @@ message AggregatorWithdrawResponse {
   repeated string withdraw_responses = 1;
 }
 
-message CreateEmergencyStopTxRequest {
+message GetEmergencyStopTxRequest {
   repeated Txid txids = 1;
-  bool add_anchor = 2;
+}
+
+message GetEmergencyStopTxResponse {
+  repeated Txid txids = 1;
+  repeated bytes encrypted_emergency_stop_txs = 2;
 }
 
 message SendMoveTxRequest {
@@ -671,7 +684,7 @@ service ClementineAggregator {
     returns (AggregatorWithdrawResponse) {}
 
   // Perform an optimistic payout to reimburse a peg-out from Citrea
-  rpc OptimisticPayout(WithdrawParams) returns (RawSignedTx)  {}
+  rpc OptimisticPayout(OptimisticWithdrawParams) returns (RawSignedTx)  {}
 
   // Send a pre-signed tx to the network
   rpc InternalSendTx(SendTxRequest) returns (Empty) {}
@@ -685,7 +698,7 @@ service ClementineAggregator {
   // Creates an emergency stop tx that won't be broadcasted.
   // Tx will have around 3 sats/vbyte fee.
   // Set add_anchor to true to add an anchor output for cpfp..
-  rpc InternalCreateEmergencyStopTx(CreateEmergencyStopTxRequest) returns (SignedTxWithType) {}
+  rpc InternalGetEmergencyStopTx(GetEmergencyStopTxRequest) returns (GetEmergencyStopTxResponse) {}
 
   rpc Vergen(Empty) returns (VergenResponse) {}
 }

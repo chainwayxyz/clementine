@@ -53,6 +53,7 @@ hyper = { workspace = true }
 tower = { workspace = true }
 hyper-util = { workspace = true }
 alloy = { workspace = true }
+alloy-sol-types = { workspace = true }
 ark-groth16 = { workspace = true, features = ["default"] }
 ark-bn254 = { workspace = true }
 ark-serialize = { workspace = true }
@@ -72,6 +73,9 @@ once_cell = { workspace = true }
 bitcoin-script = { workspace = true }
 secrecy = { workspace = true }
 reqwest = { workspace = true }
+x25519-dalek = { workspace = true, features = ["static_secrets"] }
+chacha20poly1305 = { workspace = true, features = ["stream"] }
+hkdf = { workspace = true }
 
 # UNCOMMENT TO DEBUG TOKIO TASKS
 

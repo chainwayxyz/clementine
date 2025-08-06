@@ -353,11 +353,12 @@ pub struct NonceGenRequest {
     #[prost(uint32, tag = "1")]
     pub num_nonces: u32,
 }
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct NonceGenFirstResponse {
     /// ID of the nonce session (used to store nonces in verifier's memory)
-    #[prost(uint32, tag = "1")]
-    pub id: u32,
+    /// The id is string representation of a u128 number
+    #[prost(string, tag = "1")]
+    pub id: ::prost::alloc::string::String,
     /// Number of nonces to generate
     #[prost(uint32, tag = "2")]
     pub num_nonces: u32,
@@ -378,9 +379,19 @@ pub mod nonce_gen_response {
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct OptimisticPayoutParams {
+pub struct OptimisticWithdrawParams {
     #[prost(message, optional, tag = "1")]
     pub withdrawal: ::core::option::Option<WithdrawParams>,
+    /// An ECDSA signature (of citrea/aggregator) over the withdrawal params
+    /// to authenticate the withdrawal params. This will be signed manually by citrea
+    /// after manual verification of the optimistic payout.
+    #[prost(string, optional, tag = "2")]
+    pub verification_signature: ::core::option::Option<::prost::alloc::string::String>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct OptimisticPayoutParams {
+    #[prost(message, optional, tag = "1")]
+    pub opt_withdrawal: ::core::option::Option<OptimisticWithdrawParams>,
     #[prost(message, optional, tag = "2")]
     pub nonce_gen: ::core::option::Option<NonceGenFirstResponse>,
     #[prost(bytes = "vec", tag = "3")]
@@ -557,11 +568,18 @@ pub struct AggregatorWithdrawResponse {
     pub withdraw_responses: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct CreateEmergencyStopTxRequest {
+pub struct GetEmergencyStopTxRequest {
     #[prost(message, repeated, tag = "1")]
     pub txids: ::prost::alloc::vec::Vec<Txid>,
-    #[prost(bool, tag = "2")]
-    pub add_anchor: bool,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetEmergencyStopTxResponse {
+    #[prost(message, repeated, tag = "1")]
+    pub txids: ::prost::alloc::vec::Vec<Txid>,
+    #[prost(bytes = "vec", repeated, tag = "2")]
+    pub encrypted_emergency_stop_txs: ::prost::alloc::vec::Vec<
+        ::prost::alloc::vec::Vec<u8>,
+    >,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SendMoveTxRequest {
@@ -2040,7 +2058,7 @@ pub mod clementine_aggregator_client {
         /// Perform an optimistic payout to reimburse a peg-out from Citrea
         pub async fn optimistic_payout(
             &mut self,
-            request: impl tonic::IntoRequest<super::WithdrawParams>,
+            request: impl tonic::IntoRequest<super::OptimisticWithdrawParams>,
         ) -> std::result::Result<tonic::Response<super::RawSignedTx>, tonic::Status> {
             self.inner
                 .ready()
@@ -2145,11 +2163,11 @@ pub mod clementine_aggregator_client {
         /// Creates an emergency stop tx that won't be broadcasted.
         /// Tx will have around 3 sats/vbyte fee.
         /// Set add_anchor to true to add an anchor output for cpfp..
-        pub async fn internal_create_emergency_stop_tx(
+        pub async fn internal_get_emergency_stop_tx(
             &mut self,
-            request: impl tonic::IntoRequest<super::CreateEmergencyStopTxRequest>,
+            request: impl tonic::IntoRequest<super::GetEmergencyStopTxRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::SignedTxWithType>,
+            tonic::Response<super::GetEmergencyStopTxResponse>,
             tonic::Status,
         > {
             self.inner
@@ -2162,14 +2180,14 @@ pub mod clementine_aggregator_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/clementine.ClementineAggregator/InternalCreateEmergencyStopTx",
+                "/clementine.ClementineAggregator/InternalGetEmergencyStopTx",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
                     GrpcMethod::new(
                         "clementine.ClementineAggregator",
-                        "InternalCreateEmergencyStopTx",
+                        "InternalGetEmergencyStopTx",
                     ),
                 );
             self.inner.unary(req, path, codec).await
@@ -3988,7 +4006,7 @@ pub mod clementine_aggregator_server {
         /// Perform an optimistic payout to reimburse a peg-out from Citrea
         async fn optimistic_payout(
             &self,
-            request: tonic::Request<super::WithdrawParams>,
+            request: tonic::Request<super::OptimisticWithdrawParams>,
         ) -> std::result::Result<tonic::Response<super::RawSignedTx>, tonic::Status>;
         /// Send a pre-signed tx to the network
         async fn internal_send_tx(
@@ -4008,11 +4026,11 @@ pub mod clementine_aggregator_server {
         /// Creates an emergency stop tx that won't be broadcasted.
         /// Tx will have around 3 sats/vbyte fee.
         /// Set add_anchor to true to add an anchor output for cpfp..
-        async fn internal_create_emergency_stop_tx(
+        async fn internal_get_emergency_stop_tx(
             &self,
-            request: tonic::Request<super::CreateEmergencyStopTxRequest>,
+            request: tonic::Request<super::GetEmergencyStopTxRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::SignedTxWithType>,
+            tonic::Response<super::GetEmergencyStopTxResponse>,
             tonic::Status,
         >;
         async fn vergen(
@@ -4287,7 +4305,7 @@ pub mod clementine_aggregator_server {
                     struct OptimisticPayoutSvc<T: ClementineAggregator>(pub Arc<T>);
                     impl<
                         T: ClementineAggregator,
-                    > tonic::server::UnaryService<super::WithdrawParams>
+                    > tonic::server::UnaryService<super::OptimisticWithdrawParams>
                     for OptimisticPayoutSvc<T> {
                         type Response = super::RawSignedTx;
                         type Future = BoxFuture<
@@ -4296,7 +4314,7 @@ pub mod clementine_aggregator_server {
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::WithdrawParams>,
+                            request: tonic::Request<super::OptimisticWithdrawParams>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
@@ -4478,27 +4496,27 @@ pub mod clementine_aggregator_server {
                     };
                     Box::pin(fut)
                 }
-                "/clementine.ClementineAggregator/InternalCreateEmergencyStopTx" => {
+                "/clementine.ClementineAggregator/InternalGetEmergencyStopTx" => {
                     #[allow(non_camel_case_types)]
-                    struct InternalCreateEmergencyStopTxSvc<T: ClementineAggregator>(
+                    struct InternalGetEmergencyStopTxSvc<T: ClementineAggregator>(
                         pub Arc<T>,
                     );
                     impl<
                         T: ClementineAggregator,
-                    > tonic::server::UnaryService<super::CreateEmergencyStopTxRequest>
-                    for InternalCreateEmergencyStopTxSvc<T> {
-                        type Response = super::SignedTxWithType;
+                    > tonic::server::UnaryService<super::GetEmergencyStopTxRequest>
+                    for InternalGetEmergencyStopTxSvc<T> {
+                        type Response = super::GetEmergencyStopTxResponse;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::CreateEmergencyStopTxRequest>,
+                            request: tonic::Request<super::GetEmergencyStopTxRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as ClementineAggregator>::internal_create_emergency_stop_tx(
+                                <T as ClementineAggregator>::internal_get_emergency_stop_tx(
                                         &inner,
                                         request,
                                     )
@@ -4513,7 +4531,7 @@ pub mod clementine_aggregator_server {
                     let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
-                        let method = InternalCreateEmergencyStopTxSvc(inner);
+                        let method = InternalGetEmergencyStopTxSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

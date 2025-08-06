@@ -123,8 +123,8 @@ pub enum BridgeError {
     VerifierNotFound(PublicKey),
     #[error("Deposit not found in DB: {0:?}")]
     DepositNotFound(OutPoint),
-    #[error("Deposit is invalid")]
-    InvalidDeposit,
+    #[error("Deposit is invalid due to {0}")]
+    InvalidDeposit(String),
     #[error("Operator data mismatch. Data already stored in DB and received by set_operator doesn't match for xonly_pk: {0}")]
     OperatorDataMismatch(XOnlyPublicKey),
     #[error("Deposit data mismatch. Data already stored in DB doesn't match the new data for deposit {0:?}")]
@@ -133,6 +133,8 @@ pub enum BridgeError {
     OperatorWinternitzPublicKeysMismatch(XOnlyPublicKey),
     #[error("BitVM setup data mismatch. Data already stored in DB doesn't match the new data for operator {0} and deposit {1:?}")]
     BitvmSetupDataMismatch(XOnlyPublicKey, OutPoint),
+    #[error("BitVM replacement data will exhaust memory. The maximum number of operations is {0}")]
+    BitvmReplacementResourceExhaustion(usize),
     #[error("Operator challenge ack hashes mismatch. Data already stored in DB doesn't match the new data for operator {0} and deposit {1:?}")]
     OperatorChallengeAckHashesMismatch(XOnlyPublicKey, OutPoint),
     #[error("Invalid BitVM public keys")]
@@ -145,6 +147,10 @@ pub enum BridgeError {
     InvalidProtocolParamset,
     #[error("Deposit already signed and move txid {0} is in chain")]
     DepositAlreadySigned(Txid),
+    #[error("Invalid optimistic payout verification signature")]
+    InvalidOptPayoutVerificationSignature,
+    #[error("Optimistic payout verification signature missing")]
+    OptPayoutVerificationSignatureMissing,
 
     // External crate error wrappers
     #[error("Failed to call database: {0}")]
@@ -164,6 +170,11 @@ pub enum BridgeError {
     #[error(transparent)]
     RPC(#[from] Status),
 
+    #[error("Arithmetic overflow occurred: {0}")]
+    ArithmeticOverflow(&'static str),
+    #[error("Insufficient funds: {0}")]
+    InsufficientFunds(&'static str),
+
     // Base wrapper for eyre
     #[error(transparent)]
     Eyre(#[from] eyre::Report),
@@ -176,15 +187,9 @@ pub trait ErrorExt: Sized {
     /// BridgeError if necessary. It does not rewrap in eyre::Report if
     /// the given error is already an eyre::Report.
     fn into_eyre(self) -> eyre::Report;
-    /// Converts the error into a tonic::Status. Currently defaults to
-    /// tonic::Status::from_error which will walk the error chain and attempt to
-    /// find a [`tonic::Status`] in the chain. If it can't find one, it will
-    /// return an Status::unknown with the Display representation of the error.
-    ///
-    /// TODO: We should change the implementation to walk the chain of errors
-    /// and return the first [`TryInto<tonic::Status>`] error. This is
-    /// impossible to do dynamically, each error must be included in the match
-    /// arms of the conversion logic.
+    /// Converts the error into a tonic::Status. Walks the chain of errors and
+    /// returns the first [`tonic::Status`] error. If it can't find one, it will
+    /// return an Status::internal with the Display representation of the error.
     fn into_status(self) -> tonic::Status;
 }
 

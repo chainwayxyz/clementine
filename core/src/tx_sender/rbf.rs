@@ -489,7 +489,6 @@ impl TxSender {
                     psbt: Some(psbt), ..
                 }) => psbt,
                 Ok(BumpFeeResult { errors, .. }) if !errors.is_empty() => {
-                    // TODO: handle errors here and update the state
                     self.handle_err(
                         format!("psbt_bump_fee failed: {:?}", errors),
                         "rbf_psbt_bump_failed",
@@ -498,7 +497,6 @@ impl TxSender {
                     return Err(SendTxError::Other(eyre!(errors.join(", "))));
                 }
                 Ok(BumpFeeResult { psbt: None, .. }) => {
-                    // TODO: print better msg and update state
                     self.handle_err(
                         "psbt_bump_fee returned no psbt",
                         "rbf_psbt_bump_failed",
@@ -861,7 +859,7 @@ pub mod tests {
     use crate::builder::transaction::{
         op_return_txout, TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE,
     };
-    use crate::constants::MIN_TAPROOT_AMOUNT;
+    use crate::constants::{MIN_TAPROOT_AMOUNT, NON_STANDARD_V3};
     use crate::errors::BridgeError;
     use crate::extended_rpc::ExtendedRpc;
     use crate::rpc::clementine::tagged_signature::SignatureId;
@@ -943,7 +941,7 @@ pub mod tests {
 
         rpc.mine_blocks(1).await?;
 
-        let version = Version::non_standard(3);
+        let version = NON_STANDARD_V3;
 
         let mut txhandler = TxHandlerBuilder::new(TransactionType::Challenge)
             .with_version(version)
@@ -965,7 +963,7 @@ pub mod tests {
                 value: Amount::from_btc(1.0).unwrap(),
                 script_pubkey: address.script_pubkey(), // In practice, should be the wallet address, not the signer address
             }))
-            .add_output(UnspentTxOut::from_partial(op_return_txout(b"TODO")))
+            .add_output(UnspentTxOut::from_partial(op_return_txout(b"TEST")))
             .finalize();
 
         signer

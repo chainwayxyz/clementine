@@ -36,7 +36,7 @@ Before compiling Clementine:
 1. Install Rust: [rustup.rs](https://rustup.rs/)
 2. Install RiscZero (2.1.0): [dev.risczero.com/api/zkvm/install](https://dev.risczero.com/api/zkvm/install)
 
-   ```bash
+   ```sh
    curl -L https://risczero.com/install | bash
    rzup install cargo-risczero 2.1.0 # Or v2.1.0
    rzup install r0vm 2.1.0
@@ -45,13 +45,13 @@ Before compiling Clementine:
 
 3. If on Mac, install XCode and its app from AppStore (if `xcrun metal` gives an error):
 
-   ```bash
+   ```sh
    xcode-select --install
    ```
 
 4. If on Ubuntu, install these packages:
 
-   ```bash
+   ```sh
    sudo apt install build-essential libssl-dev pkg-config
    ```
 
@@ -61,7 +61,7 @@ Before running Clementine:
 2. Install and configure PostgreSQL
 3. Set `RUST_MIN_STACK` to at least 33554432
 
-   ```bash
+   ```sh
    # In *nix systems:
    export RUST_MIN_STACK=33554432
    ```
@@ -154,10 +154,24 @@ certs/
 > [!NOTE]
 > For production use, you should use certificates signed by a trusted CA rather than self-signed ones.
 
+#### BitVM Cache
+
+BitVM Cache will be generated, if not present. Generation can be skipped with
+downloading pre-generated files and setting the environment variable:
+
+```sh
+wget https://static.testnet.citrea.xyz/common/bitvm_cache_v3.bin -O bitvm_cache.bin
+wget https://static.testnet.citrea.xyz/common/bitvm_cache_dev.bin -O bitvm_cache_dev.bin
+export BITVM_CACHE_PATH=/path/to/bitvm_cache.bin
+```
+
 ### Starting a Server
 
 Clementine is designed to be run multiple times for every actor that an entity
-requires. An actor's server can be started using its corresponding argument:
+requires. An actor's server can be started using its corresponding argument.
+Please follow instruction steps before trying to start a server.
+
+#### Compiling Manually
 
 ```sh
 # Build the binary (with optional automation)
@@ -196,6 +210,28 @@ For more information, use `--help` flag:
 ./target/release/clementine-core --help
 ```
 
+#### Using Docker
+
+A docker image is provided in
+[Docker Hub](https://hub.docker.com/r/chainwayxyz/clementine). It can also be
+locally built with:
+
+```bash
+docker build -f scripts/docker/Dockerfile -t clementine:latest .
+```
+
+Also, there are multiple Docker compose files located at [scripts/docker/](scripts/docker/)
+which can be used to start Bitcoin, PostgreSQL, Citrea and Clementine. Config
+files for these compose files can be found at [scripts/docker/configs/](scripts/docker/configs/).
+They are configured for a typical deployment and needs modification before deployment.
+**Please note that**, apart from regtest, new wallet that is created won't have
+any funds and users are responsible for configuring their own address.
+
+```sh
+docker compose -f scripts/docker/docker-compose.verifier.testnet4.yml up
+docker compose -f scripts/docker/docker-compose.full.regtest.yml up
+```
+
 ### Testing
 
 #### Prerequisites
@@ -232,25 +268,6 @@ For more information, use `--help` flag:
    ./scripts/generate_certs.sh
    ```
 
-#### [Optional] Docker
-
-A docker image is provided in
-[Docker Hub](https://hub.docker.com/r/chainwayxyz/clementine). It can be locally
-built with:
-
-```bash
-docker build -f scripts/docker/Dockerfile -t clementine:latest .
-```
-
-An example Docker compose file is located at
-[`scripts/docker/docker-compose.yml`](scripts/docker/docker-compose.yml) and it
-can be used to bring up a verifier server. It can also be modified for bringing
-up other servers. To bring it up:
-
-```bash
-docker compose -f scripts/docker/docker-compose.yml up
-```
-
 #### Configuration
 
 Enabling dev-mode for risc0-zkvm can help lower the proving times, in tests.
@@ -258,15 +275,6 @@ Please note that this should only be enabled when testing.
 
 ```sh
 export RISC0_DEV_MODE=1
-```
-
-A custom configuration file can be specified for testing. This can be helpful
-if developer's environment is not matching with the example test configuration
-(e.g. database user name). Please note that only database fields are necessary
-in this overwrite configuration file.
-
-```sh
-export TEST_CONFIG=/path/to/configuration.toml
 ```
 
 #### Run Tests

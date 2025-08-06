@@ -1,0 +1,137 @@
+name: Clementine Verifier
+
+services:
+  postgres_db:
+    image: 'postgres:latest'
+    attach: false
+    container_name: postgres_db
+    volumes:
+      - .docker/db/data/:/var/lib/postgresql/data/
+      - .docker/db/init.d/:/docker-entrypoint-initdb.d/
+    environment:
+      POSTGRES_USER: clementine
+      POSTGRES_PASSWORD: clementine
+      POSTGRES_DB: clementine
+      POSTGRES_HOST_AUTH_METHOD: trust
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U clementine -d clementine"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    networks:
+      - clementine-network
+
+  bitcoin_testnet4:
+    image: bitcoin/bitcoin:29
+    attach: false
+    container_name: bitcoin_testnet4
+    ports:
+      - "20443:20443"
+      - "20444:20444"
+    command:
+      -printtoconsole
+      -testnet4=1
+      -rest
+      -rpcbind=0.0.0.0
+      -rpcallowip=0.0.0.0/0
+      -rpcport=20443
+      -rpcuser=admin
+      -rpcpassword=admin
+      -server
+      -txindex=1
+      -fallbackfee=0.00001
+    healthcheck:
+      test: [
+        "CMD-SHELL",
+        "bitcoin-cli -testnet4 -rpcuser=admin -rpcpassword=admin -rpcport=20443 loadwallet admin || bitcoin-cli -testnet4 -rpcuser=admin -rpcpassword=admin -rpcport=20443 createwallet admin; \
+        if  bitcoin-cli -testnet4 -rpcuser=admin -rpcpassword=admin -rpcport=20443 getblockchaininfo | grep '\"initialblockdownload\": true'; then \
+          false; \
+        else \
+          true; \
+        fi
+        "
+      ]
+      interval: 10s
+      timeout: 15s
+      retries: 100
+    volumes:
+      - bitcoin_testnet4:/home/bitcoin/.bitcoin
+    networks:
+      - clementine-network
+
+  citrea_full_node:
+    image: chainwayxyz/citrea-full-node:testnet
+    attach: false
+    depends_on:
+      bitcoin_testnet4:
+        condition: service_healthy
+    container_name: citrea_full_node
+    environment:
+      - SEQUENCER_PUBLIC_KEY=0201edff3b3ee593dbef54e2fbdd421070db55e2de2aebe75f398bd85ac97ed364
+      - SEQUENCER_DA_PUB_KEY=03015a7c4d2cc1c771198686e2ebef6fe7004f4136d61f6225b061d1bb9b821b9b
+      - PROVER_DA_PUB_KEY=0357d255ab93638a2d880787ebaadfefdfc9bb51a26b4a37e5d588e04e54c60a42
+      - NODE_URL=http://bitcoin_testnet4:20443/
+      - NODE_USERNAME=admin
+      - NODE_PASSWORD=admin
+      - NETWORK=testnet
+      - TX_BACKUP_DIR=
+      - STORAGE_PATH=/mnt/task/citrea-db
+      - DB_MAX_OPEN_FILES=5000
+      - RPC_BIND_HOST=0.0.0.0
+      - RPC_BIND_PORT=8080
+      - RPC_MAX_CONNECTIONS=100
+      - RPC_MAX_REQUEST_BODY_SIZE=10485760
+      - RPC_MAX_RESPONSE_BODY_SIZE=10485760
+      - RPC_BATCH_REQUESTS_LIMIT=50
+      - RPC_ENABLE_SUBSCRIPTIONS=true
+      - RPC_MAX_SUBSCRIPTIONS_PER_CONNECTION=10
+      - SEQUENCER_CLIENT_URL=https://rpc.testnet.citrea.xyz
+      - INCLUDE_TX_BODY=false
+      - SCAN_L1_START_HEIGHT=45496
+      - SYNC_BLOCKS_COUNT=10
+      - RUST_LOG=info
+      - JSON_LOGS=1
+      - RISC0_DEV_MODE=1
+    ports:
+      - "12346:8080"
+    volumes:
+      - citrea_full_node:/mnt/task/citrea-db
+    networks:
+      - clementine-network
+
+  clementine_verifier:
+    depends_on:
+      postgres_db:
+        condition: service_healthy
+      bitcoin_testnet4:
+        condition: service_healthy
+      citrea_full_node:
+        condition: service_started
+    image: chainwayxyz/clementine:latest
+    platform: linux/amd64
+    container_name: clementine_verifier
+    environment:
+      - BITVM_CACHE_PATH=/bitvm_cache.bin
+      - RISC0_DEV_MODE=1
+    command:
+      verifier --config /bridge_config.toml --protocol-params /protocol_paramset.toml
+    ports:
+      - "17001:17000"
+    volumes:
+      - ./configs/testnet4/bridge_config.toml:/bridge_config.toml
+      - ./configs/testnet4/protocol_paramset.toml:/protocol_paramset.toml
+      - ../../bitvm_cache.bin:/bitvm_cache.bin
+      - ../../core/certs:/certs
+    networks:
+      - clementine-network
+
+volumes:
+  postgres_db:
+  bitcoin_testnet4:
+  citrea_full_node:
+  clementine_verifier:
+
+networks:
+  clementine-network:
+    driver: bridge

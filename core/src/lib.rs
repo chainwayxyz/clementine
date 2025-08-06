@@ -122,6 +122,7 @@ pub mod config;
 pub mod constants;
 pub mod database;
 pub mod deposit;
+pub mod encryption;
 pub mod errors;
 pub mod extended_rpc;
 pub mod header_chain_prover;

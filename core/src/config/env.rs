@@ -1,9 +1,14 @@
 //! # Environment Variable Support For [`BridgeConfig`]
 
 use super::BridgeConfig;
-use crate::{config::TelemetryConfig, deposit::SecurityCouncil, errors::BridgeError};
+use crate::{
+    config::{default_grpc_limits, GrpcLimits, TelemetryConfig},
+    deposit::SecurityCouncil,
+    errors::BridgeError,
+};
 use bitcoin::{address::NetworkUnchecked, secp256k1::SecretKey, Amount};
-use std::{path::PathBuf, str::FromStr};
+use eyre::Context;
+use std::{path::PathBuf, str::FromStr, time::Duration};
 
 pub(crate) fn read_string_from_env(env_var: &'static str) -> Result<String, BridgeError> {
     std::env::var(env_var).map_err(|e| BridgeError::EnvVarNotSet(e, env_var))
@@ -18,6 +23,32 @@ where
     read_string_from_env(env_var)?
         .parse::<T>()
         .map_err(|e| BridgeError::EnvVarMalformed(env_var, format!("{:?}", e)))
+}
+
+impl GrpcLimits {
+    pub fn from_env() -> Result<Self, BridgeError> {
+        let defaults = default_grpc_limits();
+        Ok(GrpcLimits {
+            max_message_size: read_string_from_env_then_parse::<usize>("GRPC_MAX_MESSAGE_SIZE")
+                .unwrap_or(defaults.max_message_size),
+            timeout_secs: read_string_from_env_then_parse::<u64>("GRPC_TIMEOUT_SECS")
+                .unwrap_or(defaults.timeout_secs),
+            tcp_keepalive_secs: read_string_from_env_then_parse::<u64>("GRPC_TCP_KEEPALIVE_SECS")
+                .unwrap_or(defaults.tcp_keepalive_secs),
+            req_concurrency_limit: read_string_from_env_then_parse::<usize>(
+                "GRPC_REQ_CONCURRENCY_LIMIT",
+            )
+            .unwrap_or(defaults.req_concurrency_limit),
+            ratelimit_req_count: read_string_from_env_then_parse::<usize>(
+                "GRPC_RATELIMIT_REQ_COUNT",
+            )
+            .unwrap_or(defaults.ratelimit_req_count),
+            ratelimit_req_interval_secs: read_string_from_env_then_parse::<u64>(
+                "GRPC_RATELIMIT_REQ_INTERVAL_SECS",
+            )
+            .unwrap_or(defaults.ratelimit_req_interval_secs),
+        })
+    }
 }
 
 impl BridgeConfig {
@@ -106,6 +137,14 @@ impl BridgeConfig {
             None
         };
 
+        let opt_payout_verification_address = std::env::var("OPT_PAYOUT_VERIFICATION_ADDRESS")
+            .ok()
+            .map(|addr| {
+                addr.parse::<alloy::primitives::Address>()
+                    .wrap_err("Failed to parse OPT_PAYOUT_VERIFICATION_ADDRESS")
+            })
+            .transpose()?;
+
         // TLS certificate and key paths
         let server_cert_path = read_string_from_env("SERVER_CERT_PATH").map(PathBuf::from)?;
         let server_key_path = read_string_from_env("SERVER_KEY_PATH").map(PathBuf::from)?;
@@ -120,6 +159,11 @@ impl BridgeConfig {
         let security_council_string = read_string_from_env("SECURITY_COUNCIL")?;
 
         let security_council = SecurityCouncil::from_str(&security_council_string)?;
+
+        let citrea_request_timeout = std::env::var("CITREA_REQUEST_TIMEOUT")
+            .ok()
+            .and_then(|timeout| timeout.parse::<u64>().ok())
+            .map(Duration::from_secs);
 
         let config = BridgeConfig {
             // Protocol paramset's source is independently defined
@@ -144,12 +188,13 @@ impl BridgeConfig {
             citrea_rpc_url: read_string_from_env("CITREA_RPC_URL")?,
             citrea_light_client_prover_url: read_string_from_env("CITREA_LIGHT_CLIENT_PROVER_URL")?,
             citrea_chain_id: read_string_from_env_then_parse::<u32>("CITREA_CHAIN_ID")?,
+            citrea_request_timeout,
             bridge_contract_address: read_string_from_env("BRIDGE_CONTRACT_ADDRESS")?,
             header_chain_proof_path,
             verifier_endpoints,
             operator_endpoints,
             security_council,
-
+            opt_payout_verification_address,
             client_verification,
             server_cert_path,
             server_key_path,
@@ -157,8 +202,19 @@ impl BridgeConfig {
             client_cert_path,
             client_key_path,
             aggregator_cert_path,
+            emergency_stop_encryption_public_key: read_string_from_env(
+                "EMERGENCY_STOP_ENCRYPTION_PUBLIC_KEY",
+            )
+            .ok()
+            .map(|key| {
+                hex::decode(key)
+                    .expect("valid hex")
+                    .try_into()
+                    .expect("valid key")
+            }),
 
             telemetry: TelemetryConfig::from_env().ok(),
+            grpc: GrpcLimits::from_env()?,
 
             #[cfg(test)]
             test_params: super::TestParams::default(),
@@ -287,6 +343,44 @@ mod tests {
             "TELEMETRY_PORT",
             default_config.telemetry.as_ref().unwrap().port.to_string(),
         );
+
+        std::env::set_var(
+            "GRPC_MAX_MESSAGE_SIZE",
+            default_config.grpc.max_message_size.to_string(),
+        );
+        std::env::set_var(
+            "GRPC_TIMEOUT_SECS",
+            default_config.grpc.timeout_secs.to_string(),
+        );
+        std::env::set_var(
+            "GRPC_TCP_KEEPALIVE_SECS",
+            default_config.grpc.tcp_keepalive_secs.to_string(),
+        );
+        std::env::set_var(
+            "GRPC_CONCURRENCY_LIMIT",
+            default_config.grpc.req_concurrency_limit.to_string(),
+        );
+        std::env::set_var(
+            "GRPC_RATELIMIT_REQ_COUNT",
+            default_config.grpc.ratelimit_req_count.to_string(),
+        );
+        if let Some(ref opt_payout_verification_address) =
+            default_config.opt_payout_verification_address
+        {
+            std::env::set_var(
+                "OPT_PAYOUT_VERIFICATION_ADDRESS",
+                opt_payout_verification_address.to_string(),
+            );
+        }
+
+        if let Some(ref emergency_stop_encryption_public_key) =
+            default_config.emergency_stop_encryption_public_key
+        {
+            std::env::set_var(
+                "EMERGENCY_STOP_ENCRYPTION_PUBLIC_KEY",
+                hex::encode(emergency_stop_encryption_public_key),
+            );
+        }
 
         assert_eq!(super::BridgeConfig::from_env().unwrap(), default_config);
     }

@@ -7,11 +7,11 @@ use super::clementine::{
     OptimisticPayoutParams, RawSignedTx, VergenResponse, VerifierPublicKeys, WithdrawParams,
 };
 use crate::aggregator::{AggregatorServer, ParticipatingOperators, ParticipatingVerifiers};
+use crate::bitvm_client::SECP;
 use crate::builder::sighash::SignatureInfo;
 use crate::builder::transaction::{
-    combine_emergency_stop_txhandler, create_emergency_stop_txhandler,
-    create_move_to_vault_txhandler, create_optimistic_payout_txhandler, Signed, TransactionType,
-    TxHandler,
+    create_emergency_stop_txhandler, create_move_to_vault_txhandler,
+    create_optimistic_payout_txhandler, Signed, TransactionType, TxHandler,
 };
 use crate::config::BridgeConfig;
 use crate::constants::{
@@ -23,13 +23,10 @@ use crate::constants::{
 use crate::deposit::{Actors, DepositData, DepositInfo};
 use crate::errors::ResultExt;
 use crate::musig2::AggregateFromPublicKeys;
-use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
-use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
 use crate::rpc::clementine::VerifierDepositSignParams;
 use crate::rpc::parser;
-use crate::utils::{get_vergen_response, timed_request, timed_try_join_all};
 use crate::utils::{AGG_NONCE_DISTRIBUTION_BATCH_SIZE, NONCE_AGGREGATION_BATCH_SIZE};
-use crate::UTXO;
+use crate::utils::{FeePayingType, TxMetadata};
 use crate::{
     aggregator::Aggregator,
     builder::sighash::create_nofn_sighash_stream,
@@ -38,9 +35,9 @@ use crate::{
     rpc::clementine::{self, DepositSignSession},
 };
 use bitcoin::hashes::Hash;
-use bitcoin::secp256k1::schnorr::Signature;
+use bitcoin::secp256k1::schnorr::{self, Signature};
 use bitcoin::secp256k1::{Message, PublicKey};
-use bitcoin::{TapSighash, TxOut, Txid, XOnlyPublicKey};
+use bitcoin::{TapSighash, TxOut, Txid};
 use eyre::{Context, OptionExt};
 use futures::{
     future::try_join_all,
@@ -56,7 +53,6 @@ use tokio_stream::adapters::ChunksTimeout;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{async_trait, Request, Response, Status, Streaming};
 
-#[derive(Debug, Clone)]
 struct AggNonceQueueItem {
     agg_nonce: AggregatedNonce,
     sighash: TapSighash,
@@ -140,122 +136,60 @@ async fn nonce_aggregator(
     agg_nonce_sender: Sender<AggNonceQueueItem>,
 ) -> Result<(AggregatedNonce, AggregatedNonce), BridgeError> {
     let mut total_sigs = 0;
-    let batch_size = *NONCE_AGGREGATION_BATCH_SIZE as usize;
 
-    tracing::info!("Starting nonce aggregation with batch size {}", batch_size);
-
-    // Collect sighashes into batches
-    let mut sighash_batch = Vec::new();
+    tracing::info!("Starting nonce aggregation");
 
     // We assume the sighash stream returns the correct number of items.
-    while let Some(msg) = futures::StreamExt::next(&mut sighash_stream).await {
+    while let Some(msg) = sighash_stream.next().await {
         let (sighash, siginfo) = msg.wrap_err("Sighash stream failed")?;
-        sighash_batch.push((sighash, siginfo));
+
         total_sigs += 1;
 
-        // Process batch when it reaches the batch size or when we need to process remaining items
-        if sighash_batch.len() >= batch_size {
-            let current_batch = std::mem::take(&mut sighash_batch);
-
-            let pub_nonces_batch =
-                get_next_pub_nonces_batch(&mut nonce_streams, current_batch.len())
-                    .await
-                    .wrap_err("Failed to aggregate nonces batch")?;
-
-            for ((sighash, siginfo), pub_nonces) in current_batch.into_iter().zip(pub_nonces_batch)
-            {
-                tracing::trace!(
-                    "Received nonces for signature id {:?} in nonce_aggregator",
-                    siginfo.signature_id
-                );
-
-                // TODO: consider spawn_blocking here
-                let agg_nonce = aggregate_nonces(pub_nonces.iter().collect::<Vec<_>>().as_slice());
-
-                agg_nonce_sender
-                    .send(AggNonceQueueItem { agg_nonce, sighash })
-                    .await
-                    .wrap_err_with(|| AggregatorError::OutputStreamEndedEarly {
-                        stream_name: "nonce_aggregator".to_string(),
-                    })?;
-
-                tracing::trace!(
-                    "Sent nonces for signature id {:?} in nonce_aggregator",
-                    siginfo.signature_id
-                );
-            }
-        }
-    }
-
-    // Process any remaining items in the batch
-    if !sighash_batch.is_empty() {
-        let pub_nonces_batch = get_next_pub_nonces_batch(&mut nonce_streams, sighash_batch.len())
+        let pub_nonces = get_next_pub_nonces(&mut nonce_streams)
             .await
-            .wrap_err("Failed to aggregate remaining nonces batch")?;
+            .wrap_err_with(|| {
+                format!("Failed to aggregate nonces for sighash with info: {siginfo:?}")
+            })?;
 
-        for ((sighash, siginfo), pub_nonces) in sighash_batch.into_iter().zip(pub_nonces_batch) {
-            tracing::trace!(
-                "Received nonces for signature id {:?} in nonce_aggregator",
-                siginfo.signature_id
-            );
+        tracing::trace!(
+            "Received nonces for signature id {:?} in nonce_aggregator",
+            siginfo.signature_id
+        );
 
-            let agg_nonce = aggregate_nonces(pub_nonces.iter().collect::<Vec<_>>().as_slice());
+        let agg_nonce = aggregate_nonces(pub_nonces.iter().collect::<Vec<_>>().as_slice())?;
 
-            agg_nonce_sender
-                .send(AggNonceQueueItem { agg_nonce, sighash })
-                .await
-                .wrap_err_with(|| AggregatorError::OutputStreamEndedEarly {
-                    stream_name: "nonce_aggregator".to_string(),
-                })?;
+        agg_nonce_sender
+            .send(AggNonceQueueItem { agg_nonce, sighash })
+            .await
+            .wrap_err_with(|| AggregatorError::OutputStreamEndedEarly {
+                stream_name: "nonce_aggregator".to_string(),
+            })?;
 
-            tracing::trace!(
-                "Sent nonces for signature id {:?} in nonce_aggregator",
-                siginfo.signature_id
-            );
-        }
+        tracing::trace!(
+            "Sent nonces for signature id {:?} in nonce_aggregator",
+            siginfo.signature_id
+        );
     }
 
     if total_sigs == 0 {
         tracing::warn!("Sighash stream returned 0 signatures");
     }
+
     // aggregate nonces for the movetx signature
-    let pub_nonces = try_join_all(nonce_streams.iter_mut().map(|s| async {
-        futures::StreamExt::next(s)
-            .await
-            .transpose()? // Return the inner error if it exists
-            .ok_or_else(|| -> eyre::Report {
-                AggregatorError::InputStreamEndedEarlyUnknownSize {
-                    // Return an early end error if the stream is empty
-                    stream_name: "Nonce stream".to_string(),
-                }
-                .into()
-            })
-    }))
+    let pub_nonces = get_next_pub_nonces(&mut nonce_streams)
     .await
     .wrap_err("Failed to aggregate nonces for the move tx")?;
 
     tracing::trace!("Received nonces for movetx in nonce_aggregator");
 
-    // TODO: consider spawn_blocking here
-    let move_tx_agg_nonce = aggregate_nonces(pub_nonces.iter().collect::<Vec<_>>().as_slice());
+    let move_tx_agg_nonce = aggregate_nonces(pub_nonces.iter().collect::<Vec<_>>().as_slice())?;
 
-    let pub_nonces = try_join_all(nonce_streams.iter_mut().map(|s| async {
-        s.next()
-            .await
-            .transpose()? // Return the inner error if it exists
-            .ok_or_else(|| -> eyre::Report {
-                AggregatorError::InputStreamEndedEarlyUnknownSize {
-                    // Return an early end error if the stream is empty
-                    stream_name: "Nonce stream".to_string(),
-                }
-                .into()
-            })
-    }))
+    let pub_nonces = get_next_pub_nonces(&mut nonce_streams)
     .await
     .wrap_err("Failed to aggregate nonces for the emergency stop tx")?;
 
     let emergency_stop_agg_nonce =
-        aggregate_nonces(pub_nonces.iter().collect::<Vec<_>>().as_slice());
+        aggregate_nonces(pub_nonces.iter().collect::<Vec<_>>().as_slice())?;
 
     Ok((move_tx_agg_nonce, emergency_stop_agg_nonce))
 }
@@ -476,7 +410,6 @@ async fn signature_distributor(
             params: Some(Params::SchnorrSig(queue_item.final_sig)),
         };
 
-        // TODO: consider the waiting of each verifier here.
         try_join_all(deposit_finalize_sender.iter().map(|tx| {
             let final_params = final_params.clone();
             async move {
@@ -849,102 +782,20 @@ impl Aggregator {
 
         tracing::debug!("Move to vault tx id: {}", move_to_vault_txid.to_string());
 
+        let emergency_stop_pubkey = self
+            .config
+            .emergency_stop_encryption_public_key
+            .ok_or_else(|| eyre::eyre!("Emergency stop encryption public key is not set"))?;
+        let encrypted_emergency_stop_tx = crate::encryption::encrypt_bytes(
+            emergency_stop_pubkey,
+            &bitcoin::consensus::serialize(&emergency_stop_tx),
+        )?;
+
         self.db
-            .set_signed_emergency_stop_tx(None, move_to_vault_txid, emergency_stop_tx)
+            .set_signed_emergency_stop_tx(None, move_to_vault_txid, &encrypted_emergency_stop_tx)
             .await?;
 
         Ok(())
-    }
-
-    /// Fetches operator xonly public keys from operators.
-    pub async fn collect_operator_xonly_public_keys_with_clients(
-        operator_clients: &[ClementineOperatorClient<tonic::transport::Channel>],
-    ) -> Result<Vec<XOnlyPublicKey>, BridgeError> {
-        tracing::info!("Collecting operator xonly public keys...");
-
-        let operator_xonly_pks = try_join_all(operator_clients.iter().map(|client| {
-            let mut client = client.clone();
-
-            async move {
-                let response = client
-                    .get_x_only_public_key(Request::new(Empty {}))
-                    .await?
-                    .into_inner();
-
-                XOnlyPublicKey::from_slice(&response.xonly_public_key).map_err(|e| {
-                    Status::internal(format!(
-                        "Failed to parse operator xonly public key: {:?}",
-                        e
-                    ))
-                })
-            }
-        }))
-        .await
-        .wrap_err("Failed to collect operator xonly public keys")?;
-
-        Ok(operator_xonly_pks)
-    }
-
-    /// Fetches operator xonly public keys from operators.
-    pub async fn collect_operator_xonly_public_keys(
-        &self,
-    ) -> Result<Vec<XOnlyPublicKey>, BridgeError> {
-        Aggregator::collect_operator_xonly_public_keys_with_clients(self.get_operator_clients())
-            .await
-    }
-
-    pub async fn collect_verifier_public_keys_with_clients(
-        verifier_clients: &[ClementineVerifierClient<tonic::transport::Channel>],
-    ) -> Result<(Vec<Vec<u8>>, Vec<PublicKey>), BridgeError> {
-        tracing::info!("Collecting verifier public keys...");
-
-        let (vpks, verifier_public_keys): (Vec<Vec<u8>>, Vec<PublicKey>) =
-            try_join_all(verifier_clients.iter().map(|client| {
-                let mut client = client.clone();
-
-                async move {
-                    let verifier_params = client
-                        .get_params(Request::new(Empty {}))
-                        .await?
-                        .into_inner();
-                    let encoded_verifier_public_key = verifier_params.public_key;
-                    let decoded_verifier_public_key =
-                        PublicKey::from_slice(&encoded_verifier_public_key).map_err(|e| {
-                            Status::internal(format!("Failed to parse public key: {:?}", e))
-                        })?;
-
-                    Ok::<_, Status>((encoded_verifier_public_key, decoded_verifier_public_key))
-                }
-            }))
-            .await
-            .wrap_err("Failed to collect verifier public keys")?
-            .into_iter()
-            .unzip();
-
-        Ok((vpks, verifier_public_keys))
-    }
-
-    /// Fetches verifier public keys from verifiers and sets up N-of-N.
-    pub async fn collect_verifier_public_keys(&self) -> Result<VerifierPublicKeys, BridgeError> {
-        let (vpks, _) =
-            Aggregator::collect_verifier_public_keys_with_clients(self.get_verifier_clients())
-                .await?;
-
-        Ok(VerifierPublicKeys {
-            verifier_public_keys: vpks,
-        })
-    }
-
-    pub async fn generate_combined_emergency_stop_tx(
-        &self,
-        move_txids: Vec<Txid>,
-        add_anchor: bool,
-    ) -> Result<bitcoin::Transaction, BridgeError> {
-        let stop_txs = self.db.get_emergency_stop_txs(None, move_txids).await?;
-        let combined_stop_tx =
-            combine_emergency_stop_txhandler(stop_txs, add_anchor, self.config.protocol_paramset());
-
-        Ok(combined_stop_tx)
     }
 
     #[cfg(feature = "automation")]
@@ -1004,11 +855,33 @@ impl ClementineAggregator for AggregatorServer {
 
     async fn optimistic_payout(
         &self,
-        request: tonic::Request<super::WithdrawParams>,
+        request: tonic::Request<super::OptimisticWithdrawParams>,
     ) -> std::result::Result<tonic::Response<super::RawSignedTx>, tonic::Status> {
-        let withdraw_params = request.into_inner();
+        let opt_withdraw_params = request.into_inner();
+
+        let withdraw_params =
+            opt_withdraw_params
+                .withdrawal
+                .clone()
+                .ok_or(Status::invalid_argument(
+                    "Withdrawal params not found for optimistic payout",
+                ))?;
         let (deposit_id, input_signature, input_outpoint, output_script_pubkey, output_amount) =
-            parser::operator::parse_withdrawal_sig_params(withdraw_params.clone()).await?;
+            parser::operator::parse_withdrawal_sig_params(withdraw_params)?;
+
+        // if the withdrawal utxo is spent, no reason to sign optimistic payout
+        if self
+            .rpc
+            .is_utxo_spent(&input_outpoint)
+            .await
+            .map_to_status()?
+        {
+            return Err(Status::invalid_argument(format!(
+                "Withdrawal utxo is already spent: {:?}",
+                input_outpoint
+            )));
+        }
+
         // get which deposit the withdrawal belongs to
         let withdrawal = self
             .db
@@ -1026,10 +899,39 @@ impl ClementineAggregator for AggregatorServer {
                     withdrawal_utxo, input_outpoint
                 )));
             }
+
+            // Prepare input and output of the payout transaction.
+            let withdrawal_prevout = self
+                .rpc
+                .get_txout_from_outpoint(&input_outpoint)
+                .await
+                .map_to_status()?;
+
+            let user_xonly_pk = withdrawal_prevout
+                .script_pubkey
+                .try_get_taproot_pk()
+                .map_err(|_| {
+                    Status::invalid_argument(format!(
+                        "Withdrawal prevout script_pubkey is not a Taproot output: {:?}",
+                        withdrawal_prevout.script_pubkey
+                    ))
+                })?;
+
+            let withdrawal_utxo = UTXO {
+                outpoint: input_outpoint,
+                txout: withdrawal_prevout,
+            };
+
+            let output_txout = TxOut {
+                value: output_amount,
+                script_pubkey: output_script_pubkey,
+            };
+
             let deposit_data = self
                 .db
                 .get_deposit_data_with_move_tx(None, move_txid)
                 .await?;
+
             let mut deposit_data = deposit_data
                 .ok_or(eyre::eyre!(
                     "Deposit data not found for move txid {}",
@@ -1037,11 +939,34 @@ impl ClementineAggregator for AggregatorServer {
                 ))
                 .map_err(BridgeError::from)?;
 
+            let mut opt_payout_txhandler = create_optimistic_payout_txhandler(
+                &mut deposit_data,
+                withdrawal_utxo,
+                output_txout,
+                input_signature,
+                self.config.protocol_paramset(),
+            )?;
+
+            let sighash = opt_payout_txhandler.calculate_pubkey_spend_sighash(
+                0,
+                bitcoin::TapSighashType::SinglePlusAnyoneCanPay,
+            )?;
+
+            let message = Message::from_digest(sighash.to_byte_array());
+
+            let sig =
+                schnorr::Signature::from_slice(&input_signature.serialize()).map_err(|_| {
+                    Status::internal("Failed to parse signature from optimistic payout tx witness")
+                })?;
+
+            SECP.verify_schnorr(&sig, &message, &user_xonly_pk)
+                .map_err(|_| Status::internal("Invalid signature for optimistic payout tx"))?;
+
             // get which verifiers participated in the deposit to collect the optimistic payout tx signature
-            let verifiers = self.get_participating_verifiers(&deposit_data).await?;
+            let participating_verifiers = self.get_participating_verifiers(&deposit_data).await?;
             let (first_responses, mut nonce_streams) = {
                 create_nonce_streams(
-                    verifiers.clone(),
+                    participating_verifiers.clone(),
                     1,
                     #[cfg(test)]
                     &self.config,
@@ -1053,50 +978,32 @@ impl ClementineAggregator for AggregatorServer {
                 .await
                 .wrap_err("Failed to aggregate nonces for optimistic payout")
                 .map_to_status()?;
-            let agg_nonce = aggregate_nonces(pub_nonces.iter().collect::<Vec<_>>().as_slice());
+            let agg_nonce = aggregate_nonces(pub_nonces.iter().collect::<Vec<_>>().as_slice())?;
+
+            let agg_nonce_bytes = agg_nonce.serialize().to_vec();
             // send the agg nonce to the verifiers to sign the optimistic payout tx
-            let verifier_clients = verifiers.clients();
-            let payout_sigs = verifier_clients
+            let payout_sigs = participating_verifiers
+                .clients()
                 .into_iter()
                 .zip(first_responses)
                 .map(|(client, first_response)| {
                     let mut client = client.clone();
-                    let withdrawal_params = withdraw_params.clone();
-                    let agg_nonce_bytes = agg_nonce.serialize().to_vec();
-                    async move {
-                        client
-                            .optimistic_payout_sign(OptimisticPayoutParams {
-                                withdrawal: Some(withdrawal_params),
-                                agg_nonce: agg_nonce_bytes,
-                                nonce_gen: Some(first_response),
-                            })
-                            .await
+                    let opt_withdraw_params = opt_withdraw_params.clone();
+                    {
+                        let agg_nonce_serialized = agg_nonce_bytes.clone();
+                        async move {
+                            client
+                                .optimistic_payout_sign(OptimisticPayoutParams {
+                                    opt_withdrawal: Some(opt_withdraw_params),
+                                    agg_nonce: agg_nonce_serialized,
+                                    nonce_gen: Some(first_response),
+                                })
+                                .await
+                        }
                     }
                 })
                 .collect::<Vec<_>>();
 
-            // Prepare input and output of the payout transaction.
-            let withdrawal_prevout = self
-                .rpc
-                .get_txout_from_outpoint(&input_outpoint)
-                .await
-                .map_to_status()?;
-            let withdrawal_utxo = UTXO {
-                outpoint: input_outpoint,
-                txout: withdrawal_prevout,
-            };
-            let output_txout = TxOut {
-                value: output_amount,
-                script_pubkey: output_script_pubkey,
-            };
-
-            let mut opt_payout_txhandler = create_optimistic_payout_txhandler(
-                &mut deposit_data,
-                withdrawal_utxo,
-                output_txout,
-                input_signature,
-                self.config.protocol_paramset(),
-            )?;
             // txin at index 1 is deposited utxo in movetx
             let sighash = opt_payout_txhandler.calculate_script_spend_sighash_indexed(
                 1,
@@ -1214,14 +1121,6 @@ impl ClementineAggregator for AggregatorServer {
         &self,
         _request: Request<Empty>,
     ) -> Result<Response<VerifierPublicKeys>, Status> {
-        let verifier_public_keys = self.collect_verifier_public_keys().await?;
-        let _ = self.collect_operator_xonly_public_keys().await?;
-
-        tracing::debug!(
-            "Verifier public keys: {:?}",
-            verifier_public_keys.verifier_public_keys
-        );
-
         // Propagate Operators configurations to all verifier clients
         const CHANNEL_CAPACITY: usize = 1024 * 16;
         let (operator_params_tx, operator_params_rx) =
@@ -1285,7 +1184,11 @@ impl ClementineAggregator for AggregatorServer {
         .into_iter()
         .collect::<Result<Vec<_>, Status>>()?;
 
-        Ok(Response::new(verifier_public_keys))
+        let verifier_public_keys = self.fetch_verifier_keys().await?;
+
+        Ok(Response::new(VerifierPublicKeys::from(
+            verifier_public_keys,
+        )))
     }
 
     /// Handles a new deposit request from a user. This function coordinates the signing process
@@ -1319,9 +1222,9 @@ impl ClementineAggregator for AggregatorServer {
                 deposit: deposit_info,
                 nofn_xonly_pk: None,
                 actors: Actors {
-                    verifiers: self.get_verifier_keys(),
+                    verifiers: self.fetch_verifier_keys().await?,
                     watchtowers: vec![],
-                    operators: self.get_operator_keys(),
+                    operators: self.fetch_operator_keys().await?,
                 },
                 security_council: self.config.security_council.clone(),
             };
@@ -1664,7 +1567,7 @@ impl ClementineAggregator for AggregatorServer {
         &self,
         _: tonic::Request<super::Empty>,
     ) -> std::result::Result<tonic::Response<super::NofnResponse>, tonic::Status> {
-        let verifier_keys = self.get_verifier_keys();
+        let verifier_keys = self.fetch_verifier_keys().await?;
         let num_verifiers = verifier_keys.len();
         let nofn_xonly_pk = bitcoin::XOnlyPublicKey::from_musig2_pks(verifier_keys, None)
             .expect("Failed to aggregate verifier public keys");
@@ -1674,10 +1577,10 @@ impl ClementineAggregator for AggregatorServer {
         }))
     }
 
-    async fn internal_create_emergency_stop_tx(
+    async fn internal_get_emergency_stop_tx(
         &self,
-        request: Request<clementine::CreateEmergencyStopTxRequest>,
-    ) -> Result<Response<clementine::SignedTxWithType>, Status> {
+        request: Request<clementine::GetEmergencyStopTxRequest>,
+    ) -> Result<Response<clementine::GetEmergencyStopTxResponse>, Status> {
         let inner_request = request.into_inner();
         let txids: Vec<Txid> = inner_request
             .txids
@@ -1689,15 +1592,14 @@ impl ClementineAggregator for AggregatorServer {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        let add_anchor = inner_request.add_anchor;
+        let emergency_stop_txs = self.db.get_emergency_stop_txs(None, txids).await?;
 
-        let combined_stop_tx = self
-            .generate_combined_emergency_stop_tx(txids, add_anchor)
-            .await?;
+        let (txids, encrypted_emergency_stop_txs): (Vec<Txid>, Vec<Vec<u8>>) =
+            emergency_stop_txs.into_iter().unzip();
 
-        Ok(Response::new(clementine::SignedTxWithType {
-            transaction_type: Some(TransactionType::EmergencyStop.into()),
-            raw_tx: bitcoin::consensus::serialize(&combined_stop_tx).to_vec(),
+        Ok(Response::new(clementine::GetEmergencyStopTxResponse {
+            txids: txids.into_iter().map(|txid| txid.into()).collect(),
+            encrypted_emergency_stop_txs,
         }))
     }
 
@@ -1767,7 +1669,10 @@ mod tests {
     use crate::config::BridgeConfig;
     use crate::deposit::{BaseDepositData, DepositInfo, DepositType};
     use crate::musig2::AggregateFromPublicKeys;
+    use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
     use crate::rpc::clementine::{self, GetEntityStatusesRequest, SendMoveTxRequest};
+    use crate::rpc::get_clients;
+    use crate::servers::create_aggregator_unix_server;
     use crate::test::common::citrea::MockCitreaClient;
     use crate::test::common::tx_utils::ensure_tx_onchain;
     use crate::test::common::*;
@@ -2148,30 +2053,38 @@ mod tests {
         tracing::debug!("Move txids: {:?}", move_txids);
 
         let emergency_txid = aggregator
-            .internal_create_emergency_stop_tx(tonic::Request::new(
-                clementine::CreateEmergencyStopTxRequest {
+            .internal_get_emergency_stop_tx(tonic::Request::new(
+                clementine::GetEmergencyStopTxRequest {
                     txids: move_txids
                         .iter()
                         .map(|txid| clementine::Txid {
                             txid: txid.to_byte_array().to_vec(),
                         })
                         .collect(),
-                    add_anchor: true,
                 },
             ))
             .await
             .unwrap()
             .into_inner();
 
-        let raw_tx: bitcoin::Transaction =
-            bitcoin::consensus::deserialize(&emergency_txid.raw_tx).expect("Failed to deserialize");
+        let decryption_priv_key =
+            hex::decode("a80bc8cf095c2b37d4c6233114e0dd91f43d75de5602466232dbfcc1fc66c542")
+                .expect("Failed to parse emergency stop encryption public key");
+        let emergency_stop_tx: bitcoin::Transaction = bitcoin::consensus::deserialize(
+            &crate::encryption::decrypt_bytes(
+                &decryption_priv_key,
+                &emergency_txid.encrypted_emergency_stop_txs[0],
+            )
+            .expect("Failed to decrypt emergency stop tx"),
+        )
+        .expect("Failed to deserialize");
 
         rpc.client
-            .send_raw_transaction(&raw_tx)
+            .send_raw_transaction(&emergency_stop_tx)
             .await
             .expect("Failed to send emergency stop tx");
 
-        let emergency_stop_txid = raw_tx.compute_txid();
+        let emergency_stop_txid = emergency_stop_tx.compute_txid();
         rpc.mine_blocks(1).await.unwrap();
 
         let _emergencty_tx = poll_get(
@@ -2339,6 +2252,66 @@ mod tests {
             status.entity_statuses.len(),
             config.test_params.all_operators_secret_keys.len()
                 + config.test_params.all_verifiers_secret_keys.len()
+        );
+    }
+
+    #[tokio::test]
+    async fn aggregator_start_with_offline_verifier() {
+        let mut config = create_test_config_with_thread_name().await;
+        // random ips
+        config.verifier_endpoints = Some(vec!["https://142.143.144.145:17001".to_string()]);
+        config.operator_endpoints = Some(vec!["https://142.143.144.145:17002".to_string()]);
+        // Create temporary directory for aggregator socket
+        let socket_dir = tempfile::tempdir().unwrap();
+        let socket_path = socket_dir.path().join("aggregator.sock");
+
+        tracing::info!("Creating unix aggregator server");
+
+        let (_, _shutdown_tx) = create_aggregator_unix_server(config.clone(), socket_path.clone())
+            .await
+            .unwrap();
+
+        tracing::info!("Created unix aggregator server");
+
+        let mut aggregator_client = get_clients(
+            vec![format!("unix://{}", socket_path.display())],
+            ClementineAggregatorClient::new,
+            &config,
+            false,
+        )
+        .await
+        .unwrap()
+        .pop()
+        .unwrap();
+
+        tracing::info!("Got aggregator client");
+
+        // vergen should work
+        assert!(aggregator_client
+            .vergen(Request::new(clementine::Empty {}))
+            .await
+            .is_ok());
+
+        tracing::info!("After vergen");
+
+        // setup should give error as it can't connect to the verifier
+        assert!(aggregator_client
+            .setup(Request::new(clementine::Empty {}))
+            .await
+            .is_err());
+
+        tracing::info!("After setup");
+
+        // aggregator should still be up even after not connecting to the verifier
+        // and should be able to get metrics
+        tracing::info!(
+            "Entity statuses: {:?}",
+            aggregator_client
+                .get_entity_statuses(Request::new(GetEntityStatusesRequest {
+                    restart_tasks: false,
+                }))
+                .await
+                .unwrap()
         );
     }
 }

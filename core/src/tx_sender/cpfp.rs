@@ -1,13 +1,12 @@
 use eyre::eyre;
 use std::env;
 
-use bitcoin::{
-    transaction::Version, Address, Amount, FeeRate, OutPoint, Transaction, TxOut, Weight,
-};
+use bitcoin::{Amount, FeeRate, OutPoint, Transaction, TxOut, Weight};
 use bitcoincore_rpc::PackageSubmissionResult;
 use bitcoincore_rpc::{PackageTransactionResult, RpcApi};
 use eyre::Context;
 
+use crate::constants::NON_STANDARD_V3;
 use crate::errors::{ErrorExt, ResultExt};
 use crate::extended_rpc::BitcoinRPCError;
 use crate::utils::FeePayingType;
@@ -110,19 +109,17 @@ impl TxSender {
     /// The remaining value (total input value - `required_fee`) is sent to the `change_address`.
     ///
     /// # Signing
-    /// Currently, it signs the input spending the P2A anchor and potentially the first fee payer UTXO.
-    /// TODO: Ensure *all* fee payer UTXO inputs are correctly signed if more than one is used.
+    /// We sign the input spending the P2A anchor and all fee payer UTXOs.
     ///
     /// # Returns
     /// The constructed and partially signed child transaction.
-    fn create_child_tx(
+    async fn create_child_tx(
         &self,
         p2a_anchor: OutPoint,
         anchor_sat: Amount,
         fee_payer_utxos: Vec<SpendableTxIn>,
         parent_tx_size: Weight,
         fee_rate: FeeRate,
-        change_address: Address,
     ) -> Result<Transaction> {
         tracing::debug!(
             "Creating child tx with {} fee payer utxos",
@@ -136,6 +133,12 @@ impl TxSender {
         )
         .map_err(|e| eyre!(e))?;
 
+        let change_address = self
+            .rpc
+            .get_new_wallet_address()
+            .await
+            .wrap_err("Failed to get new wallet address")?;
+
         let total_fee_payer_amount = fee_payer_utxos
             .iter()
             .map(|utxo| utxo.get_prevout().value)
@@ -147,7 +150,7 @@ impl TxSender {
         }
 
         let mut builder = TxHandlerBuilder::new(TransactionType::Dummy)
-            .with_version(Version::non_standard(3))
+            .with_version(NON_STANDARD_V3)
             .add_input(
                 NormalSignatureKind::OperatorSighashDefault,
                 SpendableTxIn::new_partial(
@@ -205,7 +208,7 @@ impl TxSender {
     /// # Returns
     /// A `Vec` containing the parent transaction followed by the child transaction,
     /// ready for submission via the `submitpackage` RPC.
-    fn create_package(
+    async fn create_package(
         &self,
         tx: Transaction,
         fee_rate: FeeRate,
@@ -234,8 +237,8 @@ impl TxSender {
                 fee_payer_utxos,
                 tx.weight(),
                 fee_rate,
-                self.signer.address.clone(),
             )
+            .await
             .wrap_err("Failed to create child tx")?;
 
         Ok(vec![tx, child_tx])
@@ -424,6 +427,7 @@ impl TxSender {
 
         let package = self
             .create_package(tx.clone(), fee_rate, confirmed_fee_payers)
+            .await
             .wrap_err("Failed to create CPFP package");
 
         let package = match package {
@@ -485,7 +489,6 @@ impl TxSender {
 
         tracing::debug!(try_to_send_id, "Submitting package, size {}", package.len());
 
-        // TODO: this currently doesn't return valid results as TRUC is not fully supported.
         // let test_mempool_result = self
         //     .rpc
         //     .client
@@ -522,8 +525,6 @@ impl TxSender {
                         .map(|tx| hex::encode(bitcoin::consensus::serialize(tx)))
                         .collect::<Vec<_>>()
                 );
-
-                // TODO: implement txid checking so we can save the correct error.
 
                 early_exit = true;
             }

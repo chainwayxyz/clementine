@@ -232,7 +232,7 @@ pub fn create_nofn_sighash_stream(
                 deposit_data.get_deposit_outpoint(),
             );
             // need to create new TxHandlerDbData for each operator
-            let mut tx_db_data = ReimburseDbCache::new_for_deposit(db.clone(), *op_xonly_pk, deposit_data.get_deposit_outpoint(), config.protocol_paramset());
+            let mut tx_db_data = ReimburseDbCache::new_for_deposit(db.clone(), *op_xonly_pk, deposit_data.get_deposit_outpoint(), config.protocol_paramset(), None);
 
             let mut txhandler_cache = TxHandlerCache::new();
 
@@ -319,7 +319,7 @@ pub fn create_operator_sighash_stream(
     deposit_blockhash: bitcoin::BlockHash,
 ) -> impl Stream<Item = Result<(TapSighash, SignatureInfo), BridgeError>> {
     try_stream! {
-        let mut tx_db_data = ReimburseDbCache::new_for_deposit(db.clone(), operator_xonly_pk, deposit_data.get_deposit_outpoint(), config.protocol_paramset());
+        let mut tx_db_data = ReimburseDbCache::new_for_deposit(db.clone(), operator_xonly_pk, deposit_data.get_deposit_outpoint(), config.protocol_paramset(), None);
 
         let operator = db.get_operator(None, operator_xonly_pk).await?;
 
@@ -652,6 +652,8 @@ mod tests {
     /// (with both debug and release), it will get updated with the current values. Run following commands:
     /// debug: cargo test --all-features generate_deposit_state -- --ignored
     /// release: cargo test --all-features --release generate_deposit_state -- --ignored
+    /// If test_bridge_contract_change failed on github CI, CI also uploads the deposit state file as an artifact, so it can be downloaded
+    /// and committed to the repo.
     #[cfg(feature = "automation")]
     #[tokio::test]
     async fn test_bridge_contract_change() {

@@ -91,3 +91,19 @@ jobs:
       - name: Run codespell
         run: |
           codespell --skip="*.lock,./target" -I="codespell_ignore.txt"
+
+  check_for_todos:
+    name: Check for TODOs
+    runs-on: ubicloud-standard-2
+    if: github.event.pull_request.draft == false
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for TODOs
+        run: |
+          if git grep -i "TODO" -- ':!docs' ':!*.md' ':!*.txt' ':!*.rst' ':!*.lock' ':!target' ':!scripts' ':!tests' ':!examples' ':!**/code_checks.yml'; then
+            echo "Found TODOs in code directories. Please address them before merging.";
+            exit 1;
+          else
+            echo "No TODOs found in code directories.";
+          fi
