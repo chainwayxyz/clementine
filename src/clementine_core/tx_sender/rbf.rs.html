@@ -1429,9 +1429,7 @@
 <a href="#1428" id="1428">1428</a>
 <a href="#1429" id="1429">1429</a>
 <a href="#1430" id="1430">1430</a>
-<a href="#1431" id="1431">1431</a>
-<a href="#1432" id="1432">1432</a>
-<a href="#1433" id="1433">1433</a></pre></div><pre class="rust"><code><span class="kw">use </span>bitcoin::script::Instruction;
+<a href="#1431" id="1431">1431</a></pre></div><pre class="rust"><code><span class="kw">use </span>bitcoin::script::Instruction;
 <span class="kw">use </span>bitcoin::sighash::{Prevouts, SighashCache};
 <span class="kw">use </span>bitcoin::taproot::{<span class="self">self</span>};
 <span class="kw">use </span>bitcoin::{Psbt, TapSighashType, TxOut, Txid, Witness};
@@ -1922,8 +1920,7 @@
                     psbt: <span class="prelude-val">Some</span>(psbt), ..
                 }) =&gt; psbt,
                 <span class="prelude-val">Ok</span>(BumpFeeResult { errors, .. }) <span class="kw">if </span>!errors.is_empty() =&gt; {
-                    <span class="comment">// TODO: handle errors here and update the state
-                    </span><span class="self">self</span>.handle_err(
+                    <span class="self">self</span>.handle_err(
                         <span class="macro">format!</span>(<span class="string">"psbt_bump_fee failed: {:?}"</span>, errors),
                         <span class="string">"rbf_psbt_bump_failed"</span>,
                         try_to_send_id,
@@ -1931,8 +1928,7 @@
                     <span class="kw">return </span><span class="prelude-val">Err</span>(SendTxError::Other(<span class="macro">eyre!</span>(errors.join(<span class="string">", "</span>))));
                 }
                 <span class="prelude-val">Ok</span>(BumpFeeResult { psbt: <span class="prelude-val">None</span>, .. }) =&gt; {
-                    <span class="comment">// TODO: print better msg and update state
-                    </span><span class="self">self</span>.handle_err(
+                    <span class="self">self</span>.handle_err(
                         <span class="string">"psbt_bump_fee returned no psbt"</span>,
                         <span class="string">"rbf_psbt_bump_failed"</span>,
                         try_to_send_id,
@@ -2398,7 +2394,7 @@
                 value: Amount::from_btc(<span class="number">1.0</span>).unwrap(),
                 script_pubkey: address.script_pubkey(), <span class="comment">// In practice, should be the wallet address, not the signer address
             </span>}))
-            .add_output(UnspentTxOut::from_partial(op_return_txout(<span class="string">b"TODO"</span>)))
+            .add_output(UnspentTxOut::from_partial(op_return_txout(<span class="string">b"TEST"</span>)))
             .finalize();
 
         signer

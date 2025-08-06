@@ -3194,12 +3194,7 @@
 <a href="#3193" id="3193">3193</a>
 <a href="#3194" id="3194">3194</a>
 <a href="#3195" id="3195">3195</a>
-<a href="#3196" id="3196">3196</a>
-<a href="#3197" id="3197">3197</a>
-<a href="#3198" id="3198">3198</a>
-<a href="#3199" id="3199">3199</a>
-<a href="#3200" id="3200">3200</a>
-<a href="#3201" id="3201">3201</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
+<a href="#3196" id="3196">3196</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
 <span class="kw">use </span><span class="kw">crate</span>::bitcoin_syncer::BitcoinSyncer;
 <span class="kw">use </span><span class="kw">crate</span>::bitvm_client::{ClementineBitVMPublicKeys, REPLACE_SCRIPTS_LOCK};
 <span class="kw">use </span><span class="kw">crate</span>::builder::address::{create_taproot_address, taproot_builder_with_scripts};
@@ -3462,8 +3457,7 @@
         <span class="comment">// initialize and run automation features
         </span><span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
         </span>{
-            <span class="comment">// TODO: Removing index causes to remove the index from the tx_sender handle as well
-            </span><span class="kw">let </span>tx_sender = TxSender::new(
+            <span class="kw">let </span>tx_sender = TxSender::new(
                 <span class="self">self</span>.verifier.signer.clone(),
                 rpc.clone(),
                 <span class="self">self</span>.verifier.db.clone(),
@@ -3634,8 +3628,7 @@
 
         <span class="kw">let </span>all_sessions = AllSessions::new();
 
-        <span class="comment">// TODO: Removing index causes to remove the index from the tx_sender handle as well
-        </span><span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
+        <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
         </span><span class="kw">let </span>tx_sender = TxSenderClient::new(db.clone(), <span class="self">Self</span>::TX_SENDER_CONSUMER_ID.to_string());
 
         <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
@@ -4001,9 +3994,9 @@
             })
             .collect::&lt;<span class="prelude-ty">Result</span>&lt;Vec&lt;(SecretNonce, PublicNonce)&gt;, BridgeError&gt;&gt;()<span class="question-mark">?
             </span>.into_iter()
-            .unzip(); <span class="comment">// TODO: fix extra copies
+            .unzip();
 
-        </span><span class="kw">let </span>session = NonceSession { nonces: sec_nonces };
+        <span class="kw">let </span>session = NonceSession { nonces: sec_nonces };
 
         <span class="comment">// save the session
         </span><span class="kw">let </span>session_id = {
@@ -4122,8 +4115,7 @@
         <span class="prelude-val">Ok</span>(partial_sig_rx)
     }
 
-    <span class="doccomment">/// TODO: This function should be split in to multiple functions
-    </span><span class="kw">pub async fn </span>deposit_finalize(
+    <span class="kw">pub async fn </span>deposit_finalize(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         deposit_data: <span class="kw-2">&amp;mut </span>DepositData,
         session_id: u128,
@@ -4433,7 +4425,6 @@
         <span class="comment">// Save signatures to db
         </span><span class="kw">let </span><span class="kw-2">mut </span>dbtx = <span class="self">self</span>.db.begin_transaction().<span class="kw">await</span><span class="question-mark">?</span>;
         <span class="comment">// Deposit is not actually finalized here, its only finalized after the aggregator gets all the partial sigs and checks the aggregated sig
-        // TODO: It can create problems if the deposit fails at the end by some verifier not sending movetx partial sig, but we still added sigs to db
         </span><span class="kw">for </span>(operator_idx, (operator_xonly_pk, operator_sigs)) <span class="kw">in </span>operator_xonly_pks
             .into_iter()
             .zip(verified_sigs.into_iter())
@@ -4746,8 +4737,7 @@
             .map(|x| x.to_byte_array())
             .collect::&lt;Vec&lt;<span class="kw">_</span>&gt;&gt;();
 
-        <span class="comment">// TODO: Use correct verification key and along with a dummy proof.
-        // wrap around a mutex lock to avoid OOM
+        <span class="comment">// wrap around a mutex lock to avoid OOM
         </span><span class="kw">let </span>guard = REPLACE_SCRIPTS_LOCK.lock().<span class="kw">await</span>;
         <span class="kw">let </span>start = std::time::Instant::now();
         <span class="kw">let </span>scripts: Vec&lt;ScriptBuf&gt; = bitvm_pks.get_g16_verifier_disprove_scripts()<span class="question-mark">?</span>;

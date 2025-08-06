@@ -277,13 +277,7 @@
 <a href="#276" id="276">276</a>
 <a href="#277" id="277">277</a>
 <a href="#278" id="278">278</a>
-<a href="#279" id="279">279</a>
-<a href="#280" id="280">280</a>
-<a href="#281" id="281">281</a>
-<a href="#282" id="282">282</a>
-<a href="#283" id="283">283</a>
-<a href="#284" id="284">284</a>
-<a href="#285" id="285">285</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Errors
+<a href="#279" id="279">279</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Errors
 //!
 //! This module defines globally shared error messages, the crate-level error wrapper and extension traits for error/results.
 //! Our error paradigm is as follows:
@@ -472,15 +466,9 @@
     /// BridgeError if necessary. It does not rewrap in eyre::Report if
     /// the given error is already an eyre::Report.
     </span><span class="kw">fn </span>into_eyre(<span class="self">self</span>) -&gt; eyre::Report;
-    <span class="doccomment">/// Converts the error into a tonic::Status. Currently defaults to
-    /// tonic::Status::from_error which will walk the error chain and attempt to
-    /// find a [`tonic::Status`] in the chain. If it can't find one, it will
-    /// return an Status::unknown with the Display representation of the error.
-    ///
-    /// TODO: We should change the implementation to walk the chain of errors
-    /// and return the first [`TryInto&lt;tonic::Status&gt;`] error. This is
-    /// impossible to do dynamically, each error must be included in the match
-    /// arms of the conversion logic.
+    <span class="doccomment">/// Converts the error into a tonic::Status. Walks the chain of errors and
+    /// returns the first [`tonic::Status`] error. If it can't find one, it will
+    /// return an Status::internal with the Display representation of the error.
     </span><span class="kw">fn </span>into_status(<span class="self">self</span>) -&gt; tonic::Status;
 }
 

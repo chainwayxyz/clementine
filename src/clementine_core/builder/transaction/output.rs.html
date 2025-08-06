@@ -122,8 +122,8 @@
 </span><span class="doccomment">/// Represents a spendable transaction output, including scripts and optional Taproot spend info.
 </span><span class="kw">pub struct </span>UnspentTxOut {
     txout: TxOut,
-    scripts: Vec&lt;Arc&lt;<span class="kw">dyn </span>SpendableScript&gt;&gt;, <span class="comment">// TODO: Remove either scripts or spendinfo
-    </span>spendinfo: <span class="prelude-ty">Option</span>&lt;TaprootSpendInfo&gt;,
+    scripts: Vec&lt;Arc&lt;<span class="kw">dyn </span>SpendableScript&gt;&gt;,
+    spendinfo: <span class="prelude-ty">Option</span>&lt;TaprootSpendInfo&gt;,
 }
 
 <span class="kw">impl </span>UnspentTxOut {

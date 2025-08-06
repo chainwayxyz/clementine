@@ -976,8 +976,7 @@
 <a href="#975" id="975">975</a>
 <a href="#976" id="976">976</a>
 <a href="#977" id="977">977</a>
-<a href="#978" id="978">978</a>
-<a href="#979" id="979">979</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::config::protocol::ProtocolParamset;
+<a href="#978" id="978">978</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::config::protocol::ProtocolParamset;
 <span class="kw">use </span><span class="kw">crate</span>::errors::ResultExt;
 <span class="kw">use </span><span class="kw">crate</span>::utils::FeePayingType;
 <span class="kw">use crate</span>::{
@@ -1213,17 +1212,16 @@
         // Anchor input marker (OP_FALSE OP_RETURN ..) adds overhead. Exact WU TBD.
         // For CPFP child: (N fee payer inputs) + (1 anchor input) + (1 change output)
         // For RBF replacement: (N fee payer inputs) + (1 change output) - assuming it replaces a tx with an anchor.
-        // TODO: Refine these weight estimations.
         </span><span class="kw">let </span>child_tx_weight = <span class="kw">match </span>fee_paying_type {
             <span class="comment">// CPFP Child: N fee payer inputs + 1 anchor input + 1 change output + base overhead.
             // Approx WU: (230 * num_fee_payer_utxos) + 230 + 172 + base_overhead_wu
             // Simplified calculation used here needs verification.
-            </span>FeePayingType::CPFP =&gt; Weight::from_wu_usize(<span class="number">230 </span>* num_fee_payer_utxos + <span class="number">207 </span>+ <span class="number">172</span>), <span class="comment">// TODO: Verify 207 WU for anchor input + overhead
-            // RBF Replacement: N fee payer inputs + 1 change output + base overhead.
+            </span>FeePayingType::CPFP =&gt; Weight::from_wu_usize(<span class="number">230 </span>* num_fee_payer_utxos + <span class="number">207 </span>+ <span class="number">172</span>),
+            <span class="comment">// RBF Replacement: N fee payer inputs + 1 change output + base overhead.
             // Assumes it replaces a tx of similar structure but potentially different inputs/fees.
             // Simplified calculation used here needs verification.
-            </span>FeePayingType::RBF =&gt; Weight::from_wu_usize(<span class="number">230 </span>* num_fee_payer_utxos + <span class="number">172</span>), <span class="comment">// TODO: Verify WU for RBF structure
-            </span>FeePayingType::NoFunding =&gt; Weight::from_wu_usize(<span class="number">0</span>),
+            </span>FeePayingType::RBF =&gt; Weight::from_wu_usize(<span class="number">230 </span>* num_fee_payer_utxos + <span class="number">172</span>),
+            FeePayingType::NoFunding =&gt; Weight::from_wu_usize(<span class="number">0</span>),
         };
 
         <span class="comment">// Calculate total weight for fee calculation.

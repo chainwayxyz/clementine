@@ -354,52 +354,7 @@
 <a href="#353" id="353">353</a>
 <a href="#354" id="354">354</a>
 <a href="#355" id="355">355</a>
-<a href="#356" id="356">356</a>
-<a href="#357" id="357">357</a>
-<a href="#358" id="358">358</a>
-<a href="#359" id="359">359</a>
-<a href="#360" id="360">360</a>
-<a href="#361" id="361">361</a>
-<a href="#362" id="362">362</a>
-<a href="#363" id="363">363</a>
-<a href="#364" id="364">364</a>
-<a href="#365" id="365">365</a>
-<a href="#366" id="366">366</a>
-<a href="#367" id="367">367</a>
-<a href="#368" id="368">368</a>
-<a href="#369" id="369">369</a>
-<a href="#370" id="370">370</a>
-<a href="#371" id="371">371</a>
-<a href="#372" id="372">372</a>
-<a href="#373" id="373">373</a>
-<a href="#374" id="374">374</a>
-<a href="#375" id="375">375</a>
-<a href="#376" id="376">376</a>
-<a href="#377" id="377">377</a>
-<a href="#378" id="378">378</a>
-<a href="#379" id="379">379</a>
-<a href="#380" id="380">380</a>
-<a href="#381" id="381">381</a>
-<a href="#382" id="382">382</a>
-<a href="#383" id="383">383</a>
-<a href="#384" id="384">384</a>
-<a href="#385" id="385">385</a>
-<a href="#386" id="386">386</a>
-<a href="#387" id="387">387</a>
-<a href="#388" id="388">388</a>
-<a href="#389" id="389">389</a>
-<a href="#390" id="390">390</a>
-<a href="#391" id="391">391</a>
-<a href="#392" id="392">392</a>
-<a href="#393" id="393">393</a>
-<a href="#394" id="394">394</a>
-<a href="#395" id="395">395</a>
-<a href="#396" id="396">396</a>
-<a href="#397" id="397">397</a>
-<a href="#398" id="398">398</a>
-<a href="#399" id="399">399</a>
-<a href="#400" id="400">400</a>
-<a href="#401" id="401">401</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Bitcoin Address Construction
+<a href="#356" id="356">356</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Bitcoin Address Construction
 //!
 //! Contains helper functions to create taproot addresses with given scripts and internal key.
 //! Contains helper functions to create correct deposit addresses. Addresses need to be of a specific format to be
@@ -627,15 +582,13 @@
     <span class="kw">use crate</span>::{
         bitvm_client::{<span class="self">self</span>, SECP},
         builder::{<span class="self">self</span>, address::calculate_taproot_leaf_depths},
-        musig2::AggregateFromPublicKeys,
     };
     <span class="kw">use </span>bitcoin::secp256k1::rand;
     <span class="kw">use </span>bitcoin::{
         key::{Keypair, TapTweak},
-        secp256k1::{PublicKey, SecretKey},
-        Address, AddressType, ScriptBuf, XOnlyPublicKey,
+        secp256k1::SecretKey,
+        AddressType, ScriptBuf, XOnlyPublicKey,
     };
-    <span class="kw">use </span>std::str::FromStr;
 
     <span class="attr">#[test]
     </span><span class="kw">fn </span>create_taproot_address() {
@@ -706,49 +659,6 @@
         ));
         <span class="macro">assert_eq!</span>(spend_info.internal_key(), internal_key);
         <span class="macro">assert!</span>(spend_info.merkle_root().is_some());
-    }
-
-    <span class="attr">#[test]
-    #[ignore = <span class="string">"TODO: Investigate this"</span>]
-    </span><span class="kw">fn </span>generate_deposit_address_musig2_fixed_address() {
-        <span class="kw">let </span>verifier_pks_hex: Vec&lt;<span class="kw-2">&amp;</span>str&gt; = <span class="macro">vec!</span>[
-            <span class="string">"034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa"</span>,
-            <span class="string">"02466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27"</span>,
-            <span class="string">"023c72addb4fdf09af94f0c94d7fe92a386a7e70cf8a1d85916386bb2535c7b1b1"</span>,
-            <span class="string">"032c0b7cf95324a07d05398b240174dc0c2be444d96b159aa6c7f7b1e668680991"</span>,
-            <span class="string">"029ac20335eb38768d2052be1dbbc3c8f6178407458e51e6b4ad22f1d91758895b"</span>,
-            <span class="string">"035ab4689e400a4a160cf01cd44730845a54768df8547dcdf073d964f109f18c30"</span>,
-            <span class="string">"037962d45b38e8bcf82fa8efa8432a01f20c9a53e24c7d3f11df197cb8e70926da"</span>,
-        ];
-        <span class="kw">let </span>verifier_pks: Vec&lt;PublicKey&gt; = verifier_pks_hex
-            .iter()
-            .map(|pk| PublicKey::from_str(pk).unwrap())
-            .collect();
-        <span class="kw">let </span>nofn_xonly_pk = XOnlyPublicKey::from_musig2_pks(verifier_pks, <span class="prelude-val">None</span>).unwrap();
-
-        <span class="kw">let </span>evm_address: [u8; <span class="number">20</span>] = hex::decode(<span class="string">"1234567890123456789012345678901234567890"</span>)
-            .unwrap()
-            .try_into()
-            .unwrap();
-
-        <span class="kw">let </span>recovery_taproot_address =
-            Address::from_str(<span class="string">"bcrt1p65yp9q9fxtf7dyvthyrx26xxm2czanvrnh9rtvphmlsjvhdt4k6qw4pkss"</span>)
-                .unwrap();
-
-        <span class="kw">let </span>deposit_address = builder::address::generate_deposit_address(
-            nofn_xonly_pk,
-            recovery_taproot_address.as_unchecked(),
-            <span class="kw">crate</span>::EVMAddress(evm_address),
-            bitcoin::Network::Regtest,
-            <span class="number">200</span>,
-        )
-        .unwrap();
-
-        <span class="comment">// Comparing it to the taproot address generated in bridge backend.
-        </span><span class="macro">assert_eq!</span>(
-            deposit_address.<span class="number">0</span>.to_string(),
-            <span class="string">"bcrt1ptlz698wumzl7uyk6pgrvsx5ep29thtvngxftywnd4mwq24fuwkwsxasqf5" </span><span class="comment">// TODO: check this later
-        </span>)
     }
 
     <span class="attr">#[test]

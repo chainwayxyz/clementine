@@ -267,9 +267,7 @@
 <a href="#266" id="266">266</a>
 <a href="#267" id="267">267</a>
 <a href="#268" id="268">268</a>
-<a href="#269" id="269">269</a>
-<a href="#270" id="270">270</a>
-<a href="#271" id="271">271</a></pre></div><pre class="rust"><code><span class="kw">use crate</span>::{
+<a href="#269" id="269">269</a></pre></div><pre class="rust"><code><span class="kw">use crate</span>::{
     bitcoin_syncer::{BlockHandler, FinalizedBlockFetcherTask},
     database::{Database, DatabaseTransaction},
     task::{BufferedErrors, IntoTask, TaskVariant, WithDelay},
@@ -432,9 +430,7 @@
 }
 
 <span class="kw">impl</span>&lt;T: Owner + std::fmt::Debug + <span class="lifetime">'static</span>&gt; StateManager&lt;T&gt; {
-    <span class="comment">// TODO: this task is not tracked by the task manager, so it will not be restarted if it fails but
-    // the state manager task doesn't fail.
-    </span><span class="kw">pub async fn </span>block_fetcher_task(
+    <span class="kw">pub async fn </span>block_fetcher_task(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;WithDelay&lt;<span class="kw">impl </span>Task&lt;Output = bool&gt; + std::fmt::Debug&gt;, BridgeError&gt; {
         <span class="prelude-val">Ok</span>(BlockFetcherTask::&lt;T&gt;::new_finalized_block_fetcher_task(

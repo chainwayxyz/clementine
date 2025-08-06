@@ -1444,9 +1444,7 @@
 <a href="#1443" id="1443">1443</a>
 <a href="#1444" id="1444">1444</a>
 <a href="#1445" id="1445">1445</a>
-<a href="#1446" id="1446">1446</a>
-<a href="#1447" id="1447">1447</a>
-<a href="#1448" id="1448">1448</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Transaction Handler Creation Logic
+<a href="#1446" id="1446">1446</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Transaction Handler Creation Logic
 //!
 //! This module provides the logic for constructing, caching, and managing transaction handlers (`TxHandler`) for all transaction types in the Clementine bridge.
 //!
@@ -1493,7 +1491,6 @@
     create_additional_replacable_disprove_script_with_dummy, replace_placeholders_in_script,
 };
 <span class="kw">use </span>circuits_lib::bridge_circuit::deposit_constant;
-<span class="kw">use </span>circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
 <span class="kw">use </span>eyre::Context;
 <span class="kw">use </span>eyre::OptionExt;
 <span class="kw">use </span>std::collections::BTreeMap;
@@ -2110,8 +2107,8 @@
         </span>.get_txid()
         .to_byte_array();
 
-    <span class="kw">let </span>vout = kickoff_data.kickoff_idx + <span class="number">1</span>; <span class="comment">// TODO: Extract directly from round tx - not safe
-    </span><span class="kw">let </span>watchtower_challenge_start_idx = (FIRST_FIVE_OUTPUTS + NUMBER_OF_ASSERT_TXS) <span class="kw">as </span>u16;
+    <span class="kw">let </span>vout = UtxoVout::Kickoff(kickoff_data.kickoff_idx <span class="kw">as </span>usize).get_vout();
+    <span class="kw">let </span>watchtower_challenge_start_idx = UtxoVout::WatchtowerChallenge(<span class="number">0</span>).get_vout() <span class="kw">as </span>u16;
     <span class="kw">let </span>secp = Secp256k1::verification_only();
 
     <span class="kw">let </span>nofn_key: XOnlyPublicKey = deposit_data.get_nofn_xonly_pk()<span class="question-mark">?</span>;
@@ -2544,8 +2541,7 @@
             TransactionType::Kickoff,
             TransactionType::KickoffNotFinalized,
             TransactionType::Challenge,
-            <span class="comment">//TransactionType::Disprove, TODO: add when we add actual disprove scripts
-            </span>TransactionType::DisproveTimeout,
+            TransactionType::DisproveTimeout,
             TransactionType::Reimburse,
             TransactionType::ChallengeTimeout,
             TransactionType::LatestBlockhashTimeout,

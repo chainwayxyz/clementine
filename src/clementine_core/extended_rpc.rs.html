@@ -1106,9 +1106,7 @@
 <a href="#1105" id="1105">1105</a>
 <a href="#1106" id="1106">1106</a>
 <a href="#1107" id="1107">1107</a>
-<a href="#1108" id="1108">1108</a>
-<a href="#1109" id="1109">1109</a>
-<a href="#1110" id="1110">1110</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Bitcoin Extended RPC Interface
+<a href="#1108" id="1108">1108</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Bitcoin Extended RPC Interface
 //!
 //! Extended RPC interface communicates with the Bitcoin node. It features some
 //! common wrappers around typical RPC operations as well as direct
@@ -1214,9 +1212,7 @@
         })
     }
 
-    <span class="doccomment">/// Generates a new Bitcoin address for the wallet. TODO: Make sure this
-    /// is either flexible in terms of address type or fixed to a specific type
-    /// like P2TR.
+    <span class="doccomment">/// Generates a new Bitcoin address for the wallet.
     </span><span class="kw">pub async fn </span>get_new_wallet_address(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span>&lt;Address&gt; {
         <span class="kw">let </span>address = <span class="self">self
             </span>.client

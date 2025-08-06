@@ -769,8 +769,7 @@
 <a href="#768" id="768">768</a>
 <a href="#769" id="769">769</a>
 <a href="#770" id="770">770</a>
-<a href="#771" id="771">771</a>
-<a href="#772" id="772">772</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::WinternitzDerivationPath;
+<a href="#771" id="771">771</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::WinternitzDerivationPath;
 <span class="kw">use </span><span class="kw">crate</span>::builder::address::taproot_builder_with_scripts;
 <span class="kw">use </span><span class="kw">crate</span>::builder::script::{SpendableScript, WinternitzCommit};
 
@@ -1230,8 +1229,7 @@
             <span class="string">"Getting assert commit data, challenge_sending_watchtowers: {:?}"</span>,
             challenge_sending_watchtowers
         );
-        <span class="comment">// TODO: this might be wrong, add clementine specific ones too
-        </span>commit_data.push(<span class="macro">vec!</span>[
+        commit_data.push(<span class="macro">vec!</span>[
             challenge_sending_watchtowers.to_vec(),
             asserts.<span class="number">0</span>[<span class="number">0</span>].to_vec(),
             asserts.<span class="number">1</span>[NUM_U256 - <span class="number">2</span>].to_vec(),

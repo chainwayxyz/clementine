@@ -1504,8 +1504,7 @@
 <a href="#1503" id="1503">1503</a>
 <a href="#1504" id="1504">1504</a>
 <a href="#1505" id="1505">1505</a>
-<a href="#1506" id="1506">1506</a>
-<a href="#1507" id="1507">1507</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Operator Related Database Operations
+<a href="#1506" id="1506">1506</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Operator Related Database Operations
 //!
 //! This module includes database functions which are mainly used by an operator.
 
@@ -2332,8 +2331,7 @@
         deposit_id: u32,
         operator_xonly_pk: XOnlyPublicKey,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;(u32, u32)&gt;, BridgeError&gt; {
-        <span class="comment">// TODO: check if AND ds.round_idx &gt;= cr.round_idx is correct or if we should use = instead
-        </span><span class="kw">let </span>query = sqlx::query_as::&lt;<span class="kw">_</span>, (i32, i32)&gt;(
+        <span class="kw">let </span>query = sqlx::query_as::&lt;<span class="kw">_</span>, (i32, i32)&gt;(
             <span class="string">"WITH current_round AS (
                     SELECT round_idx
                     FROM current_round_index

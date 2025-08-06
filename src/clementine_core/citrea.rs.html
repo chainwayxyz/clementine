@@ -634,11 +634,7 @@
 <a href="#633" id="633">633</a>
 <a href="#634" id="634">634</a>
 <a href="#635" id="635">635</a>
-<a href="#636" id="636">636</a>
-<a href="#637" id="637">637</a>
-<a href="#638" id="638">638</a>
-<a href="#639" id="639">639</a>
-<a href="#640" id="640">640</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Citrea Related Utilities
+<a href="#636" id="636">636</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Citrea Related Utilities
 
 </span><span class="kw">use </span><span class="kw">crate</span>::citrea::BRIDGE_CONTRACT::DepositReplaced;
 <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
@@ -751,10 +747,6 @@
     ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;(LightClientProof, Receipt, u64)&gt;, BridgeError&gt;;
 
     <span class="doccomment">/// Returns the L2 block height range for the given L1 block height.
-    ///
-    /// TODO: This is not the best way to do this, but it's a quick fix for now
-    /// it will attempt to fetch the light client proof max_attempts times with
-    /// 1 second intervals.
     ///
     /// # Parameters
     ///
