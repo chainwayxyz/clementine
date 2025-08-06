@@ -277,15 +277,6 @@ Please note that this should only be enabled when testing.
 export RISC0_DEV_MODE=1
 ```
 
-A custom configuration file can be specified for testing. This can be helpful
-if developer's environment is not matching with the example test configuration
-(e.g. database user name). Please note that only database fields are necessary
-in this overwrite configuration file.
-
-```sh
-export TEST_CONFIG=/path/to/configuration.toml
-```
-
 #### Run Tests
 
 To run all tests:
