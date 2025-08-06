@@ -40,19 +40,12 @@ alloy_sol_types::sol! {
     }
 }
 
-pub static OPT_PAYOUT_DOMAIN: Eip712Domain = alloy_sol_types::eip712_domain! {
-    name: "ClementineOptimisticPayoutMessage",
-    version: "1",
-};
-
-pub static WITHDRAWAL_DOMAIN: Eip712Domain = alloy_sol_types::eip712_domain! {
-    name: "ClementineWithdrawalMessage",
+pub static CLEMENTINE_EIP712_DOMAIN: Eip712Domain = alloy_sol_types::eip712_domain! {
+    name: "ClementineVerification",
     version: "1",
 };
 
 pub trait WithdrawalMessage {
-    const DOMAIN: &Eip712Domain;
-
     fn new(
         deposit_id: u32,
         input_signature: Signature,
@@ -63,8 +56,6 @@ pub trait WithdrawalMessage {
 }
 
 impl WithdrawalMessage for ClementineOptimisticPayoutMessage {
-    const DOMAIN: &Eip712Domain = &OPT_PAYOUT_DOMAIN;
-
     fn new(
         deposit_id: u32,
         input_signature: Signature,
@@ -84,8 +75,6 @@ impl WithdrawalMessage for ClementineOptimisticPayoutMessage {
 }
 
 impl WithdrawalMessage for ClementineWithdrawalMessage {
-    const DOMAIN: &Eip712Domain = &WITHDRAWAL_DOMAIN;
-
     fn new(
         deposit_id: u32,
         input_signature: Signature,
@@ -134,7 +123,7 @@ pub fn recover_address_from_ecdsa_signature<M: WithdrawalMessage + alloy_sol_typ
         output_amount,
     );
 
-    let eip712_hash = params.eip712_signing_hash(M::DOMAIN);
+    let eip712_hash = params.eip712_signing_hash(&CLEMENTINE_EIP712_DOMAIN);
 
     let address = signature
         .recover_address_from_prehash(&eip712_hash)

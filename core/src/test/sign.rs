@@ -1,6 +1,6 @@
 use crate::{
     config::BridgeConfig,
-    rpc::{clementine::WithdrawParams, ecdsa_verification_sig::WithdrawalMessage},
+    rpc::{clementine::WithdrawParams, ecdsa_verification_sig::{WithdrawalMessage, CLEMENTINE_EIP712_DOMAIN}},
 };
 use alloy::primitives::PrimitiveSignature;
 use alloy_sol_types::SolStruct;
@@ -27,7 +27,7 @@ pub fn sign_withdrawal_verification_signature<M: WithdrawalMessage + SolStruct>(
         output_amount,
     );
 
-    let eip712_hash = params.eip712_signing_hash(M::DOMAIN);
+    let eip712_hash = params.eip712_signing_hash(&CLEMENTINE_EIP712_DOMAIN);
 
     let signature = signing_key
         .sign_prehash_recoverable(eip712_hash.as_slice())

@@ -382,7 +382,7 @@ pub struct WithdrawParamsWithSig {
 }
 /// Input of the aggregator's withdraw function.
 /// It contains the withdrawal params along with the verification signature that signs the withdrawal params.
-/// It also contains the operator's xonly public keys that the withdrawal request should be sent to.
+/// It also contains the operator's xonly public keys that the withdrawal request should be sent to. If the list is empty, the withdrawal will be sent to all operators.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AggregatorWithdrawalInput {
     #[prost(message, optional, tag = "1")]
