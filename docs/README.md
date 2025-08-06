@@ -1,7 +1,11 @@
-# Summary
+# Clementine Documentation
 
-- [Clementine Whitepaper](https://citrea.xyz/clementine_whitepaper.pdf)
-- [Onboarding Clementine](onboarding.md)
+Welcome to the Clementine documentation. This is not a code documentation,
+rather a higher view of the Clementine. To view code documentation, please visit
+[chainwayxyz.github.io/clementine/clementine_core](https://chainwayxyz.github.io/clementine/clementine_core/).
+
+- [Design of Clementine](design.md): Design and technicals of Clementine.
+- [Architecture](architecture.md): Codebase architecture
 
 ## Circuits
 
