@@ -3114,6 +3114,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "This test is for testing web gui, to see if recovered address from signature from the web gui is correct"]
     async fn test_recover_address_from_signature() {
         let signature = PrimitiveSignature::from_str("0x93907632f97f51a91e684a88a9b8ad9bb1e0f7679686f79d6538972f4a759c0c38dddc0c449b7336963275189fb26ea3bb2055ba5d140f5a536c6fac6997ae061b")
             .unwrap();
