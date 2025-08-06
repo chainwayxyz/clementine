@@ -25,6 +25,6 @@ bind_port = 12348
 enable_subscriptions = false
 
 [runner]
-sequencer_client_url = "http://0.0.0.0:12345"
+sequencer_client_url = "http://citrea_sequencer_regtest:12345"
 include_tx_body = false
 scan_l1_start_height = 1
