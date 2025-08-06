@@ -322,15 +322,13 @@ where
         }
         #[cfg(not(feature = "automation"))]
         {
-            use crate::database::bitcoin_syncer::get_next_finalized_block_height_for_consumer;
-            use crate::task::TaskExt;
             // get the next finalized block height to start from
             let next_height = self
                 .verifier
                 .db
                 .get_next_finalized_block_height_for_consumer(
                     None,
-                    Verifier::<C>::FINALIZED_BLOCK_CONSUMER_ID.to_string(),
+                    Verifier::<C>::FINALIZED_BLOCK_CONSUMER_ID,
                     self.verifier.config.protocol_paramset(),
                 )
                 .await?;

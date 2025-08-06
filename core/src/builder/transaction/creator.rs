@@ -1295,6 +1295,10 @@ mod tests {
         let mut incorrect = false;
 
         for ((kickoff_id, tx_type), txids) in &created_txs {
+            // for challenge tx, txids are different because op return with own evm address, skip it
+            if tx_type == &TransactionType::Challenge {
+                continue;
+            }
             // check if all txids are equal
             if !txids.iter().all(|txid| txid == &txids[0]) {
                 tracing::error!(
