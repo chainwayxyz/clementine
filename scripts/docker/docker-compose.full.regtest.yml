@@ -95,12 +95,12 @@ services:
           bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 -rpcwallet=admin generatetoaddress 202 $(bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 -rpcwallet=admin getnewaddress); \
         fi; \
         
-        bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 loadwallet sequencer-wallet || bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 createwallet sequencer-wallet; \
+        bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 createwallet sequencer-wallet || true; \
         if [ $(bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 -rpcwallet=sequencer-wallet getblockcount) -eq 0 ]; then \
           bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 -rpcwallet=sequencer-wallet generatetoaddress 202 $(bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 -rpcwallet=sequencer-wallet getnewaddress); \
         fi; \
-        
-        bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 loadwallet batch-prover-wallet || bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 createwallet batch-prover-wallet; \
+
+        bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 createwallet batch-prover-wallet || true; \
         if [ $(bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 -rpcwallet=batch-prover-wallet getblockcount) -eq 0 ]; then \
           bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 -rpcwallet=batch-prover-wallet generatetoaddress 202 $(bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 -rpcwallet=batch-prover-wallet getnewaddress); \
         fi; \
