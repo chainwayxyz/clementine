@@ -45,7 +45,6 @@ use bitvm::clementine::additional_disprove::{
     create_additional_replacable_disprove_script_with_dummy, replace_placeholders_in_script,
 };
 use circuits_lib::bridge_circuit::deposit_constant;
-use circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
 use eyre::Context;
 use eyre::OptionExt;
 use std::collections::BTreeMap;
