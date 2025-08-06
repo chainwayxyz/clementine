@@ -2252,7 +2252,9 @@
 <a href="#2251" id="2251">2251</a>
 <a href="#2252" id="2252">2252</a>
 <a href="#2253" id="2253">2253</a>
-<a href="#2254" id="2254">2254</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::{
+<a href="#2254" id="2254">2254</a>
+<a href="#2255" id="2255">2255</a>
+<a href="#2256" id="2256">2256</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::{
     clementine_aggregator_server::ClementineAggregator, verifier_deposit_finalize_params,
     DepositParams, Empty, VerifierDepositFinalizeParams,
 };
@@ -2264,9 +2266,8 @@
 <span class="kw">use </span><span class="kw">crate</span>::bitvm_client::SECP;
 <span class="kw">use </span><span class="kw">crate</span>::builder::sighash::SignatureInfo;
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::{
-    combine_emergency_stop_txhandler, create_emergency_stop_txhandler,
-    create_move_to_vault_txhandler, create_optimistic_payout_txhandler, Signed, TransactionType,
-    TxHandler,
+    create_emergency_stop_txhandler, create_move_to_vault_txhandler,
+    create_optimistic_payout_txhandler, Signed, TransactionType, TxHandler,
 };
 <span class="kw">use </span><span class="kw">crate</span>::config::BridgeConfig;
 <span class="kw">use </span><span class="kw">crate</span>::constants::{
@@ -2305,8 +2306,7 @@
 <span class="kw">use </span>tokio::sync::mpsc::{channel, Receiver, Sender};
 <span class="kw">use </span>tonic::{async_trait, Request, Response, Status, Streaming};
 
-<span class="attr">#[derive(Debug, Clone)]
-</span><span class="kw">struct </span>AggNonceQueueItem {
+<span class="kw">struct </span>AggNonceQueueItem {
     agg_nonce: AggregatedNonce,
     sighash: TapSighash,
 }
@@ -2980,23 +2980,20 @@
 
         <span class="macro">tracing::debug!</span>(<span class="string">"Move to vault tx id: {}"</span>, move_to_vault_txid.to_string());
 
+        <span class="kw">let </span>emergency_stop_pubkey = <span class="self">self
+            </span>.config
+            .emergency_stop_encryption_public_key
+            .ok_or_else(|| <span class="macro">eyre::eyre!</span>(<span class="string">"Emergency stop encryption public key is not set"</span>))<span class="question-mark">?</span>;
+        <span class="kw">let </span>encrypted_emergency_stop_tx = <span class="kw">crate</span>::encryption::encrypt_bytes(
+            emergency_stop_pubkey,
+            <span class="kw-2">&amp;</span>bitcoin::consensus::serialize(<span class="kw-2">&amp;</span>emergency_stop_tx),
+        )<span class="question-mark">?</span>;
+
         <span class="self">self</span>.db
-            .set_signed_emergency_stop_tx(<span class="prelude-val">None</span>, move_to_vault_txid, emergency_stop_tx)
+            .set_signed_emergency_stop_tx(<span class="prelude-val">None</span>, move_to_vault_txid, <span class="kw-2">&amp;</span>encrypted_emergency_stop_tx)
             .<span class="kw">await</span><span class="question-mark">?</span>;
 
         <span class="prelude-val">Ok</span>(())
-    }
-
-    <span class="kw">pub async fn </span>generate_combined_emergency_stop_tx(
-        <span class="kw-2">&amp;</span><span class="self">self</span>,
-        move_txids: Vec&lt;Txid&gt;,
-        add_anchor: bool,
-    ) -&gt; <span class="prelude-ty">Result</span>&lt;bitcoin::Transaction, BridgeError&gt; {
-        <span class="kw">let </span>stop_txs = <span class="self">self</span>.db.get_emergency_stop_txs(<span class="prelude-val">None</span>, move_txids).<span class="kw">await</span><span class="question-mark">?</span>;
-        <span class="kw">let </span>combined_stop_tx =
-            combine_emergency_stop_txhandler(stop_txs, add_anchor, <span class="self">self</span>.config.protocol_paramset());
-
-        <span class="prelude-val">Ok</span>(combined_stop_tx)
     }
 
     <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
@@ -3777,10 +3774,10 @@
         }))
     }
 
-    <span class="kw">async fn </span>internal_create_emergency_stop_tx(
+    <span class="kw">async fn </span>internal_get_emergency_stop_tx(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
-        request: Request&lt;clementine::CreateEmergencyStopTxRequest&gt;,
-    ) -&gt; <span class="prelude-ty">Result</span>&lt;Response&lt;clementine::SignedTxWithType&gt;, Status&gt; {
+        request: Request&lt;clementine::GetEmergencyStopTxRequest&gt;,
+    ) -&gt; <span class="prelude-ty">Result</span>&lt;Response&lt;clementine::GetEmergencyStopTxResponse&gt;, Status&gt; {
         <span class="kw">let </span>inner_request = request.into_inner();
         <span class="kw">let </span>txids: Vec&lt;Txid&gt; = inner_request
             .txids
@@ -3792,15 +3789,14 @@
             })
             .collect::&lt;<span class="prelude-ty">Result</span>&lt;Vec&lt;<span class="kw">_</span>&gt;, <span class="kw">_</span>&gt;&gt;()<span class="question-mark">?</span>;
 
-        <span class="kw">let </span>add_anchor = inner_request.add_anchor;
+        <span class="kw">let </span>emergency_stop_txs = <span class="self">self</span>.db.get_emergency_stop_txs(<span class="prelude-val">None</span>, txids).<span class="kw">await</span><span class="question-mark">?</span>;
 
-        <span class="kw">let </span>combined_stop_tx = <span class="self">self
-            </span>.generate_combined_emergency_stop_tx(txids, add_anchor)
-            .<span class="kw">await</span><span class="question-mark">?</span>;
+        <span class="kw">let </span>(txids, encrypted_emergency_stop_txs): (Vec&lt;Txid&gt;, Vec&lt;Vec&lt;u8&gt;&gt;) =
+            emergency_stop_txs.into_iter().unzip();
 
-        <span class="prelude-val">Ok</span>(Response::new(clementine::SignedTxWithType {
-            transaction_type: <span class="prelude-val">Some</span>(TransactionType::EmergencyStop.into()),
-            raw_tx: bitcoin::consensus::serialize(<span class="kw-2">&amp;</span>combined_stop_tx).to_vec(),
+        <span class="prelude-val">Ok</span>(Response::new(clementine::GetEmergencyStopTxResponse {
+            txids: txids.into_iter().map(|txid| txid.into()).collect(),
+            encrypted_emergency_stop_txs,
         }))
     }
 
@@ -4252,30 +4248,38 @@
         <span class="macro">tracing::debug!</span>(<span class="string">"Move txids: {:?}"</span>, move_txids);
 
         <span class="kw">let </span>emergency_txid = aggregator
-            .internal_create_emergency_stop_tx(tonic::Request::new(
-                clementine::CreateEmergencyStopTxRequest {
+            .internal_get_emergency_stop_tx(tonic::Request::new(
+                clementine::GetEmergencyStopTxRequest {
                     txids: move_txids
                         .iter()
                         .map(|txid| clementine::Txid {
                             txid: txid.to_byte_array().to_vec(),
                         })
                         .collect(),
-                    add_anchor: <span class="bool-val">true</span>,
                 },
             ))
             .<span class="kw">await
             </span>.unwrap()
             .into_inner();
 
-        <span class="kw">let </span>raw_tx: bitcoin::Transaction =
-            bitcoin::consensus::deserialize(<span class="kw-2">&amp;</span>emergency_txid.raw_tx).expect(<span class="string">"Failed to deserialize"</span>);
+        <span class="kw">let </span>decryption_priv_key =
+            hex::decode(<span class="string">"a80bc8cf095c2b37d4c6233114e0dd91f43d75de5602466232dbfcc1fc66c542"</span>)
+                .expect(<span class="string">"Failed to parse emergency stop encryption public key"</span>);
+        <span class="kw">let </span>emergency_stop_tx: bitcoin::Transaction = bitcoin::consensus::deserialize(
+            <span class="kw-2">&amp;</span><span class="kw">crate</span>::encryption::decrypt_bytes(
+                <span class="kw-2">&amp;</span>decryption_priv_key,
+                <span class="kw-2">&amp;</span>emergency_txid.encrypted_emergency_stop_txs[<span class="number">0</span>],
+            )
+            .expect(<span class="string">"Failed to decrypt emergency stop tx"</span>),
+        )
+        .expect(<span class="string">"Failed to deserialize"</span>);
 
         rpc.client
-            .send_raw_transaction(<span class="kw-2">&amp;</span>raw_tx)
+            .send_raw_transaction(<span class="kw-2">&amp;</span>emergency_stop_tx)
             .<span class="kw">await
             </span>.expect(<span class="string">"Failed to send emergency stop tx"</span>);
 
-        <span class="kw">let </span>emergency_stop_txid = raw_tx.compute_txid();
+        <span class="kw">let </span>emergency_stop_txid = emergency_stop_tx.compute_txid();
         rpc.mine_blocks(<span class="number">1</span>).<span class="kw">await</span>.unwrap();
 
         <span class="kw">let </span>_emergencty_tx = poll_get(

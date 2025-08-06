@@ -145,13 +145,20 @@
 <a href="#144" id="144">144</a>
 <a href="#145" id="145">145</a>
 <a href="#146" id="146">146</a>
-<a href="#147" id="147">147</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Verifier Related Database Operations
+<a href="#147" id="147">147</a>
+<a href="#148" id="148">148</a>
+<a href="#149" id="149">149</a>
+<a href="#150" id="150">150</a>
+<a href="#151" id="151">151</a>
+<a href="#152" id="152">152</a>
+<a href="#153" id="153">153</a>
+<a href="#154" id="154">154</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Verifier Related Database Operations
 //!
 //! This module includes database functions which are mainly used by a verifier.
 
 </span><span class="kw">use super</span>::{wrapper::TxidDB, Database, DatabaseTransaction};
 <span class="kw">use crate</span>::{errors::BridgeError, execute_query_with_tx};
-<span class="kw">use </span>bitcoin::{consensus, Transaction, Txid};
+<span class="kw">use </span>bitcoin::Txid;
 <span class="kw">use </span>eyre;
 <span class="kw">use </span>sqlx::QueryBuilder;
 
@@ -161,14 +168,14 @@
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
         move_txid: <span class="kw-2">&amp;</span>Txid,
-        emergency_stop_tx: <span class="kw-2">&amp;</span>Transaction,
+        encrypted_emergency_stop_tx: <span class="kw-2">&amp;</span>[u8],
     ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
         <span class="kw">let </span>query = sqlx::query(
             <span class="string">"INSERT INTO emergency_stop_sigs (move_txid, emergency_stop_tx) VALUES ($1, $2)
              ON CONFLICT (move_txid) DO NOTHING;"</span>,
         )
         .bind(TxidDB(<span class="kw-2">*</span>move_txid))
-        .bind(consensus::serialize(emergency_stop_tx));
+        .bind(encrypted_emergency_stop_tx);
 
         <span class="macro">execute_query_with_tx!</span>(<span class="self">self</span>.connection, tx, query, execute)<span class="question-mark">?</span>;
 
@@ -180,7 +187,7 @@
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
         move_txids: Vec&lt;Txid&gt;,
-    ) -&gt; <span class="prelude-ty">Result</span>&lt;Vec&lt;(Txid, Transaction)&gt;, BridgeError&gt; {
+    ) -&gt; <span class="prelude-ty">Result</span>&lt;Vec&lt;(Txid, Vec&lt;u8&gt;)&gt;, BridgeError&gt; {
         <span class="kw">if </span>move_txids.is_empty() {
             <span class="kw">return </span><span class="prelude-val">Ok</span>(Vec::new());
         }
@@ -202,11 +209,7 @@
 
         <span class="prelude-val">Ok</span>(results
             .into_iter()
-            .map(|(txid, tx_data)| {
-                <span class="kw">let </span>tx = consensus::deserialize(<span class="kw-2">&amp;</span>tx_data)
-                    .map_err(|e| <span class="macro">eyre::eyre!</span>(<span class="string">"Failed to deserialize emergency stop tx: {e}"</span>))<span class="question-mark">?</span>;
-                <span class="prelude-val">Ok</span>((txid.<span class="number">0</span>, tx))
-            })
+            .map(|(txid, tx_data)| <span class="prelude-val">Ok</span>((txid.<span class="number">0</span>, tx_data)))
             .collect::&lt;<span class="prelude-ty">Result</span>&lt;<span class="kw">_</span>, eyre::Report&gt;&gt;()<span class="question-mark">?</span>)
     }
 }
@@ -218,8 +221,11 @@
         builder::transaction::{TransactionType, TxHandlerBuilder},
         test::common::<span class="kw-2">*</span>,
     };
-    <span class="kw">use </span>bitcoin::{hashes::Hash, Transaction, Txid};
-
+    <span class="kw">use </span>bitcoin::{
+        consensus::{<span class="self">self</span>},
+        hashes::Hash,
+        Transaction, Txid,
+    };
     <span class="kw">fn </span>create_test_transaction() -&gt; Transaction {
         <span class="kw">let </span>tx_handler = TxHandlerBuilder::new(TransactionType::Dummy).finalize();
         tx_handler.get_cached_tx().clone()
@@ -233,7 +239,11 @@
         <span class="kw">let </span>move_txid = Txid::from_byte_array([<span class="number">1u8</span>; <span class="number">32</span>]);
         <span class="kw">let </span>emergency_stop_tx = create_test_transaction();
         database
-            .set_signed_emergency_stop_tx(<span class="prelude-val">None</span>, <span class="kw-2">&amp;</span>move_txid, <span class="kw-2">&amp;</span>emergency_stop_tx)
+            .set_signed_emergency_stop_tx(
+                <span class="prelude-val">None</span>,
+                <span class="kw-2">&amp;</span>move_txid,
+                <span class="kw-2">&amp;</span>consensus::serialize(<span class="kw-2">&amp;</span>emergency_stop_tx),
+            )
             .<span class="kw">await
             </span>.unwrap();
 
@@ -244,7 +254,7 @@
 
         <span class="macro">assert_eq!</span>(results.len(), <span class="number">1</span>);
         <span class="macro">assert_eq!</span>(results[<span class="number">0</span>].<span class="number">0</span>, move_txid);
-        <span class="macro">assert_eq!</span>(results[<span class="number">0</span>].<span class="number">1</span>, emergency_stop_tx);
+        <span class="macro">assert_eq!</span>(results[<span class="number">0</span>].<span class="number">1</span>, consensus::serialize(<span class="kw-2">&amp;</span>emergency_stop_tx));
 
         <span class="comment">// Test getting non-existent tx
         </span><span class="kw">let </span>non_existent_txid = Txid::from_byte_array([<span class="number">2u8</span>; <span class="number">32</span>]);
@@ -258,7 +268,11 @@
         </span><span class="kw">let </span>move_txid2 = Txid::from_byte_array([<span class="number">3u8</span>; <span class="number">32</span>]);
         <span class="kw">let </span>emergency_stop_tx2 = create_test_transaction();
         database
-            .set_signed_emergency_stop_tx(<span class="prelude-val">None</span>, <span class="kw-2">&amp;</span>move_txid2, <span class="kw-2">&amp;</span>emergency_stop_tx2)
+            .set_signed_emergency_stop_tx(
+                <span class="prelude-val">None</span>,
+                <span class="kw-2">&amp;</span>move_txid2,
+                <span class="kw-2">&amp;</span>consensus::serialize(<span class="kw-2">&amp;</span>emergency_stop_tx2),
+            )
             .<span class="kw">await
             </span>.unwrap();
 
@@ -271,14 +285,14 @@
         <span class="kw">let </span><span class="kw-2">mut </span>results = results;
         results.sort_by(|a, b| a.<span class="number">0</span>.cmp(<span class="kw-2">&amp;</span>b.<span class="number">0</span>));
         <span class="macro">assert_eq!</span>(results[<span class="number">0</span>].<span class="number">0</span>, move_txid);
-        <span class="macro">assert_eq!</span>(results[<span class="number">0</span>].<span class="number">1</span>, emergency_stop_tx);
+        <span class="macro">assert_eq!</span>(results[<span class="number">0</span>].<span class="number">1</span>, consensus::serialize(<span class="kw-2">&amp;</span>emergency_stop_tx));
         <span class="macro">assert_eq!</span>(results[<span class="number">1</span>].<span class="number">0</span>, move_txid2);
-        <span class="macro">assert_eq!</span>(results[<span class="number">1</span>].<span class="number">1</span>, emergency_stop_tx2);
+        <span class="macro">assert_eq!</span>(results[<span class="number">1</span>].<span class="number">1</span>, consensus::serialize(<span class="kw-2">&amp;</span>emergency_stop_tx2));
 
         <span class="comment">// Test updating existing tx
         </span><span class="kw">let </span>updated_tx = create_test_transaction();
         database
-            .set_signed_emergency_stop_tx(<span class="prelude-val">None</span>, <span class="kw-2">&amp;</span>move_txid, <span class="kw-2">&amp;</span>updated_tx)
+            .set_signed_emergency_stop_tx(<span class="prelude-val">None</span>, <span class="kw-2">&amp;</span>move_txid, <span class="kw-2">&amp;</span>consensus::serialize(<span class="kw-2">&amp;</span>updated_tx))
             .<span class="kw">await
             </span>.unwrap();
 
@@ -289,7 +303,7 @@
 
         <span class="macro">assert_eq!</span>(results.len(), <span class="number">1</span>);
         <span class="macro">assert_eq!</span>(results[<span class="number">0</span>].<span class="number">0</span>, move_txid);
-        <span class="macro">assert_eq!</span>(results[<span class="number">0</span>].<span class="number">1</span>, updated_tx);
+        <span class="macro">assert_eq!</span>(results[<span class="number">0</span>].<span class="number">1</span>, consensus::serialize(<span class="kw-2">&amp;</span>updated_tx));
     }
 }
 </code></pre></div></section></main></body></html>

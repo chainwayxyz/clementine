@@ -427,7 +427,16 @@
 <a href="#426" id="426">426</a>
 <a href="#427" id="427">427</a>
 <a href="#428" id="428">428</a>
-<a href="#429" id="429">429</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Configuration Options
+<a href="#429" id="429">429</a>
+<a href="#430" id="430">430</a>
+<a href="#431" id="431">431</a>
+<a href="#432" id="432">432</a>
+<a href="#433" id="433">433</a>
+<a href="#434" id="434">434</a>
+<a href="#435" id="435">435</a>
+<a href="#436" id="436">436</a>
+<a href="#437" id="437">437</a>
+<a href="#438" id="438">438</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Configuration Options
 //!
 //! This module defines configuration options.
 //!
@@ -570,6 +579,9 @@
     <span class="doccomment">/// The ECDSA address of the citrea/aggregator that will sign the withdrawal params
     /// after manual verification of the optimistic payout.
     </span><span class="kw">pub </span>opt_payout_verification_address: <span class="prelude-ty">Option</span>&lt;alloy::primitives::Address&gt;,
+
+    <span class="doccomment">/// The X25519 public key that will be used to encrypt the emergency stop message.
+    </span><span class="kw">pub </span>emergency_stop_encryption_public_key: <span class="prelude-ty">Option</span>&lt;[u8; <span class="number">32</span>]&gt;,
 
     <span class="attr">#[cfg(test)]
     #[serde(skip)]
@@ -758,6 +770,12 @@
             opt_payout_verification_address: <span class="prelude-val">Some</span>(
                 alloy::primitives::Address::from_str(<span class="string">"0x242fbec93465ce42b3d7c0e1901824a2697193fd"</span>)
                     .expect(<span class="string">"valid address"</span>),
+            ),
+            emergency_stop_encryption_public_key: <span class="prelude-val">Some</span>(
+                hex::decode(<span class="string">"025d32d10ec7b899df4eeb4d80918b7f0a1f2a28f6af24f71aa2a59c69c0d531"</span>)
+                    .expect(<span class="string">"valid hex"</span>)
+                    .try_into()
+                    .expect(<span class="string">"valid key"</span>),
             ),
 
             telemetry: <span class="prelude-val">Some</span>(TelemetryConfig::default()),
