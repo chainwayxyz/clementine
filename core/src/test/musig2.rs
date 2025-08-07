@@ -156,8 +156,7 @@ async fn key_spend() {
             0,
         )
         .unwrap();
-    rpc.client
-        .send_raw_transaction(tx_details.get_cached_tx())
+    rpc.send_raw_transaction(tx_details.get_cached_tx())
         .await
         .unwrap();
 }
@@ -261,8 +260,7 @@ async fn key_spend_with_script() {
             0,
         )
         .unwrap();
-    rpc.client
-        .send_raw_transaction(tx_details.get_cached_tx())
+    rpc.send_raw_transaction(tx_details.get_cached_tx())
         .await
         .unwrap();
 }
@@ -362,8 +360,7 @@ async fn script_spend() {
 
     rpc.mine_blocks(1).await.unwrap();
 
-    rpc.client
-        .send_raw_transaction(tx_details.get_cached_tx())
+    rpc.send_raw_transaction(tx_details.get_cached_tx())
         .await
         .unwrap();
 }
@@ -572,8 +569,7 @@ async fn key_and_script_spend() {
     rpc.mine_blocks(1).await.unwrap();
 
     // Send the transaction
-    rpc.client
-        .send_raw_transaction(test_txhandler_1.get_cached_tx())
+    rpc.send_raw_transaction(test_txhandler_1.get_cached_tx())
         .await
         .unwrap();
 
@@ -595,8 +591,7 @@ async fn key_and_script_spend() {
     rpc.mine_blocks(1).await.unwrap();
 
     // Send the transaction
-    rpc.client
-        .send_raw_transaction(test_txhandler_2.get_cached_tx())
+    rpc.send_raw_transaction(test_txhandler_2.get_cached_tx())
         .await
         .unwrap();
 }

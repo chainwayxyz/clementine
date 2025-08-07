@@ -95,7 +95,6 @@ async fn main() {
 
             // This also checks if Bitcoin connection is healthy or not.
             let unspents = rpc
-                .client
                 .list_unspent(None, None, None, None, None)
                 .await
                 .expect("Failed to get unspent outputs");

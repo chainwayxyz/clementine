@@ -204,18 +204,15 @@ pub async fn get_citrea_safe_withdraw_params(
         .get_blockhash_of_tx(&withdrawal_dust_utxo.outpoint.txid)
         .await?;
     let prepare_tx_block_height = rpc
-        .client
         .get_block_info(&prepare_tx_blockhash)
         .await
         .wrap_err("Failed to get prepare tx block height")?
         .height;
     let prepare_tx_block_header = rpc
-        .client
         .get_block_header(&prepare_tx_blockhash)
         .await
         .wrap_err("Failed to get prepare tx block header")?;
     let prepare_tx_block = rpc
-        .client
         .get_block(&prepare_tx_blockhash)
         .await
         .wrap_err("Failed to get prepare tx block")?;
@@ -300,15 +297,11 @@ mod tests {
 
         let txid_str = "95fe701dd1fab6677d23e550dd7b7af12c9288ec209acb84bcc06708b8181d6a";
         let txid = Txid::from_str(txid_str).unwrap();
-        let get_raw_transaction_result = rpc
-            .client
-            .get_raw_transaction_info(&txid, None)
-            .await
-            .unwrap();
+        let get_raw_transaction_result = rpc.get_raw_transaction_info(&txid, None).await.unwrap();
         let block_hash = get_raw_transaction_result.blockhash.unwrap();
-        let block = rpc.client.get_block(&block_hash).await.unwrap();
-        let block_info = rpc.client.get_block_info(&block_hash).await.unwrap();
-        let tx = rpc.client.get_raw_transaction(&txid, None).await.unwrap();
+        let block = rpc.get_block(&block_hash).await.unwrap();
+        let block_info = rpc.get_block_info(&block_hash).await.unwrap();
+        let tx = rpc.get_raw_transaction(&txid, None).await.unwrap();
         println!(
             "Raw tx: {:?}",
             hex::encode(bitcoin::consensus::serialize(&tx))

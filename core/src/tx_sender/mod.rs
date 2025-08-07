@@ -162,7 +162,6 @@ impl TxSender {
 
                     let fee_estimate = self
                         .rpc
-                        .client
                         .estimate_smart_fee(1, None)
                         .await
                         .wrap_err("Failed to estimate smart fee using Bitcoin Core RPC")?;
@@ -421,7 +420,7 @@ impl TxSender {
         tx_metadata: Option<TxMetadata>,
     ) -> Result<()> {
         tracing::debug!(target: "ci", "Sending no funding tx, raw tx: {:?}", hex::encode(bitcoin::consensus::serialize(&tx)));
-        match self.rpc.client.send_raw_transaction(&tx).await {
+        match self.rpc.send_raw_transaction(&tx).await {
             Ok(sent_txid) => {
                 tracing::debug!(
                     try_to_send_id,
@@ -713,11 +712,7 @@ mod tests {
             async || {
                 rpc.mine_blocks(1).await.unwrap();
 
-                match rpc
-                    .client
-                    .get_raw_transaction_info(&tx.compute_txid(), None)
-                    .await
-                {
+                match rpc.get_raw_transaction_info(&tx.compute_txid(), None).await {
                     Ok(tx_result) => {
                         if let Some(conf) = tx_result.confirmations {
                             return Ok(conf > 0);
@@ -823,13 +818,13 @@ mod tests {
             .unwrap();
 
         rpc.mine_blocks(1).await.unwrap();
-        let mempool_info = rpc.client.get_mempool_info().await.unwrap();
+        let mempool_info = rpc.get_mempool_info().await.unwrap();
         tracing::info!("Mempool info: {:?}", mempool_info);
 
         let will_fail_tx = will_fail_handler.get_cached_tx();
 
         if mempool_info.mempool_min_fee.to_sat() > 0 {
-            assert!(rpc.client.send_raw_transaction(will_fail_tx).await.is_err());
+            assert!(rpc.send_raw_transaction(will_fail_tx).await.is_err());
         }
 
         // Calculate and send with fee.
@@ -859,8 +854,7 @@ mod tests {
 
         rpc.mine_blocks(1).await.unwrap();
 
-        rpc.client
-            .send_raw_transaction(will_successful_handler.get_cached_tx())
+        rpc.send_raw_transaction(will_successful_handler.get_cached_tx())
             .await
             .unwrap();
     }

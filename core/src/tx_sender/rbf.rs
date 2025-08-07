@@ -79,7 +79,6 @@ impl TxSender {
         for (idx, input) in tx.input.iter().enumerate() {
             let utxo = self
                 .rpc
-                .client
                 .get_tx_out(
                     &input.previous_output.txid,
                     input.previous_output.vout,
@@ -190,7 +189,6 @@ impl TxSender {
         let outputs = WalletCreateFundedPsbtOutputs(outputs);
 
         self.rpc
-            .client
             .wallet_create_funded_psbt(
                 &tx.input
                     .iter()
@@ -377,7 +375,7 @@ impl TxSender {
     ///
     /// # Logic:
     /// 1.  **Check for Existing RBF Tx:** Retrieves `last_rbf_txid` for the `try_to_send_id`.
-    /// 2.  **Bump Existing Tx:** If `psbt_bump_fee` exists, it calls `rpc.client.psbt_bump_fee`.
+    /// 2.  **Bump Existing Tx:** If `psbt_bump_fee` exists, it calls `rpc.psbt_bump_fee`.
     ///     - This internally uses the Bitcoin Core `psbtbumpfee` RPC.
     ///     - We then sign the inputs that we can using our Actor and have the wallet sign the rest.
     ///
@@ -451,7 +449,6 @@ impl TxSender {
 
             let bump_result = self
                 .rpc
-                .client
                 .psbt_bump_fee(&last_rbf_txid, Some(&psbt_bump_opts))
                 .await;
 
@@ -515,7 +512,6 @@ impl TxSender {
             // We rely on the node's wallet here because psbt_bump_fee might add inputs from it.
             let process_result = self
                 .rpc
-                .client
                 .wallet_process_psbt(&bumped_psbt, Some(true), None, None) // sign=true
                 .await;
 
@@ -546,7 +542,6 @@ impl TxSender {
             // Finalize the PSBT
             let finalize_result = self
                 .rpc
-                .client
                 .finalize_psbt(&processed_psbt, None) // extract=true by default
                 .await;
 
@@ -603,7 +598,7 @@ impl TxSender {
             let bumped_txid = final_tx.compute_txid();
 
             // Broadcast the finalized transaction
-            let sent_txid = match self.rpc.client.send_raw_transaction(&final_tx).await {
+            let sent_txid = match self.rpc.send_raw_transaction(&final_tx).await {
                 Ok(sent_txid) if sent_txid == bumped_txid => sent_txid,
                 Ok(other_txid) => {
                     log_error_for_tx!(
@@ -724,7 +719,6 @@ impl TxSender {
             // 2. Process the PSBT (let the wallet sign its inputs)
             let process_result = self
                 .rpc
-                .client
                 .wallet_process_psbt(&psbt, Some(true), None, None)
                 .await
                 .map_err(|err| {
@@ -787,7 +781,7 @@ impl TxSender {
             let initial_txid = final_tx.compute_txid();
 
             // 4. Broadcast the finalized transaction
-            let sent_txid = match self.rpc.client.send_raw_transaction(&final_tx).await {
+            let sent_txid = match self.rpc.send_raw_transaction(&final_tx).await {
                 Ok(sent_txid) => {
                     if sent_txid != initial_txid {
                         let err_msg = format!(
@@ -1410,10 +1404,7 @@ pub mod tests {
             async || {
                 rpc.mine_blocks(1).await.unwrap();
 
-                let tx_result = rpc
-                    .client
-                    .get_raw_transaction_info(&tx.compute_txid(), None)
-                    .await;
+                let tx_result = rpc.get_raw_transaction_info(&tx.compute_txid(), None).await;
 
                 Ok(matches!(tx_result, Ok(GetRawTransactionResult {
                     confirmations: Some(confirmations),

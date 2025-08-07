@@ -290,7 +290,6 @@ where
                     }
                     None => {
                         rpc
-                        .client
                         .get_new_address(Some("OperatorReimbursement"), Some(AddressType::Bech32m))
                         .await
                         .wrap_err("Failed to get new address")?

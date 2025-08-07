@@ -176,7 +176,7 @@ impl TestCase for DisproveTest {
                     vout: UtxoVout::KickoffFinalizer.get_vout(),
                 };
 
-                let disprove_timeout_tx = rpc.client.get_raw_transaction(&txid, None).await?;
+                let disprove_timeout_tx = rpc.get_raw_transaction(&txid, None).await?;
 
                 assert!(
                     disprove_timeout_tx.input[1].previous_output == kickoff_finalizer_out,
@@ -215,7 +215,7 @@ impl TestCase for DisproveTest {
                     vout: UtxoVout::CollateralInRound.get_vout(),
                 };
 
-                let disprove_tx = rpc.client.get_raw_transaction(&txid, None).await?;
+                let disprove_tx = rpc.get_raw_transaction(&txid, None).await?;
 
                 assert!(
                     disprove_tx.input[1].previous_output == burn_connector,

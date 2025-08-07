@@ -1741,10 +1741,7 @@ mod tests {
             async || {
                 rpc.mine_blocks(1).await.unwrap();
 
-                let tx_result = rpc
-                    .client
-                    .get_raw_transaction_info(&movetx_one_txid, None)
-                    .await;
+                let tx_result = rpc.get_raw_transaction_info(&movetx_one_txid, None).await;
 
                 let tx_result = tx_result
                     .inspect_err(|e| {
@@ -1840,10 +1837,7 @@ mod tests {
             async || {
                 rpc.mine_blocks(1).await.unwrap();
 
-                let tx_result = rpc
-                    .client
-                    .get_raw_transaction_info(&movetx_txid, None)
-                    .await;
+                let tx_result = rpc.get_raw_transaction_info(&movetx_txid, None).await;
 
                 let tx_result = tx_result
                     .inspect_err(|e| {
@@ -2015,8 +2009,7 @@ mod tests {
         )
         .expect("Failed to deserialize");
 
-        rpc.client
-            .send_raw_transaction(&emergency_stop_tx)
+        rpc.send_raw_transaction(&emergency_stop_tx)
             .await
             .expect("Failed to send emergency stop tx");
 
@@ -2028,7 +2021,6 @@ mod tests {
                 rpc.mine_blocks(1).await.unwrap();
 
                 let tx_result = rpc
-                    .client
                     .get_raw_transaction_info(&emergency_stop_txid, None)
                     .await;
 

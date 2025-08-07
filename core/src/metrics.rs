@@ -99,7 +99,6 @@ pub struct L1SyncStatus {
 /// Get the current balance of the wallet.
 pub async fn get_wallet_balance(rpc: &ExtendedBitcoinRpc) -> Result<Amount, BridgeError> {
     let balance = rpc
-        .client
         .get_balance(None, None)
         .await
         .wrap_err("Failed to get wallet balance")?;

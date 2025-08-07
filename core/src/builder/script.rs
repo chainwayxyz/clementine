@@ -814,8 +814,7 @@ mod tests {
             .promote()
             .expect("the transaction should be fully signed");
 
-        rpc.client
-            .send_raw_transaction(tx.get_cached_tx())
+        rpc.send_raw_transaction(tx.get_cached_tx())
             .await
             .expect("bitcoin RPC did not accept transaction");
     }
@@ -899,8 +898,7 @@ mod tests {
             .promote()
             .expect("the transaction should be fully signed");
 
-        rpc.client
-            .send_raw_transaction(tx.get_cached_tx())
+        rpc.send_raw_transaction(tx.get_cached_tx())
             .await
             .expect("bitcoin RPC did not accept transaction");
     }
@@ -936,15 +934,13 @@ mod tests {
             .tx_sign_and_fill_sigs(&mut tx, &[], None)
             .expect("should be able to sign timelock");
 
-        rpc.client
-            .send_raw_transaction(tx.get_cached_tx())
+        rpc.send_raw_transaction(tx.get_cached_tx())
             .await
             .expect_err("should not pass without 15 blocks");
 
         rpc.mine_blocks(15).await.expect("failed to mine blocks");
 
-        rpc.client
-            .send_raw_transaction(tx.get_cached_tx())
+        rpc.send_raw_transaction(tx.get_cached_tx())
             .await
             .expect("should pass after 15 blocks");
     }
@@ -985,8 +981,7 @@ mod tests {
             .promote()
             .expect("the transaction should be fully signed");
 
-        rpc.client
-            .send_raw_transaction(final_tx.get_cached_tx())
+        rpc.send_raw_transaction(final_tx.get_cached_tx())
             .await
             .expect("bitcoin RPC did not accept transaction");
     }
@@ -1022,8 +1017,7 @@ mod tests {
             .tx_sign_and_fill_sigs(&mut tx, &[], None)
             .expect("should be able to sign base deposit");
 
-        rpc.client
-            .send_raw_transaction(tx.get_cached_tx())
+        rpc.send_raw_transaction(tx.get_cached_tx())
             .await
             .expect("bitcoin RPC did not accept transaction");
     }
@@ -1059,8 +1053,7 @@ mod tests {
             .tx_sign_and_fill_sigs(&mut tx, &[], None)
             .expect("should be able to sign replacement deposit");
 
-        rpc.client
-            .send_raw_transaction(tx.get_cached_tx())
+        rpc.send_raw_transaction(tx.get_cached_tx())
             .await
             .expect("bitcoin RPC did not accept transaction");
     }
@@ -1163,15 +1156,11 @@ mod tests {
                 .join(",")
         );
 
-        let descriptor_info = rpc.client.get_descriptor_info(&descriptor).await.expect("");
+        let descriptor_info = rpc.get_descriptor_info(&descriptor).await.expect("");
 
         let descriptor = descriptor_info.descriptor;
 
-        let addresses = rpc
-            .client
-            .derive_addresses(&descriptor, None)
-            .await
-            .expect("");
+        let addresses = rpc.derive_addresses(&descriptor, None).await.expect("");
 
         tracing::info!("{:?}", addresses);
 

@@ -221,7 +221,6 @@ pub async fn mine_once_after_in_mempool(
     let tx_name = tx_name.unwrap_or("Unnamed tx");
 
     if rpc
-        .client
         .get_transaction(&txid, None)
         .await
         .is_ok_and(|tx| tx.info.blockhash.is_some())
@@ -236,7 +235,7 @@ pub async fn mine_once_after_in_mempool(
             );
         }
 
-        if rpc.client.get_mempool_entry(&txid).await.is_ok() {
+        if rpc.get_mempool_entry(&txid).await.is_ok() {
             break;
         };
 
@@ -252,7 +251,6 @@ pub async fn mine_once_after_in_mempool(
     rpc.mine_blocks(1).await?;
 
     let tx: bitcoincore_rpc::json::GetRawTransactionResult = rpc
-        .client
         .get_raw_transaction_info(&txid, None)
         .await
         .map_err(|e| {
@@ -277,7 +275,6 @@ pub async fn mine_once_after_in_mempool(
     }
 
     let tx_block_height = rpc
-        .client
         .get_block_info(&tx.blockhash.unwrap())
         .await
         .wrap_err("Failed to get block info")?;
@@ -533,23 +530,19 @@ pub async fn run_single_deposit<C: CitreaClientT>(
 
     // Uncomment below to debug the move tx.
     // let transaction = rpc
-    //     .client
     //     .get_raw_transaction(&move_txid, None)
     //     .await
     //     .expect("a");
     // let tx_info: bitcoincore_rpc::json::GetRawTransactionResult = rpc
-    //     .client
     //     .get_raw_transaction_info(&move_txid, None)
     //     .await
     //     .expect("a");
     // let block: bitcoincore_rpc::json::GetBlockResult = rpc
-    //     .client
     //     .get_block_info(&tx_info.blockhash.unwrap())
     //     .await
     //     .expect("a");
     // let block_height = block.height;
     // let block = rpc
-    //     .client
     //     .get_block(&tx_info.blockhash.unwrap())
     //     .await
     //     .expect("a");
@@ -846,13 +839,13 @@ mod tests {
         .unwrap();
 
         macro_rpc.mine_blocks(1).await.unwrap();
-        let height = macro_rpc.client.get_block_count().await.unwrap();
-        let new_rpc_height = rpc.client.get_block_count().await.unwrap();
+        let height = macro_rpc.get_block_count().await.unwrap();
+        let new_rpc_height = rpc.get_block_count().await.unwrap();
         assert_eq!(height, new_rpc_height);
 
         rpc.mine_blocks(1).await.unwrap();
-        let new_rpc_height = rpc.client.get_block_count().await.unwrap();
-        let height = macro_rpc.client.get_block_count().await.unwrap();
+        let new_rpc_height = rpc.get_block_count().await.unwrap();
+        let height = macro_rpc.get_block_count().await.unwrap();
         assert_eq!(height, new_rpc_height);
     }
 }

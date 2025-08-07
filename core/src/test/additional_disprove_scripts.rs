@@ -186,7 +186,7 @@ impl TestCase for AdditionalDisproveTest {
             vout: UtxoVout::CollateralInRound.get_vout(),
         };
 
-        let add_disprove_tx = rpc.client.get_raw_transaction(&txid, None).await?;
+        let add_disprove_tx = rpc.get_raw_transaction(&txid, None).await?;
 
         assert!(
             add_disprove_tx.input[1].previous_output == burn_connector,

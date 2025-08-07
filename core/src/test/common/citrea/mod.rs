@@ -370,19 +370,10 @@ pub async fn get_tx_information_for_citrea(
     e2e: &CitreaE2EData<'_>,
     txid: Txid,
 ) -> eyre::Result<(Transaction, Block, u64)> {
-    let tx = e2e.rpc.client.get_raw_transaction(&txid, None).await?;
-    let tx_info = e2e.rpc.client.get_raw_transaction_info(&txid, None).await?;
-    let block = e2e
-        .rpc
-        .client
-        .get_block(&tx_info.blockhash.unwrap())
-        .await?;
-    let block_height = e2e
-        .rpc
-        .client
-        .get_block_info(&block.block_hash())
-        .await?
-        .height as u64;
+    let tx = e2e.rpc.get_raw_transaction(&txid, None).await?;
+    let tx_info = e2e.rpc.get_raw_transaction_info(&txid, None).await?;
+    let block = e2e.rpc.get_block(&tx_info.blockhash.unwrap()).await?;
+    let block_height = e2e.rpc.get_block_info(&block.block_hash()).await?.height as u64;
     Ok((tx, block, block_height))
 }
 

@@ -1248,7 +1248,7 @@ mod tests {
         let tx: &Transaction = txhandler.get_cached_tx();
 
         // Use testmempoolaccept to verify the transaction is valid by consensus rules
-        let mempool_accept_result = rpc.client.test_mempool_accept(&[tx]).await.unwrap();
+        let mempool_accept_result = rpc.test_mempool_accept(&[tx]).await.unwrap();
 
         assert!(
             mempool_accept_result[0].allowed.unwrap(),
@@ -1287,7 +1287,7 @@ mod tests {
         let tx: &Transaction = txhandler.get_cached_tx();
 
         // Use testmempoolaccept to verify the transaction is valid by consensus rules
-        let mempool_accept_result = rpc.client.test_mempool_accept(&[tx]).await.unwrap();
+        let mempool_accept_result = rpc.test_mempool_accept(&[tx]).await.unwrap();
 
         assert!(
             mempool_accept_result[0].allowed.unwrap(),

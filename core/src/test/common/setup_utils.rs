@@ -178,7 +178,6 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
 
     // Get and print bitcoind version
     let network_info = client
-        .client
         .get_network_info()
         .await
         .expect("Failed to get network info");
@@ -186,21 +185,18 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
 
     // // Create wallet
     client
-        .client
         .create_wallet("admin", None, None, None, None)
         .await
         .expect("Failed to create wallet");
 
     // Generate blocks
     let address = client
-        .client
         .get_new_address(None, None)
         .await
         .expect("Failed to get new address");
 
     if config.test_params.generate_to_address {
         client
-            .client
             .generate_to_address(201, address.assume_checked_ref())
             .await
             .expect("Failed to generate blocks");
