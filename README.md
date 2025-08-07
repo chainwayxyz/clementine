@@ -8,7 +8,7 @@ The repository includes:
 - A library for bridge operator, verifiers, aggregator and watchtower
 - Circuits that will be optimistically verified with BitVM
 
-Audit reports for Clementine are present in [audits](audits/) directory.
+Audit reports for Clementine are present in [audits/](audits/) directory.
 
 > [!WARNING]
 >

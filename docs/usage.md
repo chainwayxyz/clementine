@@ -123,7 +123,7 @@ Clementine supports two runtime primary configuration methods:
 
 Running the binary as a verifier, aggregator, or operator requires a
 configuration file. An example configuration file is located at
-[`core/src/test/data/bridge_config.toml`](core/src/test/data/bridge_config.toml) and can
+[`core/src/test/data/bridge_config.toml`](../core/src/test/data/bridge_config.toml) and can
 be taken as reference. Please copy that configuration file to another location
 and modify fields to your local configuration.
 
@@ -253,9 +253,9 @@ locally built with:
 docker build -f scripts/docker/Dockerfile -t clementine:latest .
 ```
 
-Also, there are multiple Docker compose files located at [scripts/docker/](scripts/docker/)
+Also, there are multiple Docker compose files located at [scripts/docker/](../scripts/docker/)
 which can be used to start Bitcoin, PostgreSQL, Citrea and Clementine. Config
-files for these compose files can be found at [scripts/docker/configs/](scripts/docker/configs/).
+files for these compose files can be found at [scripts/docker/configs/](../scripts/docker/configs/).
 They are configured for a typical deployment and needs modification before deployment.
 **Please note that**, apart from regtest, new wallet that is created won't have
 any funds and users are responsible for configuring their own address.
@@ -283,7 +283,7 @@ cargo test_integration
 
 ## Helper Scripts
 
-There are handful amount of scripts in [scripts](scripts) directory. Most of
+There are handful amount of scripts in [scripts/](../scripts/) directory. Most of
 them are for testing but still can be used for setting up the environment. They
 can change quite frequently. So, please check for useful ones.
 
