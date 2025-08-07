@@ -21,7 +21,7 @@ should ideally share the same database. Typical entities are:
 - Aggregator entity
   - Runs both an aggregator and a verifier service
 
-## Setup
+## Prerequisites
 
 Before compiling Clementine:
 
@@ -50,17 +50,65 @@ Before compiling Clementine:
 Before running Clementine:
 
 1. Install and configure a Bitcoin node (at least v29.0)
-2. Install and configure PostgreSQL
-3. Set `RUST_MIN_STACK` to at least 33554432
+2. Install and configure PostgreSQL. Using docker:
 
    ```sh
-   # In *nix systems:
+   docker run --name clementine-test-db \
+   -e POSTGRES_USER=clementine \
+   -e POSTGRES_PASSWORD=clementine \
+   -e POSTGRES_DB=clementine \
+   -p 5432:5432 \
+   --restart always \
+   -d postgres:15 \
+   bash -c "exec docker-entrypoint.sh postgres -c 'max_connections=1000'"
+   ```
+
+3. Install RISC Zero toolchain:
+
+   ```sh
+   cargo install cargo-risczero
+   ```
+
+4. [Optional] TLS certificates required to start and connect to a Clementine
+   server. For tests, these are automatically generated, if not present. Please
+   check [RPC Authentication](#rpc-authentication) and [Security Considerations](#security-considerations)
+   sections when generating certificates for a deployment.
+
+   ```sh
+   ./scripts/generate_certs.sh
+   ```
+
+5. Set `RISC0_DEV_MODE` environment variable if tests are going to be run or
+   deployment that requires it:
+
+   ```sh
+   export RISC0_DEV_MODE=1
+   ```
+
+6. [Optional] Download pre-generated BitVM cache. If not downloaded, it will be
+   generated automatically.
+
+   ```sh
+   wget https://static.testnet.citrea.xyz/common/bitvm_cache_v3.bin -O bitvm_cache.bin
+   wget https://static.testnet.citrea.xyz/common/bitvm_cache_dev.bin -O bitvm_cache_dev.bin
+   export BITVM_CACHE_PATH=/path/to/bitvm_cache.bin # If RISC0_DEV_MODE is not set
+   export BITVM_CACHE_PATH=/path/to/bitvm_cache_dev.bin # If RISC0_DEV_MODE is set
+   ```
+
+7. Set `RUST_MIN_STACK` environment variable to at least `33554432`
+
+   ```sh
+   # On Unix-like systems:
    export RUST_MIN_STACK=33554432
    ```
 
 ## Configure Clementine
 
-Clementine can be configured to enable automation at build-time via the `automation` feature. The automation feature enables the State Manager and Transaction Sender which automatically fulfills the duties of verifier/operator/aggregator entities. It also enables automatic sending and management of transactions to the Bitcoin network via Transaction Sender.
+Clementine can be configured to enable automation at build-time via the
+`automation` feature. The automation feature enables the State Manager and
+Transaction Sender which automatically fulfills the duties of
+verifier/operator/aggregator entities. It also enables automatic sending and
+management of transactions to the Bitcoin network via Transaction Sender.
 
 ```bash
 cargo build --release --features automation
@@ -106,10 +154,14 @@ You can mix these approaches - for example, reading main configuration from a fi
 
 ## RPC Authentication
 
-Clementine uses mutual TLS (mTLS) to secure gRPC communications between entities and to authenticate clients. Client certificates are verified and filtered by the verifier/operator to ensure that:
+Clementine uses mutual TLS (mTLS) to secure gRPC communications between entities
+and to authenticate clients. Client certificates are verified and filtered by
+the verifier/operator to ensure that:
 
-1. Verifier/Operator methods can only be called by the aggregator (using aggregator's client certificate `aggregator_cert_path`)
-2. Internal methods can only be called by the entity's own client certificate (using the entity's client certificate `client_cert_path`)
+1. Verifier/Operator methods can only be called by the aggregator (using
+   aggregator's client certificate `aggregator_cert_path`)
+2. Internal methods can only be called by the entity's own client certificate
+   (using the entity's client certificate `client_cert_path`)
 
 The aggregator does not enforce client certificates but does use TLS for encryption.
 
@@ -145,17 +197,6 @@ certs/
 
 > [!NOTE]
 > For production use, you should use certificates signed by a trusted CA rather than self-signed ones.
-
-### BitVM Cache
-
-BitVM Cache will be generated, if not present. Generation can be skipped with
-downloading pre-generated files and setting the environment variable:
-
-```sh
-wget https://static.testnet.citrea.xyz/common/bitvm_cache_v3.bin -O bitvm_cache.bin
-wget https://static.testnet.citrea.xyz/common/bitvm_cache_dev.bin -O bitvm_cache_dev.bin
-export BITVM_CACHE_PATH=/path/to/bitvm_cache.bin
-```
 
 ## Starting a Server
 
@@ -223,3 +264,50 @@ any funds and users are responsible for configuring their own address.
 docker compose -f scripts/docker/docker-compose.verifier.testnet4.yml up
 docker compose -f scripts/docker/docker-compose.full.regtest.yml up
 ```
+
+## Running Tests
+
+To run all tests:
+
+```sh
+cargo test --all-features
+```
+
+Also, due to the test directory hierarchy, unit and integration tests can be
+run separately:
+
+```sh
+cargo test_unit
+cargo test_integration
+```
+
+## Helper Scripts
+
+There are handful amount of scripts in [scripts](scripts) directory. Most of
+them are for testing but still can be used for setting up the environment. They
+can change quite frequently. So, please check for useful ones.
+
+Each script should have a name and comment inside that explain its purpose.
+
+## Debugging Tokio Tasks (`tokio-console`)
+
+To debug tokio tasks, you can uncomment the `console-subscriber` dependency in `Cargo.toml` and the `console_subscriber::init();` line in `src/utils.rs`. Then, rebuild the project with `cargo build_console` which is an alias defined with the necessary flags.
+
+```sh
+cargo build_console
+```
+
+After running Clementine, you can access the console by running the following command:
+
+```sh
+tokio-console
+```
+
+## Security Considerations
+
+### TLS Certificates
+
+- Keep private keys (\*.key) secure and don't commit them to version control
+- In production, use properly signed certificates from a trusted CA
+- Rotate certificates regularly
+- Consider using distinct client certificates for different clients/services
