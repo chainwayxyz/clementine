@@ -25,7 +25,7 @@ use tonic::Request;
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
-    /// The URL of the gRPC service
+    /// The URL of the service
     #[arg(short, long)]
     node_url: String,
 
@@ -49,6 +49,12 @@ enum Commands {
     Aggregator {
         #[command(subcommand)]
         command: AggregatorCommands,
+    },
+    /// Commands for interacting with Bitcoin only
+    /// Give Bitcoin RPC URL as node-url
+    Bitcoin {
+        #[command(subcommand)]
+        command: BitcoinCommands,
     },
 }
 
@@ -154,21 +160,7 @@ enum AggregatorCommands {
         #[arg(long)]
         bitcoin_rpc_password: String,
     },
-    /// Send a transaction with CPFP package
-    SendTxWithCpfp {
-        #[arg(long)]
-        raw_tx: String,
-        #[arg(long)]
-        fee_payer_address: Option<String>,
-        #[arg(long)]
-        fee_rate: Option<f64>,
-        #[arg(long)]
-        bitcoin_rpc_url: String,
-        #[arg(long)]
-        bitcoin_rpc_user: String,
-        #[arg(long)]
-        bitcoin_rpc_password: String,
-    },
+    /// Sign a replacement deposit
     NewReplacementDeposit {
         #[arg(long)]
         deposit_outpoint_txid: String,
@@ -231,6 +223,23 @@ enum AggregatorCommands {
     },
     /// Get vergen build information
     Vergen,
+}
+
+#[derive(Subcommand)]
+enum BitcoinCommands {
+    /// Send a transaction with CPFP package
+    SendTxWithCpfp {
+        #[arg(long)]
+        raw_tx: String,
+        #[arg(long)]
+        fee_payer_address: Option<String>,
+        #[arg(long)]
+        fee_rate: Option<f64>,
+        #[arg(long)]
+        bitcoin_rpc_user: String,
+        #[arg(long)]
+        bitcoin_rpc_password: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -397,14 +406,38 @@ fn _get_block_merkle_proof(
     Ok((txid_index, witness_idx_path.into_iter().flatten().collect()))
 }
 
+fn get_path_from_env_or_default(env_var: &str, default: &str) -> PathBuf {
+    let path = std::env::var(env_var);
+    let path = match path {
+        Ok(path) => {
+            println!(
+                "Using cert path from environment variable {} : {}",
+                env_var, path
+            );
+            path
+        }
+        Err(_) => {
+            println!("Warning: {} is not set, using default cert path: {}.\nIf this path is incorrect, please set the environment variable {} to the correct path or call the binary from the correct directory, or any aggregator/operator/verifier command may not work.", env_var, default, env_var);
+            default.to_string()
+        }
+    };
+    PathBuf::from(path)
+}
+
 // Create a minimal config with default TLS paths
 fn create_minimal_config() -> BridgeConfig {
     BridgeConfig {
-        server_cert_path: PathBuf::from("certs/server/server.pem"),
-        server_key_path: PathBuf::from("certs/server/server.key"),
-        ca_cert_path: PathBuf::from("certs/ca/ca.pem"),
-        client_cert_path: PathBuf::from("certs/client/client.pem"),
-        client_key_path: PathBuf::from("certs/client/client.key"),
+        server_cert_path: get_path_from_env_or_default(
+            "SERVER_CERT_PATH",
+            "certs/server/server.pem",
+        ),
+        server_key_path: get_path_from_env_or_default("SERVER_KEY_PATH", "certs/server/server.key"),
+        ca_cert_path: get_path_from_env_or_default("CA_CERT_PATH", "certs/ca/ca.pem"),
+        client_cert_path: get_path_from_env_or_default(
+            "CLIENT_CERT_PATH",
+            "certs/client/client.pem",
+        ),
+        client_key_path: get_path_from_env_or_default("CLIENT_KEY_PATH", "certs/client/client.key"),
         client_verification: true,
         ..Default::default()
     }
@@ -799,209 +832,6 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             println!(
                 "bitcoin-cli -regtest -rpcport=18443 -rpcuser=admin -rpcpassword=admin -generate 1"
             );
-        }
-        AggregatorCommands::SendTxWithCpfp {
-            raw_tx,
-            fee_payer_address,
-            fee_rate,
-            bitcoin_rpc_url,
-            bitcoin_rpc_user,
-            bitcoin_rpc_password,
-        } => {
-            let tx_hex = hex::decode(raw_tx).expect("Failed to decode transaction");
-            let tx: bitcoin::Transaction = bitcoin::consensus::deserialize(&tx_hex)
-                .expect("Failed to deserialize transaction");
-
-            println!("Transaction created: {}", tx.compute_txid());
-            println!("Raw transaction: {}", hex::encode(tx_hex));
-
-            // Find P2A anchor output (script: 51024e73)
-            let p2a_vout = tx
-                .output
-                .iter()
-                .position(|output| {
-                    output.script_pubkey == ScriptBuf::from_hex("51024e73").expect("valid script")
-                })
-                .expect("P2A anchor output not found in transaction");
-
-            let p2a_txout = tx.output[p2a_vout].clone();
-
-            println!("Found P2A anchor output at vout: {}", p2a_vout);
-
-            // Connect to Bitcoin RPC
-            use bitcoincore_rpc::{Auth, Client, RpcApi};
-            let rpc = Client::new(
-                &bitcoin_rpc_url,
-                Auth::UserPass(bitcoin_rpc_user, bitcoin_rpc_password),
-            )
-            .await
-            .expect("Failed to connect to Bitcoin RPC");
-
-            if fee_payer_address.is_none() {
-                let temp_address = rpc
-                    .get_new_address(
-                        Some("fee_payer_address"),
-                        Some(bitcoincore_rpc::json::AddressType::Bech32m),
-                    )
-                    .await
-                    .expect("Failed to get new address");
-                println!(
-                    "You haven't provided a fee payer address, so a new one was generated: {}",
-                    temp_address.assume_checked()
-                );
-                println!("Please use this address for the fee payer in the next command");
-                return;
-            }
-
-            let fee_payer_address = bitcoin::Address::from_str(
-                &fee_payer_address.expect("Fee payer address is required"),
-            )
-            .expect("Failed to parse fee payer address")
-            .assume_checked();
-
-            let fee_rate_sat_vb = fee_rate.unwrap_or(10.0) as u64;
-
-            // Calculate package fee requirements
-            let parent_weight = tx.weight();
-            let estimated_child_weight = bitcoin::Weight::from_wu(500);
-            let total_weight = parent_weight + estimated_child_weight;
-            let required_fee_sats =
-                (total_weight.to_wu() as f64 * fee_rate_sat_vb as f64 / 4.0) as u64;
-            let required_fee = bitcoin::Amount::from_sat(required_fee_sats);
-
-            println!(
-                "Parent weight: {}, estimated total: {}, required fee: {} sats",
-                parent_weight,
-                total_weight,
-                required_fee.to_sat()
-            );
-
-            let unspent = rpc
-                .list_unspent(
-                    Some(1),
-                    Some(999999999),
-                    Some(&[&fee_payer_address.clone()]),
-                    None,
-                    None,
-                )
-                .await
-                .expect("Failed to list unspent outputs");
-
-            if unspent.is_empty() {
-                let unspent = rpc
-                    .list_unspent(None, None, Some(&[&fee_payer_address.clone()]), None, None)
-                    .await
-                    .expect("Failed to list unspent outputs");
-                if unspent.is_empty() {
-                    println!("No unspent outputs available for fee payment.");
-                    println!("Please send some funds to the fee payer address.");
-                    println!("Fee payer address: {}", fee_payer_address);
-                } else {
-                    println!("Unspent outputs: {:?}", unspent);
-                    println!("Please wait for them to confirm.");
-                }
-                return;
-            }
-
-            let fee_payer_utxo = unspent
-                .iter()
-                .find(|utxo| utxo.amount > required_fee)
-                .unwrap_or_else(|| {
-                    panic!(
-                        "No UTXO found with enough balance for fee payment, required fee is: {}",
-                        required_fee
-                    )
-                });
-
-            // Create child transaction
-            use bitcoin::{transaction::Version, OutPoint, Sequence, TxIn, TxOut};
-
-            let child_input = TxIn {
-                previous_output: OutPoint {
-                    txid: tx.compute_txid(),
-                    vout: p2a_vout as u32,
-                },
-                script_sig: bitcoin::ScriptBuf::new(),
-                sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
-                witness: bitcoin::Witness::new(),
-            };
-
-            let fee_payer_input = TxIn {
-                previous_output: OutPoint {
-                    txid: fee_payer_utxo.txid,
-                    vout: fee_payer_utxo.vout,
-                },
-                script_sig: bitcoin::ScriptBuf::new(),
-                sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
-                witness: bitcoin::Witness::new(),
-            };
-
-            let total_input_value = bitcoin::Amount::from_sat(240) + fee_payer_utxo.amount;
-            let change_amount = total_input_value
-                .checked_sub(required_fee)
-                .expect("Insufficient funds for required fee");
-
-            let child_output = TxOut {
-                value: change_amount,
-                script_pubkey: fee_payer_address.script_pubkey(),
-            };
-
-            let child_input_utxo = SignRawTransactionInput {
-                txid: child_input.previous_output.txid,
-                vout: child_input.previous_output.vout,
-                script_pub_key: p2a_txout.script_pubkey,
-                redeem_script: None,
-                amount: Some(p2a_txout.value),
-            };
-
-            let child_tx = bitcoin::Transaction {
-                version: Version::non_standard(3),
-                lock_time: bitcoin::absolute::LockTime::ZERO,
-                input: vec![child_input, fee_payer_input],
-                output: vec![child_output],
-            };
-
-            let signed_tx = rpc
-                .sign_raw_transaction_with_wallet(&child_tx, Some(&[child_input_utxo]), None)
-                .await
-                .expect("Failed to sign child transaction");
-
-            let signed_child_tx = signed_tx
-                .transaction()
-                .expect("Failed to get transaction from sign_raw_transaction_with_wallet");
-
-            println!(
-                "Child transaction signed: {}",
-                signed_child_tx.compute_txid()
-            );
-
-            // Submit CPFP package
-            let package = vec![&tx, &signed_child_tx];
-            println!("Submitting CPFP package");
-
-            match rpc
-                .submit_package(&package, Some(bitcoin::Amount::ZERO), None)
-                .await
-            {
-                Ok(result) => {
-                    println!("CPFP package submitted successfully");
-                    println!("Package result: {:?}", result);
-                    println!("Parent transaction TXID: {}", tx.compute_txid());
-                    println!("Child transaction TXID: {}", signed_child_tx.compute_txid());
-                }
-                Err(e) => {
-                    println!("Failed to submit CPFP package: {}", e);
-                    println!("Manual submission options:");
-                    println!(
-                        "Parent tx: {}",
-                        hex::encode(bitcoin::consensus::serialize(&tx))
-                    );
-                    println!(
-                        "Child tx: {}",
-                        hex::encode(bitcoin::consensus::serialize(&signed_child_tx))
-                    );
-                }
-            }
         }
         AggregatorCommands::SendMoveTransactionCPFP {
             deposit_outpoint_txid,
@@ -1540,6 +1370,210 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
     }
 }
 
+async fn handle_bitcoin_call(url: String, command: BitcoinCommands) {
+    match command {
+        BitcoinCommands::SendTxWithCpfp {
+            raw_tx,
+            fee_payer_address,
+            fee_rate,
+            bitcoin_rpc_user,
+            bitcoin_rpc_password,
+        } => {
+            let tx_hex = hex::decode(raw_tx).expect("Failed to decode transaction");
+            let tx: bitcoin::Transaction = bitcoin::consensus::deserialize(&tx_hex)
+                .expect("Failed to deserialize transaction");
+
+            println!("Transaction created: {}", tx.compute_txid());
+            println!("Raw transaction: {}", hex::encode(tx_hex));
+
+            // Find P2A anchor output (script: 51024e73)
+            let p2a_vout = tx
+                .output
+                .iter()
+                .position(|output| {
+                    output.script_pubkey == ScriptBuf::from_hex("51024e73").expect("valid script")
+                })
+                .expect("P2A anchor output not found in transaction");
+
+            let p2a_txout = tx.output[p2a_vout].clone();
+
+            println!("Found P2A anchor output at vout: {}", p2a_vout);
+
+            // Connect to Bitcoin RPC
+            use bitcoincore_rpc::{Auth, Client, RpcApi};
+            let rpc = Client::new(&url, Auth::UserPass(bitcoin_rpc_user, bitcoin_rpc_password))
+                .await
+                .expect("Failed to connect to Bitcoin RPC");
+
+            if fee_payer_address.is_none() {
+                let temp_address = rpc
+                    .get_new_address(
+                        Some("fee_payer_address"),
+                        Some(bitcoincore_rpc::json::AddressType::Bech32m),
+                    )
+                    .await
+                    .expect("Failed to get new address");
+                println!(
+                    "You haven't provided a fee payer address, so a new one was generated: {}",
+                    temp_address.assume_checked()
+                );
+                println!("Please use this address for the fee payer in the next command");
+                return;
+            }
+
+            let fee_payer_address = bitcoin::Address::from_str(
+                &fee_payer_address.expect("Fee payer address is required"),
+            )
+            .expect("Failed to parse fee payer address")
+            .assume_checked();
+
+            let fee_rate_sat_vb = fee_rate.unwrap_or(10.0) as u64;
+
+            // Calculate package fee requirements
+            let parent_weight = tx.weight();
+            let estimated_child_weight = bitcoin::Weight::from_wu(500);
+            let total_weight = parent_weight + estimated_child_weight;
+            let required_fee_sats =
+                (total_weight.to_wu() as f64 * fee_rate_sat_vb as f64 / 4.0) as u64;
+            let required_fee = bitcoin::Amount::from_sat(required_fee_sats);
+
+            println!(
+                "Parent weight: {}, estimated total: {}, required fee: {} sats",
+                parent_weight,
+                total_weight,
+                required_fee.to_sat()
+            );
+
+            let unspent = rpc
+                .list_unspent(
+                    Some(1),
+                    Some(999999999),
+                    Some(&[&fee_payer_address.clone()]),
+                    None,
+                    None,
+                )
+                .await
+                .expect("Failed to list unspent outputs");
+
+            if unspent.is_empty() {
+                let unspent = rpc
+                    .list_unspent(None, None, Some(&[&fee_payer_address.clone()]), None, None)
+                    .await
+                    .expect("Failed to list unspent outputs");
+                if unspent.is_empty() {
+                    println!("No unspent outputs available for fee payment.");
+                    println!("Please send some funds to the fee payer address.");
+                    println!("Fee payer address: {}", fee_payer_address);
+                } else {
+                    println!("Unspent outputs: {:?}", unspent);
+                    println!("Please wait for them to confirm.");
+                }
+                return;
+            }
+
+            let fee_payer_utxo = unspent
+                .iter()
+                .find(|utxo| utxo.amount > required_fee)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "No UTXO found with enough balance for fee payment, required fee is: {}",
+                        required_fee
+                    )
+                });
+
+            // Create child transaction
+            use bitcoin::{transaction::Version, OutPoint, Sequence, TxIn, TxOut};
+
+            let child_input = TxIn {
+                previous_output: OutPoint {
+                    txid: tx.compute_txid(),
+                    vout: p2a_vout as u32,
+                },
+                script_sig: bitcoin::ScriptBuf::new(),
+                sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+                witness: bitcoin::Witness::new(),
+            };
+
+            let fee_payer_input = TxIn {
+                previous_output: OutPoint {
+                    txid: fee_payer_utxo.txid,
+                    vout: fee_payer_utxo.vout,
+                },
+                script_sig: bitcoin::ScriptBuf::new(),
+                sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+                witness: bitcoin::Witness::new(),
+            };
+
+            let total_input_value = bitcoin::Amount::from_sat(240) + fee_payer_utxo.amount;
+            let change_amount = total_input_value
+                .checked_sub(required_fee)
+                .expect("Insufficient funds for required fee");
+
+            let child_output = TxOut {
+                value: change_amount,
+                script_pubkey: fee_payer_address.script_pubkey(),
+            };
+
+            let child_input_utxo = SignRawTransactionInput {
+                txid: child_input.previous_output.txid,
+                vout: child_input.previous_output.vout,
+                script_pub_key: p2a_txout.script_pubkey,
+                redeem_script: None,
+                amount: Some(p2a_txout.value),
+            };
+
+            let child_tx = bitcoin::Transaction {
+                version: Version::non_standard(3),
+                lock_time: bitcoin::absolute::LockTime::ZERO,
+                input: vec![child_input, fee_payer_input],
+                output: vec![child_output],
+            };
+
+            let signed_tx = rpc
+                .sign_raw_transaction_with_wallet(&child_tx, Some(&[child_input_utxo]), None)
+                .await
+                .expect("Failed to sign child transaction");
+
+            let signed_child_tx = signed_tx
+                .transaction()
+                .expect("Failed to get transaction from sign_raw_transaction_with_wallet");
+
+            println!(
+                "Child transaction signed: {}",
+                signed_child_tx.compute_txid()
+            );
+
+            // Submit CPFP package
+            let package = vec![&tx, &signed_child_tx];
+            println!("Submitting CPFP package");
+
+            match rpc
+                .submit_package(&package, Some(bitcoin::Amount::ZERO), None)
+                .await
+            {
+                Ok(result) => {
+                    println!("CPFP package submitted successfully");
+                    println!("Package result: {:?}", result);
+                    println!("Parent transaction TXID: {}", tx.compute_txid());
+                    println!("Child transaction TXID: {}", signed_child_tx.compute_txid());
+                }
+                Err(e) => {
+                    println!("Failed to submit CPFP package: {}", e);
+                    println!("Manual submission options:");
+                    println!(
+                        "Parent tx: {}",
+                        hex::encode(bitcoin::consensus::serialize(&tx))
+                    );
+                    println!(
+                        "Child tx: {}",
+                        hex::encode(bitcoin::consensus::serialize(&signed_child_tx))
+                    );
+                }
+            }
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
@@ -1547,21 +1581,6 @@ async fn main() {
     rustls::crypto::ring::default_provider()
         .install_default()
         .expect("Failed to install rustls crypto provider");
-
-    if !std::path::Path::new("certs/ca/ca.pem").exists() {
-        if PathBuf::from(
-            std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is not set"),
-        )
-        .canonicalize()
-        .expect("Failed to canonicalize path")
-            != std::env::current_dir().expect("Failed to get current directory")
-        {
-            println!("Error: CA certificates not found in expected path, please run this command from the `core` directory. Current directory: {}", std::env::current_dir().expect("Failed to get current directory").to_str().expect("Failed to get current directory as string"));
-        } else {
-            println!("Error: CA certificates not found in expected path, please generate them before running the CLI");
-        }
-        return;
-    }
 
     match cli.command {
         Commands::Operator { command } => {
@@ -1572,6 +1591,9 @@ async fn main() {
         }
         Commands::Aggregator { command } => {
             handle_aggregator_call(cli.node_url, command).await;
+        }
+        Commands::Bitcoin { command } => {
+            handle_bitcoin_call(cli.node_url, command).await;
         }
     }
 }
