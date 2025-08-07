@@ -286,9 +286,7 @@ impl ExtendedBitcoinRpc {
         })
     }
 
-    /// Generates a new Bitcoin address for the wallet. TODO: Make sure this
-    /// is either flexible in terms of address type or fixed to a specific type
-    /// like P2TR.
+    /// Generates a new Bitcoin address for the wallet.
     pub async fn get_new_wallet_address(&self) -> Result<Address> {
         self.with_retry(|| async {
             self.get_new_address(None, None)
