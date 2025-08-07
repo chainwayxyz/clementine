@@ -360,7 +360,18 @@ service ClementineOperator {
   // If withdrawal is accepted, the payout tx will be added to the TxSender and success is returned, otherwise an error is returned.
   // If automation is disabled, the withdrawal will not be accepted and an error will be returned.
   rpc Withdraw(WithdrawParams)
-    returns (Empty) {}
+    returns (RawSignedTx) {}
+
+  // For a given deposit outpoint, determines the next step in the kickoff process the operator is in,
+  // and returns the raw signed txs that the operator needs to send next, for enabling reimbursement process
+  // without automation.
+  //
+  // # Parameters
+  // - deposit_outpoint: Deposit outpoint to create the kickoff for
+  //
+  // # Returns
+  // - Raw signed txs that the operator needs to send next
+  rpc GetReimbursementTxs(Outpoint) returns (SignedTxsWithType) {}
 
   // Signs all tx's it can according to given transaction type (use it with AllNeededForDeposit to get almost all tx's)
   // Creates the transactions denoted by the deposit and operator_idx, round_idx, and kickoff_idx.
@@ -625,9 +636,13 @@ message AggregatorWithdrawResponse {
   repeated string withdraw_responses = 1;
 }
 
-message CreateEmergencyStopTxRequest {
+message GetEmergencyStopTxRequest {
   repeated Txid txids = 1;
-  bool add_anchor = 2;
+}
+
+message GetEmergencyStopTxResponse {
+  repeated Txid txids = 1;
+  repeated bytes encrypted_emergency_stop_txs = 2;
 }
 
 message SendMoveTxRequest {
@@ -682,7 +697,7 @@ service ClementineAggregator {
   // Creates an emergency stop tx that won't be broadcasted.
   // Tx will have around 3 sats/vbyte fee.
   // Set add_anchor to true to add an anchor output for cpfp..
-  rpc InternalCreateEmergencyStopTx(CreateEmergencyStopTxRequest) returns (SignedTxWithType) {}
+  rpc InternalGetEmergencyStopTx(GetEmergencyStopTxRequest) returns (GetEmergencyStopTxResponse) {}
 
   rpc Vergen(Empty) returns (VergenResponse) {}
 }

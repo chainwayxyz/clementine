@@ -2,13 +2,13 @@ use std::str::FromStr;
 
 use super::clementine::{
     self, clementine_verifier_server::ClementineVerifier, Empty, NonceGenRequest, NonceGenResponse,
-    OperatorParams, OptimisticPayoutParams, PartialSig, RawTxWithRbfInfo, SignedTxWithType,
-    SignedTxsWithType, VergenResponse, VerifierDepositFinalizeParams, VerifierDepositSignParams,
-    VerifierParams,
+    OperatorParams, OptimisticPayoutParams, PartialSig, RawTxWithRbfInfo, VergenResponse,
+    VerifierDepositFinalizeParams, VerifierDepositSignParams, VerifierParams,
 };
 use super::error;
 use super::parser::ParserError;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
+use crate::builder::transaction::ContractContext;
 use crate::citrea::CitreaClientT;
 use crate::constants::RESTART_BACKGROUND_TASKS_TIMEOUT;
 use crate::rpc::clementine::VerifierDepositFinalizeResponse;
@@ -511,25 +511,28 @@ where
     ) -> std::result::Result<tonic::Response<super::SignedTxsWithType>, tonic::Status> {
         let transaction_request = request.into_inner();
         let transaction_data: TransactionRequestData = transaction_request.try_into()?;
+        let (_, deposit_data) = self
+            .verifier
+            .db
+            .get_deposit_data(None, transaction_data.deposit_outpoint)
+            .await?
+            .ok_or(Status::invalid_argument("Deposit not found in database"))?;
+        let context = ContractContext::new_context_for_kickoff(
+            transaction_data.kickoff_data,
+            deposit_data,
+            self.verifier.config.protocol_paramset(),
+        );
         let raw_txs = create_and_sign_txs(
             self.verifier.db.clone(),
             &self.verifier.signer,
             self.verifier.config.clone(),
-            transaction_data,
+            context,
             None, // empty blockhash, will not sign this
             None,
         )
         .await?;
 
-        Ok(Response::new(SignedTxsWithType {
-            signed_txs: raw_txs
-                .into_iter()
-                .map(|(tx_type, signed_tx)| SignedTxWithType {
-                    transaction_type: Some(tx_type.into()),
-                    raw_tx: bitcoin::consensus::serialize(&signed_tx),
-                })
-                .collect(),
-        }))
+        Ok(Response::new(raw_txs.into()))
     }
 
     async fn internal_handle_kickoff(

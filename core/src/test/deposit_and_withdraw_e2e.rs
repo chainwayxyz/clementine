@@ -608,7 +608,7 @@ async fn mock_citrea_run_truthful() {
     citrea_client
         .insert_withdrawal_utxo(current_block_height + 1, withdrawal_utxo)
         .await;
-    // Mine some blocks so that block syncer counts it as finalzied
+    // Mine some blocks so that block syncer counts it as finalized
     rpc.mine_blocks(DEFAULT_FINALITY_DEPTH + 2).await.unwrap();
 
     // rpc.mine_blocks(config.protocol_paramset().finality_depth as u64 + 2)
@@ -1116,7 +1116,7 @@ async fn mock_citrea_run_truthful_opt_payout() {
     citrea_client
         .insert_withdrawal_utxo(current_block_height + 1, withdrawal_utxo)
         .await;
-    // Mine some blocks so that block syncer counts it as finalzied
+    // Mine some blocks so that block syncer counts it as finalized
     rpc.mine_blocks(DEFAULT_FINALITY_DEPTH + 2).await.unwrap();
 
     tracing::info!("Withdrawal tx sent");
@@ -1269,7 +1269,7 @@ async fn mock_citrea_run_malicious() {
         .insert_withdrawal_utxo(current_block_height + 1, withdrawal_utxo)
         .await;
 
-    // Mine some blocks so that block syncer counts it as finalzied
+    // Mine some blocks so that block syncer counts it as finalized
     rpc.mine_blocks(config.protocol_paramset().finality_depth as u64 + 2)
         .await
         .unwrap();
@@ -1353,8 +1353,6 @@ async fn mock_citrea_run_malicious() {
     let tx_2 = rpc.get_tx_of_txid(&challenge_spent_txid_2).await.unwrap();
     // tx_2 should not have challenge amount output
     assert!(tx_2.output[0].value != config.protocol_paramset().operator_challenge_amount);
-
-    // TODO: check that operators collateral got burned. It can't be checked right now as we don't have auto disprove implemented.
 }
 
 /// Tests protocol safety when an operator exits before a challenge can be made.
@@ -1470,7 +1468,7 @@ async fn mock_citrea_run_malicious_after_exit() {
         .insert_withdrawal_utxo(current_block_height + 1, withdrawal_utxo)
         .await;
 
-    // Mine some blocks so that block syncer counts it as finalzied
+    // Mine some blocks so that block syncer counts it as finalized
     rpc.mine_blocks(config.protocol_paramset().finality_depth as u64 + 2)
         .await
         .unwrap();

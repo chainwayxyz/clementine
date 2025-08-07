@@ -15,7 +15,7 @@ use crate::builder::transaction::input::UtxoVout;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::builder::transaction::{
     create_emergency_stop_txhandler, create_move_to_vault_txhandler,
-    create_optimistic_payout_txhandler, TransactionType, TxHandler,
+    create_optimistic_payout_txhandler, ContractContext, TransactionType, TxHandler,
 };
 use crate::builder::transaction::{create_round_txhandlers, KickoffWinternitzKeys};
 use crate::citrea::CitreaClientT;
@@ -261,7 +261,6 @@ where
         // initialize and run automation features
         #[cfg(feature = "automation")]
         {
-            // TODO: Removing index causes to remove the index from the tx_sender handle as well
             let tx_sender = TxSender::new(
                 self.verifier.signer.clone(),
                 rpc.clone(),
@@ -441,7 +440,6 @@ where
 
         let all_sessions = AllSessions::new();
 
-        // TODO: Removing index causes to remove the index from the tx_sender handle as well
         #[cfg(feature = "automation")]
         let tx_sender = TxSenderClient::new(db.clone(), Self::TX_SENDER_CONSUMER_ID.to_string());
 
@@ -786,7 +784,7 @@ where
             })
             .collect::<Result<Vec<(SecretNonce, PublicNonce)>, BridgeError>>()?
             .into_iter()
-            .unzip(); // TODO: fix extra copies
+            .unzip();
 
         let session = NonceSession { nonces: sec_nonces };
 
@@ -907,7 +905,6 @@ where
         Ok(partial_sig_rx)
     }
 
-    /// TODO: This function should be split in to multiple functions
     pub async fn deposit_finalize(
         &self,
         deposit_data: &mut DepositData,
@@ -1218,7 +1215,6 @@ where
         // Save signatures to db
         let mut dbtx = self.db.begin_transaction().await?;
         // Deposit is not actually finalized here, its only finalized after the aggregator gets all the partial sigs and checks the aggregated sig
-        // TODO: It can create problems if the deposit fails at the end by some verifier not sending movetx partial sig, but we still added sigs to db
         for (operator_idx, (operator_xonly_pk, operator_sigs)) in operator_xonly_pks
             .into_iter()
             .zip(verified_sigs.into_iter())
@@ -1531,7 +1527,6 @@ where
             .map(|x| x.to_byte_array())
             .collect::<Vec<_>>();
 
-        // TODO: Use correct verification key and along with a dummy proof.
         // wrap around a mutex lock to avoid OOM
         let guard = REPLACE_SCRIPTS_LOCK.lock().await;
         let start = std::time::Instant::now();
@@ -1676,17 +1671,19 @@ where
             deposit_data
         );
 
-        let transaction_data = TransactionRequestData {
-            deposit_outpoint: deposit_data.get_deposit_outpoint(),
+        let context = ContractContext::new_context_with_signer(
             kickoff_data,
-        };
+            deposit_data.clone(),
+            self.config.protocol_paramset(),
+            self.signer.clone(),
+        );
 
         let signed_txs = create_and_sign_txs(
             self.db.clone(),
             &self.signer,
             self.config.clone(),
-            transaction_data,
-            None, // No need
+            context,
+            None, // No need, verifier will not send kickoff tx
             Some(dbtx),
         )
         .await?;

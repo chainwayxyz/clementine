@@ -130,6 +130,13 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
         args.push("-dustrelayfee=0".to_string());
     }
 
+    if config.test_params.mine_0_fee_txs {
+        // allow mining of 0-fee transactions
+        args.push("-minrelaytxfee=0".to_string());
+        args.push("-acceptnonstdtxn=1".to_string());
+        args.push("-blockmintxfee=0".to_string());
+    }
+
     // Create log file in temp directory
     let log_file = data_dir.join("debug.log");
     let log_file_path = log_file
@@ -233,30 +240,10 @@ pub async fn create_test_config_with_thread_name() -> BridgeConfig {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
 
-    let mut config = BridgeConfig::default();
-
-    // Check environment for an overwrite config. TODO: Convert this to env vars.
-    let env_config: Option<BridgeConfig> =
-        if let Ok(config_file_path) = std::env::var("TEST_CONFIG") {
-            Some(
-                BridgeConfig::try_parse_file(config_file_path.into())
-                    .expect("Failed to parse config file"),
-            )
-        } else {
-            None
-        };
-
-    config.db_name = handle.to_string();
-    config.citrea_rpc_url = handle.to_string();
-
-    // Overwrite user's environment to test's hard coded data if environment
-    // file is specified.
-    if let Some(env_config) = env_config {
-        config.db_host = env_config.db_host;
-        config.db_port = env_config.db_port;
-        config.db_user = env_config.db_user;
-        config.db_password = env_config.db_password;
-        config.db_name = env_config.db_name;
+    let config = BridgeConfig {
+        db_name: handle.to_string(),
+        citrea_rpc_url: handle.to_string(),
+        ..Default::default()
     };
 
     initialize_database(&config).await;
