@@ -1907,11 +1907,7 @@
 <a href="#1906" id="1906">1906</a>
 <a href="#1907" id="1907">1907</a>
 <a href="#1908" id="1908">1908</a>
-<a href="#1909" id="1909">1909</a>
-<a href="#1910" id="1910">1910</a>
-<a href="#1911" id="1911">1911</a>
-<a href="#1912" id="1912">1912</a>
-<a href="#1913" id="1913">1913</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_ff::PrimeField;
+<a href="#1909" id="1909">1909</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_ff::PrimeField;
 <span class="kw">use </span>circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
 <span class="kw">use </span>std::collections::HashMap;
 
@@ -3461,11 +3457,7 @@
             generate_assertions(g16_proof, <span class="macro">vec!</span>[public_input_scalar], <span class="kw-2">&amp;</span>vk).map_err(|e| {
                 <span class="macro">eyre::eyre!</span>(
                     <span class="string">"Failed to generate {}assertions: {}"</span>,
-                    <span class="kw">if </span><span class="macro">cfg!</span>(test) &amp;&amp; is_dev_mode() {
-                        <span class="string">"dev mode "
-                    </span>} <span class="kw">else </span>{
-                        <span class="string">""
-                    </span>},
+                    <span class="kw">if </span>is_dev_mode() { <span class="string">"dev mode " </span>} <span class="kw">else </span>{ <span class="string">"" </span>},
                     e
                 )
             })
