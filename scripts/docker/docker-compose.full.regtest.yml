@@ -22,6 +22,7 @@ x-clementine: &clementine_regtest
 
   volumes:
     - ../../bitvm_cache.bin:/bitvm_cache.bin
+    - ../../bitvm_cache_dev.bin:/bitvm_cache_dev.bin
     - ../../core/certs:/certs
   networks:
     - clementine-network
