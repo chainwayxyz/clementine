@@ -2,7 +2,7 @@ name: Clementine test deployment on Regtest
 
 # Common stuff for services ----------------------------------------------------
 x-clementine: &clementine_regtest
-  image: chainwayxyz/clementine
+  image: ${CLEMENTINE_IMAGE:-chainwayxyz/clementine}
   platform: linux/amd64
 
   depends_on:
