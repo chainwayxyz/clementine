@@ -31,7 +31,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio_retry::strategy::{jitter, ExponentialBackoff};
-use tokio_retry::Retry;
+use tokio_retry::RetryIf;
 
 use crate::builder::address::create_taproot_address;
 use crate::builder::transaction::create_round_txhandlers;
@@ -330,28 +330,32 @@ impl ExtendedBitcoinRpc {
 
         let retry_strategy = config.get_strategy();
 
-        Retry::spawn(retry_strategy, || async {
-            let result = Self::try_connect(
-                url_clone.clone(),
-                user_clone.clone(),
-                password_clone.clone(),
-                retry_config.clone(),
-            )
-            .await;
+        RetryIf::spawn(
+            retry_strategy,
+            || async {
+                let result = Self::try_connect(
+                    url_clone.clone(),
+                    user_clone.clone(),
+                    password_clone.clone(),
+                    retry_config.clone(),
+                )
+                .await;
 
-            match &result {
-                Ok(_) => tracing::debug!("Connected to Bitcoin RPC successfully"),
-                Err(error) => {
-                    if !error.is_retryable() {
-                        tracing::debug!("Non-retryable connection error: {}", error);
-                    } else {
-                        tracing::debug!("Bitcoin RPC connection failed, will retry: {}", error);
+                match &result {
+                    Ok(_) => tracing::debug!("Connected to Bitcoin RPC successfully"),
+                    Err(error) => {
+                        if !error.is_retryable() {
+                            tracing::debug!("Non-retryable connection error: {}", error);
+                        } else {
+                            tracing::debug!("Bitcoin RPC connection failed, will retry: {}", error);
+                        }
                     }
                 }
-            }
 
-            result
-        })
+                result
+            },
+            |error: &BitcoinRPCError| error.is_retryable(),
+        )
         .await
     }
 
@@ -767,7 +771,12 @@ impl ExtendedBitcoinRpc {
 
         let retry_strategy = self.retry_config.get_strategy();
 
-        Retry::spawn(retry_strategy, || async { self.try_mine(block_num).await }).await
+        RetryIf::spawn(
+            retry_strategy,
+            || async { self.try_mine(block_num).await },
+            |error: &BitcoinRPCError| error.is_retryable(),
+        )
+        .await
     }
 
     /// A helper fn to safely mine blocks while waiting for all actors to be synced
@@ -1057,7 +1066,7 @@ impl ExtendedBitcoinRpc {
 
 #[async_trait]
 /// Implementation of the `RpcApi` trait for `ExtendedBitcoinRpc`. All RPC calls
-/// are made with retry logic.
+/// are made with retry logic that only retries when errors are retryable.
 impl RpcApi for ExtendedBitcoinRpc {
     async fn call<T: for<'a> serde::de::Deserialize<'a>>(
         &self,
@@ -1065,7 +1074,15 @@ impl RpcApi for ExtendedBitcoinRpc {
         args: &[serde_json::Value],
     ) -> std::result::Result<T, bitcoincore_rpc::Error> {
         let strategy = self.retry_config.get_strategy();
-        Retry::spawn(strategy, || async { self.client.call(cmd, args).await }).await
+
+        let condition = |error: &bitcoincore_rpc::Error| error.is_retryable();
+
+        RetryIf::spawn(
+            strategy,
+            || async { self.client.call(cmd, args).await },
+            condition,
+        )
+        .await
     }
 }
 
@@ -1480,139 +1497,6 @@ mod tests {
         }
     }
 
-    // mod retry_mechanism_tests {
-    //     use bitcoin::BlockHash;
-
-    //     use crate::extended_bitcoin_rpc::RetryConfig;
-
-    //     use super::*;
-    //     use std::sync::atomic::{AtomicU32, Ordering};
-    //     use std::sync::Arc;
-    //     use std::time::{Duration, Instant};
-
-    //     // Mock ExtendedBitcoinRpc for testing retry logic without actual Bitcoin RPC
-    //     struct MockExtendedBitcoinRpc {
-    //         call_count: Arc<AtomicU32>,
-    //         fail_until: u32,
-    //         should_be_retryable: bool,
-    //     }
-
-    //     impl MockExtendedBitcoinRpc {
-    //         fn new(fail_until: u32, should_be_retryable: bool) -> Self {
-    //             Self {
-    //                 call_count: Arc::new(AtomicU32::new(0)),
-    //                 fail_until,
-    //                 should_be_retryable,
-    //             }
-    //         }
-
-    //         async fn mock_operation(&self) -> std::result::Result<String, BitcoinRPCError> {
-    //             use bitcoin::hashes::Hash;
-    //             let count = self.call_count.fetch_add(1, Ordering::SeqCst) + 1;
-
-    //             if count <= self.fail_until {
-    //                 if self.should_be_retryable {
-    //                     Err(BitcoinRPCError::Other(eyre::eyre!("timeout occurred")))
-    //                 } else {
-    //                     Err(BitcoinRPCError::TransactionAlreadyInBlock(
-    //                         BlockHash::all_zeros(),
-    //                     ))
-    //                 }
-    //             } else {
-    //                 Ok(format!("Success after {} attempts", count))
-    //             }
-    //         }
-
-    //         fn get_call_count(&self) -> u32 {
-    //             self.call_count.load(Ordering::SeqCst)
-    //         }
-
-    //         // Create a real ExtendedBitcoinRpc instance for testing the retry wrapper methods
-    //         async fn create_real_instance() -> ExtendedBitcoinRpc {
-    //             let mut config = create_test_config_with_thread_name().await;
-    //             let regtest = create_regtest_rpc(&mut config).await;
-    //             regtest.rpc().clone()
-    //         }
-    //     }
-
-    //     #[tokio::test]
-    //     async fn test_retry_success_on_first_attempt() {
-    //         let mock = MockExtendedBitcoinRpc::new(0, true); // Never fail
-    //         let result = mock.mock_operation().await;
-
-    //         assert!(result.is_ok());
-    //         assert_eq!(result.unwrap(), "Success after 1 attempts");
-    //         assert_eq!(mock.get_call_count(), 1);
-    //     }
-
-    //     #[tokio::test]
-    //     async fn test_retry_success_after_retries() {
-    //         // Since retry is now built into methods, this test demonstrates the concept
-    //         // but actual retry testing should be done with integration tests
-    //         let mock = MockExtendedBitcoinRpc::new(2, true); // Fail first 2 attempts
-
-    //         let start = Instant::now();
-    //         let result = mock.mock_operation().await;
-
-    //         assert!(result.is_err()); // This will fail on first attempt since no retry in mock
-    //         assert_eq!(mock.get_call_count(), 1);
-    //     }
-
-    //     #[tokio::test]
-    //     async fn test_retry_max_attempts_exceeded() {
-    //         let mock = MockExtendedBitcoinRpc::new(5, true); // Fail 5 attempts
-    //         let result = mock.mock_operation().await;
-
-    //         assert!(result.is_err());
-    //         assert_eq!(mock.get_call_count(), 1); // Mock only attempts once
-    //     }
-
-    //     #[tokio::test]
-    //     async fn test_retry_non_retryable_error() {
-    //         use bitcoin::hashes::Hash;
-    //         let mock = MockExtendedBitcoinRpc::new(1, false); // Fail with non-retryable error
-    //         let result = mock.mock_operation().await;
-
-    //         assert!(result.is_err());
-    //         assert_eq!(mock.get_call_count(), 1);
-
-    //         match result.unwrap_err() {
-    //             BitcoinRPCError::TransactionAlreadyInBlock(block_hash) => {
-    //                 assert_eq!(block_hash, BlockHash::all_zeros());
-    //             }
-    //             other => panic!("Expected TransactionAlreadyInBlock, got {:?}", other),
-    //         }
-    //     }
-
-    //     #[tokio::test]
-    //     async fn test_retry_default_behavior() {
-    //         let mock = MockExtendedBitcoinRpc::new(1, true); // Fail first attempt
-    //         let result = mock.mock_operation().await;
-
-    //         assert!(result.is_err()); // Mock fails once and doesn't retry internally
-    //         assert_eq!(mock.get_call_count(), 1);
-    //     }
-
-    //     #[tokio::test]
-    //     async fn test_retry_backoff_timing() {
-    //         // This test now focuses on testing the RetryConfig strategy generation
-    //         let config = RetryConfig {
-    //             initial_delay: Duration::from_millis(100),
-    //             max_delay: Duration::from_secs(60),
-    //             max_attempts: 4,
-    //             backoff_multiplier: 2,
-    //             is_jitter: false,
-    //         };
-
-    //         let strategy = config.get_strategy();
-    //         let delays: Vec<Duration> = strategy.collect();
-
-    //         assert_eq!(delays.len(), 4);
-    //         assert_eq!(delays[0], Duration::from_millis(200)); // first delay is 100ms * 2
-    //         assert_eq!(delays[1], Duration::from_millis(400)); // second delay is 200ms * 2
-    //         assert_eq!(delays[2], Duration::from_millis(800)); // third delay is 400ms * 2
-    //     }
-    // }
     mod rpc_call_retry_tests {
 
         use crate::extended_bitcoin_rpc::RetryableError;
