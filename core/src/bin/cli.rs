@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use bitcoin::{hashes::Hash, Amount, Block, Psbt, ScriptBuf, Transaction, Txid};
+use bitcoin::{hashes::Hash, Block, ScriptBuf, Txid};
 use bitcoincore_rpc::json::SignRawTransactionInput;
 use clap::{Parser, Subcommand};
 use clementine_core::{
