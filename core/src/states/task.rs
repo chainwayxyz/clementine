@@ -161,8 +161,6 @@ impl<T: Owner + std::fmt::Debug + 'static> IntoTask for StateManager<T> {
 }
 
 impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
-    // TODO: this task is not tracked by the task manager, so it will not be restarted if it fails but
-    // the state manager task doesn't fail.
     pub async fn block_fetcher_task(
         &self,
     ) -> Result<WithDelay<impl Task<Output = bool> + std::fmt::Debug>, BridgeError> {

@@ -489,7 +489,6 @@ impl TxSender {
                     psbt: Some(psbt), ..
                 }) => psbt,
                 Ok(BumpFeeResult { errors, .. }) if !errors.is_empty() => {
-                    // TODO: handle errors here and update the state
                     self.handle_err(
                         format!("psbt_bump_fee failed: {:?}", errors),
                         "rbf_psbt_bump_failed",
@@ -498,7 +497,6 @@ impl TxSender {
                     return Err(SendTxError::Other(eyre!(errors.join(", "))));
                 }
                 Ok(BumpFeeResult { psbt: None, .. }) => {
-                    // TODO: print better msg and update state
                     self.handle_err(
                         "psbt_bump_fee returned no psbt",
                         "rbf_psbt_bump_failed",
@@ -965,7 +963,7 @@ pub mod tests {
                 value: Amount::from_btc(1.0).unwrap(),
                 script_pubkey: address.script_pubkey(), // In practice, should be the wallet address, not the signer address
             }))
-            .add_output(UnspentTxOut::from_partial(op_return_txout(b"TODO")))
+            .add_output(UnspentTxOut::from_partial(op_return_txout(b"TEST")))
             .finalize();
 
         signer

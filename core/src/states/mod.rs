@@ -537,8 +537,8 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             }
 
             // If the machines do not stabilize after a while, we return an error
-            // TODO: https://github.com/chainwayxyz/clementine/issues/675
-            // I think something like max(2 * num_kickoffs_per_round, number of utxos in a kickoff * 2) is a safe value
+            //
+            // Something like max(2 * num_kickoffs_per_round, number of utxos in a kickoff * 2) is possibly a safe value
             if iterations > 100000 {
                 return Err(eyre::eyre!(
                     r#"{}/{} kickoff and {}/{} round state machines did not stabilize after 100000 iterations, debug repr of changed machines:
