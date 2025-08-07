@@ -244,7 +244,25 @@ pub enum BitcoinRPCError {
 }
 
 impl ExtendedRpc {
-    /// Connects to Bitcoin RPC and returns a new [`ExtendedRpc`].
+    /// Attempts to connect to Bitcoin RPC server and creates a new [`ExtendedRpc`] instance.
+    ///
+    /// This is an internal helper method used by [`Self::connect`] and performs a single
+    /// connection attempt without retry logic. It also performs a ping to verify the
+    /// connection is working.
+    ///
+    /// # Parameters
+    ///
+    /// * `url` - The RPC server URL
+    /// * `user` - Username for RPC authentication
+    /// * `password` - Password for RPC authentication
+    ///
+    /// # Returns
+    ///
+    /// - [`Result<ExtendedRpc>`]: A new ExtendedRpc instance on success
+    ///
+    /// # Errors
+    ///
+    /// - [`BitcoinRPCError`]: If connection fails or ping fails
     async fn try_connect(url: String, user: SecretString, password: SecretString) -> Result<Self> {
         let auth = Auth::UserPass(
             user.expose_secret().to_string(),
@@ -282,6 +300,20 @@ impl ExtendedRpc {
         .await
     }
 
+    /// Generates a new Bitcoin address with optional label and address type.
+    ///
+    /// # Parameters
+    ///
+    /// * `label` - Optional label for the new address
+    /// * `address_type` - Optional address type specification (e.g., P2TR, P2WPKH)
+    ///
+    /// # Returns
+    ///
+    /// - [`Address<bitcoin::address::NetworkUnchecked>`]: The newly generated address
+    ///
+    /// # Errors
+    ///
+    /// - [`BitcoinRPCError`]: If address generation fails
     pub async fn get_new_address(
         &self,
         label: Option<&str>,
@@ -375,6 +407,24 @@ impl ExtendedRpc {
             .await
     }
 
+    /// Generic retry wrapper with custom retry configuration.
+    ///
+    /// This method wraps any async operation with exponential backoff retry logic.
+    /// It will retry the operation if it fails with a retryable error, up to the
+    /// maximum number of attempts specified in the config.
+    ///
+    /// # Parameters
+    ///
+    /// * `config` - Retry configuration specifying delays and attempt limits
+    /// * `operation` - The async operation to retry
+    ///
+    /// # Returns
+    ///
+    /// - [`Result<T>`]: The result of the operation on success
+    ///
+    /// # Errors
+    ///
+    /// - [`BitcoinRPCError`]: If all retry attempts fail or a non-retryable error occurs
     pub async fn with_retry_config<F, Fut, T>(
         &self,
         config: RetryConfig,
@@ -676,6 +726,19 @@ impl ExtendedRpc {
         Ok(!self.is_utxo_spent(&current_collateral_outpoint).await?)
     }
 
+    /// Retrieves detailed block information for a given block hash.
+    ///
+    /// # Parameters
+    ///
+    /// * `block_hash` - The hash of the block to retrieve information for
+    ///
+    /// # Returns
+    ///
+    /// - [`GetBlockResult`]: Detailed block information including height, time, transactions, etc.
+    ///
+    /// # Errors
+    ///
+    /// - [`BitcoinRPCError`]: If the block information cannot be retrieved
     pub async fn get_block_info(&self, block_hash: &BlockHash) -> Result<GetBlockResult> {
         self.with_retry(|| async {
             self.client
@@ -742,6 +805,19 @@ impl ExtendedRpc {
         Ok((block_hash, block_header))
     }
 
+    /// Retrieves the block header for a given block hash.
+    ///
+    /// # Parameters
+    ///
+    /// * `block_hash` - The hash of the block to retrieve the header for
+    ///
+    /// # Returns
+    ///
+    /// - [`bitcoin::block::Header`]: The block header containing metadata like timestamp, merkle root, etc.
+    ///
+    /// # Errors
+    ///
+    /// - [`BitcoinRPCError`]: If the block header cannot be retrieved
     pub async fn get_block_header(
         &self,
         block_hash: &bitcoin::BlockHash,
@@ -908,6 +984,21 @@ impl ExtendedRpc {
         Ok(res.is_none())
     }
 
+    /// Retrieves information about a transaction output (UTXO).
+    ///
+    /// # Parameters
+    ///
+    /// * `txid` - The transaction ID containing the output
+    /// * `vout` - The output index within the transaction
+    /// * `include_mempool` - Whether to include mempool transactions in the search
+    ///
+    /// # Returns
+    ///
+    /// - [`Option<GetTxOutResult>`]: Some(output info) if the UTXO exists and is unspent, None if spent
+    ///
+    /// # Errors
+    ///
+    /// - [`BitcoinRPCError`]: If there was an error retrieving the transaction output
     pub async fn get_tx_out(
         &self,
         txid: &bitcoin::Txid,
@@ -1015,6 +1106,20 @@ impl ExtendedRpc {
         Ok(blocks)
     }
 
+    /// Generates blocks to a specific address (mining).
+    ///
+    /// # Parameters
+    ///
+    /// * `block_num` - Number of blocks to generate
+    /// * `address` - Address to receive block rewards
+    ///
+    /// # Returns
+    ///
+    /// - [`Vec<BlockHash>`]: Vector of block hashes for the generated blocks
+    ///
+    /// # Errors
+    ///
+    /// - [`BitcoinRPCError`]: If block generation fails
     pub async fn generate_to_address(
         &self,
         block_num: u64,
@@ -1044,6 +1149,16 @@ impl ExtendedRpc {
         Ok(mempool_info.size)
     }
 
+    /// Retrieves detailed information about the memory pool.
+    ///
+    /// # Returns
+    ///
+    /// - [`bitcoincore_rpc::json::GetMempoolInfoResult`]: Detailed mempool statistics including
+    ///   size, bytes, usage, max mempool size, mempool minimum fee, and minimum relay fee
+    ///
+    /// # Errors
+    ///
+    /// - [`BitcoinRPCError`]: If mempool info cannot be retrieved
     pub async fn get_mempool_info(&self) -> Result<bitcoincore_rpc::json::GetMempoolInfoResult> {
         self.with_retry(|| async {
             self.client
@@ -1113,6 +1228,20 @@ impl ExtendedRpc {
         Ok(txout)
     }
 
+    /// Retrieves the raw transaction data for a given transaction ID.
+    ///
+    /// # Parameters
+    ///
+    /// * `txid` - The transaction ID to retrieve
+    /// * `block_hash` - Optional block hash to search within (improves performance if known)
+    ///
+    /// # Returns
+    ///
+    /// - [`bitcoin::Transaction`]: The raw transaction data
+    ///
+    /// # Errors
+    ///
+    /// - [`BitcoinRPCError`]: If the transaction cannot be found or retrieved
     pub async fn get_raw_transaction(
         &self,
         txid: &Txid,
@@ -1259,6 +1388,21 @@ impl ExtendedRpc {
             .ok_or_eyre("Failed to get Txid from bump_fee_result")?)
     }
 
+    /// Retrieves detailed information about a transaction in the wallet.
+    ///
+    /// # Parameters
+    ///
+    /// * `txid` - The transaction ID to retrieve information for
+    /// * `include_watchonly` - Whether to include watch-only addresses in the results
+    ///
+    /// # Returns
+    ///
+    /// - [`bitcoincore_rpc::json::GetTransactionResult`]: Detailed transaction information including
+    ///   confirmations, fee, time, and transaction details
+    ///
+    /// # Errors
+    ///
+    /// - [`BitcoinRPCError`]: If the transaction cannot be found or retrieved
     pub async fn get_transaction(
         &self,
         txid: &Txid,
@@ -1274,6 +1418,16 @@ impl ExtendedRpc {
         .await
     }
 
+    /// Retrieves network information from the Bitcoin node.
+    ///
+    /// # Returns
+    ///
+    /// - [`bitcoincore_rpc::json::GetNetworkInfoResult`]: Network information including version,
+    ///   protocol version, connections, networks, relay fees, incremental fees, and local addresses
+    ///
+    /// # Errors
+    ///
+    /// - [`BitcoinRPCError`]: If network information cannot be retrieved
     pub async fn get_network_info(&self) -> Result<bitcoincore_rpc::json::GetNetworkInfoResult> {
         self.with_retry(|| async {
             self.client
