@@ -427,12 +427,15 @@ fn get_path_from_env_or_default(env_var: &str, default: &str) -> PathBuf {
 // Create a minimal config with default TLS paths
 fn create_minimal_config() -> BridgeConfig {
     BridgeConfig {
-        ca_cert_path: get_path_from_env_or_default("CA_CERT_PATH", "certs/ca/ca.pem"),
+        ca_cert_path: get_path_from_env_or_default("CA_CERT_PATH", "core/certs/ca/ca.pem"),
         client_cert_path: get_path_from_env_or_default(
             "CLIENT_CERT_PATH",
-            "certs/client/client.pem",
+            "core/certs/client/client.pem",
         ),
-        client_key_path: get_path_from_env_or_default("CLIENT_KEY_PATH", "certs/client/client.key"),
+        client_key_path: get_path_from_env_or_default(
+            "CLIENT_KEY_PATH",
+            "core/certs/client/client.key",
+        ),
         ..Default::default()
     }
 }
