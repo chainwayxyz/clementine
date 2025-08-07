@@ -277,6 +277,24 @@ where
             };
 
             if should_run_state_mgr {
+                // start tracking operators if they exist in the db
+                let operators = self.verifier.db.get_operators(None).await?;
+                if !operators.is_empty() {
+                    let mut dbtx = self.verifier.db.begin_transaction().await?;
+                    for operator in operators {
+                        StateManager::<Verifier<C>>::dispatch_new_round_machine(
+                            self.verifier.db.clone(),
+                            &mut dbtx,
+                            OperatorData {
+                                xonly_pk: operator.0,
+                                reimburse_addr: operator.1,
+                                collateral_funding_outpoint: operator.2,
+                            },
+                        )
+                        .await?;
+                    }
+                    dbtx.commit().await?;
+                }
                 self.background_tasks
                     .ensure_task_looping(state_manager.block_fetcher_task().await?)
                     .await;
@@ -287,26 +305,16 @@ where
         }
         #[cfg(not(feature = "automation"))]
         {
-            use crate::metrics::get_btc_syncer_consumer_last_processed_block_height;
-            use crate::task::TaskExt;
-            // get current next height from the database
-            // some blocks might still be processed again (if last processed block height is a reorged block)
-            // processing same blocks again is not a problem, here we want to avoid starting from the beginning if verifier
-            // has been restarted
-            let last_processed_height = get_btc_syncer_consumer_last_processed_block_height(
-                &self.verifier.db,
-                &Verifier::<C>::FINALIZED_BLOCK_CONSUMER_ID.to_string(),
-            )
-            .await?;
-            let next_height = match last_processed_height {
-                // if last processed height is not None, start from the last processed height - finality depth + 1 as next height
-                Some(height) => height
-                    .checked_sub(self.verifier.config.protocol_paramset().finality_depth)
-                    .map(|height| height + 1)
-                    .unwrap_or(self.verifier.config.protocol_paramset().start_height),
-                // if db is empty, start from the start height
-                None => self.verifier.config.protocol_paramset().start_height,
-            };
+            // get the next finalized block height to start from
+            let next_height = self
+                .verifier
+                .db
+                .get_next_finalized_block_height_for_consumer(
+                    None,
+                    Verifier::<C>::FINALIZED_BLOCK_CONSUMER_ID,
+                    self.verifier.config.protocol_paramset(),
+                )
+                .await?;
 
             self.background_tasks
                 .ensure_task_looping(
@@ -421,28 +429,6 @@ where
 
         #[cfg(feature = "automation")]
         let header_chain_prover = HeaderChainProver::new(&config, rpc.clone()).await?;
-
-        #[cfg(feature = "automation")]
-        {
-            // start tracking operators if they exist in the db
-            let operators = db.get_operators(None).await?;
-            if !operators.is_empty() {
-                let mut dbtx = db.begin_transaction().await?;
-                for operator in operators {
-                    StateManager::<Verifier<C>>::dispatch_new_round_machine(
-                        db.clone(),
-                        &mut dbtx,
-                        OperatorData {
-                            xonly_pk: operator.0,
-                            reimburse_addr: operator.1,
-                            collateral_funding_outpoint: operator.2,
-                        },
-                    )
-                    .await?;
-                }
-                dbtx.commit().await?;
-            }
-        }
 
         let verifier = Verifier {
             rpc,
@@ -2070,7 +2056,7 @@ where
             .get_txid()
             .to_byte_array();
 
-        let vout = kickoff_data.kickoff_idx + 1;
+        let vout = UtxoVout::Kickoff(kickoff_data.kickoff_idx as usize).get_vout();
 
         let watchtower_challenge_start_idx =
             u16::try_from(UtxoVout::WatchtowerChallenge(0).get_vout())
