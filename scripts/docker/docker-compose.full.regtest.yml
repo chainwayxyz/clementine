@@ -101,9 +101,14 @@ services:
             echo \"Creating wallet $$WALLET\"; \
             bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 createwallet \"$$WALLET\"; \
           fi; \
-          ADDR=$(bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 -rpcwallet=\"$$WALLET\" getnewaddress); \
-          bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 -rpcwallet=\"$$WALLET\" generatetoaddress 202 \"$$ADDR\"; \
         done && \
+
+        if [ $(bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 -rpcwallet=admin getblockcount) -lt 605 ]; then \
+          bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 -rpcwallet=admin generatetoaddress 202 $(bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 -rpcwallet=admin getnewaddress); \
+          bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 -rpcwallet=sequencer-wallet generatetoaddress 202 $(bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 -rpcwallet=sequencer-wallet getnewaddress); \
+          bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 -rpcwallet=batch-prover-wallet generatetoaddress 202 $(bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 -rpcwallet=batch-prover-wallet getnewaddress); \
+        fi; \
+
         bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 getblockchaininfo"
       ]
       interval: 2s
