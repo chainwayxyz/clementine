@@ -94,21 +94,6 @@ pub async fn create_and_sign_txs(
     block_hash: Option<[u8; 20]>, //to sign kickoff
     dbtx: Option<DatabaseTransaction<'_, '_>>,
 ) -> Result<Vec<(TransactionType, Transaction)>, BridgeError> {
-    let deposit_data = db
-        .get_deposit_data(None, transaction_data.deposit_outpoint)
-        .await?
-        .ok_or(BridgeError::DepositNotFound(
-            transaction_data.deposit_outpoint,
-        ))?
-        .1;
-
-    let context = ContractContext::new_context_with_signer(
-        transaction_data.kickoff_data,
-        deposit_data.clone(),
-        config.protocol_paramset(),
-        signer.clone(),
-    );
-
     let txhandlers = builder::transaction::create_txhandlers(
         match context.is_context_for_kickoff() {
             true => TransactionType::AllNeededForDeposit,
