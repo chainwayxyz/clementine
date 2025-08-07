@@ -93,16 +93,16 @@ services:
         "CMD-SHELL",
         "for WALLET in admin sequencer-wallet batch-prover-wallet; do \
           if bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 listwalletdir \
-            | jq -e '.wallets | any(.name == \"'$WALLET'\")' > /dev/null; then \
-            echo \"Wallet $WALLET exists on disk\"; \
-            bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 loadwallet \"$WALLET\" 2>/dev/null \
-              || echo \"Wallet $WALLET already loaded or load failed\"; \
+            | jq -e '.wallets | any(.name == \"'$$WALLET'\")' > /dev/null; then \
+            echo \"Wallet $$WALLET exists on disk\"; \
+            bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 loadwallet \"$$WALLET\" 2>/dev/null \
+              || echo \"Wallet $$WALLET already loaded or load failed\"; \
           else \
-            echo \"Creating wallet $WALLET\"; \
-            bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 createwallet \"$WALLET\"; \
+            echo \"Creating wallet $$WALLET\"; \
+            bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 createwallet \"$$WALLET\"; \
           fi; \
-          ADDR=$(bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 -rpcwallet=\"$WALLET\" getnewaddress); \
-          bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 -rpcwallet=\"$WALLET\" generatetoaddress 202 \"$ADDR\"; \
+          ADDR=$(bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 -rpcwallet=\"$$WALLET\" getnewaddress); \
+          bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 -rpcwallet=\"$$WALLET\" generatetoaddress 202 \"$$ADDR\"; \
         done && \
         bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 getblockchaininfo"
       ]
