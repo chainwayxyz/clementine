@@ -1559,11 +1559,7 @@ where
             generate_assertions(g16_proof, vec![public_input_scalar], &vk).map_err(|e| {
                 eyre::eyre!(
                     "Failed to generate {}assertions: {}",
-                    if cfg!(test) && is_dev_mode() {
-                        "dev mode "
-                    } else {
-                        ""
-                    },
+                    if is_dev_mode() { "dev mode " } else { "" },
                     e
                 )
             })

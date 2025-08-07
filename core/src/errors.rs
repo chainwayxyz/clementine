@@ -187,15 +187,9 @@ pub trait ErrorExt: Sized {
     /// BridgeError if necessary. It does not rewrap in eyre::Report if
     /// the given error is already an eyre::Report.
     fn into_eyre(self) -> eyre::Report;
-    /// Converts the error into a tonic::Status. Currently defaults to
-    /// tonic::Status::from_error which will walk the error chain and attempt to
-    /// find a [`tonic::Status`] in the chain. If it can't find one, it will
-    /// return an Status::unknown with the Display representation of the error.
-    ///
-    /// TODO: We should change the implementation to walk the chain of errors
-    /// and return the first [`TryInto<tonic::Status>`] error. This is
-    /// impossible to do dynamically, each error must be included in the match
-    /// arms of the conversion logic.
+    /// Converts the error into a tonic::Status. Walks the chain of errors and
+    /// returns the first [`tonic::Status`] error. If it can't find one, it will
+    /// return an Status::internal with the Display representation of the error.
     fn into_status(self) -> tonic::Status;
 }
 

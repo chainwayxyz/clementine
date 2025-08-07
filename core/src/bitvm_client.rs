@@ -59,7 +59,7 @@ pub static BITVM_CACHE: OnceLock<BitvmCache> = OnceLock::new();
 pub fn load_or_generate_bitvm_cache() -> BitvmCache {
     let start = Instant::now();
 
-    let cache_path = if cfg!(test) && is_dev_mode() {
+    let cache_path = if is_dev_mode() {
         "bitvm_cache_dev.bin".to_string()
     } else {
         std::env::var("BITVM_CACHE_PATH").unwrap_or_else(|_| "bitvm_cache.bin".to_string())
@@ -458,7 +458,6 @@ impl ClementineBitVMPublicKeys {
             "Getting assert commit data, challenge_sending_watchtowers: {:?}",
             challenge_sending_watchtowers
         );
-        // TODO: this might be wrong, add clementine specific ones too
         commit_data.push(vec![
             challenge_sending_watchtowers.to_vec(),
             asserts.0[0].to_vec(),
