@@ -636,9 +636,13 @@ message AggregatorWithdrawResponse {
   repeated string withdraw_responses = 1;
 }
 
-message CreateEmergencyStopTxRequest {
+message GetEmergencyStopTxRequest {
   repeated Txid txids = 1;
-  bool add_anchor = 2;
+}
+
+message GetEmergencyStopTxResponse {
+  repeated Txid txids = 1;
+  repeated bytes encrypted_emergency_stop_txs = 2;
 }
 
 message SendMoveTxRequest {
@@ -693,7 +697,7 @@ service ClementineAggregator {
   // Creates an emergency stop tx that won't be broadcasted.
   // Tx will have around 3 sats/vbyte fee.
   // Set add_anchor to true to add an anchor output for cpfp..
-  rpc InternalCreateEmergencyStopTx(CreateEmergencyStopTxRequest) returns (SignedTxWithType) {}
+  rpc InternalGetEmergencyStopTx(GetEmergencyStopTxRequest) returns (GetEmergencyStopTxResponse) {}
 
   rpc Vergen(Empty) returns (VergenResponse) {}
 }

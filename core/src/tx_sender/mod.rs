@@ -234,16 +234,15 @@ impl TxSender {
         // Anchor input marker (OP_FALSE OP_RETURN ..) adds overhead. Exact WU TBD.
         // For CPFP child: (N fee payer inputs) + (1 anchor input) + (1 change output)
         // For RBF replacement: (N fee payer inputs) + (1 change output) - assuming it replaces a tx with an anchor.
-        // TODO: Refine these weight estimations.
         let child_tx_weight = match fee_paying_type {
             // CPFP Child: N fee payer inputs + 1 anchor input + 1 change output + base overhead.
             // Approx WU: (230 * num_fee_payer_utxos) + 230 + 172 + base_overhead_wu
             // Simplified calculation used here needs verification.
-            FeePayingType::CPFP => Weight::from_wu_usize(230 * num_fee_payer_utxos + 207 + 172), // TODO: Verify 207 WU for anchor input + overhead
+            FeePayingType::CPFP => Weight::from_wu_usize(230 * num_fee_payer_utxos + 207 + 172),
             // RBF Replacement: N fee payer inputs + 1 change output + base overhead.
             // Assumes it replaces a tx of similar structure but potentially different inputs/fees.
             // Simplified calculation used here needs verification.
-            FeePayingType::RBF => Weight::from_wu_usize(230 * num_fee_payer_utxos + 172), // TODO: Verify WU for RBF structure
+            FeePayingType::RBF => Weight::from_wu_usize(230 * num_fee_payer_utxos + 172),
             FeePayingType::NoFunding => Weight::from_wu_usize(0),
         };
 

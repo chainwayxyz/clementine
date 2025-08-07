@@ -177,6 +177,12 @@ enum AggregatorCommands {
         #[arg(long)]
         restart_tasks: Option<bool>,
     },
+    /// Internal command to get the emergency stop encryption public key
+    InternalGetEmergencyStopTx {
+        #[arg(long)]
+        /// A comma-separated list of move txids
+        move_txids: String,
+    },
     /// Get vergen build information
     Vergen,
 }
@@ -218,6 +224,9 @@ fn get_path_from_env_or_default(env_var: &str, default: &str) -> PathBuf {
 
 // Create a minimal config with default TLS paths
 fn create_minimal_config() -> BridgeConfig {
+    // CLIENT_KEY_PATH env var will be used if it is set
+    // CLIENT_CERT_PATH env var will be used if it is set
+    // CA_CERT_PATH env var will be used if it is set
     BridgeConfig {
         ca_cert_path: get_path_from_env_or_default("CA_CERT_PATH", "core/certs/ca/ca.pem"),
         client_cert_path: get_path_from_env_or_default(
@@ -607,6 +616,40 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             .expect("Failed to generate deposit address");
 
             println!("Deposit address: {}", deposit_address.0);
+        }
+        AggregatorCommands::InternalGetEmergencyStopTx { move_txids } => {
+            let move_txids = move_txids
+                .split(',')
+                .map(|txid| Txid::from_str(txid).expect("Failed to parse txid"))
+                .collect::<Vec<Txid>>();
+            let emergency_stop_tx = aggregator
+                .internal_get_emergency_stop_tx(Request::new(
+                    clementine::GetEmergencyStopTxRequest {
+                        txids: move_txids
+                            .clone()
+                            .into_iter()
+                            .map(|txid| clementine::Txid {
+                                txid: txid.to_byte_array().to_vec(),
+                            })
+                            .collect(),
+                    },
+                ))
+                .await
+                .expect("Failed to make a request");
+            println!("Emergency stop tx: {:?}", emergency_stop_tx);
+            for (i, tx) in emergency_stop_tx
+                .into_inner()
+                .encrypted_emergency_stop_txs
+                .iter()
+                .enumerate()
+            {
+                println!(
+                    "Emergency stop tx {} for move tx {}: {}",
+                    i,
+                    move_txids[i],
+                    hex::encode(tx)
+                );
+            }
         }
         AggregatorCommands::GetReplacementDepositAddress {
             move_txid,

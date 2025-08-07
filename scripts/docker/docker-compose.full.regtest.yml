@@ -22,6 +22,7 @@ x-clementine: &clementine_regtest
 
   volumes:
     - ../../bitvm_cache.bin:/bitvm_cache.bin
+    - ../../bitvm_cache_dev.bin:/bitvm_cache_dev.bin
     - ../../core/certs:/certs
   networks:
     - clementine-network
@@ -74,6 +75,10 @@ services:
     ports:
       - "20443:20443"
       - "20444:20444"
+    volumes:
+      - ../init-bitcoin.sh:/init-bitcoin.sh
+      - ../docker-entrypoint.sh:/docker-entrypoint.sh
+      - bitcoin_regtest:/home/bitcoin/.bitcoin
     command:
       -printtoconsole
       -regtest=1
@@ -87,26 +92,25 @@ services:
       -txindex=1
       -fallbackfee=0.00001
       -maxtxfee=5
+    entrypoint: ["/docker-entrypoint.sh"]
+
+
     healthcheck:
       test: [
         "CMD-SHELL",
-        "bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 loadwallet admin || bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 createwallet admin; \
-        if [ $(bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 -rpcwallet=admin getblockcount) -eq 0 ]; then \
-          bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 -rpcwallet=admin generatetoaddress 202 $(bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 -rpcwallet=admin getnewaddress); \
-        fi; \
-        bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 getblockchaininfo"
+        "WALLETS=$(bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 listwallets) && \
+        echo \"$$WALLETS\" | grep -q '\"admin\"' && \
+        echo \"$$WALLETS\" | grep -q '\"sequencer-wallet\"' && \
+        echo \"$$WALLETS\" | grep -q '\"batch-prover-wallet\"'"
       ]
       interval: 2s
       timeout: 15s
       retries: 10
-    volumes:
-      - bitcoin_regtest:/home/bitcoin/.bitcoin
     networks:
       - clementine-network
 
   citrea_sequencer_regtest:
     image: chainwayxyz/citrea-test:ca479a4147be1c3a472e76a3f117124683d81ab5
-    attach: false
     depends_on:
       bitcoin_regtest:
         condition: service_healthy
@@ -119,34 +123,34 @@ services:
       - citrea_sequencer_regtest:/mnt/task/citrea-db
       - ./configs/regtest/citrea/sequencer_rollup_config.toml:/sequencer_rollup_config.toml
       - ./configs/regtest/citrea/sequencer_config.toml:/sequencer_config.toml
-      - ./configs/regtest/citrea/genesis-bitcoin-regtest:/bitcoin-regtest
+      - ./configs/regtest/citrea/genesis-bitcoin-regtest:/genesis-bitcoin-regtest
     networks:
       - clementine-network
 
   citrea_batch_prover_regtest:
     image: chainwayxyz/citrea-test:ca479a4147be1c3a472e76a3f117124683d81ab5
-    attach: false
     depends_on:
       bitcoin_regtest:
         condition: service_healthy
       citrea_sequencer_regtest:
         condition: service_started
     container_name: citrea_batch_prover_regtest
+    environment:
+      - PARALLEL_PROOF_LIMIT=1
     command:
-      --dev --da-layer bitcoin --rollup-config-path /batch_prover_rollup_config.toml --batch-prover /batch_prover_config.toml --genesis-paths /bitcoin-regtest
+      --dev --da-layer bitcoin --rollup-config-path /batch_prover_rollup_config.toml --batch-prover /batch_prover_config.toml --genesis-paths /genesis-bitcoin-regtest/
     ports:
       - "12348:12348"
     volumes:
       - citrea_batch_prover_regtest:/mnt/task/citrea-db
       - ./configs/regtest/citrea/batch_prover_rollup_config.toml:/batch_prover_rollup_config.toml
       - ./configs/regtest/citrea/batch_prover_config.toml:/batch_prover_config.toml
-      - ./configs/regtest/citrea/genesis-bitcoin-regtest:/bitcoin-regtest
+      - ./configs/regtest/citrea/genesis-bitcoin-regtest:/genesis-bitcoin-regtest/
     networks:
       - clementine-network
 
   citrea_light_client_prover_regtest:
     image: chainwayxyz/citrea-test:ca479a4147be1c3a472e76a3f117124683d81ab5
-    attach: false
     depends_on:
       bitcoin_regtest:
         condition: service_healthy
@@ -156,14 +160,14 @@ services:
         condition: service_started
     container_name: citrea_light_client_prover_regtest
     command:
-      --dev --da-layer bitcoin --rollup-config-path /light_client_prover_rollup_config.toml --light-client-prover /light_client_prover_config.toml --genesis-paths /bitcoin-regtest
+      --dev --da-layer bitcoin --rollup-config-path /light_client_prover_rollup_config.toml --light-client-prover /light_client_prover_config.toml --genesis-paths /genesis-bitcoin-regtest/
     ports:
       - "12349:12349"
     volumes:
       - citrea_light_client_prover_regtest:/mnt/task/citrea-db
       - ./configs/regtest/citrea/light_client_prover_rollup_config.toml:/light_client_prover_rollup_config.toml
       - ./configs/regtest/citrea/light_client_prover_config.toml:/light_client_prover_config.toml
-      - ./configs/regtest/citrea/genesis-bitcoin-regtest:/bitcoin-regtest
+      - ./configs/regtest/citrea/genesis-bitcoin-regtest:/genesis-bitcoin-regtest/
     networks:
       - clementine-network
 

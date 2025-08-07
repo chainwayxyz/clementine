@@ -45,7 +45,6 @@ use bitvm::clementine::additional_disprove::{
     create_additional_replacable_disprove_script_with_dummy, replace_placeholders_in_script,
 };
 use circuits_lib::bridge_circuit::deposit_constant;
-use circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
 use eyre::Context;
 use eyre::OptionExt;
 use std::collections::BTreeMap;
@@ -668,8 +667,8 @@ pub async fn create_txhandlers(
         .get_txid()
         .to_byte_array();
 
-    let vout = kickoff_data.kickoff_idx + 1; // TODO: Extract directly from round tx - not safe
-    let watchtower_challenge_start_idx = (FIRST_FIVE_OUTPUTS + NUMBER_OF_ASSERT_TXS) as u16;
+    let vout = UtxoVout::Kickoff(kickoff_data.kickoff_idx as usize).get_vout();
+    let watchtower_challenge_start_idx = UtxoVout::WatchtowerChallenge(0).get_vout() as u16;
     let secp = Secp256k1::verification_only();
 
     let nofn_key: XOnlyPublicKey = deposit_data.get_nofn_xonly_pk()?;
@@ -1102,7 +1101,6 @@ mod tests {
             TransactionType::Kickoff,
             TransactionType::KickoffNotFinalized,
             TransactionType::Challenge,
-            //TransactionType::Disprove, TODO: add when we add actual disprove scripts
             TransactionType::DisproveTimeout,
             TransactionType::Reimburse,
             TransactionType::ChallengeTimeout,
