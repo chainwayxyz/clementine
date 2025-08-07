@@ -16,7 +16,7 @@ use crate::errors::ResultExt;
 use crate::operator::OperatorServer;
 use crate::rpc::clementine::{RawSignedTx, WithdrawParamsWithSig};
 use crate::rpc::ecdsa_verification_sig::{
-    recover_address_from_ecdsa_signature, ClementineWithdrawalMessage,
+    recover_address_from_ecdsa_signature, OperatorWithdrawalMessage,
 };
 use crate::rpc::parser;
 use crate::utils::get_vergen_response;
@@ -190,7 +190,7 @@ where
             // check if verification signature is provided by aggregator
             if let Some(verification_signature) = verification_signature {
                 let address_from_sig =
-                    recover_address_from_ecdsa_signature::<ClementineWithdrawalMessage>(
+                    recover_address_from_ecdsa_signature::<OperatorWithdrawalMessage>(
                         withdrawal_id,
                         input_signature,
                         input_outpoint,

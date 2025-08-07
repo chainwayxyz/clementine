@@ -34,7 +34,7 @@ use crate::metrics::L1SyncStatusProvider;
 use crate::operator::RoundIndex;
 use crate::rpc::clementine::{EntityStatus, NormalSignatureKind, OperatorKeys, TaggedSignature};
 use crate::rpc::ecdsa_verification_sig::{
-    recover_address_from_ecdsa_signature, ClementineOptimisticPayoutMessage,
+    recover_address_from_ecdsa_signature, OptimisticPayoutMessage,
 };
 #[cfg(feature = "automation")]
 use crate::states::StateManager;
@@ -1297,7 +1297,7 @@ where
             // check if verification signature is provided by aggregator
             if let Some(verification_signature) = verification_signature {
                 let address_from_sig =
-                    recover_address_from_ecdsa_signature::<ClementineOptimisticPayoutMessage>(
+                    recover_address_from_ecdsa_signature::<OptimisticPayoutMessage>(
                         deposit_id,
                         input_signature,
                         input_outpoint,
@@ -2993,6 +2993,7 @@ mod states {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::rpc::ecdsa_verification_sig::OperatorWithdrawalMessage;
     use crate::test::common::citrea::MockCitreaClient;
     use crate::test::common::*;
     use bitcoin::Block;
@@ -3114,12 +3115,9 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "This test is for testing web gui, to see if recovered address from signature from the web gui is correct"]
     async fn test_recover_address_from_signature() {
-        let signature = PrimitiveSignature::from_str("0x93907632f97f51a91e684a88a9b8ad9bb1e0f7679686f79d6538972f4a759c0c38dddc0c449b7336963275189fb26ea3bb2055ba5d140f5a536c6fac6997ae061b")
-            .unwrap();
         let input_signature = Signature::from_str("e8b82defd5e7745731737d210ad3f649541fd1e3173424fe6f9152b11cf8a1f9e24a176690c2ab243fb80ccc43369b2aba095b011d7a3a7c2a6953ef6b102643")
-            .unwrap();
+		.unwrap();
         let input_outpoint = OutPoint::from_str(
             "0000000000000000000000000000000000000000000000000000000000000000:0",
         )
@@ -3129,18 +3127,38 @@ mod tests {
                 .unwrap();
         let output_amount = Amount::from_sat(1000000000000000000);
         let deposit_id = 1;
-        let address = recover_address_from_ecdsa_signature::<ClementineOptimisticPayoutMessage>(
+
+        let opt_payout_sig = PrimitiveSignature::from_str("0xe777883ab6e83c1875308ef0e1bc25855b4bc6e60e656d0a051ddd44152643567713aa493f711f8cbf99c59cae04c3d9d5f63dc7f17261303db1a2e1bdc7dc731c")
+		.unwrap();
+        let address = recover_address_from_ecdsa_signature::<OptimisticPayoutMessage>(
+            deposit_id,
+            input_signature,
+            input_outpoint,
+            output_script_pubkey.clone(),
+            output_amount,
+            opt_payout_sig,
+        )
+        .unwrap();
+        assert_eq!(
+            address,
+            alloy::primitives::Address::from_str("0x281df03154e98484B786EDEf7EfF592a270F1Fb1")
+                .unwrap()
+        );
+
+        let op_withdrawal_sig = PrimitiveSignature::from_str("0xfc85a5c4f3c9e60b87f497d89afb8cce5e3344a87a962bfda72c6d4e73bf32753f16466104b806da0a8d4dd517fa5b713de24811d4cf5eb555de3d2ef5dac61a1b")
+				.unwrap();
+        let address = recover_address_from_ecdsa_signature::<OperatorWithdrawalMessage>(
             deposit_id,
             input_signature,
             input_outpoint,
             output_script_pubkey,
             output_amount,
-            signature,
+            op_withdrawal_sig,
         )
         .unwrap();
         assert_eq!(
             address,
-            alloy::primitives::Address::from_str("0xc9f597cbdd1235c986fb079184c785bf25b273b9")
+            alloy::primitives::Address::from_str("0x281df03154e98484B786EDEf7EfF592a270F1Fb1")
                 .unwrap()
         );
     }

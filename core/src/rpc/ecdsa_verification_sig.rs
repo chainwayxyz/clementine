@@ -20,7 +20,7 @@ use crate::errors::BridgeError;
 
 alloy_sol_types::sol! {
     #[derive(Debug)]
-    struct ClementineOptimisticPayoutMessage {
+    struct OptimisticPayoutMessage {
             uint32 withdrawal_id;
             bytes input_signature;
             bytes32 input_outpoint_txid;
@@ -30,7 +30,7 @@ alloy_sol_types::sol! {
     }
 
     #[derive(Debug)]
-    struct ClementineWithdrawalMessage  {
+    struct OperatorWithdrawalMessage  {
             uint32 withdrawal_id;
             bytes input_signature;
             bytes32 input_outpoint_txid;
@@ -55,7 +55,7 @@ pub trait WithdrawalMessage {
     ) -> Self;
 }
 
-impl WithdrawalMessage for ClementineOptimisticPayoutMessage {
+impl WithdrawalMessage for OptimisticPayoutMessage {
     fn new(
         deposit_id: u32,
         input_signature: Signature,
@@ -63,7 +63,7 @@ impl WithdrawalMessage for ClementineOptimisticPayoutMessage {
         output_script_pubkey: ScriptBuf,
         output_amount: Amount,
     ) -> Self {
-        ClementineOptimisticPayoutMessage {
+        OptimisticPayoutMessage {
             withdrawal_id: deposit_id,
             input_signature: input_signature.serialize().to_vec().into(),
             input_outpoint_txid: input_outpoint.txid.to_byte_array().into(),
@@ -74,7 +74,7 @@ impl WithdrawalMessage for ClementineOptimisticPayoutMessage {
     }
 }
 
-impl WithdrawalMessage for ClementineWithdrawalMessage {
+impl WithdrawalMessage for OperatorWithdrawalMessage {
     fn new(
         deposit_id: u32,
         input_signature: Signature,
@@ -82,7 +82,7 @@ impl WithdrawalMessage for ClementineWithdrawalMessage {
         output_script_pubkey: ScriptBuf,
         output_amount: Amount,
     ) -> Self {
-        ClementineWithdrawalMessage {
+        OperatorWithdrawalMessage {
             withdrawal_id: deposit_id,
             input_signature: input_signature.serialize().to_vec().into(),
             input_outpoint_txid: input_outpoint.txid.to_byte_array().into(),

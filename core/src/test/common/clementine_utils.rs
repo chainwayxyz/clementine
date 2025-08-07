@@ -10,9 +10,7 @@ use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient
 use crate::rpc::clementine::{
     OptimisticWithdrawParams, TransactionRequest, WithdrawParams, WithdrawParamsWithSig,
 };
-use crate::rpc::ecdsa_verification_sig::{
-    ClementineOptimisticPayoutMessage, ClementineWithdrawalMessage,
-};
+use crate::rpc::ecdsa_verification_sig::{OperatorWithdrawalMessage, OptimisticPayoutMessage};
 use crate::test::common::citrea::CitreaE2EData;
 use crate::test::common::mine_once_after_in_mempool;
 use crate::test::common::tx_utils::get_txid_where_utxo_is_spent_while_waiting_for_state_mngr_sync;
@@ -49,9 +47,10 @@ pub async fn payout_and_start_kickoff(
         output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
         output_amount: payout_txout.value.to_sat(),
     };
-    let verification_signature = sign_withdrawal_verification_signature::<
-        ClementineWithdrawalMessage,
-    >(&e2e.config, withdrawal_params.clone());
+    let verification_signature = sign_withdrawal_verification_signature::<OperatorWithdrawalMessage>(
+        &e2e.config,
+        withdrawal_params.clone(),
+    );
 
     let verification_signature_str = verification_signature.to_string();
 
@@ -149,9 +148,10 @@ pub async fn reimburse_with_optimistic_payout(
         output_amount: payout_txout.value.to_sat(),
     };
 
-    let verification_signature = sign_withdrawal_verification_signature::<
-        ClementineOptimisticPayoutMessage,
-    >(&e2e.config, withdrawal_params.clone());
+    let verification_signature = sign_withdrawal_verification_signature::<OptimisticPayoutMessage>(
+        &e2e.config,
+        withdrawal_params.clone(),
+    );
 
     let verification_signature_str = verification_signature.to_string();
 

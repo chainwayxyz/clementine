@@ -19,9 +19,7 @@ use crate::rpc::clementine::{
     OptimisticWithdrawParams, RawSignedTx, SendMoveTxRequest, SendTxRequest, TransactionRequest,
     WithdrawParams, WithdrawParamsWithSig,
 };
-use crate::rpc::ecdsa_verification_sig::{
-    ClementineOptimisticPayoutMessage, ClementineWithdrawalMessage,
-};
+use crate::rpc::ecdsa_verification_sig::{OperatorWithdrawalMessage, OptimisticPayoutMessage};
 use crate::test::common::citrea::{
     get_new_withdrawal_utxo_and_register_to_citrea, register_replacement_deposit_to_citrea,
     start_citrea, update_config_with_citrea_e2e_values, CitreaE2EData, MockCitreaClient,
@@ -628,9 +626,10 @@ async fn mock_citrea_run_truthful() {
         output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
         output_amount: payout_txout.value.to_sat(),
     };
-    let verification_signature = sign_withdrawal_verification_signature::<
-        ClementineWithdrawalMessage,
-    >(&config, withdrawal_params.clone());
+    let verification_signature = sign_withdrawal_verification_signature::<OperatorWithdrawalMessage>(
+        &config,
+        withdrawal_params.clone(),
+    );
 
     let verification_signature_str = verification_signature.to_string();
 
@@ -1086,9 +1085,10 @@ async fn mock_citrea_run_truthful_opt_payout() {
         output_amount: payout_txout.value.to_sat(),
     };
 
-    let verification_signature = sign_withdrawal_verification_signature::<
-        ClementineOptimisticPayoutMessage,
-    >(&config, withdrawal_params.clone());
+    let verification_signature = sign_withdrawal_verification_signature::<OptimisticPayoutMessage>(
+        &config,
+        withdrawal_params.clone(),
+    );
 
     let verification_signature_str = verification_signature.to_string();
 
@@ -1834,7 +1834,7 @@ async fn concurrent_deposits_and_withdrawals() {
                     output_amount: payout_txouts[i].value.to_sat(),
                 };
                 let verification_signature = sign_withdrawal_verification_signature::<
-                    ClementineWithdrawalMessage,
+                    OperatorWithdrawalMessage,
                 >(&config, withdraw_params.clone());
 
                 let verification_signature_str = verification_signature.to_string();
@@ -1961,7 +1961,7 @@ async fn concurrent_deposits_and_optimistic_payouts() {
                 };
 
                 let verification_signature = sign_withdrawal_verification_signature::<
-                    ClementineOptimisticPayoutMessage,
+                    OptimisticPayoutMessage,
                 >(&config, withdrawal_params.clone());
 
                 let verification_signature_str = verification_signature.to_string();
