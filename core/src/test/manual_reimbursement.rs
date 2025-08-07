@@ -2,9 +2,12 @@ use crate::bitvm_client::SECP;
 use crate::builder::transaction::input::UtxoVout;
 use crate::builder::transaction::TransactionType;
 use crate::citrea::CitreaClientT;
+use crate::config::BridgeConfig;
 use crate::database::Database;
+use crate::extended_rpc::ExtendedRpc;
 use crate::rpc::clementine::WithdrawParams;
 use crate::test::common::citrea::MockCitreaClient;
+use crate::test::common::test_actors::TestActors;
 use crate::test::common::{
     create_regtest_rpc, generate_withdrawal_transaction_and_signature, poll_until_condition,
 };
@@ -17,6 +20,7 @@ use eyre::Context;
 use std::time::Duration;
 use tonic::Request;
 
+// This test tests if operators with no-automation can get reimbursed using get_reimbursement_txs rpc endpoint.
 #[tokio::test]
 async fn mock_citrea_run_truthful_manual_reimbursement() {
     let mut config = create_test_config_with_thread_name().await;
@@ -34,6 +38,20 @@ async fn mock_citrea_run_truthful_manual_reimbursement() {
     .await
     .unwrap();
 
+    // do 2 deposits and get reimbursements
+    let actors =
+        deposit_and_get_reimbursement(&mut config, None, &rpc, &mut citrea_client, 0).await;
+    let _actors =
+        deposit_and_get_reimbursement(&mut config, Some(actors), &rpc, &mut citrea_client, 1).await;
+}
+
+async fn deposit_and_get_reimbursement(
+    mut config: &mut BridgeConfig,
+    actors: Option<TestActors<MockCitreaClient>>,
+    rpc: &ExtendedRpc,
+    citrea_client: &mut MockCitreaClient,
+    withdrawal_id: u32,
+) -> TestActors<MockCitreaClient> {
     tracing::info!("Running deposit");
 
     tracing::info!(
@@ -41,7 +59,7 @@ async fn mock_citrea_run_truthful_manual_reimbursement() {
         rpc.client.get_block_count().await.unwrap()
     );
     let (actors, deposit_params, move_txid, _deposit_blockhash, verifiers_public_keys) =
-        run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None, None)
+        run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, actors, None)
             .await
             .unwrap();
 
@@ -104,10 +122,16 @@ async fn mock_citrea_run_truthful_manual_reimbursement() {
     tracing::info!("Withdrawal tx sent");
     let mut operator0 = actors.get_operator_client_by_index(0);
 
+    // try to get reimbursement txs without a withdrawal, should return error
+    assert!(operator0
+        .get_reimbursement_txs(Request::new(deposit_params.deposit_outpoint.into()))
+        .await
+        .is_err());
+
     let payout_tx = loop {
         let withdrawal_response = operator0
             .withdraw(WithdrawParams {
-                withdrawal_id: 0,
+                withdrawal_id,
                 input_signature: sig.serialize().to_vec(),
                 input_outpoint: Some(withdrawal_utxo.into()),
                 output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
@@ -237,4 +261,6 @@ async fn mock_citrea_run_truthful_manual_reimbursement() {
     }
 
     assert!(rpc.is_utxo_spent(&reimburse_connector).await.unwrap());
+
+    actors
 }

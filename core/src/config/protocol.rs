@@ -287,27 +287,60 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     bridge_nonstandard: true,
 };
 
+pub const TESTNET4_TEST_PARAMSET: ProtocolParamset = ProtocolParamset {
+    network: Network::Testnet4,
+    num_round_txs: 2,
+    num_kickoffs_per_round: 10,
+    num_signed_kickoffs: 2,
+    bridge_amount: Amount::from_sat(1_000_000),
+    kickoff_amount: Amount::from_sat(0),
+    operator_challenge_amount: Amount::from_sat(200_000),
+    collateral_funding_amount: Amount::from_sat(99_000),
+    watchtower_challenge_bytes: 144,
+    kickoff_blockhash_commit_length: 40,
+    winternitz_log_d: WINTERNITZ_LOG_D,
+    user_takes_after: 200,
+    operator_challenge_timeout_timelock: 4 * BLOCKS_PER_HOUR,
+    operator_challenge_nack_timelock: 4 * BLOCKS_PER_HOUR * 3,
+    disprove_timeout_timelock: 4 * BLOCKS_PER_HOUR * 5,
+    assert_timeout_timelock: 4 * BLOCKS_PER_HOUR * 4,
+    operator_reimburse_timelock: 2,
+    watchtower_challenge_timeout_timelock: 4 * BLOCKS_PER_HOUR * 2,
+    time_to_send_watchtower_challenge: 4 * BLOCKS_PER_HOUR * 3 / 2,
+    latest_blockhash_timeout_timelock: 4 * BLOCKS_PER_HOUR * 5 / 2,
+    finality_depth: 1,
+    start_height: 92700,
+    genesis_height: 92700,
+    genesis_chain_state_hash: [
+        0xe4, 0xe1, 0x28, 0xa8, 0x99, 0xaf, 0xee, 0xb1, 0x85, 0x5b, 0x4a, 0xb7, 0x2e, 0x4d, 0x88,
+        0x50, 0xab, 0x35, 0x1b, 0xde, 0xf9, 0x4f, 0xc2, 0x78, 0xe8, 0x5c, 0x13, 0x11, 0xe2, 0x72,
+        0xfe, 0x6a,
+    ],
+    header_chain_proof_batch_size: 10000,
+    bridge_nonstandard: true,
+};
+
 pub const REGTEST_TEST_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [
-    233, 190, 236, 58, 182, 40, 92, 183, 152, 197, 221, 26, 241, 128, 161, 110, 165, 131, 212, 181,
-    121, 170, 134, 177, 178, 177, 175, 78, 152, 146, 189, 52,
+    191, 41, 245, 76, 47, 243, 175, 215, 219, 221, 93, 163, 232, 132, 93, 27, 3, 251, 171, 32, 120,
+    230, 199, 203, 123, 174, 113, 106, 70, 185, 3, 52,
 ];
 
 pub const REGTEST_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [
-    182, 50, 149, 132, 80, 34, 197, 198, 56, 29, 116, 224, 197, 148, 87, 246, 249, 121, 168, 109,
-    245, 44, 207, 41, 183, 53, 203, 47, 237, 140, 245, 240,
+    18, 34, 120, 86, 134, 81, 152, 68, 107, 120, 50, 144, 102, 218, 1, 50, 193, 184, 244, 176, 250,
+    99, 34, 217, 11, 101, 238, 187, 119, 235, 11, 151,
 ];
 
 pub const SIGNET_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [
-    141, 113, 253, 244, 182, 139, 213, 55, 190, 157, 46, 84, 236, 233, 240, 174, 173, 83, 75, 7,
-    120, 201, 86, 240, 104, 0, 230, 54, 9, 217, 253, 33,
+    11, 11, 164, 223, 65, 47, 193, 97, 48, 121, 43, 219, 141, 45, 132, 241, 237, 185, 34, 46, 87,
+    93, 148, 53, 5, 212, 234, 57, 173, 153, 91, 112,
 ];
 pub const MAINNET_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [
-    123, 108, 187, 185, 190, 29, 51, 186, 215, 65, 206, 51, 48, 146, 137, 92, 235, 223, 105, 123,
-    52, 230, 126, 214, 79, 75, 89, 50, 161, 206, 85, 79,
+    183, 151, 179, 224, 163, 237, 236, 35, 211, 80, 80, 124, 24, 149, 248, 213, 7, 0, 139, 82, 196,
+    135, 166, 9, 43, 148, 68, 42, 8, 91, 181, 212,
 ];
 pub const TESTNET4_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [
-    247, 152, 186, 173, 200, 55, 38, 96, 141, 99, 141, 72, 114, 208, 160, 34, 108, 51, 62, 121,
-    133, 186, 52, 152, 24, 237, 141, 27, 148, 48, 49, 115,
+    136, 222, 235, 50, 115, 169, 44, 20, 138, 181, 161, 199, 16, 200, 72, 54, 94, 72, 165, 23, 123,
+    178, 74, 175, 179, 104, 63, 255, 208, 234, 165, 189,
 ];
 
 #[cfg(test)]

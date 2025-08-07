@@ -136,3 +136,19 @@ jobs:
             - clementine-core-${{ github.ref_name }}-with-automation-linux-amd64
             - clementine-cli-${{ github.ref_name }}-no-automation-linux-amd64
             - clementine-cli-${{ github.ref_name }}-with-automation-linux-amd64
+
+      - uses: actions/checkout@v4
+      - name: Docker Setup Buildx
+        uses: docker/setup-buildx-action@v3.2.0
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Build and push
+        uses: docker/build-push-action@v5.3.0
+        with:
+          context: .
+          file: ./scripts/docker/Dockerfile
+          push: true
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/clementine:${{ github.ref_name }}

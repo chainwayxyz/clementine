@@ -565,7 +565,7 @@ where
     /// 1. Checking if the withdrawal has been made on Citrea
     /// 2. Verifying the given signature
     /// 3. Checking if the withdrawal is profitable or not
-    /// 4. Funding the witdhrawal transaction using TxSender RBF option
+    /// 4. Funding the withdrawal transaction using TxSender RBF option
     ///
     /// # Parameters
     ///
@@ -789,7 +789,7 @@ where
                     txhandler.get_transaction_type()
                 {
                     let partial = PartialSignatureInfo {
-                        operator_idx: 0, // dummy value, doesn't
+                        operator_idx: 0, // dummy value
                         round_idx,
                         kickoff_utxo_idx: kickoff_idx,
                     };
@@ -1924,6 +1924,7 @@ where
             // if current round is collateral, nothing to do except send the first round tx
             return self.send_next_round_tx(dbtx, round_idx).await;
         }
+
         // get round txhandlers
         let context = ContractContext::new_context_for_round(
             self.signer.xonly_public_key,
@@ -1958,6 +1959,7 @@ where
 
         let mut txs_to_send = Vec::new();
 
+        // to be able to send ready to reimburse tx, we need to make sure, all kickoff utxos are spent, and for all kickoffs, all kickoff finalizers are spent
         if !self
             .rpc
             .is_tx_on_chain(&ready_to_reimburse_tx.1.compute_txid())
@@ -1969,110 +1971,21 @@ where
             - for all kickoffs, all kickoff finalizers are spent
             ", round_idx);
             let round_txid = round_tx.1.compute_txid();
-            // to be able to send ready to reimburse tx, we need to make sure, all kickoff utxos are spent, and for all kickoffs, all kickoff finalizers are spent
-            // check and collect all kickoff utxos that are not spent first
-            let mut unspent_kickoff_utxos = Vec::new();
-            for kickoff_idx in 0..self.config.protocol_paramset().num_kickoffs_per_round {
-                let kickoff_utxo = OutPoint {
-                    txid: round_txid,
-                    vout: UtxoVout::Kickoff(kickoff_idx).get_vout(),
-                };
-                if !self.rpc.is_utxo_spent(&kickoff_utxo).await? {
-                    unspent_kickoff_utxos.push(kickoff_idx);
-                } else {
-                    // set the kickoff connector as used (it will do nothing if the utxo is already in db, so it won't overwrite the kickoff txid)
-                    // mark so that we don't try to use this utxo anymore
-                    self.db
-                        .set_kickoff_connector_as_used(
-                            dbtx.as_deref_mut(),
-                            round_idx,
-                            kickoff_idx as u32,
-                            None,
-                        )
-                        .await?;
-                }
-            }
-            if !unspent_kickoff_utxos.is_empty() {
-                tracing::info!(
-                    "There are unspent kickoff utxos {:?}, creating a tx that spends them",
-                    unspent_kickoff_utxos
-                );
-                let operator_winternitz_public_keys = self.generate_kickoff_winternitz_pubkeys()?;
-                let kickoff_wpks = KickoffWinternitzKeys::new(
-                    operator_winternitz_public_keys,
-                    self.config.protocol_paramset().num_kickoffs_per_round,
-                    self.config.protocol_paramset().num_round_txs,
-                );
-                // if there are unspent kickoff utxos, create a tx that spends them
-                let (round_txhandler, _ready_to_reimburse_txhandler) = create_round_nth_txhandler(
-                    self.signer.xonly_public_key,
-                    self.collateral_funding_outpoint,
-                    self.config.protocol_paramset().collateral_funding_amount,
-                    round_idx,
-                    &kickoff_wpks,
-                    self.config.protocol_paramset(),
-                )?;
-                let mut burn_unused_kickoff_connectors_txhandler =
-                    create_burn_unused_kickoff_connectors_txhandler(
-                        &round_txhandler,
-                        &unspent_kickoff_utxos,
-                        &self.reimburse_addr,
-                        self.config.protocol_paramset(),
-                    )?;
+            let unspent_kickoff_utxos = self
+                .find_and_mark_unspent_kickoff_utxos(dbtx.as_deref_mut(), round_idx, round_txid)
+                .await?;
 
-                // sign burn unused kickoff connectors tx
-                self.signer.tx_sign_and_fill_sigs(
-                    &mut burn_unused_kickoff_connectors_txhandler,
-                    &[],
-                    None,
-                )?;
-                let burn_unused_kickoff_connectors_txhandler =
-                    burn_unused_kickoff_connectors_txhandler.promote()?;
-                txs_to_send.push((
-                    TransactionType::BurnUnusedKickoffConnectors,
-                    burn_unused_kickoff_connectors_txhandler
-                        .get_cached_tx()
-                        .clone(),
-                ));
+            if !unspent_kickoff_utxos.is_empty() {
+                let burn_txs = self
+                    .create_burn_unused_kickoff_connectors_tx(round_idx, &unspent_kickoff_utxos)
+                    .await?;
+                txs_to_send.extend(burn_txs);
             } else {
                 // every kickoff utxo is spent, but we need to check if all kickoff finalizers are spent
                 // if not, we return and error and wait until they are spent
                 // if all finalizers are spent, it is safe to send ready to reimburse tx
-                // we need to check if all finalizers are spent
-                for kickoff_idx in 0..self.config.protocol_paramset().num_kickoffs_per_round {
-                    let kickoff_txid = self
-                        .db
-                        .get_kickoff_txid_for_used_kickoff_connector(
-                            dbtx.as_deref_mut(),
-                            round_idx,
-                            kickoff_idx as u32,
-                        )
-                        .await?;
-                    if let Some(kickoff_txid) = kickoff_txid {
-                        let deposit_outpoint = self
-                            .db
-                            .get_deposit_outpoint_for_kickoff_txid(
-                                dbtx.as_deref_mut(),
-                                kickoff_txid,
-                            )
-                            .await?;
-                        if !self.rpc.is_tx_on_chain(&kickoff_txid).await? {
-                            return Err(eyre::eyre!("For round {:?} and kickoff utxo {:?}, the kickoff tx {:?} is not on chain, 
-                            reimburse the deposit {:?} corresponding to this kickoff first. "
-                            , round_idx, kickoff_idx, kickoff_txid, deposit_outpoint).into());
-                        } else if !self
-                            .rpc
-                            .is_utxo_spent(&OutPoint {
-                                txid: kickoff_txid,
-                                vout: UtxoVout::KickoffFinalizer.get_vout(),
-                            })
-                            .await?
-                        {
-                            return Err(eyre::eyre!("For round {:?} and kickoff utxo {:?}, the kickoff finalizer {:?} is not spent, 
-                            send the challenge timeout tx for the deposit {:?} first", round_idx, kickoff_idx, kickoff_txid, deposit_outpoint).into());
-                        }
-                    }
-                }
+                self.validate_all_kickoff_finalizers_spent(dbtx.as_deref_mut(), round_idx)
+                    .await?;
                 // all finalizers and kickoff utxos are spent, it is safe to send ready to reimburse tx
                 txs_to_send.push(ready_to_reimburse_tx.clone());
             }
@@ -2083,6 +1996,128 @@ where
         }
 
         Ok(txs_to_send)
+    }
+
+    /// Finds unspent kickoff UTXOs and marks spent ones as used in the database.
+    async fn find_and_mark_unspent_kickoff_utxos(
+        &self,
+        mut dbtx: Option<DatabaseTransaction<'_, '_>>,
+        round_idx: RoundIndex,
+        round_txid: Txid,
+    ) -> Result<Vec<usize>, BridgeError> {
+        // check and collect all kickoff utxos that are not spent
+        let mut unspent_kickoff_utxos = Vec::new();
+        for kickoff_idx in 0..self.config.protocol_paramset().num_kickoffs_per_round {
+            let kickoff_utxo = OutPoint {
+                txid: round_txid,
+                vout: UtxoVout::Kickoff(kickoff_idx).get_vout(),
+            };
+            if !self.rpc.is_utxo_spent(&kickoff_utxo).await? {
+                unspent_kickoff_utxos.push(kickoff_idx);
+            } else {
+                // set the kickoff connector as used (it will do nothing if the utxo is already in db, so it won't overwrite the kickoff txid)
+                // mark so that we don't try to use this utxo anymore
+                self.db
+                    .set_kickoff_connector_as_used(
+                        dbtx.as_deref_mut(),
+                        round_idx,
+                        kickoff_idx as u32,
+                        None,
+                    )
+                    .await?;
+            }
+        }
+        Ok(unspent_kickoff_utxos)
+    }
+
+    /// Creates a transaction that burns unused kickoff connectors.
+    async fn create_burn_unused_kickoff_connectors_tx(
+        &self,
+        round_idx: RoundIndex,
+        unspent_kickoff_utxos: &[usize],
+    ) -> Result<Vec<(TransactionType, Transaction)>, BridgeError> {
+        tracing::info!(
+            "There are unspent kickoff utxos {:?}, creating a tx that spends them",
+            unspent_kickoff_utxos
+        );
+        let operator_winternitz_public_keys = self.generate_kickoff_winternitz_pubkeys()?;
+        let kickoff_wpks = KickoffWinternitzKeys::new(
+            operator_winternitz_public_keys,
+            self.config.protocol_paramset().num_kickoffs_per_round,
+            self.config.protocol_paramset().num_round_txs,
+        );
+        // if there are unspent kickoff utxos, create a tx that spends them
+        let (round_txhandler, _ready_to_reimburse_txhandler) = create_round_nth_txhandler(
+            self.signer.xonly_public_key,
+            self.collateral_funding_outpoint,
+            self.config.protocol_paramset().collateral_funding_amount,
+            round_idx,
+            &kickoff_wpks,
+            self.config.protocol_paramset(),
+        )?;
+        let mut burn_unused_kickoff_connectors_txhandler =
+            create_burn_unused_kickoff_connectors_txhandler(
+                &round_txhandler,
+                unspent_kickoff_utxos,
+                &self.reimburse_addr,
+                self.config.protocol_paramset(),
+            )?;
+
+        // sign burn unused kickoff connectors tx
+        self.signer.tx_sign_and_fill_sigs(
+            &mut burn_unused_kickoff_connectors_txhandler,
+            &[],
+            None,
+        )?;
+        let burn_unused_kickoff_connectors_txhandler =
+            burn_unused_kickoff_connectors_txhandler.promote()?;
+        Ok(vec![(
+            TransactionType::BurnUnusedKickoffConnectors,
+            burn_unused_kickoff_connectors_txhandler
+                .get_cached_tx()
+                .clone(),
+        )])
+    }
+
+    /// Validates that all kickoff finalizers are spent for the given round.
+    async fn validate_all_kickoff_finalizers_spent(
+        &self,
+        mut dbtx: Option<DatabaseTransaction<'_, '_>>,
+        round_idx: RoundIndex,
+    ) -> Result<(), BridgeError> {
+        // we need to check if all finalizers are spent
+        for kickoff_idx in 0..self.config.protocol_paramset().num_kickoffs_per_round {
+            let kickoff_txid = self
+                .db
+                .get_kickoff_txid_for_used_kickoff_connector(
+                    dbtx.as_deref_mut(),
+                    round_idx,
+                    kickoff_idx as u32,
+                )
+                .await?;
+            if let Some(kickoff_txid) = kickoff_txid {
+                let deposit_outpoint = self
+                    .db
+                    .get_deposit_outpoint_for_kickoff_txid(dbtx.as_deref_mut(), kickoff_txid)
+                    .await?;
+                if !self.rpc.is_tx_on_chain(&kickoff_txid).await? {
+                    return Err(eyre::eyre!("For round {:?} and kickoff utxo {:?}, the kickoff tx {:?} is not on chain, 
+                    reimburse the deposit {:?} corresponding to this kickoff first. "
+                    , round_idx, kickoff_idx, kickoff_txid, deposit_outpoint).into());
+                } else if !self
+                    .rpc
+                    .is_utxo_spent(&OutPoint {
+                        txid: kickoff_txid,
+                        vout: UtxoVout::KickoffFinalizer.get_vout(),
+                    })
+                    .await?
+                {
+                    return Err(eyre::eyre!("For round {:?} and kickoff utxo {:?}, the kickoff finalizer {:?} is not spent, 
+                    send the challenge timeout tx for the deposit {:?} first", round_idx, kickoff_idx, kickoff_txid, deposit_outpoint).into());
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Checks if the next round tx is on chain, if it is, updates the database, otherwise returns the round tx that needs to be sent.
