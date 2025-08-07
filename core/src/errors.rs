@@ -149,7 +149,7 @@ pub enum BridgeError {
     DepositAlreadySigned(Txid),
     #[error("Invalid withdrawal ECDSA verification signature")]
     InvalidECDSAVerificationSignature,
-    #[error("Withrawal ECDSA verification signature missing")]
+    #[error("Withdrawal ECDSA verification signature missing")]
     ECDSAVerificationSignatureMissing,
 
     // External crate error wrappers
