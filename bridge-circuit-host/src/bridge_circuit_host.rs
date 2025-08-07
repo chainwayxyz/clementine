@@ -2,7 +2,6 @@ use crate::docker::{stark_to_bitvm2_g16, stark_to_bitvm2_g16_dev_mode};
 use crate::structs::{
     BridgeCircuitBitvmInputs, BridgeCircuitHostParams, SuccinctBridgeCircuitPublicInputs,
 };
-use crate::utils::total_work_from_wt_tx;
 use crate::utils::{calculate_succinct_output_prefix, is_dev_mode};
 use ark_bn254::Bn254;
 use bitcoin::Transaction;
@@ -15,11 +14,6 @@ use circuits_lib::bridge_circuit::merkle_tree::BitcoinMerkleTree;
 use circuits_lib::bridge_circuit::spv::SPV;
 use circuits_lib::bridge_circuit::structs::WorkOnlyCircuitInput;
 use circuits_lib::bridge_circuit::transaction::CircuitTransaction;
-use circuits_lib::bridge_circuit::{
-    constants::REGTEST_WORK_ONLY_METHOD_ID,
-    structs::{ChallengeSendingWatchtowers, TotalWork},
-    total_work_and_watchtower_flags,
-};
 use citrea_sov_rollup_interface::zk::light_client_proof::output::LightClientCircuitOutput;
 use eyre::{eyre, Result, WrapErr};
 
@@ -570,6 +564,12 @@ mod tests {
     #[test]
     #[allow(clippy::print_literal)]
     fn test_varying_total_works_first_two_valid() {
+        use crate::utils::total_work_from_wt_tx;
+        use circuits_lib::bridge_circuit::{
+            constants::REGTEST_WORK_ONLY_METHOD_ID,
+            structs::{ChallengeSendingWatchtowers, TotalWork},
+            total_work_and_watchtower_flags,
+        };
         eprintln!("{}Please update test data if the elf files are changed. Run the tests on bridge_circuit_test_data.rs to update the test data.{}", "\x1b[31m", "\x1b[0m");
         let bridge_circuit_host_params_serialized =
             include_bytes!("../bin-files/bch_params_varying_total_works_first_two_valid.bin");
