@@ -2,6 +2,7 @@ use crate::docker::{stark_to_bitvm2_g16, stark_to_bitvm2_g16_dev_mode};
 use crate::structs::{
     BridgeCircuitBitvmInputs, BridgeCircuitHostParams, SuccinctBridgeCircuitPublicInputs,
 };
+use crate::utils::total_work_from_wt_tx;
 use crate::utils::{calculate_succinct_output_prefix, is_dev_mode};
 use ark_bn254::Bn254;
 use bitcoin::Transaction;
@@ -14,6 +15,11 @@ use circuits_lib::bridge_circuit::merkle_tree::BitcoinMerkleTree;
 use circuits_lib::bridge_circuit::spv::SPV;
 use circuits_lib::bridge_circuit::structs::WorkOnlyCircuitInput;
 use circuits_lib::bridge_circuit::transaction::CircuitTransaction;
+use circuits_lib::bridge_circuit::{
+    constants::REGTEST_WORK_ONLY_METHOD_ID,
+    structs::{ChallengeSendingWatchtowers, TotalWork},
+    total_work_and_watchtower_flags,
+};
 use citrea_sov_rollup_interface::zk::light_client_proof::output::LightClientCircuitOutput;
 use eyre::{eyre, Result, WrapErr};
 

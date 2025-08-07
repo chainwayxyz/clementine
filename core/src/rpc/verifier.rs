@@ -1,5 +1,5 @@
-use std::time::Duration;
 use std::str::FromStr;
+use std::time::Duration;
 
 use super::clementine::{
     self, clementine_verifier_server::ClementineVerifier, Empty, NonceGenRequest, NonceGenResponse,
@@ -13,7 +13,10 @@ use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestD
 use crate::citrea::CitreaClientT;
 use crate::constants::RESTART_BACKGROUND_TASKS_TIMEOUT;
 use crate::rpc::clementine::{PartialSigBatch, VerifierDepositFinalizeResponse};
-use crate::utils::{get_vergen_response, timed_request, DEPOSIT_SIGNING_STREAM_BATCH_SIZE, NONCE_AGGREGATION_BATCH_SIZE};
+use crate::utils::{
+    get_vergen_response, timed_request, DEPOSIT_SIGNING_STREAM_BATCH_SIZE,
+    NONCE_AGGREGATION_BATCH_SIZE,
+};
 use crate::verifier::VerifierServer;
 use crate::{constants, fetch_next_optional_message_from_stream};
 use crate::{
