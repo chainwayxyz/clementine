@@ -65,23 +65,31 @@ pub struct BlockFetcherTask<T: Owner + std::fmt::Debug + 'static> {
 impl<T: Owner + std::fmt::Debug + 'static> BlockFetcherTask<T> {
     /// Creates a new finalized block fetcher task that sends new finalized blocks to the message queue.
     pub async fn new_finalized_block_fetcher_task(
-        next_height: u32,
         db: Database,
         paramset: &'static ProtocolParamset,
     ) -> Result<FinalizedBlockFetcherTask<QueueBlockHandler>, BridgeError> {
         let queue = PGMQueueExt::new_with_pool(db.get_pool()).await;
         let queue_name = StateManager::<T>::queue_name();
 
+        let handler = QueueBlockHandler {
+            queue,
+            queue_name: queue_name.clone(),
+        };
+
+        // get the next finalized block height to start from
+        let next_height = db
+            .get_next_finalized_block_height_for_consumer(
+                None,
+                T::FINALIZED_BLOCK_CONSUMER_ID,
+                paramset,
+            )
+            .await?;
+
         tracing::info!(
             "Creating block fetcher task for owner type {} starting from height {}",
             T::ENTITY_NAME,
             next_height
         );
-
-        let handler = QueueBlockHandler {
-            queue,
-            queue_name: queue_name.clone(),
-        };
 
         Ok(crate::bitcoin_syncer::FinalizedBlockFetcherTask::new(
             db,
@@ -164,14 +172,12 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
     pub async fn block_fetcher_task(
         &self,
     ) -> Result<WithDelay<impl Task<Output = bool> + std::fmt::Debug>, BridgeError> {
-        Ok(BlockFetcherTask::<T>::new_finalized_block_fetcher_task(
-            self.next_height_to_process,
-            self.db.clone(),
-            self.paramset,
+        Ok(
+            BlockFetcherTask::<T>::new_finalized_block_fetcher_task(self.db.clone(), self.paramset)
+                .await?
+                .into_buffered_errors(20)
+                .with_delay(POLL_DELAY),
         )
-        .await?
-        .into_buffered_errors(20)
-        .with_delay(POLL_DELAY))
     }
 }
 

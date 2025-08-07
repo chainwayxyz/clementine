@@ -49,6 +49,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
     ) -> Result<(), eyre::Report> {
         let queue_name = StateManager::<T>::queue_name();
         let queue = PGMQueueExt::new_with_pool(db.get_pool()).await;
+
         let message = SystemEvent::NewOperator { operator_data };
         queue
             .send_with_cxn(&queue_name, &message, &mut *(*tx))
@@ -68,6 +69,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
     ) -> Result<(), eyre::Report> {
         let queue_name = StateManager::<T>::queue_name();
         let queue = PGMQueueExt::new_with_pool(db.get_pool()).await;
+
         let message = SystemEvent::NewKickoff {
             kickoff_data,
             kickoff_height,
@@ -102,6 +104,11 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 block,
                 height,
             } => {
+                if self.next_height_to_process != height {
+                    tracing::warn!("Finalized block arrived to state manager out of order. Ignoring block. This can happen for some blocks during restarts. Otherwise it might be due to an error. Expected: {}, Got: {}", self.next_height_to_process, height);
+                    return Ok(());
+                }
+
                 self.update_block_cache(&block, height);
 
                 // Handle the finalized block on the owner (verifier or operator)
