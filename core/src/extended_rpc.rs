@@ -8,7 +8,7 @@
 //!
 //! In tests, Bitcoind node and client are usually created using
 //! [`crate::test::common::create_regtest_rpc`]. Please refer to
-//! [`crate::test::common`] for using [`ExtendedRpc`] in tests.
+//! [`crate::test::common`] for using [`ExtendedBitcoinRpc`] in tests.
 
 use bitcoin::Address;
 use bitcoin::Amount;
@@ -211,7 +211,7 @@ impl RetryableError for BitcoinRPCError {
 /// common operations, as well as direct access to Bitcoin RPC. Bitcoin RPC can
 /// be directly accessed via `client` member.
 #[derive(Clone)]
-pub struct ExtendedRpc {
+pub struct ExtendedBitcoinRpc {
     pub url: String,
     pub client: Arc<Client>,
 
@@ -219,9 +219,9 @@ pub struct ExtendedRpc {
     cached_mining_address: Arc<tokio::sync::RwLock<Option<String>>>,
 }
 
-impl std::fmt::Debug for ExtendedRpc {
+impl std::fmt::Debug for ExtendedBitcoinRpc {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ExtendedRpc")
+        f.debug_struct("ExtendedBitcoinRpc")
             .field("url", &self.url)
             .finish()
     }
@@ -243,8 +243,8 @@ pub enum BitcoinRPCError {
     Other(#[from] eyre::Report),
 }
 
-impl ExtendedRpc {
-    /// Attempts to connect to Bitcoin RPC server and creates a new [`ExtendedRpc`] instance.
+impl ExtendedBitcoinRpc {
+    /// Attempts to connect to Bitcoin RPC server and creates a new [`ExtendedBitcoinRpc`] instance.
     ///
     /// This is an internal helper method used by [`Self::connect`] and performs a single
     /// connection attempt without retry logic. It also performs a ping to verify the
@@ -258,7 +258,7 @@ impl ExtendedRpc {
     ///
     /// # Returns
     ///
-    /// - [`Result<ExtendedRpc>`]: A new ExtendedRpc instance on success
+    /// - [`Result<ExtendedBitcoinRpc>`]: A new ExtendedBitcoinRpc instance on success
     ///
     /// # Errors
     ///
@@ -286,7 +286,9 @@ impl ExtendedRpc {
         })
     }
 
-    /// Generates a new Bitcoin address for the wallet.
+    /// Generates a new Bitcoin address for the wallet. TODO: Make sure this
+    /// is either flexible in terms of address type or fixed to a specific type
+    /// like P2TR.
     pub async fn get_new_wallet_address(&self) -> Result<Address> {
         self.with_retry(|| async {
             self.get_new_address(None, None)
@@ -432,7 +434,10 @@ impl ExtendedRpc {
         F: FnMut() -> Fut,
         Fut: std::future::Future<Output = Result<T>>,
     {
-        tracing::debug!("ExtendedRpc operation will retry with config: {:?}", config);
+        tracing::debug!(
+            "ExtendedBitcoinRpc operation will retry with config: {:?}",
+            config
+        );
         let backoff_delays = ExponentialBackoff::from_millis(config.backoff_multiplier)
             .max_delay(config.max_delay)
             .factor(config.initial_delay.as_millis() as u64);
@@ -441,7 +446,7 @@ impl ExtendedRpc {
             .map(|delay| if config.jitter { jitter(delay) } else { delay })
             .collect();
         tracing::debug!(
-            "ExtendedRpc operation will retry with delays: {:?}",
+            "ExtendedBitcoinRpc operation will retry with delays: {:?}",
             backoff_delays
         );
 
@@ -452,7 +457,7 @@ impl ExtendedRpc {
                 Ok(result) => {
                     if attempt > 1 {
                         tracing::info!(
-                            "ExtendedRpc operation succeeded on attempt {}/{}",
+                            "ExtendedBitcoinRpc operation succeeded on attempt {}/{}",
                             attempt,
                             config.max_attempts
                         );
@@ -466,7 +471,7 @@ impl ExtendedRpc {
                     }
                     if attempt >= config.max_attempts {
                         tracing::error!(
-                            "ExtendedRpc operation failed after {} attempts: {}",
+                            "ExtendedBitcoinRpc operation failed after {} attempts: {}",
                             config.max_attempts,
                             error
                         );
@@ -475,7 +480,7 @@ impl ExtendedRpc {
 
                     if let Some(delay) = backoff_delays.get(attempt - 1) {
                         tracing::debug!(
-                            "ExtendedRpc operation failed on attempt {}/{}, retrying in {:?}",
+                            "ExtendedBitcoinRpc operation failed on attempt {}/{}, retrying in {:?}",
                             attempt,
                             config.max_attempts,
                             delay
@@ -483,7 +488,7 @@ impl ExtendedRpc {
                         sleep(*delay).await;
                     } else {
                         tracing::error!(
-                            "ExtendedRpc operation failed after {} attempts: {}",
+                            "ExtendedBitcoinRpc operation failed after {} attempts: {}",
                             config.max_attempts,
                             error
                         );
@@ -1437,13 +1442,13 @@ impl ExtendedRpc {
         .await
     }
 
-    /// Creates a new instance of the [`ExtendedRpc`] with a new client
+    /// Creates a new instance of the [`ExtendedBitcoinRpc`] with a new client
     /// connection for cloning. This is needed when you need a separate
     /// connection to the Bitcoin RPC server.
     ///
     /// # Returns
     ///
-    /// - [`ExtendedRpc`]: A new instance of ExtendedRpc with a new client connection.
+    /// - [`ExtendedBitcoinRpc`]: A new instance of ExtendedBitcoinRpc with a new client connection.
     pub async fn clone_inner(&self) -> std::result::Result<Self, bitcoincore_rpc::Error> {
         Ok(Self {
             url: self.url.clone(),
@@ -1472,7 +1477,7 @@ impl ExtendedRpc {
 mod tests {
     use crate::actor::Actor;
     use crate::config::protocol::{ProtocolParamset, REGTEST_PARAMSET};
-    use crate::extended_rpc::ExtendedRpc;
+    use crate::extended_rpc::ExtendedBitcoinRpc;
     use crate::test::common::{citrea, create_test_config_with_thread_name};
     use crate::{
         bitvm_client::SECP, extended_rpc::BitcoinRPCError, test::common::create_regtest_rpc,
@@ -1652,7 +1657,7 @@ mod tests {
                 None,
             );
 
-            let rpc = ExtendedRpc::connect(
+            let rpc = ExtendedBitcoinRpc::connect(
                 config.bitcoin_rpc_url.clone(),
                 config.bitcoin_rpc_user.clone(),
                 config.bitcoin_rpc_password.clone(),
@@ -1888,14 +1893,14 @@ mod tests {
         use std::sync::Arc;
         use std::time::{Duration, Instant};
 
-        // Mock ExtendedRpc for testing retry logic without actual Bitcoin RPC
-        struct MockExtendedRpc {
+        // Mock ExtendedBitcoinRpc for testing retry logic without actual Bitcoin RPC
+        struct MockExtendedBitcoinRpc {
             call_count: Arc<AtomicU32>,
             fail_until: u32,
             should_be_retryable: bool,
         }
 
-        impl MockExtendedRpc {
+        impl MockExtendedBitcoinRpc {
             fn new(fail_until: u32, should_be_retryable: bool) -> Self {
                 Self {
                     call_count: Arc::new(AtomicU32::new(0)),
@@ -1925,8 +1930,8 @@ mod tests {
                 self.call_count.load(Ordering::SeqCst)
             }
 
-            // Create a real ExtendedRpc instance for testing the retry wrapper methods
-            async fn create_real_instance() -> ExtendedRpc {
+            // Create a real ExtendedBitcoinRpc instance for testing the retry wrapper methods
+            async fn create_real_instance() -> ExtendedBitcoinRpc {
                 let mut config = create_test_config_with_thread_name().await;
                 let regtest = create_regtest_rpc(&mut config).await;
                 regtest.rpc().clone()
@@ -1935,8 +1940,8 @@ mod tests {
 
         #[tokio::test]
         async fn test_with_retry_config_success_on_first_attempt() {
-            let mock = MockExtendedRpc::new(0, true); // Never fail
-            let real_rpc = MockExtendedRpc::create_real_instance().await;
+            let mock = MockExtendedBitcoinRpc::new(0, true); // Never fail
+            let real_rpc = MockExtendedBitcoinRpc::create_real_instance().await;
 
             let config = RetryConfig::default();
             let result = real_rpc
@@ -1950,8 +1955,8 @@ mod tests {
 
         #[tokio::test]
         async fn test_with_retry_config_success_after_retries() {
-            let mock = MockExtendedRpc::new(2, true); // Fail first 2 attempts
-            let real_rpc = MockExtendedRpc::create_real_instance().await;
+            let mock = MockExtendedBitcoinRpc::new(2, true); // Fail first 2 attempts
+            let real_rpc = MockExtendedBitcoinRpc::create_real_instance().await;
 
             let config = RetryConfig::custom(
                 Duration::from_millis(10), // Very short delays for test speed
@@ -1975,8 +1980,8 @@ mod tests {
 
         #[tokio::test]
         async fn test_with_retry_config_max_attempts_exceeded() {
-            let mock = MockExtendedRpc::new(5, true); // Fail 5 attempts
-            let real_rpc = MockExtendedRpc::create_real_instance().await;
+            let mock = MockExtendedBitcoinRpc::new(5, true); // Fail 5 attempts
+            let real_rpc = MockExtendedBitcoinRpc::create_real_instance().await;
 
             let config = RetryConfig::custom(
                 Duration::from_millis(500),
@@ -1995,8 +2000,8 @@ mod tests {
         #[tokio::test]
         async fn test_with_retry_config_non_retryable_error() {
             use bitcoin::hashes::Hash;
-            let mock = MockExtendedRpc::new(1, false); // Fail with non-retryable error
-            let real_rpc = MockExtendedRpc::create_real_instance().await;
+            let mock = MockExtendedBitcoinRpc::new(1, false); // Fail with non-retryable error
+            let real_rpc = MockExtendedBitcoinRpc::create_real_instance().await;
 
             let config = RetryConfig::default();
             let result = real_rpc
@@ -2016,8 +2021,8 @@ mod tests {
 
         #[tokio::test]
         async fn test_with_retry_default_config() {
-            let mock = MockExtendedRpc::new(1, true); // Fail first attempt
-            let real_rpc = MockExtendedRpc::create_real_instance().await;
+            let mock = MockExtendedBitcoinRpc::new(1, true); // Fail first attempt
+            let real_rpc = MockExtendedBitcoinRpc::create_real_instance().await;
 
             let result = real_rpc
                 .with_retry(|| async { mock.mock_operation().await })
@@ -2030,8 +2035,8 @@ mod tests {
 
         #[tokio::test]
         async fn test_retry_backoff_timing() {
-            let mock = MockExtendedRpc::new(3, true); // Fail first 3 attempts
-            let real_rpc = MockExtendedRpc::create_real_instance().await;
+            let mock = MockExtendedBitcoinRpc::new(3, true); // Fail first 3 attempts
+            let real_rpc = MockExtendedBitcoinRpc::create_real_instance().await;
 
             // Sleep some time to make sure Regtest is ready
             tokio::time::sleep(Duration::from_secs(1)).await;
@@ -2083,7 +2088,7 @@ mod tests {
             let invalid_user = SecretString::new("invalid_user".to_string().into());
             let invalid_password = SecretString::new("invalid_password".to_string().into());
 
-            let res = ExtendedRpc::connect(url, invalid_user, invalid_password, None).await;
+            let res = ExtendedBitcoinRpc::connect(url, invalid_user, invalid_password, None).await;
 
             assert!(res.is_err());
             assert!(!res.unwrap_err().is_retryable());
@@ -2095,7 +2100,7 @@ mod tests {
             let password = SecretString::new("password".to_string().into());
             let invalid_url = "http://nonexistent-host:8332".to_string();
 
-            let res = ExtendedRpc::connect(invalid_url, user, password, None).await;
+            let res = ExtendedBitcoinRpc::connect(invalid_url, user, password, None).await;
 
             assert!(res.is_err());
             assert!(!res.unwrap_err().is_retryable());

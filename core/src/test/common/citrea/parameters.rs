@@ -7,7 +7,7 @@ use crate::citrea::Bridge::MerkleProof as CitreaMerkleProof;
 use crate::citrea::Bridge::Transaction as CitreaTransaction;
 use crate::constants::NON_STANDARD_V3;
 use crate::errors::BridgeError;
-use crate::extended_rpc::ExtendedRpc;
+use crate::extended_rpc::ExtendedBitcoinRpc;
 use crate::rpc::clementine::NormalSignatureKind;
 use crate::test::common::citrea::bitcoin_merkle::BitcoinMerkleTree;
 use crate::UTXO;
@@ -139,7 +139,7 @@ fn get_transaction_merkle_proof_for_citrea(
 }
 
 async fn get_transaction_sha_script_pubkeys_for_citrea(
-    rpc: &ExtendedRpc,
+    rpc: &ExtendedBitcoinRpc,
     transaction: Transaction,
 ) -> Result<FixedBytes<32>, BridgeError> {
     let mut enc_script_pubkeys = sha256::Hash::engine();
@@ -166,7 +166,7 @@ async fn get_transaction_sha_script_pubkeys_for_citrea(
 /// Returns [`CitreaTransaction`] for a given transaction, which can be later
 /// used for deposit and withdrawal operations.
 pub async fn get_citrea_deposit_params(
-    rpc: &ExtendedRpc,
+    rpc: &ExtendedBitcoinRpc,
     transaction: Transaction,
     block: Block,
     block_height: u32,
@@ -180,7 +180,7 @@ pub async fn get_citrea_deposit_params(
 }
 
 pub async fn get_citrea_safe_withdraw_params(
-    rpc: &ExtendedRpc,
+    rpc: &ExtendedBitcoinRpc,
     withdrawal_dust_utxo: UTXO,
     payout_output: bitcoin::TxOut,
     sig: schnorr::Signature,
@@ -282,14 +282,14 @@ pub async fn get_citrea_safe_withdraw_params(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::extended_rpc::ExtendedRpc;
+    use crate::extended_rpc::ExtendedBitcoinRpc;
     use bitcoincore_rpc::RpcApi;
     use std::str::FromStr;
 
     #[ignore = "Manual testing utility"]
     #[tokio::test]
     async fn test_get_citrea_deposit_params() {
-        let rpc = ExtendedRpc::connect(
+        let rpc = ExtendedBitcoinRpc::connect(
             "http://127.0.0.1:38332".to_string(),
             "bitcoin".to_string().into(),
             "bitcoin".to_string().into(),

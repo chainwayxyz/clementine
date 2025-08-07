@@ -5,7 +5,7 @@ use crate::{
     actor::Actor,
     builder::{self},
     database::Database,
-    extended_rpc::ExtendedRpc,
+    extended_rpc::ExtendedBitcoinRpc,
     utils::TxMetadata,
 };
 use alloy::transports::http::reqwest;
@@ -50,14 +50,14 @@ use log_error_for_tx;
 /// Manages the process of sending Bitcoin transactions, including handling fee bumping
 /// strategies like Replace-By-Fee (RBF) and Child-Pays-For-Parent (CPFP).
 ///
-/// It interacts with a Bitcoin Core RPC endpoint (`ExtendedRpc`) to query network state
+/// It interacts with a Bitcoin Core RPC endpoint (`ExtendedBitcoinRpc`) to query network state
 /// (like fee rates) and submit transactions. It uses a `Database` to persist transaction
 /// state, track confirmation status, and manage associated data like fee payer UTXOs.
 /// The `Actor` provides signing capabilities for transactions controlled by this service.
 #[derive(Clone, Debug)]
 pub struct TxSender {
     pub signer: Actor,
-    pub rpc: ExtendedRpc,
+    pub rpc: ExtendedBitcoinRpc,
     pub db: Database,
     pub btc_syncer_consumer_id: String,
     paramset: &'static ProtocolParamset,
@@ -101,7 +101,7 @@ type Result<T> = std::result::Result<T, SendTxError>;
 impl TxSender {
     pub fn new(
         signer: Actor,
-        rpc: ExtendedRpc,
+        rpc: ExtendedBitcoinRpc,
         db: Database,
         btc_syncer_consumer_id: String,
         paramset: &'static ProtocolParamset,
@@ -531,11 +531,11 @@ mod tests {
     }
 
     pub(super) async fn create_tx_sender(
-        rpc: ExtendedRpc,
+        rpc: ExtendedBitcoinRpc,
     ) -> (
         TxSender,
         BitcoinSyncer,
-        ExtendedRpc,
+        ExtendedBitcoinRpc,
         Database,
         Actor,
         bitcoin::Network,
@@ -571,12 +571,12 @@ mod tests {
     }
 
     pub(super) async fn create_bg_tx_sender(
-        rpc: ExtendedRpc,
+        rpc: ExtendedBitcoinRpc,
     ) -> (
         TxSenderClient,
         TxSender,
         Vec<oneshot::Sender<()>>,
-        ExtendedRpc,
+        ExtendedBitcoinRpc,
         Database,
         Actor,
         bitcoin::Network,
@@ -601,7 +601,7 @@ mod tests {
     }
 
     async fn create_bumpable_tx(
-        rpc: &ExtendedRpc,
+        rpc: &ExtendedBitcoinRpc,
         signer: &Actor,
         network: bitcoin::Network,
         fee_paying_type: FeePayingType,

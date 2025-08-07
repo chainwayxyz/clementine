@@ -28,7 +28,7 @@ use crate::constants::{
 use crate::database::{Database, DatabaseTransaction};
 use crate::deposit::{DepositData, KickoffData, OperatorData};
 use crate::errors::{BridgeError, TxError};
-use crate::extended_rpc::ExtendedRpc;
+use crate::extended_rpc::ExtendedBitcoinRpc;
 use crate::header_chain_prover::HeaderChainProver;
 use crate::metrics::L1SyncStatusProvider;
 use crate::operator::RoundIndex;
@@ -251,7 +251,7 @@ where
     /// Starts the background tasks for the verifier.
     /// If called multiple times, it will restart only the tasks that are not already running.
     pub async fn start_background_tasks(&self) -> Result<(), BridgeError> {
-        let rpc = ExtendedRpc::connect(
+        let rpc = ExtendedBitcoinRpc::connect(
             self.verifier.config.bitcoin_rpc_url.clone(),
             self.verifier.config.bitcoin_rpc_user.clone(),
             self.verifier.config.bitcoin_rpc_password.clone(),
@@ -389,7 +389,7 @@ where
 
 #[derive(Debug, Clone)]
 pub struct Verifier<C: CitreaClientT> {
-    rpc: ExtendedRpc,
+    rpc: ExtendedBitcoinRpc,
 
     pub(crate) signer: Actor,
     pub(crate) db: Database,
@@ -413,7 +413,7 @@ where
             config.protocol_paramset().network,
         );
 
-        let rpc = ExtendedRpc::connect(
+        let rpc = ExtendedBitcoinRpc::connect(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),

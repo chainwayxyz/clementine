@@ -18,7 +18,7 @@ use crate::database::Database;
 use crate::database::DatabaseTransaction;
 use crate::deposit::{DepositData, KickoffData, OperatorData};
 use crate::errors::BridgeError;
-use crate::extended_rpc::ExtendedRpc;
+use crate::extended_rpc::ExtendedBitcoinRpc;
 use crate::header_chain_prover::HeaderChainProver;
 use crate::metrics::L1SyncStatusProvider;
 use crate::rpc::clementine::EntityStatus;
@@ -120,7 +120,7 @@ pub struct OperatorServer<C: CitreaClientT> {
 
 #[derive(Debug, Clone)]
 pub struct Operator<C: CitreaClientT> {
-    pub rpc: ExtendedRpc,
+    pub rpc: ExtendedBitcoinRpc,
     pub db: Database,
     pub signer: Actor,
     pub config: BridgeConfig,
@@ -249,7 +249,7 @@ where
         );
 
         let db = Database::new(&config).await?;
-        let rpc = ExtendedRpc::connect(
+        let rpc = ExtendedBitcoinRpc::connect(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
@@ -1802,7 +1802,7 @@ mod tests {
     // #[tokio::test]
     // async fn set_funding_utxo() {
     //     let mut config = create_test_config_with_thread_name().await;
-    //     let rpc = ExtendedRpc::connect(
+    //     let rpc = ExtendedBitcoinRpc::connect(
     //         config.bitcoin_rpc_url.clone(),
     //         config.bitcoin_rpc_user.clone(),
     //         config.bitcoin_rpc_password.clone(),
@@ -1836,7 +1836,7 @@ mod tests {
     // #[tokio::test]
     // async fn is_profitable() {
     //     let mut config = create_test_config_with_thread_name().await;
-    //     let rpc = ExtendedRpc::connect(
+    //     let rpc = ExtendedBitcoinRpc::connect(
     //         config.bitcoin_rpc_url.clone(),
     //         config.bitcoin_rpc_user.clone(),
     //         config.bitcoin_rpc_password.clone(),

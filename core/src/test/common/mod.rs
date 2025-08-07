@@ -20,7 +20,7 @@ use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::deposit::{BaseDepositData, DepositInfo, DepositType, ReplacementDepositData};
 use crate::errors::BridgeError;
-use crate::extended_rpc::ExtendedRpc;
+use crate::extended_rpc::ExtendedBitcoinRpc;
 use crate::rpc::clementine::{
     entity_status_with_id, Deposit, Empty, EntityStatuses, GetEntityStatusesRequest,
     SendMoveTxRequest,
@@ -184,7 +184,7 @@ pub async fn get_min_next_state_manager_height<C: CitreaClientT>(
 
 /// Checks if all the state managers are synced to the latest finalized block
 pub async fn are_all_state_managers_synced<C: CitreaClientT>(
-    rpc: &ExtendedRpc,
+    rpc: &ExtendedBitcoinRpc,
     actors: &TestActors<C>,
 ) -> eyre::Result<bool> {
     let min_next_sync_height = get_min_next_state_manager_height(actors).await?;
@@ -211,7 +211,7 @@ pub async fn are_all_state_managers_synced<C: CitreaClientT>(
 /// - `tx_name`: The name of the transaction to wait for.
 /// - `timeout`: The timeout in seconds.
 pub async fn mine_once_after_in_mempool(
-    rpc: &ExtendedRpc,
+    rpc: &ExtendedBitcoinRpc,
     txid: Txid,
     tx_name: Option<&str>,
     timeout: Option<u64>,
@@ -287,7 +287,7 @@ pub async fn mine_once_after_in_mempool(
 
 pub async fn run_multiple_deposits<C: CitreaClientT>(
     config: &mut BridgeConfig,
-    rpc: ExtendedRpc,
+    rpc: ExtendedBitcoinRpc,
     count: usize,
     test_actors: Option<TestActors<C>>,
 ) -> Result<
@@ -384,7 +384,7 @@ pub async fn run_multiple_deposits<C: CitreaClientT>(
 /// # Parameters
 ///
 /// - `config` [`BridgeConfig`]: The bridge configuration.
-/// - `rpc` [`ExtendedRpc`]: The RPC client to use.
+/// - `rpc` [`ExtendedBitcoinRpc`]: The RPC client to use.
 /// - `evm_address` [`EVMAddress`]: Optional EVM address to use for the
 ///   deposit. If not provided, a default address is used.
 /// - `actors` [`TestActors`]: Optional actors to use for the deposit. If not
@@ -405,7 +405,7 @@ pub async fn run_multiple_deposits<C: CitreaClientT>(
 #[cfg(feature = "automation")]
 pub async fn run_single_deposit<C: CitreaClientT>(
     config: &mut BridgeConfig,
-    rpc: ExtendedRpc,
+    rpc: ExtendedBitcoinRpc,
     evm_address: Option<EVMAddress>,
     actors: Option<TestActors<C>>,
     deposit_outpoint: Option<OutPoint>, // if a deposit outpoint is provided, it will be used instead of creating a new one
@@ -581,7 +581,7 @@ pub async fn run_single_deposit<C: CitreaClientT>(
 /// # Parameters
 ///
 /// - `config` [`BridgeConfig`]: The bridge configuration.
-/// - `rpc` [`ExtendedRpc`]: The RPC client to use.
+/// - `rpc` [`ExtendedBitcoinRpc`]: The RPC client to use.
 /// - `old_move_txid` [`Txid`]: The TXID of the old move transaction.
 /// - `current_actors` [`TestActors`]: The actors to use for the replacement deposit.
 /// - `old_nofn_xonly_pk` [`XOnlyPublicKey`]: The nofn xonly public key of the old signer set that signed previous movetx.
@@ -599,7 +599,7 @@ pub async fn run_single_deposit<C: CitreaClientT>(
 #[cfg(feature = "automation")]
 pub async fn run_single_replacement_deposit<C: CitreaClientT>(
     config: &mut BridgeConfig,
-    rpc: &ExtendedRpc,
+    rpc: &ExtendedBitcoinRpc,
     old_move_txid: Txid,
     current_actors: TestActors<C>,
     old_nofn_xonly_pk: XOnlyPublicKey,
@@ -729,7 +729,7 @@ fn sign_replacement_deposit_tx_with_sec_council(
 #[cfg(feature = "automation")]
 async fn send_replacement_deposit_tx<C: CitreaClientT>(
     config: &BridgeConfig,
-    rpc: &ExtendedRpc,
+    rpc: &ExtendedBitcoinRpc,
     old_move_txid: Txid,
     actors: &TestActors<C>,
     old_nofn_xonly_pk: XOnlyPublicKey,
@@ -826,7 +826,7 @@ mod tests {
     #[tokio::test]
     async fn test_regtest_create_and_connect() {
         use crate::{
-            extended_rpc::ExtendedRpc,
+            extended_rpc::ExtendedBitcoinRpc,
             test::common::{create_regtest_rpc, create_test_config_with_thread_name},
         };
         use bitcoincore_rpc::RpcApi;
@@ -836,7 +836,7 @@ mod tests {
         let regtest = create_regtest_rpc(&mut config).await;
 
         let macro_rpc = regtest.rpc();
-        let rpc = ExtendedRpc::connect(
+        let rpc = ExtendedBitcoinRpc::connect(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),

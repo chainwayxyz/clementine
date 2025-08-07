@@ -8,7 +8,7 @@ use crate::test::common::citrea::{CitreaE2EData, SECRET_KEYS};
 use crate::test::common::clementine_utils::disprove_tests_common_setup;
 use crate::utils::initialize_logger;
 use crate::{
-    extended_rpc::ExtendedRpc,
+    extended_rpc::ExtendedBitcoinRpc,
     test::common::{
         citrea::{self},
         create_test_config_with_thread_name,
@@ -139,7 +139,7 @@ impl TestCase for BridgeCircuitTestData {
             )),
         );
 
-        let rpc = ExtendedRpc::connect(
+        let rpc = ExtendedBitcoinRpc::connect(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),

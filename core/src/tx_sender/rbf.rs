@@ -861,7 +861,7 @@ pub mod tests {
     };
     use crate::constants::{MIN_TAPROOT_AMOUNT, NON_STANDARD_V3};
     use crate::errors::BridgeError;
-    use crate::extended_rpc::ExtendedRpc;
+    use crate::extended_rpc::ExtendedBitcoinRpc;
     use crate::rpc::clementine::tagged_signature::SignatureId;
     use crate::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind};
     use crate::task::{IntoTask, TaskExt};
@@ -875,7 +875,7 @@ pub mod tests {
     use std::time::Duration;
 
     pub async fn create_rbf_tx(
-        rpc: &ExtendedRpc,
+        rpc: &ExtendedBitcoinRpc,
         signer: &Actor,
         network: bitcoin::Network,
         requires_initial_funding: bool,
@@ -929,7 +929,7 @@ pub mod tests {
     }
 
     async fn create_challenge_tx(
-        rpc: &ExtendedRpc,
+        rpc: &ExtendedBitcoinRpc,
         signer: &Actor,
         network: bitcoin::Network,
     ) -> Result<Transaction, BridgeError> {

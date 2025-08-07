@@ -11,7 +11,7 @@ use crate::config::protocol::{ProtocolParamset, TESTNET4_TEST_PARAMSET};
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::deposit::{BaseDepositData, DepositInfo, DepositType};
-use crate::extended_rpc::ExtendedRpc;
+use crate::extended_rpc::ExtendedBitcoinRpc;
 use crate::header_chain_prover::HeaderChainProver;
 use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
 use crate::rpc::clementine::{
@@ -144,7 +144,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             )),
         );
 
-        let rpc = ExtendedRpc::connect(
+        let rpc = ExtendedBitcoinRpc::connect(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
@@ -758,7 +758,7 @@ async fn testnet4_mock_citrea_run_truthful() {
         vout: 0,
     });
 
-    let rpc = ExtendedRpc::connect(
+    let rpc = ExtendedBitcoinRpc::connect(
         config.bitcoin_rpc_url.clone(),
         config.bitcoin_rpc_user.clone(),
         config.bitcoin_rpc_password.clone(),
@@ -1590,7 +1590,7 @@ async fn mock_citrea_run_malicious_after_exit() {
 
 pub async fn make_concurrent_deposits(
     count: usize,
-    rpc: &ExtendedRpc,
+    rpc: &ExtendedBitcoinRpc,
     config: &BridgeConfig,
     verifiers_public_keys: Vec<bitcoin::secp256k1::PublicKey>,
     aggregator: &mut ClementineAggregatorClient<Channel>,

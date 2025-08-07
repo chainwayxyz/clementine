@@ -4,7 +4,7 @@ use crate::builder::transaction::TransactionType as TxType;
 use crate::citrea::CitreaClientT;
 use crate::config::BridgeConfig;
 use crate::database::Database;
-use crate::extended_rpc::ExtendedRpc;
+use crate::extended_rpc::ExtendedBitcoinRpc;
 use crate::rpc::clementine::SignedTxsWithType;
 use crate::utils::{FeePayingType, RbfSigningInfo, TxMetadata};
 use bitcoin::consensus::{self};
@@ -30,7 +30,7 @@ pub fn get_tx_from_signed_txs_with_type(
 }
 // Cannot use ensure_async due to `Send` requirement being broken upstream
 pub async fn ensure_outpoint_spent_while_waiting_for_state_mngr_sync<C: CitreaClientT>(
-    rpc: &ExtendedRpc,
+    rpc: &ExtendedBitcoinRpc,
     outpoint: OutPoint,
     actors: &TestActors<C>,
 ) -> Result<(), eyre::Error> {
@@ -66,7 +66,7 @@ pub async fn ensure_outpoint_spent_while_waiting_for_state_mngr_sync<C: CitreaCl
 /// retrying up to `retries` times with a fixed `delay` between attempts in case of failure.
 ///
 /// # Parameters
-/// - `rpc`: Reference to the `ExtendedRpc` containing the RPC client.
+/// - `rpc`: Reference to the `ExtendedBitcoinRpc` containing the RPC client.
 /// - `retries`: Maximum number of retry attempts.
 /// - `delay`: Duration to wait between retries.
 ///
@@ -78,7 +78,7 @@ pub async fn ensure_outpoint_spent_while_waiting_for_state_mngr_sync<C: CitreaCl
 /// This function will panic with `unreachable!()` if the retry loop completes without returning.
 /// In practice, this should never happen due to the early return on success or final failure.
 pub async fn retry_get_block_count(
-    rpc: &ExtendedRpc,
+    rpc: &ExtendedBitcoinRpc,
     retries: usize,
     delay: Duration,
 ) -> Result<u64> {
@@ -103,7 +103,7 @@ pub async fn retry_get_block_count(
 }
 
 pub async fn get_txid_where_utxo_is_spent_while_waiting_for_state_mngr_sync<C: CitreaClientT>(
-    rpc: &ExtendedRpc,
+    rpc: &ExtendedBitcoinRpc,
     utxo: OutPoint,
     actors: &TestActors<C>,
 ) -> Result<Txid, eyre::Error> {
@@ -138,7 +138,7 @@ pub async fn get_txid_where_utxo_is_spent_while_waiting_for_state_mngr_sync<C: C
 // Polls until a tx that spends the outpoint is in the mempool, without mining any blocks
 // After outpoint is spent, mine once to spend the utxo on chain
 pub async fn mine_once_after_outpoint_spent_in_mempool(
-    rpc: &ExtendedRpc,
+    rpc: &ExtendedBitcoinRpc,
     outpoint: OutPoint,
 ) -> Result<(), eyre::Error> {
     let mut timeout_counter = 300;
@@ -176,7 +176,7 @@ pub async fn mine_once_after_outpoint_spent_in_mempool(
 // Helper function to send a transaction and mine a block
 pub async fn send_tx(
     tx_sender: &crate::tx_sender::TxSenderClient,
-    rpc: &ExtendedRpc,
+    rpc: &ExtendedBitcoinRpc,
     raw_tx: &[u8],
     tx_type: TxType,
     rbf_info: Option<RbfSigningInfo>,
@@ -224,7 +224,7 @@ pub async fn send_tx(
 /// Helper function that ensures that utxo is spent then gets the txid where it was spent
 /// Be careful that this function will only work if utxo is not already spent.
 pub async fn get_txid_where_utxo_is_spent(
-    rpc: &ExtendedRpc,
+    rpc: &ExtendedBitcoinRpc,
     utxo: OutPoint,
 ) -> Result<Txid, eyre::Error> {
     ensure_outpoint_spent(rpc, utxo).await?;
@@ -241,7 +241,7 @@ pub async fn get_txid_where_utxo_is_spent(
     Ok(tx.compute_txid())
 }
 
-pub async fn ensure_tx_onchain(rpc: &ExtendedRpc, tx: Txid) -> Result<(), eyre::Error> {
+pub async fn ensure_tx_onchain(rpc: &ExtendedBitcoinRpc, tx: Txid) -> Result<(), eyre::Error> {
     poll_until_condition(
         async || {
             if rpc
@@ -270,7 +270,7 @@ pub async fn ensure_tx_onchain(rpc: &ExtendedRpc, tx: Txid) -> Result<(), eyre::
 }
 
 pub async fn ensure_outpoint_spent(
-    rpc: &ExtendedRpc,
+    rpc: &ExtendedBitcoinRpc,
     outpoint: OutPoint,
 ) -> Result<(), eyre::Error> {
     poll_until_condition(
@@ -298,7 +298,7 @@ pub async fn ensure_outpoint_spent(
 
 #[cfg(feature = "automation")]
 pub async fn send_tx_with_type(
-    rpc: &ExtendedRpc,
+    rpc: &ExtendedBitcoinRpc,
     tx_sender: &crate::tx_sender::TxSenderClient,
     all_txs: &SignedTxsWithType,
     tx_type: TxType,
@@ -334,7 +334,7 @@ pub async fn create_tx_sender(
 
 #[cfg(feature = "automation")]
 pub async fn wait_for_fee_payer_utxos_to_be_in_mempool(
-    rpc: &ExtendedRpc,
+    rpc: &ExtendedBitcoinRpc,
     db: Database,
     txid: Txid,
 ) -> Result<(), eyre::Error> {

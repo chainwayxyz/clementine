@@ -2,7 +2,7 @@
 
 use crate::bitvm_client::SECP;
 use crate::citrea::{CitreaClient, SATS_TO_WEI_MULTIPLIER};
-use crate::extended_rpc::ExtendedRpc;
+use crate::extended_rpc::ExtendedBitcoinRpc;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::test::common::generate_withdrawal_transaction_and_signature;
 use crate::{config::BridgeConfig, errors::BridgeError};
@@ -210,7 +210,7 @@ pub struct CitreaE2EData<'a> {
     pub da: &'a BitcoinNode,
     pub config: BridgeConfig,
     pub citrea_client: &'a CitreaClient,
-    pub rpc: &'a ExtendedRpc,
+    pub rpc: &'a ExtendedBitcoinRpc,
 }
 
 /// Creates a new withdrawal utxo and register to citrea using safeWithdraw

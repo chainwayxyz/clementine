@@ -11,7 +11,7 @@ use crate::{
     config::BridgeConfig,
     database::Database,
     errors::{BridgeError, ErrorExt},
-    extended_rpc::ExtendedRpc,
+    extended_rpc::ExtendedBitcoinRpc,
 };
 use bitcoin::block::Header;
 use bitcoin::{hashes::Hash, BlockHash, Network};
@@ -86,7 +86,7 @@ impl HeaderChainProver {
     /// assumption if specified in the config.
     pub async fn new(
         config: &BridgeConfig,
-        rpc: ExtendedRpc,
+        rpc: ExtendedBitcoinRpc,
     ) -> Result<Self, HeaderChainProverError> {
         let db = Database::new(config).await.map_to_eyre()?;
         let tip_height = rpc.get_current_chain_height().await.map_to_eyre()?;
@@ -248,7 +248,7 @@ impl HeaderChainProver {
     }
 
     pub async fn get_chain_state_from_height(
-        rpc: ExtendedRpc,
+        rpc: ExtendedBitcoinRpc,
         height: u64,
         network: Network,
     ) -> Result<ChainState, HeaderChainProverError> {
@@ -708,7 +708,7 @@ impl HeaderChainProver {
 
 #[cfg(test)]
 mod tests {
-    use crate::extended_rpc::ExtendedRpc;
+    use crate::extended_rpc::ExtendedBitcoinRpc;
     use crate::header_chain_prover::HeaderChainProver;
     use crate::test::common::*;
     use crate::verifier::VerifierServer;
@@ -723,7 +723,7 @@ mod tests {
     /// Mines `block_num` amount of blocks (if not already mined) and returns
     /// the first `block_num` block headers in blockchain.
     async fn mine_and_get_first_n_block_headers(
-        rpc: ExtendedRpc,
+        rpc: ExtendedBitcoinRpc,
         db: Database,
         block_num: u64,
     ) -> Vec<Header> {
@@ -805,7 +805,7 @@ mod tests {
     async fn test_generate_chain_state_from_height_testnet4() {
         // set BITCOIN_NETWORK to regtest
         std::env::set_var("BITCOIN_NETWORK", "testnet4");
-        let rpc = ExtendedRpc::connect(
+        let rpc = ExtendedBitcoinRpc::connect(
             "http://127.0.0.1:48332".to_string(),
             "admin".to_string().into(),
             "admin".to_string().into(),

@@ -389,7 +389,7 @@ mod tests {
         builder::transaction::sign::TransactionRequestData,
         config::protocol::ProtocolParamset,
         deposit::{Actors, DepositInfo, OperatorData},
-        extended_rpc::ExtendedRpc,
+        extended_rpc::ExtendedBitcoinRpc,
         rpc::clementine::{
             clementine_operator_client::ClementineOperatorClient, TransactionRequest,
         },
@@ -522,7 +522,7 @@ mod tests {
         bincode::serialize_into(file, &deposit_state).unwrap();
     }
 
-    async fn load_deposit_state(rpc: &ExtendedRpc) -> DepositChainState {
+    async fn load_deposit_state(rpc: &ExtendedBitcoinRpc) -> DepositChainState {
         tracing::debug!(
             "Current chain height: {}",
             rpc.get_current_chain_height().await.unwrap()

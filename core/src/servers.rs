@@ -3,7 +3,7 @@
 //! Utilities for operator and verifier servers.
 use crate::aggregator::AggregatorServer;
 use crate::citrea::CitreaClientT;
-use crate::extended_rpc::ExtendedRpc;
+use crate::extended_rpc::ExtendedBitcoinRpc;
 use crate::operator::OperatorServer;
 use crate::rpc::clementine::clementine_aggregator_server::ClementineAggregatorServer;
 use crate::rpc::clementine::clementine_operator_server::ClementineOperatorServer;
@@ -234,7 +234,7 @@ where
 pub async fn create_verifier_grpc_server<C: CitreaClientT>(
     config: BridgeConfig,
 ) -> Result<(std::net::SocketAddr, oneshot::Sender<()>), BridgeError> {
-    let _rpc = ExtendedRpc::connect(
+    let _rpc = ExtendedBitcoinRpc::connect(
         config.bitcoin_rpc_url.clone(),
         config.bitcoin_rpc_user.clone(),
         config.bitcoin_rpc_password.clone(),
@@ -329,7 +329,7 @@ pub async fn create_verifier_unix_server<C: CitreaClientT>(
     config: BridgeConfig,
     socket_path: std::path::PathBuf,
 ) -> Result<(std::path::PathBuf, oneshot::Sender<()>), BridgeError> {
-    let _rpc = ExtendedRpc::connect(
+    let _rpc = ExtendedBitcoinRpc::connect(
         config.bitcoin_rpc_url.clone(),
         config.bitcoin_rpc_user.clone(),
         config.bitcoin_rpc_password.clone(),
@@ -369,7 +369,7 @@ pub async fn create_operator_unix_server<C: CitreaClientT>(
     config: BridgeConfig,
     socket_path: std::path::PathBuf,
 ) -> Result<(std::path::PathBuf, oneshot::Sender<()>), BridgeError> {
-    let _rpc = ExtendedRpc::connect(
+    let _rpc = ExtendedBitcoinRpc::connect(
         config.bitcoin_rpc_url.clone(),
         config.bitcoin_rpc_user.clone(),
         config.bitcoin_rpc_password.clone(),

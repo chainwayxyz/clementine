@@ -11,7 +11,7 @@ use crate::config::protocol::BLOCKS_PER_HOUR;
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::deposit::{DepositInfo, KickoffData};
-use crate::extended_rpc::ExtendedRpc;
+use crate::extended_rpc::ExtendedBitcoinRpc;
 use crate::operator::RoundIndex;
 use crate::rpc::clementine::{Empty, FinalizedPayoutParams, SignedTxsWithType, TransactionRequest};
 use crate::test::common::citrea::MockCitreaClient;
@@ -28,7 +28,7 @@ const BLOCKS_PER_DAY: u64 = 144;
 /// Makes a deposit and returns the necessary clients and parameters for further testing.
 async fn base_setup(
     config: &mut BridgeConfig,
-    rpc: &ExtendedRpc,
+    rpc: &ExtendedBitcoinRpc,
 ) -> Result<
     (
         TestActors<MockCitreaClient>,
@@ -107,7 +107,7 @@ async fn base_setup(
 
 pub async fn run_operator_end_round(
     config: &mut BridgeConfig,
-    rpc: ExtendedRpc,
+    rpc: ExtendedBitcoinRpc,
     is_challenge: bool,
 ) -> Result<()> {
     let (actors, deposit_info, move_txid, _deposit_blockhash, _verifiers_public_keys) =
@@ -155,7 +155,7 @@ pub async fn run_operator_end_round(
     Ok(())
 }
 
-pub async fn run_happy_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Result<()> {
+pub async fn run_happy_path_1(config: &mut BridgeConfig, rpc: ExtendedBitcoinRpc) -> Result<()> {
     tracing::info!("Starting happy path test");
 
     let (actors, tx_senders, _dep_params, _kickoff_idx, base_tx_req, all_txs, op0_xonly_pk) =
@@ -221,7 +221,7 @@ pub async fn run_happy_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
 /// Send Assert Transactions
 /// Send Disprove Timeout Transaction
 /// Send Reimburse Transaction
-pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Result<()> {
+pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedBitcoinRpc) -> Result<()> {
     tracing::info!("Starting Happy Path 2 test");
 
     let (actors, tx_senders, _deposit_info, _kickoff_idx, base_tx_req, all_txs, op0_xonly_pk) =
@@ -366,7 +366,10 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
 }
 
 /// Simple Assert flow without watchtower challenges/acks
-pub async fn run_simple_assert_flow(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Result<()> {
+pub async fn run_simple_assert_flow(
+    config: &mut BridgeConfig,
+    rpc: ExtendedBitcoinRpc,
+) -> Result<()> {
     tracing::info!("Starting Simple Assert Flow");
 
     let (actors, tx_senders, _deposit_info, _kickoff_idx, base_tx_req, all_txs, _op0_xonly_pk) =
@@ -428,7 +431,7 @@ pub async fn run_simple_assert_flow(config: &mut BridgeConfig, rpc: ExtendedRpc)
 /// Send Challenge Transaction
 /// Send Watchtower Challenge Transaction
 /// Send Operator Challenge Negative Acknowledgment Transaction
-pub async fn run_bad_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Result<()> {
+pub async fn run_bad_path_1(config: &mut BridgeConfig, rpc: ExtendedBitcoinRpc) -> Result<()> {
     tracing::info!("Starting Bad Path 1 test");
 
     let (actors, tx_senders, _dep_params, _kickoff_idx, base_tx_req, all_txs, _op0_xonly_pk) =
@@ -508,7 +511,7 @@ pub async fn run_bad_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
 /// Send Watchtower Challenge Transaction
 /// Send Operator Challenge Acknowledgment Transaction
 /// Send Kickoff Timeout Transaction
-pub async fn run_bad_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Result<()> {
+pub async fn run_bad_path_2(config: &mut BridgeConfig, rpc: ExtendedBitcoinRpc) -> Result<()> {
     tracing::info!("Starting Bad Path 2 test");
 
     let (_actors, tx_senders, _dep_params, _kickoff_idx, _base_tx_req, all_txs, _op0_xonly_pk) =
@@ -548,7 +551,7 @@ pub async fn run_bad_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
 /// Send Operator Challenge Acknowledgment Transactions
 /// Send Assert Transactions
 /// Send Disprove Transaction
-pub async fn run_bad_path_3(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Result<()> {
+pub async fn run_bad_path_3(config: &mut BridgeConfig, rpc: ExtendedBitcoinRpc) -> Result<()> {
     tracing::info!("Starting Bad Path 3 test");
 
     let (actors, tx_senders, _deposit_info, _kickoff_idx, _base_tx_req, all_txs, _op0_xonly_pk) =
@@ -617,7 +620,7 @@ pub async fn run_bad_path_3(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
 // unspent kickoff connector tx to burn operators collateral
 pub async fn run_unspent_kickoffs_with_state_machine(
     config: &mut BridgeConfig,
-    rpc: ExtendedRpc,
+    rpc: ExtendedBitcoinRpc,
 ) -> Result<()> {
     let (_actors, tx_senders, _deposit_info, _kickoff_idx, _base_tx_req, all_txs, _op0_xonly_pk) =
         base_setup(config, &rpc).await?;

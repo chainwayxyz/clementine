@@ -9,7 +9,7 @@ use crate::utils::initialize_logger;
 use crate::utils::NamedEntity;
 use crate::{
     actor::Actor, builder, config::BridgeConfig, database::Database, errors::BridgeError,
-    extended_rpc::ExtendedRpc, musig2::AggregateFromPublicKeys,
+    extended_rpc::ExtendedBitcoinRpc, musig2::AggregateFromPublicKeys,
 };
 use crate::{EVMAddress, UTXO};
 use bitcoin::secp256k1::schnorr;
@@ -22,14 +22,14 @@ pub struct WithProcessCleanup(
     /// Handle to the bitcoind process
     pub Option<std::process::Child>,
     /// RPC client
-    pub ExtendedRpc,
+    pub ExtendedBitcoinRpc,
     /// Path to the bitcoind debug log file
     pub std::path::PathBuf,
     /// Whether to wait indefinitely after test finishes before cleanup (for RPC debugging)
     pub bool,
 );
 impl WithProcessCleanup {
-    pub fn rpc(&self) -> &ExtendedRpc {
+    pub fn rpc(&self) -> &ExtendedBitcoinRpc {
         &self.1
     }
 }
@@ -94,7 +94,7 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
         // Bitcoind is already running on port 18443, use existing port.
         return WithProcessCleanup(
             None,
-            ExtendedRpc::connect(
+            ExtendedBitcoinRpc::connect(
                 "http://127.0.0.1:18443".into(),
                 config.bitcoin_rpc_user.clone(),
                 config.bitcoin_rpc_password.clone(),
@@ -157,7 +157,7 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
     let mut attempts = 0;
     let retry_count = 30;
     let client = loop {
-        match ExtendedRpc::connect(
+        match ExtendedBitcoinRpc::connect(
             rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
@@ -335,7 +335,7 @@ pub fn get_deposit_address(
 /// - [`Signature`]: Signature of the withdrawal transaction
 pub async fn generate_withdrawal_transaction_and_signature(
     config: &BridgeConfig,
-    rpc: &ExtendedRpc,
+    rpc: &ExtendedBitcoinRpc,
     withdrawal_address: &bitcoin::Address,
     withdrawal_amount: bitcoin::Amount,
 ) -> (UTXO, bitcoin::TxOut, schnorr::Signature) {

@@ -7,7 +7,7 @@ use crate::{
     config::protocol::ProtocolParamset,
     database::{Database, DatabaseTransaction},
     errors::BridgeError,
-    extended_rpc::ExtendedRpc,
+    extended_rpc::ExtendedBitcoinRpc,
     task::{IntoTask, Task, TaskExt, TaskVariant, WithDelay},
 };
 use bitcoin::{block::Header, BlockHash, OutPoint};
@@ -68,7 +68,7 @@ pub trait BlockHandler: Send + Sync + 'static {
 
 /// Fetches the [`BlockInfo`] for a given height from Bitcoin.
 async fn fetch_block_info_from_height(
-    rpc: &ExtendedRpc,
+    rpc: &ExtendedBitcoinRpc,
     height: u32,
 ) -> Result<BlockInfo, BridgeError> {
     let hash = rpc
@@ -136,7 +136,7 @@ pub(crate) async fn save_block(
 async fn _get_block_info_from_hash(
     db: &Database,
     dbtx: DatabaseTransaction<'_, '_>,
-    rpc: &ExtendedRpc,
+    rpc: &ExtendedBitcoinRpc,
     hash: BlockHash,
 ) -> Result<(BlockInfo, Vec<Vec<OutPoint>>), BridgeError> {
     let block = rpc
@@ -203,7 +203,7 @@ async fn _get_transaction_spent_utxos(
 /// If no block info exists in the DB, fetches the current block from the RPC and initializes the DB.
 pub async fn set_initial_block_info_if_not_exists(
     db: &Database,
-    rpc: &ExtendedRpc,
+    rpc: &ExtendedBitcoinRpc,
     paramset: &'static ProtocolParamset,
 ) -> Result<(), BridgeError> {
     if db.get_max_height(None).await?.is_some() {
@@ -257,7 +257,7 @@ pub async fn set_initial_block_info_if_not_exists(
 /// `Ok(Some(new_blocks))` if new blocks are found or `Ok(None)` if no new block is available.
 async fn fetch_new_blocks(
     db: &Database,
-    rpc: &ExtendedRpc,
+    rpc: &ExtendedBitcoinRpc,
     current_height: u32,
 ) -> Result<Option<Vec<BlockInfo>>, BridgeError> {
     let next_height = current_height + 1;
@@ -336,7 +336,7 @@ async fn handle_reorg_events(
 /// Processes and inserts new blocks into the database, emitting a new block event for each.
 async fn process_new_blocks(
     db: &Database,
-    rpc: &ExtendedRpc,
+    rpc: &ExtendedBitcoinRpc,
     dbtx: DatabaseTransaction<'_, '_>,
     new_blocks: &[BlockInfo],
 ) -> Result<(), BridgeError> {
@@ -361,7 +361,7 @@ pub struct BitcoinSyncerTask {
     /// The database to store blocks in
     db: Database,
     /// The RPC client to fetch blocks from
-    rpc: ExtendedRpc,
+    rpc: ExtendedBitcoinRpc,
     /// The current block height that has been synced
     current_height: u32,
 }
@@ -371,7 +371,7 @@ pub struct BitcoinSyncer {
     /// The database to store blocks in
     db: Database,
     /// The RPC client to fetch blocks from
-    rpc: ExtendedRpc,
+    rpc: ExtendedBitcoinRpc,
     /// The current block height that has been synced
     current_height: u32,
 }
@@ -382,7 +382,7 @@ impl BitcoinSyncer {
     /// This function initializes the database with the first block if it's empty.
     pub async fn new(
         db: Database,
-        rpc: ExtendedRpc,
+        rpc: ExtendedBitcoinRpc,
         paramset: &'static ProtocolParamset,
     ) -> Result<Self, BridgeError> {
         // Initialize the database if needed

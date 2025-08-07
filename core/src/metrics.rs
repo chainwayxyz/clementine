@@ -15,7 +15,7 @@ use tonic::async_trait;
 use crate::{
     database::Database,
     errors::BridgeError,
-    extended_rpc::ExtendedRpc,
+    extended_rpc::ExtendedBitcoinRpc,
     utils::{timed_request, NamedEntity},
 };
 use metrics_derive::Metrics;
@@ -97,7 +97,7 @@ pub struct L1SyncStatus {
 }
 
 /// Get the current balance of the wallet.
-pub async fn get_wallet_balance(rpc: &ExtendedRpc) -> Result<Amount, BridgeError> {
+pub async fn get_wallet_balance(rpc: &ExtendedBitcoinRpc) -> Result<Amount, BridgeError> {
     let balance = rpc
         .client
         .get_balance(None, None)
@@ -108,7 +108,7 @@ pub async fn get_wallet_balance(rpc: &ExtendedRpc) -> Result<Amount, BridgeError
 }
 
 /// Get the current height of the chain as seen by Bitcoin Core RPC.
-pub async fn get_rpc_tip_height(rpc: &ExtendedRpc) -> Result<u32, BridgeError> {
+pub async fn get_rpc_tip_height(rpc: &ExtendedBitcoinRpc) -> Result<u32, BridgeError> {
     let height = rpc.get_current_chain_height().await?;
     Ok(height)
 }
@@ -162,12 +162,18 @@ pub async fn get_state_manager_next_height(
 #[async_trait]
 /// Extension trait on named entities who synchronize to the L1 data, to retrieve their L1 sync status.
 pub trait L1SyncStatusProvider: NamedEntity {
-    async fn get_l1_status(db: &Database, rpc: &ExtendedRpc) -> Result<L1SyncStatus, BridgeError>;
+    async fn get_l1_status(
+        db: &Database,
+        rpc: &ExtendedBitcoinRpc,
+    ) -> Result<L1SyncStatus, BridgeError>;
 }
 
 #[async_trait]
 impl<T: NamedEntity + Sync + Send + 'static> L1SyncStatusProvider for T {
-    async fn get_l1_status(db: &Database, rpc: &ExtendedRpc) -> Result<L1SyncStatus, BridgeError> {
+    async fn get_l1_status(
+        db: &Database,
+        rpc: &ExtendedBitcoinRpc,
+    ) -> Result<L1SyncStatus, BridgeError> {
         timed_request(L1_SYNC_STATUS_METRICS_TIMEOUT, "get_l1_status", async {
             let wallet_balance = get_wallet_balance(rpc).await?;
             let rpc_tip_height = get_rpc_tip_height(rpc).await?;
