@@ -411,7 +411,7 @@ fn get_path_from_env_or_default(env_var: &str, default: &str) -> PathBuf {
     let path = match path {
         Ok(path) => {
             println!(
-                "Using cert path from environment variable {} : {}",
+                "Using cert path from environment variable {}: {}",
                 env_var, path
             );
             path
@@ -427,18 +427,12 @@ fn get_path_from_env_or_default(env_var: &str, default: &str) -> PathBuf {
 // Create a minimal config with default TLS paths
 fn create_minimal_config() -> BridgeConfig {
     BridgeConfig {
-        server_cert_path: get_path_from_env_or_default(
-            "SERVER_CERT_PATH",
-            "certs/server/server.pem",
-        ),
-        server_key_path: get_path_from_env_or_default("SERVER_KEY_PATH", "certs/server/server.key"),
         ca_cert_path: get_path_from_env_or_default("CA_CERT_PATH", "certs/ca/ca.pem"),
         client_cert_path: get_path_from_env_or_default(
             "CLIENT_CERT_PATH",
             "certs/client/client.pem",
         ),
         client_key_path: get_path_from_env_or_default("CLIENT_KEY_PATH", "certs/client/client.key"),
-        client_verification: true,
         ..Default::default()
     }
 }
@@ -641,14 +635,14 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
                         println!("Reimburse tx is ready to be sent. This tx is standard and requires CPFP to be sent (last output is the anchor output)");
                     }
                     TransactionType::ChallengeTimeout => {
-                        println!("After kickoff, challenge timeout tx needs to be sent. Due to the timelock, it can only be sent after {} blocks pass from the kickoff tx {:?}. 
+                        println!("After kickoff, challenge timeout tx needs to be sent. Due to the timelock, it can only be sent after 216 blocks pass from the kickoff tx {:?}. 
                         This tx is standard and requires CPFP to be sent (last output is the anchor output)", 
-                        config.protocol_paramset.operator_challenge_timeout_timelock, transaction.input[0].previous_output.txid);
+                        transaction.input[0].previous_output.txid);
                     }
                     TransactionType::Round => {
                         println!("Time to send the round tx either for sending the kickoff tx, or getting the reimbursement for the past kickoff by advancing the round. Round tx is a non-standard tx and cannot be sent by using normal Bitcoin RPC.
-                        If the round is not the first round, {} number of blocks need to pass from the previous ready to reimburse tx {:?} (If this is not collateral)", 
-                        config.protocol_paramset.operator_reimburse_timelock, transaction.input[0].previous_output.txid);
+                        If the round is not the first round, 216 number of blocks need to pass from the previous ready to reimburse tx {:?} (If this is not collateral)", 
+                        transaction.input[0].previous_output.txid);
                     }
                     _ => {}
                 }
