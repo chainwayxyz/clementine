@@ -15,7 +15,7 @@ peg-in and peg-out process. All the services that are run by a single entity
 should ideally share the same database. Typical entities are:
 
 - Operator entity
-  - Runs multiple operator services and one verifier service
+- Runs both an operator and a verifier service
 - Verifier entity
   - Runs a verifier service
 - Aggregator entity
