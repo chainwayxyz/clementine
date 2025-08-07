@@ -7,7 +7,7 @@ use super::{
     wrapper::{BlockHashDB, BlockHeaderDB},
     Database, DatabaseTransaction,
 };
-use crate::{errors::BridgeError, execute_query_with_tx, extended_rpc::ExtendedBitcoinRpc};
+use crate::{errors::BridgeError, execute_query_with_tx, extended_bitcoin_rpc::ExtendedBitcoinRpc};
 use bitcoin::{
     block::{self, Header},
     BlockHash,

@@ -7,7 +7,7 @@ use crate::citrea::Bridge::MerkleProof as CitreaMerkleProof;
 use crate::citrea::Bridge::Transaction as CitreaTransaction;
 use crate::constants::NON_STANDARD_V3;
 use crate::errors::BridgeError;
-use crate::extended_rpc::ExtendedBitcoinRpc;
+use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 use crate::rpc::clementine::NormalSignatureKind;
 use crate::test::common::citrea::bitcoin_merkle::BitcoinMerkleTree;
 use crate::UTXO;
@@ -282,7 +282,7 @@ pub async fn get_citrea_safe_withdraw_params(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::extended_rpc::ExtendedBitcoinRpc;
+    use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
     use bitcoincore_rpc::RpcApi;
     use std::str::FromStr;
 

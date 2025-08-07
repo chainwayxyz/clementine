@@ -389,7 +389,7 @@ mod tests {
         builder::transaction::sign::TransactionRequestData,
         config::protocol::ProtocolParamset,
         deposit::{Actors, DepositInfo, OperatorData},
-        extended_rpc::ExtendedBitcoinRpc,
+        extended_bitcoin_rpc::ExtendedBitcoinRpc,
         rpc::clementine::{
             clementine_operator_client::ClementineOperatorClient, TransactionRequest,
         },

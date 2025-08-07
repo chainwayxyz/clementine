@@ -9,7 +9,7 @@ use crate::utils::initialize_logger;
 use crate::utils::NamedEntity;
 use crate::{
     actor::Actor, builder, config::BridgeConfig, database::Database, errors::BridgeError,
-    extended_rpc::ExtendedBitcoinRpc, musig2::AggregateFromPublicKeys,
+    extended_bitcoin_rpc::ExtendedBitcoinRpc, musig2::AggregateFromPublicKeys,
 };
 use crate::{EVMAddress, UTXO};
 use bitcoin::secp256k1::schnorr;

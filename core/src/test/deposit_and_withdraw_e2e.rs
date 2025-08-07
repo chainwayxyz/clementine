@@ -11,7 +11,7 @@ use crate::config::protocol::{ProtocolParamset, TESTNET4_TEST_PARAMSET};
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::deposit::{BaseDepositData, DepositInfo, DepositType};
-use crate::extended_rpc::ExtendedBitcoinRpc;
+use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 use crate::header_chain_prover::HeaderChainProver;
 use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
 use crate::rpc::clementine::{

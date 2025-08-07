@@ -1475,10 +1475,10 @@ impl ExtendedBitcoinRpc {
 mod tests {
     use crate::actor::Actor;
     use crate::config::protocol::{ProtocolParamset, REGTEST_PARAMSET};
-    use crate::extended_rpc::ExtendedBitcoinRpc;
+    use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
     use crate::test::common::{citrea, create_test_config_with_thread_name};
     use crate::{
-        bitvm_client::SECP, extended_rpc::BitcoinRPCError, test::common::create_regtest_rpc,
+        bitvm_client::SECP, extended_bitcoin_rpc::BitcoinRPCError, test::common::create_regtest_rpc,
     };
     use bitcoin::Amount;
     use bitcoin::{amount, key::Keypair, Address, FeeRate, XOnlyPublicKey};
@@ -1711,7 +1711,7 @@ mod tests {
     }
 
     mod retry_config_tests {
-        use crate::extended_rpc::RetryConfig;
+        use crate::extended_bitcoin_rpc::RetryConfig;
 
         use std::time::Duration;
 
@@ -1742,7 +1742,7 @@ mod tests {
     mod retryable_error_tests {
         use bitcoin::{hashes::Hash, BlockHash, Txid};
 
-        use crate::extended_rpc::RetryableError;
+        use crate::extended_bitcoin_rpc::RetryableError;
 
         use super::*;
         use std::io::{Error as IoError, ErrorKind};
@@ -1884,7 +1884,7 @@ mod tests {
     mod retry_mechanism_tests {
         use bitcoin::BlockHash;
 
-        use crate::extended_rpc::RetryConfig;
+        use crate::extended_bitcoin_rpc::RetryConfig;
 
         use super::*;
         use std::sync::atomic::{AtomicU32, Ordering};
@@ -2068,7 +2068,7 @@ mod tests {
     }
     mod rpc_call_retry_tests {
 
-        use crate::extended_rpc::RetryableError;
+        use crate::extended_bitcoin_rpc::RetryableError;
 
         use super::*;
         use secrecy::SecretString;

@@ -3,7 +3,7 @@
 //! Utilities for operator and verifier servers.
 use crate::aggregator::AggregatorServer;
 use crate::citrea::CitreaClientT;
-use crate::extended_rpc::ExtendedBitcoinRpc;
+use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 use crate::operator::OperatorServer;
 use crate::rpc::clementine::clementine_aggregator_server::ClementineAggregatorServer;
 use crate::rpc::clementine::clementine_operator_server::ClementineOperatorServer;

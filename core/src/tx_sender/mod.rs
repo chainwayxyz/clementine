@@ -5,7 +5,7 @@ use crate::{
     actor::Actor,
     builder::{self},
     database::Database,
-    extended_rpc::ExtendedBitcoinRpc,
+    extended_bitcoin_rpc::ExtendedBitcoinRpc,
     utils::TxMetadata,
 };
 use alloy::transports::http::reqwest;

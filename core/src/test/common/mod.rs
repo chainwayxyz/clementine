@@ -20,7 +20,7 @@ use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::deposit::{BaseDepositData, DepositInfo, DepositType, ReplacementDepositData};
 use crate::errors::BridgeError;
-use crate::extended_rpc::ExtendedBitcoinRpc;
+use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 use crate::rpc::clementine::{
     entity_status_with_id, Deposit, Empty, EntityStatuses, GetEntityStatusesRequest,
     SendMoveTxRequest,
@@ -826,7 +826,7 @@ mod tests {
     #[tokio::test]
     async fn test_regtest_create_and_connect() {
         use crate::{
-            extended_rpc::ExtendedBitcoinRpc,
+            extended_bitcoin_rpc::ExtendedBitcoinRpc,
             test::common::{create_regtest_rpc, create_test_config_with_thread_name},
         };
         use bitcoincore_rpc::RpcApi;

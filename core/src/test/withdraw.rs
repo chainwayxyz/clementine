@@ -5,7 +5,7 @@ use crate::test::common::citrea::SECRET_KEYS;
 use crate::test::common::generate_withdrawal_transaction_and_signature;
 use crate::utils::initialize_logger;
 use crate::{
-    extended_rpc::ExtendedBitcoinRpc,
+    extended_bitcoin_rpc::ExtendedBitcoinRpc,
     test::common::{
         citrea::{self},
         create_test_config_with_thread_name,

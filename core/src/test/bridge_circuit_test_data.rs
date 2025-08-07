@@ -8,7 +8,7 @@ use crate::test::common::citrea::{CitreaE2EData, SECRET_KEYS};
 use crate::test::common::clementine_utils::disprove_tests_common_setup;
 use crate::utils::initialize_logger;
 use crate::{
-    extended_rpc::ExtendedBitcoinRpc,
+    extended_bitcoin_rpc::ExtendedBitcoinRpc,
     test::common::{
         citrea::{self},
         create_test_config_with_thread_name,

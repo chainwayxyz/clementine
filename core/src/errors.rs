@@ -63,7 +63,7 @@
 use crate::{
     actor::VerificationError,
     builder::transaction::input::SpendableTxInError,
-    extended_rpc::BitcoinRPCError,
+    extended_bitcoin_rpc::BitcoinRPCError,
     header_chain_prover::HeaderChainProverError,
     rpc::{aggregator::AggregatorError, ParserError},
 };

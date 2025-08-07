@@ -7,7 +7,7 @@ use crate::{
     config::protocol::ProtocolParamset,
     database::{Database, DatabaseTransaction},
     errors::BridgeError,
-    extended_rpc::ExtendedBitcoinRpc,
+    extended_bitcoin_rpc::ExtendedBitcoinRpc,
     task::{IntoTask, Task, TaskExt, TaskVariant, WithDelay},
 };
 use bitcoin::{block::Header, BlockHash, OutPoint};

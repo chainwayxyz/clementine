@@ -8,7 +8,7 @@ use eyre::Context;
 
 use crate::constants::NON_STANDARD_V3;
 use crate::errors::{ErrorExt, ResultExt};
-use crate::extended_rpc::BitcoinRPCError;
+use crate::extended_bitcoin_rpc::BitcoinRPCError;
 use crate::utils::FeePayingType;
 use crate::{
     builder::{

@@ -6,7 +6,7 @@ use crate::constants::{
     VERIFIER_SEND_KEYS_TIMEOUT,
 };
 use crate::deposit::DepositData;
-use crate::extended_rpc::ExtendedBitcoinRpc;
+use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 use crate::rpc::clementine::entity_status_with_id::StatusResult;
 use crate::rpc::clementine::EntityId as RPCEntityId;
 use crate::rpc::clementine::{

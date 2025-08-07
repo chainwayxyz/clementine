@@ -11,7 +11,7 @@ use crate::config::protocol::BLOCKS_PER_HOUR;
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::deposit::{DepositInfo, KickoffData};
-use crate::extended_rpc::ExtendedBitcoinRpc;
+use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 use crate::operator::RoundIndex;
 use crate::rpc::clementine::{Empty, FinalizedPayoutParams, SignedTxsWithType, TransactionRequest};
 use crate::test::common::citrea::MockCitreaClient;

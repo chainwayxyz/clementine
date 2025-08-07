@@ -8,7 +8,7 @@ use crate::metrics::L1SyncStatusProvider;
 use crate::{
     database::Database,
     errors::BridgeError,
-    extended_rpc::ExtendedBitcoinRpc,
+    extended_bitcoin_rpc::ExtendedBitcoinRpc,
     metrics::L1_SYNC_STATUS,
     task::{Task, TaskVariant},
     utils::NamedEntity,

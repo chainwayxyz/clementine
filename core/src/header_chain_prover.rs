@@ -11,7 +11,7 @@ use crate::{
     config::BridgeConfig,
     database::Database,
     errors::{BridgeError, ErrorExt},
-    extended_rpc::ExtendedBitcoinRpc,
+    extended_bitcoin_rpc::ExtendedBitcoinRpc,
 };
 use bitcoin::block::Header;
 use bitcoin::{hashes::Hash, BlockHash, Network};
@@ -708,7 +708,7 @@ impl HeaderChainProver {
 
 #[cfg(test)]
 mod tests {
-    use crate::extended_rpc::ExtendedBitcoinRpc;
+    use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
     use crate::header_chain_prover::HeaderChainProver;
     use crate::test::common::*;
     use crate::verifier::VerifierServer;

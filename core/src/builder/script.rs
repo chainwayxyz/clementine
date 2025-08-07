@@ -572,7 +572,7 @@ mod tests {
     use crate::bitvm_client::{self, UNSPENDABLE_XONLY_PUBKEY};
     use crate::builder::address::create_taproot_address;
     use crate::config::protocol::ProtocolParamsetName;
-    use crate::extended_rpc::ExtendedBitcoinRpc;
+    use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
     use crate::operator::RoundIndex;
     use bitcoin::hashes::Hash;
     use bitcoin::secp256k1::rand::{self, Rng};

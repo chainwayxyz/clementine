@@ -13,7 +13,7 @@ use clementine_core::{
     citrea::CitreaClient,
     cli::{self, get_cli_config},
     database::Database,
-    extended_rpc::ExtendedBitcoinRpc,
+    extended_bitcoin_rpc::ExtendedBitcoinRpc,
     servers::{
         create_aggregator_grpc_server, create_operator_grpc_server, create_verifier_grpc_server,
     },

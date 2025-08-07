@@ -4,7 +4,7 @@ use crate::builder::transaction::TransactionType as TxType;
 use crate::citrea::CitreaClientT;
 use crate::config::BridgeConfig;
 use crate::database::Database;
-use crate::extended_rpc::ExtendedBitcoinRpc;
+use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 use crate::rpc::clementine::SignedTxsWithType;
 use crate::utils::{FeePayingType, RbfSigningInfo, TxMetadata};
 use bitcoin::consensus::{self};

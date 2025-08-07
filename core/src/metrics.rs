@@ -15,7 +15,7 @@ use tonic::async_trait;
 use crate::{
     database::Database,
     errors::BridgeError,
-    extended_rpc::ExtendedBitcoinRpc,
+    extended_bitcoin_rpc::ExtendedBitcoinRpc,
     utils::{timed_request, NamedEntity},
 };
 use metrics_derive::Metrics;

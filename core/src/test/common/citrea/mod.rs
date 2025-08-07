@@ -2,7 +2,7 @@
 
 use crate::bitvm_client::SECP;
 use crate::citrea::{CitreaClient, SATS_TO_WEI_MULTIPLIER};
-use crate::extended_rpc::ExtendedBitcoinRpc;
+use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::test::common::generate_withdrawal_transaction_and_signature;
 use crate::{config::BridgeConfig, errors::BridgeError};
