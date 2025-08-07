@@ -7,7 +7,7 @@ services:
 - Operator
 - Aggregator
 
-These services communicates via gRPC and uses a Postgresql database. They can be
+These services communicate via gRPC and use a Postgresql database. They can be
 configured to share the same database.
 
 An entity can choose to run these services on a single host to be a part of the
