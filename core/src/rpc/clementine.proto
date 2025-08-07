@@ -352,14 +352,16 @@ service ClementineOperator {
   // Restarts the background tasks for the operator.
   rpc RestartBackgroundTasks(Empty) returns (Empty) {}
 
-  // Prepares a withdrawal if it's profitable and the withdrawal is correct and registered in Citrea bridge contract/
+  // Prepares a withdrawal if it's profitable and the withdrawal is correct and registered in Citrea bridge contract.
   // If withdrawal is accepted, the payout tx will be added to the TxSender and success is returned, otherwise an error is returned.
   // If automation is disabled, the withdrawal will not be accepted and an error will be returned.
   // Note: This is intended for operator's own use, so it doesn't include a signature from aggregator.
   rpc InternalWithdraw(WithdrawParams)
     returns (RawSignedTx) {}
 
-  // Prepares a withdrawal if it's profitable and the withdrawal is correct and registered in Citrea bridge contract/
+
+  // First, if verification address in operator's config is set, the signature in rpc is checked to see if it was signed by the verification address.
+  // Then prepares a withdrawal if it's profitable and the withdrawal is correct and registered in Citrea bridge contract.
   // If withdrawal is accepted, the payout tx will be added to the TxSender and success is returned, otherwise an error is returned.
   // If automation is disabled, the withdrawal will not be accepted and an error will be returned.
   rpc Withdraw(WithdrawParamsWithSig)

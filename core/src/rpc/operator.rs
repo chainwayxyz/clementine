@@ -201,11 +201,11 @@ where
 
                 // check if verification signature is signed by the address in config
                 if address_from_sig != address_in_config {
-                    return Err(BridgeError::InvalidOptPayoutVerificationSignature).map_to_status();
+                    return Err(BridgeError::InvalidECDSAVerificationSignature).map_to_status();
                 }
             } else {
                 // if verification signature is not provided, but verification address is set in config, return error
-                return Err(BridgeError::OptPayoutVerificationSignatureMissing).map_to_status();
+                return Err(BridgeError::ECDSAVerificationSignatureMissing).map_to_status();
             }
         }
 

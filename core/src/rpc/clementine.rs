@@ -1189,7 +1189,7 @@ pub mod clementine_operator_client {
                 );
             self.inner.unary(req, path, codec).await
         }
-        /// Prepares a withdrawal if it's profitable and the withdrawal is correct and registered in Citrea bridge contract/
+        /// Prepares a withdrawal if it's profitable and the withdrawal is correct and registered in Citrea bridge contract.
         /// If withdrawal is accepted, the payout tx will be added to the TxSender and success is returned, otherwise an error is returned.
         /// If automation is disabled, the withdrawal will not be accepted and an error will be returned.
         /// Note: This is intended for operator's own use, so it doesn't include a signature from aggregator.
@@ -1216,7 +1216,8 @@ pub mod clementine_operator_client {
                 );
             self.inner.unary(req, path, codec).await
         }
-        /// Prepares a withdrawal if it's profitable and the withdrawal is correct and registered in Citrea bridge contract/
+        /// First, if verification address in operator's config is set, the signature in rpc is checked to see if it was signed by the verification address.
+        /// Then prepares a withdrawal if it's profitable and the withdrawal is correct and registered in Citrea bridge contract.
         /// If withdrawal is accepted, the payout tx will be added to the TxSender and success is returned, otherwise an error is returned.
         /// If automation is disabled, the withdrawal will not be accepted and an error will be returned.
         pub async fn withdraw(
@@ -2360,7 +2361,7 @@ pub mod clementine_operator_server {
             &self,
             request: tonic::Request<super::Empty>,
         ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
-        /// Prepares a withdrawal if it's profitable and the withdrawal is correct and registered in Citrea bridge contract/
+        /// Prepares a withdrawal if it's profitable and the withdrawal is correct and registered in Citrea bridge contract.
         /// If withdrawal is accepted, the payout tx will be added to the TxSender and success is returned, otherwise an error is returned.
         /// If automation is disabled, the withdrawal will not be accepted and an error will be returned.
         /// Note: This is intended for operator's own use, so it doesn't include a signature from aggregator.
@@ -2368,7 +2369,8 @@ pub mod clementine_operator_server {
             &self,
             request: tonic::Request<super::WithdrawParams>,
         ) -> std::result::Result<tonic::Response<super::RawSignedTx>, tonic::Status>;
-        /// Prepares a withdrawal if it's profitable and the withdrawal is correct and registered in Citrea bridge contract/
+        /// First, if verification address in operator's config is set, the signature in rpc is checked to see if it was signed by the verification address.
+        /// Then prepares a withdrawal if it's profitable and the withdrawal is correct and registered in Citrea bridge contract.
         /// If withdrawal is accepted, the payout tx will be added to the TxSender and success is returned, otherwise an error is returned.
         /// If automation is disabled, the withdrawal will not be accepted and an error will be returned.
         async fn withdraw(

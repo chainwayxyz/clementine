@@ -1308,11 +1308,11 @@ where
 
                 // check if verification signature is signed by the address in config
                 if address_from_sig != address_in_config {
-                    return Err(BridgeError::InvalidOptPayoutVerificationSignature);
+                    return Err(BridgeError::InvalidECDSAVerificationSignature);
                 }
             } else {
                 // if verification signature is not provided, but verification address is set in config, return error
-                return Err(BridgeError::OptPayoutVerificationSignatureMissing);
+                return Err(BridgeError::ECDSAVerificationSignatureMissing);
             }
         }
 
