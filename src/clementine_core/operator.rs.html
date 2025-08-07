@@ -1907,7 +1907,509 @@
 <a href="#1906" id="1906">1906</a>
 <a href="#1907" id="1907">1907</a>
 <a href="#1908" id="1908">1908</a>
-<a href="#1909" id="1909">1909</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_ff::PrimeField;
+<a href="#1909" id="1909">1909</a>
+<a href="#1910" id="1910">1910</a>
+<a href="#1911" id="1911">1911</a>
+<a href="#1912" id="1912">1912</a>
+<a href="#1913" id="1913">1913</a>
+<a href="#1914" id="1914">1914</a>
+<a href="#1915" id="1915">1915</a>
+<a href="#1916" id="1916">1916</a>
+<a href="#1917" id="1917">1917</a>
+<a href="#1918" id="1918">1918</a>
+<a href="#1919" id="1919">1919</a>
+<a href="#1920" id="1920">1920</a>
+<a href="#1921" id="1921">1921</a>
+<a href="#1922" id="1922">1922</a>
+<a href="#1923" id="1923">1923</a>
+<a href="#1924" id="1924">1924</a>
+<a href="#1925" id="1925">1925</a>
+<a href="#1926" id="1926">1926</a>
+<a href="#1927" id="1927">1927</a>
+<a href="#1928" id="1928">1928</a>
+<a href="#1929" id="1929">1929</a>
+<a href="#1930" id="1930">1930</a>
+<a href="#1931" id="1931">1931</a>
+<a href="#1932" id="1932">1932</a>
+<a href="#1933" id="1933">1933</a>
+<a href="#1934" id="1934">1934</a>
+<a href="#1935" id="1935">1935</a>
+<a href="#1936" id="1936">1936</a>
+<a href="#1937" id="1937">1937</a>
+<a href="#1938" id="1938">1938</a>
+<a href="#1939" id="1939">1939</a>
+<a href="#1940" id="1940">1940</a>
+<a href="#1941" id="1941">1941</a>
+<a href="#1942" id="1942">1942</a>
+<a href="#1943" id="1943">1943</a>
+<a href="#1944" id="1944">1944</a>
+<a href="#1945" id="1945">1945</a>
+<a href="#1946" id="1946">1946</a>
+<a href="#1947" id="1947">1947</a>
+<a href="#1948" id="1948">1948</a>
+<a href="#1949" id="1949">1949</a>
+<a href="#1950" id="1950">1950</a>
+<a href="#1951" id="1951">1951</a>
+<a href="#1952" id="1952">1952</a>
+<a href="#1953" id="1953">1953</a>
+<a href="#1954" id="1954">1954</a>
+<a href="#1955" id="1955">1955</a>
+<a href="#1956" id="1956">1956</a>
+<a href="#1957" id="1957">1957</a>
+<a href="#1958" id="1958">1958</a>
+<a href="#1959" id="1959">1959</a>
+<a href="#1960" id="1960">1960</a>
+<a href="#1961" id="1961">1961</a>
+<a href="#1962" id="1962">1962</a>
+<a href="#1963" id="1963">1963</a>
+<a href="#1964" id="1964">1964</a>
+<a href="#1965" id="1965">1965</a>
+<a href="#1966" id="1966">1966</a>
+<a href="#1967" id="1967">1967</a>
+<a href="#1968" id="1968">1968</a>
+<a href="#1969" id="1969">1969</a>
+<a href="#1970" id="1970">1970</a>
+<a href="#1971" id="1971">1971</a>
+<a href="#1972" id="1972">1972</a>
+<a href="#1973" id="1973">1973</a>
+<a href="#1974" id="1974">1974</a>
+<a href="#1975" id="1975">1975</a>
+<a href="#1976" id="1976">1976</a>
+<a href="#1977" id="1977">1977</a>
+<a href="#1978" id="1978">1978</a>
+<a href="#1979" id="1979">1979</a>
+<a href="#1980" id="1980">1980</a>
+<a href="#1981" id="1981">1981</a>
+<a href="#1982" id="1982">1982</a>
+<a href="#1983" id="1983">1983</a>
+<a href="#1984" id="1984">1984</a>
+<a href="#1985" id="1985">1985</a>
+<a href="#1986" id="1986">1986</a>
+<a href="#1987" id="1987">1987</a>
+<a href="#1988" id="1988">1988</a>
+<a href="#1989" id="1989">1989</a>
+<a href="#1990" id="1990">1990</a>
+<a href="#1991" id="1991">1991</a>
+<a href="#1992" id="1992">1992</a>
+<a href="#1993" id="1993">1993</a>
+<a href="#1994" id="1994">1994</a>
+<a href="#1995" id="1995">1995</a>
+<a href="#1996" id="1996">1996</a>
+<a href="#1997" id="1997">1997</a>
+<a href="#1998" id="1998">1998</a>
+<a href="#1999" id="1999">1999</a>
+<a href="#2000" id="2000">2000</a>
+<a href="#2001" id="2001">2001</a>
+<a href="#2002" id="2002">2002</a>
+<a href="#2003" id="2003">2003</a>
+<a href="#2004" id="2004">2004</a>
+<a href="#2005" id="2005">2005</a>
+<a href="#2006" id="2006">2006</a>
+<a href="#2007" id="2007">2007</a>
+<a href="#2008" id="2008">2008</a>
+<a href="#2009" id="2009">2009</a>
+<a href="#2010" id="2010">2010</a>
+<a href="#2011" id="2011">2011</a>
+<a href="#2012" id="2012">2012</a>
+<a href="#2013" id="2013">2013</a>
+<a href="#2014" id="2014">2014</a>
+<a href="#2015" id="2015">2015</a>
+<a href="#2016" id="2016">2016</a>
+<a href="#2017" id="2017">2017</a>
+<a href="#2018" id="2018">2018</a>
+<a href="#2019" id="2019">2019</a>
+<a href="#2020" id="2020">2020</a>
+<a href="#2021" id="2021">2021</a>
+<a href="#2022" id="2022">2022</a>
+<a href="#2023" id="2023">2023</a>
+<a href="#2024" id="2024">2024</a>
+<a href="#2025" id="2025">2025</a>
+<a href="#2026" id="2026">2026</a>
+<a href="#2027" id="2027">2027</a>
+<a href="#2028" id="2028">2028</a>
+<a href="#2029" id="2029">2029</a>
+<a href="#2030" id="2030">2030</a>
+<a href="#2031" id="2031">2031</a>
+<a href="#2032" id="2032">2032</a>
+<a href="#2033" id="2033">2033</a>
+<a href="#2034" id="2034">2034</a>
+<a href="#2035" id="2035">2035</a>
+<a href="#2036" id="2036">2036</a>
+<a href="#2037" id="2037">2037</a>
+<a href="#2038" id="2038">2038</a>
+<a href="#2039" id="2039">2039</a>
+<a href="#2040" id="2040">2040</a>
+<a href="#2041" id="2041">2041</a>
+<a href="#2042" id="2042">2042</a>
+<a href="#2043" id="2043">2043</a>
+<a href="#2044" id="2044">2044</a>
+<a href="#2045" id="2045">2045</a>
+<a href="#2046" id="2046">2046</a>
+<a href="#2047" id="2047">2047</a>
+<a href="#2048" id="2048">2048</a>
+<a href="#2049" id="2049">2049</a>
+<a href="#2050" id="2050">2050</a>
+<a href="#2051" id="2051">2051</a>
+<a href="#2052" id="2052">2052</a>
+<a href="#2053" id="2053">2053</a>
+<a href="#2054" id="2054">2054</a>
+<a href="#2055" id="2055">2055</a>
+<a href="#2056" id="2056">2056</a>
+<a href="#2057" id="2057">2057</a>
+<a href="#2058" id="2058">2058</a>
+<a href="#2059" id="2059">2059</a>
+<a href="#2060" id="2060">2060</a>
+<a href="#2061" id="2061">2061</a>
+<a href="#2062" id="2062">2062</a>
+<a href="#2063" id="2063">2063</a>
+<a href="#2064" id="2064">2064</a>
+<a href="#2065" id="2065">2065</a>
+<a href="#2066" id="2066">2066</a>
+<a href="#2067" id="2067">2067</a>
+<a href="#2068" id="2068">2068</a>
+<a href="#2069" id="2069">2069</a>
+<a href="#2070" id="2070">2070</a>
+<a href="#2071" id="2071">2071</a>
+<a href="#2072" id="2072">2072</a>
+<a href="#2073" id="2073">2073</a>
+<a href="#2074" id="2074">2074</a>
+<a href="#2075" id="2075">2075</a>
+<a href="#2076" id="2076">2076</a>
+<a href="#2077" id="2077">2077</a>
+<a href="#2078" id="2078">2078</a>
+<a href="#2079" id="2079">2079</a>
+<a href="#2080" id="2080">2080</a>
+<a href="#2081" id="2081">2081</a>
+<a href="#2082" id="2082">2082</a>
+<a href="#2083" id="2083">2083</a>
+<a href="#2084" id="2084">2084</a>
+<a href="#2085" id="2085">2085</a>
+<a href="#2086" id="2086">2086</a>
+<a href="#2087" id="2087">2087</a>
+<a href="#2088" id="2088">2088</a>
+<a href="#2089" id="2089">2089</a>
+<a href="#2090" id="2090">2090</a>
+<a href="#2091" id="2091">2091</a>
+<a href="#2092" id="2092">2092</a>
+<a href="#2093" id="2093">2093</a>
+<a href="#2094" id="2094">2094</a>
+<a href="#2095" id="2095">2095</a>
+<a href="#2096" id="2096">2096</a>
+<a href="#2097" id="2097">2097</a>
+<a href="#2098" id="2098">2098</a>
+<a href="#2099" id="2099">2099</a>
+<a href="#2100" id="2100">2100</a>
+<a href="#2101" id="2101">2101</a>
+<a href="#2102" id="2102">2102</a>
+<a href="#2103" id="2103">2103</a>
+<a href="#2104" id="2104">2104</a>
+<a href="#2105" id="2105">2105</a>
+<a href="#2106" id="2106">2106</a>
+<a href="#2107" id="2107">2107</a>
+<a href="#2108" id="2108">2108</a>
+<a href="#2109" id="2109">2109</a>
+<a href="#2110" id="2110">2110</a>
+<a href="#2111" id="2111">2111</a>
+<a href="#2112" id="2112">2112</a>
+<a href="#2113" id="2113">2113</a>
+<a href="#2114" id="2114">2114</a>
+<a href="#2115" id="2115">2115</a>
+<a href="#2116" id="2116">2116</a>
+<a href="#2117" id="2117">2117</a>
+<a href="#2118" id="2118">2118</a>
+<a href="#2119" id="2119">2119</a>
+<a href="#2120" id="2120">2120</a>
+<a href="#2121" id="2121">2121</a>
+<a href="#2122" id="2122">2122</a>
+<a href="#2123" id="2123">2123</a>
+<a href="#2124" id="2124">2124</a>
+<a href="#2125" id="2125">2125</a>
+<a href="#2126" id="2126">2126</a>
+<a href="#2127" id="2127">2127</a>
+<a href="#2128" id="2128">2128</a>
+<a href="#2129" id="2129">2129</a>
+<a href="#2130" id="2130">2130</a>
+<a href="#2131" id="2131">2131</a>
+<a href="#2132" id="2132">2132</a>
+<a href="#2133" id="2133">2133</a>
+<a href="#2134" id="2134">2134</a>
+<a href="#2135" id="2135">2135</a>
+<a href="#2136" id="2136">2136</a>
+<a href="#2137" id="2137">2137</a>
+<a href="#2138" id="2138">2138</a>
+<a href="#2139" id="2139">2139</a>
+<a href="#2140" id="2140">2140</a>
+<a href="#2141" id="2141">2141</a>
+<a href="#2142" id="2142">2142</a>
+<a href="#2143" id="2143">2143</a>
+<a href="#2144" id="2144">2144</a>
+<a href="#2145" id="2145">2145</a>
+<a href="#2146" id="2146">2146</a>
+<a href="#2147" id="2147">2147</a>
+<a href="#2148" id="2148">2148</a>
+<a href="#2149" id="2149">2149</a>
+<a href="#2150" id="2150">2150</a>
+<a href="#2151" id="2151">2151</a>
+<a href="#2152" id="2152">2152</a>
+<a href="#2153" id="2153">2153</a>
+<a href="#2154" id="2154">2154</a>
+<a href="#2155" id="2155">2155</a>
+<a href="#2156" id="2156">2156</a>
+<a href="#2157" id="2157">2157</a>
+<a href="#2158" id="2158">2158</a>
+<a href="#2159" id="2159">2159</a>
+<a href="#2160" id="2160">2160</a>
+<a href="#2161" id="2161">2161</a>
+<a href="#2162" id="2162">2162</a>
+<a href="#2163" id="2163">2163</a>
+<a href="#2164" id="2164">2164</a>
+<a href="#2165" id="2165">2165</a>
+<a href="#2166" id="2166">2166</a>
+<a href="#2167" id="2167">2167</a>
+<a href="#2168" id="2168">2168</a>
+<a href="#2169" id="2169">2169</a>
+<a href="#2170" id="2170">2170</a>
+<a href="#2171" id="2171">2171</a>
+<a href="#2172" id="2172">2172</a>
+<a href="#2173" id="2173">2173</a>
+<a href="#2174" id="2174">2174</a>
+<a href="#2175" id="2175">2175</a>
+<a href="#2176" id="2176">2176</a>
+<a href="#2177" id="2177">2177</a>
+<a href="#2178" id="2178">2178</a>
+<a href="#2179" id="2179">2179</a>
+<a href="#2180" id="2180">2180</a>
+<a href="#2181" id="2181">2181</a>
+<a href="#2182" id="2182">2182</a>
+<a href="#2183" id="2183">2183</a>
+<a href="#2184" id="2184">2184</a>
+<a href="#2185" id="2185">2185</a>
+<a href="#2186" id="2186">2186</a>
+<a href="#2187" id="2187">2187</a>
+<a href="#2188" id="2188">2188</a>
+<a href="#2189" id="2189">2189</a>
+<a href="#2190" id="2190">2190</a>
+<a href="#2191" id="2191">2191</a>
+<a href="#2192" id="2192">2192</a>
+<a href="#2193" id="2193">2193</a>
+<a href="#2194" id="2194">2194</a>
+<a href="#2195" id="2195">2195</a>
+<a href="#2196" id="2196">2196</a>
+<a href="#2197" id="2197">2197</a>
+<a href="#2198" id="2198">2198</a>
+<a href="#2199" id="2199">2199</a>
+<a href="#2200" id="2200">2200</a>
+<a href="#2201" id="2201">2201</a>
+<a href="#2202" id="2202">2202</a>
+<a href="#2203" id="2203">2203</a>
+<a href="#2204" id="2204">2204</a>
+<a href="#2205" id="2205">2205</a>
+<a href="#2206" id="2206">2206</a>
+<a href="#2207" id="2207">2207</a>
+<a href="#2208" id="2208">2208</a>
+<a href="#2209" id="2209">2209</a>
+<a href="#2210" id="2210">2210</a>
+<a href="#2211" id="2211">2211</a>
+<a href="#2212" id="2212">2212</a>
+<a href="#2213" id="2213">2213</a>
+<a href="#2214" id="2214">2214</a>
+<a href="#2215" id="2215">2215</a>
+<a href="#2216" id="2216">2216</a>
+<a href="#2217" id="2217">2217</a>
+<a href="#2218" id="2218">2218</a>
+<a href="#2219" id="2219">2219</a>
+<a href="#2220" id="2220">2220</a>
+<a href="#2221" id="2221">2221</a>
+<a href="#2222" id="2222">2222</a>
+<a href="#2223" id="2223">2223</a>
+<a href="#2224" id="2224">2224</a>
+<a href="#2225" id="2225">2225</a>
+<a href="#2226" id="2226">2226</a>
+<a href="#2227" id="2227">2227</a>
+<a href="#2228" id="2228">2228</a>
+<a href="#2229" id="2229">2229</a>
+<a href="#2230" id="2230">2230</a>
+<a href="#2231" id="2231">2231</a>
+<a href="#2232" id="2232">2232</a>
+<a href="#2233" id="2233">2233</a>
+<a href="#2234" id="2234">2234</a>
+<a href="#2235" id="2235">2235</a>
+<a href="#2236" id="2236">2236</a>
+<a href="#2237" id="2237">2237</a>
+<a href="#2238" id="2238">2238</a>
+<a href="#2239" id="2239">2239</a>
+<a href="#2240" id="2240">2240</a>
+<a href="#2241" id="2241">2241</a>
+<a href="#2242" id="2242">2242</a>
+<a href="#2243" id="2243">2243</a>
+<a href="#2244" id="2244">2244</a>
+<a href="#2245" id="2245">2245</a>
+<a href="#2246" id="2246">2246</a>
+<a href="#2247" id="2247">2247</a>
+<a href="#2248" id="2248">2248</a>
+<a href="#2249" id="2249">2249</a>
+<a href="#2250" id="2250">2250</a>
+<a href="#2251" id="2251">2251</a>
+<a href="#2252" id="2252">2252</a>
+<a href="#2253" id="2253">2253</a>
+<a href="#2254" id="2254">2254</a>
+<a href="#2255" id="2255">2255</a>
+<a href="#2256" id="2256">2256</a>
+<a href="#2257" id="2257">2257</a>
+<a href="#2258" id="2258">2258</a>
+<a href="#2259" id="2259">2259</a>
+<a href="#2260" id="2260">2260</a>
+<a href="#2261" id="2261">2261</a>
+<a href="#2262" id="2262">2262</a>
+<a href="#2263" id="2263">2263</a>
+<a href="#2264" id="2264">2264</a>
+<a href="#2265" id="2265">2265</a>
+<a href="#2266" id="2266">2266</a>
+<a href="#2267" id="2267">2267</a>
+<a href="#2268" id="2268">2268</a>
+<a href="#2269" id="2269">2269</a>
+<a href="#2270" id="2270">2270</a>
+<a href="#2271" id="2271">2271</a>
+<a href="#2272" id="2272">2272</a>
+<a href="#2273" id="2273">2273</a>
+<a href="#2274" id="2274">2274</a>
+<a href="#2275" id="2275">2275</a>
+<a href="#2276" id="2276">2276</a>
+<a href="#2277" id="2277">2277</a>
+<a href="#2278" id="2278">2278</a>
+<a href="#2279" id="2279">2279</a>
+<a href="#2280" id="2280">2280</a>
+<a href="#2281" id="2281">2281</a>
+<a href="#2282" id="2282">2282</a>
+<a href="#2283" id="2283">2283</a>
+<a href="#2284" id="2284">2284</a>
+<a href="#2285" id="2285">2285</a>
+<a href="#2286" id="2286">2286</a>
+<a href="#2287" id="2287">2287</a>
+<a href="#2288" id="2288">2288</a>
+<a href="#2289" id="2289">2289</a>
+<a href="#2290" id="2290">2290</a>
+<a href="#2291" id="2291">2291</a>
+<a href="#2292" id="2292">2292</a>
+<a href="#2293" id="2293">2293</a>
+<a href="#2294" id="2294">2294</a>
+<a href="#2295" id="2295">2295</a>
+<a href="#2296" id="2296">2296</a>
+<a href="#2297" id="2297">2297</a>
+<a href="#2298" id="2298">2298</a>
+<a href="#2299" id="2299">2299</a>
+<a href="#2300" id="2300">2300</a>
+<a href="#2301" id="2301">2301</a>
+<a href="#2302" id="2302">2302</a>
+<a href="#2303" id="2303">2303</a>
+<a href="#2304" id="2304">2304</a>
+<a href="#2305" id="2305">2305</a>
+<a href="#2306" id="2306">2306</a>
+<a href="#2307" id="2307">2307</a>
+<a href="#2308" id="2308">2308</a>
+<a href="#2309" id="2309">2309</a>
+<a href="#2310" id="2310">2310</a>
+<a href="#2311" id="2311">2311</a>
+<a href="#2312" id="2312">2312</a>
+<a href="#2313" id="2313">2313</a>
+<a href="#2314" id="2314">2314</a>
+<a href="#2315" id="2315">2315</a>
+<a href="#2316" id="2316">2316</a>
+<a href="#2317" id="2317">2317</a>
+<a href="#2318" id="2318">2318</a>
+<a href="#2319" id="2319">2319</a>
+<a href="#2320" id="2320">2320</a>
+<a href="#2321" id="2321">2321</a>
+<a href="#2322" id="2322">2322</a>
+<a href="#2323" id="2323">2323</a>
+<a href="#2324" id="2324">2324</a>
+<a href="#2325" id="2325">2325</a>
+<a href="#2326" id="2326">2326</a>
+<a href="#2327" id="2327">2327</a>
+<a href="#2328" id="2328">2328</a>
+<a href="#2329" id="2329">2329</a>
+<a href="#2330" id="2330">2330</a>
+<a href="#2331" id="2331">2331</a>
+<a href="#2332" id="2332">2332</a>
+<a href="#2333" id="2333">2333</a>
+<a href="#2334" id="2334">2334</a>
+<a href="#2335" id="2335">2335</a>
+<a href="#2336" id="2336">2336</a>
+<a href="#2337" id="2337">2337</a>
+<a href="#2338" id="2338">2338</a>
+<a href="#2339" id="2339">2339</a>
+<a href="#2340" id="2340">2340</a>
+<a href="#2341" id="2341">2341</a>
+<a href="#2342" id="2342">2342</a>
+<a href="#2343" id="2343">2343</a>
+<a href="#2344" id="2344">2344</a>
+<a href="#2345" id="2345">2345</a>
+<a href="#2346" id="2346">2346</a>
+<a href="#2347" id="2347">2347</a>
+<a href="#2348" id="2348">2348</a>
+<a href="#2349" id="2349">2349</a>
+<a href="#2350" id="2350">2350</a>
+<a href="#2351" id="2351">2351</a>
+<a href="#2352" id="2352">2352</a>
+<a href="#2353" id="2353">2353</a>
+<a href="#2354" id="2354">2354</a>
+<a href="#2355" id="2355">2355</a>
+<a href="#2356" id="2356">2356</a>
+<a href="#2357" id="2357">2357</a>
+<a href="#2358" id="2358">2358</a>
+<a href="#2359" id="2359">2359</a>
+<a href="#2360" id="2360">2360</a>
+<a href="#2361" id="2361">2361</a>
+<a href="#2362" id="2362">2362</a>
+<a href="#2363" id="2363">2363</a>
+<a href="#2364" id="2364">2364</a>
+<a href="#2365" id="2365">2365</a>
+<a href="#2366" id="2366">2366</a>
+<a href="#2367" id="2367">2367</a>
+<a href="#2368" id="2368">2368</a>
+<a href="#2369" id="2369">2369</a>
+<a href="#2370" id="2370">2370</a>
+<a href="#2371" id="2371">2371</a>
+<a href="#2372" id="2372">2372</a>
+<a href="#2373" id="2373">2373</a>
+<a href="#2374" id="2374">2374</a>
+<a href="#2375" id="2375">2375</a>
+<a href="#2376" id="2376">2376</a>
+<a href="#2377" id="2377">2377</a>
+<a href="#2378" id="2378">2378</a>
+<a href="#2379" id="2379">2379</a>
+<a href="#2380" id="2380">2380</a>
+<a href="#2381" id="2381">2381</a>
+<a href="#2382" id="2382">2382</a>
+<a href="#2383" id="2383">2383</a>
+<a href="#2384" id="2384">2384</a>
+<a href="#2385" id="2385">2385</a>
+<a href="#2386" id="2386">2386</a>
+<a href="#2387" id="2387">2387</a>
+<a href="#2388" id="2388">2388</a>
+<a href="#2389" id="2389">2389</a>
+<a href="#2390" id="2390">2390</a>
+<a href="#2391" id="2391">2391</a>
+<a href="#2392" id="2392">2392</a>
+<a href="#2393" id="2393">2393</a>
+<a href="#2394" id="2394">2394</a>
+<a href="#2395" id="2395">2395</a>
+<a href="#2396" id="2396">2396</a>
+<a href="#2397" id="2397">2397</a>
+<a href="#2398" id="2398">2398</a>
+<a href="#2399" id="2399">2399</a>
+<a href="#2400" id="2400">2400</a>
+<a href="#2401" id="2401">2401</a>
+<a href="#2402" id="2402">2402</a>
+<a href="#2403" id="2403">2403</a>
+<a href="#2404" id="2404">2404</a>
+<a href="#2405" id="2405">2405</a>
+<a href="#2406" id="2406">2406</a>
+<a href="#2407" id="2407">2407</a>
+<a href="#2408" id="2408">2408</a>
+<a href="#2409" id="2409">2409</a>
+<a href="#2410" id="2410">2410</a>
+<a href="#2411" id="2411">2411</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_ff::PrimeField;
 <span class="kw">use </span>circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
 <span class="kw">use </span>std::collections::HashMap;
 
@@ -1916,6 +2418,7 @@
 <span class="kw">use </span><span class="kw">crate</span>::builder::script::extract_winternitz_commits;
 <span class="kw">use </span><span class="kw">crate</span>::builder::sighash::{create_operator_sighash_stream, PartialSignatureInfo};
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::deposit_signature_owner::EntityType;
+<span class="kw">use </span><span class="kw">crate</span>::builder::transaction::input::UtxoVout;
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::{
     create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler,
@@ -1943,7 +2446,7 @@
 <span class="kw">use </span>bitcoin::hashes::Hash;
 <span class="kw">use </span>bitcoin::secp256k1::schnorr::Signature;
 <span class="kw">use </span>bitcoin::secp256k1::{schnorr, Message};
-<span class="kw">use </span>bitcoin::{Address, Amount, BlockHash, OutPoint, ScriptBuf, Transaction, TxOut};
+<span class="kw">use </span>bitcoin::{Address, Amount, BlockHash, OutPoint, ScriptBuf, Transaction, TxOut, Txid};
 <span class="kw">use </span>bitcoincore_rpc::json::AddressType;
 <span class="kw">use </span>bitcoincore_rpc::RpcApi;
 <span class="kw">use </span>bitvm::chunk::api::generate_assertions;
@@ -2489,7 +2992,6 @@
     ///
     /// - Ok(()) if the withdrawal checks are successful and a payout transaction is added to the TxSender
     /// - Err(BridgeError) if the withdrawal checks fail
-    </span><span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
     </span><span class="kw">pub async fn </span>withdraw(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         withdrawal_index: u32,
@@ -2497,7 +2999,7 @@
         in_outpoint: OutPoint,
         out_script_pubkey: ScriptBuf,
         out_amount: Amount,
-    ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
+    ) -&gt; <span class="prelude-ty">Result</span>&lt;Transaction, BridgeError&gt; {
         <span class="macro">tracing::info!</span>(
             <span class="string">"Withdrawing with index: {}, in_signature: {}, in_outpoint: {:?}, out_script_pubkey: {}, out_amount: {}"</span>,
             withdrawal_index,
@@ -2571,28 +3073,48 @@
         .wrap_err(<span class="string">"Failed to verify signature received from user for payout txin"</span>)<span class="question-mark">?</span>;
 
         <span class="comment">// send payout tx using RBF
-        </span><span class="kw">let </span>payout_tx = payout_txhandler.get_cached_tx();
-        <span class="kw">let </span><span class="kw-2">mut </span>dbtx = <span class="self">self</span>.db.begin_transaction().<span class="kw">await</span><span class="question-mark">?</span>;
-        <span class="self">self</span>.tx_sender
-            .add_tx_to_queue(
-                <span class="kw-2">&amp;mut </span>dbtx,
-                TransactionType::Payout,
-                payout_tx,
-                <span class="kw-2">&amp;</span>[],
-                <span class="prelude-val">Some</span>(TxMetadata {
-                    tx_type: TransactionType::Payout,
-                    operator_xonly_pk: <span class="prelude-val">Some</span>(<span class="self">self</span>.signer.xonly_public_key),
-                    round_idx: <span class="prelude-val">None</span>,
-                    kickoff_idx: <span class="prelude-val">None</span>,
-                    deposit_outpoint: <span class="prelude-val">None</span>,
+        </span><span class="kw">let </span>funded_tx = <span class="self">self
+            </span>.rpc
+            .client
+            .fund_raw_transaction(
+                payout_txhandler.get_cached_tx(),
+                <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span>bitcoincore_rpc::json::FundRawTransactionOptions {
+                    add_inputs: <span class="prelude-val">Some</span>(<span class="bool-val">true</span>),
+                    change_address: <span class="prelude-val">None</span>,
+                    change_position: <span class="prelude-val">Some</span>(<span class="number">1</span>),
+                    change_type: <span class="prelude-val">None</span>,
+                    include_watching: <span class="prelude-val">None</span>,
+                    lock_unspents: <span class="prelude-val">Some</span>(<span class="bool-val">true</span>),
+                    fee_rate: <span class="prelude-val">None</span>,
+                    subtract_fee_from_outputs: <span class="prelude-val">None</span>,
+                    replaceable: <span class="prelude-val">None</span>,
+                    conf_target: <span class="prelude-val">None</span>,
+                    estimate_mode: <span class="prelude-val">None</span>,
                 }),
-                <span class="kw-2">&amp;</span><span class="self">self</span>.config,
                 <span class="prelude-val">None</span>,
             )
-            .<span class="kw">await</span><span class="question-mark">?</span>;
-        dbtx.commit().<span class="kw">await</span><span class="question-mark">?</span>;
+            .<span class="kw">await
+            </span>.wrap_err(<span class="string">"Failed to fund raw transaction"</span>)<span class="question-mark">?
+            </span>.hex;
 
-        <span class="prelude-val">Ok</span>(())
+        <span class="kw">let </span>signed_tx: Transaction = bitcoin::consensus::deserialize(
+            <span class="kw-2">&amp;</span><span class="self">self
+                </span>.rpc
+                .client
+                .sign_raw_transaction_with_wallet(<span class="kw-2">&amp;</span>funded_tx, <span class="prelude-val">None</span>, <span class="prelude-val">None</span>)
+                .<span class="kw">await
+                </span>.wrap_err(<span class="string">"Failed to sign funded tx through bitcoin RPC"</span>)<span class="question-mark">?
+                </span>.hex,
+        )
+        .wrap_err(<span class="string">"Failed to deserialize signed tx"</span>)<span class="question-mark">?</span>;
+
+        <span class="self">self</span>.rpc
+            .client
+            .send_raw_transaction(<span class="kw-2">&amp;</span>signed_tx)
+            .<span class="kw">await
+            </span>.wrap_err(<span class="string">"Failed to send transaction to signed tx"</span>)<span class="question-mark">?</span>;
+
+        <span class="prelude-val">Ok</span>(signed_tx)
     }
 
     <span class="doccomment">/// Generates Winternitz public keys for every  BitVM assert tx for a deposit.
@@ -2746,7 +3268,7 @@
         deposit_outpoint: OutPoint,
         payout_tx_blockhash: BlockHash,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;bitcoin::Txid, BridgeError&gt; {
-        <span class="kw">let </span>(deposit_id, <span class="kw">_</span>) = <span class="self">self
+        <span class="kw">let </span>(deposit_id, deposit_data) = <span class="self">self
             </span>.db
             .get_deposit_data(<span class="prelude-val">Some</span>(dbtx), deposit_outpoint)
             .<span class="kw">await</span><span class="question-mark">?
@@ -2763,20 +3285,15 @@
             .<span class="kw">await</span><span class="question-mark">?
             </span>.ok_or(BridgeError::DatabaseError(sqlx::Error::RowNotFound))<span class="question-mark">?</span>;
 
-        <span class="kw">let </span>current_round_index = <span class="self">self
-            </span>.db
-            .get_current_round_index(<span class="prelude-val">Some</span>(dbtx))
-            .<span class="kw">await</span><span class="question-mark">?
-            </span>.ok_or(BridgeError::DatabaseError(sqlx::Error::RowNotFound))<span class="question-mark">?</span>;
-
+        <span class="kw">let </span>current_round_index = <span class="self">self</span>.db.get_current_round_index(<span class="prelude-val">Some</span>(dbtx)).<span class="kw">await</span><span class="question-mark">?</span>;
         <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
         </span><span class="kw">if </span>current_round_index != round_idx {
             <span class="comment">// we currently have no free kickoff connectors in the current round, so we need to end round first
             // if current_round_index should only be smaller than round_idx, and should not be smaller by more than 1
             // so sanity check:
-            </span><span class="kw">if </span>current_round_index + <span class="number">1 </span>!= round_idx {
+            </span><span class="kw">if </span>current_round_index.next_round() != round_idx {
                 <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(
-                    <span class="string">"Internal error: Expected the current round ({}) to be equal to or 1 less than the round of the first available kickoff for deposit reimbursement ({}) for deposit {:?}. If the round is less than the current round, there is an issue with the logic of the fn that gets the first available kickoff. If the round is greater, that means the next round do not have any kickoff connectors available for reimbursement, which should not be possible."</span>,
+                    <span class="string">"Internal error: Expected the current round ({:?}) to be equal to or 1 less than the round of the first available kickoff for deposit reimbursement ({:?}) for deposit {:?}. If the round is less than the current round, there is an issue with the logic of the fn that gets the first available kickoff. If the round is greater, that means the next round do not have any kickoff connectors available for reimbursement, which should not be possible."</span>,
                     current_round_index, round_idx, deposit_outpoint
                 ).into());
             }
@@ -2784,18 +3301,11 @@
             </span><span class="self">self</span>.end_round(dbtx).<span class="kw">await</span><span class="question-mark">?</span>;
         }
 
-        <span class="kw">let </span>round_idx = RoundIndex::from_index(round_idx <span class="kw">as </span>usize);
-
         <span class="comment">// get signed txs,
         </span><span class="kw">let </span>kickoff_data = KickoffData {
             operator_xonly_pk: <span class="self">self</span>.signer.xonly_public_key,
             round_idx,
             kickoff_idx,
-        };
-
-        <span class="kw">let </span>transaction_data = TransactionRequestData {
-            deposit_outpoint,
-            kickoff_data,
         };
 
         <span class="kw">let </span>payout_tx_blockhash = payout_tx_blockhash.as_byte_array().last_20_bytes();
@@ -2806,11 +3316,17 @@
             .test_params
             .maybe_disrupt_payout_tx_block_hash_commit(payout_tx_blockhash);
 
+        <span class="kw">let </span>context = ContractContext::new_context_for_kickoff(
+            kickoff_data,
+            deposit_data,
+            <span class="self">self</span>.config.protocol_paramset(),
+        );
+
         <span class="kw">let </span>signed_txs = create_and_sign_txs(
             <span class="self">self</span>.db.clone(),
             <span class="kw-2">&amp;</span><span class="self">self</span>.signer,
             <span class="self">self</span>.config.clone(),
-            transaction_data,
+            context,
             <span class="prelude-val">Some</span>(payout_tx_blockhash),
             <span class="prelude-val">Some</span>(dbtx),
         )
@@ -2925,7 +3441,6 @@
     ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
         <span class="comment">// get current round index
         </span><span class="kw">let </span>current_round_index = <span class="self">self</span>.db.get_current_round_index(<span class="prelude-val">Some</span>(dbtx)).<span class="kw">await</span><span class="question-mark">?</span>;
-        <span class="kw">let </span>current_round_index = current_round_index.unwrap_or(<span class="number">0</span>);
 
         <span class="kw">let </span><span class="kw-2">mut </span>activation_prerequisites = Vec::new();
 
@@ -2939,10 +3454,8 @@
             <span class="self">self</span>.config.protocol_paramset().num_round_txs,
         );
 
-        <span class="kw">let </span>current_round = RoundIndex::from_index(current_round_index <span class="kw">as </span>usize);
-
         <span class="comment">// if we are at round 0, which is just the collateral, we need to start the first round
-        </span><span class="kw">if </span>current_round == RoundIndex::Collateral {
+        </span><span class="kw">if </span>current_round_index == RoundIndex::Collateral {
             <span class="kw">return </span><span class="self">self</span>.start_first_round(dbtx, kickoff_wpks).<span class="kw">await</span>;
         }
 
@@ -2951,7 +3464,7 @@
                 <span class="self">self</span>.signer.xonly_public_key,
                 <span class="self">self</span>.collateral_funding_outpoint,
                 <span class="self">self</span>.config.protocol_paramset().collateral_funding_amount,
-                current_round,
+                current_round_index,
                 <span class="kw-2">&amp;</span>kickoff_wpks,
                 <span class="self">self</span>.config.protocol_paramset(),
             )<span class="question-mark">?</span>;
@@ -2960,7 +3473,7 @@
             <span class="self">self</span>.signer.xonly_public_key,
             <span class="self">self</span>.collateral_funding_outpoint,
             <span class="self">self</span>.config.protocol_paramset().collateral_funding_amount,
-            current_round.next_round(),
+            current_round_index.next_round(),
             <span class="kw-2">&amp;</span>kickoff_wpks,
             <span class="self">self</span>.config.protocol_paramset(),
         )<span class="question-mark">?</span>;
@@ -2997,7 +3510,7 @@
                 </span>.db
                 .get_kickoff_txid_for_used_kickoff_connector(
                     <span class="prelude-val">Some</span>(dbtx),
-                    current_round,
+                    current_round_index,
                     kickoff_connector_idx,
                 )
                 .<span class="kw">await</span><span class="question-mark">?</span>;
@@ -3006,7 +3519,7 @@
                     activation_prerequisites.push(ActivatedWithOutpoint {
                         outpoint: OutPoint {
                             txid: kickoff_txid,
-                            vout: <span class="number">1</span>, <span class="comment">// Kickoff finalizer output index
+                            vout: UtxoVout::KickoffFinalizer.get_vout(), <span class="comment">// Kickoff finalizer output index
                         </span>},
                         relative_block_height: <span class="self">self</span>.config.protocol_paramset().finality_depth,
                     });
@@ -3014,13 +3527,13 @@
                 <span class="prelude-val">None </span>=&gt; {
                     <span class="kw">let </span>unspent_kickoff_connector = OutPoint {
                         txid: current_round_txid,
-                        vout: kickoff_connector_idx + <span class="number">1</span>, <span class="comment">// add 1 since the first output is collateral
-                    </span>};
+                        vout: UtxoVout::Kickoff(kickoff_connector_idx <span class="kw">as </span>usize).get_vout(),
+                    };
                     unspent_kickoff_connector_indices.push(kickoff_connector_idx <span class="kw">as </span>usize);
                     <span class="self">self</span>.db
                         .set_kickoff_connector_as_used(
                             <span class="prelude-val">Some</span>(dbtx),
-                            current_round,
+                            current_round_index,
                             kickoff_connector_idx,
                             <span class="prelude-val">None</span>,
                         )
@@ -3055,7 +3568,7 @@
                 <span class="prelude-val">Some</span>(TxMetadata {
                     tx_type: TransactionType::BurnUnusedKickoffConnectors,
                     operator_xonly_pk: <span class="prelude-val">Some</span>(<span class="self">self</span>.signer.xonly_public_key),
-                    round_idx: <span class="prelude-val">Some</span>(current_round),
+                    round_idx: <span class="prelude-val">Some</span>(current_round_index),
                     kickoff_idx: <span class="prelude-val">None</span>,
                     deposit_outpoint: <span class="prelude-val">None</span>,
                 }),
@@ -3076,7 +3589,7 @@
                 <span class="prelude-val">Some</span>(TxMetadata {
                     tx_type: TransactionType::ReadyToReimburse,
                     operator_xonly_pk: <span class="prelude-val">Some</span>(<span class="self">self</span>.signer.xonly_public_key),
-                    round_idx: <span class="prelude-val">Some</span>(current_round),
+                    round_idx: <span class="prelude-val">Some</span>(current_round_index),
                     kickoff_idx: <span class="prelude-val">None</span>,
                     deposit_outpoint: <span class="prelude-val">None</span>,
                 }),
@@ -3097,7 +3610,7 @@
                 <span class="prelude-val">Some</span>(TxMetadata {
                     tx_type: TransactionType::Round,
                     operator_xonly_pk: <span class="prelude-val">Some</span>(<span class="self">self</span>.signer.xonly_public_key),
-                    round_idx: <span class="prelude-val">Some</span>(current_round.next_round()),
+                    round_idx: <span class="prelude-val">Some</span>(current_round_index.next_round()),
                     kickoff_idx: <span class="prelude-val">None</span>,
                     deposit_outpoint: <span class="prelude-val">None</span>,
                 }),
@@ -3120,7 +3633,7 @@
 
         <span class="comment">// update current round index
         </span><span class="self">self</span>.db
-            .update_current_round_index(<span class="prelude-val">Some</span>(dbtx), current_round.next_round())
+            .update_current_round_index(<span class="prelude-val">Some</span>(dbtx), current_round_index.next_round())
             .<span class="kw">await</span><span class="question-mark">?</span>;
 
         <span class="prelude-val">Ok</span>(())
@@ -3559,6 +4072,497 @@
             .<span class="kw">await</span><span class="question-mark">?</span>;
         dbtx.commit().<span class="kw">await</span><span class="question-mark">?</span>;
         <span class="prelude-val">Ok</span>(())
+    }
+
+    <span class="doccomment">/// For a deposit_id checks that the payer for that deposit is the operator, and the payout blockhash and kickoff txid are set.
+    </span><span class="kw">async fn </span>validate_payer_is_operator(
+        <span class="kw-2">&amp;</span><span class="self">self</span>,
+        dbtx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+        deposit_id: u32,
+    ) -&gt; <span class="prelude-ty">Result</span>&lt;(BlockHash, Txid), BridgeError&gt; {
+        <span class="kw">let </span>(payer_xonly_pk, payout_blockhash, kickoff_txid) = <span class="self">self
+            </span>.db
+            .get_payer_xonly_pk_blockhash_and_kickoff_txid_from_deposit_id(dbtx, deposit_id)
+            .<span class="kw">await</span><span class="question-mark">?</span>;
+
+        <span class="macro">tracing::info!</span>(
+            <span class="string">"Payer xonly pk and kickoff txid found for the requested deposit, payer xonly pk: {:?}, kickoff txid: {:?}"</span>,
+            payer_xonly_pk,
+            kickoff_txid
+        );
+
+        <span class="comment">// first check if the payer is the operator, and the kickoff is handled
+        // by the PayoutCheckerTask, meaning kickoff_txid is set
+        </span><span class="kw">let </span>(payout_blockhash, kickoff_txid) = <span class="kw">match </span>(
+            payer_xonly_pk,
+            payout_blockhash,
+            kickoff_txid,
+        ) {
+            (<span class="prelude-val">Some</span>(payer_xonly_pk), <span class="prelude-val">Some</span>(payout_blockhash), <span class="prelude-val">Some</span>(kickoff_txid)) =&gt; {
+                <span class="kw">if </span>payer_xonly_pk != <span class="self">self</span>.signer.xonly_public_key {
+                    <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(
+                        <span class="string">"Payer is not own operator for deposit, payer xonly pk: {:?}, operator xonly pk: {:?}"</span>,
+                        payer_xonly_pk,
+                        <span class="self">self</span>.signer.xonly_public_key
+                    )
+                    .into());
+                }
+                (payout_blockhash, kickoff_txid)
+            }
+            <span class="kw">_ </span>=&gt; {
+                <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(
+                    <span class="string">"Payer info not found for deposit, payout blockhash: {:?}, kickoff txid: {:?}"</span>,
+                    payout_blockhash,
+                    kickoff_txid
+                )
+                .into());
+            }
+        };
+
+        <span class="macro">tracing::info!</span>(
+            <span class="string">"Payer xonly pk, payout blockhash and kickoff txid found and valid for own operator for the requested deposit id: {}, payer xonly pk: {:?}, payout blockhash: {:?}, kickoff txid: {:?}"</span>,
+            deposit_id,
+            payer_xonly_pk,
+            payout_blockhash,
+            kickoff_txid
+        );
+
+        <span class="prelude-val">Ok</span>((payout_blockhash, kickoff_txid))
+    }
+
+    <span class="kw">async fn </span>get_next_txs_to_send(
+        <span class="kw-2">&amp;</span><span class="self">self</span>,
+        <span class="kw-2">mut </span>dbtx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+        deposit_data: <span class="kw-2">&amp;</span>DepositData,
+        payout_blockhash: BlockHash,
+        kickoff_txid: Txid,
+        current_round_idx: RoundIndex,
+    ) -&gt; <span class="prelude-ty">Result</span>&lt;Vec&lt;(TransactionType, Transaction)&gt;, BridgeError&gt; {
+        <span class="kw">let </span><span class="kw-2">mut </span>txs_to_send = Vec::new();
+
+        <span class="comment">// get used kickoff connector for the kickoff txid
+        </span><span class="kw">let </span>(kickoff_round_idx, kickoff_connector_idx) = <span class="self">self
+            </span>.db
+            .get_kickoff_connector_for_kickoff_txid(dbtx.as_deref_mut(), kickoff_txid)
+            .<span class="kw">await</span><span class="question-mark">?</span>;
+
+        <span class="kw">let </span>context = ContractContext::new_context_for_kickoff(
+            KickoffData {
+                operator_xonly_pk: <span class="self">self</span>.signer.xonly_public_key,
+                round_idx: kickoff_round_idx,
+                kickoff_idx: kickoff_connector_idx,
+            },
+            deposit_data.clone(),
+            <span class="self">self</span>.config.protocol_paramset(),
+        );
+
+        <span class="comment">// get txs for the kickoff
+        </span><span class="kw">let </span>kickoff_txs = create_and_sign_txs(
+            <span class="self">self</span>.db.clone(),
+            <span class="kw-2">&amp;</span><span class="self">self</span>.signer,
+            <span class="self">self</span>.config.clone(),
+            context,
+            <span class="prelude-val">Some</span>(payout_blockhash.to_byte_array().last_20_bytes()),
+            dbtx.as_deref_mut(),
+        )
+        .<span class="kw">await</span><span class="question-mark">?</span>;
+
+        <span class="comment">// check the current round status compared to the round of the assigned kickoff tx
+        </span><span class="kw">match </span>current_round_idx
+            .to_index()
+            .cmp(<span class="kw-2">&amp;</span>kickoff_round_idx.to_index())
+        {
+            std::cmp::Ordering::Less =&gt; {
+                <span class="comment">// We need to advance the round manually to be able to start the kickoff
+                </span><span class="macro">tracing::info!</span>(<span class="string">"We need to advance the round manually to be able to start the kickoff, current round idx: {:?}, kickoff round idx: {:?}"</span>, current_round_idx, kickoff_round_idx);
+                <span class="kw">let </span>txs = <span class="self">self</span>.advance_round_manually(dbtx, current_round_idx).<span class="kw">await</span><span class="question-mark">?</span>;
+                txs_to_send.extend(txs);
+            }
+            std::cmp::Ordering::Greater =&gt; {
+                <span class="macro">tracing::info!</span>(<span class="string">"We are at least on the next round, meaning we can get the reimbursement as reimbursement utxos are in the next round, current round idx: {:?}, kickoff round idx: {:?}"</span>, current_round_idx, kickoff_round_idx);
+                <span class="comment">// we are at least on the next round, meaning we can get the reimbursement as reimbursement utxos are in the next round
+                </span><span class="kw">let </span>reimbursement_tx = kickoff_txs
+                    .iter()
+                    .find(|(tx_type, <span class="kw">_</span>)| tx_type == <span class="kw-2">&amp;</span>TransactionType::Reimburse)
+                    .ok_or(<span class="macro">eyre::eyre!</span>(<span class="string">"Reimburse tx not found in kickoff txs"</span>))<span class="question-mark">?</span>;
+                txs_to_send.push(reimbursement_tx.clone());
+            }
+            std::cmp::Ordering::Equal =&gt; {
+                <span class="comment">// first check if the kickoff is in chain
+                </span><span class="kw">if </span>!<span class="self">self</span>.rpc.is_tx_on_chain(<span class="kw-2">&amp;</span>kickoff_txid).<span class="kw">await</span><span class="question-mark">? </span>{
+                    <span class="macro">tracing::info!</span>(
+                        <span class="string">"Kickoff tx is not on chain, can send it, kickoff txid: {:?}"</span>,
+                        kickoff_txid
+                    );
+                    <span class="kw">let </span>kickoff_tx = kickoff_txs
+                        .iter()
+                        .find(|(tx_type, <span class="kw">_</span>)| tx_type == <span class="kw-2">&amp;</span>TransactionType::Kickoff)
+                        .ok_or(<span class="macro">eyre::eyre!</span>(<span class="string">"Kickoff tx not found in kickoff txs"</span>))<span class="question-mark">?</span>;
+                    <span class="comment">// sanity check
+                    </span><span class="kw">if </span>kickoff_tx.<span class="number">1</span>.compute_txid() != kickoff_txid {
+                        <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(<span class="string">"Kickoff txid mismatch for deposit outpoint: {}, kickoff txid: {:?}, computed txid: {:?}"</span>, 
+                        deposit_data.get_deposit_outpoint(), kickoff_txid, kickoff_tx.<span class="number">1</span>.compute_txid()).into());
+                    }
+                    txs_to_send.push(kickoff_tx.clone());
+                }
+                <span class="comment">// kickoff tx is on chain, check if kickoff finalizer is spent
+                </span><span class="kw">else if </span>!<span class="self">self
+                    </span>.rpc
+                    .is_utxo_spent(<span class="kw-2">&amp;</span>OutPoint {
+                        txid: kickoff_txid,
+                        vout: UtxoVout::KickoffFinalizer.get_vout(),
+                    })
+                    .<span class="kw">await</span><span class="question-mark">?
+                </span>{
+                    <span class="comment">// kickoff finalizer is not spent, we need to send challenge timeout
+                    </span><span class="macro">tracing::info!</span>(
+                        <span class="string">"Kickoff finalizer is not spent, can send challenge timeout, kickoff txid: {:?}"</span>,
+                        kickoff_txid
+                    );
+                    <span class="comment">// first check if challenge tx was sent, then we need automation enabled to be able to answer the challenge
+                    </span><span class="kw">if </span><span class="self">self
+                        </span>.rpc
+                        .is_utxo_spent(<span class="kw-2">&amp;</span>OutPoint {
+                            txid: kickoff_txid,
+                            vout: UtxoVout::Challenge.get_vout(),
+                        })
+                        .<span class="kw">await</span><span class="question-mark">?
+                    </span>{
+                        <span class="comment">// challenge tx was sent, we need automation enabled to be able to answer the challenge
+                        </span><span class="macro">tracing::warn!</span>(
+                            <span class="string">"Challenge tx was sent for deposit outpoint: {:?}, but automation is not enabled, enable automation!"</span>,
+                            deposit_data.get_deposit_outpoint()
+                        );
+                        <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(<span class="string">"WARNING: Challenge tx was sent to kickoff connector {:?}, but automation is not enabled, enable automation!"</span>, kickoff_txid).into());
+                    }
+                    <span class="kw">let </span>challenge_timeout_tx = kickoff_txs
+                        .iter()
+                        .find(|(tx_type, <span class="kw">_</span>)| tx_type == <span class="kw-2">&amp;</span>TransactionType::ChallengeTimeout)
+                        .ok_or(<span class="macro">eyre::eyre!</span>(<span class="string">"Challenge timeout tx not found in kickoff txs"</span>))<span class="question-mark">?</span>;
+                    txs_to_send.push(challenge_timeout_tx.clone());
+                } <span class="kw">else </span>{
+                    <span class="comment">// if kickoff finalizer is spent, it is time to get the reimbursement
+                    </span><span class="macro">tracing::info!</span>(
+                        <span class="string">"Kickoff finalizer is spent, can advance the round manually to get the reimbursement, current round idx: {:?}, kickoff round idx: {:?}"</span>,
+                        current_round_idx,
+                        kickoff_round_idx
+                    );
+                    <span class="kw">let </span>txs = <span class="self">self</span>.advance_round_manually(dbtx, current_round_idx).<span class="kw">await</span><span class="question-mark">?</span>;
+                    txs_to_send.extend(txs);
+                }
+            }
+        }
+        <span class="prelude-val">Ok</span>(txs_to_send)
+    }
+
+    <span class="doccomment">/// For a given deposit outpoint, get the txs that are needed to reimburse the deposit.
+    /// To avoid operator getting slashed, this function only returns the next tx that needs to be sent
+    /// This fn can track and enable sending of these transactions during a normal reimbursement process.
+    ///
+    /// - First, if the current round is less than the round of the kickoff assigned to the deposit by PayoutCheckerTask, it returns the Round TX.
+    /// - After Round tx is sent, it returns the Kickoff tx.
+    /// - After Kickoff tx is sent, it returns the challenge timeout tx.
+    /// - After challenge timeout tx is sent, it returns BurnUnusedKickoffConnectors tx. If challenge timeout tx is not sent, and but challenge utxo was spent, it means the kickoff was challenged, thus the fn returns an error as it cannot handle the challenge process. Automation is required to answer the challenge.
+    /// - After all kickoff utxos are spent, and for any live kickoff, all kickoff finalizers are spent, it returns the ReadyToReimburse tx.
+    /// - After ReadyToReimburse tx is sent, it returns the next Round tx to generate reimbursement utxos.
+    /// - Finally, after the next round tx is sent, it returns the Reimburse tx.
+    </span><span class="kw">pub async fn </span>get_reimbursement_txs(
+        <span class="kw-2">&amp;</span><span class="self">self</span>,
+        deposit_outpoint: OutPoint,
+    ) -&gt; <span class="prelude-ty">Result</span>&lt;Vec&lt;(TransactionType, Transaction)&gt;, BridgeError&gt; {
+        <span class="kw">let </span><span class="kw-2">mut </span>dbtx = <span class="self">self</span>.db.begin_transaction().<span class="kw">await</span><span class="question-mark">?</span>;
+        <span class="comment">// first check if the deposit is in the database
+        </span><span class="kw">let </span>(deposit_id, deposit_data) = <span class="self">self
+            </span>.db
+            .get_deposit_data(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx), deposit_outpoint)
+            .<span class="kw">await</span><span class="question-mark">?
+            </span>.ok_or(BridgeError::DatabaseError(sqlx::Error::RowNotFound))<span class="question-mark">?</span>;
+
+        <span class="macro">tracing::info!</span>(
+            <span class="string">"Deposit data found for the requested deposit outpoint: {:?}, deposit id: {:?}"</span>,
+            deposit_outpoint,
+            deposit_id
+        );
+
+        <span class="comment">// validate payer is operator and get payer xonly pk, payout blockhash and kickoff txid
+        </span><span class="kw">let </span>(payout_blockhash, kickoff_txid) = <span class="self">self
+            </span>.validate_payer_is_operator(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx), deposit_id)
+            .<span class="kw">await</span><span class="question-mark">?</span>;
+
+        <span class="kw">let </span><span class="kw-2">mut </span>current_round_idx = <span class="self">self</span>.db.get_current_round_index(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx)).<span class="kw">await</span><span class="question-mark">?</span>;
+
+        <span class="kw">let </span><span class="kw-2">mut </span>txs_to_send: Vec&lt;(TransactionType, Transaction)&gt;;
+
+        <span class="kw">loop </span>{
+            txs_to_send = <span class="self">self
+                </span>.get_next_txs_to_send(
+                    <span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx),
+                    <span class="kw-2">&amp;</span>deposit_data,
+                    payout_blockhash,
+                    kickoff_txid,
+                    current_round_idx,
+                )
+                .<span class="kw">await</span><span class="question-mark">?</span>;
+            <span class="kw">if </span>txs_to_send.is_empty() {
+                <span class="comment">// if no txs were returned, and we advanced the round in the db, ask for the next txs again
+                // with the new round index
+                </span><span class="kw">let </span>round_idx_after_operations =
+                    <span class="self">self</span>.db.get_current_round_index(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx)).<span class="kw">await</span><span class="question-mark">?</span>;
+                <span class="kw">if </span>round_idx_after_operations != current_round_idx {
+                    current_round_idx = round_idx_after_operations;
+                    <span class="kw">continue</span>;
+                }
+            }
+            <span class="kw">break</span>;
+        }
+
+        dbtx.commit().<span class="kw">await</span><span class="question-mark">?</span>;
+        <span class="prelude-val">Ok</span>(txs_to_send)
+    }
+
+    <span class="doccomment">/// Checks the current round status, and returns the next txs that are safe to send to be
+    /// able to advance to the next round.
+    </span><span class="kw">async fn </span>advance_round_manually(
+        <span class="kw-2">&amp;</span><span class="self">self</span>,
+        <span class="kw-2">mut </span>dbtx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+        round_idx: RoundIndex,
+    ) -&gt; <span class="prelude-ty">Result</span>&lt;Vec&lt;(TransactionType, Transaction)&gt;, BridgeError&gt; {
+        <span class="kw">if </span>round_idx == RoundIndex::Collateral {
+            <span class="comment">// if current round is collateral, nothing to do except send the first round tx
+            </span><span class="kw">return </span><span class="self">self</span>.send_next_round_tx(dbtx, round_idx).<span class="kw">await</span>;
+        }
+
+        <span class="comment">// get round txhandlers
+        </span><span class="kw">let </span>context = ContractContext::new_context_for_round(
+            <span class="self">self</span>.signer.xonly_public_key,
+            round_idx,
+            <span class="self">self</span>.config.protocol_paramset(),
+        );
+
+        <span class="kw">let </span>txs = create_and_sign_txs(
+            <span class="self">self</span>.db.clone(),
+            <span class="kw-2">&amp;</span><span class="self">self</span>.signer,
+            <span class="self">self</span>.config.clone(),
+            context,
+            <span class="prelude-val">None</span>,
+            dbtx.as_deref_mut(),
+        )
+        .<span class="kw">await</span><span class="question-mark">?</span>;
+
+        <span class="kw">let </span>round_tx = txs
+            .iter()
+            .find(|(tx_type, <span class="kw">_</span>)| tx_type == <span class="kw-2">&amp;</span>TransactionType::Round)
+            .ok_or(<span class="macro">eyre::eyre!</span>(<span class="string">"Round tx not found in txs"</span>))<span class="question-mark">?</span>;
+
+        <span class="kw">if </span>!<span class="self">self</span>.rpc.is_tx_on_chain(<span class="kw-2">&amp;</span>round_tx.<span class="number">1</span>.compute_txid()).<span class="kw">await</span><span class="question-mark">? </span>{
+            <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(<span class="string">"Round tx for round {:?} is not on chain, but the database shows we are on this round, error"</span>, round_idx).into());
+        }
+
+        <span class="comment">// check if ready to reimburse tx was sent
+        </span><span class="kw">let </span>ready_to_reimburse_tx = txs
+            .iter()
+            .find(|(tx_type, <span class="kw">_</span>)| tx_type == <span class="kw-2">&amp;</span>TransactionType::ReadyToReimburse)
+            .ok_or(<span class="macro">eyre::eyre!</span>(<span class="string">"Ready to reimburse tx not found in txs"</span>))<span class="question-mark">?</span>;
+
+        <span class="kw">let </span><span class="kw-2">mut </span>txs_to_send = Vec::new();
+
+        <span class="comment">// to be able to send ready to reimburse tx, we need to make sure, all kickoff utxos are spent, and for all kickoffs, all kickoff finalizers are spent
+        </span><span class="kw">if </span>!<span class="self">self
+            </span>.rpc
+            .is_tx_on_chain(<span class="kw-2">&amp;</span>ready_to_reimburse_tx.<span class="number">1</span>.compute_txid())
+            .<span class="kw">await</span><span class="question-mark">?
+        </span>{
+            <span class="macro">tracing::info!</span>(<span class="string">"Ready to reimburse tx for round {:?} is not on chain, checking prerequisites to see if we are able to send it
+            Prerequisites:
+            - all kickoff utxos are spent
+            - for all kickoffs, all kickoff finalizers are spent
+            "</span>, round_idx);
+            <span class="kw">let </span>round_txid = round_tx.<span class="number">1</span>.compute_txid();
+            <span class="kw">let </span>unspent_kickoff_utxos = <span class="self">self
+                </span>.find_and_mark_unspent_kickoff_utxos(dbtx.as_deref_mut(), round_idx, round_txid)
+                .<span class="kw">await</span><span class="question-mark">?</span>;
+
+            <span class="kw">if </span>!unspent_kickoff_utxos.is_empty() {
+                <span class="kw">let </span>burn_txs = <span class="self">self
+                    </span>.create_burn_unused_kickoff_connectors_tx(round_idx, <span class="kw-2">&amp;</span>unspent_kickoff_utxos)
+                    .<span class="kw">await</span><span class="question-mark">?</span>;
+                txs_to_send.extend(burn_txs);
+            } <span class="kw">else </span>{
+                <span class="comment">// every kickoff utxo is spent, but we need to check if all kickoff finalizers are spent
+                // if not, we return and error and wait until they are spent
+                // if all finalizers are spent, it is safe to send ready to reimburse tx
+                </span><span class="self">self</span>.validate_all_kickoff_finalizers_spent(dbtx.as_deref_mut(), round_idx)
+                    .<span class="kw">await</span><span class="question-mark">?</span>;
+                <span class="comment">// all finalizers and kickoff utxos are spent, it is safe to send ready to reimburse tx
+                </span>txs_to_send.push(ready_to_reimburse_tx.clone());
+            }
+        } <span class="kw">else </span>{
+            <span class="comment">// ready to reimburse tx is on chain, we need to wait for the timelock to send the next round tx
+            // first check if next round tx is already sent, that means we can update the database
+            </span>txs_to_send.extend(<span class="self">self</span>.send_next_round_tx(dbtx, round_idx).<span class="kw">await</span><span class="question-mark">?</span>);
+        }
+
+        <span class="prelude-val">Ok</span>(txs_to_send)
+    }
+
+    <span class="doccomment">/// Finds unspent kickoff UTXOs and marks spent ones as used in the database.
+    </span><span class="kw">async fn </span>find_and_mark_unspent_kickoff_utxos(
+        <span class="kw-2">&amp;</span><span class="self">self</span>,
+        <span class="kw-2">mut </span>dbtx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+        round_idx: RoundIndex,
+        round_txid: Txid,
+    ) -&gt; <span class="prelude-ty">Result</span>&lt;Vec&lt;usize&gt;, BridgeError&gt; {
+        <span class="comment">// check and collect all kickoff utxos that are not spent
+        </span><span class="kw">let </span><span class="kw-2">mut </span>unspent_kickoff_utxos = Vec::new();
+        <span class="kw">for </span>kickoff_idx <span class="kw">in </span><span class="number">0</span>..<span class="self">self</span>.config.protocol_paramset().num_kickoffs_per_round {
+            <span class="kw">let </span>kickoff_utxo = OutPoint {
+                txid: round_txid,
+                vout: UtxoVout::Kickoff(kickoff_idx).get_vout(),
+            };
+            <span class="kw">if </span>!<span class="self">self</span>.rpc.is_utxo_spent(<span class="kw-2">&amp;</span>kickoff_utxo).<span class="kw">await</span><span class="question-mark">? </span>{
+                unspent_kickoff_utxos.push(kickoff_idx);
+            } <span class="kw">else </span>{
+                <span class="comment">// set the kickoff connector as used (it will do nothing if the utxo is already in db, so it won't overwrite the kickoff txid)
+                // mark so that we don't try to use this utxo anymore
+                </span><span class="self">self</span>.db
+                    .set_kickoff_connector_as_used(
+                        dbtx.as_deref_mut(),
+                        round_idx,
+                        kickoff_idx <span class="kw">as </span>u32,
+                        <span class="prelude-val">None</span>,
+                    )
+                    .<span class="kw">await</span><span class="question-mark">?</span>;
+            }
+        }
+        <span class="prelude-val">Ok</span>(unspent_kickoff_utxos)
+    }
+
+    <span class="doccomment">/// Creates a transaction that burns unused kickoff connectors.
+    </span><span class="kw">async fn </span>create_burn_unused_kickoff_connectors_tx(
+        <span class="kw-2">&amp;</span><span class="self">self</span>,
+        round_idx: RoundIndex,
+        unspent_kickoff_utxos: <span class="kw-2">&amp;</span>[usize],
+    ) -&gt; <span class="prelude-ty">Result</span>&lt;Vec&lt;(TransactionType, Transaction)&gt;, BridgeError&gt; {
+        <span class="macro">tracing::info!</span>(
+            <span class="string">"There are unspent kickoff utxos {:?}, creating a tx that spends them"</span>,
+            unspent_kickoff_utxos
+        );
+        <span class="kw">let </span>operator_winternitz_public_keys = <span class="self">self</span>.generate_kickoff_winternitz_pubkeys()<span class="question-mark">?</span>;
+        <span class="kw">let </span>kickoff_wpks = KickoffWinternitzKeys::new(
+            operator_winternitz_public_keys,
+            <span class="self">self</span>.config.protocol_paramset().num_kickoffs_per_round,
+            <span class="self">self</span>.config.protocol_paramset().num_round_txs,
+        );
+        <span class="comment">// if there are unspent kickoff utxos, create a tx that spends them
+        </span><span class="kw">let </span>(round_txhandler, _ready_to_reimburse_txhandler) = create_round_nth_txhandler(
+            <span class="self">self</span>.signer.xonly_public_key,
+            <span class="self">self</span>.collateral_funding_outpoint,
+            <span class="self">self</span>.config.protocol_paramset().collateral_funding_amount,
+            round_idx,
+            <span class="kw-2">&amp;</span>kickoff_wpks,
+            <span class="self">self</span>.config.protocol_paramset(),
+        )<span class="question-mark">?</span>;
+        <span class="kw">let </span><span class="kw-2">mut </span>burn_unused_kickoff_connectors_txhandler =
+            create_burn_unused_kickoff_connectors_txhandler(
+                <span class="kw-2">&amp;</span>round_txhandler,
+                unspent_kickoff_utxos,
+                <span class="kw-2">&amp;</span><span class="self">self</span>.reimburse_addr,
+                <span class="self">self</span>.config.protocol_paramset(),
+            )<span class="question-mark">?</span>;
+
+        <span class="comment">// sign burn unused kickoff connectors tx
+        </span><span class="self">self</span>.signer.tx_sign_and_fill_sigs(
+            <span class="kw-2">&amp;mut </span>burn_unused_kickoff_connectors_txhandler,
+            <span class="kw-2">&amp;</span>[],
+            <span class="prelude-val">None</span>,
+        )<span class="question-mark">?</span>;
+        <span class="kw">let </span>burn_unused_kickoff_connectors_txhandler =
+            burn_unused_kickoff_connectors_txhandler.promote()<span class="question-mark">?</span>;
+        <span class="prelude-val">Ok</span>(<span class="macro">vec!</span>[(
+            TransactionType::BurnUnusedKickoffConnectors,
+            burn_unused_kickoff_connectors_txhandler
+                .get_cached_tx()
+                .clone(),
+        )])
+    }
+
+    <span class="doccomment">/// Validates that all kickoff finalizers are spent for the given round.
+    </span><span class="kw">async fn </span>validate_all_kickoff_finalizers_spent(
+        <span class="kw-2">&amp;</span><span class="self">self</span>,
+        <span class="kw-2">mut </span>dbtx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+        round_idx: RoundIndex,
+    ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
+        <span class="comment">// we need to check if all finalizers are spent
+        </span><span class="kw">for </span>kickoff_idx <span class="kw">in </span><span class="number">0</span>..<span class="self">self</span>.config.protocol_paramset().num_kickoffs_per_round {
+            <span class="kw">let </span>kickoff_txid = <span class="self">self
+                </span>.db
+                .get_kickoff_txid_for_used_kickoff_connector(
+                    dbtx.as_deref_mut(),
+                    round_idx,
+                    kickoff_idx <span class="kw">as </span>u32,
+                )
+                .<span class="kw">await</span><span class="question-mark">?</span>;
+            <span class="kw">if let </span><span class="prelude-val">Some</span>(kickoff_txid) = kickoff_txid {
+                <span class="kw">let </span>deposit_outpoint = <span class="self">self
+                    </span>.db
+                    .get_deposit_outpoint_for_kickoff_txid(dbtx.as_deref_mut(), kickoff_txid)
+                    .<span class="kw">await</span><span class="question-mark">?</span>;
+                <span class="kw">if </span>!<span class="self">self</span>.rpc.is_tx_on_chain(<span class="kw-2">&amp;</span>kickoff_txid).<span class="kw">await</span><span class="question-mark">? </span>{
+                    <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(<span class="string">"For round {:?} and kickoff utxo {:?}, the kickoff tx {:?} is not on chain, 
+                    reimburse the deposit {:?} corresponding to this kickoff first. "
+                    </span>, round_idx, kickoff_idx, kickoff_txid, deposit_outpoint).into());
+                } <span class="kw">else if </span>!<span class="self">self
+                    </span>.rpc
+                    .is_utxo_spent(<span class="kw-2">&amp;</span>OutPoint {
+                        txid: kickoff_txid,
+                        vout: UtxoVout::KickoffFinalizer.get_vout(),
+                    })
+                    .<span class="kw">await</span><span class="question-mark">?
+                </span>{
+                    <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(<span class="string">"For round {:?} and kickoff utxo {:?}, the kickoff finalizer {:?} is not spent, 
+                    send the challenge timeout tx for the deposit {:?} first"</span>, round_idx, kickoff_idx, kickoff_txid, deposit_outpoint).into());
+                }
+            }
+        }
+        <span class="prelude-val">Ok</span>(())
+    }
+
+    <span class="doccomment">/// Checks if the next round tx is on chain, if it is, updates the database, otherwise returns the round tx that needs to be sent.
+    </span><span class="kw">async fn </span>send_next_round_tx(
+        <span class="kw-2">&amp;</span><span class="self">self</span>,
+        <span class="kw-2">mut </span>dbtx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+        round_idx: RoundIndex,
+    ) -&gt; <span class="prelude-ty">Result</span>&lt;Vec&lt;(TransactionType, Transaction)&gt;, BridgeError&gt; {
+        <span class="kw">let </span>next_round_context = ContractContext::new_context_for_round(
+            <span class="self">self</span>.signer.xonly_public_key,
+            round_idx.next_round(),
+            <span class="self">self</span>.config.protocol_paramset(),
+        );
+        <span class="kw">let </span>next_round_txs = create_and_sign_txs(
+            <span class="self">self</span>.db.clone(),
+            <span class="kw-2">&amp;</span><span class="self">self</span>.signer,
+            <span class="self">self</span>.config.clone(),
+            next_round_context,
+            <span class="prelude-val">None</span>,
+            dbtx.as_deref_mut(),
+        )
+        .<span class="kw">await</span><span class="question-mark">?</span>;
+        <span class="kw">let </span>next_round_tx = next_round_txs
+            .iter()
+            .find(|(tx_type, <span class="kw">_</span>)| tx_type == <span class="kw-2">&amp;</span>TransactionType::Round)
+            .ok_or(<span class="macro">eyre::eyre!</span>(<span class="string">"Next round tx not found in txs"</span>))<span class="question-mark">?</span>;
+        <span class="kw">let </span>next_round_txid = next_round_tx.<span class="number">1</span>.compute_txid();
+
+        <span class="kw">if </span>!<span class="self">self</span>.rpc.is_tx_on_chain(<span class="kw-2">&amp;</span>next_round_txid).<span class="kw">await</span><span class="question-mark">? </span>{
+            <span class="comment">// if next round tx is not on chain, we need to wait for the timelock to send it
+            </span><span class="prelude-val">Ok</span>(<span class="macro">vec!</span>[next_round_tx.clone()])
+        } <span class="kw">else </span>{
+            <span class="comment">// if next round tx is on chain, we need to update the database
+            </span><span class="self">self</span>.db
+                .update_current_round_index(dbtx, round_idx.next_round())
+                .<span class="kw">await</span><span class="question-mark">?</span>;
+            <span class="prelude-val">Ok</span>(<span class="macro">vec!</span>[])
+        }
     }
 }
 

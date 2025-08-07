@@ -3194,7 +3194,9 @@
 <a href="#3193" id="3193">3193</a>
 <a href="#3194" id="3194">3194</a>
 <a href="#3195" id="3195">3195</a>
-<a href="#3196" id="3196">3196</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
+<a href="#3196" id="3196">3196</a>
+<a href="#3197" id="3197">3197</a>
+<a href="#3198" id="3198">3198</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
 <span class="kw">use </span><span class="kw">crate</span>::bitcoin_syncer::BitcoinSyncer;
 <span class="kw">use </span><span class="kw">crate</span>::bitvm_client::{ClementineBitVMPublicKeys, REPLACE_SCRIPTS_LOCK};
 <span class="kw">use </span><span class="kw">crate</span>::builder::address::{create_taproot_address, taproot_builder_with_scripts};
@@ -3211,7 +3213,7 @@
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::{
     create_emergency_stop_txhandler, create_move_to_vault_txhandler,
-    create_optimistic_payout_txhandler, TransactionType, TxHandler,
+    create_optimistic_payout_txhandler, ContractContext, TransactionType, TxHandler,
 };
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::{create_round_txhandlers, KickoffWinternitzKeys};
 <span class="kw">use </span><span class="kw">crate</span>::citrea::CitreaClientT;
@@ -4881,17 +4883,19 @@
             deposit_data
         );
 
-        <span class="kw">let </span>transaction_data = TransactionRequestData {
-            deposit_outpoint: deposit_data.get_deposit_outpoint(),
+        <span class="kw">let </span>context = ContractContext::new_context_with_signer(
             kickoff_data,
-        };
+            deposit_data.clone(),
+            <span class="self">self</span>.config.protocol_paramset(),
+            <span class="self">self</span>.signer.clone(),
+        );
 
         <span class="kw">let </span>signed_txs = create_and_sign_txs(
             <span class="self">self</span>.db.clone(),
             <span class="kw-2">&amp;</span><span class="self">self</span>.signer,
             <span class="self">self</span>.config.clone(),
-            transaction_data,
-            <span class="prelude-val">None</span>, <span class="comment">// No need
+            context,
+            <span class="prelude-val">None</span>, <span class="comment">// No need, verifier will not send kickoff tx
             </span><span class="prelude-val">Some</span>(dbtx),
         )
         .<span class="kw">await</span><span class="question-mark">?</span>;

@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["AggregatorCommands","Commands","OperatorCommands","VerifierCommands"],"fn":["create_minimal_config","create_move_transaction","handle_aggregator_call","handle_operator_call","handle_verifier_call","main"],"struct":["Cli"]};
+window.SIDEBAR_ITEMS = {"enum":["AggregatorCommands","BitcoinCommands","Commands","OperatorCommands","VerifierCommands"],"fn":["create_minimal_config","get_path_from_env_or_default","handle_aggregator_call","handle_bitcoin_call","handle_operator_call","handle_verifier_call","main"],"struct":["Cli"]};

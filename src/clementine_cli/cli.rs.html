@@ -1020,14 +1020,67 @@
 <a href="#1019" id="1019">1019</a>
 <a href="#1020" id="1020">1020</a>
 <a href="#1021" id="1021">1021</a>
-<a href="#1022" id="1022">1022</a></pre></div><pre class="rust"><code><span class="doccomment">//! This module defines a command line interface for the RPC client.
+<a href="#1022" id="1022">1022</a>
+<a href="#1023" id="1023">1023</a>
+<a href="#1024" id="1024">1024</a>
+<a href="#1025" id="1025">1025</a>
+<a href="#1026" id="1026">1026</a>
+<a href="#1027" id="1027">1027</a>
+<a href="#1028" id="1028">1028</a>
+<a href="#1029" id="1029">1029</a>
+<a href="#1030" id="1030">1030</a>
+<a href="#1031" id="1031">1031</a>
+<a href="#1032" id="1032">1032</a>
+<a href="#1033" id="1033">1033</a>
+<a href="#1034" id="1034">1034</a>
+<a href="#1035" id="1035">1035</a>
+<a href="#1036" id="1036">1036</a>
+<a href="#1037" id="1037">1037</a>
+<a href="#1038" id="1038">1038</a>
+<a href="#1039" id="1039">1039</a>
+<a href="#1040" id="1040">1040</a>
+<a href="#1041" id="1041">1041</a>
+<a href="#1042" id="1042">1042</a>
+<a href="#1043" id="1043">1043</a>
+<a href="#1044" id="1044">1044</a>
+<a href="#1045" id="1045">1045</a>
+<a href="#1046" id="1046">1046</a>
+<a href="#1047" id="1047">1047</a>
+<a href="#1048" id="1048">1048</a>
+<a href="#1049" id="1049">1049</a>
+<a href="#1050" id="1050">1050</a>
+<a href="#1051" id="1051">1051</a>
+<a href="#1052" id="1052">1052</a>
+<a href="#1053" id="1053">1053</a>
+<a href="#1054" id="1054">1054</a>
+<a href="#1055" id="1055">1055</a>
+<a href="#1056" id="1056">1056</a>
+<a href="#1057" id="1057">1057</a>
+<a href="#1058" id="1058">1058</a>
+<a href="#1059" id="1059">1059</a>
+<a href="#1060" id="1060">1060</a>
+<a href="#1061" id="1061">1061</a>
+<a href="#1062" id="1062">1062</a>
+<a href="#1063" id="1063">1063</a>
+<a href="#1064" id="1064">1064</a>
+<a href="#1065" id="1065">1065</a>
+<a href="#1066" id="1066">1066</a>
+<a href="#1067" id="1067">1067</a>
+<a href="#1068" id="1068">1068</a>
+<a href="#1069" id="1069">1069</a>
+<a href="#1070" id="1070">1070</a>
+<a href="#1071" id="1071">1071</a>
+<a href="#1072" id="1072">1072</a>
+<a href="#1073" id="1073">1073</a></pre></div><pre class="rust"><code><span class="doccomment">//! This module defines a command line interface for the RPC client.
 
 </span><span class="kw">use </span>std::path::PathBuf;
 <span class="kw">use </span>std::str::FromStr;
 
 <span class="kw">use </span>bitcoin::{hashes::Hash, ScriptBuf, Txid};
+<span class="kw">use </span>bitcoincore_rpc::json::SignRawTransactionInput;
 <span class="kw">use </span>clap::{Parser, Subcommand};
 <span class="kw">use </span>clementine_core::{
+    builder::transaction::TransactionType,
     config::BridgeConfig,
     deposit::SecurityCouncil,
     rpc::clementine::{
@@ -1042,7 +1095,7 @@
 <span class="attr">#[derive(Parser)]
 #[command(author, version, about, long_about = <span class="prelude-val">None</span>)]
 </span><span class="kw">struct </span>Cli {
-    <span class="doccomment">/// The URL of the gRPC service
+    <span class="doccomment">/// The URL of the service
     </span><span class="attr">#[arg(short, long)]
     </span>node_url: String,
 
@@ -1066,6 +1119,12 @@
     </span>Aggregator {
         <span class="attr">#[command(subcommand)]
         </span>command: AggregatorCommands,
+    },
+    <span class="doccomment">/// Commands for interacting with Bitcoin only
+    /// Give Bitcoin RPC URL as node-url
+    </span>Bitcoin {
+        <span class="attr">#[command(subcommand)]
+        </span>command: BitcoinCommands,
     },
 }
 
@@ -1097,6 +1156,13 @@
     },
     <span class="doccomment">/// Get vergen build information
     </span>Vergen,
+    <span class="doccomment">/// Get kickoff related txs for sending kickoff manually
+    </span>GetReimbursementTxs {
+        <span class="attr">#[arg(long)]
+        </span>deposit_outpoint_txid: String,
+        <span class="attr">#[arg(long)]
+        </span>deposit_outpoint_vout: u32,
+    },
     <span class="comment">// Add other operator commands as needed
 </span>}
 
@@ -1134,37 +1200,8 @@
         <span class="attr">#[arg(long)]
         </span>recovery_taproot_address: <span class="prelude-ty">Option</span>&lt;String&gt;,
     },
-    <span class="doccomment">/// Get move transaction for deposit without sending it
-    </span>GetMoveTransaction {
-        <span class="attr">#[arg(long)]
-        </span>deposit_outpoint_txid: String,
-        <span class="attr">#[arg(long)]
-        </span>deposit_outpoint_vout: u32,
-        <span class="attr">#[arg(long)]
-        </span>evm_address: <span class="prelude-ty">Option</span>&lt;String&gt;,
-        <span class="attr">#[arg(long)]
-        </span>recovery_taproot_address: <span class="prelude-ty">Option</span>&lt;String&gt;,
-    },
-    <span class="doccomment">/// Send move transaction using CPFP package
-    </span>SendMoveTransactionCPFP {
-        <span class="attr">#[arg(long)]
-        </span>deposit_outpoint_txid: String,
-        <span class="attr">#[arg(long)]
-        </span>deposit_outpoint_vout: u32,
-        <span class="attr">#[arg(long)]
-        </span>evm_address: <span class="prelude-ty">Option</span>&lt;String&gt;,
-        <span class="attr">#[arg(long)]
-        </span>recovery_taproot_address: <span class="prelude-ty">Option</span>&lt;String&gt;,
-        <span class="attr">#[arg(long)]
-        </span>fee_rate: <span class="prelude-ty">Option</span>&lt;f64&gt;, <span class="comment">// sat/vB
-        </span><span class="attr">#[arg(long)]
-        </span>bitcoin_rpc_url: String,
-        <span class="attr">#[arg(long)]
-        </span>bitcoin_rpc_user: String,
-        <span class="attr">#[arg(long)]
-        </span>bitcoin_rpc_password: String,
-    },
-    NewReplacementDeposit {
+    <span class="doccomment">/// Sign a replacement deposit
+    </span>NewReplacementDeposit {
         <span class="attr">#[arg(long)]
         </span>deposit_outpoint_txid: String,
         <span class="attr">#[arg(long)]
@@ -1223,75 +1260,58 @@
     </span>Vergen,
 }
 
+<span class="attr">#[derive(Subcommand)]
+</span><span class="kw">enum </span>BitcoinCommands {
+    <span class="doccomment">/// Send a transaction with CPFP package
+    </span>SendTxWithCpfp {
+        <span class="attr">#[arg(long)]
+        </span>raw_tx: String,
+        <span class="attr">#[arg(long)]
+        </span>fee_payer_address: <span class="prelude-ty">Option</span>&lt;String&gt;,
+        <span class="attr">#[arg(long)]
+        </span>fee_rate: <span class="prelude-ty">Option</span>&lt;f64&gt;,
+        <span class="attr">#[arg(long)]
+        </span>bitcoin_rpc_user: String,
+        <span class="attr">#[arg(long)]
+        </span>bitcoin_rpc_password: String,
+    },
+}
+
+<span class="kw">fn </span>get_path_from_env_or_default(env_var: <span class="kw-2">&amp;</span>str, default: <span class="kw-2">&amp;</span>str) -&gt; PathBuf {
+    <span class="kw">let </span>path = std::env::var(env_var);
+    <span class="kw">let </span>path = <span class="kw">match </span>path {
+        <span class="prelude-val">Ok</span>(path) =&gt; {
+            <span class="macro">println!</span>(
+                <span class="string">"Using cert path from environment variable {}: {}"</span>,
+                env_var, path
+            );
+            path
+        }
+        <span class="prelude-val">Err</span>(<span class="kw">_</span>) =&gt; {
+            <span class="macro">println!</span>(<span class="string">"Warning: {} is not set, using default cert path: {}.\nIf this path is incorrect, please set the environment variable {} to the correct path or call the binary from the correct directory, or any aggregator/operator/verifier command may not work."</span>, env_var, default, env_var);
+            default.to_string()
+        }
+    };
+    PathBuf::from(path)
+}
+
 <span class="comment">// Create a minimal config with default TLS paths
 </span><span class="kw">fn </span>create_minimal_config() -&gt; BridgeConfig {
     <span class="comment">// CLIENT_KEY_PATH env var will be used if it is set
     // CLIENT_CERT_PATH env var will be used if it is set
     // CA_CERT_PATH env var will be used if it is set
     </span>BridgeConfig {
-        server_cert_path: PathBuf::from(
-            std::env::var(<span class="string">"CLIENT_CERT_PATH"</span>).unwrap_or(<span class="string">"certs/server/server.pem"</span>.to_string()),
+        ca_cert_path: get_path_from_env_or_default(<span class="string">"CA_CERT_PATH"</span>, <span class="string">"core/certs/ca/ca.pem"</span>),
+        client_cert_path: get_path_from_env_or_default(
+            <span class="string">"CLIENT_CERT_PATH"</span>,
+            <span class="string">"core/certs/client/client.pem"</span>,
         ),
-        server_key_path: PathBuf::from(
-            std::env::var(<span class="string">"CLIENT_KEY_PATH"</span>).unwrap_or(<span class="string">"certs/server/server.key"</span>.to_string()),
+        client_key_path: get_path_from_env_or_default(
+            <span class="string">"CLIENT_KEY_PATH"</span>,
+            <span class="string">"core/certs/client/client.key"</span>,
         ),
-        ca_cert_path: PathBuf::from(
-            std::env::var(<span class="string">"CA_CERT_PATH"</span>).unwrap_or(<span class="string">"certs/ca/ca.pem"</span>.to_string()),
-        ),
-        client_cert_path: PathBuf::from(
-            std::env::var(<span class="string">"CLIENT_CERT_PATH"</span>).unwrap_or(<span class="string">"certs/client/client.pem"</span>.to_string()),
-        ),
-        client_key_path: PathBuf::from(
-            std::env::var(<span class="string">"CLIENT_KEY_PATH"</span>).unwrap_or(<span class="string">"certs/client/client.key"</span>.to_string()),
-        ),
-        client_verification: <span class="bool-val">true</span>,
         ..Default::default()
     }
-}
-
-<span class="comment">// Helper function to create move transaction from deposit parameters
-</span><span class="kw">async fn </span>create_move_transaction(
-    aggregator: <span class="kw-2">&amp;mut </span>ClementineAggregatorClient&lt;tonic::transport::Channel&gt;,
-    deposit_outpoint_txid: String,
-    deposit_outpoint_vout: u32,
-    evm_address: <span class="prelude-ty">Option</span>&lt;String&gt;,
-    recovery_taproot_address: <span class="prelude-ty">Option</span>&lt;String&gt;,
-) -&gt; <span class="prelude-ty">Result</span>&lt;clementine_core::rpc::clementine::RawSignedTx, Box&lt;<span class="kw">dyn </span>std::error::Error&gt;&gt; {
-    <span class="kw">let </span>evm_address = <span class="kw">match </span>evm_address {
-        <span class="prelude-val">Some</span>(address) =&gt; EVMAddress(
-            hex::decode(address)<span class="question-mark">?
-                </span>.try_into()
-                .map_err(|<span class="kw">_</span>| <span class="string">"Invalid EVM address length"</span>)<span class="question-mark">?</span>,
-        ),
-        <span class="prelude-val">None </span>=&gt; EVMAddress([<span class="number">1</span>; <span class="number">20</span>]),
-    };
-
-    <span class="kw">let </span>recovery_taproot_address = <span class="kw">match </span>recovery_taproot_address {
-        <span class="prelude-val">Some</span>(address) =&gt; bitcoin::Address::from_str(<span class="kw-2">&amp;</span>address)<span class="question-mark">?</span>,
-        <span class="prelude-val">None </span>=&gt; bitcoin::Address::from_str(
-            <span class="string">"tb1p9k6y4my6vacczcyc4ph2m5q96hnxt5qlrqd9484qd9cwgrasc54qw56tuh"</span>,
-        )<span class="question-mark">?</span>,
-    };
-
-    <span class="kw">let </span><span class="kw-2">mut </span>deposit_outpoint_txid = hex::decode(deposit_outpoint_txid)<span class="question-mark">?</span>;
-    deposit_outpoint_txid.reverse();
-
-    <span class="kw">let </span>deposit = aggregator
-        .new_deposit(Deposit {
-            deposit_outpoint: <span class="prelude-val">Some</span>(Outpoint {
-                txid: <span class="prelude-val">Some</span>(clementine_core::rpc::clementine::Txid {
-                    txid: deposit_outpoint_txid,
-                }),
-                vout: deposit_outpoint_vout,
-            }),
-            deposit_data: <span class="prelude-val">Some</span>(DepositData::BaseDeposit(BaseDeposit {
-                evm_address: evm_address.<span class="number">0</span>.to_vec(),
-                recovery_taproot_address: recovery_taproot_address.assume_checked().to_string(),
-            })),
-        })
-        .<span class="kw">await</span><span class="question-mark">?</span>;
-
-    <span class="prelude-val">Ok</span>(deposit.into_inner())
 }
 
 <span class="kw">async fn </span>handle_operator_call(url: String, command: OperatorCommands) {
@@ -1348,14 +1368,14 @@
             <span class="kw">let </span>response = operator
                 .get_deposit_keys(Request::new(params))
                 .<span class="kw">await
-                </span>.expect(<span class="string">"Failed to make a request"</span>);
+                </span>.expect(<span class="string">"Failed to make a request to operator"</span>);
             <span class="macro">println!</span>(<span class="string">"Get deposit keys response: {:?}"</span>, response);
         }
         OperatorCommands::GetParams =&gt; {
             <span class="kw">let </span>params = operator
                 .get_params(Empty {})
                 .<span class="kw">await
-                </span>.expect(<span class="string">"Failed to make a request"</span>);
+                </span>.expect(<span class="string">"Failed to make a request to operator"</span>);
             <span class="macro">println!</span>(<span class="string">"Operator params: {:?}"</span>, params);
         }
         OperatorCommands::Withdraw {
@@ -1370,28 +1390,97 @@
 
             <span class="kw">let </span>params = clementine_core::rpc::clementine::WithdrawParams {
                 withdrawal_id,
-                input_signature: input_signature.as_bytes().to_vec(),
+                input_signature: hex::decode(input_signature)
+                    .expect(<span class="string">"Failed to decode input signature"</span>),
                 input_outpoint: <span class="prelude-val">Some</span>(Outpoint {
                     txid: <span class="prelude-val">Some</span>(clementine_core::rpc::clementine::Txid {
-                        txid: hex::decode(input_outpoint_txid).expect(<span class="string">"Failed to decode txid"</span>),
+                        txid: Txid::from_str(<span class="kw-2">&amp;</span>input_outpoint_txid)
+                            .expect(<span class="string">"Failed to decode txid"</span>)
+                            .to_byte_array()
+                            .to_vec(),
                     }),
                     vout: input_outpoint_vout,
                 }),
-                output_script_pubkey: output_script_pubkey.as_bytes().to_vec(),
+                output_script_pubkey: hex::decode(output_script_pubkey)
+                    .expect(<span class="string">"Failed to decode output script pubkey"</span>),
                 output_amount,
             };
             operator
                 .withdraw(Request::new(params))
                 .<span class="kw">await
-                </span>.expect(<span class="string">"Failed to make a request"</span>);
+                </span>.expect(<span class="string">"Failed to make a request to operator"</span>);
         }
         OperatorCommands::Vergen =&gt; {
             <span class="kw">let </span>params = Empty {};
             <span class="kw">let </span>response = operator
                 .vergen(Request::new(params))
                 .<span class="kw">await
-                </span>.expect(<span class="string">"Failed to make a request"</span>);
+                </span>.expect(<span class="string">"Failed to make a request to operator"</span>);
             <span class="macro">println!</span>(<span class="string">"Vergen response:\n{}"</span>, response.into_inner().response);
+        }
+        OperatorCommands::GetReimbursementTxs {
+            deposit_outpoint_txid,
+            deposit_outpoint_vout,
+        } =&gt; {
+            <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
+            </span>{
+                <span class="macro">println!</span>(<span class="string">"WARNING: Automation is enabled, do not use this command unless some error happens with the automation \n 
+                Automation should handle the reimbursement process automatically"</span>);
+            }
+
+            <span class="macro">println!</span>(
+                <span class="string">"Getting kickoff txs for outpoint {}:{}"</span>,
+                deposit_outpoint_txid, deposit_outpoint_vout
+            );
+            <span class="kw">let </span><span class="kw-2">mut </span>txid_bytes = hex::decode(deposit_outpoint_txid).expect(<span class="string">"Failed to decode txid"</span>);
+            txid_bytes.reverse();
+            <span class="kw">let </span>response = operator
+                .get_reimbursement_txs(Request::new(Outpoint {
+                    txid: <span class="prelude-val">Some</span>(clementine_core::rpc::clementine::Txid { txid: txid_bytes }),
+                    vout: deposit_outpoint_vout,
+                }))
+                .<span class="kw">await
+                </span>.expect(<span class="string">"Failed to make a request to operator"</span>)
+                .into_inner();
+            <span class="kw">for </span>signed_tx <span class="kw">in </span><span class="kw-2">&amp;</span>response.signed_txs {
+                <span class="kw">let </span>tx_type: TransactionType = signed_tx
+                    .transaction_type
+                    .expect(<span class="string">"Tx type should not be None"</span>)
+                    .try_into()
+                    .expect(<span class="string">"Failed to convert tx type"</span>);
+                <span class="kw">let </span>transaction: bitcoin::Transaction =
+                    bitcoin::consensus::deserialize(<span class="kw-2">&amp;</span>signed_tx.raw_tx)
+                        .expect(<span class="string">"Failed to decode transaction"</span>);
+                <span class="kw">match </span>tx_type {
+                    TransactionType::Kickoff =&gt; {
+                        <span class="macro">println!</span>(<span class="string">"Round tx is on chain, time to send the kickoff tx. This tx is non-standard and cannot be sent by using normal Bitcoin RPC"</span>);
+                    }
+                    TransactionType::BurnUnusedKickoffConnectors =&gt; {
+                        <span class="macro">println!</span>(<span class="string">"To be able to send ready to reimburse tx, all unused kickoff connectors must be burned, otherwise the operator will get slashed.
+                        This tx is standard and requires CPFP to be sent (last output is the anchor output)"</span>);
+                    }
+                    TransactionType::ReadyToReimburse =&gt; {
+                        <span class="macro">println!</span>(<span class="string">"All unused kickoff connectors are burned, and all live kickoffs kickoff finalizer utxo's are 
+                        spent, meaning it is safe to send ready to reimburse tx. This tx is standard and requires CPFP to be sent (last output is the anchor output)"</span>);
+                    }
+                    TransactionType::Reimburse =&gt; {
+                        <span class="macro">println!</span>(<span class="string">"Reimburse tx is ready to be sent. This tx is standard and requires CPFP to be sent (last output is the anchor output)"</span>);
+                    }
+                    TransactionType::ChallengeTimeout =&gt; {
+                        <span class="macro">println!</span>(<span class="string">"After kickoff, challenge timeout tx needs to be sent. Due to the timelock, it can only be sent after 216 blocks pass from the kickoff tx {:?}. 
+                        This tx is standard and requires CPFP to be sent (last output is the anchor output)"</span>, 
+                        transaction.input[<span class="number">0</span>].previous_output.txid);
+                    }
+                    TransactionType::Round =&gt; {
+                        <span class="macro">println!</span>(<span class="string">"Time to send the round tx either for sending the kickoff tx, or getting the reimbursement for the past kickoff by advancing the round. Round tx is a non-standard tx and cannot be sent by using normal Bitcoin RPC.
+                        If the round is not the first round, 216 number of blocks need to pass from the previous ready to reimburse tx {:?} (If this is not collateral)"</span>, 
+                        transaction.input[<span class="number">0</span>].previous_output.txid);
+                    }
+                    <span class="kw">_ </span>=&gt; {}
+                }
+                <span class="kw">let </span>hex_tx = hex::encode(<span class="kw-2">&amp;</span>signed_tx.raw_tx);
+                <span class="macro">println!</span>(<span class="string">"Tx type: {:?}, Tx hex: {:?}"</span>, tx_type, hex_tx);
+            }
         }
     }
 }
@@ -1486,7 +1575,7 @@
                 hex::decode(deposit_outpoint_txid).expect(<span class="string">"Failed to decode txid"</span>);
             deposit_outpoint_txid.reverse();
 
-            <span class="kw">let </span>deposit = aggregator
+            <span class="kw">let </span>move_to_vault_tx = aggregator
                 .new_deposit(Deposit {
                     deposit_outpoint: <span class="prelude-val">Some</span>(Outpoint {
                         txid: <span class="prelude-val">Some</span>(clementine_core::rpc::clementine::Txid {
@@ -1503,9 +1592,12 @@
                 })
                 .<span class="kw">await
                 </span>.expect(<span class="string">"Failed to make a request"</span>);
+
+            <span class="kw">let </span>move_to_vault_tx = move_to_vault_tx.into_inner();
+
             <span class="kw">let </span>deposit = aggregator
                 .send_move_to_vault_tx(SendMoveTxRequest {
-                    raw_tx: <span class="prelude-val">Some</span>(deposit.into_inner()),
+                    raw_tx: <span class="prelude-val">Some</span>(move_to_vault_tx.clone()),
                     deposit_outpoint: <span class="prelude-val">Some</span>(Outpoint {
                         txid: <span class="prelude-val">Some</span>(clementine_core::rpc::clementine::Txid {
                             txid: deposit_outpoint_txid,
@@ -1513,205 +1605,23 @@
                         vout: deposit_outpoint_vout,
                     }),
                 })
-                .<span class="kw">await
-                </span>.expect(<span class="string">"Failed to make a request"</span>);
-            <span class="kw">let </span>move_txid = deposit.get_ref().txid.clone();
-            <span class="kw">let </span>txid = bitcoin::Txid::from_byte_array(
-                move_txid
-                    .try_into()
-                    .expect(<span class="string">"Failed to convert txid to array"</span>),
-            );
-            <span class="macro">println!</span>(<span class="string">"Move txid: {}"</span>, txid);
-        }
-        AggregatorCommands::GetMoveTransaction {
-            deposit_outpoint_txid,
-            deposit_outpoint_vout,
-            evm_address,
-            recovery_taproot_address,
-        } =&gt; {
-            <span class="kw">let </span>raw_tx = create_move_transaction(
-                <span class="kw-2">&amp;mut </span>aggregator,
-                deposit_outpoint_txid,
-                deposit_outpoint_vout,
-                evm_address,
-                recovery_taproot_address,
-            )
-            .<span class="kw">await
-            </span>.expect(<span class="string">"Failed to create move transaction"</span>);
+                .<span class="kw">await</span>;
 
-            <span class="kw">let </span>raw_tx_hex = hex::encode(<span class="kw-2">&amp;</span>raw_tx.raw_tx);
-
-            <span class="macro">println!</span>(<span class="string">"Move transaction created successfully"</span>);
-            <span class="macro">println!</span>(<span class="string">"Raw transaction: {}"</span>, raw_tx_hex);
-            <span class="macro">println!</span>();
-            <span class="macro">println!</span>(<span class="string">"Manual Bitcoin RPC commands:"</span>);
-            <span class="macro">println!</span>(<span class="string">"# Decode and verify the transaction:"</span>);
-            <span class="macro">println!</span>(<span class="string">"bitcoin-cli -regtest -rpcport=18443 -rpcuser=admin -rpcpassword=admin decoderawtransaction {}"</span>, raw_tx_hex);
-            <span class="macro">println!</span>();
-            <span class="macro">println!</span>(<span class="string">"# Broadcast the transaction:"</span>);
-            <span class="macro">println!</span>(<span class="string">"bitcoin-cli -regtest -rpcport=18443 -rpcuser=admin -rpcpassword=admin sendrawtransaction {}"</span>, raw_tx_hex);
-            <span class="macro">println!</span>();
-            <span class="macro">println!</span>(<span class="string">"# Mine a block to confirm:"</span>);
-            <span class="macro">println!</span>(
-                <span class="string">"bitcoin-cli -regtest -rpcport=18443 -rpcuser=admin -rpcpassword=admin -generate 1"
-            </span>);
-        }
-        AggregatorCommands::SendMoveTransactionCPFP {
-            deposit_outpoint_txid,
-            deposit_outpoint_vout,
-            evm_address,
-            recovery_taproot_address,
-            fee_rate,
-            bitcoin_rpc_url,
-            bitcoin_rpc_user,
-            bitcoin_rpc_password,
-        } =&gt; {
-            <span class="kw">let </span>raw_tx = create_move_transaction(
-                <span class="kw-2">&amp;mut </span>aggregator,
-                deposit_outpoint_txid,
-                deposit_outpoint_vout,
-                evm_address,
-                recovery_taproot_address,
-            )
-            .<span class="kw">await
-            </span>.expect(<span class="string">"Failed to create move transaction"</span>);
-
-            <span class="kw">let </span>move_tx_hex = hex::encode(<span class="kw-2">&amp;</span>raw_tx.raw_tx);
-            <span class="kw">let </span>move_tx: bitcoin::Transaction = bitcoin::consensus::deserialize(<span class="kw-2">&amp;</span>raw_tx.raw_tx)
-                .expect(<span class="string">"Failed to deserialize move transaction"</span>);
-
-            <span class="macro">println!</span>(<span class="string">"Move transaction created: {}"</span>, move_tx.compute_txid());
-            <span class="macro">println!</span>(<span class="string">"Raw transaction: {}"</span>, move_tx_hex);
-
-            <span class="comment">// Find P2A anchor output (script: 51024e73)
-            </span><span class="kw">let </span>p2a_vout = move_tx
-                .output
-                .iter()
-                .position(|output| {
-                    output.script_pubkey == ScriptBuf::from_hex(<span class="string">"51024e73"</span>).expect(<span class="string">"valid script"</span>)
-                })
-                .expect(<span class="string">"P2A anchor output not found in move transaction"</span>);
-
-            <span class="macro">println!</span>(<span class="string">"Found P2A anchor output at vout: {}"</span>, p2a_vout);
-
-            <span class="comment">// Connect to Bitcoin RPC
-            </span><span class="kw">use </span>bitcoincore_rpc::{Auth, Client, RpcApi};
-            <span class="kw">let </span>rpc = Client::new(
-                <span class="kw-2">&amp;</span>bitcoin_rpc_url,
-                Auth::UserPass(bitcoin_rpc_user, bitcoin_rpc_password),
-            )
-            .<span class="kw">await
-            </span>.expect(<span class="string">"Failed to connect to Bitcoin RPC"</span>);
-
-            <span class="kw">let </span>temp_address = rpc
-                .get_new_address(<span class="prelude-val">None</span>, <span class="prelude-val">None</span>)
-                .<span class="kw">await
-                </span>.expect(<span class="string">"Failed to get new address"</span>);
-
-            <span class="kw">let </span>fee_rate_sat_vb = fee_rate.unwrap_or(<span class="number">10.0</span>) <span class="kw">as </span>u64;
-
-            <span class="comment">// Calculate package fee requirements
-            </span><span class="kw">let </span>parent_weight = move_tx.weight();
-            <span class="kw">let </span>estimated_child_weight = bitcoin::Weight::from_wu(<span class="number">500</span>);
-            <span class="kw">let </span>total_weight = parent_weight + estimated_child_weight;
-            <span class="kw">let </span>required_fee_sats =
-                (total_weight.to_wu() <span class="kw">as </span>f64 * fee_rate_sat_vb <span class="kw">as </span>f64 / <span class="number">4.0</span>) <span class="kw">as </span>u64;
-            <span class="kw">let </span>required_fee = bitcoin::Amount::from_sat(required_fee_sats);
-
-            <span class="macro">println!</span>(
-                <span class="string">"Parent weight: {}, estimated total: {}, required fee: {} sats"</span>,
-                parent_weight,
-                total_weight,
-                required_fee.to_sat()
-            );
-
-            <span class="comment">// Generate blocks to ensure fresh UTXOs for fees
-            </span><span class="macro">println!</span>(<span class="string">"Generating blocks to create fresh UTXOs for CPFP"</span>);
-            <span class="kw">let </span>blocks_generated = rpc
-                .generate_to_address(<span class="number">1</span>, <span class="kw-2">&amp;</span>temp_address.clone().assume_checked())
-                .<span class="kw">await
-                </span>.expect(<span class="string">"Failed to generate blocks"</span>);
-            <span class="macro">println!</span>(<span class="string">"Generated {} block(s)"</span>, blocks_generated.len());
-
-            <span class="kw">let </span>unspent = rpc
-                .list_unspent(<span class="prelude-val">None</span>, <span class="prelude-val">None</span>, <span class="prelude-val">None</span>, <span class="prelude-val">None</span>, <span class="prelude-val">None</span>)
-                .<span class="kw">await
-                </span>.expect(<span class="string">"Failed to list unspent outputs"</span>);
-
-            <span class="kw">if </span>unspent.is_empty() {
-                <span class="macro">println!</span>(<span class="string">"No unspent outputs available for fee payment"</span>);
-                <span class="kw">return</span>;
-            }
-
-            <span class="kw">let </span>fee_payer_utxo = unspent.last().expect(<span class="string">"Checked unspent is not empty"</span>);
-            <span class="macro">println!</span>(
-                <span class="string">"Using UTXO {} for fees: {}"</span>,
-                fee_payer_utxo.txid, fee_payer_utxo.amount
-            );
-
-            <span class="comment">// Create child transaction
-            </span><span class="kw">use </span>bitcoin::{transaction::Version, OutPoint, Sequence, TxIn, TxOut};
-
-            <span class="kw">let </span>child_input = TxIn {
-                previous_output: OutPoint {
-                    txid: move_tx.compute_txid(),
-                    vout: p2a_vout <span class="kw">as </span>u32,
-                },
-                script_sig: bitcoin::ScriptBuf::new(),
-                sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
-                witness: bitcoin::Witness::new(),
-            };
-
-            <span class="kw">let </span>fee_payer_input = TxIn {
-                previous_output: OutPoint {
-                    txid: fee_payer_utxo.txid,
-                    vout: fee_payer_utxo.vout,
-                },
-                script_sig: bitcoin::ScriptBuf::new(),
-                sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
-                witness: bitcoin::Witness::new(),
-            };
-
-            <span class="kw">let </span>total_input_value = bitcoin::Amount::from_sat(<span class="number">240</span>) + fee_payer_utxo.amount;
-            <span class="kw">let </span>change_amount = total_input_value
-                .checked_sub(required_fee)
-                .expect(<span class="string">"Insufficient funds for required fee"</span>);
-
-            <span class="kw">let </span>child_output = TxOut {
-                value: change_amount,
-                script_pubkey: temp_address.assume_checked().script_pubkey(),
-            };
-
-            <span class="kw">let </span>child_tx = bitcoin::Transaction {
-                version: Version::TWO,
-                lock_time: bitcoin::absolute::LockTime::ZERO,
-                input: <span class="macro">vec!</span>[child_input, fee_payer_input],
-                output: <span class="macro">vec!</span>[child_output],
-            };
-
-            <span class="macro">println!</span>(<span class="string">"Child transaction created: {}"</span>, child_tx.compute_txid());
-
-            <span class="comment">// Submit CPFP package
-            </span><span class="kw">let </span>package = <span class="macro">vec!</span>[<span class="kw-2">&amp;</span>move_tx, <span class="kw-2">&amp;</span>child_tx];
-            <span class="macro">println!</span>(<span class="string">"Submitting CPFP package"</span>);
-
-            <span class="kw">match </span>rpc
-                .submit_package(<span class="kw-2">&amp;</span>package, <span class="prelude-val">Some</span>(bitcoin::Amount::ZERO), <span class="prelude-val">None</span>)
-                .<span class="kw">await
-            </span>{
-                <span class="prelude-val">Ok</span>(result) =&gt; {
-                    <span class="macro">println!</span>(<span class="string">"CPFP package submitted successfully"</span>);
-                    <span class="macro">println!</span>(<span class="string">"Package result: {:?}"</span>, result);
-                    <span class="macro">println!</span>(<span class="string">"Move transaction TXID: {}"</span>, move_tx.compute_txid());
-                    <span class="macro">println!</span>(<span class="string">"Child transaction TXID: {}"</span>, child_tx.compute_txid());
+            <span class="kw">match </span>deposit {
+                <span class="prelude-val">Ok</span>(deposit) =&gt; {
+                    <span class="kw">let </span>move_txid = deposit.get_ref().txid.clone();
+                    <span class="kw">let </span>txid = bitcoin::Txid::from_byte_array(
+                        move_txid
+                            .try_into()
+                            .expect(<span class="string">"Failed to convert txid to array"</span>),
+                    );
+                    <span class="macro">println!</span>(<span class="string">"Move txid: {}"</span>, txid);
                 }
                 <span class="prelude-val">Err</span>(e) =&gt; {
-                    <span class="macro">println!</span>(<span class="string">"Failed to submit CPFP package: {}"</span>, e);
-                    <span class="macro">println!</span>(<span class="string">"Manual submission options:"</span>);
-                    <span class="macro">println!</span>(<span class="string">"Parent tx: {}"</span>, move_tx_hex);
+                    <span class="macro">println!</span>(<span class="string">"Failed to send move transaction: {}"</span>, e);
                     <span class="macro">println!</span>(
-                        <span class="string">"Child tx: {}"</span>,
-                        hex::encode(bitcoin::consensus::serialize(<span class="kw-2">&amp;</span>child_tx))
+                        <span class="string">"Please send manually: {}"</span>,
+                        hex::encode(move_to_vault_tx.raw_tx)
                     );
                 }
             }
@@ -2007,6 +1917,210 @@
     }
 }
 
+<span class="kw">async fn </span>handle_bitcoin_call(url: String, command: BitcoinCommands) {
+    <span class="kw">match </span>command {
+        BitcoinCommands::SendTxWithCpfp {
+            raw_tx,
+            fee_payer_address,
+            fee_rate,
+            bitcoin_rpc_user,
+            bitcoin_rpc_password,
+        } =&gt; {
+            <span class="kw">let </span>tx_hex = hex::decode(raw_tx).expect(<span class="string">"Failed to decode transaction"</span>);
+            <span class="kw">let </span>tx: bitcoin::Transaction = bitcoin::consensus::deserialize(<span class="kw-2">&amp;</span>tx_hex)
+                .expect(<span class="string">"Failed to deserialize transaction"</span>);
+
+            <span class="macro">println!</span>(<span class="string">"Transaction created: {}"</span>, tx.compute_txid());
+            <span class="macro">println!</span>(<span class="string">"Raw transaction: {}"</span>, hex::encode(tx_hex));
+
+            <span class="comment">// Find P2A anchor output (script: 51024e73)
+            </span><span class="kw">let </span>p2a_vout = tx
+                .output
+                .iter()
+                .position(|output| {
+                    output.script_pubkey == ScriptBuf::from_hex(<span class="string">"51024e73"</span>).expect(<span class="string">"valid script"</span>)
+                })
+                .expect(<span class="string">"P2A anchor output not found in transaction"</span>);
+
+            <span class="kw">let </span>p2a_txout = tx.output[p2a_vout].clone();
+
+            <span class="macro">println!</span>(<span class="string">"Found P2A anchor output at vout: {}"</span>, p2a_vout);
+
+            <span class="comment">// Connect to Bitcoin RPC
+            </span><span class="kw">use </span>bitcoincore_rpc::{Auth, Client, RpcApi};
+            <span class="kw">let </span>rpc = Client::new(<span class="kw-2">&amp;</span>url, Auth::UserPass(bitcoin_rpc_user, bitcoin_rpc_password))
+                .<span class="kw">await
+                </span>.expect(<span class="string">"Failed to connect to Bitcoin RPC"</span>);
+
+            <span class="kw">if </span>fee_payer_address.is_none() {
+                <span class="kw">let </span>temp_address = rpc
+                    .get_new_address(
+                        <span class="prelude-val">Some</span>(<span class="string">"fee_payer_address"</span>),
+                        <span class="prelude-val">Some</span>(bitcoincore_rpc::json::AddressType::Bech32m),
+                    )
+                    .<span class="kw">await
+                    </span>.expect(<span class="string">"Failed to get new address"</span>);
+                <span class="macro">println!</span>(
+                    <span class="string">"You haven't provided a fee payer address, so a new one was generated: {}"</span>,
+                    temp_address.assume_checked()
+                );
+                <span class="macro">println!</span>(<span class="string">"Please use this address for the fee payer in the next command"</span>);
+                <span class="kw">return</span>;
+            }
+
+            <span class="kw">let </span>fee_payer_address = bitcoin::Address::from_str(
+                <span class="kw-2">&amp;</span>fee_payer_address.expect(<span class="string">"Fee payer address is required"</span>),
+            )
+            .expect(<span class="string">"Failed to parse fee payer address"</span>)
+            .assume_checked();
+
+            <span class="kw">let </span>fee_rate_sat_vb = fee_rate.unwrap_or(<span class="number">10.0</span>) <span class="kw">as </span>u64;
+
+            <span class="comment">// Calculate package fee requirements
+            </span><span class="kw">let </span>parent_weight = tx.weight();
+            <span class="kw">let </span>estimated_child_weight = bitcoin::Weight::from_wu(<span class="number">500</span>);
+            <span class="kw">let </span>total_weight = parent_weight + estimated_child_weight;
+            <span class="kw">let </span>required_fee_sats =
+                (total_weight.to_wu() <span class="kw">as </span>f64 * fee_rate_sat_vb <span class="kw">as </span>f64 / <span class="number">4.0</span>) <span class="kw">as </span>u64;
+            <span class="kw">let </span>required_fee = bitcoin::Amount::from_sat(required_fee_sats);
+
+            <span class="macro">println!</span>(
+                <span class="string">"Parent weight: {}, estimated total: {}, required fee: {} sats"</span>,
+                parent_weight,
+                total_weight,
+                required_fee.to_sat()
+            );
+
+            <span class="kw">let </span>unspent = rpc
+                .list_unspent(
+                    <span class="prelude-val">Some</span>(<span class="number">1</span>),
+                    <span class="prelude-val">Some</span>(<span class="number">999999999</span>),
+                    <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span>[<span class="kw-2">&amp;</span>fee_payer_address.clone()]),
+                    <span class="prelude-val">None</span>,
+                    <span class="prelude-val">None</span>,
+                )
+                .<span class="kw">await
+                </span>.expect(<span class="string">"Failed to list unspent outputs"</span>);
+
+            <span class="kw">if </span>unspent.is_empty() {
+                <span class="kw">let </span>unspent = rpc
+                    .list_unspent(<span class="prelude-val">None</span>, <span class="prelude-val">None</span>, <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span>[<span class="kw-2">&amp;</span>fee_payer_address.clone()]), <span class="prelude-val">None</span>, <span class="prelude-val">None</span>)
+                    .<span class="kw">await
+                    </span>.expect(<span class="string">"Failed to list unspent outputs"</span>);
+                <span class="kw">if </span>unspent.is_empty() {
+                    <span class="macro">println!</span>(<span class="string">"No unspent outputs available for fee payment."</span>);
+                    <span class="macro">println!</span>(<span class="string">"Please send some funds to the fee payer address."</span>);
+                    <span class="macro">println!</span>(<span class="string">"Fee payer address: {}"</span>, fee_payer_address);
+                } <span class="kw">else </span>{
+                    <span class="macro">println!</span>(<span class="string">"Unspent outputs: {:?}"</span>, unspent);
+                    <span class="macro">println!</span>(<span class="string">"Please wait for them to confirm."</span>);
+                }
+                <span class="kw">return</span>;
+            }
+
+            <span class="kw">let </span>fee_payer_utxo = unspent
+                .iter()
+                .find(|utxo| utxo.amount &gt; required_fee)
+                .unwrap_or_else(|| {
+                    <span class="macro">panic!</span>(
+                        <span class="string">"No UTXO found with enough balance for fee payment, required fee is: {}"</span>,
+                        required_fee
+                    )
+                });
+
+            <span class="comment">// Create child transaction
+            </span><span class="kw">use </span>bitcoin::{transaction::Version, OutPoint, Sequence, TxIn, TxOut};
+
+            <span class="kw">let </span>child_input = TxIn {
+                previous_output: OutPoint {
+                    txid: tx.compute_txid(),
+                    vout: p2a_vout <span class="kw">as </span>u32,
+                },
+                script_sig: bitcoin::ScriptBuf::new(),
+                sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+                witness: bitcoin::Witness::new(),
+            };
+
+            <span class="kw">let </span>fee_payer_input = TxIn {
+                previous_output: OutPoint {
+                    txid: fee_payer_utxo.txid,
+                    vout: fee_payer_utxo.vout,
+                },
+                script_sig: bitcoin::ScriptBuf::new(),
+                sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+                witness: bitcoin::Witness::new(),
+            };
+
+            <span class="kw">let </span>total_input_value = bitcoin::Amount::from_sat(<span class="number">240</span>) + fee_payer_utxo.amount;
+            <span class="kw">let </span>change_amount = total_input_value
+                .checked_sub(required_fee)
+                .expect(<span class="string">"Insufficient funds for required fee"</span>);
+
+            <span class="kw">let </span>child_output = TxOut {
+                value: change_amount,
+                script_pubkey: fee_payer_address.script_pubkey(),
+            };
+
+            <span class="kw">let </span>child_input_utxo = SignRawTransactionInput {
+                txid: child_input.previous_output.txid,
+                vout: child_input.previous_output.vout,
+                script_pub_key: p2a_txout.script_pubkey,
+                redeem_script: <span class="prelude-val">None</span>,
+                amount: <span class="prelude-val">Some</span>(p2a_txout.value),
+            };
+
+            <span class="kw">let </span>child_tx = bitcoin::Transaction {
+                version: Version::non_standard(<span class="number">3</span>),
+                lock_time: bitcoin::absolute::LockTime::ZERO,
+                input: <span class="macro">vec!</span>[child_input, fee_payer_input],
+                output: <span class="macro">vec!</span>[child_output],
+            };
+
+            <span class="kw">let </span>signed_tx = rpc
+                .sign_raw_transaction_with_wallet(<span class="kw-2">&amp;</span>child_tx, <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span>[child_input_utxo]), <span class="prelude-val">None</span>)
+                .<span class="kw">await
+                </span>.expect(<span class="string">"Failed to sign child transaction"</span>);
+
+            <span class="kw">let </span>signed_child_tx = signed_tx
+                .transaction()
+                .expect(<span class="string">"Failed to get transaction from sign_raw_transaction_with_wallet"</span>);
+
+            <span class="macro">println!</span>(
+                <span class="string">"Child transaction signed: {}"</span>,
+                signed_child_tx.compute_txid()
+            );
+
+            <span class="comment">// Submit CPFP package
+            </span><span class="kw">let </span>package = <span class="macro">vec!</span>[<span class="kw-2">&amp;</span>tx, <span class="kw-2">&amp;</span>signed_child_tx];
+            <span class="macro">println!</span>(<span class="string">"Submitting CPFP package"</span>);
+
+            <span class="kw">match </span>rpc
+                .submit_package(<span class="kw-2">&amp;</span>package, <span class="prelude-val">Some</span>(bitcoin::Amount::ZERO), <span class="prelude-val">None</span>)
+                .<span class="kw">await
+            </span>{
+                <span class="prelude-val">Ok</span>(result) =&gt; {
+                    <span class="macro">println!</span>(<span class="string">"CPFP package submitted successfully"</span>);
+                    <span class="macro">println!</span>(<span class="string">"Package result: {:?}"</span>, result);
+                    <span class="macro">println!</span>(<span class="string">"Parent transaction TXID: {}"</span>, tx.compute_txid());
+                    <span class="macro">println!</span>(<span class="string">"Child transaction TXID: {}"</span>, signed_child_tx.compute_txid());
+                }
+                <span class="prelude-val">Err</span>(e) =&gt; {
+                    <span class="macro">println!</span>(<span class="string">"Failed to submit CPFP package: {}"</span>, e);
+                    <span class="macro">println!</span>(<span class="string">"Manual submission options:"</span>);
+                    <span class="macro">println!</span>(
+                        <span class="string">"Parent tx: {}"</span>,
+                        hex::encode(bitcoin::consensus::serialize(<span class="kw-2">&amp;</span>tx))
+                    );
+                    <span class="macro">println!</span>(
+                        <span class="string">"Child tx: {}"</span>,
+                        hex::encode(bitcoin::consensus::serialize(<span class="kw-2">&amp;</span>signed_child_tx))
+                    );
+                }
+            }
+        }
+    }
+}
+
 <span class="attr">#[tokio::main]
 </span><span class="kw">async fn </span>main() {
     <span class="kw">let </span>cli = Cli::parse();
@@ -2014,21 +2128,6 @@
     rustls::crypto::ring::default_provider()
         .install_default()
         .expect(<span class="string">"Failed to install rustls crypto provider"</span>);
-
-    <span class="kw">if </span>!std::path::Path::new(<span class="string">"certs/ca/ca.pem"</span>).exists() {
-        <span class="kw">if </span>PathBuf::from(
-            std::env::var(<span class="string">"CARGO_MANIFEST_DIR"</span>).expect(<span class="string">"CARGO_MANIFEST_DIR is not set"</span>),
-        )
-        .canonicalize()
-        .expect(<span class="string">"Failed to canonicalize path"</span>)
-            != std::env::current_dir().expect(<span class="string">"Failed to get current directory"</span>)
-        {
-            <span class="macro">println!</span>(<span class="string">"Error: CA certificates not found in expected path, please run this command from the `core` directory. Current directory: {}"</span>, std::env::current_dir().expect(<span class="string">"Failed to get current directory"</span>).to_str().expect(<span class="string">"Failed to get current directory as string"</span>));
-        } <span class="kw">else </span>{
-            <span class="macro">println!</span>(<span class="string">"Error: CA certificates not found in expected path, please generate them before running the CLI"</span>);
-        }
-        <span class="kw">return</span>;
-    }
 
     <span class="kw">match </span>cli.command {
         Commands::Operator { command } =&gt; {
@@ -2039,6 +2138,9 @@
         }
         Commands::Aggregator { command } =&gt; {
             handle_aggregator_call(cli.node_url, command).<span class="kw">await</span>;
+        }
+        Commands::Bitcoin { command } =&gt; {
+            handle_bitcoin_call(cli.node_url, command).<span class="kw">await</span>;
         }
     }
 }

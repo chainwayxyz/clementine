@@ -1504,7 +1504,48 @@
 <a href="#1503" id="1503">1503</a>
 <a href="#1504" id="1504">1504</a>
 <a href="#1505" id="1505">1505</a>
-<a href="#1506" id="1506">1506</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Operator Related Database Operations
+<a href="#1506" id="1506">1506</a>
+<a href="#1507" id="1507">1507</a>
+<a href="#1508" id="1508">1508</a>
+<a href="#1509" id="1509">1509</a>
+<a href="#1510" id="1510">1510</a>
+<a href="#1511" id="1511">1511</a>
+<a href="#1512" id="1512">1512</a>
+<a href="#1513" id="1513">1513</a>
+<a href="#1514" id="1514">1514</a>
+<a href="#1515" id="1515">1515</a>
+<a href="#1516" id="1516">1516</a>
+<a href="#1517" id="1517">1517</a>
+<a href="#1518" id="1518">1518</a>
+<a href="#1519" id="1519">1519</a>
+<a href="#1520" id="1520">1520</a>
+<a href="#1521" id="1521">1521</a>
+<a href="#1522" id="1522">1522</a>
+<a href="#1523" id="1523">1523</a>
+<a href="#1524" id="1524">1524</a>
+<a href="#1525" id="1525">1525</a>
+<a href="#1526" id="1526">1526</a>
+<a href="#1527" id="1527">1527</a>
+<a href="#1528" id="1528">1528</a>
+<a href="#1529" id="1529">1529</a>
+<a href="#1530" id="1530">1530</a>
+<a href="#1531" id="1531">1531</a>
+<a href="#1532" id="1532">1532</a>
+<a href="#1533" id="1533">1533</a>
+<a href="#1534" id="1534">1534</a>
+<a href="#1535" id="1535">1535</a>
+<a href="#1536" id="1536">1536</a>
+<a href="#1537" id="1537">1537</a>
+<a href="#1538" id="1538">1538</a>
+<a href="#1539" id="1539">1539</a>
+<a href="#1540" id="1540">1540</a>
+<a href="#1541" id="1541">1541</a>
+<a href="#1542" id="1542">1542</a>
+<a href="#1543" id="1543">1543</a>
+<a href="#1544" id="1544">1544</a>
+<a href="#1545" id="1545">1545</a>
+<a href="#1546" id="1546">1546</a>
+<a href="#1547" id="1547">1547</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Operator Related Database Operations
 //!
 //! This module includes database functions which are mainly used by an operator.
 
@@ -2105,6 +2146,22 @@
         <span class="prelude-val">Ok</span>(u32::try_from(deposit_id<span class="question-mark">?</span>.<span class="number">0</span>).wrap_err(<span class="string">"Failed to convert deposit id to u32"</span>)<span class="question-mark">?</span>)
     }
 
+    <span class="doccomment">/// For a given kickoff txid, get the deposit outpoint that corresponds to it
+    </span><span class="kw">pub async fn </span>get_deposit_outpoint_for_kickoff_txid(
+        <span class="kw-2">&amp;</span><span class="self">self</span>,
+        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+        kickoff_txid: Txid,
+    ) -&gt; <span class="prelude-ty">Result</span>&lt;OutPoint, BridgeError&gt; {
+        <span class="kw">let </span>query = sqlx::query_as::&lt;<span class="kw">_</span>, (OutPointDB,)&gt;(
+            <span class="string">"SELECT d.deposit_outpoint FROM deposit_signatures ds
+             INNER JOIN deposits d ON d.deposit_id = ds.deposit_id
+             WHERE ds.kickoff_txid = $1;"</span>,
+        )
+        .bind(TxidDB(kickoff_txid));
+        <span class="kw">let </span>result: (OutPointDB,) = <span class="macro">execute_query_with_tx!</span>(<span class="self">self</span>.connection, tx, query, fetch_one)<span class="question-mark">?</span>;
+        <span class="prelude-val">Ok</span>(result.<span class="number">0 </span>.<span class="number">0</span>)
+    }
+
     <span class="doccomment">/// Retrieves the deposit signatures for a single operator for a single reimburse
     /// process (single kickoff utxo).
     /// The signatures are tagged so that each signature can be matched with the correct
@@ -2291,7 +2348,8 @@
     ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
         <span class="kw">let </span>query = sqlx::query(
             <span class="string">"INSERT INTO used_kickoff_connectors (round_idx, kickoff_connector_idx, kickoff_txid)
-             VALUES ($1, $2, $3);"</span>,
+             VALUES ($1, $2, $3)
+             ON CONFLICT (round_idx, kickoff_connector_idx) DO NOTHING;"</span>,
         )
         .bind(round_idx.to_index() <span class="kw">as </span>i32)
         .bind(
@@ -2305,13 +2363,38 @@
         <span class="prelude-val">Ok</span>(())
     }
 
+    <span class="kw">pub async fn </span>get_kickoff_connector_for_kickoff_txid(
+        <span class="kw-2">&amp;</span><span class="self">self</span>,
+        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+        kickoff_txid: Txid,
+    ) -&gt; <span class="prelude-ty">Result</span>&lt;(RoundIndex, u32), BridgeError&gt; {
+        <span class="kw">let </span>query = sqlx::query_as::&lt;<span class="kw">_</span>, (i32, i32)&gt;(
+            <span class="string">"SELECT round_idx, kickoff_connector_idx FROM used_kickoff_connectors WHERE kickoff_txid = $1;"</span>,
+        )
+        .bind(TxidDB(kickoff_txid));
+
+        <span class="kw">let </span>result: (i32, i32) = <span class="macro">execute_query_with_tx!</span>(<span class="self">self</span>.connection, tx, query, fetch_one)<span class="question-mark">?</span>;
+        <span class="prelude-val">Ok</span>((
+            RoundIndex::from_index(
+                result
+                    .<span class="number">0
+                    </span>.try_into()
+                    .wrap_err(BridgeError::IntConversionError)<span class="question-mark">?</span>,
+            ),
+            result
+                .<span class="number">1
+                </span>.try_into()
+                .wrap_err(BridgeError::IntConversionError)<span class="question-mark">?</span>,
+        ))
+    }
+
     <span class="kw">pub async fn </span>get_kickoff_txid_for_used_kickoff_connector(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
         round_idx: RoundIndex,
         kickoff_connector_idx: u32,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;Txid&gt;, BridgeError&gt; {
-        <span class="kw">let </span>query = sqlx::query_as::&lt;<span class="kw">_</span>, (TxidDB,)&gt;(
+        <span class="kw">let </span>query = sqlx::query_as::&lt;<span class="kw">_</span>, (<span class="prelude-ty">Option</span>&lt;TxidDB&gt;,)&gt;(
             <span class="string">"SELECT kickoff_txid FROM used_kickoff_connectors WHERE round_idx = $1 AND kickoff_connector_idx = $2;"</span>,
         )
         .bind(round_idx.to_index() <span class="kw">as </span>i32)
@@ -2320,7 +2403,7 @@
         <span class="kw">let </span>result = <span class="macro">execute_query_with_tx!</span>(<span class="self">self</span>.connection, tx, query, fetch_optional)<span class="question-mark">?</span>;
 
         <span class="kw">match </span>result {
-            <span class="prelude-val">Some</span>((txid,)) =&gt; <span class="prelude-val">Ok</span>(<span class="prelude-val">Some</span>(txid.<span class="number">0</span>)),
+            <span class="prelude-val">Some</span>((txid,)) =&gt; <span class="prelude-val">Ok</span>(txid.map(|txid| txid.<span class="number">0</span>)),
             <span class="prelude-val">None </span>=&gt; <span class="prelude-val">Ok</span>(<span class="prelude-val">None</span>),
         }
     }
@@ -2330,7 +2413,7 @@
         tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
         deposit_id: u32,
         operator_xonly_pk: XOnlyPublicKey,
-    ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;(u32, u32)&gt;, BridgeError&gt; {
+    ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;(RoundIndex, u32)&gt;, BridgeError&gt; {
         <span class="kw">let </span>query = sqlx::query_as::&lt;<span class="kw">_</span>, (i32, i32)&gt;(
             <span class="string">"WITH current_round AS (
                     SELECT round_idx
@@ -2361,7 +2444,9 @@
 
         <span class="kw">match </span>result {
             <span class="prelude-val">Some</span>((round_idx, kickoff_connector_idx)) =&gt; <span class="prelude-val">Ok</span>(<span class="prelude-val">Some</span>((
-                u32::try_from(round_idx).wrap_err(<span class="string">"Failed to convert round idx to u32"</span>)<span class="question-mark">?</span>,
+                RoundIndex::from_index(
+                    usize::try_from(round_idx).wrap_err(<span class="string">"Failed to convert round idx to u32"</span>)<span class="question-mark">?</span>,
+                ),
                 u32::try_from(kickoff_connector_idx)
                     .wrap_err(<span class="string">"Failed to convert kickoff connector idx to u32"</span>)<span class="question-mark">?</span>,
             ))),
@@ -2372,16 +2457,13 @@
     <span class="kw">pub async fn </span>get_current_round_index(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
-    ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;u32&gt;, BridgeError&gt; {
+    ) -&gt; <span class="prelude-ty">Result</span>&lt;RoundIndex, BridgeError&gt; {
         <span class="kw">let </span>query =
             sqlx::query_as::&lt;<span class="kw">_</span>, (i32,)&gt;(<span class="string">"SELECT round_idx FROM current_round_index WHERE id = 1"</span>);
-        <span class="kw">let </span>result = <span class="macro">execute_query_with_tx!</span>(<span class="self">self</span>.connection, tx, query, fetch_optional)<span class="question-mark">?</span>;
-        <span class="kw">match </span>result {
-            <span class="prelude-val">Some</span>((round_idx,)) =&gt; <span class="prelude-val">Ok</span>(<span class="prelude-val">Some</span>(
-                u32::try_from(round_idx).wrap_err(<span class="string">"Failed to convert round idx to u32"</span>)<span class="question-mark">?</span>,
-            )),
-            <span class="prelude-val">None </span>=&gt; <span class="prelude-val">Ok</span>(<span class="prelude-val">None</span>),
-        }
+        <span class="kw">let </span>result = <span class="macro">execute_query_with_tx!</span>(<span class="self">self</span>.connection, tx, query, fetch_one)<span class="question-mark">?</span>;
+        <span class="prelude-val">Ok</span>(RoundIndex::from_index(
+            usize::try_from(result.<span class="number">0</span>).wrap_err(BridgeError::IntConversionError)<span class="question-mark">?</span>,
+        ))
     }
 
     <span class="kw">pub async fn </span>update_current_round_index(

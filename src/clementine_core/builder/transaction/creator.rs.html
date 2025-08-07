@@ -1444,7 +1444,13 @@
 <a href="#1443" id="1443">1443</a>
 <a href="#1444" id="1444">1444</a>
 <a href="#1445" id="1445">1445</a>
-<a href="#1446" id="1446">1446</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Transaction Handler Creation Logic
+<a href="#1446" id="1446">1446</a>
+<a href="#1447" id="1447">1447</a>
+<a href="#1448" id="1448">1448</a>
+<a href="#1449" id="1449">1449</a>
+<a href="#1450" id="1450">1450</a>
+<a href="#1451" id="1451">1451</a>
+<a href="#1452" id="1452">1452</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Transaction Handler Creation Logic
 //!
 //! This module provides the logic for constructing, caching, and managing transaction handlers (`TxHandler`) for all transaction types in the Clementine bridge.
 //!
@@ -1850,12 +1856,12 @@
 </span><span class="attr">#[derive(Debug, Clone)]
 </span><span class="kw">pub struct </span>ContractContext {
     <span class="doccomment">/// required
-    </span>operator_xonly_pk: XOnlyPublicKey,
-    round_idx: RoundIndex,
-    paramset: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>ProtocolParamset,
+    </span><span class="kw">pub </span>operator_xonly_pk: XOnlyPublicKey,
+    <span class="kw">pub </span>round_idx: RoundIndex,
+    <span class="kw">pub </span>paramset: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>ProtocolParamset,
     <span class="doccomment">/// optional (only used for after kickoff)
-    </span>kickoff_idx: <span class="prelude-ty">Option</span>&lt;u32&gt;,
-    deposit_data: <span class="prelude-ty">Option</span>&lt;DepositData&gt;,
+    </span><span class="kw">pub </span>kickoff_idx: <span class="prelude-ty">Option</span>&lt;u32&gt;,
+    <span class="kw">pub </span>deposit_data: <span class="prelude-ty">Option</span>&lt;DepositData&gt;,
     signer: <span class="prelude-ty">Option</span>&lt;Actor&gt;,
 }
 
@@ -1893,7 +1899,8 @@
     }
 
     <span class="doccomment">/// Contains all necessary context for creating txhandlers for a specific operator, kickoff utxo, and a deposit
-    /// Additionally holds signer of an actor that can generate the actual winternitz public keys.
+    /// Additionally holds signer of an actor that can generate the actual winternitz public keys for operator,
+    /// and append evm address to the challenge tx for verifier.
     </span><span class="kw">pub fn </span>new_context_with_signer(
         kickoff_data: KickoffData,
         deposit_data: DepositData,
@@ -1908,6 +1915,11 @@
             deposit_data: <span class="prelude-val">Some</span>(deposit_data),
             signer: <span class="prelude-val">Some</span>(signer),
         }
+    }
+
+    <span class="doccomment">/// Returns if the context is for a kickoff
+    </span><span class="kw">pub fn </span>is_context_for_kickoff(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; bool {
+        <span class="self">self</span>.deposit_data.is_some() &amp;&amp; <span class="self">self</span>.kickoff_idx.is_some()
     }
 }
 
