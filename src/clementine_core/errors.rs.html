@@ -426,10 +426,10 @@
     </span>InvalidProtocolParamset,
     <span class="attr">#[error(<span class="string">"Deposit already signed and move txid {0} is in chain"</span>)]
     </span>DepositAlreadySigned(Txid),
-    <span class="attr">#[error(<span class="string">"Invalid optimistic payout verification signature"</span>)]
-    </span>InvalidOptPayoutVerificationSignature,
-    <span class="attr">#[error(<span class="string">"Optimistic payout verification signature missing"</span>)]
-    </span>OptPayoutVerificationSignatureMissing,
+    <span class="attr">#[error(<span class="string">"Invalid withdrawal ECDSA verification signature"</span>)]
+    </span>InvalidECDSAVerificationSignature,
+    <span class="attr">#[error(<span class="string">"Withdrawal ECDSA verification signature missing"</span>)]
+    </span>ECDSAVerificationSignatureMissing,
 
     <span class="comment">// External crate error wrappers
     </span><span class="attr">#[error(<span class="string">"Failed to call database: {0}"</span>)]

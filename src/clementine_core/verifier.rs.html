@@ -3160,29 +3160,7 @@
 <a href="#3159" id="3159">3159</a>
 <a href="#3160" id="3160">3160</a>
 <a href="#3161" id="3161">3161</a>
-<a href="#3162" id="3162">3162</a>
-<a href="#3163" id="3163">3163</a>
-<a href="#3164" id="3164">3164</a>
-<a href="#3165" id="3165">3165</a>
-<a href="#3166" id="3166">3166</a>
-<a href="#3167" id="3167">3167</a>
-<a href="#3168" id="3168">3168</a>
-<a href="#3169" id="3169">3169</a>
-<a href="#3170" id="3170">3170</a>
-<a href="#3171" id="3171">3171</a>
-<a href="#3172" id="3172">3172</a>
-<a href="#3173" id="3173">3173</a>
-<a href="#3174" id="3174">3174</a>
-<a href="#3175" id="3175">3175</a>
-<a href="#3176" id="3176">3176</a>
-<a href="#3177" id="3177">3177</a>
-<a href="#3178" id="3178">3178</a>
-<a href="#3179" id="3179">3179</a>
-<a href="#3180" id="3180">3180</a>
-<a href="#3181" id="3181">3181</a>
-<a href="#3182" id="3182">3182</a>
-<a href="#3183" id="3183">3183</a>
-<a href="#3184" id="3184">3184</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
+<a href="#3162" id="3162">3162</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
 <span class="kw">use </span><span class="kw">crate</span>::bitcoin_syncer::BitcoinSyncer;
 <span class="kw">use </span><span class="kw">crate</span>::bitvm_client::{ClementineBitVMPublicKeys, REPLACE_SCRIPTS_LOCK};
 <span class="kw">use </span><span class="kw">crate</span>::builder::address::{create_taproot_address, taproot_builder_with_scripts};
@@ -3217,6 +3195,9 @@
 <span class="kw">use </span><span class="kw">crate</span>::metrics::L1SyncStatusProvider;
 <span class="kw">use </span><span class="kw">crate</span>::operator::RoundIndex;
 <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::{EntityStatus, NormalSignatureKind, OperatorKeys, TaggedSignature};
+<span class="kw">use </span><span class="kw">crate</span>::rpc::ecdsa_verification_sig::{
+    recover_address_from_ecdsa_signature, OptimisticPayoutMessage,
+};
 <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
 </span><span class="kw">use </span><span class="kw">crate</span>::states::StateManager;
 <span class="kw">use </span><span class="kw">crate</span>::task::entity_metric_publisher::{
@@ -3230,8 +3211,6 @@
 <span class="kw">use </span><span class="kw">crate</span>::utils::TxMetadata;
 <span class="kw">use crate</span>::{musig2, UTXO};
 <span class="kw">use </span>alloy::primitives::PrimitiveSignature;
-<span class="kw">use </span>alloy::sol_types::Eip712Domain;
-<span class="kw">use </span>alloy_sol_types::SolStruct;
 <span class="kw">use </span>bitcoin::hashes::Hash;
 <span class="kw">use </span>bitcoin::key::rand::Rng;
 <span class="kw">use </span>bitcoin::key::Secp256k1;
@@ -3264,23 +3243,6 @@
 <span class="kw">use </span>std::time::Duration;
 <span class="kw">use </span>tokio::sync::mpsc;
 <span class="kw">use </span>tokio_stream::StreamExt;
-
-<span class="macro">alloy_sol_types::sol!</span> {
-    <span class="attr">#[derive(Debug)]
-    </span><span class="kw">struct </span>ClementineOptimisticPayoutMessage {
-        uint32 withdrawal_id;
-        bytes input_signature;
-        bytes32 input_outpoint_txid;
-        uint32 input_outpoint_vout;
-        bytes output_script_pubkey;
-        uint64 output_amount;
-    }
-}
-
-<span class="kw">pub static </span>DOMAIN: Eip712Domain = <span class="macro">alloy_sol_types::eip712_domain!</span> {
-    name: <span class="string">"ClementineOptimisticPayoutMessage"</span>,
-    version: <span class="string">"1"</span>,
-};
 
 <span class="attr">#[derive(Debug)]
 </span><span class="kw">pub struct </span>NonceSession {
@@ -4456,48 +4418,6 @@
         <span class="prelude-val">Ok</span>((move_tx_partial_sig, emergency_stop_partial_sig))
     }
 
-    <span class="doccomment">/// Recover the address from the signature
-    /// EIP712 hash is calculated from optimistic payout params
-    /// Signature is the signature of the eip712 hash
-    ///
-    /// Parameters:
-    /// - deposit_id: The id of the deposit
-    /// - input_signature: The signature of the withdrawal input
-    /// - input_outpoint: The outpoint of the withdrawal input
-    /// - output_script_pubkey: The script pubkey of the withdrawal output
-    /// - output_amount: The amount of the withdrawal output
-    /// - signature: The signature of the eip712 hash of the withdrawal params
-    ///
-    /// Returns:
-    /// - The address recovered from the signature
-    </span><span class="kw">pub fn </span>recover_address_from_ecdsa_signature(
-        deposit_id: u32,
-        input_signature: Signature,
-        input_outpoint: OutPoint,
-        output_script_pubkey: ScriptBuf,
-        output_amount: Amount,
-        signature: PrimitiveSignature,
-    ) -&gt; <span class="prelude-ty">Result</span>&lt;alloy::primitives::Address, BridgeError&gt; {
-        <span class="kw">let </span>input_sig_bytes = input_signature.serialize().to_vec();
-        <span class="kw">let </span>outpoint_txid_bytes = input_outpoint.txid.to_byte_array();
-        <span class="kw">let </span>script_pubkey_bytes = output_script_pubkey.as_bytes().to_vec();
-        <span class="kw">let </span>params = ClementineOptimisticPayoutMessage {
-            withdrawal_id: deposit_id,
-            input_signature: input_sig_bytes.into(),
-            input_outpoint_txid: outpoint_txid_bytes.into(),
-            input_outpoint_vout: input_outpoint.vout,
-            output_script_pubkey: script_pubkey_bytes.into(),
-            output_amount: output_amount.to_sat(),
-        };
-
-        <span class="kw">let </span>eip712_hash = params.eip712_signing_hash(<span class="kw-2">&amp;</span>DOMAIN);
-
-        <span class="kw">let </span>address = signature
-            .recover_address_from_prehash(<span class="kw-2">&amp;</span>eip712_hash)
-            .wrap_err(<span class="string">"Invalid signature"</span>)<span class="question-mark">?</span>;
-        <span class="prelude-val">Ok</span>(address)
-    }
-
     <span class="attr">#[allow(clippy::too_many_arguments)]
     </span><span class="kw">pub async fn </span>sign_optimistic_payout(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
@@ -4520,22 +4440,23 @@
         </span><span class="kw">if let </span><span class="prelude-val">Some</span>(address_in_config) = <span class="self">self</span>.config.opt_payout_verification_address {
             <span class="comment">// check if verification signature is provided by aggregator
             </span><span class="kw">if let </span><span class="prelude-val">Some</span>(verification_signature) = verification_signature {
-                <span class="kw">let </span>address_from_sig = <span class="self">Self</span>::recover_address_from_ecdsa_signature(
-                    deposit_id,
-                    input_signature,
-                    input_outpoint,
-                    output_script_pubkey.clone(),
-                    output_amount,
-                    verification_signature,
-                )<span class="question-mark">?</span>;
+                <span class="kw">let </span>address_from_sig =
+                    recover_address_from_ecdsa_signature::&lt;OptimisticPayoutMessage&gt;(
+                        deposit_id,
+                        input_signature,
+                        input_outpoint,
+                        output_script_pubkey.clone(),
+                        output_amount,
+                        verification_signature,
+                    )<span class="question-mark">?</span>;
 
                 <span class="comment">// check if verification signature is signed by the address in config
                 </span><span class="kw">if </span>address_from_sig != address_in_config {
-                    <span class="kw">return </span><span class="prelude-val">Err</span>(BridgeError::InvalidOptPayoutVerificationSignature);
+                    <span class="kw">return </span><span class="prelude-val">Err</span>(BridgeError::InvalidECDSAVerificationSignature);
                 }
             } <span class="kw">else </span>{
                 <span class="comment">// if verification signature is not provided, but verification address is set in config, return error
-                </span><span class="kw">return </span><span class="prelude-val">Err</span>(BridgeError::OptPayoutVerificationSignatureMissing);
+                </span><span class="kw">return </span><span class="prelude-val">Err</span>(BridgeError::ECDSAVerificationSignatureMissing);
             }
         }
 
@@ -6215,6 +6136,7 @@
 <span class="attr">#[cfg(test)]
 </span><span class="kw">mod </span>tests {
     <span class="kw">use super</span>::<span class="kw-2">*</span>;
+    <span class="kw">use </span><span class="kw">crate</span>::rpc::ecdsa_verification_sig::OperatorWithdrawalMessage;
     <span class="kw">use </span><span class="kw">crate</span>::test::common::citrea::MockCitreaClient;
     <span class="kw">use </span><span class="kw">crate</span>::test::common::<span class="kw-2">*</span>;
     <span class="kw">use </span>bitcoin::Block;
@@ -6337,10 +6259,8 @@
 
     <span class="attr">#[tokio::test]
     </span><span class="kw">async fn </span>test_recover_address_from_signature() {
-        <span class="kw">let </span>signature = PrimitiveSignature::from_str(<span class="string">"0x93907632f97f51a91e684a88a9b8ad9bb1e0f7679686f79d6538972f4a759c0c38dddc0c449b7336963275189fb26ea3bb2055ba5d140f5a536c6fac6997ae061b"</span>)
-            .unwrap();
         <span class="kw">let </span>input_signature = Signature::from_str(<span class="string">"e8b82defd5e7745731737d210ad3f649541fd1e3173424fe6f9152b11cf8a1f9e24a176690c2ab243fb80ccc43369b2aba095b011d7a3a7c2a6953ef6b102643"</span>)
-            .unwrap();
+		.unwrap();
         <span class="kw">let </span>input_outpoint = OutPoint::from_str(
             <span class="string">"0000000000000000000000000000000000000000000000000000000000000000:0"</span>,
         )
@@ -6350,18 +6270,54 @@
                 .unwrap();
         <span class="kw">let </span>output_amount = Amount::from_sat(<span class="number">1000000000000000000</span>);
         <span class="kw">let </span>deposit_id = <span class="number">1</span>;
-        <span class="kw">let </span>address = Verifier::&lt;MockCitreaClient&gt;::recover_address_from_ecdsa_signature(
+
+        <span class="kw">let </span>opt_payout_sig = PrimitiveSignature::from_str(<span class="string">"0x165b7303ffe40149e297be9f1112c1484fcbd464bec26036e5a6142da92249ed7de398295ecac9e41943e326d44037073643a89049177b43c4a09f98787eafa91b"</span>)
+		.unwrap();
+        <span class="kw">let </span>address = recover_address_from_ecdsa_signature::&lt;OptimisticPayoutMessage&gt;(
+            deposit_id,
+            input_signature,
+            input_outpoint,
+            output_script_pubkey.clone(),
+            output_amount,
+            opt_payout_sig,
+        )
+        .unwrap();
+        <span class="macro">assert_eq!</span>(
+            address,
+            alloy::primitives::Address::from_str(<span class="string">"0x281df03154e98484B786EDEf7EfF592a270F1Fb1"</span>)
+                .unwrap()
+        );
+
+        <span class="kw">let </span>op_withdrawal_sig = PrimitiveSignature::from_str(<span class="string">"0xe540662d2ea0aeb29adeeb81a824bcb00e3d2a51d2c28e3eab6305168904e4cb7549e5abe78a91e58238a3986a5faf2ca9bbaaa79e0d0489a96ee275f7db9b111c"</span>)
+				.unwrap();
+        <span class="kw">let </span>address = recover_address_from_ecdsa_signature::&lt;OperatorWithdrawalMessage&gt;(
+            deposit_id,
+            input_signature,
+            input_outpoint,
+            output_script_pubkey.clone(),
+            output_amount,
+            op_withdrawal_sig,
+        )
+        .unwrap();
+        <span class="macro">assert_eq!</span>(
+            address,
+            alloy::primitives::Address::from_str(<span class="string">"0x281df03154e98484B786EDEf7EfF592a270F1Fb1"</span>)
+                .unwrap()
+        );
+
+        <span class="comment">// using OperatorWithdrawalMessage signature for OptimisticPayoutMessage should fail
+        </span><span class="kw">let </span>address = recover_address_from_ecdsa_signature::&lt;OptimisticPayoutMessage&gt;(
             deposit_id,
             input_signature,
             input_outpoint,
             output_script_pubkey,
             output_amount,
-            signature,
+            op_withdrawal_sig,
         )
         .unwrap();
-        <span class="macro">assert_eq!</span>(
+        <span class="macro">assert_ne!</span>(
             address,
-            alloy::primitives::Address::from_str(<span class="string">"0xc9f597cbdd1235c986fb079184c785bf25b273b9"</span>)
+            alloy::primitives::Address::from_str(<span class="string">"0x281df03154e98484B786EDEf7EfF592a270F1Fb1"</span>)
                 .unwrap()
         );
     }

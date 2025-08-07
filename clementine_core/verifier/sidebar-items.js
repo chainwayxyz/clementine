@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"mod":["states"],"static":["DOMAIN"],"struct":["AllSessions","ClementineOptimisticPayoutMessage","NonceSession","Verifier","VerifierServer"]};
+window.SIDEBAR_ITEMS = {"mod":["states"],"struct":["AllSessions","NonceSession","Verifier","VerifierServer"]};

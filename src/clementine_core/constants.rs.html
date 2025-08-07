@@ -83,7 +83,9 @@
 <a href="#82" id="82">82</a>
 <a href="#83" id="83">83</a>
 <a href="#84" id="84">84</a>
-<a href="#85" id="85">85</a></pre></div><pre class="rust"><code><span class="kw">use </span>bitcoin::{transaction::Version, Address, Amount, ScriptBuf};
+<a href="#85" id="85">85</a>
+<a href="#86" id="86">86</a>
+<a href="#87" id="87">87</a></pre></div><pre class="rust"><code><span class="kw">use </span>bitcoin::{transaction::Version, Address, Amount, ScriptBuf};
 
 <span class="doccomment">/// The amount of the non-ephemeral P2A anchor output.
 </span><span class="kw">pub const </span>NON_EPHEMERAL_ANCHOR_AMOUNT: Amount = Amount::from_sat(<span class="number">240</span>);
@@ -156,7 +158,9 @@
     <span class="kw">pub const </span>ENTITY_STATUS_POLL_TIMEOUT: Duration = Duration::from_secs(<span class="number">120</span>);
 
     <span class="kw">pub const </span>PUBLIC_KEY_COLLECTION_TIMEOUT: Duration = Duration::from_secs(<span class="number">30</span>);
-}
+
+    <span class="kw">pub const </span>WITHDRAWAL_TIMEOUT: Duration = Duration::from_secs(<span class="number">120</span>); <span class="comment">// 2 minutes
+</span>}
 
 <span class="kw">pub const </span>NON_STANDARD_V3: Version = Version(<span class="number">3</span>);
 

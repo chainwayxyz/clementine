@@ -1071,12 +1071,41 @@
 <a href="#1070" id="1070">1070</a>
 <a href="#1071" id="1071">1071</a>
 <a href="#1072" id="1072">1072</a>
-<a href="#1073" id="1073">1073</a></pre></div><pre class="rust"><code><span class="doccomment">//! This module defines a command line interface for the RPC client.
+<a href="#1073" id="1073">1073</a>
+<a href="#1074" id="1074">1074</a>
+<a href="#1075" id="1075">1075</a>
+<a href="#1076" id="1076">1076</a>
+<a href="#1077" id="1077">1077</a>
+<a href="#1078" id="1078">1078</a>
+<a href="#1079" id="1079">1079</a>
+<a href="#1080" id="1080">1080</a>
+<a href="#1081" id="1081">1081</a>
+<a href="#1082" id="1082">1082</a>
+<a href="#1083" id="1083">1083</a>
+<a href="#1084" id="1084">1084</a>
+<a href="#1085" id="1085">1085</a>
+<a href="#1086" id="1086">1086</a>
+<a href="#1087" id="1087">1087</a>
+<a href="#1088" id="1088">1088</a>
+<a href="#1089" id="1089">1089</a>
+<a href="#1090" id="1090">1090</a>
+<a href="#1091" id="1091">1091</a>
+<a href="#1092" id="1092">1092</a>
+<a href="#1093" id="1093">1093</a>
+<a href="#1094" id="1094">1094</a>
+<a href="#1095" id="1095">1095</a>
+<a href="#1096" id="1096">1096</a>
+<a href="#1097" id="1097">1097</a>
+<a href="#1098" id="1098">1098</a>
+<a href="#1099" id="1099">1099</a>
+<a href="#1100" id="1100">1100</a>
+<a href="#1101" id="1101">1101</a>
+<a href="#1102" id="1102">1102</a></pre></div><pre class="rust"><code><span class="doccomment">//! This module defines a command line interface for the RPC client.
 
 </span><span class="kw">use </span>std::path::PathBuf;
 <span class="kw">use </span>std::str::FromStr;
 
-<span class="kw">use </span>bitcoin::{hashes::Hash, ScriptBuf, Txid};
+<span class="kw">use </span>bitcoin::{hashes::Hash, ScriptBuf, Txid, XOnlyPublicKey};
 <span class="kw">use </span>bitcoincore_rpc::json::SignRawTransactionInput;
 <span class="kw">use </span>clap::{Parser, Subcommand};
 <span class="kw">use </span>clementine_core::{
@@ -1085,8 +1114,9 @@
     deposit::SecurityCouncil,
     rpc::clementine::{
         <span class="self">self</span>, clementine_aggregator_client::ClementineAggregatorClient, deposit::DepositData,
-        Actors, BaseDeposit, Deposit, Empty, GetEntityStatusesRequest, Outpoint,
-        ReplacementDeposit, SendMoveTxRequest, VerifierPublicKeys, XOnlyPublicKeys,
+        Actors, AggregatorWithdrawalInput, BaseDeposit, Deposit, Empty, GetEntityStatusesRequest,
+        Outpoint, ReplacementDeposit, SendMoveTxRequest, VerifierPublicKeys, XOnlyPublicKeyRpc,
+        XOnlyPublicKeys,
     },
     EVMAddress,
 };
@@ -1244,6 +1274,10 @@
         </span>output_script_pubkey: String,
         <span class="attr">#[arg(long)]
         </span>output_amount: u64,
+        <span class="attr">#[arg(long)]
+        </span>verification_signature: <span class="prelude-ty">Option</span>&lt;String&gt;,
+        <span class="attr">#[arg(long)]
+        </span>operator_xonly_pks: <span class="prelude-ty">Option</span>&lt;Vec&lt;String&gt;&gt;,
     },
     <span class="doccomment">/// Get the status of all entities (operators and verifiers)
     </span>GetEntityStatuses {
@@ -1406,7 +1440,7 @@
                 output_amount,
             };
             operator
-                .withdraw(Request::new(params))
+                .internal_withdraw(Request::new(params))
                 .<span class="kw">await
                 </span>.expect(<span class="string">"Failed to make a request to operator"</span>);
         }
@@ -1822,6 +1856,8 @@
             input_outpoint_vout,
             output_script_pubkey,
             output_amount,
+            verification_signature,
+            operator_xonly_pks,
         } =&gt; {
             <span class="macro">println!</span>(<span class="string">"Processing withdrawal with id {}"</span>, withdrawal_id);
 
@@ -1848,8 +1884,30 @@
                 output_amount,
             };
 
+            <span class="kw">let </span>withdraw_params_with_sig =
+                clementine_core::rpc::clementine::WithdrawParamsWithSig {
+                    withdrawal: <span class="prelude-val">Some</span>(params),
+                    verification_signature,
+                };
+
+            <span class="kw">let </span>operator_xonly_pks = operator_xonly_pks
+                .map(|pks| {
+                    pks.iter()
+                        .map(|pk| {
+                            XOnlyPublicKeyRpc::from(
+                                XOnlyPublicKey::from_str(pk)
+                                    .expect(<span class="string">"Failed to parse xonly public key"</span>),
+                            )
+                        })
+                        .collect::&lt;Vec&lt;<span class="kw">_</span>&gt;&gt;()
+                })
+                .unwrap_or_default();
+
             <span class="kw">let </span>response = aggregator
-                .withdraw(Request::new(params))
+                .withdraw(Request::new(AggregatorWithdrawalInput {
+                    withdrawal: <span class="prelude-val">Some</span>(withdraw_params_with_sig),
+                    operator_xonly_pks,
+                }))
                 .<span class="kw">await
                 </span>.expect(<span class="string">"Failed to make a request"</span>);
 
