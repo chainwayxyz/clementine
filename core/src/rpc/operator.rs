@@ -7,10 +7,12 @@ use super::clementine::{
 use super::error::*;
 use crate::bitvm_client::ClementineBitVMPublicKeys;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
+use crate::builder::transaction::ContractContext;
 use crate::citrea::CitreaClientT;
 use crate::constants::DEFAULT_CHANNEL_SIZE;
 use crate::deposit::DepositData;
 use crate::operator::OperatorServer;
+use crate::rpc::clementine::RawSignedTx;
 use crate::rpc::parser;
 use crate::utils::get_vergen_response;
 use bitcoin::hashes::Hash;
@@ -135,32 +137,25 @@ where
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    async fn withdraw(&self, request: Request<WithdrawParams>) -> Result<Response<Empty>, Status> {
+    async fn withdraw(
+        &self,
+        request: Request<WithdrawParams>,
+    ) -> Result<Response<RawSignedTx>, Status> {
         let (withdrawal_id, input_signature, input_outpoint, output_script_pubkey, output_amount) =
             parser::operator::parse_withdrawal_sig_params(request.into_inner())?;
 
-        // try to fulfill withdrawal only if automation is enabled
-        #[cfg(feature = "automation")]
-        {
-            self.operator
-                .withdraw(
-                    withdrawal_id,
-                    input_signature,
-                    input_outpoint,
-                    output_script_pubkey,
-                    output_amount,
-                )
-                .await?;
+        let payout_tx = self
+            .operator
+            .withdraw(
+                withdrawal_id,
+                input_signature,
+                input_outpoint,
+                output_script_pubkey,
+                output_amount,
+            )
+            .await?;
 
-            Ok(Response::new(Empty {}))
-        }
-
-        #[cfg(not(feature = "automation"))]
-        {
-            return Err(Status::unavailable(
-                "Automation is not enabled. Operator will not fulfill withdrawals.",
-            ));
-        }
+        Ok(Response::new(RawSignedTx::from(&payout_tx)))
     }
 
     #[tracing::instrument(skip(self, request), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
@@ -233,11 +228,22 @@ where
     ) -> std::result::Result<tonic::Response<super::SignedTxsWithType>, tonic::Status> {
         let transaction_request = request.into_inner();
         let transaction_data: TransactionRequestData = transaction_request.try_into()?;
+        let (_, deposit_data) = self
+            .operator
+            .db
+            .get_deposit_data(None, transaction_data.deposit_outpoint)
+            .await?
+            .ok_or(Status::invalid_argument("Deposit not found in database"))?;
+        let context = ContractContext::new_context_for_kickoff(
+            transaction_data.kickoff_data,
+            deposit_data,
+            self.operator.config.protocol_paramset(),
+        );
         let raw_txs = create_and_sign_txs(
             self.operator.db.clone(),
             &self.operator.signer,
             self.operator.config.clone(),
-            transaction_data,
+            context,
             Some([0u8; 20]), // dummy blockhash
             None,
         )
@@ -332,5 +338,17 @@ where
     ) -> Result<Response<clementine::EntityStatus>, Status> {
         let status = self.get_current_status().await?;
         Ok(Response::new(status))
+    }
+
+    async fn get_reimbursement_txs(
+        &self,
+        request: Request<clementine::Outpoint>,
+    ) -> Result<Response<SignedTxsWithType>, Status> {
+        let deposit_outpoint: OutPoint = request.into_inner().try_into()?;
+        let txs = self
+            .operator
+            .get_reimbursement_txs(deposit_outpoint)
+            .await?;
+        Ok(Response::new(txs.into()))
     }
 }
