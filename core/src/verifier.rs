@@ -3128,7 +3128,7 @@ mod tests {
         let output_amount = Amount::from_sat(1000000000000000000);
         let deposit_id = 1;
 
-        let opt_payout_sig = PrimitiveSignature::from_str("0xe777883ab6e83c1875308ef0e1bc25855b4bc6e60e656d0a051ddd44152643567713aa493f711f8cbf99c59cae04c3d9d5f63dc7f17261303db1a2e1bdc7dc731c")
+        let opt_payout_sig = PrimitiveSignature::from_str("0x165b7303ffe40149e297be9f1112c1484fcbd464bec26036e5a6142da92249ed7de398295ecac9e41943e326d44037073643a89049177b43c4a09f98787eafa91b")
 		.unwrap();
         let address = recover_address_from_ecdsa_signature::<OptimisticPayoutMessage>(
             deposit_id,
@@ -3145,9 +3145,25 @@ mod tests {
                 .unwrap()
         );
 
-        let op_withdrawal_sig = PrimitiveSignature::from_str("0xfc85a5c4f3c9e60b87f497d89afb8cce5e3344a87a962bfda72c6d4e73bf32753f16466104b806da0a8d4dd517fa5b713de24811d4cf5eb555de3d2ef5dac61a1b")
+        let op_withdrawal_sig = PrimitiveSignature::from_str("0xe540662d2ea0aeb29adeeb81a824bcb00e3d2a51d2c28e3eab6305168904e4cb7549e5abe78a91e58238a3986a5faf2ca9bbaaa79e0d0489a96ee275f7db9b111c")
 				.unwrap();
         let address = recover_address_from_ecdsa_signature::<OperatorWithdrawalMessage>(
+            deposit_id,
+            input_signature,
+            input_outpoint,
+            output_script_pubkey.clone(),
+            output_amount,
+            op_withdrawal_sig,
+        )
+        .unwrap();
+        assert_eq!(
+            address,
+            alloy::primitives::Address::from_str("0x281df03154e98484B786EDEf7EfF592a270F1Fb1")
+                .unwrap()
+        );
+
+        // using OperatorWithdrawalMessage signature for OptimisticPayoutMessage should fail
+        let address = recover_address_from_ecdsa_signature::<OptimisticPayoutMessage>(
             deposit_id,
             input_signature,
             input_outpoint,
@@ -3156,7 +3172,7 @@ mod tests {
             op_withdrawal_sig,
         )
         .unwrap();
-        assert_eq!(
+        assert_ne!(
             address,
             alloy::primitives::Address::from_str("0x281df03154e98484B786EDEf7EfF592a270F1Fb1")
                 .unwrap()
