@@ -328,17 +328,7 @@ impl ExtendedBitcoinRpc {
         let user_clone = user.clone();
         let password_clone = password.clone();
 
-        let retry_strategy =
-            ExponentialBackoff::from_millis(config.initial_delay.as_millis() as u64)
-                .max_delay(config.max_delay)
-                .factor(config.backoff_multiplier)
-                .take(config.max_attempts);
-
-        let retry_strategy = if config.is_jitter {
-            Box::new(retry_strategy.map(jitter)) as Box<dyn Iterator<Item = Duration> + Send>
-        } else {
-            Box::new(retry_strategy) as Box<dyn Iterator<Item = Duration> + Send>
-        };
+        let retry_strategy = config.get_strategy();
 
         Retry::spawn(retry_strategy, || async {
             let result = Self::try_connect(
@@ -775,18 +765,7 @@ impl ExtendedBitcoinRpc {
             return Ok(vec![]);
         }
 
-        let config = RetryConfig::default();
-        let retry_strategy =
-            ExponentialBackoff::from_millis(config.initial_delay.as_millis() as u64)
-                .max_delay(config.max_delay)
-                .factor(config.backoff_multiplier)
-                .take(config.max_attempts);
-
-        let retry_strategy = if config.is_jitter {
-            Box::new(retry_strategy.map(jitter)) as Box<dyn Iterator<Item = Duration> + Send>
-        } else {
-            Box::new(retry_strategy) as Box<dyn Iterator<Item = Duration> + Send>
-        };
+        let retry_strategy = self.retry_config.get_strategy();
 
         Retry::spawn(retry_strategy, || async { self.try_mine(block_num).await }).await
     }
