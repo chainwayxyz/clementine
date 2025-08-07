@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 
 use bitcoin::{hashes::Hash, Amount, Block, Psbt, ScriptBuf, Transaction, Txid};
+use bitcoincore_rpc::json::SignRawTransactionInput;
 use clap::{Parser, Subcommand};
 use clementine_core::{
     builder::transaction::TransactionType,
@@ -823,6 +824,8 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                 })
                 .expect("P2A anchor output not found in transaction");
 
+            let p2a_txout = tx.output[p2a_vout].clone();
+
             println!("Found P2A anchor output at vout: {}", p2a_vout);
 
             // Connect to Bitcoin RPC
@@ -943,52 +946,29 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                 script_pubkey: fee_payer_address.script_pubkey(),
             };
 
-            let mut child_tx = bitcoin::Transaction {
+            let child_input_utxo = SignRawTransactionInput {
+                txid: child_input.previous_output.txid,
+                vout: child_input.previous_output.vout,
+                script_pub_key: p2a_txout.script_pubkey,
+                redeem_script: None,
+                amount: Some(p2a_txout.value),
+            };
+
+            let child_tx = bitcoin::Transaction {
                 version: Version::non_standard(3),
                 lock_time: bitcoin::absolute::LockTime::ZERO,
                 input: vec![child_input, fee_payer_input],
                 output: vec![child_output],
             };
 
-            let psbt = Psbt::from_unsigned_tx(child_tx.clone()).expect("Failed to create PSBT");
-            println!("Child transaction PSBT: {}", psbt);
-
             let signed_tx = rpc
-                .wallet_process_psbt(&psbt.to_string(), Some(true), None, None)
+                .sign_raw_transaction_with_wallet(&child_tx, Some(&[child_input_utxo]), None)
                 .await
                 .expect("Failed to sign child transaction");
-
-            println!("Signed transaction: {}", signed_tx.psbt);
-
-            // if !signed_tx.complete {
-            //     println!("Failed to sign child transaction");
-            //     return;
-            // }
-
-            let mut new_psbt = Psbt::from_str(&signed_tx.psbt).expect("Failed to parse PSBT");
-
-            new_psbt.inputs[0] = bitcoin::psbt::Input {
-                witness_utxo: Some(TxOut {
-                    value: tx.output[p2a_vout].value,
-                    script_pubkey: ScriptBuf::from_hex("51024e73").expect("valid script"),
-                }),
-                ..new_psbt.inputs[0].clone()
-            };
-
-            println!("New PSBT: {}", new_psbt);
-
-            // sign again
-            let signed_tx = rpc
-                .wallet_process_psbt(&new_psbt.to_string(), Some(true), None, None)
-                .await
-                .expect("Failed to sign child transaction");
-
-            let signed_tx = Psbt::from_str(&signed_tx.psbt).expect("Failed to parse PSBT");
-            println!("Signed transaction: {}", signed_tx);
 
             let signed_child_tx = signed_tx
-                .extract_tx()
-                .expect("Failed to extract transaction");
+                .transaction()
+                .expect("Failed to get transaction from sign_raw_transaction_with_wallet");
 
             println!(
                 "Child transaction signed: {}",
