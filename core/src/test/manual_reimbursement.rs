@@ -6,7 +6,7 @@ use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::extended_rpc::ExtendedRpc;
 use crate::rpc::clementine::{WithdrawParams, WithdrawParamsWithSig};
-use crate::rpc::ecdsa_verification_sig::ClementineWithdrawalMessage;
+use crate::rpc::ecdsa_verification_sig::OperatorWithdrawalMessage;
 use crate::test::common::citrea::MockCitreaClient;
 use crate::test::common::test_actors::TestActors;
 use crate::test::common::{
@@ -138,9 +138,10 @@ async fn deposit_and_get_reimbursement(
         output_amount: payout_txout.value.to_sat(),
     };
 
-    let verification_signature = sign_withdrawal_verification_signature::<
-        ClementineWithdrawalMessage,
-    >(config, withdrawal_params.clone());
+    let verification_signature = sign_withdrawal_verification_signature::<OperatorWithdrawalMessage>(
+        config,
+        withdrawal_params.clone(),
+    );
     let verification_signature_str = verification_signature.to_string();
 
     let payout_tx = loop {
