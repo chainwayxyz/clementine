@@ -1,6 +1,6 @@
 # Usage
 
-Clementine provides a single binary, that can act as a 3 different actor
+Clementine provides a single binary, that can act as 3 different actors
 services:
 
 - Verifier (We sometimes call this as signer)
