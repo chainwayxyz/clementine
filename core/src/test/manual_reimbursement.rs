@@ -5,13 +5,15 @@ use crate::citrea::CitreaClientT;
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::extended_rpc::ExtendedRpc;
-use crate::rpc::clementine::WithdrawParams;
+use crate::rpc::clementine::{WithdrawParams, WithdrawParamsWithSig};
+use crate::rpc::ecdsa_verification_sig::OperatorWithdrawalMessage;
 use crate::test::common::citrea::MockCitreaClient;
 use crate::test::common::test_actors::TestActors;
 use crate::test::common::{
     create_regtest_rpc, generate_withdrawal_transaction_and_signature, poll_until_condition,
 };
 use crate::test::common::{create_test_config_with_thread_name, run_single_deposit};
+use crate::test::sign::sign_withdrawal_verification_signature;
 use bitcoin::secp256k1::SecretKey;
 use bitcoin::{Address, Amount, OutPoint, Transaction};
 use bitcoincore_rpc::RpcApi;
@@ -46,7 +48,7 @@ async fn mock_citrea_run_truthful_manual_reimbursement() {
 }
 
 async fn deposit_and_get_reimbursement(
-    mut config: &mut BridgeConfig,
+    config: &mut BridgeConfig,
     actors: Option<TestActors<MockCitreaClient>>,
     rpc: &ExtendedRpc,
     citrea_client: &mut MockCitreaClient,
@@ -59,7 +61,7 @@ async fn deposit_and_get_reimbursement(
         rpc.client.get_block_count().await.unwrap()
     );
     let (actors, deposit_params, move_txid, _deposit_blockhash, verifiers_public_keys) =
-        run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, actors, None)
+        run_single_deposit::<MockCitreaClient>(config, rpc.clone(), None, actors, None)
             .await
             .unwrap();
 
@@ -90,8 +92,8 @@ async fn deposit_and_get_reimbursement(
         config.protocol_paramset().network,
     );
     let (dust_utxo, payout_txout, sig) = generate_withdrawal_transaction_and_signature(
-        &config,
-        &rpc,
+        config,
+        rpc,
         &withdrawal_address,
         config.protocol_paramset().bridge_amount
             - config
@@ -128,14 +130,25 @@ async fn deposit_and_get_reimbursement(
         .await
         .is_err());
 
+    let withdrawal_params = WithdrawParams {
+        withdrawal_id,
+        input_signature: sig.serialize().to_vec(),
+        input_outpoint: Some(withdrawal_utxo.into()),
+        output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
+        output_amount: payout_txout.value.to_sat(),
+    };
+
+    let verification_signature = sign_withdrawal_verification_signature::<OperatorWithdrawalMessage>(
+        config,
+        withdrawal_params.clone(),
+    );
+    let verification_signature_str = verification_signature.to_string();
+
     let payout_tx = loop {
         let withdrawal_response = operator0
-            .withdraw(WithdrawParams {
-                withdrawal_id,
-                input_signature: sig.serialize().to_vec(),
-                input_outpoint: Some(withdrawal_utxo.into()),
-                output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
-                output_amount: payout_txout.value.to_sat(),
+            .withdraw(WithdrawParamsWithSig {
+                withdrawal: Some(withdrawal_params.clone()),
+                verification_signature: Some(verification_signature_str.clone()),
             })
             .await;
 

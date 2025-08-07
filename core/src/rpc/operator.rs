@@ -11,14 +11,21 @@ use crate::builder::transaction::ContractContext;
 use crate::citrea::CitreaClientT;
 use crate::constants::DEFAULT_CHANNEL_SIZE;
 use crate::deposit::DepositData;
+use crate::errors::BridgeError;
+use crate::errors::ResultExt;
 use crate::operator::OperatorServer;
-use crate::rpc::clementine::RawSignedTx;
+use crate::rpc::clementine::{RawSignedTx, WithdrawParamsWithSig};
+use crate::rpc::ecdsa_verification_sig::{
+    recover_address_from_ecdsa_signature, OperatorWithdrawalMessage,
+};
 use crate::rpc::parser;
 use crate::utils::get_vergen_response;
+use alloy::primitives::PrimitiveSignature;
 use bitcoin::hashes::Hash;
 use bitcoin::{BlockHash, OutPoint};
 use bitvm::chunk::api::{NUM_HASH, NUM_PUBS, NUM_U256};
 use futures::TryFutureExt;
+use std::str::FromStr;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{async_trait, Request, Response, Status};
@@ -137,12 +144,70 @@ where
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    async fn withdraw(
+    async fn internal_withdraw(
         &self,
         request: Request<WithdrawParams>,
     ) -> Result<Response<RawSignedTx>, Status> {
         let (withdrawal_id, input_signature, input_outpoint, output_script_pubkey, output_amount) =
             parser::operator::parse_withdrawal_sig_params(request.into_inner())?;
+
+        let payout_tx = self
+            .operator
+            .withdraw(
+                withdrawal_id,
+                input_signature,
+                input_outpoint,
+                output_script_pubkey,
+                output_amount,
+            )
+            .await?;
+
+        Ok(Response::new(RawSignedTx::from(&payout_tx)))
+    }
+
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    async fn withdraw(
+        &self,
+        request: Request<WithdrawParamsWithSig>,
+    ) -> Result<Response<RawSignedTx>, Status> {
+        let params = request.into_inner();
+        let withdraw_params = params.withdrawal.ok_or(Status::invalid_argument(
+            "Withdrawal params not found for withdrawal",
+        ))?;
+        let (withdrawal_id, input_signature, input_outpoint, output_script_pubkey, output_amount) =
+            parser::operator::parse_withdrawal_sig_params(withdraw_params)?;
+
+        // if verification address is set in config, check if verification signature is valid
+        if let Some(address_in_config) = self.operator.config.opt_payout_verification_address {
+            let verification_signature = params
+                .verification_signature
+                .map(|sig| {
+                    PrimitiveSignature::from_str(&sig).map_err(|e| {
+                        Status::invalid_argument(format!("Invalid verification signature: {}", e))
+                    })
+                })
+                .transpose()?;
+            // check if verification signature is provided by aggregator
+            if let Some(verification_signature) = verification_signature {
+                let address_from_sig =
+                    recover_address_from_ecdsa_signature::<OperatorWithdrawalMessage>(
+                        withdrawal_id,
+                        input_signature,
+                        input_outpoint,
+                        output_script_pubkey.clone(),
+                        output_amount,
+                        verification_signature,
+                    )?;
+
+                // check if verification signature is signed by the address in config
+                if address_from_sig != address_in_config {
+                    return Err(BridgeError::InvalidECDSAVerificationSignature).map_to_status();
+                }
+            } else {
+                // if verification signature is not provided, but verification address is set in config, return error
+                return Err(BridgeError::ECDSAVerificationSignatureMissing).map_to_status();
+            }
+        }
 
         let payout_tx = self
             .operator

@@ -17,8 +17,9 @@ use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorCl
 use crate::rpc::clementine::{
     Deposit, Empty, FeeType, FinalizedPayoutParams, KickoffId, NormalSignatureKind,
     OptimisticWithdrawParams, RawSignedTx, SendMoveTxRequest, SendTxRequest, TransactionRequest,
-    WithdrawParams,
+    WithdrawParams, WithdrawParamsWithSig,
 };
+use crate::rpc::ecdsa_verification_sig::{OperatorWithdrawalMessage, OptimisticPayoutMessage};
 use crate::test::common::citrea::{
     get_new_withdrawal_utxo_and_register_to_citrea, register_replacement_deposit_to_citrea,
     start_citrea, update_config_with_citrea_e2e_values, CitreaE2EData, MockCitreaClient,
@@ -40,7 +41,7 @@ use crate::test::common::{
 use crate::test::common::{
     create_test_config_with_thread_name, run_multiple_deposits, run_single_replacement_deposit,
 };
-use crate::test::sign::sign_optimistic_payout_verification_signature;
+use crate::test::sign::sign_withdrawal_verification_signature;
 use crate::utils::initialize_logger;
 use crate::{EVMAddress, UTXO};
 use async_trait::async_trait;
@@ -618,14 +619,25 @@ async fn mock_citrea_run_truthful() {
     tracing::info!("Withdrawal tx sent");
     let mut operator0 = actors.get_operator_client_by_index(0);
 
+    let withdrawal_params = WithdrawParams {
+        withdrawal_id: 0,
+        input_signature: sig.serialize().to_vec(),
+        input_outpoint: Some(withdrawal_utxo.into()),
+        output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
+        output_amount: payout_txout.value.to_sat(),
+    };
+    let verification_signature = sign_withdrawal_verification_signature::<OperatorWithdrawalMessage>(
+        &config,
+        withdrawal_params.clone(),
+    );
+
+    let verification_signature_str = verification_signature.to_string();
+
     loop {
         let withdrawal_response = operator0
-            .withdraw(WithdrawParams {
-                withdrawal_id: 0,
-                input_signature: sig.serialize().to_vec(),
-                input_outpoint: Some(withdrawal_utxo.into()),
-                output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
-                output_amount: payout_txout.value.to_sat(),
+            .withdraw(WithdrawParamsWithSig {
+                withdrawal: Some(withdrawal_params.clone()),
+                verification_signature: Some(verification_signature_str.clone()),
             })
             .await;
 
@@ -1073,8 +1085,10 @@ async fn mock_citrea_run_truthful_opt_payout() {
         output_amount: payout_txout.value.to_sat(),
     };
 
-    let verification_signature =
-        sign_optimistic_payout_verification_signature(&config, withdrawal_params.clone());
+    let verification_signature = sign_withdrawal_verification_signature::<OptimisticPayoutMessage>(
+        &config,
+        withdrawal_params.clone(),
+    );
 
     let verification_signature_str = verification_signature.to_string();
 
@@ -1810,12 +1824,22 @@ async fn concurrent_deposits_and_withdrawals() {
             let mut withdrawal_requests = Vec::new();
 
             for (i, operator) in operator0s.iter_mut().enumerate() {
-                withdrawal_requests.push(operator.withdraw(WithdrawParams {
+                let withdraw_params = WithdrawParams {
                     withdrawal_id: i as u32,
                     input_signature: sigs[i].serialize().to_vec(),
                     input_outpoint: Some(withdrawal_utxos[i].into()),
                     output_script_pubkey: payout_txouts[i].script_pubkey.to_bytes(),
                     output_amount: payout_txouts[i].value.to_sat(),
+                };
+                let verification_signature = sign_withdrawal_verification_signature::<
+                    OperatorWithdrawalMessage,
+                >(&config, withdraw_params.clone());
+
+                let verification_signature_str = verification_signature.to_string();
+
+                withdrawal_requests.push(operator.withdraw(WithdrawParamsWithSig {
+                    withdrawal: Some(withdraw_params.clone()),
+                    verification_signature: Some(verification_signature_str.clone()),
                 }));
             }
 
@@ -1934,10 +1958,9 @@ async fn concurrent_deposits_and_optimistic_payouts() {
                     output_amount: payout_txouts[i].value.to_sat(),
                 };
 
-                let verification_signature = sign_optimistic_payout_verification_signature(
-                    &config,
-                    withdrawal_params.clone(),
-                );
+                let verification_signature = sign_withdrawal_verification_signature::<
+                    OptimisticPayoutMessage,
+                >(&config, withdrawal_params.clone());
 
                 let verification_signature_str = verification_signature.to_string();
 

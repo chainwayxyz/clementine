@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use bitcoin::{hashes::Hash, ScriptBuf, Txid};
+use bitcoin::{hashes::Hash, ScriptBuf, Txid, XOnlyPublicKey};
 use bitcoincore_rpc::json::SignRawTransactionInput;
 use clap::{Parser, Subcommand};
 use clementine_core::{
@@ -12,8 +12,9 @@ use clementine_core::{
     deposit::SecurityCouncil,
     rpc::clementine::{
         self, clementine_aggregator_client::ClementineAggregatorClient, deposit::DepositData,
-        Actors, BaseDeposit, Deposit, Empty, GetEntityStatusesRequest, Outpoint,
-        ReplacementDeposit, SendMoveTxRequest, VerifierPublicKeys, XOnlyPublicKeys,
+        Actors, AggregatorWithdrawalInput, BaseDeposit, Deposit, Empty, GetEntityStatusesRequest,
+        Outpoint, ReplacementDeposit, SendMoveTxRequest, VerifierPublicKeys, XOnlyPublicKeyRpc,
+        XOnlyPublicKeys,
     },
     EVMAddress,
 };
@@ -171,6 +172,10 @@ enum AggregatorCommands {
         output_script_pubkey: String,
         #[arg(long)]
         output_amount: u64,
+        #[arg(long)]
+        verification_signature: Option<String>,
+        #[arg(long)]
+        operator_xonly_pks: Option<Vec<String>>,
     },
     /// Get the status of all entities (operators and verifiers)
     GetEntityStatuses {
@@ -333,7 +338,7 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
                 output_amount,
             };
             operator
-                .withdraw(Request::new(params))
+                .internal_withdraw(Request::new(params))
                 .await
                 .expect("Failed to make a request to operator");
         }
@@ -749,6 +754,8 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             input_outpoint_vout,
             output_script_pubkey,
             output_amount,
+            verification_signature,
+            operator_xonly_pks,
         } => {
             println!("Processing withdrawal with id {}", withdrawal_id);
 
@@ -775,8 +782,30 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                 output_amount,
             };
 
+            let withdraw_params_with_sig =
+                clementine_core::rpc::clementine::WithdrawParamsWithSig {
+                    withdrawal: Some(params),
+                    verification_signature,
+                };
+
+            let operator_xonly_pks = operator_xonly_pks
+                .map(|pks| {
+                    pks.iter()
+                        .map(|pk| {
+                            XOnlyPublicKeyRpc::from(
+                                XOnlyPublicKey::from_str(pk)
+                                    .expect("Failed to parse xonly public key"),
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+
             let response = aggregator
-                .withdraw(Request::new(params))
+                .withdraw(Request::new(AggregatorWithdrawalInput {
+                    withdrawal: Some(withdraw_params_with_sig),
+                    operator_xonly_pks,
+                }))
                 .await
                 .expect("Failed to make a request");
 

@@ -25,7 +25,6 @@ mod taproot;
 #[cfg(feature = "integration-tests")]
 mod withdraw;
 
-#[cfg(feature = "automation")]
 mod sign;
 
 #[cfg(all(feature = "automation", feature = "integration-tests"))]
