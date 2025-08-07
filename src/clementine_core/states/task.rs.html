@@ -267,7 +267,13 @@
 <a href="#266" id="266">266</a>
 <a href="#267" id="267">267</a>
 <a href="#268" id="268">268</a>
-<a href="#269" id="269">269</a></pre></div><pre class="rust"><code><span class="kw">use crate</span>::{
+<a href="#269" id="269">269</a>
+<a href="#270" id="270">270</a>
+<a href="#271" id="271">271</a>
+<a href="#272" id="272">272</a>
+<a href="#273" id="273">273</a>
+<a href="#274" id="274">274</a>
+<a href="#275" id="275">275</a></pre></div><pre class="rust"><code><span class="kw">use crate</span>::{
     bitcoin_syncer::{BlockHandler, FinalizedBlockFetcherTask},
     database::{Database, DatabaseTransaction},
     task::{BufferedErrors, IntoTask, TaskVariant, WithDelay},
@@ -334,23 +340,31 @@
 <span class="kw">impl</span>&lt;T: Owner + std::fmt::Debug + <span class="lifetime">'static</span>&gt; BlockFetcherTask&lt;T&gt; {
     <span class="doccomment">/// Creates a new finalized block fetcher task that sends new finalized blocks to the message queue.
     </span><span class="kw">pub async fn </span>new_finalized_block_fetcher_task(
-        next_height: u32,
         db: Database,
         paramset: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>ProtocolParamset,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;FinalizedBlockFetcherTask&lt;QueueBlockHandler&gt;, BridgeError&gt; {
         <span class="kw">let </span>queue = PGMQueueExt::new_with_pool(db.get_pool()).<span class="kw">await</span>;
         <span class="kw">let </span>queue_name = StateManager::&lt;T&gt;::queue_name();
 
+        <span class="kw">let </span>handler = QueueBlockHandler {
+            queue,
+            queue_name: queue_name.clone(),
+        };
+
+        <span class="comment">// get the next finalized block height to start from
+        </span><span class="kw">let </span>next_height = db
+            .get_next_finalized_block_height_for_consumer(
+                <span class="prelude-val">None</span>,
+                T::FINALIZED_BLOCK_CONSUMER_ID,
+                paramset,
+            )
+            .<span class="kw">await</span><span class="question-mark">?</span>;
+
         <span class="macro">tracing::info!</span>(
             <span class="string">"Creating block fetcher task for owner type {} starting from height {}"</span>,
             T::ENTITY_NAME,
             next_height
         );
-
-        <span class="kw">let </span>handler = QueueBlockHandler {
-            queue,
-            queue_name: queue_name.clone(),
-        };
 
         <span class="prelude-val">Ok</span>(<span class="kw">crate</span>::bitcoin_syncer::FinalizedBlockFetcherTask::new(
             db,
@@ -433,14 +447,12 @@
     <span class="kw">pub async fn </span>block_fetcher_task(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;WithDelay&lt;<span class="kw">impl </span>Task&lt;Output = bool&gt; + std::fmt::Debug&gt;, BridgeError&gt; {
-        <span class="prelude-val">Ok</span>(BlockFetcherTask::&lt;T&gt;::new_finalized_block_fetcher_task(
-            <span class="self">self</span>.next_height_to_process,
-            <span class="self">self</span>.db.clone(),
-            <span class="self">self</span>.paramset,
+        <span class="prelude-val">Ok</span>(
+            BlockFetcherTask::&lt;T&gt;::new_finalized_block_fetcher_task(<span class="self">self</span>.db.clone(), <span class="self">self</span>.paramset)
+                .<span class="kw">await</span><span class="question-mark">?
+                </span>.into_buffered_errors(<span class="number">20</span>)
+                .with_delay(POLL_DELAY),
         )
-        .<span class="kw">await</span><span class="question-mark">?
-        </span>.into_buffered_errors(<span class="number">20</span>)
-        .with_delay(POLL_DELAY))
     }
 }
 

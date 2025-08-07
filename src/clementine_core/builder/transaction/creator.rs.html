@@ -1450,7 +1450,11 @@
 <a href="#1449" id="1449">1449</a>
 <a href="#1450" id="1450">1450</a>
 <a href="#1451" id="1451">1451</a>
-<a href="#1452" id="1452">1452</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Transaction Handler Creation Logic
+<a href="#1452" id="1452">1452</a>
+<a href="#1453" id="1453">1453</a>
+<a href="#1454" id="1454">1454</a>
+<a href="#1455" id="1455">1455</a>
+<a href="#1456" id="1456">1456</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Transaction Handler Creation Logic
 //!
 //! This module provides the logic for constructing, caching, and managing transaction handlers (`TxHandler`) for all transaction types in the Clementine bridge.
 //!
@@ -2751,6 +2755,10 @@
         <span class="kw">let </span><span class="kw-2">mut </span>incorrect = <span class="bool-val">false</span>;
 
         <span class="kw">for </span>((kickoff_id, tx_type), txids) <span class="kw">in </span><span class="kw-2">&amp;</span>created_txs {
+            <span class="comment">// for challenge tx, txids are different because op return with own evm address, skip it
+            </span><span class="kw">if </span>tx_type == <span class="kw-2">&amp;</span>TransactionType::Challenge {
+                <span class="kw">continue</span>;
+            }
             <span class="comment">// check if all txids are equal
             </span><span class="kw">if </span>!txids.iter().all(|txid| txid == <span class="kw-2">&amp;</span>txids[<span class="number">0</span>]) {
                 <span class="macro">tracing::error!</span>(

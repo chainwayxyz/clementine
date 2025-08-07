@@ -3182,21 +3182,7 @@
 <a href="#3181" id="3181">3181</a>
 <a href="#3182" id="3182">3182</a>
 <a href="#3183" id="3183">3183</a>
-<a href="#3184" id="3184">3184</a>
-<a href="#3185" id="3185">3185</a>
-<a href="#3186" id="3186">3186</a>
-<a href="#3187" id="3187">3187</a>
-<a href="#3188" id="3188">3188</a>
-<a href="#3189" id="3189">3189</a>
-<a href="#3190" id="3190">3190</a>
-<a href="#3191" id="3191">3191</a>
-<a href="#3192" id="3192">3192</a>
-<a href="#3193" id="3193">3193</a>
-<a href="#3194" id="3194">3194</a>
-<a href="#3195" id="3195">3195</a>
-<a href="#3196" id="3196">3196</a>
-<a href="#3197" id="3197">3197</a>
-<a href="#3198" id="3198">3198</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
+<a href="#3184" id="3184">3184</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
 <span class="kw">use </span><span class="kw">crate</span>::bitcoin_syncer::BitcoinSyncer;
 <span class="kw">use </span><span class="kw">crate</span>::bitvm_client::{ClementineBitVMPublicKeys, REPLACE_SCRIPTS_LOCK};
 <span class="kw">use </span><span class="kw">crate</span>::builder::address::{create_taproot_address, taproot_builder_with_scripts};
@@ -3491,6 +3477,24 @@
             };
 
             <span class="kw">if </span>should_run_state_mgr {
+                <span class="comment">// start tracking operators if they exist in the db
+                </span><span class="kw">let </span>operators = <span class="self">self</span>.verifier.db.get_operators(<span class="prelude-val">None</span>).<span class="kw">await</span><span class="question-mark">?</span>;
+                <span class="kw">if </span>!operators.is_empty() {
+                    <span class="kw">let </span><span class="kw-2">mut </span>dbtx = <span class="self">self</span>.verifier.db.begin_transaction().<span class="kw">await</span><span class="question-mark">?</span>;
+                    <span class="kw">for </span>operator <span class="kw">in </span>operators {
+                        StateManager::&lt;Verifier&lt;C&gt;&gt;::dispatch_new_round_machine(
+                            <span class="self">self</span>.verifier.db.clone(),
+                            <span class="kw-2">&amp;mut </span>dbtx,
+                            OperatorData {
+                                xonly_pk: operator.<span class="number">0</span>,
+                                reimburse_addr: operator.<span class="number">1</span>,
+                                collateral_funding_outpoint: operator.<span class="number">2</span>,
+                            },
+                        )
+                        .<span class="kw">await</span><span class="question-mark">?</span>;
+                    }
+                    dbtx.commit().<span class="kw">await</span><span class="question-mark">?</span>;
+                }
                 <span class="self">self</span>.background_tasks
                     .ensure_task_looping(state_manager.block_fetcher_task().<span class="kw">await</span><span class="question-mark">?</span>)
                     .<span class="kw">await</span>;
@@ -3501,26 +3505,16 @@
         }
         <span class="attr">#[cfg(not(feature = <span class="string">"automation"</span>))]
         </span>{
-            <span class="kw">use </span><span class="kw">crate</span>::metrics::get_btc_syncer_consumer_last_processed_block_height;
-            <span class="kw">use </span><span class="kw">crate</span>::task::TaskExt;
-            <span class="comment">// get current next height from the database
-            // some blocks might still be processed again (if last processed block height is a reorged block)
-            // processing same blocks again is not a problem, here we want to avoid starting from the beginning if verifier
-            // has been restarted
-            </span><span class="kw">let </span>last_processed_height = get_btc_syncer_consumer_last_processed_block_height(
-                <span class="kw-2">&amp;</span><span class="self">self</span>.verifier.db,
-                <span class="kw-2">&amp;</span>Verifier::&lt;C&gt;::FINALIZED_BLOCK_CONSUMER_ID.to_string(),
-            )
-            .<span class="kw">await</span><span class="question-mark">?</span>;
-            <span class="kw">let </span>next_height = <span class="kw">match </span>last_processed_height {
-                <span class="comment">// if last processed height is not None, start from the last processed height - finality depth + 1 as next height
-                </span><span class="prelude-val">Some</span>(height) =&gt; height
-                    .checked_sub(<span class="self">self</span>.verifier.config.protocol_paramset().finality_depth)
-                    .map(|height| height + <span class="number">1</span>)
-                    .unwrap_or(<span class="self">self</span>.verifier.config.protocol_paramset().start_height),
-                <span class="comment">// if db is empty, start from the start height
-                </span><span class="prelude-val">None </span>=&gt; <span class="self">self</span>.verifier.config.protocol_paramset().start_height,
-            };
+            <span class="comment">// get the next finalized block height to start from
+            </span><span class="kw">let </span>next_height = <span class="self">self
+                </span>.verifier
+                .db
+                .get_next_finalized_block_height_for_consumer(
+                    <span class="prelude-val">None</span>,
+                    Verifier::&lt;C&gt;::FINALIZED_BLOCK_CONSUMER_ID,
+                    <span class="self">self</span>.verifier.config.protocol_paramset(),
+                )
+                .<span class="kw">await</span><span class="question-mark">?</span>;
 
             <span class="self">self</span>.background_tasks
                 .ensure_task_looping(
@@ -3635,28 +3629,6 @@
 
         <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
         </span><span class="kw">let </span>header_chain_prover = HeaderChainProver::new(<span class="kw-2">&amp;</span>config, rpc.clone()).<span class="kw">await</span><span class="question-mark">?</span>;
-
-        <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
-        </span>{
-            <span class="comment">// start tracking operators if they exist in the db
-            </span><span class="kw">let </span>operators = db.get_operators(<span class="prelude-val">None</span>).<span class="kw">await</span><span class="question-mark">?</span>;
-            <span class="kw">if </span>!operators.is_empty() {
-                <span class="kw">let </span><span class="kw-2">mut </span>dbtx = db.begin_transaction().<span class="kw">await</span><span class="question-mark">?</span>;
-                <span class="kw">for </span>operator <span class="kw">in </span>operators {
-                    StateManager::&lt;Verifier&lt;C&gt;&gt;::dispatch_new_round_machine(
-                        db.clone(),
-                        <span class="kw-2">&amp;mut </span>dbtx,
-                        OperatorData {
-                            xonly_pk: operator.<span class="number">0</span>,
-                            reimburse_addr: operator.<span class="number">1</span>,
-                            collateral_funding_outpoint: operator.<span class="number">2</span>,
-                        },
-                    )
-                    .<span class="kw">await</span><span class="question-mark">?</span>;
-                }
-                dbtx.commit().<span class="kw">await</span><span class="question-mark">?</span>;
-            }
-        }
 
         <span class="kw">let </span>verifier = Verifier {
             rpc,
@@ -5325,7 +5297,7 @@
             </span>.get_txid()
             .to_byte_array();
 
-        <span class="kw">let </span>vout = kickoff_data.kickoff_idx + <span class="number">1</span>;
+        <span class="kw">let </span>vout = UtxoVout::Kickoff(kickoff_data.kickoff_idx <span class="kw">as </span>usize).get_vout();
 
         <span class="kw">let </span>watchtower_challenge_start_idx =
             u16::try_from(UtxoVout::WatchtowerChallenge(<span class="number">0</span>).get_vout())
