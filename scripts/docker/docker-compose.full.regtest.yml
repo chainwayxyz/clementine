@@ -75,6 +75,10 @@ services:
     ports:
       - "20443:20443"
       - "20444:20444"
+    volumes:
+      - ../init-bitcoin.sh:/init-bitcoin.sh
+      - ../docker-entrypoint.sh:/docker-entrypoint.sh
+      - bitcoin_regtest:/home/bitcoin/.bitcoin
     command:
       -printtoconsole
       -regtest=1
@@ -88,34 +92,20 @@ services:
       -txindex=1
       -fallbackfee=0.00001
       -maxtxfee=5
+    entrypoint: ["/docker-entrypoint.sh"]
+
+
     healthcheck:
       test: [
         "CMD-SHELL",
-        "for WALLET in admin sequencer-wallet batch-prover-wallet; do \
-          if bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 listwalletdir \
-            | jq -e '.wallets | any(.name == \"'$$WALLET'\")' > /dev/null; then \
-            echo \"Wallet $$WALLET exists on disk\"; \
-            bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 loadwallet \"$$WALLET\" 2>/dev/null \
-              || echo \"Wallet $$WALLET already loaded or load failed\"; \
-          else \
-            echo \"Creating wallet $$WALLET\"; \
-            bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 createwallet \"$$WALLET\"; \
-          fi; \
-        done && \
-
-        if [ $(bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 -rpcwallet=admin getblockcount) -lt 605 ]; then \
-          bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 -rpcwallet=admin generatetoaddress 202 $(bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 -rpcwallet=admin getnewaddress); \
-          bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 -rpcwallet=sequencer-wallet generatetoaddress 202 $(bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 -rpcwallet=sequencer-wallet getnewaddress); \
-          bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 -rpcwallet=batch-prover-wallet generatetoaddress 202 $(bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 -rpcwallet=batch-prover-wallet getnewaddress); \
-        fi; \
-
-        bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 getblockchaininfo"
+        "WALLETS=$(bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=20443 listwallets) && \
+        echo \"$$WALLETS\" | grep -q '\"admin\"' && \
+        echo \"$$WALLETS\" | grep -q '\"sequencer-wallet\"' && \
+        echo \"$$WALLETS\" | grep -q '\"batch-prover-wallet\"'"
       ]
       interval: 2s
       timeout: 15s
       retries: 10
-    volumes:
-      - bitcoin_regtest:/home/bitcoin/.bitcoin
     networks:
       - clementine-network
 
