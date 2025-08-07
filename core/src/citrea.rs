@@ -112,10 +112,6 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
 
     /// Returns the L2 block height range for the given L1 block height.
     ///
-    /// TODO: This is not the best way to do this, but it's a quick fix for now
-    /// it will attempt to fetch the light client proof max_attempts times with
-    /// 1 second intervals.
-    ///
     /// # Parameters
     ///
     /// - `block_height`: L1 block height.

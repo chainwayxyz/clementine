@@ -825,7 +825,6 @@ impl Database {
         deposit_id: u32,
         operator_xonly_pk: XOnlyPublicKey,
     ) -> Result<Option<(u32, u32)>, BridgeError> {
-        // TODO: check if AND ds.round_idx >= cr.round_idx is correct or if we should use = instead
         let query = sqlx::query_as::<_, (i32, i32)>(
             "WITH current_round AS (
                     SELECT round_idx
