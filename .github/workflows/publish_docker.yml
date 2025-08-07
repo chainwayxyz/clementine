@@ -2,8 +2,8 @@ name: Dockerization
 
 on:
   push:
-    branches:
-      - main
+    # branches:
+    #   - main
 
 env:
   CARGO_TERM_COLOR: always
@@ -66,8 +66,8 @@ jobs:
 
     env:
       INFO_LOG_FILE: ${{ github.workspace }}/test-logs/debug/debug-all-features-test.log
-      BQR_ALIAS: bitcoin-cli -regtest -rpcport=20443 -rpcuser=admin -rpcpassword=admin
-      BITCOIN_RPC_URL: http://127.0.0.1:20443
+      BQR_ALIAS: bitcoin-cli -regtest -rpcport=20443 -rpcuser=admin -rpcpassword=admin -rpcwallet=admin
+      BITCOIN_RPC_URL: http://127.0.0.1:20443/wallet/admin
 
     steps:
       - name: Collect Workflow Telemetry
