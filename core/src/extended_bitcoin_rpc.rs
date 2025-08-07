@@ -220,13 +220,12 @@ impl RetryableError for BitcoinRPCError {
 }
 
 /// Bitcoin RPC wrapper. Extended RPC provides useful wrapper functions for
-/// common operations, as well as direct access to Bitcoin RPC. Bitcoin RPC can
-/// be directly accessed via `client` member.
+/// common operations, as well as direct access to Bitcoin RPC.
 #[derive(Clone)]
 pub struct ExtendedBitcoinRpc {
-    pub url: String,
-    pub client: Arc<Client>,
-    pub retry_config: RetryConfig,
+    url: String,
+    client: Arc<Client>,
+    retry_config: RetryConfig,
 
     #[cfg(test)]
     cached_mining_address: Arc<tokio::sync::RwLock<Option<String>>>,
