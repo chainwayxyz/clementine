@@ -128,7 +128,6 @@ async fn nonce_aggregator(
             siginfo.signature_id
         );
 
-        // TODO: consider spawn_blocking here
         let agg_nonce = aggregate_nonces(pub_nonces.iter().collect::<Vec<_>>().as_slice())?;
 
         agg_nonce_sender
@@ -165,7 +164,6 @@ async fn nonce_aggregator(
 
     tracing::trace!("Received nonces for movetx in nonce_aggregator");
 
-    // TODO: consider spawn_blocking here
     let move_tx_agg_nonce = aggregate_nonces(pub_nonces.iter().collect::<Vec<_>>().as_slice())?;
 
     let pub_nonces = try_join_all(nonce_streams.iter_mut().map(|s| async {
@@ -366,7 +364,6 @@ async fn signature_distributor(
             params: Some(Params::SchnorrSig(queue_item.final_sig)),
         };
 
-        // TODO: consider the waiting of each verifier here.
         try_join_all(deposit_finalize_sender.iter().map(|tx| {
             let final_params = final_params.clone();
             async move {

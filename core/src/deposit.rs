@@ -321,8 +321,6 @@ pub struct OperatorData {
     pub collateral_funding_outpoint: OutPoint,
 }
 
-// TODO: remove this impl, this is done to avoid checking the address, instead
-// we should be checking address against a paramset
 impl<'de> serde::Deserialize<'de> for OperatorData {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
