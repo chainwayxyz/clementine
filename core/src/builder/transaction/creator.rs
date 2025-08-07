@@ -404,12 +404,12 @@ impl<'a, 'b> ReimburseDbCache<'a, 'b> {
 #[derive(Debug, Clone)]
 pub struct ContractContext {
     /// required
-    operator_xonly_pk: XOnlyPublicKey,
-    round_idx: RoundIndex,
-    paramset: &'static ProtocolParamset,
+    pub operator_xonly_pk: XOnlyPublicKey,
+    pub round_idx: RoundIndex,
+    pub paramset: &'static ProtocolParamset,
     /// optional (only used for after kickoff)
-    kickoff_idx: Option<u32>,
-    deposit_data: Option<DepositData>,
+    pub kickoff_idx: Option<u32>,
+    pub deposit_data: Option<DepositData>,
     signer: Option<Actor>,
 }
 
@@ -447,7 +447,8 @@ impl ContractContext {
     }
 
     /// Contains all necessary context for creating txhandlers for a specific operator, kickoff utxo, and a deposit
-    /// Additionally holds signer of an actor that can generate the actual winternitz public keys.
+    /// Additionally holds signer of an actor that can generate the actual winternitz public keys for operator,
+    /// and append evm address to the challenge tx for verifier.
     pub fn new_context_with_signer(
         kickoff_data: KickoffData,
         deposit_data: DepositData,
@@ -462,6 +463,11 @@ impl ContractContext {
             deposit_data: Some(deposit_data),
             signer: Some(signer),
         }
+    }
+
+    /// Returns if the context is for a kickoff
+    pub fn is_context_for_kickoff(&self) -> bool {
+        self.deposit_data.is_some() && self.kickoff_idx.is_some()
     }
 }
 

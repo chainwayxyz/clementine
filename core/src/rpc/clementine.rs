@@ -1185,7 +1185,7 @@ pub mod clementine_operator_client {
         pub async fn withdraw(
             &mut self,
             request: impl tonic::IntoRequest<super::WithdrawParams>,
-        ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status> {
+        ) -> std::result::Result<tonic::Response<super::RawSignedTx>, tonic::Status> {
             self.inner
                 .ready()
                 .await
@@ -1201,6 +1201,44 @@ pub mod clementine_operator_client {
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("clementine.ClementineOperator", "Withdraw"));
+            self.inner.unary(req, path, codec).await
+        }
+        /// For a given deposit outpoint, determines the next step in the kickoff process the operator is in,
+        /// and returns the raw signed txs that the operator needs to send next, for enabling reimbursement process
+        /// without automation.
+        ///
+        /// # Parameters
+        /// - deposit_outpoint: Deposit outpoint to create the kickoff for
+        ///
+        /// # Returns
+        /// - Raw signed txs that the operator needs to send next
+        pub async fn get_reimbursement_txs(
+            &mut self,
+            request: impl tonic::IntoRequest<super::Outpoint>,
+        ) -> std::result::Result<
+            tonic::Response<super::SignedTxsWithType>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/clementine.ClementineOperator/GetReimbursementTxs",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "clementine.ClementineOperator",
+                        "GetReimbursementTxs",
+                    ),
+                );
             self.inner.unary(req, path, codec).await
         }
         /// Signs all tx's it can according to given transaction type (use it with AllNeededForDeposit to get almost all tx's)
@@ -2289,7 +2327,23 @@ pub mod clementine_operator_server {
         async fn withdraw(
             &self,
             request: tonic::Request<super::WithdrawParams>,
-        ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
+        ) -> std::result::Result<tonic::Response<super::RawSignedTx>, tonic::Status>;
+        /// For a given deposit outpoint, determines the next step in the kickoff process the operator is in,
+        /// and returns the raw signed txs that the operator needs to send next, for enabling reimbursement process
+        /// without automation.
+        ///
+        /// # Parameters
+        /// - deposit_outpoint: Deposit outpoint to create the kickoff for
+        ///
+        /// # Returns
+        /// - Raw signed txs that the operator needs to send next
+        async fn get_reimbursement_txs(
+            &self,
+            request: tonic::Request<super::Outpoint>,
+        ) -> std::result::Result<
+            tonic::Response<super::SignedTxsWithType>,
+            tonic::Status,
+        >;
         /// Signs all tx's it can according to given transaction type (use it with AllNeededForDeposit to get almost all tx's)
         /// Creates the transactions denoted by the deposit and operator_idx, round_idx, and kickoff_idx.
         /// It will create the transaction and sign it with the operator's private key and/or saved nofn signatures.
@@ -2706,7 +2760,7 @@ pub mod clementine_operator_server {
                         T: ClementineOperator,
                     > tonic::server::UnaryService<super::WithdrawParams>
                     for WithdrawSvc<T> {
-                        type Response = super::Empty;
+                        type Response = super::RawSignedTx;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
@@ -2729,6 +2783,55 @@ pub mod clementine_operator_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = WithdrawSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/clementine.ClementineOperator/GetReimbursementTxs" => {
+                    #[allow(non_camel_case_types)]
+                    struct GetReimbursementTxsSvc<T: ClementineOperator>(pub Arc<T>);
+                    impl<
+                        T: ClementineOperator,
+                    > tonic::server::UnaryService<super::Outpoint>
+                    for GetReimbursementTxsSvc<T> {
+                        type Response = super::SignedTxsWithType;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::Outpoint>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as ClementineOperator>::get_reimbursement_txs(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = GetReimbursementTxsSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
