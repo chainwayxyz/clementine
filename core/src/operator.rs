@@ -249,7 +249,7 @@ where
         );
 
         let db = Database::new(&config).await?;
-        let rpc = ExtendedRpc::connect_with_retry(
+        let rpc = ExtendedRpc::connect(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
@@ -1802,7 +1802,7 @@ mod tests {
     // #[tokio::test]
     // async fn set_funding_utxo() {
     //     let mut config = create_test_config_with_thread_name().await;
-    //     let rpc = ExtendedRpc::connect_with_retry(
+    //     let rpc = ExtendedRpc::connect(
     //         config.bitcoin_rpc_url.clone(),
     //         config.bitcoin_rpc_user.clone(),
     //         config.bitcoin_rpc_password.clone(),
@@ -1836,7 +1836,7 @@ mod tests {
     // #[tokio::test]
     // async fn is_profitable() {
     //     let mut config = create_test_config_with_thread_name().await;
-    //     let rpc = ExtendedRpc::connect_with_retry(
+    //     let rpc = ExtendedRpc::connect(
     //         config.bitcoin_rpc_url.clone(),
     //         config.bitcoin_rpc_user.clone(),
     //         config.bitcoin_rpc_password.clone(),

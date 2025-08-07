@@ -67,7 +67,7 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
         let mut config = create_test_config_with_thread_name().await;
         citrea::update_config_with_citrea_e2e_values(&mut config, da, sequencer, None);
 
-        let rpc = ExtendedRpc::connect_with_retry(
+        let rpc = ExtendedRpc::connect(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),

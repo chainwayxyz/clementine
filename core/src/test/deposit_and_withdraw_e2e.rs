@@ -144,7 +144,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             )),
         );
 
-        let rpc = ExtendedRpc::connect_with_retry(
+        let rpc = ExtendedRpc::connect(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
@@ -762,6 +762,7 @@ async fn testnet4_mock_citrea_run_truthful() {
         config.bitcoin_rpc_url.clone(),
         config.bitcoin_rpc_user.clone(),
         config.bitcoin_rpc_password.clone(),
+        None,
     )
     .await
     .unwrap();

@@ -83,6 +83,7 @@ async fn main() {
                 config.bitcoin_rpc_url.clone(),
                 config.bitcoin_rpc_user.clone(),
                 config.bitcoin_rpc_password.clone(),
+                None,
             )
             .await
             .expect("Failed to connect to Bitcoin RPC");

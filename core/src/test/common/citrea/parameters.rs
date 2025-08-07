@@ -289,7 +289,7 @@ mod tests {
     #[ignore = "Manual testing utility"]
     #[tokio::test]
     async fn test_get_citrea_deposit_params() {
-        let rpc = ExtendedRpc::connect_with_retry(
+        let rpc = ExtendedRpc::connect(
             "http://127.0.0.1:38332".to_string(),
             "bitcoin".to_string().into(),
             "bitcoin".to_string().into(),

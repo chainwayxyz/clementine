@@ -805,7 +805,7 @@ mod tests {
     async fn test_generate_chain_state_from_height_testnet4() {
         // set BITCOIN_NETWORK to regtest
         std::env::set_var("BITCOIN_NETWORK", "testnet4");
-        let rpc = ExtendedRpc::connect_with_retry(
+        let rpc = ExtendedRpc::connect(
             "http://127.0.0.1:48332".to_string(),
             "admin".to_string().into(),
             "admin".to_string().into(),

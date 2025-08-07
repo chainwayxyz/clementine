@@ -18,6 +18,8 @@ use bitcoin::OutPoint;
 use bitcoin::ScriptBuf;
 use bitcoin::TxOut;
 use bitcoin::Txid;
+use bitcoincore_rpc::json::GetBlockResult;
+use bitcoincore_rpc::json::GetTxOutResult;
 use bitcoincore_rpc::Auth;
 use bitcoincore_rpc::Client;
 use bitcoincore_rpc::RpcApi;
@@ -80,26 +82,6 @@ impl Default for RetryConfig {
 }
 
 impl RetryConfig {
-    /// Create a fast retry config for quick operations
-    pub fn fast() -> Self {
-        Self {
-            initial_delay: Duration::from_millis(50),
-            max_delay: Duration::from_secs(5),
-            max_attempts: 3,
-            ..Default::default()
-        }
-    }
-
-    /// Create a slow retry config for heavy operations  
-    pub fn slow() -> Self {
-        Self {
-            initial_delay: Duration::from_millis(500),
-            max_delay: Duration::from_secs(60),
-            max_attempts: 10,
-            ..Default::default()
-        }
-    }
-
     /// Create a custom retry config
     pub fn custom(initial_delay: Duration, max_delay: Duration, max_attempts: usize) -> Self {
         Self {
@@ -263,7 +245,7 @@ pub enum BitcoinRPCError {
 
 impl ExtendedRpc {
     /// Connects to Bitcoin RPC and returns a new [`ExtendedRpc`].
-    pub async fn connect(url: String, user: SecretString, password: SecretString) -> Result<Self> {
+    async fn try_connect(url: String, user: SecretString, password: SecretString) -> Result<Self> {
         let auth = Auth::UserPass(
             user.expose_secret().to_string(),
             password.expose_secret().to_string(),
@@ -290,18 +272,33 @@ impl ExtendedRpc {
     /// is either flexible in terms of address type or fixed to a specific type
     /// like P2TR.
     pub async fn get_new_wallet_address(&self) -> Result<Address> {
-        let address = self
-            .client
-            .get_new_address(None, None)
-            .await
-            .wrap_err("Failed to get new address")?
-            .assume_checked();
+        self.with_retry(|| async {
+            self.get_new_address(None, None)
+                .await
+                .wrap_err("Failed to get new address")
+                .map(|addr| addr.assume_checked())
+                .map_err(Into::into)
+        })
+        .await
+    }
 
-        Ok(address)
+    pub async fn get_new_address(
+        &self,
+        label: Option<&str>,
+        address_type: Option<bitcoincore_rpc::json::AddressType>,
+    ) -> Result<Address<bitcoin::address::NetworkUnchecked>> {
+        self.with_retry(|| async {
+            self.client
+                .get_new_address(label, address_type)
+                .await
+                .wrap_err("Failed to get new address")
+                .map_err(Into::into)
+        })
+        .await
     }
 
     /// Connect with built-in retry mechanism using tokio-retry
-    pub async fn connect_with_retry(
+    pub async fn connect(
         url: String,
         user: SecretString,
         password: SecretString,
@@ -324,7 +321,7 @@ impl ExtendedRpc {
         let mut attempt = 0;
         loop {
             attempt += 1;
-            match Self::connect(
+            match Self::try_connect(
                 url_clone.clone(),
                 user_clone.clone(),
                 password_clone.clone(),
@@ -391,7 +388,6 @@ impl ExtendedRpc {
         let backoff_delays = ExponentialBackoff::from_millis(config.backoff_multiplier)
             .max_delay(config.max_delay)
             .factor(config.initial_delay.as_millis() as u64);
-        tracing::debug!("Exponential backoff delays: {:?}", backoff_delays);
         let backoff_delays: Vec<Duration> = backoff_delays
             .take(config.max_attempts)
             .map(|delay| if config.jitter { jitter(delay) } else { delay })
@@ -465,15 +461,13 @@ impl ExtendedRpc {
     /// - [`BitcoinRPCError`]: If the transaction is not confirmed (0) or if
     ///   there was an error retrieving the transaction info.
     pub async fn confirmation_blocks(&self, txid: &bitcoin::Txid) -> Result<u32> {
-        let raw_transaction_results = self
-            .client
+        let raw_tx_res = self
             .get_raw_transaction_info(txid, None)
             .await
             .wrap_err("Failed to get transaction info")?;
-
-        raw_transaction_results
+        raw_tx_res
             .confirmations
-            .ok_or_eyre("No confirmation data")
+            .ok_or_else(|| eyre::eyre!("No confirmation data for transaction {}", txid))
             .map_err(Into::into)
     }
 
@@ -484,12 +478,24 @@ impl ExtendedRpc {
     /// - [`u32`]: Current block height
     pub async fn get_current_chain_height(&self) -> Result<u32> {
         let height = self
-            .client
             .get_block_count()
             .await
-            .wrap_err("Failed to get block count")?;
-
+            .wrap_err("Failed to get current chain height")?;
         Ok(u32::try_from(height).wrap_err("Failed to convert block count to u32")?)
+    }
+
+    /// Retrieves the current block count from the Bitcoin node.
+    pub async fn get_block_count(&self) -> Result<u64> {
+        self.with_retry(|| async {
+            let count = self
+                .client
+                .get_block_count()
+                .await
+                .wrap_err("Failed to get block count")?;
+
+            Ok(count)
+        })
+        .await
     }
 
     /// Checks if an operator's collateral is valid and available for use.
@@ -621,7 +627,6 @@ impl ExtendedRpc {
             }
             let block_hash = self.get_blockhash_of_tx(&round_txid).await?;
             let block_height = self
-                .client
                 .get_block_info(&block_hash)
                 .await
                 .wrap_err(format!(
@@ -671,6 +676,20 @@ impl ExtendedRpc {
         Ok(!self.is_utxo_spent(&current_collateral_outpoint).await?)
     }
 
+    pub async fn get_block_info(&self, block_hash: &BlockHash) -> Result<GetBlockResult> {
+        self.with_retry(|| async {
+            self.client
+                .get_block_info(block_hash)
+                .await
+                .wrap_err(format!(
+                    "Failed to get block info for block hash {}",
+                    block_hash
+                ))
+                .map_err(Into::into)
+        })
+        .await
+    }
+
     /// Returns block hash of a transaction, if confirmed.
     ///
     /// # Parameters
@@ -688,15 +707,12 @@ impl ExtendedRpc {
     ///   there was an error retrieving the transaction info.
     pub async fn get_blockhash_of_tx(&self, txid: &bitcoin::Txid) -> Result<bitcoin::BlockHash> {
         let raw_transaction_results = self
-            .client
             .get_raw_transaction_info(txid, None)
             .await
             .wrap_err("Failed to get transaction info")?;
-
         let Some(blockhash) = raw_transaction_results.blockhash else {
             return Err(eyre::eyre!("Transaction not confirmed: {0}", txid).into());
         };
-
         Ok(blockhash)
     }
 
@@ -714,20 +730,33 @@ impl ExtendedRpc {
         &self,
         height: u64,
     ) -> Result<(bitcoin::BlockHash, bitcoin::block::Header)> {
-        let block_hash = self.client.get_block_hash(height).await.wrap_err(format!(
+        let block_hash = self.get_block_hash(height).await.wrap_err(format!(
             "Couldn't retrieve block hash from height {} from rpc",
             height
         ))?;
-        let block_header = self
-            .client
-            .get_block_header(&block_hash)
-            .await
-            .wrap_err(format!(
-                "Couldn't retrieve block header with block hash {} from rpc",
-                block_hash
-            ))?;
+        let block_header = self.get_block_header(&block_hash).await.wrap_err(format!(
+            "Couldn't retrieve block header with block hash {} from rpc",
+            block_hash
+        ))?;
 
         Ok((block_hash, block_header))
+    }
+
+    pub async fn get_block_header(
+        &self,
+        block_hash: &bitcoin::BlockHash,
+    ) -> Result<bitcoin::block::Header> {
+        self.with_retry(|| async {
+            self.client
+                .get_block_header(block_hash)
+                .await
+                .wrap_err(format!(
+                    "Couldn't retrieve block header with block hash {} from rpc",
+                    block_hash
+                ))
+                .map_err(Into::into)
+        })
+        .await
     }
 
     /// Gets the transactions that created the inputs of a given transaction.
@@ -763,7 +792,6 @@ impl ExtendedRpc {
     /// - [`bitcoin::Transaction`]: Transaction itself.
     pub async fn get_tx_of_txid(&self, txid: &bitcoin::Txid) -> Result<bitcoin::Transaction> {
         let raw_transaction = self
-            .client
             .get_raw_transaction(txid, None)
             .await
             .wrap_err("Failed to get raw transaction")?;
@@ -781,12 +809,36 @@ impl ExtendedRpc {
     /// - [`bool`]: `true` if the transaction is on-chain, `false` otherwise.
     pub async fn is_tx_on_chain(&self, txid: &bitcoin::Txid) -> Result<bool> {
         Ok(self
-            .client
             .get_raw_transaction_info(txid, None)
             .await
             .ok()
             .and_then(|s| s.blockhash)
             .is_some())
+    }
+
+    /// Gets raw transaction info for a given transaction ID with retry logic.
+    ///
+    /// # Parameters
+    /// * `txid`: TXID of the transaction to retrieve info for.
+    /// # Returns
+    /// - [`bitcoincore_rpc::json::RawTransactionInfo`]: Information about the raw transaction.
+    /// # Errors
+    /// - [`bitcoincore_rpc::Error`]: If there was an error retrieving the transaction info.
+    pub async fn get_raw_transaction_info(
+        &self,
+        txid: &bitcoin::Txid,
+        block_hash: Option<&bitcoin::BlockHash>,
+    ) -> Result<bitcoincore_rpc::json::GetRawTransactionResult> {
+        let txid = *txid;
+        let block_hash = block_hash.copied();
+        self.with_retry(|| async {
+            self.client
+                .get_raw_transaction_info(&txid, block_hash.as_ref())
+                .await
+                .wrap_err("Failed to get raw transaction info")
+                .map_err(Into::into)
+        })
+        .await
     }
 
     /// Checks if a transaction UTXO has expected address and amount.
@@ -807,7 +859,6 @@ impl ExtendedRpc {
         amount_sats: Amount,
     ) -> Result<bool> {
         let tx = self
-            .client
             .get_raw_transaction(&outpoint.txid, None)
             .await
             .wrap_err("Failed to get transaction")?;
@@ -850,12 +901,27 @@ impl ExtendedRpc {
         }
 
         let res = self
-            .client
             .get_tx_out(&outpoint.txid, outpoint.vout, Some(false))
             .await
             .wrap_err("Failed to get transaction output")?;
 
         Ok(res.is_none())
+    }
+
+    pub async fn get_tx_out(
+        &self,
+        txid: &bitcoin::Txid,
+        vout: u32,
+        include_mempool: Option<bool>,
+    ) -> Result<Option<GetTxOutResult>> {
+        self.with_retry(|| async {
+            self.client
+                .get_tx_out(txid, vout, include_mempool)
+                .await
+                .wrap_err("Failed to get transaction output")
+                .map_err(Into::into)
+        })
+        .await
     }
 
     /// Attempts to mine the specified number of blocks and returns their hashes.
@@ -876,7 +942,7 @@ impl ExtendedRpc {
             return Ok(vec![]);
         }
 
-        self.with_retry_config(RetryConfig::fast(), || async {
+        self.with_retry_config(RetryConfig::default(), || async {
             self.try_mine(block_num).await
         })
         .await
@@ -927,7 +993,6 @@ impl ExtendedRpc {
                     addr.clone()
                 } else {
                     let new_addr = self
-                        .client
                         .get_new_address(None, None)
                         .await
                         .wrap_err("Failed to get new address")?
@@ -943,12 +1008,26 @@ impl ExtendedRpc {
             .wrap_err("Invalid address format")?
             .assume_checked();
         let blocks = self
-            .client
             .generate_to_address(block_num, &address)
             .await
             .wrap_err("Failed to generate to address")?;
 
         Ok(blocks)
+    }
+
+    pub async fn generate_to_address(
+        &self,
+        block_num: u64,
+        address: &Address,
+    ) -> Result<Vec<BlockHash>> {
+        self.with_retry(|| async {
+            self.client
+                .generate_to_address(block_num, address)
+                .await
+                .wrap_err("Failed to generate to address")
+                .map_err(Into::into)
+        })
+        .await
     }
 
     /// Gets the number of transactions in the mempool.
@@ -963,6 +1042,17 @@ impl ExtendedRpc {
             .await
             .wrap_err("Failed to get mempool info")?;
         Ok(mempool_info.size)
+    }
+
+    pub async fn get_mempool_info(&self) -> Result<bitcoincore_rpc::json::GetMempoolInfoResult> {
+        self.with_retry(|| async {
+            self.client
+                .get_mempool_info()
+                .await
+                .wrap_err("Failed to get mempool info")
+                .map_err(Into::into)
+        })
+        .await
     }
 
     /// Sends a specified amount of Bitcoins to the given address.
@@ -1007,7 +1097,6 @@ impl ExtendedRpc {
     /// - [`TxOut`]: The transaction output at the specified outpoint.
     pub async fn get_txout_from_outpoint(&self, outpoint: &OutPoint) -> Result<TxOut> {
         let tx = self
-            .client
             .get_raw_transaction(&outpoint.txid, None)
             .await
             .wrap_err("Failed to get transaction")?;
@@ -1022,6 +1111,21 @@ impl ExtendedRpc {
             .to_owned();
 
         Ok(txout)
+    }
+
+    pub async fn get_raw_transaction(
+        &self,
+        txid: &Txid,
+        block_hash: Option<&BlockHash>,
+    ) -> Result<bitcoin::Transaction> {
+        self.with_retry(|| async {
+            self.client
+                .get_raw_transaction(txid, block_hash)
+                .await
+                .wrap_err("Failed to get raw transaction")
+                .map_err(Into::into)
+        })
+        .await
     }
 
     /// Bumps the fee of a transaction to meet or exceed a target fee rate. Does
@@ -1052,7 +1156,6 @@ impl ExtendedRpc {
     pub async fn bump_fee_with_fee_rate(&self, txid: Txid, fee_rate: FeeRate) -> Result<Txid> {
         // Check if transaction is already confirmed
         let transaction_info = self
-            .client
             .get_transaction(&txid, None)
             .await
             .wrap_err("Failed to get transaction")?;
@@ -1088,7 +1191,6 @@ impl ExtendedRpc {
 
         // Get node's incremental fee to determine how much to increase
         let network_info = self
-            .client
             .get_network_info()
             .await
             .wrap_err("Failed to get network info")?;
@@ -1157,6 +1259,32 @@ impl ExtendedRpc {
             .ok_or_eyre("Failed to get Txid from bump_fee_result")?)
     }
 
+    pub async fn get_transaction(
+        &self,
+        txid: &Txid,
+        include_watchonly: Option<bool>,
+    ) -> Result<bitcoincore_rpc::json::GetTransactionResult> {
+        self.with_retry(|| async {
+            self.client
+                .get_transaction(txid, include_watchonly)
+                .await
+                .wrap_err("Failed to get transaction")
+                .map_err(Into::into)
+        })
+        .await
+    }
+
+    pub async fn get_network_info(&self) -> Result<bitcoincore_rpc::json::GetNetworkInfoResult> {
+        self.with_retry(|| async {
+            self.client
+                .get_network_info()
+                .await
+                .wrap_err("Failed to get network info")
+                .map_err(Into::into)
+        })
+        .await
+    }
+
     /// Creates a new instance of the [`ExtendedRpc`] with a new client
     /// connection for cloning. This is needed when you need a separate
     /// connection to the Bitcoin RPC server.
@@ -1176,7 +1304,7 @@ impl ExtendedRpc {
     // Convenience methods with retry built-in
 
     /// Get block hash with retry
-    pub async fn get_block_hash_with_retry(&self, height: u64) -> Result<BlockHash> {
+    pub async fn get_block_hash(&self, height: u64) -> Result<BlockHash> {
         self.with_retry(|| async {
             self.client
                 .get_block_hash(height)
@@ -1185,30 +1313,6 @@ impl ExtendedRpc {
                 .map_err(Into::into)
         })
         .await
-    }
-
-    /// Get transaction with retry
-    pub async fn get_tx_with_retry(&self, txid: &Txid) -> Result<bitcoin::Transaction> {
-        let txid = *txid;
-        self.with_retry(|| async { self.get_tx_of_txid(&txid).await })
-            .await
-    }
-
-    /// Send to address with retry
-    pub async fn send_to_address_with_retry(
-        &self,
-        address: &Address,
-        amount_sats: Amount,
-    ) -> Result<OutPoint> {
-        let address = address.clone();
-        self.with_retry(|| async { self.send_to_address(&address, amount_sats).await })
-            .await
-    }
-
-    /// Bump fee with retry
-    pub async fn bump_fee_with_retry(&self, txid: Txid, fee_rate: FeeRate) -> Result<Txid> {
-        self.with_retry(|| async { self.bump_fee_with_fee_rate(txid, fee_rate).await })
-            .await
     }
 }
 
@@ -1223,7 +1327,6 @@ mod tests {
     };
     use bitcoin::Amount;
     use bitcoin::{amount, key::Keypair, Address, FeeRate, XOnlyPublicKey};
-    use bitcoincore_rpc::RpcApi;
     use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
     use citrea_e2e::config::{BitcoinConfig, TestCaseDockerConfig};
     use citrea_e2e::test_case::TestCaseRunner;
@@ -1238,16 +1341,13 @@ mod tests {
         let rpc = regtest.rpc();
 
         rpc.mine_blocks(101).await.unwrap();
-        let height = rpc.client.get_block_count().await.unwrap();
-        let hash = rpc.client.get_block_hash(height).await.unwrap();
+        let height = rpc.get_block_count().await.unwrap();
+        let hash = rpc.get_block_hash(height).await.unwrap();
 
         let cloned_rpc = rpc.clone_inner().await.unwrap();
         assert_eq!(cloned_rpc.url, rpc.url);
-        assert_eq!(cloned_rpc.client.get_block_count().await.unwrap(), height);
-        assert_eq!(
-            cloned_rpc.client.get_block_hash(height).await.unwrap(),
-            hash
-        );
+        assert_eq!(cloned_rpc.get_block_count().await.unwrap(), height);
+        assert_eq!(cloned_rpc.get_block_hash(height).await.unwrap(), hash);
     }
 
     #[tokio::test]
@@ -1282,9 +1382,9 @@ mod tests {
         assert!(rpc.is_utxo_spent(&utxo).await.is_err());
 
         rpc.mine_blocks(1).await.unwrap();
-        let height = rpc.client.get_block_count().await.unwrap();
+        let height = rpc.get_block_count().await.unwrap();
         assert_eq!(height as u32, rpc.get_current_chain_height().await.unwrap());
-        let blockhash = rpc.client.get_block_hash(height).await.unwrap();
+        let blockhash = rpc.get_block_hash(height).await.unwrap();
 
         // On chain.
         assert_eq!(rpc.confirmation_blocks(&utxo.txid).await.unwrap(), 1);
@@ -1304,7 +1404,7 @@ mod tests {
         let height = rpc.get_current_chain_height().await.unwrap();
         let (hash, header) = rpc.get_block_info_by_height(height.into()).await.unwrap();
         assert_eq!(blockhash, hash);
-        assert_eq!(rpc.client.get_block_header(&hash).await.unwrap(), header);
+        assert_eq!(rpc.get_block_header(&hash).await.unwrap(), header);
     }
 
     #[tokio::test]
@@ -1400,7 +1500,7 @@ mod tests {
                 None,
             );
 
-            let rpc = ExtendedRpc::connect_with_retry(
+            let rpc = ExtendedRpc::connect(
                 config.bitcoin_rpc_url.clone(),
                 config.bitcoin_rpc_user.clone(),
                 config.bitcoin_rpc_password.clone(),
@@ -1412,8 +1512,8 @@ mod tests {
             // Reorg starts here.
             f.bitcoin_nodes.disconnect_nodes().await?;
 
-            let before_reorg_tip_height = rpc.client.get_block_count().await?;
-            let before_reorg_tip_hash = rpc.client.get_block_hash(before_reorg_tip_height).await?;
+            let before_reorg_tip_height = rpc.get_block_count().await?;
+            let before_reorg_tip_hash = rpc.get_block_hash(before_reorg_tip_height).await?;
 
             let address =
                 Actor::new(config.secret_key, None, config.protocol_paramset.network).address;
@@ -1432,13 +1532,13 @@ mod tests {
             f.bitcoin_nodes.wait_for_sync(None).await?;
 
             // Check that reorg happened.
-            let current_tip_height = rpc.client.get_block_count().await?;
+            let current_tip_height = rpc.get_block_count().await?;
             assert_eq!(
                 before_reorg_tip_height + reorg_depth,
                 current_tip_height,
                 "Re-org did not occur"
             );
-            let current_tip_hash = rpc.client.get_block_hash(current_tip_height).await?;
+            let current_tip_hash = rpc.get_block_hash(current_tip_height).await?;
             assert_ne!(
                 before_reorg_tip_hash, current_tip_hash,
                 "Re-org did not occur"
@@ -1466,26 +1566,6 @@ mod tests {
             assert_eq!(config.initial_delay, Duration::from_millis(100));
             assert_eq!(config.max_delay, Duration::from_secs(30));
             assert_eq!(config.max_attempts, 5);
-            assert_eq!(config.backoff_multiplier, 2);
-            assert!(!config.jitter);
-        }
-
-        #[test]
-        fn test_retry_config_fast() {
-            let config = RetryConfig::fast();
-            assert_eq!(config.initial_delay, Duration::from_millis(50));
-            assert_eq!(config.max_delay, Duration::from_secs(5));
-            assert_eq!(config.max_attempts, 3);
-            assert_eq!(config.backoff_multiplier, 2);
-            assert!(!config.jitter);
-        }
-
-        #[test]
-        fn test_retry_config_slow() {
-            let config = RetryConfig::slow();
-            assert_eq!(config.initial_delay, Duration::from_millis(500));
-            assert_eq!(config.max_delay, Duration::from_secs(60));
-            assert_eq!(config.max_attempts, 10);
             assert_eq!(config.backoff_multiplier, 2);
             assert!(!config.jitter);
         }
@@ -1706,7 +1786,7 @@ mod tests {
             let mock = MockExtendedRpc::new(0, true); // Never fail
             let real_rpc = MockExtendedRpc::create_real_instance().await;
 
-            let config = RetryConfig::fast();
+            let config = RetryConfig::default();
             let result = real_rpc
                 .with_retry_config(config, || async { mock.mock_operation().await })
                 .await;
@@ -1766,7 +1846,7 @@ mod tests {
             let mock = MockExtendedRpc::new(1, false); // Fail with non-retryable error
             let real_rpc = MockExtendedRpc::create_real_instance().await;
 
-            let config = RetryConfig::fast();
+            let config = RetryConfig::default();
             let result = real_rpc
                 .with_retry_config(config, || async { mock.mock_operation().await })
                 .await;
@@ -1851,8 +1931,7 @@ mod tests {
             let invalid_user = SecretString::new("invalid_user".to_string().into());
             let invalid_password = SecretString::new("invalid_password".to_string().into());
 
-            let res =
-                ExtendedRpc::connect_with_retry(url, invalid_user, invalid_password, None).await;
+            let res = ExtendedRpc::connect(url, invalid_user, invalid_password, None).await;
 
             assert!(res.is_err());
             assert!(!res.unwrap_err().is_retryable());
@@ -1864,7 +1943,7 @@ mod tests {
             let password = SecretString::new("password".to_string().into());
             let invalid_url = "http://nonexistent-host:8332".to_string();
 
-            let res = ExtendedRpc::connect_with_retry(invalid_url, user, password, None).await;
+            let res = ExtendedRpc::connect(invalid_url, user, password, None).await;
 
             assert!(res.is_err());
             assert!(!res.unwrap_err().is_retryable());
@@ -1882,17 +1961,17 @@ mod tests {
 
             // Mine a block first
             rpc.mine_blocks(1).await.unwrap();
-            let height = rpc.client.get_block_count().await.unwrap();
+            let height = rpc.get_block_count().await.unwrap();
 
-            let result = rpc.get_block_hash_with_retry(height).await;
+            let result = rpc.get_block_hash(height).await;
             assert!(result.is_ok());
 
-            let expected_hash = rpc.client.get_block_hash(height).await.unwrap();
+            let expected_hash = rpc.get_block_hash(height).await.unwrap();
             assert_eq!(result.unwrap(), expected_hash);
         }
 
         #[tokio::test]
-        async fn test_get_tx_with_retry() {
+        async fn test_get_tx_out_with_retry() {
             let mut config = create_test_config_with_thread_name().await;
             let regtest = create_regtest_rpc(&mut config).await;
             let rpc = regtest.rpc();
@@ -1905,7 +1984,7 @@ mod tests {
 
             let utxo = rpc.send_to_address(&address, amount).await.unwrap();
 
-            let result = rpc.get_tx_with_retry(&utxo.txid).await;
+            let result = rpc.get_tx_of_txid(&utxo.txid).await;
             assert!(result.is_ok());
 
             let tx = result.unwrap();
@@ -1923,7 +2002,7 @@ mod tests {
             let address = Address::p2tr(&SECP, xonly, None, config.protocol_paramset.network);
             let amount = Amount::from_sat(10000);
 
-            let result = rpc.send_to_address_with_retry(&address, amount).await;
+            let result = rpc.send_to_address(&address, amount).await;
             assert!(result.is_ok());
 
             let outpoint = result.unwrap();
@@ -1948,7 +2027,7 @@ mod tests {
             let utxo = rpc.send_to_address(&address, amount).await.unwrap();
             let new_fee_rate = FeeRate::from_sat_per_vb_unchecked(10000);
 
-            let result = rpc.bump_fee_with_retry(utxo.txid, new_fee_rate).await;
+            let result = rpc.bump_fee_with_fee_rate(utxo.txid, new_fee_rate).await;
             assert!(result.is_ok());
 
             let new_txid = result.unwrap();
