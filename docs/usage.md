@@ -135,7 +135,7 @@ protocol-specific settings that affect transactions in the contract.
 ### Environment Variables
 
 It is also possible to use environment variables instead of configuration files.
-The [`.env.example`] file can be taken as a reference for this matter.
+The `.env.example` file can be taken as a reference for this matter.
 
 ### Configuration Source Selection
 
