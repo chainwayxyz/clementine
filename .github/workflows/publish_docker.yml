@@ -35,7 +35,9 @@ jobs:
           context: .
           file: ./scripts/docker/Dockerfile
           push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/clementine:${{ github.sha }}
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/clementine:${{ github.sha }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/clementine:latest
 
   build_and_publish_automation:
     name: Build and publish Docker image with automation flag
@@ -57,7 +59,9 @@ jobs:
           context: .
           file: ./scripts/docker/Dockerfile.automation
           push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/clementine-automation:${{ github.sha }}
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/clementine-automation:${{ github.sha }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/clementine-automation:latest
 
   docker_compose_regtest_deposit:
     name: Run deposit script with the new Docker image on Regtest

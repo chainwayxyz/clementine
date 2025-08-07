@@ -108,7 +108,7 @@ services:
         condition: service_healthy
       citrea_full_node:
         condition: service_started
-    image: chainwayxyz/clementine:latest
+    image: chainwayxyz/clementine
     platform: linux/amd64
     container_name: clementine_verifier
     environment:
