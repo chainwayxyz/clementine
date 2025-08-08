@@ -664,7 +664,6 @@ where
         // send payout tx using RBF
         let funded_tx = self
             .rpc
-            .client
             .fund_raw_transaction(
                 payout_txhandler.get_cached_tx(),
                 Some(&bitcoincore_rpc::json::FundRawTransactionOptions {
@@ -689,7 +688,6 @@ where
         let signed_tx: Transaction = bitcoin::consensus::deserialize(
             &self
                 .rpc
-                .client
                 .sign_raw_transaction_with_wallet(&funded_tx, None, None)
                 .await
                 .wrap_err("Failed to sign funded tx through bitcoin RPC")?
@@ -698,7 +696,6 @@ where
         .wrap_err("Failed to deserialize signed tx")?;
 
         self.rpc
-            .client
             .send_raw_transaction(&signed_tx)
             .await
             .wrap_err("Failed to send transaction to signed tx")?;

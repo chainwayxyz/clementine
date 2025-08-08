@@ -528,44 +528,45 @@ pub async fn run_single_deposit<C: CitreaClientT>(
             }
         }
 
-    // Uncomment below to debug the move tx.
-    // let transaction = rpc
-    //     .get_raw_transaction(&move_txid, None)
-    //     .await
-    //     .expect("a");
-    // let tx_info: bitcoincore_rpc::json::GetRawTransactionResult = rpc
-    //     .get_raw_transaction_info(&move_txid, None)
-    //     .await
-    //     .expect("a");
-    // let block: bitcoincore_rpc::json::GetBlockResult = rpc
-    //     .get_block_info(&tx_info.blockhash.unwrap())
-    //     .await
-    //     .expect("a");
-    // let block_height = block.height;
-    // let block = rpc
-    //     .get_block(&tx_info.blockhash.unwrap())
-    //     .await
-    //     .expect("a");
-    // let transaction_params = get_citrea_deposit_params(
-    //     &rpc,
-    //     transaction.clone(),
-    //     block,
-    //     block_height as u32,
-    //     move_txid,
-    // ).await?;
-    // println!("Move tx Transaction params: {:?}", transaction_params);
-    // println!(
-    //     "Move tx: {:?}",
-    //     hex::encode(bitcoin::consensus::serialize(&transaction))
-    // );
+        // Uncomment below to debug the move tx.
+        // let transaction = rpc
+        //     .get_raw_transaction(&move_txid, None)
+        //     .await
+        //     .expect("a");
+        // let tx_info: bitcoincore_rpc::json::GetRawTransactionResult = rpc
+        //     .get_raw_transaction_info(&move_txid, None)
+        //     .await
+        //     .expect("a");
+        // let block: bitcoincore_rpc::json::GetBlockResult = rpc
+        //     .get_block_info(&tx_info.blockhash.unwrap())
+        //     .await
+        //     .expect("a");
+        // let block_height = block.height;
+        // let block = rpc
+        //     .get_block(&tx_info.blockhash.unwrap())
+        //     .await
+        //     .expect("a");
+        // let transaction_params = get_citrea_deposit_params(
+        //     &rpc,
+        //     transaction.clone(),
+        //     block,
+        //     block_height as u32,
+        //     move_txid,
+        // ).await?;
+        // println!("Move tx Transaction params: {:?}", transaction_params);
+        // println!(
+        //     "Move tx: {:?}",
+        //     hex::encode(bitcoin::consensus::serialize(&transaction))
+        // );
 
-    Ok((
-        actors,
-        deposit_info,
-        move_txid,
-        deposit_blockhash,
-        verifiers_public_keys,
-    ))
+        Ok((
+            actors,
+            deposit_info,
+            move_txid,
+            deposit_blockhash,
+            verifiers_public_keys,
+        ))
+    }
 }
 
 /// Runs a single replacement deposit transaction. It will replace the old movetx using the nofn path, so it needs
