@@ -287,12 +287,37 @@ mod tests {
                     #[cfg(feature = "automation")]
                     {
                         assert!(status.automation);
-                        assert!(status.tx_sender_synced_height.expect("tx_sender_synced_height is None") > 0);
-                        assert!(status.finalized_synced_height.expect("finalized_synced_height is None") > 0);
-                        assert!(status.hcp_last_proven_height.expect("hcp_last_proven_height is None") > 0);
+                        assert!(
+                            status
+                                .tx_sender_synced_height
+                                .expect("tx_sender_synced_height is None")
+                                > 0
+                        );
+                        assert!(
+                            status
+                                .finalized_synced_height
+                                .expect("finalized_synced_height is None")
+                                > 0
+                        );
+                        assert!(
+                            status
+                                .hcp_last_proven_height
+                                .expect("hcp_last_proven_height is None")
+                                > 0
+                        );
                         assert!(status.rpc_tip_height.expect("rpc_tip_height is None") > 0);
-                        assert!(status.bitcoin_syncer_synced_height.expect("bitcoin_syncer_synced_height is None") > 0);
-                        assert!(status.state_manager_next_height.expect("state_manager_next_height is None") > 0);
+                        assert!(
+                            status
+                                .bitcoin_syncer_synced_height
+                                .expect("bitcoin_syncer_synced_height is None")
+                                > 0
+                        );
+                        assert!(
+                            status
+                                .state_manager_next_height
+                                .expect("state_manager_next_height is None")
+                                > 0
+                        );
                     }
                     #[cfg(not(feature = "automation"))]
                     {
@@ -300,17 +325,47 @@ mod tests {
                             entity.entity_id.unwrap().kind.try_into().unwrap();
                         // tx sender and hcp are not running in non-automation mode
                         assert!(!status.automation);
-                        assert!(status.tx_sender_synced_height.expect("tx_sender_synced_height is None") == 0);
+                        assert!(
+                            status
+                                .tx_sender_synced_height
+                                .expect("tx_sender_synced_height is None")
+                                == 0
+                        );
                         if entity_type == EntityType::Verifier {
-                            assert!(status.finalized_synced_height.expect("finalized_synced_height is None") > 0);
+                            assert!(
+                                status
+                                    .finalized_synced_height
+                                    .expect("finalized_synced_height is None")
+                                    > 0
+                            );
                         } else {
                             // operator doesn't run finalized block fetcher in non-automation mode
-                            assert!(status.finalized_synced_height.expect("finalized_synced_height is None") == 0);
+                            assert!(
+                                status
+                                    .finalized_synced_height
+                                    .expect("finalized_synced_height is None")
+                                    == 0
+                            );
                         }
-                        assert!(status.hcp_last_proven_height.expect("hcp_last_proven_height is None") == 0);
+                        assert!(
+                            status
+                                .hcp_last_proven_height
+                                .expect("hcp_last_proven_height is None")
+                                == 0
+                        );
                         assert!(status.rpc_tip_height.expect("rpc_tip_height is None") > 0);
-                        assert!(status.bitcoin_syncer_synced_height.expect("bitcoin_syncer_synced_height is None") > 0);
-                        assert!(status.state_manager_next_height.expect("state_manager_next_height is None") == 0);
+                        assert!(
+                            status
+                                .bitcoin_syncer_synced_height
+                                .expect("bitcoin_syncer_synced_height is None")
+                                > 0
+                        );
+                        assert!(
+                            status
+                                .state_manager_next_height
+                                .expect("state_manager_next_height is None")
+                                == 0
+                        );
                     }
                 }
                 crate::rpc::clementine::entity_status_with_id::StatusResult::Err(error) => {

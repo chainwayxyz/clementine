@@ -1,10 +1,8 @@
 use ark_ff::PrimeField;
 use circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
-use std::collections::HashMap;
 
 use crate::actor::{Actor, TweakCache, WinternitzDerivationPath};
 use crate::bitvm_client::{ClementineBitVMPublicKeys, SECP};
-use crate::builder::script::extract_winternitz_commits;
 use crate::builder::sighash::{create_operator_sighash_stream, PartialSignatureInfo};
 use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::input::UtxoVout;
@@ -20,7 +18,7 @@ use crate::database::DatabaseTransaction;
 use crate::deposit::{DepositData, KickoffData, OperatorData};
 use crate::errors::BridgeError;
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
-use crate::header_chain_prover::HeaderChainProver;
+
 use crate::metrics::L1SyncStatusProvider;
 use crate::rpc::clementine::EntityStatus;
 use crate::task::entity_metric_publisher::{
@@ -38,26 +36,34 @@ use bitcoin::secp256k1::{schnorr, Message};
 use bitcoin::{Address, Amount, BlockHash, OutPoint, ScriptBuf, Transaction, TxOut, Txid};
 use bitcoincore_rpc::json::AddressType;
 use bitcoincore_rpc::RpcApi;
-use bitvm::chunk::api::generate_assertions;
 use bitvm::signatures::winternitz;
-use bridge_circuit_host::bridge_circuit_host::{
-    create_spv, prove_bridge_circuit, MAINNET_BRIDGE_CIRCUIT_ELF, REGTEST_BRIDGE_CIRCUIT_ELF,
-    REGTEST_BRIDGE_CIRCUIT_ELF_TEST, SIGNET_BRIDGE_CIRCUIT_ELF, TESTNET4_BRIDGE_CIRCUIT_ELF,
-};
-use bridge_circuit_host::structs::{BridgeCircuitHostParams, WatchtowerContext};
+
 use eyre::{Context, OptionExt};
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 
 #[cfg(feature = "automation")]
-use crate::{
-    states::StateManager,
-    task::IntoTask,
-    tx_sender::{ActivatedWithOutpoint, ActivatedWithTxid, TxSenderClient},
-    utils::FeePayingType,
+use {
+    crate::{
+        builder::script::extract_winternitz_commits,
+        header_chain_prover::HeaderChainProver,
+        states::StateManager,
+        task::IntoTask,
+        tx_sender::{ActivatedWithOutpoint, ActivatedWithTxid, TxSenderClient},
+        utils::FeePayingType,
+    },
+    bitcoin::Witness,
+    bitvm::chunk::api::generate_assertions,
+    bridge_circuit_host::{
+        bridge_circuit_host::{
+            create_spv, prove_bridge_circuit, MAINNET_BRIDGE_CIRCUIT_ELF,
+            REGTEST_BRIDGE_CIRCUIT_ELF, REGTEST_BRIDGE_CIRCUIT_ELF_TEST, SIGNET_BRIDGE_CIRCUIT_ELF,
+            TESTNET4_BRIDGE_CIRCUIT_ELF,
+        },
+        structs::{BridgeCircuitHostParams, WatchtowerContext},
+    },
+    std::collections::HashMap,
 };
-#[cfg(feature = "automation")]
-use bitcoin::Witness;
 
 pub type SecretPreimage = [u8; 20];
 pub type PublicHash = [u8; 20];
