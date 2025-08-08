@@ -15,7 +15,6 @@ use crate::{
     config::BridgeConfig,
     musig2::{nonce_pair, partial_sign, MuSigNoncePair},
 };
-use ark_groth16::verifier;
 use bitcoin::key::Keypair;
 use bitcoin::secp256k1::{Message, PublicKey};
 use bitcoin::{hashes::Hash, script, Amount, TapSighashType};
@@ -54,7 +53,7 @@ fn get_nonces(
 ) -> Result<(Vec<MuSigNoncePair>, AggregatedNonce), BridgeError> {
     let nonce_pairs: Vec<MuSigNoncePair> = verifiers_secret_public_keys
         .iter()
-        .map(|kp| nonce_pair(kp, &mut secp256k1::rand::thread_rng()))
+        .map(nonce_pair)
         .collect::<Result<Vec<MuSigNoncePair>, _>>()?;
 
     let agg_nonce = aggregate_nonces(
@@ -63,7 +62,7 @@ fn get_nonces(
             .map(|(_, musig_pub_nonces)| musig_pub_nonces)
             .collect::<Vec<_>>()
             .as_slice(),
-    );
+    )?;
 
     Ok((nonce_pairs, agg_nonce))
 }
@@ -157,8 +156,7 @@ async fn key_spend() {
             0,
         )
         .unwrap();
-    rpc.client
-        .send_raw_transaction(tx_details.get_cached_tx())
+    rpc.send_raw_transaction(tx_details.get_cached_tx())
         .await
         .unwrap();
 }
@@ -262,8 +260,7 @@ async fn key_spend_with_script() {
             0,
         )
         .unwrap();
-    rpc.client
-        .send_raw_transaction(tx_details.get_cached_tx())
+    rpc.send_raw_transaction(tx_details.get_cached_tx())
         .await
         .unwrap();
 }
@@ -363,8 +360,7 @@ async fn script_spend() {
 
     rpc.mine_blocks(1).await.unwrap();
 
-    rpc.client
-        .send_raw_transaction(tx_details.get_cached_tx())
+    rpc.send_raw_transaction(tx_details.get_cached_tx())
         .await
         .unwrap();
 }
@@ -573,8 +569,7 @@ async fn key_and_script_spend() {
     rpc.mine_blocks(1).await.unwrap();
 
     // Send the transaction
-    rpc.client
-        .send_raw_transaction(test_txhandler_1.get_cached_tx())
+    rpc.send_raw_transaction(test_txhandler_1.get_cached_tx())
         .await
         .unwrap();
 
@@ -596,8 +591,7 @@ async fn key_and_script_spend() {
     rpc.mine_blocks(1).await.unwrap();
 
     // Send the transaction
-    rpc.client
-        .send_raw_transaction(test_txhandler_2.get_cached_tx())
+    rpc.send_raw_transaction(test_txhandler_2.get_cached_tx())
         .await
         .unwrap();
 }

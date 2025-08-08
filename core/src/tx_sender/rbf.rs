@@ -79,7 +79,6 @@ impl TxSender {
         for (idx, input) in tx.input.iter().enumerate() {
             let utxo = self
                 .rpc
-                .client
                 .get_tx_out(
                     &input.previous_output.txid,
                     input.previous_output.vout,
@@ -190,7 +189,6 @@ impl TxSender {
         let outputs = WalletCreateFundedPsbtOutputs(outputs);
 
         self.rpc
-            .client
             .wallet_create_funded_psbt(
                 &tx.input
                     .iter()
@@ -263,6 +261,27 @@ impl TxSender {
                 )
                 .map_err(|e| eyre!("Failed to calculate sighash: {}", e))?;
 
+            #[cfg(test)]
+            let mut sighash = sighash;
+
+            #[cfg(test)]
+            {
+                use bitcoin::sighash::Annex;
+                // This should provide the Sighash for the key spend
+                if let Some(ref annex_bytes) = rbf_signing_info.annex {
+                    let annex = Annex::new(annex_bytes).unwrap();
+                    sighash = sighash_cache
+                        .taproot_signature_hash(
+                            input_index,
+                            &Prevouts::All(&prevouts),
+                            Some(annex),
+                            None,
+                            tap_sighash_type,
+                        )
+                        .map_err(|e| eyre!("Failed to calculate sighash with annex: {}", e))?;
+                }
+            }
+
             // Sign the sighash with our signer
             let signature = self
                 .signer
@@ -282,6 +301,15 @@ impl TxSender {
             decoded_psbt.inputs[input_index].final_script_witness =
                 Some(Witness::from_slice(&[signature.serialize()]));
 
+            #[cfg(test)]
+            {
+                if let Some(ref annex_bytes) = rbf_signing_info.annex {
+                    let mut witness = Witness::from_slice(&[signature.serialize()]);
+                    witness.push(annex_bytes);
+                    decoded_psbt.inputs[input_index].final_script_witness = Some(witness);
+                    tracing::info!("Decoded PSBT: {:?}", decoded_psbt);
+                }
+            }
             // Serialize the signed PSBT back to base64
             Ok(decoded_psbt.to_string())
         } else {
@@ -347,7 +375,7 @@ impl TxSender {
     ///
     /// # Logic:
     /// 1.  **Check for Existing RBF Tx:** Retrieves `last_rbf_txid` for the `try_to_send_id`.
-    /// 2.  **Bump Existing Tx:** If `psbt_bump_fee` exists, it calls `rpc.client.psbt_bump_fee`.
+    /// 2.  **Bump Existing Tx:** If `psbt_bump_fee` exists, it calls `rpc.psbt_bump_fee`.
     ///     - This internally uses the Bitcoin Core `psbtbumpfee` RPC.
     ///     - We then sign the inputs that we can using our Actor and have the wallet sign the rest.
     ///
@@ -421,7 +449,6 @@ impl TxSender {
 
             let bump_result = self
                 .rpc
-                .client
                 .psbt_bump_fee(&last_rbf_txid, Some(&psbt_bump_opts))
                 .await;
 
@@ -459,7 +486,6 @@ impl TxSender {
                     psbt: Some(psbt), ..
                 }) => psbt,
                 Ok(BumpFeeResult { errors, .. }) if !errors.is_empty() => {
-                    // TODO: handle errors here and update the state
                     self.handle_err(
                         format!("psbt_bump_fee failed: {:?}", errors),
                         "rbf_psbt_bump_failed",
@@ -468,7 +494,6 @@ impl TxSender {
                     return Err(SendTxError::Other(eyre!(errors.join(", "))));
                 }
                 Ok(BumpFeeResult { psbt: None, .. }) => {
-                    // TODO: print better msg and update state
                     self.handle_err(
                         "psbt_bump_fee returned no psbt",
                         "rbf_psbt_bump_failed",
@@ -487,7 +512,6 @@ impl TxSender {
             // We rely on the node's wallet here because psbt_bump_fee might add inputs from it.
             let process_result = self
                 .rpc
-                .client
                 .wallet_process_psbt(&bumped_psbt, Some(true), None, None) // sign=true
                 .await;
 
@@ -518,7 +542,6 @@ impl TxSender {
             // Finalize the PSBT
             let finalize_result = self
                 .rpc
-                .client
                 .finalize_psbt(&processed_psbt, None) // extract=true by default
                 .await;
 
@@ -575,7 +598,7 @@ impl TxSender {
             let bumped_txid = final_tx.compute_txid();
 
             // Broadcast the finalized transaction
-            let sent_txid = match self.rpc.client.send_raw_transaction(&final_tx).await {
+            let sent_txid = match self.rpc.send_raw_transaction(&final_tx).await {
                 Ok(sent_txid) if sent_txid == bumped_txid => sent_txid,
                 Ok(other_txid) => {
                     log_error_for_tx!(
@@ -696,7 +719,6 @@ impl TxSender {
             // 2. Process the PSBT (let the wallet sign its inputs)
             let process_result = self
                 .rpc
-                .client
                 .wallet_process_psbt(&psbt, Some(true), None, None)
                 .await
                 .map_err(|err| {
@@ -759,7 +781,7 @@ impl TxSender {
             let initial_txid = final_tx.compute_txid();
 
             // 4. Broadcast the finalized transaction
-            let sent_txid = match self.rpc.client.send_raw_transaction(&final_tx).await {
+            let sent_txid = match self.rpc.send_raw_transaction(&final_tx).await {
                 Ok(sent_txid) => {
                     if sent_txid != initial_txid {
                         let err_msg = format!(
@@ -821,7 +843,7 @@ impl TxSender {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::super::tests::*;
     use super::*;
     use crate::actor::Actor;
@@ -831,9 +853,9 @@ mod tests {
     use crate::builder::transaction::{
         op_return_txout, TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE,
     };
-    use crate::constants::MIN_TAPROOT_AMOUNT;
+    use crate::constants::{MIN_TAPROOT_AMOUNT, NON_STANDARD_V3};
     use crate::errors::BridgeError;
-    use crate::extended_rpc::ExtendedRpc;
+    use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
     use crate::rpc::clementine::tagged_signature::SignatureId;
     use crate::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind};
     use crate::task::{IntoTask, TaskExt};
@@ -846,8 +868,8 @@ mod tests {
     use std::result::Result;
     use std::time::Duration;
 
-    async fn create_rbf_tx(
-        rpc: &ExtendedRpc,
+    pub async fn create_rbf_tx(
+        rpc: &ExtendedBitcoinRpc,
         signer: &Actor,
         network: bitcoin::Network,
         requires_initial_funding: bool,
@@ -901,7 +923,7 @@ mod tests {
     }
 
     async fn create_challenge_tx(
-        rpc: &ExtendedRpc,
+        rpc: &ExtendedBitcoinRpc,
         signer: &Actor,
         network: bitcoin::Network,
     ) -> Result<Transaction, BridgeError> {
@@ -913,7 +935,7 @@ mod tests {
 
         rpc.mine_blocks(1).await?;
 
-        let version = Version::non_standard(3);
+        let version = NON_STANDARD_V3;
 
         let mut txhandler = TxHandlerBuilder::new(TransactionType::Challenge)
             .with_version(version)
@@ -935,7 +957,7 @@ mod tests {
                 value: Amount::from_btc(1.0).unwrap(),
                 script_pubkey: address.script_pubkey(), // In practice, should be the wallet address, not the signer address
             }))
-            .add_output(UnspentTxOut::from_partial(op_return_txout(b"TODO")))
+            .add_output(UnspentTxOut::from_partial(op_return_txout(b"TEST")))
             .finalize();
 
         signer
@@ -979,7 +1001,7 @@ mod tests {
         dbtx.commit().await?;
 
         // Get the current fee rate and increase it for RBF
-        let current_fee_rate = tx_sender._get_fee_rate().await?;
+        let current_fee_rate = tx_sender.get_fee_rate().await?;
 
         // Test send_rbf_tx
         tx_sender
@@ -1030,6 +1052,10 @@ mod tests {
                 Some(RbfSigningInfo {
                     vout: 0,
                     tweak_merkle_root: None,
+                    #[cfg(test)]
+                    annex: None,
+                    #[cfg(test)]
+                    additional_taproot_output_count: None,
                 }),
                 &[], // No cancel outpoints
                 &[], // No cancel txids
@@ -1040,7 +1066,7 @@ mod tests {
         dbtx.commit().await?;
 
         // Get the current fee rate and increase it for RBF
-        let current_fee_rate = tx_sender._get_fee_rate().await?;
+        let current_fee_rate = tx_sender.get_fee_rate().await?;
 
         // Test send_rbf_tx
         tx_sender
@@ -1052,6 +1078,10 @@ mod tests {
                 Some(RbfSigningInfo {
                     vout: 0,
                     tweak_merkle_root: None,
+                    #[cfg(test)]
+                    annex: None,
+                    #[cfg(test)]
+                    additional_taproot_output_count: None,
                 }),
             )
             .await
@@ -1100,6 +1130,10 @@ mod tests {
                 Some(RbfSigningInfo {
                     vout: 0,
                     tweak_merkle_root: None,
+                    #[cfg(test)]
+                    annex: None,
+                    #[cfg(test)]
+                    additional_taproot_output_count: None,
                 }),
                 &[], // No cancel outpoints
                 &[], // No cancel txids
@@ -1110,7 +1144,7 @@ mod tests {
         dbtx.commit().await?;
 
         // Get the current fee rate and increase it for RBF
-        let current_fee_rate = tx_sender._get_fee_rate().await?;
+        let current_fee_rate = tx_sender.get_fee_rate().await?;
 
         // Test send_rbf_tx
         tx_sender
@@ -1122,6 +1156,10 @@ mod tests {
                 Some(RbfSigningInfo {
                     vout: 0,
                     tweak_merkle_root: None,
+                    #[cfg(test)]
+                    annex: None,
+                    #[cfg(test)]
+                    additional_taproot_output_count: None,
                 }),
             )
             .await
@@ -1183,7 +1221,7 @@ mod tests {
         dbtx.commit().await?;
 
         // Get the current fee rate and increase it for RBF
-        let current_fee_rate = tx_sender._get_fee_rate().await?;
+        let current_fee_rate = tx_sender.get_fee_rate().await?;
 
         // Test send_rbf_tx
         tx_sender
@@ -1241,7 +1279,7 @@ mod tests {
             .await?;
         dbtx.commit().await?;
 
-        let current_fee_rate = tx_sender._get_fee_rate().await?;
+        let current_fee_rate = tx_sender.get_fee_rate().await?;
 
         // Create initial TX
         tx_sender
@@ -1253,6 +1291,10 @@ mod tests {
                 Some(RbfSigningInfo {
                     vout: 0,
                     tweak_merkle_root: None,
+                    #[cfg(test)]
+                    annex: None,
+                    #[cfg(test)]
+                    additional_taproot_output_count: None,
                 }),
             )
             .await
@@ -1266,8 +1308,9 @@ mod tests {
             .expect("Transaction should be have debug info");
 
         // Verify that TX is in mempool
+        let initial_txid = tx_debug_info.txid.unwrap().txid;
         rpc.get_tx_of_txid(&bitcoin::Txid::from_byte_array(
-            tx_debug_info.txid.unwrap().txid.try_into().unwrap(),
+            initial_txid.clone().try_into().unwrap(),
         ))
         .await
         .expect("Transaction should be in mempool");
@@ -1287,6 +1330,10 @@ mod tests {
                 Some(RbfSigningInfo {
                     vout: 0,
                     tweak_merkle_root: None,
+                    #[cfg(test)]
+                    annex: None,
+                    #[cfg(test)]
+                    additional_taproot_output_count: None,
                 }),
             )
             .await
@@ -1300,11 +1347,18 @@ mod tests {
             .expect("Transaction should be have debug info");
 
         // Verify that TX is in mempool
+        let changed_txid = tx_debug_info.txid.unwrap().txid;
         rpc.get_tx_of_txid(&bitcoin::Txid::from_byte_array(
-            tx_debug_info.txid.unwrap().txid.try_into().unwrap(),
+            changed_txid.clone().try_into().unwrap(),
         ))
         .await
         .expect("Transaction should be in mempool");
+
+        // Verify that tx has changed.
+        assert_ne!(
+            changed_txid, initial_txid,
+            "Transaction should have been bumped"
+        );
 
         Ok(())
     }
@@ -1332,6 +1386,10 @@ mod tests {
                 Some(RbfSigningInfo {
                     vout: 0,
                     tweak_merkle_root: None,
+                    #[cfg(test)]
+                    annex: None,
+                    #[cfg(test)]
+                    additional_taproot_output_count: None,
                 }),
                 &[],
                 &[],
@@ -1346,10 +1404,7 @@ mod tests {
             async || {
                 rpc.mine_blocks(1).await.unwrap();
 
-                let tx_result = rpc
-                    .client
-                    .get_raw_transaction_info(&tx.compute_txid(), None)
-                    .await;
+                let tx_result = rpc.get_raw_transaction_info(&tx.compute_txid(), None).await;
 
                 Ok(matches!(tx_result, Ok(GetRawTransactionResult {
                     confirmations: Some(confirmations),

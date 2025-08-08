@@ -1,6 +1,6 @@
 //! # Transaction Output Types and Utilities
 //!
-//! This module defines types and utilities for representing and handling transaction outputs used in [`TxHandler`].
+//! This module defines types and utilities for representing and handling transaction outputs used in [`super::TxHandler`].
 //! Main purpose of it is to store the scripts used in the taproot outputs.
 //!
 
@@ -13,7 +13,7 @@ use std::sync::Arc;
 /// Represents a spendable transaction output, including scripts and optional Taproot spend info.
 pub struct UnspentTxOut {
     txout: TxOut,
-    scripts: Vec<Arc<dyn SpendableScript>>, // TODO: Remove either scripts or spendinfo
+    scripts: Vec<Arc<dyn SpendableScript>>,
     spendinfo: Option<TaprootSpendInfo>,
 }
 

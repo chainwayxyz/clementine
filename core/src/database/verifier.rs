@@ -133,11 +133,13 @@ impl Database {
         Ok(())
     }
 
+    /// For the given deposit index, returns the withdrawal utxo associated with it
+    /// If there is no withdrawal utxo set for the deposit, an error is returned
     pub async fn get_withdrawal_utxo_from_citrea_withdrawal(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         citrea_idx: u32,
-    ) -> Result<Option<OutPoint>, BridgeError> {
+    ) -> Result<OutPoint, BridgeError> {
         let query = sqlx::query_as::<_, (Option<TxidDB>, Option<i32>)>(
             "SELECT w.withdrawal_utxo_txid, w.withdrawal_utxo_vout
              FROM withdrawals w
@@ -147,16 +149,19 @@ impl Database {
 
         let results = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
-        results
-            .map(|(txid, vout)| match (txid, vout) {
+        match results {
+            None => Err(eyre::eyre!("Deposit with id {} is not set", citrea_idx).into()),
+            Some((txid, vout)) => match (txid, vout) {
                 (Some(txid), Some(vout)) => Ok(OutPoint {
                     txid: txid.0,
                     vout: u32::try_from(vout)
                         .wrap_err("Failed to convert withdrawal utxo vout to u32")?,
                 }),
-                _ => Err(eyre::eyre!("Unexpected null value").into()),
-            })
-            .transpose()
+                _ => {
+                    Err(eyre::eyre!("Withdrawal utxo is not set for deposit {}", citrea_idx).into())
+                }
+            },
+        }
     }
 
     /// Returns the withdrawal indexes and their spending txid for the given
@@ -304,6 +309,39 @@ impl Database {
             .transpose()
     }
 
+    pub async fn get_payer_xonly_pk_blockhash_and_kickoff_txid_from_deposit_id(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        deposit_id: u32,
+    ) -> Result<(Option<XOnlyPublicKey>, Option<BlockHash>, Option<Txid>), BridgeError> {
+        let query = sqlx::query_as::<
+            _,
+            (
+                Option<XOnlyPublicKeyDB>,
+                Option<BlockHashDB>,
+                Option<TxidDB>,
+            ),
+        >(
+            "SELECT w.payout_payer_operator_xonly_pk, w.payout_tx_blockhash, w.kickoff_txid
+             FROM withdrawals w
+             INNER JOIN deposits d ON d.move_to_vault_txid = w.move_to_vault_txid
+             WHERE d.deposit_id = $1",
+        )
+        .bind(i32::try_from(deposit_id).wrap_err("Failed to convert deposit id to i32")?);
+
+        let result: (
+            Option<XOnlyPublicKeyDB>,
+            Option<BlockHashDB>,
+            Option<TxidDB>,
+        ) = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
+
+        Ok((
+            result.0.map(|pk| pk.0),
+            result.1.map(|block_hash| block_hash.0),
+            result.2.map(|txid| txid.0),
+        ))
+    }
+
     pub async fn set_payout_handled(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
@@ -380,8 +418,7 @@ mod tests {
         assert!(db
             .get_withdrawal_utxo_from_citrea_withdrawal(Some(&mut dbtx), index)
             .await
-            .unwrap()
-            .is_none());
+            .is_err());
         db.set_move_to_vault_txid_from_citrea_deposit(Some(&mut dbtx), index, &txid)
             .await
             .unwrap();
@@ -410,7 +447,6 @@ mod tests {
         let withdrawal_utxo = db
             .get_withdrawal_utxo_from_citrea_withdrawal(Some(&mut dbtx), index)
             .await
-            .unwrap()
             .unwrap();
         assert_eq!(withdrawal_utxo, utxo);
 

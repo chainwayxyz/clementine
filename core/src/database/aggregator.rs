@@ -4,7 +4,7 @@
 
 use super::{wrapper::TxidDB, Database, DatabaseTransaction};
 use crate::{errors::BridgeError, execute_query_with_tx};
-use bitcoin::{consensus, Transaction, Txid};
+use bitcoin::Txid;
 use eyre;
 use sqlx::QueryBuilder;
 
@@ -14,14 +14,14 @@ impl Database {
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         move_txid: &Txid,
-        emergency_stop_tx: &Transaction,
+        encrypted_emergency_stop_tx: &[u8],
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
             "INSERT INTO emergency_stop_sigs (move_txid, emergency_stop_tx) VALUES ($1, $2)
              ON CONFLICT (move_txid) DO NOTHING;",
         )
         .bind(TxidDB(*move_txid))
-        .bind(consensus::serialize(emergency_stop_tx));
+        .bind(encrypted_emergency_stop_tx);
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
 
@@ -33,7 +33,7 @@ impl Database {
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         move_txids: Vec<Txid>,
-    ) -> Result<Vec<(Txid, Transaction)>, BridgeError> {
+    ) -> Result<Vec<(Txid, Vec<u8>)>, BridgeError> {
         if move_txids.is_empty() {
             return Ok(Vec::new());
         }
@@ -55,11 +55,7 @@ impl Database {
 
         Ok(results
             .into_iter()
-            .map(|(txid, tx_data)| {
-                let tx = consensus::deserialize(&tx_data)
-                    .map_err(|e| eyre::eyre!("Failed to deserialize emergency stop tx: {e}"))?;
-                Ok((txid.0, tx))
-            })
+            .map(|(txid, tx_data)| Ok((txid.0, tx_data)))
             .collect::<Result<_, eyre::Report>>()?)
     }
 }
@@ -71,8 +67,11 @@ mod tests {
         builder::transaction::{TransactionType, TxHandlerBuilder},
         test::common::*,
     };
-    use bitcoin::{hashes::Hash, Transaction, Txid};
-
+    use bitcoin::{
+        consensus::{self},
+        hashes::Hash,
+        Transaction, Txid,
+    };
     fn create_test_transaction() -> Transaction {
         let tx_handler = TxHandlerBuilder::new(TransactionType::Dummy).finalize();
         tx_handler.get_cached_tx().clone()
@@ -86,7 +85,11 @@ mod tests {
         let move_txid = Txid::from_byte_array([1u8; 32]);
         let emergency_stop_tx = create_test_transaction();
         database
-            .set_signed_emergency_stop_tx(None, &move_txid, &emergency_stop_tx)
+            .set_signed_emergency_stop_tx(
+                None,
+                &move_txid,
+                &consensus::serialize(&emergency_stop_tx),
+            )
             .await
             .unwrap();
 
@@ -97,7 +100,7 @@ mod tests {
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].0, move_txid);
-        assert_eq!(results[0].1, emergency_stop_tx);
+        assert_eq!(results[0].1, consensus::serialize(&emergency_stop_tx));
 
         // Test getting non-existent tx
         let non_existent_txid = Txid::from_byte_array([2u8; 32]);
@@ -111,7 +114,11 @@ mod tests {
         let move_txid2 = Txid::from_byte_array([3u8; 32]);
         let emergency_stop_tx2 = create_test_transaction();
         database
-            .set_signed_emergency_stop_tx(None, &move_txid2, &emergency_stop_tx2)
+            .set_signed_emergency_stop_tx(
+                None,
+                &move_txid2,
+                &consensus::serialize(&emergency_stop_tx2),
+            )
             .await
             .unwrap();
 
@@ -124,14 +131,14 @@ mod tests {
         let mut results = results;
         results.sort_by(|a, b| a.0.cmp(&b.0));
         assert_eq!(results[0].0, move_txid);
-        assert_eq!(results[0].1, emergency_stop_tx);
+        assert_eq!(results[0].1, consensus::serialize(&emergency_stop_tx));
         assert_eq!(results[1].0, move_txid2);
-        assert_eq!(results[1].1, emergency_stop_tx2);
+        assert_eq!(results[1].1, consensus::serialize(&emergency_stop_tx2));
 
         // Test updating existing tx
         let updated_tx = create_test_transaction();
         database
-            .set_signed_emergency_stop_tx(None, &move_txid, &updated_tx)
+            .set_signed_emergency_stop_tx(None, &move_txid, &consensus::serialize(&updated_tx))
             .await
             .unwrap();
 
@@ -142,6 +149,6 @@ mod tests {
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].0, move_txid);
-        assert_eq!(results[0].1, updated_tx);
+        assert_eq!(results[0].1, consensus::serialize(&updated_tx));
     }
 }

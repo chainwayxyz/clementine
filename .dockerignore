@@ -1,9 +1,12 @@
 # exclude everything
+*
 
 # include source files
+!/circuits-lib
+!/.cargo
+!/risc0-circuits
+!/bridge-circuit-host
 !/core
-!/circuits
-!/risc0-guests
 !/scripts
 !Cargo.lock
 !Cargo.toml
@@ -14,3 +17,6 @@
 # include licenses
 !LICENSE-*
 !LICENSE
+
+# exclude bitvm cache (for local builders who forgot to delete it)
+**/bitvm_cache*.bin
