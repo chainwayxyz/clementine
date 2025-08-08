@@ -18,6 +18,7 @@
 //! send.
 
 use super::{Result, SendTxError, TxMetadata, TxSender};
+use crate::constants::NON_STANDARD_V3;
 use crate::errors::{ErrorExt, ResultExt};
 use crate::extended_rpc::BitcoinRPCError;
 use crate::utils::FeePayingType;
@@ -33,9 +34,7 @@ use crate::{
     constants::MIN_TAPROOT_AMOUNT,
     rpc::clementine::NormalSignatureKind,
 };
-use bitcoin::{
-    transaction::Version, Address, Amount, FeeRate, OutPoint, Transaction, TxOut, Weight,
-};
+use bitcoin::{Amount, FeeRate, OutPoint, Transaction, TxOut, Weight};
 use bitcoincore_rpc::PackageSubmissionResult;
 use bitcoincore_rpc::{PackageTransactionResult, RpcApi};
 use eyre::eyre;
