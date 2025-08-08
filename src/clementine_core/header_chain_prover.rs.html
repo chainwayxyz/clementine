@@ -1217,11 +1217,7 @@
 <a href="#1216" id="1216">1216</a>
 <a href="#1217" id="1217">1217</a>
 <a href="#1218" id="1218">1218</a>
-<a href="#1219" id="1219">1219</a>
-<a href="#1220" id="1220">1220</a>
-<a href="#1221" id="1221">1221</a>
-<a href="#1222" id="1222">1222</a>
-<a href="#1223" id="1223">1223</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Header Chain Prover
+<a href="#1219" id="1219">1219</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Header Chain Prover
 //!
 //! This module contains utilities for proving Bitcoin block headers. This
 //! module must be fed with new blocks via the database. Later, it can check if
@@ -1421,9 +1417,9 @@
             )
             .<span class="kw">await
             </span>.map_to_eyre()<span class="question-mark">?</span>;
-            <span class="macro">tracing::debug!</span>(<span class="string">"Genesis chain state (verbose): {:?}"</span>, genesis_chain_state); <span class="comment">// Should be debug
+            <span class="macro">tracing::debug!</span>(<span class="string">"Genesis chain state (verbose): {:?}"</span>, genesis_chain_state);
 
-            </span><span class="kw">let </span>genesis_chain_state_hash = genesis_chain_state.to_hash();
+            <span class="kw">let </span>genesis_chain_state_hash = genesis_chain_state.to_hash();
             <span class="kw">if </span>genesis_chain_state_hash != config.protocol_paramset().genesis_chain_state_hash {
                 <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(
                     <span class="string">"Genesis chain state hash mismatch: {} != {}"</span>,
@@ -2237,7 +2233,6 @@
     }
 
     <span class="attr">#[tokio::test]
-    #[serial_test::serial]
     </span><span class="kw">async fn </span>prove_till_hash_intermediate_blocks() {
         <span class="comment">// this test does assume config start height is bigger than 3
         </span><span class="kw">let </span><span class="kw-2">mut </span>config = create_test_config_with_thread_name().<span class="kw">await</span>;
@@ -2270,7 +2265,6 @@
     }
 
     <span class="attr">#[tokio::test]
-    #[serial_test::serial]
     </span><span class="kw">async fn </span>is_batch_ready() {
         <span class="kw">let </span><span class="kw-2">mut </span>config = create_test_config_with_thread_name().<span class="kw">await</span>;
         <span class="kw">let </span>regtest = create_regtest_rpc(<span class="kw-2">&amp;mut </span>config).<span class="kw">await</span>;
@@ -2304,7 +2298,6 @@
     }
 
     <span class="attr">#[tokio::test]
-    #[serial_test::serial]
     </span><span class="kw">async fn </span>prove_if_ready() {
         <span class="kw">let </span><span class="kw-2">mut </span>config = create_test_config_with_thread_name().<span class="kw">await</span>;
         <span class="kw">let </span>regtest = create_regtest_rpc(<span class="kw-2">&amp;mut </span>config).<span class="kw">await</span>;
@@ -2343,7 +2336,6 @@
     }
 
     <span class="attr">#[tokio::test]
-    #[serial_test::serial]
     </span><span class="kw">async fn </span>prove_and_get_non_targeted_block() {
         <span class="kw">let </span><span class="kw-2">mut </span>config = create_test_config_with_thread_name().<span class="kw">await</span>;
         <span class="kw">let </span>regtest = create_regtest_rpc(<span class="kw-2">&amp;mut </span>config).<span class="kw">await</span>;

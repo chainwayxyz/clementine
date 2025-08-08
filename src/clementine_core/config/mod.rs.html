@@ -436,7 +436,9 @@
 <a href="#435" id="435">435</a>
 <a href="#436" id="436">436</a>
 <a href="#437" id="437">437</a>
-<a href="#438" id="438">438</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Configuration Options
+<a href="#438" id="438">438</a>
+<a href="#439" id="439">439</a>
+<a href="#440" id="440">440</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Configuration Options
 //!
 //! This module defines configuration options.
 //!
@@ -577,8 +579,10 @@
     </span><span class="kw">pub </span>telemetry: <span class="prelude-ty">Option</span>&lt;TelemetryConfig&gt;,
 
     <span class="doccomment">/// The ECDSA address of the citrea/aggregator that will sign the withdrawal params
-    /// after manual verification of the optimistic payout.
-    </span><span class="kw">pub </span>opt_payout_verification_address: <span class="prelude-ty">Option</span>&lt;alloy::primitives::Address&gt;,
+    /// after manual verification of the optimistic payout and operator's withdrawal.
+    /// Used for both an extra verification of aggregator's identity and to force citrea
+    /// to check withdrawal params manually during some time after launch.
+    </span><span class="kw">pub </span>aggregator_verification_address: <span class="prelude-ty">Option</span>&lt;alloy::primitives::Address&gt;,
 
     <span class="doccomment">/// The X25519 public key that will be used to encrypt the emergency stop message.
     </span><span class="kw">pub </span>emergency_stop_encryption_public_key: <span class="prelude-ty">Option</span>&lt;[u8; <span class="number">32</span>]&gt;,
@@ -767,7 +771,7 @@
             ca_cert_path: PathBuf::from(<span class="string">"certs/ca/ca.pem"</span>),
             aggregator_cert_path: PathBuf::from(<span class="string">"certs/aggregator/aggregator.pem"</span>),
             client_verification: <span class="bool-val">true</span>,
-            opt_payout_verification_address: <span class="prelude-val">Some</span>(
+            aggregator_verification_address: <span class="prelude-val">Some</span>(
                 alloy::primitives::Address::from_str(<span class="string">"0x242fbec93465ce42b3d7c0e1901824a2697193fd"</span>)
                     .expect(<span class="string">"valid address"</span>),
             ),

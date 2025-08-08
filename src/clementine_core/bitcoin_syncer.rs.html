@@ -898,15 +898,7 @@
 <a href="#897" id="897">897</a>
 <a href="#898" id="898">898</a>
 <a href="#899" id="899">899</a>
-<a href="#900" id="900">900</a>
-<a href="#901" id="901">901</a>
-<a href="#902" id="902">902</a>
-<a href="#903" id="903">903</a>
-<a href="#904" id="904">904</a>
-<a href="#905" id="905">905</a>
-<a href="#906" id="906">906</a>
-<a href="#907" id="907">907</a>
-<a href="#908" id="908">908</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Bitcoin Syncer
+<a href="#900" id="900">900</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Bitcoin Syncer
 //!
 //! This module provides common utilities to fetch Bitcoin state. Other modules
 //! can use this module to operate over Bitcoin.
@@ -1487,7 +1479,6 @@
     <span class="kw">use </span>bitcoincore_rpc::RpcApi;
 
     <span class="attr">#[tokio::test]
-    #[serial_test::serial]
     </span><span class="kw">async fn </span>get_block_info_from_height() {
         <span class="kw">let </span><span class="kw-2">mut </span>config = create_test_config_with_thread_name().<span class="kw">await</span>;
         <span class="kw">let </span>regtest = create_regtest_rpc(<span class="kw-2">&amp;mut </span>config).<span class="kw">await</span>;
@@ -1517,7 +1508,6 @@
     }
 
     <span class="attr">#[tokio::test]
-    #[serial_test::serial]
     </span><span class="kw">async fn </span>save_get_transaction_spent_utxos() {
         <span class="kw">let </span><span class="kw-2">mut </span>config = create_test_config_with_thread_name().<span class="kw">await</span>;
         <span class="kw">let </span>db = Database::new(<span class="kw-2">&amp;</span>config).<span class="kw">await</span>.unwrap();
@@ -1576,7 +1566,6 @@
     }
 
     <span class="attr">#[tokio::test]
-    #[serial_test::serial]
     </span><span class="kw">async fn </span>save_get_block() {
         <span class="kw">let </span><span class="kw-2">mut </span>config = create_test_config_with_thread_name().<span class="kw">await</span>;
         <span class="kw">let </span>db = Database::new(<span class="kw-2">&amp;</span>config).<span class="kw">await</span>.unwrap();
@@ -1610,7 +1599,6 @@
     }
 
     <span class="attr">#[tokio::test]
-    #[serial_test::serial]
     </span><span class="kw">async fn </span>set_initial_block_info_if_not_exists() {
         <span class="kw">let </span><span class="kw-2">mut </span>config = create_test_config_with_thread_name().<span class="kw">await</span>;
         <span class="kw">let </span>db = Database::new(<span class="kw-2">&amp;</span>config).<span class="kw">await</span>.unwrap();
@@ -1649,7 +1637,6 @@
     }
 
     <span class="attr">#[tokio::test]
-    #[serial_test::serial]
     </span><span class="kw">async fn </span>fetch_new_blocks_forward() {
         <span class="kw">let </span><span class="kw-2">mut </span>config = create_test_config_with_thread_name().<span class="kw">await</span>;
         <span class="kw">let </span>db = Database::new(<span class="kw-2">&amp;</span>config).<span class="kw">await</span>.unwrap();
@@ -1685,7 +1672,6 @@
     }
 
     <span class="attr">#[tokio::test]
-    #[serial_test::serial]
     </span><span class="kw">async fn </span>fetch_new_blocks_backwards() {
         <span class="kw">let </span><span class="kw-2">mut </span>config = create_test_config_with_thread_name().<span class="kw">await</span>;
         <span class="kw">let </span>db = Database::new(<span class="kw-2">&amp;</span>config).<span class="kw">await</span>.unwrap();
@@ -1734,7 +1720,6 @@
     }
     <span class="attr">#[ignore]
     #[tokio::test]
-    #[serial_test::serial]
     </span><span class="kw">async fn </span>set_non_canonical_block_hashes() {
         <span class="kw">let </span><span class="kw-2">mut </span>config = create_test_config_with_thread_name().<span class="kw">await</span>;
         <span class="kw">let </span>db = Database::new(<span class="kw-2">&amp;</span>config).<span class="kw">await</span>.unwrap();
@@ -1774,7 +1759,6 @@
     }
 
     <span class="attr">#[tokio::test]
-    #[serial_test::serial]
     </span><span class="kw">async fn </span>start_bitcoin_syncer_new_block_mined() {
         <span class="kw">let </span><span class="kw-2">mut </span>config = create_test_config_with_thread_name().<span class="kw">await</span>;
         <span class="kw">let </span>db = Database::new(<span class="kw-2">&amp;</span>config).<span class="kw">await</span>.unwrap();

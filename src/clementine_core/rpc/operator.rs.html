@@ -597,7 +597,7 @@
             parser::operator::parse_withdrawal_sig_params(withdraw_params)<span class="question-mark">?</span>;
 
         <span class="comment">// if verification address is set in config, check if verification signature is valid
-        </span><span class="kw">if let </span><span class="prelude-val">Some</span>(address_in_config) = <span class="self">self</span>.operator.config.opt_payout_verification_address {
+        </span><span class="kw">if let </span><span class="prelude-val">Some</span>(address_in_config) = <span class="self">self</span>.operator.config.aggregator_verification_address {
             <span class="kw">let </span>verification_signature = params
                 .verification_signature
                 .map(|sig| {

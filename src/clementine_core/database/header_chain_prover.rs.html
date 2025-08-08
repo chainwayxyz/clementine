@@ -898,10 +898,7 @@
 <a href="#897" id="897">897</a>
 <a href="#898" id="898">898</a>
 <a href="#899" id="899">899</a>
-<a href="#900" id="900">900</a>
-<a href="#901" id="901">901</a>
-<a href="#902" id="902">902</a>
-<a href="#903" id="903">903</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Header Chain Prover Related Database Operations
+<a href="#900" id="900">900</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Header Chain Prover Related Database Operations
 //!
 //! This module includes database functions which are mainly used by the header
 //! chain prover.
@@ -1383,7 +1380,6 @@
     }
 
     <span class="attr">#[tokio::test]
-    #[serial_test::serial]
     </span><span class="kw">pub async fn </span>save_get_block_proof() {
         <span class="kw">let </span>config = create_test_config_with_thread_name().<span class="kw">await</span>;
         <span class="kw">let </span>db = Database::new(<span class="kw-2">&amp;</span>config).<span class="kw">await</span>.unwrap();
@@ -1427,7 +1423,6 @@
     }
 
     <span class="attr">#[tokio::test]
-    #[serial_test::serial]
     </span><span class="kw">pub async fn </span>get_non_proven_block() {
         <span class="kw">let </span>config = create_test_config_with_thread_name().<span class="kw">await</span>;
         <span class="kw">let </span>db = Database::new(<span class="kw-2">&amp;</span>config).<span class="kw">await</span>.unwrap();
@@ -1568,7 +1563,6 @@
     }
 
     <span class="attr">#[tokio::test]
-    #[serial_test::serial]
     </span><span class="kw">pub async fn </span>get_non_proven_blocks() {
         <span class="kw">let </span>config = create_test_config_with_thread_name().<span class="kw">await</span>;
         <span class="kw">let </span>db = Database::new(<span class="kw-2">&amp;</span>config).<span class="kw">await</span>.unwrap();

@@ -4441,7 +4441,7 @@
             );
         }
         <span class="comment">// if verification address is set in config, check if verification signature is valid
-        </span><span class="kw">if let </span><span class="prelude-val">Some</span>(address_in_config) = <span class="self">self</span>.config.opt_payout_verification_address {
+        </span><span class="kw">if let </span><span class="prelude-val">Some</span>(address_in_config) = <span class="self">self</span>.config.aggregator_verification_address {
             <span class="comment">// check if verification signature is provided by aggregator
             </span><span class="kw">if let </span><span class="prelude-val">Some</span>(verification_signature) = verification_signature {
                 <span class="kw">let </span>address_from_sig =
