@@ -124,7 +124,7 @@ pub mod database;
 pub mod deposit;
 pub mod encryption;
 pub mod errors;
-pub mod extended_rpc;
+pub mod extended_bitcoin_rpc;
 pub mod header_chain_prover;
 pub mod metrics;
 pub mod musig2;

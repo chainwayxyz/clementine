@@ -4,7 +4,7 @@ use crate::builder::transaction::TransactionType;
 use crate::citrea::CitreaClientT;
 use crate::config::BridgeConfig;
 use crate::database::Database;
-use crate::extended_rpc::ExtendedRpc;
+use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 use crate::rpc::clementine::{WithdrawParams, WithdrawParamsWithSig};
 use crate::rpc::ecdsa_verification_sig::OperatorWithdrawalMessage;
 use crate::test::common::citrea::MockCitreaClient;
@@ -50,7 +50,7 @@ async fn mock_citrea_run_truthful_manual_reimbursement() {
 async fn deposit_and_get_reimbursement(
     config: &mut BridgeConfig,
     actors: Option<TestActors<MockCitreaClient>>,
-    rpc: &ExtendedRpc,
+    rpc: &ExtendedBitcoinRpc,
     citrea_client: &mut MockCitreaClient,
     withdrawal_id: u32,
 ) -> TestActors<MockCitreaClient> {
@@ -58,7 +58,7 @@ async fn deposit_and_get_reimbursement(
 
     tracing::info!(
         "Deposit starting block_height: {:?}",
-        rpc.client.get_block_count().await.unwrap()
+        rpc.get_block_count().await.unwrap()
     );
     let (actors, deposit_params, move_txid, _deposit_blockhash, verifiers_public_keys) =
         run_single_deposit::<MockCitreaClient>(config, rpc.clone(), None, actors, None)
@@ -70,12 +70,12 @@ async fn deposit_and_get_reimbursement(
 
     tracing::info!(
         "Deposit ending block_height: {:?}",
-        rpc.client.get_block_count().await.unwrap()
+        rpc.get_block_count().await.unwrap()
     );
 
     // Send deposit to Citrea
     tracing::info!("Depositing to Citrea");
-    let current_block_height = rpc.client.get_block_count().await.unwrap();
+    let current_block_height = rpc.get_block_count().await.unwrap();
     citrea_client
         .insert_deposit_move_txid(current_block_height + 1, move_txid)
         .await;
@@ -110,7 +110,7 @@ async fn deposit_and_get_reimbursement(
         .await
         .unwrap();
 
-    let current_block_height = rpc.client.get_block_count().await.unwrap();
+    let current_block_height = rpc.get_block_count().await.unwrap();
 
     citrea_client
         .insert_withdrawal_utxo(current_block_height + 1, withdrawal_utxo)
@@ -243,7 +243,7 @@ async fn deposit_and_get_reimbursement(
                 for (tx_type, tx) in txs {
                     tracing::warn!("Got tx: {:?}", tx_type);
                     tracing::warn!("Transaction: {:?}", tx);
-                    rpc.client.send_raw_transaction(&tx).await.unwrap();
+                    rpc.send_raw_transaction(&tx).await.unwrap();
                     if tx_type == TransactionType::Kickoff {
                         rpc.mine_blocks(
                             config

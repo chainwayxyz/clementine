@@ -2,7 +2,7 @@
 
 use crate::bitvm_client::SECP;
 use crate::citrea::{CitreaClient, SATS_TO_WEI_MULTIPLIER};
-use crate::extended_rpc::ExtendedRpc;
+use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::test::common::generate_withdrawal_transaction_and_signature;
 use crate::{config::BridgeConfig, errors::BridgeError};
@@ -210,7 +210,7 @@ pub struct CitreaE2EData<'a> {
     pub da: &'a BitcoinNode,
     pub config: BridgeConfig,
     pub citrea_client: &'a CitreaClient,
-    pub rpc: &'a ExtendedRpc,
+    pub rpc: &'a ExtendedBitcoinRpc,
 }
 
 /// Creates a new withdrawal utxo and register to citrea using safeWithdraw
@@ -370,19 +370,10 @@ pub async fn get_tx_information_for_citrea(
     e2e: &CitreaE2EData<'_>,
     txid: Txid,
 ) -> eyre::Result<(Transaction, Block, u64)> {
-    let tx = e2e.rpc.client.get_raw_transaction(&txid, None).await?;
-    let tx_info = e2e.rpc.client.get_raw_transaction_info(&txid, None).await?;
-    let block = e2e
-        .rpc
-        .client
-        .get_block(&tx_info.blockhash.unwrap())
-        .await?;
-    let block_height = e2e
-        .rpc
-        .client
-        .get_block_info(&block.block_hash())
-        .await?
-        .height as u64;
+    let tx = e2e.rpc.get_raw_transaction(&txid, None).await?;
+    let tx_info = e2e.rpc.get_raw_transaction_info(&txid, None).await?;
+    let block = e2e.rpc.get_block(&tx_info.blockhash.unwrap()).await?;
+    let block_height = e2e.rpc.get_block_info(&block.block_hash()).await?.height as u64;
     Ok((tx, block, block_height))
 }
 

@@ -19,7 +19,7 @@ use crate::database::Database;
 use crate::database::DatabaseTransaction;
 use crate::deposit::{DepositData, KickoffData, OperatorData};
 use crate::errors::BridgeError;
-use crate::extended_rpc::ExtendedRpc;
+use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 use crate::header_chain_prover::HeaderChainProver;
 use crate::metrics::L1SyncStatusProvider;
 use crate::rpc::clementine::EntityStatus;
@@ -121,7 +121,7 @@ pub struct OperatorServer<C: CitreaClientT> {
 
 #[derive(Debug, Clone)]
 pub struct Operator<C: CitreaClientT> {
-    pub rpc: ExtendedRpc,
+    pub rpc: ExtendedBitcoinRpc,
     pub db: Database,
     pub signer: Actor,
     pub config: BridgeConfig,
@@ -250,10 +250,11 @@ where
         );
 
         let db = Database::new(&config).await?;
-        let rpc = ExtendedRpc::connect(
+        let rpc = ExtendedBitcoinRpc::connect(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
+            None,
         )
         .await?;
 
@@ -290,7 +291,6 @@ where
                     }
                     None => {
                         rpc
-                        .client
                         .get_new_address(Some("OperatorReimbursement"), Some(AddressType::Bech32m))
                         .await
                         .wrap_err("Failed to get new address")?
@@ -664,7 +664,6 @@ where
         // send payout tx using RBF
         let funded_tx = self
             .rpc
-            .client
             .fund_raw_transaction(
                 payout_txhandler.get_cached_tx(),
                 Some(&bitcoincore_rpc::json::FundRawTransactionOptions {
@@ -689,7 +688,6 @@ where
         let signed_tx: Transaction = bitcoin::consensus::deserialize(
             &self
                 .rpc
-                .client
                 .sign_raw_transaction_with_wallet(&funded_tx, None, None)
                 .await
                 .wrap_err("Failed to sign funded tx through bitcoin RPC")?
@@ -698,7 +696,6 @@ where
         .wrap_err("Failed to deserialize signed tx")?;
 
         self.rpc
-            .client
             .send_raw_transaction(&signed_tx)
             .await
             .wrap_err("Failed to send transaction to signed tx")?;
@@ -2299,10 +2296,11 @@ mod tests {
     // #[tokio::test]
     // async fn set_funding_utxo() {
     //     let mut config = create_test_config_with_thread_name().await;
-    //     let rpc = ExtendedRpc::connect(
+    //     let rpc = ExtendedBitcoinRpc::connect(
     //         config.bitcoin_rpc_url.clone(),
     //         config.bitcoin_rpc_user.clone(),
     //         config.bitcoin_rpc_password.clone(),
+    //         None,
     //     )
     //     .await;
 
@@ -2332,10 +2330,11 @@ mod tests {
     // #[tokio::test]
     // async fn is_profitable() {
     //     let mut config = create_test_config_with_thread_name().await;
-    //     let rpc = ExtendedRpc::connect(
+    //     let rpc = ExtendedBitcoinRpc::connect(
     //         config.bitcoin_rpc_url.clone(),
     //         config.bitcoin_rpc_user.clone(),
     //         config.bitcoin_rpc_password.clone(),
+    //         None,
     //     )
     //     .await;
 
