@@ -383,7 +383,7 @@ where
 
         // Start parsing inputs and send them to deposit finalize job.
         let verifier = self.verifier.clone();
-        tokio::spawn(async move {
+        let sig_handle = tokio::spawn(async move {
             let num_required_nofn_sigs = verifier.config.get_num_required_nofn_sigs(&deposit_data);
             let mut nonce_idx = 0;
             while let Some(sig) =
@@ -479,6 +479,10 @@ where
 
             Ok::<(), Status>(())
         });
+
+        sig_handle.await.map_err(|e| {
+            Status::internal(format!("Deposit sign thread failed to finish: {}", e).as_str())
+        })??;
 
         let partial_sig = deposit_finalize_handle.await.map_err(|e| {
             Status::internal(format!("Deposit finalize thread failed to finish: {}", e).as_str())
