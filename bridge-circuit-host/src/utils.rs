@@ -1,12 +1,13 @@
 use ark_bn254::{Bn254, Fq, Fq2, G1Affine, G2Affine};
 use ark_groth16::VerifyingKey;
+use bitcoin::{opcodes, script::Instruction, Transaction};
 use risc0_circuit_recursion::control_id::BN254_IDENTITY_CONTROL_ID;
 use risc0_zkvm::{sha::Digestible, SuccinctReceiptVerifierParameters, SystemState};
 use sha2::{Digest, Sha256};
 use std::str::FromStr;
 
 /// This is the test Verifying Key of the STARK-to-BitVM2 Groth16 proof Circom circuit.
-pub fn get_ark_verifying_key() -> ark_groth16::VerifyingKey<Bn254> {
+pub fn get_ark_verifying_key_prod() -> ark_groth16::VerifyingKey<Bn254> {
     let alpha_g1 = G1Affine::new(
         Fq::from_str(
             "20491192805390485299153009773594534940189261866228447918068658471970481763042",
@@ -234,6 +235,26 @@ pub fn get_ark_verifying_key_dev_mode_bridge() -> ark_groth16::VerifyingKey<Bn25
     }
 }
 
+// Clementine do not use the runtime option to determine dev mode which is newly added in risc0_zkvm.
+// Instead, it uses the environment variable RISC0_DEV_MODE to determine if it is in dev mode.
+// However is_dev_mode function from risc0_zkvm is deprecated.
+// So we implement our own version of is_dev_mode.
+pub fn is_dev_mode() -> bool {
+    std::env::var("RISC0_DEV_MODE")
+        .ok()
+        .map(|x| x.to_lowercase())
+        .filter(|x| x == "1" || x == "true" || x == "yes")
+        .is_some()
+}
+
+pub fn get_verifying_key() -> ark_groth16::VerifyingKey<Bn254> {
+    if is_dev_mode() {
+        get_ark_verifying_key_dev_mode_bridge()
+    } else {
+        get_ark_verifying_key_prod()
+    }
+}
+
 /// Sha256(control_root, pre_state_digest, post_state_digest, id_bn254_fr)
 pub fn calculate_succinct_output_prefix(method_id: &[u8]) -> [u8; 32] {
     let succinct_verifier_params = SuccinctReceiptVerifierParameters::default();
@@ -261,4 +282,20 @@ pub fn calculate_succinct_output_prefix(method_id: &[u8]) -> [u8; 32] {
     let result: [u8; 32] = hasher.finalize().into();
 
     result
+}
+
+pub fn total_work_from_wt_tx(wt_tx: &Transaction) -> [u8; 16] {
+    let output = wt_tx.output[2].clone();
+    let mut instructions = output.script_pubkey.instructions();
+    if let Some(Ok(Instruction::Op(opcodes::all::OP_RETURN))) = instructions.next() {
+        if let Some(Ok(Instruction::PushBytes(data))) = instructions.next() {
+            let data_bytes = data.as_bytes();
+            let total_work: [u8; 16] = data_bytes[64..]
+                .try_into()
+                .expect("Expected total work data to be exactly 16 bytes long after OP_RETURN");
+            return total_work;
+        }
+        panic!("Expected OP_RETURN followed by data");
+    }
+    panic!("Expected OP_RETURN instruction in the transaction output script");
 }

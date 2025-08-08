@@ -276,7 +276,7 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     watchtower_challenge_timeout_timelock: 4 * BLOCKS_PER_HOUR * 2,
     time_to_send_watchtower_challenge: 4 * BLOCKS_PER_HOUR * 3 / 2,
     latest_blockhash_timeout_timelock: 4 * BLOCKS_PER_HOUR * 5 / 2,
-    finality_depth: 1,
+    finality_depth: 5, // citrea e2e finality depth
     start_height: 190,
     genesis_height: 0,
     genesis_chain_state_hash: [
@@ -287,27 +287,60 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     bridge_nonstandard: true,
 };
 
+pub const TESTNET4_TEST_PARAMSET: ProtocolParamset = ProtocolParamset {
+    network: Network::Testnet4,
+    num_round_txs: 2,
+    num_kickoffs_per_round: 10,
+    num_signed_kickoffs: 2,
+    bridge_amount: Amount::from_sat(1_000_000),
+    kickoff_amount: Amount::from_sat(0),
+    operator_challenge_amount: Amount::from_sat(200_000),
+    collateral_funding_amount: Amount::from_sat(99_000),
+    watchtower_challenge_bytes: 144,
+    kickoff_blockhash_commit_length: 40,
+    winternitz_log_d: WINTERNITZ_LOG_D,
+    user_takes_after: 200,
+    operator_challenge_timeout_timelock: 4 * BLOCKS_PER_HOUR,
+    operator_challenge_nack_timelock: 4 * BLOCKS_PER_HOUR * 3,
+    disprove_timeout_timelock: 4 * BLOCKS_PER_HOUR * 5,
+    assert_timeout_timelock: 4 * BLOCKS_PER_HOUR * 4,
+    operator_reimburse_timelock: 2,
+    watchtower_challenge_timeout_timelock: 4 * BLOCKS_PER_HOUR * 2,
+    time_to_send_watchtower_challenge: 4 * BLOCKS_PER_HOUR * 3 / 2,
+    latest_blockhash_timeout_timelock: 4 * BLOCKS_PER_HOUR * 5 / 2,
+    finality_depth: 1,
+    start_height: 92700,
+    genesis_height: 92700,
+    genesis_chain_state_hash: [
+        0xe4, 0xe1, 0x28, 0xa8, 0x99, 0xaf, 0xee, 0xb1, 0x85, 0x5b, 0x4a, 0xb7, 0x2e, 0x4d, 0x88,
+        0x50, 0xab, 0x35, 0x1b, 0xde, 0xf9, 0x4f, 0xc2, 0x78, 0xe8, 0x5c, 0x13, 0x11, 0xe2, 0x72,
+        0xfe, 0x6a,
+    ],
+    header_chain_proof_batch_size: 10000,
+    bridge_nonstandard: true,
+};
+
 pub const REGTEST_TEST_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [
-    120, 106, 18, 159, 198, 16, 205, 107, 213, 181, 0, 233, 75, 10, 179, 227, 3, 32, 205, 41, 57,
-    234, 137, 14, 159, 110, 182, 119, 79, 63, 128, 177,
+    191, 41, 245, 76, 47, 243, 175, 215, 219, 221, 93, 163, 232, 132, 93, 27, 3, 251, 171, 32, 120,
+    230, 199, 203, 123, 174, 113, 106, 70, 185, 3, 52,
 ];
 
 pub const REGTEST_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [
-    195, 32, 8, 48, 94, 60, 206, 5, 92, 160, 213, 100, 236, 151, 102, 24, 73, 169, 91, 230, 159,
-    198, 119, 21, 133, 93, 124, 208, 214, 136, 167, 55,
+    18, 34, 120, 86, 134, 81, 152, 68, 107, 120, 50, 144, 102, 218, 1, 50, 193, 184, 244, 176, 250,
+    99, 34, 217, 11, 101, 238, 187, 119, 235, 11, 151,
 ];
 
 pub const SIGNET_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [
-    3, 255, 164, 138, 69, 140, 51, 144, 7, 146, 138, 146, 92, 55, 220, 117, 32, 212, 132, 3, 207,
-    31, 100, 131, 235, 88, 199, 26, 14, 1, 152, 102,
+    11, 11, 164, 223, 65, 47, 193, 97, 48, 121, 43, 219, 141, 45, 132, 241, 237, 185, 34, 46, 87,
+    93, 148, 53, 5, 212, 234, 57, 173, 153, 91, 112,
 ];
 pub const MAINNET_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [
-    53, 105, 15, 124, 94, 236, 46, 182, 239, 94, 233, 184, 178, 26, 177, 86, 254, 169, 218, 203,
-    100, 210, 50, 60, 254, 63, 87, 116, 141, 18, 175, 186,
+    183, 151, 179, 224, 163, 237, 236, 35, 211, 80, 80, 124, 24, 149, 248, 213, 7, 0, 139, 82, 196,
+    135, 166, 9, 43, 148, 68, 42, 8, 91, 181, 212,
 ];
 pub const TESTNET4_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [
-    123, 174, 147, 252, 180, 21, 226, 7, 0, 134, 177, 95, 139, 212, 140, 167, 136, 195, 77, 32,
-    247, 57, 108, 254, 159, 79, 94, 202, 136, 168, 76, 102,
+    136, 222, 235, 50, 115, 169, 44, 20, 138, 181, 161, 199, 16, 200, 72, 54, 94, 72, 165, 23, 123,
+    178, 74, 175, 179, 104, 63, 255, 208, 234, 165, 189,
 ];
 
 #[cfg(test)]

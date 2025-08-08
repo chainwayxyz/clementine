@@ -12,11 +12,11 @@ use crate::builder::transaction::TransactionType;
 use crate::citrea::CitreaClientT;
 use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
-use crate::database::Database;
+use crate::database::{Database, DatabaseTransaction};
 use crate::deposit::KickoffData;
 use crate::errors::{BridgeError, TxError};
 use crate::operator::{Operator, RoundIndex};
-use crate::utils::RbfSigningInfo;
+use crate::utils::{Last20Bytes, RbfSigningInfo};
 use crate::verifier::Verifier;
 use bitcoin::hashes::Hash;
 use bitcoin::{BlockHash, OutPoint, Transaction, XOnlyPublicKey};
@@ -90,55 +90,65 @@ pub async fn create_and_sign_txs(
     db: Database,
     signer: &Actor,
     config: BridgeConfig,
-    transaction_data: TransactionRequestData,
+    context: ContractContext,
     block_hash: Option<[u8; 20]>, //to sign kickoff
+    dbtx: Option<DatabaseTransaction<'_, '_>>,
 ) -> Result<Vec<(TransactionType, Transaction)>, BridgeError> {
-    let deposit_data = db
-        .get_deposit_data(None, transaction_data.deposit_outpoint)
-        .await?
-        .ok_or(BridgeError::DepositNotFound(
-            transaction_data.deposit_outpoint,
-        ))?
-        .1;
-
-    let context = ContractContext::new_context_for_kickoff(
-        transaction_data.kickoff_data,
-        deposit_data.clone(),
-        config.protocol_paramset(),
-    );
-
     let txhandlers = builder::transaction::create_txhandlers(
-        TransactionType::AllNeededForDeposit,
-        context,
+        match context.is_context_for_kickoff() {
+            true => TransactionType::AllNeededForDeposit,
+            // if context is only for a round, we can only sign the round txs
+            false => TransactionType::Round,
+        },
+        context.clone(),
         &mut TxHandlerCache::new(),
-        &mut ReimburseDbCache::new_for_deposit(
-            db.clone(),
-            transaction_data.kickoff_data.operator_xonly_pk,
-            deposit_data.get_deposit_outpoint(),
-            config.protocol_paramset(),
-        ),
+        &mut match context.is_context_for_kickoff() {
+            true => ReimburseDbCache::new_for_deposit(
+                db.clone(),
+                context.operator_xonly_pk,
+                context
+                    .deposit_data
+                    .as_ref()
+                    .expect("Already checked existence of deposit data")
+                    .get_deposit_outpoint(),
+                config.protocol_paramset(),
+                dbtx,
+            ),
+            false => ReimburseDbCache::new_for_rounds(
+                db.clone(),
+                context.operator_xonly_pk,
+                config.protocol_paramset(),
+                dbtx,
+            ),
+        },
     )
     .await?;
 
-    // signatures saved during deposit
-    let deposit_sigs_query = db
-        .get_deposit_signatures(
-            None,
-            transaction_data.deposit_outpoint,
-            transaction_data.kickoff_data.operator_xonly_pk,
-            transaction_data.kickoff_data.round_idx,
-            transaction_data.kickoff_data.kickoff_idx as usize,
-        )
-        .await?;
-    let mut signatures = deposit_sigs_query.unwrap_or_default();
+    let mut signatures = Vec::new();
+
+    if context.is_context_for_kickoff() {
+        // signatures saved during deposit
+        let deposit_sigs_query = db
+            .get_deposit_signatures(
+                None,
+                context
+                    .deposit_data
+                    .as_ref()
+                    .expect("Should have deposit data at this point")
+                    .get_deposit_outpoint(),
+                context.operator_xonly_pk,
+                context.round_idx,
+                context
+                    .kickoff_idx
+                    .expect("Already checked existence of kickoff idx") as usize,
+            )
+            .await?;
+        signatures.extend(deposit_sigs_query.unwrap_or_default());
+    }
 
     // signatures saved during setup
     let setup_sigs_query = db
-        .get_unspent_kickoff_sigs(
-            None,
-            transaction_data.kickoff_data.operator_xonly_pk,
-            transaction_data.kickoff_data.round_idx,
-        )
+        .get_unspent_kickoff_sigs(None, context.operator_xonly_pk, context.round_idx)
         .await?;
 
     signatures.extend(setup_sigs_query.unwrap_or_default());
@@ -152,7 +162,11 @@ pub async fn create_and_sign_txs(
         if let TransactionType::OperatorChallengeAck(watchtower_idx) = tx_type {
             let path = WinternitzDerivationPath::ChallengeAckHash(
                 watchtower_idx as u32,
-                transaction_data.deposit_outpoint,
+                context
+                    .deposit_data
+                    .as_ref()
+                    .expect("Should have deposit data at this point")
+                    .get_deposit_outpoint(),
                 config.protocol_paramset(),
             );
             let preimage = signer.generate_preimage_from_path(path)?;
@@ -163,8 +177,10 @@ pub async fn create_and_sign_txs(
             if let Some(block_hash) = block_hash {
                 // need to commit blockhash to start kickoff
                 let path = WinternitzDerivationPath::Kickoff(
-                    transaction_data.kickoff_data.round_idx,
-                    transaction_data.kickoff_data.kickoff_idx,
+                    context.round_idx,
+                    context
+                        .kickoff_idx
+                        .expect("Should have kickoff idx at this point"),
                     config.protocol_paramset(),
                 );
                 signer.tx_sign_winternitz(&mut txhandler, &[(block_hash.to_vec(), path)])?;
@@ -180,7 +196,7 @@ pub async fn create_and_sign_txs(
             }
             Err(e) => {
                 tracing::trace!(
-                    "Couldn't sign transaction {:?} in create_and_sign_all_txs: {:?}. 
+                    "Couldn't sign transaction {:?} in create_and_sign_all_txs: {:?}.
                     This might be normal if the transaction is not needed to be/cannot be signed.",
                     tx_type,
                     e
@@ -211,6 +227,7 @@ where
         &self,
         transaction_data: TransactionRequestData,
         commit_data: &[u8],
+        dbtx: Option<DatabaseTransaction<'_, '_>>,
     ) -> Result<(TransactionType, Transaction, RbfSigningInfo), BridgeError> {
         if commit_data.len() != self.config.protocol_paramset().watchtower_challenge_bytes {
             return Err(TxError::IncorrectWatchtowerChallengeDataLength.into());
@@ -241,6 +258,7 @@ where
                 transaction_data.kickoff_data.operator_xonly_pk,
                 transaction_data.deposit_outpoint,
                 self.config.protocol_paramset(),
+                dbtx,
             ),
         )
         .await?;
@@ -265,8 +283,8 @@ where
         #[cfg(test)]
         let mut annex: Option<Vec<u8>> = None;
 
-        // #[cfg(test)]
-        // let mut additional_op_return = None;
+        #[cfg(test)]
+        let mut additional_taproot_output_count = None;
 
         #[cfg(test)]
         {
@@ -276,6 +294,9 @@ where
                 annex = Some(vec![80u8; 3990000]);
             } else if self.config.test_params.use_large_annex_and_output {
                 annex = Some(vec![80u8; 3000000]);
+                additional_taproot_output_count = Some(2300);
+            } else if self.config.test_params.use_large_output {
+                additional_taproot_output_count = Some(2300);
             }
         }
 
@@ -287,6 +308,8 @@ where
                 tweak_merkle_root: merkle_root,
                 #[cfg(test)]
                 annex,
+                #[cfg(test)]
+                additional_taproot_output_count,
             },
         ))
     }
@@ -306,6 +329,7 @@ where
         &self,
         round_idx: RoundIndex,
         operator_xonly_pk: XOnlyPublicKey,
+        dbtx: Option<DatabaseTransaction<'_, '_>>,
     ) -> Result<Vec<(TransactionType, Transaction)>, BridgeError> {
         let context = ContractContext::new_context_for_round(
             operator_xonly_pk,
@@ -321,6 +345,7 @@ where
                 self.db.clone(),
                 operator_xonly_pk,
                 self.config.protocol_paramset(),
+                dbtx,
             ),
         )
         .await?;
@@ -388,6 +413,7 @@ where
         &self,
         assert_data: TransactionRequestData,
         commit_data: Vec<Vec<Vec<u8>>>,
+        dbtx: Option<DatabaseTransaction<'_, '_>>,
     ) -> Result<Vec<(TransactionType, Transaction)>, BridgeError> {
         let deposit_data = self
             .db
@@ -412,6 +438,7 @@ where
                 self.signer.xonly_public_key,
                 assert_data.deposit_outpoint,
                 self.config.protocol_paramset(),
+                dbtx,
             ),
         )
         .await?;
@@ -469,6 +496,7 @@ where
         &self,
         assert_data: TransactionRequestData,
         block_hash: BlockHash,
+        dbtx: Option<DatabaseTransaction<'_, '_>>,
     ) -> Result<(TransactionType, Transaction), BridgeError> {
         let deposit_data = self
             .db
@@ -493,6 +521,7 @@ where
                 assert_data.kickoff_data.operator_xonly_pk,
                 assert_data.deposit_outpoint,
                 self.config.protocol_paramset(),
+                dbtx,
             ),
         )
         .await?;
@@ -502,22 +531,22 @@ where
                 .remove(&TransactionType::LatestBlockhash)
                 .ok_or(TxError::TxHandlerNotFound(TransactionType::LatestBlockhash))?;
 
-        // get last 20 bytes of block_hash
-        let block_hash = block_hash.to_byte_array();
+        let block_hash: [u8; 32] = {
+            let raw = block_hash.to_byte_array();
 
-        #[cfg(test)]
-        let mut block_hash = block_hash;
-
-        #[cfg(test)]
-        {
-            if self.config.test_params.disrupt_latest_block_hash_commit {
-                tracing::info!("Disrupting block hash commitment for testing purposes");
-                tracing::info!("Original block hash: {:?}", block_hash);
-                block_hash[31] ^= 0x01;
+            #[cfg(test)]
+            {
+                self.config.test_params.maybe_disrupt_block_hash(raw)
             }
-        }
 
-        let block_hash_last_20 = block_hash[block_hash.len() - 20..].to_vec();
+            #[cfg(not(test))]
+            {
+                raw
+            }
+        };
+
+        // get last 20 bytes of block_hash
+        let block_hash_last_20 = block_hash.last_20_bytes().to_vec();
 
         tracing::info!(
             "Creating latest blockhash tx with block hash's last 20 bytes: {:?}",

@@ -269,6 +269,21 @@ impl Multisig {
             threshold: security_council.threshold,
         }
     }
+
+    pub fn generate_script_inputs(
+        &self,
+        signatures: &[Option<taproot::Signature>],
+    ) -> eyre::Result<Witness> {
+        let mut witness = Witness::new();
+
+        for signature in signatures.iter().rev() {
+            match signature {
+                Some(sig) => witness.push(sig.serialize()),
+                None => witness.push([]),
+            }
+        }
+        Ok(witness)
+    }
 }
 
 /// Struct for scripts that commit to a message using Winternitz keys
@@ -294,7 +309,7 @@ impl SpendableScript for WinternitzCommit {
         let mut total_script = ScriptBuf::new();
         for (index, (pubkey, _size)) in self.commitments.iter().enumerate() {
             let params = self.get_params(index);
-            let a = bitvm::signatures::winternitz_hash::WINTERNITZ_MESSAGE_VERIFIER
+            let a = bitvm::signatures::signing_winternitz::WINTERNITZ_MESSAGE_VERIFIER
                 .checksig_verify_and_clear_stack(&params, pubkey);
             total_script.extend(a.compile().instructions().map(|x| x.expect("just created")));
         }
@@ -331,7 +346,7 @@ impl WinternitzCommit {
                     );
                 }
             }
-            bitvm::signatures::winternitz_hash::WINTERNITZ_MESSAGE_VERIFIER
+            bitvm::signatures::signing_winternitz::WINTERNITZ_MESSAGE_VERIFIER
                 .sign(&self.get_params(index), secret_key, data)
                 .into_iter()
                 .for_each(|x| witness.push(x));
@@ -557,7 +572,7 @@ mod tests {
     use crate::bitvm_client::{self, UNSPENDABLE_XONLY_PUBKEY};
     use crate::builder::address::create_taproot_address;
     use crate::config::protocol::ProtocolParamsetName;
-    use crate::extended_rpc::ExtendedRpc;
+    use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
     use crate::operator::RoundIndex;
     use bitcoin::hashes::Hash;
     use bitcoin::secp256k1::rand::{self, Rng};
@@ -706,7 +721,7 @@ mod tests {
     use bitcoin::{Amount, OutPoint, Sequence, TxOut, Txid};
 
     async fn create_taproot_test_tx(
-        rpc: &ExtendedRpc,
+        rpc: &ExtendedBitcoinRpc,
         scripts: Vec<Arc<dyn SpendableScript>>,
         spend_path: SpendPath,
         amount: Amount,
@@ -799,8 +814,7 @@ mod tests {
             .promote()
             .expect("the transaction should be fully signed");
 
-        rpc.client
-            .send_raw_transaction(tx.get_cached_tx())
+        rpc.send_raw_transaction(tx.get_cached_tx())
             .await
             .expect("bitcoin RPC did not accept transaction");
     }
@@ -884,8 +898,7 @@ mod tests {
             .promote()
             .expect("the transaction should be fully signed");
 
-        rpc.client
-            .send_raw_transaction(tx.get_cached_tx())
+        rpc.send_raw_transaction(tx.get_cached_tx())
             .await
             .expect("bitcoin RPC did not accept transaction");
     }
@@ -921,15 +934,13 @@ mod tests {
             .tx_sign_and_fill_sigs(&mut tx, &[], None)
             .expect("should be able to sign timelock");
 
-        rpc.client
-            .send_raw_transaction(tx.get_cached_tx())
+        rpc.send_raw_transaction(tx.get_cached_tx())
             .await
             .expect_err("should not pass without 15 blocks");
 
         rpc.mine_blocks(15).await.expect("failed to mine blocks");
 
-        rpc.client
-            .send_raw_transaction(tx.get_cached_tx())
+        rpc.send_raw_transaction(tx.get_cached_tx())
             .await
             .expect("should pass after 15 blocks");
     }
@@ -970,8 +981,7 @@ mod tests {
             .promote()
             .expect("the transaction should be fully signed");
 
-        rpc.client
-            .send_raw_transaction(final_tx.get_cached_tx())
+        rpc.send_raw_transaction(final_tx.get_cached_tx())
             .await
             .expect("bitcoin RPC did not accept transaction");
     }
@@ -1007,8 +1017,7 @@ mod tests {
             .tx_sign_and_fill_sigs(&mut tx, &[], None)
             .expect("should be able to sign base deposit");
 
-        rpc.client
-            .send_raw_transaction(tx.get_cached_tx())
+        rpc.send_raw_transaction(tx.get_cached_tx())
             .await
             .expect("bitcoin RPC did not accept transaction");
     }
@@ -1044,8 +1053,7 @@ mod tests {
             .tx_sign_and_fill_sigs(&mut tx, &[], None)
             .expect("should be able to sign replacement deposit");
 
-        rpc.client
-            .send_raw_transaction(tx.get_cached_tx())
+        rpc.send_raw_transaction(tx.get_cached_tx())
             .await
             .expect("bitcoin RPC did not accept transaction");
     }
@@ -1148,15 +1156,11 @@ mod tests {
                 .join(",")
         );
 
-        let descriptor_info = rpc.client.get_descriptor_info(&descriptor).await.expect("");
+        let descriptor_info = rpc.get_descriptor_info(&descriptor).await.expect("");
 
         let descriptor = descriptor_info.descriptor;
 
-        let addresses = rpc
-            .client
-            .derive_addresses(&descriptor, None)
-            .await
-            .expect("");
+        let addresses = rpc.derive_addresses(&descriptor, None).await.expect("");
 
         tracing::info!("{:?}", addresses);
 

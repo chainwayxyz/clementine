@@ -13,6 +13,10 @@ tonic-build = "0.12"
 vergen-git2 = { workspace = true }
 
 [dependencies]
+metrics = { workspace = true }
+metrics-derive = { workspace = true }
+metrics-exporter-prometheus = { workspace = true }
+metrics-util = { workspace = true }
 color-eyre = { workspace = true }
 bitcoin = { workspace = true, features = ["rand", "bitcoinconsensus"] }
 bitcoincore-rpc = { workspace = true }
@@ -20,7 +24,7 @@ hex = { workspace = true, features = ["serde"] }
 hex-literal = { workspace = true }
 lazy_static = { workspace = true, features = ["spin_no_std"] }
 sha2 = { workspace = true }
-risc0-zkvm = { version = "2.1.0", features = ["prove"] }
+risc0-zkvm = { workspace = true, features = ["prove"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 secp256k1 = { workspace = true, features = ["serde", "rand", "std"] }
@@ -44,28 +48,39 @@ futures-core = { workspace = true }
 bitvm = { workspace = true }
 tempfile = { workspace = true }
 eyre = { workspace = true }
+tokio-retry = { workspace = true }
 http = { workspace = true }
 hyper = { workspace = true }
 tower = { workspace = true }
 hyper-util = { workspace = true }
 alloy = { workspace = true }
+alloy-sol-types = { workspace = true }
 ark-groth16 = { workspace = true, features = ["default"] }
 ark-bn254 = { workspace = true }
 ark-serialize = { workspace = true }
 statig = { workspace = true, features = ["async", "serde"] }
 pgmq = { workspace = true }
 serde_with = { workspace = true }
-sov-rollup-interface = { workspace = true, features = ["native"] }
+citrea-sov-rollup-interface = { workspace = true, features = ["native"] }
 rand_chacha = { workspace = true }
 log = { workspace = true }
 circuits-lib = { path = "../circuits-lib" }
 bridge-circuit-host = { path = "../bridge-circuit-host" }
 bincode = { workspace = true }
 ark-ff = { workspace = true }
+rustls = { workspace = true }
 rustls-pki-types = { workspace = true }
 once_cell = { workspace = true }
 bitcoin-script = { workspace = true }
 secrecy = { workspace = true }
+reqwest = { workspace = true }
+x25519-dalek = { workspace = true, features = ["static_secrets"] }
+chacha20poly1305 = { workspace = true, features = ["stream"] }
+hkdf = { workspace = true }
+
+# UNCOMMENT TO DEBUG TOKIO TASKS
+
+# console-subscriber = { version = "0.4.1" }
 
 [dev-dependencies]
 serial_test = { workspace = true }
@@ -74,6 +89,9 @@ base64 = { workspace = true }
 bridge-circuit-host = { path = "../bridge-circuit-host" }
 ctor = { workspace = true }
 tokio = { workspace = true, features = ["full", "test-util"] }
+rand = { workspace = true }
+url = { version = "2.5.4" }
+jsonrpc-async = { version = "2.0.2" }
 
 [[bin]]
 name = "clementine-cli"
@@ -82,3 +100,7 @@ path = "src/bin/cli.rs"
 
 [lints.clippy]
 unwrap_used = { level = "deny" }
+
+[lints.rust]
+# This is used to enable/disable the tokio-console debugging utility
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tokio_unstable)'] }

@@ -11,6 +11,9 @@ mod full_flow;
 #[cfg(feature = "integration-tests")]
 mod musig2;
 
+#[cfg(not(feature = "automation"))]
+mod manual_reimbursement;
+
 #[cfg(feature = "integration-tests")]
 mod rpc_auth;
 #[cfg(all(feature = "automation", feature = "integration-tests"))]
@@ -22,6 +25,8 @@ mod taproot;
 #[cfg(feature = "integration-tests")]
 mod withdraw;
 
+mod sign;
+
 #[cfg(all(feature = "automation", feature = "integration-tests"))]
 mod additional_disprove_scripts;
 
@@ -29,13 +34,13 @@ mod additional_disprove_scripts;
 mod bitvm_disprove_scripts;
 
 #[cfg(all(feature = "automation", feature = "integration-tests"))]
-mod watchtower_challenge;
-
-#[cfg(all(feature = "automation", feature = "integration-tests"))]
 mod bridge_circuit_test_data;
 
 #[cfg(feature = "integration-tests")]
 mod bitvm_script;
+
+pub const CITREA_E2E_DOCKER_IMAGE: &str =
+    "chainwayxyz/citrea-test:ca479a4147be1c3a472e76a3f117124683d81ab5";
 
 use ctor::ctor;
 

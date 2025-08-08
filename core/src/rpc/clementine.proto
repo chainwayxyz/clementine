@@ -12,10 +12,6 @@ message Outpoint {
   uint32 vout = 2;
 }
 
-message XonlyPublicKey {
-  bytes xonly_pk = 1;
-}
-
 message NofnResponse {
   bytes nofn_xonly_pk = 1;
   uint32 num_verifiers = 2;
@@ -162,7 +158,6 @@ enum NormalTransactionId {
     CHALLENGE_TIMEOUT = 13;
     BURN_UNUSED_KICKOFF_CONNECTORS = 14;
     YIELD_KICKOFF_TXID = 15;
-    BASE_DEPOSIT = 16;
     REPLACEMENT_DEPOSIT = 17;
     LATEST_BLOCKHASH_TIMEOUT = 18;
     LATEST_BLOCKHASH = 19;
@@ -259,26 +254,6 @@ message WithdrawParams {
   uint64 output_amount = 5;
 }
 
-message WithdrawResponse {
-  // The withdrawal transaction's txid
-  Txid txid = 1;
-}
-
-message WithdrawErrorResponse {
-  string error = 1;
-}
-
-message WithdrawResult {
-  oneof result {
-    WithdrawResponse success = 1;
-    WithdrawErrorResponse error = 2;
-  }
-}
-
-message WithdrawalFinalizedParams {
-  uint32 withdrawal_id = 1;
-  Outpoint deposit_outpoint = 2;
-}
 
 message FinalizedPayoutParams {
   bytes payout_blockhash = 1;
@@ -287,6 +262,49 @@ message FinalizedPayoutParams {
 
 message XOnlyPublicKeyRpc {
   bytes xonly_public_key = 1;
+}
+
+message StoppedTasks {
+  repeated string stopped_tasks = 1;
+}
+
+message EntityError {
+  string error = 1;
+}
+
+message EntityStatus {
+  bool automation = 1;
+  string wallet_balance = 2;
+  uint32 tx_sender_synced_height = 3;
+  uint32 finalized_synced_height = 4;
+  uint32 hcp_last_proven_height = 5;
+  StoppedTasks stopped_tasks = 6;
+  uint32 rpc_tip_height = 7;
+  uint32 bitcoin_syncer_synced_height = 8;
+  uint32 state_manager_next_height = 9;
+}
+
+enum EntityType {
+  ENTITY_UNKNOWN = 0;
+  OPERATOR = 1;
+  VERIFIER = 2;
+}
+
+message EntityId {
+  EntityType kind = 1;
+  string id = 2;
+}
+
+message EntityStatusWithId {
+  EntityId entity_id = 1;
+  oneof status_result {
+    EntityStatus status = 2;
+    EntityError err = 3;
+  }
+}
+
+message EntityStatuses {
+  repeated EntityStatusWithId entity_statuses = 1;
 }
 
 // An operator is responsible for paying withdrawals. It has an unique ID and
@@ -316,6 +334,9 @@ service ClementineOperator {
   // Used by aggregator inside new_deposit
   rpc GetDepositKeys(DepositParams) returns (OperatorKeys) {}
 
+  // Returns the current status of tasks running on the operator and their last synced heights.
+  rpc GetCurrentStatus(Empty) returns (EntityStatus) {}
+
   // Signs everything that includes Operator's burn connector.
   //
   // # Parameters
@@ -328,24 +349,34 @@ service ClementineOperator {
   // - Operator burn Schnorr signature
   rpc DepositSign(DepositSignSession) returns (stream SchnorrSig) {}
 
-  // Prepares a withdrawal if it's profitable and previous sequential_collateral_tx's timelock
-  // has ended, by paying for the withdrawal and locking the current sequential_collateral_tx.
-  rpc Withdraw(WithdrawParams)
-    returns (WithdrawResponse) {}
+  // Restarts the background tasks for the operator.
+  rpc RestartBackgroundTasks(Empty) returns (Empty) {}
 
-  // Checks if a withdrawal is finalized.
-  //
-  // Steps:
-  //
-  // 1. Calculate move_txid and check if the withdrawal idx matches it
-  // 2. Check if it is proved on citrea
-  // 3. Send operator_take_txs
+  // Prepares a withdrawal if it's profitable and the withdrawal is correct and registered in Citrea bridge contract.
+  // If withdrawal is accepted, the payout tx will be added to the TxSender and success is returned, otherwise an error is returned.
+  // If automation is disabled, the withdrawal will not be accepted and an error will be returned.
+  // Note: This is intended for operator's own use, so it doesn't include a signature from aggregator.
+  rpc InternalWithdraw(WithdrawParams)
+    returns (RawSignedTx) {}
+
+
+  // First, if verification address in operator's config is set, the signature in rpc is checked to see if it was signed by the verification address.
+  // Then prepares a withdrawal if it's profitable and the withdrawal is correct and registered in Citrea bridge contract.
+  // If withdrawal is accepted, the payout tx will be added to the TxSender and success is returned, otherwise an error is returned.
+  // If automation is disabled, the withdrawal will not be accepted and an error will be returned.
+  rpc Withdraw(WithdrawParamsWithSig)
+    returns (RawSignedTx) {}
+
+  // For a given deposit outpoint, determines the next step in the kickoff process the operator is in,
+  // and returns the raw signed txs that the operator needs to send next, for enabling reimbursement process
+  // without automation.
   //
   // # Parameters
+  // - deposit_outpoint: Deposit outpoint to create the kickoff for
   //
-  // - withdrawal_id: Withdrawal's ID
-  // - deposit_outpoint: Withdrawal's deposit UTXO
-  rpc WithdrawalFinalized(WithdrawalFinalizedParams) returns (Empty) {}
+  // # Returns
+  // - Raw signed txs that the operator needs to send next
+  rpc GetReimbursementTxs(Outpoint) returns (SignedTxsWithType) {}
 
   // Signs all tx's it can according to given transaction type (use it with AllNeededForDeposit to get almost all tx's)
   // Creates the transactions denoted by the deposit and operator_idx, round_idx, and kickoff_idx.
@@ -396,7 +427,8 @@ message NonceGenRequest {
 
 message NonceGenFirstResponse {
   // ID of the nonce session (used to store nonces in verifier's memory)
-  uint32 id = 1;
+  // The id is string representation of a u128 number
+  string id = 1;
   // Number of nonces to generate
   uint32 num_nonces = 2;
 }
@@ -407,8 +439,34 @@ message NonceGenResponse {
   }
 }
 
-message OptimisticPayoutParams {
+message OptimisticWithdrawParams {
   WithdrawParams withdrawal = 1;
+  // An ECDSA signature (of citrea/aggregator) over the withdrawal params
+  // to authenticate the withdrawal params. This will be signed manually by citrea 
+  // after manual verification of the optimistic payout.
+  optional string verification_signature = 2;
+}
+
+message WithdrawParamsWithSig {
+  WithdrawParams withdrawal = 1;
+  // An ECDSA signature (of citrea/aggregator) over the withdrawal params
+  // to authenticate the withdrawal params. This will be signed manually by citrea 
+  // after manual verification of the optimistic payout.
+  // This message contains same data as the one in Optimistic Payout signature, but with a different message name,
+  // so that the same signature can't be used for both optimistic payout and normal withdrawal.
+  optional string verification_signature = 2;
+}
+
+// Input of the aggregator's withdraw function.
+// It contains the withdrawal params along with the verification signature that signs the withdrawal params.
+// It also contains the operator's xonly public keys that the withdrawal request should be sent to. If the list is empty, the withdrawal will be sent to all operators.
+message AggregatorWithdrawalInput {
+  WithdrawParamsWithSig withdrawal = 1;
+  repeated XOnlyPublicKeyRpc operator_xonly_pks = 2;
+}
+
+message OptimisticPayoutParams {
+  OptimisticWithdrawParams opt_withdrawal = 1;
   NonceGenFirstResponse nonce_gen = 2;
   bytes agg_nonce = 3;
 }
@@ -458,7 +516,7 @@ message TxMetadata {
   // Optional outpoint of the deposit transaction
   Outpoint deposit_outpoint = 1;
   // Deposit identification
-  XonlyPublicKey operator_xonly_pk = 2;
+  XOnlyPublicKeyRpc operator_xonly_pk = 2;
   uint32 round_idx = 4;
   uint32 kickoff_idx = 5;
   // Transaction ID
@@ -534,9 +592,14 @@ service ClementineVerifier {
   // Debug a transaction by retrieving its current state and history
   rpc DebugTx(TxDebugRequest) returns (TxDebugInfo) {}
 
+  // Restarts the background tasks for the verifier.
+  rpc RestartBackgroundTasks(Empty) returns (Empty) {}
 
   // Checks if the kickoff tx is malicious and if so, try to send all necessary txs to punish the operator
   rpc InternalHandleKickoff(Txid) returns (Empty) {}
+
+  // Returns the current status of tasks running on the verifier and their last synced heights.
+  rpc GetCurrentStatus(Empty) returns (EntityStatus) {}
 
   // 1. Signs all tx's it can according to given transaction type (use it with AllNeededForDeposit to get almost all tx's)
   // 2. Creates the transactions denoted by the deposit and operator_idx, round_idx, and kickoff_idx.
@@ -593,17 +656,25 @@ message RawTxWithRbfInfo {
 }
 
 message AggregatorWithdrawResponse {
-  repeated WithdrawResult withdraw_responses = 1;
+  repeated string withdraw_responses = 1;
 }
 
-message CreateEmergencyStopTxRequest {
+message GetEmergencyStopTxRequest {
   repeated Txid txids = 1;
-  bool add_anchor = 2;
+}
+
+message GetEmergencyStopTxResponse {
+  repeated Txid txids = 1;
+  repeated bytes encrypted_emergency_stop_txs = 2;
 }
 
 message SendMoveTxRequest {
   RawSignedTx raw_tx = 1;
   Outpoint deposit_outpoint = 2;
+}
+
+message GetEntityStatusesRequest {
+  bool restart_tasks = 1;
 }
 
 service ClementineAggregator {
@@ -631,21 +702,27 @@ service ClementineAggregator {
 
   // Call's withdraw on all operators
   // Used by the clementine-backend service to initiate a withdrawal
-  rpc Withdraw(WithdrawParams)
+  // If the operator's xonly public keys list is empty, the withdrawal will be sent to all operators.
+  // If not, only the operators in the list will be sent the withdrawal request.
+  rpc Withdraw(AggregatorWithdrawalInput)
     returns (AggregatorWithdrawResponse) {}
 
   // Perform an optimistic payout to reimburse a peg-out from Citrea
-  rpc OptimisticPayout(WithdrawParams) returns (RawSignedTx)  {}
+  rpc OptimisticPayout(OptimisticWithdrawParams) returns (RawSignedTx)  {}
 
   // Send a pre-signed tx to the network
   rpc InternalSendTx(SendTxRequest) returns (Empty) {}
 
   rpc SendMoveToVaultTx(SendMoveTxRequest) returns (Txid) {}
 
+  // Returns the current status of tasks running on the operators/verifiers.
+  // If restart_tasks is true, it will restart the tasks on the entities if they are stopped.
+  rpc GetEntityStatuses(GetEntityStatusesRequest) returns (EntityStatuses) {}
+
   // Creates an emergency stop tx that won't be broadcasted.
   // Tx will have around 3 sats/vbyte fee.
   // Set add_anchor to true to add an anchor output for cpfp..
-  rpc InternalCreateEmergencyStopTx(CreateEmergencyStopTxRequest) returns (SignedTxWithType) {}
+  rpc InternalGetEmergencyStopTx(GetEmergencyStopTxRequest) returns (GetEmergencyStopTxResponse) {}
 
   rpc Vergen(Empty) returns (VergenResponse) {}
 }

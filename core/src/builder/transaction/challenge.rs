@@ -3,15 +3,15 @@
 //! This module provides functions for constructing and challenge related transactions in the protocol.
 //! The transactions are: Challenge, ChallengeTimeout, OperatorChallengeNack, OperatorChallengeAck, Disprove.
 
-use crate::builder;
 use crate::builder::script::SpendPath;
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::txhandler::{TxHandler, DEFAULT_SEQUENCE};
 use crate::builder::transaction::*;
 use crate::config::protocol::ProtocolParamset;
-use crate::constants::MIN_TAPROOT_AMOUNT;
+use crate::constants::{MIN_TAPROOT_AMOUNT, NON_STANDARD_V3};
 use crate::errors::BridgeError;
 use crate::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind};
+use crate::{builder, EVMAddress};
 use bitcoin::script::PushBytesBuf;
 use bitcoin::{Sequence, TxOut, WitnessVersion};
 use eyre::Context;
@@ -53,7 +53,7 @@ pub fn create_watchtower_challenge_txhandler(
         return Err(TxError::IncorrectWatchtowerChallengeDataLength.into());
     }
     let mut builder = TxHandlerBuilder::new(TransactionType::WatchtowerChallenge(watchtower_idx))
-        .with_version(Version::non_standard(3))
+        .with_version(Version::TWO)
         .add_input(
             (
                 NumberedSignatureKind::WatchtowerChallenge,
@@ -91,23 +91,7 @@ pub fn create_watchtower_challenge_txhandler(
 
     #[cfg(test)]
     {
-        if test_params.use_large_annex_and_output {
-            let mut op_return_vec: Vec<u8> = vec![0x6a, 0xa8, 0xcc, 0x03, 0x00];
-            op_return_vec.extend_from_slice(&[0u8; 249000]);
-            let additional_op_return_txout = TxOut {
-                value: Amount::from_sat(0),
-                script_pubkey: ScriptBuf::from_bytes(op_return_vec),
-            };
-            builder = builder.add_output(UnspentTxOut::from_partial(additional_op_return_txout));
-        } else if test_params.use_large_output {
-            let mut op_return_vec: Vec<u8> = vec![0x6a, 0x58, 0x3e, 0x0f, 0x00];
-            op_return_vec.extend_from_slice(&[0u8; 999000]);
-            let additional_op_return_txout = TxOut {
-                value: Amount::from_sat(0),
-                script_pubkey: ScriptBuf::from_bytes(op_return_vec),
-            };
-            builder = builder.add_output(UnspentTxOut::from_partial(additional_op_return_txout));
-        }
+        builder = test_params.maybe_add_large_test_outputs(builder)?;
     }
 
     Ok(builder.finalize())
@@ -144,7 +128,7 @@ pub fn create_watchtower_challenge_timeout_txhandler(
     let challenge_ack_vout = UtxoVout::WatchtowerChallengeAck(watchtower_idx);
     Ok(
         TxHandlerBuilder::new(TransactionType::WatchtowerChallengeTimeout(watchtower_idx))
-            .with_version(Version::non_standard(3))
+            .with_version(NON_STANDARD_V3)
             .add_input(
                 (
                     NumberedSignatureKind::WatchtowerChallengeTimeout1,
@@ -202,7 +186,7 @@ pub fn create_operator_challenge_nack_txhandler(
 ) -> Result<TxHandler, BridgeError> {
     Ok(
         TxHandlerBuilder::new(TransactionType::OperatorChallengeNack(watchtower_idx))
-            .with_version(Version::non_standard(3))
+            .with_version(NON_STANDARD_V3)
             .add_input(
                 (
                     NumberedSignatureKind::OperatorChallengeNack1,
@@ -265,7 +249,7 @@ pub fn create_operator_challenge_ack_txhandler(
 ) -> Result<TxHandler, BridgeError> {
     Ok(
         TxHandlerBuilder::new(TransactionType::OperatorChallengeAck(watchtower_idx))
-            .with_version(Version::non_standard(3))
+            .with_version(NON_STANDARD_V3)
             .add_input(
                 NormalSignatureKind::OperatorChallengeAck1,
                 kickoff_txhandler
@@ -353,10 +337,11 @@ pub fn create_disprove_txhandler(
 pub fn create_challenge_txhandler(
     kickoff_txhandler: &TxHandler,
     operator_reimbursement_address: &bitcoin::Address,
+    challenger_evm_address: Option<EVMAddress>,
     paramset: &'static ProtocolParamset,
 ) -> Result<TxHandler, BridgeError> {
-    Ok(TxHandlerBuilder::new(TransactionType::Challenge)
-        .with_version(Version::non_standard(3))
+    let mut builder = TxHandlerBuilder::new(TransactionType::Challenge)
+        .with_version(NON_STANDARD_V3)
         .add_input(
             NormalSignatureKind::Challenge,
             kickoff_txhandler.get_spendable_output(UtxoVout::Challenge)?,
@@ -366,8 +351,15 @@ pub fn create_challenge_txhandler(
         .add_output(UnspentTxOut::from_partial(TxOut {
             value: paramset.operator_challenge_amount,
             script_pubkey: operator_reimbursement_address.script_pubkey(),
-        }))
-        .finalize())
+        }));
+
+    if let Some(challenger_evm_address) = challenger_evm_address {
+        builder = builder.add_output(UnspentTxOut::from_partial(op_return_txout(
+            challenger_evm_address.0,
+        )));
+    }
+
+    Ok(builder.finalize())
 }
 
 /// Creates a [`TxHandler`] for the `challenge_timeout` transaction.
@@ -394,7 +386,7 @@ pub fn create_challenge_timeout_txhandler(
     paramset: &'static ProtocolParamset,
 ) -> Result<TxHandler, BridgeError> {
     Ok(TxHandlerBuilder::new(TransactionType::ChallengeTimeout)
-        .with_version(Version::non_standard(3))
+        .with_version(NON_STANDARD_V3)
         .add_input(
             NormalSignatureKind::OperatorSighashDefault,
             kickoff_txhandler.get_spendable_output(UtxoVout::Challenge)?,

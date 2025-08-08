@@ -16,6 +16,10 @@ lazy_static = { version = "1.5.0", default-features = false }
 serde = { version = "1.0", default-features = false, features = ["derive"] }
 serde_json = "1.0.128"
 thiserror = "1.0.64"
+metrics = { version = "0.23.0" }
+metrics-derive = { version = "0.1.0" }
+metrics-exporter-prometheus = { version = "0.15.3" }
+metrics-util = { version = "0.17.0" }
 tracing = { version = "0.1.40", default-features = false }
 tracing-subscriber = { version = "0.3.18", features = ["json"] }
 log = "0.4"
@@ -27,20 +31,24 @@ sqlx = { version = "0.8.3", default-features = false }
 serial_test = "3.2.0"
 tempfile = "3.8"
 eyre = { version = "0.6.12" }
+tokio-retry = { version = "0.3" }
 alloy = { version = "0.11.1", features = ["full"] }
 statig = { version = "0.3.0", features = ["async", "serde"] }
 pgmq = "0.30.0"
 serde_with = "3.12.0"
 rand_chacha = "0.9.0"
 secrecy = { version = "0.10.0", features = ["serde"] }
+reqwest = { version = "0.12.12", features = ["rustls-tls", "json", "http2"], default-features = false }
+
+# for emergency stop encryption
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+chacha20poly1305 = { version = "0.10", features = ["stream"] }
+
 
 # Citrea dependencies
-citrea-e2e = { git = "https://github.com/chainwayxyz/citrea-e2e", rev = "d45a29afa4de9d7e00dad9e8d9c59f95fe22e557" }
-sov-rollup-interface = { git = "https://github.com/chainwayxyz/citrea.git", rev = "b1fbe83fdd60d29", features = [
-  "native",
-] }
+citrea-e2e = { git = "https://github.com/chainwayxyz/citrea-e2e", rev = "859cddf" }
 
-citrea-sov-rollup-interface = { git = "https://github.com/chainwayxyz/citrea", tag = "v0.7.0", package = "sov-rollup-interface" }
+citrea-sov-rollup-interface = { git = "https://github.com/chainwayxyz/citrea", tag = "v0.7.3-rc.5", package = "sov-rollup-interface" }
 
 # bitcoin
 bitcoin = { version = "0.32.5", features = ["serde", "base64"] }
@@ -69,17 +77,18 @@ hyper-util = { version = "0.1" }
 
 # Circuits
 sha2 = { version = "=0.10.8", default-features = false }
+hkdf = { version = "0.12.4", default-features = false }
 crypto-bigint = { version = "=0.5.5", features = ["rand_core"] }
 borsh = { version = "1.5.1", features = ["derive"] }
 k256 = { version = "=0.13.4" }
-risc0-build = "2.1.2"
-risc0-zkvm = "2.1.0"
+risc0-build = "2.3.1"
+risc0-zkvm = "2.3.1"
 once_cell = "1.10.0"
 jmt = "0.11.0"
 derive_more = { version = "1.0.0", features = ["display"] }
 blake3 = "1.6.1"
 itertools = "0.14.0"
-bitvm = { git = "https://github.com/chainwayxyz/BitVM", rev = "898618219c07e84f57d9727283fa8abbe3823eaf" }
+bitvm = { git = "https://github.com/chainwayxyz/BitVM", rev = "a82e5a6bbc1183f98e8f2abd762baf20eb054475" }
 
 ark-groth16 = { version = "0.5.0", default-features = false }
 ark-serialize = "0.5.0"
@@ -89,9 +98,10 @@ ark-bn254 = { version = "0.5.0", features = [
 ], default-features = false }
 
 # Bridge Circuit Host
-risc0-circuit-recursion = "2.0.2"
-risc0-zkp = "2.0.1"
-risc0-groth16 = "2.0.1"
+risc0-circuit-recursion = "=3.0.0"
+risc0-zkp = "=2.0.2"
+risc0-groth16 = "=2.0.2"
+risc0-binfmt = { version = "=2.0.2" }
 
 ark-ff = "0.5.0"
 ark-ec = "0.5.0"
@@ -103,12 +113,15 @@ alloy-rpc-types = "0.11.1"
 alloy-primitives = "0.8.25"
 alloy-rpc-types-eth = "0.11.1"
 alloy-rpc-client = "0.11.1"
+alloy-sol-types = { version = "0.8.25", default-features = false, features = ["json"] }
+
 
 rand = "0.8"
 num-bigint = "0.4.6"
 num-traits = "0.2.19"
 bincode = "1.3.3"
 hex-literal = "0.4.1"
+rustls = "0.23.27"
 rustls-pki-types = "1.11.0"
 
 base64 = "0.22.1"

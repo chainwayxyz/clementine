@@ -1,7 +1,19 @@
-use crate::constants::{OPERATOR_GET_KEYS_TIMEOUT, VERIFIER_SEND_KEYS_TIMEOUT};
+use std::ops::Deref;
+use std::sync::Arc;
+
+use crate::constants::{
+    ENTITY_STATUS_POLL_TIMEOUT, OPERATOR_GET_KEYS_TIMEOUT, PUBLIC_KEY_COLLECTION_TIMEOUT,
+    VERIFIER_SEND_KEYS_TIMEOUT,
+};
 use crate::deposit::DepositData;
-use crate::extended_rpc::ExtendedRpc;
-use crate::rpc::clementine::{DepositParams, OperatorKeysWithDeposit};
+use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
+use crate::rpc::clementine::entity_status_with_id::StatusResult;
+use crate::rpc::clementine::EntityId as RPCEntityId;
+use crate::rpc::clementine::{
+    self, DepositParams, Empty, EntityStatusWithId, EntityType, OperatorKeysWithDeposit,
+};
+use crate::task::aggregator_metric_publisher::AGGREGATOR_METRIC_PUBLISHER_POLL_DELAY;
+use crate::task::TaskExt;
 #[cfg(feature = "automation")]
 use crate::tx_sender::TxSenderClient;
 use crate::utils::{timed_request, timed_try_join_all};
@@ -23,8 +35,11 @@ use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::{schnorr, Message, PublicKey};
 use bitcoin::XOnlyPublicKey;
 use eyre::Context;
+use futures::future::join_all;
 use secp256k1::musig::{AggregatedNonce, PartialSignature};
-use tonic::Status;
+use std::future::Future;
+use tokio::sync::RwLock;
+use tonic::{Request, Status};
 use tracing::{debug_span, Instrument};
 
 /// Aggregator struct.
@@ -37,34 +52,49 @@ use tracing::{debug_span, Instrument};
 /// For now, we do not have the last bit.
 #[derive(Debug, Clone)]
 pub struct Aggregator {
-    pub(crate) rpc: ExtendedRpc,
+    pub(crate) rpc: ExtendedBitcoinRpc,
     pub(crate) db: Database,
     pub(crate) config: BridgeConfig,
     #[cfg(feature = "automation")]
     pub(crate) tx_sender: TxSenderClient,
     operator_clients: Vec<ClementineOperatorClient<tonic::transport::Channel>>,
     verifier_clients: Vec<ClementineVerifierClient<tonic::transport::Channel>>,
-    verifier_keys: Vec<PublicKey>,
-    operator_keys: Vec<XOnlyPublicKey>,
+    verifier_keys: Arc<RwLock<Vec<Option<PublicKey>>>>,
+    operator_keys: Arc<RwLock<Vec<Option<XOnlyPublicKey>>>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum EntityId {
+    Verifier(VerifierId),
+    Operator(OperatorId),
 }
 
 /// Wrapper struct that renders the verifier id in the logs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct VerifierId(PublicKey);
+pub struct VerifierId(pub PublicKey);
 
 /// Wrapper struct that renders the operator id in the logs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct OperatorId(XOnlyPublicKey);
+pub struct OperatorId(pub XOnlyPublicKey);
+
+impl std::fmt::Display for EntityId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EntityId::Verifier(id) => write!(f, "{}", id),
+            EntityId::Operator(id) => write!(f, "{}", id),
+        }
+    }
+}
 
 impl std::fmt::Display for VerifierId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Verifier({}...)", &self.0.to_string()[..10])
+        write!(f, "Verifier({})", &self.0.to_string()[..10])
     }
 }
 
 impl std::fmt::Display for OperatorId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Operator({}...)", &self.0.to_string()[..10])
+        write!(f, "Operator({})", &self.0.to_string()[..10])
     }
 }
 
@@ -128,10 +158,11 @@ impl Aggregator {
     pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
         let db = Database::new(&config).await?;
 
-        let rpc = ExtendedRpc::connect(
+        let rpc = ExtendedBitcoinRpc::connect(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
+            None,
         )
         .await?;
 
@@ -154,7 +185,7 @@ impl Aggregator {
         // Create clients to connect to all verifiers
         let verifier_clients = rpc::get_clients(
             verifier_endpoints,
-            ClementineVerifierClient::new,
+            crate::rpc::verifier_client_builder(&config),
             &config,
             true,
         )
@@ -163,7 +194,7 @@ impl Aggregator {
         // Create clients to connect to all operators
         let operator_clients = rpc::get_clients(
             operator_endpoints,
-            ClementineOperatorClient::new,
+            crate::rpc::operator_client_builder(&config),
             &config,
             true,
         )
@@ -178,11 +209,8 @@ impl Aggregator {
             operator_clients.len(),
         );
 
-        let operator_keys =
-            Aggregator::collect_operator_xonly_public_keys_with_clients(&operator_clients).await?;
-
-        let (_, verifier_keys) =
-            Aggregator::collect_verifier_public_keys_with_clients(&verifier_clients).await?;
+        let operator_keys = Arc::new(RwLock::new(vec![None; operator_clients.len()]));
+        let verifier_keys = Arc::new(RwLock::new(vec![None; verifier_clients.len()]));
 
         Ok(Aggregator {
             rpc,
@@ -201,12 +229,129 @@ impl Aggregator {
         &self.verifier_clients
     }
 
-    pub fn get_verifier_keys(&self) -> Vec<PublicKey> {
-        self.verifier_keys.clone()
+    /// Generic helper function to fetch keys from clients
+    async fn fetch_pubkeys_from_entities<T, C, F, Fut>(
+        &self,
+        clients: &[C],
+        keys_storage: &RwLock<Vec<Option<T>>>,
+        pubkey_fetcher: F,
+        key_type_name: &str,
+    ) -> Result<Vec<T>, BridgeError>
+    where
+        T: Clone + Send + Sync,
+        C: Clone + Send + Sync,
+        F: Fn(C) -> Fut + Send + Sync,
+        Fut: Future<Output = Result<T, BridgeError>> + Send,
+    {
+        // Check if all keys are collected
+        let all_collected = {
+            let keys = keys_storage.read().await;
+            keys.iter().all(|key| key.is_some())
+        };
+
+        if !all_collected {
+            // get a write lock early, so that only one thread can try to collect keys
+            let mut keys = keys_storage.write().await;
+
+            // sanity check because we directly use indexes below
+            if keys.len() != clients.len() {
+                return Err(eyre::eyre!(
+                    "Keys storage length does not match clients length, should not happen, keys length: {}, clients length: {}",
+                    keys.len(),
+                    clients.len()
+                )
+                .into());
+            }
+
+            let key_collection_futures = clients
+                .iter()
+                .zip(keys.iter().enumerate())
+                .filter_map(|(client, (idx, key))| {
+                    if key.is_none() {
+                        Some((idx, pubkey_fetcher(client.clone())))
+                    } else {
+                        None
+                    }
+                })
+                .map(|(idx, fut)| async move { (idx, fut.await) });
+
+            let collected_keys = join_all(key_collection_futures).await;
+            let mut missing_keys = Vec::new();
+
+            // Fill in keys with the results of the futures
+            for (idx, new_key) in collected_keys {
+                match new_key {
+                    Ok(new_key) => keys[idx] = Some(new_key),
+                    Err(e) => {
+                        tracing::debug!(
+                            "Failed to collect {} {} (order in config) key: {}",
+                            key_type_name,
+                            idx,
+                            e
+                        );
+                        missing_keys.push(idx);
+                    }
+                }
+            }
+
+            // if not all keys were collected, return an error
+            if keys.iter().any(|key| key.is_none()) {
+                return Err(eyre::eyre!(
+                    "Not all {} keys were able to be collected, missing keys at indices: {:?}",
+                    key_type_name,
+                    missing_keys
+                )
+                .into());
+            }
+        }
+
+        // return all keys if they were all collected
+        Ok(keys_storage
+            .read()
+            .await
+            .iter()
+            .map(|key| key.clone().expect("should all be collected"))
+            .collect())
     }
 
-    pub fn get_operator_keys(&self) -> Vec<XOnlyPublicKey> {
-        self.operator_keys.clone()
+    /// If all verifier keys are already collected, returns them.
+    /// Otherwise, it tries to collect them from the verifiers, saves them and returns them.
+    pub async fn fetch_verifier_keys(&self) -> Result<Vec<PublicKey>, BridgeError> {
+        self.fetch_pubkeys_from_entities(
+            &self.verifier_clients,
+            &self.verifier_keys,
+            |mut client| async move {
+                let mut request = Request::new(Empty {});
+                request.set_timeout(PUBLIC_KEY_COLLECTION_TIMEOUT);
+                let verifier_params = client.get_params(request).await?.into_inner();
+                let public_key = PublicKey::from_slice(&verifier_params.public_key)
+                    .map_err(|e| eyre::eyre!("Failed to parse verifier public key: {}", e))?;
+                Ok::<_, BridgeError>(public_key)
+            },
+            "verifier",
+        )
+        .await
+    }
+
+    /// If all operator keys are already collected, returns them.
+    /// Otherwise, it tries to collect them from the operators, saves them and returns them.
+    pub async fn fetch_operator_keys(&self) -> Result<Vec<XOnlyPublicKey>, BridgeError> {
+        self.fetch_pubkeys_from_entities(
+            &self.operator_clients,
+            &self.operator_keys,
+            |mut client| async move {
+                let mut request = Request::new(Empty {});
+                request.set_timeout(PUBLIC_KEY_COLLECTION_TIMEOUT);
+                let operator_xonly_pk: XOnlyPublicKey = client
+                    .get_x_only_public_key(request)
+                    .await?
+                    .into_inner()
+                    .try_into()?;
+                Ok::<_, BridgeError>(operator_xonly_pk)
+            },
+            "operator",
+        )
+        .await
     }
 
     pub fn get_operator_clients(&self) -> &[ClementineOperatorClient<tonic::transport::Channel>] {
@@ -228,7 +373,7 @@ impl Aggregator {
 
         // Create channels with larger capacity to prevent blocking
         let (operator_keys_tx, operator_keys_rx) =
-            tokio::sync::broadcast::channel::<crate::rpc::clementine::OperatorKeysWithDeposit>(
+            tokio::sync::broadcast::channel::<clementine::OperatorKeysWithDeposit>(
                 deposit_data.get_num_operators() * deposit_data.get_num_verifiers(),
             );
         let operator_rx_handles = (0..deposit_data.get_num_verifiers())
@@ -413,7 +558,7 @@ impl Aggregator {
         &self,
         deposit_data: &DepositData,
     ) -> Result<ParticipatingVerifiers, BridgeError> {
-        let verifier_keys = self.get_verifier_keys();
+        let verifier_keys = self.fetch_verifier_keys().await?;
         let mut participating_verifiers = Vec::new();
 
         let verifiers = deposit_data.get_verifiers();
@@ -423,6 +568,11 @@ impl Aggregator {
                 participating_verifiers
                     .push((self.verifier_clients[pos].clone(), VerifierId(verifier_pk)));
             } else {
+                tracing::error!(
+                    "Verifier public key not found. Deposit data verifier keys: {:?}, self verifier keys: {:?}",
+                    deposit_data.get_verifiers(),
+                    self.verifier_keys
+                );
                 return Err(BridgeError::VerifierNotFound(verifier_pk));
             }
         }
@@ -435,7 +585,7 @@ impl Aggregator {
         &self,
         deposit_data: &DepositData,
     ) -> Result<ParticipatingOperators, BridgeError> {
-        let operator_keys = self.get_operator_keys();
+        let operator_keys = self.fetch_operator_keys().await?;
         let mut participating_operators = Vec::new();
 
         let operators = deposit_data.get_operators();
@@ -450,5 +600,169 @@ impl Aggregator {
         }
 
         Ok(ParticipatingOperators::new(participating_operators))
+    }
+
+    /// Retrieves the status of all entities (operators and verifiers) and restarts background tasks if needed.
+    /// Returns a vector of EntityStatusWithId. Only returns an error if restarting tasks fails when requested.
+    pub async fn get_entity_statuses(
+        &self,
+        restart_tasks: bool,
+    ) -> Result<Vec<EntityStatusWithId>, BridgeError> {
+        tracing::debug!("Getting entities status");
+
+        let operator_clients = self.get_operator_clients();
+        let verifier_clients = self.get_verifier_clients();
+        tracing::debug!("Operator clients: {:?}", operator_clients.len());
+
+        // try to reach all operators and verifiers to collect keys, but do not return err if some of them can't be reached
+        let _ = self.fetch_operator_keys().await;
+        let _ = self.fetch_verifier_keys().await;
+
+        let operator_keys = self.operator_keys.read().await.clone();
+        let verifier_keys = self.verifier_keys.read().await.clone();
+
+        // we will only ask status of entities that we could collect keys for, others are unreachable
+
+        let operator_status = join_all(
+            operator_clients
+                .iter()
+                .zip(operator_keys.iter())
+                // filter out operators that have None as key
+                .filter_map(|(client, key)| key.map(|key| (client, key)))
+                .map(|(client, key)| {
+                    let mut client = client.clone();
+                    async move {
+                        tracing::debug!("Getting operator status for {:?}", key);
+                        let mut request = Request::new(Empty {});
+                        request.set_timeout(ENTITY_STATUS_POLL_TIMEOUT);
+                        let response = client.get_current_status(request).await;
+
+                        EntityStatusWithId {
+                            entity_id: Some(RPCEntityId {
+                                kind: EntityType::Operator as i32,
+                                id: key.to_string(),
+                            }),
+                            status_result: match response {
+                                Ok(response) => Some(StatusResult::Status(response.into_inner())),
+                                Err(e) => Some(StatusResult::Err(clementine::EntityError {
+                                    error: e.to_string(),
+                                })),
+                            },
+                        }
+                    }
+                }),
+        )
+        .await;
+
+        let verifier_status = join_all(
+            verifier_clients
+                .iter()
+                .zip(verifier_keys.iter())
+                .filter_map(|(client, key)| key.map(|key| (client, key)))
+                .map(|(client, key)| {
+                    let mut client = client.clone();
+                    async move {
+                        tracing::debug!("Getting verifier status for {:?}", key);
+                        let mut request = Request::new(Empty {});
+                        request.set_timeout(ENTITY_STATUS_POLL_TIMEOUT);
+                        let response = client.get_current_status(request).await;
+
+                        EntityStatusWithId {
+                            entity_id: Some(RPCEntityId {
+                                kind: EntityType::Verifier as i32,
+                                id: key.to_string(),
+                            }),
+                            status_result: match response {
+                                Ok(response) => Some(StatusResult::Status(response.into_inner())),
+                                Err(e) => Some(StatusResult::Err(clementine::EntityError {
+                                    error: e.to_string(),
+                                })),
+                            },
+                        }
+                    }
+                }),
+        )
+        .await;
+
+        // Combine operator and verifier status into a single vector
+        let mut entity_statuses = operator_status;
+        entity_statuses.extend(verifier_status);
+
+        // try to restart background tasks if needed
+        if restart_tasks {
+            let operator_tasks = operator_clients.iter().map(|client| {
+                let mut client = client.clone();
+                async move {
+                    client
+                        .restart_background_tasks(Request::new(Empty {}))
+                        .await
+                }
+            });
+
+            let verifier_tasks = verifier_clients.iter().map(|client| {
+                let mut client = client.clone();
+                async move {
+                    client
+                        .restart_background_tasks(Request::new(Empty {}))
+                        .await
+                }
+            });
+
+            futures::try_join!(
+                futures::future::try_join_all(operator_tasks),
+                futures::future::try_join_all(verifier_tasks)
+            )?;
+        }
+        Ok(entity_statuses)
+    }
+}
+
+/// Aggregator server wrapper that manages background tasks.
+#[derive(Debug)]
+pub struct AggregatorServer {
+    pub aggregator: Aggregator,
+    background_tasks: crate::task::manager::BackgroundTaskManager,
+}
+
+impl AggregatorServer {
+    pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
+        let aggregator = Aggregator::new(config.clone()).await?;
+        let background_tasks = crate::task::manager::BackgroundTaskManager::default();
+
+        Ok(Self {
+            aggregator,
+            background_tasks,
+        })
+    }
+
+    /// Starts the background tasks for the aggregator.
+    /// If called multiple times, it will restart only the tasks that are not already running.
+    pub async fn start_background_tasks(&self) -> Result<(), BridgeError> {
+        // Start the aggregator metric publisher task
+        self.background_tasks
+            .ensure_task_looping(
+                crate::task::aggregator_metric_publisher::AggregatorMetricPublisher::new(
+                    self.aggregator.clone(),
+                )
+                .await?
+                .with_delay(AGGREGATOR_METRIC_PUBLISHER_POLL_DELAY),
+            )
+            .await;
+
+        tracing::info!("Aggregator metric publisher task started");
+
+        Ok(())
+    }
+
+    pub async fn shutdown(&mut self) {
+        self.background_tasks.graceful_shutdown().await;
+    }
+}
+
+impl Deref for AggregatorServer {
+    type Target = Aggregator;
+
+    fn deref(&self) -> &Self::Target {
+        &self.aggregator
     }
 }

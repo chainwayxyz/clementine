@@ -1,10 +1,18 @@
+//! # MMR Native - Merkle Mountain Range for Native Environments
+//!
+//! Full-featured MMR implementation for native (non-zkVM) environments.
+//! Provides proof generation capabilities and maintains complete node structure.
+
 use borsh::{BorshDeserialize, BorshSerialize};
 use eyre::{eyre, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::common::hashes::hash_pair;
 
-/// Represents the MMR for outside zkVM (native).
+/// Merkle Mountain Range implementation for native environments.
+///
+/// Maintains the complete MMR structure with all nodes across all levels,
+/// enabling proof generation and full MMR operations outside of zkVM constraints.
 #[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
 pub struct MMRNative {
     pub nodes: Vec<Vec<[u8; 32]>>,
@@ -17,20 +25,20 @@ impl Default for MMRNative {
 }
 
 impl MMRNative {
-    /// Creates a new MMR for native usage.
+    /// Creates a new empty MMR instance.
     pub fn new() -> Self {
         MMRNative {
             nodes: vec![vec![]],
         }
     }
 
-    /// Appends a new leaf to the MMR.
+    /// Appends a leaf and recalculates the mountain peaks.
     pub fn append(&mut self, leaf: [u8; 32]) {
         self.nodes[0].push(leaf);
         self.recalculate_peaks();
     }
 
-    /// Recalculates peaks based on the current leaves.
+    /// Recalculates MMR peaks after appending new leaves.
     fn recalculate_peaks(&mut self) {
         let depth = self.nodes.len();
         for level in 0..depth - 1 {
@@ -50,7 +58,7 @@ impl MMRNative {
         }
     }
 
-    /// Returns the subroots of the MMR.
+    /// Returns the current MMR subroots (peaks of the mountain range).
     fn get_subroots(&self) -> Vec<[u8; 32]> {
         let mut subroots: Vec<[u8; 32]> = vec![];
         for level in &self.nodes {
@@ -62,7 +70,10 @@ impl MMRNative {
         subroots
     }
 
-    /// Generates a proof for a given index. Returns the leaf as well.
+    /// Generates an inclusion proof for a leaf at the given index.
+    ///
+    /// Returns both the leaf value and the proof needed to verify its inclusion.
+    /// The proof can be verified against the MMR subroots.
     pub fn generate_proof(&self, index: u32) -> Result<([u8; 32], MMRInclusionProof)> {
         if self.nodes[0].is_empty() {
             return Err(eyre!("MMR Native is empty"));
@@ -96,7 +107,7 @@ impl MMRNative {
         Ok((self.nodes[0][index as usize], mmr_proof))
     }
 
-    /// Given an index, returns the subroot index (which subtree the index is in), subtree size, and internal index (of the subtree that the index belongs to).
+    /// Determines subroot index and internal position for a given leaf index.
     fn get_helpers_from_index(&self, index: u32) -> (usize, u32) {
         let xor = (self.nodes[0].len() as u32) ^ index;
         let xor_leading_digit = 31 - xor.leading_zeros() as usize;
@@ -111,7 +122,7 @@ impl MMRNative {
         (subtree_idx, internal_idx)
     }
 
-    /// Verifies an inclusion proof against the current MMR root.
+    /// Verifies an inclusion proof against the current MMR subroots.
     pub fn verify_proof(&self, leaf: [u8; 32], mmr_proof: &MMRInclusionProof) -> bool {
         let subroot = mmr_proof.get_subroot(leaf);
         let subroots = self.get_subroots();
@@ -119,6 +130,10 @@ impl MMRNative {
     }
 }
 
+/// Proof of inclusion for an element in the MMR.
+///
+/// Contains all data needed to verify that a specific leaf exists at a given
+/// position within the MMR structure.
 #[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
 pub struct MMRInclusionProof {
     pub subroot_idx: usize,
@@ -127,6 +142,7 @@ pub struct MMRInclusionProof {
 }
 
 impl MMRInclusionProof {
+    /// Creates a new inclusion proof.
     pub fn new(subroot_idx: usize, internal_idx: u32, inclusion_proof: Vec<[u8; 32]>) -> Self {
         MMRInclusionProof {
             subroot_idx,
@@ -135,6 +151,7 @@ impl MMRInclusionProof {
         }
     }
 
+    /// Computes the subroot hash by replaying the Merkle path from the leaf.
     pub fn get_subroot(&self, leaf: [u8; 32]) -> [u8; 32] {
         let mut current_hash = leaf;
         for i in 0..self.inclusion_proof.len() {

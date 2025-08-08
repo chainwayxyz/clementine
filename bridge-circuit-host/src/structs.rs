@@ -5,7 +5,7 @@ use bitcoin::{hashes::Hash, Network, Transaction, Txid, XOnlyPublicKey};
 use borsh::{BorshDeserialize, BorshSerialize};
 use circuits_lib::{
     bridge_circuit::{
-        deposit_constant, journal_hash, parse_op_return_data,
+        deposit_constant, get_first_op_return_output, journal_hash, parse_op_return_data,
         spv::SPV,
         structs::{
             BridgeCircuitInput, ChallengeSendingWatchtowers, DepositConstant, LatestBlockhash,
@@ -20,7 +20,7 @@ use eyre::Result;
 use risc0_zkvm::Receipt;
 use std::ops::{Deref, DerefMut};
 
-use crate::utils::get_ark_verifying_key;
+use crate::utils::get_ark_verifying_key_prod;
 use thiserror::Error;
 
 const OP_RETURN_OUTPUT: usize = 1;
@@ -372,6 +372,10 @@ pub fn get_all_pubkeys(
     for i in (start_index..end_index).step_by(2) {
         let output = &kickoff_tx.output[i];
 
+        if !output.script_pubkey.is_p2tr() {
+            return Err(BridgeCircuitHostParamsError::InvalidPubkey);
+        }
+
         let xonly_public_key = XOnlyPublicKey::from_slice(&output.script_pubkey.as_bytes()[2..34])
             .map_err(|_| BridgeCircuitHostParamsError::InvalidPubkey)?;
 
@@ -480,12 +484,8 @@ impl SuccinctBridgeCircuitPublicInputs {
 fn host_deposit_constant(
     input: &BridgeCircuitInput,
 ) -> Result<DepositConstant, BridgeCircuitHostParamsError> {
-    let last_output = input
-        .payout_spv
-        .transaction
-        .output
-        .last()
-        .ok_or(BridgeCircuitHostParamsError::MissingKickoffOutputs)?;
+    let first_op_return_output = get_first_op_return_output(&input.payout_spv.transaction)
+        .ok_or(BridgeCircuitHostParamsError::InvalidOperatorPubkey)?;
 
     let deposit_storage_proof: EIP1186StorageProof =
         serde_json::from_str(&input.sp.storage_proof_deposit_txid).map_err(|e| {
@@ -508,7 +508,7 @@ fn host_deposit_constant(
 
     let kickff_round_vout = input.kickoff_tx.input[0].previous_output.vout;
 
-    let operator_xonlypk: [u8; 32] = parse_op_return_data(&last_output.script_pubkey)
+    let operator_xonlypk: [u8; 32] = parse_op_return_data(&first_op_return_output.script_pubkey)
         .ok_or(BridgeCircuitHostParamsError::InvalidOperatorPubkey)?
         .try_into()
         .map_err(|_| BridgeCircuitHostParamsError::InvalidOperatorPubkey)?;
@@ -643,7 +643,7 @@ impl BridgeCircuitBitvmInputs {
         let public_input_scalar =
             ark_bn254::Fr::from_be_bytes_mod_order(&public_output_bytes[0..31]);
 
-        let ark_vk = get_ark_verifying_key();
+        let ark_vk = get_ark_verifying_key_prod();
         let ark_pvk = ark_groth16::prepare_verifying_key(&ark_vk);
 
         ark_groth16::Groth16::<ark_bn254::Bn254>::verify_proof(

@@ -13,7 +13,7 @@ use std::sync::Arc;
 /// Represents a spendable transaction output, including scripts and optional Taproot spend info.
 pub struct UnspentTxOut {
     txout: TxOut,
-    scripts: Vec<Arc<dyn SpendableScript>>, // TODO: Remove either scripts or spendinfo
+    scripts: Vec<Arc<dyn SpendableScript>>,
     spendinfo: Option<TaprootSpendInfo>,
 }
 

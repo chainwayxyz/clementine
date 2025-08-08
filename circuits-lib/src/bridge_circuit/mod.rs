@@ -1,3 +1,43 @@
+//! # Bridge Circuit Module
+//!
+//! This module implements the Bridge Circuit for Clementine protocol.
+//! It defines the main entry point, `bridge_circuit`, which executes a comprehensive sequence
+//! of cryptographic verifications to securely validate a payout (fronting) transaction
+//! for a valid peg-out request for an existing peg-in transaction. The circuit
+//! ensures that an operator's claimed Bitcoin chain state is valid and that it has more
+//! cumulative proof-of-work than any challenging watchtower.
+//!
+//! ## Core Workflow
+//! The `bridge_circuit` function orchestrates the entire verification process:
+//! 1.  **Input Reading:** Reads the `BridgeCircuitInput` from the host environment.
+//! 2.  **Header Chain Proof (HCP) Verification:** Validates the operator's proof of the
+//!     Bitcoin header chain.
+//! 3.  **Watchtower Challenge Processing:** Iterates through all submitted watchtower challenges,
+//!     verifying their transaction signatures (`verify_watchtower_challenges`) and their
+//!     accompanying Groth16 proofs of work. It identifies the valid challenger with the
+//!     highest total work (`total_work_and_watchtower_flags`).
+//! 4.  **Work Comparison:** Asserts that the operator's claimed work is greater than the
+//!     maximum work submitted by any valid watchtower.
+//! 5.  **SPV Proof Verification:** Confirms the inclusion of the payout transaction in the
+//!     operator's claimed Bitcoin chain using a Simple Payment Verification (SPV) proof.
+//! 6.  **Light Client & Storage Verification:** Validates the Citrea rollup's state via a light
+//!     client proof (`lc_proof_verifier`) and verifies EVM storage proofs to confirm deposit
+//!     and withdrawal details (`verify_storage_proofs`).
+//! 7.  **Final Output Generation:** Computes a unique `deposit_constant` and a final
+//!     `journal_hash` from critical data points across the proofs. This hash is committed
+//!     to the zkVM journal, serving as the circuit's public, verifiable output.
+//!
+//! ## Key Components and Sub-modules
+//! This module relies on several specialized sub-modules for handling specific cryptographic tasks:
+//! - `groth16` & `groth16_verifier`: For handling Groth16 proof deserialization and verification.
+//! - `spv`: Implements SPV proof logic.
+//! - `lc_proof`: Verifies light client proofs of the rollup state.
+//! - `storage_proof`: Verifies EVM storage proofs.
+//! - `transaction` & `sighash`: Provides utilities for handling Bitcoin transactions and
+//!   computing Taproot sighashes for signature verification.
+//! - `structs`: Defines the data structures used for circuit inputs and outputs.
+//! - `constants`: Contains network-specific constants like method IDs.
+
 pub mod constants;
 pub mod groth16;
 pub mod groth16_verifier;
@@ -73,18 +113,19 @@ pub const HEADER_CHAIN_METHOD_ID: [u32; 8] = {
 /// 1. Reads the `BridgeCircuitInput` from the host.
 /// 2. Ensures the method ID in `hcp` (header chain proof) matches `HEADER_CHAIN_METHOD_ID`.
 /// 3. Verifies the header chain proof (`hcp`).
-/// 4. Computes total work and watchtower challenge flags using `total_work_and_watchtower_flags`.
-/// 5. Validates that the computed `total_work` does not exceed the total work in `hcp.chain_state`.
+/// 4. Computes maximum total work and watchtower challenge flags using `total_work_and_watchtower_flags`.
+/// 5. Validates that the computed `max_total_work` does not exceed the `total_work` in `hcp.chain_state`.
 /// 6. Fetches the MMR (Merkle Mountain Range) for block hashes from `hcp.chain_state`.
 /// 7. Verifies the SPV proof (`payout_spv`) using the fetched MMR.
 /// 8. Verifies the light client proof using `lc_proof_verifier`.
-/// 9. Checks storage proofs for deposit and withdrawal transaction indices using `verify_storage_proofs`.
-/// 10. Converts the verified withdrawal outpoint into a Bitcoin transaction ID.
-/// 11. Ensures the withdrawal transaction ID matches the input reference in `payout_spv.transaction`.
-/// 12. Computes the `deposit_constant` using the last output of the payout transaction.
-/// 13. Extracts and truncates the latest block hash and the payout transaction’s block hash.
-/// 14. Computes a Blake3 hash over concatenated block hash and watchtower flags.
-/// 15. Generates a final journal hash using Blake3 over concatenated data and commits it.
+/// 9. Ensures the L1 block hash from the light client proof matches the payout transaction's block hash.
+/// 10. Checks storage proofs for deposit and withdrawal transaction indices using `verify_storage_proofs`.
+/// 11. Converts the verified withdrawal outpoint into a Bitcoin transaction ID.
+/// 12. Ensures the withdrawal transaction ID matches the input reference in `payout_spv.transaction`.
+/// 13. Computes the `deposit_constant` using the first OP_RETURN output of the payout transaction.
+/// 14. Extracts and truncates the latest block hash and the payout transaction’s block hash.
+/// 15. Computes a Blake3 hash over concatenated block hash and watchtower flags.
+/// 16. Generates a final journal hash using Blake3 over concatenated data and commits it.
 ///
 /// # Panics
 ///
@@ -92,6 +133,7 @@ pub const HEADER_CHAIN_METHOD_ID: [u32; 8] = {
 /// - If `max_total_work` given by watchtowers is greater than `hcp.chain_state.total_work`.
 /// - If the SPV proof is invalid.
 /// - If the storage proof verification fails.
+/// - If the block hash of the light client proof does not match the payout transaction's block hash.
 /// - If the withdrawal transaction ID does not match the referenced input in `payout_spv`.
 pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
     let input: BridgeCircuitInput = guest.read_from_host();
@@ -107,7 +149,6 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
     let (max_total_work, challenge_sending_watchtowers) =
         total_work_and_watchtower_flags(&input, &work_only_image_id);
 
-    // Why is that 32 bytes in the first place?
     let total_work: TotalWork = input.hcp.chain_state.total_work[16..32]
         .try_into()
         .expect("Cannot fail");
@@ -116,19 +157,32 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
     if total_work < max_total_work {
         panic!(
             "Insufficient total work: Total Work {:?} - Max Total Work: {:?}",
-            input.hcp.chain_state.total_work, max_total_work
+            total_work, max_total_work
         );
     }
 
-    // MMR WILL BE FETCHED FROM LC PROOF WHEN IT IS READY - THIS IS JUST FOR PROOF OF CONCEPT
     let mmr = input.hcp.chain_state.block_hashes_mmr.clone();
 
     if !input.payout_spv.verify(mmr) {
-        panic!("Invalid SPV proof");
+        panic!(
+            "Invalid SPV proof for txid: {}",
+            input.payout_spv.transaction.compute_txid()
+        );
     }
 
     // Light client proof verification
     let light_client_circuit_output = lc_proof_verifier(input.lcp.clone());
+
+    // Make sure the L1 block hash of the LightClientCircuitOutput matches the payout tx block hash
+    let lc_l1_block_hash = light_client_circuit_output.latest_da_state.block_hash;
+    let spv_l1_block_hash = input.payout_spv.block_header.compute_block_hash();
+
+    if lc_l1_block_hash != spv_l1_block_hash {
+        panic!(
+            "L1 block hash mismatch: expected {:?}, got {:?}",
+            lc_l1_block_hash, spv_l1_block_hash
+        );
+    }
 
     // Storage proof verification for deposit tx index and withdrawal outpoint
     let (user_wd_outpoint, vout, move_txid) =
@@ -182,10 +236,8 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
     let latest_blockhash: LatestBlockhash = input.hcp.chain_state.best_block_hash[12..32]
         .try_into()
         .unwrap();
-    let payout_tx_blockhash: PayoutTxBlockhash = input.payout_spv.block_header.compute_block_hash()
-        [12..32]
-        .try_into()
-        .unwrap();
+
+    let payout_tx_blockhash: PayoutTxBlockhash = spv_l1_block_hash[12..32].try_into().unwrap();
 
     let journal_hash = journal_hash(
         payout_tx_blockhash,
@@ -204,6 +256,7 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
 /// - `compressed_proof`: A reference to a 128-byte array containing the compressed Groth16 proof.
 /// - `total_work`: A 16-byte array representing the total accumulated work associated with the proof.
 /// - `image_id`: A reference to a 32-byte array representing the image ID used for verification.
+/// - `genesis_state_hash`: A 32-byte array representing the genesis state hash.
 ///
 /// # Returns
 ///
@@ -245,12 +298,15 @@ fn convert_to_groth16_and_verify(
 ///
 /// # Parameters
 /// - `circuit_input`: Data structure holding serialized watchtower transactions, UTXOs, input indices, and pubkeys.
-/// - `kickoff_txid`: The transaction ID of the `kickoff_tx`.
 ///
 /// # Returns
-/// A tuple containing:
-/// - A 20-byte bitmap indicating which watchtower challenges were valid,
-/// - A vector of the first 3 outputs from each valid watchtower transaction.
+/// A `WatchtowerChallengeSet` containing:
+/// - `challenge_senders`: A 20-byte bitmap indicating which watchtower challenges were valid,
+/// - `challenge_outputs`: A vector of vectors containing the outputs of valid watchtower challenge transactions.
+///   These outputs should conform to the expected structure of either a single OP_RETURN output
+///   or a combination of two P2TR outputs and one OP_RETURN output for the challenge to be
+///   considered when calculating the maximum work). However, it is enough to have a valid signature
+///   to mark the watchtower as a challenge sender.
 ///
 /// # Notes
 /// Invalid or malformed challenge data (e.g., decoding errors, invalid signatures)
@@ -262,7 +318,10 @@ pub fn verify_watchtower_challenges(circuit_input: &BridgeCircuitInput) -> Watch
     let kickoff_txid = circuit_input.kickoff_tx.compute_txid();
 
     if circuit_input.watchtower_inputs.len() > MAX_NUMBER_OF_WATCHTOWERS {
-        panic!("Invalid number of watchtower challenge transactions");
+        panic!(
+            "Invalid number of watchtower challenge transactions: {}",
+            circuit_input.watchtower_inputs.len()
+        );
     }
 
     for watchtower_input in circuit_input.watchtower_inputs.iter() {
@@ -306,9 +365,9 @@ pub fn verify_watchtower_challenges(circuit_input: &BridgeCircuitInput) -> Watch
                         sighash_type,
                         signature[0..64].try_into().expect("Cannot fail"),
                     ),
-                    Err(_) => panic!(
-                        "Invalid sighash type, watchtower index: {}",
-                        watchtower_input.watchtower_idx
+                    Err(_) => (
+                        TapSighashType::Default,
+                        signature[0..64].try_into().expect("Cannot fail"),
                     ),
                 }
             } else {
@@ -427,15 +486,14 @@ pub fn verify_watchtower_challenges(circuit_input: &BridgeCircuitInput) -> Watch
 ///
 /// # Parameters
 ///
-/// - `kickoff_txid`: The transaction ID of the kickoff transaction.
 /// - `circuit_input`: The `BridgeCircuitInput` containing all watchtower inputs and related data.
 /// - `work_only_image_id`: A 32-byte identifier used for Groth16 verification against the work-only circuit.
 ///
 /// # Returns
 ///
 /// A tuple containing:
-/// - `[u8; 16]`: The total work from the highest valid watchtower challenge (after successful Groth16 verification).
-/// - `[u8; 20]`: Bitflags representing which watchtowers sent valid challenges (1 bit per watchtower).
+/// - `TotalWork`: The total work from the highest valid watchtower challenge (after successful Groth16 verification).
+/// - `ChallengeSendingWatchtowers`: Bitflags representing which watchtowers sent valid challenges (1 bit per watchtower).
 ///
 /// # Notes
 ///
@@ -444,7 +502,7 @@ pub fn verify_watchtower_challenges(circuit_input: &BridgeCircuitInput) -> Watch
 /// - Each watchtower challenge transaction is expected to contain one of two distinct output structures:
 ///     - **Single Output Format:** A single `OP_RETURN` script containing a total of 144 bytes.
 ///       This includes the entire 128-byte compressed Groth16 proof followed by the 16-byte `total_work` value.
-///     - **Three Output Format:**
+///     - **Three Outputs Format:**
 ///         - The first two outputs **must** be P2TR (Pay-to-Taproot) outputs. These two outputs
 ///           collectively contain the first 64 bytes of the compressed Groth16 proof parts
 ///           (32 bytes from each P2TR output).
@@ -469,7 +527,7 @@ pub fn total_work_and_watchtower_flags(
             // Single OP_RETURN output with 144 bytes
             [op_return_output, ..] if op_return_output.script_pubkey.is_op_return() => {
                 // If the first output is OP_RETURN, we expect a single output with 144 bytes
-                let Some(Ok(whole_output)) = parse_op_return_data(&outputs[2].script_pubkey)
+                let Some(Ok(whole_output)) = parse_op_return_data(&op_return_output.script_pubkey)
                     .map(TryInto::<[u8; 144]>::try_into)
                 else {
                     continue;
@@ -477,8 +535,9 @@ pub fn total_work_and_watchtower_flags(
                 compressed_g16_proof = whole_output[0..128]
                     .try_into()
                     .expect("Cannot fail: slicing 128 bytes from 144-byte array");
-                total_work = borsh::from_slice(&whole_output[128..144])
-                    .expect("Cannot fail: deserializing 16 bytes from a 16-byte slice");
+                total_work = whole_output[128..144]
+                    .try_into()
+                    .expect("Cannot fail: slicing 16 bytes from 144-byte array");
             }
             // Otherwise, we expect three outputs:
             // 1. [out1, out2, out3] where out1 and out2 are P2TR outputs
@@ -566,6 +625,7 @@ pub fn parse_op_return_data(script: &Script) -> Option<&[u8]> {
 /// - `move_txid`: A 32-byte array representing the transaction ID of the move transaction.
 /// - `round_txid`: A 32-byte array representing the transaction ID of the round transaction.
 /// - `kickoff_round_vout`: A 32-bit unsigned integer indicating the vout of the kickoff round transaction.
+/// - `genesis_state_hash`: A 32-byte array representing the genesis state hash.
 ///
 /// # Returns
 ///
@@ -622,9 +682,9 @@ pub fn journal_hash(
     blake3::hash(&concat_journal)
 }
 
-/// Retrieves the first output of a transaction that is an OP_RETURN script. Used to retrieve
-/// the operator's X-only public key from the OP_RETURN output in the payout transaction.
-fn get_first_op_return_output(tx: &CircuitTransaction) -> Option<&TxOut> {
+/// Retrieves the first output of a transaction that is an OP_RETURN script. Used in various
+/// contexts to extract metadata or constants from transactions.
+pub fn get_first_op_return_output(tx: &CircuitTransaction) -> Option<&TxOut> {
     tx.output
         .iter()
         .find(|out| out.script_pubkey.is_op_return())
@@ -654,6 +714,7 @@ fn sighash(
 
 /// Encodes the BIP341 signing data for any flag type into a given object implementing the
 /// [`io::Write`] trait. This version takes a pre-computed annex hash and panics on error.
+/// Code mostly taken from: https://github.com/rust-bitcoin/rust-bitcoin/blob/9782fa8412e1c767998d018f6c915e51553a83d6/bitcoin/src/crypto/sighash.rs#L619
 pub fn taproot_encode_signing_data_to_with_annex_digest<
     W: io::Write + ?Sized,
     T: Borrow<TxOut>,
@@ -1199,7 +1260,7 @@ mod tests {
 
     #[test]
     fn test_operator_xonlypk_from_op_return() {
-        let payout_tx = include_bytes!("../../../bridge-circuit-host/bin-files/payout_tx.bin");
+        let payout_tx = include_bytes!("../../test_data/payout_tx.bin");
         let mut payout_tx: Transaction =
             Decodable::consensus_decode(&mut Cursor::new(&payout_tx)).unwrap();
 
@@ -1247,11 +1308,7 @@ mod tests {
                     let hash = sha256::Hash::from_engine(enc);
                     Some(hash.to_byte_array()) // Use to_byte_array() for owned array
                 }
-                Err(_) => {
-                    // In a production environment, you might want more robust error handling/logging here.
-                    // For now, returning None if encoding fails
-                    None
-                }
+                Err(_) => None,
             }
         })
     }

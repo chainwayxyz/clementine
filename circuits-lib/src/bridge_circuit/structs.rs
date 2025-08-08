@@ -1,3 +1,15 @@
+//! # Bridge Circuit Structs
+//! This module defines the data structures used in the Bridge Circuit.
+//! It includes structures for light client proofs, work-only circuit outputs, and various constants used in the circuit.
+//! ## Key Structures
+//! - **LightClientProof:** Represents a light client proof with a journal and L2 height.
+//! - **WorkOnlyCircuitOutput:** Represents the output of a work-only circuit, including work done and genesis state hash.
+//! - **WatchTowerChallengeTxCommitment:** Represents a commitment to a watchtower challenge transaction, including the Groth16 proof and total work.
+//! - **WithdrawalOutpointTxid:** Represents the transaction ID (txid) of a withdrawal outpoint.
+//! - **MoveTxid:** Represents the transaction ID (txid) of a move-to-vault transaction.
+//! - **StorageProof:** Represents the storage proof for Ethereum, including UTXO, vout, and deposit proofs.
+//! - **WatchtowerInput:** Represents the input for a watchtower, including the watchtower index, challenge inputs, and transaction details.
+
 use std::ops::{Deref, DerefMut};
 
 use crate::common::constants::MAX_NUMBER_OF_WATCHTOWERS;
@@ -129,8 +141,8 @@ pub struct LightClientProof {
 pub struct StorageProof {
     pub storage_proof_utxo: String,         // This will be an Outpoint
     pub storage_proof_vout: String,         // This is the vout of the txid
-    pub storage_proof_deposit_txid: String, // This is the index of the withdrawal
-    pub index: u32,                         // For now this is 18, for a specific withdrawal
+    pub storage_proof_deposit_txid: String, // This is the txid of the deposit tx
+    pub index: u32, // This is the index of the storage proof in the contract
 }
 
 #[derive(Clone, Debug, BorshDeserialize, BorshSerialize)]
@@ -179,23 +191,19 @@ impl WatchtowerInput {
     /// Constructs a `WatchtowerInput` instance from the kickoff transaction, the watchtower transaction and
     /// an optional slice of previous transactions.
     ///
-    /// # Arguments
+    /// # Parameters
+    /// - `kickoff_tx_id`: The kickoff transaction id whose output is consumed by an input of the watchtower transaction
+    /// - `watchtower_tx`: The watchtower challenge transaction that includes an input referencing the `kickoff_tx`
+    /// - `prevout_txs`: A slice of transactions, each including at least one output spent as input in `watchtower_tx`
+    /// - `watchtower_challenge_connector_start_idx`: Starting index for watchtower challenge connectors
     ///
-    /// - `kickoff_tx_id`: The kickoff transaction id whose output is consumed by an input of the watchtower transaction.
-    /// * `watchtower_tx` - The watchtower challenge transaction that includes an input
-    ///   referencing the `kickoff_tx`.
-    /// * `prevout_txs` - An optional slice of transactions, each of which should include
-    ///   at least one output that is later spent as an input in `watchtower_tx`. ( Txs should be in the same order as the inputs in the watchtower tx )
+    /// # Returns
+    /// Result containing the WatchtowerInput or an error message
     ///
     /// # Note
     ///
     /// All previous transactions other than kickoff tx whose outputs are spent by the `watchtower_tx`
     /// should be supplied in `prevout_txs` if they exist.
-    ///
-    /// # Returns
-    ///
-    /// Returns `Ok(WatchtowerInput)` if all required data is successfully extracted and validated.
-    /// Returns `Err(&'static str)` if any error occurs during the process.
     ///
     /// # Errors
     ///

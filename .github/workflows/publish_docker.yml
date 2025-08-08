@@ -15,10 +15,11 @@ concurrency:
   cancel-in-progress: ${{ (github.ref != 'refs/heads/main') }}
 
 jobs:
-  docker:
-    timeout-minutes: 120
+  build_and_publish:
     name: Build and publish Docker image
     runs-on: ubicloud-standard-2
+    timeout-minutes: 120
+
     steps:
       - uses: actions/checkout@v4
       - name: Docker Setup Buildx
@@ -34,4 +35,30 @@ jobs:
           context: .
           file: ./scripts/docker/Dockerfile
           push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/clementine:latest
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/clementine:${{ github.sha }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/clementine:latest
+
+  build_and_publish_automation:
+    name: Build and publish Docker image with automation flag
+    runs-on: ubicloud-standard-2
+    timeout-minutes: 120
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Docker Setup Buildx
+        uses: docker/setup-buildx-action@v3.2.0
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Build and push
+        uses: docker/build-push-action@v5.3.0
+        with:
+          context: .
+          file: ./scripts/docker/Dockerfile.automation
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/clementine-automation:${{ github.sha }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/clementine-automation:latest

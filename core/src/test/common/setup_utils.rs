@@ -3,43 +3,33 @@
 use crate::builder::script::SpendPath;
 use crate::builder::transaction::TransactionType;
 use crate::citrea::CitreaClientT;
-use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
-use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
-use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
+use crate::constants::NON_STANDARD_V3;
 use crate::rpc::clementine::NormalSignatureKind;
-use crate::rpc::get_clients;
-use crate::servers::{
-    create_aggregator_unix_server, create_operator_unix_server, create_verifier_unix_server,
-};
 use crate::utils::initialize_logger;
 use crate::utils::NamedEntity;
 use crate::{
     actor::Actor, builder, config::BridgeConfig, database::Database, errors::BridgeError,
-    extended_rpc::ExtendedRpc, musig2::AggregateFromPublicKeys,
+    extended_bitcoin_rpc::ExtendedBitcoinRpc, musig2::AggregateFromPublicKeys,
 };
 use crate::{EVMAddress, UTXO};
 use bitcoin::secp256k1::schnorr;
 use secrecy::ExposeSecret;
 use std::net::TcpListener;
 
-use tokio::sync::oneshot;
-use tonic::transport::Channel;
-
-#[must_use = "Servers will die if not used"]
-pub struct ActorsCleanup(pub (Vec<oneshot::Sender<()>>, tempfile::TempDir));
+use super::test_actors::TestActors;
 
 pub struct WithProcessCleanup(
     /// Handle to the bitcoind process
     pub Option<std::process::Child>,
     /// RPC client
-    pub ExtendedRpc,
+    pub ExtendedBitcoinRpc,
     /// Path to the bitcoind debug log file
     pub std::path::PathBuf,
     /// Whether to wait indefinitely after test finishes before cleanup (for RPC debugging)
     pub bool,
 );
 impl WithProcessCleanup {
-    pub fn rpc(&self) -> &ExtendedRpc {
+    pub fn rpc(&self) -> &ExtendedBitcoinRpc {
         &self.1
     }
 }
@@ -104,10 +94,11 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
         // Bitcoind is already running on port 18443, use existing port.
         return WithProcessCleanup(
             None,
-            ExtendedRpc::connect(
+            ExtendedBitcoinRpc::connect(
                 "http://127.0.0.1:18443".into(),
                 config.bitcoin_rpc_user.clone(),
                 config.bitcoin_rpc_password.clone(),
+                None,
             )
             .await
             .unwrap(),
@@ -140,6 +131,13 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
         args.push("-dustrelayfee=0".to_string());
     }
 
+    if config.test_params.mine_0_fee_txs {
+        // allow mining of 0-fee transactions
+        args.push("-minrelaytxfee=0".to_string());
+        args.push("-acceptnonstdtxn=1".to_string());
+        args.push("-blockmintxfee=0".to_string());
+    }
+
     // Create log file in temp directory
     let log_file = data_dir.join("debug.log");
     let log_file_path = log_file
@@ -162,31 +160,31 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
     // Create RPC client
     let rpc_url = format!("http://127.0.0.1:{}", rpc_port);
 
-    let client = ExtendedRpc::connect(
-        rpc_url,
-        config.bitcoin_rpc_user.clone(),
-        config.bitcoin_rpc_password.clone(),
-    )
-    .await
-    .expect("Failed to create RPC client");
-
     // Wait for node to be ready
     let mut attempts = 0;
     let retry_count = 30;
-    while attempts < retry_count {
-        if client.client.get_blockchain_info().await.is_ok() {
-            break;
+    let client = loop {
+        match ExtendedBitcoinRpc::connect(
+            rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+            None,
+        )
+        .await
+        {
+            Ok(client) => break client,
+            Err(_) => {
+                attempts += 1;
+                if attempts >= retry_count {
+                    panic!("Bitcoin node failed to start in {} seconds", retry_count);
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            }
         }
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        attempts += 1;
-    }
-    if attempts == retry_count {
-        panic!("Bitcoin node failed to start in {} seconds", retry_count);
-    }
+    };
 
     // Get and print bitcoind version
     let network_info = client
-        .client
         .get_network_info()
         .await
         .expect("Failed to get network info");
@@ -194,21 +192,18 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
 
     // // Create wallet
     client
-        .client
         .create_wallet("admin", None, None, None, None)
         .await
         .expect("Failed to create wallet");
 
     // Generate blocks
     let address = client
-        .client
         .get_new_address(None, None)
         .await
         .expect("Failed to get new address");
 
     if config.test_params.generate_to_address {
         client
-            .client
             .generate_to_address(201, address.assume_checked_ref())
             .await
             .expect("Failed to generate blocks");
@@ -229,6 +224,8 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
 ///
 /// - [`BridgeConfig`]: Modified configuration struct
 pub async fn create_test_config_with_thread_name() -> BridgeConfig {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
     let handle = std::thread::current()
         .name()
         .expect("Failed to get thread name")
@@ -241,30 +238,10 @@ pub async fn create_test_config_with_thread_name() -> BridgeConfig {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
 
-    let mut config = BridgeConfig::default();
-
-    // Check environment for an overwrite config. TODO: Convert this to env vars.
-    let env_config: Option<BridgeConfig> =
-        if let Ok(config_file_path) = std::env::var("TEST_CONFIG") {
-            Some(
-                BridgeConfig::try_parse_file(config_file_path.into())
-                    .expect("Failed to parse config file"),
-            )
-        } else {
-            None
-        };
-
-    config.db_name = handle.to_string();
-    config.citrea_rpc_url = handle.to_string();
-
-    // Overwrite user's environment to test's hard coded data if environment
-    // file is specified.
-    if let Some(env_config) = env_config {
-        config.db_host = env_config.db_host;
-        config.db_port = env_config.db_port;
-        config.db_user = env_config.db_user;
-        config.db_password = env_config.db_password;
-        config.db_name = env_config.db_name;
+    let config = BridgeConfig {
+        db_name: handle.to_string(),
+        citrea_rpc_url: handle.to_string(),
+        ..Default::default()
     };
 
     initialize_database(&config).await;
@@ -316,191 +293,10 @@ pub async fn initialize_database(config: &BridgeConfig) {
 ///
 /// Returns a tuple of vectors of clients, handles, and socket paths for the
 /// verifiers, operators, aggregator and watchtowers, along with shutdown channels.
-pub async fn create_actors<C: CitreaClientT>(
-    config: &BridgeConfig,
-) -> (
-    Vec<ClementineVerifierClient<Channel>>,
-    Vec<ClementineOperatorClient<Channel>>,
-    ClementineAggregatorClient<Channel>,
-    ActorsCleanup,
-) {
-    let all_verifiers_secret_keys = &config.test_params.all_verifiers_secret_keys;
-    // Collect all shutdown channels
-    let mut shutdown_channels = Vec::new();
-
-    // Create temporary directory for Unix sockets
-    let socket_dir = tempfile::tempdir().expect("Failed to create temporary directory for sockets");
-
-    let verifier_futures = all_verifiers_secret_keys
-        .iter()
-        .enumerate()
-        .map(|(i, sk)| {
-            let socket_path = socket_dir.path().join(format!("verifier_{}.sock", i));
-            let i = i.to_string();
-            let mut config_with_new_db = config.clone();
-
-            #[cfg(test)]
-            {
-                use crate::config::protocol::ProtocolParamset;
-
-                if config
-                    .test_params
-                    .generate_varying_total_works_insufficient_total_work
-                    || config.test_params.generate_varying_total_works
-                {
-                    // Generate a new protocol paramset for each verifier
-                    // to ensure diverse total works.
-                    let mut paramset = config.protocol_paramset().clone();
-                    paramset.time_to_send_watchtower_challenge = paramset
-                        .time_to_send_watchtower_challenge
-                        .checked_add(i.parse::<u16>().expect("Failed to parse i as u16"))
-                        .expect("Failed to add time to send watchtower challenge");
-                    let paramset_ref: &'static ProtocolParamset = Box::leak(Box::new(paramset));
-
-                    config_with_new_db.protocol_paramset = paramset_ref;
-                }
-            }
-
-            async move {
-                config_with_new_db.db_name += &i;
-                initialize_database(&config_with_new_db).await;
-
-                let (socket_path, shutdown_tx) = create_verifier_unix_server::<C>(
-                    BridgeConfig {
-                        secret_key: *sk,
-                        ..config_with_new_db.clone()
-                    },
-                    socket_path,
-                )
-                .await?;
-
-                Ok::<((std::path::PathBuf, oneshot::Sender<()>), BridgeConfig), BridgeError>((
-                    (socket_path, shutdown_tx),
-                    config_with_new_db,
-                ))
-            }
-        })
-        .collect::<Vec<_>>();
-
-    let verifier_results = futures::future::try_join_all(verifier_futures)
+pub async fn create_actors<C: CitreaClientT>(config: &BridgeConfig) -> TestActors<C> {
+    TestActors::new(config)
         .await
-        .expect("Failed to join verifier futures");
-
-    let (verifier_tmp, verifier_configs) =
-        verifier_results.into_iter().unzip::<_, _, Vec<_>, Vec<_>>();
-    let (verifier_paths, verifier_shutdown_channels) =
-        verifier_tmp.into_iter().unzip::<_, _, Vec<_>, Vec<_>>();
-
-    shutdown_channels.extend(verifier_shutdown_channels);
-
-    let all_operators_secret_keys = &config.test_params.all_operators_secret_keys;
-
-    // Create futures for operator Unix socket servers
-    let operator_futures = all_operators_secret_keys
-        .iter()
-        .enumerate()
-        .map(|(i, sk)| {
-            let socket_path = socket_dir.path().join(format!("operator_{}.sock", i));
-            let verifier_config = verifier_configs[i % verifier_configs.len()].clone();
-            async move {
-                let (socket_path, shutdown_tx) = create_operator_unix_server::<C>(
-                    BridgeConfig {
-                        secret_key: *sk,
-                        ..verifier_config.clone()
-                    },
-                    socket_path,
-                )
-                .await?;
-
-                Ok::<((std::path::PathBuf, oneshot::Sender<()>), BridgeConfig), BridgeError>((
-                    (socket_path, shutdown_tx),
-                    verifier_config,
-                ))
-            }
-        })
-        .collect::<Vec<_>>();
-
-    let operator_results = futures::future::try_join_all(operator_futures)
-        .await
-        .expect("Failed to join operator futures");
-
-    let (operator_tmp, operator_configs) =
-        operator_results.into_iter().unzip::<_, _, Vec<_>, Vec<_>>();
-    let (operator_paths, operator_shutdown_channels) =
-        operator_tmp.into_iter().unzip::<_, _, Vec<_>, Vec<_>>();
-
-    shutdown_channels.extend(operator_shutdown_channels);
-
-    let verifier_configs = verifier_configs.clone();
-
-    let aggregator_socket_path = socket_dir.path().join("aggregator.sock");
-
-    let (aggregator_path, aggregator_shutdown_tx) = create_aggregator_unix_server(
-        BridgeConfig {
-            verifier_endpoints: Some(
-                verifier_paths
-                    .iter()
-                    .map(|path| format!("unix://{}", path.display()))
-                    .collect(),
-            ),
-            operator_endpoints: Some(
-                operator_paths
-                    .iter()
-                    .map(|path| format!("unix://{}", path.display()))
-                    .collect(),
-            ),
-            ..verifier_configs[0].clone()
-        },
-        aggregator_socket_path,
-    )
-    .await
-    .expect("Failed to create aggregator");
-
-    // Add aggregator shutdown channel
-    shutdown_channels.push(aggregator_shutdown_tx);
-
-    // Connect to the Unix socket servers
-    let verifiers = get_clients(
-        verifier_paths
-            .iter()
-            .map(|path| format!("unix://{}", path.display()))
-            .collect::<Vec<_>>(),
-        ClementineVerifierClient::new,
-        &verifier_configs[0],
-        false,
-    )
-    .await
-    .expect("could not connect to verifiers");
-
-    let operators = get_clients(
-        operator_paths
-            .iter()
-            .map(|path| format!("unix://{}", path.display()))
-            .collect::<Vec<_>>(),
-        ClementineOperatorClient::new,
-        &operator_configs[0],
-        false,
-    )
-    .await
-    .expect("could not connect to operators");
-
-    let aggregator = get_clients(
-        vec![format!("unix://{}", aggregator_path.display())],
-        ClementineAggregatorClient::new,
-        &verifier_configs[0],
-        false,
-    )
-    .await
-    .expect("could not connect to aggregator")
-    .pop()
-    .expect("could not connect to aggregator");
-
-    (
-        verifiers,
-        operators,
-        aggregator,
-        ActorsCleanup((shutdown_channels, socket_dir)),
-    )
+        .expect("Failed to create actors")
 }
 
 /// Gets the the deposit address for the user.
@@ -542,7 +338,7 @@ pub fn get_deposit_address(
 /// - [`Signature`]: Signature of the withdrawal transaction
 pub async fn generate_withdrawal_transaction_and_signature(
     config: &BridgeConfig,
-    rpc: &ExtendedRpc,
+    rpc: &ExtendedBitcoinRpc,
     withdrawal_address: &bitcoin::Address,
     withdrawal_amount: bitcoin::Amount,
 ) -> (UTXO, bitcoin::TxOut, schnorr::Signature) {
@@ -580,6 +376,7 @@ pub async fn generate_withdrawal_transaction_and_signature(
     let unspent_txout = builder::transaction::output::UnspentTxOut::from_partial(txout.clone());
 
     let tx = builder::transaction::TxHandlerBuilder::new(TransactionType::Payout)
+        .with_version(NON_STANDARD_V3)
         .add_input(
             NormalSignatureKind::NotStored,
             txin,
@@ -626,6 +423,8 @@ impl PartialEq for MockOwner {
 
 impl NamedEntity for MockOwner {
     const ENTITY_NAME: &'static str = "test_owner";
+    const TX_SENDER_CONSUMER_ID: &'static str = "test_tx_sender";
+    const FINALIZED_BLOCK_CONSUMER_ID: &'static str = "test_finalized_block";
 }
 
 #[cfg(feature = "automation")]
