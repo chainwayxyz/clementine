@@ -205,7 +205,7 @@ impl HeaderChainProver {
             )
             .await
             .map_to_eyre()?;
-            tracing::debug!("Genesis chain state (verbose): {:?}", genesis_chain_state); // Should be debug
+            tracing::debug!("Genesis chain state (verbose): {:?}", genesis_chain_state);
 
             let genesis_chain_state_hash = genesis_chain_state.to_hash();
             if genesis_chain_state_hash != config.protocol_paramset().genesis_chain_state_hash {
@@ -1032,7 +1032,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial_test::serial]
     async fn prove_till_hash_intermediate_blocks() {
         // this test does assume config start height is bigger than 3
         let mut config = create_test_config_with_thread_name().await;
@@ -1065,7 +1064,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial_test::serial]
     async fn is_batch_ready() {
         let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
@@ -1099,7 +1097,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial_test::serial]
     async fn prove_if_ready() {
         let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
@@ -1138,7 +1135,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial_test::serial]
     async fn prove_and_get_non_targeted_block() {
         let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
