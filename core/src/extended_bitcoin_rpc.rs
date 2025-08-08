@@ -776,14 +776,7 @@ impl ExtendedBitcoinRpc {
             return Ok(vec![]);
         }
 
-        let retry_strategy = self.retry_config.get_strategy();
-
-        RetryIf::spawn(
-            retry_strategy,
-            || async { self.try_mine(block_num).await },
-            |error: &BitcoinRPCError| error.is_retryable(),
-        )
-        .await
+        self.try_mine(block_num).await
     }
 
     /// A helper fn to safely mine blocks while waiting for all actors to be synced
