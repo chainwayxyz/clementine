@@ -8,7 +8,7 @@ use eyre::Context;
 
 use crate::constants::NON_STANDARD_V3;
 use crate::errors::{ErrorExt, ResultExt};
-use crate::extended_rpc::BitcoinRPCError;
+use crate::extended_bitcoin_rpc::BitcoinRPCError;
 use crate::utils::FeePayingType;
 use crate::{
     builder::{
@@ -491,14 +491,12 @@ impl TxSender {
 
         // let test_mempool_result = self
         //     .rpc
-        //     .client
         //     .test_mempool_accept(&package_refs)
         //     .await
         //     .wrap_err("Failed to test mempool accept")?;
 
         let submit_package_result: PackageSubmissionResult = self
             .rpc
-            .client
             .submit_package(&package_refs, Some(Amount::from_sat(0)), None)
             .await
             .wrap_err("Failed to submit package")?;
