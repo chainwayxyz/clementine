@@ -277,17 +277,18 @@ pub enum BitcoinRPCError {
 }
 
 impl ExtendedBitcoinRpc {
-    /// Attempts to connect to Bitcoin RPC server and creates a new [`ExtendedBitcoinRpc`] instance.
+    /// Connects to Bitcoin RPC server with built-in retry mechanism.
     ///
-    /// This is an internal helper method used by [`Self::connect`] and performs a single
-    /// connection attempt without retry logic. It also performs a ping to verify the
-    /// connection is working.
+    /// This method attempts to connect to the Bitcoin RPC server and creates a new
+    /// [`ExtendedBitcoinRpc`] instance. It includes retry logic that will retry
+    /// connection attempts for retryable errors using exponential backoff.
     ///
     /// # Parameters
     ///
     /// * `url` - The RPC server URL
-    /// * `user` - Username for RPC authentication
+    /// * `user` - Username for RPC authentication  
     /// * `password` - Password for RPC authentication
+    /// * `retry_config` - Optional retry configuration. If None, uses default config.
     ///
     /// # Returns
     ///
@@ -295,48 +296,7 @@ impl ExtendedBitcoinRpc {
     ///
     /// # Errors
     ///
-    /// - [`BitcoinRPCError`]: If connection fails or ping fails
-    async fn try_connect(
-        url: String,
-        user: SecretString,
-        password: SecretString,
-        retry_config: Option<RetryConfig>,
-    ) -> Result<Self> {
-        let auth = Auth::UserPass(
-            user.expose_secret().to_string(),
-            password.expose_secret().to_string(),
-        );
-
-        let retry_config = retry_config.unwrap_or_default();
-
-        let rpc = Client::new(&url, auth)
-            .await
-            .wrap_err("Failed to connect to Bitcoin RPC")?;
-
-        // Since this is a lazy connection, we should ping it to ensure it works
-        rpc.ping()
-            .await
-            .map_err(|e| eyre::eyre!("Failed to ping Bitcoin RPC: {}", e))?;
-
-        Ok(Self {
-            url,
-            client: Arc::new(rpc),
-            retry_config,
-            #[cfg(test)]
-            cached_mining_address: Arc::new(tokio::sync::RwLock::new(None)),
-        })
-    }
-
-    /// Generates a new Bitcoin address for the wallet.
-    pub async fn get_new_wallet_address(&self) -> Result<Address> {
-        self.get_new_address(None, None)
-            .await
-            .wrap_err("Failed to get new address")
-            .map(|addr| addr.assume_checked())
-            .map_err(Into::into)
-    }
-
-    /// Connect with built-in retry mechanism using tokio-retry
+    /// - [`BitcoinRPCError`]: If connection fails after all retry attempts or ping fails
     pub async fn connect(
         url: String,
         user: SecretString,
@@ -354,13 +314,29 @@ impl ExtendedBitcoinRpc {
         RetryIf::spawn(
             retry_strategy,
             || async {
-                let result = Self::try_connect(
-                    url_clone.clone(),
-                    user_clone.clone(),
-                    password_clone.clone(),
-                    retry_config.clone(),
-                )
-                .await;
+                let auth = Auth::UserPass(
+                    user_clone.expose_secret().to_string(),
+                    password_clone.expose_secret().to_string(),
+                );
+
+                let retry_config = retry_config.clone().unwrap_or_default();
+
+                let rpc = Client::new(&url_clone, auth)
+                    .await
+                    .wrap_err("Failed to connect to Bitcoin RPC")?;
+
+                // Since this is a lazy connection, we should ping it to ensure it works
+                rpc.ping()
+                    .await
+                    .map_err(|e| eyre::eyre!("Failed to ping Bitcoin RPC: {}", e))?;
+
+                let result: Result<ExtendedBitcoinRpc> = Ok(Self {
+                    url: url_clone.clone(),
+                    client: Arc::new(rpc),
+                    retry_config,
+                    #[cfg(test)]
+                    cached_mining_address: Arc::new(tokio::sync::RwLock::new(None)),
+                });
 
                 match &result {
                     Ok(_) => tracing::debug!("Connected to Bitcoin RPC successfully"),
@@ -378,6 +354,15 @@ impl ExtendedBitcoinRpc {
             |error: &BitcoinRPCError| error.is_retryable(),
         )
         .await
+    }
+
+    /// Generates a new Bitcoin address for the wallet.
+    pub async fn get_new_wallet_address(&self) -> Result<Address> {
+        self.get_new_address(None, None)
+            .await
+            .wrap_err("Failed to get new address")
+            .map(|addr| addr.assume_checked())
+            .map_err(Into::into)
     }
 
     /// Returns the number of confirmations for a transaction.
