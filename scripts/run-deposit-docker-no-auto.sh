@@ -119,3 +119,20 @@ else
   echo "❌ Calldata submission failed"
   exit 1
 fi
+
+
+$BQR_ALIAS -generate 5; sleep 3; $BQR_ALIAS -generate 5; sleep 3; 
+
+response=$(curl -s -X POST http://127.0.0.1:12345 \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "eth_call",
+    "params": [{
+      "to": "0x3100000000000000000000000000000000000002",
+      "data": "0x065921670000000000000000000000000000000000000000000000000000000000000000"
+    }, "latest"],
+    "id": 1
+  }')
+
+echo "$response"

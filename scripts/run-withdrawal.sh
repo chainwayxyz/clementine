@@ -70,7 +70,7 @@ echo "Signer address: $SIGNER_ADDRESS"
 # =========================
 echo "💸 Step 2: Fund signer UTXO with $SIGNER_FUND_BTC BTC"
 SIGNER_FUND_TXID=$($BQR_ALIAS sendtoaddress "$SIGNER_ADDRESS" "$SIGNER_FUND_BTC")
-echo "Signer fund TXID: $SIGNER_FUND_TXID"; mine 1; sleep 2; mine 1
+echo "Signer fund TXID: $SIGNER_FUND_TXID"; mine 3; sleep 3; mine 3; sleep 3
 
 RAW=$($BQR_ALIAS getrawtransaction "$SIGNER_FUND_TXID" 1)
 SIGNER_VOUT=$(echo "$RAW" | jq -r --arg addr "$SIGNER_ADDRESS" '.vout[] | select(.scriptPubKey.address == $addr) | .n')
@@ -113,19 +113,61 @@ echo "Signature (DER+hashType): ${WITHDRAW_SIGNATURE:0:18}... (len ${#WITHDRAW_S
 # Step 5: Submit safe withdrawal to sequencer
 # =========================
 echo "🧾 Step 5: Submit safe withdrawal to sequencer"
-SECRET_KEY="$SECRET_KEY" clementine --network regtest withdrawal send-safe-withdrawal \
-  "$SIGNER_ADDRESS" "$WITHDRAWAL_ADDRESS" "$WITHDRAW_REF" "$WITHDRAW_AMOUNT_BTC" "$WITHDRAW_SIGNATURE" \
-  "$SEQUENCER_URL" \
-  --bitcoin-rpc-url "$BITCOIN_RPC_URL" \
-  --bitcoin-rpc-user "$BITCOIN_RPC_USER" \
-  --bitcoin-rpc-password "$BITCOIN_RPC_PASSWORD"
+SEND_OUT=$(
+  SECRET_KEY="$SECRET_KEY" clementine --network regtest withdrawal send-safe-withdrawal \
+    "$SIGNER_ADDRESS" "$WITHDRAWAL_ADDRESS" "$WITHDRAW_REF" "$WITHDRAW_AMOUNT_BTC" "$WITHDRAW_SIGNATURE" \
+    "$SEQUENCER_URL" \
+    --bitcoin-rpc-url "$BITCOIN_RPC_URL" \
+    --bitcoin-rpc-user "$BITCOIN_RPC_USER" \
+    --bitcoin-rpc-password "$BITCOIN_RPC_PASSWORD"
+)
+
+echo "$SEND_OUT"
+
+# 2) Parse the EVM block_number from the printed receipt:  block_number: Some(562)
+BLOCK_NUM=$(echo "$SEND_OUT" | sed -n 's/.*block_number: Some(\([0-9]\+\)).*/\1/p' | head -n1)
+if [[ -z "${BLOCK_NUM:-}" ]]; then
+  echo "❌ Could not parse block_number from receipt output"; exit 1
+fi
+TARGET_L2=$(( BLOCK_NUM + 10 ))
+echo "Baseline L2 target: lastL2Height > $TARGET_L2 (block_number=$BLOCK_NUM + 10)"
+
+# 3) Poll LCP using current L1 (Bitcoin) height until condition is met
+while true; do
+  BTC_HEIGHT=$(( $($BQR_ALIAS getblockcount) - 5 ))
+
+  RESP=$(curl -s -X POST http://localhost:12349 \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"jsonrpc\": \"2.0\",
+      \"id\": 1,
+      \"method\": \"lightClientProver_getLightClientProofByL1Height\",
+      \"params\": [$BTC_HEIGHT]
+    }")
+
+  # lastL2Height is hex (e.g., "0x123"); bash $((0x..)) handles hex -> dec
+  LAST_L2_HEX=$(echo "$RESP" | jq -r '.result.lightClientProofOutput.lastL2Height // empty')
+  if [[ -z "${LAST_L2_HEX:-}" || "$LAST_L2_HEX" == "null" ]]; then
+    echo "LCP not ready yet (height=$BTC_HEIGHT). Retrying..."
+    sleep 3
+    continue
+  fi
+  LAST_L2_DEC=$(( LAST_L2_HEX ))
+
+  echo "BTC=$BTC_HEIGHT  lastL2Height(dec)=$LAST_L2_DEC  target=$TARGET_L2"
+
+  if (( LAST_L2_DEC > TARGET_L2 )); then
+    echo "✅ Condition met: $LAST_L2_DEC > $TARGET_L2"
+    break
+  fi
+
+  sleep 3
+done
 
 # Optional: sanity check intent via eth_call (expects non-zero)
 INTENT=$(curl -s -X POST "$SEQUENCER_URL" -H "Content-Type: application/json" --data '{
   "jsonrpc":"2.0","method":"eth_call","params":[{"to":"0x3100000000000000000000000000000000000002","data":"0x781952a8"},"latest"],"id":1}')
 echo "Sequencer intent check: $INTENT"
-
-sleep 4
 
 # =========================
 # Step 6: Operator pays the withdrawal via aggregator
@@ -140,9 +182,9 @@ echo "Recipient scriptPubKey: $SPK"
 # Strip the SIGHASH flag (last byte) from the signature for the aggregator input
 INPUT_SIG_STRIPPED=${WITHDRAW_SIGNATURE::-2}
 
-# Submit new-withdrawal to aggregator (withdrawal-id assumed 1; adjust if needed)
+# Submit new-withdrawal to aggregator (withdrawal-id assumed 0; adjust if needed)
 AGG_RESP=$(cargo run --bin clementine-cli -- --node-url "$AGGREGATOR_URL" aggregator new-withdrawal \
-  --withdrawal-id 1 \
+  --withdrawal-id 0 \
   --input-signature "$INPUT_SIG_STRIPPED" \
   --input-outpoint-txid "$SIGNER_FUND_TXID" \
   --input-outpoint-vout "$SIGNER_VOUT" \
@@ -160,6 +202,14 @@ for i in {1..2}; do mine 3; sleep 2; done
 echo "📬 Step 7: Verify funds at recipient"
 RECEIVED=$($BQR_ALIAS getreceivedbyaddress "$WITHDRAWAL_ADDRESS")
 echo "Received (BTC): $RECEIVED"
+
+
+# fail if received amount is less than expected
+EXPECTED=$(echo "scale=8; $WITHDRAW_AMOUNT_SATS / $SATS_PER_BTC" | bc)
+if (( $(echo "$RECEIVED < $EXPECTED" | bc -l) )); then
+  echo "❌ Received amount ($RECEIVED BTC) is less than expected ($EXPECTED BTC)"
+  exit 1
+fi
 
 
 send_with_cpfp() {
