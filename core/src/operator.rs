@@ -335,7 +335,7 @@ where
             }
         };
 
-        db.upsert_operator(
+        db.insert_operator_if_not_exists(
             Some(&mut dbtx),
             signer.xonly_public_key,
             &reimburse_addr,
@@ -513,7 +513,7 @@ where
         // set operators own kickoff winternitz public keys before creating the round state machine
         // as round machine needs kickoff keys to create the first round tx
         self.db
-            .upsert_operator_kickoff_winternitz_public_keys(
+            .insert_operator_kickoff_winternitz_public_keys_if_not_exist(
                 Some(&mut dbtx),
                 self.signer.xonly_public_key,
                 self.generate_kickoff_winternitz_pubkeys()?,

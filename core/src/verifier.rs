@@ -696,7 +696,7 @@ where
         let mut dbtx = self.db.begin_transaction().await?;
         // Save the operator details to the db
         self.db
-            .upsert_operator(
+            .insert_operator_if_not_exists(
                 Some(&mut dbtx),
                 operator_xonly_pk,
                 &operator_data.reimburse_addr,
@@ -705,7 +705,7 @@ where
             .await?;
 
         self.db
-            .upsert_operator_kickoff_winternitz_public_keys(
+            .insert_operator_kickoff_winternitz_public_keys_if_not_exist(
                 Some(&mut dbtx),
                 operator_xonly_pk,
                 operator_winternitz_public_keys,
@@ -721,7 +721,7 @@ where
 
         for (round_idx, sigs) in tagged_sigs_per_round.into_iter().enumerate() {
             self.db
-                .upsert_unspent_kickoff_sigs(
+                .insert_unspent_kickoff_sigs_if_not_exist(
                     Some(&mut dbtx),
                     operator_xonly_pk,
                     RoundIndex::Round(round_idx),
@@ -798,7 +798,11 @@ where
         // set deposit data to db before starting to sign, ensures that if the deposit data already exists in db, it matches the one
         // given by the aggregator currently. We do not want to sign 2 different deposits for same deposit_outpoint
         self.db
-            .upsert_deposit_data(None, &mut deposit_data, self.config.protocol_paramset())
+            .insert_deposit_data_if_not_exists(
+                None,
+                &mut deposit_data,
+                self.config.protocol_paramset(),
+            )
             .await?;
 
         let verifier = self.clone();
@@ -1240,7 +1244,7 @@ where
                     );
 
                     self.db
-                        .upsert_deposit_signatures(
+                        .insert_deposit_signatures_if_not_exist(
                             Some(&mut dbtx),
                             deposit_data.get_deposit_outpoint(),
                             operator_xonly_pk,
@@ -1405,7 +1409,11 @@ where
         self.is_deposit_valid(&mut deposit_data).await?;
 
         self.db
-            .upsert_deposit_data(None, &mut deposit_data, self.config.protocol_paramset())
+            .insert_deposit_data_if_not_exists(
+                None,
+                &mut deposit_data,
+                self.config.protocol_paramset(),
+            )
             .await?;
 
         let hashes: Vec<[u8; 20]> = keys
@@ -1434,7 +1442,7 @@ where
             .ok_or(BridgeError::OperatorNotFound(operator_xonly_pk))?;
 
         self.db
-            .upsert_operator_challenge_ack_hashes(
+            .insert_operator_challenge_ack_hashes_if_not_exist(
                 None,
                 operator_xonly_pk,
                 deposit_data.get_deposit_outpoint(),
@@ -1506,7 +1514,7 @@ where
             .to_byte_array();
 
         self.db
-            .upsert_operator_bitvm_keys(
+            .insert_operator_bitvm_keys_if_not_exist(
                 None,
                 operator_xonly_pk,
                 deposit_data.get_deposit_outpoint(),
@@ -1515,7 +1523,7 @@ where
             .await?;
         // Save the public input wots to db along with the root hash
         self.db
-            .upsert_bitvm_setup(
+            .insert_bitvm_setup_if_not_exists(
                 None,
                 operator_xonly_pk,
                 deposit_data.get_deposit_outpoint(),
