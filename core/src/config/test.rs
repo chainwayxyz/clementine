@@ -72,8 +72,8 @@ pub struct TestParams {
     pub generate_varying_total_works_first_two_valid: bool,
 
     /// A secret key for generating signatures of optimistic payout verification.
-    /// It should match the opt_payout_verification_address in BridgeConfig.
-    pub opt_payout_verification_secret_key: Option<alloy::signers::k256::ecdsa::SigningKey>,
+    /// It should match the aggregator_verification_address in BridgeConfig.
+    pub aggregator_verification_secret_key: Option<alloy::signers::k256::ecdsa::SigningKey>,
 
     /// Secret keys belonging to the security council.
     /// Should match the xonly public keys in the security council of config, otherwise
@@ -518,7 +518,7 @@ impl Default for TestParams {
             generate_varying_total_works_insufficient_total_work: false,
             generate_varying_total_works: false,
             generate_varying_total_works_first_two_valid: false,
-            opt_payout_verification_secret_key: Some(
+            aggregator_verification_secret_key: Some(
                 alloy::signers::k256::ecdsa::SigningKey::from_slice(
                     &hex::decode(
                         "7ee82330d90423649d065f2c31f342a323c0d7b29a72eff10d88a9b8b00bed87",
