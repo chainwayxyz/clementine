@@ -137,11 +137,11 @@ impl BridgeConfig {
             None
         };
 
-        let opt_payout_verification_address = std::env::var("OPT_PAYOUT_VERIFICATION_ADDRESS")
+        let aggregator_verification_address = std::env::var("AGGREGATOR_VERIFICATION_ADDRESS")
             .ok()
             .map(|addr| {
                 addr.parse::<alloy::primitives::Address>()
-                    .wrap_err("Failed to parse OPT_PAYOUT_VERIFICATION_ADDRESS")
+                    .wrap_err("Failed to parse AGGREGATOR_VERIFICATION_ADDRESS")
             })
             .transpose()?;
 
@@ -194,7 +194,7 @@ impl BridgeConfig {
             verifier_endpoints,
             operator_endpoints,
             security_council,
-            opt_payout_verification_address,
+            aggregator_verification_address,
             client_verification,
             server_cert_path,
             server_key_path,
@@ -364,12 +364,12 @@ mod tests {
             "GRPC_RATELIMIT_REQ_COUNT",
             default_config.grpc.ratelimit_req_count.to_string(),
         );
-        if let Some(ref opt_payout_verification_address) =
-            default_config.opt_payout_verification_address
+        if let Some(ref aggregator_verification_address) =
+            default_config.aggregator_verification_address
         {
             std::env::set_var(
-                "OPT_PAYOUT_VERIFICATION_ADDRESS",
-                opt_payout_verification_address.to_string(),
+                "AGGREGATOR_VERIFICATION_ADDRESS",
+                aggregator_verification_address.to_string(),
             );
         }
 
