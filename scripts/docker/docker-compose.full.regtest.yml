@@ -192,6 +192,7 @@ services:
       - DB_NAME=clementine0
       - CLIENT_CERT_PATH=/certs/aggregator/aggregator.pem
       - CLIENT_KEY_PATH=/certs/aggregator/aggregator.key
+      - EMERGENCY_STOP_ENCRYPTION_PUBLIC_KEY=025d32d10ec7b899df4eeb4d80918b7f0a1f2a28f6af24f71aa2a59c69c0d531
     command:
       aggregator
     ports:
