@@ -23,6 +23,7 @@ use crate::builder::script::{PreimageRevealScript, SpendPath};
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::txhandler::{TxHandler, TxHandlerBuilder};
 use crate::config::protocol::ProtocolParamset;
+use crate::constants::NON_STANDARD_V3;
 use crate::deposit::{DepositData, KickoffData};
 use crate::errors::BridgeError;
 use crate::rpc::clementine::NormalSignatureKind;
@@ -30,7 +31,6 @@ use crate::{builder, UTXO};
 use bitcoin::hashes::Hash;
 use bitcoin::script::PushBytesBuf;
 use bitcoin::secp256k1::schnorr::Signature;
-use bitcoin::transaction::Version;
 use bitcoin::ScriptBuf;
 use bitcoin::XOnlyPublicKey;
 use bitcoin::{TxOut, Txid};
@@ -99,8 +99,7 @@ pub fn create_kickoff_txhandler(
 ) -> Result<TxHandler, BridgeError> {
     let kickoff_idx = kickoff_data.kickoff_idx as usize;
     let move_txid: Txid = *move_txhandler.get_txid();
-    let mut builder =
-        TxHandlerBuilder::new(TransactionType::Kickoff).with_version(Version::non_standard(3));
+    let mut builder = TxHandlerBuilder::new(TransactionType::Kickoff).with_version(NON_STANDARD_V3);
     builder = builder.add_input(
         NormalSignatureKind::OperatorSighashDefault,
         round_txhandler.get_spendable_output(UtxoVout::Kickoff(kickoff_idx))?,
@@ -295,7 +294,7 @@ pub fn create_kickoff_not_finalized_txhandler(
     paramset: &'static ProtocolParamset,
 ) -> Result<TxHandler, BridgeError> {
     Ok(TxHandlerBuilder::new(TransactionType::KickoffNotFinalized)
-        .with_version(Version::non_standard(3))
+        .with_version(NON_STANDARD_V3)
         .add_input(
             NormalSignatureKind::KickoffNotFinalized1,
             kickoff_txhandler.get_spendable_output(UtxoVout::KickoffFinalizer)?,
@@ -347,7 +346,7 @@ pub fn create_reimburse_txhandler(
     operator_reimbursement_address: &bitcoin::Address,
 ) -> Result<TxHandler, BridgeError> {
     let builder = TxHandlerBuilder::new(TransactionType::Reimburse)
-        .with_version(Version::non_standard(3))
+        .with_version(NON_STANDARD_V3)
         .add_input(
             NormalSignatureKind::Reimburse1,
             move_txhandler.get_spendable_output(UtxoVout::DepositInMove)?,
@@ -420,7 +419,7 @@ pub fn create_payout_txhandler(
     let op_return_txout = op_return_txout(PushBytesBuf::from(operator_xonly_pk.serialize()));
 
     let mut txhandler = TxHandlerBuilder::new(TransactionType::Payout)
-        .with_version(Version::non_standard(3))
+        .with_version(NON_STANDARD_V3)
         .add_input(
             NormalSignatureKind::NotStored,
             txin,
@@ -472,7 +471,7 @@ pub fn create_optimistic_payout_txhandler(
     let output_txout = UnspentTxOut::from_partial(output_txout.clone());
 
     let mut txhandler = TxHandlerBuilder::new(TransactionType::Payout)
-        .with_version(Version::non_standard(3))
+        .with_version(NON_STANDARD_V3)
         .add_input(
             NormalSignatureKind::NotStored,
             txin,

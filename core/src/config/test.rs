@@ -80,6 +80,9 @@ pub struct TestParams {
     /// some tests will fail.
     pub sec_council_secret_keys: Vec<SecretKey>,
 
+    /// A flag to enable mining of 0-fee transactions. It's used so that we do not need to CPFP for no-automation to make tests easier.
+    pub mine_0_fee_txs: bool,
+
     pub timeout_params: TimeoutTestParams,
 }
 
@@ -199,6 +202,9 @@ impl TestParams {
                 "Expected at least two total works for first two valid mode"
             ));
         }
+
+        let mut total_works = total_works;
+        total_works.sort();
 
         let second_lowest_total_work = &total_works[1];
         let second_lowest_total_work_index = usize::from_be_bytes(
@@ -531,6 +537,7 @@ impl Default for TestParams {
                 )
                 .expect("known valid input"),
             ],
+            mine_0_fee_txs: false,
         }
     }
 }

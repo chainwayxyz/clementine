@@ -127,8 +127,7 @@ impl TxSender {
     /// The remaining value (total input value - `required_fee`) is sent to the `change_address`.
     ///
     /// # Signing
-    /// Currently, it signs the input spending the P2A anchor and potentially the first fee payer UTXO.
-    /// TODO: Ensure *all* fee payer UTXO inputs are correctly signed if more than one is used.
+    /// We sign the input spending the P2A anchor and all fee payer UTXOs.
     ///
     /// # Returns
     /// The constructed and partially signed child transaction.
@@ -169,7 +168,7 @@ impl TxSender {
         }
 
         let mut builder = TxHandlerBuilder::new(TransactionType::Dummy)
-            .with_version(Version::non_standard(3))
+            .with_version(NON_STANDARD_V3)
             .add_input(
                 NormalSignatureKind::OperatorSighashDefault,
                 SpendableTxIn::new_partial(
@@ -521,7 +520,6 @@ impl TxSender {
 
         tracing::debug!(try_to_send_id, "Submitting package, size {}", package.len());
 
-        // TODO: this currently doesn't return valid results as TRUC is not fully supported.
         // let test_mempool_result = self
         //     .rpc
         //     .client
@@ -558,8 +556,6 @@ impl TxSender {
                         .map(|tx| hex::encode(bitcoin::consensus::serialize(tx)))
                         .collect::<Vec<_>>()
                 );
-
-                // TODO: implement txid checking so we can save the correct error.
 
                 early_exit = true;
             }

@@ -21,6 +21,7 @@ use crate::test::common::ensure_test_certificates;
 pub mod clementine;
 
 pub mod aggregator;
+pub mod ecdsa_verification_sig;
 mod error;
 pub mod interceptors;
 pub mod operator;

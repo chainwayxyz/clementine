@@ -628,25 +628,6 @@ pub async fn run_unspent_kickoffs_with_state_machine(
     tracing::info!("Sending round transaction");
     send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Round).await?;
 
-    // TODO: I wanted to test when operator at least sends one truthful kickoff but I couldn't as
-    // is_kickoff_malicious auto returns true, so state manager sends a challenge transaction immediately
-    // -> kickoff finalizer cannot be spent with challenge timeout -> collateral can be burned with "kickoff not finalized tx"
-    // instead of unspent kickoff connector tx
-
-    // // Send Kickoff Transaction
-    // tracing::info!("Sending kickoff transaction");
-    // send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Kickoff).await?;
-
-    // rpc.mine_blocks(
-    //     config
-    //         .protocol_paramset()
-    //         .operator_challenge_timeout_timelock as u64,
-    // )
-    // .await?;
-
-    // tracing::info!("Sending challenge timeout transaction");
-    // send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::ChallengeTimeout).await?;
-
     // state machine should burn the collateral after ready to reimburse tx gets sent
     let ready_to_reimburse_tx =
         get_tx_from_signed_txs_with_type(&all_txs, TxType::ReadyToReimburse)?;

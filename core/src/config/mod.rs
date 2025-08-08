@@ -142,6 +142,9 @@ pub struct BridgeConfig {
     /// after manual verification of the optimistic payout.
     pub opt_payout_verification_address: Option<alloy::primitives::Address>,
 
+    /// The X25519 public key that will be used to encrypt the emergency stop message.
+    pub emergency_stop_encryption_public_key: Option<[u8; 32]>,
+
     #[cfg(test)]
     #[serde(skip)]
     pub test_params: test::TestParams,
@@ -330,6 +333,12 @@ impl Default for BridgeConfig {
                 alloy::primitives::Address::from_str("0x242fbec93465ce42b3d7c0e1901824a2697193fd")
                     .expect("valid address"),
             ),
+            emergency_stop_encryption_public_key: Some(
+                hex::decode("025d32d10ec7b899df4eeb4d80918b7f0a1f2a28f6af24f71aa2a59c69c0d531")
+                    .expect("valid hex")
+                    .try_into()
+                    .expect("valid key"),
+            ),
 
             telemetry: Some(TelemetryConfig::default()),
 
@@ -424,12 +433,6 @@ mod tests {
     #[test]
     fn test_test_config_parseable() {
         let content = include_str!("../test/data/bridge_config.toml");
-        BridgeConfig::try_parse_from(content.to_string()).unwrap();
-    }
-
-    #[test]
-    fn test_docker_config_parseable() {
-        let content = include_str!("../../../scripts/docker/docker_config.toml");
         BridgeConfig::try_parse_from(content.to_string()).unwrap();
     }
 }

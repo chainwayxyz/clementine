@@ -12,8 +12,8 @@ use bitvm::chunk::api::{
     api_generate_full_tapscripts, api_generate_partial_script, Assertions, NUM_HASH, NUM_PUBS,
     NUM_U256,
 };
-use bitvm::signatures::wots_api::wots160;
 
+use bitvm::signatures::{Wots, Wots20};
 use borsh::{BorshDeserialize, BorshSerialize};
 use bridge_circuit_host::utils::{get_verifying_key, is_dev_mode};
 use std::fs;
@@ -59,7 +59,7 @@ pub static BITVM_CACHE: OnceLock<BitvmCache> = OnceLock::new();
 pub fn load_or_generate_bitvm_cache() -> BitvmCache {
     let start = Instant::now();
 
-    let cache_path = if cfg!(test) && is_dev_mode() {
+    let cache_path = if is_dev_mode() {
         "bitvm_cache_dev.bin".to_string()
     } else {
         std::env::var("BITVM_CACHE_PATH").unwrap_or_else(|_| "bitvm_cache.bin".to_string())
@@ -216,9 +216,9 @@ fn generate_fresh_data() -> BitvmCache {
 pub struct ClementineBitVMPublicKeys {
     pub combined_method_id_constant: [u8; 32],
     pub deposit_constant: [u8; 32],
-    pub payout_tx_blockhash_pk: wots160::PublicKey,
-    pub latest_blockhash_pk: wots160::PublicKey,
-    pub challenge_sending_watchtowers_pk: wots160::PublicKey,
+    pub payout_tx_blockhash_pk: <Wots20 as Wots>::PublicKey,
+    pub latest_blockhash_pk: <Wots20 as Wots>::PublicKey,
+    pub challenge_sending_watchtowers_pk: <Wots20 as Wots>::PublicKey,
     pub bitvm_pks: bitvm::chunk::api::PublicKeys,
 }
 
@@ -458,7 +458,6 @@ impl ClementineBitVMPublicKeys {
             "Getting assert commit data, challenge_sending_watchtowers: {:?}",
             challenge_sending_watchtowers
         );
-        // TODO: this might be wrong, add clementine specific ones too
         commit_data.push(vec![
             challenge_sending_watchtowers.to_vec(),
             asserts.0[0].to_vec(),

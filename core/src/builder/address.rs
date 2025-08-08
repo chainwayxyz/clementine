@@ -116,21 +116,14 @@ pub fn create_taproot_address(
             .finalize(&SECP, *bitvm_client::UNSPENDABLE_XONLY_PUBKEY)
             .expect("builder return is finalizable"),
     };
+
     // Create the address
-    let taproot_address = match internal_key {
-        Some(xonly_pk) => Address::p2tr(&SECP, xonly_pk, tree_info.merkle_root(), network),
-        None => Address::p2tr(
-            &SECP,
-            *bitvm_client::UNSPENDABLE_XONLY_PUBKEY,
-            tree_info.merkle_root(),
-            network,
-        ),
-    };
+    let taproot_address: Address = Address::p2tr_tweaked(tree_info.output_key(), network);
 
     (taproot_address, tree_info)
 }
 
-/// Generates a deposit address for the user. Funds can be spend by N-of-N or
+/// Generates a deposit address for the user. Funds can be spent by N-of-N or
 /// user can take after specified time should the deposit fail.
 ///
 /// # Parameters
@@ -233,15 +226,13 @@ mod tests {
     use crate::{
         bitvm_client::{self, SECP},
         builder::{self, address::calculate_taproot_leaf_depths},
-        musig2::AggregateFromPublicKeys,
     };
     use bitcoin::secp256k1::rand;
     use bitcoin::{
         key::{Keypair, TapTweak},
-        secp256k1::{PublicKey, SecretKey},
-        Address, AddressType, ScriptBuf, XOnlyPublicKey,
+        secp256k1::SecretKey,
+        AddressType, ScriptBuf, XOnlyPublicKey,
     };
-    use std::str::FromStr;
 
     #[test]
     fn create_taproot_address() {
@@ -312,49 +303,6 @@ mod tests {
         ));
         assert_eq!(spend_info.internal_key(), internal_key);
         assert!(spend_info.merkle_root().is_some());
-    }
-
-    #[test]
-    #[ignore = "TODO: Investigate this"]
-    fn generate_deposit_address_musig2_fixed_address() {
-        let verifier_pks_hex: Vec<&str> = vec![
-            "034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa",
-            "02466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27",
-            "023c72addb4fdf09af94f0c94d7fe92a386a7e70cf8a1d85916386bb2535c7b1b1",
-            "032c0b7cf95324a07d05398b240174dc0c2be444d96b159aa6c7f7b1e668680991",
-            "029ac20335eb38768d2052be1dbbc3c8f6178407458e51e6b4ad22f1d91758895b",
-            "035ab4689e400a4a160cf01cd44730845a54768df8547dcdf073d964f109f18c30",
-            "037962d45b38e8bcf82fa8efa8432a01f20c9a53e24c7d3f11df197cb8e70926da",
-        ];
-        let verifier_pks: Vec<PublicKey> = verifier_pks_hex
-            .iter()
-            .map(|pk| PublicKey::from_str(pk).unwrap())
-            .collect();
-        let nofn_xonly_pk = XOnlyPublicKey::from_musig2_pks(verifier_pks, None).unwrap();
-
-        let evm_address: [u8; 20] = hex::decode("1234567890123456789012345678901234567890")
-            .unwrap()
-            .try_into()
-            .unwrap();
-
-        let recovery_taproot_address =
-            Address::from_str("bcrt1p65yp9q9fxtf7dyvthyrx26xxm2czanvrnh9rtvphmlsjvhdt4k6qw4pkss")
-                .unwrap();
-
-        let deposit_address = builder::address::generate_deposit_address(
-            nofn_xonly_pk,
-            recovery_taproot_address.as_unchecked(),
-            crate::EVMAddress(evm_address),
-            bitcoin::Network::Regtest,
-            200,
-        )
-        .unwrap();
-
-        // Comparing it to the taproot address generated in bridge backend.
-        assert_eq!(
-            deposit_address.0.to_string(),
-            "bcrt1ptlz698wumzl7uyk6pgrvsx5ep29thtvngxftywnd4mwq24fuwkwsxasqf5" // TODO: check this later
-        )
     }
 
     #[test]

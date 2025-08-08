@@ -15,7 +15,7 @@ use crate::builder::transaction::input::UtxoVout;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::builder::transaction::{
     create_emergency_stop_txhandler, create_move_to_vault_txhandler,
-    create_optimistic_payout_txhandler, TransactionType, TxHandler,
+    create_optimistic_payout_txhandler, ContractContext, TransactionType, TxHandler,
 };
 use crate::builder::transaction::{create_round_txhandlers, KickoffWinternitzKeys};
 use crate::citrea::CitreaClientT;
@@ -33,6 +33,11 @@ use crate::header_chain_prover::HeaderChainProver;
 use crate::metrics::L1SyncStatusProvider;
 use crate::operator::RoundIndex;
 use crate::rpc::clementine::{EntityStatus, NormalSignatureKind, OperatorKeys, TaggedSignature};
+use crate::rpc::ecdsa_verification_sig::{
+    recover_address_from_ecdsa_signature, OptimisticPayoutMessage,
+};
+#[cfg(feature = "automation")]
+use crate::states::StateManager;
 use crate::task::entity_metric_publisher::{
     EntityMetricPublisher, ENTITY_METRIC_PUBLISHER_INTERVAL,
 };
@@ -44,8 +49,6 @@ use crate::utils::NamedEntity;
 use crate::utils::TxMetadata;
 use crate::{musig2, UTXO};
 use alloy::primitives::PrimitiveSignature;
-use alloy::sol_types::Eip712Domain;
-use alloy_sol_types::SolStruct;
 use bitcoin::hashes::Hash;
 use bitcoin::key::rand::Rng;
 use bitcoin::key::Secp256k1;
@@ -78,23 +81,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
-
-alloy_sol_types::sol! {
-    #[derive(Debug)]
-    struct ClementineOptimisticPayoutMessage {
-        uint32 withdrawal_id;
-        bytes input_signature;
-        bytes32 input_outpoint_txid;
-        uint32 input_outpoint_vout;
-        bytes output_script_pubkey;
-        uint64 output_amount;
-    }
-}
-
-pub static DOMAIN: Eip712Domain = alloy_sol_types::eip712_domain! {
-    name: "ClementineOptimisticPayoutMessage",
-    version: "1",
-};
 
 #[derive(Debug)]
 pub struct NonceSession {
@@ -259,7 +245,6 @@ where
         // initialize and run automation features
         #[cfg(feature = "automation")]
         {
-            // TODO: Removing index causes to remove the index from the tx_sender handle as well
             let tx_sender = TxSender::new(
                 self.verifier.signer.clone(),
                 rpc.clone(),
@@ -273,7 +258,7 @@ where
             self.background_tasks
                 .ensure_task_looping(tx_sender.into_task())
                 .await;
-            let state_manager = crate::states::StateManager::new(
+            let state_manager = StateManager::new(
                 self.verifier.db.clone(),
                 self.verifier.clone(),
                 self.verifier.config.protocol_paramset(),
@@ -292,6 +277,24 @@ where
             };
 
             if should_run_state_mgr {
+                // start tracking operators if they exist in the db
+                let operators = self.verifier.db.get_operators(None).await?;
+                if !operators.is_empty() {
+                    let mut dbtx = self.verifier.db.begin_transaction().await?;
+                    for operator in operators {
+                        StateManager::<Verifier<C>>::dispatch_new_round_machine(
+                            self.verifier.db.clone(),
+                            &mut dbtx,
+                            OperatorData {
+                                xonly_pk: operator.0,
+                                reimburse_addr: operator.1,
+                                collateral_funding_outpoint: operator.2,
+                            },
+                        )
+                        .await?;
+                    }
+                    dbtx.commit().await?;
+                }
                 self.background_tasks
                     .ensure_task_looping(state_manager.block_fetcher_task().await?)
                     .await;
@@ -302,26 +305,16 @@ where
         }
         #[cfg(not(feature = "automation"))]
         {
-            use crate::metrics::get_btc_syncer_consumer_last_processed_block_height;
-            use crate::task::TaskExt;
-            // get current next height from the database
-            // some blocks might still be processed again (if last processed block height is a reorged block)
-            // processing same blocks again is not a problem, here we want to avoid starting from the beginning if verifier
-            // has been restarted
-            let last_processed_height = get_btc_syncer_consumer_last_processed_block_height(
-                &self.verifier.db,
-                &Verifier::<C>::FINALIZED_BLOCK_CONSUMER_ID.to_string(),
-            )
-            .await?;
-            let next_height = match last_processed_height {
-                // if last processed height is not None, start from the last processed height - finality depth + 1 as next height
-                Some(height) => height
-                    .checked_sub(self.verifier.config.protocol_paramset().finality_depth)
-                    .map(|height| height + 1)
-                    .unwrap_or(self.verifier.config.protocol_paramset().start_height),
-                // if db is empty, start from the start height
-                None => self.verifier.config.protocol_paramset().start_height,
-            };
+            // get the next finalized block height to start from
+            let next_height = self
+                .verifier
+                .db
+                .get_next_finalized_block_height_for_consumer(
+                    None,
+                    Verifier::<C>::FINALIZED_BLOCK_CONSUMER_ID,
+                    self.verifier.config.protocol_paramset(),
+                )
+                .await?;
 
             self.background_tasks
                 .ensure_task_looping(
@@ -431,7 +424,6 @@ where
 
         let all_sessions = AllSessions::new();
 
-        // TODO: Removing index causes to remove the index from the tx_sender handle as well
         #[cfg(feature = "automation")]
         let tx_sender = TxSenderClient::new(db.clone(), Self::TX_SENDER_CONSUMER_ID.to_string());
 
@@ -738,7 +730,7 @@ where
 
         #[cfg(feature = "automation")]
         {
-            crate::states::StateManager::<Self>::dispatch_new_round_machine(
+            StateManager::<Self>::dispatch_new_round_machine(
                 self.db.clone(),
                 &mut dbtx,
                 operator_data,
@@ -776,7 +768,7 @@ where
             })
             .collect::<Result<Vec<(SecretNonce, PublicNonce)>, BridgeError>>()?
             .into_iter()
-            .unzip(); // TODO: fix extra copies
+            .unzip();
 
         let session = NonceSession { nonces: sec_nonces };
 
@@ -897,7 +889,6 @@ where
         Ok(partial_sig_rx)
     }
 
-    /// TODO: This function should be split in to multiple functions
     pub async fn deposit_finalize(
         &self,
         deposit_data: &mut DepositData,
@@ -1069,7 +1060,7 @@ where
 
                 tracing::debug!(
                     "Verifying Final operator signature {} for operator {}, signature info {:?}",
-                    nonce_idx + 1,
+                    op_sig_count + 1,
                     operator_idx,
                     typed_sighash.1
                 );
@@ -1208,7 +1199,6 @@ where
         // Save signatures to db
         let mut dbtx = self.db.begin_transaction().await?;
         // Deposit is not actually finalized here, its only finalized after the aggregator gets all the partial sigs and checks the aggregated sig
-        // TODO: It can create problems if the deposit fails at the end by some verifier not sending movetx partial sig, but we still added sigs to db
         for (operator_idx, (operator_xonly_pk, operator_sigs)) in operator_xonly_pks
             .into_iter()
             .zip(verified_sigs.into_iter())
@@ -1266,48 +1256,6 @@ where
         Ok((move_tx_partial_sig, emergency_stop_partial_sig))
     }
 
-    /// Recover the address from the signature
-    /// EIP712 hash is calculated from optimistic payout params
-    /// Signature is the signature of the eip712 hash
-    ///
-    /// Parameters:
-    /// - deposit_id: The id of the deposit
-    /// - input_signature: The signature of the withdrawal input
-    /// - input_outpoint: The outpoint of the withdrawal input
-    /// - output_script_pubkey: The script pubkey of the withdrawal output
-    /// - output_amount: The amount of the withdrawal output
-    /// - signature: The signature of the eip712 hash of the withdrawal params
-    ///
-    /// Returns:
-    /// - The address recovered from the signature
-    pub fn recover_address_from_ecdsa_signature(
-        deposit_id: u32,
-        input_signature: Signature,
-        input_outpoint: OutPoint,
-        output_script_pubkey: ScriptBuf,
-        output_amount: Amount,
-        signature: PrimitiveSignature,
-    ) -> Result<alloy::primitives::Address, BridgeError> {
-        let input_sig_bytes = input_signature.serialize().to_vec();
-        let outpoint_txid_bytes = input_outpoint.txid.to_byte_array();
-        let script_pubkey_bytes = output_script_pubkey.as_bytes().to_vec();
-        let params = ClementineOptimisticPayoutMessage {
-            withdrawal_id: deposit_id,
-            input_signature: input_sig_bytes.into(),
-            input_outpoint_txid: outpoint_txid_bytes.into(),
-            input_outpoint_vout: input_outpoint.vout,
-            output_script_pubkey: script_pubkey_bytes.into(),
-            output_amount: output_amount.to_sat(),
-        };
-
-        let eip712_hash = params.eip712_signing_hash(&DOMAIN);
-
-        let address = signature
-            .recover_address_from_prehash(&eip712_hash)
-            .wrap_err("Invalid signature")?;
-        Ok(address)
-    }
-
     #[allow(clippy::too_many_arguments)]
     pub async fn sign_optimistic_payout(
         &self,
@@ -1330,22 +1278,23 @@ where
         if let Some(address_in_config) = self.config.opt_payout_verification_address {
             // check if verification signature is provided by aggregator
             if let Some(verification_signature) = verification_signature {
-                let address_from_sig = Self::recover_address_from_ecdsa_signature(
-                    deposit_id,
-                    input_signature,
-                    input_outpoint,
-                    output_script_pubkey.clone(),
-                    output_amount,
-                    verification_signature,
-                )?;
+                let address_from_sig =
+                    recover_address_from_ecdsa_signature::<OptimisticPayoutMessage>(
+                        deposit_id,
+                        input_signature,
+                        input_outpoint,
+                        output_script_pubkey.clone(),
+                        output_amount,
+                        verification_signature,
+                    )?;
 
                 // check if verification signature is signed by the address in config
                 if address_from_sig != address_in_config {
-                    return Err(BridgeError::InvalidOptPayoutVerificationSignature);
+                    return Err(BridgeError::InvalidECDSAVerificationSignature);
                 }
             } else {
                 // if verification signature is not provided, but verification address is set in config, return error
-                return Err(BridgeError::OptPayoutVerificationSignatureMissing);
+                return Err(BridgeError::ECDSAVerificationSignatureMissing);
             }
         }
 
@@ -1353,10 +1302,10 @@ where
         let move_txid = self
             .db
             .get_move_to_vault_txid_from_citrea_deposit(None, deposit_id)
-            .await?;
-        if move_txid.is_none() {
-            return Err(eyre::eyre!("Deposit not found for id: {}", deposit_id).into());
-        }
+            .await?
+            .ok_or_else(|| {
+                BridgeError::from(eyre::eyre!("Deposit not found for id: {}", deposit_id))
+            })?;
 
         // amount in move_tx is exactly the bridge amount
         if output_amount
@@ -1377,6 +1326,7 @@ where
             .db
             .get_withdrawal_utxo_from_citrea_withdrawal(None, deposit_id)
             .await?;
+
         if withdrawal_utxo != input_outpoint {
             return Err(eyre::eyre!(
                 "Withdrawal utxo is not correct: {:?} != {:?}",
@@ -1386,7 +1336,6 @@ where
             .into());
         }
 
-        let move_txid = move_txid.expect("Withdrawal must be Some");
         let mut deposit_data = self
             .db
             .get_deposit_data_with_move_tx(None, move_txid)
@@ -1521,7 +1470,6 @@ where
             .map(|x| x.to_byte_array())
             .collect::<Vec<_>>();
 
-        // TODO: Use correct verification key and along with a dummy proof.
         // wrap around a mutex lock to avoid OOM
         let guard = REPLACE_SCRIPTS_LOCK.lock().await;
         let start = std::time::Instant::now();
@@ -1666,17 +1614,19 @@ where
             deposit_data
         );
 
-        let transaction_data = TransactionRequestData {
-            deposit_outpoint: deposit_data.get_deposit_outpoint(),
+        let context = ContractContext::new_context_with_signer(
             kickoff_data,
-        };
+            deposit_data.clone(),
+            self.config.protocol_paramset(),
+            self.signer.clone(),
+        );
 
         let signed_txs = create_and_sign_txs(
             self.db.clone(),
             &self.signer,
             self.config.clone(),
-            transaction_data,
-            None, // No need
+            context,
+            None, // No need, verifier will not send kickoff tx
             Some(dbtx),
         )
         .await?;
@@ -2106,7 +2056,7 @@ where
             .get_txid()
             .to_byte_array();
 
-        let vout = kickoff_data.kickoff_idx + 1;
+        let vout = UtxoVout::Kickoff(kickoff_data.kickoff_idx as usize).get_vout();
 
         let watchtower_challenge_start_idx =
             u16::try_from(UtxoVout::WatchtowerChallenge(0).get_vout())
@@ -2517,31 +2467,40 @@ where
 
         // Helper closure to parse commit data into the ([u8; 20], u8) format.
         // This avoids code repetition and improves readability.
-        let fill_from_commits = |source: &Vec<Vec<u8>>, target: &mut [([u8; 20], u8)]| {
+        let fill_from_commits = |source: &Vec<Vec<u8>>,
+                                 target: &mut [[u8; 21]]|
+         -> Result<(), BridgeError> {
             // We iterate over chunks of 2 `Vec<u8>` elements at a time.
             for (i, chunk) in source.chunks_exact(2).enumerate() {
-                // The first element of the chunk is the 20-byte array.
-                let array_part: [u8; 20] = chunk[0]
-                    .as_slice()
-                    .try_into()
-                    .expect("Slice is not 20 bytes");
-                // The second element of the chunk is the single byte (u8).
+                let mut sig_array: [u8; 21] = [0; 21];
+                let sig: [u8; 20] = <[u8; 20]>::try_from(chunk[0].as_slice()).map_err(|_| {
+                    eyre::eyre!(
+                        "Invalid signature length, expected 20 bytes, got {}",
+                        chunk[0].len()
+                    )
+                })?;
+
+                sig_array[..20].copy_from_slice(&sig);
+
                 let u8_part: u8 = *chunk[1].first().unwrap_or(&0);
-                target[i] = (array_part, u8_part);
+                sig_array[20] = u8_part;
+
+                target[i] = sig_array;
             }
+            Ok(())
         };
 
-        let mut first_box = Box::new([[([0u8; 20], 0u8); 68]; 1]);
-        fill_from_commits(&g16_public_input_commit[0], &mut first_box[0]);
+        let mut first_box = Box::new([[[0u8; 21]; 68]; 1]);
+        fill_from_commits(&g16_public_input_commit[0], &mut first_box[0])?;
 
-        let mut second_box = Box::new([[([0u8; 20], 0u8); 68]; 14]);
+        let mut second_box = Box::new([[[0u8; 21]; 68]; 14]);
         for i in 0..14 {
-            fill_from_commits(&num_u256_commits[i], &mut second_box[i]);
+            fill_from_commits(&num_u256_commits[i], &mut second_box[i])?;
         }
 
-        let mut third_box = Box::new([[([0u8; 20], 0u8); 36]; 363]);
+        let mut third_box = Box::new([[[0u8; 21]; 36]; 363]);
         for i in 0..363 {
-            fill_from_commits(&intermediate_value_commits[i], &mut third_box[i]);
+            fill_from_commits(&intermediate_value_commits[i], &mut third_box[i])?;
         }
 
         tracing::info!("Boxes created");
@@ -2781,8 +2740,7 @@ mod states {
         create_txhandlers, ContractContext, ReimburseDbCache, TxHandlerCache,
     };
     use crate::states::context::DutyResult;
-    use crate::states::{block_cache, StateManager};
-    use crate::states::{Duty, Owner};
+    use crate::states::{block_cache, Duty, Owner};
     use std::collections::BTreeMap;
     use tonic::async_trait;
 
@@ -3016,6 +2974,7 @@ mod states {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::rpc::ecdsa_verification_sig::OperatorWithdrawalMessage;
     use crate::test::common::citrea::MockCitreaClient;
     use crate::test::common::*;
     use bitcoin::Block;
@@ -3138,10 +3097,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_recover_address_from_signature() {
-        let signature = PrimitiveSignature::from_str("0x93907632f97f51a91e684a88a9b8ad9bb1e0f7679686f79d6538972f4a759c0c38dddc0c449b7336963275189fb26ea3bb2055ba5d140f5a536c6fac6997ae061b")
-            .unwrap();
         let input_signature = Signature::from_str("e8b82defd5e7745731737d210ad3f649541fd1e3173424fe6f9152b11cf8a1f9e24a176690c2ab243fb80ccc43369b2aba095b011d7a3a7c2a6953ef6b102643")
-            .unwrap();
+		.unwrap();
         let input_outpoint = OutPoint::from_str(
             "0000000000000000000000000000000000000000000000000000000000000000:0",
         )
@@ -3151,18 +3108,54 @@ mod tests {
                 .unwrap();
         let output_amount = Amount::from_sat(1000000000000000000);
         let deposit_id = 1;
-        let address = Verifier::<MockCitreaClient>::recover_address_from_ecdsa_signature(
+
+        let opt_payout_sig = PrimitiveSignature::from_str("0x165b7303ffe40149e297be9f1112c1484fcbd464bec26036e5a6142da92249ed7de398295ecac9e41943e326d44037073643a89049177b43c4a09f98787eafa91b")
+		.unwrap();
+        let address = recover_address_from_ecdsa_signature::<OptimisticPayoutMessage>(
+            deposit_id,
+            input_signature,
+            input_outpoint,
+            output_script_pubkey.clone(),
+            output_amount,
+            opt_payout_sig,
+        )
+        .unwrap();
+        assert_eq!(
+            address,
+            alloy::primitives::Address::from_str("0x281df03154e98484B786EDEf7EfF592a270F1Fb1")
+                .unwrap()
+        );
+
+        let op_withdrawal_sig = PrimitiveSignature::from_str("0xe540662d2ea0aeb29adeeb81a824bcb00e3d2a51d2c28e3eab6305168904e4cb7549e5abe78a91e58238a3986a5faf2ca9bbaaa79e0d0489a96ee275f7db9b111c")
+				.unwrap();
+        let address = recover_address_from_ecdsa_signature::<OperatorWithdrawalMessage>(
+            deposit_id,
+            input_signature,
+            input_outpoint,
+            output_script_pubkey.clone(),
+            output_amount,
+            op_withdrawal_sig,
+        )
+        .unwrap();
+        assert_eq!(
+            address,
+            alloy::primitives::Address::from_str("0x281df03154e98484B786EDEf7EfF592a270F1Fb1")
+                .unwrap()
+        );
+
+        // using OperatorWithdrawalMessage signature for OptimisticPayoutMessage should fail
+        let address = recover_address_from_ecdsa_signature::<OptimisticPayoutMessage>(
             deposit_id,
             input_signature,
             input_outpoint,
             output_script_pubkey,
             output_amount,
-            signature,
+            op_withdrawal_sig,
         )
         .unwrap();
-        assert_eq!(
+        assert_ne!(
             address,
-            alloy::primitives::Address::from_str("0xc9f597cbdd1235c986fb079184c785bf25b273b9")
+            alloy::primitives::Address::from_str("0x281df03154e98484B786EDEf7EfF592a270F1Fb1")
                 .unwrap()
         );
     }

@@ -45,7 +45,6 @@ use bitvm::clementine::additional_disprove::{
     create_additional_replacable_disprove_script_with_dummy, replace_placeholders_in_script,
 };
 use circuits_lib::bridge_circuit::deposit_constant;
-use circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
 use eyre::Context;
 use eyre::OptionExt;
 use std::collections::BTreeMap;
@@ -405,12 +404,12 @@ impl<'a, 'b> ReimburseDbCache<'a, 'b> {
 #[derive(Debug, Clone)]
 pub struct ContractContext {
     /// required
-    operator_xonly_pk: XOnlyPublicKey,
-    round_idx: RoundIndex,
-    paramset: &'static ProtocolParamset,
+    pub operator_xonly_pk: XOnlyPublicKey,
+    pub round_idx: RoundIndex,
+    pub paramset: &'static ProtocolParamset,
     /// optional (only used for after kickoff)
-    kickoff_idx: Option<u32>,
-    deposit_data: Option<DepositData>,
+    pub kickoff_idx: Option<u32>,
+    pub deposit_data: Option<DepositData>,
     signer: Option<Actor>,
 }
 
@@ -448,7 +447,8 @@ impl ContractContext {
     }
 
     /// Contains all necessary context for creating txhandlers for a specific operator, kickoff utxo, and a deposit
-    /// Additionally holds signer of an actor that can generate the actual winternitz public keys.
+    /// Additionally holds signer of an actor that can generate the actual winternitz public keys for operator,
+    /// and append evm address to the challenge tx for verifier.
     pub fn new_context_with_signer(
         kickoff_data: KickoffData,
         deposit_data: DepositData,
@@ -463,6 +463,11 @@ impl ContractContext {
             deposit_data: Some(deposit_data),
             signer: Some(signer),
         }
+    }
+
+    /// Returns if the context is for a kickoff
+    pub fn is_context_for_kickoff(&self) -> bool {
+        self.deposit_data.is_some() && self.kickoff_idx.is_some()
     }
 }
 
@@ -662,8 +667,8 @@ pub async fn create_txhandlers(
         .get_txid()
         .to_byte_array();
 
-    let vout = kickoff_data.kickoff_idx + 1; // TODO: Extract directly from round tx - not safe
-    let watchtower_challenge_start_idx = (FIRST_FIVE_OUTPUTS + NUMBER_OF_ASSERT_TXS) as u16;
+    let vout = UtxoVout::Kickoff(kickoff_data.kickoff_idx as usize).get_vout();
+    let watchtower_challenge_start_idx = UtxoVout::WatchtowerChallenge(0).get_vout() as u16;
     let secp = Secp256k1::verification_only();
 
     let nofn_key: XOnlyPublicKey = deposit_data.get_nofn_xonly_pk()?;
@@ -1096,7 +1101,6 @@ mod tests {
             TransactionType::Kickoff,
             TransactionType::KickoffNotFinalized,
             TransactionType::Challenge,
-            //TransactionType::Disprove, TODO: add when we add actual disprove scripts
             TransactionType::DisproveTimeout,
             TransactionType::Reimburse,
             TransactionType::ChallengeTimeout,
@@ -1295,6 +1299,10 @@ mod tests {
         let mut incorrect = false;
 
         for ((kickoff_id, tx_type), txids) in &created_txs {
+            // for challenge tx, txids are different because op return with own evm address, skip it
+            if tx_type == &TransactionType::Challenge {
+                continue;
+            }
             // check if all txids are equal
             if !txids.iter().all(|txid| txid == &txids[0]) {
                 tracing::error!(

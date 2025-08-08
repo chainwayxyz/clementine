@@ -71,6 +71,14 @@ impl TryFrom<DepositSignSession> for DepositParams {
     }
 }
 
+impl From<XOnlyPublicKey> for XOnlyPublicKeyRpc {
+    fn from(xonly_public_key: XOnlyPublicKey) -> Self {
+        XOnlyPublicKeyRpc {
+            xonly_public_key: xonly_public_key.serialize().to_vec(),
+        }
+    }
+}
+
 impl TryFrom<XOnlyPublicKeyRpc> for XOnlyPublicKey {
     type Error = BridgeError;
 
@@ -146,7 +154,7 @@ pub async fn parse_schnorr_sig(
     if let operator_params::Response::UnspentKickoffSig(wpk) = operator_param {
         Ok(wpk.try_into()?)
     } else {
-        Err(expected_msg_got_none("WinternitzPubkeys")())
+        Err(expected_msg_got_none("UnspentKickoffSig")())
     }
 }
 

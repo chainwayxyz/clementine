@@ -387,7 +387,6 @@ pub async fn run_multiple_deposits<C: CitreaClientT>(
 /// - [`Txid`]: TXID of the move transaction.
 /// - [`BlockHash`]: Block hash of the block where the user deposit was mined.
 /// - [`Vec<PublicKey>`]: Public keys of the verifiers used in the deposit.
-#[cfg(feature = "automation")]
 pub async fn run_single_deposit<C: CitreaClientT>(
     config: &mut BridgeConfig,
     rpc: ExtendedRpc,
@@ -399,7 +398,6 @@ pub async fn run_single_deposit<C: CitreaClientT>(
         Some(actors) => actors,
         None => create_actors(config).await,
     };
-    let aggregator_db = Database::new(&actors.aggregator.config).await?;
 
     let evm_address = evm_address.unwrap_or(EVMAddress([1u8; 20]));
     let actor = Actor::new(
@@ -427,7 +425,26 @@ pub async fn run_single_deposit<C: CitreaClientT>(
             let outpoint = rpc
                 .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
                 .await?;
-            mine_once_after_in_mempool(&rpc, outpoint.txid, Some("Deposit outpoint"), None).await?;
+            match config.protocol_paramset().network {
+                bitcoin::Network::Regtest => {
+                    mine_once_after_in_mempool(&rpc, outpoint.txid, Some("Deposit outpoint"), None)
+                        .await?;
+                }
+                bitcoin::Network::Testnet4 => loop {
+                    tracing::info!("Deposit outpoint: {:?}", outpoint);
+                    if rpc.is_tx_on_chain(&outpoint.txid).await? {
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+                },
+                _ => {
+                    return Err(eyre::eyre!(
+                        "Unsupported network: {:?}",
+                        config.protocol_paramset().network
+                    )
+                    .into())
+                }
+            }
             outpoint
         }
     };
@@ -449,65 +466,107 @@ pub async fn run_single_deposit<C: CitreaClientT>(
         .await
         .wrap_err("Error while making a deposit")?
         .into_inner();
-    let move_txid = aggregator
-        .send_move_to_vault_tx(SendMoveTxRequest {
-            deposit_outpoint: Some(deposit_outpoint.into()),
-            raw_tx: Some(movetx),
-        })
-        .await
-        .expect("failed to send movetx")
-        .into_inner()
-        .try_into()?;
+    let move_txid;
+    #[cfg(feature = "automation")]
+    {
+        move_txid = aggregator
+            .send_move_to_vault_tx(SendMoveTxRequest {
+                deposit_outpoint: Some(deposit_outpoint.into()),
+                raw_tx: Some(movetx),
+            })
+            .await
+            .expect("failed to send movetx")
+            .into_inner()
+            .try_into()?;
 
-    if !rpc.is_tx_on_chain(&move_txid).await? {
-        // check if deposit outpoint is spent
-        let deposit_outpoint_spent = rpc.is_utxo_spent(&deposit_outpoint).await?;
-        if deposit_outpoint_spent {
-            return Err(eyre::eyre!(
-                "Deposit outpoint is spent but move tx is not in chain. In test_bridge_contract_change 
-                this means move tx does not match the one in saved state"
-            )
-            .into());
+        match config.protocol_paramset().network {
+            bitcoin::Network::Regtest => {
+                if !rpc.is_tx_on_chain(&move_txid).await? {
+                    let aggregator_db = Database::new(&actors.aggregator.config).await?;
+                    // check if deposit outpoint is spent
+                    let deposit_outpoint_spent = rpc.is_utxo_spent(&deposit_outpoint).await?;
+                    if deposit_outpoint_spent {
+                        return Err(eyre::eyre!(
+                            "Deposit outpoint is spent but move tx is not in chain. In test_bridge_contract_change 
+                            this means move tx does not match the one in saved state"
+                            )
+                            .into());
+                    }
+                    wait_for_fee_payer_utxos_to_be_in_mempool(&rpc, aggregator_db, move_txid)
+                        .await?;
+                    rpc.mine_blocks_while_synced(1, &actors).await?;
+                    mine_once_after_in_mempool(&rpc, move_txid, Some("Move tx"), Some(180)).await?;
+                }
+            }
+            bitcoin::Network::Testnet4 => {
+                tracing::info!("Move txid: {:?}", move_txid);
+                loop {
+                    if rpc.is_tx_on_chain(&move_txid).await? {
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+                }
+            }
+            _ => {
+                return Err(eyre::eyre!(
+                    "Unsupported network: {:?}",
+                    config.protocol_paramset().network
+                )
+                .into())
+            }
         }
-        wait_for_fee_payer_utxos_to_be_in_mempool(&rpc, aggregator_db, move_txid).await?;
-        rpc.mine_blocks_while_synced(1, &actors).await?;
-        mine_once_after_in_mempool(&rpc, move_txid, Some("Move tx"), Some(180)).await?;
+
+        // Uncomment below to debug the move tx.
+        // let transaction = rpc
+        //     .client
+        //     .get_raw_transaction(&move_txid, None)
+        //     .await
+        //     .expect("a");
+        // let tx_info: bitcoincore_rpc::json::GetRawTransactionResult = rpc
+        //     .client
+        //     .get_raw_transaction_info(&move_txid, None)
+        //     .await
+        //     .expect("a");
+        // let block: bitcoincore_rpc::json::GetBlockResult = rpc
+        //     .client
+        //     .get_block_info(&tx_info.blockhash.unwrap())
+        //     .await
+        //     .expect("a");
+        // let block_height = block.height;
+        // let block = rpc
+        //     .client
+        //     .get_block(&tx_info.blockhash.unwrap())
+        //     .await
+        //     .expect("a");
+        // let transaction_params = get_citrea_deposit_params(
+        //     &rpc,
+        //     transaction.clone(),
+        //     block,
+        //     block_height as u32,
+        //     move_txid,
+        // ).await?;
+        // println!("Move tx Transaction params: {:?}", transaction_params);
+        // println!(
+        //     "Move tx: {:?}",
+        //     hex::encode(bitcoin::consensus::serialize(&transaction))
+        // );
     }
 
-    // Uncomment below to debug the move tx.
-    // let transaction = rpc
-    //     .client
-    //     .get_raw_transaction(&move_txid, None)
-    //     .await
-    //     .expect("a");
-    // let tx_info: bitcoincore_rpc::json::GetRawTransactionResult = rpc
-    //     .client
-    //     .get_raw_transaction_info(&move_txid, None)
-    //     .await
-    //     .expect("a");
-    // let block: bitcoincore_rpc::json::GetBlockResult = rpc
-    //     .client
-    //     .get_block_info(&tx_info.blockhash.unwrap())
-    //     .await
-    //     .expect("a");
-    // let block_height = block.height;
-    // let block = rpc
-    //     .client
-    //     .get_block(&tx_info.blockhash.unwrap())
-    //     .await
-    //     .expect("a");
-    // let transaction_params = get_citrea_deposit_params(
-    //     &rpc,
-    //     transaction.clone(),
-    //     block,
-    //     block_height as u32,
-    //     move_txid,
-    // ).await?;
-    // println!("Move tx Transaction params: {:?}", transaction_params);
-    // println!(
-    //     "Move tx: {:?}",
-    //     hex::encode(bitcoin::consensus::serialize(&transaction))
-    // );
+    #[cfg(not(feature = "automation"))]
+    {
+        let movetx: Transaction = bitcoin::consensus::deserialize(&movetx.raw_tx)
+            .wrap_err("Failed to deserialize movetx")?;
+        move_txid = rpc
+            .client
+            .send_raw_transaction(&movetx)
+            .await
+            .wrap_err("Failed to send movetx")?;
+
+        while !rpc.is_tx_on_chain(&move_txid).await? {
+            rpc.mine_blocks(1).await?;
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        }
+    }
 
     Ok((
         actors,
