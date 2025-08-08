@@ -112,36 +112,36 @@ impl Task for AggregatorMetricPublisher {
                     status,
                 )) => {
                     // Parse wallet balance from string (format is "X.XXX BTC")
-                    let wallet_balance_btc = status
+                    if let Some(balance) = status
                         .wallet_balance
-                        .strip_suffix(" BTC")
-                        .and_then(|s| s.parse::<f64>().ok())
-                        .unwrap_or(0.0);
+                        .and_then(|s| s.strip_suffix(" BTC").and_then(|s| s.parse::<f64>().ok()))
+                    {
+                        metrics.wallet_balance_btc.set(balance);
+                    }
 
-                    // Update all metrics
-                    metrics.wallet_balance_btc.set(wallet_balance_btc);
-                    metrics.rpc_tip_height.set(status.rpc_tip_height as f64);
-                    metrics
-                        .btc_syncer_synced_height
-                        .set(status.bitcoin_syncer_synced_height as f64);
-                    metrics
-                        .hcp_last_proven_height
-                        .set(status.hcp_last_proven_height as f64);
-                    metrics
-                        .tx_sender_synced_height
-                        .set(status.tx_sender_synced_height as f64);
-                    metrics
-                        .finalized_synced_height
-                        .set(status.finalized_synced_height as f64);
-                    metrics
-                        .state_manager_next_height
-                        .set(status.state_manager_next_height as f64);
-                    metrics.stopped_tasks_count.set(
-                        status
-                            .stopped_tasks
-                            .map_or(0, |tasks| tasks.stopped_tasks.len())
-                            as f64,
-                    );
+                    if let Some(height) = status.rpc_tip_height {
+                        metrics.rpc_tip_height.set(height as f64);
+                    }
+                    if let Some(height) = status.bitcoin_syncer_synced_height {
+                        metrics.btc_syncer_synced_height.set(height as f64);
+                    }
+                    if let Some(height) = status.hcp_last_proven_height {
+                        metrics.hcp_last_proven_height.set(height as f64);
+                    }
+                    if let Some(height) = status.tx_sender_synced_height {
+                        metrics.tx_sender_synced_height.set(height as f64);
+                    }
+                    if let Some(height) = status.finalized_synced_height {
+                        metrics.finalized_synced_height.set(height as f64);
+                    }
+                    if let Some(height) = status.state_manager_next_height {
+                        metrics.state_manager_next_height.set(height as f64);
+                    }
+                    if let Some(tasks) = status.stopped_tasks {
+                        metrics
+                            .stopped_tasks_count
+                            .set(tasks.stopped_tasks.len() as f64);
+                    }
                 }
                 Some(crate::rpc::clementine::entity_status_with_id::StatusResult::Err(error)) => {
                     tracing::error!("Entity {} error: {}", entity_id, error.error);

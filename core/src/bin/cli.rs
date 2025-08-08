@@ -356,7 +356,7 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
         } => {
             #[cfg(feature = "automation")]
             {
-                println!("WARNING: Automation is enabled, do not use this command unless some error happens with the automation \n 
+                println!("WARNING: Automation is enabled, do not use this command unless some error happens with the automation \n
                 Automation should handle the reimbursement process automatically");
             }
 
@@ -392,20 +392,20 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
                         This tx is standard and requires CPFP to be sent (last output is the anchor output)");
                     }
                     TransactionType::ReadyToReimburse => {
-                        println!("All unused kickoff connectors are burned, and all live kickoffs kickoff finalizer utxo's are 
+                        println!("All unused kickoff connectors are burned, and all live kickoffs kickoff finalizer utxo's are
                         spent, meaning it is safe to send ready to reimburse tx. This tx is standard and requires CPFP to be sent (last output is the anchor output)");
                     }
                     TransactionType::Reimburse => {
                         println!("Reimburse tx is ready to be sent. This tx is standard and requires CPFP to be sent (last output is the anchor output)");
                     }
                     TransactionType::ChallengeTimeout => {
-                        println!("After kickoff, challenge timeout tx needs to be sent. Due to the timelock, it can only be sent after 216 blocks pass from the kickoff tx {:?}. 
-                        This tx is standard and requires CPFP to be sent (last output is the anchor output)", 
+                        println!("After kickoff, challenge timeout tx needs to be sent. Due to the timelock, it can only be sent after 216 blocks pass from the kickoff tx {:?}.
+                        This tx is standard and requires CPFP to be sent (last output is the anchor output)",
                         transaction.input[0].previous_output.txid);
                     }
                     TransactionType::Round => {
                         println!("Time to send the round tx either for sending the kickoff tx, or getting the reimbursement for the past kickoff by advancing the round. Round tx is a non-standard tx and cannot be sent by using normal Bitcoin RPC.
-                        If the round is not the first round, 216 number of blocks need to pass from the previous ready to reimburse tx {:?} (If this is not collateral)", 
+                        If the round is not the first round, 216 number of blocks need to pass from the previous ready to reimburse tx {:?} (If this is not collateral)",
                         transaction.input[0].previous_output.txid);
                     }
                     _ => {}
@@ -832,13 +832,13 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                         match &entity_status.status_result {
                             Some(clementine_core::rpc::clementine::entity_status_with_id::StatusResult::Status(status)) => {
                                 println!("  Automation: {}", status.automation);
-                                println!("  Wallet balance: {}", status.wallet_balance);
-                                println!("  TX sender synced height: {}", status.tx_sender_synced_height);
-                                println!("  Finalized synced height: {}", status.finalized_synced_height);
-                                println!("  HCP last proven height: {}", status.hcp_last_proven_height);
-                                println!("  RPC tip height: {}", status.rpc_tip_height);
-                                println!("  Bitcoin syncer synced height: {}", status.bitcoin_syncer_synced_height);
-                                println!("  State manager next height: {}", status.state_manager_next_height);
+                                println!("  Wallet balance: {}", status.wallet_balance.as_ref().map_or("N/A".to_string(), |s| s.clone()));
+                                println!("  TX sender synced height: {}", status.tx_sender_synced_height.map_or("N/A".to_string(), |h| h.to_string()));
+                                println!("  Finalized synced height: {}", status.finalized_synced_height.map_or("N/A".to_string(), |h| h.to_string()));
+                                println!("  HCP last proven height: {}", status.hcp_last_proven_height.map_or("N/A".to_string(), |h| h.to_string()));
+                                println!("  RPC tip height: {}", status.rpc_tip_height.map_or("N/A".to_string(), |h| h.to_string()));
+                                println!("  Bitcoin syncer synced height: {}", status.bitcoin_syncer_synced_height.map_or("N/A".to_string(), |h| h.to_string()));
+                                println!("  State manager next height: {}", status.state_manager_next_height.map_or("N/A".to_string(), |h| h.to_string()));
                                 if !status.stopped_tasks.as_ref().is_none_or(|t| t.stopped_tasks.is_empty()) {
                                     println!("  Stopped tasks: {:?}", status.stopped_tasks.as_ref().expect("Stopped tasks are required").stopped_tasks);
                                 }

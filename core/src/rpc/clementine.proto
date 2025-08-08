@@ -274,14 +274,14 @@ message EntityError {
 
 message EntityStatus {
   bool automation = 1;
-  string wallet_balance = 2;
-  uint32 tx_sender_synced_height = 3;
-  uint32 finalized_synced_height = 4;
-  uint32 hcp_last_proven_height = 5;
+  optional string wallet_balance = 2;
+  optional uint32 tx_sender_synced_height = 3;
+  optional uint32 finalized_synced_height = 4;
+  optional uint32 hcp_last_proven_height = 5;
   StoppedTasks stopped_tasks = 6;
-  uint32 rpc_tip_height = 7;
-  uint32 bitcoin_syncer_synced_height = 8;
-  uint32 state_manager_next_height = 9;
+  optional uint32 rpc_tip_height = 7;
+  optional uint32 bitcoin_syncer_synced_height = 8;
+  optional uint32 state_manager_next_height = 9;
 }
 
 enum EntityType {
@@ -442,7 +442,7 @@ message NonceGenResponse {
 message OptimisticWithdrawParams {
   WithdrawParams withdrawal = 1;
   // An ECDSA signature (of citrea/aggregator) over the withdrawal params
-  // to authenticate the withdrawal params. This will be signed manually by citrea 
+  // to authenticate the withdrawal params. This will be signed manually by citrea
   // after manual verification of the optimistic payout.
   optional string verification_signature = 2;
 }
@@ -450,7 +450,7 @@ message OptimisticWithdrawParams {
 message WithdrawParamsWithSig {
   WithdrawParams withdrawal = 1;
   // An ECDSA signature (of citrea/aggregator) over the withdrawal params
-  // to authenticate the withdrawal params. This will be signed manually by citrea 
+  // to authenticate the withdrawal params. This will be signed manually by citrea
   // after manual verification of the optimistic payout.
   // This message contains same data as the one in Optimistic Payout signature, but with a different message name,
   // so that the same signature can't be used for both optimistic payout and normal withdrawal.
