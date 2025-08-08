@@ -27,6 +27,7 @@ use eyre::Context;
 use eyre::OptionExt;
 use secrecy::ExposeSecret;
 use secrecy::SecretString;
+use std::iter::Take;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -52,36 +53,18 @@ use crate::{
 
 type Result<T> = std::result::Result<T, BitcoinRPCError>;
 
-/// Configuration for exponential backoff retry mechanism
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct RetryConfig {
-    /// Initial delay between retries. Note that by the nature of exponential backoff crate, the first delay is not
-    /// initial delay, but the first delay is calculated by multiplying the initial delay with the backoff multiplier.
     pub initial_delay: Duration,
-    /// Maximum delay between retries
     pub max_delay: Duration,
-    /// Maximum number of retry attempts
     pub max_attempts: usize,
-    /// Multiplier for exponential backoff (typically 2)
     pub backoff_multiplier: u64,
-    /// Whether to add jitter to prevent thundering herd
     pub is_jitter: bool,
-}
-
-impl Default for RetryConfig {
-    fn default() -> Self {
-        Self {
-            initial_delay: Duration::from_millis(100),
-            max_delay: Duration::from_secs(30),
-            max_attempts: 5,
-            backoff_multiplier: 2,
-            is_jitter: false,
-        }
-    }
+    // Store the base iterator configuration
+    base_strategy: Arc<Take<ExponentialBackoff>>,
 }
 
 impl RetryConfig {
-    /// Create a new retry config
     pub fn new(
         initial_delay: Duration,
         max_delay: Duration,
@@ -89,26 +72,57 @@ impl RetryConfig {
         backoff_multiplier: u64,
         is_jitter: bool,
     ) -> Self {
+        // Create the base strategy once
+        let base_strategy = Arc::new(
+            ExponentialBackoff::from_millis(initial_delay.as_millis() as u64)
+                .max_delay(max_delay)
+                .factor(backoff_multiplier)
+                .take(max_attempts),
+        );
+
         Self {
             initial_delay,
             max_delay,
             max_attempts,
             backoff_multiplier,
             is_jitter,
+            base_strategy,
         }
     }
 
     pub fn get_strategy(&self) -> Box<dyn Iterator<Item = Duration> + Send> {
-        let strategy = ExponentialBackoff::from_millis(self.initial_delay.as_millis() as u64)
-            .max_delay(self.max_delay)
-            .factor(self.backoff_multiplier)
-            .take(self.max_attempts);
+        // Clone the base strategy to get a fresh iterator with the same initial state
+        let strategy = (*self.base_strategy).clone();
 
         if self.is_jitter {
             Box::new(strategy.map(jitter))
         } else {
             Box::new(strategy)
         }
+    }
+}
+
+impl Default for RetryConfig {
+    fn default() -> Self {
+        Self::new(
+            Duration::from_millis(100),
+            Duration::from_secs(30),
+            5,
+            2,
+            false,
+        )
+    }
+}
+
+impl std::fmt::Debug for RetryConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RetryConfig")
+            .field("initial_delay", &self.initial_delay)
+            .field("max_delay", &self.max_delay)
+            .field("max_attempts", &self.max_attempts)
+            .field("backoff_multiplier", &self.backoff_multiplier)
+            .field("is_jitter", &self.is_jitter)
+            .finish()
     }
 }
 
