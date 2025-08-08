@@ -95,27 +95,27 @@ if [ -z "$PARENT_TXID" ]; then
   exit 1
 fi
 
-echo "Step 8: Get Calldata for Deposit"
-CALLDATA=$(clementine --network regtest deposit get-deposit-params $PARENT_TXID \
-  $BITCOIN_RPC_URL $BITCOIN_RPC_USER $BITCOIN_RPC_PASSWORD | tail -n1 | tr -d '\n\r ' | xargs)
+# echo "Step 8: Get Calldata for Deposit"
+# CALLDATA=$(clementine --network regtest deposit get-deposit-params $PARENT_TXID \
+#   $BITCOIN_RPC_URL $BITCOIN_RPC_USER $BITCOIN_RPC_PASSWORD | tail -n1 | tr -d '\n\r ' | xargs)
 
-if [ -z "$CALLDATA" ]; then
-  echo "❌ Failed to get deposit parameters!"
-  exit 1
-fi
+# if [ -z "$CALLDATA" ]; then
+#   echo "❌ Failed to get deposit parameters!"
+#   exit 1
+# fi
 
-echo "Calldata: $CALLDATA"
+# echo "Calldata: $CALLDATA"
 
-echo "📦 Step 9: Submit Calldata to Citrea"
-CITREA_RESPONSE=$(jq -nc --arg cal "$CALLDATA" \
-  '{jsonrpc:"2.0", method:"citrea_sendRawDepositTransaction", params:[$cal], id:1}' |
-  curl -s -X POST http://127.0.0.1:12345 -H "Content-Type: application/json" --data @-)
+# echo "📦 Step 9: Submit Calldata to Citrea"
+# CITREA_RESPONSE=$(jq -nc --arg cal "$CALLDATA" \
+#   '{jsonrpc:"2.0", method:"citrea_sendRawDepositTransaction", params:[$cal], id:1}' |
+#   curl -s -X POST http://127.0.0.1:12345 -H "Content-Type: application/json" --data @-)
 
-echo "Citrea submission response: $CITREA_RESPONSE"
+# echo "Citrea submission response: $CITREA_RESPONSE"
 
-if echo "$CITREA_RESPONSE" | grep -q '"result":null'; then
-  echo "✅ Calldata submission successful"
-else
-  echo "❌ Calldata submission failed"
-  exit 1
-fi
+# if echo "$CITREA_RESPONSE" | grep -q '"result":null'; then
+#   echo "✅ Calldata submission successful"
+# else
+#   echo "❌ Calldata submission failed"
+#   exit 1
+# fi
