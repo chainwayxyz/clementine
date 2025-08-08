@@ -558,15 +558,30 @@ pub async fn run_single_deposit<C: CitreaClientT>(
         //     "Move tx: {:?}",
         //     hex::encode(bitcoin::consensus::serialize(&transaction))
         // );
-
-        Ok((
-            actors,
-            deposit_info,
-            move_txid,
-            deposit_blockhash,
-            verifiers_public_keys,
-        ))
     }
+
+    #[cfg(not(feature = "automation"))]
+    {
+        let movetx: Transaction = bitcoin::consensus::deserialize(&movetx.raw_tx)
+            .wrap_err("Failed to deserialize movetx")?;
+        move_txid = rpc
+            .send_raw_transaction(&movetx)
+            .await
+            .wrap_err("Failed to send movetx")?;
+
+        while !rpc.is_tx_on_chain(&move_txid).await? {
+            rpc.mine_blocks(1).await?;
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        }
+    }
+
+    Ok((
+        actors,
+        deposit_info,
+        move_txid,
+        deposit_blockhash,
+        verifiers_public_keys,
+    ))
 }
 
 /// Runs a single replacement deposit transaction. It will replace the old movetx using the nofn path, so it needs

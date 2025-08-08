@@ -81,13 +81,20 @@ impl Default for RetryConfig {
 }
 
 impl RetryConfig {
-    /// Create a custom retry config
-    pub fn custom(initial_delay: Duration, max_delay: Duration, max_attempts: usize) -> Self {
+    /// Create a new retry config
+    pub fn new(
+        initial_delay: Duration,
+        max_delay: Duration,
+        max_attempts: usize,
+        backoff_multiplier: u64,
+        is_jitter: bool,
+    ) -> Self {
         Self {
             initial_delay,
             max_delay,
             max_attempts,
-            ..Default::default()
+            backoff_multiplier,
+            is_jitter,
         }
     }
 
@@ -1346,12 +1353,14 @@ mod tests {
             let initial = Duration::from_millis(200);
             let max = Duration::from_secs(10);
             let attempts = 7;
-            let config = RetryConfig::custom(initial, max, attempts);
+            let backoff_multiplier = 3;
+            let jitter = true;
+            let config = RetryConfig::new(initial, max, attempts, backoff_multiplier, jitter);
             assert_eq!(config.initial_delay, initial);
             assert_eq!(config.max_delay, max);
             assert_eq!(config.max_attempts, attempts);
-            assert_eq!(config.backoff_multiplier, 2);
-            assert!(!config.is_jitter);
+            assert_eq!(config.backoff_multiplier, backoff_multiplier);
+            assert!(config.is_jitter);
         }
     }
 
