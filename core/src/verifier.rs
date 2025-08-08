@@ -45,8 +45,8 @@ use crate::task::manager::BackgroundTaskManager;
 use crate::task::{IntoTask, TaskExt};
 #[cfg(feature = "automation")]
 use crate::tx_sender::{TxSender, TxSenderClient};
-use crate::utils::NamedEntity;
 use crate::utils::TxMetadata;
+use crate::utils::{monitor_task_with_panic, NamedEntity};
 use crate::{musig2, UTXO};
 use alloy::primitives::PrimitiveSignature;
 use bitcoin::hashes::Hash;
@@ -811,7 +811,7 @@ where
             .get_blockhash_of_tx(&deposit_data.get_deposit_outpoint().txid)
             .await?;
 
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             // Take the lock and extract the session before entering the async block
             // Extract the session and remove it from the map to release the lock early
             let mut session = {
@@ -887,6 +887,7 @@ where
 
             Ok::<(), BridgeError>(())
         });
+        monitor_task_with_panic(handle, "Verifier deposit sign");
 
         Ok(partial_sig_rx)
     }
