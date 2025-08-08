@@ -741,7 +741,7 @@ async fn mock_citrea_run_truthful() {
 
 // This test needs MEMPOOL_SPACE_API_KEY to be set to send nonstandard transactions to testnet4
 #[tokio::test]
-#[ignore = "This is a tesnet4 test. It needs to be run alongside a local testnet4 node with some btc in its wallet"]
+#[ignore = "This is a testnet4 test. It needs to be run alongside a local testnet4 node with some btc in its wallet"]
 async fn testnet4_mock_citrea_run_truthful() {
     let mut config = create_test_config_with_thread_name().await;
     config.bitcoin_rpc_url = "http://localhost:48443".to_string();

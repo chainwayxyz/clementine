@@ -80,7 +80,7 @@ where
         self.operator.end_round(&mut dbtx).await?;
 
         self.db
-            .set_payout_handled(Some(&mut dbtx), citrea_idx, kickoff_txid)
+            .update_payout_handled(Some(&mut dbtx), citrea_idx, kickoff_txid)
             .await?;
 
         dbtx.commit().await?;

@@ -361,7 +361,7 @@ impl Database {
 
     /// Sets an existing block's (in database) proof by referring to it by it's
     /// hash.
-    pub async fn set_block_proof(
+    pub async fn update_block_proof(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         hash: block::BlockHash,
@@ -446,7 +446,9 @@ mod tests {
             height
         );
         let receipt = Receipt::try_from_slice(include_bytes!("../test/data/first_1.bin")).unwrap();
-        db.set_block_proof(None, block_hash, receipt).await.unwrap();
+        db.update_block_proof(None, block_hash, receipt)
+            .await
+            .unwrap();
         let latest_proven_block = db
             .get_latest_proven_block_info(None)
             .await
@@ -509,7 +511,7 @@ mod tests {
 
         // Update it with a proof.
         let receipt = Receipt::try_from_slice(include_bytes!("../test/data/first_1.bin")).unwrap();
-        db.set_block_proof(None, block_hash, receipt.clone())
+        db.update_block_proof(None, block_hash, receipt.clone())
             .await
             .unwrap();
 
@@ -578,7 +580,7 @@ mod tests {
             .await
             .unwrap();
         let receipt = Receipt::try_from_slice(include_bytes!("../test/data/first_1.bin")).unwrap();
-        db.set_block_proof(None, block_hash1, receipt.clone())
+        db.update_block_proof(None, block_hash1, receipt.clone())
             .await
             .unwrap();
         assert!(db.get_next_unproven_block(None).await.unwrap().is_none());
@@ -631,7 +633,7 @@ mod tests {
         db.save_unproven_finalized_block(None, block_hash3, block.header, height3)
             .await
             .unwrap();
-        db.set_block_proof(None, block_hash3, receipt.clone())
+        db.update_block_proof(None, block_hash3, receipt.clone())
             .await
             .unwrap();
 
@@ -729,7 +731,7 @@ mod tests {
             .await
             .unwrap();
         let receipt = Receipt::try_from_slice(include_bytes!("../test/data/first_1.bin")).unwrap();
-        db.set_block_proof(None, block_hash1, receipt.clone())
+        db.update_block_proof(None, block_hash1, receipt.clone())
             .await
             .unwrap();
         assert!(db
@@ -883,7 +885,7 @@ mod tests {
             db.save_unproven_finalized_block(None, block_hash, block.header, height)
                 .await
                 .unwrap();
-            db.set_block_proof(None, block_hash, proof.clone())
+            db.update_block_proof(None, block_hash, proof.clone())
                 .await
                 .unwrap();
 

@@ -731,7 +731,11 @@ impl Aggregator {
         )?;
 
         self.db
-            .set_signed_emergency_stop_tx(None, move_to_vault_txid, &encrypted_emergency_stop_tx)
+            .insert_signed_emergency_stop_tx_if_not_exists(
+                None,
+                move_to_vault_txid,
+                &encrypted_emergency_stop_tx,
+            )
             .await?;
 
         Ok(())

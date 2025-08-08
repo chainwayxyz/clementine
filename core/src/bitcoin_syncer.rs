@@ -103,16 +103,16 @@ pub(crate) async fn save_block(
 
     // update the block_info as canonical if it already exists
     let block_id = db
-        .set_block_as_canonical_if_exists(Some(dbtx), block_hash)
+        .update_block_as_canonical_if_exists(Some(dbtx), block_hash)
         .await?;
-    db.store_full_block(Some(dbtx), block, block_height).await?;
+    db.save_full_block(Some(dbtx), block, block_height).await?;
 
     if let Some(block_id) = block_id {
         return Ok(block_id);
     }
 
     let block_id = db
-        .add_block_info(
+        .insert_block_info(
             Some(dbtx),
             &block_hash,
             &block.header.prev_blockhash,
@@ -168,7 +168,7 @@ async fn save_transaction_spent_utxos(
     block_id: u32,
 ) -> Result<(), BridgeError> {
     let txid = tx.compute_txid();
-    db.add_txid_to_block(dbtx, block_id, &txid).await?;
+    db.insert_txid_to_block(dbtx, block_id, &txid).await?;
 
     for input in &tx.input {
         db.insert_spent_utxo(
@@ -229,7 +229,7 @@ pub async fn set_initial_block_info_if_not_exists(
         .await
         .wrap_err("Failed to get block")?;
     let block_id = save_block(db, &mut dbtx, &block, height).await?;
-    db.add_event(Some(&mut dbtx), BitcoinSyncerEvent::NewBlock(block_id))
+    db.insert_event(Some(&mut dbtx), BitcoinSyncerEvent::NewBlock(block_id))
         .await?;
 
     dbtx.commit().await?;
@@ -312,11 +312,11 @@ async fn handle_reorg_events(
     common_ancestor_height: u32,
 ) -> Result<(), BridgeError> {
     let reorg_blocks = db
-        .set_non_canonical_block_hashes(Some(dbtx), common_ancestor_height)
+        .update_non_canonical_block_hashes(Some(dbtx), common_ancestor_height)
         .await?;
 
     for reorg_block_id in reorg_blocks {
-        db.add_event(Some(dbtx), BitcoinSyncerEvent::ReorgedBlock(reorg_block_id))
+        db.insert_event(Some(dbtx), BitcoinSyncerEvent::ReorgedBlock(reorg_block_id))
             .await?;
     }
 
@@ -337,7 +337,7 @@ async fn process_new_blocks(
             .wrap_err("Failed to get block")?;
 
         let block_id = save_block(db, dbtx, &block, block_info.height).await?;
-        db.add_event(Some(dbtx), BitcoinSyncerEvent::NewBlock(block_id))
+        db.insert_event(Some(dbtx), BitcoinSyncerEvent::NewBlock(block_id))
             .await?;
     }
 

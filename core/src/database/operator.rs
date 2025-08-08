@@ -39,7 +39,7 @@ impl Database {
     /// This function additionally checks if the operator data already exists in the db.
     /// As we don't want to overwrite operator data on the db, as it can prevent us slash malicious operators that signed
     /// previous deposits. This function should give an error if an operator changed its data.
-    pub async fn set_operator(
+    pub async fn insert_operator_if_not_exists(
         &self,
         mut tx: Option<DatabaseTransaction<'_, '_>>,
         xonly_pubkey: XOnlyPublicKey,
@@ -126,7 +126,7 @@ impl Database {
     }
 
     /// Sets the funding UTXO for kickoffs.
-    pub async fn set_funding_utxo(
+    pub async fn insert_funding_utxo(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         funding_utxo: UTXO,
@@ -169,7 +169,7 @@ impl Database {
     /// On conflict, do not update the existing sigs. Although technically, as long as kickoff winternitz keys
     /// and operator data(collateral funding outpoint and reimburse address) are not changed, the sigs are still valid
     /// even if they are changed.
-    pub async fn set_unspent_kickoff_sigs(
+    pub async fn insert_unspent_kickoff_sigs_if_not_exist(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         operator_xonly_pk: XOnlyPublicKey,
@@ -207,7 +207,7 @@ impl Database {
     }
 
     /// Sets Winternitz public keys for bitvm related inputs of an operator.
-    pub async fn set_operator_bitvm_keys(
+    pub async fn insert_operator_bitvm_keys_if_not_exist(
         &self,
         mut tx: Option<DatabaseTransaction<'_, '_>>,
         operator_xonly_pk: XOnlyPublicKey,
@@ -260,7 +260,7 @@ impl Database {
     /// Sets Winternitz public keys (only for kickoff blockhash commit) for an operator.
     /// On conflict, do not update the existing keys. This is very important, as otherwise the txids of
     /// operators round tx's will change.
-    pub async fn set_operator_kickoff_winternitz_public_keys(
+    pub async fn insert_operator_kickoff_winternitz_public_keys_if_not_exist(
         &self,
         mut tx: Option<DatabaseTransaction<'_, '_>>,
         operator_xonly_pk: XOnlyPublicKey,
@@ -316,7 +316,7 @@ impl Database {
     /// Sets public hashes for a specific operator, sequential collateral tx and
     /// kickoff index combination. If there is hashes for given indexes, they
     /// will be overwritten by the new hashes.
-    pub async fn set_operator_challenge_ack_hashes(
+    pub async fn insert_operator_challenge_ack_hashes_if_not_exist(
         &self,
         mut tx: Option<DatabaseTransaction<'_, '_>>,
         operator_xonly_pk: XOnlyPublicKey,
@@ -397,7 +397,7 @@ impl Database {
     /// Saves deposit infos, and returns the deposit_id
     /// This function additionally checks if the deposit data already exists in the db.
     /// As we don't want to overwrite deposit data on the db, this function should give an error if deposit data is changed.
-    pub async fn set_deposit_data(
+    pub async fn insert_deposit_data_if_not_exists(
         &self,
         mut tx: Option<DatabaseTransaction<'_, '_>>,
         deposit_data: &mut DepositData,
@@ -524,7 +524,7 @@ impl Database {
     /// For the order of signatures, please check [`crate::builder::sighash::create_nofn_sighash_stream`]
     /// which determines the order of the sighashes that are signed.
     #[allow(clippy::too_many_arguments)]
-    pub async fn set_deposit_signatures(
+    pub async fn insert_deposit_signatures_if_not_exist(
         &self,
         mut tx: Option<DatabaseTransaction<'_, '_>>,
         deposit_outpoint: OutPoint,
@@ -689,7 +689,7 @@ impl Database {
     /// This function additionally checks if the BitVM setup data already exists in the db.
     /// As we don't want to overwrite BitVM setup data on the db, as maliciously overwriting
     /// can prevent us to regenerate previously signed kickoff tx's.
-    pub async fn set_bitvm_setup(
+    pub async fn insert_bitvm_setup_if_not_exists(
         &self,
         mut tx: Option<DatabaseTransaction<'_, '_>>,
         operator_xonly_pk: XOnlyPublicKey,
@@ -792,7 +792,7 @@ impl Database {
         }
     }
 
-    pub async fn set_kickoff_connector_as_used(
+    pub async fn update_kickoff_connector_as_used(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         round_idx: RoundIndex,
@@ -981,7 +981,10 @@ mod tests {
 
         // Test inserting multiple operators
         for x in ops.iter() {
-            database.set_operator(None, x.0, &x.1, x.2).await.unwrap();
+            database
+                .insert_operator_if_not_exists(None, x.0, &x.1, x.2)
+                .await
+                .unwrap();
         }
 
         // Test getting all operators
@@ -1005,7 +1008,7 @@ mod tests {
 
         // Test that we can insert the same data without errors
         database
-            .set_operator(None, ops[0].0, &ops[0].1, ops[0].2)
+            .insert_operator_if_not_exists(None, ops[0].0, &ops[0].1, ops[0].2)
             .await
             .unwrap();
 
@@ -1020,7 +1023,7 @@ mod tests {
 
         // test that we can't update the reimburse address
         assert!(database
-            .set_operator(
+            .insert_operator_if_not_exists(
                 None,
                 operator_xonly_pks[0],
                 &reimburse_addrs[0],
@@ -1031,13 +1034,18 @@ mod tests {
 
         // test that we can't update the collateral funding outpoint
         assert!(database
-            .set_operator(None, operator_xonly_pks[0], &new_reimburse_addr, ops[0].2)
+            .insert_operator_if_not_exists(
+                None,
+                operator_xonly_pks[0],
+                &new_reimburse_addr,
+                ops[0].2
+            )
             .await
             .is_err());
 
         // test that we can't update both
         assert!(database
-            .set_operator(
+            .insert_operator_if_not_exists(
                 None,
                 operator_xonly_pks[0],
                 &new_reimburse_addr,
@@ -1075,7 +1083,7 @@ mod tests {
 
         // Test inserting new data
         database
-            .set_operator_challenge_ack_hashes(
+            .insert_operator_challenge_ack_hashes_if_not_exist(
                 None,
                 operator_xonly_pk,
                 deposit_outpoint,
@@ -1093,7 +1101,7 @@ mod tests {
 
         // Test that we can insert the same data without errors
         database
-            .set_operator_challenge_ack_hashes(
+            .insert_operator_challenge_ack_hashes_if_not_exist(
                 None,
                 operator_xonly_pk,
                 deposit_outpoint,
@@ -1111,7 +1119,7 @@ mod tests {
 
         // Test that we can't update with different data
         assert!(database
-            .set_operator_challenge_ack_hashes(
+            .insert_operator_challenge_ack_hashes_if_not_exist(
                 None,
                 operator_xonly_pk,
                 deposit_outpoint,
@@ -1159,7 +1167,7 @@ mod tests {
         let non_existent_xonly_pk = generate_random_xonly_pk();
 
         database
-            .set_unspent_kickoff_sigs(
+            .insert_unspent_kickoff_sigs_if_not_exist(
                 None,
                 operator_xonly_pk,
                 RoundIndex::Round(round_idx),
@@ -1207,7 +1215,7 @@ mod tests {
                 script_pubkey: ScriptBuf::from(vec![1u8]),
             },
         };
-        db.set_funding_utxo(None, utxo.clone()).await.unwrap();
+        db.insert_funding_utxo(None, utxo.clone()).await.unwrap();
         let db_utxo = db.get_funding_utxo(None).await.unwrap().unwrap();
 
         // Sanity check
@@ -1242,7 +1250,7 @@ mod tests {
 
         // Test inserting new BitVM setup
         database
-            .set_bitvm_setup(
+            .insert_bitvm_setup_if_not_exists(
                 None,
                 operator_xonly_pk,
                 deposit_outpoint,
@@ -1265,7 +1273,7 @@ mod tests {
 
         // Test that we can insert the same data without errors
         database
-            .set_bitvm_setup(
+            .insert_bitvm_setup_if_not_exists(
                 None,
                 operator_xonly_pk,
                 deposit_outpoint,
@@ -1290,7 +1298,7 @@ mod tests {
 
         // test that we can't update the assert_tx_hashes
         assert!(database
-            .set_bitvm_setup(
+            .insert_bitvm_setup_if_not_exists(
                 None,
                 operator_xonly_pk,
                 deposit_outpoint,
@@ -1303,7 +1311,7 @@ mod tests {
 
         // test that we can't update the root_hash
         assert!(database
-            .set_bitvm_setup(
+            .insert_bitvm_setup_if_not_exists(
                 None,
                 operator_xonly_pk,
                 deposit_outpoint,
@@ -1316,7 +1324,7 @@ mod tests {
 
         // test that we can't update the latest_blockhash_root_hash
         assert!(database
-            .set_bitvm_setup(
+            .insert_bitvm_setup_if_not_exists(
                 None,
                 operator_xonly_pk,
                 deposit_outpoint,
@@ -1329,7 +1337,7 @@ mod tests {
 
         // test that we can't update all of them
         assert!(database
-            .set_bitvm_setup(
+            .insert_bitvm_setup_if_not_exists(
                 None,
                 operator_xonly_pk,
                 deposit_outpoint,
@@ -1352,7 +1360,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn set_get_operator_winternitz_public_keys() {
+    async fn upsert_get_operator_winternitz_public_keys() {
         let mut config = create_test_config_with_thread_name().await;
         let database = Database::new(&config).await.unwrap();
         let _regtest = create_regtest_rpc(&mut config).await;
@@ -1372,7 +1380,11 @@ mod tests {
 
         // Test inserting new data
         database
-            .set_operator_kickoff_winternitz_public_keys(None, op_xonly_pk, wpks.clone())
+            .insert_operator_kickoff_winternitz_public_keys_if_not_exist(
+                None,
+                op_xonly_pk,
+                wpks.clone(),
+            )
             .await
             .unwrap();
 
@@ -1384,7 +1396,11 @@ mod tests {
 
         // Test that we can insert the same data without errors
         database
-            .set_operator_kickoff_winternitz_public_keys(None, op_xonly_pk, wpks.clone())
+            .insert_operator_kickoff_winternitz_public_keys_if_not_exist(
+                None,
+                op_xonly_pk,
+                wpks.clone(),
+            )
             .await
             .unwrap();
 
@@ -1396,7 +1412,11 @@ mod tests {
             })
             .unwrap();
         assert!(database
-            .set_operator_kickoff_winternitz_public_keys(None, op_xonly_pk, different_wpks)
+            .insert_operator_kickoff_winternitz_public_keys_if_not_exist(
+                None,
+                op_xonly_pk,
+                different_wpks
+            )
             .await
             .is_err());
 
@@ -1407,7 +1427,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn set_get_operator_bitvm_wpks() {
+    async fn upsert_get_operator_bitvm_wpks() {
         let mut config = create_test_config_with_thread_name().await;
         let database = Database::new(&config).await.unwrap();
         let _regtest = create_regtest_rpc(&mut config).await;
@@ -1426,7 +1446,12 @@ mod tests {
             .unwrap();
 
         database
-            .set_operator_bitvm_keys(None, op_xonly_pk, deposit_outpoint, wpks.clone())
+            .insert_operator_bitvm_keys_if_not_exist(
+                None,
+                op_xonly_pk,
+                deposit_outpoint,
+                wpks.clone(),
+            )
             .await
             .unwrap();
 
@@ -1443,7 +1468,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn set_get_deposit_signatures() {
+    async fn upsert_get_deposit_signatures() {
         let config = create_test_config_with_thread_name().await;
         let database = Database::new(&config).await.unwrap();
 
@@ -1469,7 +1494,7 @@ mod tests {
         };
 
         database
-            .set_deposit_signatures(
+            .insert_deposit_signatures_if_not_exist(
                 None,
                 deposit_outpoint,
                 operator_xonly_pk,
@@ -1482,7 +1507,7 @@ mod tests {
             .unwrap();
         // Setting this twice should not cause any issues
         database
-            .set_deposit_signatures(
+            .insert_deposit_signatures_if_not_exist(
                 None,
                 deposit_outpoint,
                 operator_xonly_pk,
@@ -1495,7 +1520,7 @@ mod tests {
             .unwrap();
         // But with different kickoff txid and signatures should.
         assert!(database
-            .set_deposit_signatures(
+            .insert_deposit_signatures_if_not_exist(
                 None,
                 deposit_outpoint,
                 operator_xonly_pk,
