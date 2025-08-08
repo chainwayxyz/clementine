@@ -331,7 +331,7 @@ where
 
             Ok::<(), Status>(())
         });
-        monitor_task_with_panic(handle, "Verifier deposit sign");
+        monitor_task_with_panic(handle, "Verifier deposit signature sender");
 
         Ok(Response::new(out_stream))
     }

@@ -887,7 +887,7 @@ where
 
             Ok::<(), BridgeError>(())
         });
-        monitor_task_with_panic(handle, "Verifier deposit sign");
+        monitor_task_with_panic(handle, "Verifier deposit_sign");
 
         Ok(partial_sig_rx)
     }
