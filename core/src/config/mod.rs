@@ -139,8 +139,10 @@ pub struct BridgeConfig {
     pub telemetry: Option<TelemetryConfig>,
 
     /// The ECDSA address of the citrea/aggregator that will sign the withdrawal params
-    /// after manual verification of the optimistic payout.
-    pub opt_payout_verification_address: Option<alloy::primitives::Address>,
+    /// after manual verification of the optimistic payout and operator's withdrawal.
+    /// Used for both an extra verification of aggregator's identity and to force citrea
+    /// to check withdrawal params manually during some time after launch.
+    pub aggregator_verification_address: Option<alloy::primitives::Address>,
 
     /// The X25519 public key that will be used to encrypt the emergency stop message.
     pub emergency_stop_encryption_public_key: Option<[u8; 32]>,
@@ -329,7 +331,7 @@ impl Default for BridgeConfig {
             ca_cert_path: PathBuf::from("certs/ca/ca.pem"),
             aggregator_cert_path: PathBuf::from("certs/aggregator/aggregator.pem"),
             client_verification: true,
-            opt_payout_verification_address: Some(
+            aggregator_verification_address: Some(
                 alloy::primitives::Address::from_str("0x242fbec93465ce42b3d7c0e1901824a2697193fd")
                     .expect("valid address"),
             ),
