@@ -10,7 +10,7 @@ use sqlx::QueryBuilder;
 
 impl Database {
     /// Sets a signed emergency stop transaction for a given move transaction ID
-    pub async fn set_signed_emergency_stop_tx(
+    pub async fn upsert_signed_emergency_stop_tx(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         move_txid: &Txid,
@@ -85,7 +85,7 @@ mod tests {
         let move_txid = Txid::from_byte_array([1u8; 32]);
         let emergency_stop_tx = create_test_transaction();
         database
-            .set_signed_emergency_stop_tx(
+            .upsert_signed_emergency_stop_tx(
                 None,
                 &move_txid,
                 &consensus::serialize(&emergency_stop_tx),
@@ -114,7 +114,7 @@ mod tests {
         let move_txid2 = Txid::from_byte_array([3u8; 32]);
         let emergency_stop_tx2 = create_test_transaction();
         database
-            .set_signed_emergency_stop_tx(
+            .upsert_signed_emergency_stop_tx(
                 None,
                 &move_txid2,
                 &consensus::serialize(&emergency_stop_tx2),
@@ -138,7 +138,7 @@ mod tests {
         // Test updating existing tx
         let updated_tx = create_test_transaction();
         database
-            .set_signed_emergency_stop_tx(None, &move_txid, &consensus::serialize(&updated_tx))
+            .upsert_signed_emergency_stop_tx(None, &move_txid, &consensus::serialize(&updated_tx))
             .await
             .unwrap();
 

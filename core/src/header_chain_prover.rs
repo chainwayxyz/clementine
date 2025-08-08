@@ -163,7 +163,7 @@ impl HeaderChainProver {
                     tracing::debug!("Can't set initial block info for header chain prover, because: {e}. Doesn't affect anything, continuing...");
                 });
 
-            db.set_block_proof(None, block_hash, proof)
+            db.update_block_proof(None, block_hash, proof)
                 .await
                 .map_to_eyre()?;
         } else {
@@ -225,7 +225,7 @@ impl HeaderChainProver {
                 )
                 .await;
 
-            db.set_block_proof(None, genesis_block_hash, proof)
+            db.update_block_proof(None, genesis_block_hash, proof)
                 .await
                 .map_to_eyre()?;
         }
@@ -407,7 +407,7 @@ impl HeaderChainProver {
         let receipt = self.prove_block_headers(previous_proof, headers)?;
 
         self.db
-            .set_block_proof(None, current_block_hash, receipt.clone())
+            .update_block_proof(None, current_block_hash, receipt.clone())
             .await?;
 
         Ok(receipt)

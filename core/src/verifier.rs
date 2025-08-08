@@ -696,7 +696,7 @@ where
         let mut dbtx = self.db.begin_transaction().await?;
         // Save the operator details to the db
         self.db
-            .set_operator(
+            .upsert_operator(
                 Some(&mut dbtx),
                 operator_xonly_pk,
                 &operator_data.reimburse_addr,
@@ -705,7 +705,7 @@ where
             .await?;
 
         self.db
-            .set_operator_kickoff_winternitz_public_keys(
+            .upsert_operator_kickoff_winternitz_public_keys(
                 Some(&mut dbtx),
                 operator_xonly_pk,
                 operator_winternitz_public_keys,
@@ -721,7 +721,7 @@ where
 
         for (round_idx, sigs) in tagged_sigs_per_round.into_iter().enumerate() {
             self.db
-                .set_unspent_kickoff_sigs(
+                .upsert_unspent_kickoff_sigs(
                     Some(&mut dbtx),
                     operator_xonly_pk,
                     RoundIndex::Round(round_idx),
@@ -798,7 +798,7 @@ where
         // set deposit data to db before starting to sign, ensures that if the deposit data already exists in db, it matches the one
         // given by the aggregator currently. We do not want to sign 2 different deposits for same deposit_outpoint
         self.db
-            .set_deposit_data(None, &mut deposit_data, self.config.protocol_paramset())
+            .upsert_deposit_data(None, &mut deposit_data, self.config.protocol_paramset())
             .await?;
 
         let verifier = self.clone();
@@ -1240,7 +1240,7 @@ where
                     );
 
                     self.db
-                        .set_deposit_signatures(
+                        .upsert_deposit_signatures(
                             Some(&mut dbtx),
                             deposit_data.get_deposit_outpoint(),
                             operator_xonly_pk,
@@ -1405,7 +1405,7 @@ where
         self.is_deposit_valid(&mut deposit_data).await?;
 
         self.db
-            .set_deposit_data(None, &mut deposit_data, self.config.protocol_paramset())
+            .upsert_deposit_data(None, &mut deposit_data, self.config.protocol_paramset())
             .await?;
 
         let hashes: Vec<[u8; 20]> = keys
@@ -1434,7 +1434,7 @@ where
             .ok_or(BridgeError::OperatorNotFound(operator_xonly_pk))?;
 
         self.db
-            .set_operator_challenge_ack_hashes(
+            .upsert_operator_challenge_ack_hashes(
                 None,
                 operator_xonly_pk,
                 deposit_data.get_deposit_outpoint(),
@@ -1506,7 +1506,7 @@ where
             .to_byte_array();
 
         self.db
-            .set_operator_bitvm_keys(
+            .upsert_operator_bitvm_keys(
                 None,
                 operator_xonly_pk,
                 deposit_data.get_deposit_outpoint(),
@@ -1515,7 +1515,7 @@ where
             .await?;
         // Save the public input wots to db along with the root hash
         self.db
-            .set_bitvm_setup(
+            .upsert_bitvm_setup(
                 None,
                 operator_xonly_pk,
                 deposit_data.get_deposit_outpoint(),
@@ -1835,7 +1835,7 @@ where
                 idx
             );
             self.db
-                .set_move_to_vault_txid_from_citrea_deposit(
+                .upsert_move_to_vault_txid_from_citrea_deposit(
                     Some(dbtx),
                     idx as u32,
                     &move_to_vault_txid,
@@ -1850,7 +1850,7 @@ where
                 idx
             );
             self.db
-                .set_withdrawal_utxo_from_citrea_withdrawal(
+                .update_withdrawal_utxo_from_citrea_withdrawal(
                     Some(dbtx),
                     idx as u32,
                     withdrawal_utxo_outpoint,
@@ -1871,7 +1871,7 @@ where
                 new_move_txid
             );
             self.db
-                .set_replacement_deposit_move_txid(dbtx, idx, new_move_txid)
+                .update_replacement_deposit_move_txid(dbtx, idx, new_move_txid)
                 .await?;
         }
 
@@ -1944,7 +1944,7 @@ where
         }
 
         self.db
-            .set_payout_txs_and_payer_operator_xonly_pk(
+            .update_payout_txs_and_payer_operator_xonly_pk(
                 Some(dbtx),
                 payout_txs_and_payer_operator_idx,
             )

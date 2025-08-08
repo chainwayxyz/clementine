@@ -14,7 +14,7 @@ impl Database {
     /// # Returns
     ///
     /// - [`u32`]: Database entry id, later to be used while referring block
-    pub async fn add_block_info(
+    pub async fn insert_block_info(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         block_hash: &BlockHash,
@@ -37,7 +37,7 @@ impl Database {
 
     /// Sets the block with given block hash as canonical if it exists in the database
     /// Returns the block id if the block was found and set as canonical, None otherwise
-    pub async fn set_block_as_canonical_if_exists(
+    pub async fn update_block_as_canonical_if_exists(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         block_hash: BlockHash,
@@ -104,7 +104,7 @@ impl Database {
     }
 
     /// Stores the full block in bytes in the database, with its height and hash
-    pub async fn store_full_block(
+    pub async fn save_full_block(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         block: &bitcoin::Block,
@@ -187,7 +187,7 @@ impl Database {
 
     /// Gets the block hashes that have height bigger then the given height and deletes them.
     /// Marks blocks with height greater than the given height as non-canonical.
-    pub async fn set_non_canonical_block_hashes(
+    pub async fn update_non_canonical_block_hashes(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         height: u32,
@@ -231,7 +231,7 @@ impl Database {
     }
 
     /// Saves the txid with the id of the block that contains it to the database
-    pub async fn add_txid_to_block(
+    pub async fn insert_txid_to_block(
         &self,
         tx: DatabaseTransaction<'_, '_>,
         block_id: u32,
@@ -307,7 +307,7 @@ impl Database {
     }
 
     /// Adds a bitcoin syncer event to the database. These events can currently be new block or reorged block.
-    pub async fn add_event(
+    pub async fn insert_event(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         event_type: BitcoinSyncerEvent,
@@ -522,12 +522,12 @@ mod tests {
         let height = 0x45;
 
         let block_id = db
-            .add_block_info(Some(&mut dbtx), &block_hash, &prev_block_hash, height)
+            .insert_block_info(Some(&mut dbtx), &block_hash, &prev_block_hash, height)
             .await
             .unwrap();
 
         // Add new block event
-        db.add_event(Some(&mut dbtx), BitcoinSyncerEvent::NewBlock(block_id))
+        db.insert_event(Some(&mut dbtx), BitcoinSyncerEvent::NewBlock(block_id))
             .await
             .unwrap();
 
@@ -548,7 +548,7 @@ mod tests {
         assert!(event.is_none());
 
         // Add reorg event
-        db.add_event(Some(&mut dbtx), BitcoinSyncerEvent::ReorgedBlock(block_id))
+        db.insert_event(Some(&mut dbtx), BitcoinSyncerEvent::ReorgedBlock(block_id))
             .await
             .unwrap();
 
@@ -592,7 +592,7 @@ mod tests {
         let dummy_block_hash = dummy_block.block_hash();
 
         // Store the block
-        db.store_full_block(None, &dummy_block, block_height)
+        db.save_full_block(None, &dummy_block, block_height)
             .await
             .unwrap();
 
@@ -632,7 +632,7 @@ mod tests {
 
         let updated_dummy_block_hash = updated_dummy_block.block_hash();
 
-        db.store_full_block(None, &updated_dummy_block, block_height)
+        db.save_full_block(None, &updated_dummy_block, block_height)
             .await
             .unwrap();
 
@@ -664,15 +664,15 @@ mod tests {
         let height = 0x45;
 
         let block_id = db
-            .add_block_info(Some(&mut dbtx), &block_hash, &prev_block_hash, height)
+            .insert_block_info(Some(&mut dbtx), &block_hash, &prev_block_hash, height)
             .await
             .unwrap();
 
         // Add events
-        db.add_event(Some(&mut dbtx), BitcoinSyncerEvent::NewBlock(block_id))
+        db.insert_event(Some(&mut dbtx), BitcoinSyncerEvent::NewBlock(block_id))
             .await
             .unwrap();
-        db.add_event(Some(&mut dbtx), BitcoinSyncerEvent::ReorgedBlock(block_id))
+        db.insert_event(Some(&mut dbtx), BitcoinSyncerEvent::ReorgedBlock(block_id))
             .await
             .unwrap();
 
@@ -723,7 +723,7 @@ mod tests {
         for height in heights {
             let block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([height as u8; 32]));
             let block_id = db
-                .add_block_info(Some(&mut dbtx), &block_hash, &last_hash, height)
+                .insert_block_info(Some(&mut dbtx), &block_hash, &last_hash, height)
                 .await
                 .unwrap();
             block_ids.push(block_id);
@@ -732,7 +732,7 @@ mod tests {
 
         // Mark blocks above height 2 as non-canonical
         let non_canonical_blocks = db
-            .set_non_canonical_block_hashes(Some(&mut dbtx), 2)
+            .update_non_canonical_block_hashes(Some(&mut dbtx), 2)
             .await
             .unwrap();
         assert_eq!(non_canonical_blocks.len(), 3); // blocks at height 3, 4, and 5
@@ -774,7 +774,7 @@ mod tests {
             .unwrap()
             .is_none());
 
-        db.add_block_info(None, &block_hash, &prev_block_hash, height)
+        db.insert_block_info(None, &block_hash, &prev_block_hash, height)
             .await
             .unwrap();
         let block_info = db
@@ -787,7 +787,7 @@ mod tests {
         assert_eq!(block_info.1, height);
         assert_eq!(max_height, height);
 
-        db.add_block_info(
+        db.insert_block_info(
             None,
             &BlockHash::from_raw_hash(Hash::from_byte_array([0x1; 32])),
             &prev_block_hash,
@@ -798,7 +798,7 @@ mod tests {
         let max_height = db.get_max_height(None).await.unwrap().unwrap();
         assert_eq!(max_height, height);
 
-        db.add_block_info(
+        db.insert_block_info(
             None,
             &BlockHash::from_raw_hash(Hash::from_byte_array([0x2; 32])),
             &prev_block_hash,
@@ -818,7 +818,7 @@ mod tests {
         let mut dbtx = db.begin_transaction().await.unwrap();
 
         assert!(db
-            .add_txid_to_block(&mut dbtx, 0, &Txid::all_zeros())
+            .insert_txid_to_block(&mut dbtx, 0, &Txid::all_zeros())
             .await
             .is_err());
         let mut dbtx = db.begin_transaction().await.unwrap();
@@ -827,7 +827,7 @@ mod tests {
         let block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([0x45; 32]));
         let height = 0x45;
         let block_id = db
-            .add_block_info(Some(&mut dbtx), &block_hash, &prev_block_hash, height)
+            .insert_block_info(Some(&mut dbtx), &block_hash, &prev_block_hash, height)
             .await
             .unwrap();
 
@@ -837,7 +837,7 @@ mod tests {
             Txid::from_raw_hash(Hash::from_byte_array([0x3; 32])),
         ];
         for txid in &txids {
-            db.add_txid_to_block(&mut dbtx, block_id, txid)
+            db.insert_txid_to_block(&mut dbtx, block_id, txid)
                 .await
                 .unwrap();
         }
@@ -864,14 +864,14 @@ mod tests {
         let block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([0x45; 32]));
         let height = 0x45;
         let block_id = db
-            .add_block_info(Some(&mut dbtx), &block_hash, &prev_block_hash, height)
+            .insert_block_info(Some(&mut dbtx), &block_hash, &prev_block_hash, height)
             .await
             .unwrap();
 
         let spending_txid = Txid::from_raw_hash(Hash::from_byte_array([0x2; 32]));
         let txid = Txid::from_raw_hash(Hash::from_byte_array([0x1; 32]));
         let vout = 0;
-        db.add_txid_to_block(&mut dbtx, block_id, &spending_txid)
+        db.insert_txid_to_block(&mut dbtx, block_id, &spending_txid)
             .await
             .unwrap();
 

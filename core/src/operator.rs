@@ -335,7 +335,7 @@ where
             }
         };
 
-        db.set_operator(
+        db.upsert_operator(
             Some(&mut dbtx),
             signer.xonly_public_key,
             &reimburse_addr,
@@ -513,7 +513,7 @@ where
         // set operators own kickoff winternitz public keys before creating the round state machine
         // as round machine needs kickoff keys to create the first round tx
         self.db
-            .set_operator_kickoff_winternitz_public_keys(
+            .upsert_operator_kickoff_winternitz_public_keys(
                 Some(&mut dbtx),
                 self.signer.xonly_public_key,
                 self.generate_kickoff_winternitz_pubkeys()?,
@@ -967,7 +967,12 @@ where
 
         // mark the kickoff connector as used
         self.db
-            .set_kickoff_connector_as_used(Some(dbtx), round_idx, kickoff_idx, Some(kickoff_txid))
+            .update_kickoff_connector_as_used(
+                Some(dbtx),
+                round_idx,
+                kickoff_idx,
+                Some(kickoff_txid),
+            )
             .await?;
 
         Ok(kickoff_txid)
@@ -1117,7 +1122,7 @@ where
                     };
                     unspent_kickoff_connector_indices.push(kickoff_connector_idx as usize);
                     self.db
-                        .set_kickoff_connector_as_used(
+                        .update_kickoff_connector_as_used(
                             Some(dbtx),
                             current_round_index,
                             kickoff_connector_idx,
@@ -2011,7 +2016,7 @@ where
                 // set the kickoff connector as used (it will do nothing if the utxo is already in db, so it won't overwrite the kickoff txid)
                 // mark so that we don't try to use this utxo anymore
                 self.db
-                    .set_kickoff_connector_as_used(
+                    .update_kickoff_connector_as_used(
                         dbtx.as_deref_mut(),
                         round_idx,
                         kickoff_idx as u32,
