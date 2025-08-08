@@ -241,36 +241,38 @@ send_with_cpfp() {
 # If you need to reimburse operators for payout fees, call get-reimbursement-txs and CPFP-broadcast them similarly to deposit flow.
 # Example (requires original deposit outpoint info):
 
-if [[ -n "$DEPOSIT_TXID" && -n "$DEPOSIT_VOUT" ]]; then
-  echo "🔁 Step 8.1: Fetch round tx"
-  REIMB_RAW_1=$(cargo run --bin clementine-cli -- --node-url "$AGGREGATOR_URL" operator get-reimbursement-txs \
-    --deposit-outpoint-txid "$DEPOSIT_TXID" \
-    --deposit-outpoint-vout "$DEPOSIT_VOUT" | awk '/Please send manually:/ { print $NF }' | head -n1)
+# !!! AGGREGATOR URL IS TO BE SWITCHED TO OPERATOR URL DO NOT USE THIS PART UNTIL IT's UPDATED !!!
 
-  if [[ -n "$REIMB_RAW_1" ]]; then
-    echo "Found round tx (len ${#REIMB_RAW_1}). Sending with CPFP..."
-    send_with_cpfp "$REIMB_RAW_1"
-  else
-    echo "ℹ️ No first round tx returned yet (maybe already sent)."
-  fi
+# if [[ -n "$DEPOSIT_TXID" && -n "$DEPOSIT_VOUT" ]]; then
+#   echo "🔁 Step 8.1: Fetch round tx"
+#   REIMB_RAW_1=$(cargo run --bin clementine-cli -- --node-url "$AGGREGATOR_URL" operator get-reimbursement-txs \
+#     --deposit-outpoint-txid "$DEPOSIT_TXID" \
+#     --deposit-outpoint-vout "$DEPOSIT_VOUT" | awk '/Please send manually:/ { print $NF }' | head -n1)
 
-  echo "⛏️  Step 8.2: Mine and wait before kickoff"
-  mine 3; sleep 2; mine 3; sleep 2
+#   if [[ -n "$REIMB_RAW_1" ]]; then
+#     echo "Found round tx (len ${#REIMB_RAW_1}). Sending with CPFP..."
+#     send_with_cpfp "$REIMB_RAW_1"
+#   else
+#     echo "ℹ️ No first round tx returned yet (maybe already sent)."
+#   fi
 
-  echo "🔁 Step 8.3: Fetch kickoff tx"
-  REIMB_RAW_2=$(cargo run --bin clementine-cli -- --node-url "$AGGREGATOR_URL" operator get-reimbursement-txs \
-    --deposit-outpoint-txid "$DEPOSIT_TXID" \
-    --deposit-outpoint-vout "$DEPOSIT_VOUT" | awk '/Please send manually:/ { print $NF }' | tail -n1)
+#   echo "⛏️  Step 8.2: Mine and wait before kickoff"
+#   mine 3; sleep 2; mine 3; sleep 2
 
-  if [[ -n "$REIMB_RAW_2" && "$REIMB_RAW_2" != "$REIMB_RAW_1" ]]; then
-    echo "Found second kickoff tx (len ${#REIMB_RAW_2}). Sending with CPFP..."
-    send_with_cpfp "$REIMB_RAW_2"
-  else
-    echo "ℹ️ No distinct second kickoff tx returned (may not be ready yet)."
-  fi
-else
-  echo "ℹ️ Skipping reimbursement: DEPOSIT_TXID/DEPOSIT_VOUT not set."
-fi
+#   echo "🔁 Step 8.3: Fetch kickoff tx"
+#   REIMB_RAW_2=$(cargo run --bin clementine-cli -- --node-url "$AGGREGATOR_URL" operator get-reimbursement-txs \
+#     --deposit-outpoint-txid "$DEPOSIT_TXID" \
+#     --deposit-outpoint-vout "$DEPOSIT_VOUT" | awk '/Please send manually:/ { print $NF }' | tail -n1)
+
+#   if [[ -n "$REIMB_RAW_2" && "$REIMB_RAW_2" != "$REIMB_RAW_1" ]]; then
+#     echo "Found second kickoff tx (len ${#REIMB_RAW_2}). Sending with CPFP..."
+#     send_with_cpfp "$REIMB_RAW_2"
+#   else
+#     echo "ℹ️ No distinct second kickoff tx returned (may not be ready yet)."
+#   fi
+# else
+#   echo "ℹ️ Skipping reimbursement: DEPOSIT_TXID/DEPOSIT_VOUT not set."
+# fi
 
 # Then broadcast with your CPFP helper and mine blocks.
 
