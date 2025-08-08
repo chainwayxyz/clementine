@@ -148,12 +148,7 @@ pub async fn get_next_sync_heights(entity_statuses: EntityStatuses) -> eyre::Res
             if let Some(entity_status_with_id::StatusResult::Status(status)) = entity.status_result
             {
                 if status.automation {
-                    Ok(status.state_manager_next_height.ok_or_else(|| {
-                        eyre::eyre!(
-                            "Couldn't retrieve state manager height from entity {:?}",
-                            entity.entity_id
-                        )
-                    })?)
+                    Ok(status.state_manager_next_height.unwrap_or(0))
                 } else {
                     // assume synced if automation is off
                     Ok(u32::MAX)
