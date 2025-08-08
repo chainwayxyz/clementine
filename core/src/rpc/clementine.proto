@@ -12,10 +12,6 @@ message Outpoint {
   uint32 vout = 2;
 }
 
-message XonlyPublicKey {
-  bytes xonly_pk = 1;
-}
-
 message NofnResponse {
   bytes nofn_xonly_pk = 1;
   uint32 num_verifiers = 2;
@@ -356,11 +352,31 @@ service ClementineOperator {
   // Restarts the background tasks for the operator.
   rpc RestartBackgroundTasks(Empty) returns (Empty) {}
 
-  // Prepares a withdrawal if it's profitable and the withdrawal is correct and registered in Citrea bridge contract/
+  // Prepares a withdrawal if it's profitable and the withdrawal is correct and registered in Citrea bridge contract.
   // If withdrawal is accepted, the payout tx will be added to the TxSender and success is returned, otherwise an error is returned.
   // If automation is disabled, the withdrawal will not be accepted and an error will be returned.
-  rpc Withdraw(WithdrawParams)
-    returns (Empty) {}
+  // Note: This is intended for operator's own use, so it doesn't include a signature from aggregator.
+  rpc InternalWithdraw(WithdrawParams)
+    returns (RawSignedTx) {}
+
+
+  // First, if verification address in operator's config is set, the signature in rpc is checked to see if it was signed by the verification address.
+  // Then prepares a withdrawal if it's profitable and the withdrawal is correct and registered in Citrea bridge contract.
+  // If withdrawal is accepted, the payout tx will be added to the TxSender and success is returned, otherwise an error is returned.
+  // If automation is disabled, the withdrawal will not be accepted and an error will be returned.
+  rpc Withdraw(WithdrawParamsWithSig)
+    returns (RawSignedTx) {}
+
+  // For a given deposit outpoint, determines the next step in the kickoff process the operator is in,
+  // and returns the raw signed txs that the operator needs to send next, for enabling reimbursement process
+  // without automation.
+  //
+  // # Parameters
+  // - deposit_outpoint: Deposit outpoint to create the kickoff for
+  //
+  // # Returns
+  // - Raw signed txs that the operator needs to send next
+  rpc GetReimbursementTxs(Outpoint) returns (SignedTxsWithType) {}
 
   // Signs all tx's it can according to given transaction type (use it with AllNeededForDeposit to get almost all tx's)
   // Creates the transactions denoted by the deposit and operator_idx, round_idx, and kickoff_idx.
@@ -431,6 +447,24 @@ message OptimisticWithdrawParams {
   optional string verification_signature = 2;
 }
 
+message WithdrawParamsWithSig {
+  WithdrawParams withdrawal = 1;
+  // An ECDSA signature (of citrea/aggregator) over the withdrawal params
+  // to authenticate the withdrawal params. This will be signed manually by citrea 
+  // after manual verification of the optimistic payout.
+  // This message contains same data as the one in Optimistic Payout signature, but with a different message name,
+  // so that the same signature can't be used for both optimistic payout and normal withdrawal.
+  optional string verification_signature = 2;
+}
+
+// Input of the aggregator's withdraw function.
+// It contains the withdrawal params along with the verification signature that signs the withdrawal params.
+// It also contains the operator's xonly public keys that the withdrawal request should be sent to. If the list is empty, the withdrawal will be sent to all operators.
+message AggregatorWithdrawalInput {
+  WithdrawParamsWithSig withdrawal = 1;
+  repeated XOnlyPublicKeyRpc operator_xonly_pks = 2;
+}
+
 message OptimisticPayoutParams {
   OptimisticWithdrawParams opt_withdrawal = 1;
   NonceGenFirstResponse nonce_gen = 2;
@@ -482,7 +516,7 @@ message TxMetadata {
   // Optional outpoint of the deposit transaction
   Outpoint deposit_outpoint = 1;
   // Deposit identification
-  XonlyPublicKey operator_xonly_pk = 2;
+  XOnlyPublicKeyRpc operator_xonly_pk = 2;
   uint32 round_idx = 4;
   uint32 kickoff_idx = 5;
   // Transaction ID
@@ -668,7 +702,9 @@ service ClementineAggregator {
 
   // Call's withdraw on all operators
   // Used by the clementine-backend service to initiate a withdrawal
-  rpc Withdraw(WithdrawParams)
+  // If the operator's xonly public keys list is empty, the withdrawal will be sent to all operators.
+  // If not, only the operators in the list will be sent the withdrawal request.
+  rpc Withdraw(AggregatorWithdrawalInput)
     returns (AggregatorWithdrawResponse) {}
 
   // Perform an optimistic payout to reimburse a peg-out from Citrea

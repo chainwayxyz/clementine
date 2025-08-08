@@ -4,7 +4,6 @@ use crate::builder::transaction::input::UtxoVout;
 use crate::errors::ResultExt;
 use crate::operator::RoundIndex;
 use crate::rpc;
-use crate::rpc::clementine::XonlyPublicKey;
 use crate::utils::{FeePayingType, RbfSigningInfo, TxMetadata};
 use crate::{
     builder::transaction::TransactionType,
@@ -417,9 +416,7 @@ impl TxSenderClient {
             raw_tx: bitcoin::consensus::serialize(&tx),
             metadata: tx_metadata.map(|metadata| rpc::clementine::TxMetadata {
                 deposit_outpoint: metadata.deposit_outpoint.map(Into::into),
-                operator_xonly_pk: metadata.operator_xonly_pk.map(|pk| XonlyPublicKey {
-                    xonly_pk: pk.serialize().to_vec(),
-                }),
+                operator_xonly_pk: metadata.operator_xonly_pk.map(Into::into),
 
                 round_idx: metadata
                     .round_idx

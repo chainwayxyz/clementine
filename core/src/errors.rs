@@ -147,10 +147,10 @@ pub enum BridgeError {
     InvalidProtocolParamset,
     #[error("Deposit already signed and move txid {0} is in chain")]
     DepositAlreadySigned(Txid),
-    #[error("Invalid optimistic payout verification signature")]
-    InvalidOptPayoutVerificationSignature,
-    #[error("Optimistic payout verification signature missing")]
-    OptPayoutVerificationSignatureMissing,
+    #[error("Invalid withdrawal ECDSA verification signature")]
+    InvalidECDSAVerificationSignature,
+    #[error("Withdrawal ECDSA verification signature missing")]
+    ECDSAVerificationSignatureMissing,
 
     // External crate error wrappers
     #[error("Failed to call database: {0}")]

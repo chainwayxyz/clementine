@@ -399,7 +399,6 @@ pub async fn run_multiple_deposits<C: CitreaClientT>(
 /// - [`Txid`]: TXID of the move transaction.
 /// - [`BlockHash`]: Block hash of the block where the user deposit was mined.
 /// - [`Vec<PublicKey>`]: Public keys of the verifiers used in the deposit.
-#[cfg(feature = "automation")]
 pub async fn run_single_deposit<C: CitreaClientT>(
     config: &mut BridgeConfig,
     rpc: ExtendedBitcoinRpc,
@@ -411,7 +410,6 @@ pub async fn run_single_deposit<C: CitreaClientT>(
         Some(actors) => actors,
         None => create_actors(config).await,
     };
-    let aggregator_db = Database::new(&actors.aggregator.config).await?;
 
     let evm_address = evm_address.unwrap_or(EVMAddress([1u8; 20]));
     let actor = Actor::new(
@@ -480,53 +478,55 @@ pub async fn run_single_deposit<C: CitreaClientT>(
         .await
         .wrap_err("Error while making a deposit")?
         .into_inner();
-    let move_txid = aggregator
-        .send_move_to_vault_tx(SendMoveTxRequest {
-            deposit_outpoint: Some(deposit_outpoint.into()),
-            raw_tx: Some(movetx),
-        })
-        .await
-        .expect("failed to send movetx")
-        .into_inner()
-        .try_into()?;
+    let move_txid;
+    #[cfg(feature = "automation")]
+    {
+        move_txid = aggregator
+            .send_move_to_vault_tx(SendMoveTxRequest {
+                deposit_outpoint: Some(deposit_outpoint.into()),
+                raw_tx: Some(movetx),
+            })
+            .await
+            .expect("failed to send movetx")
+            .into_inner()
+            .try_into()?;
 
-    if !rpc.is_tx_on_chain(&move_txid).await? {
-        // check if deposit outpoint is spent
-        let deposit_outpoint_spent = rpc.is_utxo_spent(&deposit_outpoint).await?;
-        if deposit_outpoint_spent {
-            return Err(eyre::eyre!(
-                "Deposit outpoint is spent but move tx is not in chain. In test_bridge_contract_change 
-                this means move tx does not match the one in saved state"
-            )
-            .into());
-        }
-    }
-
-    match config.protocol_paramset().network {
-        bitcoin::Network::Regtest => {
-            if !rpc.is_tx_on_chain(&move_txid).await? {
-                wait_for_fee_payer_utxos_to_be_in_mempool(&rpc, aggregator_db, move_txid).await?;
-                rpc.mine_blocks(1).await?;
-                mine_once_after_in_mempool(&rpc, move_txid, Some("Move tx"), Some(180)).await?;
-            }
-        }
-        bitcoin::Network::Testnet4 => {
-            tracing::info!("Move txid: {:?}", move_txid);
-            loop {
-                if rpc.is_tx_on_chain(&move_txid).await? {
-                    break;
+        match config.protocol_paramset().network {
+            bitcoin::Network::Regtest => {
+                if !rpc.is_tx_on_chain(&move_txid).await? {
+                    let aggregator_db = Database::new(&actors.aggregator.config).await?;
+                    // check if deposit outpoint is spent
+                    let deposit_outpoint_spent = rpc.is_utxo_spent(&deposit_outpoint).await?;
+                    if deposit_outpoint_spent {
+                        return Err(eyre::eyre!(
+                            "Deposit outpoint is spent but move tx is not in chain. In test_bridge_contract_change 
+                            this means move tx does not match the one in saved state"
+                            )
+                            .into());
+                    }
+                    wait_for_fee_payer_utxos_to_be_in_mempool(&rpc, aggregator_db, move_txid)
+                        .await?;
+                    rpc.mine_blocks_while_synced(1, &actors).await?;
+                    mine_once_after_in_mempool(&rpc, move_txid, Some("Move tx"), Some(180)).await?;
                 }
-                tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+            }
+            bitcoin::Network::Testnet4 => {
+                tracing::info!("Move txid: {:?}", move_txid);
+                loop {
+                    if rpc.is_tx_on_chain(&move_txid).await? {
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+                }
+            }
+            _ => {
+                return Err(eyre::eyre!(
+                    "Unsupported network: {:?}",
+                    config.protocol_paramset().network
+                )
+                .into())
             }
         }
-        _ => {
-            return Err(eyre::eyre!(
-                "Unsupported network: {:?}",
-                config.protocol_paramset().network
-            )
-            .into())
-        }
-    }
 
     // Uncomment below to debug the move tx.
     // let transaction = rpc

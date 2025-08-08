@@ -4,6 +4,7 @@ use super::clementine::{
 };
 use super::error;
 use crate::builder::transaction::sign::TransactionRequestData;
+use crate::builder::transaction::TransactionType;
 use crate::constants::{MAX_BYTES_PER_WINTERNITZ_KEY, MAX_WINTERNITZ_DIGITS_PER_KEY};
 use crate::deposit::{
     Actors, BaseDepositData, DepositData, DepositInfo, DepositType, ReplacementDepositData,
@@ -11,10 +12,11 @@ use crate::deposit::{
 };
 use crate::errors::BridgeError;
 use crate::operator::RoundIndex;
+use crate::rpc::clementine::{SignedTxWithType, SignedTxsWithType};
 use crate::utils::{FeePayingType, RbfSigningInfo};
 use bitcoin::hashes::{sha256d, FromSliceError, Hash};
 use bitcoin::secp256k1::schnorr::Signature;
-use bitcoin::{OutPoint, TapNodeHash, Txid, XOnlyPublicKey};
+use bitcoin::{OutPoint, TapNodeHash, Transaction, Txid, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
 use eyre::Context;
 use std::fmt::{Debug, Display};
@@ -565,6 +567,51 @@ impl From<crate::deposit::KickoffData> for clementine::KickoffId {
             round_idx: value.round_idx.to_index() as u32,
             kickoff_idx: value.kickoff_idx,
         }
+    }
+}
+
+impl From<Vec<(TransactionType, Transaction)>> for SignedTxsWithType {
+    fn from(value: Vec<(TransactionType, Transaction)>) -> Self {
+        SignedTxsWithType {
+            signed_txs: value
+                .into_iter()
+                .map(|(tx_type, signed_tx)| SignedTxWithType {
+                    transaction_type: Some(tx_type.into()),
+                    raw_tx: bitcoin::consensus::serialize(&signed_tx),
+                })
+                .collect(),
+        }
+    }
+}
+
+impl TryFrom<SignedTxWithType> for (TransactionType, Transaction) {
+    type Error = Status;
+
+    fn try_from(value: SignedTxWithType) -> Result<Self, Self::Error> {
+        Ok((
+            value
+                .transaction_type
+                .ok_or(Status::invalid_argument("No transaction type received"))?
+                .try_into()
+                .map_err(|e| {
+                    Status::invalid_argument(format!("Failed to parse transaction type: {}", e))
+                })?,
+            bitcoin::consensus::encode::deserialize(&value.raw_tx).map_err(|e| {
+                Status::invalid_argument(format!("Failed to parse raw signed tx: {}", e))
+            })?,
+        ))
+    }
+}
+
+impl TryFrom<clementine::SignedTxsWithType> for Vec<(TransactionType, Transaction)> {
+    type Error = Status;
+
+    fn try_from(value: clementine::SignedTxsWithType) -> Result<Self, Self::Error> {
+        value
+            .signed_txs
+            .into_iter()
+            .map(|signed_tx| signed_tx.try_into())
+            .collect::<Result<Vec<_>, _>>()
     }
 }
 
