@@ -97,7 +97,7 @@
 <span class="kw">use crate</span>::{
     database::Database,
     errors::BridgeError,
-    extended_rpc::ExtendedRpc,
+    extended_bitcoin_rpc::ExtendedBitcoinRpc,
     metrics::L1_SYNC_STATUS,
     task::{Task, TaskVariant},
     utils::NamedEntity,
@@ -113,12 +113,12 @@
 </span><span class="doccomment">/// Publishes the metrics available for an entity (operator/verifier)
 </span><span class="kw">pub struct </span>EntityMetricPublisher&lt;T: NamedEntity&gt; {
     db: Database,
-    rpc: ExtendedRpc,
+    rpc: ExtendedBitcoinRpc,
     _phantom: std::marker::PhantomData&lt;T&gt;,
 }
 
 <span class="kw">impl</span>&lt;T: NamedEntity&gt; EntityMetricPublisher&lt;T&gt; {
-    <span class="kw">pub fn </span>new(db: Database, rpc: ExtendedRpc) -&gt; <span class="self">Self </span>{
+    <span class="kw">pub fn </span>new(db: Database, rpc: ExtendedBitcoinRpc) -&gt; <span class="self">Self </span>{
         <span class="self">Self </span>{
             db,
             rpc,

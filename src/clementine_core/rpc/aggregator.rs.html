@@ -2294,13 +2294,7 @@
 <a href="#2293" id="2293">2293</a>
 <a href="#2294" id="2294">2294</a>
 <a href="#2295" id="2295">2295</a>
-<a href="#2296" id="2296">2296</a>
-<a href="#2297" id="2297">2297</a>
-<a href="#2298" id="2298">2298</a>
-<a href="#2299" id="2299">2299</a>
-<a href="#2300" id="2300">2300</a>
-<a href="#2301" id="2301">2301</a>
-<a href="#2302" id="2302">2302</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::{
+<a href="#2296" id="2296">2296</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::{
     clementine_aggregator_server::ClementineAggregator, verifier_deposit_finalize_params,
     DepositParams, Empty, VerifierDepositFinalizeParams,
 };
@@ -4092,10 +4086,7 @@
             <span class="kw">async </span>|| {
                 rpc.mine_blocks(<span class="number">1</span>).<span class="kw">await</span>.unwrap();
 
-                <span class="kw">let </span>tx_result = rpc
-                    .client
-                    .get_raw_transaction_info(<span class="kw-2">&amp;</span>movetx_one_txid, <span class="prelude-val">None</span>)
-                    .<span class="kw">await</span>;
+                <span class="kw">let </span>tx_result = rpc.get_raw_transaction_info(<span class="kw-2">&amp;</span>movetx_one_txid, <span class="prelude-val">None</span>).<span class="kw">await</span>;
 
                 <span class="kw">let </span>tx_result = tx_result
                     .inspect_err(|e| {
@@ -4191,10 +4182,7 @@
             <span class="kw">async </span>|| {
                 rpc.mine_blocks(<span class="number">1</span>).<span class="kw">await</span>.unwrap();
 
-                <span class="kw">let </span>tx_result = rpc
-                    .client
-                    .get_raw_transaction_info(<span class="kw-2">&amp;</span>movetx_txid, <span class="prelude-val">None</span>)
-                    .<span class="kw">await</span>;
+                <span class="kw">let </span>tx_result = rpc.get_raw_transaction_info(<span class="kw-2">&amp;</span>movetx_txid, <span class="prelude-val">None</span>).<span class="kw">await</span>;
 
                 <span class="kw">let </span>tx_result = tx_result
                     .inspect_err(|e| {
@@ -4366,8 +4354,7 @@
         )
         .expect(<span class="string">"Failed to deserialize"</span>);
 
-        rpc.client
-            .send_raw_transaction(<span class="kw-2">&amp;</span>emergency_stop_tx)
+        rpc.send_raw_transaction(<span class="kw-2">&amp;</span>emergency_stop_tx)
             .<span class="kw">await
             </span>.expect(<span class="string">"Failed to send emergency stop tx"</span>);
 
@@ -4379,7 +4366,6 @@
                 rpc.mine_blocks(<span class="number">1</span>).<span class="kw">await</span>.unwrap();
 
                 <span class="kw">let </span>tx_result = rpc
-                    .client
                     .get_raw_transaction_info(<span class="kw-2">&amp;</span>emergency_stop_txid, <span class="prelude-val">None</span>)
                     .<span class="kw">await</span>;
 
@@ -4545,6 +4531,8 @@
     <span class="attr">#[tokio::test]
     </span><span class="kw">async fn </span>aggregator_start_with_offline_verifier() {
         <span class="kw">let </span><span class="kw-2">mut </span>config = create_test_config_with_thread_name().<span class="kw">await</span>;
+        <span class="comment">// Create regtest rpc
+        </span><span class="kw">let </span>_regtest = create_regtest_rpc(<span class="kw-2">&amp;mut </span>config).<span class="kw">await</span>;
         <span class="comment">// random ips
         </span>config.verifier_endpoints = <span class="prelude-val">Some</span>(<span class="macro">vec!</span>[<span class="string">"https://142.143.144.145:17001"</span>.to_string()]);
         config.operator_endpoints = <span class="prelude-val">Some</span>(<span class="macro">vec!</span>[<span class="string">"https://142.143.144.145:17002"</span>.to_string()]);

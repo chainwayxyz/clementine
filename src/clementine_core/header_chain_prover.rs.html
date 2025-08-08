@@ -1221,25 +1221,7 @@
 <a href="#1220" id="1220">1220</a>
 <a href="#1221" id="1221">1221</a>
 <a href="#1222" id="1222">1222</a>
-<a href="#1223" id="1223">1223</a>
-<a href="#1224" id="1224">1224</a>
-<a href="#1225" id="1225">1225</a>
-<a href="#1226" id="1226">1226</a>
-<a href="#1227" id="1227">1227</a>
-<a href="#1228" id="1228">1228</a>
-<a href="#1229" id="1229">1229</a>
-<a href="#1230" id="1230">1230</a>
-<a href="#1231" id="1231">1231</a>
-<a href="#1232" id="1232">1232</a>
-<a href="#1233" id="1233">1233</a>
-<a href="#1234" id="1234">1234</a>
-<a href="#1235" id="1235">1235</a>
-<a href="#1236" id="1236">1236</a>
-<a href="#1237" id="1237">1237</a>
-<a href="#1238" id="1238">1238</a>
-<a href="#1239" id="1239">1239</a>
-<a href="#1240" id="1240">1240</a>
-<a href="#1241" id="1241">1241</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Header Chain Prover
+<a href="#1223" id="1223">1223</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Header Chain Prover
 //!
 //! This module contains utilities for proving Bitcoin block headers. This
 //! module must be fed with new blocks via the database. Later, it can check if
@@ -1252,7 +1234,7 @@
     config::BridgeConfig,
     database::Database,
     errors::{BridgeError, ErrorExt},
-    extended_rpc::ExtendedRpc,
+    extended_bitcoin_rpc::ExtendedBitcoinRpc,
 };
 <span class="kw">use </span>bitcoin::block::Header;
 <span class="kw">use </span>bitcoin::{hashes::Hash, BlockHash, Network};
@@ -1327,7 +1309,7 @@
     /// assumption if specified in the config.
     </span><span class="kw">pub async fn </span>new(
         config: <span class="kw-2">&amp;</span>BridgeConfig,
-        rpc: ExtendedRpc,
+        rpc: ExtendedBitcoinRpc,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="self">Self</span>, HeaderChainProverError&gt; {
         <span class="kw">let </span>db = Database::new(config).<span class="kw">await</span>.map_to_eyre()<span class="question-mark">?</span>;
         <span class="kw">let </span>tip_height = rpc.get_current_chain_height().<span class="kw">await</span>.map_to_eyre()<span class="question-mark">?</span>;
@@ -1369,16 +1351,11 @@
             </span><span class="kw">let </span>block_hash = BlockHash::from_raw_hash(
                 Hash::from_slice(<span class="kw-2">&amp;</span>proof_output.chain_state.best_block_hash).map_to_eyre()<span class="question-mark">?</span>,
             );
-            <span class="kw">let </span>block_header = rpc
-                .client
-                .get_block_header(<span class="kw-2">&amp;</span>block_hash)
-                .<span class="kw">await
-                </span>.wrap_err(<span class="macro">format!</span>(
+            <span class="kw">let </span>block_header = rpc.get_block_header(<span class="kw-2">&amp;</span>block_hash).<span class="kw">await</span>.wrap_err(<span class="macro">format!</span>(
                 <span class="string">"Failed to get block header with block hash {} (retrieved from assumption file)"</span>,
                 block_hash
             ))<span class="question-mark">?</span>;
             <span class="kw">let </span>block_height = rpc
-                .client
                 .get_block_info(<span class="kw-2">&amp;</span>block_hash)
                 .<span class="kw">await
                 </span>.map(|info| info.height)
@@ -1416,7 +1393,6 @@
             <span class="macro">tracing::info!</span>(<span class="string">"Starting prover without assumption, proving genesis block"</span>);
 
             <span class="kw">let </span>genesis_block_hash = rpc
-                .client
                 .get_block_hash(config.protocol_paramset().genesis_height.into())
                 .<span class="kw">await
                 </span>.wrap_err(<span class="macro">format!</span>(
@@ -1430,14 +1406,13 @@
                 config.protocol_paramset().genesis_height
             ); <span class="comment">// Should be debug
 
-            </span><span class="kw">let </span>genesis_block_header = rpc
-                .client
-                .get_block_header(<span class="kw-2">&amp;</span>genesis_block_hash)
-                .<span class="kw">await
-                </span>.wrap_err(<span class="macro">format!</span>(
-                    <span class="string">"Failed to get genesis block header at height {}"</span>,
-                    config.protocol_paramset().genesis_height
-                ))<span class="question-mark">?</span>;
+            </span><span class="kw">let </span>genesis_block_header =
+                rpc.get_block_header(<span class="kw-2">&amp;</span>genesis_block_hash)
+                    .<span class="kw">await
+                    </span>.wrap_err(<span class="macro">format!</span>(
+                        <span class="string">"Failed to get genesis block header at height {}"</span>,
+                        config.protocol_paramset().genesis_height
+                    ))<span class="question-mark">?</span>;
 
             <span class="kw">let </span>genesis_chain_state = HeaderChainProver::get_chain_state_from_height(
                 rpc.clone(),
@@ -1489,31 +1464,25 @@
     }
 
     <span class="kw">pub async fn </span>get_chain_state_from_height(
-        rpc: ExtendedRpc,
+        rpc: ExtendedBitcoinRpc,
         height: u64,
         network: Network,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;ChainState, HeaderChainProverError&gt; {
         <span class="kw">let </span>block_hash = rpc
-            .client
             .get_block_hash(height)
             .<span class="kw">await
             </span>.wrap_err(<span class="macro">format!</span>(<span class="string">"Failed to get block hash at height {}"</span>, height))<span class="question-mark">?</span>;
 
-        <span class="kw">let </span>block_header = rpc
-            .client
-            .get_block_header(<span class="kw-2">&amp;</span>block_hash)
-            .<span class="kw">await
-            </span>.wrap_err(<span class="macro">format!</span>(
-                <span class="string">"Failed to get block header with block hash {}"</span>,
-                block_hash
-            ))<span class="question-mark">?</span>;
+        <span class="kw">let </span>block_header = rpc.get_block_header(<span class="kw-2">&amp;</span>block_hash).<span class="kw">await</span>.wrap_err(<span class="macro">format!</span>(
+            <span class="string">"Failed to get block header with block hash {}"</span>,
+            block_hash
+        ))<span class="question-mark">?</span>;
 
         <span class="kw">let </span><span class="kw-2">mut </span>last_11_block_timestamps: [u32; <span class="number">11</span>] = [<span class="number">0</span>; <span class="number">11</span>];
         <span class="kw">let </span><span class="kw-2">mut </span>last_block_hash = block_hash;
         <span class="kw">let </span><span class="kw-2">mut </span>last_block_height = height;
         <span class="kw">for _ in </span><span class="number">0</span>..<span class="number">11 </span>{
             <span class="kw">let </span>block_header = rpc
-                .client
                 .get_block_header(<span class="kw-2">&amp;</span>last_block_hash)
                 .<span class="kw">await
                 </span>.wrap_err(<span class="macro">format!</span>(
@@ -1537,7 +1506,6 @@
             (<span class="number">0</span>, block_header.bits.to_consensus())
         } <span class="kw">else </span>{
             <span class="kw">let </span>epoch_start_block_hash = rpc
-                .client
                 .get_block_hash(epoch_start_block_height)
                 .<span class="kw">await
                 </span>.wrap_err(<span class="macro">format!</span>(
@@ -1545,7 +1513,6 @@
                     epoch_start_block_height
                 ))<span class="question-mark">?</span>;
             <span class="kw">let </span>epoch_start_block_header = rpc
-                .client
                 .get_block_header(<span class="kw-2">&amp;</span>epoch_start_block_hash)
                 .<span class="kw">await
                 </span>.wrap_err(<span class="macro">format!</span>(
@@ -1562,14 +1529,10 @@
             (epoch_start_block_header.time, bits)
         };
 
-        <span class="kw">let </span>block_info = rpc
-            .client
-            .get_block_info(<span class="kw-2">&amp;</span>block_hash)
-            .<span class="kw">await
-            </span>.wrap_err(<span class="macro">format!</span>(
-                <span class="string">"Failed to get block info with block hash {}"</span>,
-                block_hash
-            ))<span class="question-mark">?</span>;
+        <span class="kw">let </span>block_info = rpc.get_block_info(<span class="kw-2">&amp;</span>block_hash).<span class="kw">await</span>.wrap_err(<span class="macro">format!</span>(
+            <span class="string">"Failed to get block info with block hash {}"</span>,
+            block_hash
+        ))<span class="question-mark">?</span>;
 
         <span class="kw">let </span>total_work = block_info.chainwork;
 
@@ -1949,7 +1912,7 @@
 
 <span class="attr">#[cfg(test)]
 </span><span class="kw">mod </span>tests {
-    <span class="kw">use </span><span class="kw">crate</span>::extended_rpc::ExtendedRpc;
+    <span class="kw">use </span><span class="kw">crate</span>::extended_bitcoin_rpc::ExtendedBitcoinRpc;
     <span class="kw">use </span><span class="kw">crate</span>::header_chain_prover::HeaderChainProver;
     <span class="kw">use </span><span class="kw">crate</span>::test::common::<span class="kw-2">*</span>;
     <span class="kw">use </span><span class="kw">crate</span>::verifier::VerifierServer;
@@ -1964,11 +1927,11 @@
     <span class="doccomment">/// Mines `block_num` amount of blocks (if not already mined) and returns
     /// the first `block_num` block headers in blockchain.
     </span><span class="kw">async fn </span>mine_and_get_first_n_block_headers(
-        rpc: ExtendedRpc,
+        rpc: ExtendedBitcoinRpc,
         db: Database,
         block_num: u64,
     ) -&gt; Vec&lt;Header&gt; {
-        <span class="kw">let </span>height = rpc.client.get_block_count().<span class="kw">await</span>.unwrap();
+        <span class="kw">let </span>height = rpc.get_block_count().<span class="kw">await</span>.unwrap();
         <span class="macro">tracing::debug!</span>(
             <span class="string">"Current tip height: {}, target block height: {}"</span>,
             height,
@@ -1986,8 +1949,8 @@
         <span class="macro">tracing::debug!</span>(<span class="string">"Getting first {} block headers from blockchain"</span>, block_num);
         <span class="kw">let </span><span class="kw-2">mut </span>headers = Vec::new();
         <span class="kw">for </span>i <span class="kw">in </span><span class="number">0</span>..block_num + <span class="number">1 </span>{
-            <span class="kw">let </span>hash = rpc.client.get_block_hash(i).<span class="kw">await</span>.unwrap();
-            <span class="kw">let </span>header = rpc.client.get_block_header(<span class="kw-2">&amp;</span>hash).<span class="kw">await</span>.unwrap();
+            <span class="kw">let </span>hash = rpc.get_block_hash(i).<span class="kw">await</span>.unwrap();
+            <span class="kw">let </span>header = rpc.get_block_header(<span class="kw-2">&amp;</span>hash).<span class="kw">await</span>.unwrap();
 
             headers.push(header);
 
@@ -2046,10 +2009,11 @@
     </span><span class="kw">async fn </span>test_generate_chain_state_from_height_testnet4() {
         <span class="comment">// set BITCOIN_NETWORK to regtest
         </span>std::env::set_var(<span class="string">"BITCOIN_NETWORK"</span>, <span class="string">"testnet4"</span>);
-        <span class="kw">let </span>rpc = ExtendedRpc::connect(
+        <span class="kw">let </span>rpc = ExtendedBitcoinRpc::connect(
             <span class="string">"http://127.0.0.1:48332"</span>.to_string(),
             <span class="string">"admin"</span>.to_string().into(),
             <span class="string">"admin"</span>.to_string().into(),
+            <span class="prelude-val">None</span>,
         )
         .<span class="kw">await
         </span>.unwrap();
@@ -2060,8 +2024,8 @@
         <span class="comment">// Save some initial blocks.
         </span><span class="kw">let </span><span class="kw-2">mut </span>headers = Vec::new();
         <span class="kw">for </span>i <span class="kw">in </span><span class="number">0</span>..=num_blocks {
-            <span class="kw">let </span>hash = rpc.client.get_block_hash(i).<span class="kw">await</span>.unwrap();
-            <span class="kw">let </span>header = rpc.client.get_block_header(<span class="kw-2">&amp;</span>hash).<span class="kw">await</span>.unwrap();
+            <span class="kw">let </span>hash = rpc.get_block_hash(i).<span class="kw">await</span>.unwrap();
+            <span class="kw">let </span>header = rpc.get_block_header(<span class="kw-2">&amp;</span>hash).<span class="kw">await</span>.unwrap();
             headers.push(header);
         }
 
@@ -2104,7 +2068,7 @@
             .<span class="kw">await
             </span>.unwrap();
 
-        <span class="kw">let </span>current_height = rpc.client.get_block_count().<span class="kw">await</span>.unwrap();
+        <span class="kw">let </span>current_height = rpc.get_block_count().<span class="kw">await</span>.unwrap();
         <span class="kw">let </span>current_hcp_height = prover
             .db
             .get_latest_finalized_block_height(<span class="prelude-val">None</span>)
@@ -2133,7 +2097,7 @@
 
         <span class="kw">let </span>test_height = current_height <span class="kw">as </span>u32 / <span class="number">2</span>;
 
-        <span class="kw">let </span>block_hash = rpc.client.get_block_hash(test_height <span class="kw">as </span>u64).<span class="kw">await</span>.unwrap();
+        <span class="kw">let </span>block_hash = rpc.get_block_hash(test_height <span class="kw">as </span>u64).<span class="kw">await</span>.unwrap();
         <span class="kw">let </span>block_info = prover
             .db
             .get_block_info_from_hash_hcp(<span class="prelude-val">None</span>, block_hash)
@@ -2180,7 +2144,7 @@
             </span>.unwrap();
 
         <span class="comment">// Test assumption is for block 0.
-        </span><span class="kw">let </span>hash = rpc.client.get_block_hash(<span class="number">0</span>).<span class="kw">await</span>.unwrap();
+        </span><span class="kw">let </span>hash = rpc.get_block_hash(<span class="number">0</span>).<span class="kw">await</span>.unwrap();
         <span class="kw">let </span>(receipt, <span class="kw">_</span>) = prover.prove_till_hash(hash).<span class="kw">await</span>.unwrap();
         <span class="kw">let </span>db_receipt = prover
             .db
@@ -2203,10 +2167,10 @@
 
         <span class="comment">// Set up the next non proven block.
         </span><span class="kw">let </span>height = <span class="number">1</span>;
-        <span class="kw">let </span>hash = rpc.client.get_block_hash(height).<span class="kw">await</span>.unwrap();
-        <span class="kw">let </span>genesis_hash = rpc.client.get_block_hash(<span class="number">0</span>).<span class="kw">await</span>.unwrap();
+        <span class="kw">let </span>hash = rpc.get_block_hash(height).<span class="kw">await</span>.unwrap();
+        <span class="kw">let </span>genesis_hash = rpc.get_block_hash(<span class="number">0</span>).<span class="kw">await</span>.unwrap();
         <span class="kw">let </span>(genesis_receipt, <span class="kw">_</span>) = prover.prove_till_hash(genesis_hash).<span class="kw">await</span>.unwrap();
-        <span class="kw">let </span>block = rpc.client.get_block(<span class="kw-2">&amp;</span>hash).<span class="kw">await</span>.unwrap();
+        <span class="kw">let </span>block = rpc.get_block(<span class="kw-2">&amp;</span>hash).<span class="kw">await</span>.unwrap();
         <span class="kw">let </span>header = block.header;
         prover
             .db
@@ -2286,7 +2250,7 @@
             </span>.unwrap();
 
         <span class="kw">for </span>i <span class="kw">in </span>(<span class="number">0</span>..<span class="number">3</span>).rev() {
-            <span class="kw">let </span>hash = rpc.client.get_block_hash(i).<span class="kw">await</span>.unwrap();
+            <span class="kw">let </span>hash = rpc.get_block_hash(i).<span class="kw">await</span>.unwrap();
             <span class="kw">let </span>(proof, <span class="kw">_</span>) = prover.prove_till_hash(hash).<span class="kw">await</span>.unwrap();
             <span class="kw">let </span>db_proof = db
                 .get_block_proof_by_hash(<span class="prelude-val">None</span>, hash)
@@ -2295,7 +2259,7 @@
                 .unwrap();
             <span class="macro">assert_eq!</span>(proof.journal, db_proof.journal);
         }
-        <span class="kw">let </span>hash = rpc.client.get_block_hash(<span class="number">5</span>).<span class="kw">await</span>.unwrap();
+        <span class="kw">let </span>hash = rpc.get_block_hash(<span class="number">5</span>).<span class="kw">await</span>.unwrap();
         <span class="kw">let </span>(proof, <span class="kw">_</span>) = prover.prove_till_hash(hash).<span class="kw">await</span>.unwrap();
         <span class="kw">let </span>db_proof = db
             .get_block_proof_by_hash(<span class="prelude-val">None</span>, hash)
@@ -2319,7 +2283,7 @@
             .<span class="kw">await
             </span>.unwrap();
 
-        <span class="kw">let </span>genesis_hash = rpc.client.get_block_hash(<span class="number">0</span>).<span class="kw">await</span>.unwrap();
+        <span class="kw">let </span>genesis_hash = rpc.get_block_hash(<span class="number">0</span>).<span class="kw">await</span>.unwrap();
         <span class="kw">let </span>(genesis_block_proof, <span class="kw">_</span>) = prover.prove_till_hash(genesis_hash).<span class="kw">await</span>.unwrap();
         <span class="kw">let </span>db_proof = db
             .get_block_proof_by_hash(<span class="prelude-val">None</span>, genesis_hash)
@@ -2418,7 +2382,7 @@
 
         <span class="comment">// Try to get proof of the previous block that its heir is proven.
         </span><span class="kw">let </span>target_height = latest_proof.<span class="number">2 </span>- <span class="number">1</span>;
-        <span class="kw">let </span>target_hash = rpc.client.get_block_hash(target_height).<span class="kw">await</span>.unwrap();
+        <span class="kw">let </span>target_hash = rpc.get_block_hash(target_height).<span class="kw">await</span>.unwrap();
 
         <span class="macro">assert!</span>(db
             .get_block_proof_by_hash(<span class="prelude-val">None</span>, target_hash)
@@ -2441,11 +2405,11 @@
         <span class="kw">let </span>batch_size = config.protocol_paramset().header_chain_proof_batch_size;
 
         <span class="comment">// Save initial blocks, because VerifierServer won't.
-        </span><span class="kw">let </span>count = rpc.client.get_block_count().<span class="kw">await</span>.unwrap();
+        </span><span class="kw">let </span>count = rpc.get_block_count().<span class="kw">await</span>.unwrap();
         <span class="macro">tracing::info!</span>(<span class="string">"Block count: {}"</span>, count);
         <span class="kw">for </span>i <span class="kw">in </span><span class="number">1</span>..count + <span class="number">1 </span>{
-            <span class="kw">let </span>hash = rpc.client.get_block_hash(i).<span class="kw">await</span>.unwrap();
-            <span class="kw">let </span>block = rpc.client.get_block(<span class="kw-2">&amp;</span>hash).<span class="kw">await</span>.unwrap();
+            <span class="kw">let </span>hash = rpc.get_block_hash(i).<span class="kw">await</span>.unwrap();
+            <span class="kw">let </span>block = rpc.get_block(<span class="kw-2">&amp;</span>hash).<span class="kw">await</span>.unwrap();
 
             db.save_unproven_finalized_block(<span class="prelude-val">None</span>, block.block_hash(), block.header, i)
                 .<span class="kw">await
@@ -2461,7 +2425,7 @@
 
         <span class="comment">// Aim for a proved block that is added to the database by the verifier.
         </span><span class="kw">let </span>height = batch_size;
-        <span class="kw">let </span>hash = rpc.client.get_block_hash(height.into()).<span class="kw">await</span>.unwrap();
+        <span class="kw">let </span>hash = rpc.get_block_hash(height.into()).<span class="kw">await</span>.unwrap();
 
         poll_until_condition(
             <span class="kw">async </span>|| {

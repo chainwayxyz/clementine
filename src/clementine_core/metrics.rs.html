@@ -268,7 +268,12 @@
 <a href="#267" id="267">267</a>
 <a href="#268" id="268">268</a>
 <a href="#269" id="269">269</a>
-<a href="#270" id="270">270</a></pre></div><pre class="rust"><code><span class="doccomment">//! This module includes helper functions to get the blockchain synchronization status of the entity.
+<a href="#270" id="270">270</a>
+<a href="#271" id="271">271</a>
+<a href="#272" id="272">272</a>
+<a href="#273" id="273">273</a>
+<a href="#274" id="274">274</a>
+<a href="#275" id="275">275</a></pre></div><pre class="rust"><code><span class="doccomment">//! This module includes helper functions to get the blockchain synchronization status of the entity.
 //! The entity tracks on-chain transactions for many purposes (TxSender,
 //! FinalizedBlockFetcher, HCP) and takes action (header chain proving, payout,
 //! disprove, L2 state sync, etc.)
@@ -285,7 +290,7 @@
 <span class="kw">use crate</span>::{
     database::Database,
     errors::BridgeError,
-    extended_rpc::ExtendedRpc,
+    extended_bitcoin_rpc::ExtendedBitcoinRpc,
     utils::{timed_request, NamedEntity},
 };
 <span class="kw">use </span>metrics_derive::Metrics;
@@ -367,9 +372,8 @@
 }
 
 <span class="doccomment">/// Get the current balance of the wallet.
-</span><span class="kw">pub async fn </span>get_wallet_balance(rpc: <span class="kw-2">&amp;</span>ExtendedRpc) -&gt; <span class="prelude-ty">Result</span>&lt;Amount, BridgeError&gt; {
+</span><span class="kw">pub async fn </span>get_wallet_balance(rpc: <span class="kw-2">&amp;</span>ExtendedBitcoinRpc) -&gt; <span class="prelude-ty">Result</span>&lt;Amount, BridgeError&gt; {
     <span class="kw">let </span>balance = rpc
-        .client
         .get_balance(<span class="prelude-val">None</span>, <span class="prelude-val">None</span>)
         .<span class="kw">await
         </span>.wrap_err(<span class="string">"Failed to get wallet balance"</span>)<span class="question-mark">?</span>;
@@ -378,7 +382,7 @@
 }
 
 <span class="doccomment">/// Get the current height of the chain as seen by Bitcoin Core RPC.
-</span><span class="kw">pub async fn </span>get_rpc_tip_height(rpc: <span class="kw-2">&amp;</span>ExtendedRpc) -&gt; <span class="prelude-ty">Result</span>&lt;u32, BridgeError&gt; {
+</span><span class="kw">pub async fn </span>get_rpc_tip_height(rpc: <span class="kw-2">&amp;</span>ExtendedBitcoinRpc) -&gt; <span class="prelude-ty">Result</span>&lt;u32, BridgeError&gt; {
     <span class="kw">let </span>height = rpc.get_current_chain_height().<span class="kw">await</span><span class="question-mark">?</span>;
     <span class="prelude-val">Ok</span>(height)
 }
@@ -432,12 +436,18 @@
 <span class="attr">#[async_trait]
 </span><span class="doccomment">/// Extension trait on named entities who synchronize to the L1 data, to retrieve their L1 sync status.
 </span><span class="kw">pub trait </span>L1SyncStatusProvider: NamedEntity {
-    <span class="kw">async fn </span>get_l1_status(db: <span class="kw-2">&amp;</span>Database, rpc: <span class="kw-2">&amp;</span>ExtendedRpc) -&gt; <span class="prelude-ty">Result</span>&lt;L1SyncStatus, BridgeError&gt;;
+    <span class="kw">async fn </span>get_l1_status(
+        db: <span class="kw-2">&amp;</span>Database,
+        rpc: <span class="kw-2">&amp;</span>ExtendedBitcoinRpc,
+    ) -&gt; <span class="prelude-ty">Result</span>&lt;L1SyncStatus, BridgeError&gt;;
 }
 
 <span class="attr">#[async_trait]
 </span><span class="kw">impl</span>&lt;T: NamedEntity + Sync + Send + <span class="lifetime">'static</span>&gt; L1SyncStatusProvider <span class="kw">for </span>T {
-    <span class="kw">async fn </span>get_l1_status(db: <span class="kw-2">&amp;</span>Database, rpc: <span class="kw-2">&amp;</span>ExtendedRpc) -&gt; <span class="prelude-ty">Result</span>&lt;L1SyncStatus, BridgeError&gt; {
+    <span class="kw">async fn </span>get_l1_status(
+        db: <span class="kw-2">&amp;</span>Database,
+        rpc: <span class="kw-2">&amp;</span>ExtendedBitcoinRpc,
+    ) -&gt; <span class="prelude-ty">Result</span>&lt;L1SyncStatus, BridgeError&gt; {
         timed_request(L1_SYNC_STATUS_METRICS_TIMEOUT, <span class="string">"get_l1_status"</span>, <span class="kw">async </span>{
             <span class="kw">let </span>wallet_balance = get_wallet_balance(rpc).<span class="kw">await</span><span class="question-mark">?</span>;
             <span class="kw">let </span>rpc_tip_height = get_rpc_tip_height(rpc).<span class="kw">await</span><span class="question-mark">?</span>;

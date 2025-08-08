@@ -1180,18 +1180,7 @@
 <a href="#1179" id="1179">1179</a>
 <a href="#1180" id="1180">1180</a>
 <a href="#1181" id="1181">1181</a>
-<a href="#1182" id="1182">1182</a>
-<a href="#1183" id="1183">1183</a>
-<a href="#1184" id="1184">1184</a>
-<a href="#1185" id="1185">1185</a>
-<a href="#1186" id="1186">1186</a>
-<a href="#1187" id="1187">1187</a>
-<a href="#1188" id="1188">1188</a>
-<a href="#1189" id="1189">1189</a>
-<a href="#1190" id="1190">1190</a>
-<a href="#1191" id="1191">1191</a>
-<a href="#1192" id="1192">1192</a>
-<a href="#1193" id="1193">1193</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Bitcoin Script Construction
+<a href="#1182" id="1182">1182</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Bitcoin Script Construction
 //!
 //! This module provides a collection of builders for creating various Bitcoin
 //! scripts utilized within the Clementine bridge. It defines a `SpendableScript`
@@ -1765,7 +1754,7 @@
     <span class="kw">use </span><span class="kw">crate</span>::bitvm_client::{<span class="self">self</span>, UNSPENDABLE_XONLY_PUBKEY};
     <span class="kw">use </span><span class="kw">crate</span>::builder::address::create_taproot_address;
     <span class="kw">use </span><span class="kw">crate</span>::config::protocol::ProtocolParamsetName;
-    <span class="kw">use </span><span class="kw">crate</span>::extended_rpc::ExtendedRpc;
+    <span class="kw">use </span><span class="kw">crate</span>::extended_bitcoin_rpc::ExtendedBitcoinRpc;
     <span class="kw">use </span><span class="kw">crate</span>::operator::RoundIndex;
     <span class="kw">use </span>bitcoin::hashes::Hash;
     <span class="kw">use </span>bitcoin::secp256k1::rand::{<span class="self">self</span>, Rng};
@@ -1914,7 +1903,7 @@
     <span class="kw">use </span>bitcoin::{Amount, OutPoint, Sequence, TxOut, Txid};
 
     <span class="kw">async fn </span>create_taproot_test_tx(
-        rpc: <span class="kw-2">&amp;</span>ExtendedRpc,
+        rpc: <span class="kw-2">&amp;</span>ExtendedBitcoinRpc,
         scripts: Vec&lt;Arc&lt;<span class="kw">dyn </span>SpendableScript&gt;&gt;,
         spend_path: SpendPath,
         amount: Amount,
@@ -2007,8 +1996,7 @@
             .promote()
             .expect(<span class="string">"the transaction should be fully signed"</span>);
 
-        rpc.client
-            .send_raw_transaction(tx.get_cached_tx())
+        rpc.send_raw_transaction(tx.get_cached_tx())
             .<span class="kw">await
             </span>.expect(<span class="string">"bitcoin RPC did not accept transaction"</span>);
     }
@@ -2092,8 +2080,7 @@
             .promote()
             .expect(<span class="string">"the transaction should be fully signed"</span>);
 
-        rpc.client
-            .send_raw_transaction(tx.get_cached_tx())
+        rpc.send_raw_transaction(tx.get_cached_tx())
             .<span class="kw">await
             </span>.expect(<span class="string">"bitcoin RPC did not accept transaction"</span>);
     }
@@ -2129,15 +2116,13 @@
             .tx_sign_and_fill_sigs(<span class="kw-2">&amp;mut </span>tx, <span class="kw-2">&amp;</span>[], <span class="prelude-val">None</span>)
             .expect(<span class="string">"should be able to sign timelock"</span>);
 
-        rpc.client
-            .send_raw_transaction(tx.get_cached_tx())
+        rpc.send_raw_transaction(tx.get_cached_tx())
             .<span class="kw">await
             </span>.expect_err(<span class="string">"should not pass without 15 blocks"</span>);
 
         rpc.mine_blocks(<span class="number">15</span>).<span class="kw">await</span>.expect(<span class="string">"failed to mine blocks"</span>);
 
-        rpc.client
-            .send_raw_transaction(tx.get_cached_tx())
+        rpc.send_raw_transaction(tx.get_cached_tx())
             .<span class="kw">await
             </span>.expect(<span class="string">"should pass after 15 blocks"</span>);
     }
@@ -2178,8 +2163,7 @@
             .promote()
             .expect(<span class="string">"the transaction should be fully signed"</span>);
 
-        rpc.client
-            .send_raw_transaction(final_tx.get_cached_tx())
+        rpc.send_raw_transaction(final_tx.get_cached_tx())
             .<span class="kw">await
             </span>.expect(<span class="string">"bitcoin RPC did not accept transaction"</span>);
     }
@@ -2215,8 +2199,7 @@
             .tx_sign_and_fill_sigs(<span class="kw-2">&amp;mut </span>tx, <span class="kw-2">&amp;</span>[], <span class="prelude-val">None</span>)
             .expect(<span class="string">"should be able to sign base deposit"</span>);
 
-        rpc.client
-            .send_raw_transaction(tx.get_cached_tx())
+        rpc.send_raw_transaction(tx.get_cached_tx())
             .<span class="kw">await
             </span>.expect(<span class="string">"bitcoin RPC did not accept transaction"</span>);
     }
@@ -2252,8 +2235,7 @@
             .tx_sign_and_fill_sigs(<span class="kw-2">&amp;mut </span>tx, <span class="kw-2">&amp;</span>[], <span class="prelude-val">None</span>)
             .expect(<span class="string">"should be able to sign replacement deposit"</span>);
 
-        rpc.client
-            .send_raw_transaction(tx.get_cached_tx())
+        rpc.send_raw_transaction(tx.get_cached_tx())
             .<span class="kw">await
             </span>.expect(<span class="string">"bitcoin RPC did not accept transaction"</span>);
     }
@@ -2356,15 +2338,11 @@
                 .join(<span class="string">","</span>)
         );
 
-        <span class="kw">let </span>descriptor_info = rpc.client.get_descriptor_info(<span class="kw-2">&amp;</span>descriptor).<span class="kw">await</span>.expect(<span class="string">""</span>);
+        <span class="kw">let </span>descriptor_info = rpc.get_descriptor_info(<span class="kw-2">&amp;</span>descriptor).<span class="kw">await</span>.expect(<span class="string">""</span>);
 
         <span class="kw">let </span>descriptor = descriptor_info.descriptor;
 
-        <span class="kw">let </span>addresses = rpc
-            .client
-            .derive_addresses(<span class="kw-2">&amp;</span>descriptor, <span class="prelude-val">None</span>)
-            .<span class="kw">await
-            </span>.expect(<span class="string">""</span>);
+        <span class="kw">let </span>addresses = rpc.derive_addresses(<span class="kw-2">&amp;</span>descriptor, <span class="prelude-val">None</span>).<span class="kw">await</span>.expect(<span class="string">""</span>);
 
         <span class="macro">tracing::info!</span>(<span class="string">"{:?}"</span>, addresses);
 

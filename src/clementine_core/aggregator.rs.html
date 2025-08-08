@@ -765,7 +765,8 @@
 <a href="#764" id="764">764</a>
 <a href="#765" id="765">765</a>
 <a href="#766" id="766">766</a>
-<a href="#767" id="767">767</a></pre></div><pre class="rust"><code><span class="kw">use </span>std::ops::Deref;
+<a href="#767" id="767">767</a>
+<a href="#768" id="768">768</a></pre></div><pre class="rust"><code><span class="kw">use </span>std::ops::Deref;
 <span class="kw">use </span>std::sync::Arc;
 
 <span class="kw">use </span><span class="kw">crate</span>::constants::{
@@ -773,7 +774,7 @@
     VERIFIER_SEND_KEYS_TIMEOUT,
 };
 <span class="kw">use </span><span class="kw">crate</span>::deposit::DepositData;
-<span class="kw">use </span><span class="kw">crate</span>::extended_rpc::ExtendedRpc;
+<span class="kw">use </span><span class="kw">crate</span>::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::entity_status_with_id::StatusResult;
 <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::EntityId <span class="kw">as </span>RPCEntityId;
 <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::{
@@ -819,7 +820,7 @@
 /// For now, we do not have the last bit.
 </span><span class="attr">#[derive(Debug, Clone)]
 </span><span class="kw">pub struct </span>Aggregator {
-    <span class="kw">pub</span>(<span class="kw">crate</span>) rpc: ExtendedRpc,
+    <span class="kw">pub</span>(<span class="kw">crate</span>) rpc: ExtendedBitcoinRpc,
     <span class="kw">pub</span>(<span class="kw">crate</span>) db: Database,
     <span class="kw">pub</span>(<span class="kw">crate</span>) config: BridgeConfig,
     <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
@@ -925,10 +926,11 @@
     <span class="kw">pub async fn </span>new(config: BridgeConfig) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="self">Self</span>, BridgeError&gt; {
         <span class="kw">let </span>db = Database::new(<span class="kw-2">&amp;</span>config).<span class="kw">await</span><span class="question-mark">?</span>;
 
-        <span class="kw">let </span>rpc = ExtendedRpc::connect(
+        <span class="kw">let </span>rpc = ExtendedBitcoinRpc::connect(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
+            <span class="prelude-val">None</span>,
         )
         .<span class="kw">await</span><span class="question-mark">?</span>;
 

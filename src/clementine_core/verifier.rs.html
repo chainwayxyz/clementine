@@ -3160,7 +3160,9 @@
 <a href="#3159" id="3159">3159</a>
 <a href="#3160" id="3160">3160</a>
 <a href="#3161" id="3161">3161</a>
-<a href="#3162" id="3162">3162</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
+<a href="#3162" id="3162">3162</a>
+<a href="#3163" id="3163">3163</a>
+<a href="#3164" id="3164">3164</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
 <span class="kw">use </span><span class="kw">crate</span>::bitcoin_syncer::BitcoinSyncer;
 <span class="kw">use </span><span class="kw">crate</span>::bitvm_client::{ClementineBitVMPublicKeys, REPLACE_SCRIPTS_LOCK};
 <span class="kw">use </span><span class="kw">crate</span>::builder::address::{create_taproot_address, taproot_builder_with_scripts};
@@ -3190,7 +3192,7 @@
 <span class="kw">use </span><span class="kw">crate</span>::database::{Database, DatabaseTransaction};
 <span class="kw">use </span><span class="kw">crate</span>::deposit::{DepositData, KickoffData, OperatorData};
 <span class="kw">use </span><span class="kw">crate</span>::errors::{BridgeError, TxError};
-<span class="kw">use </span><span class="kw">crate</span>::extended_rpc::ExtendedRpc;
+<span class="kw">use </span><span class="kw">crate</span>::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 <span class="kw">use </span><span class="kw">crate</span>::header_chain_prover::HeaderChainProver;
 <span class="kw">use </span><span class="kw">crate</span>::metrics::L1SyncStatusProvider;
 <span class="kw">use </span><span class="kw">crate</span>::operator::RoundIndex;
@@ -3397,10 +3399,11 @@
     <span class="doccomment">/// Starts the background tasks for the verifier.
     /// If called multiple times, it will restart only the tasks that are not already running.
     </span><span class="kw">pub async fn </span>start_background_tasks(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
-        <span class="kw">let </span>rpc = ExtendedRpc::connect(
+        <span class="kw">let </span>rpc = ExtendedBitcoinRpc::connect(
             <span class="self">self</span>.verifier.config.bitcoin_rpc_url.clone(),
             <span class="self">self</span>.verifier.config.bitcoin_rpc_user.clone(),
             <span class="self">self</span>.verifier.config.bitcoin_rpc_password.clone(),
+            <span class="prelude-val">None</span>,
         )
         .<span class="kw">await</span><span class="question-mark">?</span>;
 
@@ -3542,7 +3545,7 @@
 
 <span class="attr">#[derive(Debug, Clone)]
 </span><span class="kw">pub struct </span>Verifier&lt;C: CitreaClientT&gt; {
-    rpc: ExtendedRpc,
+    rpc: ExtendedBitcoinRpc,
 
     <span class="kw">pub</span>(<span class="kw">crate</span>) signer: Actor,
     <span class="kw">pub</span>(<span class="kw">crate</span>) db: Database,
@@ -3566,10 +3569,11 @@
             config.protocol_paramset().network,
         );
 
-        <span class="kw">let </span>rpc = ExtendedRpc::connect(
+        <span class="kw">let </span>rpc = ExtendedBitcoinRpc::connect(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
+            <span class="prelude-val">None</span>,
         )
         .<span class="kw">await</span><span class="question-mark">?</span>;
 

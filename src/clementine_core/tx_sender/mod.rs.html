@@ -970,20 +970,14 @@
 <a href="#969" id="969">969</a>
 <a href="#970" id="970">970</a>
 <a href="#971" id="971">971</a>
-<a href="#972" id="972">972</a>
-<a href="#973" id="973">973</a>
-<a href="#974" id="974">974</a>
-<a href="#975" id="975">975</a>
-<a href="#976" id="976">976</a>
-<a href="#977" id="977">977</a>
-<a href="#978" id="978">978</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::config::protocol::ProtocolParamset;
+<a href="#972" id="972">972</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::config::protocol::ProtocolParamset;
 <span class="kw">use </span><span class="kw">crate</span>::errors::ResultExt;
 <span class="kw">use </span><span class="kw">crate</span>::utils::FeePayingType;
 <span class="kw">use crate</span>::{
     actor::Actor,
     builder::{<span class="self">self</span>},
     database::Database,
-    extended_rpc::ExtendedRpc,
+    extended_bitcoin_rpc::ExtendedBitcoinRpc,
     utils::TxMetadata,
 };
 <span class="kw">use </span>alloy::transports::http::reqwest;
@@ -1028,14 +1022,14 @@
 <span class="doccomment">/// Manages the process of sending Bitcoin transactions, including handling fee bumping
 /// strategies like Replace-By-Fee (RBF) and Child-Pays-For-Parent (CPFP).
 ///
-/// It interacts with a Bitcoin Core RPC endpoint (`ExtendedRpc`) to query network state
+/// It interacts with a Bitcoin Core RPC endpoint (`ExtendedBitcoinRpc`) to query network state
 /// (like fee rates) and submit transactions. It uses a `Database` to persist transaction
 /// state, track confirmation status, and manage associated data like fee payer UTXOs.
 /// The `Actor` provides signing capabilities for transactions controlled by this service.
 </span><span class="attr">#[derive(Clone, Debug)]
 </span><span class="kw">pub struct </span>TxSender {
     <span class="kw">pub </span>signer: Actor,
-    <span class="kw">pub </span>rpc: ExtendedRpc,
+    <span class="kw">pub </span>rpc: ExtendedBitcoinRpc,
     <span class="kw">pub </span>db: Database,
     <span class="kw">pub </span>btc_syncer_consumer_id: String,
     paramset: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>ProtocolParamset,
@@ -1079,7 +1073,7 @@
 <span class="kw">impl </span>TxSender {
     <span class="kw">pub fn </span>new(
         signer: Actor,
-        rpc: ExtendedRpc,
+        rpc: ExtendedBitcoinRpc,
         db: Database,
         btc_syncer_consumer_id: String,
         paramset: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>ProtocolParamset,
@@ -1140,7 +1134,6 @@
 
                     <span class="kw">let </span>fee_estimate = <span class="self">self
                         </span>.rpc
-                        .client
                         .estimate_smart_fee(<span class="number">1</span>, <span class="prelude-val">None</span>)
                         .<span class="kw">await
                         </span>.wrap_err(<span class="string">"Failed to estimate smart fee using Bitcoin Core RPC"</span>)<span class="question-mark">?</span>;
@@ -1399,7 +1392,7 @@
         tx_metadata: <span class="prelude-ty">Option</span>&lt;TxMetadata&gt;,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;()&gt; {
         <span class="macro">tracing::debug!</span>(target: <span class="string">"ci"</span>, <span class="string">"Sending no funding tx, raw tx: {:?}"</span>, hex::encode(bitcoin::consensus::serialize(<span class="kw-2">&amp;</span>tx)));
-        <span class="kw">match </span><span class="self">self</span>.rpc.client.send_raw_transaction(<span class="kw-2">&amp;</span>tx).<span class="kw">await </span>{
+        <span class="kw">match </span><span class="self">self</span>.rpc.send_raw_transaction(<span class="kw-2">&amp;</span>tx).<span class="kw">await </span>{
             <span class="prelude-val">Ok</span>(sent_txid) =&gt; {
                 <span class="macro">tracing::debug!</span>(
                     try_to_send_id,
@@ -1509,11 +1502,11 @@
     }
 
     <span class="kw">pub</span>(<span class="kw">super</span>) <span class="kw">async fn </span>create_tx_sender(
-        rpc: ExtendedRpc,
+        rpc: ExtendedBitcoinRpc,
     ) -&gt; (
         TxSender,
         BitcoinSyncer,
-        ExtendedRpc,
+        ExtendedBitcoinRpc,
         Database,
         Actor,
         bitcoin::Network,
@@ -1549,12 +1542,12 @@
     }
 
     <span class="kw">pub</span>(<span class="kw">super</span>) <span class="kw">async fn </span>create_bg_tx_sender(
-        rpc: ExtendedRpc,
+        rpc: ExtendedBitcoinRpc,
     ) -&gt; (
         TxSenderClient,
         TxSender,
         Vec&lt;oneshot::Sender&lt;()&gt;&gt;,
-        ExtendedRpc,
+        ExtendedBitcoinRpc,
         Database,
         Actor,
         bitcoin::Network,
@@ -1579,7 +1572,7 @@
     }
 
     <span class="kw">async fn </span>create_bumpable_tx(
-        rpc: <span class="kw-2">&amp;</span>ExtendedRpc,
+        rpc: <span class="kw-2">&amp;</span>ExtendedBitcoinRpc,
         signer: <span class="kw-2">&amp;</span>Actor,
         network: bitcoin::Network,
         fee_paying_type: FeePayingType,
@@ -1691,11 +1684,7 @@
             <span class="kw">async </span>|| {
                 rpc.mine_blocks(<span class="number">1</span>).<span class="kw">await</span>.unwrap();
 
-                <span class="kw">match </span>rpc
-                    .client
-                    .get_raw_transaction_info(<span class="kw-2">&amp;</span>tx.compute_txid(), <span class="prelude-val">None</span>)
-                    .<span class="kw">await
-                </span>{
+                <span class="kw">match </span>rpc.get_raw_transaction_info(<span class="kw-2">&amp;</span>tx.compute_txid(), <span class="prelude-val">None</span>).<span class="kw">await </span>{
                     <span class="prelude-val">Ok</span>(tx_result) =&gt; {
                         <span class="kw">if let </span><span class="prelude-val">Some</span>(conf) = tx_result.confirmations {
                             <span class="kw">return </span><span class="prelude-val">Ok</span>(conf &gt; <span class="number">0</span>);
@@ -1801,13 +1790,13 @@
             .unwrap();
 
         rpc.mine_blocks(<span class="number">1</span>).<span class="kw">await</span>.unwrap();
-        <span class="kw">let </span>mempool_info = rpc.client.get_mempool_info().<span class="kw">await</span>.unwrap();
+        <span class="kw">let </span>mempool_info = rpc.get_mempool_info().<span class="kw">await</span>.unwrap();
         <span class="macro">tracing::info!</span>(<span class="string">"Mempool info: {:?}"</span>, mempool_info);
 
         <span class="kw">let </span>will_fail_tx = will_fail_handler.get_cached_tx();
 
         <span class="kw">if </span>mempool_info.mempool_min_fee.to_sat() &gt; <span class="number">0 </span>{
-            <span class="macro">assert!</span>(rpc.client.send_raw_transaction(will_fail_tx).<span class="kw">await</span>.is_err());
+            <span class="macro">assert!</span>(rpc.send_raw_transaction(will_fail_tx).<span class="kw">await</span>.is_err());
         }
 
         <span class="comment">// Calculate and send with fee.
@@ -1837,8 +1826,7 @@
 
         rpc.mine_blocks(<span class="number">1</span>).<span class="kw">await</span>.unwrap();
 
-        rpc.client
-            .send_raw_transaction(will_successful_handler.get_cached_tx())
+        rpc.send_raw_transaction(will_successful_handler.get_cached_tx())
             .<span class="kw">await
             </span>.unwrap();
     }

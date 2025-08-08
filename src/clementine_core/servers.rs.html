@@ -431,12 +431,15 @@
 <a href="#430" id="430">430</a>
 <a href="#431" id="431">431</a>
 <a href="#432" id="432">432</a>
-<a href="#433" id="433">433</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Servers
+<a href="#433" id="433">433</a>
+<a href="#434" id="434">434</a>
+<a href="#435" id="435">435</a>
+<a href="#436" id="436">436</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Servers
 //!
 //! Utilities for operator and verifier servers.
 </span><span class="kw">use </span><span class="kw">crate</span>::aggregator::AggregatorServer;
 <span class="kw">use </span><span class="kw">crate</span>::citrea::CitreaClientT;
-<span class="kw">use </span><span class="kw">crate</span>::extended_rpc::ExtendedRpc;
+<span class="kw">use </span><span class="kw">crate</span>::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 <span class="kw">use </span><span class="kw">crate</span>::operator::OperatorServer;
 <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::clementine_aggregator_server::ClementineAggregatorServer;
 <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::clementine_operator_server::ClementineOperatorServer;
@@ -667,10 +670,11 @@
 <span class="kw">pub async fn </span>create_verifier_grpc_server&lt;C: CitreaClientT&gt;(
     config: BridgeConfig,
 ) -&gt; <span class="prelude-ty">Result</span>&lt;(std::net::SocketAddr, oneshot::Sender&lt;()&gt;), BridgeError&gt; {
-    <span class="kw">let </span>_rpc = ExtendedRpc::connect(
+    <span class="kw">let </span>_rpc = ExtendedBitcoinRpc::connect(
         config.bitcoin_rpc_url.clone(),
         config.bitcoin_rpc_user.clone(),
         config.bitcoin_rpc_password.clone(),
+        <span class="prelude-val">None</span>,
     )
     .<span class="kw">await
     </span>.wrap_err(<span class="string">"Failed to connect to Bitcoin RPC"</span>)<span class="question-mark">?</span>;
@@ -761,10 +765,11 @@
     config: BridgeConfig,
     socket_path: std::path::PathBuf,
 ) -&gt; <span class="prelude-ty">Result</span>&lt;(std::path::PathBuf, oneshot::Sender&lt;()&gt;), BridgeError&gt; {
-    <span class="kw">let </span>_rpc = ExtendedRpc::connect(
+    <span class="kw">let </span>_rpc = ExtendedBitcoinRpc::connect(
         config.bitcoin_rpc_url.clone(),
         config.bitcoin_rpc_user.clone(),
         config.bitcoin_rpc_password.clone(),
+        <span class="prelude-val">None</span>,
     )
     .<span class="kw">await
     </span>.wrap_err(<span class="string">"Failed to connect to Bitcoin RPC"</span>)<span class="question-mark">?</span>;
@@ -800,10 +805,11 @@
     config: BridgeConfig,
     socket_path: std::path::PathBuf,
 ) -&gt; <span class="prelude-ty">Result</span>&lt;(std::path::PathBuf, oneshot::Sender&lt;()&gt;), BridgeError&gt; {
-    <span class="kw">let </span>_rpc = ExtendedRpc::connect(
+    <span class="kw">let </span>_rpc = ExtendedBitcoinRpc::connect(
         config.bitcoin_rpc_url.clone(),
         config.bitcoin_rpc_user.clone(),
         config.bitcoin_rpc_password.clone(),
+        <span class="prelude-val">None</span>,
     )
     .<span class="kw">await
     </span>.wrap_err(<span class="string">"Failed to connect to Bitcoin RPC"</span>)<span class="question-mark">?</span>;

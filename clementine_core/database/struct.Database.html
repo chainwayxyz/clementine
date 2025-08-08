@@ -147,13 +147,13 @@ If there are no more events to fetch, None is returned</p>
 proof.</p>
 </div></details><details class="toggle method-toggle" open><summary><section id="method.save_block_infos_within_range" class="method"><a class="src rightside" href="../../src/clementine_core/database/header_chain_prover.rs.html#40-73">Source</a><h4 class="code-header">async fn <a href="#method.save_block_infos_within_range" class="fn">save_block_infos_within_range</a>(
     &amp;self,
-    rpc: &amp;<a class="struct" href="../extended_rpc/struct.ExtendedRpc.html" title="struct clementine_core::extended_rpc::ExtendedRpc">ExtendedRpc</a>,
+    rpc: &amp;<a class="struct" href="../extended_bitcoin_rpc/struct.ExtendedBitcoinRpc.html" title="struct clementine_core::extended_bitcoin_rpc::ExtendedBitcoinRpc">ExtendedBitcoinRpc</a>,
     height_start: <a class="primitive" href="https://doc.rust-lang.org/1.85.1/std/primitive.u32.html">u32</a>,
     height_end: <a class="primitive" href="https://doc.rust-lang.org/1.85.1/std/primitive.u32.html">u32</a>,
 ) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.85.1/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.85.1/std/primitive.unit.html">()</a>, <a class="enum" href="../errors/enum.BridgeError.html" title="enum clementine_core::errors::BridgeError">BridgeError</a>&gt;</h4></section></summary><div class="docblock"><p>Collect block info from rpc and save it to hcp table.</p>
 </div></details><details class="toggle method-toggle" open><summary><section id="method.fetch_and_save_missing_blocks" class="method"><a class="src rightside" href="../../src/clementine_core/database/header_chain_prover.rs.html#78-99">Source</a><h4 class="code-header">pub async fn <a href="#method.fetch_and_save_missing_blocks" class="fn">fetch_and_save_missing_blocks</a>(
     &amp;self,
-    rpc: &amp;<a class="struct" href="../extended_rpc/struct.ExtendedRpc.html" title="struct clementine_core::extended_rpc::ExtendedRpc">ExtendedRpc</a>,
+    rpc: &amp;<a class="struct" href="../extended_bitcoin_rpc/struct.ExtendedBitcoinRpc.html" title="struct clementine_core::extended_bitcoin_rpc::ExtendedBitcoinRpc">ExtendedBitcoinRpc</a>,
     genesis_height: <a class="primitive" href="https://doc.rust-lang.org/1.85.1/std/primitive.u32.html">u32</a>,
     until_height: <a class="primitive" href="https://doc.rust-lang.org/1.85.1/std/primitive.u32.html">u32</a>,
 ) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.85.1/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.85.1/std/primitive.unit.html">()</a>, <a class="enum" href="../errors/enum.BridgeError.html" title="enum clementine_core::errors::BridgeError">BridgeError</a>&gt;</h4></section></summary><div class="docblock"><p>This function assumes there are no blocks or some contiguous blocks starting from 0 already in the table.

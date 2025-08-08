@@ -1420,16 +1420,7 @@
 <a href="#1419" id="1419">1419</a>
 <a href="#1420" id="1420">1420</a>
 <a href="#1421" id="1421">1421</a>
-<a href="#1422" id="1422">1422</a>
-<a href="#1423" id="1423">1423</a>
-<a href="#1424" id="1424">1424</a>
-<a href="#1425" id="1425">1425</a>
-<a href="#1426" id="1426">1426</a>
-<a href="#1427" id="1427">1427</a>
-<a href="#1428" id="1428">1428</a>
-<a href="#1429" id="1429">1429</a>
-<a href="#1430" id="1430">1430</a>
-<a href="#1431" id="1431">1431</a></pre></div><pre class="rust"><code><span class="kw">use </span>bitcoin::script::Instruction;
+<a href="#1422" id="1422">1422</a></pre></div><pre class="rust"><code><span class="kw">use </span>bitcoin::script::Instruction;
 <span class="kw">use </span>bitcoin::sighash::{Prevouts, SighashCache};
 <span class="kw">use </span>bitcoin::taproot::{<span class="self">self</span>};
 <span class="kw">use </span>bitcoin::{Psbt, TapSighashType, TxOut, Txid, Witness};
@@ -1510,7 +1501,6 @@
         <span class="kw">for </span>(idx, input) <span class="kw">in </span>tx.input.iter().enumerate() {
             <span class="kw">let </span>utxo = <span class="self">self
                 </span>.rpc
-                .client
                 .get_tx_out(
                     <span class="kw-2">&amp;</span>input.previous_output.txid,
                     input.previous_output.vout,
@@ -1621,7 +1611,6 @@
         <span class="kw">let </span>outputs = WalletCreateFundedPsbtOutputs(outputs);
 
         <span class="self">self</span>.rpc
-            .client
             .wallet_create_funded_psbt(
                 <span class="kw-2">&amp;</span>tx.input
                     .iter()
@@ -1808,7 +1797,7 @@
     ///
     /// # Logic:
     /// 1.  **Check for Existing RBF Tx:** Retrieves `last_rbf_txid` for the `try_to_send_id`.
-    /// 2.  **Bump Existing Tx:** If `psbt_bump_fee` exists, it calls `rpc.client.psbt_bump_fee`.
+    /// 2.  **Bump Existing Tx:** If `psbt_bump_fee` exists, it calls `rpc.psbt_bump_fee`.
     ///     - This internally uses the Bitcoin Core `psbtbumpfee` RPC.
     ///     - We then sign the inputs that we can using our Actor and have the wallet sign the rest.
     ///
@@ -1882,7 +1871,6 @@
 
             <span class="kw">let </span>bump_result = <span class="self">self
                 </span>.rpc
-                .client
                 .psbt_bump_fee(<span class="kw-2">&amp;</span>last_rbf_txid, <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span>psbt_bump_opts))
                 .<span class="kw">await</span>;
 
@@ -1946,7 +1934,6 @@
             // We rely on the node's wallet here because psbt_bump_fee might add inputs from it.
             </span><span class="kw">let </span>process_result = <span class="self">self
                 </span>.rpc
-                .client
                 .wallet_process_psbt(<span class="kw-2">&amp;</span>bumped_psbt, <span class="prelude-val">Some</span>(<span class="bool-val">true</span>), <span class="prelude-val">None</span>, <span class="prelude-val">None</span>) <span class="comment">// sign=true
                 </span>.<span class="kw">await</span>;
 
@@ -1977,7 +1964,6 @@
             <span class="comment">// Finalize the PSBT
             </span><span class="kw">let </span>finalize_result = <span class="self">self
                 </span>.rpc
-                .client
                 .finalize_psbt(<span class="kw-2">&amp;</span>processed_psbt, <span class="prelude-val">None</span>) <span class="comment">// extract=true by default
                 </span>.<span class="kw">await</span>;
 
@@ -2034,7 +2020,7 @@
             <span class="kw">let </span>bumped_txid = final_tx.compute_txid();
 
             <span class="comment">// Broadcast the finalized transaction
-            </span><span class="kw">let </span>sent_txid = <span class="kw">match </span><span class="self">self</span>.rpc.client.send_raw_transaction(<span class="kw-2">&amp;</span>final_tx).<span class="kw">await </span>{
+            </span><span class="kw">let </span>sent_txid = <span class="kw">match </span><span class="self">self</span>.rpc.send_raw_transaction(<span class="kw-2">&amp;</span>final_tx).<span class="kw">await </span>{
                 <span class="prelude-val">Ok</span>(sent_txid) <span class="kw">if </span>sent_txid == bumped_txid =&gt; sent_txid,
                 <span class="prelude-val">Ok</span>(other_txid) =&gt; {
                     <span class="macro">log_error_for_tx!</span>(
@@ -2155,7 +2141,6 @@
             <span class="comment">// 2. Process the PSBT (let the wallet sign its inputs)
             </span><span class="kw">let </span>process_result = <span class="self">self
                 </span>.rpc
-                .client
                 .wallet_process_psbt(<span class="kw-2">&amp;</span>psbt, <span class="prelude-val">Some</span>(<span class="bool-val">true</span>), <span class="prelude-val">None</span>, <span class="prelude-val">None</span>)
                 .<span class="kw">await
                 </span>.map_err(|err| {
@@ -2218,7 +2203,7 @@
             <span class="kw">let </span>initial_txid = final_tx.compute_txid();
 
             <span class="comment">// 4. Broadcast the finalized transaction
-            </span><span class="kw">let </span>sent_txid = <span class="kw">match </span><span class="self">self</span>.rpc.client.send_raw_transaction(<span class="kw-2">&amp;</span>final_tx).<span class="kw">await </span>{
+            </span><span class="kw">let </span>sent_txid = <span class="kw">match </span><span class="self">self</span>.rpc.send_raw_transaction(<span class="kw-2">&amp;</span>final_tx).<span class="kw">await </span>{
                 <span class="prelude-val">Ok</span>(sent_txid) =&gt; {
                     <span class="kw">if </span>sent_txid != initial_txid {
                         <span class="kw">let </span>err_msg = <span class="macro">format!</span>(
@@ -2292,7 +2277,7 @@
     };
     <span class="kw">use </span><span class="kw">crate</span>::constants::{MIN_TAPROOT_AMOUNT, NON_STANDARD_V3};
     <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
-    <span class="kw">use </span><span class="kw">crate</span>::extended_rpc::ExtendedRpc;
+    <span class="kw">use </span><span class="kw">crate</span>::extended_bitcoin_rpc::ExtendedBitcoinRpc;
     <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::tagged_signature::SignatureId;
     <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind};
     <span class="kw">use </span><span class="kw">crate</span>::task::{IntoTask, TaskExt};
@@ -2306,7 +2291,7 @@
     <span class="kw">use </span>std::time::Duration;
 
     <span class="kw">pub async fn </span>create_rbf_tx(
-        rpc: <span class="kw-2">&amp;</span>ExtendedRpc,
+        rpc: <span class="kw-2">&amp;</span>ExtendedBitcoinRpc,
         signer: <span class="kw-2">&amp;</span>Actor,
         network: bitcoin::Network,
         requires_initial_funding: bool,
@@ -2360,7 +2345,7 @@
     }
 
     <span class="kw">async fn </span>create_challenge_tx(
-        rpc: <span class="kw-2">&amp;</span>ExtendedRpc,
+        rpc: <span class="kw-2">&amp;</span>ExtendedBitcoinRpc,
         signer: <span class="kw-2">&amp;</span>Actor,
         network: bitcoin::Network,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;Transaction, BridgeError&gt; {
@@ -2841,10 +2826,7 @@
             <span class="kw">async </span>|| {
                 rpc.mine_blocks(<span class="number">1</span>).<span class="kw">await</span>.unwrap();
 
-                <span class="kw">let </span>tx_result = rpc
-                    .client
-                    .get_raw_transaction_info(<span class="kw-2">&amp;</span>tx.compute_txid(), <span class="prelude-val">None</span>)
-                    .<span class="kw">await</span>;
+                <span class="kw">let </span>tx_result = rpc.get_raw_transaction_info(<span class="kw-2">&amp;</span>tx.compute_txid(), <span class="prelude-val">None</span>).<span class="kw">await</span>;
 
                 <span class="prelude-val">Ok</span>(<span class="macro">matches!</span>(tx_result, <span class="prelude-val">Ok</span>(GetRawTransactionResult {
                     confirmations: <span class="prelude-val">Some</span>(confirmations),

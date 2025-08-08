@@ -2408,8 +2408,7 @@
 <a href="#2407" id="2407">2407</a>
 <a href="#2408" id="2408">2408</a>
 <a href="#2409" id="2409">2409</a>
-<a href="#2410" id="2410">2410</a>
-<a href="#2411" id="2411">2411</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_ff::PrimeField;
+<a href="#2410" id="2410">2410</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_ff::PrimeField;
 <span class="kw">use </span>circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
 <span class="kw">use </span>std::collections::HashMap;
 
@@ -2430,7 +2429,7 @@
 <span class="kw">use </span><span class="kw">crate</span>::database::DatabaseTransaction;
 <span class="kw">use </span><span class="kw">crate</span>::deposit::{DepositData, KickoffData, OperatorData};
 <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
-<span class="kw">use </span><span class="kw">crate</span>::extended_rpc::ExtendedRpc;
+<span class="kw">use </span><span class="kw">crate</span>::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 <span class="kw">use </span><span class="kw">crate</span>::header_chain_prover::HeaderChainProver;
 <span class="kw">use </span><span class="kw">crate</span>::metrics::L1SyncStatusProvider;
 <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::EntityStatus;
@@ -2532,7 +2531,7 @@
 
 <span class="attr">#[derive(Debug, Clone)]
 </span><span class="kw">pub struct </span>Operator&lt;C: CitreaClientT&gt; {
-    <span class="kw">pub </span>rpc: ExtendedRpc,
+    <span class="kw">pub </span>rpc: ExtendedBitcoinRpc,
     <span class="kw">pub </span>db: Database,
     <span class="kw">pub </span>signer: Actor,
     <span class="kw">pub </span>config: BridgeConfig,
@@ -2661,10 +2660,11 @@
         );
 
         <span class="kw">let </span>db = Database::new(<span class="kw-2">&amp;</span>config).<span class="kw">await</span><span class="question-mark">?</span>;
-        <span class="kw">let </span>rpc = ExtendedRpc::connect(
+        <span class="kw">let </span>rpc = ExtendedBitcoinRpc::connect(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
+            <span class="prelude-val">None</span>,
         )
         .<span class="kw">await</span><span class="question-mark">?</span>;
 
@@ -2701,7 +2701,6 @@
                     </span>}
                     <span class="prelude-val">None </span>=&gt; {
                         rpc
-                        .client
                         .get_new_address(<span class="prelude-val">Some</span>(<span class="string">"OperatorReimbursement"</span>), <span class="prelude-val">Some</span>(AddressType::Bech32m))
                         .<span class="kw">await
                         </span>.wrap_err(<span class="string">"Failed to get new address"</span>)<span class="question-mark">?
@@ -3075,7 +3074,6 @@
         <span class="comment">// send payout tx using RBF
         </span><span class="kw">let </span>funded_tx = <span class="self">self
             </span>.rpc
-            .client
             .fund_raw_transaction(
                 payout_txhandler.get_cached_tx(),
                 <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span>bitcoincore_rpc::json::FundRawTransactionOptions {
@@ -3100,7 +3098,6 @@
         <span class="kw">let </span>signed_tx: Transaction = bitcoin::consensus::deserialize(
             <span class="kw-2">&amp;</span><span class="self">self
                 </span>.rpc
-                .client
                 .sign_raw_transaction_with_wallet(<span class="kw-2">&amp;</span>funded_tx, <span class="prelude-val">None</span>, <span class="prelude-val">None</span>)
                 .<span class="kw">await
                 </span>.wrap_err(<span class="string">"Failed to sign funded tx through bitcoin RPC"</span>)<span class="question-mark">?
@@ -3109,7 +3106,6 @@
         .wrap_err(<span class="string">"Failed to deserialize signed tx"</span>)<span class="question-mark">?</span>;
 
         <span class="self">self</span>.rpc
-            .client
             .send_raw_transaction(<span class="kw-2">&amp;</span>signed_tx)
             .<span class="kw">await
             </span>.wrap_err(<span class="string">"Failed to send transaction to signed tx"</span>)<span class="question-mark">?</span>;
@@ -4710,10 +4706,11 @@
     <span class="comment">// #[tokio::test]
     // async fn set_funding_utxo() {
     //     let mut config = create_test_config_with_thread_name().await;
-    //     let rpc = ExtendedRpc::connect(
+    //     let rpc = ExtendedBitcoinRpc::connect(
     //         config.bitcoin_rpc_url.clone(),
     //         config.bitcoin_rpc_user.clone(),
     //         config.bitcoin_rpc_password.clone(),
+    //         None,
     //     )
     //     .await;
 
@@ -4743,10 +4740,11 @@
     // #[tokio::test]
     // async fn is_profitable() {
     //     let mut config = create_test_config_with_thread_name().await;
-    //     let rpc = ExtendedRpc::connect(
+    //     let rpc = ExtendedBitcoinRpc::connect(
     //         config.bitcoin_rpc_url.clone(),
     //         config.bitcoin_rpc_user.clone(),
     //         config.bitcoin_rpc_password.clone(),
+    //         None,
     //     )
     //     .await;
 

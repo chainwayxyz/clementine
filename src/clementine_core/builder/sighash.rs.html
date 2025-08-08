@@ -760,9 +760,7 @@
 <a href="#759" id="759">759</a>
 <a href="#760" id="760">760</a>
 <a href="#761" id="761">761</a>
-<a href="#762" id="762">762</a>
-<a href="#763" id="763">763</a>
-<a href="#764" id="764">764</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Sighash Builder
+<a href="#762" id="762">762</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Sighash Builder
 //!
 //! This module provides functions and types for constructing signature hashes (sighashes) for the transactions in the Clementine bridge protocol.
 //! Sighash is the message that is signed by the private key of the signer.
@@ -1153,7 +1151,7 @@
         builder::transaction::sign::TransactionRequestData,
         config::protocol::ProtocolParamset,
         deposit::{Actors, DepositInfo, OperatorData},
-        extended_rpc::ExtendedRpc,
+        extended_bitcoin_rpc::ExtendedBitcoinRpc,
         rpc::clementine::{
             clementine_operator_client::ClementineOperatorClient, TransactionRequest,
         },
@@ -1223,7 +1221,7 @@
         <span class="kw">let </span><span class="kw-2">mut </span>blocks = Vec::new();
         <span class="kw">for </span>i <span class="kw">in </span><span class="number">1</span>..=height {
             <span class="kw">let </span>(blockhash, <span class="kw">_</span>) = rpc.get_block_info_by_height(i <span class="kw">as </span>u64).<span class="kw">await</span>.unwrap();
-            <span class="kw">let </span>block = rpc.client.get_block(<span class="kw-2">&amp;</span>blockhash).<span class="kw">await</span>.unwrap();
+            <span class="kw">let </span>block = rpc.get_block(<span class="kw-2">&amp;</span>blockhash).<span class="kw">await</span>.unwrap();
             blocks.push(block);
         }
 
@@ -1286,7 +1284,7 @@
         bincode::serialize_into(file, <span class="kw-2">&amp;</span>deposit_state).unwrap();
     }
 
-    <span class="kw">async fn </span>load_deposit_state(rpc: <span class="kw-2">&amp;</span>ExtendedRpc) -&gt; DepositChainState {
+    <span class="kw">async fn </span>load_deposit_state(rpc: <span class="kw-2">&amp;</span>ExtendedBitcoinRpc) -&gt; DepositChainState {
         <span class="macro">tracing::debug!</span>(
             <span class="string">"Current chain height: {}"</span>,
             rpc.get_current_chain_height().<span class="kw">await</span>.unwrap()
@@ -1301,7 +1299,7 @@
 
         <span class="comment">// submit blocks to current rpc
         </span><span class="kw">for </span>block <span class="kw">in </span><span class="kw-2">&amp;</span>deposit_state.blocks {
-            rpc.client.submit_block(block).<span class="kw">await</span>.unwrap();
+            rpc.submit_block(block).<span class="kw">await</span>.unwrap();
         }
         deposit_state
     }
@@ -1449,13 +1447,11 @@
         <span class="comment">// after loading generate some funds to rpc wallet
         // needed so that the deposit doesn't crash (I don't know why) due to insufficient funds
         </span><span class="kw">let </span>address = rpc
-            .client
             .get_new_address(<span class="prelude-val">None</span>, <span class="prelude-val">None</span>)
             .<span class="kw">await
             </span>.expect(<span class="string">"Failed to get new address"</span>);
 
-        rpc.client
-            .generate_to_address(<span class="number">105</span>, address.assume_checked_ref())
+        rpc.generate_to_address(<span class="number">105</span>, address.assume_checked_ref())
             .<span class="kw">await
             </span>.expect(<span class="string">"Failed to generate blocks"</span>);
 

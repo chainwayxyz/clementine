@@ -2555,7 +2555,7 @@
         </span><span class="kw">let </span>tx: <span class="kw-2">&amp;</span>Transaction = txhandler.get_cached_tx();
 
         <span class="comment">// Use testmempoolaccept to verify the transaction is valid by consensus rules
-        </span><span class="kw">let </span>mempool_accept_result = rpc.client.test_mempool_accept(<span class="kw-2">&amp;</span>[tx]).<span class="kw">await</span>.unwrap();
+        </span><span class="kw">let </span>mempool_accept_result = rpc.test_mempool_accept(<span class="kw-2">&amp;</span>[tx]).<span class="kw">await</span>.unwrap();
 
         <span class="macro">assert!</span>(
             mempool_accept_result[<span class="number">0</span>].allowed.unwrap(),
@@ -2594,7 +2594,7 @@
         </span><span class="kw">let </span>tx: <span class="kw-2">&amp;</span>Transaction = txhandler.get_cached_tx();
 
         <span class="comment">// Use testmempoolaccept to verify the transaction is valid by consensus rules
-        </span><span class="kw">let </span>mempool_accept_result = rpc.client.test_mempool_accept(<span class="kw-2">&amp;</span>[tx]).<span class="kw">await</span>.unwrap();
+        </span><span class="kw">let </span>mempool_accept_result = rpc.test_mempool_accept(<span class="kw-2">&amp;</span>[tx]).<span class="kw">await</span>.unwrap();
 
         <span class="macro">assert!</span>(
             mempool_accept_result[<span class="number">0</span>].allowed.unwrap(),

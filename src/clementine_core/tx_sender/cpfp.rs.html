@@ -575,9 +575,7 @@
 <a href="#574" id="574">574</a>
 <a href="#575" id="575">575</a>
 <a href="#576" id="576">576</a>
-<a href="#577" id="577">577</a>
-<a href="#578" id="578">578</a>
-<a href="#579" id="579">579</a></pre></div><pre class="rust"><code><span class="kw">use </span>eyre::eyre;
+<a href="#577" id="577">577</a></pre></div><pre class="rust"><code><span class="kw">use </span>eyre::eyre;
 <span class="kw">use </span>std::env;
 
 <span class="kw">use </span>bitcoin::{Amount, FeeRate, OutPoint, Transaction, TxOut, Weight};
@@ -587,7 +585,7 @@
 
 <span class="kw">use </span><span class="kw">crate</span>::constants::NON_STANDARD_V3;
 <span class="kw">use </span><span class="kw">crate</span>::errors::{ErrorExt, ResultExt};
-<span class="kw">use </span><span class="kw">crate</span>::extended_rpc::BitcoinRPCError;
+<span class="kw">use </span><span class="kw">crate</span>::extended_bitcoin_rpc::BitcoinRPCError;
 <span class="kw">use </span><span class="kw">crate</span>::utils::FeePayingType;
 <span class="kw">use crate</span>::{
     builder::{
@@ -1070,14 +1068,12 @@
 
         <span class="comment">// let test_mempool_result = self
         //     .rpc
-        //     .client
         //     .test_mempool_accept(&amp;package_refs)
         //     .await
         //     .wrap_err("Failed to test mempool accept")?;
 
         </span><span class="kw">let </span>submit_package_result: PackageSubmissionResult = <span class="self">self
             </span>.rpc
-            .client
             .submit_package(<span class="kw-2">&amp;</span>package_refs, <span class="prelude-val">Some</span>(Amount::from_sat(<span class="number">0</span>)), <span class="prelude-val">None</span>)
             .<span class="kw">await
             </span>.wrap_err(<span class="string">"Failed to submit package"</span>)<span class="question-mark">?</span>;
