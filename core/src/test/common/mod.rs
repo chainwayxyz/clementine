@@ -253,25 +253,10 @@ pub async fn mine_once_after_in_mempool(
     let tx: bitcoincore_rpc::json::GetRawTransactionResult = rpc
         .get_raw_transaction_info(&txid, None)
         .await
-        .map_err(|e| {
-            eyre::eyre!(
-            "{} did not land onchain after in mempool and mining 1 block and rpc gave error: {}",
-            tx_name,
-            e
-        )
-        })?;
+        .map_err(|e| eyre::eyre!("Failed to get raw transaction {}: {}", tx_name, e))?;
 
     if tx.blockhash.is_none() {
-        tracing::error!(
-            "{} did not land onchain after in mempool and mining 1 block",
-            tx_name
-        );
-
-        return Err(eyre::eyre!(
-            "{} did not land onchain after in mempool and mining 1 block",
-            tx_name
-        )
-        .into());
+        return Err(eyre::eyre!("{} did not get mined", tx_name).into());
     }
 
     let tx_block_height = rpc
