@@ -3,6 +3,7 @@ use crate::builder::address::taproot_builder_with_scripts;
 use crate::builder::script::{SpendableScript, WinternitzCommit};
 
 use crate::config::protocol::ProtocolParamset;
+use crate::constants::MAX_SCRIPT_REPLACEMENT_OPERATIONS;
 use crate::errors::BridgeError;
 use bitcoin::{self};
 use bitcoin::{ScriptBuf, XOnlyPublicKey};
@@ -11,8 +12,8 @@ use bitvm::chunk::api::{
     api_generate_full_tapscripts, api_generate_partial_script, Assertions, NUM_HASH, NUM_PUBS,
     NUM_U256,
 };
-use bitvm::signatures::wots_api::wots160;
 
+use bitvm::signatures::{Wots, Wots20};
 use borsh::{BorshDeserialize, BorshSerialize};
 use bridge_circuit_host::utils::{get_verifying_key, is_dev_mode};
 use std::fs;
@@ -58,7 +59,7 @@ pub static BITVM_CACHE: OnceLock<BitvmCache> = OnceLock::new();
 pub fn load_or_generate_bitvm_cache() -> BitvmCache {
     let start = Instant::now();
 
-    let cache_path = if cfg!(test) && is_dev_mode() {
+    let cache_path = if is_dev_mode() {
         "bitvm_cache_dev.bin".to_string()
     } else {
         std::env::var("BITVM_CACHE_PATH").unwrap_or_else(|_| "bitvm_cache.bin".to_string())
@@ -215,9 +216,9 @@ fn generate_fresh_data() -> BitvmCache {
 pub struct ClementineBitVMPublicKeys {
     pub combined_method_id_constant: [u8; 32],
     pub deposit_constant: [u8; 32],
-    pub payout_tx_blockhash_pk: wots160::PublicKey,
-    pub latest_blockhash_pk: wots160::PublicKey,
-    pub challenge_sending_watchtowers_pk: wots160::PublicKey,
+    pub payout_tx_blockhash_pk: <Wots20 as Wots>::PublicKey,
+    pub latest_blockhash_pk: <Wots20 as Wots>::PublicKey,
+    pub challenge_sending_watchtowers_pk: <Wots20 as Wots>::PublicKey,
     pub bitvm_pks: bitvm::chunk::api::PublicKeys,
 }
 
@@ -457,7 +458,6 @@ impl ClementineBitVMPublicKeys {
             "Getting assert commit data, challenge_sending_watchtowers: {:?}",
             challenge_sending_watchtowers
         );
-        // TODO: this might be wrong, add clementine specific ones too
         commit_data.push(vec![
             challenge_sending_watchtowers.to_vec(),
             asserts.0[0].to_vec(),
@@ -583,22 +583,44 @@ impl ClementineBitVMPublicKeys {
             .collect::<Vec<_>>()
     }
 
-    pub fn get_g16_verifier_disprove_scripts(&self) -> Vec<ScriptBuf> {
+    pub fn get_g16_verifier_disprove_scripts(&self) -> Result<Vec<ScriptBuf>, BridgeError> {
         if cfg!(debug_assertions) {
-            vec![ScriptBuf::from_bytes(vec![0x51])] // OP_TRUE
+            Ok(vec![ScriptBuf::from_bytes(vec![0x51])]) // OP_TRUE
         } else {
-            replace_disprove_scripts(self)
+            Ok(replace_disprove_scripts(self)?)
         }
     }
 }
 
-pub fn replace_disprove_scripts(pks: &ClementineBitVMPublicKeys) -> Vec<ScriptBuf> {
+pub fn replace_disprove_scripts(
+    pks: &ClementineBitVMPublicKeys,
+) -> Result<Vec<ScriptBuf>, BridgeError> {
     let start = Instant::now();
     tracing::info!("Starting script replacement");
 
     let cache = BITVM_CACHE.get_or_init(load_or_generate_bitvm_cache);
-    let mut result: Vec<Vec<u8>> = cache.disprove_scripts.clone();
     let replacement_places = &cache.replacement_places;
+
+    // Calculate estimated operations to prevent DoS attacks
+    let estimated_operations = calculate_replacement_operations(replacement_places);
+    tracing::info!(
+        "Estimated operations for script replacement: {}",
+        estimated_operations
+    );
+    if estimated_operations > MAX_SCRIPT_REPLACEMENT_OPERATIONS {
+        tracing::warn!(
+            "Rejecting script replacement: estimated {} operations exceeds limit of {}",
+            estimated_operations,
+            MAX_SCRIPT_REPLACEMENT_OPERATIONS
+        );
+        return Err(BridgeError::BitvmReplacementResourceExhaustion(
+            estimated_operations,
+        ));
+    }
+
+    tracing::info!("Estimated operations: {}", estimated_operations);
+
+    let mut result: Vec<Vec<u8>> = cache.disprove_scripts.clone();
 
     for (digit, places) in replacement_places.payout_tx_blockhash_pk.iter().enumerate() {
         for (script_idx, pos) in places.iter() {
@@ -654,9 +676,54 @@ pub fn replace_disprove_scripts(pks: &ClementineBitVMPublicKeys) -> Vec<ScriptBu
     let result: Vec<ScriptBuf> = result.into_iter().map(ScriptBuf::from_bytes).collect();
 
     let elapsed = start.elapsed();
-    tracing::info!("Script replacement completed in {:?}", elapsed);
+    tracing::info!(
+        "Script replacement completed in {:?} with {} operations",
+        elapsed,
+        estimated_operations
+    );
 
-    result
+    Ok(result)
+}
+
+/// Helper function to calculate the total number of replacement operations
+fn calculate_replacement_operations(replacement_places: &ClementineBitVMReplacementData) -> usize {
+    let mut total_operations = 0;
+
+    // Count payout_tx_blockhash_pk operations
+    for places in &replacement_places.payout_tx_blockhash_pk {
+        total_operations += places.len();
+    }
+
+    // Count latest_blockhash_pk operations
+    for places in &replacement_places.latest_blockhash_pk {
+        total_operations += places.len();
+    }
+
+    // Count challenge_sending_watchtowers_pk operations
+    for places in &replacement_places.challenge_sending_watchtowers_pk {
+        total_operations += places.len();
+    }
+
+    // Count bitvm_pks operations (this is typically the largest contributor)
+    for digit_places in &replacement_places.bitvm_pks.0 {
+        for places in digit_places {
+            total_operations += places.len();
+        }
+    }
+
+    for digit_places in &replacement_places.bitvm_pks.1 {
+        for places in digit_places {
+            total_operations += places.len();
+        }
+    }
+
+    for digit_places in &replacement_places.bitvm_pks.2 {
+        for places in digit_places {
+            total_operations += places.len();
+        }
+    }
+
+    total_operations
 }
 
 #[cfg(test)]

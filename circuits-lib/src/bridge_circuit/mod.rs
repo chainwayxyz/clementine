@@ -149,7 +149,6 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
     let (max_total_work, challenge_sending_watchtowers) =
         total_work_and_watchtower_flags(&input, &work_only_image_id);
 
-    // Why is that 32 bytes in the first place?
     let total_work: TotalWork = input.hcp.chain_state.total_work[16..32]
         .try_into()
         .expect("Cannot fail");
@@ -162,7 +161,6 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
         );
     }
 
-    // MMR WILL BE FETCHED FROM LC PROOF WHEN IT IS READY - THIS IS JUST FOR PROOF OF CONCEPT
     let mmr = input.hcp.chain_state.block_hashes_mmr.clone();
 
     if !input.payout_spv.verify(mmr) {
@@ -238,10 +236,8 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
     let latest_blockhash: LatestBlockhash = input.hcp.chain_state.best_block_hash[12..32]
         .try_into()
         .unwrap();
-    let payout_tx_blockhash: PayoutTxBlockhash = input.payout_spv.block_header.compute_block_hash()
-        [12..32]
-        .try_into()
-        .unwrap();
+
+    let payout_tx_blockhash: PayoutTxBlockhash = spv_l1_block_hash[12..32].try_into().unwrap();
 
     let journal_hash = journal_hash(
         payout_tx_blockhash,
@@ -260,6 +256,7 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
 /// - `compressed_proof`: A reference to a 128-byte array containing the compressed Groth16 proof.
 /// - `total_work`: A 16-byte array representing the total accumulated work associated with the proof.
 /// - `image_id`: A reference to a 32-byte array representing the image ID used for verification.
+/// - `genesis_state_hash`: A 32-byte array representing the genesis state hash.
 ///
 /// # Returns
 ///
@@ -301,12 +298,11 @@ fn convert_to_groth16_and_verify(
 ///
 /// # Parameters
 /// - `circuit_input`: Data structure holding serialized watchtower transactions, UTXOs, input indices, and pubkeys.
-/// - `kickoff_txid`: The transaction ID of the `kickoff_tx`.
 ///
 /// # Returns
-/// A tuple containing:
-/// - A 20-byte bitmap indicating which watchtower challenges were valid,
-/// - A vector of vectors containing the outputs of valid watchtower challenge transactions.
+/// A `WatchtowerChallengeSet` containing:
+/// - `challenge_senders`: A 20-byte bitmap indicating which watchtower challenges were valid,
+/// - `challenge_outputs`: A vector of vectors containing the outputs of valid watchtower challenge transactions.
 ///   These outputs should conform to the expected structure of either a single OP_RETURN output
 ///   or a combination of two P2TR outputs and one OP_RETURN output for the challenge to be
 ///   considered when calculating the maximum work). However, it is enough to have a valid signature
@@ -369,9 +365,9 @@ pub fn verify_watchtower_challenges(circuit_input: &BridgeCircuitInput) -> Watch
                         sighash_type,
                         signature[0..64].try_into().expect("Cannot fail"),
                     ),
-                    Err(_) => panic!(
-                        "Invalid sighash type, watchtower index: {}",
-                        watchtower_input.watchtower_idx
+                    Err(_) => (
+                        TapSighashType::Default,
+                        signature[0..64].try_into().expect("Cannot fail"),
                     ),
                 }
             } else {
@@ -490,15 +486,14 @@ pub fn verify_watchtower_challenges(circuit_input: &BridgeCircuitInput) -> Watch
 ///
 /// # Parameters
 ///
-/// - `kickoff_txid`: The transaction ID of the kickoff transaction.
 /// - `circuit_input`: The `BridgeCircuitInput` containing all watchtower inputs and related data.
 /// - `work_only_image_id`: A 32-byte identifier used for Groth16 verification against the work-only circuit.
 ///
 /// # Returns
 ///
 /// A tuple containing:
-/// - `[u8; 16]`: The total work from the highest valid watchtower challenge (after successful Groth16 verification).
-/// - `[u8; 20]`: Bitflags representing which watchtowers sent valid challenges (1 bit per watchtower).
+/// - `TotalWork`: The total work from the highest valid watchtower challenge (after successful Groth16 verification).
+/// - `ChallengeSendingWatchtowers`: Bitflags representing which watchtowers sent valid challenges (1 bit per watchtower).
 ///
 /// # Notes
 ///
@@ -532,7 +527,7 @@ pub fn total_work_and_watchtower_flags(
             // Single OP_RETURN output with 144 bytes
             [op_return_output, ..] if op_return_output.script_pubkey.is_op_return() => {
                 // If the first output is OP_RETURN, we expect a single output with 144 bytes
-                let Some(Ok(whole_output)) = parse_op_return_data(&outputs[2].script_pubkey)
+                let Some(Ok(whole_output)) = parse_op_return_data(&op_return_output.script_pubkey)
                     .map(TryInto::<[u8; 144]>::try_into)
                 else {
                     continue;
@@ -540,8 +535,9 @@ pub fn total_work_and_watchtower_flags(
                 compressed_g16_proof = whole_output[0..128]
                     .try_into()
                     .expect("Cannot fail: slicing 128 bytes from 144-byte array");
-                total_work = borsh::from_slice(&whole_output[128..144])
-                    .expect("Cannot fail: deserializing 16 bytes from a 16-byte slice");
+                total_work = whole_output[128..144]
+                    .try_into()
+                    .expect("Cannot fail: slicing 16 bytes from 144-byte array");
             }
             // Otherwise, we expect three outputs:
             // 1. [out1, out2, out3] where out1 and out2 are P2TR outputs
@@ -629,6 +625,7 @@ pub fn parse_op_return_data(script: &Script) -> Option<&[u8]> {
 /// - `move_txid`: A 32-byte array representing the transaction ID of the move transaction.
 /// - `round_txid`: A 32-byte array representing the transaction ID of the round transaction.
 /// - `kickoff_round_vout`: A 32-bit unsigned integer indicating the vout of the kickoff round transaction.
+/// - `genesis_state_hash`: A 32-byte array representing the genesis state hash.
 ///
 /// # Returns
 ///
@@ -717,6 +714,7 @@ fn sighash(
 
 /// Encodes the BIP341 signing data for any flag type into a given object implementing the
 /// [`io::Write`] trait. This version takes a pre-computed annex hash and panics on error.
+/// Code mostly taken from: https://github.com/rust-bitcoin/rust-bitcoin/blob/9782fa8412e1c767998d018f6c915e51553a83d6/bitcoin/src/crypto/sighash.rs#L619
 pub fn taproot_encode_signing_data_to_with_annex_digest<
     W: io::Write + ?Sized,
     T: Borrow<TxOut>,
@@ -1262,7 +1260,7 @@ mod tests {
 
     #[test]
     fn test_operator_xonlypk_from_op_return() {
-        let payout_tx = include_bytes!("../../../bridge-circuit-host/bin-files/payout_tx.bin");
+        let payout_tx = include_bytes!("../../test_data/payout_tx.bin");
         let mut payout_tx: Transaction =
             Decodable::consensus_decode(&mut Cursor::new(&payout_tx)).unwrap();
 
@@ -1310,11 +1308,7 @@ mod tests {
                     let hash = sha256::Hash::from_engine(enc);
                     Some(hash.to_byte_array()) // Use to_byte_array() for owned array
                 }
-                Err(_) => {
-                    // In a production environment, you might want more robust error handling/logging here.
-                    // For now, returning None if encoding fails
-                    None
-                }
+                Err(_) => None,
             }
         })
     }

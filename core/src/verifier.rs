@@ -15,21 +15,29 @@ use crate::builder::transaction::input::UtxoVout;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::builder::transaction::{
     create_emergency_stop_txhandler, create_move_to_vault_txhandler,
-    create_optimistic_payout_txhandler, TransactionType, TxHandler,
+    create_optimistic_payout_txhandler, ContractContext, TransactionType, TxHandler,
 };
 use crate::builder::transaction::{create_round_txhandlers, KickoffWinternitzKeys};
 use crate::citrea::CitreaClientT;
 use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
-use crate::constants::{self, NON_EPHEMERAL_ANCHOR_AMOUNT, TEN_MINUTES_IN_SECS};
+use crate::constants::{
+    self, MAX_ALL_SESSIONS_BYTES, MAX_NUM_SESSIONS, NON_EPHEMERAL_ANCHOR_AMOUNT, NUM_NONCES_LIMIT,
+    TEN_MINUTES_IN_SECS,
+};
 use crate::database::{Database, DatabaseTransaction};
 use crate::deposit::{DepositData, KickoffData, OperatorData};
 use crate::errors::{BridgeError, TxError};
-use crate::extended_rpc::ExtendedRpc;
+use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 use crate::header_chain_prover::HeaderChainProver;
 use crate::metrics::L1SyncStatusProvider;
 use crate::operator::RoundIndex;
 use crate::rpc::clementine::{EntityStatus, NormalSignatureKind, OperatorKeys, TaggedSignature};
+use crate::rpc::ecdsa_verification_sig::{
+    recover_address_from_ecdsa_signature, OptimisticPayoutMessage,
+};
+#[cfg(feature = "automation")]
+use crate::states::StateManager;
 use crate::task::entity_metric_publisher::{
     EntityMetricPublisher, ENTITY_METRIC_PUBLISHER_INTERVAL,
 };
@@ -40,7 +48,9 @@ use crate::tx_sender::{TxSender, TxSenderClient};
 use crate::utils::NamedEntity;
 use crate::utils::TxMetadata;
 use crate::{musig2, UTXO};
+use alloy::primitives::PrimitiveSignature;
 use bitcoin::hashes::Hash;
+use bitcoin::key::rand::Rng;
 use bitcoin::key::Secp256k1;
 use bitcoin::script::Instruction;
 use bitcoin::secp256k1::schnorr::Signature;
@@ -61,10 +71,11 @@ use circuits_lib::bridge_circuit::{
     deposit_constant, get_first_op_return_output, parse_op_return_data,
 };
 use eyre::{Context, ContextCompat, OptionExt, Result};
+use secp256k1::ffi::MUSIG_SECNONCE_LEN;
 use secp256k1::musig::{AggregatedNonce, PartialSignature, PublicNonce, SecretNonce};
 #[cfg(feature = "automation")]
 use std::collections::BTreeMap;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::pin::pin;
 use std::sync::Arc;
 use std::time::Duration;
@@ -79,8 +90,127 @@ pub struct NonceSession {
 
 #[derive(Debug)]
 pub struct AllSessions {
-    pub cur_id: u32,
-    pub sessions: HashMap<u32, NonceSession>,
+    sessions: HashMap<u128, NonceSession>,
+    session_queue: VecDeque<u128>,
+}
+
+impl AllSessions {
+    pub fn new() -> Self {
+        Self {
+            sessions: HashMap::new(),
+            session_queue: VecDeque::new(),
+        }
+    }
+
+    /// Adds a new session to the AllSessions with the given id..
+    /// If the current byte size of all sessions exceeds MAX_ALL_SESSIONS_BYTES, the oldest session is removed until the byte size is under the limit.
+    pub fn add_new_session_with_id(
+        &mut self,
+        new_nonce_session: NonceSession,
+        id: u128,
+    ) -> Result<(), eyre::Report> {
+        if new_nonce_session.nonces.is_empty() {
+            // empty session, return error
+            return Err(eyre::eyre!("Empty session attempted to be added"));
+        }
+
+        let mut total_needed = Self::session_bytes(&new_nonce_session)?
+            .checked_add(self.total_sessions_byte_size()?)
+            .ok_or_else(|| eyre::eyre!("Session size calculation overflow in add_new_session"))?;
+
+        loop {
+            // check byte size and session count, if session count is already at the limit or byte size is higher than limit
+            // we remove the oldest session until the conditions are met
+            if total_needed <= MAX_ALL_SESSIONS_BYTES && self.sessions.len() < MAX_NUM_SESSIONS {
+                break;
+            }
+            total_needed = total_needed
+                .checked_sub(self.remove_oldest_session()?)
+                .ok_or_else(|| eyre::eyre!("Session size calculation overflow"))?;
+        }
+
+        // save the session to the HashMap and the session id queue
+        self.sessions.insert(id, new_nonce_session);
+        self.session_queue.push_back(id);
+        Ok(())
+    }
+
+    /// Adds a new session to the AllSessions with a random id.
+    /// Returns the id of the added session.
+    pub fn add_new_session_with_random_id(
+        &mut self,
+        new_nonce_session: NonceSession,
+    ) -> Result<u128, eyre::Report> {
+        // generate unused id
+        let random_id = self.get_new_unused_id();
+        self.add_new_session_with_id(new_nonce_session, random_id)?;
+        Ok(random_id)
+    }
+
+    /// Removes a session from the AllSessions with the given id.
+    /// Also removes it from the session queue, because we might add the session with the same id later
+    /// (as in [`deposit_sign`]).
+    /// Returns the removed session.
+    pub fn remove_session_with_id(&mut self, id: u128) -> Result<NonceSession, eyre::Report> {
+        let session = self.sessions.remove(&id).ok_or_eyre("Session not found")?;
+        // remove the id from the session queue
+        self.session_queue.retain(|x| *x != id);
+        Ok(session)
+    }
+
+    /// Generates a new unused id for a nonce session.
+    /// The important thing it that the id not easily predictable.
+    fn get_new_unused_id(&mut self) -> u128 {
+        let mut random_id = bitcoin::secp256k1::rand::thread_rng().gen_range(0..=u128::MAX);
+        while self.sessions.contains_key(&random_id) {
+            random_id = bitcoin::secp256k1::rand::thread_rng().gen_range(0..=u128::MAX);
+        }
+        random_id
+    }
+
+    /// Removes the oldest session from the AllSessions.
+    /// Returns the number of bytes removed.
+    fn remove_oldest_session(&mut self) -> Result<usize, eyre::Report> {
+        match self.session_queue.pop_front() {
+            Some(oldest_id) => {
+                let removed_session = self.sessions.remove(&oldest_id);
+                match removed_session {
+                    Some(session) => Ok(Self::session_bytes(&session)?),
+                    None => Ok(0),
+                }
+            }
+            None => Err(eyre::eyre!("No session to remove")),
+        }
+    }
+
+    fn session_bytes(session: &NonceSession) -> Result<usize, eyre::Report> {
+        // 132 bytes per nonce
+        session
+            .nonces
+            .len()
+            .checked_mul(MUSIG_SECNONCE_LEN)
+            .ok_or_eyre("Calculation overflow in session_bytes")
+    }
+
+    /// Returns the total byte size of all secnonces in the AllSessions.
+    pub fn total_sessions_byte_size(&self) -> Result<usize, eyre::Report> {
+        // Should never overflow as it counts bytes in usize
+        let mut total_bytes: usize = 0;
+
+        for (_, session) in self.sessions.iter() {
+            total_bytes = total_bytes
+                .checked_add(Self::session_bytes(session)?)
+                .ok_or_eyre("Calculation overflow in total_byte_size")?;
+        }
+
+        Ok(total_bytes)
+    }
+}
+
+impl Default for AllSessions {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 pub struct VerifierServer<C: CitreaClientT> {
@@ -105,29 +235,31 @@ where
     /// Starts the background tasks for the verifier.
     /// If called multiple times, it will restart only the tasks that are not already running.
     pub async fn start_background_tasks(&self) -> Result<(), BridgeError> {
-        let rpc = ExtendedRpc::connect(
+        let rpc = ExtendedBitcoinRpc::connect(
             self.verifier.config.bitcoin_rpc_url.clone(),
             self.verifier.config.bitcoin_rpc_user.clone(),
             self.verifier.config.bitcoin_rpc_password.clone(),
+            None,
         )
         .await?;
 
         // initialize and run automation features
         #[cfg(feature = "automation")]
         {
-            // TODO: Removing index causes to remove the index from the tx_sender handle as well
             let tx_sender = TxSender::new(
                 self.verifier.signer.clone(),
                 rpc.clone(),
                 self.verifier.db.clone(),
                 Verifier::<C>::TX_SENDER_CONSUMER_ID.to_string(),
                 self.verifier.config.protocol_paramset(),
+                self.verifier.config.mempool_api_host.clone(),
+                self.verifier.config.mempool_api_endpoint.clone(),
             );
 
             self.background_tasks
                 .ensure_task_looping(tx_sender.into_task())
                 .await;
-            let state_manager = crate::states::StateManager::new(
+            let state_manager = StateManager::new(
                 self.verifier.db.clone(),
                 self.verifier.clone(),
                 self.verifier.config.protocol_paramset(),
@@ -146,6 +278,24 @@ where
             };
 
             if should_run_state_mgr {
+                // start tracking operators if they exist in the db
+                let operators = self.verifier.db.get_operators(None).await?;
+                if !operators.is_empty() {
+                    let mut dbtx = self.verifier.db.begin_transaction().await?;
+                    for operator in operators {
+                        StateManager::<Verifier<C>>::dispatch_new_round_machine(
+                            self.verifier.db.clone(),
+                            &mut dbtx,
+                            OperatorData {
+                                xonly_pk: operator.0,
+                                reimburse_addr: operator.1,
+                                collateral_funding_outpoint: operator.2,
+                            },
+                        )
+                        .await?;
+                    }
+                    dbtx.commit().await?;
+                }
                 self.background_tasks
                     .ensure_task_looping(state_manager.block_fetcher_task().await?)
                     .await;
@@ -156,26 +306,16 @@ where
         }
         #[cfg(not(feature = "automation"))]
         {
-            use crate::metrics::get_btc_syncer_consumer_last_processed_block_height;
-            use crate::task::TaskExt;
-            // get current next height from the database
-            // some blocks might still be processed again (if last processed block height is a reorged block)
-            // processing same blocks again is not a problem, here we want to avoid starting from the beginning if verifier
-            // has been restarted
-            let last_processed_height = get_btc_syncer_consumer_last_processed_block_height(
-                &self.verifier.db,
-                &Verifier::<C>::FINALIZED_BLOCK_CONSUMER_ID.to_string(),
-            )
-            .await?;
-            let next_height = match last_processed_height {
-                // if last processed height is not None, start from the last processed height - finality depth + 1 as next height
-                Some(height) => height
-                    .checked_sub(self.verifier.config.protocol_paramset().finality_depth)
-                    .map(|height| height + 1)
-                    .unwrap_or(self.verifier.config.protocol_paramset().start_height),
-                // if db is empty, start from the start height
-                None => self.verifier.config.protocol_paramset().start_height,
-            };
+            // get the next finalized block height to start from
+            let next_height = self
+                .verifier
+                .db
+                .get_next_finalized_block_height_for_consumer(
+                    None,
+                    Verifier::<C>::FINALIZED_BLOCK_CONSUMER_ID,
+                    self.verifier.config.protocol_paramset(),
+                )
+                .await?;
 
             self.background_tasks
                 .ensure_task_looping(
@@ -244,7 +384,7 @@ where
 
 #[derive(Debug, Clone)]
 pub struct Verifier<C: CitreaClientT> {
-    rpc: ExtendedRpc,
+    rpc: ExtendedBitcoinRpc,
 
     pub(crate) signer: Actor,
     pub(crate) db: Database,
@@ -268,10 +408,11 @@ where
             config.protocol_paramset().network,
         );
 
-        let rpc = ExtendedRpc::connect(
+        let rpc = ExtendedBitcoinRpc::connect(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
+            None,
         )
         .await?;
 
@@ -282,15 +423,12 @@ where
             config.citrea_light_client_prover_url.clone(),
             config.citrea_chain_id,
             None,
+            config.citrea_request_timeout,
         )
         .await?;
 
-        let all_sessions = AllSessions {
-            cur_id: 0,
-            sessions: HashMap::new(),
-        };
+        let all_sessions = AllSessions::new();
 
-        // TODO: Removing index causes to remove the index from the tx_sender handle as well
         #[cfg(feature = "automation")]
         let tx_sender = TxSenderClient::new(db.clone(), Self::TX_SENDER_CONSUMER_ID.to_string());
 
@@ -383,6 +521,7 @@ where
     }
 
     /// Checks if all operators in verifier's db that are still in protocol are in the deposit.
+    /// Checks if all operators in the deposit data from aggregator are in the verifier's DB.
     /// Afterwards, it checks if the given deposit outpoint is valid. First it checks if the tx exists on chain,
     /// then it checks if the amount in TxOut is equal to bridge_amount and if the script is correct.
     ///
@@ -390,18 +529,19 @@ where
     /// * `deposit_data` - The deposit data to check.
     ///
     /// # Returns
-    /// * `true` if the deposit is valid, `false` otherwise.
-    async fn is_deposit_valid(&self, deposit_data: &mut DepositData) -> Result<bool, BridgeError> {
+    /// * `()` if the deposit is valid, `BridgeError::InvalidDeposit` if the deposit is invalid.
+    async fn is_deposit_valid(&self, deposit_data: &mut DepositData) -> Result<(), BridgeError> {
         // check if security council is the same as in our config
         if deposit_data.security_council != self.config.security_council {
-            tracing::error!(
+            let reason = format!(
                 "Security council in deposit is not the same as in the config, expected {:?}, got {:?}",
                 self.config.security_council,
                 deposit_data.security_council
             );
-            return Ok(false);
+            tracing::error!("{reason}");
+            return Err(BridgeError::InvalidDeposit(reason));
         }
-        let operators_in_deposit = deposit_data.get_operators();
+        let operators_in_deposit_data = deposit_data.get_operators();
         // check if all operators that still have collateral are in the deposit
         let operators_in_db = self.db.get_operators(None).await?;
         for (xonly_pk, reimburse_addr, collateral_funding_outpoint) in operators_in_db.iter() {
@@ -428,33 +568,36 @@ where
                 )
                 .await?;
             // if operator is not in deposit but its collateral is still on chain, return false
-            if !operators_in_deposit.contains(xonly_pk) && is_collateral_usable {
-                tracing::error!(
-                    "Operator {:?} is is still in protocol but not in the deposit",
+            if !operators_in_deposit_data.contains(xonly_pk) && is_collateral_usable {
+                let reason = format!(
+                    "Operator {:?} is is still in protocol but not in the deposit data from aggregator",
                     xonly_pk
                 );
-                return Ok(false);
+                tracing::error!("{reason}");
+                return Err(BridgeError::InvalidDeposit(reason));
             }
             // if operator is in deposit, but the collateral is not usable, return false
-            if operators_in_deposit.contains(xonly_pk) && !is_collateral_usable {
-                tracing::error!(
-                    "Operator {:?} is in the deposit but its collateral is spent, operator cannot fulfill withdrawals anymore",
+            if operators_in_deposit_data.contains(xonly_pk) && !is_collateral_usable {
+                let reason = format!(
+                    "Operator {:?} is in the deposit data from aggregator but its collateral is spent, operator cannot fulfill withdrawals anymore",
                     xonly_pk
                 );
-                return Ok(false);
+                tracing::error!("{reason}");
+                return Err(BridgeError::InvalidDeposit(reason));
             }
         }
         // check if there are any operators in the deposit that are not in the DB.
-        for operator_xonly_pk in operators_in_deposit {
+        for operator_xonly_pk in operators_in_deposit_data {
             if !operators_in_db
                 .iter()
                 .any(|(xonly_pk, _, _)| xonly_pk == &operator_xonly_pk)
             {
-                tracing::error!(
-                    "Operator {:?} is in the deposit but not in the DB, cannot sign deposit",
+                let reason = format!(
+                    "Operator {:?} is in the deposit data from aggregator but not in the verifier's DB, cannot sign deposit",
                     operator_xonly_pk
                 );
-                return Ok(false);
+                tracing::error!("{reason}");
+                return Err(BridgeError::InvalidDeposit(reason));
             }
         }
         // check if deposit script in deposit_outpoint is valid
@@ -487,22 +630,24 @@ where
                 deposit_outpoint.vout
             ))?;
         if deposit_txout_in_chain.value != self.config.protocol_paramset().bridge_amount {
-            tracing::error!(
+            let reason = format!(
                 "Deposit amount is not correct, expected {}, got {}",
                 self.config.protocol_paramset().bridge_amount,
                 deposit_txout_in_chain.value
             );
-            return Ok(false);
+            tracing::error!("{reason}");
+            return Err(BridgeError::InvalidDeposit(reason));
         }
         if deposit_txout_in_chain.script_pubkey != expected_scriptpubkey {
-            tracing::error!(
+            let reason = format!(
                 "Deposit script pubkey in deposit outpoint does not match the deposit data, expected {:?}, got {:?}",
                 expected_scriptpubkey,
                 deposit_txout_in_chain.script_pubkey
             );
-            return Ok(false);
+            tracing::error!("{reason}");
+            return Err(BridgeError::InvalidDeposit(reason));
         }
-        Ok(true)
+        Ok(())
     }
 
     pub async fn set_operator(
@@ -590,7 +735,7 @@ where
 
         #[cfg(feature = "automation")]
         {
-            crate::states::StateManager::<Self>::dispatch_new_round_machine(
+            StateManager::<Self>::dispatch_new_round_machine(
                 self.db.clone(),
                 &mut dbtx,
                 operator_data,
@@ -602,7 +747,24 @@ where
         Ok(())
     }
 
-    pub async fn nonce_gen(&self, num_nonces: u32) -> Result<(u32, Vec<PublicNonce>), BridgeError> {
+    pub async fn nonce_gen(
+        &self,
+        num_nonces: u32,
+    ) -> Result<(u128, Vec<PublicNonce>), BridgeError> {
+        // reject if too many nonces are requested
+        if num_nonces > NUM_NONCES_LIMIT {
+            return Err(eyre::eyre!(
+                "Number of nonces requested is too high, max allowed is {}, requested: {}",
+                NUM_NONCES_LIMIT,
+                num_nonces
+            )
+            .into());
+        }
+        if num_nonces == 0 {
+            return Err(
+                eyre::eyre!("Number of nonces requested is 0, cannot generate nonces").into(),
+            );
+        }
         let (sec_nonces, pub_nonces): (Vec<SecretNonce>, Vec<PublicNonce>) = (0..num_nonces)
             .map(|_| {
                 // nonce pair needs keypair and a rng
@@ -611,17 +773,14 @@ where
             })
             .collect::<Result<Vec<(SecretNonce, PublicNonce)>, BridgeError>>()?
             .into_iter()
-            .unzip(); // TODO: fix extra copies
+            .unzip();
 
         let session = NonceSession { nonces: sec_nonces };
 
         // save the session
         let session_id = {
             let all_sessions = &mut *self.nonces.lock().await;
-            let session_id = all_sessions.cur_id;
-            all_sessions.sessions.insert(session_id, session);
-            all_sessions.cur_id += 1;
-            session_id
+            all_sessions.add_new_session_with_random_id(session)?
         };
 
         Ok((session_id, pub_nonces))
@@ -630,16 +789,14 @@ where
     pub async fn deposit_sign(
         &self,
         mut deposit_data: DepositData,
-        session_id: u32,
+        session_id: u128,
         mut agg_nonce_rx: mpsc::Receiver<AggregatedNonce>,
     ) -> Result<mpsc::Receiver<PartialSignature>, BridgeError> {
         self.citrea_client
             .check_nofn_correctness(deposit_data.get_nofn_xonly_pk()?)
             .await?;
 
-        if !self.is_deposit_valid(&mut deposit_data).await? {
-            return Err(BridgeError::InvalidDeposit);
-        }
+        self.is_deposit_valid(&mut deposit_data).await?;
 
         // set deposit data to db before starting to sign, ensures that if the deposit data already exists in db, it matches the one
         // given by the aggregator currently. We do not want to sign 2 different deposits for same deposit_outpoint
@@ -662,10 +819,7 @@ where
             // Extract the session and remove it from the map to release the lock early
             let mut session = {
                 let mut session_map = verifier.nonces.lock().await;
-                session_map
-                    .sessions
-                    .remove(&session_id)
-                    .ok_or_else(|| eyre::eyre!("Could not find session id {session_id}"))?
+                session_map.remove_session_with_id(session_id)?
             };
             session.nonces.reverse();
 
@@ -732,10 +886,7 @@ where
             }
 
             let mut session_map = verifier.nonces.lock().await;
-            session_map
-                .sessions
-                .insert(session_id, session)
-                .ok_or_else(|| eyre::eyre!("Could not find session id {session_id}"))?;
+            session_map.add_new_session_with_id(session, session_id)?;
 
             Ok::<(), BridgeError>(())
         });
@@ -743,11 +894,10 @@ where
         Ok(partial_sig_rx)
     }
 
-    /// TODO: This function should be split in to multiple functions
     pub async fn deposit_finalize(
         &self,
         deposit_data: &mut DepositData,
-        session_id: u32,
+        session_id: u128,
         mut sig_receiver: mpsc::Receiver<Signature>,
         mut agg_nonce_receiver: mpsc::Receiver<AggregatedNonce>,
         mut operator_sig_receiver: mpsc::Receiver<Signature>,
@@ -756,9 +906,7 @@ where
             .check_nofn_correctness(deposit_data.get_nofn_xonly_pk()?)
             .await?;
 
-        if !self.is_deposit_valid(deposit_data).await? {
-            return Err(BridgeError::InvalidDeposit);
-        }
+        self.is_deposit_valid(deposit_data).await?;
 
         let mut tweak_cache = TweakCache::default();
         let deposit_blockhash = self
@@ -917,7 +1065,7 @@ where
 
                 tracing::debug!(
                     "Verifying Final operator signature {} for operator {}, signature info {:?}",
-                    nonce_idx + 1,
+                    op_sig_count + 1,
                     operator_idx,
                     typed_sighash.1
                 );
@@ -1056,7 +1204,6 @@ where
         // Save signatures to db
         let mut dbtx = self.db.begin_transaction().await?;
         // Deposit is not actually finalized here, its only finalized after the aggregator gets all the partial sigs and checks the aggregated sig
-        // TODO: It can create problems if the deposit fails at the end by some verifier not sending movetx partial sig, but we still added sigs to db
         for (operator_idx, (operator_xonly_pk, operator_sigs)) in operator_xonly_pks
             .into_iter()
             .zip(verified_sigs.into_iter())
@@ -1117,22 +1264,53 @@ where
     #[allow(clippy::too_many_arguments)]
     pub async fn sign_optimistic_payout(
         &self,
-        nonce_session_id: u32,
+        nonce_session_id: u128,
         agg_nonce: AggregatedNonce,
         deposit_id: u32,
         input_signature: Signature,
         input_outpoint: OutPoint,
         output_script_pubkey: ScriptBuf,
         output_amount: Amount,
+        verification_signature: Option<PrimitiveSignature>,
     ) -> Result<PartialSignature, BridgeError> {
+        // if the withdrawal utxo is spent, no reason to sign optimistic payout
+        if self.rpc.is_utxo_spent(&input_outpoint).await? {
+            return Err(
+                eyre::eyre!("Withdrawal utxo {:?} is already spent", input_outpoint).into(),
+            );
+        }
+        // if verification address is set in config, check if verification signature is valid
+        if let Some(address_in_config) = self.config.opt_payout_verification_address {
+            // check if verification signature is provided by aggregator
+            if let Some(verification_signature) = verification_signature {
+                let address_from_sig =
+                    recover_address_from_ecdsa_signature::<OptimisticPayoutMessage>(
+                        deposit_id,
+                        input_signature,
+                        input_outpoint,
+                        output_script_pubkey.clone(),
+                        output_amount,
+                        verification_signature,
+                    )?;
+
+                // check if verification signature is signed by the address in config
+                if address_from_sig != address_in_config {
+                    return Err(BridgeError::InvalidECDSAVerificationSignature);
+                }
+            } else {
+                // if verification signature is not provided, but verification address is set in config, return error
+                return Err(BridgeError::ECDSAVerificationSignatureMissing);
+            }
+        }
+
         // check if withdrawal is valid first
         let move_txid = self
             .db
             .get_move_to_vault_txid_from_citrea_deposit(None, deposit_id)
-            .await?;
-        if move_txid.is_none() {
-            return Err(eyre::eyre!("Deposit not found for id: {}", deposit_id).into());
-        }
+            .await?
+            .ok_or_else(|| {
+                BridgeError::from(eyre::eyre!("Deposit not found for id: {}", deposit_id))
+            })?;
 
         // amount in move_tx is exactly the bridge amount
         if output_amount
@@ -1153,6 +1331,7 @@ where
             .db
             .get_withdrawal_utxo_from_citrea_withdrawal(None, deposit_id)
             .await?;
+
         if withdrawal_utxo != input_outpoint {
             return Err(eyre::eyre!(
                 "Withdrawal utxo is not correct: {:?} != {:?}",
@@ -1162,7 +1341,6 @@ where
             .into());
         }
 
-        let move_txid = move_txid.expect("Withdrawal must be Some");
         let mut deposit_data = self
             .db
             .get_deposit_data_with_move_tx(None, move_txid)
@@ -1227,9 +1405,7 @@ where
             .check_nofn_correctness(deposit_data.get_nofn_xonly_pk()?)
             .await?;
 
-        if !self.is_deposit_valid(&mut deposit_data).await? {
-            return Err(BridgeError::InvalidDeposit);
-        }
+        self.is_deposit_valid(&mut deposit_data).await?;
 
         self.db
             .set_deposit_data(None, &mut deposit_data, self.config.protocol_paramset())
@@ -1269,27 +1445,27 @@ where
             )
             .await?;
 
-        let winternitz_keys: Vec<winternitz::PublicKey> = keys
-            .winternitz_pubkeys
-            .into_iter()
-            .map(|x| x.try_into())
-            .collect::<Result<_, BridgeError>>()?;
-
-        if winternitz_keys.len() != ClementineBitVMPublicKeys::number_of_flattened_wpks() {
+        if keys.winternitz_pubkeys.len() != ClementineBitVMPublicKeys::number_of_flattened_wpks() {
             tracing::error!(
                 "Invalid number of winternitz keys received from operator {:?}: got: {} expected: {}",
                 operator_xonly_pk,
-                winternitz_keys.len(),
+                keys.winternitz_pubkeys.len(),
                 ClementineBitVMPublicKeys::number_of_flattened_wpks()
             );
             return Err(eyre::eyre!(
                 "Invalid number of winternitz keys received from operator {:?}: got: {} expected: {}",
                 operator_xonly_pk,
-                winternitz_keys.len(),
+                keys.winternitz_pubkeys.len(),
                 ClementineBitVMPublicKeys::number_of_flattened_wpks()
             )
             .into());
         }
+
+        let winternitz_keys: Vec<winternitz::PublicKey> = keys
+            .winternitz_pubkeys
+            .into_iter()
+            .map(|x| x.try_into())
+            .collect::<Result<_, BridgeError>>()?;
 
         let bitvm_pks = ClementineBitVMPublicKeys::from_flattened_vec(&winternitz_keys);
 
@@ -1299,11 +1475,10 @@ where
             .map(|x| x.to_byte_array())
             .collect::<Vec<_>>();
 
-        // TODO: Use correct verification key and along with a dummy proof.
         // wrap around a mutex lock to avoid OOM
         let guard = REPLACE_SCRIPTS_LOCK.lock().await;
         let start = std::time::Instant::now();
-        let scripts: Vec<ScriptBuf> = bitvm_pks.get_g16_verifier_disprove_scripts();
+        let scripts: Vec<ScriptBuf> = bitvm_pks.get_g16_verifier_disprove_scripts()?;
 
         let taproot_builder = taproot_builder_with_scripts(scripts);
 
@@ -1363,6 +1538,7 @@ where
         kickoff_witness: Witness,
         deposit_data: &mut DepositData,
         kickoff_data: KickoffData,
+        dbtx: Option<DatabaseTransaction<'_, '_>>,
     ) -> Result<bool, BridgeError> {
         let move_txid =
             create_move_to_vault_txhandler(deposit_data, self.config.protocol_paramset())?
@@ -1370,7 +1546,7 @@ where
                 .compute_txid();
         let payout_info = self
             .db
-            .get_payout_info_from_move_txid(None, move_txid)
+            .get_payout_info_from_move_txid(dbtx, move_txid)
             .await;
         if let Err(e) = &payout_info {
             tracing::warn!(
@@ -1431,7 +1607,7 @@ where
         challenged_before: bool,
     ) -> Result<bool, BridgeError> {
         let is_malicious = self
-            .is_kickoff_malicious(kickoff_witness, &mut deposit_data, kickoff_data)
+            .is_kickoff_malicious(kickoff_witness, &mut deposit_data, kickoff_data, Some(dbtx))
             .await?;
         if !is_malicious {
             return Ok(false);
@@ -1443,17 +1619,20 @@ where
             deposit_data
         );
 
-        let transaction_data = TransactionRequestData {
-            deposit_outpoint: deposit_data.get_deposit_outpoint(),
+        let context = ContractContext::new_context_with_signer(
             kickoff_data,
-        };
+            deposit_data.clone(),
+            self.config.protocol_paramset(),
+            self.signer.clone(),
+        );
 
         let signed_txs = create_and_sign_txs(
             self.db.clone(),
             &self.signer,
             self.config.clone(),
-            transaction_data,
-            None, // No need
+            context,
+            None, // No need, verifier will not send kickoff tx
+            Some(dbtx),
         )
         .await?;
 
@@ -1506,6 +1685,7 @@ where
         &self,
         kickoff_data: KickoffData,
         deposit_data: DepositData,
+        dbtx: Option<DatabaseTransaction<'_, '_>>,
     ) -> Result<(), BridgeError> {
         let current_tip_hcp = self
             .header_chain_prover
@@ -1558,7 +1738,7 @@ where
 
         tracing::info!("Watchtower prepared commit data, trying to send watchtower challenge");
 
-        self.queue_watchtower_challenge(kickoff_data, deposit_data, commit_data)
+        self.queue_watchtower_challenge(kickoff_data, deposit_data, commit_data, dbtx)
             .await
     }
 
@@ -1567,6 +1747,7 @@ where
         kickoff_data: KickoffData,
         deposit_data: DepositData,
         commit_data: Vec<u8>,
+        dbtx: Option<DatabaseTransaction<'_, '_>>,
     ) -> Result<(), BridgeError> {
         let (tx_type, challenge_tx, rbf_info) = self
             .create_watchtower_challenge(
@@ -1575,6 +1756,7 @@ where
                     kickoff_data,
                 },
                 &commit_data,
+                dbtx,
             )
             .await?;
 
@@ -1786,7 +1968,7 @@ where
         }
 
         let unspent_kickoff_txs = self
-            .create_and_sign_unspent_kickoff_connector_txs(round_idx, operator_xonly_pk)
+            .create_and_sign_unspent_kickoff_connector_txs(round_idx, operator_xonly_pk, None)
             .await?;
         let mut dbtx = self.db.begin_transaction().await?;
         for (tx_type, tx) in unspent_kickoff_txs {
@@ -1849,6 +2031,7 @@ where
         operator_asserts: &HashMap<usize, Witness>,
         operator_acks: &HashMap<usize, Witness>,
         txhandlers: &BTreeMap<TransactionType, TxHandler>,
+        dbtx: Option<DatabaseTransaction<'_, '_>>,
     ) -> Result<Option<bitcoin::Witness>, BridgeError> {
         use bitvm::clementine::additional_disprove::debug_assertions_for_additional_script;
 
@@ -1859,6 +2042,7 @@ where
             kickoff_data.operator_xonly_pk,
             deposit_data.get_deposit_outpoint(),
             self.config.protocol_paramset(),
+            dbtx,
         );
 
         let nofn_key = deposit_data.get_nofn_xonly_pk().inspect_err(|e| {
@@ -1877,7 +2061,7 @@ where
             .get_txid()
             .to_byte_array();
 
-        let vout = kickoff_data.kickoff_idx + 1;
+        let vout = UtxoVout::Kickoff(kickoff_data.kickoff_idx as usize).get_vout();
 
         let watchtower_challenge_start_idx =
             u16::try_from(UtxoVout::WatchtowerChallenge(0).get_vout())
@@ -2204,7 +2388,7 @@ where
             deposit_data.get_deposit_outpoint(),
             self.config.protocol_paramset,
         )?;
-        let disprove_scripts = bitvm_pks.get_g16_verifier_disprove_scripts();
+        let disprove_scripts = bitvm_pks.get_g16_verifier_disprove_scripts()?;
 
         let deposit_outpoint = deposit_data.get_deposit_outpoint();
         let paramset = self.config.protocol_paramset();
@@ -2288,31 +2472,40 @@ where
 
         // Helper closure to parse commit data into the ([u8; 20], u8) format.
         // This avoids code repetition and improves readability.
-        let fill_from_commits = |source: &Vec<Vec<u8>>, target: &mut [([u8; 20], u8)]| {
+        let fill_from_commits = |source: &Vec<Vec<u8>>,
+                                 target: &mut [[u8; 21]]|
+         -> Result<(), BridgeError> {
             // We iterate over chunks of 2 `Vec<u8>` elements at a time.
             for (i, chunk) in source.chunks_exact(2).enumerate() {
-                // The first element of the chunk is the 20-byte array.
-                let array_part: [u8; 20] = chunk[0]
-                    .as_slice()
-                    .try_into()
-                    .expect("Slice is not 20 bytes");
-                // The second element of the chunk is the single byte (u8).
+                let mut sig_array: [u8; 21] = [0; 21];
+                let sig: [u8; 20] = <[u8; 20]>::try_from(chunk[0].as_slice()).map_err(|_| {
+                    eyre::eyre!(
+                        "Invalid signature length, expected 20 bytes, got {}",
+                        chunk[0].len()
+                    )
+                })?;
+
+                sig_array[..20].copy_from_slice(&sig);
+
                 let u8_part: u8 = *chunk[1].first().unwrap_or(&0);
-                target[i] = (array_part, u8_part);
+                sig_array[20] = u8_part;
+
+                target[i] = sig_array;
             }
+            Ok(())
         };
 
-        let mut first_box = Box::new([[([0u8; 20], 0u8); 68]; 1]);
-        fill_from_commits(&g16_public_input_commit[0], &mut first_box[0]);
+        let mut first_box = Box::new([[[0u8; 21]; 68]; 1]);
+        fill_from_commits(&g16_public_input_commit[0], &mut first_box[0])?;
 
-        let mut second_box = Box::new([[([0u8; 20], 0u8); 68]; 14]);
+        let mut second_box = Box::new([[[0u8; 21]; 68]; 14]);
         for i in 0..14 {
-            fill_from_commits(&num_u256_commits[i], &mut second_box[i]);
+            fill_from_commits(&num_u256_commits[i], &mut second_box[i])?;
         }
 
-        let mut third_box = Box::new([[([0u8; 20], 0u8); 36]; 363]);
+        let mut third_box = Box::new([[[0u8; 21]; 36]; 363]);
         for i in 0..363 {
-            fill_from_commits(&intermediate_value_commits[i], &mut third_box[i]);
+            fill_from_commits(&intermediate_value_commits[i], &mut third_box[i])?;
         }
 
         tracing::info!("Boxes created");
@@ -2471,7 +2664,11 @@ where
 
         let (l2_height_start, l2_height_end) = self
             .citrea_client
-            .get_citrea_l2_height_range(block_height.into(), timeout)
+            .get_citrea_l2_height_range(
+                block_height.into(),
+                timeout,
+                self.config.protocol_paramset().network,
+            )
             .await
             .inspect_err(|e| tracing::error!("Error getting citrea l2 height range: {:?}", e))?;
 
@@ -2548,8 +2745,7 @@ mod states {
         create_txhandlers, ContractContext, ReimburseDbCache, TxHandlerCache,
     };
     use crate::states::context::DutyResult;
-    use crate::states::{block_cache, StateManager};
-    use crate::states::{Duty, Owner};
+    use crate::states::{block_cache, Duty, Owner};
     use std::collections::BTreeMap;
     use tonic::async_trait;
 
@@ -2586,7 +2782,7 @@ mod states {
                     "Verifier {:?} called watchtower challenge with kickoff_data: {:?}, deposit_data: {:?}",
                     verifier_xonly_pk, kickoff_data, deposit_data
                 );
-                    self.send_watchtower_challenge(kickoff_data, deposit_data)
+                    self.send_watchtower_challenge(kickoff_data, deposit_data, None)
                         .await?;
 
                     tracing::info!("Verifier sent watchtower challenge",);
@@ -2618,7 +2814,8 @@ mod states {
                         self.config.protocol_paramset(),
                         self.signer.clone(),
                     );
-                    let mut db_cache = ReimburseDbCache::from_context(self.db.clone(), &context);
+                    let mut db_cache =
+                        ReimburseDbCache::from_context(self.db.clone(), &context, None);
 
                     let txhandlers = create_txhandlers(
                         TransactionType::Disprove,
@@ -2638,6 +2835,7 @@ mod states {
                             &operator_asserts,
                             &operator_acks,
                             &txhandlers,
+                            None,
                         )
                         .await?
                     {
@@ -2746,7 +2944,8 @@ mod states {
             tx_type: TransactionType,
             contract_context: ContractContext,
         ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
-            let mut db_cache = ReimburseDbCache::from_context(self.db.clone(), &contract_context);
+            let mut db_cache =
+                ReimburseDbCache::from_context(self.db.clone(), &contract_context, None);
             let txhandlers = create_txhandlers(
                 tx_type,
                 contract_context,
@@ -2780,9 +2979,11 @@ mod states {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::rpc::ecdsa_verification_sig::OperatorWithdrawalMessage;
     use crate::test::common::citrea::MockCitreaClient;
     use crate::test::common::*;
     use bitcoin::Block;
+    use std::str::FromStr;
     use std::sync::Arc;
 
     #[tokio::test]
@@ -2897,5 +3098,70 @@ mod tests {
             .await;
         assert!(result2.is_ok(), "Second save should succeed (idempotent)");
         dbtx2.commit().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_recover_address_from_signature() {
+        let input_signature = Signature::from_str("e8b82defd5e7745731737d210ad3f649541fd1e3173424fe6f9152b11cf8a1f9e24a176690c2ab243fb80ccc43369b2aba095b011d7a3a7c2a6953ef6b102643")
+		.unwrap();
+        let input_outpoint = OutPoint::from_str(
+            "0000000000000000000000000000000000000000000000000000000000000000:0",
+        )
+        .unwrap();
+        let output_script_pubkey =
+            ScriptBuf::from_hex("0000000000000000000000000000000000000000000000000000000000000000")
+                .unwrap();
+        let output_amount = Amount::from_sat(1000000000000000000);
+        let deposit_id = 1;
+
+        let opt_payout_sig = PrimitiveSignature::from_str("0x165b7303ffe40149e297be9f1112c1484fcbd464bec26036e5a6142da92249ed7de398295ecac9e41943e326d44037073643a89049177b43c4a09f98787eafa91b")
+		.unwrap();
+        let address = recover_address_from_ecdsa_signature::<OptimisticPayoutMessage>(
+            deposit_id,
+            input_signature,
+            input_outpoint,
+            output_script_pubkey.clone(),
+            output_amount,
+            opt_payout_sig,
+        )
+        .unwrap();
+        assert_eq!(
+            address,
+            alloy::primitives::Address::from_str("0x281df03154e98484B786EDEf7EfF592a270F1Fb1")
+                .unwrap()
+        );
+
+        let op_withdrawal_sig = PrimitiveSignature::from_str("0xe540662d2ea0aeb29adeeb81a824bcb00e3d2a51d2c28e3eab6305168904e4cb7549e5abe78a91e58238a3986a5faf2ca9bbaaa79e0d0489a96ee275f7db9b111c")
+				.unwrap();
+        let address = recover_address_from_ecdsa_signature::<OperatorWithdrawalMessage>(
+            deposit_id,
+            input_signature,
+            input_outpoint,
+            output_script_pubkey.clone(),
+            output_amount,
+            op_withdrawal_sig,
+        )
+        .unwrap();
+        assert_eq!(
+            address,
+            alloy::primitives::Address::from_str("0x281df03154e98484B786EDEf7EfF592a270F1Fb1")
+                .unwrap()
+        );
+
+        // using OperatorWithdrawalMessage signature for OptimisticPayoutMessage should fail
+        let address = recover_address_from_ecdsa_signature::<OptimisticPayoutMessage>(
+            deposit_id,
+            input_signature,
+            input_outpoint,
+            output_script_pubkey,
+            output_amount,
+            op_withdrawal_sig,
+        )
+        .unwrap();
+        assert_ne!(
+            address,
+            alloy::primitives::Address::from_str("0x281df03154e98484B786EDEf7EfF592a270F1Fb1")
+                .unwrap()
+        );
     }
 }

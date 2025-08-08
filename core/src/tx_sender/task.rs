@@ -1,6 +1,5 @@
 use std::time::Duration;
 
-use bitcoin::FeeRate;
 use tonic::async_trait;
 
 use crate::errors::ResultExt;
@@ -83,12 +82,10 @@ impl Task for TxSenderTask {
             return Ok(true);
         }
 
-        // tracing::info!("TXSENDER: Getting fee rate");
-        // let fee_rate_result = self.inner.get_fee_rate().await;
-        // tracing::info!("TXSENDER: Fee rate result: {:?}", fee_rate_result);
-        // let fee_rate = fee_rate_result?;
-        // tracing::info!("TXSENDER: Trying to send unconfirmed txs");
-        let fee_rate = FeeRate::from_sat_per_vb_unchecked(1);
+        tracing::info!("TXSENDER: Getting fee rate");
+        let fee_rate_result = self.inner.get_fee_rate().await;
+        tracing::info!("TXSENDER: Fee rate result: {:?}", fee_rate_result);
+        let fee_rate = fee_rate_result?;
 
         self.inner
             .try_to_send_unconfirmed_txs(fee_rate, self.current_tip_height)

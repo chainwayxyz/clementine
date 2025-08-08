@@ -232,7 +232,7 @@ pub fn create_nofn_sighash_stream(
                 deposit_data.get_deposit_outpoint(),
             );
             // need to create new TxHandlerDbData for each operator
-            let mut tx_db_data = ReimburseDbCache::new_for_deposit(db.clone(), *op_xonly_pk, deposit_data.get_deposit_outpoint(), config.protocol_paramset());
+            let mut tx_db_data = ReimburseDbCache::new_for_deposit(db.clone(), *op_xonly_pk, deposit_data.get_deposit_outpoint(), config.protocol_paramset(), None);
 
             let mut txhandler_cache = TxHandlerCache::new();
 
@@ -319,7 +319,7 @@ pub fn create_operator_sighash_stream(
     deposit_blockhash: bitcoin::BlockHash,
 ) -> impl Stream<Item = Result<(TapSighash, SignatureInfo), BridgeError>> {
     try_stream! {
-        let mut tx_db_data = ReimburseDbCache::new_for_deposit(db.clone(), operator_xonly_pk, deposit_data.get_deposit_outpoint(), config.protocol_paramset());
+        let mut tx_db_data = ReimburseDbCache::new_for_deposit(db.clone(), operator_xonly_pk, deposit_data.get_deposit_outpoint(), config.protocol_paramset(), None);
 
         let operator = db.get_operator(None, operator_xonly_pk).await?;
 
@@ -389,7 +389,7 @@ mod tests {
         builder::transaction::sign::TransactionRequestData,
         config::protocol::ProtocolParamset,
         deposit::{Actors, DepositInfo, OperatorData},
-        extended_rpc::ExtendedRpc,
+        extended_bitcoin_rpc::ExtendedBitcoinRpc,
         rpc::clementine::{
             clementine_operator_client::ClementineOperatorClient, TransactionRequest,
         },
@@ -459,7 +459,7 @@ mod tests {
         let mut blocks = Vec::new();
         for i in 1..=height {
             let (blockhash, _) = rpc.get_block_info_by_height(i as u64).await.unwrap();
-            let block = rpc.client.get_block(&blockhash).await.unwrap();
+            let block = rpc.get_block(&blockhash).await.unwrap();
             blocks.push(block);
         }
 
@@ -522,7 +522,7 @@ mod tests {
         bincode::serialize_into(file, &deposit_state).unwrap();
     }
 
-    async fn load_deposit_state(rpc: &ExtendedRpc) -> DepositChainState {
+    async fn load_deposit_state(rpc: &ExtendedBitcoinRpc) -> DepositChainState {
         tracing::debug!(
             "Current chain height: {}",
             rpc.get_current_chain_height().await.unwrap()
@@ -537,7 +537,7 @@ mod tests {
 
         // submit blocks to current rpc
         for block in &deposit_state.blocks {
-            rpc.client.submit_block(block).await.unwrap();
+            rpc.submit_block(block).await.unwrap();
         }
         deposit_state
     }
@@ -652,6 +652,8 @@ mod tests {
     /// (with both debug and release), it will get updated with the current values. Run following commands:
     /// debug: cargo test --all-features generate_deposit_state -- --ignored
     /// release: cargo test --all-features --release generate_deposit_state -- --ignored
+    /// If test_bridge_contract_change failed on github CI, CI also uploads the deposit state file as an artifact, so it can be downloaded
+    /// and committed to the repo.
     #[cfg(feature = "automation")]
     #[tokio::test]
     async fn test_bridge_contract_change() {
@@ -683,13 +685,11 @@ mod tests {
         // after loading generate some funds to rpc wallet
         // needed so that the deposit doesn't crash (I don't know why) due to insufficient funds
         let address = rpc
-            .client
             .get_new_address(None, None)
             .await
             .expect("Failed to get new address");
 
-        rpc.client
-            .generate_to_address(105, address.assume_checked_ref())
+        rpc.generate_to_address(105, address.assume_checked_ref())
             .await
             .expect("Failed to generate blocks");
 

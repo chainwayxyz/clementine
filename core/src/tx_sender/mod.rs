@@ -5,19 +5,24 @@ use crate::{
     actor::Actor,
     builder::{self},
     database::Database,
-    extended_rpc::ExtendedRpc,
+    extended_bitcoin_rpc::ExtendedBitcoinRpc,
     utils::TxMetadata,
 };
+use alloy::transports::http::reqwest;
 use bitcoin::taproot::TaprootSpendInfo;
-use bitcoin::{Amount, FeeRate, OutPoint, Transaction, TxOut, Txid, Weight};
-use bitcoincore_rpc::{json::EstimateMode, RpcApi};
+use bitcoin::{Amount, FeeRate, Network, OutPoint, Transaction, TxOut, Txid, Weight};
+use bitcoincore_rpc::RpcApi;
+use eyre::eyre;
+use eyre::ContextCompat;
 use eyre::OptionExt;
+use eyre::WrapErr;
 
 #[cfg(test)]
 use std::env;
 
 mod client;
 mod cpfp;
+mod nonstandard;
 mod rbf;
 mod task;
 
@@ -45,18 +50,21 @@ use log_error_for_tx;
 /// Manages the process of sending Bitcoin transactions, including handling fee bumping
 /// strategies like Replace-By-Fee (RBF) and Child-Pays-For-Parent (CPFP).
 ///
-/// It interacts with a Bitcoin Core RPC endpoint (`ExtendedRpc`) to query network state
+/// It interacts with a Bitcoin Core RPC endpoint (`ExtendedBitcoinRpc`) to query network state
 /// (like fee rates) and submit transactions. It uses a `Database` to persist transaction
 /// state, track confirmation status, and manage associated data like fee payer UTXOs.
 /// The `Actor` provides signing capabilities for transactions controlled by this service.
 #[derive(Clone, Debug)]
 pub struct TxSender {
     pub signer: Actor,
-    pub rpc: ExtendedRpc,
+    pub rpc: ExtendedBitcoinRpc,
     pub db: Database,
     pub btc_syncer_consumer_id: String,
     paramset: &'static ProtocolParamset,
     cached_spendinfo: TaprootSpendInfo,
+    http_client: reqwest::Client,
+    pub mempool_api_host: Option<String>,
+    pub mempool_api_endpoint: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
@@ -81,6 +89,9 @@ pub enum SendTxError {
     #[error("Failed to create a PSBT for fee bump")]
     PsbtError(String),
 
+    #[error("Network error: {0}")]
+    NetworkError(String),
+
     #[error(transparent)]
     Other(#[from] eyre::Report),
 }
@@ -90,10 +101,12 @@ type Result<T> = std::result::Result<T, SendTxError>;
 impl TxSender {
     pub fn new(
         signer: Actor,
-        rpc: ExtendedRpc,
+        rpc: ExtendedBitcoinRpc,
         db: Database,
         btc_syncer_consumer_id: String,
         paramset: &'static ProtocolParamset,
+        mempool_api_host: Option<String>,
+        mempool_api_endpoint: Option<String>,
     ) -> Self {
         Self {
             cached_spendinfo: builder::address::create_taproot_address(
@@ -107,41 +120,82 @@ impl TxSender {
             db,
             btc_syncer_consumer_id,
             paramset,
+            http_client: reqwest::Client::new(),
+            mempool_api_host,
+            mempool_api_endpoint,
         }
     }
 
-    /// Gets the current recommended fee rate from the Bitcoin Core node.
-    ///
-    /// Uses the `estimatesmartfee` RPC call with a confirmation target of 1 block
-    /// and conservative estimation mode.
-    ///
-    /// If fee estimation is unavailable (e.g., node is warming up), it returns
-    /// an error, except in Regtest mode where it defaults to 1 sat/vB for testing convenience.
-    async fn _get_fee_rate(&self) -> Result<FeeRate> {
-        tracing::info!("Getting fee rate");
-        let fee_rate = self
-            .rpc
-            .client
-            .estimate_smart_fee(1, Some(EstimateMode::Conservative))
-            .await;
-
-        match fee_rate {
-            Ok(fee_rate) => match fee_rate.fee_rate {
-                Some(fee_rate) => Ok(FeeRate::from_sat_per_kwu(fee_rate.to_sat())),
-                None => {
-                    if self.paramset.network == bitcoin::Network::Regtest {
-                        tracing::debug!("Using fee rate of 1 sat/vb (Regtest mode)");
-                        return Ok(FeeRate::from_sat_per_vb_unchecked(1));
-                    }
-
-                    tracing::error!("TXSENDER: Fee estimation error: {:?}", fee_rate.errors);
-                    Ok(FeeRate::from_sat_per_vb_unchecked(1))
-                }
-            },
-            Err(e) => {
-                tracing::error!("TXSENDER: Error getting fee rate: {:?}", e);
+    /// Gets the current recommended fee rate in sat/vb from Mempool Space or Bitcoin Core.
+    async fn get_fee_rate(&self) -> Result<FeeRate> {
+        match self.paramset.network {
+            // Regtest and Signet use a fixed, low fee rate.
+            Network::Regtest | Network::Signet => {
+                tracing::debug!(
+                    "Using fixed fee rate of 1 sat/vB for {} network",
+                    self.paramset.network
+                );
                 Ok(FeeRate::from_sat_per_vb_unchecked(1))
             }
+
+            // Mainnet and Testnet4 fetch fees from Mempool Space or Bitcoin Core RPC.
+            Network::Bitcoin | Network::Testnet4 => {
+                tracing::debug!("Fetching fee rate for {} network...", self.paramset.network);
+
+                // Fetch fee from RPC provider with a fallback to the RPC node.
+                let mempool_fee = get_fee_rate_from_mempool_space(
+                    &self.mempool_api_host,
+                    &self.mempool_api_endpoint,
+                    self.paramset.network,
+                )
+                .await;
+
+                let smart_fee_result: Result<Amount> = if let Ok(fee_rate) = mempool_fee {
+                    Ok(fee_rate)
+                } else {
+                    if let Err(e) = &mempool_fee {
+                        tracing::warn!(
+                        "Mempool.space fee fetch failed, falling back to Bitcoin Core RPC: {:#}",
+                        e
+                    );
+                    }
+
+                    let fee_estimate = self
+                        .rpc
+                        .estimate_smart_fee(1, None)
+                        .await
+                        .wrap_err("Failed to estimate smart fee using Bitcoin Core RPC")?;
+
+                    Ok(fee_estimate
+                        .fee_rate
+                        .wrap_err("Failed to extract fee rate from Bitcoin Core RPC response")?)
+                };
+
+                let sat_vkb = smart_fee_result.map_or_else(
+                    |err| {
+                        tracing::warn!(
+                            "Smart fee estimation failed, using default of 1 sat/vB. Error: {:#}",
+                            err
+                        );
+                        1000
+                    },
+                    |rate| rate.to_sat(),
+                );
+
+                // Convert sat/kvB to sat/vB.
+                let fee_sat_vb = sat_vkb / 1000;
+
+                tracing::info!("Using fee rate: {} sat/vb", fee_sat_vb);
+                Ok(FeeRate::from_sat_per_vb(fee_sat_vb)
+                    .wrap_err("Failed to create FeeRate from calculated sat/vb")?)
+            }
+
+            // All other network types are unsupported.
+            _ => Err(eyre!(
+                "Fee rate estimation is not supported for network: {:?}",
+                self.paramset.network
+            )
+            .into()),
         }
     }
 
@@ -179,16 +233,15 @@ impl TxSender {
         // Anchor input marker (OP_FALSE OP_RETURN ..) adds overhead. Exact WU TBD.
         // For CPFP child: (N fee payer inputs) + (1 anchor input) + (1 change output)
         // For RBF replacement: (N fee payer inputs) + (1 change output) - assuming it replaces a tx with an anchor.
-        // TODO: Refine these weight estimations.
         let child_tx_weight = match fee_paying_type {
             // CPFP Child: N fee payer inputs + 1 anchor input + 1 change output + base overhead.
             // Approx WU: (230 * num_fee_payer_utxos) + 230 + 172 + base_overhead_wu
             // Simplified calculation used here needs verification.
-            FeePayingType::CPFP => Weight::from_wu_usize(230 * num_fee_payer_utxos + 207 + 172), // TODO: Verify 207 WU for anchor input + overhead
+            FeePayingType::CPFP => Weight::from_wu_usize(230 * num_fee_payer_utxos + 207 + 172),
             // RBF Replacement: N fee payer inputs + 1 change output + base overhead.
             // Assumes it replaces a tx of similar structure but potentially different inputs/fees.
             // Simplified calculation used here needs verification.
-            FeePayingType::RBF => Weight::from_wu_usize(230 * num_fee_payer_utxos + 172), // TODO: Verify WU for RBF structure
+            FeePayingType::RBF => Weight::from_wu_usize(230 * num_fee_payer_utxos + 172),
             FeePayingType::NoFunding => Weight::from_wu_usize(0),
         };
 
@@ -313,6 +366,13 @@ impl TxSender {
             }
 
             let result = match fee_paying_type {
+                // Send nonstandard transactions to testnet4 using the mempool.space accelerator.
+                // As mempool uses out of band payment, we don't need to do cpfp or rbf.
+                _ if self.paramset.network == bitcoin::Network::Testnet4
+                    && self.is_bridge_tx_nonstandard(&tx) =>
+                {
+                    self.send_testnet4_nonstandard_tx(&tx, id).await
+                }
                 FeePayingType::CPFP => self.send_cpfp_tx(id, tx, tx_metadata, new_fee_rate).await,
                 FeePayingType::RBF => {
                     self.send_rbf_tx(id, tx, tx_metadata, new_fee_rate, rbf_signing_info)
@@ -360,7 +420,7 @@ impl TxSender {
         tx_metadata: Option<TxMetadata>,
     ) -> Result<()> {
         tracing::debug!(target: "ci", "Sending no funding tx, raw tx: {:?}", hex::encode(bitcoin::consensus::serialize(&tx)));
-        match self.rpc.client.send_raw_transaction(&tx).await {
+        match self.rpc.send_raw_transaction(&tx).await {
             Ok(sent_txid) => {
                 tracing::debug!(
                     try_to_send_id,
@@ -392,6 +452,50 @@ impl TxSender {
     }
 }
 
+/// Fetches the current recommended fee rate from RPC provider. Currently only supports
+/// Mempool Space API.
+/// This function is used to get the fee rate in sat/vkb (satoshis per kilovbyte).
+/// See [Mempool Space API](https://mempool.space/docs/api/rest#get-recommended-fees) for more details.
+#[allow(dead_code)]
+async fn get_fee_rate_from_mempool_space(
+    rpc_url: &Option<String>,
+    rpc_endpoint: &Option<String>,
+    network: Network,
+) -> Result<Amount> {
+    let rpc_url = rpc_url
+        .as_ref()
+        .ok_or_else(|| eyre!("Fee rate API host is not configured"))?;
+
+    let rpc_endpoint = rpc_endpoint
+        .as_ref()
+        .ok_or_else(|| eyre!("Fee rate API endpoint is not configured"))?;
+    let url = match network {
+        Network::Bitcoin => format!(
+            // If the variables are not, return Error to fallback to Bitcoin Core RPC.
+            "{}{}",
+            rpc_url, rpc_endpoint
+        ),
+        Network::Testnet4 => format!("{}testnet4/{}", rpc_url, rpc_endpoint),
+        // Return early with error for unsupported networks
+        _ => return Err(eyre!("Unsupported network for mempool.space: {:?}", network).into()),
+    };
+
+    let fee_sat_per_vb = reqwest::get(&url)
+        .await
+        .wrap_err_with(|| format!("GET request to {} failed", url))?
+        .json::<serde_json::Value>()
+        .await
+        .wrap_err_with(|| format!("Failed to parse JSON response from {}", url))?
+        .get("fastestFee")
+        .and_then(|fee| fee.as_u64())
+        .ok_or_else(|| eyre!("'fastestFee' field not found or invalid in API response"))?;
+
+    // The API returns the fee rate in sat/vB. We multiply by 1000 to get sat/kvB.
+    let fee_rate = Amount::from_sat(fee_sat_per_vb * 1000);
+
+    Ok(fee_rate)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -402,7 +506,7 @@ mod tests {
     use crate::builder::transaction::input::SpendableTxIn;
     use crate::builder::transaction::output::UnspentTxOut;
     use crate::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE};
-    use crate::constants::{MIN_TAPROOT_AMOUNT, NON_EPHEMERAL_ANCHOR_AMOUNT};
+    use crate::constants::{MIN_TAPROOT_AMOUNT, NON_EPHEMERAL_ANCHOR_AMOUNT, NON_STANDARD_V3};
     use crate::errors::BridgeError;
     use crate::rpc::clementine::tagged_signature::SignatureId;
     use crate::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind};
@@ -426,11 +530,11 @@ mod tests {
     }
 
     pub(super) async fn create_tx_sender(
-        rpc: ExtendedRpc,
+        rpc: ExtendedBitcoinRpc,
     ) -> (
         TxSender,
         BitcoinSyncer,
-        ExtendedRpc,
+        ExtendedBitcoinRpc,
         Database,
         Actor,
         bitcoin::Network,
@@ -449,6 +553,8 @@ mod tests {
             db.clone(),
             "tx_sender".into(),
             config.protocol_paramset(),
+            config.mempool_api_host.clone(),
+            config.mempool_api_endpoint.clone(),
         );
 
         (
@@ -464,12 +570,12 @@ mod tests {
     }
 
     pub(super) async fn create_bg_tx_sender(
-        rpc: ExtendedRpc,
+        rpc: ExtendedBitcoinRpc,
     ) -> (
         TxSenderClient,
         TxSender,
         Vec<oneshot::Sender<()>>,
-        ExtendedRpc,
+        ExtendedBitcoinRpc,
         Database,
         Actor,
         bitcoin::Network,
@@ -494,7 +600,7 @@ mod tests {
     }
 
     async fn create_bumpable_tx(
-        rpc: &ExtendedRpc,
+        rpc: &ExtendedBitcoinRpc,
         signer: &Actor,
         network: bitcoin::Network,
         fee_paying_type: FeePayingType,
@@ -508,7 +614,7 @@ mod tests {
         rpc.mine_blocks(1).await?;
 
         let version = match fee_paying_type {
-            FeePayingType::CPFP => Version::non_standard(3),
+            FeePayingType::CPFP => NON_STANDARD_V3,
             FeePayingType::RBF | FeePayingType::NoFunding => Version::TWO,
         };
 
@@ -606,11 +712,7 @@ mod tests {
             async || {
                 rpc.mine_blocks(1).await.unwrap();
 
-                match rpc
-                    .client
-                    .get_raw_transaction_info(&tx.compute_txid(), None)
-                    .await
-                {
+                match rpc.get_raw_transaction_info(&tx.compute_txid(), None).await {
                     Ok(tx_result) => {
                         if let Some(conf) = tx_result.confirmations {
                             return Ok(conf > 0);
@@ -666,6 +768,8 @@ mod tests {
             db,
             "tx_sender".into(),
             config.protocol_paramset(),
+            config.mempool_api_host.clone(),
+            config.mempool_api_endpoint.clone(),
         );
 
         let scripts: Vec<Arc<dyn SpendableScript>> =
@@ -714,17 +818,17 @@ mod tests {
             .unwrap();
 
         rpc.mine_blocks(1).await.unwrap();
-        let mempool_info = rpc.client.get_mempool_info().await.unwrap();
+        let mempool_info = rpc.get_mempool_info().await.unwrap();
         tracing::info!("Mempool info: {:?}", mempool_info);
 
         let will_fail_tx = will_fail_handler.get_cached_tx();
 
         if mempool_info.mempool_min_fee.to_sat() > 0 {
-            assert!(rpc.client.send_raw_transaction(will_fail_tx).await.is_err());
+            assert!(rpc.send_raw_transaction(will_fail_tx).await.is_err());
         }
 
         // Calculate and send with fee.
-        let fee_rate = tx_sender._get_fee_rate().await.unwrap();
+        let fee_rate = tx_sender.get_fee_rate().await.unwrap();
         let fee = TxSender::calculate_required_fee(
             will_fail_tx.weight(),
             1,
@@ -750,8 +854,7 @@ mod tests {
 
         rpc.mine_blocks(1).await.unwrap();
 
-        rpc.client
-            .send_raw_transaction(will_successful_handler.get_cached_tx())
+        rpc.send_raw_transaction(will_successful_handler.get_cached_tx())
             .await
             .unwrap();
     }
@@ -788,9 +891,6 @@ mod tests {
             .await?;
         dbtx.commit().await?;
 
-        // Get the current fee rate and increase it for RBF
-        // let current_fee_rate = tx_sender._get_fee_rate().await?;
-
         // Test send_rbf_tx
         tx_sender
             .send_no_funding_tx(try_to_send_id, tx.clone(), None)
@@ -822,5 +922,51 @@ mod tests {
             .expect("Should not return error if sent again but still in mempool");
 
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_mempool_space_fee_rate_mainnet() {
+        get_fee_rate_from_mempool_space(
+            &Some("https://mempool.space/".to_string()),
+            &Some("api/v1/fees/recommended".to_string()),
+            bitcoin::Network::Bitcoin,
+        )
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_mempool_space_fee_rate_testnet4() {
+        get_fee_rate_from_mempool_space(
+            &Some("https://mempool.space/".to_string()),
+            &Some("api/v1/fees/recommended".to_string()),
+            bitcoin::Network::Testnet4,
+        )
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    #[should_panic(expected = "Unsupported network for mempool.space: Regtest")]
+    async fn test_mempool_space_fee_rate_regtest() {
+        get_fee_rate_from_mempool_space(
+            &Some("https://mempool.space/".to_string()),
+            &Some("api/v1/fees/recommended".to_string()),
+            bitcoin::Network::Regtest,
+        )
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    #[should_panic(expected = "Unsupported network for mempool.space: Signet")]
+    async fn test_mempool_space_fee_rate_signet() {
+        get_fee_rate_from_mempool_space(
+            &Some("https://mempool.space/".to_string()),
+            &Some("api/v1/fees/recommended".to_string()),
+            bitcoin::Network::Signet,
+        )
+        .await
+        .unwrap();
     }
 }

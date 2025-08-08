@@ -13,7 +13,7 @@ use risc0_zkvm::Receipt;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TestParams {
     /// Controls whether the state manager component is initialized and run as part of the test setup.
     /// Allows for testing components in isolation from the state manager.
@@ -71,12 +71,18 @@ pub struct TestParams {
 
     pub generate_varying_total_works_first_two_valid: bool,
 
+    /// A secret key for generating signatures of optimistic payout verification.
+    /// It should match the opt_payout_verification_address in BridgeConfig.
+    pub opt_payout_verification_secret_key: Option<alloy::signers::k256::ecdsa::SigningKey>,
+
     /// Secret keys belonging to the security council.
     /// Should match the xonly public keys in the security council of config, otherwise
     /// some tests will fail.
     pub sec_council_secret_keys: Vec<SecretKey>,
 
-    #[serde(default)]
+    /// A flag to enable mining of 0-fee transactions. It's used so that we do not need to CPFP for no-automation to make tests easier.
+    pub mine_0_fee_txs: bool,
+
     pub timeout_params: TimeoutTestParams,
 }
 
@@ -196,6 +202,9 @@ impl TestParams {
                 "Expected at least two total works for first two valid mode"
             ));
         }
+
+        let mut total_works = total_works;
+        total_works.sort();
 
         let second_lowest_total_work = &total_works[1];
         let second_lowest_total_work_index = usize::from_be_bytes(
@@ -509,6 +518,15 @@ impl Default for TestParams {
             generate_varying_total_works_insufficient_total_work: false,
             generate_varying_total_works: false,
             generate_varying_total_works_first_two_valid: false,
+            opt_payout_verification_secret_key: Some(
+                alloy::signers::k256::ecdsa::SigningKey::from_slice(
+                    &hex::decode(
+                        "7ee82330d90423649d065f2c31f342a323c0d7b29a72eff10d88a9b8b00bed87",
+                    )
+                    .expect("valid hex"),
+                )
+                .expect("valid secret key"),
+            ),
             sec_council_secret_keys: vec![
                 SecretKey::from_str(
                     "5555555555555555555555555555555555555555555555555555555555555555",
@@ -519,6 +537,7 @@ impl Default for TestParams {
                 )
                 .expect("known valid input"),
             ],
+            mine_0_fee_txs: false,
         }
     }
 }

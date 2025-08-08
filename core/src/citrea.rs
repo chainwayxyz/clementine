@@ -21,7 +21,14 @@ use alloy::{
 };
 use bitcoin::{hashes::Hash, OutPoint, Txid, XOnlyPublicKey};
 use bridge_circuit_host::receipt_from_inner;
-use circuits_lib::bridge_circuit::structs::{LightClientProof, StorageProof};
+use circuits_lib::bridge_circuit::{
+    constants::{
+        DEVNET_LC_IMAGE_ID, MAINNET_LC_IMAGE_ID, REGTEST_LC_IMAGE_ID, TESTNET_LC_IMAGE_ID,
+    },
+    lc_proof::check_method_id,
+    structs::{LightClientProof, StorageProof},
+};
+use citrea_sov_rollup_interface::zk::light_client_proof::output::LightClientCircuitOutput;
 use eyre::Context;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::proc_macros::rpc;
@@ -61,18 +68,8 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
         light_client_prover_url: String,
         chain_id: u32,
         secret_key: Option<PrivateKeySigner>,
+        timeout: Option<Duration>,
     ) -> Result<Self, BridgeError>;
-
-    /// Fetches an UTXO from Citrea for the given withdrawal index.
-    ///
-    /// # Parameters
-    ///
-    /// - `withdrawal_index`: Index of the withdrawal.
-    ///
-    /// # Returns
-    ///
-    /// - [`OutPoint`]: UTXO for the given withdrawal.
-    async fn withdrawal_utxos(&self, withdrawal_index: u64) -> Result<OutPoint, BridgeError>;
 
     /// Returns deposit move txids, starting from the last deposit index.
     ///
@@ -115,10 +112,6 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
 
     /// Returns the L2 block height range for the given L1 block height.
     ///
-    /// TODO: This is not the best way to do this, but it's a quick fix for now
-    /// it will attempt to fetch the light client proof max_attempts times with
-    /// 1 second intervals.
-    ///
     /// # Parameters
     ///
     /// - `block_height`: L1 block height.
@@ -134,6 +127,7 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
         &self,
         block_height: u64,
         timeout: Duration,
+        network: bitcoin::Network,
     ) -> Result<(u64, u64), BridgeError>;
 
     /// Returns the replacement deposit move txids for the given range of blocks.
@@ -311,6 +305,7 @@ impl CitreaClientT for CitreaClient {
         light_client_prover_url: String,
         chain_id: u32,
         secret_key: Option<PrivateKeySigner>,
+        timeout: Option<Duration>,
     ) -> Result<Self, BridgeError> {
         let citrea_rpc_url = Url::parse(&citrea_rpc_url).wrap_err("Can't parse Citrea RPC URL")?;
         let light_client_prover_url =
@@ -338,12 +333,14 @@ impl CitreaClientT for CitreaClient {
         tracing::info!("Contract created");
 
         let client = HttpClientBuilder::default()
+            .request_timeout(timeout.unwrap_or(Duration::from_secs(60)))
             .build(citrea_rpc_url)
             .wrap_err("Failed to create Citrea RPC client")?;
 
         tracing::info!("Citrea RPC client created");
 
         let light_client_prover_client = HttpClientBuilder::default()
+            .request_timeout(timeout.unwrap_or(Duration::from_secs(60)))
             .build(light_client_prover_url)
             .wrap_err("Failed to create Citrea LCP RPC client")?;
 
@@ -355,23 +352,6 @@ impl CitreaClientT for CitreaClient {
             wallet_address,
             contract,
         })
-    }
-
-    async fn withdrawal_utxos(&self, withdrawal_index: u64) -> Result<OutPoint, BridgeError> {
-        let withdrawal_utxo = self
-            .contract
-            .withdrawalUTXOs(U256::from(withdrawal_index))
-            .call()
-            .await
-            .wrap_err("Failed to get withdrawal UTXO")?;
-
-        let txid = withdrawal_utxo.txId.0;
-        let txid = Txid::from_slice(txid.as_slice())?;
-
-        let vout = withdrawal_utxo.outputId.0;
-        let vout = u32::from_be_bytes(vout);
-
-        Ok(OutPoint { txid, vout })
     }
 
     async fn collect_deposit_move_txids(
@@ -393,12 +373,13 @@ impl CitreaClientT for CitreaClient {
                 .block(BlockId::Number(BlockNumberOrTag::Number(to_height)))
                 .call()
                 .await;
-            if deposit_txid.is_err() {
-                tracing::trace!(
-                    "Deposit txid not found for index, error: {:?}",
-                    deposit_txid
-                );
-                break;
+            match deposit_txid {
+                Err(e) if e.to_string().contains("execution reverted") => {
+                    tracing::trace!("Deposit txid not found for index, error: {:?}", e);
+                    break;
+                }
+                Err(e) => return Err(e.into()),
+                Ok(_) => {}
             }
             tracing::info!("Deposit txid found for index: {:?}", deposit_txid);
 
@@ -490,6 +471,7 @@ impl CitreaClientT for CitreaClient {
         &self,
         block_height: u64,
         timeout: Duration,
+        network: bitcoin::Network,
     ) -> Result<(u64, u64), BridgeError> {
         let start = std::time::Instant::now();
         let proof_current = loop {
@@ -509,6 +491,29 @@ impl CitreaClientT for CitreaClient {
             tokio::time::sleep(Duration::from_secs(1)).await;
         };
 
+        let lc_image_id = match network {
+            bitcoin::Network::Bitcoin => MAINNET_LC_IMAGE_ID,
+            bitcoin::Network::Testnet4 => TESTNET_LC_IMAGE_ID,
+            bitcoin::Network::Signet => DEVNET_LC_IMAGE_ID,
+            bitcoin::Network::Regtest => REGTEST_LC_IMAGE_ID,
+            _ => return Err(eyre::eyre!("Unsupported Bitcoin network").into()),
+        };
+
+        if proof_current.1.verify(lc_image_id).is_err() {
+            return Err(eyre::eyre!("Current light client proof verification failed").into());
+        }
+
+        let current_proof_output: LightClientCircuitOutput =
+            borsh::from_slice(&proof_current.1.journal.bytes)
+                .wrap_err("Failed to deserialize light client circuit output")?;
+
+        if !check_method_id(&current_proof_output, lc_image_id) {
+            return Err(eyre::eyre!(
+                "Current light client proof method ID does not match the expected LC image ID"
+            )
+            .into());
+        }
+
         let proof_previous =
             self.get_light_client_proof(block_height - 1)
                 .await?
@@ -516,6 +521,21 @@ impl CitreaClientT for CitreaClient {
                     "Light client proof not found for block height: {}",
                     block_height - 1
                 ))?;
+
+        if proof_previous.1.verify(lc_image_id).is_err() {
+            return Err(eyre::eyre!("Previous light client proof verification failed").into());
+        }
+
+        let previous_proof_output: LightClientCircuitOutput =
+            borsh::from_slice(&proof_previous.1.journal.bytes)
+                .wrap_err("Failed to deserialize previous light client circuit output")?;
+
+        if !check_method_id(&previous_proof_output, lc_image_id) {
+            return Err(eyre::eyre!(
+                "Previous light client proof method ID does not match the expected LC image ID"
+            )
+            .into());
+        }
 
         let l2_height_end: u64 = proof_current.2;
         let l2_height_start: u64 = proof_previous.2;
@@ -586,7 +606,7 @@ trait LightClientProverRpc {
     async fn get_light_client_proof_by_l1_height(
         &self,
         l1_height: u64,
-    ) -> RpcResult<Option<sov_rollup_interface::rpc::LightClientProofResponse>>;
+    ) -> RpcResult<Option<citrea_sov_rollup_interface::rpc::LightClientProofResponse>>;
 }
 
 #[rpc(client, namespace = "eth")]

@@ -7,10 +7,14 @@ use crate::citrea::CitreaClient;
 use crate::database::Database;
 use crate::deposit::KickoffData;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
-use crate::rpc::clementine::{TransactionRequest, WithdrawParams};
+use crate::rpc::clementine::{
+    OptimisticWithdrawParams, TransactionRequest, WithdrawParams, WithdrawParamsWithSig,
+};
+use crate::rpc::ecdsa_verification_sig::{OperatorWithdrawalMessage, OptimisticPayoutMessage};
 use crate::test::common::citrea::CitreaE2EData;
 use crate::test::common::mine_once_after_in_mempool;
 use crate::test::common::tx_utils::get_txid_where_utxo_is_spent_while_waiting_for_state_mngr_sync;
+use crate::test::sign::sign_withdrawal_verification_signature;
 use crate::utils::FeePayingType;
 use bitcoin::{OutPoint, Transaction, TxOut, Txid, XOnlyPublicKey};
 use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
@@ -36,14 +40,25 @@ pub async fn payout_and_start_kickoff(
     e2e: &CitreaE2EData<'_>,
     actors: &TestActors<CitreaClient>,
 ) -> OutPoint {
+    let withdrawal_params = WithdrawParams {
+        withdrawal_id,
+        input_signature: sig.serialize().to_vec(),
+        input_outpoint: Some((*withdrawal_utxo).into()),
+        output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
+        output_amount: payout_txout.value.to_sat(),
+    };
+    let verification_signature = sign_withdrawal_verification_signature::<OperatorWithdrawalMessage>(
+        &e2e.config,
+        withdrawal_params.clone(),
+    );
+
+    let verification_signature_str = verification_signature.to_string();
+
     loop {
         let withdrawal_response = operator
-            .withdraw(WithdrawParams {
-                withdrawal_id,
-                input_signature: sig.serialize().to_vec(),
-                input_outpoint: Some((*withdrawal_utxo).into()),
-                output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
-                output_amount: payout_txout.value.to_sat(),
+            .withdraw(WithdrawParamsWithSig {
+                withdrawal: Some(withdrawal_params.clone()),
+                verification_signature: Some(verification_signature_str.clone()),
             })
             .await;
 
@@ -124,13 +139,26 @@ pub async fn reimburse_with_optimistic_payout(
     move_txid: Txid,
 ) -> eyre::Result<()> {
     let mut aggregator = actors.get_aggregator();
+
+    let withdrawal_params = WithdrawParams {
+        withdrawal_id,
+        input_signature: sig.serialize().to_vec(),
+        input_outpoint: Some(withdrawal_utxo.to_owned().into()),
+        output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
+        output_amount: payout_txout.value.to_sat(),
+    };
+
+    let verification_signature = sign_withdrawal_verification_signature::<OptimisticPayoutMessage>(
+        &e2e.config,
+        withdrawal_params.clone(),
+    );
+
+    let verification_signature_str = verification_signature.to_string();
+
     aggregator
-        .optimistic_payout(WithdrawParams {
-            withdrawal_id,
-            input_signature: sig.serialize().to_vec(),
-            input_outpoint: Some(withdrawal_utxo.to_owned().into()),
-            output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
-            output_amount: payout_txout.value.to_sat(),
+        .optimistic_payout(OptimisticWithdrawParams {
+            withdrawal: Some(withdrawal_params),
+            verification_signature: Some(verification_signature_str),
         })
         .await?;
 

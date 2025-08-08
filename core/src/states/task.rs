@@ -32,6 +32,8 @@ pub struct QueueBlockHandler {
 
 #[async_trait]
 impl BlockHandler for QueueBlockHandler {
+    /// Handles a new block by sending a new block event to the queue.
+    /// State manager will process the block after reading the event from the queue.
     async fn handle_new_block(
         &mut self,
         dbtx: DatabaseTransaction<'_, '_>,
@@ -39,7 +41,7 @@ impl BlockHandler for QueueBlockHandler {
         block: bitcoin::Block,
         height: u32,
     ) -> Result<(), BridgeError> {
-        let event = SystemEvent::NewBlock {
+        let event = SystemEvent::NewFinalizedBlock {
             block_id,
             block,
             height,
@@ -53,7 +55,7 @@ impl BlockHandler for QueueBlockHandler {
     }
 }
 
-/// A task that fetches new blocks from Bitcoin and adds them to the state management queue
+/// A task that fetches new finalized blocks from Bitcoin and adds them to the state management queue
 #[derive(Debug)]
 pub struct BlockFetcherTask<T: Owner + std::fmt::Debug + 'static> {
     /// Owner type marker
@@ -61,25 +63,33 @@ pub struct BlockFetcherTask<T: Owner + std::fmt::Debug + 'static> {
 }
 
 impl<T: Owner + std::fmt::Debug + 'static> BlockFetcherTask<T> {
-    /// Creates a new block fetcher task
+    /// Creates a new finalized block fetcher task that sends new finalized blocks to the message queue.
     pub async fn new_finalized_block_fetcher_task(
-        next_height: u32,
         db: Database,
         paramset: &'static ProtocolParamset,
     ) -> Result<FinalizedBlockFetcherTask<QueueBlockHandler>, BridgeError> {
         let queue = PGMQueueExt::new_with_pool(db.get_pool()).await;
         let queue_name = StateManager::<T>::queue_name();
 
+        let handler = QueueBlockHandler {
+            queue,
+            queue_name: queue_name.clone(),
+        };
+
+        // get the next finalized block height to start from
+        let next_height = db
+            .get_next_finalized_block_height_for_consumer(
+                None,
+                T::FINALIZED_BLOCK_CONSUMER_ID,
+                paramset,
+            )
+            .await?;
+
         tracing::info!(
             "Creating block fetcher task for owner type {} starting from height {}",
             T::ENTITY_NAME,
             next_height
         );
-
-        let handler = QueueBlockHandler {
-            queue,
-            queue_name: queue_name.clone(),
-        };
 
         Ok(crate::bitcoin_syncer::FinalizedBlockFetcherTask::new(
             db,
@@ -91,6 +101,7 @@ impl<T: Owner + std::fmt::Debug + 'static> BlockFetcherTask<T> {
     }
 }
 
+/// A task that reads new events from the message queue and processes them.
 #[derive(Debug)]
 pub struct MessageConsumerTask<T: Owner + std::fmt::Debug + 'static> {
     db: Database,
@@ -115,6 +126,7 @@ impl<T: Owner + std::fmt::Debug + 'static> Task for MessageConsumerTask<T> {
                 .inner
                 .queue
                 // 2nd param of read_with_cxn is the visibility timeout, set to 0 as we only have 1 consumer of the queue, which is the state machine
+                // visibility timeout is the time after which the message is visible again to other consumers
                 .read_with_cxn(&self.queue_name, 0, &mut *dbtx)
                 .await
                 .wrap_err("Reading event from queue")?
@@ -144,14 +156,14 @@ impl<T: Owner + std::fmt::Debug + 'static> Task for MessageConsumerTask<T> {
 impl<T: Owner + std::fmt::Debug + 'static> IntoTask for StateManager<T> {
     type Task = WithDelay<BufferedErrors<MessageConsumerTask<T>>>;
 
-    /// Converts the StateManager into the consumer task with a delay
+    /// Converts the StateManager into the consumer task with a polling delay.
     fn into_task(self) -> Self::Task {
         MessageConsumerTask {
             db: self.db.clone(),
             inner: self,
             queue_name: StateManager::<T>::queue_name(),
         }
-        .into_buffered_errors(50)
+        .into_buffered_errors(20)
         .with_delay(POLL_DELAY)
     }
 }
@@ -160,13 +172,12 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
     pub async fn block_fetcher_task(
         &self,
     ) -> Result<WithDelay<impl Task<Output = bool> + std::fmt::Debug>, BridgeError> {
-        Ok(BlockFetcherTask::<T>::new_finalized_block_fetcher_task(
-            self.next_height_to_process,
-            self.db.clone(),
-            self.paramset,
+        Ok(
+            BlockFetcherTask::<T>::new_finalized_block_fetcher_task(self.db.clone(), self.paramset)
+                .await?
+                .into_buffered_errors(20)
+                .with_delay(POLL_DELAY),
         )
-        .await?
-        .with_delay(POLL_DELAY))
     }
 }
 

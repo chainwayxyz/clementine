@@ -1,8 +1,15 @@
-use crate::errors::BridgeError;
+use crate::{
+    config::BridgeConfig,
+    errors::BridgeError,
+    rpc::clementine::{
+        clementine_operator_client::ClementineOperatorClient,
+        clementine_verifier_client::ClementineVerifierClient,
+    },
+};
 use clementine::*;
 use eyre::Context;
 use hyper_util::rt::TokioIo;
-use std::path::PathBuf;
+use std::{path::PathBuf, time::Duration};
 use tagged_signature::SignatureId;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity, Uri};
 
@@ -14,10 +21,11 @@ use crate::test::common::ensure_test_certificates;
 pub mod clementine;
 
 pub mod aggregator;
+pub mod ecdsa_verification_sig;
 mod error;
 pub mod interceptors;
 pub mod operator;
-mod parser;
+pub mod parser;
 pub mod verifier;
 
 pub use parser::ParserError;
@@ -57,7 +65,7 @@ pub async fn get_clients<CLIENT, F>(
     use_client_cert: bool,
 ) -> Result<Vec<CLIENT>, BridgeError>
 where
-    F: FnOnce(Channel) -> CLIENT + Copy,
+    F: Fn(Channel) -> CLIENT,
 {
     // Ensure certificates exist in test mode
     #[cfg(test)]
@@ -115,6 +123,8 @@ where
                     ClientTlsConfig::new().ca_certificate(client_ca)
                 };
 
+                let connect = &connect;
+
                 async move {
                     let channel = if endpoint.starts_with("unix://") {
                         #[cfg(unix)]
@@ -154,13 +164,12 @@ where
                         })?;
 
                         Channel::builder(uri)
+                            .timeout(Duration::from_secs(config.grpc.timeout_secs))
+                            .concurrency_limit(config.grpc.req_concurrency_limit)
+                            .keep_alive_timeout(Duration::from_secs(config.grpc.tcp_keepalive_secs))
                             .tls_config(tls_config)
                             .wrap_err("Failed to configure TLS")?
-                            .connect()
-                            .await
-                            .wrap_err_with(|| {
-                                format!("Failed to connect to endpoint {}", endpoint)
-                            })?
+                            .connect_lazy()
                     };
 
                     Ok(connect(channel))
@@ -169,4 +178,26 @@ where
             .collect::<Vec<_>>(),
     )
     .await
+}
+
+pub fn operator_client_builder(
+    config: &BridgeConfig,
+) -> impl Fn(Channel) -> ClementineOperatorClient<Channel> {
+    let max_msg_size = config.grpc.max_message_size;
+    move |channel| {
+        ClementineOperatorClient::new(channel)
+            .max_decoding_message_size(max_msg_size)
+            .max_encoding_message_size(max_msg_size)
+    }
+}
+
+pub fn verifier_client_builder(
+    config: &BridgeConfig,
+) -> impl Fn(Channel) -> ClementineVerifierClient<Channel> {
+    let max_msg_size = config.grpc.max_message_size;
+    move |channel| {
+        ClementineVerifierClient::new(channel)
+            .max_decoding_message_size(max_msg_size)
+            .max_encoding_message_size(max_msg_size)
+    }
 }

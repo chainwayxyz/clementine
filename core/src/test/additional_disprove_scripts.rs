@@ -6,7 +6,7 @@ use crate::test::common::clementine_utils::disprove_tests_common_setup;
 use crate::test::common::tx_utils::get_txid_where_utxo_is_spent_while_waiting_for_state_mngr_sync;
 use crate::utils::initialize_logger;
 use crate::{
-    extended_rpc::ExtendedRpc,
+    extended_bitcoin_rpc::ExtendedBitcoinRpc,
     test::common::{
         citrea::{self},
         create_test_config_with_thread_name,
@@ -126,10 +126,11 @@ impl TestCase for AdditionalDisproveTest {
             )),
         );
 
-        let rpc = ExtendedRpc::connect(
+        let rpc = ExtendedBitcoinRpc::connect(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
+            None,
         )
         .await?;
 
@@ -138,6 +139,7 @@ impl TestCase for AdditionalDisproveTest {
             config.citrea_light_client_prover_url.clone(),
             config.citrea_chain_id,
             Some(SECRET_KEYS[0].to_string().parse().unwrap()),
+            config.citrea_request_timeout,
         )
         .await
         .unwrap();
@@ -184,7 +186,7 @@ impl TestCase for AdditionalDisproveTest {
             vout: UtxoVout::CollateralInRound.get_vout(),
         };
 
-        let add_disprove_tx = rpc.client.get_raw_transaction(&txid, None).await?;
+        let add_disprove_tx = rpc.get_raw_transaction(&txid, None).await?;
 
         assert!(
             add_disprove_tx.input[1].previous_output == burn_connector,
@@ -222,10 +224,7 @@ impl TestCase for AdditionalDisproveTest {
 async fn additional_disprove_script_test_disrupted_latest_block_hash() -> Result<()> {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
-    std::env::set_var(
-        "CITREA_DOCKER_IMAGE",
-        "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
-    );
+    std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
     let additional_disprove_test = AdditionalDisproveTest {
         variant: TestVariant::CorruptedLatestBlockHash,
     };
@@ -251,10 +250,7 @@ async fn additional_disprove_script_test_disrupted_latest_block_hash() -> Result
 async fn additional_disprove_script_test_disrupted_payout_tx_block_hash() -> Result<()> {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
-    std::env::set_var(
-        "CITREA_DOCKER_IMAGE",
-        "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
-    );
+    std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
     let additional_disprove_test = AdditionalDisproveTest {
         variant: TestVariant::CorruptedPayoutTxBlockHash,
     };
@@ -280,10 +276,7 @@ async fn additional_disprove_script_test_disrupted_payout_tx_block_hash() -> Res
 async fn additional_disprove_script_test_disrupt_chal_sending_wts() -> Result<()> {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
-    std::env::set_var(
-        "CITREA_DOCKER_IMAGE",
-        "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
-    );
+    std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
     let additional_disprove_test = AdditionalDisproveTest {
         variant: TestVariant::CorruptedChallengeSendingWatchtowers,
     };
@@ -309,10 +302,7 @@ async fn additional_disprove_script_test_disrupt_chal_sending_wts() -> Result<()
 async fn additional_disprove_script_test_operator_forgot_wt_challenge() -> Result<()> {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
-    std::env::set_var(
-        "CITREA_DOCKER_IMAGE",
-        "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
-    );
+    std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
     let additional_disprove_test = AdditionalDisproveTest {
         variant: TestVariant::OperatorForgotWatchtowerChallenge,
     };
@@ -338,10 +328,7 @@ async fn additional_disprove_script_test_operator_forgot_wt_challenge() -> Resul
 async fn additional_disprove_script_test_corrupted_public_input() -> Result<()> {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
-    std::env::set_var(
-        "CITREA_DOCKER_IMAGE",
-        "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
-    );
+    std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
     let additional_disprove_test = AdditionalDisproveTest {
         variant: TestVariant::CorruptedPublicInput,
     };

@@ -21,53 +21,118 @@ use super::{
     Owner, StateMachineError,
 };
 
+/// Events that can be dispatched to the kickoff state machine
+/// These event either trigger state transitions or trigger actions of the owner
 #[derive(
     Debug, Clone, PartialEq, Eq, Hash, Ord, PartialOrd, serde::Serialize, serde::Deserialize,
 )]
 pub enum KickoffEvent {
+    /// Event that is dispatched when the kickoff is challenged
+    /// This will change the state to "Challenged"
     Challenged,
+    /// Event that is dispatched when a watchtower challenge is detected in Bitcoin
     WatchtowerChallengeSent {
         watchtower_idx: usize,
         challenge_outpoint: OutPoint,
     },
+    /// Event that is dispatched when an operator BitVM assert is detected in Bitcoin
     OperatorAssertSent {
         assert_idx: usize,
         assert_outpoint: OutPoint,
     },
-    WatchtowerChallengeTimeoutSent {
-        watchtower_idx: usize,
-    },
+    /// Event that is dispatched when a watchtower challenge timeout is detected in Bitcoin
+    WatchtowerChallengeTimeoutSent { watchtower_idx: usize },
+    /// Event that is dispatched when an operator challenge ack is detected in Bitcoin
+    /// Operator challenge acks are sent by operators to acknowledge watchtower challenges
     OperatorChallengeAckSent {
         watchtower_idx: usize,
         challenge_ack_outpoint: OutPoint,
     },
-    LatestBlockHashSent {
-        latest_blockhash_outpoint: OutPoint,
-    },
+    /// Event that is dispatched when the latest blockhash is detected in Bitcoin
+    LatestBlockHashSent { latest_blockhash_outpoint: OutPoint },
+    /// Event that is dispatched when the kickoff finalizer is spent in Bitcoin
+    /// Irrespective of whether the kickoff is malicious or not, the kickoff process is finished when the kickoff finalizer is spent.
     KickoffFinalizerSpent,
+    /// Event that is dispatched when the burn connector is spent in Bitcoin
     BurnConnectorSpent,
-    // TODO: add warnings
-    // ChallengeTimeoutNotSent,
+    /// Vvent that is used to indicate that it is time for the owner to send latest blockhash tx.
+    /// Matcher for this event is created after all watchtower challenge utxos are spent.
+    /// Latest blockhash is sent some blocks after all watchtower challenge utxos are spent, so that the total work until the block commiitted
+    /// in latest blockhash is definitely higher than the highest work in valid watchtower challenges.
+    TimeToSendLatestBlockhash,
+    /// Event that is used to indicate that it is time for the owner to send watchtower challenge tx.
+    /// Watchtower challenges are sent after some blocks pass since the kickoff tx, so that the total work in the watchtower challenge is as high as possible.
     TimeToSendWatchtowerChallenge,
-    /// Special event that is used to indicate that the state machine has been saved to the database and the dirty flag should be reset
+    /// Special event that is used to indicate that the state machine has been saved to the database and the dirty flag should be reset to false
     SavedToDb,
 }
 
+/// State machine for tracking a single kickoff process in the protocol.
+///
+/// # Purpose
+/// The `KickoffStateMachine` manages the lifecycle of a single kickoff process, which is created after a kickoff transaction is detected on Bitcoin. It tracks the transactions related to the kickoff and the resulting data.
+///
+/// # States
+/// - `kickoff_started`: The initial state after a kickoff is detected. Waits for further events such as challenges, but still tracks any committed data on Bitcoin (like latest blockhash, operator asserts, watchtower challenges, etc)
+/// - `challenged`: Entered if the kickoff is challenged. Watchtower challenges are only sent if the kickoff is challenged.
+/// - `closed`: Terminal state indicating the kickoff process has ended, either by kickoff finalizer utxo or burn connector utxo being spent.
+///
+/// # Events
+/// - `Challenged`: The kickoff is challenged, transitioning to the `challenged` state.
+/// - `WatchtowerChallengeSent`: A watchtower challenge is detected on Bitcoin, stores the watchtower challenge transaction, and stores the watchtower utxo as spent.
+/// - `OperatorAssertSent`: An operator BitVM assert is detected, stores the witness of the assert utxo.
+/// - `WatchtowerChallengeTimeoutSent`: A watchtower challenge timeout is detected, stores watchtower utxo as spent.
+/// - `OperatorChallengeAckSent`: An operator challenge acknowledgment is detected, stores the witness of the challenge ack utxo, which holds the revealed preimage that can be used to disprove if the operator maliciously doesn't include the watchtower challenge in the BitVM proof. After sending this transaction, the operator is forced to use the corresponding watchtower challenge in its BitVM proof, otherwise it can be disproven.
+/// - `LatestBlockHashSent`: The latest blockhash is committed on Bitcoin, stores the witness of the latest blockhash utxo, which holds the blockhash that should be used by the operator in its BitVM proof.
+/// - `KickoffFinalizerSpent`: The kickoff finalizer is spent, ending the kickoff process, transitions to the `closed` state.
+/// - `BurnConnectorSpent`: The burn connector is spent, ending the kickoff process, transitions to the `closed` state.
+/// - `TimeToSendWatchtowerChallenge`: Time to send a watchtower challenge (used in challenged state), this event notifies the owner to create and send a watchtower challenge tx. Verifiers wait after a kickoff to send a watchtower challenge so that the total work in the watchtower challenge is as high as possible.
+/// - `SavedToDb`: Indicates the state machine has been persisted and resets the dirty flag.
+///
+/// # Behavior
+/// - The state machine maintains a set of matchers to detect relevant Bitcoin transactions and trigger corresponding events.
+/// - It tracks the progress of the kickoff, including challenges, operator actions, and finalization.
+/// - When terminal events occur (e.g., finalizer or burn connector spent), the state machine transitions to `closed` and clears all matchers.
+/// - The state machine interacts with the owner to perform protocol duties (e.g., sending challenges, asserts, or disproves) as required by the protocol logic.
+///
+/// This design ensures that all protocol-critical events related to a kickoff are tracked and handled in a robust, stateful manner, supporting both normal and adversarial scenarios.
 #[serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct KickoffStateMachine<T: Owner> {
+    /// Maps matchers to the resulting kickoff events.
     #[serde_as(as = "Vec<(_, _)>")]
     pub(crate) matchers: HashMap<Matcher, KickoffEvent>,
+    /// Indicates if the state machine has unsaved changes that need to be persisted on db.
+    /// dirty flag is set if any matcher matches the current block.
+    /// the flag is set to true in on_transition and on_dispatch
+    /// the flag is set to false after the state machine is saved to db and the event SavedToDb is dispatched
     pub(crate) dirty: bool,
+    /// The kickoff data associated with the kickoff being tracked.
     pub(crate) kickoff_data: KickoffData,
-    deposit_data: DepositData,
-    kickoff_height: u32,
-    payout_blockhash: Witness,
+    /// The deposit data that the kickoff tries to withdraw from.
+    pub(crate) deposit_data: DepositData,
+    /// The block height at which the kickoff transaction was mined.
+    pub(crate) kickoff_height: u32,
+    /// The witness for the kickoff transactions input which is a winternitz signature that commits the payout blockhash.
+    pub(crate) payout_blockhash: Witness,
+    /// Set of indices of watchtower UTXOs that have already been spent.
     spent_watchtower_utxos: HashSet<usize>,
+    /// The witness taken from the transaction spending the latest blockhash utxo.
     latest_blockhash: Witness,
+    /// Saves watchtower challenges with the watchtower index as the key.
+    /// Watchtower challenges are encoded as the output of the watchtower challenge tx.
+    /// (taproot addresses parsed as 32 bytes + OP_RETURN data), in total 144 bytes.
     watchtower_challenges: HashMap<usize, Transaction>,
+    /// Saves operator asserts with the index of the assert utxo as the key.
+    /// Operator asserts are witnesses that spend the assert utxo's and contain the winternitz signature of the BitVM assertion.
     operator_asserts: HashMap<usize, Witness>,
+    /// Saves operator challenge acks with the index of the challenge ack utxo as the key.
+    /// Operator challenge acks are witnesses that spend the challenge ack utxo's.
+    /// The witness contains the revealed preimage that can be used to disprove if the operator
+    /// maliciously doesn't include the watchtower challenge in the BitVM proof.
     operator_challenge_acks: HashMap<usize, Witness>,
+    /// Marker for the generic owner type (phantom data for type safety).
+    /// This is used to ensure that the state machine is generic over the owner type.
     phantom: std::marker::PhantomData<T>,
 }
 
@@ -154,27 +219,26 @@ impl<T: Owner> KickoffStateMachine<T> {
         }
     }
 
-    async fn commit_latest_blockhash_if_ready(&mut self, context: &mut StateContext<T>) {
+    /// Checks if the latest blockhash is ready to be committed on Bitcoin.
+    /// The check is done by checking if all watchtower challenge utxos are spent.
+    /// If the check is successful, the a new matcher is created to send latest blockhash tx after finality depth blocks pass from current block height.
+    async fn create_matcher_for_latest_blockhash_if_ready(
+        &mut self,
+        context: &mut StateContext<T>,
+    ) {
         context
             .capture_error(async |context| {
                 {
-                    // if all watchtower challenge utxos are spent, its safe to send asserts
+                    // if all watchtower challenge utxos are spent, its safe to send latest blockhash commit tx
                     if self.spent_watchtower_utxos.len() == self.deposit_data.get_num_watchtowers()
                     {
-                        context
-                            .owner
-                            .handle_duty(Duty::SendLatestBlockhash {
-                                kickoff_data: self.kickoff_data,
-                                deposit_data: self.deposit_data.clone(),
-                                latest_blockhash: context
-                                    .cache
-                                    .block
-                                    .as_ref()
-                                    .ok_or(eyre::eyre!("Block object not found in block cache"))?
-                                    .header
-                                    .block_hash(),
-                            })
-                            .await?;
+                        // create a matcher to send latest blockhash tx after finality depth blocks pass from current block height
+                        self.matchers.insert(
+                            Matcher::BlockHeight(
+                                context.cache.block_height + context.paramset.finality_depth,
+                            ),
+                            KickoffEvent::TimeToSendLatestBlockhash,
+                        );
                     }
                     Ok::<(), BridgeError>(())
                 }
@@ -183,6 +247,10 @@ impl<T: Owner> KickoffStateMachine<T> {
             .await;
     }
 
+    /// Checks if the disprove is ready to be sent on Bitcoin
+    /// The check is done by checking if all operator asserts are received,
+    /// latest blockhash is committed and all watchtower challenge utxos are spent
+    /// If the check is successful, the disprove is sent on Bitcoin
     async fn disprove_if_ready(&mut self, context: &mut StateContext<T>) {
         if self.operator_asserts.len() == ClementineBitVMPublicKeys::number_of_assert_txs()
             && self.latest_blockhash != Witness::default()
@@ -192,7 +260,10 @@ impl<T: Owner> KickoffStateMachine<T> {
         }
     }
 
-    async fn send_operator_asserts(&mut self, context: &mut StateContext<T>) {
+    /// Checks if the operator asserts are ready to be sent on Bitcoin
+    /// The check is done by checking if all watchtower challenge utxos are spent and latest blockhash is committed
+    /// If the check is successful, the operator asserts are sent on Bitcoin
+    async fn send_operator_asserts_if_ready(&mut self, context: &mut StateContext<T>) {
         context
             .capture_error(async |context| {
                 {
@@ -258,6 +329,31 @@ impl<T: Owner> KickoffStateMachine<T> {
             .await;
     }
 
+    async fn send_latest_blockhash(&mut self, context: &mut StateContext<T>) {
+        context
+            .capture_error(async |context| {
+                {
+                    context
+                        .owner
+                        .handle_duty(Duty::SendLatestBlockhash {
+                            kickoff_data: self.kickoff_data,
+                            deposit_data: self.deposit_data.clone(),
+                            latest_blockhash: context
+                                .cache
+                                .block
+                                .as_ref()
+                                .ok_or(eyre::eyre!("Block object not found in block cache"))?
+                                .header
+                                .block_hash(),
+                        })
+                        .await?;
+                    Ok::<(), BridgeError>(())
+                }
+                .wrap_err(self.kickoff_meta("on send_latest_blockhash"))
+            })
+            .await;
+    }
+
     async fn unhandled_event(&mut self, context: &mut StateContext<T>, event: &KickoffEvent) {
         context
             .capture_error(async |_context| {
@@ -268,6 +364,12 @@ impl<T: Owner> KickoffStateMachine<T> {
             .await;
     }
 
+    /// If the kickoff is challenged, the state machine will add corresponding matchers for
+    /// sending watchtower challenges after some amount of blocks passes since the kickoff was included in Bitcoin.
+    /// Sending watchtower challenges only happen if the kickoff is challenged.
+    /// As sending latest blockhash commit and asserts depend on watchtower challenges/timeouts being sent,
+    /// they will also not be sent if the kickoff is not challenged and kickoff finalizer is spent with ChallengeTimeout,
+    /// which changes the state to "Closed".
     #[action]
     pub(crate) async fn on_challenged_entry(&mut self, context: &mut StateContext<T>) {
         context
@@ -288,6 +390,9 @@ impl<T: Owner> KickoffStateMachine<T> {
             .await;
     }
 
+    /// State that is entered when the kickoff is challenged
+    /// It only includes special handling for the TimeToSendWatchtowerChallenge event
+    /// All other events are handled in the kickoff superstate
     #[state(superstate = "kickoff", entry_action = "on_challenged_entry")]
     pub(crate) async fn challenged(
         &mut self,
@@ -302,6 +407,7 @@ impl<T: Owner> KickoffStateMachine<T> {
             | KickoffEvent::BurnConnectorSpent
             | KickoffEvent::WatchtowerChallengeTimeoutSent { .. }
             | KickoffEvent::LatestBlockHashSent { .. }
+            | KickoffEvent::TimeToSendLatestBlockhash
             | KickoffEvent::SavedToDb => Super,
             KickoffEvent::TimeToSendWatchtowerChallenge => {
                 self.send_watchtower_challenge(context).await;
@@ -322,6 +428,9 @@ impl<T: Owner> KickoffStateMachine<T> {
     ) -> Response<State> {
         tracing::trace!("Received event in kickoff superstate: {:?}", event);
         match event {
+            // When a watchtower challenge is detected in Bitcoin,
+            // save the full challenge transaction and check if the latest blockhash can be committed
+            // and if the disprove is ready to be sent
             KickoffEvent::WatchtowerChallengeSent {
                 watchtower_idx,
                 challenge_outpoint,
@@ -334,10 +443,14 @@ impl<T: Owner> KickoffStateMachine<T> {
                 // save challenge witness
                 self.watchtower_challenges
                     .insert(*watchtower_idx, tx.clone());
-                self.commit_latest_blockhash_if_ready(context).await;
+                self.create_matcher_for_latest_blockhash_if_ready(context)
+                    .await;
                 self.disprove_if_ready(context).await;
                 Handled
             }
+            // When an operator assert is detected in Bitcoin,
+            // save the assert witness (which is the BitVM winternitz commit)
+            // and check if the disprove is ready to be sent
             KickoffEvent::OperatorAssertSent {
                 assert_idx,
                 assert_outpoint,
@@ -351,6 +464,10 @@ impl<T: Owner> KickoffStateMachine<T> {
                 self.disprove_if_ready(context).await;
                 Handled
             }
+            // When an operator challenge ack is detected in Bitcoin,
+            // save the ack witness as the witness includes the revealed preimage that
+            // can be used to disprove if the operator maliciously doesn't include the
+            // watchtower challenge in the BitVM proof
             KickoffEvent::OperatorChallengeAckSent {
                 watchtower_idx,
                 challenge_ack_outpoint,
@@ -364,7 +481,11 @@ impl<T: Owner> KickoffStateMachine<T> {
                     .insert(*watchtower_idx, witness);
                 Handled
             }
+            // When the kickoff finalizer is spent in Bitcoin,
+            // the kickoff process is finished and the state machine will transition to the "Closed" state
             KickoffEvent::KickoffFinalizerSpent => Transition(State::closed()),
+            // When the burn connector of the operator is spent in Bitcoin, it means the operator cannot continue with any more kickoffs
+            // (unless burn connector is spent by ready to reimburse tx), so the state machine will transition to the "Closed" state
             KickoffEvent::BurnConnectorSpent => {
                 tracing::error!(
                     "Burn connector spent before kickoff was finalized for kickoff {:?}",
@@ -372,11 +493,17 @@ impl<T: Owner> KickoffStateMachine<T> {
                 );
                 Transition(State::closed())
             }
+            // When a watchtower challenge timeout is detected in Bitcoin,
+            // set the watchtower utxo as spent and check if the latest blockhash can be committed
             KickoffEvent::WatchtowerChallengeTimeoutSent { watchtower_idx } => {
                 self.spent_watchtower_utxos.insert(*watchtower_idx);
-                self.commit_latest_blockhash_if_ready(context).await;
+                self.create_matcher_for_latest_blockhash_if_ready(context)
+                    .await;
                 Handled
             }
+            // When the latest blockhash is detected in Bitcoin,
+            // save the witness which includes the blockhash and check if the operator asserts and
+            // disprove tx are ready to be sent
             KickoffEvent::LatestBlockHashSent {
                 latest_blockhash_outpoint,
             } => {
@@ -387,8 +514,13 @@ impl<T: Owner> KickoffStateMachine<T> {
                 // save latest blockhash witness
                 self.latest_blockhash = witness;
                 // can start sending asserts as latest blockhash is committed and finalized
-                self.send_operator_asserts(context).await;
+                self.send_operator_asserts_if_ready(context).await;
                 self.disprove_if_ready(context).await;
+                Handled
+            }
+            KickoffEvent::TimeToSendLatestBlockhash => {
+                // tell owner to send latest blockhash tx
+                self.send_latest_blockhash(context).await;
                 Handled
             }
             KickoffEvent::SavedToDb => Handled,
@@ -399,6 +531,8 @@ impl<T: Owner> KickoffStateMachine<T> {
         }
     }
 
+    /// State that is entered when the kickoff is started
+    /// It will transition to the "Challenged" state if the kickoff is challenged
     #[state(superstate = "kickoff", entry_action = "on_kickoff_started_entry")]
     pub(crate) async fn kickoff_started(
         &mut self,
@@ -417,6 +551,7 @@ impl<T: Owner> KickoffStateMachine<T> {
             | KickoffEvent::BurnConnectorSpent
             | KickoffEvent::WatchtowerChallengeTimeoutSent { .. }
             | KickoffEvent::LatestBlockHashSent { .. }
+            | KickoffEvent::TimeToSendLatestBlockhash
             | KickoffEvent::SavedToDb => Super,
             _ => {
                 self.unhandled_event(context, event).await;
@@ -425,10 +560,13 @@ impl<T: Owner> KickoffStateMachine<T> {
         }
     }
 
+    /// Adds the default matchers that will be used if the state is "challenged" or "kickoff_started".
+    /// These matchers are used to detect when various transactions in the contract are mined on Bitcoin.
     async fn add_default_kickoff_matchers(
         &mut self,
         context: &mut StateContext<T>,
     ) -> Result<(), BridgeError> {
+        // First create all transactions for the current deposit
         let contract_context = ContractContext::new_context_for_kickoff(
             self.kickoff_data,
             self.deposit_data.clone(),
@@ -451,6 +589,10 @@ impl<T: Owner> KickoffStateMachine<T> {
                 TransactionType::AssertTimeout(assert_idx),
             )?;
             let assert_timeout_txid = assert_timeout_txhandler.get_txid();
+            // Assert transactions can have any txid (there is no enforcement on how the assert utxo is spent, just that
+            // spending assert utxo reveals the BitVM winternitz commit in the utxo's witness)
+            // But assert timeouts are nofn signed transactions with a fixed txid, so we can detect assert transactions
+            // by checking if the assert utxo is spent but not by the assert timeout tx
             self.matchers.insert(
                 Matcher::SpentUtxoButNotTxid(
                     OutPoint {
@@ -476,6 +618,8 @@ impl<T: Owner> KickoffStateMachine<T> {
             txid: kickoff_txid,
             vout: UtxoVout::LatestBlockhash.get_vout(),
         };
+        // Same logic as before with assert transaction detection, if latest blockhash utxo is not spent by latest blockhash timeout tx,
+        // it means the latest blockhash is committed on Bitcoin
         self.matchers.insert(
             Matcher::SpentUtxoButNotTxid(
                 latest_blockhash_outpoint,
@@ -485,7 +629,7 @@ impl<T: Owner> KickoffStateMachine<T> {
                 latest_blockhash_outpoint,
             },
         );
-        // add watchtower challenges and challenge acks
+        // add watchtower challenges and challenge acks matchers
         for watchtower_idx in 0..self.deposit_data.get_num_watchtowers() {
             let watchtower_challenge_vout =
                 UtxoVout::WatchtowerChallenge(watchtower_idx).get_vout();
@@ -494,12 +638,12 @@ impl<T: Owner> KickoffStateMachine<T> {
                 TransactionType::WatchtowerChallengeTimeout(watchtower_idx),
             )?;
             let watchtower_timeout_txid = watchtower_timeout_txhandler.get_txid();
-            // matcher in case timeout is sent
+            // matcher in case watchtower challenge timeout is sent
             self.matchers.insert(
                 Matcher::SentTx(*watchtower_timeout_txid),
                 KickoffEvent::WatchtowerChallengeTimeoutSent { watchtower_idx },
             );
-            // martcher in case watchtower challenge is sent
+            // matcher in case watchtower challenge is sent (watchtower challenge utxo is spent but not by watchtower challenge timeout tx)
             self.matchers.insert(
                 Matcher::SpentUtxoButNotTxid(
                     OutPoint {
@@ -516,7 +660,7 @@ impl<T: Owner> KickoffStateMachine<T> {
                     },
                 },
             );
-            // add operator challenge ack
+            // add operator challenge ack matcher
             let operator_challenge_ack_vout =
                 UtxoVout::WatchtowerChallengeAck(watchtower_idx).get_vout();
             let operator_challenge_nack_txhandler = remove_txhandler_from_map(
@@ -524,6 +668,7 @@ impl<T: Owner> KickoffStateMachine<T> {
                 TransactionType::OperatorChallengeNack(watchtower_idx),
             )?;
             let operator_challenge_nack_txid = operator_challenge_nack_txhandler.get_txid();
+            // operator challenge ack utxo is spent but not by operator challenge nack tx or watchtower challenge timeout tx
             self.matchers.insert(
                 Matcher::SpentUtxoButNotTxid(
                     OutPoint {
@@ -543,6 +688,10 @@ impl<T: Owner> KickoffStateMachine<T> {
         }
 
         // add burn connector tx spent matcher
+        // Burn connector can also be spent in ready to reimburse tx, but before spending burn connector that way,
+        // the kickoff finalizer needs to be spent first, otherwise pre-signed "Kickoff not finalized" tx can be sent by
+        // any verifier, slashing the operator.
+        // If the kickoff finalizer is spent first, the state will be in "Closed" state and all matchers will be deleted.
         let round_txhandler = remove_txhandler_from_map(&mut txhandlers, TransactionType::Round)?;
         let round_txid = *round_txhandler.get_txid();
         self.matchers.insert(
@@ -552,7 +701,7 @@ impl<T: Owner> KickoffStateMachine<T> {
             }),
             KickoffEvent::BurnConnectorSpent,
         );
-        // add kickoff finalizer tx spent matcher
+        // add kickoff finalizer utxo spent matcher
         self.matchers.insert(
             Matcher::SpentUtxo(OutPoint {
                 txid: kickoff_txid,
@@ -560,7 +709,7 @@ impl<T: Owner> KickoffStateMachine<T> {
             }),
             KickoffEvent::KickoffFinalizerSpent,
         );
-        // add challenge tx
+        // add challenge detector matcher, if challenge utxo is not spent by challenge timeout tx, it means the kickoff is challenged
         let challenge_timeout_txhandler =
             remove_txhandler_from_map(&mut txhandlers, TransactionType::ChallengeTimeout)?;
         let challenge_timeout_txid = challenge_timeout_txhandler.get_txid();
@@ -591,6 +740,8 @@ impl<T: Owner> KickoffStateMachine<T> {
             .await;
     }
 
+    /// Clears all matchers when the state is "closed".
+    /// This means the state machine will not do any more actions anymore.
     #[action]
     #[allow(unused_variables)]
     pub(crate) async fn on_closed_entry(&mut self, context: &mut StateContext<T>) {
@@ -598,7 +749,7 @@ impl<T: Owner> KickoffStateMachine<T> {
     }
 
     #[state(entry_action = "on_closed_entry")]
-    // Terminal state
+    // Terminal state when the kickoff process ends
     #[allow(unused_variables)]
     pub(crate) async fn closed(
         &mut self,

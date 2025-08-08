@@ -163,11 +163,6 @@ for i in "${!roles[@]}"; do
     filename=$(basename -- "$role$index")
     log_file="logs/${filename%.toml}.jsonl"
 
-    if [ "$role" == "aggregator" ]; then
-        echo "Waiting 120 seconds before starting aggregator..."
-        sleep 120
-    fi
-
     # Set dynamic config vars for each actor
     secret_key_digit=$((index + 1))
     export SECRET_KEY=$(printf "%064d" | tr '0' "$secret_key_digit")

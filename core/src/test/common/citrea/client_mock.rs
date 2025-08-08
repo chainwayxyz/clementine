@@ -88,6 +88,7 @@ impl CitreaClientT for MockCitreaClient {
         _light_client_prover_url: String,
         _chain_id: u32,
         _secret_key: Option<PrivateKeySigner>,
+        _timeout: Option<Duration>,
     ) -> Result<Self, BridgeError> {
         tracing::info!(
             "Using the mock Citrea client ({citrea_rpc_url}), beware that data returned from this client is not real"
@@ -112,23 +113,6 @@ impl CitreaClientT for MockCitreaClient {
             global.insert(citrea_rpc_url.clone(), Arc::downgrade(&storage));
             Ok(MockCitreaClient { storage })
         }
-    }
-
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::DEBUG))]
-    async fn withdrawal_utxos(&self, withdrawal_index: u64) -> Result<OutPoint, BridgeError> {
-        Ok(*self
-            .get_storage()
-            .await
-            .withdrawals
-            .iter()
-            .find_map(|Withdrawal { idx, utxo, .. }| {
-                if *idx == withdrawal_index as u32 {
-                    Some(utxo)
-                } else {
-                    None
-                }
-            })
-            .unwrap())
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::DEBUG))]
@@ -185,7 +169,7 @@ impl CitreaClientT for MockCitreaClient {
                 l2_height: l1_height.to_string(),
             },
             borsh::from_slice(include_bytes!(
-                "../../../../../bridge-circuit-host/bin-files/lcp_receipt.bin"
+                "../../../../../circuits-lib/test_data/lcp_receipt.bin"
             ))
             .wrap_err("Couldn't create mock receipt")?,
             l1_height,
@@ -196,6 +180,7 @@ impl CitreaClientT for MockCitreaClient {
         &self,
         block_height: u64,
         _timeout: Duration,
+        _network: bitcoin::Network,
     ) -> Result<(u64, u64), BridgeError> {
         Ok((
             if block_height == 0 {
@@ -260,6 +245,7 @@ mod tests {
             "".to_string(),
             config.citrea_chain_id,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -301,6 +287,7 @@ mod tests {
             "".to_string(),
             config.citrea_chain_id,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -335,12 +322,6 @@ mod tests {
         assert_eq!(utxos.len(), 1);
         assert_eq!(
             utxos[0].1,
-            bitcoin::OutPoint::new(bitcoin::Txid::from_slice(&[2; 32]).unwrap(), 1)
-        );
-
-        let utxo_from_index = client.withdrawal_utxos(1).await.unwrap();
-        assert_eq!(
-            utxo_from_index,
             bitcoin::OutPoint::new(bitcoin::Txid::from_slice(&[2; 32]).unwrap(), 1)
         );
     }

@@ -2,7 +2,10 @@ use super::{
     wrapper::{BlockHashDB, TxidDB},
     Database, DatabaseTransaction,
 };
-use crate::{bitcoin_syncer::BitcoinSyncerEvent, errors::BridgeError, execute_query_with_tx};
+use crate::{
+    bitcoin_syncer::BitcoinSyncerEvent, config::protocol::ProtocolParamset, errors::BridgeError,
+    execute_query_with_tx,
+};
 use bitcoin::{BlockHash, OutPoint, Txid};
 use eyre::Context;
 use std::ops::DerefMut;
@@ -323,47 +326,32 @@ impl Database {
         Ok(())
     }
 
-    /// Gets the block id belonging to the event from the database, given the event id
-    /// event id is the serial key of the bitcoin_syncer_events table
-    pub async fn get_block_id_from_event_id(
-        &self,
-        tx: DatabaseTransaction<'_, '_>,
-        event_id: i32,
-    ) -> Result<Option<u32>, BridgeError> {
-        let event =
-            sqlx::query_as::<_, (i32,)>("SELECT block_id FROM bitcoin_syncer_events WHERE id = $1")
-                .bind(event_id)
-                .fetch_optional(tx.deref_mut())
-                .await?;
-
-        match event {
-            Some((block_id,)) => Ok(Some(
-                u32::try_from(block_id).wrap_err(BridgeError::IntConversionError)?,
-            )),
-            None => Ok(None),
-        }
-    }
-
-    /// Returns the last processed Bitcoin Syncer event's block height.
-    /// If the last processed event is missing, returns `None`.
+    /// Returns the last processed Bitcoin Syncer event's block height for given consumer.
+    /// If the last processed event is missing, i.e. there are no processed events for the consumer, returns `None`.
     pub async fn get_last_processed_event_block_height(
         &self,
-        tx: DatabaseTransaction<'_, '_>,
+        tx: Option<DatabaseTransaction<'_, '_>>,
         consumer_handle: &str,
     ) -> Result<Option<u32>, BridgeError> {
-        let event_id = self
-            .get_last_processed_event_id(tx, consumer_handle)
-            .await?;
-        let block_id = self.get_block_id_from_event_id(tx, event_id).await?;
-        let block_id = match block_id {
-            Some(block_id) => block_id,
-            None => return Ok(None),
-        };
-        let block_info = self.get_block_info_from_id(Some(tx), block_id).await?;
-        match block_info {
-            Some((_, height)) => Ok(Some(height)),
-            None => Ok(None),
-        }
+        let query = sqlx::query_scalar::<_, i32>(
+            r#"SELECT bs.height
+             FROM bitcoin_syncer_event_handlers bseh
+             INNER JOIN bitcoin_syncer_events bse ON bseh.last_processed_event_id = bse.id
+             INNER JOIN bitcoin_syncer bs ON bse.block_id = bs.id
+             WHERE bseh.consumer_handle = $1"#,
+        )
+        .bind(consumer_handle);
+
+        let result: Option<i32> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+
+        result
+            .map(|h| {
+                u32::try_from(h)
+                    .wrap_err(BridgeError::IntConversionError)
+                    .map_err(BridgeError::from)
+            })
+            .transpose()
     }
 
     /// Gets the last processed event id for a given consumer
@@ -397,6 +385,63 @@ impl Database {
         .await?;
 
         Ok(last_processed_event_id)
+    }
+
+    /// Returns the maximum block height of the blocks that have been processed by the given consumer.
+    /// If the last processed event is missing, i.e. there are no processed events for the consumer, returns `None`.
+    pub async fn get_max_processed_block_height(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        consumer_handle: &str,
+    ) -> Result<Option<u32>, BridgeError> {
+        let query = sqlx::query_scalar::<_, Option<i32>>(
+            r#"SELECT MAX(bs.height)
+             FROM bitcoin_syncer_events bse
+             INNER JOIN bitcoin_syncer bs ON bse.block_id = bs.id
+             WHERE bse.id <= (
+                 SELECT last_processed_event_id 
+                 FROM bitcoin_syncer_event_handlers 
+                 WHERE consumer_handle = $1
+             )"#,
+        )
+        .bind(consumer_handle);
+
+        let result: Option<i32> = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
+
+        result
+            .map(|h| {
+                u32::try_from(h)
+                    .wrap_err(BridgeError::IntConversionError)
+                    .map_err(BridgeError::from)
+            })
+            .transpose()
+    }
+
+    /// Returns the next finalized block height that should be processed by the given consumer.
+    /// If there are no processed events, returns the paramset start height.
+    /// Next height is the max height of the processed block - finality depth + 1.
+    pub async fn get_next_finalized_block_height_for_consumer(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        consumer_handle: &str,
+        paramset: &'static ProtocolParamset,
+    ) -> Result<u32, BridgeError> {
+        let max_processed_block_height = self
+            .get_max_processed_block_height(tx, consumer_handle)
+            .await?;
+
+        let max_processed_finalized_block_height = match max_processed_block_height {
+            Some(max_processed_block_height) => {
+                max_processed_block_height.checked_sub(paramset.finality_depth)
+            }
+            None => None,
+        };
+
+        let next_height = max_processed_finalized_block_height
+            .map(|h| h + 1)
+            .unwrap_or(paramset.start_height);
+
+        Ok(std::cmp::max(next_height, paramset.start_height))
     }
 
     /// Fetches the next bitcoin syncer event for a given consumer

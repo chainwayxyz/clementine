@@ -3,12 +3,13 @@
 use crate::builder::script::SpendPath;
 use crate::builder::transaction::TransactionType;
 use crate::citrea::CitreaClientT;
+use crate::constants::NON_STANDARD_V3;
 use crate::rpc::clementine::NormalSignatureKind;
 use crate::utils::initialize_logger;
 use crate::utils::NamedEntity;
 use crate::{
     actor::Actor, builder, config::BridgeConfig, database::Database, errors::BridgeError,
-    extended_rpc::ExtendedRpc, musig2::AggregateFromPublicKeys,
+    extended_bitcoin_rpc::ExtendedBitcoinRpc, musig2::AggregateFromPublicKeys,
 };
 use crate::{EVMAddress, UTXO};
 use bitcoin::secp256k1::schnorr;
@@ -21,14 +22,14 @@ pub struct WithProcessCleanup(
     /// Handle to the bitcoind process
     pub Option<std::process::Child>,
     /// RPC client
-    pub ExtendedRpc,
+    pub ExtendedBitcoinRpc,
     /// Path to the bitcoind debug log file
     pub std::path::PathBuf,
     /// Whether to wait indefinitely after test finishes before cleanup (for RPC debugging)
     pub bool,
 );
 impl WithProcessCleanup {
-    pub fn rpc(&self) -> &ExtendedRpc {
+    pub fn rpc(&self) -> &ExtendedBitcoinRpc {
         &self.1
     }
 }
@@ -93,10 +94,11 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
         // Bitcoind is already running on port 18443, use existing port.
         return WithProcessCleanup(
             None,
-            ExtendedRpc::connect(
+            ExtendedBitcoinRpc::connect(
                 "http://127.0.0.1:18443".into(),
                 config.bitcoin_rpc_user.clone(),
                 config.bitcoin_rpc_password.clone(),
+                None,
             )
             .await
             .unwrap(),
@@ -129,6 +131,13 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
         args.push("-dustrelayfee=0".to_string());
     }
 
+    if config.test_params.mine_0_fee_txs {
+        // allow mining of 0-fee transactions
+        args.push("-minrelaytxfee=0".to_string());
+        args.push("-acceptnonstdtxn=1".to_string());
+        args.push("-blockmintxfee=0".to_string());
+    }
+
     // Create log file in temp directory
     let log_file = data_dir.join("debug.log");
     let log_file_path = log_file
@@ -151,31 +160,31 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
     // Create RPC client
     let rpc_url = format!("http://127.0.0.1:{}", rpc_port);
 
-    let client = ExtendedRpc::connect(
-        rpc_url,
-        config.bitcoin_rpc_user.clone(),
-        config.bitcoin_rpc_password.clone(),
-    )
-    .await
-    .expect("Failed to create RPC client");
-
     // Wait for node to be ready
     let mut attempts = 0;
     let retry_count = 30;
-    while attempts < retry_count {
-        if client.client.get_blockchain_info().await.is_ok() {
-            break;
+    let client = loop {
+        match ExtendedBitcoinRpc::connect(
+            rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+            None,
+        )
+        .await
+        {
+            Ok(client) => break client,
+            Err(_) => {
+                attempts += 1;
+                if attempts >= retry_count {
+                    panic!("Bitcoin node failed to start in {} seconds", retry_count);
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            }
         }
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        attempts += 1;
-    }
-    if attempts == retry_count {
-        panic!("Bitcoin node failed to start in {} seconds", retry_count);
-    }
+    };
 
     // Get and print bitcoind version
     let network_info = client
-        .client
         .get_network_info()
         .await
         .expect("Failed to get network info");
@@ -183,21 +192,18 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
 
     // // Create wallet
     client
-        .client
         .create_wallet("admin", None, None, None, None)
         .await
         .expect("Failed to create wallet");
 
     // Generate blocks
     let address = client
-        .client
         .get_new_address(None, None)
         .await
         .expect("Failed to get new address");
 
     if config.test_params.generate_to_address {
         client
-            .client
             .generate_to_address(201, address.assume_checked_ref())
             .await
             .expect("Failed to generate blocks");
@@ -232,30 +238,10 @@ pub async fn create_test_config_with_thread_name() -> BridgeConfig {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
 
-    let mut config = BridgeConfig::default();
-
-    // Check environment for an overwrite config. TODO: Convert this to env vars.
-    let env_config: Option<BridgeConfig> =
-        if let Ok(config_file_path) = std::env::var("TEST_CONFIG") {
-            Some(
-                BridgeConfig::try_parse_file(config_file_path.into())
-                    .expect("Failed to parse config file"),
-            )
-        } else {
-            None
-        };
-
-    config.db_name = handle.to_string();
-    config.citrea_rpc_url = handle.to_string();
-
-    // Overwrite user's environment to test's hard coded data if environment
-    // file is specified.
-    if let Some(env_config) = env_config {
-        config.db_host = env_config.db_host;
-        config.db_port = env_config.db_port;
-        config.db_user = env_config.db_user;
-        config.db_password = env_config.db_password;
-        config.db_name = env_config.db_name;
+    let config = BridgeConfig {
+        db_name: handle.to_string(),
+        citrea_rpc_url: handle.to_string(),
+        ..Default::default()
     };
 
     initialize_database(&config).await;
@@ -352,7 +338,7 @@ pub fn get_deposit_address(
 /// - [`Signature`]: Signature of the withdrawal transaction
 pub async fn generate_withdrawal_transaction_and_signature(
     config: &BridgeConfig,
-    rpc: &ExtendedRpc,
+    rpc: &ExtendedBitcoinRpc,
     withdrawal_address: &bitcoin::Address,
     withdrawal_amount: bitcoin::Amount,
 ) -> (UTXO, bitcoin::TxOut, schnorr::Signature) {
@@ -390,7 +376,7 @@ pub async fn generate_withdrawal_transaction_and_signature(
     let unspent_txout = builder::transaction::output::UnspentTxOut::from_partial(txout.clone());
 
     let tx = builder::transaction::TxHandlerBuilder::new(TransactionType::Payout)
-        .with_version(bitcoin::transaction::Version::non_standard(3))
+        .with_version(NON_STANDARD_V3)
         .add_input(
             NormalSignatureKind::NotStored,
             txin,

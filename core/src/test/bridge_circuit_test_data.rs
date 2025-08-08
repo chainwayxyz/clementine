@@ -8,7 +8,7 @@ use crate::test::common::citrea::{CitreaE2EData, SECRET_KEYS};
 use crate::test::common::clementine_utils::disprove_tests_common_setup;
 use crate::utils::initialize_logger;
 use crate::{
-    extended_rpc::ExtendedRpc,
+    extended_bitcoin_rpc::ExtendedBitcoinRpc,
     test::common::{
         citrea::{self},
         create_test_config_with_thread_name,
@@ -139,10 +139,11 @@ impl TestCase for BridgeCircuitTestData {
             )),
         );
 
-        let rpc = ExtendedRpc::connect(
+        let rpc = ExtendedBitcoinRpc::connect(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
+            None,
         )
         .await?;
 
@@ -151,6 +152,7 @@ impl TestCase for BridgeCircuitTestData {
             config.citrea_light_client_prover_url.clone(),
             config.citrea_chain_id,
             Some(SECRET_KEYS[0].to_string().parse().unwrap()),
+            config.citrea_request_timeout,
         )
         .await
         .unwrap();
@@ -178,10 +180,7 @@ impl TestCase for BridgeCircuitTestData {
 async fn bridge_circuit_test_data_diverse_hcp_lengths() -> Result<()> {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
-    std::env::set_var(
-        "CITREA_DOCKER_IMAGE",
-        "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
-    );
+    std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
     let bridge_circuit_test_data = BridgeCircuitTestData {
         variant: BridgeCircuitTestDataVariant::Valid,
     };
@@ -193,10 +192,7 @@ async fn bridge_circuit_test_data_diverse_hcp_lengths() -> Result<()> {
 async fn bridge_circuit_test_data_insuff_total_work_diverse_hcp_lens() -> Result<()> {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
-    std::env::set_var(
-        "CITREA_DOCKER_IMAGE",
-        "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
-    );
+    std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
 
     let bridge_circuit_test_data = BridgeCircuitTestData {
         variant: BridgeCircuitTestDataVariant::InsufficientTotalWork,
@@ -207,10 +203,7 @@ async fn bridge_circuit_test_data_insuff_total_work_diverse_hcp_lens() -> Result
 #[tokio::test]
 #[ignore = "Only run this test manually, it's for data generation purposes"]
 async fn bridge_circuit_test_data_diverse_hcp_lens_first_two_valid() -> Result<()> {
-    std::env::set_var(
-        "CITREA_DOCKER_IMAGE",
-        "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
-    );
+    std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
 
     let bridge_circuit_test_data = BridgeCircuitTestData {
         variant: BridgeCircuitTestDataVariant::FirstTwoValid,
@@ -224,10 +217,7 @@ async fn bridge_circuit_test_data_diverse_hcp_lens_first_two_valid() -> Result<(
 async fn challenge_tx_with_annex() -> Result<()> {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
-    std::env::set_var(
-        "CITREA_DOCKER_IMAGE",
-        "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
-    );
+    std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
     let watchtower_challenge_tx_variant = BridgeCircuitTestData {
         variant: BridgeCircuitTestDataVariant::WithAnnex,
     };
@@ -239,10 +229,7 @@ async fn challenge_tx_with_annex() -> Result<()> {
 #[tokio::test]
 #[ignore = "Only run this test manually, it's for data generation purposes"]
 async fn challenge_tx_with_large_input() -> Result<()> {
-    std::env::set_var(
-        "CITREA_DOCKER_IMAGE",
-        "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
-    );
+    std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
     let watchtower_challenge_tx_variant = BridgeCircuitTestData {
         variant: BridgeCircuitTestDataVariant::LargeInput,
     };
@@ -254,10 +241,7 @@ async fn challenge_tx_with_large_input() -> Result<()> {
 #[tokio::test]
 #[ignore = "Only run this test manually, it's for data generation purposes"]
 async fn challenge_tx_with_large_output() -> Result<()> {
-    std::env::set_var(
-        "CITREA_DOCKER_IMAGE",
-        "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
-    );
+    std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
     let watchtower_challenge_tx_variant = BridgeCircuitTestData {
         variant: BridgeCircuitTestDataVariant::LargeOutput,
     };
@@ -269,10 +253,7 @@ async fn challenge_tx_with_large_output() -> Result<()> {
 #[tokio::test]
 #[ignore = "Only run this test manually, it's for data generation purposes"]
 async fn challenge_tx_with_both_large_input_and_output() -> Result<()> {
-    std::env::set_var(
-        "CITREA_DOCKER_IMAGE",
-        "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
-    );
+    std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
     let watchtower_challenge_tx_variant = BridgeCircuitTestData {
         variant: BridgeCircuitTestDataVariant::LargeInputAndOutput,
     };
