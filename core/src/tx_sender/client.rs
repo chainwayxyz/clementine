@@ -80,6 +80,16 @@ impl TxSenderClient {
 
         let txid = signed_tx.compute_txid();
 
+        // do not add duplicate transactions to the txsender
+        let tx_exists = self
+            .db
+            .check_if_tx_exists_on_txsender(Some(dbtx), txid)
+            .await
+            .map_to_eyre()?;
+        if let Some(try_to_send_id) = tx_exists {
+            return Ok(try_to_send_id);
+        }
+
         let try_to_send_id = self
             .db
             .save_tx(
