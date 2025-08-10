@@ -315,16 +315,17 @@ impl Database {
         finality_depth: u32,
     ) -> Result<bool, BridgeError> {
         let spending_tx_height = self.get_block_height_of_spending_txid(tx, outpoint).await?;
-        if spending_tx_height.is_none() {
-            return Ok(false);
+        match spending_tx_height {
+            Some(spending_tx_height) => {
+                if spending_tx_height > current_chain_height
+                    || current_chain_height - spending_tx_height < finality_depth
+                {
+                    return Ok(false);
+                }
+                Ok(true)
+            }
+            None => Ok(false),
         }
-        let spending_tx_height = spending_tx_height.expect("Checked above");
-        if spending_tx_height > current_chain_height
-            || current_chain_height - spending_tx_height < finality_depth
-        {
-            return Ok(false);
-        }
-        Ok(true)
     }
 
     /// Gets all the spent utxos for a given txid
