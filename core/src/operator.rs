@@ -1966,9 +1966,21 @@ where
             - all kickoff utxos are spent
             - for all kickoffs, all kickoff finalizers are spent
             ", round_idx);
+            // get max height saved in bitcoin syncer
+            let current_chain_height = self
+                .db
+                .get_max_height(dbtx.as_deref_mut())
+                .await?
+                .ok_or_eyre("Max block height is not found in the btc syncer database")?;
+
             let round_txid = round_tx.1.compute_txid();
             let (unspent_kickoff_utxos, are_all_utxos_spent_finalized) = self
-                .find_and_mark_unspent_kickoff_utxos(dbtx.as_deref_mut(), round_idx, round_txid)
+                .find_and_mark_unspent_kickoff_utxos(
+                    dbtx.as_deref_mut(),
+                    round_idx,
+                    round_txid,
+                    current_chain_height,
+                )
                 .await?;
 
             if !unspent_kickoff_utxos.is_empty() {
@@ -1988,8 +2000,12 @@ where
                 // every kickoff utxo is spent, but we need to check if all kickoff finalizers are spent
                 // if not, we return and error and wait until they are spent
                 // if all finalizers are spent, it is safe to send ready to reimburse tx
-                self.validate_all_kickoff_finalizers_spent(dbtx.as_deref_mut(), round_idx)
-                    .await?;
+                self.validate_all_kickoff_finalizers_spent(
+                    dbtx.as_deref_mut(),
+                    round_idx,
+                    current_chain_height,
+                )
+                .await?;
                 // all finalizers and kickoff utxos are spent, it is safe to send ready to reimburse tx
                 txs_to_send.push(ready_to_reimburse_tx.clone());
             }
@@ -2009,17 +2025,12 @@ where
         mut dbtx: Option<DatabaseTransaction<'_, '_>>,
         round_idx: RoundIndex,
         round_txid: Txid,
+        current_chain_height: u32,
     ) -> Result<(Vec<usize>, bool), BridgeError> {
         // check and collect all kickoff utxos that are not spent
         let mut unspent_kickoff_utxos = Vec::new();
         // a variable to mark if any any kickoff utxo is spent, but still not finalized
         let mut fully_finalized_spent = true;
-        // get max height saved in bitcoin syncer
-        let max_block_height = self
-            .db
-            .get_max_height(dbtx.as_deref_mut())
-            .await?
-            .ok_or_eyre("Max block height is not found in the btc syncer database")?;
         for kickoff_idx in 0..self.config.protocol_paramset().num_kickoffs_per_round {
             let kickoff_utxo = OutPoint {
                 txid: round_txid,
@@ -2040,23 +2051,15 @@ where
                     .await?;
                 // check if the tx that spent the kickoff utxo is finalized
                 // use btc syncer for this
-                let block_height = self
+                fully_finalized_spent &= self
                     .db
-                    .get_block_height_of_spending_txid(dbtx.as_deref_mut(), kickoff_utxo)
+                    .check_if_utxo_spending_tx_is_finalized(
+                        dbtx.as_deref_mut(),
+                        kickoff_utxo,
+                        current_chain_height,
+                        self.config.protocol_paramset().finality_depth,
+                    )
                     .await?;
-                if block_height.is_none() {
-                    // if block height is not found, it means the outpoint is not detected to be spent by btc syncer yet
-                    fully_finalized_spent = false;
-                } else {
-                    let block_height = block_height.expect("Checked above");
-                    // check if block is finalized
-                    if block_height > max_block_height
-                        || max_block_height - block_height
-                            < self.config.protocol_paramset().finality_depth
-                    {
-                        fully_finalized_spent = false;
-                    }
-                }
             }
         }
         Ok((unspent_kickoff_utxos, fully_finalized_spent))
@@ -2116,6 +2119,7 @@ where
         &self,
         mut dbtx: Option<DatabaseTransaction<'_, '_>>,
         round_idx: RoundIndex,
+        current_chain_height: u32,
     ) -> Result<(), BridgeError> {
         // we need to check if all finalizers are spent
         for kickoff_idx in 0..self.config.protocol_paramset().num_kickoffs_per_round {
@@ -2132,20 +2136,29 @@ where
                     .db
                     .get_deposit_outpoint_for_kickoff_txid(dbtx.as_deref_mut(), kickoff_txid)
                     .await?;
+                let kickoff_finalizer_utxo = OutPoint {
+                    txid: kickoff_txid,
+                    vout: UtxoVout::KickoffFinalizer.get_vout(),
+                };
                 if !self.rpc.is_tx_on_chain(&kickoff_txid).await? {
                     return Err(eyre::eyre!("For round {:?} and kickoff utxo {:?}, the kickoff tx {:?} is not on chain, 
                     reimburse the deposit {:?} corresponding to this kickoff first. "
                     , round_idx, kickoff_idx, kickoff_txid, deposit_outpoint).into());
-                } else if !self
-                    .rpc
-                    .is_utxo_spent(&OutPoint {
-                        txid: kickoff_txid,
-                        vout: UtxoVout::KickoffFinalizer.get_vout(),
-                    })
-                    .await?
-                {
+                } else if !self.rpc.is_utxo_spent(&kickoff_finalizer_utxo).await? {
                     return Err(eyre::eyre!("For round {:?} and kickoff utxo {:?}, the kickoff finalizer {:?} is not spent, 
                     send the challenge timeout tx for the deposit {:?} first", round_idx, kickoff_idx, kickoff_txid, deposit_outpoint).into());
+                } else if !self
+                    .db
+                    .check_if_utxo_spending_tx_is_finalized(
+                        dbtx.as_deref_mut(),
+                        kickoff_finalizer_utxo,
+                        current_chain_height,
+                        self.config.protocol_paramset().finality_depth,
+                    )
+                    .await?
+                {
+                    return Err(eyre::eyre!("For round {:?} and kickoff utxo {:?}, the kickoff finalizer utxo {:?} is spent, but not yet finalized, wait until it is finalized. Finality depth: {}
+                    If the transaction is actually finalized, but this error is returned, it means internal bitcoin syncer is slow or stopped.", round_idx, kickoff_idx, kickoff_finalizer_utxo, self.config.protocol_paramset().finality_depth).into());
                 }
             }
         }
