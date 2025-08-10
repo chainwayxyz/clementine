@@ -1862,7 +1862,10 @@ where
             .db
             .get_deposit_data(Some(&mut dbtx), deposit_outpoint)
             .await?
-            .ok_or(BridgeError::DatabaseError(sqlx::Error::RowNotFound))?;
+            .ok_or_eyre(format!(
+                "Deposit data not found for the requested deposit outpoint: {:?}, make sure you send the deposit outpoint, not the move txid.",
+                deposit_outpoint
+            ))?;
 
         tracing::info!(
             "Deposit data found for the requested deposit outpoint: {:?}, deposit id: {:?}",
@@ -1964,7 +1967,7 @@ where
             - for all kickoffs, all kickoff finalizers are spent
             ", round_idx);
             let round_txid = round_tx.1.compute_txid();
-            let unspent_kickoff_utxos = self
+            let (unspent_kickoff_utxos, are_all_utxos_spent_finalized) = self
                 .find_and_mark_unspent_kickoff_utxos(dbtx.as_deref_mut(), round_idx, round_txid)
                 .await?;
 
@@ -1973,6 +1976,14 @@ where
                     .create_burn_unused_kickoff_connectors_tx(round_idx, &unspent_kickoff_utxos)
                     .await?;
                 txs_to_send.extend(burn_txs);
+            } else if !are_all_utxos_spent_finalized {
+                // if some utxos are not spent, we need to wait until they are spent
+                return Err(eyre::eyre!(format!(
+                    "The transactions that spend the kickoff utxos are not yet finalized, wait until they are finalized. Finality depth: {}
+                    If they are actually finalized, but this error is returned, it means internal bitcoin syncer is slow or stopped.",
+                    self.config.protocol_paramset().finality_depth
+                ))
+                .into());
             } else {
                 // every kickoff utxo is spent, but we need to check if all kickoff finalizers are spent
                 // if not, we return and error and wait until they are spent
@@ -1992,14 +2003,23 @@ where
     }
 
     /// Finds unspent kickoff UTXOs and marks spent ones as used in the database.
+    /// Returns the unspent kickoff utxos (doesn't matter if finalized or unfinalized) and a boolean to mark if all utxos are spent and finalized
     async fn find_and_mark_unspent_kickoff_utxos(
         &self,
         mut dbtx: Option<DatabaseTransaction<'_, '_>>,
         round_idx: RoundIndex,
         round_txid: Txid,
-    ) -> Result<Vec<usize>, BridgeError> {
+    ) -> Result<(Vec<usize>, bool), BridgeError> {
         // check and collect all kickoff utxos that are not spent
         let mut unspent_kickoff_utxos = Vec::new();
+        // a variable to mark if any any kickoff utxo is spent, but still not finalized
+        let mut fully_finalized_spent = true;
+        // get max height saved in bitcoin syncer
+        let max_block_height = self
+            .db
+            .get_max_height(dbtx.as_deref_mut())
+            .await?
+            .ok_or_eyre("Max block height is not found in the btc syncer database")?;
         for kickoff_idx in 0..self.config.protocol_paramset().num_kickoffs_per_round {
             let kickoff_utxo = OutPoint {
                 txid: round_txid,
@@ -2018,9 +2038,28 @@ where
                         None,
                     )
                     .await?;
+                // check if the tx that spent the kickoff utxo is finalized
+                // use btc syncer for this
+                let block_height = self
+                    .db
+                    .get_block_height_of_spending_txid(dbtx.as_deref_mut(), kickoff_utxo)
+                    .await?;
+                if block_height.is_none() {
+                    // if block height is not found, it means the outpoint is not detected to be spent by btc syncer yet
+                    fully_finalized_spent = false;
+                } else {
+                    let block_height = block_height.expect("Checked above");
+                    // check if block is finalized
+                    if block_height > max_block_height
+                        || max_block_height - block_height
+                            < self.config.protocol_paramset().finality_depth
+                    {
+                        fully_finalized_spent = false;
+                    }
+                }
             }
         }
-        Ok(unspent_kickoff_utxos)
+        Ok((unspent_kickoff_utxos, fully_finalized_spent))
     }
 
     /// Creates a transaction that burns unused kickoff connectors.

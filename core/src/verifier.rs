@@ -307,7 +307,7 @@ where
         #[cfg(not(feature = "automation"))]
         {
             // get the next finalized block height to start from
-            let next_height_no_automation = self
+            let next_height = self
                 .verifier
                 .db
                 .get_next_finalized_block_height_for_consumer(

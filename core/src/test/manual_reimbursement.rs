@@ -263,6 +263,12 @@ async fn deposit_and_get_reimbursement(
                         )
                         .await
                         .unwrap();
+                    } else if tx_type == TransactionType::BurnUnusedKickoffConnectors {
+                        rpc.mine_blocks(config.protocol_paramset().finality_depth as u64 + 2)
+                            .await
+                            .unwrap();
+                        // wait a bit for btc syncer to sync
+                        tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
                     }
                 }
             }

@@ -281,6 +281,30 @@ impl Database {
         Ok(())
     }
 
+    /// For a given outpoint, gets the block height of the canonical block that spent it.
+    /// Returns None if the outpoint is not spent.
+    pub async fn get_block_height_of_spending_txid(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        outpoint: OutPoint,
+    ) -> Result<Option<u32>, BridgeError> {
+        let query = sqlx::query_scalar::<_, i32>(
+            "SELECT bs.height FROM bitcoin_syncer_spent_utxos bspu
+                INNER JOIN bitcoin_syncer bs ON bspu.block_id = bs.id
+                WHERE bspu.txid = $1 AND bspu.vout = $2 AND bs.is_canonical = true",
+        )
+        .bind(super::wrapper::TxidDB(outpoint.txid))
+        .bind(outpoint.vout as i64);
+
+        let result: Option<i32> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+
+        result
+            .map(|height| u32::try_from(height).wrap_err(BridgeError::IntConversionError))
+            .transpose()
+            .map_err(Into::into)
+    }
+
     /// Gets all the spent utxos for a given txid
     pub async fn get_spent_utxos_for_txid(
         &self,
