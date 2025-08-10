@@ -2244,10 +2244,60 @@ mod states {
                             &mut dbtx,
                             kickoff_data,
                             block_height,
-                            deposit_data,
+                            deposit_data.clone(),
                             witness,
                         )
                         .await?;
+
+                        // send the relevant txs an operator should send during a kickoff to the txsender again
+                        // note: an operator only tracks itself, so only receives its own kickoffs here
+                        // the reason why is that if kickoff was sent during no-automation mode, these tx's were never added to the txsender
+                        let context = ContractContext::new_context_for_kickoff(
+                            kickoff_data,
+                            deposit_data.clone(),
+                            self.config.protocol_paramset(),
+                        );
+                        let signed_txs = create_and_sign_txs(
+                            self.db.clone(),
+                            &self.signer,
+                            self.config.clone(),
+                            context,
+                            // we don't need to send kickoff tx (it's already sent) so payout blockhash is irrelevant
+                            None,
+                            Some(&mut dbtx),
+                        )
+                        .await?;
+                        let tx_metadata = Some(TxMetadata {
+                            tx_type: TransactionType::Dummy, // will be replaced in add_tx_to_queue
+                            operator_xonly_pk: Some(self.signer.xonly_public_key),
+                            round_idx: Some(kickoff_data.round_idx),
+                            kickoff_idx: Some(kickoff_data.kickoff_idx),
+                            deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
+                        });
+                        // try to send them
+                        for (tx_type, signed_tx) in &signed_txs {
+                            match *tx_type {
+                                TransactionType::OperatorChallengeAck(_)
+                                | TransactionType::WatchtowerChallengeTimeout(_)
+                                | TransactionType::ChallengeTimeout
+                                | TransactionType::DisproveTimeout
+                                | TransactionType::Reimburse => {
+                                    #[cfg(feature = "automation")]
+                                    self.tx_sender
+                                        .add_tx_to_queue(
+                                            &mut dbtx,
+                                            *tx_type,
+                                            signed_tx,
+                                            &signed_txs,
+                                            tx_metadata,
+                                            &self.config,
+                                            None,
+                                        )
+                                        .await?;
+                                }
+                                _ => {}
+                            }
+                        }
                         dbtx.commit().await?;
                     }
                     Ok(DutyResult::Handled)
