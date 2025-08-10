@@ -179,9 +179,16 @@ impl<T: NamedEntity + Sync + Send + 'static> L1SyncStatusProvider for T {
             let tx_sender_synced_height =
                 get_btc_syncer_consumer_last_processed_block_height(db, T::TX_SENDER_CONSUMER_ID)
                     .await?;
+            #[cfg(feature = "automation")]
             let finalized_synced_height = get_btc_syncer_consumer_last_processed_block_height(
                 db,
-                T::FINALIZED_BLOCK_CONSUMER_ID,
+                T::FINALIZED_BLOCK_CONSUMER_ID_AUTOMATION,
+            )
+            .await?;
+            #[cfg(not(feature = "automation"))]
+            let finalized_synced_height = get_btc_syncer_consumer_last_processed_block_height(
+                db,
+                T::FINALIZED_BLOCK_CONSUMER_ID_NO_AUTOMATION,
             )
             .await?;
             let btc_syncer_synced_height = get_btc_syncer_synced_height(db).await?;

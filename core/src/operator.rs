@@ -2159,7 +2159,10 @@ where
     const ENTITY_NAME: &'static str = "operator";
     // operators use their verifier's tx sender
     const TX_SENDER_CONSUMER_ID: &'static str = "verifier_tx_sender";
-    const FINALIZED_BLOCK_CONSUMER_ID: &'static str = "operator_finalized_block_fetcher";
+    const FINALIZED_BLOCK_CONSUMER_ID_AUTOMATION: &'static str =
+        "operator_finalized_block_fetcher_automation";
+    const FINALIZED_BLOCK_CONSUMER_ID_NO_AUTOMATION: &'static str =
+        "operator_finalized_block_fetcher_no_automation";
 }
 
 #[cfg(feature = "automation")]
