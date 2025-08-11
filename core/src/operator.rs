@@ -62,8 +62,8 @@ use {
         },
         structs::{BridgeCircuitHostParams, WatchtowerContext},
     },
-    std::collections::HashMap,
     circuits_lib::bridge_circuit::structs::LightClientProof,
+    std::collections::HashMap,
 };
 
 pub type SecretPreimage = [u8; 20];
