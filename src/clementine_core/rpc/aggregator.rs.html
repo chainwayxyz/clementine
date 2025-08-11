@@ -2298,7 +2298,11 @@
 <a href="#2297" id="2297">2297</a>
 <a href="#2298" id="2298">2298</a>
 <a href="#2299" id="2299">2299</a>
-<a href="#2300" id="2300">2300</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::{
+<a href="#2300" id="2300">2300</a>
+<a href="#2301" id="2301">2301</a>
+<a href="#2302" id="2302">2302</a>
+<a href="#2303" id="2303">2303</a>
+<a href="#2304" id="2304">2304</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::{
     clementine_aggregator_server::ClementineAggregator, verifier_deposit_finalize_params,
     DepositParams, Empty, VerifierDepositFinalizeParams,
 };
@@ -2323,7 +2327,10 @@
 <span class="kw">use </span><span class="kw">crate</span>::deposit::{Actors, DepositData, DepositInfo};
 <span class="kw">use </span><span class="kw">crate</span>::errors::ResultExt;
 <span class="kw">use </span><span class="kw">crate</span>::musig2::AggregateFromPublicKeys;
-<span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::{AggregatorWithdrawalInput, VerifierDepositSignParams};
+<span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::{
+    operator_withrawal_response, AggregatorWithdrawalInput, OperatorWithrawalResponse,
+    VerifierDepositSignParams,
+};
 <span class="kw">use </span><span class="kw">crate</span>::rpc::parser;
 <span class="kw">use </span><span class="kw">crate</span>::utils::{get_vergen_response, timed_request, timed_try_join_all, ScriptBufExt};
 <span class="kw">use </span><span class="kw">crate</span>::utils::{FeePayingType, TxMetadata};
@@ -3840,15 +3847,16 @@
             withdraw_responses: responses
                 .into_iter()
                 .map(|(res, xonly_pk)| <span class="kw">match </span>res {
-                    <span class="prelude-val">Ok</span>(withdraw_response) =&gt; {
-                        <span class="kw">let </span>signed_tx = withdraw_response.into_inner().raw_tx;
-                        <span class="kw">let </span>hex_tx = hex::encode(signed_tx);
-                        <span class="macro">format!</span>(
-                            <span class="string">"Withdraw successful for operator: {:?}, withdrawal tx: {}"</span>,
-                            xonly_pk, hex_tx
-                        )
-                    }
-                    <span class="prelude-val">Err</span>(e) =&gt; <span class="macro">format!</span>(<span class="string">"Withdraw failed for operator: {:?}, error: {}"</span>, xonly_pk, e),
+                    <span class="prelude-val">Ok</span>(withdraw_response) =&gt; OperatorWithrawalResponse {
+                        operator_xonly_pk: <span class="prelude-val">Some</span>(xonly_pk.into()),
+                        response: <span class="prelude-val">Some</span>(operator_withrawal_response::Response::RawTx(
+                            withdraw_response.into_inner(),
+                        )),
+                    },
+                    <span class="prelude-val">Err</span>(e) =&gt; OperatorWithrawalResponse {
+                        operator_xonly_pk: <span class="prelude-val">Some</span>(xonly_pk.into()),
+                        response: <span class="prelude-val">Some</span>(operator_withrawal_response::Response::Error(e.to_string())),
+                    },
                 })
                 .collect(),
         }))

@@ -1914,7 +1914,7 @@
             <span class="kw">let </span>withdraw_responses = response.get_ref().withdraw_responses.clone();
 
             <span class="kw">for </span>(i, result) <span class="kw">in </span>withdraw_responses.iter().enumerate() {
-                <span class="macro">println!</span>(<span class="string">"Operator {}: {}"</span>, i, result);
+                <span class="macro">println!</span>(<span class="string">"Operator {}: {:?}"</span>, i, result);
             }
         }
         AggregatorCommands::GetEntityStatuses { restart_tasks } =&gt; {
