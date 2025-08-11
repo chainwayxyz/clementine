@@ -430,7 +430,17 @@
 <a href="#429" id="429">429</a>
 <a href="#430" id="430">430</a>
 <a href="#431" id="431">431</a>
-<a href="#432" id="432">432</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::Result;
+<a href="#432" id="432">432</a>
+<a href="#433" id="433">433</a>
+<a href="#434" id="434">434</a>
+<a href="#435" id="435">435</a>
+<a href="#436" id="436">436</a>
+<a href="#437" id="437">437</a>
+<a href="#438" id="438">438</a>
+<a href="#439" id="439">439</a>
+<a href="#440" id="440">440</a>
+<a href="#441" id="441">441</a>
+<a href="#442" id="442">442</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::Result;
 <span class="kw">use super</span>::{ActivatedWithOutpoint, ActivatedWithTxid};
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::input::UtxoVout;
 <span class="kw">use </span><span class="kw">crate</span>::errors::ResultExt;
@@ -511,6 +521,16 @@
         );
 
         <span class="kw">let </span>txid = signed_tx.compute_txid();
+
+        <span class="comment">// do not add duplicate transactions to the txsender
+        </span><span class="kw">let </span>tx_exists = <span class="self">self
+            </span>.db
+            .check_if_tx_exists_on_txsender(<span class="prelude-val">Some</span>(dbtx), txid)
+            .<span class="kw">await
+            </span>.map_to_eyre()<span class="question-mark">?</span>;
+        <span class="kw">if let </span><span class="prelude-val">Some</span>(try_to_send_id) = tx_exists {
+            <span class="kw">return </span><span class="prelude-val">Ok</span>(try_to_send_id);
+        }
 
         <span class="kw">let </span>try_to_send_id = <span class="self">self
             </span>.db

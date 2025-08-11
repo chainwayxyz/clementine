@@ -792,7 +792,10 @@
 <a href="#791" id="791">791</a>
 <a href="#792" id="792">792</a>
 <a href="#793" id="793">793</a>
-<a href="#794" id="794">794</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::builder::transaction::TransactionType;
+<a href="#794" id="794">794</a>
+<a href="#795" id="795">795</a>
+<a href="#796" id="796">796</a>
+<a href="#797" id="797">797</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::builder::transaction::TransactionType;
 <span class="kw">use </span><span class="kw">crate</span>::config::TelemetryConfig;
 <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
 <span class="kw">use </span><span class="kw">crate</span>::operator::RoundIndex;
@@ -1297,8 +1300,11 @@
     <span class="doccomment">/// Consumer ID for the tx sender task.
     </span><span class="kw">const </span>TX_SENDER_CONSUMER_ID: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str;
 
-    <span class="doccomment">/// Consumer ID for the finalized block task.
-    </span><span class="kw">const </span>FINALIZED_BLOCK_CONSUMER_ID: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str;
+    <span class="doccomment">/// Consumer ID for the finalized block task with no automation.
+    </span><span class="kw">const </span>FINALIZED_BLOCK_CONSUMER_ID_NO_AUTOMATION: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str;
+
+    <span class="doccomment">/// Consumer ID for the finalized block task with automation.
+    </span><span class="kw">const </span>FINALIZED_BLOCK_CONSUMER_ID_AUTOMATION: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str;
 }
 
 <span class="attr">#[derive(Copy, Clone, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]

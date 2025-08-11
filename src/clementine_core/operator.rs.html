@@ -2352,7 +2352,106 @@
 <a href="#2351" id="2351">2351</a>
 <a href="#2352" id="2352">2352</a>
 <a href="#2353" id="2353">2353</a>
-<a href="#2354" id="2354">2354</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_ff::PrimeField;
+<a href="#2354" id="2354">2354</a>
+<a href="#2355" id="2355">2355</a>
+<a href="#2356" id="2356">2356</a>
+<a href="#2357" id="2357">2357</a>
+<a href="#2358" id="2358">2358</a>
+<a href="#2359" id="2359">2359</a>
+<a href="#2360" id="2360">2360</a>
+<a href="#2361" id="2361">2361</a>
+<a href="#2362" id="2362">2362</a>
+<a href="#2363" id="2363">2363</a>
+<a href="#2364" id="2364">2364</a>
+<a href="#2365" id="2365">2365</a>
+<a href="#2366" id="2366">2366</a>
+<a href="#2367" id="2367">2367</a>
+<a href="#2368" id="2368">2368</a>
+<a href="#2369" id="2369">2369</a>
+<a href="#2370" id="2370">2370</a>
+<a href="#2371" id="2371">2371</a>
+<a href="#2372" id="2372">2372</a>
+<a href="#2373" id="2373">2373</a>
+<a href="#2374" id="2374">2374</a>
+<a href="#2375" id="2375">2375</a>
+<a href="#2376" id="2376">2376</a>
+<a href="#2377" id="2377">2377</a>
+<a href="#2378" id="2378">2378</a>
+<a href="#2379" id="2379">2379</a>
+<a href="#2380" id="2380">2380</a>
+<a href="#2381" id="2381">2381</a>
+<a href="#2382" id="2382">2382</a>
+<a href="#2383" id="2383">2383</a>
+<a href="#2384" id="2384">2384</a>
+<a href="#2385" id="2385">2385</a>
+<a href="#2386" id="2386">2386</a>
+<a href="#2387" id="2387">2387</a>
+<a href="#2388" id="2388">2388</a>
+<a href="#2389" id="2389">2389</a>
+<a href="#2390" id="2390">2390</a>
+<a href="#2391" id="2391">2391</a>
+<a href="#2392" id="2392">2392</a>
+<a href="#2393" id="2393">2393</a>
+<a href="#2394" id="2394">2394</a>
+<a href="#2395" id="2395">2395</a>
+<a href="#2396" id="2396">2396</a>
+<a href="#2397" id="2397">2397</a>
+<a href="#2398" id="2398">2398</a>
+<a href="#2399" id="2399">2399</a>
+<a href="#2400" id="2400">2400</a>
+<a href="#2401" id="2401">2401</a>
+<a href="#2402" id="2402">2402</a>
+<a href="#2403" id="2403">2403</a>
+<a href="#2404" id="2404">2404</a>
+<a href="#2405" id="2405">2405</a>
+<a href="#2406" id="2406">2406</a>
+<a href="#2407" id="2407">2407</a>
+<a href="#2408" id="2408">2408</a>
+<a href="#2409" id="2409">2409</a>
+<a href="#2410" id="2410">2410</a>
+<a href="#2411" id="2411">2411</a>
+<a href="#2412" id="2412">2412</a>
+<a href="#2413" id="2413">2413</a>
+<a href="#2414" id="2414">2414</a>
+<a href="#2415" id="2415">2415</a>
+<a href="#2416" id="2416">2416</a>
+<a href="#2417" id="2417">2417</a>
+<a href="#2418" id="2418">2418</a>
+<a href="#2419" id="2419">2419</a>
+<a href="#2420" id="2420">2420</a>
+<a href="#2421" id="2421">2421</a>
+<a href="#2422" id="2422">2422</a>
+<a href="#2423" id="2423">2423</a>
+<a href="#2424" id="2424">2424</a>
+<a href="#2425" id="2425">2425</a>
+<a href="#2426" id="2426">2426</a>
+<a href="#2427" id="2427">2427</a>
+<a href="#2428" id="2428">2428</a>
+<a href="#2429" id="2429">2429</a>
+<a href="#2430" id="2430">2430</a>
+<a href="#2431" id="2431">2431</a>
+<a href="#2432" id="2432">2432</a>
+<a href="#2433" id="2433">2433</a>
+<a href="#2434" id="2434">2434</a>
+<a href="#2435" id="2435">2435</a>
+<a href="#2436" id="2436">2436</a>
+<a href="#2437" id="2437">2437</a>
+<a href="#2438" id="2438">2438</a>
+<a href="#2439" id="2439">2439</a>
+<a href="#2440" id="2440">2440</a>
+<a href="#2441" id="2441">2441</a>
+<a href="#2442" id="2442">2442</a>
+<a href="#2443" id="2443">2443</a>
+<a href="#2444" id="2444">2444</a>
+<a href="#2445" id="2445">2445</a>
+<a href="#2446" id="2446">2446</a>
+<a href="#2447" id="2447">2447</a>
+<a href="#2448" id="2448">2448</a>
+<a href="#2449" id="2449">2449</a>
+<a href="#2450" id="2450">2450</a>
+<a href="#2451" id="2451">2451</a>
+<a href="#2452" id="2452">2452</a>
+<a href="#2453" id="2453">2453</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_ff::PrimeField;
 <span class="kw">use </span>circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
 
 <span class="kw">use </span><span class="kw">crate</span>::actor::{Actor, TweakCache, WinternitzDerivationPath};
@@ -4225,7 +4324,10 @@
             </span>.db
             .get_deposit_data(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx), deposit_outpoint)
             .<span class="kw">await</span><span class="question-mark">?
-            </span>.ok_or(BridgeError::DatabaseError(sqlx::Error::RowNotFound))<span class="question-mark">?</span>;
+            </span>.ok_or_eyre(<span class="macro">format!</span>(
+                <span class="string">"Deposit data not found for the requested deposit outpoint: {:?}, make sure you send the deposit outpoint, not the move txid."</span>,
+                deposit_outpoint
+            ))<span class="question-mark">?</span>;
 
         <span class="macro">tracing::info!</span>(
             <span class="string">"Deposit data found for the requested deposit outpoint: {:?}, deposit id: {:?}"</span>,
@@ -4326,9 +4428,21 @@
             - all kickoff utxos are spent
             - for all kickoffs, all kickoff finalizers are spent
             "</span>, round_idx);
+            <span class="comment">// get max height saved in bitcoin syncer
+            </span><span class="kw">let </span>current_chain_height = <span class="self">self
+                </span>.db
+                .get_max_height(dbtx.as_deref_mut())
+                .<span class="kw">await</span><span class="question-mark">?
+                </span>.ok_or_eyre(<span class="string">"Max block height is not found in the btc syncer database"</span>)<span class="question-mark">?</span>;
+
             <span class="kw">let </span>round_txid = round_tx.<span class="number">1</span>.compute_txid();
-            <span class="kw">let </span>unspent_kickoff_utxos = <span class="self">self
-                </span>.find_and_mark_unspent_kickoff_utxos(dbtx.as_deref_mut(), round_idx, round_txid)
+            <span class="kw">let </span>(unspent_kickoff_utxos, are_all_utxos_spent_finalized) = <span class="self">self
+                </span>.find_and_mark_unspent_kickoff_utxos(
+                    dbtx.as_deref_mut(),
+                    round_idx,
+                    round_txid,
+                    current_chain_height,
+                )
                 .<span class="kw">await</span><span class="question-mark">?</span>;
 
             <span class="kw">if </span>!unspent_kickoff_utxos.is_empty() {
@@ -4336,12 +4450,24 @@
                     </span>.create_burn_unused_kickoff_connectors_tx(round_idx, <span class="kw-2">&amp;</span>unspent_kickoff_utxos)
                     .<span class="kw">await</span><span class="question-mark">?</span>;
                 txs_to_send.extend(burn_txs);
+            } <span class="kw">else if </span>!are_all_utxos_spent_finalized {
+                <span class="comment">// if some utxos are not spent, we need to wait until they are spent
+                </span><span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(<span class="macro">format!</span>(
+                    <span class="string">"The transactions that spend the kickoff utxos are not yet finalized, wait until they are finalized. Finality depth: {}
+                    If they are actually finalized, but this error is returned, it means internal bitcoin syncer is slow or stopped."</span>,
+                    <span class="self">self</span>.config.protocol_paramset().finality_depth
+                ))
+                .into());
             } <span class="kw">else </span>{
                 <span class="comment">// every kickoff utxo is spent, but we need to check if all kickoff finalizers are spent
                 // if not, we return and error and wait until they are spent
                 // if all finalizers are spent, it is safe to send ready to reimburse tx
-                </span><span class="self">self</span>.validate_all_kickoff_finalizers_spent(dbtx.as_deref_mut(), round_idx)
-                    .<span class="kw">await</span><span class="question-mark">?</span>;
+                </span><span class="self">self</span>.validate_all_kickoff_finalizers_spent(
+                    dbtx.as_deref_mut(),
+                    round_idx,
+                    current_chain_height,
+                )
+                .<span class="kw">await</span><span class="question-mark">?</span>;
                 <span class="comment">// all finalizers and kickoff utxos are spent, it is safe to send ready to reimburse tx
                 </span>txs_to_send.push(ready_to_reimburse_tx.clone());
             }
@@ -4355,14 +4481,18 @@
     }
 
     <span class="doccomment">/// Finds unspent kickoff UTXOs and marks spent ones as used in the database.
+    /// Returns the unspent kickoff utxos (doesn't matter if finalized or unfinalized) and a boolean to mark if all utxos are spent and finalized
     </span><span class="kw">async fn </span>find_and_mark_unspent_kickoff_utxos(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         <span class="kw-2">mut </span>dbtx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
         round_idx: RoundIndex,
         round_txid: Txid,
-    ) -&gt; <span class="prelude-ty">Result</span>&lt;Vec&lt;usize&gt;, BridgeError&gt; {
+        current_chain_height: u32,
+    ) -&gt; <span class="prelude-ty">Result</span>&lt;(Vec&lt;usize&gt;, bool), BridgeError&gt; {
         <span class="comment">// check and collect all kickoff utxos that are not spent
         </span><span class="kw">let </span><span class="kw-2">mut </span>unspent_kickoff_utxos = Vec::new();
+        <span class="comment">// a variable to mark if any any kickoff utxo is spent, but still not finalized
+        </span><span class="kw">let </span><span class="kw-2">mut </span>fully_finalized_spent = <span class="bool-val">true</span>;
         <span class="kw">for </span>kickoff_idx <span class="kw">in </span><span class="number">0</span>..<span class="self">self</span>.config.protocol_paramset().num_kickoffs_per_round {
             <span class="kw">let </span>kickoff_utxo = OutPoint {
                 txid: round_txid,
@@ -4381,9 +4511,20 @@
                         <span class="prelude-val">None</span>,
                     )
                     .<span class="kw">await</span><span class="question-mark">?</span>;
+                <span class="comment">// check if the tx that spent the kickoff utxo is finalized
+                // use btc syncer for this
+                </span>fully_finalized_spent &amp;= <span class="self">self
+                    </span>.db
+                    .check_if_utxo_spending_tx_is_finalized(
+                        dbtx.as_deref_mut(),
+                        kickoff_utxo,
+                        current_chain_height,
+                        <span class="self">self</span>.config.protocol_paramset().finality_depth,
+                    )
+                    .<span class="kw">await</span><span class="question-mark">?</span>;
             }
         }
-        <span class="prelude-val">Ok</span>(unspent_kickoff_utxos)
+        <span class="prelude-val">Ok</span>((unspent_kickoff_utxos, fully_finalized_spent))
     }
 
     <span class="doccomment">/// Creates a transaction that burns unused kickoff connectors.
@@ -4440,6 +4581,7 @@
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         <span class="kw-2">mut </span>dbtx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
         round_idx: RoundIndex,
+        current_chain_height: u32,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
         <span class="comment">// we need to check if all finalizers are spent
         </span><span class="kw">for </span>kickoff_idx <span class="kw">in </span><span class="number">0</span>..<span class="self">self</span>.config.protocol_paramset().num_kickoffs_per_round {
@@ -4456,26 +4598,29 @@
                     </span>.db
                     .get_deposit_outpoint_for_kickoff_txid(dbtx.as_deref_mut(), kickoff_txid)
                     .<span class="kw">await</span><span class="question-mark">?</span>;
+                <span class="kw">let </span>kickoff_finalizer_utxo = OutPoint {
+                    txid: kickoff_txid,
+                    vout: UtxoVout::KickoffFinalizer.get_vout(),
+                };
                 <span class="kw">if </span>!<span class="self">self</span>.rpc.is_tx_on_chain(<span class="kw-2">&amp;</span>kickoff_txid).<span class="kw">await</span><span class="question-mark">? </span>{
-                    <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(
-                        <span class="string">"For round {:?} and kickoff utxo {:?}, the kickoff tx {:?} is not on chain,
-                    reimburse the deposit {:?} corresponding to this kickoff first. "</span>,
-                        round_idx,
-                        kickoff_idx,
-                        kickoff_txid,
-                        deposit_outpoint
-                    )
-                    .into());
+                    <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(<span class="string">"For round {:?} and kickoff utxo {:?}, the kickoff tx {:?} is not on chain, 
+                    reimburse the deposit {:?} corresponding to this kickoff first. "
+                    </span>, round_idx, kickoff_idx, kickoff_txid, deposit_outpoint).into());
+                } <span class="kw">else if </span>!<span class="self">self</span>.rpc.is_utxo_spent(<span class="kw-2">&amp;</span>kickoff_finalizer_utxo).<span class="kw">await</span><span class="question-mark">? </span>{
+                    <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(<span class="string">"For round {:?} and kickoff utxo {:?}, the kickoff finalizer {:?} is not spent, 
+                    send the challenge timeout tx for the deposit {:?} first"</span>, round_idx, kickoff_idx, kickoff_txid, deposit_outpoint).into());
                 } <span class="kw">else if </span>!<span class="self">self
-                    </span>.rpc
-                    .is_utxo_spent(<span class="kw-2">&amp;</span>OutPoint {
-                        txid: kickoff_txid,
-                        vout: UtxoVout::KickoffFinalizer.get_vout(),
-                    })
+                    </span>.db
+                    .check_if_utxo_spending_tx_is_finalized(
+                        dbtx.as_deref_mut(),
+                        kickoff_finalizer_utxo,
+                        current_chain_height,
+                        <span class="self">self</span>.config.protocol_paramset().finality_depth,
+                    )
                     .<span class="kw">await</span><span class="question-mark">?
                 </span>{
-                    <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(<span class="string">"For round {:?} and kickoff utxo {:?}, the kickoff finalizer {:?} is not spent,
-                    send the challenge timeout tx for the deposit {:?} first"</span>, round_idx, kickoff_idx, kickoff_txid, deposit_outpoint).into());
+                    <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(<span class="string">"For round {:?} and kickoff utxo {:?}, the kickoff finalizer utxo {:?} is spent, but not yet finalized, wait until it is finalized. Finality depth: {}
+                    If the transaction is actually finalized, but this error is returned, it means internal bitcoin syncer is slow or stopped."</span>, round_idx, kickoff_idx, kickoff_finalizer_utxo, <span class="self">self</span>.config.protocol_paramset().finality_depth).into());
                 }
             }
         }
@@ -4528,7 +4673,10 @@
     <span class="kw">const </span>ENTITY_NAME: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str = <span class="string">"operator"</span>;
     <span class="comment">// operators use their verifier's tx sender
     </span><span class="kw">const </span>TX_SENDER_CONSUMER_ID: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str = <span class="string">"verifier_tx_sender"</span>;
-    <span class="kw">const </span>FINALIZED_BLOCK_CONSUMER_ID: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str = <span class="string">"operator_finalized_block_fetcher"</span>;
+    <span class="kw">const </span>FINALIZED_BLOCK_CONSUMER_ID_AUTOMATION: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str =
+        <span class="string">"operator_finalized_block_fetcher_automation"</span>;
+    <span class="kw">const </span>FINALIZED_BLOCK_CONSUMER_ID_NO_AUTOMATION: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str =
+        <span class="string">"operator_finalized_block_fetcher_no_automation"</span>;
 }
 
 <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
@@ -4613,10 +4761,60 @@
                             <span class="kw-2">&amp;mut </span>dbtx,
                             kickoff_data,
                             block_height,
-                            deposit_data,
+                            deposit_data.clone(),
                             witness,
                         )
                         .<span class="kw">await</span><span class="question-mark">?</span>;
+
+                        <span class="comment">// send the relevant txs an operator should send during a kickoff to the txsender again
+                        // note: an operator only tracks itself, so only receives its own kickoffs here
+                        // the reason why is that if kickoff was sent during no-automation mode, these tx's were never added to the txsender
+                        </span><span class="kw">let </span>context = ContractContext::new_context_for_kickoff(
+                            kickoff_data,
+                            deposit_data.clone(),
+                            <span class="self">self</span>.config.protocol_paramset(),
+                        );
+                        <span class="kw">let </span>signed_txs = create_and_sign_txs(
+                            <span class="self">self</span>.db.clone(),
+                            <span class="kw-2">&amp;</span><span class="self">self</span>.signer,
+                            <span class="self">self</span>.config.clone(),
+                            context,
+                            <span class="comment">// we don't need to send kickoff tx (it's already sent) so payout blockhash is irrelevant
+                            // blockhash doesn't change the kickoff txid (it's in the witness)
+                            </span><span class="prelude-val">Some</span>([<span class="number">0u8</span>; <span class="number">20</span>]),
+                            <span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx),
+                        )
+                        .<span class="kw">await</span><span class="question-mark">?</span>;
+                        <span class="kw">let </span>tx_metadata = <span class="prelude-val">Some</span>(TxMetadata {
+                            tx_type: TransactionType::Dummy, <span class="comment">// will be replaced in add_tx_to_queue
+                            </span>operator_xonly_pk: <span class="prelude-val">Some</span>(<span class="self">self</span>.signer.xonly_public_key),
+                            round_idx: <span class="prelude-val">Some</span>(kickoff_data.round_idx),
+                            kickoff_idx: <span class="prelude-val">Some</span>(kickoff_data.kickoff_idx),
+                            deposit_outpoint: <span class="prelude-val">Some</span>(deposit_data.get_deposit_outpoint()),
+                        });
+                        <span class="comment">// try to send them
+                        </span><span class="kw">for </span>(tx_type, signed_tx) <span class="kw">in </span><span class="kw-2">&amp;</span>signed_txs {
+                            <span class="kw">match </span><span class="kw-2">*</span>tx_type {
+                                TransactionType::OperatorChallengeAck(<span class="kw">_</span>)
+                                | TransactionType::WatchtowerChallengeTimeout(<span class="kw">_</span>)
+                                | TransactionType::ChallengeTimeout
+                                | TransactionType::DisproveTimeout
+                                | TransactionType::Reimburse =&gt; {
+                                    <span class="self">self</span>.tx_sender
+                                        .add_tx_to_queue(
+                                            <span class="kw-2">&amp;mut </span>dbtx,
+                                            <span class="kw-2">*</span>tx_type,
+                                            signed_tx,
+                                            <span class="kw-2">&amp;</span>signed_txs,
+                                            tx_metadata,
+                                            <span class="kw-2">&amp;</span><span class="self">self</span>.config,
+                                            <span class="prelude-val">None</span>,
+                                        )
+                                        .<span class="kw">await</span><span class="question-mark">?</span>;
+                                }
+                                <span class="kw">_ </span>=&gt; {}
+                            }
+                        }
                         dbtx.commit().<span class="kw">await</span><span class="question-mark">?</span>;
                     }
                     <span class="prelude-val">Ok</span>(DutyResult::Handled)

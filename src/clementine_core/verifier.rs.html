@@ -3173,7 +3173,10 @@
 <a href="#3172" id="3172">3172</a>
 <a href="#3173" id="3173">3173</a>
 <a href="#3174" id="3174">3174</a>
-<a href="#3175" id="3175">3175</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
+<a href="#3175" id="3175">3175</a>
+<a href="#3176" id="3176">3176</a>
+<a href="#3177" id="3177">3177</a>
+<a href="#3178" id="3178">3178</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
 <span class="kw">use </span><span class="kw">crate</span>::bitcoin_syncer::BitcoinSyncer;
 <span class="kw">use </span><span class="kw">crate</span>::bitvm_client::{ClementineBitVMPublicKeys, REPLACE_SCRIPTS_LOCK};
 <span class="kw">use </span><span class="kw">crate</span>::builder::address::{create_taproot_address, taproot_builder_with_scripts};
@@ -3487,7 +3490,7 @@
                 .db
                 .get_next_finalized_block_height_for_consumer(
                     <span class="prelude-val">None</span>,
-                    Verifier::&lt;C&gt;::FINALIZED_BLOCK_CONSUMER_ID,
+                    Verifier::&lt;C&gt;::FINALIZED_BLOCK_CONSUMER_ID_NO_AUTOMATION,
                     <span class="self">self</span>.verifier.config.protocol_paramset(),
                 )
                 .<span class="kw">await</span><span class="question-mark">?</span>;
@@ -3496,7 +3499,7 @@
                 .ensure_task_looping(
                     <span class="kw">crate</span>::bitcoin_syncer::FinalizedBlockFetcherTask::new(
                         <span class="self">self</span>.verifier.db.clone(),
-                        Verifier::&lt;C&gt;::FINALIZED_BLOCK_CONSUMER_ID.to_string(),
+                        Verifier::&lt;C&gt;::FINALIZED_BLOCK_CONSUMER_ID_NO_AUTOMATION.to_string(),
                         <span class="self">self</span>.verifier.config.protocol_paramset(),
                         next_height,
                         <span class="self">self</span>.verifier.clone(),
@@ -5918,7 +5921,10 @@
 {
     <span class="kw">const </span>ENTITY_NAME: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str = <span class="string">"verifier"</span>;
     <span class="kw">const </span>TX_SENDER_CONSUMER_ID: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str = <span class="string">"verifier_tx_sender"</span>;
-    <span class="kw">const </span>FINALIZED_BLOCK_CONSUMER_ID: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str = <span class="string">"verifier_finalized_block_fetcher"</span>;
+    <span class="kw">const </span>FINALIZED_BLOCK_CONSUMER_ID_AUTOMATION: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str =
+        <span class="string">"verifier_finalized_block_fetcher_automation"</span>;
+    <span class="kw">const </span>FINALIZED_BLOCK_CONSUMER_ID_NO_AUTOMATION: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str =
+        <span class="string">"verifier_finalized_block_fetcher_no_automation"</span>;
 }
 
 <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]

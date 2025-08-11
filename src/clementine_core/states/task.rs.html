@@ -273,7 +273,10 @@
 <a href="#272" id="272">272</a>
 <a href="#273" id="273">273</a>
 <a href="#274" id="274">274</a>
-<a href="#275" id="275">275</a></pre></div><pre class="rust"><code><span class="kw">use crate</span>::{
+<a href="#275" id="275">275</a>
+<a href="#276" id="276">276</a>
+<a href="#277" id="277">277</a>
+<a href="#278" id="278">278</a></pre></div><pre class="rust"><code><span class="kw">use crate</span>::{
     bitcoin_syncer::{BlockHandler, FinalizedBlockFetcherTask},
     database::{Database, DatabaseTransaction},
     task::{BufferedErrors, IntoTask, TaskVariant, WithDelay},
@@ -355,7 +358,7 @@
         </span><span class="kw">let </span>next_height = db
             .get_next_finalized_block_height_for_consumer(
                 <span class="prelude-val">None</span>,
-                T::FINALIZED_BLOCK_CONSUMER_ID,
+                T::FINALIZED_BLOCK_CONSUMER_ID_AUTOMATION,
                 paramset,
             )
             .<span class="kw">await</span><span class="question-mark">?</span>;
@@ -368,7 +371,7 @@
 
         <span class="prelude-val">Ok</span>(<span class="kw">crate</span>::bitcoin_syncer::FinalizedBlockFetcherTask::new(
             db,
-            T::FINALIZED_BLOCK_CONSUMER_ID.to_string(),
+            T::FINALIZED_BLOCK_CONSUMER_ID_AUTOMATION.to_string(),
             paramset,
             next_height,
             handler,
@@ -480,7 +483,10 @@
     <span class="kw">impl </span>NamedEntity <span class="kw">for </span>MockHandler {
         <span class="kw">const </span>ENTITY_NAME: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str = <span class="string">"MockHandler"</span>;
         <span class="kw">const </span>TX_SENDER_CONSUMER_ID: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str = <span class="string">"mock_tx_sender"</span>;
-        <span class="kw">const </span>FINALIZED_BLOCK_CONSUMER_ID: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str = <span class="string">"mock_finalized_block"</span>;
+        <span class="kw">const </span>FINALIZED_BLOCK_CONSUMER_ID_NO_AUTOMATION: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str =
+            <span class="string">"mock_finalized_block_no_automation"</span>;
+        <span class="kw">const </span>FINALIZED_BLOCK_CONSUMER_ID_AUTOMATION: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str =
+            <span class="string">"mock_finalized_block_automation"</span>;
     }
 
     <span class="attr">#[async_trait]

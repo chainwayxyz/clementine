@@ -355,7 +355,26 @@
 <a href="#354" id="354">354</a>
 <a href="#355" id="355">355</a>
 <a href="#356" id="356">356</a>
-<a href="#357" id="357">357</a></pre></div><pre class="rust"><code><span class="doccomment">//! This module includes helper functions to get the blockchain synchronization status of the entity.
+<a href="#357" id="357">357</a>
+<a href="#358" id="358">358</a>
+<a href="#359" id="359">359</a>
+<a href="#360" id="360">360</a>
+<a href="#361" id="361">361</a>
+<a href="#362" id="362">362</a>
+<a href="#363" id="363">363</a>
+<a href="#364" id="364">364</a>
+<a href="#365" id="365">365</a>
+<a href="#366" id="366">366</a>
+<a href="#367" id="367">367</a>
+<a href="#368" id="368">368</a>
+<a href="#369" id="369">369</a>
+<a href="#370" id="370">370</a>
+<a href="#371" id="371">371</a>
+<a href="#372" id="372">372</a>
+<a href="#373" id="373">373</a>
+<a href="#374" id="374">374</a>
+<a href="#375" id="375">375</a>
+<a href="#376" id="376">376</a></pre></div><pre class="rust"><code><span class="doccomment">//! This module includes helper functions to get the blockchain synchronization status of the entity.
 //! The entity tracks on-chain transactions for many purposes (TxSender,
 //! FinalizedBlockFetcher, HCP) and takes action (header chain proving, payout,
 //! disprove, L2 state sync, etc.)
@@ -558,15 +577,34 @@
         .transpose()<span class="question-mark">?
         </span>.flatten();
 
-        <span class="kw">let </span>finalized_synced_height = timed_request_base(
+        <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
+        </span><span class="kw">let </span>finalized_synced_height = timed_request_base(
             L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
             <span class="string">"get_finalized_synced_height"</span>,
-            get_btc_syncer_consumer_last_processed_block_height(db, T::FINALIZED_BLOCK_CONSUMER_ID),
+            get_btc_syncer_consumer_last_processed_block_height(
+                db,
+                T::FINALIZED_BLOCK_CONSUMER_ID_AUTOMATION,
+            ),
         )
         .<span class="kw">await
         </span>.ok()
         .transpose()<span class="question-mark">?
         </span>.flatten();
+
+        <span class="attr">#[cfg(not(feature = <span class="string">"automation"</span>))]
+        </span><span class="kw">let </span>finalized_synced_height = timed_request_base(
+            L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
+            <span class="string">"get_finalized_synced_height"</span>,
+            get_btc_syncer_consumer_last_processed_block_height(
+                db,
+                T::FINALIZED_BLOCK_CONSUMER_ID_NO_AUTOMATION,
+            ),
+        )
+        .<span class="kw">await
+        </span>.ok()
+        .transpose()<span class="question-mark">?
+        </span>.flatten();
+
         <span class="kw">let </span>btc_syncer_synced_height = timed_request_base(
             L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
             <span class="string">"get_btc_syncer_synced_height"</span>,
