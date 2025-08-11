@@ -15,6 +15,7 @@ impl Database {
     ///
     /// - [`u32`]: Database entry id, later to be used while referring block
     pub async fn insert_block_info(
+    pub async fn insert_block_info(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         block_hash: &BlockHash,
