@@ -1458,7 +1458,7 @@
         } =&gt; {
             <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
             </span>{
-                <span class="macro">println!</span>(<span class="string">"WARNING: Automation is enabled, do not use this command unless some error happens with the automation \n 
+                <span class="macro">println!</span>(<span class="string">"WARNING: Automation is enabled, do not use this command unless some error happens with the automation \n
                 Automation should handle the reimbursement process automatically"</span>);
             }
 
@@ -1494,20 +1494,20 @@
                         This tx is standard and requires CPFP to be sent (last output is the anchor output)"</span>);
                     }
                     TransactionType::ReadyToReimburse =&gt; {
-                        <span class="macro">println!</span>(<span class="string">"All unused kickoff connectors are burned, and all live kickoffs kickoff finalizer utxo's are 
+                        <span class="macro">println!</span>(<span class="string">"All unused kickoff connectors are burned, and all live kickoffs kickoff finalizer utxo's are
                         spent, meaning it is safe to send ready to reimburse tx. This tx is standard and requires CPFP to be sent (last output is the anchor output)"</span>);
                     }
                     TransactionType::Reimburse =&gt; {
                         <span class="macro">println!</span>(<span class="string">"Reimburse tx is ready to be sent. This tx is standard and requires CPFP to be sent (last output is the anchor output)"</span>);
                     }
                     TransactionType::ChallengeTimeout =&gt; {
-                        <span class="macro">println!</span>(<span class="string">"After kickoff, challenge timeout tx needs to be sent. Due to the timelock, it can only be sent after 216 blocks pass from the kickoff tx {:?}. 
-                        This tx is standard and requires CPFP to be sent (last output is the anchor output)"</span>, 
+                        <span class="macro">println!</span>(<span class="string">"After kickoff, challenge timeout tx needs to be sent. Due to the timelock, it can only be sent after 216 blocks pass from the kickoff tx {:?}.
+                        This tx is standard and requires CPFP to be sent (last output is the anchor output)"</span>,
                         transaction.input[<span class="number">0</span>].previous_output.txid);
                     }
                     TransactionType::Round =&gt; {
                         <span class="macro">println!</span>(<span class="string">"Time to send the round tx either for sending the kickoff tx, or getting the reimbursement for the past kickoff by advancing the round. Round tx is a non-standard tx and cannot be sent by using normal Bitcoin RPC.
-                        If the round is not the first round, 216 number of blocks need to pass from the previous ready to reimburse tx {:?} (If this is not collateral)"</span>, 
+                        If the round is not the first round, 216 number of blocks need to pass from the previous ready to reimburse tx {:?} (If this is not collateral)"</span>,
                         transaction.input[<span class="number">0</span>].previous_output.txid);
                     }
                     <span class="kw">_ </span>=&gt; {}
@@ -1934,13 +1934,13 @@
                         <span class="kw">match </span><span class="kw-2">&amp;</span>entity_status.status_result {
                             <span class="prelude-val">Some</span>(clementine_core::rpc::clementine::entity_status_with_id::StatusResult::Status(status)) =&gt; {
                                 <span class="macro">println!</span>(<span class="string">"  Automation: {}"</span>, status.automation);
-                                <span class="macro">println!</span>(<span class="string">"  Wallet balance: {}"</span>, status.wallet_balance);
-                                <span class="macro">println!</span>(<span class="string">"  TX sender synced height: {}"</span>, status.tx_sender_synced_height);
-                                <span class="macro">println!</span>(<span class="string">"  Finalized synced height: {}"</span>, status.finalized_synced_height);
-                                <span class="macro">println!</span>(<span class="string">"  HCP last proven height: {}"</span>, status.hcp_last_proven_height);
-                                <span class="macro">println!</span>(<span class="string">"  RPC tip height: {}"</span>, status.rpc_tip_height);
-                                <span class="macro">println!</span>(<span class="string">"  Bitcoin syncer synced height: {}"</span>, status.bitcoin_syncer_synced_height);
-                                <span class="macro">println!</span>(<span class="string">"  State manager next height: {}"</span>, status.state_manager_next_height);
+                                <span class="macro">println!</span>(<span class="string">"  Wallet balance: {}"</span>, status.wallet_balance.as_ref().map_or(<span class="string">"N/A"</span>.to_string(), |s| s.clone()));
+                                <span class="macro">println!</span>(<span class="string">"  TX sender synced height: {}"</span>, status.tx_sender_synced_height.map_or(<span class="string">"N/A"</span>.to_string(), |h| h.to_string()));
+                                <span class="macro">println!</span>(<span class="string">"  Finalized synced height: {}"</span>, status.finalized_synced_height.map_or(<span class="string">"N/A"</span>.to_string(), |h| h.to_string()));
+                                <span class="macro">println!</span>(<span class="string">"  HCP last proven height: {}"</span>, status.hcp_last_proven_height.map_or(<span class="string">"N/A"</span>.to_string(), |h| h.to_string()));
+                                <span class="macro">println!</span>(<span class="string">"  RPC tip height: {}"</span>, status.rpc_tip_height.map_or(<span class="string">"N/A"</span>.to_string(), |h| h.to_string()));
+                                <span class="macro">println!</span>(<span class="string">"  Bitcoin syncer synced height: {}"</span>, status.bitcoin_syncer_synced_height.map_or(<span class="string">"N/A"</span>.to_string(), |h| h.to_string()));
+                                <span class="macro">println!</span>(<span class="string">"  State manager next height: {}"</span>, status.state_manager_next_height.map_or(<span class="string">"N/A"</span>.to_string(), |h| h.to_string()));
                                 <span class="kw">if </span>!status.stopped_tasks.as_ref().is_none_or(|t| t.stopped_tasks.is_empty()) {
                                     <span class="macro">println!</span>(<span class="string">"  Stopped tasks: {:?}"</span>, status.stopped_tasks.as_ref().expect(<span class="string">"Stopped tasks are required"</span>).stopped_tasks);
                                 }

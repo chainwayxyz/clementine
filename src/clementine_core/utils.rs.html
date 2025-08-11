@@ -767,7 +767,32 @@
 <a href="#766" id="766">766</a>
 <a href="#767" id="767">767</a>
 <a href="#768" id="768">768</a>
-<a href="#769" id="769">769</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::builder::transaction::TransactionType;
+<a href="#769" id="769">769</a>
+<a href="#770" id="770">770</a>
+<a href="#771" id="771">771</a>
+<a href="#772" id="772">772</a>
+<a href="#773" id="773">773</a>
+<a href="#774" id="774">774</a>
+<a href="#775" id="775">775</a>
+<a href="#776" id="776">776</a>
+<a href="#777" id="777">777</a>
+<a href="#778" id="778">778</a>
+<a href="#779" id="779">779</a>
+<a href="#780" id="780">780</a>
+<a href="#781" id="781">781</a>
+<a href="#782" id="782">782</a>
+<a href="#783" id="783">783</a>
+<a href="#784" id="784">784</a>
+<a href="#785" id="785">785</a>
+<a href="#786" id="786">786</a>
+<a href="#787" id="787">787</a>
+<a href="#788" id="788">788</a>
+<a href="#789" id="789">789</a>
+<a href="#790" id="790">790</a>
+<a href="#791" id="791">791</a>
+<a href="#792" id="792">792</a>
+<a href="#793" id="793">793</a>
+<a href="#794" id="794">794</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::builder::transaction::TransactionType;
 <span class="kw">use </span><span class="kw">crate</span>::config::TelemetryConfig;
 <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
 <span class="kw">use </span><span class="kw">crate</span>::operator::RoundIndex;
@@ -786,6 +811,7 @@
 <span class="kw">use </span>std::sync::Arc;
 <span class="kw">use </span>std::task::{Context, Poll};
 <span class="kw">use </span>std::time::Duration;
+<span class="kw">use </span>tokio::time::error::Elapsed;
 <span class="kw">use </span>tokio::time::timeout;
 <span class="kw">use </span>tonic::Status;
 <span class="kw">use </span>tower::{Layer, Service};
@@ -1404,10 +1430,34 @@
 <span class="kw">where
     </span>F: Future&lt;Output = <span class="prelude-ty">Result</span>&lt;T, BridgeError&gt;&gt;,
 {
+    timed_request_base(duration, description, future)
+        .<span class="kw">await
+        </span>.map_err(|<span class="kw">_</span>| Status::deadline_exceeded(<span class="macro">format!</span>(<span class="string">"{} timed out"</span>, description)))<span class="question-mark">?
+</span>}
+
+<span class="doccomment">/// Wraps a future with a timeout and adds a debug span with the description.
+///
+/// # Arguments
+///
+/// * `duration`: The maximum `Duration` to wait for the future to complete.
+/// * `description`: A string slice describing the operation, used in the timeout error message.
+/// * `future`: The `Future` to execute. The future should return a `Result&lt;T, BridgeError&gt;`.
+///
+/// # Returns
+///
+/// Returns `Ok(Ok(T))` if the future completes successfully within the time limit, returns `Ok(Err(e))`
+/// if the future returns an error, returns `Err(Elapsed)` if the request times out.
+</span><span class="kw">pub async fn </span>timed_request_base&lt;F, T&gt;(
+    duration: Duration,
+    description: <span class="kw-2">&amp;</span>str,
+    future: F,
+) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Result</span>&lt;T, BridgeError&gt;, Elapsed&gt;
+<span class="kw">where
+    </span>F: Future&lt;Output = <span class="prelude-ty">Result</span>&lt;T, BridgeError&gt;&gt;,
+{
     timeout(duration, future)
         .instrument(<span class="macro">debug_span!</span>(<span class="string">"timed_request"</span>, description = description))
         .<span class="kw">await
-        </span>.map_err(|<span class="kw">_</span>| Status::deadline_exceeded(<span class="macro">format!</span>(<span class="string">"{} timed out"</span>, description)))<span class="question-mark">?
 </span>}
 
 <span class="doccomment">/// Concurrently executes a collection of futures, applying a timeout to each one individually.

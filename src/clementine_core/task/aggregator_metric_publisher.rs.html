@@ -272,36 +272,36 @@
                     status,
                 )) =&gt; {
                     <span class="comment">// Parse wallet balance from string (format is "X.XXX BTC")
-                    </span><span class="kw">let </span>wallet_balance_btc = status
+                    </span><span class="kw">if let </span><span class="prelude-val">Some</span>(balance) = status
                         .wallet_balance
-                        .strip_suffix(<span class="string">" BTC"</span>)
-                        .and_then(|s| s.parse::&lt;f64&gt;().ok())
-                        .unwrap_or(<span class="number">0.0</span>);
+                        .and_then(|s| s.strip_suffix(<span class="string">" BTC"</span>).and_then(|s| s.parse::&lt;f64&gt;().ok()))
+                    {
+                        metrics.wallet_balance_btc.set(balance);
+                    }
 
-                    <span class="comment">// Update all metrics
-                    </span>metrics.wallet_balance_btc.set(wallet_balance_btc);
-                    metrics.rpc_tip_height.set(status.rpc_tip_height <span class="kw">as </span>f64);
-                    metrics
-                        .btc_syncer_synced_height
-                        .set(status.bitcoin_syncer_synced_height <span class="kw">as </span>f64);
-                    metrics
-                        .hcp_last_proven_height
-                        .set(status.hcp_last_proven_height <span class="kw">as </span>f64);
-                    metrics
-                        .tx_sender_synced_height
-                        .set(status.tx_sender_synced_height <span class="kw">as </span>f64);
-                    metrics
-                        .finalized_synced_height
-                        .set(status.finalized_synced_height <span class="kw">as </span>f64);
-                    metrics
-                        .state_manager_next_height
-                        .set(status.state_manager_next_height <span class="kw">as </span>f64);
-                    metrics.stopped_tasks_count.set(
-                        status
-                            .stopped_tasks
-                            .map_or(<span class="number">0</span>, |tasks| tasks.stopped_tasks.len())
-                            <span class="kw">as </span>f64,
-                    );
+                    <span class="kw">if let </span><span class="prelude-val">Some</span>(height) = status.rpc_tip_height {
+                        metrics.rpc_tip_height.set(height <span class="kw">as </span>f64);
+                    }
+                    <span class="kw">if let </span><span class="prelude-val">Some</span>(height) = status.bitcoin_syncer_synced_height {
+                        metrics.btc_syncer_synced_height.set(height <span class="kw">as </span>f64);
+                    }
+                    <span class="kw">if let </span><span class="prelude-val">Some</span>(height) = status.hcp_last_proven_height {
+                        metrics.hcp_last_proven_height.set(height <span class="kw">as </span>f64);
+                    }
+                    <span class="kw">if let </span><span class="prelude-val">Some</span>(height) = status.tx_sender_synced_height {
+                        metrics.tx_sender_synced_height.set(height <span class="kw">as </span>f64);
+                    }
+                    <span class="kw">if let </span><span class="prelude-val">Some</span>(height) = status.finalized_synced_height {
+                        metrics.finalized_synced_height.set(height <span class="kw">as </span>f64);
+                    }
+                    <span class="kw">if let </span><span class="prelude-val">Some</span>(height) = status.state_manager_next_height {
+                        metrics.state_manager_next_height.set(height <span class="kw">as </span>f64);
+                    }
+                    <span class="kw">if let </span><span class="prelude-val">Some</span>(tasks) = status.stopped_tasks {
+                        metrics
+                            .stopped_tasks_count
+                            .set(tasks.stopped_tasks.len() <span class="kw">as </span>f64);
+                    }
                 }
                 <span class="prelude-val">Some</span>(<span class="kw">crate</span>::rpc::clementine::entity_status_with_id::StatusResult::Err(error)) =&gt; {
                     <span class="macro">tracing::error!</span>(<span class="string">"Entity {} error: {}"</span>, entity_id, error.error);

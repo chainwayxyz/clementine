@@ -3171,7 +3171,9 @@
 <a href="#3170" id="3170">3170</a>
 <a href="#3171" id="3171">3171</a>
 <a href="#3172" id="3172">3172</a>
-<a href="#3173" id="3173">3173</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
+<a href="#3173" id="3173">3173</a>
+<a href="#3174" id="3174">3174</a>
+<a href="#3175" id="3175">3175</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
 <span class="kw">use </span><span class="kw">crate</span>::bitcoin_syncer::BitcoinSyncer;
 <span class="kw">use </span><span class="kw">crate</span>::bitvm_client::{ClementineBitVMPublicKeys, REPLACE_SCRIPTS_LOCK};
 <span class="kw">use </span><span class="kw">crate</span>::builder::address::{create_taproot_address, taproot_builder_with_scripts};
@@ -3536,14 +3538,16 @@
 
         <span class="prelude-val">Ok</span>(EntityStatus {
             automation: automation_enabled,
-            wallet_balance: <span class="macro">format!</span>(<span class="string">"{} BTC"</span>, l1_sync_status.wallet_balance.to_btc()),
-            tx_sender_synced_height: l1_sync_status.tx_sender_synced_height.unwrap_or(<span class="number">0</span>),
-            finalized_synced_height: l1_sync_status.finalized_synced_height.unwrap_or(<span class="number">0</span>),
-            hcp_last_proven_height: l1_sync_status.hcp_last_proven_height.unwrap_or(<span class="number">0</span>),
+            wallet_balance: l1_sync_status
+                .wallet_balance
+                .map(|balance| <span class="macro">format!</span>(<span class="string">"{} BTC"</span>, balance.to_btc())),
+            tx_sender_synced_height: l1_sync_status.tx_sender_synced_height,
+            finalized_synced_height: l1_sync_status.finalized_synced_height,
+            hcp_last_proven_height: l1_sync_status.hcp_last_proven_height,
             rpc_tip_height: l1_sync_status.rpc_tip_height,
-            bitcoin_syncer_synced_height: l1_sync_status.btc_syncer_synced_height.unwrap_or(<span class="number">0</span>),
+            bitcoin_syncer_synced_height: l1_sync_status.btc_syncer_synced_height,
             stopped_tasks: <span class="prelude-val">Some</span>(stopped_tasks),
-            state_manager_next_height: l1_sync_status.state_manager_next_height.unwrap_or(<span class="number">0</span>),
+            state_manager_next_height: l1_sync_status.state_manager_next_height,
         })
     }
 

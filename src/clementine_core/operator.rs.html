@@ -2338,13 +2338,25 @@
 <a href="#2337" id="2337">2337</a>
 <a href="#2338" id="2338">2338</a>
 <a href="#2339" id="2339">2339</a>
-<a href="#2340" id="2340">2340</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_ff::PrimeField;
+<a href="#2340" id="2340">2340</a>
+<a href="#2341" id="2341">2341</a>
+<a href="#2342" id="2342">2342</a>
+<a href="#2343" id="2343">2343</a>
+<a href="#2344" id="2344">2344</a>
+<a href="#2345" id="2345">2345</a>
+<a href="#2346" id="2346">2346</a>
+<a href="#2347" id="2347">2347</a>
+<a href="#2348" id="2348">2348</a>
+<a href="#2349" id="2349">2349</a>
+<a href="#2350" id="2350">2350</a>
+<a href="#2351" id="2351">2351</a>
+<a href="#2352" id="2352">2352</a>
+<a href="#2353" id="2353">2353</a>
+<a href="#2354" id="2354">2354</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_ff::PrimeField;
 <span class="kw">use </span>circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
-<span class="kw">use </span>std::collections::HashMap;
 
 <span class="kw">use </span><span class="kw">crate</span>::actor::{Actor, TweakCache, WinternitzDerivationPath};
 <span class="kw">use </span><span class="kw">crate</span>::bitvm_client::{ClementineBitVMPublicKeys, SECP};
-<span class="kw">use </span><span class="kw">crate</span>::builder::script::extract_winternitz_commits;
 <span class="kw">use </span><span class="kw">crate</span>::builder::sighash::{create_operator_sighash_stream, PartialSignatureInfo};
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::deposit_signature_owner::EntityType;
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::input::UtxoVout;
@@ -2360,7 +2372,7 @@
 <span class="kw">use </span><span class="kw">crate</span>::deposit::{DepositData, KickoffData, OperatorData};
 <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
 <span class="kw">use </span><span class="kw">crate</span>::extended_bitcoin_rpc::ExtendedBitcoinRpc;
-<span class="kw">use </span><span class="kw">crate</span>::header_chain_prover::HeaderChainProver;
+
 <span class="kw">use </span><span class="kw">crate</span>::metrics::L1SyncStatusProvider;
 <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::EntityStatus;
 <span class="kw">use </span><span class="kw">crate</span>::task::entity_metric_publisher::{
@@ -2378,26 +2390,34 @@
 <span class="kw">use </span>bitcoin::{Address, Amount, BlockHash, OutPoint, ScriptBuf, Transaction, TxOut, Txid};
 <span class="kw">use </span>bitcoincore_rpc::json::AddressType;
 <span class="kw">use </span>bitcoincore_rpc::RpcApi;
-<span class="kw">use </span>bitvm::chunk::api::generate_assertions;
 <span class="kw">use </span>bitvm::signatures::winternitz;
-<span class="kw">use </span>bridge_circuit_host::bridge_circuit_host::{
-    create_spv, prove_bridge_circuit, MAINNET_BRIDGE_CIRCUIT_ELF, REGTEST_BRIDGE_CIRCUIT_ELF,
-    REGTEST_BRIDGE_CIRCUIT_ELF_TEST, SIGNET_BRIDGE_CIRCUIT_ELF, TESTNET4_BRIDGE_CIRCUIT_ELF,
-};
-<span class="kw">use </span>bridge_circuit_host::structs::{BridgeCircuitHostParams, WatchtowerContext};
+
 <span class="kw">use </span>eyre::{Context, OptionExt};
 <span class="kw">use </span>tokio::sync::mpsc;
 <span class="kw">use </span>tokio_stream::StreamExt;
 
 <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
-</span><span class="kw">use crate</span>::{
-    states::StateManager,
-    task::IntoTask,
-    tx_sender::{ActivatedWithOutpoint, ActivatedWithTxid, TxSenderClient},
-    utils::FeePayingType,
+</span><span class="kw">use </span>{
+    <span class="kw">crate</span>::{
+        builder::script::extract_winternitz_commits,
+        header_chain_prover::HeaderChainProver,
+        states::StateManager,
+        task::IntoTask,
+        tx_sender::{ActivatedWithOutpoint, ActivatedWithTxid, TxSenderClient},
+        utils::FeePayingType,
+    },
+    bitcoin::Witness,
+    bitvm::chunk::api::generate_assertions,
+    bridge_circuit_host::{
+        bridge_circuit_host::{
+            create_spv, prove_bridge_circuit, MAINNET_BRIDGE_CIRCUIT_ELF,
+            REGTEST_BRIDGE_CIRCUIT_ELF, REGTEST_BRIDGE_CIRCUIT_ELF_TEST, SIGNET_BRIDGE_CIRCUIT_ELF,
+            TESTNET4_BRIDGE_CIRCUIT_ELF,
+        },
+        structs::{BridgeCircuitHostParams, WatchtowerContext},
+    },
+    std::collections::HashMap,
 };
-<span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
-</span><span class="kw">use </span>bitcoin::Witness;
 
 <span class="kw">pub type </span>SecretPreimage = [u8; <span class="number">20</span>];
 <span class="kw">pub type </span>PublicHash = [u8; <span class="number">20</span>];
@@ -2561,14 +2581,16 @@
 
         <span class="prelude-val">Ok</span>(EntityStatus {
             automation: automation_enabled,
-            wallet_balance: <span class="macro">format!</span>(<span class="string">"{} BTC"</span>, sync_status.wallet_balance.to_btc()),
-            tx_sender_synced_height: sync_status.tx_sender_synced_height.unwrap_or(<span class="number">0</span>),
-            finalized_synced_height: sync_status.finalized_synced_height.unwrap_or(<span class="number">0</span>),
-            hcp_last_proven_height: sync_status.hcp_last_proven_height.unwrap_or(<span class="number">0</span>),
+            wallet_balance: sync_status
+                .wallet_balance
+                .map(|balance| <span class="macro">format!</span>(<span class="string">"{} BTC"</span>, balance.to_btc())),
+            tx_sender_synced_height: sync_status.tx_sender_synced_height,
+            finalized_synced_height: sync_status.finalized_synced_height,
+            hcp_last_proven_height: sync_status.hcp_last_proven_height,
             rpc_tip_height: sync_status.rpc_tip_height,
-            bitcoin_syncer_synced_height: sync_status.btc_syncer_synced_height.unwrap_or(<span class="number">0</span>),
+            bitcoin_syncer_synced_height: sync_status.btc_syncer_synced_height,
             stopped_tasks: <span class="prelude-val">Some</span>(stopped_tasks),
-            state_manager_next_height: sync_status.state_manager_next_height.unwrap_or(<span class="number">0</span>),
+            state_manager_next_height: sync_status.state_manager_next_height,
         })
     }
 
@@ -4127,7 +4149,7 @@
                         .ok_or(<span class="macro">eyre::eyre!</span>(<span class="string">"Kickoff tx not found in kickoff txs"</span>))<span class="question-mark">?</span>;
                     <span class="comment">// sanity check
                     </span><span class="kw">if </span>kickoff_tx.<span class="number">1</span>.compute_txid() != kickoff_txid {
-                        <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(<span class="string">"Kickoff txid mismatch for deposit outpoint: {}, kickoff txid: {:?}, computed txid: {:?}"</span>, 
+                        <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(<span class="string">"Kickoff txid mismatch for deposit outpoint: {}, kickoff txid: {:?}, computed txid: {:?}"</span>,
                         deposit_data.get_deposit_outpoint(), kickoff_txid, kickoff_tx.<span class="number">1</span>.compute_txid()).into());
                     }
                     txs_to_send.push(kickoff_tx.clone());
@@ -4435,9 +4457,15 @@
                     .get_deposit_outpoint_for_kickoff_txid(dbtx.as_deref_mut(), kickoff_txid)
                     .<span class="kw">await</span><span class="question-mark">?</span>;
                 <span class="kw">if </span>!<span class="self">self</span>.rpc.is_tx_on_chain(<span class="kw-2">&amp;</span>kickoff_txid).<span class="kw">await</span><span class="question-mark">? </span>{
-                    <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(<span class="string">"For round {:?} and kickoff utxo {:?}, the kickoff tx {:?} is not on chain, 
-                    reimburse the deposit {:?} corresponding to this kickoff first. "
-                    </span>, round_idx, kickoff_idx, kickoff_txid, deposit_outpoint).into());
+                    <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(
+                        <span class="string">"For round {:?} and kickoff utxo {:?}, the kickoff tx {:?} is not on chain,
+                    reimburse the deposit {:?} corresponding to this kickoff first. "</span>,
+                        round_idx,
+                        kickoff_idx,
+                        kickoff_txid,
+                        deposit_outpoint
+                    )
+                    .into());
                 } <span class="kw">else if </span>!<span class="self">self
                     </span>.rpc
                     .is_utxo_spent(<span class="kw-2">&amp;</span>OutPoint {
@@ -4446,7 +4474,7 @@
                     })
                     .<span class="kw">await</span><span class="question-mark">?
                 </span>{
-                    <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(<span class="string">"For round {:?} and kickoff utxo {:?}, the kickoff finalizer {:?} is not spent, 
+                    <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(<span class="string">"For round {:?} and kickoff utxo {:?}, the kickoff finalizer {:?} is not spent,
                     send the challenge timeout tx for the deposit {:?} first"</span>, round_idx, kickoff_idx, kickoff_txid, deposit_outpoint).into());
                 }
             }
