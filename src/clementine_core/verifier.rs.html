@@ -5853,7 +5853,7 @@
             .get_citrea_l2_height_range(
                 block_height.into(),
                 timeout,
-                <span class="self">self</span>.config.protocol_paramset().network,
+                <span class="self">self</span>.config.protocol_paramset(),
             )
             .<span class="kw">await
             </span>.inspect_err(|e| <span class="macro">tracing::error!</span>(<span class="string">"Error getting citrea l2 height range: {:?}"</span>, e))<span class="question-mark">?</span>;

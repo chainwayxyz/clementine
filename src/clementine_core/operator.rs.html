@@ -2451,7 +2451,49 @@
 <a href="#2450" id="2450">2450</a>
 <a href="#2451" id="2451">2451</a>
 <a href="#2452" id="2452">2452</a>
-<a href="#2453" id="2453">2453</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_ff::PrimeField;
+<a href="#2453" id="2453">2453</a>
+<a href="#2454" id="2454">2454</a>
+<a href="#2455" id="2455">2455</a>
+<a href="#2456" id="2456">2456</a>
+<a href="#2457" id="2457">2457</a>
+<a href="#2458" id="2458">2458</a>
+<a href="#2459" id="2459">2459</a>
+<a href="#2460" id="2460">2460</a>
+<a href="#2461" id="2461">2461</a>
+<a href="#2462" id="2462">2462</a>
+<a href="#2463" id="2463">2463</a>
+<a href="#2464" id="2464">2464</a>
+<a href="#2465" id="2465">2465</a>
+<a href="#2466" id="2466">2466</a>
+<a href="#2467" id="2467">2467</a>
+<a href="#2468" id="2468">2468</a>
+<a href="#2469" id="2469">2469</a>
+<a href="#2470" id="2470">2470</a>
+<a href="#2471" id="2471">2471</a>
+<a href="#2472" id="2472">2472</a>
+<a href="#2473" id="2473">2473</a>
+<a href="#2474" id="2474">2474</a>
+<a href="#2475" id="2475">2475</a>
+<a href="#2476" id="2476">2476</a>
+<a href="#2477" id="2477">2477</a>
+<a href="#2478" id="2478">2478</a>
+<a href="#2479" id="2479">2479</a>
+<a href="#2480" id="2480">2480</a>
+<a href="#2481" id="2481">2481</a>
+<a href="#2482" id="2482">2482</a>
+<a href="#2483" id="2483">2483</a>
+<a href="#2484" id="2484">2484</a>
+<a href="#2485" id="2485">2485</a>
+<a href="#2486" id="2486">2486</a>
+<a href="#2487" id="2487">2487</a>
+<a href="#2488" id="2488">2488</a>
+<a href="#2489" id="2489">2489</a>
+<a href="#2490" id="2490">2490</a>
+<a href="#2491" id="2491">2491</a>
+<a href="#2492" id="2492">2492</a>
+<a href="#2493" id="2493">2493</a>
+<a href="#2494" id="2494">2494</a>
+<a href="#2495" id="2495">2495</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_ff::PrimeField;
 <span class="kw">use </span>circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
 
 <span class="kw">use </span><span class="kw">crate</span>::actor::{Actor, TweakCache, WinternitzDerivationPath};
@@ -2515,6 +2557,7 @@
         },
         structs::{BridgeCircuitHostParams, WatchtowerContext},
     },
+    circuits_lib::bridge_circuit::structs::LightClientProof,
     std::collections::HashMap,
 };
 
@@ -3697,6 +3740,7 @@
         latest_blockhash: Witness,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
         <span class="kw">use </span>bridge_circuit_host::utils::{get_verifying_key, is_dev_mode};
+        <span class="kw">use </span>citrea_sov_rollup_interface::zk::light_client_proof::output::LightClientCircuitOutput;
 
         <span class="kw">let </span>context = ContractContext::new_context_for_kickoff(
             kickoff_data,
@@ -3771,12 +3815,25 @@
         <span class="kw">let </span>payout_tx = <span class="kw-2">&amp;</span>payout_block.txdata[payout_tx_index];
         <span class="macro">tracing::debug!</span>(<span class="string">"Calculated payout tx in send_asserts: {:?}"</span>, payout_tx);
 
-        <span class="kw">let </span>(light_client_proof, lcp_receipt, l2_height) = <span class="self">self
+        <span class="kw">let </span>lcp_receipt = <span class="self">self
             </span>.citrea_client
-            .get_light_client_proof(payout_block_height <span class="kw">as </span>u64)
-            .<span class="kw">await
-            </span>.wrap_err(<span class="string">"Failed to get light client proof for payout block height"</span>)<span class="question-mark">?
-            </span>.ok_or_eyre(<span class="string">"Light client proof is not available for payout block height"</span>)<span class="question-mark">?</span>;
+            .fetch_validate_and_store_lcp(
+                payout_block_height <span class="kw">as </span>u64,
+                deposit_idx <span class="kw">as </span>u32,
+                <span class="kw-2">&amp;</span><span class="self">self</span>.db,
+                <span class="prelude-val">None</span>,
+                <span class="self">self</span>.config.protocol_paramset(),
+            )
+            .<span class="kw">await</span><span class="question-mark">?</span>;
+        <span class="kw">let </span>proof_output: LightClientCircuitOutput = borsh::from_slice(<span class="kw-2">&amp;</span>lcp_receipt.journal.bytes)
+            .wrap_err(<span class="string">"Failed to deserialize light client circuit output"</span>)<span class="question-mark">?</span>;
+        <span class="kw">let </span>l2_height = proof_output.last_l2_height;
+        <span class="kw">let </span>hex_l2_str = <span class="macro">format!</span>(<span class="string">"0x{:x}"</span>, l2_height);
+        <span class="kw">let </span>light_client_proof = LightClientProof {
+            lc_journal: lcp_receipt.journal.bytes.clone(),
+            l2_height: hex_l2_str,
+        };
+
         <span class="macro">tracing::info!</span>(<span class="string">"Got light client proof in send_asserts"</span>);
 
         <span class="kw">let </span>storage_proof = <span class="self">self
@@ -4181,7 +4238,7 @@
     <span class="kw">async fn </span>get_next_txs_to_send(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         <span class="kw-2">mut </span>dbtx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
-        deposit_data: <span class="kw-2">&amp;</span>DepositData,
+        deposit_data: <span class="kw-2">&amp;mut </span>DepositData,
         payout_blockhash: BlockHash,
         kickoff_txid: Txid,
         current_round_idx: RoundIndex,
@@ -4246,6 +4303,33 @@
                         .iter()
                         .find(|(tx_type, <span class="kw">_</span>)| tx_type == <span class="kw-2">&amp;</span>TransactionType::Kickoff)
                         .ok_or(<span class="macro">eyre::eyre!</span>(<span class="string">"Kickoff tx not found in kickoff txs"</span>))<span class="question-mark">?</span>;
+
+                    <span class="comment">// fetch and save the LCP for if we get challenged and need to provide proof of payout later
+                    </span><span class="kw">let </span>(<span class="kw">_</span>, payout_block_height) = <span class="self">self
+                        </span>.db
+                        .get_block_info_from_hash(dbtx.as_deref_mut(), payout_blockhash)
+                        .<span class="kw">await</span><span class="question-mark">?
+                        </span>.ok_or_eyre(<span class="string">"Couldn't find payout blockhash in bitcoin sync"</span>)<span class="question-mark">?</span>;
+
+                    <span class="kw">let </span>move_txid = Txid::all_zeros();
+
+                    <span class="kw">let </span>(<span class="kw">_</span>, <span class="kw">_</span>, <span class="kw">_</span>, citrea_idx) = <span class="self">self
+                        </span>.db
+                        .get_payout_info_from_move_txid(dbtx.as_deref_mut(), move_txid)
+                        .<span class="kw">await</span><span class="question-mark">?
+                        </span>.ok_or_eyre(<span class="string">"Couldn't find payout info from move txid"</span>)<span class="question-mark">?</span>;
+
+                    <span class="kw">let _ </span>= <span class="self">self
+                        </span>.citrea_client
+                        .fetch_validate_and_store_lcp(
+                            payout_block_height <span class="kw">as </span>u64,
+                            citrea_idx <span class="kw">as </span>u32,
+                            <span class="kw-2">&amp;</span><span class="self">self</span>.db,
+                            dbtx.as_deref_mut(),
+                            <span class="self">self</span>.config.protocol_paramset(),
+                        )
+                        .<span class="kw">await</span><span class="question-mark">?</span>;
+
                     <span class="comment">// sanity check
                     </span><span class="kw">if </span>kickoff_tx.<span class="number">1</span>.compute_txid() != kickoff_txid {
                         <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(<span class="string">"Kickoff txid mismatch for deposit outpoint: {}, kickoff txid: {:?}, computed txid: {:?}"</span>,
@@ -4320,7 +4404,7 @@
     ) -&gt; <span class="prelude-ty">Result</span>&lt;Vec&lt;(TransactionType, Transaction)&gt;, BridgeError&gt; {
         <span class="kw">let </span><span class="kw-2">mut </span>dbtx = <span class="self">self</span>.db.begin_transaction().<span class="kw">await</span><span class="question-mark">?</span>;
         <span class="comment">// first check if the deposit is in the database
-        </span><span class="kw">let </span>(deposit_id, deposit_data) = <span class="self">self
+        </span><span class="kw">let </span>(deposit_id, <span class="kw-2">mut </span>deposit_data) = <span class="self">self
             </span>.db
             .get_deposit_data(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx), deposit_outpoint)
             .<span class="kw">await</span><span class="question-mark">?
@@ -4348,7 +4432,7 @@
             txs_to_send = <span class="self">self
                 </span>.get_next_txs_to_send(
                     <span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx),
-                    <span class="kw-2">&amp;</span>deposit_data,
+                    <span class="kw-2">&amp;mut </span>deposit_data,
                     payout_blockhash,
                     kickoff_txid,
                     current_round_idx,

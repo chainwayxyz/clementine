@@ -533,11 +533,28 @@
 <a href="#532" id="532">532</a>
 <a href="#533" id="533">533</a>
 <a href="#534" id="534">534</a>
-<a href="#535" id="535">535</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::config::env::read_string_from_env_then_parse;
+<a href="#535" id="535">535</a>
+<a href="#536" id="536">536</a>
+<a href="#537" id="537">537</a>
+<a href="#538" id="538">538</a>
+<a href="#539" id="539">539</a>
+<a href="#540" id="540">540</a>
+<a href="#541" id="541">541</a>
+<a href="#542" id="542">542</a>
+<a href="#543" id="543">543</a>
+<a href="#544" id="544">544</a>
+<a href="#545" id="545">545</a>
+<a href="#546" id="546">546</a>
+<a href="#547" id="547">547</a>
+<a href="#548" id="548">548</a>
+<a href="#549" id="549">549</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::config::env::read_string_from_env_then_parse;
 <span class="kw">use </span><span class="kw">crate</span>::constants::{MIN_TAPROOT_AMOUNT, NON_EPHEMERAL_ANCHOR_AMOUNT};
 <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
 <span class="kw">use </span>bitcoin::{Amount, Network};
 <span class="kw">use </span>bridge_circuit_host::utils::is_dev_mode;
+<span class="kw">use </span>circuits_lib::bridge_circuit::constants::{
+    DEVNET_LC_IMAGE_ID, MAINNET_LC_IMAGE_ID, REGTEST_LC_IMAGE_ID, TESTNET_LC_IMAGE_ID,
+};
 <span class="kw">use </span>eyre::Context;
 <span class="kw">use </span>serde::{Deserialize, Serialize};
 <span class="kw">use </span>std::fmt::Display;
@@ -768,6 +785,17 @@
             Network::Signet =&gt; <span class="prelude-val">Ok</span>(<span class="kw-2">&amp;</span>SIGNET_BRIDGE_CIRCUIT_CONSTANT),
             <span class="kw">_ </span>=&gt; <span class="prelude-val">Err</span>(BridgeError::UnsupportedNetwork),
         }
+    }
+
+    <span class="doccomment">/// Get the light client proof image id for the network.
+    </span><span class="kw">pub fn </span>get_lcp_image_id(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span>&lt;[u8; <span class="number">32</span>], BridgeError&gt; {
+        <span class="prelude-val">Ok</span>(<span class="kw">match </span><span class="self">self</span>.network {
+            bitcoin::Network::Bitcoin =&gt; MAINNET_LC_IMAGE_ID,
+            bitcoin::Network::Testnet4 =&gt; TESTNET_LC_IMAGE_ID,
+            bitcoin::Network::Signet =&gt; DEVNET_LC_IMAGE_ID,
+            bitcoin::Network::Regtest =&gt; REGTEST_LC_IMAGE_ID,
+            <span class="kw">_ </span>=&gt; <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(<span class="string">"Unsupported Bitcoin network"</span>).into()),
+        })
     }
 }
 

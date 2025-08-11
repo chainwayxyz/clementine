@@ -1494,12 +1494,54 @@
 <a href="#1493" id="1493">1493</a>
 <a href="#1494" id="1494">1494</a>
 <a href="#1495" id="1495">1495</a>
-<a href="#1496" id="1496">1496</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Operator Related Database Operations
+<a href="#1496" id="1496">1496</a>
+<a href="#1497" id="1497">1497</a>
+<a href="#1498" id="1498">1498</a>
+<a href="#1499" id="1499">1499</a>
+<a href="#1500" id="1500">1500</a>
+<a href="#1501" id="1501">1501</a>
+<a href="#1502" id="1502">1502</a>
+<a href="#1503" id="1503">1503</a>
+<a href="#1504" id="1504">1504</a>
+<a href="#1505" id="1505">1505</a>
+<a href="#1506" id="1506">1506</a>
+<a href="#1507" id="1507">1507</a>
+<a href="#1508" id="1508">1508</a>
+<a href="#1509" id="1509">1509</a>
+<a href="#1510" id="1510">1510</a>
+<a href="#1511" id="1511">1511</a>
+<a href="#1512" id="1512">1512</a>
+<a href="#1513" id="1513">1513</a>
+<a href="#1514" id="1514">1514</a>
+<a href="#1515" id="1515">1515</a>
+<a href="#1516" id="1516">1516</a>
+<a href="#1517" id="1517">1517</a>
+<a href="#1518" id="1518">1518</a>
+<a href="#1519" id="1519">1519</a>
+<a href="#1520" id="1520">1520</a>
+<a href="#1521" id="1521">1521</a>
+<a href="#1522" id="1522">1522</a>
+<a href="#1523" id="1523">1523</a>
+<a href="#1524" id="1524">1524</a>
+<a href="#1525" id="1525">1525</a>
+<a href="#1526" id="1526">1526</a>
+<a href="#1527" id="1527">1527</a>
+<a href="#1528" id="1528">1528</a>
+<a href="#1529" id="1529">1529</a>
+<a href="#1530" id="1530">1530</a>
+<a href="#1531" id="1531">1531</a>
+<a href="#1532" id="1532">1532</a>
+<a href="#1533" id="1533">1533</a>
+<a href="#1534" id="1534">1534</a>
+<a href="#1535" id="1535">1535</a>
+<a href="#1536" id="1536">1536</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Operator Related Database Operations
 //!
 //! This module includes database functions which are mainly used by an operator.
 
 </span><span class="kw">use super</span>::{
-    wrapper::{AddressDB, DepositParamsDB, OutPointDB, SignaturesDB, TxidDB, XOnlyPublicKeyDB},
+    wrapper::{
+        AddressDB, DepositParamsDB, OutPointDB, ReceiptDB, SignaturesDB, TxidDB, XOnlyPublicKeyDB,
+    },
     Database, DatabaseTransaction,
 };
 <span class="kw">use crate</span>::{
@@ -1518,6 +1560,7 @@
 <span class="kw">use </span>bitvm::signatures::winternitz;
 <span class="kw">use </span>bitvm::signatures::winternitz::PublicKey <span class="kw">as </span>WinternitzPublicKey;
 <span class="kw">use </span>eyre::{eyre, Context};
+<span class="kw">use </span>risc0_zkvm::Receipt;
 <span class="kw">use </span>std::str::FromStr;
 
 <span class="kw">pub type </span>RootHash = [u8; <span class="number">32</span>];
@@ -2101,6 +2144,43 @@
             <span class="prelude-val">Err</span>(sqlx::Error::RowNotFound) =&gt; <span class="prelude-val">Ok</span>(<span class="prelude-val">None</span>),
             <span class="prelude-val">Err</span>(e) =&gt; <span class="prelude-val">Err</span>(BridgeError::DatabaseError(e)),
         }
+    }
+
+    <span class="doccomment">/// Retrieves the light client proof for a deposit to be used while sending an assert.
+    </span><span class="kw">pub async fn </span>get_lcp_for_assert(
+        <span class="kw-2">&amp;</span><span class="self">self</span>,
+        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+        deposit_id: u32,
+    ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;Receipt&gt;, BridgeError&gt; {
+        <span class="kw">let </span>query = sqlx::query_as::&lt;<span class="kw">_</span>, (ReceiptDB,)&gt;(
+            <span class="string">"SELECT lcp_receipt FROM lcp_for_asserts WHERE deposit_id = $1;"</span>,
+        )
+        .bind(i32::try_from(deposit_id).wrap_err(<span class="string">"Failed to convert deposit id to i32"</span>)<span class="question-mark">?</span>);
+
+        <span class="kw">let </span>result = <span class="macro">execute_query_with_tx!</span>(<span class="self">self</span>.connection, tx, query, fetch_optional)<span class="question-mark">?</span>;
+
+        <span class="prelude-val">Ok</span>(result.map(|(lcp,)| lcp.<span class="number">0</span>))
+    }
+
+    <span class="doccomment">/// Saves the light client proof for a deposit to be used while sending an assert.
+    /// We save first before sending kickoff to be sure we have the LCP available if we need to assert.
+    </span><span class="kw">pub async fn </span>insert_lcp_for_assert(
+        <span class="kw-2">&amp;</span><span class="self">self</span>,
+        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+        deposit_id: u32,
+        lcp: Receipt,
+    ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
+        <span class="kw">let </span>query = sqlx::query(
+            <span class="string">"INSERT INTO lcp_for_asserts (deposit_id, lcp_receipt)
+             VALUES ($1, $2)
+             ON CONFLICT (deposit_id) DO NOTHING;"</span>,
+        )
+        .bind(i32::try_from(deposit_id).wrap_err(<span class="string">"Failed to convert deposit id to i32"</span>)<span class="question-mark">?</span>)
+        .bind(ReceiptDB(lcp));
+
+        <span class="macro">execute_query_with_tx!</span>(<span class="self">self</span>.connection, tx, query, execute)<span class="question-mark">?</span>;
+
+        <span class="prelude-val">Ok</span>(())
     }
 
     <span class="kw">pub async fn </span>get_deposit_data_with_kickoff_txid(

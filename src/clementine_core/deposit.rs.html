@@ -342,7 +342,18 @@
 <a href="#341" id="341">341</a>
 <a href="#342" id="342">342</a>
 <a href="#343" id="343">343</a>
-<a href="#344" id="344">344</a></pre></div><pre class="rust"><code><span class="doccomment">//! This module defines the data structures related to Citrea deposits in the Clementine bridge.
+<a href="#344" id="344">344</a>
+<a href="#345" id="345">345</a>
+<a href="#346" id="346">346</a>
+<a href="#347" id="347">347</a>
+<a href="#348" id="348">348</a>
+<a href="#349" id="349">349</a>
+<a href="#350" id="350">350</a>
+<a href="#351" id="351">351</a>
+<a href="#352" id="352">352</a>
+<a href="#353" id="353">353</a>
+<a href="#354" id="354">354</a>
+<a href="#355" id="355">355</a></pre></div><pre class="rust"><code><span class="doccomment">//! This module defines the data structures related to Citrea deposits in the Clementine bridge.
 //!
 //! It includes structures for representing deposit data, actors involved (verifiers, watchtowers, operators),
 //! and security council configurations. The module also provides functionality for managing different types
@@ -353,6 +364,7 @@
 <span class="kw">use </span><span class="kw">crate</span>::builder::script::{
     BaseDepositScript, Multisig, ReplacementDepositScript, SpendableScript, TimelockScript,
 };
+<span class="kw">use </span><span class="kw">crate</span>::builder::transaction::create_move_to_vault_txhandler;
 <span class="kw">use </span><span class="kw">crate</span>::config::protocol::ProtocolParamset;
 <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
 <span class="kw">use </span><span class="kw">crate</span>::musig2::AggregateFromPublicKeys;
@@ -402,6 +414,16 @@
             &amp;&amp; <span class="self">self</span>.get_verifiers() == other.get_verifiers()
             &amp;&amp; <span class="self">self</span>.get_watchtowers() == other.get_watchtowers()
             &amp;&amp; <span class="self">self</span>.deposit.deposit_type == other.deposit.deposit_type
+    }
+}
+
+<span class="kw">impl </span>DepositData {
+    <span class="doccomment">/// Returns the move to vault txid of the deposit.
+    </span><span class="kw">pub fn </span>get_move_txid(
+        <span class="kw-2">&amp;mut </span><span class="self">self</span>,
+        paramset: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>ProtocolParamset,
+    ) -&gt; <span class="prelude-ty">Result</span>&lt;Txid, BridgeError&gt; {
+        <span class="prelude-val">Ok</span>(<span class="kw-2">*</span>create_move_to_vault_txhandler(<span class="self">self</span>, paramset)<span class="question-mark">?</span>.get_txid())
     }
 }
 
