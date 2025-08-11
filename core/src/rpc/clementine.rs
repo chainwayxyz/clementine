@@ -565,9 +565,26 @@ pub struct RawTxWithRbfInfo {
     pub rbf_info: ::core::option::Option<RbfSigningInfoRpc>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct OperatorWithrawalResponse {
+    #[prost(message, optional, tag = "1")]
+    pub operator_xonly_pk: ::core::option::Option<XOnlyPublicKeyRpc>,
+    #[prost(oneof = "operator_withrawal_response::Response", tags = "2, 3")]
+    pub response: ::core::option::Option<operator_withrawal_response::Response>,
+}
+/// Nested message and enum types in `OperatorWithrawalResponse`.
+pub mod operator_withrawal_response {
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Response {
+        #[prost(message, tag = "2")]
+        RawTx(super::RawSignedTx),
+        #[prost(string, tag = "3")]
+        Error(::prost::alloc::string::String),
+    }
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AggregatorWithdrawResponse {
-    #[prost(string, repeated, tag = "1")]
-    pub withdraw_responses: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(message, repeated, tag = "1")]
+    pub withdraw_responses: ::prost::alloc::vec::Vec<OperatorWithrawalResponse>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetEmergencyStopTxRequest {
