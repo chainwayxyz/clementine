@@ -970,7 +970,39 @@
 <a href="#969" id="969">969</a>
 <a href="#970" id="970">970</a>
 <a href="#971" id="971">971</a>
-<a href="#972" id="972">972</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::config::protocol::ProtocolParamset;
+<a href="#972" id="972">972</a>
+<a href="#973" id="973">973</a>
+<a href="#974" id="974">974</a>
+<a href="#975" id="975">975</a>
+<a href="#976" id="976">976</a>
+<a href="#977" id="977">977</a>
+<a href="#978" id="978">978</a>
+<a href="#979" id="979">979</a>
+<a href="#980" id="980">980</a>
+<a href="#981" id="981">981</a>
+<a href="#982" id="982">982</a>
+<a href="#983" id="983">983</a>
+<a href="#984" id="984">984</a>
+<a href="#985" id="985">985</a>
+<a href="#986" id="986">986</a>
+<a href="#987" id="987">987</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Transaction Sender
+//!
+//! Transaction sender is responsible for sending Bitcoin transactions, bumping
+//! fees and making sure that transactions are finalized until the deadline. It
+//! can utilize [Child-Pays-For-Parent (CPFP)](crate::tx_sender::cpfp) and
+//! [Replace-By-Fee (RBF)](crate::tx_sender::rbf) strategies for sending
+//! transactions.
+//!
+//! Sending transactions is done by the [`TxSenderClient`], which is a client
+//! that puts transactions into the sending queue and the [`TxSenderTask`] is
+//! responsible for processing this queue and sending them.
+//!
+//! ## Debugging Transaction Sender
+//!
+//! There are several database tables that saves the transaction states. Please
+//! look for [`core/src/database/tx_sender.rs`] for more information.
+
+</span><span class="kw">use </span><span class="kw">crate</span>::config::protocol::ProtocolParamset;
 <span class="kw">use </span><span class="kw">crate</span>::errors::ResultExt;
 <span class="kw">use </span><span class="kw">crate</span>::utils::FeePayingType;
 <span class="kw">use crate</span>::{
@@ -1259,20 +1291,19 @@
         FeeRate::from_sat_per_vb_unchecked((btc_per_kvb * <span class="number">100000.0</span>) <span class="kw">as </span>u64)
     }
 
-    <span class="doccomment">/// The main loop for processing transactions requiring fee bumps or initial sending.
-    ///
-    /// Fetches transactions from the database that are eligible to be sent or bumped
-    /// based on the `new_fee_rate` and `current_tip_height`.
+    <span class="doccomment">/// Fetches transactions that are eligible to be sent or bumped from
+    /// database based on the given fee rate and tip height. Then, places a send
+    /// transaction request to the Bitcoin based on the fee strategy.
     ///
     /// For each eligible transaction (`id`):
-    /// 1.  **Bump Fee Payers:** Calls `bump_fees_of_fee_payer_txs` to ensure any associated,
-    ///     unconfirmed fee payer UTXOs (used for CPFP) are themselves confirmed.
-    /// 2.  **Send/Bump Main Tx:** Calls `send_tx` to either perform RBF or CPFP on the main
+    ///
+    /// 1.  **Send/Bump Main Tx:** Calls `send_tx` to either perform RBF or CPFP on the main
     ///     transaction (`id`) using the `new_fee_rate`.
-    /// 3.  **Handle Errors:**
-    ///     - `UnconfirmedFeePayerUTXOsLeft`: Skips the current tx, waiting for fee payers to confirm.
-    ///     - `InsufficientFeePayerAmount`: Calls `create_fee_payer_utxo` to provision more funds
-    ///       for a future CPFP attempt.
+    /// 2.  **Handle Errors:**
+    ///     - [`SendTxError::UnconfirmedFeePayerUTXOsLeft`]: Skips the current tx, waiting for fee
+    ///       payers to confirm.
+    ///     - [`SendTxError::InsufficientFeePayerAmount`]: Calls `create_fee_payer_utxo` to
+    ///       provision more funds for a future CPFP attempt.
     ///     - Other errors are logged.
     ///
     /// # Arguments
@@ -1284,8 +1315,7 @@
         new_fee_rate: FeeRate,
         current_tip_height: u32,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;()&gt; {
-        <span class="comment">// tracing::info!("Trying to send unconfirmed txs with new fee rate: {new_fee_rate:?}, current tip height: {current_tip_height:?}");
-        </span><span class="kw">let </span>txs = <span class="self">self
+        <span class="kw">let </span>txs = <span class="self">self
             </span>.db
             .get_sendable_txs(<span class="prelude-val">None</span>, new_fee_rate, current_tip_height)
             .<span class="kw">await
@@ -1324,7 +1354,7 @@
             </span><span class="kw">if let </span><span class="prelude-val">Some</span>(block_id) = seen_block_id {
                 <span class="macro">tracing::debug!</span>(
                     try_to_send_id = id,
-                    <span class="string">"Transaction confirmed in block {}"</span>,
+                    <span class="string">"Transaction already confirmed in block with block id of {}"</span>,
                     block_id
                 );
 

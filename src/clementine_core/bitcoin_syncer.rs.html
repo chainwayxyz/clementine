@@ -897,10 +897,17 @@
 <a href="#896" id="896">896</a>
 <a href="#897" id="897">897</a>
 <a href="#898" id="898">898</a>
-<a href="#899" id="899">899</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Bitcoin Syncer
+<a href="#899" id="899">899</a>
+<a href="#900" id="900">900</a>
+<a href="#901" id="901">901</a>
+<a href="#902" id="902">902</a>
+<a href="#903" id="903">903</a>
+<a href="#904" id="904">904</a>
+<a href="#905" id="905">905</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Bitcoin Syncer
 //!
 //! This module provides common utilities to fetch Bitcoin state. Other modules
-//! can use this module to operate over Bitcoin.
+//! can use this module to operate over Bitcoin. Every block starting from
+//! `paramset.start_height` is fetched and stored in the database.
 
 </span><span class="kw">use crate</span>::{
     config::protocol::ProtocolParamset,
@@ -1144,7 +1151,8 @@
 ///
 /// # Returns
 ///
-/// `Ok(Some(new_blocks))` if new blocks are found or `Ok(None)` if no new block is available.
+/// - [`None`] - If no new block is available.
+/// - [`Vec&lt;BlockInfo&gt;`] - If new blocks are found.
 </span><span class="kw">async fn </span>fetch_new_blocks(
     db: <span class="kw-2">&amp;</span>Database,
     rpc: <span class="kw-2">&amp;</span>ExtendedBitcoinRpc,
@@ -1157,7 +1165,11 @@
         <span class="prelude-val">Ok</span>(hash) =&gt; hash,
         <span class="prelude-val">Err</span>(<span class="kw">_</span>) =&gt; <span class="kw">return </span><span class="prelude-val">Ok</span>(<span class="prelude-val">None</span>),
     };
-    <span class="macro">tracing::debug!</span>(<span class="string">"New block hash: {:?}, height {}"</span>, block_hash, next_height);
+    <span class="macro">tracing::debug!</span>(
+        <span class="string">"Fetching block with hash of {:?} and height of {}..."</span>,
+        block_hash,
+        next_height
+    );
 
     <span class="comment">// Fetch its header.
     </span><span class="kw">let </span><span class="kw-2">mut </span>block_header = rpc
@@ -1190,7 +1202,7 @@
 
         <span class="kw">if </span>new_blocks.len() &gt;= <span class="number">100 </span>{
             <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(
-                <span class="string">"Blockgazer can't synchronize database with active blockchain; Too deep {}"</span>,
+                <span class="string">"Bitcoin syncer can't synchronize database with active blockchain: Too deep to continue (last saved block was at height {})"</span>,
                 new_height <span class="kw">as </span>u64
             )
             .into());
@@ -1204,6 +1216,7 @@
 }
 
 <span class="doccomment">/// Marks blocks above the common ancestor as non-canonical and emits reorg events.
+</span><span class="attr">#[tracing::instrument(skip(db, dbtx), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
 </span><span class="kw">async fn </span>handle_reorg_events(
     db: <span class="kw-2">&amp;</span>Database,
     dbtx: DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;,
@@ -1212,6 +1225,9 @@
     <span class="kw">let </span>reorg_blocks = db
         .update_non_canonical_block_hashes(<span class="prelude-val">Some</span>(dbtx), common_ancestor_height)
         .<span class="kw">await</span><span class="question-mark">?</span>;
+    <span class="kw">if </span>!reorg_blocks.is_empty() {
+        <span class="macro">tracing::debug!</span>(<span class="string">"Reorg occurred! Block ids: {:?}"</span>, reorg_blocks);
+    }
 
     <span class="kw">for </span>reorg_block_id <span class="kw">in </span>reorg_blocks {
         db.insert_event(<span class="prelude-val">Some</span>(dbtx), BitcoinSyncerEvent::ReorgedBlock(reorg_block_id))
@@ -1306,37 +1322,34 @@
     <span class="kw">type </span>Output = bool;
     <span class="kw">const </span>VARIANT: TaskVariant = TaskVariant::BitcoinSyncer;
 
-    <span class="kw">async fn </span>run_once(<span class="kw-2">&amp;mut </span><span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="self">Self</span>::Output, BridgeError&gt; {
-        <span class="macro">tracing::debug!</span>(<span class="string">"BitcoinSyncer: Fetching new blocks"</span>);
-
-        <span class="comment">// Try to fetch new blocks (if any) from the RPC.
-        </span><span class="kw">let </span>maybe_new_blocks = fetch_new_blocks(<span class="kw-2">&amp;</span><span class="self">self</span>.db, <span class="kw-2">&amp;</span><span class="self">self</span>.rpc, <span class="self">self</span>.current_height).<span class="kw">await</span><span class="question-mark">?</span>;
-
-        <span class="macro">tracing::debug!</span>(
-            <span class="string">"BitcoinSyncer: Maybe new blocks: {:?} {}"</span>,
-            maybe_new_blocks.is_some(),
-            <span class="self">self</span>.current_height,
-        );
-
-        <span class="comment">// If there are no new blocks, return false to indicate no work was done
-        </span><span class="kw">let </span>new_blocks = <span class="kw">match </span>maybe_new_blocks {
+    <span class="attr">#[tracing::instrument(skip(<span class="self">self</span>))]
+    </span><span class="kw">async fn </span>run_once(<span class="kw-2">&amp;mut </span><span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="self">Self</span>::Output, BridgeError&gt; {
+        <span class="kw">let </span>new_blocks = <span class="kw">match </span>fetch_new_blocks(<span class="kw-2">&amp;</span><span class="self">self</span>.db, <span class="kw-2">&amp;</span><span class="self">self</span>.rpc, <span class="self">self</span>.current_height).<span class="kw">await</span><span class="question-mark">? </span>{
             <span class="prelude-val">Some</span>(blocks) <span class="kw">if </span>!blocks.is_empty() =&gt; {
-                <span class="macro">tracing::debug!</span>(<span class="string">"BitcoinSyncer: New blocks: {:?}"</span>, blocks.len());
+                <span class="macro">tracing::debug!</span>(
+                    <span class="string">"{} new blocks found after current height {}"</span>,
+                    blocks.len(),
+                    <span class="self">self</span>.current_height
+                );
+
                 blocks
             }
             <span class="kw">_ </span>=&gt; {
+                <span class="macro">tracing::debug!</span>(
+                    <span class="string">"No new blocks found after current height: {}"</span>,
+                    <span class="self">self</span>.current_height
+                );
+
                 <span class="kw">return </span><span class="prelude-val">Ok</span>(<span class="bool-val">false</span>);
             }
         };
 
-        <span class="macro">tracing::debug!</span>(<span class="string">"BitcoinSyncer: New blocks: {:?}"</span>, new_blocks.len());
-
         <span class="comment">// The common ancestor is the block preceding the first new block.
+        // Please note that this won't always be the `self.current_height`.
+        // Because `fetch_next_block` can fetch older blocks, if db is missing
+        // them.
         </span><span class="kw">let </span>common_ancestor_height = new_blocks[<span class="number">0</span>].height - <span class="number">1</span>;
-        <span class="macro">tracing::debug!</span>(
-            <span class="string">"BitcoinSyncer: Common ancestor height: {:?}"</span>,
-            common_ancestor_height
-        );
+        <span class="macro">tracing::debug!</span>(<span class="string">"Common ancestor height: {:?}"</span>, common_ancestor_height);
         <span class="kw">let </span><span class="kw-2">mut </span>dbtx = <span class="self">self</span>.db.begin_transaction().<span class="kw">await</span><span class="question-mark">?</span>;
 
         <span class="comment">// Mark reorg blocks (if any) as non-canonical.
@@ -1467,7 +1480,6 @@
 </span><span class="kw">mod </span>tests {
     <span class="kw">use </span><span class="kw">crate</span>::bitcoin_syncer::BitcoinSyncer;
     <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::DEFAULT_SEQUENCE;
-
     <span class="kw">use </span><span class="kw">crate</span>::task::{IntoTask, TaskExt};
     <span class="kw">use crate</span>::{database::Database, test::common::<span class="kw-2">*</span>};
     <span class="kw">use </span>bitcoin::absolute::Height;

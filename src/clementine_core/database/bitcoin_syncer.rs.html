@@ -951,7 +951,19 @@
 <a href="#950" id="950">950</a>
 <a href="#951" id="951">951</a>
 <a href="#952" id="952">952</a>
-<a href="#953" id="953">953</a></pre></div><pre class="rust"><code><span class="kw">use super</span>::{
+<a href="#953" id="953">953</a>
+<a href="#954" id="954">954</a>
+<a href="#955" id="955">955</a>
+<a href="#956" id="956">956</a>
+<a href="#957" id="957">957</a>
+<a href="#958" id="958">958</a>
+<a href="#959" id="959">959</a>
+<a href="#960" id="960">960</a>
+<a href="#961" id="961">961</a>
+<a href="#962" id="962">962</a>
+<a href="#963" id="963">963</a>
+<a href="#964" id="964">964</a>
+<a href="#965" id="965">965</a></pre></div><pre class="rust"><code><span class="kw">use super</span>::{
     wrapper::{BlockHashDB, TxidDB},
     Database, DatabaseTransaction,
 };
@@ -1139,7 +1151,17 @@
     }
 
     <span class="doccomment">/// Gets the block hashes that have height bigger then the given height and deletes them.
-    /// Marks blocks with height greater than the given height as non-canonical.
+    /// Marks blocks with height bigger than the given height as non-canonical.
+    ///
+    /// # Parameters
+    ///
+    /// - `tx`: Optional transaction to use for the query.
+    /// - `height`: Height to start marking blocks as such (not inclusive).
+    ///
+    /// # Returns
+    ///
+    /// - [`Vec&lt;u32&gt;`]: List of block ids that were marked as non-canonical in
+    ///   ascending order.
     </span><span class="kw">pub async fn </span>update_non_canonical_block_hashes(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
@@ -1719,7 +1741,8 @@
         <span class="kw">let </span>heights = [<span class="number">1</span>, <span class="number">2</span>, <span class="number">3</span>, <span class="number">4</span>, <span class="number">5</span>];
         <span class="kw">let </span><span class="kw-2">mut </span>last_hash = prev_block_hash;
 
-        <span class="kw">let </span><span class="kw-2">mut </span>block_ids = Vec::new();
+        <span class="comment">// Save some initial blocks.
+        </span><span class="kw">let </span><span class="kw-2">mut </span>block_ids = Vec::new();
         <span class="kw">for </span>height <span class="kw">in </span>heights {
             <span class="kw">let </span>block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([height <span class="kw">as </span>u8; <span class="number">32</span>]));
             <span class="kw">let </span>block_id = db
@@ -1730,14 +1753,15 @@
             last_hash = block_hash;
         }
 
-        <span class="comment">// Mark blocks above height 2 as non-canonical
+        <span class="comment">// Mark blocks above height 2 as non-canonical.
         </span><span class="kw">let </span>non_canonical_blocks = db
             .update_non_canonical_block_hashes(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx), <span class="number">2</span>)
             .<span class="kw">await
             </span>.unwrap();
-        <span class="macro">assert_eq!</span>(non_canonical_blocks.len(), <span class="number">3</span>); <span class="comment">// blocks at height 3, 4, and 5
+        <span class="macro">assert_eq!</span>(non_canonical_blocks.len(), <span class="number">3</span>);
+        <span class="macro">assert_eq!</span>(non_canonical_blocks, <span class="macro">vec!</span>[<span class="number">3</span>, <span class="number">4</span>, <span class="number">5</span>]);
 
-        // Verify blocks above height 2 are not returned
+        <span class="comment">// Verify blocks above height 2 are not returned
         </span><span class="kw">for </span>height <span class="kw">in </span>heights {
             <span class="kw">let </span>block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([height <span class="kw">as </span>u8; <span class="number">32</span>]));
             <span class="kw">let </span>block_info = db

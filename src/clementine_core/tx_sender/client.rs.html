@@ -440,7 +440,20 @@
 <a href="#439" id="439">439</a>
 <a href="#440" id="440">440</a>
 <a href="#441" id="441">441</a>
-<a href="#442" id="442">442</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::Result;
+<a href="#442" id="442">442</a>
+<a href="#443" id="443">443</a>
+<a href="#444" id="444">444</a>
+<a href="#445" id="445">445</a>
+<a href="#446" id="446">446</a>
+<a href="#447" id="447">447</a>
+<a href="#448" id="448">448</a>
+<a href="#449" id="449">449</a>
+<a href="#450" id="450">450</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Transaction Sender Client
+//!
+//! This module is provides a client which is responsible for inserting
+//! transactions into the sending queue.
+
+</span><span class="kw">use </span><span class="kw">super</span>::Result;
 <span class="kw">use super</span>::{ActivatedWithOutpoint, ActivatedWithTxid};
 <span class="kw">use </span><span class="kw">crate</span>::builder::transaction::input::UtxoVout;
 <span class="kw">use </span><span class="kw">crate</span>::errors::ResultExt;
@@ -473,11 +486,11 @@
     <span class="doccomment">/// Saves a transaction to the database queue for sending/fee bumping.
     ///
     /// This function determines the initial parameters for a transaction send attempt,
-    /// including its `FeePayingType`, associated metadata, and dependencies (cancellations/activations).
-    /// It then persists this information in the database via `db.save_tx` and related functions.
-    /// The actual sending logic (CPFP/RBF) is handled later by the `TxSender` task loop.
+    /// including its [`FeePayingType`], associated metadata, and dependencies (cancellations/activations).
+    /// It then persists this information in the database via [`Database::save_tx`] and related functions.
+    /// The actual sending logic (CPFP/RBF) is handled later by the transaction sender's task loop.
     ///
-    /// # Default activation and cancellation conditions
+    /// # Default Activation and Cancellation Conditions
     ///
     /// By default, this function automatically adds cancellation conditions for all outpoints
     /// spent by the `signed_tx` itself. If `signed_tx` confirms, these input outpoints
@@ -497,7 +510,8 @@
     /// * `activate_outpoints` - Outpoints that are prerequisites for this tx, potentially with a relative timelock.
     ///
     /// # Returns
-    /// The database ID (`try_to_send_id`) assigned to this send attempt.
+    ///
+    /// - [`u32`]: The database ID (`try_to_send_id`) assigned to this send attempt.
     </span><span class="attr">#[tracing::instrument(err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE), skip_all, fields(<span class="question-mark">?</span>tx_metadata, consumer = <span class="self">self</span>.tx_sender_consumer_id))]
     #[allow(clippy::too_many_arguments)]
     </span><span class="kw">pub async fn </span>insert_try_to_send(
@@ -512,15 +526,16 @@
         activate_txids: <span class="kw-2">&amp;</span>[ActivatedWithTxid],
         activate_outpoints: <span class="kw-2">&amp;</span>[ActivatedWithOutpoint],
     ) -&gt; <span class="prelude-ty">Result</span>&lt;u32&gt; {
+        <span class="kw">let </span>txid = signed_tx.compute_txid();
+
         <span class="macro">tracing::debug!</span>(
-            <span class="string">"{} added tx {:?}"</span>,
+            <span class="string">"{} added tx {} with txid {} to the queue"</span>,
             <span class="self">self</span>.tx_sender_consumer_id,
             tx_metadata
                 .map(|data| <span class="macro">format!</span>(<span class="string">"{:?}"</span>, data.tx_type))
                 .unwrap_or(<span class="string">"N/A"</span>.to_string()),
+            txid
         );
-
-        <span class="kw">let </span>txid = signed_tx.compute_txid();
 
         <span class="comment">// do not add duplicate transactions to the txsender
         </span><span class="kw">let </span>tx_exists = <span class="self">self
@@ -626,7 +641,7 @@
 
     <span class="doccomment">/// Adds a transaction to the sending queue based on its type and configuration.
     ///
-    /// This is a higher-level wrapper around `insert_try_to_send`. It determines the
+    /// This is a higher-level wrapper around [`Self::insert_try_to_send`]. It determines the
     /// appropriate `FeePayingType` (CPFP or RBF) and any specific cancellation or activation
     /// dependencies based on the `tx_type` and `config`.
     ///
@@ -645,7 +660,8 @@
     /// * `config` - Bridge configuration providing parameters like finality depth.
     ///
     /// # Returns
-    /// The database ID (`try_to_send_id`) assigned to this send attempt.
+    ///
+    /// - [`u32`]: The database ID (`try_to_send_id`) assigned to this send attempt.
     </span><span class="attr">#[allow(clippy::too_many_arguments)]
     </span><span class="kw">pub async fn </span>add_tx_to_queue&lt;<span class="lifetime">'a</span>&gt;(
         <span class="kw-2">&amp;</span><span class="lifetime">'a </span><span class="self">self</span>,

@@ -1417,28 +1417,22 @@
 <a href="#1416" id="1416">1416</a>
 <a href="#1417" id="1417">1417</a>
 <a href="#1418" id="1418">1418</a>
-<a href="#1419" id="1419">1419</a>
-<a href="#1420" id="1420">1420</a>
-<a href="#1421" id="1421">1421</a>
-<a href="#1422" id="1422">1422</a></pre></div><pre class="rust"><code><span class="kw">use </span>bitcoin::script::Instruction;
+<a href="#1419" id="1419">1419</a></pre></div><pre class="rust"><code><span class="kw">use super</span>::{log_error_for_tx, <span class="prelude-ty">Result</span>, SendTxError, TxMetadata, TxSender};
+<span class="kw">use </span><span class="kw">crate</span>::builder::{<span class="self">self</span>};
+<span class="kw">use </span><span class="kw">crate</span>::utils::RbfSigningInfo;
+<span class="kw">use </span>bitcoin::script::Instruction;
 <span class="kw">use </span>bitcoin::sighash::{Prevouts, SighashCache};
 <span class="kw">use </span>bitcoin::taproot::{<span class="self">self</span>};
+<span class="kw">use </span>bitcoin::{consensus, Address, Amount, FeeRate, Transaction};
 <span class="kw">use </span>bitcoin::{Psbt, TapSighashType, TxOut, Txid, Witness};
 <span class="kw">use </span>bitcoincore_rpc::json::{
     BumpFeeOptions, BumpFeeResult, CreateRawTransactionInput, FinalizePsbtResult,
     WalletCreateFundedPsbtOutput, WalletCreateFundedPsbtOutputs, WalletCreateFundedPsbtResult,
 };
-<span class="kw">use </span>eyre::{eyre, OptionExt};
-<span class="kw">use </span>std::str::FromStr;
-
-<span class="kw">use </span>bitcoin::{consensus, Address, Amount, FeeRate, Transaction};
 <span class="kw">use </span>bitcoincore_rpc::RpcApi;
 <span class="kw">use </span>eyre::Context;
-
-<span class="kw">use </span><span class="kw">crate</span>::builder::{<span class="self">self</span>};
-
-<span class="kw">use super</span>::{log_error_for_tx, <span class="prelude-ty">Result</span>, SendTxError, TxMetadata, TxSender};
-<span class="kw">use </span><span class="kw">crate</span>::utils::RbfSigningInfo;
+<span class="kw">use </span>eyre::{eyre, OptionExt};
+<span class="kw">use </span>std::str::FromStr;
 
 <span class="kw">impl </span>TxSender {
     <span class="doccomment">/// Calculates the appropriate fee rate for a Replace-By-Fee (RBF) transaction.

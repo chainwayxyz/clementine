@@ -575,14 +575,55 @@
 <a href="#574" id="574">574</a>
 <a href="#575" id="575">575</a>
 <a href="#576" id="576">576</a>
-<a href="#577" id="577">577</a></pre></div><pre class="rust"><code><span class="kw">use </span>eyre::eyre;
-<span class="kw">use </span>std::env;
+<a href="#577" id="577">577</a>
+<a href="#578" id="578">578</a>
+<a href="#579" id="579">579</a>
+<a href="#580" id="580">580</a>
+<a href="#581" id="581">581</a>
+<a href="#582" id="582">582</a>
+<a href="#583" id="583">583</a>
+<a href="#584" id="584">584</a>
+<a href="#585" id="585">585</a>
+<a href="#586" id="586">586</a>
+<a href="#587" id="587">587</a>
+<a href="#588" id="588">588</a>
+<a href="#589" id="589">589</a>
+<a href="#590" id="590">590</a>
+<a href="#591" id="591">591</a>
+<a href="#592" id="592">592</a>
+<a href="#593" id="593">593</a>
+<a href="#594" id="594">594</a>
+<a href="#595" id="595">595</a>
+<a href="#596" id="596">596</a>
+<a href="#597" id="597">597</a>
+<a href="#598" id="598">598</a>
+<a href="#599" id="599">599</a>
+<a href="#600" id="600">600</a>
+<a href="#601" id="601">601</a>
+<a href="#602" id="602">602</a>
+<a href="#603" id="603">603</a>
+<a href="#604" id="604">604</a>
+<a href="#605" id="605">605</a>
+<a href="#606" id="606">606</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Child Pays For Parent (CPFP) Support For Transaction Sender
+//!
+//! This module implements the Child Pays For Parent (CPFP) strategy for sending
+//! Bitcoin transactions with transaction sender.
+//!
+//! ## Child Transaction Details
+//!
+//! A child transaction is created to pay for the fees of a parent transaction.
+//! They must be submitted together as a package for Bitcoin nodes to accept
+//! them.
+//!
+//! ### Fee Payer Transactions/UTXOs
+//!
+//! Child transaction needs to spend an UTXO for the fees. But because of the
+//! TRUC rules (https://github.com/bitcoin/bips/blob/master/bip-0431.mediawiki#specification),
+//! a third transaction can't be put into the package. So, a so called "fee
+//! payer" transaction must be send and confirmed before the CPFP package is
+//! send.
 
-<span class="kw">use </span>bitcoin::{Amount, FeeRate, OutPoint, Transaction, TxOut, Weight};
-<span class="kw">use </span>bitcoincore_rpc::PackageSubmissionResult;
-<span class="kw">use </span>bitcoincore_rpc::{PackageTransactionResult, RpcApi};
-<span class="kw">use </span>eyre::Context;
-
+</span><span class="kw">use super</span>::{<span class="prelude-ty">Result</span>, SendTxError, TxMetadata, TxSender};
 <span class="kw">use </span><span class="kw">crate</span>::constants::NON_STANDARD_V3;
 <span class="kw">use </span><span class="kw">crate</span>::errors::{ErrorExt, ResultExt};
 <span class="kw">use </span><span class="kw">crate</span>::extended_bitcoin_rpc::BitcoinRPCError;
@@ -599,11 +640,16 @@
     constants::MIN_TAPROOT_AMOUNT,
     rpc::clementine::NormalSignatureKind,
 };
-
-<span class="kw">use super</span>::{<span class="prelude-ty">Result</span>, SendTxError, TxMetadata, TxSender};
+<span class="kw">use </span>bitcoin::{Amount, FeeRate, OutPoint, Transaction, TxOut, Weight};
+<span class="kw">use </span>bitcoincore_rpc::PackageSubmissionResult;
+<span class="kw">use </span>bitcoincore_rpc::{PackageTransactionResult, RpcApi};
+<span class="kw">use </span>eyre::eyre;
+<span class="kw">use </span>eyre::Context;
+<span class="kw">use </span>std::env;
 
 <span class="kw">impl </span>TxSender {
-    <span class="doccomment">/// Creates and broadcasts a new "fee payer" UTXO to be used for CPFP.
+    <span class="doccomment">/// Creates and broadcasts a new "fee payer" UTXO to be used for CPFP
+    /// transactions.
     ///
     /// This function is called when a CPFP attempt fails due to insufficient funds
     /// in the existing confirmed fee payer UTXOs associated with a transaction (`bumped_id`).
@@ -783,8 +829,9 @@
     /// the child transaction using `create_child_tx`.
     ///
     /// # Returns
-    /// A `Vec` containing the parent transaction followed by the child transaction,
-    /// ready for submission via the `submitpackage` RPC.
+    ///
+    /// - [`Vec&lt;Transaction&gt;`]: Parent transaction followed by the child
+    ///   transaction ready for submission via the `submitpackage` RPC.
     </span><span class="kw">async fn </span>create_package(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         tx: Transaction,
@@ -828,7 +875,9 @@
     /// spent by a CPFP child transaction.
     ///
     /// # Returns
-    /// A `Vec` of `SpendableTxIn`, ready to be included as inputs in the CPFP child tx.
+    ///
+    /// - [`Vec&lt;SpendableTxIn&gt;`]: [`SpendableTxIn`]s of the confirmed fee payer
+    ///   UTXOs that are ready to be included as inputs in the CPFP child tx.
     </span><span class="kw">async fn </span>get_confirmed_fee_payer_utxos(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         try_to_send_id: u32,
@@ -870,10 +919,14 @@
     /// * `bumped_id` - The database ID of the parent transaction whose fee payer UTXOs need bumping.
     /// * `fee_rate` - The target fee rate for bumping the fee payer transactions.
     </span><span class="attr">#[tracing::instrument(skip_all, fields(sender = <span class="self">self</span>.btc_syncer_consumer_id, bumped_id, fee_rate))]
-    </span><span class="kw">async fn </span>_bump_fees_of_fee_payer_txs(<span class="kw-2">&amp;</span><span class="self">self</span>, bumped_id: u32, fee_rate: FeeRate) -&gt; <span class="prelude-ty">Result</span>&lt;()&gt; {
+    </span><span class="kw">async fn </span>_bump_fees_of_unconfirmed_fee_payer_txs(
+        <span class="kw-2">&amp;</span><span class="self">self</span>,
+        bumped_id: u32,
+        fee_rate: FeeRate,
+    ) -&gt; <span class="prelude-ty">Result</span>&lt;()&gt; {
         <span class="kw">let </span>bumpable_fee_payer_txs = <span class="self">self
             </span>.db
-            .get_bumpable_fee_payer_txs(<span class="prelude-val">None</span>, bumped_id)
+            .get_unconfirmed_fee_payer_txs(<span class="prelude-val">None</span>, bumped_id)
             .<span class="kw">await
             </span>.map_to_eyre()<span class="question-mark">?</span>;
 
@@ -896,6 +949,11 @@
                             .save_fee_payer_tx(<span class="prelude-val">None</span>, bumped_id, new_txid, vout, amount, <span class="prelude-val">Some</span>(id))
                             .<span class="kw">await
                             </span>.map_to_eyre()<span class="question-mark">?</span>;
+                    } <span class="kw">else </span>{
+                        <span class="macro">tracing::warn!</span>(
+                            <span class="string">"Fee payer tx {} has enough fee, no need to bump"</span>,
+                            fee_payer_txid
+                        );
                     }
                 }
                 <span class="prelude-val">Err</span>(e) =&gt; {
@@ -933,7 +991,7 @@
     ///
     /// # Logic:
     /// 1.  **Check Unconfirmed Fee Payers:** Ensures no unconfirmed fee payer UTXOs exist
-    ///     for this `try_to_send_id`. If they do, returns `UnconfirmedFeePayerUTXOsLeft`
+    ///     for this `try_to_send_id`. If they do, returns [`SendTxError::UnconfirmedFeePayerUTXOsLeft`]
     ///     as they need to confirm before being spendable by the child.
     /// 2.  **Get Confirmed Fee Payers:** Retrieves the available confirmed fee payer UTXOs.
     /// 3.  **Create Package:** Calls `create_package` to build the `vec![parent_tx, child_tx]`.
@@ -961,7 +1019,7 @@
     ) -&gt; <span class="prelude-ty">Result</span>&lt;()&gt; {
         <span class="kw">let </span>unconfirmed_fee_payer_utxos = <span class="self">self
             </span>.db
-            .get_bumpable_fee_payer_txs(<span class="prelude-val">None</span>, try_to_send_id)
+            .get_unconfirmed_fee_payer_txs(<span class="prelude-val">None</span>, try_to_send_id)
             .<span class="kw">await
             </span>.map_to_eyre()<span class="question-mark">?</span>;
 
