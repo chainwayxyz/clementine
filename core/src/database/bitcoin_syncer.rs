@@ -191,7 +191,7 @@ impl Database {
     /// # Parameters
     ///
     /// - `tx`: Optional transaction to use for the query.
-    /// - `height`: Heigth to start marking blocks as such (not inclusive).
+    /// - `height`: Height to start marking blocks as such (not inclusive).
     ///
     /// # Returns
     ///

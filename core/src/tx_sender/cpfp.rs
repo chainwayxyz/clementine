@@ -435,7 +435,6 @@ impl TxSender {
                 )
                 .await;
 
-            // TODO: Doc states that SendTxError::UnconfirmedFeePayerUTXOsLeft should be returned.
             return Ok(());
         }
 

@@ -322,7 +322,7 @@ async fn handle_reorg_events(
         .set_non_canonical_block_hashes(Some(dbtx), common_ancestor_height)
         .await?;
     if !reorg_blocks.is_empty() {
-        tracing::debug!("Reorg occured! Block ids: {:?}", reorg_blocks);
+        tracing::debug!("Reorg occurred! Block ids: {:?}", reorg_blocks);
     }
 
     for reorg_block_id in reorg_blocks {
