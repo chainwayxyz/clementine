@@ -342,7 +342,7 @@ impl Database {
         ))
     }
 
-    pub async fn update_payout_handled(
+    pub async fn mark_payout_handled(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         citrea_idx: u32,

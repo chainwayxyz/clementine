@@ -3,10 +3,7 @@
 //! This module includes database functions which are mainly used by an operator.
 
 use super::{
-    wrapper::{
-        AddressDB, DepositParamsDB, OutPointDB, SignaturesDB, TxOutDB, TxidDB, UtxoDB,
-        XOnlyPublicKeyDB,
-    },
+    wrapper::{AddressDB, DepositParamsDB, OutPointDB, SignaturesDB, TxidDB, XOnlyPublicKeyDB},
     Database, DatabaseTransaction,
 };
 use crate::{
@@ -20,7 +17,6 @@ use crate::{
     execute_query_with_tx,
     operator::PublicHash,
     rpc::clementine::{DepositSignatures, TaggedSignature},
-    UTXO,
 };
 use bitcoin::{OutPoint, Txid, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
@@ -122,45 +118,6 @@ impl Database {
                     collateral_funding_outpoint: outpoint,
                 }))
             }
-        }
-    }
-
-    /// Sets the funding UTXO for kickoffs.
-    pub async fn insert_funding_utxo(
-        &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
-        funding_utxo: UTXO,
-    ) -> Result<(), BridgeError> {
-        let query = sqlx::query("INSERT INTO funding_utxos (funding_utxo) VALUES ($1)").bind(
-            sqlx::types::Json(UtxoDB {
-                outpoint_db: OutPointDB(funding_utxo.outpoint),
-                txout_db: TxOutDB(funding_utxo.txout),
-            }),
-        );
-
-        execute_query_with_tx!(self.connection, tx, query, execute)?;
-
-        Ok(())
-    }
-
-    /// Gets the funding UTXO for kickoffs
-    pub async fn get_funding_utxo(
-        &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
-    ) -> Result<Option<UTXO>, BridgeError> {
-        let query =
-            sqlx::query_as("SELECT funding_utxo FROM funding_utxos ORDER BY id DESC LIMIT 1");
-
-        let result: Result<(sqlx::types::Json<UtxoDB>,), sqlx::Error> =
-            execute_query_with_tx!(self.connection, tx, query, fetch_one);
-
-        match result {
-            Ok((utxo_db,)) => Ok(Some(UTXO {
-                outpoint: utxo_db.outpoint_db.0,
-                txout: utxo_db.txout_db.0.clone(),
-            })),
-            Err(sqlx::Error::RowNotFound) => Ok(None),
-            Err(e) => Err(BridgeError::DatabaseError(e)),
         }
     }
 
@@ -792,7 +749,7 @@ impl Database {
         }
     }
 
-    pub async fn update_kickoff_connector_as_used(
+    pub async fn mark_kickoff_connector_as_used(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         round_idx: RoundIndex,
@@ -941,12 +898,11 @@ mod tests {
         DepositSignatures, NormalSignatureKind, NumberedSignatureKind, TaggedSignature,
     };
     use crate::test::common::citrea::MockCitreaClient;
-    use crate::UTXO;
     use crate::{database::Database, test::common::*};
     use bitcoin::hashes::Hash;
     use bitcoin::key::constants::SCHNORR_SIGNATURE_SIZE;
     use bitcoin::key::Keypair;
-    use bitcoin::{Address, Amount, OutPoint, ScriptBuf, TxOut, Txid, XOnlyPublicKey};
+    use bitcoin::{Address, OutPoint, Txid, XOnlyPublicKey};
     use std::str::FromStr;
 
     #[tokio::test]
@@ -1198,38 +1154,6 @@ mod tests {
             .await
             .unwrap();
         assert!(non_existent.is_none());
-    }
-
-    #[tokio::test]
-    async fn test_operators_funding_utxo_1() {
-        let config = create_test_config_with_thread_name().await;
-        let db = Database::new(&config).await.unwrap();
-
-        let utxo = UTXO {
-            outpoint: OutPoint {
-                txid: Txid::from_byte_array([1u8; 32]),
-                vout: 1,
-            },
-            txout: TxOut {
-                value: Amount::from_sat(100),
-                script_pubkey: ScriptBuf::from(vec![1u8]),
-            },
-        };
-        db.insert_funding_utxo(None, utxo.clone()).await.unwrap();
-        let db_utxo = db.get_funding_utxo(None).await.unwrap().unwrap();
-
-        // Sanity check
-        assert_eq!(db_utxo, utxo);
-    }
-
-    #[tokio::test]
-    async fn test_operators_funding_utxo_2() {
-        let config = create_test_config_with_thread_name().await;
-        let db = Database::new(&config).await.unwrap();
-
-        let db_utxo = db.get_funding_utxo(None).await.unwrap();
-
-        assert!(db_utxo.is_none());
     }
 
     #[tokio::test]

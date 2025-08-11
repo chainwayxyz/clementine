@@ -967,12 +967,7 @@ where
 
         // mark the kickoff connector as used
         self.db
-            .update_kickoff_connector_as_used(
-                Some(dbtx),
-                round_idx,
-                kickoff_idx,
-                Some(kickoff_txid),
-            )
+            .mark_kickoff_connector_as_used(Some(dbtx), round_idx, kickoff_idx, Some(kickoff_txid))
             .await?;
 
         Ok(kickoff_txid)
@@ -1122,7 +1117,7 @@ where
                     };
                     unspent_kickoff_connector_indices.push(kickoff_connector_idx as usize);
                     self.db
-                        .update_kickoff_connector_as_used(
+                        .mark_kickoff_connector_as_used(
                             Some(dbtx),
                             current_round_index,
                             kickoff_connector_idx,
@@ -2016,7 +2011,7 @@ where
                 // set the kickoff connector as used (it will do nothing if the utxo is already in db, so it won't overwrite the kickoff txid)
                 // mark so that we don't try to use this utxo anymore
                 self.db
-                    .update_kickoff_connector_as_used(
+                    .mark_kickoff_connector_as_used(
                         dbtx.as_deref_mut(),
                         round_idx,
                         kickoff_idx as u32,
@@ -2297,77 +2292,6 @@ mod tests {
     use crate::test::common::*;
     use bitcoin::hashes::Hash;
     use bitcoin::{OutPoint, Txid};
-
-    // #[tokio::test]
-    // async fn set_funding_utxo() {
-    //     let mut config = create_test_config_with_thread_name().await;
-    //     let rpc = ExtendedBitcoinRpc::connect(
-    //         config.bitcoin_rpc_url.clone(),
-    //         config.bitcoin_rpc_user.clone(),
-    //         config.bitcoin_rpc_password.clone(),
-    //         None,
-    //     )
-    //     .await;
-
-    //     let operator = Operator::new(config, rpc).await.unwrap();
-
-    //     let funding_utxo = UTXO {
-    //         outpoint: OutPoint {
-    //             txid: Txid::all_zeros(),
-    //             vout: 0x45,
-    //         },
-    //         txout: TxOut {
-    //             value: Amount::from_sat(0x1F),
-    //             script_pubkey: ScriptBuf::new(),
-    //         },
-    //     };
-
-    //     operator
-    //         .set_funding_utxo(funding_utxo.clone())
-    //         .await
-    //         .unwrap();
-
-    //     let db_funding_utxo = operator.db.get_funding_utxo(None).await.unwrap().unwrap();
-
-    //     assert_eq!(funding_utxo, db_funding_utxo);
-    // }
-
-    // #[tokio::test]
-    // async fn is_profitable() {
-    //     let mut config = create_test_config_with_thread_name().await;
-    //     let rpc = ExtendedBitcoinRpc::connect(
-    //         config.bitcoin_rpc_url.clone(),
-    //         config.bitcoin_rpc_user.clone(),
-    //         config.bitcoin_rpc_password.clone(),
-    //         None,
-    //     )
-    //     .await;
-
-    //     config.protocol_paramset().bridge_amount = Amount::from_sat(0x45);
-    //     config.operator_withdrawal_fee_sats = Some(Amount::from_sat(0x1F));
-
-    //     let operator = Operator::new(config.clone(), rpc).await.unwrap();
-
-    //     // Smaller input amount must not cause a panic.
-    //     operator.is_profitable(Amount::from_sat(3), Amount::from_sat(1));
-    //     // Bigger input amount must not cause a panic.
-    //     operator.is_profitable(Amount::from_sat(6), Amount::from_sat(9));
-
-    //     // False because difference between input and withdrawal amount is
-    //     // bigger than `config.protocol_paramset().bridge_amount`.
-    //     assert!(!operator.is_profitable(Amount::from_sat(6), Amount::from_sat(90)));
-
-    //     // False because net profit is smaller than
-    //     // `config.operator_withdrawal_fee_sats`.
-    //     assert!(!operator.is_profitable(Amount::from_sat(0), config.protocol_paramset().bridge_amount));
-
-    //     // True because net profit is bigger than
-    //     // `config.operator_withdrawal_fee_sats`.
-    //     assert!(operator.is_profitable(
-    //         Amount::from_sat(0),
-    //         config.operator_withdrawal_fee_sats.unwrap() - Amount::from_sat(1)
-    //     ));
-    // }
 
     #[tokio::test]
     #[ignore = "Design changes in progress"]

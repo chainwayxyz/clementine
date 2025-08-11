@@ -37,7 +37,7 @@ impl Database {
 
     /// Sets the block with given block hash as canonical if it exists in the database
     /// Returns the block id if the block was found and set as canonical, None otherwise
-    pub async fn update_block_as_canonical_if_exists(
+    pub async fn update_block_as_canonical(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         block_hash: BlockHash,
