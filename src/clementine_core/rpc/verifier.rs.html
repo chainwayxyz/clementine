@@ -593,7 +593,14 @@
 <a href="#592" id="592">592</a>
 <a href="#593" id="593">593</a>
 <a href="#594" id="594">594</a>
-<a href="#595" id="595">595</a></pre></div><pre class="rust"><code><span class="kw">use </span>std::str::FromStr;
+<a href="#595" id="595">595</a>
+<a href="#596" id="596">596</a>
+<a href="#597" id="597">597</a>
+<a href="#598" id="598">598</a>
+<a href="#599" id="599">599</a>
+<a href="#600" id="600">600</a>
+<a href="#601" id="601">601</a>
+<a href="#602" id="602">602</a></pre></div><pre class="rust"><code><span class="kw">use </span>std::str::FromStr;
 
 <span class="kw">use </span><span class="kw">super</span>::clementine::{
     <span class="self">self</span>, clementine_verifier_server::ClementineVerifier, Empty, NonceGenRequest, NonceGenResponse,
@@ -607,7 +614,7 @@
 <span class="kw">use </span><span class="kw">crate</span>::citrea::CitreaClientT;
 <span class="kw">use </span><span class="kw">crate</span>::constants::RESTART_BACKGROUND_TASKS_TIMEOUT;
 <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::VerifierDepositFinalizeResponse;
-<span class="kw">use </span><span class="kw">crate</span>::utils::{get_vergen_response, timed_request};
+<span class="kw">use </span><span class="kw">crate</span>::utils::{get_vergen_response, monitor_standalone_task, timed_request};
 <span class="kw">use </span><span class="kw">crate</span>::verifier::VerifierServer;
 <span class="kw">use crate</span>::{constants, fetch_next_optional_message_from_stream};
 <span class="kw">use crate</span>::{
@@ -814,7 +821,7 @@
 
         <span class="kw">let </span>(tx, rx) = mpsc::channel(pub_nonces.len() + <span class="number">1</span>);
 
-        tokio::spawn(<span class="kw">async move </span>{
+        <span class="kw">let </span>handle = tokio::spawn(<span class="kw">async move </span>{
             <span class="kw">let </span>nonce_gen_first_response = clementine::NonceGenFirstResponse {
                 id: session_id.to_string(),
                 num_nonces,
@@ -829,6 +836,7 @@
 
             <span class="prelude-val">Ok</span>::&lt;(), SendError&lt;<span class="kw">_</span>&gt;&gt;(())
         });
+        monitor_standalone_task(handle, <span class="string">"Verifier nonce_gen"</span>);
 
         <span class="prelude-val">Ok</span>(Response::new(ReceiverStream::new(rx)))
     }
@@ -847,7 +855,7 @@
         <span class="kw">let </span>(agg_nonce_tx, agg_nonce_rx) = mpsc::channel(constants::DEFAULT_CHANNEL_SIZE);
 
         <span class="comment">// Send incoming data to deposit sign job.
-        </span>tokio::spawn(<span class="kw">async move </span>{
+        </span><span class="kw">let </span>handle = tokio::spawn(<span class="kw">async move </span>{
             <span class="kw">let </span>params = <span class="macro">fetch_next_message_from_stream!</span>(in_stream, params)<span class="question-mark">?</span>;
             <span class="kw">let </span>(deposit_data, session_id) = <span class="kw">match </span>params {
                 clementine::verifier_deposit_sign_params::Params::DepositSignFirstParam(
@@ -885,9 +893,10 @@
             }
             <span class="prelude-val">Ok</span>(())
         });
+        monitor_standalone_task(handle, <span class="string">"Verifier deposit data receiver"</span>);
 
         <span class="comment">// Start partial sig job and return partial sig responses.
-        </span>tokio::spawn(<span class="kw">async move </span>{
+        </span><span class="kw">let </span>handle = tokio::spawn(<span class="kw">async move </span>{
             <span class="kw">let </span>(deposit_data, session_id) = param_rx
                 .recv()
                 .<span class="kw">await
@@ -924,6 +933,7 @@
 
             <span class="prelude-val">Ok</span>::&lt;(), Status&gt;(())
         });
+        monitor_standalone_task(handle, <span class="string">"Verifier deposit signature sender"</span>);
 
         <span class="prelude-val">Ok</span>(Response::new(out_stream))
     }
@@ -978,7 +988,7 @@
 
         <span class="comment">// Start parsing inputs and send them to deposit finalize job.
         </span><span class="kw">let </span>verifier = <span class="self">self</span>.verifier.clone();
-        tokio::spawn(<span class="kw">async move </span>{
+        <span class="kw">let </span>sig_handle = tokio::spawn(<span class="kw">async move </span>{
             <span class="kw">let </span>num_required_nofn_sigs = verifier.config.get_num_required_nofn_sigs(<span class="kw-2">&amp;</span>deposit_data);
             <span class="kw">let </span><span class="kw-2">mut </span>nonce_idx = <span class="number">0</span>;
             <span class="kw">while let </span><span class="prelude-val">Some</span>(sig) =
@@ -1074,6 +1084,10 @@
 
             <span class="prelude-val">Ok</span>::&lt;(), Status&gt;(())
         });
+
+        sig_handle.<span class="kw">await</span>.map_err(|e| {
+            Status::internal(<span class="macro">format!</span>(<span class="string">"Deposit sign thread failed to finish: {}"</span>, e).as_str())
+        })<span class="question-mark">??</span>;
 
         <span class="kw">let </span>partial_sig = deposit_finalize_handle.<span class="kw">await</span>.map_err(|e| {
             Status::internal(<span class="macro">format!</span>(<span class="string">"Deposit finalize thread failed to finish: {}"</span>, e).as_str())

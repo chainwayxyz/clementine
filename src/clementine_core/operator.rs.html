@@ -2337,7 +2337,8 @@
 <a href="#2336" id="2336">2336</a>
 <a href="#2337" id="2337">2337</a>
 <a href="#2338" id="2338">2338</a>
-<a href="#2339" id="2339">2339</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_ff::PrimeField;
+<a href="#2339" id="2339">2339</a>
+<a href="#2340" id="2340">2340</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_ff::PrimeField;
 <span class="kw">use </span>circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
 <span class="kw">use </span>std::collections::HashMap;
 
@@ -2368,7 +2369,7 @@
 <span class="kw">use </span><span class="kw">crate</span>::task::manager::BackgroundTaskManager;
 <span class="kw">use </span><span class="kw">crate</span>::task::payout_checker::{PayoutCheckerTask, PAYOUT_CHECKER_POLL_DELAY};
 <span class="kw">use </span><span class="kw">crate</span>::task::TaskExt;
-<span class="kw">use </span><span class="kw">crate</span>::utils::{Last20Bytes, ScriptBufExt};
+<span class="kw">use </span><span class="kw">crate</span>::utils::{monitor_standalone_task, Last20Bytes, ScriptBufExt};
 <span class="kw">use </span><span class="kw">crate</span>::utils::{NamedEntity, TxMetadata};
 <span class="kw">use crate</span>::{builder, constants, UTXO};
 <span class="kw">use </span>bitcoin::hashes::Hash;
@@ -2824,7 +2825,7 @@
         ));
 
         <span class="kw">let </span>signer = <span class="self">self</span>.signer.clone();
-        tokio::spawn(<span class="kw">async move </span>{
+        <span class="kw">let </span>handle = tokio::spawn(<span class="kw">async move </span>{
             <span class="kw">while let </span><span class="prelude-val">Some</span>(sighash) = sighash_stream.next().<span class="kw">await </span>{
                 <span class="comment">// None because utxos that operators need to sign do not have scripts
                 </span><span class="kw">let </span>(sighash, sig_info) = sighash<span class="question-mark">?</span>;
@@ -2841,6 +2842,7 @@
 
             <span class="prelude-val">Ok</span>::&lt;(), BridgeError&gt;(())
         });
+        monitor_standalone_task(handle, <span class="string">"Operator deposit sign"</span>);
 
         <span class="prelude-val">Ok</span>(sig_rx)
     }

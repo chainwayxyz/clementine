@@ -767,12 +767,7 @@
 <a href="#766" id="766">766</a>
 <a href="#767" id="767">767</a>
 <a href="#768" id="768">768</a>
-<a href="#769" id="769">769</a>
-<a href="#770" id="770">770</a>
-<a href="#771" id="771">771</a>
-<a href="#772" id="772">772</a>
-<a href="#773" id="773">773</a>
-<a href="#774" id="774">774</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::builder::transaction::TransactionType;
+<a href="#769" id="769">769</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::builder::transaction::TransactionType;
 <span class="kw">use </span><span class="kw">crate</span>::config::TelemetryConfig;
 <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
 <span class="kw">use </span><span class="kw">crate</span>::operator::RoundIndex;
@@ -1153,9 +1148,9 @@
     }
 }
 
-<span class="doccomment">/// Monitors a JoinHandle and aborts the process if the task completes with an error.
-/// Returns a handle to the monitoring task that can be used to cancel it.
-</span><span class="kw">pub fn </span>monitor_task_with_panic&lt;T: Send + <span class="lifetime">'static</span>, E: Debug + Send + <span class="lifetime">'static</span>&gt;(
+<span class="doccomment">/// Monitors a [`tokio::task::JoinHandle`] in the background and logs it's end
+/// result.
+</span><span class="kw">pub fn </span>monitor_standalone_task&lt;T: Send + <span class="lifetime">'static</span>, E: Debug + Send + <span class="lifetime">'static</span>&gt;(
     task_handle: tokio::task::JoinHandle&lt;<span class="prelude-ty">Result</span>&lt;T, E&gt;&gt;,
     task_name: <span class="kw-2">&amp;</span>str,
 ) {
@@ -1165,23 +1160,18 @@
     </span>tokio::spawn(<span class="kw">async move </span>{
         <span class="kw">match </span>task_handle.<span class="kw">await </span>{
             <span class="prelude-val">Ok</span>(<span class="prelude-val">Ok</span>(<span class="kw">_</span>)) =&gt; {
-                <span class="comment">// Task completed successfully
-                </span><span class="macro">tracing::debug!</span>(<span class="string">"Task {} completed successfully"</span>, task_name);
+                <span class="macro">tracing::debug!</span>(<span class="string">"Task {} completed successfully"</span>, task_name);
             }
             <span class="prelude-val">Ok</span>(<span class="prelude-val">Err</span>(e)) =&gt; {
-                <span class="comment">// Task returned an error
-                </span><span class="macro">tracing::error!</span>(<span class="string">"Task {} failed with error: {:?}"</span>, task_name, e);
-                <span class="macro">panic!</span>();
+                <span class="macro">tracing::error!</span>(<span class="string">"Task {} throw an error: {:?}"</span>, task_name, e);
             }
             <span class="prelude-val">Err</span>(e) =&gt; {
                 <span class="kw">if </span>e.is_cancelled() {
                     <span class="comment">// Task was cancelled, which is expected during cleanup
-                    </span><span class="macro">tracing::debug!</span>(<span class="string">"Task {} was cancelled"</span>, task_name);
+                    </span><span class="macro">tracing::debug!</span>(<span class="string">"Task {} has cancelled"</span>, task_name);
                     <span class="kw">return</span>;
                 }
-                <span class="comment">// Task panicked or was aborted
-                </span><span class="macro">tracing::error!</span>(<span class="string">"Task {} panicked: {:?}"</span>, task_name, e);
-                <span class="macro">panic!</span>();
+                <span class="macro">tracing::error!</span>(<span class="string">"Task {} has panicked: {:?}"</span>, task_name, e);
             }
         }
     });

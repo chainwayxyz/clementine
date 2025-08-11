@@ -417,7 +417,8 @@
 <a href="#416" id="416">416</a>
 <a href="#417" id="417">417</a>
 <a href="#418" id="418">418</a>
-<a href="#419" id="419">419</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::clementine_operator_server::ClementineOperator;
+<a href="#419" id="419">419</a>
+<a href="#420" id="420">420</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::clementine_operator_server::ClementineOperator;
 <span class="kw">use </span><span class="kw">super</span>::clementine::{
     <span class="self">self</span>, ChallengeAckDigest, DepositParams, DepositSignSession, Empty, FinalizedPayoutParams,
     OperatorKeys, OperatorParams, SchnorrSig, SignedTxWithType, SignedTxsWithType,
@@ -438,7 +439,7 @@
     recover_address_from_ecdsa_signature, OperatorWithdrawalMessage,
 };
 <span class="kw">use </span><span class="kw">crate</span>::rpc::parser;
-<span class="kw">use </span><span class="kw">crate</span>::utils::get_vergen_response;
+<span class="kw">use </span><span class="kw">crate</span>::utils::{get_vergen_response, monitor_standalone_task};
 <span class="kw">use </span>alloy::primitives::PrimitiveSignature;
 <span class="kw">use </span>bitcoin::hashes::Hash;
 <span class="kw">use </span>bitcoin::{BlockHash, OutPoint};
@@ -490,7 +491,7 @@
 
         <span class="kw">let </span>(<span class="kw-2">mut </span>wpk_receiver, <span class="kw-2">mut </span>signature_receiver) = operator.get_params().<span class="kw">await</span><span class="question-mark">?</span>;
 
-        tokio::spawn(<span class="kw">async move </span>{
+        <span class="kw">let </span>handle = tokio::spawn(<span class="kw">async move </span>{
             <span class="kw">let </span>operator_config: OperatorParams = operator.clone().into();
             tx.send(<span class="prelude-val">Ok</span>(operator_config))
                 .<span class="kw">await
@@ -512,6 +513,7 @@
 
             <span class="prelude-val">Ok</span>::&lt;(), Status&gt;(())
         });
+        monitor_standalone_task(handle, <span class="string">"Operator get_params"</span>);
 
         <span class="prelude-val">Ok</span>(Response::new(out_stream))
     }

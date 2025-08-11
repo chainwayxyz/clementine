@@ -3170,7 +3170,8 @@
 <a href="#3169" id="3169">3169</a>
 <a href="#3170" id="3170">3170</a>
 <a href="#3171" id="3171">3171</a>
-<a href="#3172" id="3172">3172</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
+<a href="#3172" id="3172">3172</a>
+<a href="#3173" id="3173">3173</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
 <span class="kw">use </span><span class="kw">crate</span>::bitcoin_syncer::BitcoinSyncer;
 <span class="kw">use </span><span class="kw">crate</span>::bitvm_client::{ClementineBitVMPublicKeys, REPLACE_SCRIPTS_LOCK};
 <span class="kw">use </span><span class="kw">crate</span>::builder::address::{create_taproot_address, taproot_builder_with_scripts};
@@ -3217,8 +3218,8 @@
 <span class="kw">use </span><span class="kw">crate</span>::task::{IntoTask, TaskExt};
 <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
 </span><span class="kw">use </span><span class="kw">crate</span>::tx_sender::{TxSender, TxSenderClient};
-<span class="kw">use </span><span class="kw">crate</span>::utils::NamedEntity;
 <span class="kw">use </span><span class="kw">crate</span>::utils::TxMetadata;
+<span class="kw">use </span><span class="kw">crate</span>::utils::{monitor_standalone_task, NamedEntity};
 <span class="kw">use crate</span>::{musig2, UTXO};
 <span class="kw">use </span>alloy::primitives::PrimitiveSignature;
 <span class="kw">use </span>bitcoin::hashes::Hash;
@@ -3987,7 +3988,7 @@
             .get_blockhash_of_tx(<span class="kw-2">&amp;</span>deposit_data.get_deposit_outpoint().txid)
             .<span class="kw">await</span><span class="question-mark">?</span>;
 
-        tokio::spawn(<span class="kw">async move </span>{
+        <span class="kw">let </span>handle = tokio::spawn(<span class="kw">async move </span>{
             <span class="comment">// Take the lock and extract the session before entering the async block
             // Extract the session and remove it from the map to release the lock early
             </span><span class="kw">let </span><span class="kw-2">mut </span>session = {
@@ -4063,6 +4064,7 @@
 
             <span class="prelude-val">Ok</span>::&lt;(), BridgeError&gt;(())
         });
+        monitor_standalone_task(handle, <span class="string">"Verifier deposit_sign"</span>);
 
         <span class="prelude-val">Ok</span>(partial_sig_rx)
     }
