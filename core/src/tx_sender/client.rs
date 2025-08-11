@@ -87,8 +87,6 @@ impl TxSenderClient {
             txid
         );
 
-        let txid = signed_tx.compute_txid();
-
         let try_to_send_id = self
             .db
             .save_tx(
