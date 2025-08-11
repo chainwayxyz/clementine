@@ -298,7 +298,7 @@ async fn fetch_new_blocks(
 
         if new_blocks.len() >= 100 {
             return Err(eyre::eyre!(
-                "Bitcoin syncer can't synchronize database with active blockchain: To deep to continue (last saved block was at height {})",
+                "Bitcoin syncer can't synchronize database with active blockchain: Too deep to continue (last saved block was at height {})",
                 new_height as u64
             )
             .into());
