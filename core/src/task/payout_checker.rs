@@ -1,3 +1,4 @@
+use eyre::OptionExt;
 use tokio::time::Duration;
 use tonic::async_trait;
 
@@ -73,6 +74,26 @@ where
                 &mut dbtx,
                 deposit_data.get_deposit_outpoint(),
                 payout_tx_blockhash,
+            )
+            .await?;
+
+        // fetch and save the LCP for if we get challenged and need to provide proof of payout later
+        let (_, payout_block_height) = self
+            .operator
+            .db
+            .get_block_info_from_hash(Some(&mut dbtx), payout_tx_blockhash)
+            .await?
+            .ok_or_eyre("Couldn't find payout blockhash in bitcoin sync")?;
+
+        let _ = self
+            .operator
+            .citrea_client
+            .fetch_validate_and_store_lcp(
+                payout_block_height as u64,
+                citrea_idx,
+                &self.operator.db,
+                Some(&mut dbtx),
+                self.operator.config.protocol_paramset(),
             )
             .await?;
 

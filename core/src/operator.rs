@@ -62,6 +62,7 @@ use {
         },
         structs::{BridgeCircuitHostParams, WatchtowerContext},
     },
+    circuits_lib::bridge_circuit::structs::LightClientProof,
     std::collections::HashMap,
 };
 
@@ -1244,6 +1245,7 @@ where
         latest_blockhash: Witness,
     ) -> Result<(), BridgeError> {
         use bridge_circuit_host::utils::{get_verifying_key, is_dev_mode};
+        use citrea_sov_rollup_interface::zk::light_client_proof::output::LightClientCircuitOutput;
 
         let context = ContractContext::new_context_for_kickoff(
             kickoff_data,
@@ -1318,12 +1320,25 @@ where
         let payout_tx = &payout_block.txdata[payout_tx_index];
         tracing::debug!("Calculated payout tx in send_asserts: {:?}", payout_tx);
 
-        let (light_client_proof, lcp_receipt, l2_height) = self
+        let lcp_receipt = self
             .citrea_client
-            .get_light_client_proof(payout_block_height as u64)
-            .await
-            .wrap_err("Failed to get light client proof for payout block height")?
-            .ok_or_eyre("Light client proof is not available for payout block height")?;
+            .fetch_validate_and_store_lcp(
+                payout_block_height as u64,
+                deposit_idx as u32,
+                &self.db,
+                None,
+                self.config.protocol_paramset(),
+            )
+            .await?;
+        let proof_output: LightClientCircuitOutput = borsh::from_slice(&lcp_receipt.journal.bytes)
+            .wrap_err("Failed to deserialize light client circuit output")?;
+        let l2_height = proof_output.last_l2_height;
+        let hex_l2_str = format!("0x{:x}", l2_height);
+        let light_client_proof = LightClientProof {
+            lc_journal: lcp_receipt.journal.bytes.clone(),
+            l2_height: hex_l2_str,
+        };
+
         tracing::info!("Got light client proof in send_asserts");
 
         let storage_proof = self
@@ -1728,7 +1743,7 @@ where
     async fn get_next_txs_to_send(
         &self,
         mut dbtx: Option<DatabaseTransaction<'_, '_>>,
-        deposit_data: &DepositData,
+        deposit_data: &mut DepositData,
         payout_blockhash: BlockHash,
         kickoff_txid: Txid,
         current_round_idx: RoundIndex,
@@ -1793,6 +1808,33 @@ where
                         .iter()
                         .find(|(tx_type, _)| tx_type == &TransactionType::Kickoff)
                         .ok_or(eyre::eyre!("Kickoff tx not found in kickoff txs"))?;
+
+                    // fetch and save the LCP for if we get challenged and need to provide proof of payout later
+                    let (_, payout_block_height) = self
+                        .db
+                        .get_block_info_from_hash(dbtx.as_deref_mut(), payout_blockhash)
+                        .await?
+                        .ok_or_eyre("Couldn't find payout blockhash in bitcoin sync")?;
+
+                    let move_txid = Txid::all_zeros();
+
+                    let (_, _, _, citrea_idx) = self
+                        .db
+                        .get_payout_info_from_move_txid(dbtx.as_deref_mut(), move_txid)
+                        .await?
+                        .ok_or_eyre("Couldn't find payout info from move txid")?;
+
+                    let _ = self
+                        .citrea_client
+                        .fetch_validate_and_store_lcp(
+                            payout_block_height as u64,
+                            citrea_idx as u32,
+                            &self.db,
+                            dbtx.as_deref_mut(),
+                            self.config.protocol_paramset(),
+                        )
+                        .await?;
+
                     // sanity check
                     if kickoff_tx.1.compute_txid() != kickoff_txid {
                         return Err(eyre::eyre!("Kickoff txid mismatch for deposit outpoint: {}, kickoff txid: {:?}, computed txid: {:?}",
@@ -1867,7 +1909,7 @@ where
     ) -> Result<Vec<(TransactionType, Transaction)>, BridgeError> {
         let mut dbtx = self.db.begin_transaction().await?;
         // first check if the deposit is in the database
-        let (deposit_id, deposit_data) = self
+        let (deposit_id, mut deposit_data) = self
             .db
             .get_deposit_data(Some(&mut dbtx), deposit_outpoint)
             .await?
@@ -1895,7 +1937,7 @@ where
             txs_to_send = self
                 .get_next_txs_to_send(
                     Some(&mut dbtx),
-                    &deposit_data,
+                    &mut deposit_data,
                     payout_blockhash,
                     kickoff_txid,
                     current_round_idx,

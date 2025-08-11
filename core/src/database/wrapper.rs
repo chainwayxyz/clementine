@@ -14,6 +14,7 @@ use bitcoin::{
 };
 use eyre::eyre;
 use prost::Message as _;
+use risc0_zkvm::Receipt;
 use secp256k1::musig;
 use serde::{Deserialize, Serialize};
 use sqlx::{
@@ -131,6 +132,37 @@ macro_rules! impl_bytea_wrapper_custom {
     };
 }
 
+/// Same as `impl_bytea_wrapper_custom` but with an encode function that returns a Result
+macro_rules! impl_bytea_wrapper_custom_with_error {
+    ($wrapper:ident, $inner:ty, $encode:expr, $decode:expr) => {
+        #[derive(sqlx::FromRow, Debug, Clone)]
+        pub struct $wrapper(pub $inner);
+
+        impl sqlx::Type<sqlx::Postgres> for $wrapper {
+            fn type_info() -> sqlx::postgres::PgTypeInfo {
+                sqlx::postgres::PgTypeInfo::with_name("BYTEA")
+            }
+        }
+
+        impl Encode<'_, Postgres> for $wrapper {
+            fn encode_by_ref(
+                &self,
+                buf: &mut PgArgumentBuffer,
+            ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
+                let bytes = $encode(&self.0)?;
+                <&[u8] as Encode<Postgres>>::encode(bytes.as_ref(), buf)
+            }
+        }
+
+        impl<'r> Decode<'r, Postgres> for $wrapper {
+            fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
+                let bytes = <Vec<u8> as Decode<Postgres>>::decode(value)?;
+                Ok(Self($decode(&bytes)?))
+            }
+        }
+    };
+}
+
 /// Macro for implementing BYTEA-based SQL wrapper types using standard serialization
 ///
 /// This macro creates a wrapper type that uses the inner type's default serialization
@@ -210,6 +242,13 @@ impl_bytea_wrapper_custom!(
             .map_err(|_| eyre!("Expected 66 bytes for AggregatedNonce"))?;
         Ok(musig::AggregatedNonce::from_byte_array(arr)?)
     }
+);
+
+impl_bytea_wrapper_custom_with_error!(
+    ReceiptDB,
+    Receipt,
+    |lcp: &Receipt| -> Result<Vec<u8>, BoxDynError> { borsh::to_vec(lcp).map_err(Into::into) },
+    |x: &[u8]| -> Result<Receipt, BoxDynError> { borsh::from_slice(x).map_err(Into::into) }
 );
 
 impl_text_wrapper_custom!(

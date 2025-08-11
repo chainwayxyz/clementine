@@ -1,4 +1,9 @@
-use crate::{citrea::CitreaClientT, errors::BridgeError};
+use crate::{
+    citrea::CitreaClientT,
+    config::protocol::ProtocolParamset,
+    database::{Database, DatabaseTransaction},
+    errors::BridgeError,
+};
 use alloy::signers::local::PrivateKeySigner;
 use bitcoin::{OutPoint, Txid};
 use circuits_lib::bridge_circuit::structs::{LightClientProof, StorageProof};
@@ -81,6 +86,20 @@ impl CitreaClientT for MockCitreaClient {
             index: deposit_index,
         })
     }
+
+    async fn fetch_validate_and_store_lcp(
+        &self,
+        _payout_block_height: u64,
+        _deposit_index: u32,
+        _db: &Database,
+        _dbtx: Option<DatabaseTransaction<'_, '_>>,
+        _paramset: &'static ProtocolParamset,
+    ) -> Result<Receipt, BridgeError> {
+        Ok(borsh::from_slice(include_bytes!(
+            "../../../../../circuits-lib/test_data/lcp_receipt.bin"
+        ))
+        .wrap_err("Couldn't create mock receipt")?)
+    }
     /// Connects a database with the given URL which is stored in
     /// `citrea_rpc_url`. Other parameters are dumped.
     async fn new(
@@ -162,6 +181,7 @@ impl CitreaClientT for MockCitreaClient {
     async fn get_light_client_proof(
         &self,
         l1_height: u64,
+        _paramset: &'static ProtocolParamset,
     ) -> Result<Option<(LightClientProof, Receipt, u64)>, BridgeError> {
         Ok(Some((
             LightClientProof {
@@ -180,7 +200,7 @@ impl CitreaClientT for MockCitreaClient {
         &self,
         block_height: u64,
         _timeout: Duration,
-        _network: bitcoin::Network,
+        _paramset: &'static ProtocolParamset,
     ) -> Result<(u64, u64), BridgeError> {
         Ok((
             if block_height == 0 {
