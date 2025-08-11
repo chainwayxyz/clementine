@@ -170,7 +170,7 @@
         </span><span class="self">self</span>.operator.end_round(<span class="kw-2">&amp;mut </span>dbtx).<span class="kw">await</span><span class="question-mark">?</span>;
 
         <span class="self">self</span>.db
-            .set_payout_handled(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx), citrea_idx, kickoff_txid)
+            .mark_payout_handled(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx), citrea_idx, kickoff_txid)
             .<span class="kw">await</span><span class="question-mark">?</span>;
 
         dbtx.commit().<span class="kw">await</span><span class="question-mark">?</span>;

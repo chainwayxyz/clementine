@@ -1494,66 +1494,12 @@
 <a href="#1493" id="1493">1493</a>
 <a href="#1494" id="1494">1494</a>
 <a href="#1495" id="1495">1495</a>
-<a href="#1496" id="1496">1496</a>
-<a href="#1497" id="1497">1497</a>
-<a href="#1498" id="1498">1498</a>
-<a href="#1499" id="1499">1499</a>
-<a href="#1500" id="1500">1500</a>
-<a href="#1501" id="1501">1501</a>
-<a href="#1502" id="1502">1502</a>
-<a href="#1503" id="1503">1503</a>
-<a href="#1504" id="1504">1504</a>
-<a href="#1505" id="1505">1505</a>
-<a href="#1506" id="1506">1506</a>
-<a href="#1507" id="1507">1507</a>
-<a href="#1508" id="1508">1508</a>
-<a href="#1509" id="1509">1509</a>
-<a href="#1510" id="1510">1510</a>
-<a href="#1511" id="1511">1511</a>
-<a href="#1512" id="1512">1512</a>
-<a href="#1513" id="1513">1513</a>
-<a href="#1514" id="1514">1514</a>
-<a href="#1515" id="1515">1515</a>
-<a href="#1516" id="1516">1516</a>
-<a href="#1517" id="1517">1517</a>
-<a href="#1518" id="1518">1518</a>
-<a href="#1519" id="1519">1519</a>
-<a href="#1520" id="1520">1520</a>
-<a href="#1521" id="1521">1521</a>
-<a href="#1522" id="1522">1522</a>
-<a href="#1523" id="1523">1523</a>
-<a href="#1524" id="1524">1524</a>
-<a href="#1525" id="1525">1525</a>
-<a href="#1526" id="1526">1526</a>
-<a href="#1527" id="1527">1527</a>
-<a href="#1528" id="1528">1528</a>
-<a href="#1529" id="1529">1529</a>
-<a href="#1530" id="1530">1530</a>
-<a href="#1531" id="1531">1531</a>
-<a href="#1532" id="1532">1532</a>
-<a href="#1533" id="1533">1533</a>
-<a href="#1534" id="1534">1534</a>
-<a href="#1535" id="1535">1535</a>
-<a href="#1536" id="1536">1536</a>
-<a href="#1537" id="1537">1537</a>
-<a href="#1538" id="1538">1538</a>
-<a href="#1539" id="1539">1539</a>
-<a href="#1540" id="1540">1540</a>
-<a href="#1541" id="1541">1541</a>
-<a href="#1542" id="1542">1542</a>
-<a href="#1543" id="1543">1543</a>
-<a href="#1544" id="1544">1544</a>
-<a href="#1545" id="1545">1545</a>
-<a href="#1546" id="1546">1546</a>
-<a href="#1547" id="1547">1547</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Operator Related Database Operations
+<a href="#1496" id="1496">1496</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Operator Related Database Operations
 //!
 //! This module includes database functions which are mainly used by an operator.
 
 </span><span class="kw">use super</span>::{
-    wrapper::{
-        AddressDB, DepositParamsDB, OutPointDB, SignaturesDB, TxOutDB, TxidDB, UtxoDB,
-        XOnlyPublicKeyDB,
-    },
+    wrapper::{AddressDB, DepositParamsDB, OutPointDB, SignaturesDB, TxidDB, XOnlyPublicKeyDB},
     Database, DatabaseTransaction,
 };
 <span class="kw">use crate</span>::{
@@ -1567,7 +1513,6 @@
     execute_query_with_tx,
     operator::PublicHash,
     rpc::clementine::{DepositSignatures, TaggedSignature},
-    UTXO,
 };
 <span class="kw">use </span>bitcoin::{OutPoint, Txid, XOnlyPublicKey};
 <span class="kw">use </span>bitvm::signatures::winternitz;
@@ -1586,7 +1531,7 @@
     /// This function additionally checks if the operator data already exists in the db.
     /// As we don't want to overwrite operator data on the db, as it can prevent us slash malicious operators that signed
     /// previous deposits. This function should give an error if an operator changed its data.
-    </span><span class="kw">pub async fn </span>set_operator(
+    </span><span class="kw">pub async fn </span>insert_operator_if_not_exists(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         <span class="kw-2">mut </span>tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
         xonly_pubkey: XOnlyPublicKey,
@@ -1672,51 +1617,12 @@
         }
     }
 
-    <span class="doccomment">/// Sets the funding UTXO for kickoffs.
-    </span><span class="kw">pub async fn </span>set_funding_utxo(
-        <span class="kw-2">&amp;</span><span class="self">self</span>,
-        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
-        funding_utxo: UTXO,
-    ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
-        <span class="kw">let </span>query = sqlx::query(<span class="string">"INSERT INTO funding_utxos (funding_utxo) VALUES ($1)"</span>).bind(
-            sqlx::types::Json(UtxoDB {
-                outpoint_db: OutPointDB(funding_utxo.outpoint),
-                txout_db: TxOutDB(funding_utxo.txout),
-            }),
-        );
-
-        <span class="macro">execute_query_with_tx!</span>(<span class="self">self</span>.connection, tx, query, execute)<span class="question-mark">?</span>;
-
-        <span class="prelude-val">Ok</span>(())
-    }
-
-    <span class="doccomment">/// Gets the funding UTXO for kickoffs
-    </span><span class="kw">pub async fn </span>get_funding_utxo(
-        <span class="kw-2">&amp;</span><span class="self">self</span>,
-        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
-    ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;UTXO&gt;, BridgeError&gt; {
-        <span class="kw">let </span>query =
-            sqlx::query_as(<span class="string">"SELECT funding_utxo FROM funding_utxos ORDER BY id DESC LIMIT 1"</span>);
-
-        <span class="kw">let </span>result: <span class="prelude-ty">Result</span>&lt;(sqlx::types::Json&lt;UtxoDB&gt;,), sqlx::Error&gt; =
-            <span class="macro">execute_query_with_tx!</span>(<span class="self">self</span>.connection, tx, query, fetch_one);
-
-        <span class="kw">match </span>result {
-            <span class="prelude-val">Ok</span>((utxo_db,)) =&gt; <span class="prelude-val">Ok</span>(<span class="prelude-val">Some</span>(UTXO {
-                outpoint: utxo_db.outpoint_db.<span class="number">0</span>,
-                txout: utxo_db.txout_db.<span class="number">0</span>.clone(),
-            })),
-            <span class="prelude-val">Err</span>(sqlx::Error::RowNotFound) =&gt; <span class="prelude-val">Ok</span>(<span class="prelude-val">None</span>),
-            <span class="prelude-val">Err</span>(e) =&gt; <span class="prelude-val">Err</span>(BridgeError::DatabaseError(e)),
-        }
-    }
-
     <span class="doccomment">/// Sets the unspent kickoff sigs received from operators during initial setup.
     /// Sigs of each round are stored together in the same row.
     /// On conflict, do not update the existing sigs. Although technically, as long as kickoff winternitz keys
     /// and operator data(collateral funding outpoint and reimburse address) are not changed, the sigs are still valid
     /// even if they are changed.
-    </span><span class="kw">pub async fn </span>set_unspent_kickoff_sigs(
+    </span><span class="kw">pub async fn </span>insert_unspent_kickoff_sigs_if_not_exist(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
         operator_xonly_pk: XOnlyPublicKey,
@@ -1754,7 +1660,7 @@
     }
 
     <span class="doccomment">/// Sets Winternitz public keys for bitvm related inputs of an operator.
-    </span><span class="kw">pub async fn </span>set_operator_bitvm_keys(
+    </span><span class="kw">pub async fn </span>insert_operator_bitvm_keys_if_not_exist(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         <span class="kw-2">mut </span>tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
         operator_xonly_pk: XOnlyPublicKey,
@@ -1807,7 +1713,7 @@
     <span class="doccomment">/// Sets Winternitz public keys (only for kickoff blockhash commit) for an operator.
     /// On conflict, do not update the existing keys. This is very important, as otherwise the txids of
     /// operators round tx's will change.
-    </span><span class="kw">pub async fn </span>set_operator_kickoff_winternitz_public_keys(
+    </span><span class="kw">pub async fn </span>insert_operator_kickoff_winternitz_public_keys_if_not_exist(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         <span class="kw-2">mut </span>tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
         operator_xonly_pk: XOnlyPublicKey,
@@ -1863,7 +1769,7 @@
     <span class="doccomment">/// Sets public hashes for a specific operator, sequential collateral tx and
     /// kickoff index combination. If there is hashes for given indexes, they
     /// will be overwritten by the new hashes.
-    </span><span class="kw">pub async fn </span>set_operator_challenge_ack_hashes(
+    </span><span class="kw">pub async fn </span>insert_operator_challenge_ack_hashes_if_not_exist(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         <span class="kw-2">mut </span>tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
         operator_xonly_pk: XOnlyPublicKey,
@@ -1944,7 +1850,7 @@
     <span class="doccomment">/// Saves deposit infos, and returns the deposit_id
     /// This function additionally checks if the deposit data already exists in the db.
     /// As we don't want to overwrite deposit data on the db, this function should give an error if deposit data is changed.
-    </span><span class="kw">pub async fn </span>set_deposit_data(
+    </span><span class="kw">pub async fn </span>insert_deposit_data_if_not_exists(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         <span class="kw-2">mut </span>tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
         deposit_data: <span class="kw-2">&amp;mut </span>DepositData,
@@ -2071,7 +1977,7 @@
     /// For the order of signatures, please check [`crate::builder::sighash::create_nofn_sighash_stream`]
     /// which determines the order of the sighashes that are signed.
     </span><span class="attr">#[allow(clippy::too_many_arguments)]
-    </span><span class="kw">pub async fn </span>set_deposit_signatures(
+    </span><span class="kw">pub async fn </span>insert_deposit_signatures_if_not_exist(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         <span class="kw-2">mut </span>tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
         deposit_outpoint: OutPoint,
@@ -2236,7 +2142,7 @@
     /// This function additionally checks if the BitVM setup data already exists in the db.
     /// As we don't want to overwrite BitVM setup data on the db, as maliciously overwriting
     /// can prevent us to regenerate previously signed kickoff tx's.
-    </span><span class="kw">pub async fn </span>set_bitvm_setup(
+    </span><span class="kw">pub async fn </span>insert_bitvm_setup_if_not_exists(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         <span class="kw-2">mut </span>tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
         operator_xonly_pk: XOnlyPublicKey,
@@ -2339,7 +2245,7 @@
         }
     }
 
-    <span class="kw">pub async fn </span>set_kickoff_connector_as_used(
+    <span class="kw">pub async fn </span>mark_kickoff_connector_as_used(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
         round_idx: RoundIndex,
@@ -2488,12 +2394,11 @@
         DepositSignatures, NormalSignatureKind, NumberedSignatureKind, TaggedSignature,
     };
     <span class="kw">use </span><span class="kw">crate</span>::test::common::citrea::MockCitreaClient;
-    <span class="kw">use </span><span class="kw">crate</span>::UTXO;
     <span class="kw">use crate</span>::{database::Database, test::common::<span class="kw-2">*</span>};
     <span class="kw">use </span>bitcoin::hashes::Hash;
     <span class="kw">use </span>bitcoin::key::constants::SCHNORR_SIGNATURE_SIZE;
     <span class="kw">use </span>bitcoin::key::Keypair;
-    <span class="kw">use </span>bitcoin::{Address, Amount, OutPoint, ScriptBuf, TxOut, Txid, XOnlyPublicKey};
+    <span class="kw">use </span>bitcoin::{Address, OutPoint, Txid, XOnlyPublicKey};
     <span class="kw">use </span>std::str::FromStr;
 
     <span class="attr">#[tokio::test]
@@ -2528,7 +2433,10 @@
 
         <span class="comment">// Test inserting multiple operators
         </span><span class="kw">for </span>x <span class="kw">in </span>ops.iter() {
-            database.set_operator(<span class="prelude-val">None</span>, x.<span class="number">0</span>, <span class="kw-2">&amp;</span>x.<span class="number">1</span>, x.<span class="number">2</span>).<span class="kw">await</span>.unwrap();
+            database
+                .insert_operator_if_not_exists(<span class="prelude-val">None</span>, x.<span class="number">0</span>, <span class="kw-2">&amp;</span>x.<span class="number">1</span>, x.<span class="number">2</span>)
+                .<span class="kw">await
+                </span>.unwrap();
         }
 
         <span class="comment">// Test getting all operators
@@ -2552,7 +2460,7 @@
 
         <span class="comment">// Test that we can insert the same data without errors
         </span>database
-            .set_operator(<span class="prelude-val">None</span>, ops[<span class="number">0</span>].<span class="number">0</span>, <span class="kw-2">&amp;</span>ops[<span class="number">0</span>].<span class="number">1</span>, ops[<span class="number">0</span>].<span class="number">2</span>)
+            .insert_operator_if_not_exists(<span class="prelude-val">None</span>, ops[<span class="number">0</span>].<span class="number">0</span>, <span class="kw-2">&amp;</span>ops[<span class="number">0</span>].<span class="number">1</span>, ops[<span class="number">0</span>].<span class="number">2</span>)
             .<span class="kw">await
             </span>.unwrap();
 
@@ -2567,7 +2475,7 @@
 
         <span class="comment">// test that we can't update the reimburse address
         </span><span class="macro">assert!</span>(database
-            .set_operator(
+            .insert_operator_if_not_exists(
                 <span class="prelude-val">None</span>,
                 operator_xonly_pks[<span class="number">0</span>],
                 <span class="kw-2">&amp;</span>reimburse_addrs[<span class="number">0</span>],
@@ -2578,13 +2486,18 @@
 
         <span class="comment">// test that we can't update the collateral funding outpoint
         </span><span class="macro">assert!</span>(database
-            .set_operator(<span class="prelude-val">None</span>, operator_xonly_pks[<span class="number">0</span>], <span class="kw-2">&amp;</span>new_reimburse_addr, ops[<span class="number">0</span>].<span class="number">2</span>)
+            .insert_operator_if_not_exists(
+                <span class="prelude-val">None</span>,
+                operator_xonly_pks[<span class="number">0</span>],
+                <span class="kw-2">&amp;</span>new_reimburse_addr,
+                ops[<span class="number">0</span>].<span class="number">2
+            </span>)
             .<span class="kw">await
             </span>.is_err());
 
         <span class="comment">// test that we can't update both
         </span><span class="macro">assert!</span>(database
-            .set_operator(
+            .insert_operator_if_not_exists(
                 <span class="prelude-val">None</span>,
                 operator_xonly_pks[<span class="number">0</span>],
                 <span class="kw-2">&amp;</span>new_reimburse_addr,
@@ -2622,7 +2535,7 @@
 
         <span class="comment">// Test inserting new data
         </span>database
-            .set_operator_challenge_ack_hashes(
+            .insert_operator_challenge_ack_hashes_if_not_exist(
                 <span class="prelude-val">None</span>,
                 operator_xonly_pk,
                 deposit_outpoint,
@@ -2640,7 +2553,7 @@
 
         <span class="comment">// Test that we can insert the same data without errors
         </span>database
-            .set_operator_challenge_ack_hashes(
+            .insert_operator_challenge_ack_hashes_if_not_exist(
                 <span class="prelude-val">None</span>,
                 operator_xonly_pk,
                 deposit_outpoint,
@@ -2658,7 +2571,7 @@
 
         <span class="comment">// Test that we can't update with different data
         </span><span class="macro">assert!</span>(database
-            .set_operator_challenge_ack_hashes(
+            .insert_operator_challenge_ack_hashes_if_not_exist(
                 <span class="prelude-val">None</span>,
                 operator_xonly_pk,
                 deposit_outpoint,
@@ -2706,7 +2619,7 @@
         <span class="kw">let </span>non_existent_xonly_pk = generate_random_xonly_pk();
 
         database
-            .set_unspent_kickoff_sigs(
+            .insert_unspent_kickoff_sigs_if_not_exist(
                 <span class="prelude-val">None</span>,
                 operator_xonly_pk,
                 RoundIndex::Round(round_idx),
@@ -2740,38 +2653,6 @@
     }
 
     <span class="attr">#[tokio::test]
-    </span><span class="kw">async fn </span>test_operators_funding_utxo_1() {
-        <span class="kw">let </span>config = create_test_config_with_thread_name().<span class="kw">await</span>;
-        <span class="kw">let </span>db = Database::new(<span class="kw-2">&amp;</span>config).<span class="kw">await</span>.unwrap();
-
-        <span class="kw">let </span>utxo = UTXO {
-            outpoint: OutPoint {
-                txid: Txid::from_byte_array([<span class="number">1u8</span>; <span class="number">32</span>]),
-                vout: <span class="number">1</span>,
-            },
-            txout: TxOut {
-                value: Amount::from_sat(<span class="number">100</span>),
-                script_pubkey: ScriptBuf::from(<span class="macro">vec!</span>[<span class="number">1u8</span>]),
-            },
-        };
-        db.set_funding_utxo(<span class="prelude-val">None</span>, utxo.clone()).<span class="kw">await</span>.unwrap();
-        <span class="kw">let </span>db_utxo = db.get_funding_utxo(<span class="prelude-val">None</span>).<span class="kw">await</span>.unwrap().unwrap();
-
-        <span class="comment">// Sanity check
-        </span><span class="macro">assert_eq!</span>(db_utxo, utxo);
-    }
-
-    <span class="attr">#[tokio::test]
-    </span><span class="kw">async fn </span>test_operators_funding_utxo_2() {
-        <span class="kw">let </span>config = create_test_config_with_thread_name().<span class="kw">await</span>;
-        <span class="kw">let </span>db = Database::new(<span class="kw-2">&amp;</span>config).<span class="kw">await</span>.unwrap();
-
-        <span class="kw">let </span>db_utxo = db.get_funding_utxo(<span class="prelude-val">None</span>).<span class="kw">await</span>.unwrap();
-
-        <span class="macro">assert!</span>(db_utxo.is_none());
-    }
-
-    <span class="attr">#[tokio::test]
     </span><span class="kw">async fn </span>test_bitvm_setup() {
         <span class="kw">let </span>config = create_test_config_with_thread_name().<span class="kw">await</span>;
         <span class="kw">let </span>database = Database::new(<span class="kw-2">&amp;</span>config).<span class="kw">await</span>.unwrap();
@@ -2789,7 +2670,7 @@
 
         <span class="comment">// Test inserting new BitVM setup
         </span>database
-            .set_bitvm_setup(
+            .insert_bitvm_setup_if_not_exists(
                 <span class="prelude-val">None</span>,
                 operator_xonly_pk,
                 deposit_outpoint,
@@ -2812,7 +2693,7 @@
 
         <span class="comment">// Test that we can insert the same data without errors
         </span>database
-            .set_bitvm_setup(
+            .insert_bitvm_setup_if_not_exists(
                 <span class="prelude-val">None</span>,
                 operator_xonly_pk,
                 deposit_outpoint,
@@ -2837,7 +2718,7 @@
 
         <span class="comment">// test that we can't update the assert_tx_hashes
         </span><span class="macro">assert!</span>(database
-            .set_bitvm_setup(
+            .insert_bitvm_setup_if_not_exists(
                 <span class="prelude-val">None</span>,
                 operator_xonly_pk,
                 deposit_outpoint,
@@ -2850,7 +2731,7 @@
 
         <span class="comment">// test that we can't update the root_hash
         </span><span class="macro">assert!</span>(database
-            .set_bitvm_setup(
+            .insert_bitvm_setup_if_not_exists(
                 <span class="prelude-val">None</span>,
                 operator_xonly_pk,
                 deposit_outpoint,
@@ -2863,7 +2744,7 @@
 
         <span class="comment">// test that we can't update the latest_blockhash_root_hash
         </span><span class="macro">assert!</span>(database
-            .set_bitvm_setup(
+            .insert_bitvm_setup_if_not_exists(
                 <span class="prelude-val">None</span>,
                 operator_xonly_pk,
                 deposit_outpoint,
@@ -2876,7 +2757,7 @@
 
         <span class="comment">// test that we can't update all of them
         </span><span class="macro">assert!</span>(database
-            .set_bitvm_setup(
+            .insert_bitvm_setup_if_not_exists(
                 <span class="prelude-val">None</span>,
                 operator_xonly_pk,
                 deposit_outpoint,
@@ -2899,7 +2780,7 @@
     }
 
     <span class="attr">#[tokio::test]
-    </span><span class="kw">async fn </span>set_get_operator_winternitz_public_keys() {
+    </span><span class="kw">async fn </span>upsert_get_operator_winternitz_public_keys() {
         <span class="kw">let </span><span class="kw-2">mut </span>config = create_test_config_with_thread_name().<span class="kw">await</span>;
         <span class="kw">let </span>database = Database::new(<span class="kw-2">&amp;</span>config).<span class="kw">await</span>.unwrap();
         <span class="kw">let </span>_regtest = create_regtest_rpc(<span class="kw-2">&amp;mut </span>config).<span class="kw">await</span>;
@@ -2919,7 +2800,11 @@
 
         <span class="comment">// Test inserting new data
         </span>database
-            .set_operator_kickoff_winternitz_public_keys(<span class="prelude-val">None</span>, op_xonly_pk, wpks.clone())
+            .insert_operator_kickoff_winternitz_public_keys_if_not_exist(
+                <span class="prelude-val">None</span>,
+                op_xonly_pk,
+                wpks.clone(),
+            )
             .<span class="kw">await
             </span>.unwrap();
 
@@ -2931,7 +2816,11 @@
 
         <span class="comment">// Test that we can insert the same data without errors
         </span>database
-            .set_operator_kickoff_winternitz_public_keys(<span class="prelude-val">None</span>, op_xonly_pk, wpks.clone())
+            .insert_operator_kickoff_winternitz_public_keys_if_not_exist(
+                <span class="prelude-val">None</span>,
+                op_xonly_pk,
+                wpks.clone(),
+            )
             .<span class="kw">await
             </span>.unwrap();
 
@@ -2943,7 +2832,11 @@
             })
             .unwrap();
         <span class="macro">assert!</span>(database
-            .set_operator_kickoff_winternitz_public_keys(<span class="prelude-val">None</span>, op_xonly_pk, different_wpks)
+            .insert_operator_kickoff_winternitz_public_keys_if_not_exist(
+                <span class="prelude-val">None</span>,
+                op_xonly_pk,
+                different_wpks
+            )
             .<span class="kw">await
             </span>.is_err());
 
@@ -2954,7 +2847,7 @@
     }
 
     <span class="attr">#[tokio::test]
-    </span><span class="kw">async fn </span>set_get_operator_bitvm_wpks() {
+    </span><span class="kw">async fn </span>upsert_get_operator_bitvm_wpks() {
         <span class="kw">let </span><span class="kw-2">mut </span>config = create_test_config_with_thread_name().<span class="kw">await</span>;
         <span class="kw">let </span>database = Database::new(<span class="kw-2">&amp;</span>config).<span class="kw">await</span>.unwrap();
         <span class="kw">let </span>_regtest = create_regtest_rpc(<span class="kw-2">&amp;mut </span>config).<span class="kw">await</span>;
@@ -2973,7 +2866,12 @@
             .unwrap();
 
         database
-            .set_operator_bitvm_keys(<span class="prelude-val">None</span>, op_xonly_pk, deposit_outpoint, wpks.clone())
+            .insert_operator_bitvm_keys_if_not_exist(
+                <span class="prelude-val">None</span>,
+                op_xonly_pk,
+                deposit_outpoint,
+                wpks.clone(),
+            )
             .<span class="kw">await
             </span>.unwrap();
 
@@ -2990,7 +2888,7 @@
     }
 
     <span class="attr">#[tokio::test]
-    </span><span class="kw">async fn </span>set_get_deposit_signatures() {
+    </span><span class="kw">async fn </span>upsert_get_deposit_signatures() {
         <span class="kw">let </span>config = create_test_config_with_thread_name().<span class="kw">await</span>;
         <span class="kw">let </span>database = Database::new(<span class="kw-2">&amp;</span>config).<span class="kw">await</span>.unwrap();
 
@@ -3016,7 +2914,7 @@
         };
 
         database
-            .set_deposit_signatures(
+            .insert_deposit_signatures_if_not_exist(
                 <span class="prelude-val">None</span>,
                 deposit_outpoint,
                 operator_xonly_pk,
@@ -3029,7 +2927,7 @@
             </span>.unwrap();
         <span class="comment">// Setting this twice should not cause any issues
         </span>database
-            .set_deposit_signatures(
+            .insert_deposit_signatures_if_not_exist(
                 <span class="prelude-val">None</span>,
                 deposit_outpoint,
                 operator_xonly_pk,
@@ -3042,7 +2940,7 @@
             </span>.unwrap();
         <span class="comment">// But with different kickoff txid and signatures should.
         </span><span class="macro">assert!</span>(database
-            .set_deposit_signatures(
+            .insert_deposit_signatures_if_not_exist(
                 <span class="prelude-val">None</span>,
                 deposit_outpoint,
                 operator_xonly_pk,

@@ -920,7 +920,7 @@
     <span class="doccomment">/// # Returns
     ///
     /// - [`u32`]: Database entry id, later to be used while referring block
-    </span><span class="kw">pub async fn </span>add_block_info(
+    </span><span class="kw">pub async fn </span>insert_block_info(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
         block_hash: <span class="kw-2">&amp;</span>BlockHash,
@@ -943,7 +943,7 @@
 
     <span class="doccomment">/// Sets the block with given block hash as canonical if it exists in the database
     /// Returns the block id if the block was found and set as canonical, None otherwise
-    </span><span class="kw">pub async fn </span>set_block_as_canonical_if_exists(
+    </span><span class="kw">pub async fn </span>update_block_as_canonical(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
         block_hash: BlockHash,
@@ -1010,7 +1010,7 @@
     }
 
     <span class="doccomment">/// Stores the full block in bytes in the database, with its height and hash
-    </span><span class="kw">pub async fn </span>store_full_block(
+    </span><span class="kw">pub async fn </span>upsert_full_block(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
         block: <span class="kw-2">&amp;</span>bitcoin::Block,
@@ -1093,7 +1093,7 @@
 
     <span class="doccomment">/// Gets the block hashes that have height bigger then the given height and deletes them.
     /// Marks blocks with height greater than the given height as non-canonical.
-    </span><span class="kw">pub async fn </span>set_non_canonical_block_hashes(
+    </span><span class="kw">pub async fn </span>update_non_canonical_block_hashes(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
         height: u32,
@@ -1137,7 +1137,7 @@
     }
 
     <span class="doccomment">/// Saves the txid with the id of the block that contains it to the database
-    </span><span class="kw">pub async fn </span>add_txid_to_block(
+    </span><span class="kw">pub async fn </span>insert_txid_to_block(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         tx: DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;,
         block_id: u32,
@@ -1213,7 +1213,7 @@
     }
 
     <span class="doccomment">/// Adds a bitcoin syncer event to the database. These events can currently be new block or reorged block.
-    </span><span class="kw">pub async fn </span>add_event(
+    </span><span class="kw">pub async fn </span>insert_event(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
         event_type: BitcoinSyncerEvent,
@@ -1428,12 +1428,12 @@
         <span class="kw">let </span>height = <span class="number">0x45</span>;
 
         <span class="kw">let </span>block_id = db
-            .add_block_info(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx), <span class="kw-2">&amp;</span>block_hash, <span class="kw-2">&amp;</span>prev_block_hash, height)
+            .insert_block_info(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx), <span class="kw-2">&amp;</span>block_hash, <span class="kw-2">&amp;</span>prev_block_hash, height)
             .<span class="kw">await
             </span>.unwrap();
 
         <span class="comment">// Add new block event
-        </span>db.add_event(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx), BitcoinSyncerEvent::NewBlock(block_id))
+        </span>db.insert_event(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx), BitcoinSyncerEvent::NewBlock(block_id))
             .<span class="kw">await
             </span>.unwrap();
 
@@ -1454,7 +1454,7 @@
         <span class="macro">assert!</span>(event.is_none());
 
         <span class="comment">// Add reorg event
-        </span>db.add_event(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx), BitcoinSyncerEvent::ReorgedBlock(block_id))
+        </span>db.insert_event(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx), BitcoinSyncerEvent::ReorgedBlock(block_id))
             .<span class="kw">await
             </span>.unwrap();
 
@@ -1498,7 +1498,7 @@
         <span class="kw">let </span>dummy_block_hash = dummy_block.block_hash();
 
         <span class="comment">// Store the block
-        </span>db.store_full_block(<span class="prelude-val">None</span>, <span class="kw-2">&amp;</span>dummy_block, block_height)
+        </span>db.upsert_full_block(<span class="prelude-val">None</span>, <span class="kw-2">&amp;</span>dummy_block, block_height)
             .<span class="kw">await
             </span>.unwrap();
 
@@ -1538,7 +1538,7 @@
 
         <span class="kw">let </span>updated_dummy_block_hash = updated_dummy_block.block_hash();
 
-        db.store_full_block(<span class="prelude-val">None</span>, <span class="kw-2">&amp;</span>updated_dummy_block, block_height)
+        db.upsert_full_block(<span class="prelude-val">None</span>, <span class="kw-2">&amp;</span>updated_dummy_block, block_height)
             .<span class="kw">await
             </span>.unwrap();
 
@@ -1570,15 +1570,15 @@
         <span class="kw">let </span>height = <span class="number">0x45</span>;
 
         <span class="kw">let </span>block_id = db
-            .add_block_info(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx), <span class="kw-2">&amp;</span>block_hash, <span class="kw-2">&amp;</span>prev_block_hash, height)
+            .insert_block_info(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx), <span class="kw-2">&amp;</span>block_hash, <span class="kw-2">&amp;</span>prev_block_hash, height)
             .<span class="kw">await
             </span>.unwrap();
 
         <span class="comment">// Add events
-        </span>db.add_event(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx), BitcoinSyncerEvent::NewBlock(block_id))
+        </span>db.insert_event(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx), BitcoinSyncerEvent::NewBlock(block_id))
             .<span class="kw">await
             </span>.unwrap();
-        db.add_event(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx), BitcoinSyncerEvent::ReorgedBlock(block_id))
+        db.insert_event(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx), BitcoinSyncerEvent::ReorgedBlock(block_id))
             .<span class="kw">await
             </span>.unwrap();
 
@@ -1629,7 +1629,7 @@
         <span class="kw">for </span>height <span class="kw">in </span>heights {
             <span class="kw">let </span>block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([height <span class="kw">as </span>u8; <span class="number">32</span>]));
             <span class="kw">let </span>block_id = db
-                .add_block_info(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx), <span class="kw-2">&amp;</span>block_hash, <span class="kw-2">&amp;</span>last_hash, height)
+                .insert_block_info(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx), <span class="kw-2">&amp;</span>block_hash, <span class="kw-2">&amp;</span>last_hash, height)
                 .<span class="kw">await
                 </span>.unwrap();
             block_ids.push(block_id);
@@ -1638,7 +1638,7 @@
 
         <span class="comment">// Mark blocks above height 2 as non-canonical
         </span><span class="kw">let </span>non_canonical_blocks = db
-            .set_non_canonical_block_hashes(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx), <span class="number">2</span>)
+            .update_non_canonical_block_hashes(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx), <span class="number">2</span>)
             .<span class="kw">await
             </span>.unwrap();
         <span class="macro">assert_eq!</span>(non_canonical_blocks.len(), <span class="number">3</span>); <span class="comment">// blocks at height 3, 4, and 5
@@ -1680,7 +1680,7 @@
             </span>.unwrap()
             .is_none());
 
-        db.add_block_info(<span class="prelude-val">None</span>, <span class="kw-2">&amp;</span>block_hash, <span class="kw-2">&amp;</span>prev_block_hash, height)
+        db.insert_block_info(<span class="prelude-val">None</span>, <span class="kw-2">&amp;</span>block_hash, <span class="kw-2">&amp;</span>prev_block_hash, height)
             .<span class="kw">await
             </span>.unwrap();
         <span class="kw">let </span>block_info = db
@@ -1693,7 +1693,7 @@
         <span class="macro">assert_eq!</span>(block_info.<span class="number">1</span>, height);
         <span class="macro">assert_eq!</span>(max_height, height);
 
-        db.add_block_info(
+        db.insert_block_info(
             <span class="prelude-val">None</span>,
             <span class="kw-2">&amp;</span>BlockHash::from_raw_hash(Hash::from_byte_array([<span class="number">0x1</span>; <span class="number">32</span>])),
             <span class="kw-2">&amp;</span>prev_block_hash,
@@ -1704,7 +1704,7 @@
         <span class="kw">let </span>max_height = db.get_max_height(<span class="prelude-val">None</span>).<span class="kw">await</span>.unwrap().unwrap();
         <span class="macro">assert_eq!</span>(max_height, height);
 
-        db.add_block_info(
+        db.insert_block_info(
             <span class="prelude-val">None</span>,
             <span class="kw-2">&amp;</span>BlockHash::from_raw_hash(Hash::from_byte_array([<span class="number">0x2</span>; <span class="number">32</span>])),
             <span class="kw-2">&amp;</span>prev_block_hash,
@@ -1724,7 +1724,7 @@
         <span class="kw">let </span><span class="kw-2">mut </span>dbtx = db.begin_transaction().<span class="kw">await</span>.unwrap();
 
         <span class="macro">assert!</span>(db
-            .add_txid_to_block(<span class="kw-2">&amp;mut </span>dbtx, <span class="number">0</span>, <span class="kw-2">&amp;</span>Txid::all_zeros())
+            .insert_txid_to_block(<span class="kw-2">&amp;mut </span>dbtx, <span class="number">0</span>, <span class="kw-2">&amp;</span>Txid::all_zeros())
             .<span class="kw">await
             </span>.is_err());
         <span class="kw">let </span><span class="kw-2">mut </span>dbtx = db.begin_transaction().<span class="kw">await</span>.unwrap();
@@ -1733,7 +1733,7 @@
         <span class="kw">let </span>block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([<span class="number">0x45</span>; <span class="number">32</span>]));
         <span class="kw">let </span>height = <span class="number">0x45</span>;
         <span class="kw">let </span>block_id = db
-            .add_block_info(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx), <span class="kw-2">&amp;</span>block_hash, <span class="kw-2">&amp;</span>prev_block_hash, height)
+            .insert_block_info(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx), <span class="kw-2">&amp;</span>block_hash, <span class="kw-2">&amp;</span>prev_block_hash, height)
             .<span class="kw">await
             </span>.unwrap();
 
@@ -1743,7 +1743,7 @@
             Txid::from_raw_hash(Hash::from_byte_array([<span class="number">0x3</span>; <span class="number">32</span>])),
         ];
         <span class="kw">for </span>txid <span class="kw">in </span><span class="kw-2">&amp;</span>txids {
-            db.add_txid_to_block(<span class="kw-2">&amp;mut </span>dbtx, block_id, txid)
+            db.insert_txid_to_block(<span class="kw-2">&amp;mut </span>dbtx, block_id, txid)
                 .<span class="kw">await
                 </span>.unwrap();
         }
@@ -1770,14 +1770,14 @@
         <span class="kw">let </span>block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([<span class="number">0x45</span>; <span class="number">32</span>]));
         <span class="kw">let </span>height = <span class="number">0x45</span>;
         <span class="kw">let </span>block_id = db
-            .add_block_info(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx), <span class="kw-2">&amp;</span>block_hash, <span class="kw-2">&amp;</span>prev_block_hash, height)
+            .insert_block_info(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx), <span class="kw-2">&amp;</span>block_hash, <span class="kw-2">&amp;</span>prev_block_hash, height)
             .<span class="kw">await
             </span>.unwrap();
 
         <span class="kw">let </span>spending_txid = Txid::from_raw_hash(Hash::from_byte_array([<span class="number">0x2</span>; <span class="number">32</span>]));
         <span class="kw">let </span>txid = Txid::from_raw_hash(Hash::from_byte_array([<span class="number">0x1</span>; <span class="number">32</span>]));
         <span class="kw">let </span>vout = <span class="number">0</span>;
-        db.add_txid_to_block(<span class="kw-2">&amp;mut </span>dbtx, block_id, <span class="kw-2">&amp;</span>spending_txid)
+        db.insert_txid_to_block(<span class="kw-2">&amp;mut </span>dbtx, block_id, <span class="kw-2">&amp;</span>spending_txid)
             .<span class="kw">await
             </span>.unwrap();
 

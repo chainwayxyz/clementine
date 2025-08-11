@@ -3162,7 +3162,15 @@
 <a href="#3161" id="3161">3161</a>
 <a href="#3162" id="3162">3162</a>
 <a href="#3163" id="3163">3163</a>
-<a href="#3164" id="3164">3164</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
+<a href="#3164" id="3164">3164</a>
+<a href="#3165" id="3165">3165</a>
+<a href="#3166" id="3166">3166</a>
+<a href="#3167" id="3167">3167</a>
+<a href="#3168" id="3168">3168</a>
+<a href="#3169" id="3169">3169</a>
+<a href="#3170" id="3170">3170</a>
+<a href="#3171" id="3171">3171</a>
+<a href="#3172" id="3172">3172</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
 <span class="kw">use </span><span class="kw">crate</span>::bitcoin_syncer::BitcoinSyncer;
 <span class="kw">use </span><span class="kw">crate</span>::bitvm_client::{ClementineBitVMPublicKeys, REPLACE_SCRIPTS_LOCK};
 <span class="kw">use </span><span class="kw">crate</span>::builder::address::{create_taproot_address, taproot_builder_with_scripts};
@@ -3860,7 +3868,7 @@
         <span class="kw">let </span><span class="kw-2">mut </span>dbtx = <span class="self">self</span>.db.begin_transaction().<span class="kw">await</span><span class="question-mark">?</span>;
         <span class="comment">// Save the operator details to the db
         </span><span class="self">self</span>.db
-            .set_operator(
+            .insert_operator_if_not_exists(
                 <span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx),
                 operator_xonly_pk,
                 <span class="kw-2">&amp;</span>operator_data.reimburse_addr,
@@ -3869,7 +3877,7 @@
             .<span class="kw">await</span><span class="question-mark">?</span>;
 
         <span class="self">self</span>.db
-            .set_operator_kickoff_winternitz_public_keys(
+            .insert_operator_kickoff_winternitz_public_keys_if_not_exist(
                 <span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx),
                 operator_xonly_pk,
                 operator_winternitz_public_keys,
@@ -3885,7 +3893,7 @@
 
         <span class="kw">for </span>(round_idx, sigs) <span class="kw">in </span>tagged_sigs_per_round.into_iter().enumerate() {
             <span class="self">self</span>.db
-                .set_unspent_kickoff_sigs(
+                .insert_unspent_kickoff_sigs_if_not_exist(
                     <span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx),
                     operator_xonly_pk,
                     RoundIndex::Round(round_idx),
@@ -3962,7 +3970,11 @@
         <span class="comment">// set deposit data to db before starting to sign, ensures that if the deposit data already exists in db, it matches the one
         // given by the aggregator currently. We do not want to sign 2 different deposits for same deposit_outpoint
         </span><span class="self">self</span>.db
-            .set_deposit_data(<span class="prelude-val">None</span>, <span class="kw-2">&amp;mut </span>deposit_data, <span class="self">self</span>.config.protocol_paramset())
+            .insert_deposit_data_if_not_exists(
+                <span class="prelude-val">None</span>,
+                <span class="kw-2">&amp;mut </span>deposit_data,
+                <span class="self">self</span>.config.protocol_paramset(),
+            )
             .<span class="kw">await</span><span class="question-mark">?</span>;
 
         <span class="kw">let </span>verifier = <span class="self">self</span>.clone();
@@ -4404,7 +4416,7 @@
                     );
 
                     <span class="self">self</span>.db
-                        .set_deposit_signatures(
+                        .insert_deposit_signatures_if_not_exist(
                             <span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx),
                             deposit_data.get_deposit_outpoint(),
                             operator_xonly_pk,
@@ -4569,7 +4581,11 @@
         <span class="self">self</span>.is_deposit_valid(<span class="kw-2">&amp;mut </span>deposit_data).<span class="kw">await</span><span class="question-mark">?</span>;
 
         <span class="self">self</span>.db
-            .set_deposit_data(<span class="prelude-val">None</span>, <span class="kw-2">&amp;mut </span>deposit_data, <span class="self">self</span>.config.protocol_paramset())
+            .insert_deposit_data_if_not_exists(
+                <span class="prelude-val">None</span>,
+                <span class="kw-2">&amp;mut </span>deposit_data,
+                <span class="self">self</span>.config.protocol_paramset(),
+            )
             .<span class="kw">await</span><span class="question-mark">?</span>;
 
         <span class="kw">let </span>hashes: Vec&lt;[u8; <span class="number">20</span>]&gt; = keys
@@ -4598,7 +4614,7 @@
             </span>.ok_or(BridgeError::OperatorNotFound(operator_xonly_pk))<span class="question-mark">?</span>;
 
         <span class="self">self</span>.db
-            .set_operator_challenge_ack_hashes(
+            .insert_operator_challenge_ack_hashes_if_not_exist(
                 <span class="prelude-val">None</span>,
                 operator_xonly_pk,
                 deposit_data.get_deposit_outpoint(),
@@ -4670,7 +4686,7 @@
             .to_byte_array();
 
         <span class="self">self</span>.db
-            .set_operator_bitvm_keys(
+            .insert_operator_bitvm_keys_if_not_exist(
                 <span class="prelude-val">None</span>,
                 operator_xonly_pk,
                 deposit_data.get_deposit_outpoint(),
@@ -4679,7 +4695,7 @@
             .<span class="kw">await</span><span class="question-mark">?</span>;
         <span class="comment">// Save the public input wots to db along with the root hash
         </span><span class="self">self</span>.db
-            .set_bitvm_setup(
+            .insert_bitvm_setup_if_not_exists(
                 <span class="prelude-val">None</span>,
                 operator_xonly_pk,
                 deposit_data.get_deposit_outpoint(),
@@ -4999,7 +5015,7 @@
                 idx
             );
             <span class="self">self</span>.db
-                .set_move_to_vault_txid_from_citrea_deposit(
+                .upsert_move_to_vault_txid_from_citrea_deposit(
                     <span class="prelude-val">Some</span>(dbtx),
                     idx <span class="kw">as </span>u32,
                     <span class="kw-2">&amp;</span>move_to_vault_txid,
@@ -5014,7 +5030,7 @@
                 idx
             );
             <span class="self">self</span>.db
-                .set_withdrawal_utxo_from_citrea_withdrawal(
+                .update_withdrawal_utxo_from_citrea_withdrawal(
                     <span class="prelude-val">Some</span>(dbtx),
                     idx <span class="kw">as </span>u32,
                     withdrawal_utxo_outpoint,
@@ -5035,7 +5051,7 @@
                 new_move_txid
             );
             <span class="self">self</span>.db
-                .set_replacement_deposit_move_txid(dbtx, idx, new_move_txid)
+                .update_replacement_deposit_move_txid(dbtx, idx, new_move_txid)
                 .<span class="kw">await</span><span class="question-mark">?</span>;
         }
 
@@ -5108,7 +5124,7 @@
         }
 
         <span class="self">self</span>.db
-            .set_payout_txs_and_payer_operator_xonly_pk(
+            .update_payout_txs_and_payer_operator_xonly_pk(
                 <span class="prelude-val">Some</span>(dbtx),
                 payout_txs_and_payer_operator_idx,
             )

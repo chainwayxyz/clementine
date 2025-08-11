@@ -897,8 +897,7 @@
 <a href="#896" id="896">896</a>
 <a href="#897" id="897">897</a>
 <a href="#898" id="898">898</a>
-<a href="#899" id="899">899</a>
-<a href="#900" id="900">900</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Bitcoin Syncer
+<a href="#899" id="899">899</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Bitcoin Syncer
 //!
 //! This module provides common utilities to fetch Bitcoin state. Other modules
 //! can use this module to operate over Bitcoin.
@@ -1002,17 +1001,16 @@
     );
 
     <span class="comment">// update the block_info as canonical if it already exists
-    </span><span class="kw">let </span>block_id = db
-        .set_block_as_canonical_if_exists(<span class="prelude-val">Some</span>(dbtx), block_hash)
+    </span><span class="kw">let </span>block_id = db.update_block_as_canonical(<span class="prelude-val">Some</span>(dbtx), block_hash).<span class="kw">await</span><span class="question-mark">?</span>;
+    db.upsert_full_block(<span class="prelude-val">Some</span>(dbtx), block, block_height)
         .<span class="kw">await</span><span class="question-mark">?</span>;
-    db.store_full_block(<span class="prelude-val">Some</span>(dbtx), block, block_height).<span class="kw">await</span><span class="question-mark">?</span>;
 
     <span class="kw">if let </span><span class="prelude-val">Some</span>(block_id) = block_id {
         <span class="kw">return </span><span class="prelude-val">Ok</span>(block_id);
     }
 
     <span class="kw">let </span>block_id = db
-        .add_block_info(
+        .insert_block_info(
             <span class="prelude-val">Some</span>(dbtx),
             <span class="kw-2">&amp;</span>block_hash,
             <span class="kw-2">&amp;</span>block.header.prev_blockhash,
@@ -1068,7 +1066,7 @@
     block_id: u32,
 ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
     <span class="kw">let </span>txid = tx.compute_txid();
-    db.add_txid_to_block(dbtx, block_id, <span class="kw-2">&amp;</span>txid).<span class="kw">await</span><span class="question-mark">?</span>;
+    db.insert_txid_to_block(dbtx, block_id, <span class="kw-2">&amp;</span>txid).<span class="kw">await</span><span class="question-mark">?</span>;
 
     <span class="kw">for </span>input <span class="kw">in </span><span class="kw-2">&amp;</span>tx.input {
         db.insert_spent_utxo(
@@ -1129,7 +1127,7 @@
         .<span class="kw">await
         </span>.wrap_err(<span class="string">"Failed to get block"</span>)<span class="question-mark">?</span>;
     <span class="kw">let </span>block_id = save_block(db, <span class="kw-2">&amp;mut </span>dbtx, <span class="kw-2">&amp;</span>block, height).<span class="kw">await</span><span class="question-mark">?</span>;
-    db.add_event(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx), BitcoinSyncerEvent::NewBlock(block_id))
+    db.insert_event(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx), BitcoinSyncerEvent::NewBlock(block_id))
         .<span class="kw">await</span><span class="question-mark">?</span>;
 
     dbtx.commit().<span class="kw">await</span><span class="question-mark">?</span>;
@@ -1212,11 +1210,11 @@
     common_ancestor_height: u32,
 ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
     <span class="kw">let </span>reorg_blocks = db
-        .set_non_canonical_block_hashes(<span class="prelude-val">Some</span>(dbtx), common_ancestor_height)
+        .update_non_canonical_block_hashes(<span class="prelude-val">Some</span>(dbtx), common_ancestor_height)
         .<span class="kw">await</span><span class="question-mark">?</span>;
 
     <span class="kw">for </span>reorg_block_id <span class="kw">in </span>reorg_blocks {
-        db.add_event(<span class="prelude-val">Some</span>(dbtx), BitcoinSyncerEvent::ReorgedBlock(reorg_block_id))
+        db.insert_event(<span class="prelude-val">Some</span>(dbtx), BitcoinSyncerEvent::ReorgedBlock(reorg_block_id))
             .<span class="kw">await</span><span class="question-mark">?</span>;
     }
 
@@ -1237,7 +1235,7 @@
             </span>.wrap_err(<span class="string">"Failed to get block"</span>)<span class="question-mark">?</span>;
 
         <span class="kw">let </span>block_id = save_block(db, dbtx, <span class="kw-2">&amp;</span>block, block_info.height).<span class="kw">await</span><span class="question-mark">?</span>;
-        db.add_event(<span class="prelude-val">Some</span>(dbtx), BitcoinSyncerEvent::NewBlock(block_id))
+        db.insert_event(<span class="prelude-val">Some</span>(dbtx), BitcoinSyncerEvent::NewBlock(block_id))
             .<span class="kw">await</span><span class="question-mark">?</span>;
     }
 

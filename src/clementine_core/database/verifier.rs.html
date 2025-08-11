@@ -565,7 +565,7 @@
         }
     }
 
-    <span class="kw">pub async fn </span>set_move_to_vault_txid_from_citrea_deposit(
+    <span class="kw">pub async fn </span>upsert_move_to_vault_txid_from_citrea_deposit(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
         citrea_idx: u32,
@@ -600,7 +600,7 @@
         <span class="prelude-val">Ok</span>(result.map(|(move_to_vault_txid,)| move_to_vault_txid.<span class="number">0</span>))
     }
 
-    <span class="kw">pub async fn </span>set_replacement_deposit_move_txid(
+    <span class="kw">pub async fn </span>update_replacement_deposit_move_txid(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         tx: DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;,
         idx: u32,
@@ -623,7 +623,7 @@
         <span class="prelude-val">Ok</span>(())
     }
 
-    <span class="kw">pub async fn </span>set_withdrawal_utxo_from_citrea_withdrawal(
+    <span class="kw">pub async fn </span>update_withdrawal_utxo_from_citrea_withdrawal(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
         citrea_idx: u32,
@@ -714,7 +714,7 @@
     }
 
     <span class="doccomment">/// Sets the given payout txs' txid and operator index for the given index.
-    </span><span class="kw">pub async fn </span>set_payout_txs_and_payer_operator_xonly_pk(
+    </span><span class="kw">pub async fn </span>update_payout_txs_and_payer_operator_xonly_pk(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
         payout_txs_and_payer_operator_xonly_pk: Vec&lt;(
@@ -861,7 +861,7 @@
         ))
     }
 
-    <span class="kw">pub async fn </span>set_payout_handled(
+    <span class="kw">pub async fn </span>mark_payout_handled(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
         citrea_idx: u32,
@@ -904,7 +904,7 @@
     <span class="kw">use </span>bitcoin::{hashes::Hash, BlockHash, Txid};
 
     <span class="attr">#[tokio::test]
-    </span><span class="kw">async fn </span>set_get_payout_txs_from_citrea_withdrawal() {
+    </span><span class="kw">async fn </span>update_get_payout_txs_from_citrea_withdrawal() {
         <span class="kw">let </span>config = create_test_config_with_thread_name().<span class="kw">await</span>;
         <span class="kw">let </span>db = Database::new(<span class="kw-2">&amp;</span>config).<span class="kw">await</span>.unwrap();
 
@@ -919,7 +919,7 @@
         <span class="kw">let </span><span class="kw-2">mut </span>dbtx = db.begin_transaction().<span class="kw">await</span>.unwrap();
 
         <span class="kw">let </span>block_id = db
-            .add_block_info(
+            .insert_block_info(
                 <span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx),
                 <span class="kw-2">&amp;</span>BlockHash::all_zeros(),
                 <span class="kw-2">&amp;</span>BlockHash::all_zeros(),
@@ -927,7 +927,7 @@
             )
             .<span class="kw">await
             </span>.unwrap();
-        db.add_txid_to_block(<span class="kw-2">&amp;mut </span>dbtx, block_id, <span class="kw-2">&amp;</span>txid)
+        db.insert_txid_to_block(<span class="kw-2">&amp;mut </span>dbtx, block_id, <span class="kw-2">&amp;</span>txid)
             .<span class="kw">await
             </span>.unwrap();
         db.insert_spent_utxo(<span class="kw-2">&amp;mut </span>dbtx, block_id, <span class="kw-2">&amp;</span>txid, <span class="kw-2">&amp;</span>utxo.txid, utxo.vout.into())
@@ -938,16 +938,16 @@
             .get_withdrawal_utxo_from_citrea_withdrawal(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx), index)
             .<span class="kw">await
             </span>.is_err());
-        db.set_move_to_vault_txid_from_citrea_deposit(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx), index, <span class="kw-2">&amp;</span>txid)
+        db.upsert_move_to_vault_txid_from_citrea_deposit(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx), index, <span class="kw-2">&amp;</span>txid)
             .<span class="kw">await
             </span>.unwrap();
-        db.set_withdrawal_utxo_from_citrea_withdrawal(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx), index, utxo, block_id)
+        db.update_withdrawal_utxo_from_citrea_withdrawal(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx), index, utxo, block_id)
             .<span class="kw">await
             </span>.unwrap();
 
         <span class="kw">let </span>block_hash = BlockHash::all_zeros();
 
-        db.set_payout_txs_and_payer_operator_xonly_pk(
+        db.update_payout_txs_and_payer_operator_xonly_pk(
             <span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx),
             <span class="macro">vec!</span>[(index, txid, <span class="prelude-val">Some</span>(operator_xonly_pk), block_hash)],
         )
@@ -995,22 +995,22 @@
             vout: <span class="number">1</span>,
         };
 
-        db.add_txid_to_block(<span class="kw-2">&amp;mut </span>dbtx, block_id, <span class="kw-2">&amp;</span>txid2)
+        db.insert_txid_to_block(<span class="kw-2">&amp;mut </span>dbtx, block_id, <span class="kw-2">&amp;</span>txid2)
             .<span class="kw">await
             </span>.unwrap();
         db.insert_spent_utxo(<span class="kw-2">&amp;mut </span>dbtx, block_id, <span class="kw-2">&amp;</span>txid2, <span class="kw-2">&amp;</span>utxo2.txid, utxo2.vout.into())
             .<span class="kw">await
             </span>.unwrap();
 
-        db.set_move_to_vault_txid_from_citrea_deposit(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx), index2, <span class="kw-2">&amp;</span>txid2)
+        db.upsert_move_to_vault_txid_from_citrea_deposit(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx), index2, <span class="kw-2">&amp;</span>txid2)
             .<span class="kw">await
             </span>.unwrap();
-        db.set_withdrawal_utxo_from_citrea_withdrawal(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx), index2, utxo2, block_id)
+        db.update_withdrawal_utxo_from_citrea_withdrawal(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx), index2, utxo2, block_id)
             .<span class="kw">await
             </span>.unwrap();
 
         <span class="comment">// Set payout with None operator xonly pk
-        </span>db.set_payout_txs_and_payer_operator_xonly_pk(
+        </span>db.update_payout_txs_and_payer_operator_xonly_pk(
             <span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx),
             <span class="macro">vec!</span>[(index2, txid2, <span class="prelude-val">None</span>, block_hash)],
         )

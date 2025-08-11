@@ -2294,7 +2294,11 @@
 <a href="#2293" id="2293">2293</a>
 <a href="#2294" id="2294">2294</a>
 <a href="#2295" id="2295">2295</a>
-<a href="#2296" id="2296">2296</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::{
+<a href="#2296" id="2296">2296</a>
+<a href="#2297" id="2297">2297</a>
+<a href="#2298" id="2298">2298</a>
+<a href="#2299" id="2299">2299</a>
+<a href="#2300" id="2300">2300</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::{
     clementine_aggregator_server::ClementineAggregator, verifier_deposit_finalize_params,
     DepositParams, Empty, VerifierDepositFinalizeParams,
 };
@@ -3027,7 +3031,11 @@
         )<span class="question-mark">?</span>;
 
         <span class="self">self</span>.db
-            .set_signed_emergency_stop_tx(<span class="prelude-val">None</span>, move_to_vault_txid, <span class="kw-2">&amp;</span>encrypted_emergency_stop_tx)
+            .insert_signed_emergency_stop_tx_if_not_exists(
+                <span class="prelude-val">None</span>,
+                move_to_vault_txid,
+                <span class="kw-2">&amp;</span>encrypted_emergency_stop_tx,
+            )
             .<span class="kw">await</span><span class="question-mark">?</span>;
 
         <span class="prelude-val">Ok</span>(())

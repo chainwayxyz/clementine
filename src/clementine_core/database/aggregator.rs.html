@@ -152,7 +152,11 @@
 <a href="#151" id="151">151</a>
 <a href="#152" id="152">152</a>
 <a href="#153" id="153">153</a>
-<a href="#154" id="154">154</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Verifier Related Database Operations
+<a href="#154" id="154">154</a>
+<a href="#155" id="155">155</a>
+<a href="#156" id="156">156</a>
+<a href="#157" id="157">157</a>
+<a href="#158" id="158">158</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Verifier Related Database Operations
 //!
 //! This module includes database functions which are mainly used by a verifier.
 
@@ -164,7 +168,7 @@
 
 <span class="kw">impl </span>Database {
     <span class="doccomment">/// Sets a signed emergency stop transaction for a given move transaction ID
-    </span><span class="kw">pub async fn </span>set_signed_emergency_stop_tx(
+    </span><span class="kw">pub async fn </span>insert_signed_emergency_stop_tx_if_not_exists(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
         move_txid: <span class="kw-2">&amp;</span>Txid,
@@ -239,7 +243,7 @@
         <span class="kw">let </span>move_txid = Txid::from_byte_array([<span class="number">1u8</span>; <span class="number">32</span>]);
         <span class="kw">let </span>emergency_stop_tx = create_test_transaction();
         database
-            .set_signed_emergency_stop_tx(
+            .insert_signed_emergency_stop_tx_if_not_exists(
                 <span class="prelude-val">None</span>,
                 <span class="kw-2">&amp;</span>move_txid,
                 <span class="kw-2">&amp;</span>consensus::serialize(<span class="kw-2">&amp;</span>emergency_stop_tx),
@@ -268,7 +272,7 @@
         </span><span class="kw">let </span>move_txid2 = Txid::from_byte_array([<span class="number">3u8</span>; <span class="number">32</span>]);
         <span class="kw">let </span>emergency_stop_tx2 = create_test_transaction();
         database
-            .set_signed_emergency_stop_tx(
+            .insert_signed_emergency_stop_tx_if_not_exists(
                 <span class="prelude-val">None</span>,
                 <span class="kw-2">&amp;</span>move_txid2,
                 <span class="kw-2">&amp;</span>consensus::serialize(<span class="kw-2">&amp;</span>emergency_stop_tx2),
@@ -292,7 +296,11 @@
         <span class="comment">// Test updating existing tx
         </span><span class="kw">let </span>updated_tx = create_test_transaction();
         database
-            .set_signed_emergency_stop_tx(<span class="prelude-val">None</span>, <span class="kw-2">&amp;</span>move_txid, <span class="kw-2">&amp;</span>consensus::serialize(<span class="kw-2">&amp;</span>updated_tx))
+            .insert_signed_emergency_stop_tx_if_not_exists(
+                <span class="prelude-val">None</span>,
+                <span class="kw-2">&amp;</span>move_txid,
+                <span class="kw-2">&amp;</span>consensus::serialize(<span class="kw-2">&amp;</span>updated_tx),
+            )
             .<span class="kw">await
             </span>.unwrap();
 

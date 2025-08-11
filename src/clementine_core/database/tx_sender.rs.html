@@ -2162,7 +2162,7 @@
         </span>.unwrap();
 
         <span class="comment">// Save the transaction in the block
-        </span>db.add_txid_to_block(<span class="kw-2">&amp;mut </span>dbtx, block_id, <span class="kw-2">&amp;</span>fee_payer_txid)
+        </span>db.insert_txid_to_block(<span class="kw-2">&amp;mut </span>dbtx, block_id, <span class="kw-2">&amp;</span>fee_payer_txid)
             .<span class="kw">await
             </span>.unwrap();
 
