@@ -244,6 +244,8 @@ async fn deposit_and_get_reimbursement(
                     tracing::warn!("Got tx: {:?}", tx_type);
                     tracing::warn!("Transaction: {:?}", tx);
                     rpc.send_raw_transaction(&tx).await.unwrap();
+                    // mine the tx
+                    rpc.mine_blocks(1).await.unwrap();
                     if tx_type == TransactionType::Kickoff {
                         rpc.mine_blocks(
                             config
@@ -263,6 +265,27 @@ async fn deposit_and_get_reimbursement(
                         )
                         .await
                         .unwrap();
+                    } else if tx_type == TransactionType::BurnUnusedKickoffConnectors {
+                        // the rpc endpoint should give an error because the BurnUnusedKickoffConnectors is not finalized yet
+                        assert!(operator0
+                            .get_reimbursement_txs(Request::new(
+                                deposit_params.deposit_outpoint.into()
+                            ))
+                            .await
+                            .is_err());
+                        // mine blocks so that burn unused kickoff connectors is considered finalized
+                        rpc.mine_blocks(config.protocol_paramset().finality_depth as u64 + 2)
+                            .await
+                            .unwrap();
+                        // wait a bit for btc syncer to sync
+                        tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
+                    } else if tx_type == TransactionType::ChallengeTimeout {
+                        // mine blocks so that challenge timeout is considered finalized
+                        rpc.mine_blocks(config.protocol_paramset().finality_depth as u64 + 2)
+                            .await
+                            .unwrap();
+                        // wait a bit for btc syncer to sync
+                        tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
                     }
                 }
             }

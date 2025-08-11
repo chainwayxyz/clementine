@@ -291,6 +291,53 @@ impl Database {
         Ok(())
     }
 
+    /// For a given outpoint, gets the block height of the canonical block that spent it.
+    /// Returns None if the outpoint is not spent.
+    pub async fn get_block_height_of_spending_txid(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        outpoint: OutPoint,
+    ) -> Result<Option<u32>, BridgeError> {
+        let query = sqlx::query_scalar::<_, i32>(
+            "SELECT bs.height FROM bitcoin_syncer_spent_utxos bspu
+                INNER JOIN bitcoin_syncer bs ON bspu.block_id = bs.id
+                WHERE bspu.txid = $1 AND bspu.vout = $2 AND bs.is_canonical = true",
+        )
+        .bind(super::wrapper::TxidDB(outpoint.txid))
+        .bind(outpoint.vout as i64);
+
+        let result: Option<i32> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+
+        result
+            .map(|height| u32::try_from(height).wrap_err(BridgeError::IntConversionError))
+            .transpose()
+            .map_err(Into::into)
+    }
+
+    /// Checks if the utxo is spent, if so checks if the spending tx is finalized
+    /// Returns true if the utxo is spent and the spending tx is finalized, false otherwise
+    pub async fn check_if_utxo_spending_tx_is_finalized(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        outpoint: OutPoint,
+        current_chain_height: u32,
+        finality_depth: u32,
+    ) -> Result<bool, BridgeError> {
+        let spending_tx_height = self.get_block_height_of_spending_txid(tx, outpoint).await?;
+        match spending_tx_height {
+            Some(spending_tx_height) => {
+                if spending_tx_height > current_chain_height
+                    || current_chain_height - spending_tx_height < finality_depth
+                {
+                    return Ok(false);
+                }
+                Ok(true)
+            }
+            None => Ok(false),
+        }
+    }
+
     /// Gets all the spent utxos for a given txid
     pub async fn get_spent_utxos_for_txid(
         &self,

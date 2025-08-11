@@ -80,7 +80,7 @@ impl<T: Owner + std::fmt::Debug + 'static> BlockFetcherTask<T> {
         let next_height = db
             .get_next_finalized_block_height_for_consumer(
                 None,
-                T::FINALIZED_BLOCK_CONSUMER_ID,
+                T::FINALIZED_BLOCK_CONSUMER_ID_AUTOMATION,
                 paramset,
             )
             .await?;
@@ -93,7 +93,7 @@ impl<T: Owner + std::fmt::Debug + 'static> BlockFetcherTask<T> {
 
         Ok(crate::bitcoin_syncer::FinalizedBlockFetcherTask::new(
             db,
-            T::FINALIZED_BLOCK_CONSUMER_ID.to_string(),
+            T::FINALIZED_BLOCK_CONSUMER_ID_AUTOMATION.to_string(),
             paramset,
             next_height,
             handler,
@@ -205,7 +205,10 @@ mod tests {
     impl NamedEntity for MockHandler {
         const ENTITY_NAME: &'static str = "MockHandler";
         const TX_SENDER_CONSUMER_ID: &'static str = "mock_tx_sender";
-        const FINALIZED_BLOCK_CONSUMER_ID: &'static str = "mock_finalized_block";
+        const FINALIZED_BLOCK_CONSUMER_ID_NO_AUTOMATION: &'static str =
+            "mock_finalized_block_no_automation";
+        const FINALIZED_BLOCK_CONSUMER_ID_AUTOMATION: &'static str =
+            "mock_finalized_block_automation";
     }
 
     #[async_trait]

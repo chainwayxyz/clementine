@@ -296,10 +296,10 @@ jobs:
       - name: Run tests
         run: |
           ./scripts/generate_certs.sh
-          cargo test ${{ matrix.test_script_name }} $CARGOFLAGS_ALL_FEATURES --release -- --ignored
+          cargo test ${{ matrix.test_script_name }} $CARGOFLAGS_ALL_FEATURES --release -- --ignored --nocapture
 
       - name: Upload test logs
-        if: failure()
+        if: failure() || cancelled()
         uses: actions/upload-artifact@v4
         with:
           name: standalone-test-logs-${{ matrix.test_name }}

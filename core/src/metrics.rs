@@ -201,15 +201,34 @@ impl<T: NamedEntity + Sync + Send + 'static> L1SyncStatusProvider for T {
         .transpose()?
         .flatten();
 
+        #[cfg(feature = "automation")]
         let finalized_synced_height = timed_request_base(
             L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
             "get_finalized_synced_height",
-            get_btc_syncer_consumer_last_processed_block_height(db, T::FINALIZED_BLOCK_CONSUMER_ID),
+            get_btc_syncer_consumer_last_processed_block_height(
+                db,
+                T::FINALIZED_BLOCK_CONSUMER_ID_AUTOMATION,
+            ),
         )
         .await
         .ok()
         .transpose()?
         .flatten();
+
+        #[cfg(not(feature = "automation"))]
+        let finalized_synced_height = timed_request_base(
+            L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
+            "get_finalized_synced_height",
+            get_btc_syncer_consumer_last_processed_block_height(
+                db,
+                T::FINALIZED_BLOCK_CONSUMER_ID_NO_AUTOMATION,
+            ),
+        )
+        .await
+        .ok()
+        .transpose()?
+        .flatten();
+
         let btc_syncer_synced_height = timed_request_base(
             L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
             "get_btc_syncer_synced_height",
