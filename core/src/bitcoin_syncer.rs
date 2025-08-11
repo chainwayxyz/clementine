@@ -579,7 +579,6 @@ mod tests {
     use bitcoincore_rpc::RpcApi;
 
     #[tokio::test]
-    #[serial_test::serial]
     async fn get_block_info_from_height() {
         let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
@@ -609,7 +608,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial_test::serial]
     async fn save_get_transaction_spent_utxos() {
         let mut config = create_test_config_with_thread_name().await;
         let db = Database::new(&config).await.unwrap();
@@ -668,7 +666,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial_test::serial]
     async fn save_get_block() {
         let mut config = create_test_config_with_thread_name().await;
         let db = Database::new(&config).await.unwrap();
@@ -702,7 +699,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial_test::serial]
     async fn set_initial_block_info_if_not_exists() {
         let mut config = create_test_config_with_thread_name().await;
         let db = Database::new(&config).await.unwrap();
@@ -741,7 +737,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial_test::serial]
     async fn fetch_new_blocks_forward() {
         let mut config = create_test_config_with_thread_name().await;
         let db = Database::new(&config).await.unwrap();
@@ -777,7 +772,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial_test::serial]
     async fn fetch_new_blocks_backwards() {
         let mut config = create_test_config_with_thread_name().await;
         let db = Database::new(&config).await.unwrap();
@@ -826,7 +820,6 @@ mod tests {
     }
     #[ignore]
     #[tokio::test]
-    #[serial_test::serial]
     async fn set_non_canonical_block_hashes() {
         let mut config = create_test_config_with_thread_name().await;
         let db = Database::new(&config).await.unwrap();
@@ -866,7 +859,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial_test::serial]
     async fn start_bitcoin_syncer_new_block_mined() {
         let mut config = create_test_config_with_thread_name().await;
         let db = Database::new(&config).await.unwrap();

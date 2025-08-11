@@ -1281,7 +1281,7 @@ where
             );
         }
         // if verification address is set in config, check if verification signature is valid
-        if let Some(address_in_config) = self.config.opt_payout_verification_address {
+        if let Some(address_in_config) = self.config.aggregator_verification_address {
             // check if verification signature is provided by aggregator
             if let Some(verification_signature) = verification_signature {
                 let address_from_sig =
