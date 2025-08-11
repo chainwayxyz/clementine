@@ -396,6 +396,26 @@ impl Database {
             .collect::<Result<Vec<_>, BridgeError>>()
     }
 
+    /// Returns the id of the tx in `tx_sender_try_to_send_txs` if it exists.
+    /// Used to avoid adding duplicate transactions to the txsender.
+    pub async fn check_if_tx_exists_on_txsender(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        txid: Txid,
+    ) -> Result<Option<u32>, BridgeError> {
+        let query = sqlx::query_as::<_, (i32,)>(
+            "SELECT id FROM tx_sender_try_to_send_txs WHERE txid = $1 LIMIT 1",
+        )
+        .bind(TxidDB(txid));
+
+        let result: Option<(i32,)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+        Ok(match result {
+            Some((id,)) => Some(u32::try_from(id).wrap_err("Failed to convert id to u32")?),
+            None => None,
+        })
+    }
+
     pub async fn save_tx(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,

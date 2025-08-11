@@ -312,7 +312,7 @@ where
                 .db
                 .get_next_finalized_block_height_for_consumer(
                     None,
-                    Verifier::<C>::FINALIZED_BLOCK_CONSUMER_ID,
+                    Verifier::<C>::FINALIZED_BLOCK_CONSUMER_ID_NO_AUTOMATION,
                     self.verifier.config.protocol_paramset(),
                 )
                 .await?;
@@ -321,7 +321,7 @@ where
                 .ensure_task_looping(
                     crate::bitcoin_syncer::FinalizedBlockFetcherTask::new(
                         self.verifier.db.clone(),
-                        Verifier::<C>::FINALIZED_BLOCK_CONSUMER_ID.to_string(),
+                        Verifier::<C>::FINALIZED_BLOCK_CONSUMER_ID_NO_AUTOMATION.to_string(),
                         self.verifier.config.protocol_paramset(),
                         next_height,
                         self.verifier.clone(),
@@ -2743,7 +2743,10 @@ where
 {
     const ENTITY_NAME: &'static str = "verifier";
     const TX_SENDER_CONSUMER_ID: &'static str = "verifier_tx_sender";
-    const FINALIZED_BLOCK_CONSUMER_ID: &'static str = "verifier_finalized_block_fetcher";
+    const FINALIZED_BLOCK_CONSUMER_ID_AUTOMATION: &'static str =
+        "verifier_finalized_block_fetcher_automation";
+    const FINALIZED_BLOCK_CONSUMER_ID_NO_AUTOMATION: &'static str =
+        "verifier_finalized_block_fetcher_no_automation";
 }
 
 #[cfg(feature = "automation")]
