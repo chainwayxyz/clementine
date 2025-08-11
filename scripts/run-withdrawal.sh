@@ -4,6 +4,7 @@
 set -e
 
 AGGREGATOR_URL=${AGGREGATOR_URL:-"https://127.0.0.1:17000"}
+OPERATOR_URL=${OPERATOR_URL:-"https://127.0.0.1:17005"}
 SEQUENCER_URL=${SEQUENCER_URL:-"http://127.0.0.1:12345"}
 BITCOIN_RPC_URL=${BITCOIN_RPC_URL:-"http://127.0.0.1:20443/wallet/admin"}
 BITCOIN_RPC_USER=${BITCOIN_RPC_USER:-"admin"}
@@ -109,6 +110,8 @@ if [[ -z "$WITHDRAW_SIGNATURE" ]]; then echo "❌ Could not parse withdrawal sig
 
 echo "Signature (DER+hashType): ${WITHDRAW_SIGNATURE:0:18}... (len ${#WITHDRAW_SIGNATURE})"
 
+sleep 2; mine 3; sleep 3; mine 3; sleep 3
+
 # =========================
 # Step 5: Submit safe withdrawal to sequencer
 # =========================
@@ -129,6 +132,7 @@ BLOCK_NUM=$(echo "$SEND_OUT" | sed -n 's/.*block_number: Some(\([0-9]\+\)).*/\1/
 if [[ -z "${BLOCK_NUM:-}" ]]; then
   echo "❌ Could not parse block_number from receipt output"; exit 1
 fi
+
 TARGET_L2=$(( BLOCK_NUM + 10 ))
 echo "Baseline L2 target: lastL2Height > $TARGET_L2 (block_number=$BLOCK_NUM + 10)"
 
@@ -136,7 +140,7 @@ echo "Baseline L2 target: lastL2Height > $TARGET_L2 (block_number=$BLOCK_NUM + 1
 while true; do
   BTC_HEIGHT=$(( $($BQR_ALIAS getblockcount) - 5 ))
 
-  RESP=$(curl -s -X POST http://localhost:12349 \
+  RESP=$(curl -s -X POST http://localhost:12346 \
     -H "Content-Type: application/json" \
     -d "{
       \"jsonrpc\": \"2.0\",
@@ -164,6 +168,10 @@ while true; do
   sleep 3
 done
 
+
+# New block check is made approximately every 60 seconds, so we can wait a bit here
+sleep 60
+
 # Optional: sanity check intent via eth_call (expects non-zero)
 INTENT=$(curl -s -X POST "$SEQUENCER_URL" -H "Content-Type: application/json" --data '{
   "jsonrpc":"2.0","method":"eth_call","params":[{"to":"0x3100000000000000000000000000000000000002","data":"0x781952a8"},"latest"],"id":1}')
@@ -189,7 +197,8 @@ AGG_RESP=$(cargo run --bin clementine-cli -- --node-url "$AGGREGATOR_URL" aggreg
   --input-outpoint-txid "$SIGNER_FUND_TXID" \
   --input-outpoint-vout "$SIGNER_VOUT" \
   --output-script-pubkey "$SPK" \
-  --output-amount "$WITHDRAW_AMOUNT_SATS")
+  --output-amount "$WITHDRAW_AMOUNT_SATS" \
+  --operator-xonly-pks "4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa")
 
 echo "$AGG_RESP"
 
@@ -212,6 +221,12 @@ if (( $(echo "$RECEIVED < $EXPECTED" | bc -l) )); then
 fi
 
 
+mine 10
+
+# New block check is made approximately every 60 seconds, so we can wait a bit here
+sleep 120
+
+
 send_with_cpfp() {
   local raw_tx="$1"
   echo "🧾 Reimb-CPFP: stage 1 (get fee payer)"
@@ -228,11 +243,21 @@ send_with_cpfp() {
   mine 1
 
   echo "🧾 Reimb-CPFP: finalize"
-  cargo run --bin clementine-cli -- --node-url "$BITCOIN_RPC_URL" bitcoin send-tx-with-cpfp \
+  TX_DETAILS=$(cargo run --bin clementine-cli -- --node-url "$BITCOIN_RPC_URL" bitcoin send-tx-with-cpfp \
     --bitcoin-rpc-user "$BITCOIN_RPC_USER" \
     --bitcoin-rpc-password "$BITCOIN_RPC_PASSWORD" \
     --fee-payer-address "$fp_addr" \
-    --raw-tx "$raw_tx" >/dev/null
+    --raw-tx "$raw_tx")
+
+    PARENT_TXID=$(echo "$TX_DETAILS" | grep -oP 'Parent transaction TXID: \K[a-f0-9]{64}')
+
+  if [ -z "$PARENT_TXID" ]; then
+    echo "❌ Failed to extract parent transaction TXID!"
+    exit 1
+  fi
+
+  echo "Parent TXID: $PARENT_TXID"
+  echo "Reimb-CPFP TX details: $TX_DETAILS"
 }
 
 # =========================
@@ -241,38 +266,67 @@ send_with_cpfp() {
 # If you need to reimburse operators for payout fees, call get-reimbursement-txs and CPFP-broadcast them similarly to deposit flow.
 # Example (requires original deposit outpoint info):
 
-# !!! AGGREGATOR URL IS TO BE SWITCHED TO OPERATOR URL DO NOT USE THIS PART UNTIL IT's UPDATED !!!
 
-# if [[ -n "$DEPOSIT_TXID" && -n "$DEPOSIT_VOUT" ]]; then
-#   echo "🔁 Step 8.1: Fetch round tx"
-#   REIMB_RAW_1=$(cargo run --bin clementine-cli -- --node-url "$AGGREGATOR_URL" operator get-reimbursement-txs \
-#     --deposit-outpoint-txid "$DEPOSIT_TXID" \
-#     --deposit-outpoint-vout "$DEPOSIT_VOUT" | awk '/Please send manually:/ { print $NF }' | head -n1)
+if [[ -n "$DEPOSIT_TXID" && -n "$DEPOSIT_VOUT" ]]; then
+  echo "🔁 Step 8.1: Fetch round tx"
+  out="$(
+    cargo run --bin clementine-cli -- \
+      --node-url "$OPERATOR_URL" operator get-reimbursement-txs \
+      --deposit-outpoint-txid "$DEPOSIT_TXID" \
+      --deposit-outpoint-vout "$DEPOSIT_VOUT"
+  )"
 
-#   if [[ -n "$REIMB_RAW_1" ]]; then
-#     echo "Found round tx (len ${#REIMB_RAW_1}). Sending with CPFP..."
-#     send_with_cpfp "$REIMB_RAW_1"
-#   else
-#     echo "ℹ️ No first round tx returned yet (maybe already sent)."
-#   fi
+  tx_type="$(awk '/Tx type:/ { if (match($0,/Tx type:[[:space:]]*([^,]+)/,m)) { print m[1]; exit } }' <<< "$out")"
+  tx_hex="$(awk '/Tx hex:/  { if (match($0,/Tx hex:[[:space:]]*"([^"]+)"/,m)) { print m[1]; exit } }' <<< "$out")"
 
-#   echo "⛏️  Step 8.2: Mine and wait before kickoff"
-#   mine 3; sleep 2; mine 3; sleep 2
+  if [[ "$tx_type" != "Round" ]]; then
+    echo "ERROR: Unexpected Tx type '$tx_type' (expected 'Round')" >&2
+    exit 1
+  fi
 
-#   echo "🔁 Step 8.3: Fetch kickoff tx"
-#   REIMB_RAW_2=$(cargo run --bin clementine-cli -- --node-url "$AGGREGATOR_URL" operator get-reimbursement-txs \
-#     --deposit-outpoint-txid "$DEPOSIT_TXID" \
-#     --deposit-outpoint-vout "$DEPOSIT_VOUT" | awk '/Please send manually:/ { print $NF }' | tail -n1)
+  REIMB_RAW_1="$tx_hex"
 
-#   if [[ -n "$REIMB_RAW_2" && "$REIMB_RAW_2" != "$REIMB_RAW_1" ]]; then
-#     echo "Found second kickoff tx (len ${#REIMB_RAW_2}). Sending with CPFP..."
-#     send_with_cpfp "$REIMB_RAW_2"
-#   else
-#     echo "ℹ️ No distinct second kickoff tx returned (may not be ready yet)."
-#   fi
-# else
-#   echo "ℹ️ Skipping reimbursement: DEPOSIT_TXID/DEPOSIT_VOUT not set."
-# fi
+  if [[ -n "$REIMB_RAW_1" ]]; then
+    echo "Found round tx (len ${#REIMB_RAW_1}). Sending with CPFP..."
+    send_with_cpfp "$REIMB_RAW_1"
+  else
+    echo "ℹ️ No first round tx returned yet (maybe already sent)."
+  fi
+
+  echo "⛏️  Step 8.2: Mine and wait before kickoff"
+
+  for i in {1..2}; do
+    mine 10
+    sleep 10
+  done
+
+  echo "🔁 Step 8.3: Fetch kickoff tx"
+  out2="$(
+    cargo run --bin clementine-cli -- \
+      --node-url "$OPERATOR_URL" operator get-reimbursement-txs \
+      --deposit-outpoint-txid "$DEPOSIT_TXID" \
+      --deposit-outpoint-vout "$DEPOSIT_VOUT"
+  )"
+
+  tx_type="$(awk '/Tx type:/ { if (match($0,/Tx type:[[:space:]]*([^,]+)/,m)) { print m[1]; exit } }' <<< "$out2")"
+  tx_hex="$(awk '/Tx hex:/  { if (match($0,/Tx hex:[[:space:]]*"([^"]+)"/,m)) { print m[1]; exit } }' <<< "$out2")"
+
+  if [[ "$tx_type" != "Kickoff" ]]; then
+    echo "ERROR: Unexpected Tx type '$tx_type' (expected 'Kickoff')" >&2
+    exit 1
+  fi
+
+  REIMB_RAW_2="$tx_hex"
+
+  if [[ -n "$REIMB_RAW_2" && "$REIMB_RAW_2" != "$REIMB_RAW_1" ]]; then
+    echo "Found second kickoff tx (len ${#REIMB_RAW_2}). Sending with CPFP..."
+    send_with_cpfp "$REIMB_RAW_2"
+  else
+    echo "ℹ️ No distinct second kickoff tx returned (may not be ready yet)."
+  fi
+else
+  echo "ℹ️ Skipping reimbursement: DEPOSIT_TXID/DEPOSIT_VOUT not set."
+fi
 
 # Then broadcast with your CPFP helper and mine blocks.
 

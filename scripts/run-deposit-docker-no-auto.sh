@@ -104,6 +104,8 @@ if [ -z "$CALLDATA" ]; then
   exit 1
 fi
 
+$BQR_ALIAS -generate 10; sleep 5; $BQR_ALIAS -generate 10; sleep 5; 
+
 echo "Calldata: $CALLDATA"
 
 echo "📦 Step 9: Submit Calldata to Citrea"

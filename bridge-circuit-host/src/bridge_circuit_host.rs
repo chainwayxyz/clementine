@@ -214,6 +214,11 @@ pub fn prove_bridge_circuit(
 
     let prover = default_prover();
 
+    tracing::info!(
+        "Method id for bridge circuit: {:?}",
+        compute_image_id(bridge_circuit_elf).unwrap()
+    );
+
     tracing::info!("Checks complete, proving bridge circuit to generate STARK proof");
 
     let succinct_receipt = prover

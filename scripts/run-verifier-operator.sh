@@ -4,8 +4,8 @@ echo "Run this script in the root of the project"
 
 # Check if BITVM_CACHE_PATH is set, if not try to find cache file automatically
 if [ -z "$BITVM_CACHE_PATH" ]; then
-    if [ -f "./core/bitvm_cache.bin" ]; then
-        export BITVM_CACHE_PATH="./core/bitvm_cache.bin"
+    if [ -f "./core/bitvm_cache_dev.bin" ]; then
+        export BITVM_CACHE_PATH="./core/bitvm_cache_dev.bin"
         echo "Using cache file: $BITVM_CACHE_PATH"
     elif [ -f "./bitvm_cache.bin" ]; then
         export BITVM_CACHE_PATH="./bitvm_cache.bin"
@@ -32,8 +32,8 @@ export CITREA_CHAIN_ID=${CITREA_CHAIN_ID:=5115}
 export CITREA_RPC_URL=${CITREA_RPC_URL:="http://127.0.0.1:12345"}
 export CITREA_LIGHT_CLIENT_PROVER_URL=${CITREA_LIGHT_CLIENT_PROVER_URL:="http://127.0.0.1:12346"}
 export BRIDGE_CONTRACT_ADDRESS=${BRIDGE_CONTRACT_ADDRESS:="3100000000000000000000000000000000000002"}
-export VERIFIER_ENDPOINTS=${VERIFIER_ENDPOINTS:="https://127.0.0.1:17001,https://127.0.0.1:17002,https://127.0.0.1:17003,https://127.0.0.1:17004"}
-export OPERATOR_ENDPOINTS=${OPERATOR_ENDPOINTS:="https://127.0.0.1:17005,https://127.0.0.1:17006"}
+export VERIFIER_ENDPOINTS=${VERIFIER_ENDPOINTS:="https://127.0.0.1:17001"}
+export OPERATOR_ENDPOINTS=${OPERATOR_ENDPOINTS:="https://127.0.0.1:17005"}
 export BITCOIN_RPC_URL=${BITCOIN_RPC_URL:="http://127.0.0.1:20443/wallet/admin"}
 export BITCOIN_RPC_USER=${BITCOIN_RPC_USER:=admin}
 export BITCOIN_RPC_PASSWORD=${BITCOIN_RPC_PASSWORD:=admin}
@@ -98,24 +98,25 @@ export EMERGENCY_STOP_ENCRYPTION_PUBLIC_KEY=025d32d10ec7b899df4eeb4d80918b7f0a1f
 databases=("clementine0" "clementine1" "clementine2" "clementine3")
 
 # Clear logs folder
-rm -rf logs/*
+rm -rf logs/operator0_*
+rm -rf logs/verifier0_*
 
 export PGUSER=${PGUSER:=clementine}
 export PGPASSWORD=${PGPASSWORD:=clementine}
 export PGHOST=${PGHOST:=127.0.0.1}
 export PGPORT=${PGPORT:=5432}
 
-# Drop and recreate databases
-for db in "${databases[@]}"; do
-    echo "Dropping database: $db"
-    dropdb "$db" 2>/dev/null
-    echo "Creating database: $db"
-    createdb -O $DB_USER "$db"
-done
+# # Drop and recreate databases
+# for db in "${databases[@]}"; do
+#     echo "Dropping database: $db"
+#     dropdb "$db" 2>/dev/null
+#     echo "Creating database: $db"
+#     createdb -O $DB_USER "$db"
+# done
 
 # Build the project once
 echo "Building clementine-core..."
-cargo build --package clementine-core --bin clementine-core --release
+cargo build --package clementine-core --all-features --bin clementine-core --release
 if [ $? -ne 0 ]; then
     echo "Build failed, exiting..."
     exit 1
@@ -125,21 +126,16 @@ BIN_PATH="./target/release/clementine-core"
 # Corresponding roles
 roles=(
     "verifier"
-    "verifier"
-    "verifier"
-    "verifier"
     "operator"
-    "operator"
-    "aggregator"
 )
 role_indexes=(
     0
-    1
-    2
-    3
     0
-    1
-    0
+)
+
+ports=(
+    17001
+    17005
 )
 
 # Store PIDs
@@ -167,17 +163,8 @@ for i in "${!roles[@]}"; do
     # Set dynamic config vars for each actor
     secret_key_digit=$((index + 1))
     export SECRET_KEY=$(printf "%064d" | tr '0' "$secret_key_digit")
-    export PORT=$((17000 + i + 1))
+    export PORT=${ports[$i]}
     export DB_NAME="${databases[$index]}"
-
-    # Aggregator overwrites
-    if [ $role == "aggregator" ]; then
-        export TELEMETRY_PORT=8082
-        export PORT=$((17000))
-        export SECRET_KEY=$(printf "%064d" | tr '0' "1")
-        export CLIENT_CERT_PATH=${CLIENT_CERT_PATH:="core/certs/aggregator/aggregator.pem"}
-        export CLIENT_KEY_PATH=${CLIENT_KEY_PATH:="core/certs/aggregator/aggregator.key"}
-    fi
 
     echo "Starting process with role $role, logging to $log_file"
     echo "Secret key is $SECRET_KEY"

@@ -2,6 +2,7 @@ use crate::config::env::read_string_from_env_then_parse;
 use crate::constants::{MIN_TAPROOT_AMOUNT, NON_EPHEMERAL_ANCHOR_AMOUNT};
 use crate::errors::BridgeError;
 use bitcoin::{Amount, Network};
+use bridge_circuit_host::utils::is_dev_mode;
 use eyre::Context;
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
@@ -221,7 +222,7 @@ impl ProtocolParamset {
     pub fn bridge_circuit_constant(&self) -> Result<&[u8; 32], BridgeError> {
         match self.network {
             Network::Regtest => {
-                if cfg!(test) {
+                if is_dev_mode() {
                     Ok(&REGTEST_TEST_BRIDGE_CIRCUIT_CONSTANT)
                 } else {
                     Ok(&REGTEST_BRIDGE_CIRCUIT_CONSTANT)
@@ -321,8 +322,8 @@ pub const TESTNET4_TEST_PARAMSET: ProtocolParamset = ProtocolParamset {
 };
 
 pub const REGTEST_TEST_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [
-    191, 41, 245, 76, 47, 243, 175, 215, 219, 221, 93, 163, 232, 132, 93, 27, 3, 251, 171, 32, 120,
-    230, 199, 203, 123, 174, 113, 106, 70, 185, 3, 52,
+    255, 86, 252, 202, 213, 103, 128, 105, 240, 142, 98, 234, 24, 46, 103, 14, 72, 184, 207, 190,
+    177, 2, 153, 58, 28, 171, 14, 210, 200, 165, 41, 91,
 ];
 
 pub const REGTEST_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [

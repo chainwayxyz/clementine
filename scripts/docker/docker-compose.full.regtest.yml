@@ -92,6 +92,8 @@ services:
       -txindex=1
       -fallbackfee=0.00001
       -maxtxfee=5
+      -dustrelayfee=0
+      -acceptnonstdtxn=1
     entrypoint: ["/docker-entrypoint.sh"]
 
 
