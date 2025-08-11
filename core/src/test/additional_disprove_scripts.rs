@@ -6,7 +6,7 @@ use crate::test::common::clementine_utils::disprove_tests_common_setup;
 use crate::test::common::tx_utils::get_txid_where_utxo_is_spent_while_waiting_for_state_mngr_sync;
 use crate::utils::initialize_logger;
 use crate::{
-    extended_rpc::ExtendedRpc,
+    extended_bitcoin_rpc::ExtendedBitcoinRpc,
     test::common::{
         citrea::{self},
         create_test_config_with_thread_name,
@@ -126,10 +126,11 @@ impl TestCase for AdditionalDisproveTest {
             )),
         );
 
-        let rpc = ExtendedRpc::connect(
+        let rpc = ExtendedBitcoinRpc::connect(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
+            None,
         )
         .await?;
 
@@ -185,7 +186,7 @@ impl TestCase for AdditionalDisproveTest {
             vout: UtxoVout::CollateralInRound.get_vout(),
         };
 
-        let add_disprove_tx = rpc.client.get_raw_transaction(&txid, None).await?;
+        let add_disprove_tx = rpc.get_raw_transaction(&txid, None).await?;
 
         assert!(
             add_disprove_tx.input[1].previous_output == burn_connector,

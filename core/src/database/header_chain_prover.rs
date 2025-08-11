@@ -7,7 +7,7 @@ use super::{
     wrapper::{BlockHashDB, BlockHeaderDB},
     Database, DatabaseTransaction,
 };
-use crate::{errors::BridgeError, execute_query_with_tx, extended_rpc::ExtendedRpc};
+use crate::{errors::BridgeError, execute_query_with_tx, extended_bitcoin_rpc::ExtendedBitcoinRpc};
 use bitcoin::{
     block::{self, Header},
     BlockHash,
@@ -39,7 +39,7 @@ impl Database {
     /// Collect block info from rpc and save it to hcp table.
     async fn save_block_infos_within_range(
         &self,
-        rpc: &ExtendedRpc,
+        rpc: &ExtendedBitcoinRpc,
         height_start: u32,
         height_end: u32,
     ) -> Result<(), BridgeError> {
@@ -77,7 +77,7 @@ impl Database {
     /// as they are needed for spv and hcp proofs.
     pub async fn fetch_and_save_missing_blocks(
         &self,
-        rpc: &ExtendedRpc,
+        rpc: &ExtendedBitcoinRpc,
         genesis_height: u32,
         until_height: u32,
     ) -> Result<(), BridgeError> {
@@ -480,7 +480,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial_test::serial]
     pub async fn save_get_block_proof() {
         let config = create_test_config_with_thread_name().await;
         let db = Database::new(&config).await.unwrap();
@@ -524,7 +523,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial_test::serial]
     pub async fn get_non_proven_block() {
         let config = create_test_config_with_thread_name().await;
         let db = Database::new(&config).await.unwrap();
@@ -665,7 +663,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial_test::serial]
     pub async fn get_non_proven_blocks() {
         let config = create_test_config_with_thread_name().await;
         let db = Database::new(&config).await.unwrap();

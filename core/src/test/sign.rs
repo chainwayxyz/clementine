@@ -16,7 +16,7 @@ pub fn sign_withdrawal_verification_signature<M: WithdrawalMessage + SolStruct>(
 ) -> PrimitiveSignature {
     let signing_key = config
         .test_params
-        .opt_payout_verification_secret_key
+        .aggregator_verification_secret_key
         .clone()
         .unwrap();
     let (withdrawal_id, input_signature, input_outpoint, output_script_pubkey, output_amount) =

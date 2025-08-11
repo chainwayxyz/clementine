@@ -8,7 +8,7 @@ use crate::metrics::L1SyncStatusProvider;
 use crate::{
     database::Database,
     errors::BridgeError,
-    extended_rpc::ExtendedRpc,
+    extended_bitcoin_rpc::ExtendedBitcoinRpc,
     metrics::L1_SYNC_STATUS,
     task::{Task, TaskVariant},
     utils::NamedEntity,
@@ -24,12 +24,12 @@ pub const ENTITY_METRIC_PUBLISHER_INTERVAL: Duration = Duration::from_secs(120);
 /// Publishes the metrics available for an entity (operator/verifier)
 pub struct EntityMetricPublisher<T: NamedEntity> {
     db: Database,
-    rpc: ExtendedRpc,
+    rpc: ExtendedBitcoinRpc,
     _phantom: std::marker::PhantomData<T>,
 }
 
 impl<T: NamedEntity> EntityMetricPublisher<T> {
-    pub fn new(db: Database, rpc: ExtendedRpc) -> Self {
+    pub fn new(db: Database, rpc: ExtendedBitcoinRpc) -> Self {
         Self {
             db,
             rpc,

@@ -6,7 +6,7 @@ use crate::constants::{
     VERIFIER_SEND_KEYS_TIMEOUT,
 };
 use crate::deposit::DepositData;
-use crate::extended_rpc::ExtendedRpc;
+use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 use crate::rpc::clementine::entity_status_with_id::StatusResult;
 use crate::rpc::clementine::EntityId as RPCEntityId;
 use crate::rpc::clementine::{
@@ -52,7 +52,7 @@ use tracing::{debug_span, Instrument};
 /// For now, we do not have the last bit.
 #[derive(Debug, Clone)]
 pub struct Aggregator {
-    pub(crate) rpc: ExtendedRpc,
+    pub(crate) rpc: ExtendedBitcoinRpc,
     pub(crate) db: Database,
     pub(crate) config: BridgeConfig,
     #[cfg(feature = "automation")]
@@ -158,10 +158,11 @@ impl Aggregator {
     pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
         let db = Database::new(&config).await?;
 
-        let rpc = ExtendedRpc::connect(
+        let rpc = ExtendedBitcoinRpc::connect(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
+            None,
         )
         .await?;
 

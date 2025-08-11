@@ -22,7 +22,7 @@ use crate::{
     actor::Actor,
     builder::{self},
     database::Database,
-    extended_rpc::ExtendedRpc,
+    extended_bitcoin_rpc::ExtendedBitcoinRpc,
     utils::TxMetadata,
 };
 use alloy::transports::http::reqwest;
@@ -67,14 +67,14 @@ use log_error_for_tx;
 /// Manages the process of sending Bitcoin transactions, including handling fee bumping
 /// strategies like Replace-By-Fee (RBF) and Child-Pays-For-Parent (CPFP).
 ///
-/// It interacts with a Bitcoin Core RPC endpoint (`ExtendedRpc`) to query network state
+/// It interacts with a Bitcoin Core RPC endpoint (`ExtendedBitcoinRpc`) to query network state
 /// (like fee rates) and submit transactions. It uses a `Database` to persist transaction
 /// state, track confirmation status, and manage associated data like fee payer UTXOs.
 /// The `Actor` provides signing capabilities for transactions controlled by this service.
 #[derive(Clone, Debug)]
 pub struct TxSender {
     pub signer: Actor,
-    pub rpc: ExtendedRpc,
+    pub rpc: ExtendedBitcoinRpc,
     pub db: Database,
     pub btc_syncer_consumer_id: String,
     paramset: &'static ProtocolParamset,
@@ -118,7 +118,7 @@ type Result<T> = std::result::Result<T, SendTxError>;
 impl TxSender {
     pub fn new(
         signer: Actor,
-        rpc: ExtendedRpc,
+        rpc: ExtendedBitcoinRpc,
         db: Database,
         btc_syncer_consumer_id: String,
         paramset: &'static ProtocolParamset,
@@ -179,7 +179,6 @@ impl TxSender {
 
                     let fee_estimate = self
                         .rpc
-                        .client
                         .estimate_smart_fee(1, None)
                         .await
                         .wrap_err("Failed to estimate smart fee using Bitcoin Core RPC")?;
@@ -436,7 +435,7 @@ impl TxSender {
         tx_metadata: Option<TxMetadata>,
     ) -> Result<()> {
         tracing::debug!(target: "ci", "Sending no funding tx, raw tx: {:?}", hex::encode(bitcoin::consensus::serialize(&tx)));
-        match self.rpc.client.send_raw_transaction(&tx).await {
+        match self.rpc.send_raw_transaction(&tx).await {
             Ok(sent_txid) => {
                 tracing::debug!(
                     try_to_send_id,
@@ -546,11 +545,11 @@ mod tests {
     }
 
     pub(super) async fn create_tx_sender(
-        rpc: ExtendedRpc,
+        rpc: ExtendedBitcoinRpc,
     ) -> (
         TxSender,
         BitcoinSyncer,
-        ExtendedRpc,
+        ExtendedBitcoinRpc,
         Database,
         Actor,
         bitcoin::Network,
@@ -586,12 +585,12 @@ mod tests {
     }
 
     pub(super) async fn create_bg_tx_sender(
-        rpc: ExtendedRpc,
+        rpc: ExtendedBitcoinRpc,
     ) -> (
         TxSenderClient,
         TxSender,
         Vec<oneshot::Sender<()>>,
-        ExtendedRpc,
+        ExtendedBitcoinRpc,
         Database,
         Actor,
         bitcoin::Network,
@@ -616,7 +615,7 @@ mod tests {
     }
 
     async fn create_bumpable_tx(
-        rpc: &ExtendedRpc,
+        rpc: &ExtendedBitcoinRpc,
         signer: &Actor,
         network: bitcoin::Network,
         fee_paying_type: FeePayingType,
@@ -728,11 +727,7 @@ mod tests {
             async || {
                 rpc.mine_blocks(1).await.unwrap();
 
-                match rpc
-                    .client
-                    .get_raw_transaction_info(&tx.compute_txid(), None)
-                    .await
-                {
+                match rpc.get_raw_transaction_info(&tx.compute_txid(), None).await {
                     Ok(tx_result) => {
                         if let Some(conf) = tx_result.confirmations {
                             return Ok(conf > 0);
@@ -838,13 +833,13 @@ mod tests {
             .unwrap();
 
         rpc.mine_blocks(1).await.unwrap();
-        let mempool_info = rpc.client.get_mempool_info().await.unwrap();
+        let mempool_info = rpc.get_mempool_info().await.unwrap();
         tracing::info!("Mempool info: {:?}", mempool_info);
 
         let will_fail_tx = will_fail_handler.get_cached_tx();
 
         if mempool_info.mempool_min_fee.to_sat() > 0 {
-            assert!(rpc.client.send_raw_transaction(will_fail_tx).await.is_err());
+            assert!(rpc.send_raw_transaction(will_fail_tx).await.is_err());
         }
 
         // Calculate and send with fee.
@@ -874,8 +869,7 @@ mod tests {
 
         rpc.mine_blocks(1).await.unwrap();
 
-        rpc.client
-            .send_raw_transaction(will_successful_handler.get_cached_tx())
+        rpc.send_raw_transaction(will_successful_handler.get_cached_tx())
             .await
             .unwrap();
     }

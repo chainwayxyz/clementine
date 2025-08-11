@@ -81,8 +81,7 @@ async fn create_address_and_transaction_then_sign_transaction() {
     rpc.mine_blocks(1).await.unwrap();
 
     // New transaction should be OK to send.
-    rpc.client
-        .send_raw_transaction(tx_handler.get_cached_tx())
+    rpc.send_raw_transaction(tx_handler.get_cached_tx())
         .await
         .unwrap();
 }

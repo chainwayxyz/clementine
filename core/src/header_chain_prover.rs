@@ -11,7 +11,7 @@ use crate::{
     config::BridgeConfig,
     database::Database,
     errors::{BridgeError, ErrorExt},
-    extended_rpc::ExtendedRpc,
+    extended_bitcoin_rpc::ExtendedBitcoinRpc,
 };
 use bitcoin::block::Header;
 use bitcoin::{hashes::Hash, BlockHash, Network};
@@ -86,7 +86,7 @@ impl HeaderChainProver {
     /// assumption if specified in the config.
     pub async fn new(
         config: &BridgeConfig,
-        rpc: ExtendedRpc,
+        rpc: ExtendedBitcoinRpc,
     ) -> Result<Self, HeaderChainProverError> {
         let db = Database::new(config).await.map_to_eyre()?;
         let tip_height = rpc.get_current_chain_height().await.map_to_eyre()?;
@@ -128,16 +128,11 @@ impl HeaderChainProver {
             let block_hash = BlockHash::from_raw_hash(
                 Hash::from_slice(&proof_output.chain_state.best_block_hash).map_to_eyre()?,
             );
-            let block_header = rpc
-                .client
-                .get_block_header(&block_hash)
-                .await
-                .wrap_err(format!(
+            let block_header = rpc.get_block_header(&block_hash).await.wrap_err(format!(
                 "Failed to get block header with block hash {} (retrieved from assumption file)",
                 block_hash
             ))?;
             let block_height = rpc
-                .client
                 .get_block_info(&block_hash)
                 .await
                 .map(|info| info.height)
@@ -175,7 +170,6 @@ impl HeaderChainProver {
             tracing::info!("Starting prover without assumption, proving genesis block");
 
             let genesis_block_hash = rpc
-                .client
                 .get_block_hash(config.protocol_paramset().genesis_height.into())
                 .await
                 .wrap_err(format!(
@@ -189,14 +183,13 @@ impl HeaderChainProver {
                 config.protocol_paramset().genesis_height
             ); // Should be debug
 
-            let genesis_block_header = rpc
-                .client
-                .get_block_header(&genesis_block_hash)
-                .await
-                .wrap_err(format!(
-                    "Failed to get genesis block header at height {}",
-                    config.protocol_paramset().genesis_height
-                ))?;
+            let genesis_block_header =
+                rpc.get_block_header(&genesis_block_hash)
+                    .await
+                    .wrap_err(format!(
+                        "Failed to get genesis block header at height {}",
+                        config.protocol_paramset().genesis_height
+                    ))?;
 
             let genesis_chain_state = HeaderChainProver::get_chain_state_from_height(
                 rpc.clone(),
@@ -205,7 +198,7 @@ impl HeaderChainProver {
             )
             .await
             .map_to_eyre()?;
-            tracing::debug!("Genesis chain state (verbose): {:?}", genesis_chain_state); // Should be debug
+            tracing::debug!("Genesis chain state (verbose): {:?}", genesis_chain_state);
 
             let genesis_chain_state_hash = genesis_chain_state.to_hash();
             if genesis_chain_state_hash != config.protocol_paramset().genesis_chain_state_hash {
@@ -248,31 +241,25 @@ impl HeaderChainProver {
     }
 
     pub async fn get_chain_state_from_height(
-        rpc: ExtendedRpc,
+        rpc: ExtendedBitcoinRpc,
         height: u64,
         network: Network,
     ) -> Result<ChainState, HeaderChainProverError> {
         let block_hash = rpc
-            .client
             .get_block_hash(height)
             .await
             .wrap_err(format!("Failed to get block hash at height {}", height))?;
 
-        let block_header = rpc
-            .client
-            .get_block_header(&block_hash)
-            .await
-            .wrap_err(format!(
-                "Failed to get block header with block hash {}",
-                block_hash
-            ))?;
+        let block_header = rpc.get_block_header(&block_hash).await.wrap_err(format!(
+            "Failed to get block header with block hash {}",
+            block_hash
+        ))?;
 
         let mut last_11_block_timestamps: [u32; 11] = [0; 11];
         let mut last_block_hash = block_hash;
         let mut last_block_height = height;
         for _ in 0..11 {
             let block_header = rpc
-                .client
                 .get_block_header(&last_block_hash)
                 .await
                 .wrap_err(format!(
@@ -296,7 +283,6 @@ impl HeaderChainProver {
             (0, block_header.bits.to_consensus())
         } else {
             let epoch_start_block_hash = rpc
-                .client
                 .get_block_hash(epoch_start_block_height)
                 .await
                 .wrap_err(format!(
@@ -304,7 +290,6 @@ impl HeaderChainProver {
                     epoch_start_block_height
                 ))?;
             let epoch_start_block_header = rpc
-                .client
                 .get_block_header(&epoch_start_block_hash)
                 .await
                 .wrap_err(format!(
@@ -321,14 +306,10 @@ impl HeaderChainProver {
             (epoch_start_block_header.time, bits)
         };
 
-        let block_info = rpc
-            .client
-            .get_block_info(&block_hash)
-            .await
-            .wrap_err(format!(
-                "Failed to get block info with block hash {}",
-                block_hash
-            ))?;
+        let block_info = rpc.get_block_info(&block_hash).await.wrap_err(format!(
+            "Failed to get block info with block hash {}",
+            block_hash
+        ))?;
 
         let total_work = block_info.chainwork;
 
@@ -708,7 +689,7 @@ impl HeaderChainProver {
 
 #[cfg(test)]
 mod tests {
-    use crate::extended_rpc::ExtendedRpc;
+    use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
     use crate::header_chain_prover::HeaderChainProver;
     use crate::test::common::*;
     use crate::verifier::VerifierServer;
@@ -723,11 +704,11 @@ mod tests {
     /// Mines `block_num` amount of blocks (if not already mined) and returns
     /// the first `block_num` block headers in blockchain.
     async fn mine_and_get_first_n_block_headers(
-        rpc: ExtendedRpc,
+        rpc: ExtendedBitcoinRpc,
         db: Database,
         block_num: u64,
     ) -> Vec<Header> {
-        let height = rpc.client.get_block_count().await.unwrap();
+        let height = rpc.get_block_count().await.unwrap();
         tracing::debug!(
             "Current tip height: {}, target block height: {}",
             height,
@@ -745,8 +726,8 @@ mod tests {
         tracing::debug!("Getting first {} block headers from blockchain", block_num);
         let mut headers = Vec::new();
         for i in 0..block_num + 1 {
-            let hash = rpc.client.get_block_hash(i).await.unwrap();
-            let header = rpc.client.get_block_header(&hash).await.unwrap();
+            let hash = rpc.get_block_hash(i).await.unwrap();
+            let header = rpc.get_block_header(&hash).await.unwrap();
 
             headers.push(header);
 
@@ -805,10 +786,11 @@ mod tests {
     async fn test_generate_chain_state_from_height_testnet4() {
         // set BITCOIN_NETWORK to regtest
         std::env::set_var("BITCOIN_NETWORK", "testnet4");
-        let rpc = ExtendedRpc::connect(
+        let rpc = ExtendedBitcoinRpc::connect(
             "http://127.0.0.1:48332".to_string(),
             "admin".to_string().into(),
             "admin".to_string().into(),
+            None,
         )
         .await
         .unwrap();
@@ -819,8 +801,8 @@ mod tests {
         // Save some initial blocks.
         let mut headers = Vec::new();
         for i in 0..=num_blocks {
-            let hash = rpc.client.get_block_hash(i).await.unwrap();
-            let header = rpc.client.get_block_header(&hash).await.unwrap();
+            let hash = rpc.get_block_hash(i).await.unwrap();
+            let header = rpc.get_block_header(&hash).await.unwrap();
             headers.push(header);
         }
 
@@ -863,7 +845,7 @@ mod tests {
             .await
             .unwrap();
 
-        let current_height = rpc.client.get_block_count().await.unwrap();
+        let current_height = rpc.get_block_count().await.unwrap();
         let current_hcp_height = prover
             .db
             .get_latest_finalized_block_height(None)
@@ -892,7 +874,7 @@ mod tests {
 
         let test_height = current_height as u32 / 2;
 
-        let block_hash = rpc.client.get_block_hash(test_height as u64).await.unwrap();
+        let block_hash = rpc.get_block_hash(test_height as u64).await.unwrap();
         let block_info = prover
             .db
             .get_block_info_from_hash_hcp(None, block_hash)
@@ -939,7 +921,7 @@ mod tests {
             .unwrap();
 
         // Test assumption is for block 0.
-        let hash = rpc.client.get_block_hash(0).await.unwrap();
+        let hash = rpc.get_block_hash(0).await.unwrap();
         let (receipt, _) = prover.prove_till_hash(hash).await.unwrap();
         let db_receipt = prover
             .db
@@ -962,10 +944,10 @@ mod tests {
 
         // Set up the next non proven block.
         let height = 1;
-        let hash = rpc.client.get_block_hash(height).await.unwrap();
-        let genesis_hash = rpc.client.get_block_hash(0).await.unwrap();
+        let hash = rpc.get_block_hash(height).await.unwrap();
+        let genesis_hash = rpc.get_block_hash(0).await.unwrap();
         let (genesis_receipt, _) = prover.prove_till_hash(genesis_hash).await.unwrap();
-        let block = rpc.client.get_block(&hash).await.unwrap();
+        let block = rpc.get_block(&hash).await.unwrap();
         let header = block.header;
         prover
             .db
@@ -1032,7 +1014,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial_test::serial]
     async fn prove_till_hash_intermediate_blocks() {
         // this test does assume config start height is bigger than 3
         let mut config = create_test_config_with_thread_name().await;
@@ -1045,7 +1026,7 @@ mod tests {
             .unwrap();
 
         for i in (0..3).rev() {
-            let hash = rpc.client.get_block_hash(i).await.unwrap();
+            let hash = rpc.get_block_hash(i).await.unwrap();
             let (proof, _) = prover.prove_till_hash(hash).await.unwrap();
             let db_proof = db
                 .get_block_proof_by_hash(None, hash)
@@ -1054,7 +1035,7 @@ mod tests {
                 .unwrap();
             assert_eq!(proof.journal, db_proof.journal);
         }
-        let hash = rpc.client.get_block_hash(5).await.unwrap();
+        let hash = rpc.get_block_hash(5).await.unwrap();
         let (proof, _) = prover.prove_till_hash(hash).await.unwrap();
         let db_proof = db
             .get_block_proof_by_hash(None, hash)
@@ -1065,7 +1046,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial_test::serial]
     async fn is_batch_ready() {
         let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
@@ -1078,7 +1058,7 @@ mod tests {
             .await
             .unwrap();
 
-        let genesis_hash = rpc.client.get_block_hash(0).await.unwrap();
+        let genesis_hash = rpc.get_block_hash(0).await.unwrap();
         let (genesis_block_proof, _) = prover.prove_till_hash(genesis_hash).await.unwrap();
         let db_proof = db
             .get_block_proof_by_hash(None, genesis_hash)
@@ -1099,7 +1079,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial_test::serial]
     async fn prove_if_ready() {
         let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
@@ -1138,7 +1117,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial_test::serial]
     async fn prove_and_get_non_targeted_block() {
         let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
@@ -1177,7 +1155,7 @@ mod tests {
 
         // Try to get proof of the previous block that its heir is proven.
         let target_height = latest_proof.2 - 1;
-        let target_hash = rpc.client.get_block_hash(target_height).await.unwrap();
+        let target_hash = rpc.get_block_hash(target_height).await.unwrap();
 
         assert!(db
             .get_block_proof_by_hash(None, target_hash)
@@ -1200,11 +1178,11 @@ mod tests {
         let batch_size = config.protocol_paramset().header_chain_proof_batch_size;
 
         // Save initial blocks, because VerifierServer won't.
-        let count = rpc.client.get_block_count().await.unwrap();
+        let count = rpc.get_block_count().await.unwrap();
         tracing::info!("Block count: {}", count);
         for i in 1..count + 1 {
-            let hash = rpc.client.get_block_hash(i).await.unwrap();
-            let block = rpc.client.get_block(&hash).await.unwrap();
+            let hash = rpc.get_block_hash(i).await.unwrap();
+            let block = rpc.get_block(&hash).await.unwrap();
 
             db.save_unproven_finalized_block(None, block.block_hash(), block.header, i)
                 .await
@@ -1220,7 +1198,7 @@ mod tests {
 
         // Aim for a proved block that is added to the database by the verifier.
         let height = batch_size;
-        let hash = rpc.client.get_block_hash(height.into()).await.unwrap();
+        let hash = rpc.get_block_hash(height.into()).await.unwrap();
 
         poll_until_condition(
             async || {
