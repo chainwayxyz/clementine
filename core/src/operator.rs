@@ -2318,7 +2318,8 @@ mod states {
                             self.config.clone(),
                             context,
                             // we don't need to send kickoff tx (it's already sent) so payout blockhash is irrelevant
-                            None,
+                            // blockhash doesn't change the kickoff txid (it's in the witness)
+                            Some([0u8; 20]),
                             Some(&mut dbtx),
                         )
                         .await?;
@@ -2337,7 +2338,6 @@ mod states {
                                 | TransactionType::ChallengeTimeout
                                 | TransactionType::DisproveTimeout
                                 | TransactionType::Reimburse => {
-                                    #[cfg(feature = "automation")]
                                     self.tx_sender
                                         .add_tx_to_queue(
                                             &mut dbtx,
