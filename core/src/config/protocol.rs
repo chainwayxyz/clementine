@@ -2,6 +2,7 @@ use crate::config::env::read_string_from_env_then_parse;
 use crate::constants::{MIN_TAPROOT_AMOUNT, NON_EPHEMERAL_ANCHOR_AMOUNT};
 use crate::errors::BridgeError;
 use bitcoin::{Amount, Network};
+use bridge_circuit_host::utils::is_dev_mode;
 use eyre::Context;
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
@@ -221,7 +222,7 @@ impl ProtocolParamset {
     pub fn bridge_circuit_constant(&self) -> Result<&[u8; 32], BridgeError> {
         match self.network {
             Network::Regtest => {
-                if cfg!(test) {
+                if is_dev_mode() {
                     Ok(&REGTEST_TEST_BRIDGE_CIRCUIT_CONSTANT)
                 } else {
                     Ok(&REGTEST_BRIDGE_CIRCUIT_CONSTANT)

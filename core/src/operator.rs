@@ -1503,7 +1503,7 @@ where
             bitcoin::Network::Testnet4 => TESTNET4_BRIDGE_CIRCUIT_ELF,
             bitcoin::Network::Signet => SIGNET_BRIDGE_CIRCUIT_ELF,
             bitcoin::Network::Regtest => {
-                if cfg!(test) {
+                if is_dev_mode() {
                     REGTEST_BRIDGE_CIRCUIT_ELF_TEST
                 } else {
                     REGTEST_BRIDGE_CIRCUIT_ELF
