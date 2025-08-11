@@ -660,7 +660,7 @@ trait LedgerRpc {
     fn get_l2_block_by_number(
         &self,
         number: alloy::primitives::U64,
-    ) -> RpcResult<Option<sov_rollup_interface::rpc::block::L2BlockResponse>>;
+    ) -> RpcResult<Option<citrea_sov_rollup_interface::rpc::block::L2BlockResponse>>;
 }
 
 #[rpc(client, namespace = "eth")]
