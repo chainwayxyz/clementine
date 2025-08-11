@@ -1,7 +1,8 @@
 //! # Bitcoin Syncer
 //!
 //! This module provides common utilities to fetch Bitcoin state. Other modules
-//! can use this module to operate over Bitcoin.
+//! can use this module to operate over Bitcoin. Every block starting from
+//! `paramset.start_height` is fetched and stored in the database.
 
 use crate::{
     config::protocol::ProtocolParamset,
@@ -245,7 +246,8 @@ pub async fn set_initial_block_info_if_not_exists(
 ///
 /// # Returns
 ///
-/// `Ok(Some(new_blocks))` if new blocks are found or `Ok(None)` if no new block is available.
+/// - [`None`] - If no new block is available.
+/// - [`Vec<BlockInfo>`] - If new blocks are found.
 async fn fetch_new_blocks(
     db: &Database,
     rpc: &ExtendedBitcoinRpc,
@@ -258,7 +260,11 @@ async fn fetch_new_blocks(
         Ok(hash) => hash,
         Err(_) => return Ok(None),
     };
-    tracing::debug!("New block hash: {:?}, height {}", block_hash, next_height);
+    tracing::debug!(
+        "Fetching block with hash of {:?} and height of {}...",
+        block_hash,
+        next_height
+    );
 
     // Fetch its header.
     let mut block_header = rpc
@@ -291,7 +297,7 @@ async fn fetch_new_blocks(
 
         if new_blocks.len() >= 100 {
             return Err(eyre::eyre!(
-                "Blockgazer can't synchronize database with active blockchain; Too deep {}",
+                "Bitcoin syncer can't synchronize database with active blockchain: Too deep to continue (last saved block was at height {})",
                 new_height as u64
             )
             .into());
@@ -305,6 +311,7 @@ async fn fetch_new_blocks(
 }
 
 /// Marks blocks above the common ancestor as non-canonical and emits reorg events.
+#[tracing::instrument(skip(db, dbtx), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
 async fn handle_reorg_events(
     db: &Database,
     dbtx: DatabaseTransaction<'_, '_>,
@@ -313,6 +320,9 @@ async fn handle_reorg_events(
     let reorg_blocks = db
         .update_non_canonical_block_hashes(Some(dbtx), common_ancestor_height)
         .await?;
+    if !reorg_blocks.is_empty() {
+        tracing::debug!("Reorg occurred! Block ids: {:?}", reorg_blocks);
+    }
 
     for reorg_block_id in reorg_blocks {
         db.insert_event(Some(dbtx), BitcoinSyncerEvent::ReorgedBlock(reorg_block_id))
@@ -407,37 +417,34 @@ impl Task for BitcoinSyncerTask {
     type Output = bool;
     const VARIANT: TaskVariant = TaskVariant::BitcoinSyncer;
 
+    #[tracing::instrument(skip(self))]
     async fn run_once(&mut self) -> Result<Self::Output, BridgeError> {
-        tracing::debug!("BitcoinSyncer: Fetching new blocks");
-
-        // Try to fetch new blocks (if any) from the RPC.
-        let maybe_new_blocks = fetch_new_blocks(&self.db, &self.rpc, self.current_height).await?;
-
-        tracing::debug!(
-            "BitcoinSyncer: Maybe new blocks: {:?} {}",
-            maybe_new_blocks.is_some(),
-            self.current_height,
-        );
-
-        // If there are no new blocks, return false to indicate no work was done
-        let new_blocks = match maybe_new_blocks {
+        let new_blocks = match fetch_new_blocks(&self.db, &self.rpc, self.current_height).await? {
             Some(blocks) if !blocks.is_empty() => {
-                tracing::debug!("BitcoinSyncer: New blocks: {:?}", blocks.len());
+                tracing::debug!(
+                    "{} new blocks found after current height {}",
+                    blocks.len(),
+                    self.current_height
+                );
+
                 blocks
             }
             _ => {
+                tracing::debug!(
+                    "No new blocks found after current height: {}",
+                    self.current_height
+                );
+
                 return Ok(false);
             }
         };
 
-        tracing::debug!("BitcoinSyncer: New blocks: {:?}", new_blocks.len());
-
         // The common ancestor is the block preceding the first new block.
+        // Please note that this won't always be the `self.current_height`.
+        // Because `fetch_next_block` can fetch older blocks, if db is missing
+        // them.
         let common_ancestor_height = new_blocks[0].height - 1;
-        tracing::debug!(
-            "BitcoinSyncer: Common ancestor height: {:?}",
-            common_ancestor_height
-        );
+        tracing::debug!("Common ancestor height: {:?}", common_ancestor_height);
         let mut dbtx = self.db.begin_transaction().await?;
 
         // Mark reorg blocks (if any) as non-canonical.
@@ -568,7 +575,6 @@ impl<H: BlockHandler> Task for FinalizedBlockFetcherTask<H> {
 mod tests {
     use crate::bitcoin_syncer::BitcoinSyncer;
     use crate::builder::transaction::DEFAULT_SEQUENCE;
-
     use crate::task::{IntoTask, TaskExt};
     use crate::{database::Database, test::common::*};
     use bitcoin::absolute::Height;

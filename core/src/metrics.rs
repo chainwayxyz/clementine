@@ -16,11 +16,11 @@ use crate::{
     database::Database,
     errors::BridgeError,
     extended_bitcoin_rpc::ExtendedBitcoinRpc,
-    utils::{timed_request, NamedEntity},
+    utils::{timed_request_base, NamedEntity},
 };
 use metrics_derive::Metrics;
 
-const L1_SYNC_STATUS_METRICS_TIMEOUT: Duration = Duration::from_secs(60);
+const L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT: Duration = Duration::from_secs(45);
 
 #[derive(Metrics)]
 #[metrics(scope = "l1_sync_status")]
@@ -87,8 +87,8 @@ pub static L1_SYNC_STATUS: LazyLock<L1SyncStatusMetrics> = LazyLock::new(|| {
 /// A struct containing the current sync status of the entity.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct L1SyncStatus {
-    pub wallet_balance: Amount,
-    pub rpc_tip_height: u32,
+    pub wallet_balance: Option<Amount>,
+    pub rpc_tip_height: Option<u32>,
     pub btc_syncer_synced_height: Option<u32>,
     pub hcp_last_proven_height: Option<u32>,
     pub tx_sender_synced_height: Option<u32>,
@@ -173,33 +173,99 @@ impl<T: NamedEntity + Sync + Send + 'static> L1SyncStatusProvider for T {
         db: &Database,
         rpc: &ExtendedBitcoinRpc,
     ) -> Result<L1SyncStatus, BridgeError> {
-        timed_request(L1_SYNC_STATUS_METRICS_TIMEOUT, "get_l1_status", async {
-            let wallet_balance = get_wallet_balance(rpc).await?;
-            let rpc_tip_height = get_rpc_tip_height(rpc).await?;
-            let tx_sender_synced_height =
-                get_btc_syncer_consumer_last_processed_block_height(db, T::TX_SENDER_CONSUMER_ID)
-                    .await?;
-            let finalized_synced_height = get_btc_syncer_consumer_last_processed_block_height(
-                db,
-                T::FINALIZED_BLOCK_CONSUMER_ID,
-            )
-            .await?;
-            let btc_syncer_synced_height = get_btc_syncer_synced_height(db).await?;
-            let hcp_last_proven_height = get_hcp_last_proven_height(db).await?;
-            let state_manager_next_height =
-                get_state_manager_next_height(db, T::ENTITY_NAME).await?;
-
-            Ok(L1SyncStatus {
-                wallet_balance,
-                rpc_tip_height,
-                btc_syncer_synced_height,
-                hcp_last_proven_height,
-                tx_sender_synced_height,
-                finalized_synced_height,
-                state_manager_next_height,
-            })
-        })
+        let wallet_balance = timed_request_base(
+            L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
+            "get_wallet_balance",
+            get_wallet_balance(rpc),
+        )
         .await
+        .ok()
+        .transpose()?;
+
+        let rpc_tip_height = timed_request_base(
+            L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
+            "get_rpc_tip_height",
+            get_rpc_tip_height(rpc),
+        )
+        .await
+        .ok()
+        .transpose()?;
+
+        let tx_sender_synced_height = timed_request_base(
+            L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
+            "get_tx_sender_synced_height",
+            get_btc_syncer_consumer_last_processed_block_height(db, T::TX_SENDER_CONSUMER_ID),
+        )
+        .await
+        .ok()
+        .transpose()?
+        .flatten();
+
+        #[cfg(feature = "automation")]
+        let finalized_synced_height = timed_request_base(
+            L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
+            "get_finalized_synced_height",
+            get_btc_syncer_consumer_last_processed_block_height(
+                db,
+                T::FINALIZED_BLOCK_CONSUMER_ID_AUTOMATION,
+            ),
+        )
+        .await
+        .ok()
+        .transpose()?
+        .flatten();
+
+        #[cfg(not(feature = "automation"))]
+        let finalized_synced_height = timed_request_base(
+            L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
+            "get_finalized_synced_height",
+            get_btc_syncer_consumer_last_processed_block_height(
+                db,
+                T::FINALIZED_BLOCK_CONSUMER_ID_NO_AUTOMATION,
+            ),
+        )
+        .await
+        .ok()
+        .transpose()?
+        .flatten();
+
+        let btc_syncer_synced_height = timed_request_base(
+            L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
+            "get_btc_syncer_synced_height",
+            get_btc_syncer_synced_height(db),
+        )
+        .await
+        .ok()
+        .transpose()?
+        .flatten();
+        let hcp_last_proven_height = timed_request_base(
+            L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
+            "get_hcp_last_proven_height",
+            get_hcp_last_proven_height(db),
+        )
+        .await
+        .ok()
+        .transpose()?
+        .flatten();
+        let state_manager_next_height = timed_request_base(
+            L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
+            "get_state_manager_next_height",
+            get_state_manager_next_height(db, T::ENTITY_NAME),
+        )
+        .await
+        .ok()
+        .transpose()?
+        .flatten();
+
+        Ok(L1SyncStatus {
+            wallet_balance,
+            rpc_tip_height,
+            btc_syncer_synced_height,
+            hcp_last_proven_height,
+            tx_sender_synced_height,
+            finalized_synced_height,
+            state_manager_next_height,
+        })
     }
 }
 
@@ -240,12 +306,37 @@ mod tests {
                     #[cfg(feature = "automation")]
                     {
                         assert!(status.automation);
-                        assert!(status.tx_sender_synced_height > 0);
-                        assert!(status.finalized_synced_height > 0);
-                        assert!(status.hcp_last_proven_height > 0);
-                        assert!(status.rpc_tip_height > 0);
-                        assert!(status.bitcoin_syncer_synced_height > 0);
-                        assert!(status.state_manager_next_height > 0);
+                        assert!(
+                            status
+                                .tx_sender_synced_height
+                                .expect("tx_sender_synced_height is None")
+                                > 0
+                        );
+                        assert!(
+                            status
+                                .finalized_synced_height
+                                .expect("finalized_synced_height is None")
+                                > 0
+                        );
+                        assert!(
+                            status
+                                .hcp_last_proven_height
+                                .expect("hcp_last_proven_height is None")
+                                > 0
+                        );
+                        assert!(status.rpc_tip_height.expect("rpc_tip_height is None") > 0);
+                        assert!(
+                            status
+                                .bitcoin_syncer_synced_height
+                                .expect("bitcoin_syncer_synced_height is None")
+                                > 0
+                        );
+                        assert!(
+                            status
+                                .state_manager_next_height
+                                .expect("state_manager_next_height is None")
+                                > 0
+                        );
                     }
                     #[cfg(not(feature = "automation"))]
                     {
@@ -253,21 +344,31 @@ mod tests {
                             entity.entity_id.unwrap().kind.try_into().unwrap();
                         // tx sender and hcp are not running in non-automation mode
                         assert!(!status.automation);
-                        assert!(status.tx_sender_synced_height == 0);
+                        assert!(status.tx_sender_synced_height.is_none());
                         if entity_type == EntityType::Verifier {
-                            assert!(status.finalized_synced_height > 0);
+                            assert!(
+                                status
+                                    .finalized_synced_height
+                                    .expect("finalized_synced_height is None")
+                                    > 0
+                            );
                         } else {
                             // operator doesn't run finalized block fetcher in non-automation mode
-                            assert!(status.finalized_synced_height == 0);
+                            assert!(status.finalized_synced_height.is_none());
                         }
-                        assert!(status.hcp_last_proven_height == 0);
-                        assert!(status.rpc_tip_height > 0);
-                        assert!(status.bitcoin_syncer_synced_height > 0);
-                        assert!(status.state_manager_next_height == 0);
+                        assert!(status.hcp_last_proven_height.is_none());
+                        assert!(status.rpc_tip_height.expect("rpc_tip_height is None") > 0);
+                        assert!(
+                            status
+                                .bitcoin_syncer_synced_height
+                                .expect("bitcoin_syncer_synced_height is None")
+                                > 0
+                        );
+                        assert!(status.state_manager_next_height.is_none());
                     }
                 }
                 crate::rpc::clementine::entity_status_with_id::StatusResult::Err(error) => {
-                    panic!("Coudln't get entity status: {}", error.error);
+                    panic!("Couldn't get entity status: {}", error.error);
                 }
             }
         }

@@ -312,7 +312,7 @@ where
                 .db
                 .get_next_finalized_block_height_for_consumer(
                     None,
-                    Verifier::<C>::FINALIZED_BLOCK_CONSUMER_ID,
+                    Verifier::<C>::FINALIZED_BLOCK_CONSUMER_ID_NO_AUTOMATION,
                     self.verifier.config.protocol_paramset(),
                 )
                 .await?;
@@ -321,7 +321,7 @@ where
                 .ensure_task_looping(
                     crate::bitcoin_syncer::FinalizedBlockFetcherTask::new(
                         self.verifier.db.clone(),
-                        Verifier::<C>::FINALIZED_BLOCK_CONSUMER_ID.to_string(),
+                        Verifier::<C>::FINALIZED_BLOCK_CONSUMER_ID_NO_AUTOMATION.to_string(),
                         self.verifier.config.protocol_paramset(),
                         next_height,
                         self.verifier.clone(),
@@ -363,14 +363,16 @@ where
 
         Ok(EntityStatus {
             automation: automation_enabled,
-            wallet_balance: format!("{} BTC", l1_sync_status.wallet_balance.to_btc()),
-            tx_sender_synced_height: l1_sync_status.tx_sender_synced_height.unwrap_or(0),
-            finalized_synced_height: l1_sync_status.finalized_synced_height.unwrap_or(0),
-            hcp_last_proven_height: l1_sync_status.hcp_last_proven_height.unwrap_or(0),
+            wallet_balance: l1_sync_status
+                .wallet_balance
+                .map(|balance| format!("{} BTC", balance.to_btc())),
+            tx_sender_synced_height: l1_sync_status.tx_sender_synced_height,
+            finalized_synced_height: l1_sync_status.finalized_synced_height,
+            hcp_last_proven_height: l1_sync_status.hcp_last_proven_height,
             rpc_tip_height: l1_sync_status.rpc_tip_height,
-            bitcoin_syncer_synced_height: l1_sync_status.btc_syncer_synced_height.unwrap_or(0),
+            bitcoin_syncer_synced_height: l1_sync_status.btc_syncer_synced_height,
             stopped_tasks: Some(stopped_tasks),
-            state_manager_next_height: l1_sync_status.state_manager_next_height.unwrap_or(0),
+            state_manager_next_height: l1_sync_status.state_manager_next_height,
         })
     }
 
@@ -2741,7 +2743,10 @@ where
 {
     const ENTITY_NAME: &'static str = "verifier";
     const TX_SENDER_CONSUMER_ID: &'static str = "verifier_tx_sender";
-    const FINALIZED_BLOCK_CONSUMER_ID: &'static str = "verifier_finalized_block_fetcher";
+    const FINALIZED_BLOCK_CONSUMER_ID_AUTOMATION: &'static str =
+        "verifier_finalized_block_fetcher_automation";
+    const FINALIZED_BLOCK_CONSUMER_ID_NO_AUTOMATION: &'static str =
+        "verifier_finalized_block_fetcher_no_automation";
 }
 
 #[cfg(feature = "automation")]

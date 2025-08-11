@@ -148,7 +148,7 @@ pub async fn get_next_sync_heights(entity_statuses: EntityStatuses) -> eyre::Res
             if let Some(entity_status_with_id::StatusResult::Status(status)) = entity.status_result
             {
                 if status.automation {
-                    Ok(status.state_manager_next_height)
+                    Ok(status.state_manager_next_height.unwrap_or(0))
                 } else {
                     // assume synced if automation is off
                     Ok(u32::MAX)
@@ -253,25 +253,10 @@ pub async fn mine_once_after_in_mempool(
     let tx: bitcoincore_rpc::json::GetRawTransactionResult = rpc
         .get_raw_transaction_info(&txid, None)
         .await
-        .map_err(|e| {
-            eyre::eyre!(
-            "{} did not land onchain after in mempool and mining 1 block and rpc gave error: {}",
-            tx_name,
-            e
-        )
-        })?;
+        .map_err(|e| eyre::eyre!("Failed to get raw transaction {}: {}", tx_name, e))?;
 
     if tx.blockhash.is_none() {
-        tracing::error!(
-            "{} did not land onchain after in mempool and mining 1 block",
-            tx_name
-        );
-
-        return Err(eyre::eyre!(
-            "{} did not land onchain after in mempool and mining 1 block",
-            tx_name
-        )
-        .into());
+        return Err(eyre::eyre!("{} did not get mined", tx_name).into());
     }
 
     let tx_block_height = rpc
@@ -499,7 +484,7 @@ pub async fn run_single_deposit<C: CitreaClientT>(
                     let deposit_outpoint_spent = rpc.is_utxo_spent(&deposit_outpoint).await?;
                     if deposit_outpoint_spent {
                         return Err(eyre::eyre!(
-                            "Deposit outpoint is spent but move tx is not in chain. In test_bridge_contract_change 
+                            "Deposit outpoint is spent but move tx is not in chain. In test_bridge_contract_change
                             this means move tx does not match the one in saved state"
                             )
                             .into());

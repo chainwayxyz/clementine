@@ -18,12 +18,17 @@ use sqlx::Executor;
 use std::ops::DerefMut;
 
 impl Database {
+    /// Set all transactions' `seen_block_id` to the given block id. This will
+    /// be called once a block is confirmed on the Bitcoin side.
     pub async fn confirm_transactions(
         &self,
         tx: DatabaseTransaction<'_, '_>,
         block_id: u32,
     ) -> Result<(), BridgeError> {
-        // Common CTEs for reuse
+        let block_id = i32::try_from(block_id).wrap_err("Failed to convert block id to i32")?;
+
+        // CTEs for collecting a block's transactions, spent UTXOs and confirmed
+        // RBF transactions.
         let common_ctes = r#"
             WITH relevant_txs AS (
                 SELECT txid
@@ -52,7 +57,7 @@ impl Database {
             AND tap.seen_block_id IS NULL",
             common_ctes
         ))
-        .bind(i32::try_from(block_id).wrap_err("Failed to convert block id to i32")?)
+        .bind(block_id)
         .execute(tx.deref_mut())
         .await?;
 
@@ -65,7 +70,7 @@ impl Database {
             AND tap.seen_block_id IS NULL",
             common_ctes
         ))
-        .bind(i32::try_from(block_id).wrap_err("Failed to convert block id to i32")?)
+        .bind(block_id)
         .execute(tx.deref_mut())
         .await?;
 
@@ -78,7 +83,7 @@ impl Database {
             AND ctt.seen_block_id IS NULL",
             common_ctes
         ))
-        .bind(i32::try_from(block_id).wrap_err("Failed to convert block id to i32")?)
+        .bind(block_id)
         .execute(tx.deref_mut())
         .await?;
 
@@ -91,7 +96,7 @@ impl Database {
             AND cto.seen_block_id IS NULL",
             common_ctes
         ))
-        .bind(i32::try_from(block_id).wrap_err("Failed to convert block id to i32")?)
+        .bind(block_id)
         .execute(tx.deref_mut())
         .await?;
 
@@ -104,7 +109,7 @@ impl Database {
             AND fpu.seen_block_id IS NULL",
             common_ctes
         ))
-        .bind(i32::try_from(block_id).wrap_err("Failed to convert block id to i32")?)
+        .bind(block_id)
         .execute(tx.deref_mut())
         .await?;
 
@@ -117,7 +122,7 @@ impl Database {
             AND txs.seen_block_id IS NULL",
             common_ctes
         ))
-        .bind(i32::try_from(block_id).wrap_err("Failed to convert block id to i32")?)
+        .bind(block_id)
         .execute(tx.deref_mut())
         .await?;
 
@@ -130,7 +135,7 @@ impl Database {
             AND txs.seen_block_id IS NULL",
             common_ctes
         ))
-        .bind(i32::try_from(block_id).wrap_err("Failed to convert block id to i32")?)
+        .bind(block_id)
         .execute(tx.deref_mut())
         .await?;
 
@@ -146,7 +151,7 @@ impl Database {
             AND txs.seen_block_id IS NULL",
                 common_ctes
             ))
-            .bind(block_id as i32)
+            .bind(block_id)
             .fetch_all(&bg_db.connection)
             .await
             else {
@@ -163,7 +168,7 @@ impl Database {
             AND txs.seen_block_id IS NULL",
                 common_ctes
             ))
-            .bind(block_id as i32)
+            .bind(block_id)
             .fetch_all(&bg_db.connection)
             .await
             else {
@@ -199,6 +204,10 @@ impl Database {
         Ok(())
     }
 
+    /// Unassigns `seen_block_id` from all transactions in the given block id.
+    /// By default, all transactions' `seen_block_id` is set to NULL. And they
+    /// get assigned a block id when they are confirmed on Bitcoin side. If a
+    /// reorg happens, block ids must be unassigned from all transactions.
     pub async fn unconfirm_transactions(
         &self,
         tx: DatabaseTransaction<'_, '_>,
@@ -217,13 +226,16 @@ impl Database {
 
         let bg_db = self.clone();
         tokio::spawn(async move {
-            let Ok(previously_confirmed_txs) = previously_confirmed_txs else {
-                tracing::error!("Failed to get previously confirmed txs");
-                return;
+            let previously_confirmed_txs = match previously_confirmed_txs {
+                Ok(txs) => txs,
+                Err(e) => {
+                    tracing::error!(error=?e, "Failed to get previously confirmed txs from database");
+                    return;
+                }
             };
 
             for (tx_id,) in previously_confirmed_txs {
-                tracing::warn!(try_to_send_id=?tx_id, "Transaction unconfirmed in block {}: unconfirming", block_id);
+                tracing::debug!(try_to_send_id=?tx_id, "Transaction unconfirmed in block {}: unconfirming", block_id);
                 let _ = bg_db
                     .update_tx_debug_sending_state(tx_id as u32, "unconfirmed", false)
                     .await;
@@ -326,10 +338,22 @@ impl Database {
         Ok(())
     }
 
-    /// Some fee payer TXs may not hit onchain, so we need to bump their fees.
-    /// These TXs should not be confirmed and should not be replaced by other TXs.
-    /// Replaced means that the TX was bumped and the replacement TX is in the database.
-    pub async fn get_bumpable_fee_payer_txs(
+    /// Returns all unconfirmed fee payer transactions for a try-to-send tx.
+    /// Replaced (bumped) fee payers are not included.
+    ///
+    /// # Parameters
+    ///
+    /// - `bumped_id`: The id of the bumped transaction
+    ///
+    /// # Returns
+    ///
+    /// A vector of unconfirmed fee payer transaction details, including:
+    ///
+    /// - [`u32`]: Id of the fee payer transaction.
+    /// - [`Txid`]: Txid of the fee payer transaction.
+    /// - [`u32`]: Output index of the UTXO.
+    /// - [`Amount`]: Amount in satoshis.
+    pub async fn get_unconfirmed_fee_payer_txs(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         bumped_id: u32,
@@ -394,6 +418,26 @@ impl Database {
                 ))
             })
             .collect::<Result<Vec<_>, BridgeError>>()
+    }
+
+    /// Returns the id of the tx in `tx_sender_try_to_send_txs` if it exists.
+    /// Used to avoid adding duplicate transactions to the txsender.
+    pub async fn check_if_tx_exists_on_txsender(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        txid: Txid,
+    ) -> Result<Option<u32>, BridgeError> {
+        let query = sqlx::query_as::<_, (i32,)>(
+            "SELECT id FROM tx_sender_try_to_send_txs WHERE txid = $1 LIMIT 1",
+        )
+        .bind(TxidDB(txid));
+
+        let result: Option<(i32,)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+        Ok(match result {
+            Some((id,)) => Some(u32::try_from(id).wrap_err("Failed to convert id to u32")?),
+            None => None,
+        })
     }
 
     pub async fn save_tx(
@@ -515,6 +559,25 @@ impl Database {
         Ok(())
     }
 
+    /// Returns unconfirmed try-to-send transactions that satisfy all activation
+    /// conditions for sending:
+    ///
+    /// - Not in the non-active list
+    /// - Not in the cancelled list
+    /// - Transaction itself is not already confirmed
+    /// - Transaction and UTXO timelocks must be passed
+    /// - Fee rate is lower than the provided fee rate or null (deprecated)
+    ///
+    /// # Parameters
+    ///
+    /// - `tx`: Optional database transaction
+    /// - `fee_rate`: Maximum fee rate for the transactions to be sendable
+    /// - `current_tip_height`: The current tip height of the Bitcoin blockchain
+    ///   for checking timelocks
+    ///
+    /// # Returns
+    ///
+    /// - [`Vec<u32>`]: A vector of transaction ids (db id) that are sendable.
     pub async fn get_sendable_txs(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
@@ -538,7 +601,7 @@ impl Database {
 
                     UNION
 
-                    -- Transactions with outpoint activations that aren't active yet
+                    -- Transactions with outpoint activations that aren't active yet (not seen or timelock not passed)
                     SELECT DISTINCT
                         activate_outpoint.activated_id AS tx_id
                     FROM
@@ -552,7 +615,7 @@ impl Database {
 
                 -- Transactions with cancelled conditions
                 cancelled_txs AS (
-                    -- Transactions with cancelled outpoints
+                    -- Transactions with cancelled outpoints (not seen)
                     SELECT DISTINCT
                         cancelled_id AS tx_id
                     FROM
@@ -562,7 +625,7 @@ impl Database {
 
                     UNION
 
-                    -- Transactions with cancelled txids
+                    -- Transactions with cancelled txids (not seen)
                     SELECT DISTINCT
                         cancelled_id AS tx_id
                     FROM

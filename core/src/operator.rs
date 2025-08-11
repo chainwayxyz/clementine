@@ -1,10 +1,8 @@
 use ark_ff::PrimeField;
 use circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
-use std::collections::HashMap;
 
 use crate::actor::{Actor, TweakCache, WinternitzDerivationPath};
 use crate::bitvm_client::{ClementineBitVMPublicKeys, SECP};
-use crate::builder::script::extract_winternitz_commits;
 use crate::builder::sighash::{create_operator_sighash_stream, PartialSignatureInfo};
 use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::input::UtxoVout;
@@ -20,7 +18,7 @@ use crate::database::DatabaseTransaction;
 use crate::deposit::{DepositData, KickoffData, OperatorData};
 use crate::errors::BridgeError;
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
-use crate::header_chain_prover::HeaderChainProver;
+
 use crate::metrics::L1SyncStatusProvider;
 use crate::rpc::clementine::EntityStatus;
 use crate::task::entity_metric_publisher::{
@@ -38,27 +36,35 @@ use bitcoin::secp256k1::{schnorr, Message};
 use bitcoin::{Address, Amount, BlockHash, OutPoint, ScriptBuf, Transaction, TxOut, Txid};
 use bitcoincore_rpc::json::AddressType;
 use bitcoincore_rpc::RpcApi;
-use bitvm::chunk::api::generate_assertions;
 use bitvm::signatures::winternitz;
-use bridge_circuit_host::bridge_circuit_host::{
-    create_spv, prove_bridge_circuit, MAINNET_BRIDGE_CIRCUIT_ELF, REGTEST_BRIDGE_CIRCUIT_ELF,
-    REGTEST_BRIDGE_CIRCUIT_ELF_TEST, SIGNET_BRIDGE_CIRCUIT_ELF, TESTNET4_BRIDGE_CIRCUIT_ELF,
-};
-use bridge_circuit_host::structs::{BridgeCircuitHostParams, WatchtowerContext};
+
 use eyre::{Context, OptionExt};
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 
 #[cfg(feature = "automation")]
-use crate::{
-    states::StateManager,
-    task::IntoTask,
-    tx_sender::{ActivatedWithOutpoint, ActivatedWithTxid, TxSenderClient},
-    utils::FeePayingType,
+use {
+    crate::{
+        builder::script::extract_winternitz_commits,
+        header_chain_prover::HeaderChainProver,
+        states::StateManager,
+        task::IntoTask,
+        tx_sender::{ActivatedWithOutpoint, ActivatedWithTxid, TxSenderClient},
+        utils::FeePayingType,
+    },
+    bitcoin::Witness,
+    bitvm::chunk::api::generate_assertions,
+    bridge_circuit_host::{
+        bridge_circuit_host::{
+            create_spv, prove_bridge_circuit, MAINNET_BRIDGE_CIRCUIT_ELF,
+            REGTEST_BRIDGE_CIRCUIT_ELF, REGTEST_BRIDGE_CIRCUIT_ELF_TEST, SIGNET_BRIDGE_CIRCUIT_ELF,
+            TESTNET4_BRIDGE_CIRCUIT_ELF,
+        },
+        structs::{BridgeCircuitHostParams, WatchtowerContext},
+    },
+    std::collections::HashMap,
+    circuits_lib::bridge_circuit::structs::LightClientProof,
 };
-#[cfg(feature = "automation")]
-use bitcoin::Witness;
-use circuits_lib::bridge_circuit::structs::LightClientProof;
 
 pub type SecretPreimage = [u8; 20];
 pub type PublicHash = [u8; 20];
@@ -222,14 +228,16 @@ where
 
         Ok(EntityStatus {
             automation: automation_enabled,
-            wallet_balance: format!("{} BTC", sync_status.wallet_balance.to_btc()),
-            tx_sender_synced_height: sync_status.tx_sender_synced_height.unwrap_or(0),
-            finalized_synced_height: sync_status.finalized_synced_height.unwrap_or(0),
-            hcp_last_proven_height: sync_status.hcp_last_proven_height.unwrap_or(0),
+            wallet_balance: sync_status
+                .wallet_balance
+                .map(|balance| format!("{} BTC", balance.to_btc())),
+            tx_sender_synced_height: sync_status.tx_sender_synced_height,
+            finalized_synced_height: sync_status.finalized_synced_height,
+            hcp_last_proven_height: sync_status.hcp_last_proven_height,
             rpc_tip_height: sync_status.rpc_tip_height,
-            bitcoin_syncer_synced_height: sync_status.btc_syncer_synced_height.unwrap_or(0),
+            bitcoin_syncer_synced_height: sync_status.btc_syncer_synced_height,
             stopped_tasks: Some(stopped_tasks),
-            state_manager_next_height: sync_status.state_manager_next_height.unwrap_or(0),
+            state_manager_next_height: sync_status.state_manager_next_height,
         })
     }
 
@@ -1510,7 +1518,7 @@ where
             bitcoin::Network::Testnet4 => TESTNET4_BRIDGE_CIRCUIT_ELF,
             bitcoin::Network::Signet => SIGNET_BRIDGE_CIRCUIT_ELF,
             bitcoin::Network::Regtest => {
-                if cfg!(test) {
+                if is_dev_mode() {
                     REGTEST_BRIDGE_CIRCUIT_ELF_TEST
                 } else {
                     REGTEST_BRIDGE_CIRCUIT_ELF
@@ -1829,7 +1837,7 @@ where
 
                     // sanity check
                     if kickoff_tx.1.compute_txid() != kickoff_txid {
-                        return Err(eyre::eyre!("Kickoff txid mismatch for deposit outpoint: {}, kickoff txid: {:?}, computed txid: {:?}", 
+                        return Err(eyre::eyre!("Kickoff txid mismatch for deposit outpoint: {}, kickoff txid: {:?}, computed txid: {:?}",
                         deposit_data.get_deposit_outpoint(), kickoff_txid, kickoff_tx.1.compute_txid()).into());
                     }
                     txs_to_send.push(kickoff_tx.clone());
@@ -1905,7 +1913,10 @@ where
             .db
             .get_deposit_data(Some(&mut dbtx), deposit_outpoint)
             .await?
-            .ok_or(BridgeError::DatabaseError(sqlx::Error::RowNotFound))?;
+            .ok_or_eyre(format!(
+                "Deposit data not found for the requested deposit outpoint: {:?}, make sure you send the deposit outpoint, not the move txid.",
+                deposit_outpoint
+            ))?;
 
         tracing::info!(
             "Deposit data found for the requested deposit outpoint: {:?}, deposit id: {:?}",
@@ -2006,9 +2017,21 @@ where
             - all kickoff utxos are spent
             - for all kickoffs, all kickoff finalizers are spent
             ", round_idx);
+            // get max height saved in bitcoin syncer
+            let current_chain_height = self
+                .db
+                .get_max_height(dbtx.as_deref_mut())
+                .await?
+                .ok_or_eyre("Max block height is not found in the btc syncer database")?;
+
             let round_txid = round_tx.1.compute_txid();
-            let unspent_kickoff_utxos = self
-                .find_and_mark_unspent_kickoff_utxos(dbtx.as_deref_mut(), round_idx, round_txid)
+            let (unspent_kickoff_utxos, are_all_utxos_spent_finalized) = self
+                .find_and_mark_unspent_kickoff_utxos(
+                    dbtx.as_deref_mut(),
+                    round_idx,
+                    round_txid,
+                    current_chain_height,
+                )
                 .await?;
 
             if !unspent_kickoff_utxos.is_empty() {
@@ -2016,12 +2039,24 @@ where
                     .create_burn_unused_kickoff_connectors_tx(round_idx, &unspent_kickoff_utxos)
                     .await?;
                 txs_to_send.extend(burn_txs);
+            } else if !are_all_utxos_spent_finalized {
+                // if some utxos are not spent, we need to wait until they are spent
+                return Err(eyre::eyre!(format!(
+                    "The transactions that spend the kickoff utxos are not yet finalized, wait until they are finalized. Finality depth: {}
+                    If they are actually finalized, but this error is returned, it means internal bitcoin syncer is slow or stopped.",
+                    self.config.protocol_paramset().finality_depth
+                ))
+                .into());
             } else {
                 // every kickoff utxo is spent, but we need to check if all kickoff finalizers are spent
                 // if not, we return and error and wait until they are spent
                 // if all finalizers are spent, it is safe to send ready to reimburse tx
-                self.validate_all_kickoff_finalizers_spent(dbtx.as_deref_mut(), round_idx)
-                    .await?;
+                self.validate_all_kickoff_finalizers_spent(
+                    dbtx.as_deref_mut(),
+                    round_idx,
+                    current_chain_height,
+                )
+                .await?;
                 // all finalizers and kickoff utxos are spent, it is safe to send ready to reimburse tx
                 txs_to_send.push(ready_to_reimburse_tx.clone());
             }
@@ -2035,14 +2070,18 @@ where
     }
 
     /// Finds unspent kickoff UTXOs and marks spent ones as used in the database.
+    /// Returns the unspent kickoff utxos (doesn't matter if finalized or unfinalized) and a boolean to mark if all utxos are spent and finalized
     async fn find_and_mark_unspent_kickoff_utxos(
         &self,
         mut dbtx: Option<DatabaseTransaction<'_, '_>>,
         round_idx: RoundIndex,
         round_txid: Txid,
-    ) -> Result<Vec<usize>, BridgeError> {
+        current_chain_height: u32,
+    ) -> Result<(Vec<usize>, bool), BridgeError> {
         // check and collect all kickoff utxos that are not spent
         let mut unspent_kickoff_utxos = Vec::new();
+        // a variable to mark if any any kickoff utxo is spent, but still not finalized
+        let mut fully_finalized_spent = true;
         for kickoff_idx in 0..self.config.protocol_paramset().num_kickoffs_per_round {
             let kickoff_utxo = OutPoint {
                 txid: round_txid,
@@ -2061,9 +2100,20 @@ where
                         None,
                     )
                     .await?;
+                // check if the tx that spent the kickoff utxo is finalized
+                // use btc syncer for this
+                fully_finalized_spent &= self
+                    .db
+                    .check_if_utxo_spending_tx_is_finalized(
+                        dbtx.as_deref_mut(),
+                        kickoff_utxo,
+                        current_chain_height,
+                        self.config.protocol_paramset().finality_depth,
+                    )
+                    .await?;
             }
         }
-        Ok(unspent_kickoff_utxos)
+        Ok((unspent_kickoff_utxos, fully_finalized_spent))
     }
 
     /// Creates a transaction that burns unused kickoff connectors.
@@ -2120,6 +2170,7 @@ where
         &self,
         mut dbtx: Option<DatabaseTransaction<'_, '_>>,
         round_idx: RoundIndex,
+        current_chain_height: u32,
     ) -> Result<(), BridgeError> {
         // we need to check if all finalizers are spent
         for kickoff_idx in 0..self.config.protocol_paramset().num_kickoffs_per_round {
@@ -2136,20 +2187,29 @@ where
                     .db
                     .get_deposit_outpoint_for_kickoff_txid(dbtx.as_deref_mut(), kickoff_txid)
                     .await?;
+                let kickoff_finalizer_utxo = OutPoint {
+                    txid: kickoff_txid,
+                    vout: UtxoVout::KickoffFinalizer.get_vout(),
+                };
                 if !self.rpc.is_tx_on_chain(&kickoff_txid).await? {
                     return Err(eyre::eyre!("For round {:?} and kickoff utxo {:?}, the kickoff tx {:?} is not on chain, 
                     reimburse the deposit {:?} corresponding to this kickoff first. "
                     , round_idx, kickoff_idx, kickoff_txid, deposit_outpoint).into());
-                } else if !self
-                    .rpc
-                    .is_utxo_spent(&OutPoint {
-                        txid: kickoff_txid,
-                        vout: UtxoVout::KickoffFinalizer.get_vout(),
-                    })
-                    .await?
-                {
+                } else if !self.rpc.is_utxo_spent(&kickoff_finalizer_utxo).await? {
                     return Err(eyre::eyre!("For round {:?} and kickoff utxo {:?}, the kickoff finalizer {:?} is not spent, 
                     send the challenge timeout tx for the deposit {:?} first", round_idx, kickoff_idx, kickoff_txid, deposit_outpoint).into());
+                } else if !self
+                    .db
+                    .check_if_utxo_spending_tx_is_finalized(
+                        dbtx.as_deref_mut(),
+                        kickoff_finalizer_utxo,
+                        current_chain_height,
+                        self.config.protocol_paramset().finality_depth,
+                    )
+                    .await?
+                {
+                    return Err(eyre::eyre!("For round {:?} and kickoff utxo {:?}, the kickoff finalizer utxo {:?} is spent, but not yet finalized, wait until it is finalized. Finality depth: {}
+                    If the transaction is actually finalized, but this error is returned, it means internal bitcoin syncer is slow or stopped.", round_idx, kickoff_idx, kickoff_finalizer_utxo, self.config.protocol_paramset().finality_depth).into());
                 }
             }
         }
@@ -2202,7 +2262,10 @@ where
     const ENTITY_NAME: &'static str = "operator";
     // operators use their verifier's tx sender
     const TX_SENDER_CONSUMER_ID: &'static str = "verifier_tx_sender";
-    const FINALIZED_BLOCK_CONSUMER_ID: &'static str = "operator_finalized_block_fetcher";
+    const FINALIZED_BLOCK_CONSUMER_ID_AUTOMATION: &'static str =
+        "operator_finalized_block_fetcher_automation";
+    const FINALIZED_BLOCK_CONSUMER_ID_NO_AUTOMATION: &'static str =
+        "operator_finalized_block_fetcher_no_automation";
 }
 
 #[cfg(feature = "automation")]
@@ -2287,10 +2350,60 @@ mod states {
                             &mut dbtx,
                             kickoff_data,
                             block_height,
-                            deposit_data,
+                            deposit_data.clone(),
                             witness,
                         )
                         .await?;
+
+                        // send the relevant txs an operator should send during a kickoff to the txsender again
+                        // note: an operator only tracks itself, so only receives its own kickoffs here
+                        // the reason why is that if kickoff was sent during no-automation mode, these tx's were never added to the txsender
+                        let context = ContractContext::new_context_for_kickoff(
+                            kickoff_data,
+                            deposit_data.clone(),
+                            self.config.protocol_paramset(),
+                        );
+                        let signed_txs = create_and_sign_txs(
+                            self.db.clone(),
+                            &self.signer,
+                            self.config.clone(),
+                            context,
+                            // we don't need to send kickoff tx (it's already sent) so payout blockhash is irrelevant
+                            // blockhash doesn't change the kickoff txid (it's in the witness)
+                            Some([0u8; 20]),
+                            Some(&mut dbtx),
+                        )
+                        .await?;
+                        let tx_metadata = Some(TxMetadata {
+                            tx_type: TransactionType::Dummy, // will be replaced in add_tx_to_queue
+                            operator_xonly_pk: Some(self.signer.xonly_public_key),
+                            round_idx: Some(kickoff_data.round_idx),
+                            kickoff_idx: Some(kickoff_data.kickoff_idx),
+                            deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
+                        });
+                        // try to send them
+                        for (tx_type, signed_tx) in &signed_txs {
+                            match *tx_type {
+                                TransactionType::OperatorChallengeAck(_)
+                                | TransactionType::WatchtowerChallengeTimeout(_)
+                                | TransactionType::ChallengeTimeout
+                                | TransactionType::DisproveTimeout
+                                | TransactionType::Reimburse => {
+                                    self.tx_sender
+                                        .add_tx_to_queue(
+                                            &mut dbtx,
+                                            *tx_type,
+                                            signed_tx,
+                                            &signed_txs,
+                                            tx_metadata,
+                                            &self.config,
+                                            None,
+                                        )
+                                        .await?;
+                                }
+                                _ => {}
+                            }
+                        }
                         dbtx.commit().await?;
                     }
                     Ok(DutyResult::Handled)

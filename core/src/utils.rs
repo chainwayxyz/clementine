@@ -17,6 +17,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
+use tokio::time::error::Elapsed;
 use tokio::time::timeout;
 use tonic::Status;
 use tower::{Layer, Service};
@@ -502,8 +503,11 @@ pub trait NamedEntity: Sync + Send + 'static {
     /// Consumer ID for the tx sender task.
     const TX_SENDER_CONSUMER_ID: &'static str;
 
-    /// Consumer ID for the finalized block task.
-    const FINALIZED_BLOCK_CONSUMER_ID: &'static str;
+    /// Consumer ID for the finalized block task with no automation.
+    const FINALIZED_BLOCK_CONSUMER_ID_NO_AUTOMATION: &'static str;
+
+    /// Consumer ID for the finalized block task with automation.
+    const FINALIZED_BLOCK_CONSUMER_ID_AUTOMATION: &'static str;
 }
 
 #[derive(Copy, Clone, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -635,10 +639,34 @@ pub async fn timed_request<F, T>(
 where
     F: Future<Output = Result<T, BridgeError>>,
 {
+    timed_request_base(duration, description, future)
+        .await
+        .map_err(|_| Status::deadline_exceeded(format!("{} timed out", description)))?
+}
+
+/// Wraps a future with a timeout and adds a debug span with the description.
+///
+/// # Arguments
+///
+/// * `duration`: The maximum `Duration` to wait for the future to complete.
+/// * `description`: A string slice describing the operation, used in the timeout error message.
+/// * `future`: The `Future` to execute. The future should return a `Result<T, BridgeError>`.
+///
+/// # Returns
+///
+/// Returns `Ok(Ok(T))` if the future completes successfully within the time limit, returns `Ok(Err(e))`
+/// if the future returns an error, returns `Err(Elapsed)` if the request times out.
+pub async fn timed_request_base<F, T>(
+    duration: Duration,
+    description: &str,
+    future: F,
+) -> Result<Result<T, BridgeError>, Elapsed>
+where
+    F: Future<Output = Result<T, BridgeError>>,
+{
     timeout(duration, future)
         .instrument(debug_span!("timed_request", description = description))
         .await
-        .map_err(|_| Status::deadline_exceeded(format!("{} timed out", description)))?
 }
 
 /// Concurrently executes a collection of futures, applying a timeout to each one individually.
