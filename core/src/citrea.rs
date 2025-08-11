@@ -1,7 +1,9 @@
 //! # Citrea Related Utilities
 
-use crate::{citrea::BRIDGE_CONTRACT::DepositReplaced, database::Database};
+use crate::config::protocol::ProtocolParamset;
+use crate::database::DatabaseTransaction;
 use crate::errors::BridgeError;
+use crate::{citrea::BRIDGE_CONTRACT::DepositReplaced, database::Database};
 use alloy::{
     eips::{BlockId, BlockNumberOrTag},
     network::EthereumWallet,
@@ -22,9 +24,6 @@ use alloy::{
 use bitcoin::{hashes::Hash, OutPoint, Txid, XOnlyPublicKey};
 use bridge_circuit_host::receipt_from_inner;
 use circuits_lib::bridge_circuit::{
-    constants::{
-        DEVNET_LC_IMAGE_ID, MAINNET_LC_IMAGE_ID, REGTEST_LC_IMAGE_ID, TESTNET_LC_IMAGE_ID,
-    },
     lc_proof::check_method_id,
     structs::{LightClientProof, StorageProof},
 };
@@ -103,11 +102,13 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
     /// A tuple, wrapped around a [`Some`] if present:
     ///
     /// - [`u64`]: Last L2 block height.
+    /// - [`ProtocolParamset`]: Protocol paramset.
     ///
     /// If not present, [`None`] is returned.
     async fn get_light_client_proof(
         &self,
         l1_height: u64,
+        paramset: &'static ProtocolParamset,
     ) -> Result<Option<(LightClientProof, Receipt, u64)>, BridgeError>;
 
     /// Returns the L2 block height range for the given L1 block height.
@@ -127,7 +128,7 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
         &self,
         block_height: u64,
         timeout: Duration,
-        network: bitcoin::Network,
+        paramset: &'static ProtocolParamset,
     ) -> Result<(u64, u64), BridgeError>;
 
     /// Returns the replacement deposit move txids for the given range of blocks.
@@ -160,12 +161,14 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
         deposit_index: u32,
     ) -> Result<StorageProof, BridgeError>;
 
-    async fn fetch_validate_and_store_lcp_and_storage_proof(
+    async fn fetch_validate_and_store_lcp(
         &self,
         payout_block_height: u64,
         deposit_index: u32,
         db: &Database,
-    ) -> Result<(), BridgeError>;
+        dbtx: Option<DatabaseTransaction<'_, '_>>,
+        paramset: &'static ProtocolParamset,
+    ) -> Result<Receipt, BridgeError>;
 }
 
 /// Citrea client is responsible for interacting with the Citrea EVM and Citrea
@@ -307,13 +310,42 @@ impl CitreaClientT for CitreaClient {
         })
     }
 
-    async fn fetch_validate_and_store_lcp_and_storage_proof(
+    async fn fetch_validate_and_store_lcp(
         &self,
         payout_block_height: u64,
         deposit_index: u32,
         db: &Database,
-    ) -> Result<(), BridgeError> {
-        
+        mut dbtx: Option<DatabaseTransaction<'_, '_>>,
+        paramset: &'static ProtocolParamset,
+    ) -> Result<Receipt, BridgeError> {
+        let saved_data = db
+            .get_lcp_for_assert(dbtx.as_deref_mut(), deposit_index)
+            .await?;
+        if let Some(lcp) = saved_data {
+            // if already saved, do nothing
+            return Ok(lcp);
+        };
+
+        let lcp_result = self
+            .get_light_client_proof(payout_block_height, paramset)
+            .await?;
+        let (_lcp, lcp_receipt, _l2_height) = match lcp_result {
+            Some(lcp) => lcp,
+            None => {
+                return Err(eyre::eyre!(
+                    "Light client proof could not be fetched found for block height {}",
+                    payout_block_height
+                )
+                .into())
+            }
+        };
+
+        // save the LCP for assert
+        db.insert_lcp_for_assert(dbtx, deposit_index, lcp_receipt.clone())
+            .await?;
+
+        Ok(lcp_receipt)
+    }
 
     async fn new(
         citrea_rpc_url: String,
@@ -445,6 +477,7 @@ impl CitreaClientT for CitreaClient {
     async fn get_light_client_proof(
         &self,
         l1_height: u64,
+        paramset: &'static ProtocolParamset,
     ) -> Result<Option<(LightClientProof, Receipt, u64)>, BridgeError> {
         let proof_result = self
             .light_client_prover_client
@@ -467,6 +500,22 @@ impl CitreaClientT for CitreaClient {
                 .wrap_err("Failed to convert l2 height to u64")?;
             let hex_l2_str = format!("0x{:x}", l2_height);
 
+            let lc_image_id = paramset.get_lcp_image_id()?;
+
+            if receipt.verify(lc_image_id).is_err() {
+                return Err(eyre::eyre!("Current light client proof verification failed").into());
+            }
+
+            let proof_output: LightClientCircuitOutput = borsh::from_slice(&receipt.journal.bytes)
+                .wrap_err("Failed to deserialize light client circuit output")?;
+
+            if !check_method_id(&proof_output, lc_image_id) {
+                return Err(eyre::eyre!(
+                    "Current light client proof method ID does not match the expected LC image ID"
+                )
+                .into());
+            }
+
             Some((
                 LightClientProof {
                     lc_journal: receipt.journal.bytes.clone(),
@@ -486,11 +535,11 @@ impl CitreaClientT for CitreaClient {
         &self,
         block_height: u64,
         timeout: Duration,
-        network: bitcoin::Network,
+        paramset: &'static ProtocolParamset,
     ) -> Result<(u64, u64), BridgeError> {
         let start = std::time::Instant::now();
         let proof_current = loop {
-            if let Some(proof) = self.get_light_client_proof(block_height).await? {
+            if let Some(proof) = self.get_light_client_proof(block_height, paramset).await? {
                 break proof;
             }
 
@@ -506,51 +555,13 @@ impl CitreaClientT for CitreaClient {
             tokio::time::sleep(Duration::from_secs(1)).await;
         };
 
-        let lc_image_id = match network {
-            bitcoin::Network::Bitcoin => MAINNET_LC_IMAGE_ID,
-            bitcoin::Network::Testnet4 => TESTNET_LC_IMAGE_ID,
-            bitcoin::Network::Signet => DEVNET_LC_IMAGE_ID,
-            bitcoin::Network::Regtest => REGTEST_LC_IMAGE_ID,
-            _ => return Err(eyre::eyre!("Unsupported Bitcoin network").into()),
-        };
-
-        if proof_current.1.verify(lc_image_id).is_err() {
-            return Err(eyre::eyre!("Current light client proof verification failed").into());
-        }
-
-        let current_proof_output: LightClientCircuitOutput =
-            borsh::from_slice(&proof_current.1.journal.bytes)
-                .wrap_err("Failed to deserialize light client circuit output")?;
-
-        if !check_method_id(&current_proof_output, lc_image_id) {
-            return Err(eyre::eyre!(
-                "Current light client proof method ID does not match the expected LC image ID"
-            )
-            .into());
-        }
-
-        let proof_previous =
-            self.get_light_client_proof(block_height - 1)
-                .await?
-                .ok_or(eyre::eyre!(
-                    "Light client proof not found for block height: {}",
-                    block_height - 1
-                ))?;
-
-        if proof_previous.1.verify(lc_image_id).is_err() {
-            return Err(eyre::eyre!("Previous light client proof verification failed").into());
-        }
-
-        let previous_proof_output: LightClientCircuitOutput =
-            borsh::from_slice(&proof_previous.1.journal.bytes)
-                .wrap_err("Failed to deserialize previous light client circuit output")?;
-
-        if !check_method_id(&previous_proof_output, lc_image_id) {
-            return Err(eyre::eyre!(
-                "Previous light client proof method ID does not match the expected LC image ID"
-            )
-            .into());
-        }
+        let proof_previous = self
+            .get_light_client_proof(block_height - 1, paramset)
+            .await?
+            .ok_or(eyre::eyre!(
+                "Light client proof not found for block height: {}",
+                block_height - 1
+            ))?;
 
         let l2_height_end: u64 = proof_current.2;
         let l2_height_start: u64 = proof_previous.2;

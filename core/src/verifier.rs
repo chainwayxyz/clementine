@@ -2673,7 +2673,7 @@ where
             .get_citrea_l2_height_range(
                 block_height.into(),
                 timeout,
-                self.config.protocol_paramset().network,
+                self.config.protocol_paramset(),
             )
             .await
             .inspect_err(|e| tracing::error!("Error getting citrea l2 height range: {:?}", e))?;

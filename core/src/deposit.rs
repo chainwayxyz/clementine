@@ -9,6 +9,7 @@ use std::sync::Arc;
 use crate::builder::script::{
     BaseDepositScript, Multisig, ReplacementDepositScript, SpendableScript, TimelockScript,
 };
+use crate::builder::transaction::create_move_to_vault_txhandler;
 use crate::config::protocol::ProtocolParamset;
 use crate::errors::BridgeError;
 use crate::musig2::AggregateFromPublicKeys;
@@ -58,6 +59,16 @@ impl PartialEq for DepositData {
             && self.get_verifiers() == other.get_verifiers()
             && self.get_watchtowers() == other.get_watchtowers()
             && self.deposit.deposit_type == other.deposit.deposit_type
+    }
+}
+
+impl DepositData {
+    /// Returns the move to vault txid of the deposit.
+    pub fn get_move_txid(
+        &mut self,
+        paramset: &'static ProtocolParamset,
+    ) -> Result<Txid, BridgeError> {
+        Ok(*create_move_to_vault_txhandler(self, paramset)?.get_txid())
     }
 }
 

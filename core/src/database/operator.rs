@@ -3,7 +3,9 @@
 //! This module includes database functions which are mainly used by an operator.
 
 use super::{
-    wrapper::{AddressDB, DepositParamsDB, OutPointDB, SignaturesDB, TxidDB, XOnlyPublicKeyDB},
+    wrapper::{
+        AddressDB, DepositParamsDB, OutPointDB, ReceiptDB, SignaturesDB, TxidDB, XOnlyPublicKeyDB,
+    },
     Database, DatabaseTransaction,
 };
 use crate::{
@@ -22,6 +24,7 @@ use bitcoin::{OutPoint, Txid, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
 use bitvm::signatures::winternitz::PublicKey as WinternitzPublicKey;
 use eyre::{eyre, Context};
+use risc0_zkvm::Receipt;
 use std::str::FromStr;
 
 pub type RootHash = [u8; 32];
@@ -607,19 +610,41 @@ impl Database {
         }
     }
 
-    pub async fn get_lcp_and_storage_proof(
+    /// Retrieves the light client proof for a deposit to be used while sending an assert.
+    pub async fn get_lcp_for_assert(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         deposit_id: u32,
-    ) -> Result<Option<(LightClientProof, StorageProof)>, BridgeError> {
-        let query = sqlx::query_as::<_, (Vec<u8>, Vec<u8>)>(
-            "SELECT lcp_proof, storage_proof FROM lcp_and_storage_proof_for_asserts WHERE deposit_id = $1;",
+    ) -> Result<Option<Receipt>, BridgeError> {
+        let query = sqlx::query_as::<_, (ReceiptDB,)>(
+            "SELECT lcp_receipt FROM lcp_for_asserts WHERE deposit_id = $1;",
         )
         .bind(i32::try_from(deposit_id).wrap_err("Failed to convert deposit id to i32")?);
 
         let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
-        return Ok(result);
+        Ok(result.map(|(lcp,)| lcp.0))
+    }
+
+    /// Saves the light client proof for a deposit to be used while sending an assert.
+    /// We save first before sending kickoff to be sure we have the LCP available if we need to assert.
+    pub async fn insert_lcp_for_assert(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        deposit_id: u32,
+        lcp: Receipt,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query(
+            "INSERT INTO lcp_for_asserts (deposit_id, lcp_receipt)
+             VALUES ($1, $2)
+             ON CONFLICT (deposit_id) DO NOTHING;",
+        )
+        .bind(i32::try_from(deposit_id).wrap_err("Failed to convert deposit id to i32")?)
+        .bind(ReceiptDB(lcp));
+
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
+
+        Ok(())
     }
 
     pub async fn get_deposit_data_with_kickoff_txid(
