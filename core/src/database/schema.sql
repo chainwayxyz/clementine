@@ -6,12 +6,6 @@ create table if not exists operators (
         collateral_funding_outpoint ~ '^[a-fA-F0-9]{64}:(0|[1-9][0-9]{0,9})$'
     )
 );
--- Operator table for funding utxo used for deposits
-create table if not exists funding_utxos (
-    id serial primary key,
-    funding_utxo jsonb not null,
-    created_at timestamp not null default now()
-);
 -- Watchtower header chain proofs
 create table if not exists header_chain_proofs (
     block_hash text primary key not null,
