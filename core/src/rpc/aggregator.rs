@@ -24,7 +24,8 @@ use crate::deposit::{Actors, DepositData, DepositInfo};
 use crate::errors::ResultExt;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::rpc::clementine::{
-    operator_withrawal_response, AggregatorWithdrawalInput, OperatorWithrawalResponse, VerifierDepositSignParams
+    operator_withrawal_response, AggregatorWithdrawalInput, OperatorWithrawalResponse,
+    VerifierDepositSignParams,
 };
 use crate::rpc::parser;
 use crate::utils::{get_vergen_response, timed_request, timed_try_join_all, ScriptBufExt};
