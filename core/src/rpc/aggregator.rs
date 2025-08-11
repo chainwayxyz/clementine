@@ -23,7 +23,10 @@ use crate::constants::{
 use crate::deposit::{Actors, DepositData, DepositInfo};
 use crate::errors::ResultExt;
 use crate::musig2::AggregateFromPublicKeys;
-use crate::rpc::clementine::{AggregatorWithdrawalInput, VerifierDepositSignParams};
+use crate::rpc::clementine::{
+    operator_withrawal_response, AggregatorWithdrawalInput, OperatorWithrawalResponse,
+    VerifierDepositSignParams,
+};
 use crate::rpc::parser;
 use crate::utils::{get_vergen_response, timed_request, timed_try_join_all, ScriptBufExt};
 use crate::utils::{FeePayingType, TxMetadata};
@@ -1540,15 +1543,16 @@ impl ClementineAggregator for AggregatorServer {
             withdraw_responses: responses
                 .into_iter()
                 .map(|(res, xonly_pk)| match res {
-                    Ok(withdraw_response) => {
-                        let signed_tx = withdraw_response.into_inner().raw_tx;
-                        let hex_tx = hex::encode(signed_tx);
-                        format!(
-                            "Withdraw successful for operator: {:?}, withdrawal tx: {}",
-                            xonly_pk, hex_tx
-                        )
-                    }
-                    Err(e) => format!("Withdraw failed for operator: {:?}, error: {}", xonly_pk, e),
+                    Ok(withdraw_response) => OperatorWithrawalResponse {
+                        operator_xonly_pk: Some(xonly_pk.into()),
+                        response: Some(operator_withrawal_response::Response::RawTx(
+                            withdraw_response.into_inner(),
+                        )),
+                    },
+                    Err(e) => OperatorWithrawalResponse {
+                        operator_xonly_pk: Some(xonly_pk.into()),
+                        response: Some(operator_withrawal_response::Response::Error(e.to_string())),
+                    },
                 })
                 .collect(),
         }))

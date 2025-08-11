@@ -812,7 +812,7 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             let withdraw_responses = response.get_ref().withdraw_responses.clone();
 
             for (i, result) in withdraw_responses.iter().enumerate() {
-                println!("Operator {}: {}", i, result);
+                println!("Operator {}: {:?}", i, result);
             }
         }
         AggregatorCommands::GetEntityStatuses { restart_tasks } => {

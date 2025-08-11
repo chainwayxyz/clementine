@@ -655,8 +655,16 @@ message RawTxWithRbfInfo {
   RbfSigningInfoRpc rbf_info = 2;
 }
 
+message OperatorWithrawalResponse {
+  XOnlyPublicKeyRpc operator_xonly_pk = 1;
+  oneof response {
+    RawSignedTx raw_tx = 2;
+    string error = 3;
+  }
+}
+
 message AggregatorWithdrawResponse {
-  repeated string withdraw_responses = 1;
+  repeated OperatorWithrawalResponse withdraw_responses = 1;
 }
 
 message GetEmergencyStopTxRequest {
