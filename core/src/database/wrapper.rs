@@ -212,6 +212,13 @@ impl_bytea_wrapper_custom!(
     }
 );
 
+impl_bytea_wrapper_custom!(
+    LightClientProofDB,
+    LightClientProof,
+    |lcp: &LightClientProof| lcp.serialize(),
+    |x: &[u8]| -> Result<LightClientProof, BoxDynError> { LightClientProof::deserialize(x) }
+);
+
 impl_text_wrapper_custom!(
     AddressDB,
     Address<NetworkUnchecked>,

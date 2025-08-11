@@ -1,6 +1,6 @@
 //! # Citrea Related Utilities
 
-use crate::citrea::BRIDGE_CONTRACT::DepositReplaced;
+use crate::{citrea::BRIDGE_CONTRACT::DepositReplaced, database::Database};
 use crate::errors::BridgeError;
 use alloy::{
     eips::{BlockId, BlockNumberOrTag},
@@ -159,6 +159,13 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
         l2_height: u64,
         deposit_index: u32,
     ) -> Result<StorageProof, BridgeError>;
+
+    async fn fetch_validate_and_store_lcp_and_storage_proof(
+        &self,
+        payout_block_height: u64,
+        deposit_index: u32,
+        db: &Database,
+    ) -> Result<(), BridgeError>;
 }
 
 /// Citrea client is responsible for interacting with the Citrea EVM and Citrea
@@ -299,6 +306,14 @@ impl CitreaClientT for CitreaClient {
             index: ind,
         })
     }
+
+    async fn fetch_validate_and_store_lcp_and_storage_proof(
+        &self,
+        payout_block_height: u64,
+        deposit_index: u32,
+        db: &Database,
+    ) -> Result<(), BridgeError> {
+        
 
     async fn new(
         citrea_rpc_url: String,
