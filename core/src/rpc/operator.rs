@@ -178,7 +178,7 @@ where
             parser::operator::parse_withdrawal_sig_params(withdraw_params)?;
 
         // if verification address is set in config, check if verification signature is valid
-        if let Some(address_in_config) = self.operator.config.opt_payout_verification_address {
+        if let Some(address_in_config) = self.operator.config.aggregator_verification_address {
             let verification_signature = params
                 .verification_signature
                 .map(|sig| {

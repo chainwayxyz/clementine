@@ -480,7 +480,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial_test::serial]
     pub async fn save_get_block_proof() {
         let config = create_test_config_with_thread_name().await;
         let db = Database::new(&config).await.unwrap();
@@ -524,7 +523,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial_test::serial]
     pub async fn get_non_proven_block() {
         let config = create_test_config_with_thread_name().await;
         let db = Database::new(&config).await.unwrap();
@@ -665,7 +663,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial_test::serial]
     pub async fn get_non_proven_blocks() {
         let config = create_test_config_with_thread_name().await;
         let db = Database::new(&config).await.unwrap();
