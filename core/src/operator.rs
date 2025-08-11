@@ -29,7 +29,7 @@ use crate::task::entity_metric_publisher::{
 use crate::task::manager::BackgroundTaskManager;
 use crate::task::payout_checker::{PayoutCheckerTask, PAYOUT_CHECKER_POLL_DELAY};
 use crate::task::TaskExt;
-use crate::utils::{monitor_task_with_panic, Last20Bytes, ScriptBufExt};
+use crate::utils::{monitor_standalone_task, Last20Bytes, ScriptBufExt};
 use crate::utils::{NamedEntity, TxMetadata};
 use crate::{builder, constants, UTXO};
 use bitcoin::hashes::Hash;
@@ -502,7 +502,7 @@ where
 
             Ok::<(), BridgeError>(())
         });
-        monitor_task_with_panic(handle, "Operator deposit sign");
+        monitor_standalone_task(handle, "Operator deposit sign");
 
         Ok(sig_rx)
     }

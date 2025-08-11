@@ -19,7 +19,7 @@ use crate::rpc::ecdsa_verification_sig::{
     recover_address_from_ecdsa_signature, OperatorWithdrawalMessage,
 };
 use crate::rpc::parser;
-use crate::utils::{get_vergen_response, monitor_task_with_panic};
+use crate::utils::{get_vergen_response, monitor_standalone_task};
 use alloy::primitives::PrimitiveSignature;
 use bitcoin::hashes::Hash;
 use bitcoin::{BlockHash, OutPoint};
@@ -93,7 +93,7 @@ where
 
             Ok::<(), Status>(())
         });
-        monitor_task_with_panic(handle, "Operator get_params");
+        monitor_standalone_task(handle, "Operator get_params");
 
         Ok(Response::new(out_stream))
     }

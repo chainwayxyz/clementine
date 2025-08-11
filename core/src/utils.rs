@@ -379,9 +379,9 @@ pub fn get_vergen_response() -> VergenResponse {
     }
 }
 
-/// Monitors a JoinHandle and aborts the process if the task completes with an error.
-/// Returns a handle to the monitoring task that can be used to cancel it.
-pub fn monitor_task_with_panic<T: Send + 'static, E: Debug + Send + 'static>(
+/// Monitors a [`tokio::task::JoinHandle`] in the background and logs it's end
+/// result.
+pub fn monitor_standalone_task<T: Send + 'static, E: Debug + Send + 'static>(
     task_handle: tokio::task::JoinHandle<Result<T, E>>,
     task_name: &str,
 ) {
@@ -391,23 +391,18 @@ pub fn monitor_task_with_panic<T: Send + 'static, E: Debug + Send + 'static>(
     tokio::spawn(async move {
         match task_handle.await {
             Ok(Ok(_)) => {
-                // Task completed successfully
                 tracing::debug!("Task {} completed successfully", task_name);
             }
             Ok(Err(e)) => {
-                // Task returned an error
-                tracing::error!("Task {} failed with error: {:?}", task_name, e);
-                panic!();
+                tracing::error!("Task {} throw an error: {:?}", task_name, e);
             }
             Err(e) => {
                 if e.is_cancelled() {
                     // Task was cancelled, which is expected during cleanup
-                    tracing::debug!("Task {} was cancelled", task_name);
+                    tracing::debug!("Task {} has cancelled", task_name);
                     return;
                 }
-                // Task panicked or was aborted
-                tracing::error!("Task {} panicked: {:?}", task_name, e);
-                panic!();
+                tracing::error!("Task {} has panicked: {:?}", task_name, e);
             }
         }
     });

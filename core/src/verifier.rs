@@ -46,7 +46,7 @@ use crate::task::{IntoTask, TaskExt};
 #[cfg(feature = "automation")]
 use crate::tx_sender::{TxSender, TxSenderClient};
 use crate::utils::TxMetadata;
-use crate::utils::{monitor_task_with_panic, NamedEntity};
+use crate::utils::{monitor_standalone_task, NamedEntity};
 use crate::{musig2, UTXO};
 use alloy::primitives::PrimitiveSignature;
 use bitcoin::hashes::Hash;
@@ -887,7 +887,7 @@ where
 
             Ok::<(), BridgeError>(())
         });
-        monitor_task_with_panic(handle, "Verifier deposit_sign");
+        monitor_standalone_task(handle, "Verifier deposit_sign");
 
         Ok(partial_sig_rx)
     }

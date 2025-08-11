@@ -12,7 +12,7 @@ use crate::builder::transaction::ContractContext;
 use crate::citrea::CitreaClientT;
 use crate::constants::RESTART_BACKGROUND_TASKS_TIMEOUT;
 use crate::rpc::clementine::VerifierDepositFinalizeResponse;
-use crate::utils::{get_vergen_response, monitor_task_with_panic, timed_request};
+use crate::utils::{get_vergen_response, monitor_standalone_task, timed_request};
 use crate::verifier::VerifierServer;
 use crate::{constants, fetch_next_optional_message_from_stream};
 use crate::{
@@ -234,7 +234,7 @@ where
 
             Ok::<(), SendError<_>>(())
         });
-        monitor_task_with_panic(handle, "Verifier nonce_gen");
+        monitor_standalone_task(handle, "Verifier nonce_gen");
 
         Ok(Response::new(ReceiverStream::new(rx)))
     }
@@ -291,7 +291,7 @@ where
             }
             Ok(())
         });
-        monitor_task_with_panic(handle, "Verifier deposit data receiver");
+        monitor_standalone_task(handle, "Verifier deposit data receiver");
 
         // Start partial sig job and return partial sig responses.
         let handle = tokio::spawn(async move {
@@ -331,7 +331,7 @@ where
 
             Ok::<(), Status>(())
         });
-        monitor_task_with_panic(handle, "Verifier deposit signature sender");
+        monitor_standalone_task(handle, "Verifier deposit signature sender");
 
         Ok(Response::new(out_stream))
     }
