@@ -3956,7 +3956,7 @@
             bitcoin::Network::Testnet4 =&gt; TESTNET4_BRIDGE_CIRCUIT_ELF,
             bitcoin::Network::Signet =&gt; SIGNET_BRIDGE_CIRCUIT_ELF,
             bitcoin::Network::Regtest =&gt; {
-                <span class="kw">if </span><span class="macro">cfg!</span>(test) {
+                <span class="kw">if </span>is_dev_mode() {
                     REGTEST_BRIDGE_CIRCUIT_ELF_TEST
                 } <span class="kw">else </span>{
                     REGTEST_BRIDGE_CIRCUIT_ELF
