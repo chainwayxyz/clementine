@@ -363,14 +363,16 @@ where
 
         Ok(EntityStatus {
             automation: automation_enabled,
-            wallet_balance: format!("{} BTC", l1_sync_status.wallet_balance.to_btc()),
-            tx_sender_synced_height: l1_sync_status.tx_sender_synced_height.unwrap_or(0),
-            finalized_synced_height: l1_sync_status.finalized_synced_height.unwrap_or(0),
-            hcp_last_proven_height: l1_sync_status.hcp_last_proven_height.unwrap_or(0),
+            wallet_balance: l1_sync_status
+                .wallet_balance
+                .map(|balance| format!("{} BTC", balance.to_btc())),
+            tx_sender_synced_height: l1_sync_status.tx_sender_synced_height,
+            finalized_synced_height: l1_sync_status.finalized_synced_height,
+            hcp_last_proven_height: l1_sync_status.hcp_last_proven_height,
             rpc_tip_height: l1_sync_status.rpc_tip_height,
-            bitcoin_syncer_synced_height: l1_sync_status.btc_syncer_synced_height.unwrap_or(0),
+            bitcoin_syncer_synced_height: l1_sync_status.btc_syncer_synced_height,
             stopped_tasks: Some(stopped_tasks),
-            state_manager_next_height: l1_sync_status.state_manager_next_height.unwrap_or(0),
+            state_manager_next_height: l1_sync_status.state_manager_next_height,
         })
     }
 

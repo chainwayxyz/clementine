@@ -148,7 +148,7 @@ pub async fn get_next_sync_heights(entity_statuses: EntityStatuses) -> eyre::Res
             if let Some(entity_status_with_id::StatusResult::Status(status)) = entity.status_result
             {
                 if status.automation {
-                    Ok(status.state_manager_next_height)
+                    Ok(status.state_manager_next_height.unwrap_or(0))
                 } else {
                     // assume synced if automation is off
                     Ok(u32::MAX)
@@ -484,7 +484,7 @@ pub async fn run_single_deposit<C: CitreaClientT>(
                     let deposit_outpoint_spent = rpc.is_utxo_spent(&deposit_outpoint).await?;
                     if deposit_outpoint_spent {
                         return Err(eyre::eyre!(
-                            "Deposit outpoint is spent but move tx is not in chain. In test_bridge_contract_change 
+                            "Deposit outpoint is spent but move tx is not in chain. In test_bridge_contract_change
                             this means move tx does not match the one in saved state"
                             )
                             .into());

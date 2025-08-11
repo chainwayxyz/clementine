@@ -66,8 +66,10 @@ impl<T: NamedEntity> Task for EntityMetricPublisher<T> {
 
         metric
             .wallet_balance_btc
-            .set(l1_status.wallet_balance.to_btc());
-        metric.rpc_tip_height.set(l1_status.rpc_tip_height as f64);
+            .set(l1_status.wallet_balance.map_or(0.0, |a| a.to_btc()));
+        metric
+            .rpc_tip_height
+            .set(l1_status.rpc_tip_height.unwrap_or(0) as f64);
         metric
             .hcp_last_proven_height
             .set(l1_status.hcp_last_proven_height.unwrap_or(0) as f64);
