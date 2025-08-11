@@ -29,7 +29,7 @@ use crate::task::entity_metric_publisher::{
 use crate::task::manager::BackgroundTaskManager;
 use crate::task::payout_checker::{PayoutCheckerTask, PAYOUT_CHECKER_POLL_DELAY};
 use crate::task::TaskExt;
-use crate::utils::{Last20Bytes, ScriptBufExt};
+use crate::utils::{monitor_standalone_task, Last20Bytes, ScriptBufExt};
 use crate::utils::{NamedEntity, TxMetadata};
 use crate::{builder, constants, UTXO};
 use bitcoin::hashes::Hash;
@@ -485,7 +485,7 @@ where
         ));
 
         let signer = self.signer.clone();
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             while let Some(sighash) = sighash_stream.next().await {
                 // None because utxos that operators need to sign do not have scripts
                 let (sighash, sig_info) = sighash?;
@@ -502,6 +502,7 @@ where
 
             Ok::<(), BridgeError>(())
         });
+        monitor_standalone_task(handle, "Operator deposit sign");
 
         Ok(sig_rx)
     }
