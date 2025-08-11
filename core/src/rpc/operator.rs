@@ -19,7 +19,7 @@ use crate::rpc::ecdsa_verification_sig::{
     recover_address_from_ecdsa_signature, OperatorWithdrawalMessage,
 };
 use crate::rpc::parser;
-use crate::utils::get_vergen_response;
+use crate::utils::{get_vergen_response, monitor_standalone_task};
 use alloy::primitives::PrimitiveSignature;
 use bitcoin::hashes::Hash;
 use bitcoin::{BlockHash, OutPoint};
@@ -71,7 +71,7 @@ where
 
         let (mut wpk_receiver, mut signature_receiver) = operator.get_params().await?;
 
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             let operator_config: OperatorParams = operator.clone().into();
             tx.send(Ok(operator_config))
                 .await
@@ -93,6 +93,7 @@ where
 
             Ok::<(), Status>(())
         });
+        monitor_standalone_task(handle, "Operator get_params");
 
         Ok(Response::new(out_stream))
     }

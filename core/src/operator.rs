@@ -1,10 +1,8 @@
 use ark_ff::PrimeField;
 use circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
-use std::collections::HashMap;
 
 use crate::actor::{Actor, TweakCache, WinternitzDerivationPath};
 use crate::bitvm_client::{ClementineBitVMPublicKeys, SECP};
-use crate::builder::script::extract_winternitz_commits;
 use crate::builder::sighash::{create_operator_sighash_stream, PartialSignatureInfo};
 use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::input::UtxoVout;
@@ -20,7 +18,7 @@ use crate::database::DatabaseTransaction;
 use crate::deposit::{DepositData, KickoffData, OperatorData};
 use crate::errors::BridgeError;
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
-use crate::header_chain_prover::HeaderChainProver;
+
 use crate::metrics::L1SyncStatusProvider;
 use crate::rpc::clementine::EntityStatus;
 use crate::task::entity_metric_publisher::{
@@ -29,7 +27,7 @@ use crate::task::entity_metric_publisher::{
 use crate::task::manager::BackgroundTaskManager;
 use crate::task::payout_checker::{PayoutCheckerTask, PAYOUT_CHECKER_POLL_DELAY};
 use crate::task::TaskExt;
-use crate::utils::{Last20Bytes, ScriptBufExt};
+use crate::utils::{monitor_standalone_task, Last20Bytes, ScriptBufExt};
 use crate::utils::{NamedEntity, TxMetadata};
 use crate::{builder, constants, UTXO};
 use bitcoin::hashes::Hash;
@@ -38,26 +36,34 @@ use bitcoin::secp256k1::{schnorr, Message};
 use bitcoin::{Address, Amount, BlockHash, OutPoint, ScriptBuf, Transaction, TxOut, Txid};
 use bitcoincore_rpc::json::AddressType;
 use bitcoincore_rpc::RpcApi;
-use bitvm::chunk::api::generate_assertions;
 use bitvm::signatures::winternitz;
-use bridge_circuit_host::bridge_circuit_host::{
-    create_spv, prove_bridge_circuit, MAINNET_BRIDGE_CIRCUIT_ELF, REGTEST_BRIDGE_CIRCUIT_ELF,
-    REGTEST_BRIDGE_CIRCUIT_ELF_TEST, SIGNET_BRIDGE_CIRCUIT_ELF, TESTNET4_BRIDGE_CIRCUIT_ELF,
-};
-use bridge_circuit_host::structs::{BridgeCircuitHostParams, WatchtowerContext};
+
 use eyre::{Context, OptionExt};
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 
 #[cfg(feature = "automation")]
-use crate::{
-    states::StateManager,
-    task::IntoTask,
-    tx_sender::{ActivatedWithOutpoint, ActivatedWithTxid, TxSenderClient},
-    utils::FeePayingType,
+use {
+    crate::{
+        builder::script::extract_winternitz_commits,
+        header_chain_prover::HeaderChainProver,
+        states::StateManager,
+        task::IntoTask,
+        tx_sender::{ActivatedWithOutpoint, ActivatedWithTxid, TxSenderClient},
+        utils::FeePayingType,
+    },
+    bitcoin::Witness,
+    bitvm::chunk::api::generate_assertions,
+    bridge_circuit_host::{
+        bridge_circuit_host::{
+            create_spv, prove_bridge_circuit, MAINNET_BRIDGE_CIRCUIT_ELF,
+            REGTEST_BRIDGE_CIRCUIT_ELF, REGTEST_BRIDGE_CIRCUIT_ELF_TEST, SIGNET_BRIDGE_CIRCUIT_ELF,
+            TESTNET4_BRIDGE_CIRCUIT_ELF,
+        },
+        structs::{BridgeCircuitHostParams, WatchtowerContext},
+    },
+    std::collections::HashMap,
 };
-#[cfg(feature = "automation")]
-use bitcoin::Witness;
 
 pub type SecretPreimage = [u8; 20];
 pub type PublicHash = [u8; 20];
@@ -221,14 +227,16 @@ where
 
         Ok(EntityStatus {
             automation: automation_enabled,
-            wallet_balance: format!("{} BTC", sync_status.wallet_balance.to_btc()),
-            tx_sender_synced_height: sync_status.tx_sender_synced_height.unwrap_or(0),
-            finalized_synced_height: sync_status.finalized_synced_height.unwrap_or(0),
-            hcp_last_proven_height: sync_status.hcp_last_proven_height.unwrap_or(0),
+            wallet_balance: sync_status
+                .wallet_balance
+                .map(|balance| format!("{} BTC", balance.to_btc())),
+            tx_sender_synced_height: sync_status.tx_sender_synced_height,
+            finalized_synced_height: sync_status.finalized_synced_height,
+            hcp_last_proven_height: sync_status.hcp_last_proven_height,
             rpc_tip_height: sync_status.rpc_tip_height,
-            bitcoin_syncer_synced_height: sync_status.btc_syncer_synced_height.unwrap_or(0),
+            bitcoin_syncer_synced_height: sync_status.btc_syncer_synced_height,
             stopped_tasks: Some(stopped_tasks),
-            state_manager_next_height: sync_status.state_manager_next_height.unwrap_or(0),
+            state_manager_next_height: sync_status.state_manager_next_height,
         })
     }
 
@@ -485,7 +493,7 @@ where
         ));
 
         let signer = self.signer.clone();
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             while let Some(sighash) = sighash_stream.next().await {
                 // None because utxos that operators need to sign do not have scripts
                 let (sighash, sig_info) = sighash?;
@@ -502,6 +510,7 @@ where
 
             Ok::<(), BridgeError>(())
         });
+        monitor_standalone_task(handle, "Operator deposit sign");
 
         Ok(sig_rx)
     }
@@ -1786,7 +1795,7 @@ where
                         .ok_or(eyre::eyre!("Kickoff tx not found in kickoff txs"))?;
                     // sanity check
                     if kickoff_tx.1.compute_txid() != kickoff_txid {
-                        return Err(eyre::eyre!("Kickoff txid mismatch for deposit outpoint: {}, kickoff txid: {:?}, computed txid: {:?}", 
+                        return Err(eyre::eyre!("Kickoff txid mismatch for deposit outpoint: {}, kickoff txid: {:?}, computed txid: {:?}",
                         deposit_data.get_deposit_outpoint(), kickoff_txid, kickoff_tx.1.compute_txid()).into());
                     }
                     txs_to_send.push(kickoff_tx.clone());

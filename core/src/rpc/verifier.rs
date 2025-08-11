@@ -12,7 +12,7 @@ use crate::builder::transaction::ContractContext;
 use crate::citrea::CitreaClientT;
 use crate::constants::RESTART_BACKGROUND_TASKS_TIMEOUT;
 use crate::rpc::clementine::VerifierDepositFinalizeResponse;
-use crate::utils::{get_vergen_response, timed_request};
+use crate::utils::{get_vergen_response, monitor_standalone_task, timed_request};
 use crate::verifier::VerifierServer;
 use crate::{constants, fetch_next_optional_message_from_stream};
 use crate::{
@@ -219,7 +219,7 @@ where
 
         let (tx, rx) = mpsc::channel(pub_nonces.len() + 1);
 
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             let nonce_gen_first_response = clementine::NonceGenFirstResponse {
                 id: session_id.to_string(),
                 num_nonces,
@@ -234,6 +234,7 @@ where
 
             Ok::<(), SendError<_>>(())
         });
+        monitor_standalone_task(handle, "Verifier nonce_gen");
 
         Ok(Response::new(ReceiverStream::new(rx)))
     }
@@ -252,7 +253,7 @@ where
         let (agg_nonce_tx, agg_nonce_rx) = mpsc::channel(constants::DEFAULT_CHANNEL_SIZE);
 
         // Send incoming data to deposit sign job.
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             let params = fetch_next_message_from_stream!(in_stream, params)?;
             let (deposit_data, session_id) = match params {
                 clementine::verifier_deposit_sign_params::Params::DepositSignFirstParam(
@@ -290,9 +291,10 @@ where
             }
             Ok(())
         });
+        monitor_standalone_task(handle, "Verifier deposit data receiver");
 
         // Start partial sig job and return partial sig responses.
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             let (deposit_data, session_id) = param_rx
                 .recv()
                 .await
@@ -329,6 +331,7 @@ where
 
             Ok::<(), Status>(())
         });
+        monitor_standalone_task(handle, "Verifier deposit signature sender");
 
         Ok(Response::new(out_stream))
     }
@@ -383,7 +386,7 @@ where
 
         // Start parsing inputs and send them to deposit finalize job.
         let verifier = self.verifier.clone();
-        tokio::spawn(async move {
+        let sig_handle = tokio::spawn(async move {
             let num_required_nofn_sigs = verifier.config.get_num_required_nofn_sigs(&deposit_data);
             let mut nonce_idx = 0;
             while let Some(sig) =
@@ -479,6 +482,10 @@ where
 
             Ok::<(), Status>(())
         });
+
+        sig_handle.await.map_err(|e| {
+            Status::internal(format!("Deposit sign thread failed to finish: {}", e).as_str())
+        })??;
 
         let partial_sig = deposit_finalize_handle.await.map_err(|e| {
             Status::internal(format!("Deposit finalize thread failed to finish: {}", e).as_str())

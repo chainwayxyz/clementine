@@ -45,8 +45,8 @@ use crate::task::manager::BackgroundTaskManager;
 use crate::task::{IntoTask, TaskExt};
 #[cfg(feature = "automation")]
 use crate::tx_sender::{TxSender, TxSenderClient};
-use crate::utils::NamedEntity;
 use crate::utils::TxMetadata;
+use crate::utils::{monitor_standalone_task, NamedEntity};
 use crate::{musig2, UTXO};
 use alloy::primitives::PrimitiveSignature;
 use bitcoin::hashes::Hash;
@@ -363,14 +363,16 @@ where
 
         Ok(EntityStatus {
             automation: automation_enabled,
-            wallet_balance: format!("{} BTC", l1_sync_status.wallet_balance.to_btc()),
-            tx_sender_synced_height: l1_sync_status.tx_sender_synced_height.unwrap_or(0),
-            finalized_synced_height: l1_sync_status.finalized_synced_height.unwrap_or(0),
-            hcp_last_proven_height: l1_sync_status.hcp_last_proven_height.unwrap_or(0),
+            wallet_balance: l1_sync_status
+                .wallet_balance
+                .map(|balance| format!("{} BTC", balance.to_btc())),
+            tx_sender_synced_height: l1_sync_status.tx_sender_synced_height,
+            finalized_synced_height: l1_sync_status.finalized_synced_height,
+            hcp_last_proven_height: l1_sync_status.hcp_last_proven_height,
             rpc_tip_height: l1_sync_status.rpc_tip_height,
-            bitcoin_syncer_synced_height: l1_sync_status.btc_syncer_synced_height.unwrap_or(0),
+            bitcoin_syncer_synced_height: l1_sync_status.btc_syncer_synced_height,
             stopped_tasks: Some(stopped_tasks),
-            state_manager_next_height: l1_sync_status.state_manager_next_height.unwrap_or(0),
+            state_manager_next_height: l1_sync_status.state_manager_next_height,
         })
     }
 
@@ -815,7 +817,7 @@ where
             .get_blockhash_of_tx(&deposit_data.get_deposit_outpoint().txid)
             .await?;
 
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             // Take the lock and extract the session before entering the async block
             // Extract the session and remove it from the map to release the lock early
             let mut session = {
@@ -891,6 +893,7 @@ where
 
             Ok::<(), BridgeError>(())
         });
+        monitor_standalone_task(handle, "Verifier deposit_sign");
 
         Ok(partial_sig_rx)
     }

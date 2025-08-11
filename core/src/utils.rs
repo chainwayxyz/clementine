@@ -17,6 +17,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
+use tokio::time::error::Elapsed;
 use tokio::time::timeout;
 use tonic::Status;
 use tower::{Layer, Service};
@@ -379,9 +380,9 @@ pub fn get_vergen_response() -> VergenResponse {
     }
 }
 
-/// Monitors a JoinHandle and aborts the process if the task completes with an error.
-/// Returns a handle to the monitoring task that can be used to cancel it.
-pub fn monitor_task_with_panic<T: Send + 'static, E: Debug + Send + 'static>(
+/// Monitors a [`tokio::task::JoinHandle`] in the background and logs it's end
+/// result.
+pub fn monitor_standalone_task<T: Send + 'static, E: Debug + Send + 'static>(
     task_handle: tokio::task::JoinHandle<Result<T, E>>,
     task_name: &str,
 ) {
@@ -391,23 +392,18 @@ pub fn monitor_task_with_panic<T: Send + 'static, E: Debug + Send + 'static>(
     tokio::spawn(async move {
         match task_handle.await {
             Ok(Ok(_)) => {
-                // Task completed successfully
                 tracing::debug!("Task {} completed successfully", task_name);
             }
             Ok(Err(e)) => {
-                // Task returned an error
-                tracing::error!("Task {} failed with error: {:?}", task_name, e);
-                panic!();
+                tracing::error!("Task {} throw an error: {:?}", task_name, e);
             }
             Err(e) => {
                 if e.is_cancelled() {
                     // Task was cancelled, which is expected during cleanup
-                    tracing::debug!("Task {} was cancelled", task_name);
+                    tracing::debug!("Task {} has cancelled", task_name);
                     return;
                 }
-                // Task panicked or was aborted
-                tracing::error!("Task {} panicked: {:?}", task_name, e);
-                panic!();
+                tracing::error!("Task {} has panicked: {:?}", task_name, e);
             }
         }
     });
@@ -643,10 +639,34 @@ pub async fn timed_request<F, T>(
 where
     F: Future<Output = Result<T, BridgeError>>,
 {
+    timed_request_base(duration, description, future)
+        .await
+        .map_err(|_| Status::deadline_exceeded(format!("{} timed out", description)))?
+}
+
+/// Wraps a future with a timeout and adds a debug span with the description.
+///
+/// # Arguments
+///
+/// * `duration`: The maximum `Duration` to wait for the future to complete.
+/// * `description`: A string slice describing the operation, used in the timeout error message.
+/// * `future`: The `Future` to execute. The future should return a `Result<T, BridgeError>`.
+///
+/// # Returns
+///
+/// Returns `Ok(Ok(T))` if the future completes successfully within the time limit, returns `Ok(Err(e))`
+/// if the future returns an error, returns `Err(Elapsed)` if the request times out.
+pub async fn timed_request_base<F, T>(
+    duration: Duration,
+    description: &str,
+    future: F,
+) -> Result<Result<T, BridgeError>, Elapsed>
+where
+    F: Future<Output = Result<T, BridgeError>>,
+{
     timeout(duration, future)
         .instrument(debug_span!("timed_request", description = description))
         .await
-        .map_err(|_| Status::deadline_exceeded(format!("{} timed out", description)))?
 }
 
 /// Concurrently executes a collection of futures, applying a timeout to each one individually.
