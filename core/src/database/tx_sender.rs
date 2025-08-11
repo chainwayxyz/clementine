@@ -827,7 +827,7 @@ impl Database {
     ) -> Result<Vec<(Txid, u32, Amount, bool)>, BridgeError> {
         let query = sqlx::query_as::<_, (TxidDB, i32, i64, Option<i32>)>(
             r#"
-            SELECT fee_payer_txid, vout, amount, (seen_block_id IS NOT NULL)::INT4 as confirmed
+            SELECT fee_payer_txid, vout, amount, seen_block_id IS NOT NULL as confirmed
             FROM tx_sender_fee_payer_utxos
             WHERE bumped_id = $1
             "#,
