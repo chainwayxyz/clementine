@@ -105,7 +105,8 @@ pub(crate) async fn save_block(
     let block_id = db
         .update_block_as_canonical_if_exists(Some(dbtx), block_hash)
         .await?;
-    db.save_full_block(Some(dbtx), block, block_height).await?;
+    db.upsert_full_block(Some(dbtx), block, block_height)
+        .await?;
 
     if let Some(block_id) = block_id {
         return Ok(block_id);

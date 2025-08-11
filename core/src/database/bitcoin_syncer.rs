@@ -104,7 +104,7 @@ impl Database {
     }
 
     /// Stores the full block in bytes in the database, with its height and hash
-    pub async fn save_full_block(
+    pub async fn upsert_full_block(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         block: &bitcoin::Block,
@@ -592,7 +592,7 @@ mod tests {
         let dummy_block_hash = dummy_block.block_hash();
 
         // Store the block
-        db.save_full_block(None, &dummy_block, block_height)
+        db.upsert_full_block(None, &dummy_block, block_height)
             .await
             .unwrap();
 
@@ -632,7 +632,7 @@ mod tests {
 
         let updated_dummy_block_hash = updated_dummy_block.block_hash();
 
-        db.save_full_block(None, &updated_dummy_block, block_height)
+        db.upsert_full_block(None, &updated_dummy_block, block_height)
             .await
             .unwrap();
 
