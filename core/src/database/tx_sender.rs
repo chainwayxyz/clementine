@@ -967,7 +967,7 @@ mod tests {
         .unwrap();
 
         // Save the transaction in the block
-        db.add_txid_to_block(&mut dbtx, block_id, &fee_payer_txid)
+        db.insert_txid_to_block(&mut dbtx, block_id, &fee_payer_txid)
             .await
             .unwrap();
 

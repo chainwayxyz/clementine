@@ -46,7 +46,7 @@ impl Database {
         }
     }
 
-    pub async fn set_move_to_vault_txid_from_citrea_deposit(
+    pub async fn upsert_move_to_vault_txid_from_citrea_deposit(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         citrea_idx: u32,
@@ -81,7 +81,7 @@ impl Database {
         Ok(result.map(|(move_to_vault_txid,)| move_to_vault_txid.0))
     }
 
-    pub async fn set_replacement_deposit_move_txid(
+    pub async fn update_replacement_deposit_move_txid(
         &self,
         tx: DatabaseTransaction<'_, '_>,
         idx: u32,
@@ -104,7 +104,7 @@ impl Database {
         Ok(())
     }
 
-    pub async fn set_withdrawal_utxo_from_citrea_withdrawal(
+    pub async fn update_withdrawal_utxo_from_citrea_withdrawal(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         citrea_idx: u32,
@@ -195,7 +195,7 @@ impl Database {
     }
 
     /// Sets the given payout txs' txid and operator index for the given index.
-    pub async fn set_payout_txs_and_payer_operator_xonly_pk(
+    pub async fn update_payout_txs_and_payer_operator_xonly_pk(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         payout_txs_and_payer_operator_xonly_pk: Vec<(
@@ -342,7 +342,7 @@ impl Database {
         ))
     }
 
-    pub async fn set_payout_handled(
+    pub async fn mark_payout_handled(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         citrea_idx: u32,
@@ -385,7 +385,7 @@ mod tests {
     use bitcoin::{hashes::Hash, BlockHash, Txid};
 
     #[tokio::test]
-    async fn set_get_payout_txs_from_citrea_withdrawal() {
+    async fn update_get_payout_txs_from_citrea_withdrawal() {
         let config = create_test_config_with_thread_name().await;
         let db = Database::new(&config).await.unwrap();
 
@@ -400,7 +400,7 @@ mod tests {
         let mut dbtx = db.begin_transaction().await.unwrap();
 
         let block_id = db
-            .add_block_info(
+            .insert_block_info(
                 Some(&mut dbtx),
                 &BlockHash::all_zeros(),
                 &BlockHash::all_zeros(),
@@ -408,7 +408,7 @@ mod tests {
             )
             .await
             .unwrap();
-        db.add_txid_to_block(&mut dbtx, block_id, &txid)
+        db.insert_txid_to_block(&mut dbtx, block_id, &txid)
             .await
             .unwrap();
         db.insert_spent_utxo(&mut dbtx, block_id, &txid, &utxo.txid, utxo.vout.into())
@@ -419,16 +419,16 @@ mod tests {
             .get_withdrawal_utxo_from_citrea_withdrawal(Some(&mut dbtx), index)
             .await
             .is_err());
-        db.set_move_to_vault_txid_from_citrea_deposit(Some(&mut dbtx), index, &txid)
+        db.upsert_move_to_vault_txid_from_citrea_deposit(Some(&mut dbtx), index, &txid)
             .await
             .unwrap();
-        db.set_withdrawal_utxo_from_citrea_withdrawal(Some(&mut dbtx), index, utxo, block_id)
+        db.update_withdrawal_utxo_from_citrea_withdrawal(Some(&mut dbtx), index, utxo, block_id)
             .await
             .unwrap();
 
         let block_hash = BlockHash::all_zeros();
 
-        db.set_payout_txs_and_payer_operator_xonly_pk(
+        db.update_payout_txs_and_payer_operator_xonly_pk(
             Some(&mut dbtx),
             vec![(index, txid, Some(operator_xonly_pk), block_hash)],
         )
@@ -476,22 +476,22 @@ mod tests {
             vout: 1,
         };
 
-        db.add_txid_to_block(&mut dbtx, block_id, &txid2)
+        db.insert_txid_to_block(&mut dbtx, block_id, &txid2)
             .await
             .unwrap();
         db.insert_spent_utxo(&mut dbtx, block_id, &txid2, &utxo2.txid, utxo2.vout.into())
             .await
             .unwrap();
 
-        db.set_move_to_vault_txid_from_citrea_deposit(Some(&mut dbtx), index2, &txid2)
+        db.upsert_move_to_vault_txid_from_citrea_deposit(Some(&mut dbtx), index2, &txid2)
             .await
             .unwrap();
-        db.set_withdrawal_utxo_from_citrea_withdrawal(Some(&mut dbtx), index2, utxo2, block_id)
+        db.update_withdrawal_utxo_from_citrea_withdrawal(Some(&mut dbtx), index2, utxo2, block_id)
             .await
             .unwrap();
 
         // Set payout with None operator xonly pk
-        db.set_payout_txs_and_payer_operator_xonly_pk(
+        db.update_payout_txs_and_payer_operator_xonly_pk(
             Some(&mut dbtx),
             vec![(index2, txid2, None, block_hash)],
         )
