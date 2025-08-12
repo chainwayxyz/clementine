@@ -24,10 +24,10 @@ pub const REGTEST_LC_IMAGE_ID: [u8; 32] =
     hex!("e02f42a01d0cb5a6dbc2f5d26b28a9881808a3023c8330a5aea2a0bea754c216");
 
 pub const DEVNET_LC_IMAGE_ID: [u8; 32] =
-    hex!("3d8dc93f82c5aca7ed513f30eebf6fc1580fc3ad3e7b1e65912fc2ace1a9a3f6");
+    hex!("868e65191b05cdc0b1138983b3e0fd65326448fdba00092c4ddfbea58b081944");
 
 pub const TESTNET_LC_IMAGE_ID: [u8; 32] =
-    hex!("19b3bc65347ca0499f2a8f71117fe924df4b9c1c2a93eb4dd70df939490256fe");
+    hex!("7eae7a3d628b6e383a23d1d3504b06b146c6a9d67a04515aba1dbbfdca7de6ca");
 
 // MAINNET LC_IMAGE_ID is not yet provided by CITREA, so we use a placeholder.
 pub const MAINNET_LC_IMAGE_ID: [u8; 32] =
