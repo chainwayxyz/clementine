@@ -127,13 +127,14 @@ pub fn prove_bridge_circuit(
         _ => return Err(eyre!("Unsupported network")),
     };
 
+    let is_regtest = bridge_circuit_host_params.network.0 == bitcoin::Network::Regtest;
+
     // Verify light client proof
-    if bridge_circuit_host_params
-        .lcp_receipt
-        .verify(lc_image_id)
-        .is_err()
-    {
-        return Err(eyre!("Light client proof verification failed"));
+    if !is_regtest {
+        bridge_circuit_host_params
+            .lcp_receipt
+            .verify(lc_image_id)
+            .map_err(|_| eyre!("Light client proof verification failed"))?;
     }
 
     // Header chain verification

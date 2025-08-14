@@ -248,6 +248,10 @@ impl ProtocolParamset {
             _ => return Err(eyre::eyre!("Unsupported Bitcoin network").into()),
         })
     }
+
+    pub fn is_regtest(&self) -> bool {
+        self.network == Network::Regtest
+    }
 }
 
 fn convert_hex_string_to_bytes(hex: &str) -> Result<[u8; 32], BridgeError> {
