@@ -33,11 +33,17 @@ pub const REGTEST_BRIDGE_CIRCUIT_ELF_TEST: &[u8] =
 pub const TESTNET4_BRIDGE_CIRCUIT_ELF: &[u8] =
     include_bytes!("../../risc0-circuits/elfs/testnet4-bridge-circuit-guest.bin");
 
+pub const TESTNET4_BRIDGE_CIRCUIT_ELF_TEST: &[u8] =
+    include_bytes!("../../risc0-circuits/elfs/test-testnet4-bridge-circuit-guest.bin");
+
 pub const MAINNET_BRIDGE_CIRCUIT_ELF: &[u8] =
     include_bytes!("../../risc0-circuits/elfs/mainnet-bridge-circuit-guest.bin");
 
 pub const SIGNET_BRIDGE_CIRCUIT_ELF: &[u8] =
     include_bytes!("../../risc0-circuits/elfs/signet-bridge-circuit-guest.bin");
+
+pub const SIGNET_BRIDGE_CIRCUIT_ELF_TEST: &[u8] =
+    include_bytes!("../../risc0-circuits/elfs/test-signet-bridge-circuit-guest.bin");
 
 pub const TESTNET4_HEADER_CHAIN_GUEST_ELF: &[u8] =
     include_bytes!("../../risc0-circuits/elfs/testnet4-header-chain-guest.bin");
