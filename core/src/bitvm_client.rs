@@ -59,7 +59,8 @@ pub static BITVM_CACHE: OnceLock<BitvmCache> = OnceLock::new();
 pub fn load_or_generate_bitvm_cache() -> BitvmCache {
     let start = Instant::now();
 
-    let cache_path = std::env::var("BITVM_CACHE_PATH").unwrap_or_else(|_| "bitvm_cache.bin".to_string());
+    let cache_path =
+        std::env::var("BITVM_CACHE_PATH").unwrap_or_else(|_| "bitvm_cache.bin".to_string());
 
     let bitvm_cache = {
         tracing::debug!("Attempting to load BitVM cache from file: {}", cache_path);

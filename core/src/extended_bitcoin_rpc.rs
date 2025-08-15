@@ -286,7 +286,7 @@ impl ExtendedBitcoinRpc {
     /// # Parameters
     ///
     /// * `url` - The RPC server URL
-    /// * `user` - Username for RPC authentication  
+    /// * `user` - Username for RPC authentication
     /// * `password` - Password for RPC authentication
     /// * `retry_config` - Optional retry configuration. If None, uses default config.
     ///
@@ -1087,6 +1087,8 @@ impl RpcApi for ExtendedBitcoinRpc {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use crate::actor::Actor;
     use crate::config::protocol::{ProtocolParamset, REGTEST_PARAMSET};
     use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
@@ -1099,6 +1101,7 @@ mod tests {
     use bitcoincore_rpc::RpcApi;
     use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
     use citrea_e2e::config::{BitcoinConfig, TestCaseDockerConfig};
+    use citrea_e2e::node::NodeKind;
     use citrea_e2e::test_case::TestCaseRunner;
     use citrea_e2e::Result;
     use citrea_e2e::{config::TestCaseConfig, framework::TestFramework, test_case::TestCase};
@@ -1242,7 +1245,7 @@ mod tests {
             TestCaseConfig {
                 with_sequencer: true,
                 with_batch_prover: false,
-                n_nodes: 2,
+                n_nodes: HashMap::from([(NodeKind::Bitcoin, 2)]),
                 docker: TestCaseDockerConfig {
                     bitcoin: true,
                     citrea: true,

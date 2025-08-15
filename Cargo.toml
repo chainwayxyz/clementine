@@ -46,7 +46,7 @@ chacha20poly1305 = { version = "0.10", features = ["stream"] }
 
 
 # Citrea dependencies
-citrea-e2e = { git = "https://github.com/chainwayxyz/citrea-e2e", rev = "859cddf" }
+citrea-e2e = { git = "https://github.com/chainwayxyz/citrea-e2e", rev = "b194a303d89354577adfbf7935c0c1c652004227" }
 
 citrea-sov-rollup-interface = { git = "https://github.com/chainwayxyz/citrea", tag = "v0.7.3-rc.5", package = "sov-rollup-interface" }
 
@@ -71,7 +71,7 @@ async-stream = "0.3.6"
 futures-util = "0.3.31"
 futures-core = "0.3.31"
 http = "^1"
-hyper = "^1"
+hyper = { version = "^1", features = ["full"] }
 tower = "^0.4"
 hyper-util = { version = "0.1" }
 
