@@ -1,6 +1,4 @@
 BEGIN;
--- Table to store the public keys of the verifiers
-create table if not exists verifier_public_keys (public_key text primary key not null);
 create table if not exists operators (
     xonly_pk text primary key not null,
     wallet_reimburse_address text not null,
@@ -12,12 +10,6 @@ create table if not exists bitcoin_blocks (
     height int primary key not null,
     block_hash text not null,
     block_data bytea not null,
-    created_at timestamp not null default now()
-);
--- Operator table for funding utxo used for deposits
-create table if not exists funding_utxos (
-    id serial primary key,
-    funding_utxo jsonb not null,
     created_at timestamp not null default now()
 );
 -- Watchtower header chain proofs
@@ -38,7 +30,6 @@ create table if not exists operator_winternitz_public_keys (
     xonly_pk text primary key not null,
     winternitz_public_keys bytea not null
 );
-
 -- Verifier table of operators Winternitz public keys for every kickoff utxo for committing bitvm inputs
 create table if not exists operator_bitvm_winternitz_public_keys (
     xonly_pk text not null,
@@ -46,7 +37,6 @@ create table if not exists operator_bitvm_winternitz_public_keys (
     bitvm_winternitz_public_keys bytea not null,
     primary key (xonly_pk, deposit_id)
 );
-
 create table if not exists deposits (
     deposit_id serial primary key,
     deposit_outpoint text unique not null check (
@@ -77,6 +67,11 @@ create table if not exists unspent_kickoff_signatures (
     signatures bytea not null,
     primary key (xonly_pk, round_idx)
 );
+-- LCP and storage proofs saved for sending assert
+create table if not exists lcp_for_asserts (
+    deposit_id int not null primary key,
+    lcp_receipt bytea not null
+);
 -- Verifier table for BitVM setup data
 /* This table holds the BitVM setup data for each operator and deposit_id pair. */
 create table if not exists bitvm_setups (
@@ -99,7 +94,10 @@ create table if not exists operators_challenge_ack_hashes (
     created_at timestamp not null default now(),
     primary key (xonly_pk, deposit_id)
 );
--------- BITCOIN SYNCER --------
+
+/*******************************************************************************
+ *                               BITCOIN SYNCER
+ ******************************************************************************/
 create table if not exists bitcoin_syncer (
     id serial primary key,
     blockhash text not null unique,
@@ -120,6 +118,13 @@ create table if not exists bitcoin_syncer_spent_utxos (
     primary key (block_id, spending_txid, txid, vout),
     foreign key (block_id, spending_txid) references bitcoin_syncer_txs (block_id, txid)
 );
+create table if not exists bitcoin_blocks (
+    height int primary key not null,
+    block_hash text not null,
+    block_data bytea not null,
+    created_at timestamp not null default now()
+);
+
 -- enum for bitcoin_syncer_events
 DO $$ BEGIN IF NOT EXISTS (
     SELECT 1
@@ -140,23 +145,26 @@ create table if not exists bitcoin_syncer_event_handlers (
     created_at timestamp not null default now(),
     primary key (consumer_handle)
 );
--------- TX SENDER --------
+
+/*******************************************************************************
+ *                                 TX SENDER
+ ******************************************************************************/
 DO $$ BEGIN IF NOT EXISTS (
     SELECT 1
     FROM pg_type
     WHERE typname = 'fee_paying_type'
-) THEN CREATE TYPE fee_paying_type AS ENUM ('cpfp', 'rbf');
+) THEN CREATE TYPE fee_paying_type AS ENUM ('cpfp', 'rbf', 'nofunding');
 END IF;
 END $$;
--- Table to store txs that needs to be fee bumped
+
+-- Transactions that are needed to be fee bumped
 create table if not exists tx_sender_try_to_send_txs (
     id serial primary key,
     raw_tx bytea not null,
     tx_metadata text,
     fee_paying_type fee_paying_type not null,
     effective_fee_rate bigint,
-    txid bytea,
-    -- txid of the tx if it is CPFP
+    txid bytea, -- txid of the tx if it is CPFP
     seen_block_id int references bitcoin_syncer(id),
     latest_active_at timestamp,
     created_at timestamp not null default now(),
@@ -169,7 +177,6 @@ create table if not exists tx_sender_rbf_txids (
     created_at timestamp not null default now(),
     primary key (id, txid)
 );
--- Table to store fee payer UTXOs
 create table if not exists tx_sender_fee_payer_utxos (
     id serial primary key,
     replacement_of_id int references tx_sender_fee_payer_utxos(id),
@@ -180,6 +187,7 @@ create table if not exists tx_sender_fee_payer_utxos (
     seen_block_id int references bitcoin_syncer(id),
     created_at timestamp not null default now()
 );
+
 create table if not exists tx_sender_cancel_try_to_send_outpoints (
     cancelled_id int not null references tx_sender_try_to_send_txs(id),
     txid bytea not null,
@@ -195,6 +203,7 @@ create table if not exists tx_sender_cancel_try_to_send_txids (
     created_at timestamp not null default now(),
     primary key (cancelled_id, txid)
 );
+
 create table if not exists tx_sender_activate_try_to_send_txids (
     activated_id int not null references tx_sender_try_to_send_txs(id),
     txid bytea not null,
@@ -212,7 +221,88 @@ create table if not exists tx_sender_activate_try_to_send_outpoints (
     created_at timestamp not null default now(),
     primary key (activated_id, txid, vout)
 );
--------- FINALIZED BLOCK SYNCER , CITREA DEPOSITS AND WITHDRAWALS --------
+
+-- Triggers that sets the seen_block_id to the block id of the canonical block
+-- when a row inserted to the tx_sender_*_try_to_send_* tables.
+CREATE OR REPLACE FUNCTION update_cancel_txids_seen_block_id() RETURNS TRIGGER AS $$ BEGIN
+UPDATE tx_sender_cancel_try_to_send_txids
+SET seen_block_id = bs.id
+FROM bitcoin_syncer_txs bst
+    JOIN bitcoin_syncer bs ON bst.block_id = bs.id
+WHERE tx_sender_cancel_try_to_send_txids.cancelled_id = NEW.cancelled_id
+    AND tx_sender_cancel_try_to_send_txids.txid = NEW.txid
+    AND tx_sender_cancel_try_to_send_txids.seen_block_id IS NULL
+    AND bst.txid = NEW.txid
+    AND bs.is_canonical = TRUE;
+RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS trigger_update_cancel_txids_seen_block_id ON tx_sender_cancel_try_to_send_txids;
+CREATE TRIGGER trigger_update_cancel_txids_seen_block_id
+AFTER
+INSERT ON tx_sender_cancel_try_to_send_txids FOR EACH ROW EXECUTE FUNCTION update_cancel_txids_seen_block_id();
+
+CREATE OR REPLACE FUNCTION update_cancel_outpoints_seen_block_id() RETURNS TRIGGER AS $$ BEGIN
+UPDATE tx_sender_cancel_try_to_send_outpoints
+SET seen_block_id = bs.id
+FROM bitcoin_syncer_spent_utxos bsu
+    JOIN bitcoin_syncer bs ON bsu.block_id = bs.id
+WHERE tx_sender_cancel_try_to_send_outpoints.cancelled_id = NEW.cancelled_id
+    AND tx_sender_cancel_try_to_send_outpoints.txid = NEW.txid
+    AND tx_sender_cancel_try_to_send_outpoints.vout = NEW.vout
+    AND tx_sender_cancel_try_to_send_outpoints.seen_block_id IS NULL
+    AND bsu.txid = NEW.txid
+    AND bsu.vout = NEW.vout
+    AND bs.is_canonical = TRUE;
+RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS trigger_update_cancel_outpoints_seen_block_id ON tx_sender_cancel_try_to_send_outpoints;
+CREATE TRIGGER trigger_update_cancel_outpoints_seen_block_id
+AFTER
+INSERT ON tx_sender_cancel_try_to_send_outpoints FOR EACH ROW EXECUTE FUNCTION update_cancel_outpoints_seen_block_id();
+
+CREATE OR REPLACE FUNCTION update_activate_txids_seen_block_id() RETURNS TRIGGER AS $$ BEGIN
+UPDATE tx_sender_activate_try_to_send_txids
+SET seen_block_id = bs.id
+FROM bitcoin_syncer_txs bst
+    JOIN bitcoin_syncer bs ON bst.block_id = bs.id
+WHERE tx_sender_activate_try_to_send_txids.activated_id = NEW.activated_id
+    AND tx_sender_activate_try_to_send_txids.txid = NEW.txid
+    AND tx_sender_activate_try_to_send_txids.seen_block_id IS NULL
+    AND bst.txid = NEW.txid
+    AND bs.is_canonical = TRUE;
+RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS trigger_update_activate_txids_seen_block_id ON tx_sender_activate_try_to_send_txids;
+CREATE TRIGGER trigger_update_activate_txids_seen_block_id
+AFTER
+INSERT ON tx_sender_activate_try_to_send_txids FOR EACH ROW EXECUTE FUNCTION update_activate_txids_seen_block_id();
+
+CREATE OR REPLACE FUNCTION update_activate_outpoints_seen_block_id() RETURNS TRIGGER AS $$ BEGIN
+UPDATE tx_sender_activate_try_to_send_outpoints
+SET seen_block_id = bs.id
+FROM bitcoin_syncer_spent_utxos bsu
+    JOIN bitcoin_syncer bs ON bsu.block_id = bs.id
+WHERE tx_sender_activate_try_to_send_outpoints.activated_id = NEW.activated_id
+    AND tx_sender_activate_try_to_send_outpoints.txid = NEW.txid
+    AND tx_sender_activate_try_to_send_outpoints.vout = NEW.vout
+    AND tx_sender_activate_try_to_send_outpoints.seen_block_id IS NULL
+    AND bsu.txid = NEW.txid
+    AND bsu.vout = NEW.vout
+    AND bs.is_canonical = TRUE;
+RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS trigger_update_activate_outpoints_seen_block_id ON tx_sender_activate_try_to_send_outpoints;
+CREATE TRIGGER trigger_update_activate_outpoints_seen_block_id
+AFTER
+INSERT ON tx_sender_activate_try_to_send_outpoints FOR EACH ROW EXECUTE FUNCTION update_activate_outpoints_seen_block_id();
+
+/*******************************************************************************
+ *           FINALIZED BLOCK SYNCER, CITREA DEPOSITS AND WITHDRAWALS
+ ******************************************************************************/
 create table if not exists withdrawals (
     idx int primary key,
     move_to_vault_txid bytea not null,
@@ -261,92 +351,10 @@ CREATE INDEX IF NOT EXISTS state_machines_operator_xonly_pk_idx ON state_machine
 WHERE operator_xonly_pk IS NOT NULL;
 CREATE INDEX IF NOT EXISTS state_machines_owner_type_idx ON state_machines(owner_type);
 COMMIT;
--------- TX SENDER TRIGGERS --------
--- Trigger function for tx_sender_cancel_try_to_send_txids
-CREATE OR REPLACE FUNCTION update_cancel_txids_seen_block_id() RETURNS TRIGGER AS $$ BEGIN -- Find if this txid exists in a canonical block
-UPDATE tx_sender_cancel_try_to_send_txids
-SET seen_block_id = bs.id
-FROM bitcoin_syncer_txs bst
-    JOIN bitcoin_syncer bs ON bst.block_id = bs.id
-WHERE tx_sender_cancel_try_to_send_txids.cancelled_id = NEW.cancelled_id
-    AND tx_sender_cancel_try_to_send_txids.txid = NEW.txid
-    AND tx_sender_cancel_try_to_send_txids.seen_block_id IS NULL
-    AND bst.txid = NEW.txid
-    AND bs.is_canonical = TRUE;
-RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
--- Drop the trigger if it exists
-DROP TRIGGER IF EXISTS trigger_update_cancel_txids_seen_block_id ON tx_sender_cancel_try_to_send_txids;
--- Create the trigger
-CREATE TRIGGER trigger_update_cancel_txids_seen_block_id
-AFTER
-INSERT ON tx_sender_cancel_try_to_send_txids FOR EACH ROW EXECUTE FUNCTION update_cancel_txids_seen_block_id();
--- Trigger function for tx_sender_cancel_try_to_send_outpoints
-CREATE OR REPLACE FUNCTION update_cancel_outpoints_seen_block_id() RETURNS TRIGGER AS $$ BEGIN -- Find if this outpoint is spent in a canonical block
-UPDATE tx_sender_cancel_try_to_send_outpoints
-SET seen_block_id = bs.id
-FROM bitcoin_syncer_spent_utxos bsu
-    JOIN bitcoin_syncer bs ON bsu.block_id = bs.id
-WHERE tx_sender_cancel_try_to_send_outpoints.cancelled_id = NEW.cancelled_id
-    AND tx_sender_cancel_try_to_send_outpoints.txid = NEW.txid
-    AND tx_sender_cancel_try_to_send_outpoints.vout = NEW.vout
-    AND tx_sender_cancel_try_to_send_outpoints.seen_block_id IS NULL
-    AND bsu.txid = NEW.txid
-    AND bsu.vout = NEW.vout
-    AND bs.is_canonical = TRUE;
-RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
--- Drop the trigger if it exists
-DROP TRIGGER IF EXISTS trigger_update_cancel_outpoints_seen_block_id ON tx_sender_cancel_try_to_send_outpoints;
--- Create the trigger
-CREATE TRIGGER trigger_update_cancel_outpoints_seen_block_id
-AFTER
-INSERT ON tx_sender_cancel_try_to_send_outpoints FOR EACH ROW EXECUTE FUNCTION update_cancel_outpoints_seen_block_id();
--- Trigger function for tx_sender_activate_try_to_send_txids
-CREATE OR REPLACE FUNCTION update_activate_txids_seen_block_id() RETURNS TRIGGER AS $$ BEGIN -- Find if this txid exists in a canonical block
-UPDATE tx_sender_activate_try_to_send_txids
-SET seen_block_id = bs.id
-FROM bitcoin_syncer_txs bst
-    JOIN bitcoin_syncer bs ON bst.block_id = bs.id
-WHERE tx_sender_activate_try_to_send_txids.activated_id = NEW.activated_id
-    AND tx_sender_activate_try_to_send_txids.txid = NEW.txid
-    AND tx_sender_activate_try_to_send_txids.seen_block_id IS NULL
-    AND bst.txid = NEW.txid
-    AND bs.is_canonical = TRUE;
-RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
--- Drop the trigger if it exists
-DROP TRIGGER IF EXISTS trigger_update_activate_txids_seen_block_id ON tx_sender_activate_try_to_send_txids;
--- Create the trigger
-CREATE TRIGGER trigger_update_activate_txids_seen_block_id
-AFTER
-INSERT ON tx_sender_activate_try_to_send_txids FOR EACH ROW EXECUTE FUNCTION update_activate_txids_seen_block_id();
--- Trigger function for tx_sender_activate_try_to_send_outpoints
-CREATE OR REPLACE FUNCTION update_activate_outpoints_seen_block_id() RETURNS TRIGGER AS $$ BEGIN -- Find if this outpoint is spent in a canonical block
-UPDATE tx_sender_activate_try_to_send_outpoints
-SET seen_block_id = bs.id
-FROM bitcoin_syncer_spent_utxos bsu
-    JOIN bitcoin_syncer bs ON bsu.block_id = bs.id
-WHERE tx_sender_activate_try_to_send_outpoints.activated_id = NEW.activated_id
-    AND tx_sender_activate_try_to_send_outpoints.txid = NEW.txid
-    AND tx_sender_activate_try_to_send_outpoints.vout = NEW.vout
-    AND tx_sender_activate_try_to_send_outpoints.seen_block_id IS NULL
-    AND bsu.txid = NEW.txid
-    AND bsu.vout = NEW.vout
-    AND bs.is_canonical = TRUE;
-RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
--- Drop the trigger if it exists
-DROP TRIGGER IF EXISTS trigger_update_activate_outpoints_seen_block_id ON tx_sender_activate_try_to_send_outpoints;
--- Create the trigger
-CREATE TRIGGER trigger_update_activate_outpoints_seen_block_id
-AFTER
-INSERT ON tx_sender_activate_try_to_send_outpoints FOR EACH ROW EXECUTE FUNCTION update_activate_outpoints_seen_block_id();
--------- ROUND MANAGEMENT FOR OPERATOR --------
+
+/*******************************************************************************
+ *                           ROUND MANAGEMENT FOR OPERATOR
+ ******************************************************************************/
 create table if not exists used_kickoff_connectors (
     round_idx int not null,
     kickoff_connector_idx int not null,
@@ -378,12 +386,10 @@ CREATE TABLE IF NOT EXISTS tx_sender_debug_sending_state (
 );
 -- Index for faster queries
 CREATE INDEX IF NOT EXISTS tx_sender_debug_submission_errors_tx_id_idx ON tx_sender_debug_submission_errors(tx_id);
-
 -- Table to store emergency stop signatures
 CREATE TABLE IF NOT EXISTS emergency_stop_sigs (
     move_txid bytea primary key not null,
     emergency_stop_tx bytea not null,
     created_at timestamp not null default now()
 );
-
 COMMIT;

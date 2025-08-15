@@ -91,10 +91,15 @@ fn get_guest_options(network: String) -> HashMap<&'static str, risc0_build::Gues
             docker_opts.root_dir().display()
         );
 
-        GuestOptionsBuilder::default()
-            .use_docker(docker_opts)
-            .build()
-            .unwrap()
+        let mut guest_opts_builder = GuestOptionsBuilder::default();
+        guest_opts_builder.use_docker(docker_opts);
+
+        #[cfg(feature = "use-test-vk")]
+        {
+            guest_opts_builder.features(vec!["use-test-vk".to_string()]);
+        }
+
+        guest_opts_builder.build().unwrap()
     } else {
         println!("cargo:warning=Guest code is not built in docker");
         GuestOptionsBuilder::default().build().unwrap()
@@ -123,7 +128,16 @@ fn copy_binary_to_elfs_folder(network: String) {
         return;
     }
 
-    let dest_filename = format!("{}-bridge-circuit-guest.bin", network.to_lowercase());
+    let prefix = if cfg!(feature = "use-test-vk") {
+        "test-"
+    } else {
+        ""
+    };
+    let dest_filename = format!(
+        "{}{}-bridge-circuit-guest.bin",
+        prefix,
+        network.to_lowercase()
+    );
 
     let dest_path = elfs_dir.join(&dest_filename);
 

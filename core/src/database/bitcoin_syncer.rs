@@ -2,7 +2,10 @@ use super::{
     wrapper::{BlockHashDB, TxidDB},
     Database, DatabaseTransaction,
 };
-use crate::{bitcoin_syncer::BitcoinSyncerEvent, errors::BridgeError, execute_query_with_tx};
+use crate::{
+    bitcoin_syncer::BitcoinSyncerEvent, config::protocol::ProtocolParamset, errors::BridgeError,
+    execute_query_with_tx,
+};
 use bitcoin::{BlockHash, OutPoint, Txid};
 use eyre::Context;
 use std::ops::DerefMut;
@@ -11,7 +14,7 @@ impl Database {
     /// # Returns
     ///
     /// - [`u32`]: Database entry id, later to be used while referring block
-    pub async fn add_block_info(
+    pub async fn insert_block_info(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         block_hash: &BlockHash,
@@ -32,7 +35,9 @@ impl Database {
             .map_err(Into::into)
     }
 
-    pub async fn set_block_as_canonical_if_exists(
+    /// Sets the block with given block hash as canonical if it exists in the database
+    /// Returns the block id if the block was found and set as canonical, None otherwise
+    pub async fn update_block_as_canonical(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         block_hash: BlockHash,
@@ -77,6 +82,7 @@ impl Database {
         .transpose()
     }
 
+    /// Gets block hash and height from block id (internal id used in bitcoin_syncer)
     pub async fn get_block_info_from_id(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
@@ -97,7 +103,8 @@ impl Database {
         .transpose()
     }
 
-    pub async fn store_full_block(
+    /// Stores the full block in bytes in the database, with its height and hash
+    pub async fn upsert_full_block(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         block: &bitcoin::Block,
@@ -116,6 +123,7 @@ impl Database {
         Ok(())
     }
 
+    /// Gets the full block from the database, given the block height
     pub async fn get_full_block(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
@@ -137,6 +145,7 @@ impl Database {
         }
     }
 
+    /// Gets the full block and its height from the database, given the block hash
     pub async fn get_full_block_from_hash(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
@@ -160,6 +169,7 @@ impl Database {
         }
     }
 
+    /// Gets the maximum height of the canonical blocks in the bitcoin_syncer database
     pub async fn get_max_height(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
@@ -176,7 +186,18 @@ impl Database {
     }
 
     /// Gets the block hashes that have height bigger then the given height and deletes them.
-    pub async fn set_non_canonical_block_hashes(
+    /// Marks blocks with height bigger than the given height as non-canonical.
+    ///
+    /// # Parameters
+    ///
+    /// - `tx`: Optional transaction to use for the query.
+    /// - `height`: Height to start marking blocks as such (not inclusive).
+    ///
+    /// # Returns
+    ///
+    /// - [`Vec<u32>`]: List of block ids that were marked as non-canonical in
+    ///   ascending order.
+    pub async fn update_non_canonical_block_hashes(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         height: u32,
@@ -199,6 +220,7 @@ impl Database {
             .map_err(Into::into)
     }
 
+    /// Gets the block id of the canonical block at the given height
     pub async fn get_canonical_block_id_from_height(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
@@ -218,7 +240,8 @@ impl Database {
             .map_err(Into::into)
     }
 
-    pub async fn add_txid_to_block(
+    /// Saves the txid with the id of the block that contains it to the database
+    pub async fn insert_txid_to_block(
         &self,
         tx: DatabaseTransaction<'_, '_>,
         block_id: u32,
@@ -232,6 +255,8 @@ impl Database {
 
         Ok(())
     }
+
+    /// Gets all the txids that are contained in the block with the given id
     pub async fn get_block_txids(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
@@ -245,6 +270,7 @@ impl Database {
         Ok(txids.into_iter().map(|(txid,)| txid.0).collect())
     }
 
+    /// Inserts a spent utxo into the database, with the block id that contains it, the spending txid and the vout
     pub async fn insert_spent_utxo(
         &self,
         tx: DatabaseTransaction<'_, '_>,
@@ -264,6 +290,55 @@ impl Database {
         .await?;
         Ok(())
     }
+
+    /// For a given outpoint, gets the block height of the canonical block that spent it.
+    /// Returns None if the outpoint is not spent.
+    pub async fn get_block_height_of_spending_txid(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        outpoint: OutPoint,
+    ) -> Result<Option<u32>, BridgeError> {
+        let query = sqlx::query_scalar::<_, i32>(
+            "SELECT bs.height FROM bitcoin_syncer_spent_utxos bspu
+                INNER JOIN bitcoin_syncer bs ON bspu.block_id = bs.id
+                WHERE bspu.txid = $1 AND bspu.vout = $2 AND bs.is_canonical = true",
+        )
+        .bind(super::wrapper::TxidDB(outpoint.txid))
+        .bind(outpoint.vout as i64);
+
+        let result: Option<i32> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+
+        result
+            .map(|height| u32::try_from(height).wrap_err(BridgeError::IntConversionError))
+            .transpose()
+            .map_err(Into::into)
+    }
+
+    /// Checks if the utxo is spent, if so checks if the spending tx is finalized
+    /// Returns true if the utxo is spent and the spending tx is finalized, false otherwise
+    pub async fn check_if_utxo_spending_tx_is_finalized(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        outpoint: OutPoint,
+        current_chain_height: u32,
+        finality_depth: u32,
+    ) -> Result<bool, BridgeError> {
+        let spending_tx_height = self.get_block_height_of_spending_txid(tx, outpoint).await?;
+        match spending_tx_height {
+            Some(spending_tx_height) => {
+                if spending_tx_height > current_chain_height
+                    || current_chain_height - spending_tx_height < finality_depth
+                {
+                    return Ok(false);
+                }
+                Ok(true)
+            }
+            None => Ok(false),
+        }
+    }
+
+    /// Gets all the spent utxos for a given txid
     pub async fn get_spent_utxos_for_txid(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
@@ -288,7 +363,8 @@ impl Database {
             .collect::<Result<Vec<_>, BridgeError>>()
     }
 
-    pub async fn add_event(
+    /// Adds a bitcoin syncer event to the database. These events can currently be new block or reorged block.
+    pub async fn insert_event(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         event_type: BitcoinSyncerEvent,
@@ -307,11 +383,40 @@ impl Database {
         Ok(())
     }
 
-    pub async fn fetch_next_bitcoin_syncer_evt(
+    /// Returns the last processed Bitcoin Syncer event's block height for given consumer.
+    /// If the last processed event is missing, i.e. there are no processed events for the consumer, returns `None`.
+    pub async fn get_last_processed_event_block_height(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        consumer_handle: &str,
+    ) -> Result<Option<u32>, BridgeError> {
+        let query = sqlx::query_scalar::<_, i32>(
+            r#"SELECT bs.height
+             FROM bitcoin_syncer_event_handlers bseh
+             INNER JOIN bitcoin_syncer_events bse ON bseh.last_processed_event_id = bse.id
+             INNER JOIN bitcoin_syncer bs ON bse.block_id = bs.id
+             WHERE bseh.consumer_handle = $1"#,
+        )
+        .bind(consumer_handle);
+
+        let result: Option<i32> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+
+        result
+            .map(|h| {
+                u32::try_from(h)
+                    .wrap_err(BridgeError::IntConversionError)
+                    .map_err(BridgeError::from)
+            })
+            .transpose()
+    }
+
+    /// Gets the last processed event id for a given consumer
+    pub async fn get_last_processed_event_id(
         &self,
         tx: DatabaseTransaction<'_, '_>,
         consumer_handle: &str,
-    ) -> Result<Option<BitcoinSyncerEvent>, BridgeError> {
+    ) -> Result<i32, BridgeError> {
         // Step 1: Insert the consumer_handle if it doesn't exist
         sqlx::query(
             r#"
@@ -336,7 +441,82 @@ impl Database {
         .fetch_one(tx.deref_mut())
         .await?;
 
-        // Step 3: Retrieve the next event that hasn't been processed yet
+        Ok(last_processed_event_id)
+    }
+
+    /// Returns the maximum block height of the blocks that have been processed by the given consumer.
+    /// If the last processed event is missing, i.e. there are no processed events for the consumer, returns `None`.
+    pub async fn get_max_processed_block_height(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        consumer_handle: &str,
+    ) -> Result<Option<u32>, BridgeError> {
+        let query = sqlx::query_scalar::<_, Option<i32>>(
+            r#"SELECT MAX(bs.height)
+             FROM bitcoin_syncer_events bse
+             INNER JOIN bitcoin_syncer bs ON bse.block_id = bs.id
+             WHERE bse.id <= (
+                 SELECT last_processed_event_id 
+                 FROM bitcoin_syncer_event_handlers 
+                 WHERE consumer_handle = $1
+             )"#,
+        )
+        .bind(consumer_handle);
+
+        let result: Option<i32> = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
+
+        result
+            .map(|h| {
+                u32::try_from(h)
+                    .wrap_err(BridgeError::IntConversionError)
+                    .map_err(BridgeError::from)
+            })
+            .transpose()
+    }
+
+    /// Returns the next finalized block height that should be processed by the given consumer.
+    /// If there are no processed events, returns the paramset start height.
+    /// Next height is the max height of the processed block - finality depth + 1.
+    pub async fn get_next_finalized_block_height_for_consumer(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        consumer_handle: &str,
+        paramset: &'static ProtocolParamset,
+    ) -> Result<u32, BridgeError> {
+        let max_processed_block_height = self
+            .get_max_processed_block_height(tx, consumer_handle)
+            .await?;
+
+        let max_processed_finalized_block_height = match max_processed_block_height {
+            Some(max_processed_block_height) => {
+                max_processed_block_height.checked_sub(paramset.finality_depth)
+            }
+            None => None,
+        };
+
+        let next_height = max_processed_finalized_block_height
+            .map(|h| h + 1)
+            .unwrap_or(paramset.start_height);
+
+        Ok(std::cmp::max(next_height, paramset.start_height))
+    }
+
+    /// Fetches the next bitcoin syncer event for a given consumer
+    /// This function is used to fetch the next event that hasn't been processed yet
+    /// It will return the event which includes the event type and the block id
+    /// The last updated event id is also updated to the id that is returned
+    /// If there are no more events to fetch, None is returned
+    pub async fn fetch_next_bitcoin_syncer_evt(
+        &self,
+        tx: DatabaseTransaction<'_, '_>,
+        consumer_handle: &str,
+    ) -> Result<Option<BitcoinSyncerEvent>, BridgeError> {
+        // Get the last processed event ID for this consumer
+        let last_processed_event_id = self
+            .get_last_processed_event_id(tx, consumer_handle)
+            .await?;
+
+        // Retrieve the next event that hasn't been processed yet
         let event = sqlx::query_as::<_, (i32, i32, String)>(
             r#"
             SELECT id, block_id, event_type::text
@@ -355,18 +535,10 @@ impl Database {
         }
 
         let event = event.expect("should exist since we checked is_none()");
-        let event_type = match event.2.as_str() {
-            "new_block" => BitcoinSyncerEvent::NewBlock(
-                u32::try_from(event.1).wrap_err(BridgeError::IntConversionError)?,
-            ),
-            "reorged_block" => BitcoinSyncerEvent::ReorgedBlock(
-                u32::try_from(event.1).wrap_err(BridgeError::IntConversionError)?,
-            ),
-            _ => return Err(eyre::eyre!("Invalid event type").into()),
-        };
         let event_id = event.0;
+        let event_type: BitcoinSyncerEvent = (event.2, event.1).try_into()?;
 
-        // Step 5: Update last_processed_event_id for this consumer
+        // Update last_processed_event_id for this consumer
         sqlx::query(
             r#"
             UPDATE bitcoin_syncer_event_handlers
@@ -407,12 +579,12 @@ mod tests {
         let height = 0x45;
 
         let block_id = db
-            .add_block_info(Some(&mut dbtx), &block_hash, &prev_block_hash, height)
+            .insert_block_info(Some(&mut dbtx), &block_hash, &prev_block_hash, height)
             .await
             .unwrap();
 
         // Add new block event
-        db.add_event(Some(&mut dbtx), BitcoinSyncerEvent::NewBlock(block_id))
+        db.insert_event(Some(&mut dbtx), BitcoinSyncerEvent::NewBlock(block_id))
             .await
             .unwrap();
 
@@ -433,7 +605,7 @@ mod tests {
         assert!(event.is_none());
 
         // Add reorg event
-        db.add_event(Some(&mut dbtx), BitcoinSyncerEvent::ReorgedBlock(block_id))
+        db.insert_event(Some(&mut dbtx), BitcoinSyncerEvent::ReorgedBlock(block_id))
             .await
             .unwrap();
 
@@ -477,7 +649,7 @@ mod tests {
         let dummy_block_hash = dummy_block.block_hash();
 
         // Store the block
-        db.store_full_block(None, &dummy_block, block_height)
+        db.upsert_full_block(None, &dummy_block, block_height)
             .await
             .unwrap();
 
@@ -517,7 +689,7 @@ mod tests {
 
         let updated_dummy_block_hash = updated_dummy_block.block_hash();
 
-        db.store_full_block(None, &updated_dummy_block, block_height)
+        db.upsert_full_block(None, &updated_dummy_block, block_height)
             .await
             .unwrap();
 
@@ -549,15 +721,15 @@ mod tests {
         let height = 0x45;
 
         let block_id = db
-            .add_block_info(Some(&mut dbtx), &block_hash, &prev_block_hash, height)
+            .insert_block_info(Some(&mut dbtx), &block_hash, &prev_block_hash, height)
             .await
             .unwrap();
 
         // Add events
-        db.add_event(Some(&mut dbtx), BitcoinSyncerEvent::NewBlock(block_id))
+        db.insert_event(Some(&mut dbtx), BitcoinSyncerEvent::NewBlock(block_id))
             .await
             .unwrap();
-        db.add_event(Some(&mut dbtx), BitcoinSyncerEvent::ReorgedBlock(block_id))
+        db.insert_event(Some(&mut dbtx), BitcoinSyncerEvent::ReorgedBlock(block_id))
             .await
             .unwrap();
 
@@ -604,23 +776,25 @@ mod tests {
         let heights = [1, 2, 3, 4, 5];
         let mut last_hash = prev_block_hash;
 
+        // Save some initial blocks.
         let mut block_ids = Vec::new();
         for height in heights {
             let block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([height as u8; 32]));
             let block_id = db
-                .add_block_info(Some(&mut dbtx), &block_hash, &last_hash, height)
+                .insert_block_info(Some(&mut dbtx), &block_hash, &last_hash, height)
                 .await
                 .unwrap();
             block_ids.push(block_id);
             last_hash = block_hash;
         }
 
-        // Mark blocks above height 2 as non-canonical
+        // Mark blocks above height 2 as non-canonical.
         let non_canonical_blocks = db
-            .set_non_canonical_block_hashes(Some(&mut dbtx), 2)
+            .update_non_canonical_block_hashes(Some(&mut dbtx), 2)
             .await
             .unwrap();
-        assert_eq!(non_canonical_blocks.len(), 3); // blocks at height 3, 4, and 5
+        assert_eq!(non_canonical_blocks.len(), 3);
+        assert_eq!(non_canonical_blocks, vec![3, 4, 5]);
 
         // Verify blocks above height 2 are not returned
         for height in heights {
@@ -659,7 +833,7 @@ mod tests {
             .unwrap()
             .is_none());
 
-        db.add_block_info(None, &block_hash, &prev_block_hash, height)
+        db.insert_block_info(None, &block_hash, &prev_block_hash, height)
             .await
             .unwrap();
         let block_info = db
@@ -672,7 +846,7 @@ mod tests {
         assert_eq!(block_info.1, height);
         assert_eq!(max_height, height);
 
-        db.add_block_info(
+        db.insert_block_info(
             None,
             &BlockHash::from_raw_hash(Hash::from_byte_array([0x1; 32])),
             &prev_block_hash,
@@ -683,7 +857,7 @@ mod tests {
         let max_height = db.get_max_height(None).await.unwrap().unwrap();
         assert_eq!(max_height, height);
 
-        db.add_block_info(
+        db.insert_block_info(
             None,
             &BlockHash::from_raw_hash(Hash::from_byte_array([0x2; 32])),
             &prev_block_hash,
@@ -703,7 +877,7 @@ mod tests {
         let mut dbtx = db.begin_transaction().await.unwrap();
 
         assert!(db
-            .add_txid_to_block(&mut dbtx, 0, &Txid::all_zeros())
+            .insert_txid_to_block(&mut dbtx, 0, &Txid::all_zeros())
             .await
             .is_err());
         let mut dbtx = db.begin_transaction().await.unwrap();
@@ -712,7 +886,7 @@ mod tests {
         let block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([0x45; 32]));
         let height = 0x45;
         let block_id = db
-            .add_block_info(Some(&mut dbtx), &block_hash, &prev_block_hash, height)
+            .insert_block_info(Some(&mut dbtx), &block_hash, &prev_block_hash, height)
             .await
             .unwrap();
 
@@ -722,7 +896,7 @@ mod tests {
             Txid::from_raw_hash(Hash::from_byte_array([0x3; 32])),
         ];
         for txid in &txids {
-            db.add_txid_to_block(&mut dbtx, block_id, txid)
+            db.insert_txid_to_block(&mut dbtx, block_id, txid)
                 .await
                 .unwrap();
         }
@@ -749,14 +923,14 @@ mod tests {
         let block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([0x45; 32]));
         let height = 0x45;
         let block_id = db
-            .add_block_info(Some(&mut dbtx), &block_hash, &prev_block_hash, height)
+            .insert_block_info(Some(&mut dbtx), &block_hash, &prev_block_hash, height)
             .await
             .unwrap();
 
         let spending_txid = Txid::from_raw_hash(Hash::from_byte_array([0x2; 32]));
         let txid = Txid::from_raw_hash(Hash::from_byte_array([0x1; 32]));
         let vout = 0;
-        db.add_txid_to_block(&mut dbtx, block_id, &spending_txid)
+        db.insert_txid_to_block(&mut dbtx, block_id, &spending_txid)
             .await
             .unwrap();
 

@@ -1,19 +1,13 @@
 use ark_bn254::{Bn254, Fq, Fq2, G1Affine, G2Affine};
 use ark_groth16::VerifyingKey;
+use bitcoin::{opcodes, script::Instruction, Transaction};
 use risc0_circuit_recursion::control_id::BN254_IDENTITY_CONTROL_ID;
 use risc0_zkvm::{sha::Digestible, SuccinctReceiptVerifierParameters, SystemState};
 use sha2::{Digest, Sha256};
 use std::str::FromStr;
 
-pub fn reverse_bits_and_copy(input: &[u8], output: &mut [u8]) {
-    for i in 0..8 {
-        let temp = u32::from_be_bytes(input[4 * i..4 * i + 4].try_into().unwrap()).reverse_bits();
-        output[4 * i..4 * i + 4].copy_from_slice(&temp.to_le_bytes());
-    }
-}
-
 /// This is the test Verifying Key of the STARK-to-BitVM2 Groth16 proof Circom circuit.
-pub fn get_ark_verifying_key() -> ark_groth16::VerifyingKey<Bn254> {
+pub fn get_ark_verifying_key_prod() -> ark_groth16::VerifyingKey<Bn254> {
     let alpha_g1 = G1Affine::new(
         Fq::from_str(
             "20491192805390485299153009773594534940189261866228447918068658471970481763042",
@@ -241,6 +235,26 @@ pub fn get_ark_verifying_key_dev_mode_bridge() -> ark_groth16::VerifyingKey<Bn25
     }
 }
 
+// Clementine do not use the runtime option to determine dev mode which is newly added in risc0_zkvm.
+// Instead, it uses the environment variable RISC0_DEV_MODE to determine if it is in dev mode.
+// However is_dev_mode function from risc0_zkvm is deprecated.
+// So we implement our own version of is_dev_mode.
+pub fn is_dev_mode() -> bool {
+    std::env::var("RISC0_DEV_MODE")
+        .ok()
+        .map(|x| x.to_lowercase())
+        .filter(|x| x == "1" || x == "true" || x == "yes")
+        .is_some()
+}
+
+pub fn get_verifying_key() -> ark_groth16::VerifyingKey<Bn254> {
+    if is_dev_mode() {
+        get_ark_verifying_key_dev_mode_bridge()
+    } else {
+        get_ark_verifying_key_prod()
+    }
+}
+
 /// Sha256(control_root, pre_state_digest, post_state_digest, id_bn254_fr)
 pub fn calculate_succinct_output_prefix(method_id: &[u8]) -> [u8; 32] {
     let succinct_verifier_params = SuccinctReceiptVerifierParameters::default();
@@ -270,23 +284,18 @@ pub fn calculate_succinct_output_prefix(method_id: &[u8]) -> [u8; 32] {
     result
 }
 
-#[cfg(test)]
-mod tests {
-    use risc0_zkvm::compute_image_id;
-
-    use super::*;
-
-    #[test]
-    fn test_calculate_succinct_output_prefix() {
-        let regtest_bridge_elf =
-            include_bytes!("../../risc0-circuits/elfs/regtest-bridge-circuit-guest.bin");
-        let regtest_bridge_circuit_method_id =
-            compute_image_id(regtest_bridge_elf).expect("should compute image id");
-        let result = calculate_succinct_output_prefix(regtest_bridge_circuit_method_id.as_bytes());
-        assert_eq!(
-            result,
-            [135, 127, 96, 197, 209, 59, 13, 243, 184, 10, 25, 163, 197, 237, 43, 164, 90, 184, 43, 190, 122, 88, 234, 82, 78, 92, 249, 255, 206, 153, 87, 255]
-        , "You forgot to update bridge_circuit_constant with the new method id. Please change it in these places: Here, core/src/cli.rs, core/src/config/prototcol.rs, core/src/test/data/protocol_paramset.toml"
-        );
+pub fn total_work_from_wt_tx(wt_tx: &Transaction) -> [u8; 16] {
+    let output = wt_tx.output[2].clone();
+    let mut instructions = output.script_pubkey.instructions();
+    if let Some(Ok(Instruction::Op(opcodes::all::OP_RETURN))) = instructions.next() {
+        if let Some(Ok(Instruction::PushBytes(data))) = instructions.next() {
+            let data_bytes = data.as_bytes();
+            let total_work: [u8; 16] = data_bytes[64..]
+                .try_into()
+                .expect("Expected total work data to be exactly 16 bytes long after OP_RETURN");
+            return total_work;
+        }
+        panic!("Expected OP_RETURN followed by data");
     }
+    panic!("Expected OP_RETURN instruction in the transaction output script");
 }

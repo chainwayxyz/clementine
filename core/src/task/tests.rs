@@ -5,10 +5,10 @@ use tokio::sync::Mutex;
 use tokio::time::sleep;
 
 use crate::errors::BridgeError;
-use crate::utils::NamedEntity;
+use crate::task::manager::TaskStatus;
 
 use super::manager::BackgroundTaskManager;
-use super::{CancelableResult, Task, TaskExt};
+use super::{CancelableResult, Task, TaskExt, TaskVariant};
 
 // A simple counter task that increments a counter each time it runs
 #[derive(Debug, Clone)]
@@ -45,6 +45,7 @@ impl CounterTask {
 #[tonic::async_trait]
 impl Task for CounterTask {
     type Output = bool;
+    const VARIANT: TaskVariant = TaskVariant::Counter;
 
     async fn run_once(&mut self) -> Result<Self::Output, BridgeError> {
         if self.should_error && self.one_time_fix_at != Some(*self.counter.lock().await) {
@@ -77,19 +78,12 @@ impl SleepTask {
 #[tonic::async_trait]
 impl Task for SleepTask {
     type Output = bool;
+    const VARIANT: TaskVariant = TaskVariant::Sleep;
 
     async fn run_once(&mut self) -> Result<Self::Output, BridgeError> {
         sleep(self.duration).await;
         Ok(true)
     }
-}
-
-// Define an Owner for testing BackgroundTaskManager
-#[derive(Debug, Clone)]
-struct TestOwner;
-
-impl NamedEntity for TestOwner {
-    const ENTITY_NAME: &'static str = "test_owner";
 }
 
 #[tokio::test]
@@ -311,11 +305,11 @@ async fn test_map() {
 #[tokio::test]
 async fn test_task_manager() {
     let counter = Arc::new(Mutex::new(0));
-    let mut manager = BackgroundTaskManager::<TestOwner>::default();
+    let mut manager = BackgroundTaskManager::default();
 
     // Add a task that increments the counter 5 times
     let task = CounterTask::new(Arc::clone(&counter), 5);
-    manager.loop_and_monitor(task);
+    manager.ensure_task_looping(task.clone()).await;
 
     // Sleep to give the task time to run
     sleep(Duration::from_millis(500)).await;
@@ -330,15 +324,15 @@ async fn test_task_manager() {
 #[tokio::test]
 async fn test_task_manager_abort() {
     let counter = Arc::new(Mutex::new(0));
-    let mut manager = BackgroundTaskManager::<TestOwner>::default();
+    let mut manager = BackgroundTaskManager::default();
 
     // Add a task that sleeps for a long time
     let task = SleepTask::new(Duration::from_secs(10));
-    manager.loop_and_monitor(task);
+    manager.ensure_task_looping(task.clone()).await;
 
     // Start a counter task too
     let task = CounterTask::new(Arc::clone(&counter), 100);
-    manager.loop_and_monitor(task);
+    manager.ensure_task_looping(task.clone()).await;
 
     // Sleep for a short time to let tasks start
     sleep(Duration::from_millis(100)).await;
@@ -349,11 +343,11 @@ async fn test_task_manager_abort() {
 
 #[tokio::test]
 async fn test_task_manager_timeout() {
-    let mut manager = BackgroundTaskManager::<TestOwner>::default();
+    let mut manager = BackgroundTaskManager::default();
 
     // Add a task that sleeps for a long time
     let task = SleepTask::new(Duration::from_secs(10));
-    manager.loop_and_monitor(task);
+    manager.ensure_task_looping(task.clone()).await;
 
     // Graceful shutdown with short timeout should abort the task
     let start = Instant::now();
@@ -364,4 +358,46 @@ async fn test_task_manager_timeout() {
 
     // Should timeout and abort quickly
     assert!(elapsed < Duration::from_secs(1));
+}
+
+#[tokio::test]
+async fn test_task_manager_abort_and_restart() {
+    let counter = Arc::new(Mutex::new(0));
+    let mut manager = BackgroundTaskManager::default();
+
+    // Add a task that sleeps for a long time
+    let sleep_task = SleepTask::new(Duration::from_secs(10));
+    manager.ensure_task_looping(sleep_task.clone()).await;
+
+    // Start a counter task too
+    let counter_task = CounterTask::new(Arc::clone(&counter), 100);
+    manager.ensure_task_looping(counter_task.clone()).await;
+
+    // Sleep for a short time to let tasks start
+    sleep(Duration::from_millis(100)).await;
+
+    // Abort all tasks
+    manager.abort_all();
+
+    // check tasks are set as not running
+    let variants = [TaskVariant::Counter, TaskVariant::Sleep];
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    for variant in variants {
+        assert!(matches!(
+            manager.get_task_status(variant).await,
+            Some(TaskStatus::NotRunning(_))
+        ));
+    }
+
+    // check if restart works
+    manager.ensure_task_looping(sleep_task.clone()).await;
+    manager.ensure_task_looping(counter_task.clone()).await;
+
+    // check if they are running
+    for variant in variants {
+        assert!(matches!(
+            manager.get_task_status(variant).await,
+            Some(TaskStatus::Running)
+        ));
+    }
 }

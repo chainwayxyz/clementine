@@ -9,10 +9,12 @@ use std::sync::Arc;
 use crate::builder::script::{
     BaseDepositScript, Multisig, ReplacementDepositScript, SpendableScript, TimelockScript,
 };
+use crate::builder::transaction::create_move_to_vault_txhandler;
 use crate::config::protocol::ProtocolParamset;
 use crate::errors::BridgeError;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::operator::RoundIndex;
+use crate::utils::ScriptBufExt;
 use crate::EVMAddress;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::secp256k1::PublicKey;
@@ -57,6 +59,16 @@ impl PartialEq for DepositData {
             && self.get_verifiers() == other.get_verifiers()
             && self.get_watchtowers() == other.get_watchtowers()
             && self.deposit.deposit_type == other.deposit.deposit_type
+    }
+}
+
+impl DepositData {
+    /// Returns the move to vault txid of the deposit.
+    pub fn get_move_txid(
+        &mut self,
+        paramset: &'static ProtocolParamset,
+    ) -> Result<Txid, BridgeError> {
+        Ok(*create_move_to_vault_txhandler(self, paramset)?.get_txid())
     }
 }
 
@@ -170,11 +182,9 @@ impl DepositData {
                     .assume_checked()
                     .script_pubkey();
 
-                let recovery_extracted_xonly_pk =
-                    XOnlyPublicKey::from_slice(&recovery_script_pubkey.as_bytes()[2..34])
-                        .wrap_err(
-                            "Failed to extract xonly public key from recovery script pubkey",
-                        )?;
+                let recovery_extracted_xonly_pk = recovery_script_pubkey
+                    .try_get_taproot_pk()
+                    .wrap_err("Recovery taproot address is not a valid taproot address")?;
 
                 let script_timelock = Arc::new(TimelockScript::new(
                     Some(recovery_extracted_xonly_pk),
@@ -322,8 +332,6 @@ pub struct OperatorData {
     pub collateral_funding_outpoint: OutPoint,
 }
 
-// TODO: remove this impl, this is done to avoid checking the address, instead
-// we should be checking address against a paramset
 impl<'de> serde::Deserialize<'de> for OperatorData {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where

@@ -1,19 +1,20 @@
-# Set up OS
-FROM ubuntu:22.04
-RUN apt update && \
-    apt -y install curl gcc cpp cmake clang llvm pkg-config libssl-dev && \
-    apt -y autoremove && \
-    apt clean && \
-    rm -rf /var/lib/apt/lists/*
-
-# Set up Rust
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain=1.85.0
-
 # Compile Clementine
+FROM rust:1.85.0
 COPY . .
 WORKDIR /clementine
-RUN /root/.cargo/bin/cargo +1.85.0 build --release --bin clementine-core
+RUN cargo +1.85.0 build --release --bin clementine-core
+
+FROM debian:bookworm-slim
+RUN \
+  apt-get update \
+  && apt -y install gettext-base libssl-dev wget \
+  && apt clean \
+  && apt install -y --no-install-recommends ca-certificates \
+  && update-ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY --from=0 /target/release/clementine-core /clementine-core
 
 # Set up Clementine
-ENTRYPOINT [ "/target/release/clementine-core" ]
+ENTRYPOINT [ "/clementine-core" ]
 EXPOSE 17000

@@ -18,12 +18,17 @@ use sqlx::Executor;
 use std::ops::DerefMut;
 
 impl Database {
+    /// Set all transactions' `seen_block_id` to the given block id. This will
+    /// be called once a block is confirmed on the Bitcoin side.
     pub async fn confirm_transactions(
         &self,
         tx: DatabaseTransaction<'_, '_>,
         block_id: u32,
     ) -> Result<(), BridgeError> {
-        // Common CTEs for reuse
+        let block_id = i32::try_from(block_id).wrap_err("Failed to convert block id to i32")?;
+
+        // CTEs for collecting a block's transactions, spent UTXOs and confirmed
+        // RBF transactions.
         let common_ctes = r#"
             WITH relevant_txs AS (
                 SELECT txid
@@ -52,7 +57,7 @@ impl Database {
             AND tap.seen_block_id IS NULL",
             common_ctes
         ))
-        .bind(i32::try_from(block_id).wrap_err("Failed to convert block id to i32")?)
+        .bind(block_id)
         .execute(tx.deref_mut())
         .await?;
 
@@ -65,7 +70,7 @@ impl Database {
             AND tap.seen_block_id IS NULL",
             common_ctes
         ))
-        .bind(i32::try_from(block_id).wrap_err("Failed to convert block id to i32")?)
+        .bind(block_id)
         .execute(tx.deref_mut())
         .await?;
 
@@ -78,7 +83,7 @@ impl Database {
             AND ctt.seen_block_id IS NULL",
             common_ctes
         ))
-        .bind(i32::try_from(block_id).wrap_err("Failed to convert block id to i32")?)
+        .bind(block_id)
         .execute(tx.deref_mut())
         .await?;
 
@@ -91,7 +96,7 @@ impl Database {
             AND cto.seen_block_id IS NULL",
             common_ctes
         ))
-        .bind(i32::try_from(block_id).wrap_err("Failed to convert block id to i32")?)
+        .bind(block_id)
         .execute(tx.deref_mut())
         .await?;
 
@@ -104,7 +109,7 @@ impl Database {
             AND fpu.seen_block_id IS NULL",
             common_ctes
         ))
-        .bind(i32::try_from(block_id).wrap_err("Failed to convert block id to i32")?)
+        .bind(block_id)
         .execute(tx.deref_mut())
         .await?;
 
@@ -117,7 +122,7 @@ impl Database {
             AND txs.seen_block_id IS NULL",
             common_ctes
         ))
-        .bind(i32::try_from(block_id).wrap_err("Failed to convert block id to i32")?)
+        .bind(block_id)
         .execute(tx.deref_mut())
         .await?;
 
@@ -130,7 +135,7 @@ impl Database {
             AND txs.seen_block_id IS NULL",
             common_ctes
         ))
-        .bind(i32::try_from(block_id).wrap_err("Failed to convert block id to i32")?)
+        .bind(block_id)
         .execute(tx.deref_mut())
         .await?;
 
@@ -146,7 +151,7 @@ impl Database {
             AND txs.seen_block_id IS NULL",
                 common_ctes
             ))
-            .bind(block_id as i32)
+            .bind(block_id)
             .fetch_all(&bg_db.connection)
             .await
             else {
@@ -163,7 +168,7 @@ impl Database {
             AND txs.seen_block_id IS NULL",
                 common_ctes
             ))
-            .bind(block_id as i32)
+            .bind(block_id)
             .fetch_all(&bg_db.connection)
             .await
             else {
@@ -199,6 +204,10 @@ impl Database {
         Ok(())
     }
 
+    /// Unassigns `seen_block_id` from all transactions in the given block id.
+    /// By default, all transactions' `seen_block_id` is set to NULL. And they
+    /// get assigned a block id when they are confirmed on Bitcoin side. If a
+    /// reorg happens, block ids must be unassigned from all transactions.
     pub async fn unconfirm_transactions(
         &self,
         tx: DatabaseTransaction<'_, '_>,
@@ -217,13 +226,16 @@ impl Database {
 
         let bg_db = self.clone();
         tokio::spawn(async move {
-            let Ok(previously_confirmed_txs) = previously_confirmed_txs else {
-                tracing::error!("Failed to get previously confirmed txs");
-                return;
+            let previously_confirmed_txs = match previously_confirmed_txs {
+                Ok(txs) => txs,
+                Err(e) => {
+                    tracing::error!(error=?e, "Failed to get previously confirmed txs from database");
+                    return;
+                }
             };
 
             for (tx_id,) in previously_confirmed_txs {
-                tracing::warn!(try_to_send_id=?tx_id, "Transaction unconfirmed in block {}: unconfirming", block_id);
+                tracing::debug!(try_to_send_id=?tx_id, "Transaction unconfirmed in block {}: unconfirming", block_id);
                 let _ = bg_db
                     .update_tx_debug_sending_state(tx_id as u32, "unconfirmed", false)
                     .await;
@@ -326,10 +338,22 @@ impl Database {
         Ok(())
     }
 
-    /// Some fee payer TXs may not hit onchain, so we need to bump their fees.
-    /// These TXs should not be confirmed and should not be replaced by other TXs.
-    /// Replaced means that the TX was bumped and the replacement TX is in the database.
-    pub async fn get_bumpable_fee_payer_txs(
+    /// Returns all unconfirmed fee payer transactions for a try-to-send tx.
+    /// Replaced (bumped) fee payers are not included.
+    ///
+    /// # Parameters
+    ///
+    /// - `bumped_id`: The id of the bumped transaction
+    ///
+    /// # Returns
+    ///
+    /// A vector of unconfirmed fee payer transaction details, including:
+    ///
+    /// - [`u32`]: Id of the fee payer transaction.
+    /// - [`Txid`]: Txid of the fee payer transaction.
+    /// - [`u32`]: Output index of the UTXO.
+    /// - [`Amount`]: Amount in satoshis.
+    pub async fn get_unconfirmed_fee_payer_txs(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         bumped_id: u32,
@@ -394,6 +418,26 @@ impl Database {
                 ))
             })
             .collect::<Result<Vec<_>, BridgeError>>()
+    }
+
+    /// Returns the id of the tx in `tx_sender_try_to_send_txs` if it exists.
+    /// Used to avoid adding duplicate transactions to the txsender.
+    pub async fn check_if_tx_exists_on_txsender(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        txid: Txid,
+    ) -> Result<Option<u32>, BridgeError> {
+        let query = sqlx::query_as::<_, (i32,)>(
+            "SELECT id FROM tx_sender_try_to_send_txs WHERE txid = $1 LIMIT 1",
+        )
+        .bind(TxidDB(txid));
+
+        let result: Option<(i32,)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+        Ok(match result {
+            Some((id,)) => Some(u32::try_from(id).wrap_err("Failed to convert id to u32")?),
+            None => None,
+        })
     }
 
     pub async fn save_tx(
@@ -515,6 +559,25 @@ impl Database {
         Ok(())
     }
 
+    /// Returns unconfirmed try-to-send transactions that satisfy all activation
+    /// conditions for sending:
+    ///
+    /// - Not in the non-active list
+    /// - Not in the cancelled list
+    /// - Transaction itself is not already confirmed
+    /// - Transaction and UTXO timelocks must be passed
+    /// - Fee rate is lower than the provided fee rate or null (deprecated)
+    ///
+    /// # Parameters
+    ///
+    /// - `tx`: Optional database transaction
+    /// - `fee_rate`: Maximum fee rate for the transactions to be sendable
+    /// - `current_tip_height`: The current tip height of the Bitcoin blockchain
+    ///   for checking timelocks
+    ///
+    /// # Returns
+    ///
+    /// - [`Vec<u32>`]: A vector of transaction ids (db id) that are sendable.
     pub async fn get_sendable_txs(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
@@ -538,7 +601,7 @@ impl Database {
 
                     UNION
 
-                    -- Transactions with outpoint activations that aren't active yet
+                    -- Transactions with outpoint activations that aren't active yet (not seen or timelock not passed)
                     SELECT DISTINCT
                         activate_outpoint.activated_id AS tx_id
                     FROM
@@ -552,7 +615,7 @@ impl Database {
 
                 -- Transactions with cancelled conditions
                 cancelled_txs AS (
-                    -- Transactions with cancelled outpoints
+                    -- Transactions with cancelled outpoints (not seen)
                     SELECT DISTINCT
                         cancelled_id AS tx_id
                     FROM
@@ -562,7 +625,7 @@ impl Database {
 
                     UNION
 
-                    -- Transactions with cancelled txids
+                    -- Transactions with cancelled txids (not seen)
                     SELECT DISTINCT
                         cancelled_id AS tx_id
                     FROM
@@ -830,254 +893,13 @@ impl Database {
 
         Ok(())
     }
-
-    #[cfg(test)]
-    pub async fn debug_inactive_txs(&self, fee_rate: FeeRate, current_tip_height: u32) {
-        tracing::info!("TXSENDER_DBG_INACTIVE_TXS: Checking inactive transactions");
-
-        // Query all transactions that aren't confirmed yet
-        let unconfirmed_txs = match sqlx::query_as::<_, (i32, TxidDB, Option<String>)>(
-            "SELECT id, txid, tx_metadata FROM tx_sender_try_to_send_txs WHERE seen_block_id IS NULL",
-        )
-        .fetch_all(&self.connection)
-        .await
-        {
-            Ok(txs) => txs,
-            Err(e) => {
-                tracing::error!(
-                    "TXSENDER_DBG_INACTIVE_TXS: Failed to query unconfirmed txs: {}",
-                    e
-                );
-                return;
-            }
-        };
-
-        let sendable_txs = match self
-            .get_sendable_txs(None, fee_rate, current_tip_height)
-            .await
-        {
-            Ok(txs) => txs,
-            Err(e) => {
-                tracing::error!(
-                    "TXSENDER_DBG_INACTIVE_TXS: Failed to get sendable txs: {}",
-                    e
-                );
-                return;
-            }
-        };
-
-        for (tx_id, txid, tx_metadata) in unconfirmed_txs {
-            let tx_metadata: Option<TxMetadata> =
-                serde_json::from_str(tx_metadata.as_deref().unwrap_or("null")).ok();
-
-            let id = match u32::try_from(tx_id) {
-                Ok(id) => id,
-                Err(e) => {
-                    tracing::error!("TXSENDER_DBG_INACTIVE_TXS: Failed to convert id: {}", e);
-                    continue;
-                }
-            };
-
-            if sendable_txs.contains(&id) {
-                tracing::info!(
-                    "TXSENDER_DBG_INACTIVE_TXS: TX {} (txid: {}) is ACTIVE",
-                    id,
-                    txid.0
-                );
-                continue;
-            }
-
-            tracing::info!(
-                "TXSENDER_DBG_INACTIVE_TXS: TX {} (txid: {}, type: {:?}) is inactive, reasons:",
-                id,
-                txid.0,
-                tx_metadata.map(|metadata| metadata.tx_type)
-            );
-
-            // Check for txid activations that aren't active yet
-            let txid_activations = match sqlx::query_as::<_, (Option<i32>, i64, TxidDB)>(
-                "SELECT seen_block_id, timelock, txid
-                FROM tx_sender_activate_try_to_send_txids
-                WHERE activated_id = $1",
-            )
-            .bind(tx_id)
-            .fetch_all(&self.connection)
-            .await
-            {
-                Ok(activations) => activations,
-                Err(e) => {
-                    tracing::error!(
-                        "TXSENDER_DBG_INACTIVE_TXS: Failed to query txid activations: {}",
-                        e
-                    );
-                    continue;
-                }
-            };
-
-            for (seen_block_id, timelock, txid) in txid_activations {
-                if seen_block_id.is_none() {
-                    tracing::info!("TXSENDER_DBG_INACTIVE_TXS: TX {} is inactive because its txid activation {} has not been seen", id, txid.0);
-                    continue;
-                }
-
-                let block_height = match sqlx::query_scalar::<_, i32>(
-                    "SELECT height FROM bitcoin_syncer WHERE id = $1",
-                )
-                .bind(seen_block_id.unwrap())
-                .fetch_one(&self.connection)
-                .await
-                {
-                    Ok(height) => height,
-                    Err(e) => {
-                        tracing::error!(
-                            "TXSENDER_DBG_INACTIVE_TXS: Failed to get block height: {}",
-                            e
-                        );
-                        continue;
-                    }
-                };
-
-                if block_height + timelock as i32 > current_tip_height as i32 {
-                    tracing::info!(
-                        "TXSENDER_DBG_INACTIVE_TXS: TX {} is inactive because its txid activation timelock hasn't expired (block_height: {}, timelock: {}, current_tip_height: {})",
-                        id, block_height, timelock, current_tip_height
-                    );
-                }
-            }
-
-            // Check for outpoint activations that aren't active yet
-            let outpoint_activations = match sqlx::query_as::<_, (Option<i32>, i64, TxidDB, i32)>(
-                "SELECT seen_block_id, timelock, txid, vout
-                FROM tx_sender_activate_try_to_send_outpoints
-                WHERE activated_id = $1",
-            )
-            .bind(tx_id)
-            .fetch_all(&self.connection)
-            .await
-            {
-                Ok(activations) => activations,
-                Err(e) => {
-                    tracing::error!(
-                        "TXSENDER_DBG_INACTIVE_TXS: Failed to query outpoint activations: {}",
-                        e
-                    );
-                    continue;
-                }
-            };
-
-            for (seen_block_id, timelock, txid, vout) in outpoint_activations {
-                if seen_block_id.is_none() {
-                    tracing::info!("TXSENDER_DBG_INACTIVE_TXS: TX {} is inactive because its outpoint activation has not been seen ({}:{})", id, txid.0, vout);
-                    continue;
-                }
-
-                let block_height = match sqlx::query_scalar::<_, i32>(
-                    "SELECT height FROM bitcoin_syncer WHERE id = $1",
-                )
-                .bind(seen_block_id.unwrap())
-                .fetch_one(&self.connection)
-                .await
-                {
-                    Ok(height) => height,
-                    Err(e) => {
-                        tracing::error!(
-                            "TXSENDER_DBG_INACTIVE_TXS: Failed to get block height: {}",
-                            e
-                        );
-                        continue;
-                    }
-                };
-
-                if block_height + timelock as i32 > current_tip_height as i32 {
-                    tracing::info!(
-                        "TXSENDER_DBG_INACTIVE_TXS: TX {} is inactive because its outpoint activation timelock hasn't expired (block_height: {}, timelock: {}, current_tip_height: {})",
-                        id, block_height, timelock, current_tip_height
-                    );
-                }
-            }
-
-            // Check for cancelled conditions
-            let cancelled_outpoints = match sqlx::query_scalar::<_, i64>(
-                "SELECT COUNT(*) FROM tx_sender_cancel_try_to_send_outpoints
-                WHERE cancelled_id = $1 AND seen_block_id IS NOT NULL",
-            )
-            .bind(tx_id)
-            .fetch_one(&self.connection)
-            .await
-            {
-                Ok(count) => count,
-                Err(e) => {
-                    tracing::error!(
-                        "TXSENDER_DBG_INACTIVE_TXS: Failed to query cancelled outpoints: {}",
-                        e
-                    );
-                    continue;
-                }
-            };
-
-            if cancelled_outpoints > 0 {
-                tracing::info!("TXSENDER_DBG_INACTIVE_TXS: TX {} is inactive because it has {} cancelled outpoints", id, cancelled_outpoints);
-            }
-
-            let cancelled_txids = match sqlx::query_scalar::<_, i64>(
-                "SELECT COUNT(*) FROM tx_sender_cancel_try_to_send_txids
-                WHERE cancelled_id = $1 AND seen_block_id IS NOT NULL",
-            )
-            .bind(tx_id)
-            .fetch_one(&self.connection)
-            .await
-            {
-                Ok(count) => count,
-                Err(e) => {
-                    tracing::error!(
-                        "TXSENDER_DBG_INACTIVE_TXS: Failed to query cancelled txids: {}",
-                        e
-                    );
-                    continue;
-                }
-            };
-
-            if cancelled_txids > 0 {
-                tracing::info!("TXSENDER_DBG_INACTIVE_TXS: TX {} is inactive because it has {} cancelled txids", id, cancelled_txids);
-            }
-
-            // Check fee rate
-            let effective_fee_rate = match sqlx::query_scalar::<_, Option<i64>>(
-                "SELECT effective_fee_rate FROM tx_sender_try_to_send_txs WHERE id = $1",
-            )
-            .bind(tx_id)
-            .fetch_one(&self.connection)
-            .await
-            {
-                Ok(rate) => rate,
-                Err(e) => {
-                    tracing::error!(
-                        "TXSENDER_DBG_INACTIVE_TXS: Failed to query effective fee rate: {}",
-                        e
-                    );
-                    continue;
-                }
-            };
-
-            if let Some(rate) = effective_fee_rate {
-                if rate >= fee_rate.to_sat_per_vb_ceil() as i64 {
-                    tracing::info!(
-                        "TXSENDER_DBG_INACTIVE_TXS: TX {} is inactive because its effective fee rate ({} sat/vB) is >= the current fee rate ({} sat/vB)",
-                        id, rate, fee_rate.to_sat_per_vb_ceil()
-                    );
-                }
-            }
-        }
-    }
 }
 
 #[cfg(test)]
 mod tests {
-
-    use crate::test::common::*;
-
     use super::*;
     use crate::database::Database;
+    use crate::test::common::*;
     use bitcoin::absolute::Height;
     use bitcoin::hashes::Hash;
     use bitcoin::transaction::Version;
@@ -1103,6 +925,8 @@ mod tests {
         let rbfinfo = Some(RbfSigningInfo {
             vout: 123,
             tweak_merkle_root: Some(TapNodeHash::all_zeros()),
+            annex: None,
+            additional_taproot_output_count: None,
         });
         let id = db
             .save_tx(None, None, &tx, FeePayingType::CPFP, txid, rbfinfo.clone())
@@ -1206,7 +1030,7 @@ mod tests {
         .unwrap();
 
         // Save the transaction in the block
-        db.add_txid_to_block(&mut dbtx, block_id, &fee_payer_txid)
+        db.insert_txid_to_block(&mut dbtx, block_id, &fee_payer_txid)
             .await
             .unwrap();
 
