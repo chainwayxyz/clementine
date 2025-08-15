@@ -766,10 +766,7 @@
 <a href="#765" id="765">765</a>
 <a href="#766" id="766">766</a>
 <a href="#767" id="767">767</a>
-<a href="#768" id="768">768</a>
-<a href="#769" id="769">769</a>
-<a href="#770" id="770">770</a>
-<a href="#771" id="771">771</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::WinternitzDerivationPath;
+<a href="#768" id="768">768</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::actor::WinternitzDerivationPath;
 <span class="kw">use </span><span class="kw">crate</span>::builder::address::taproot_builder_with_scripts;
 <span class="kw">use </span><span class="kw">crate</span>::builder::script::{SpendableScript, WinternitzCommit};
 
@@ -786,7 +783,7 @@
 
 <span class="kw">use </span>bitvm::signatures::{Wots, Wots20};
 <span class="kw">use </span>borsh::{BorshDeserialize, BorshSerialize};
-<span class="kw">use </span>bridge_circuit_host::utils::{get_verifying_key, is_dev_mode};
+<span class="kw">use </span>bridge_circuit_host::utils::get_verifying_key;
 <span class="kw">use </span>std::fs;
 <span class="kw">use </span>tokio::sync::Mutex;
 
@@ -830,11 +827,8 @@
 <span class="kw">pub fn </span>load_or_generate_bitvm_cache() -&gt; BitvmCache {
     <span class="kw">let </span>start = Instant::now();
 
-    <span class="kw">let </span>cache_path = <span class="kw">if </span>is_dev_mode() {
-        <span class="string">"bitvm_cache_dev.bin"</span>.to_string()
-    } <span class="kw">else </span>{
-        std::env::var(<span class="string">"BITVM_CACHE_PATH"</span>).unwrap_or_else(|<span class="kw">_</span>| <span class="string">"bitvm_cache.bin"</span>.to_string())
-    };
+    <span class="kw">let </span>cache_path =
+        std::env::var(<span class="string">"BITVM_CACHE_PATH"</span>).unwrap_or_else(|<span class="kw">_</span>| <span class="string">"bitvm_cache.bin"</span>.to_string());
 
     <span class="kw">let </span>bitvm_cache = {
         <span class="macro">tracing::debug!</span>(<span class="string">"Attempting to load BitVM cache from file: {}"</span>, cache_path);
