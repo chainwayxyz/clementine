@@ -33,11 +33,17 @@ pub const REGTEST_BRIDGE_CIRCUIT_ELF_TEST: &[u8] =
 pub const TESTNET4_BRIDGE_CIRCUIT_ELF: &[u8] =
     include_bytes!("../../risc0-circuits/elfs/testnet4-bridge-circuit-guest.bin");
 
+pub const TESTNET4_BRIDGE_CIRCUIT_ELF_TEST: &[u8] =
+    include_bytes!("../../risc0-circuits/elfs/test-testnet4-bridge-circuit-guest.bin");
+
 pub const MAINNET_BRIDGE_CIRCUIT_ELF: &[u8] =
     include_bytes!("../../risc0-circuits/elfs/mainnet-bridge-circuit-guest.bin");
 
 pub const SIGNET_BRIDGE_CIRCUIT_ELF: &[u8] =
     include_bytes!("../../risc0-circuits/elfs/signet-bridge-circuit-guest.bin");
+
+pub const SIGNET_BRIDGE_CIRCUIT_ELF_TEST: &[u8] =
+    include_bytes!("../../risc0-circuits/elfs/test-signet-bridge-circuit-guest.bin");
 
 pub const TESTNET4_HEADER_CHAIN_GUEST_ELF: &[u8] =
     include_bytes!("../../risc0-circuits/elfs/testnet4-header-chain-guest.bin");
@@ -127,13 +133,14 @@ pub fn prove_bridge_circuit(
         _ => return Err(eyre!("Unsupported network")),
     };
 
+    let is_regtest = bridge_circuit_host_params.network.0 == bitcoin::Network::Regtest;
+
     // Verify light client proof
-    if bridge_circuit_host_params
-        .lcp_receipt
-        .verify(lc_image_id)
-        .is_err()
-    {
-        return Err(eyre!("Light client proof verification failed"));
+    if !is_regtest {
+        bridge_circuit_host_params
+            .lcp_receipt
+            .verify(lc_image_id)
+            .map_err(|_| eyre!("Light client proof verification failed"))?;
     }
 
     // Header chain verification

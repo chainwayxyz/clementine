@@ -502,8 +502,10 @@ impl CitreaClientT for CitreaClient {
 
             let lc_image_id = paramset.get_lcp_image_id()?;
 
-            if receipt.verify(lc_image_id).is_err() {
-                return Err(eyre::eyre!("Current light client proof verification failed").into());
+            if !paramset.is_regtest() {
+                receipt
+                    .verify(lc_image_id)
+                    .map_err(|_| eyre::eyre!("Light client proof verification failed"))?;
             }
 
             let proof_output: LightClientCircuitOutput = borsh::from_slice(&receipt.journal.bytes)
