@@ -2493,7 +2493,15 @@
 <a href="#2492" id="2492">2492</a>
 <a href="#2493" id="2493">2493</a>
 <a href="#2494" id="2494">2494</a>
-<a href="#2495" id="2495">2495</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_ff::PrimeField;
+<a href="#2495" id="2495">2495</a>
+<a href="#2496" id="2496">2496</a>
+<a href="#2497" id="2497">2497</a>
+<a href="#2498" id="2498">2498</a>
+<a href="#2499" id="2499">2499</a>
+<a href="#2500" id="2500">2500</a>
+<a href="#2501" id="2501">2501</a>
+<a href="#2502" id="2502">2502</a>
+<a href="#2503" id="2503">2503</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_ff::PrimeField;
 <span class="kw">use </span>circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
 
 <span class="kw">use </span><span class="kw">crate</span>::actor::{Actor, TweakCache, WinternitzDerivationPath};
@@ -2553,7 +2561,8 @@
         bridge_circuit_host::{
             create_spv, prove_bridge_circuit, MAINNET_BRIDGE_CIRCUIT_ELF,
             REGTEST_BRIDGE_CIRCUIT_ELF, REGTEST_BRIDGE_CIRCUIT_ELF_TEST, SIGNET_BRIDGE_CIRCUIT_ELF,
-            TESTNET4_BRIDGE_CIRCUIT_ELF,
+            SIGNET_BRIDGE_CIRCUIT_ELF_TEST, TESTNET4_BRIDGE_CIRCUIT_ELF,
+            TESTNET4_BRIDGE_CIRCUIT_ELF_TEST,
         },
         structs::{BridgeCircuitHostParams, WatchtowerContext},
     },
@@ -4010,8 +4019,20 @@
 
         <span class="kw">let </span>bridge_circuit_elf = <span class="kw">match </span><span class="self">self</span>.config.protocol_paramset().network {
             bitcoin::Network::Bitcoin =&gt; MAINNET_BRIDGE_CIRCUIT_ELF,
-            bitcoin::Network::Testnet4 =&gt; TESTNET4_BRIDGE_CIRCUIT_ELF,
-            bitcoin::Network::Signet =&gt; SIGNET_BRIDGE_CIRCUIT_ELF,
+            bitcoin::Network::Testnet4 =&gt; {
+                <span class="kw">if </span>is_dev_mode() {
+                    TESTNET4_BRIDGE_CIRCUIT_ELF_TEST
+                } <span class="kw">else </span>{
+                    TESTNET4_BRIDGE_CIRCUIT_ELF
+                }
+            }
+            bitcoin::Network::Signet =&gt; {
+                <span class="kw">if </span>is_dev_mode() {
+                    SIGNET_BRIDGE_CIRCUIT_ELF_TEST
+                } <span class="kw">else </span>{
+                    SIGNET_BRIDGE_CIRCUIT_ELF
+                }
+            }
             bitcoin::Network::Regtest =&gt; {
                 <span class="kw">if </span>is_dev_mode() {
                     REGTEST_BRIDGE_CIRCUIT_ELF_TEST
@@ -4028,11 +4049,6 @@
             }
         };
         <span class="macro">tracing::info!</span>(<span class="string">"Starting proving bridge circuit to send asserts"</span>);
-
-        <span class="attr">#[cfg(test)]
-        </span><span class="self">self</span>.config
-            .test_params
-            .maybe_dump_bridge_circuit_params_to_file(<span class="kw-2">&amp;</span>bridge_circuit_host_params)<span class="question-mark">?</span>;
 
         <span class="attr">#[cfg(test)]
         </span><span class="self">self</span>.config

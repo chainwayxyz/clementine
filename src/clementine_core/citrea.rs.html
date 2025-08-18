@@ -660,7 +660,9 @@
 <a href="#659" id="659">659</a>
 <a href="#660" id="660">660</a>
 <a href="#661" id="661">661</a>
-<a href="#662" id="662">662</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Citrea Related Utilities
+<a href="#662" id="662">662</a>
+<a href="#663" id="663">663</a>
+<a href="#664" id="664">664</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Citrea Related Utilities
 
 </span><span class="kw">use </span><span class="kw">crate</span>::config::protocol::ProtocolParamset;
 <span class="kw">use </span><span class="kw">crate</span>::database::DatabaseTransaction;
@@ -1164,8 +1166,10 @@
 
             <span class="kw">let </span>lc_image_id = paramset.get_lcp_image_id()<span class="question-mark">?</span>;
 
-            <span class="kw">if </span>receipt.verify(lc_image_id).is_err() {
-                <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(<span class="string">"Current light client proof verification failed"</span>).into());
+            <span class="kw">if </span>!paramset.is_regtest() {
+                receipt
+                    .verify(lc_image_id)
+                    .map_err(|<span class="kw">_</span>| <span class="macro">eyre::eyre!</span>(<span class="string">"Light client proof verification failed"</span>))<span class="question-mark">?</span>;
             }
 
             <span class="kw">let </span>proof_output: LightClientCircuitOutput = borsh::from_slice(<span class="kw-2">&amp;</span>receipt.journal.bytes)

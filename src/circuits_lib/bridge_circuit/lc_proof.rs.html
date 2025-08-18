@@ -111,7 +111,20 @@
 <a href="#110" id="110">110</a>
 <a href="#111" id="111">111</a>
 <a href="#112" id="112">112</a>
-<a href="#113" id="113">113</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Light Client Proof Verifier
+<a href="#113" id="113">113</a>
+<a href="#114" id="114">114</a>
+<a href="#115" id="115">115</a>
+<a href="#116" id="116">116</a>
+<a href="#117" id="117">117</a>
+<a href="#118" id="118">118</a>
+<a href="#119" id="119">119</a>
+<a href="#120" id="120">120</a>
+<a href="#121" id="121">121</a>
+<a href="#122" id="122">122</a>
+<a href="#123" id="123">123</a>
+<a href="#124" id="124">124</a>
+<a href="#125" id="125">125</a>
+<a href="#126" id="126">126</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Light Client Proof Verifier
 //! This module implements the light client proof verifier for the bridge circuit.
 //! It includes functions to verify light client proofs and extracting the light client circuit output.
 
@@ -135,18 +148,31 @@
     }
 };
 
+<span class="attr">#[inline]
+</span><span class="kw">fn </span>is_regtest() -&gt; bool {
+    <span class="macro">option_env!</span>(<span class="string">"BITCOIN_NETWORK"</span>) == <span class="prelude-val">Some</span>(<span class="string">"regtest"</span>)
+}
+
+<span class="doccomment">/// Deserializes the light client circuit output from journal bytes.
+</span><span class="kw">fn </span>deserialize_circuit_output(journal: <span class="kw-2">&amp;</span>[u8]) -&gt; LightClientCircuitOutput {
+    borsh::from_slice(journal).expect(<span class="string">"Failed to deserialize light client circuit output"</span>)
+}
+
 <span class="doccomment">/// Verifies the light client proof and returns the light client circuit output.
 </span><span class="kw">pub fn </span>lc_proof_verifier(light_client_proof: LightClientProof) -&gt; LightClientCircuitOutput {
-    env::verify(LC_IMAGE_ID, <span class="kw-2">&amp;</span>light_client_proof.lc_journal).unwrap();
+    <span class="kw">if </span>!is_regtest() {
+        env::verify(LC_IMAGE_ID, <span class="kw-2">&amp;</span>light_client_proof.lc_journal)
+            .expect(<span class="string">"Failed to verify light client proof"</span>);
+    }
 
-    <span class="kw">let </span>light_client_circuit_output: LightClientCircuitOutput =
-        borsh::from_slice(light_client_proof.lc_journal.as_slice())
-            .expect(<span class="string">"Failed to deserialize light client circuit output"</span>);
+    <span class="kw">let </span>light_client_circuit_output = deserialize_circuit_output(<span class="kw-2">&amp;</span>light_client_proof.lc_journal);
 
-    <span class="macro">assert!</span>(
-        check_method_id(<span class="kw-2">&amp;</span>light_client_circuit_output, LC_IMAGE_ID),
-        <span class="string">"Light client proof method ID does not match the expected LC image ID"
-    </span>);
+    <span class="kw">if </span>!is_regtest() {
+        <span class="macro">assert!</span>(
+            check_method_id(<span class="kw-2">&amp;</span>light_client_circuit_output, LC_IMAGE_ID),
+            <span class="string">"Light client proof method ID does not match the expected LC image ID"
+        </span>);
+    }
 
     light_client_circuit_output
 }
