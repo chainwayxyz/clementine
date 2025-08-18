@@ -71,7 +71,7 @@ async-stream = "0.3.6"
 futures-util = "0.3.31"
 futures-core = "0.3.31"
 http = "^1"
-hyper = "^1
+hyper = "^1"
 tower = "^0.4"
 hyper-util = { version = "0.1" }
 
