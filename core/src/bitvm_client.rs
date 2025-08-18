@@ -15,7 +15,7 @@ use bitvm::chunk::api::{
 
 use bitvm::signatures::{Wots, Wots20};
 use borsh::{BorshDeserialize, BorshSerialize};
-use bridge_circuit_host::utils::{get_verifying_key, is_dev_mode};
+use bridge_circuit_host::utils::get_verifying_key;
 use std::fs;
 use tokio::sync::Mutex;
 
