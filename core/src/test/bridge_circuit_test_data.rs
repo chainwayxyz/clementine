@@ -178,7 +178,7 @@ impl TestCase for BridgeCircuitTestData {
 #[tokio::test]
 #[ignore = "Only run this test manually, it's for data generation purposes"]
 async fn bridge_circuit_test_data_diverse_hcp_lengths() -> Result<()> {
-    initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
+    initialize_logger(None)
         .expect("Failed to initialize logger");
     std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
     let bridge_circuit_test_data = BridgeCircuitTestData {
@@ -190,7 +190,7 @@ async fn bridge_circuit_test_data_diverse_hcp_lengths() -> Result<()> {
 #[tokio::test]
 #[ignore = "Only run this test manually, it's for data generation purposes"]
 async fn bridge_circuit_test_data_insuff_total_work_diverse_hcp_lens() -> Result<()> {
-    initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
+    initialize_logger(None)
         .expect("Failed to initialize logger");
     std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
 
@@ -215,7 +215,7 @@ async fn bridge_circuit_test_data_diverse_hcp_lens_first_two_valid() -> Result<(
 #[tokio::test]
 #[ignore = "Only run this test manually, it's for data generation purposes"]
 async fn challenge_tx_with_annex() -> Result<()> {
-    initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
+    initialize_logger(None)
         .expect("Failed to initialize logger");
     std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
     let watchtower_challenge_tx_variant = BridgeCircuitTestData {

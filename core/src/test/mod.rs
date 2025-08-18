@@ -40,7 +40,7 @@ mod bridge_circuit_test_data;
 mod bitvm_script;
 
 pub const CITREA_E2E_DOCKER_IMAGE: &str =
-    "chainwayxyz/citrea-test:ed2fc31cdacb9ffead6a26347dd400cb93b5c19f";
+    "chainwayxyz/citrea-test:9db5124dd87f612ad2453188151e717ab07154e6";
 
 use ctor::ctor;
 
