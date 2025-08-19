@@ -942,7 +942,7 @@ impl ExtendedBitcoinRpc {
                 None,
                 None,
                 None,
-                None,
+                Some(true),
                 Some(2),
                 Some(bitcoincore_rpc::json::EstimateMode::Conservative),
             )
