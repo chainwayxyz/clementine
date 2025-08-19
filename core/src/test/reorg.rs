@@ -143,15 +143,10 @@ impl TestCase for TxSenderReorgBehavior {
             .unwrap();
         dbtx.commit().await.unwrap();
 
-        // TODO: Don't do this.
         sleep(Duration::from_secs(3));
         rpc.mine_blocks(1).await.unwrap();
         sleep(Duration::from_secs(3));
         rpc.mine_blocks(1).await.unwrap();
-        // sleep(Duration::from_secs(3));
-        // rpc.mine_blocks(1).await.unwrap();
-        // sleep(Duration::from_secs(3));
-        // rpc.mine_blocks(1).await.unwrap();
         sleep(Duration::from_secs(3));
         mine_once_after_in_mempool(&rpc, txid, Some("bumpable_cpfp_tx"), None).await?;
 
