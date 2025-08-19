@@ -20,6 +20,7 @@ use crate::rpc::clementine::tagged_signature::SignatureId;
 use crate::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind, SignedTxsWithType};
 use crate::task::{IntoTask, TaskExt};
 use crate::test::common::citrea::CitreaE2EData;
+#[cfg(feature = "automation")]
 use crate::tx_sender::{TxSender, TxSenderClient};
 use crate::utils::{FeePayingType, RbfSigningInfo, TxMetadata};
 use bitcoin::consensus::{self};
@@ -397,6 +398,12 @@ pub async fn create_bg_tx_sender(
     Actor,
     bitcoin::Network,
 ) {
+    use crate::test::common::initialize_database;
+
+    // create the db for the tx sender
+    let mut new_config = config.clone();
+    new_config.db_name += "0";
+    initialize_database(&new_config).await;
     let (tx_sender, syncer, rpc, db, actor, network) = create_tx_sender(config, 0).await;
 
     let sender_task = tx_sender.clone().into_task().cancelable_loop();
