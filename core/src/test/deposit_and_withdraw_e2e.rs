@@ -94,6 +94,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             with_batch_prover: true,
             with_light_client_prover: true,
             with_full_node: true,
+            n_nodes: 2,
             docker: TestCaseDockerConfig {
                 bitcoin: true,
                 citrea: true,
@@ -127,7 +128,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
     async fn run_test(&mut self, f: &mut TestFramework) -> citrea_e2e::Result<()> {
         tracing::info!("Starting Citrea");
 
-        let (sequencer, full_node, lc_prover, batch_prover, da) =
+        let (sequencer, full_node, lc_prover, batch_prover, bitcoin_nodes) =
             start_citrea(Self::sequencer_config(), f).await.unwrap();
 
         let mut config = create_test_config_with_thread_name().await;
@@ -137,7 +138,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 
         update_config_with_citrea_e2e_values(
             &mut config,
-            da,
+            bitcoin_nodes.get(0).expect("There is a bitcoin node"),
             sequencer,
             Some((
                 lc_prover.config.rollup.rpc.bind_host.as_str(),
@@ -193,7 +194,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             full_node,
             lc_prover,
             batch_prover,
-            da,
+            bitcoin_nodes,
             config: config.clone(),
             citrea_client: &citrea_client,
             rpc: &rpc,
@@ -408,7 +409,9 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             if res.is_ok() {
                 break;
             }
-            rpc.mine_blocks_while_synced(1, &actors).await.unwrap();
+            rpc.mine_blocks_while_synced(1, &actors, Some(&citrea_e2e_data))
+                .await
+                .unwrap();
         }
 
         // wait for all past kickoff reimburse connectors to be spent
@@ -418,6 +421,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
                 &rpc,
                 *reimburse_connector,
                 &actors,
+                Some(&citrea_e2e_data),
             )
             .await
             .unwrap();

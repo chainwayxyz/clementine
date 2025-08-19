@@ -861,6 +861,7 @@ pub mod tests {
     use crate::rpc::clementine::tagged_signature::SignatureId;
     use crate::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind};
     use crate::task::{IntoTask, TaskExt};
+    use crate::test::common::tx_utils::create_bg_tx_sender;
     use crate::test::common::*;
     use crate::utils::FeePayingType;
     use bitcoin::hashes::Hash;
@@ -1374,7 +1375,7 @@ pub mod tests {
         rpc.mine_blocks(1).await.unwrap();
 
         let (client, _tx_sender, _cancel_txs, rpc, db, signer, network) =
-            create_bg_tx_sender(rpc).await;
+            create_bg_tx_sender(config).await;
 
         let tx = create_rbf_tx(&rpc, &signer, network, false).await.unwrap();
 
