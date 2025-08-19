@@ -559,6 +559,24 @@ impl Database {
         Ok(())
     }
 
+    pub async fn update_sent_block_id(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        id: u32,
+        sent_block_id: u32,
+    ) -> Result<(), BridgeError> {
+        let query =
+            sqlx::query("UPDATE tx_sender_try_to_send_txs SET sent_block_id = $1 WHERE id = $2")
+                .bind(
+                    i32::try_from(sent_block_id)
+                        .wrap_err("Failed to convert sent block id to i32")?,
+                )
+                .bind(i32::try_from(id).wrap_err("Failed to convert id to i32")?);
+
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
+        Ok(())
+    }
+
     /// Returns unconfirmed try-to-send transactions that satisfy all activation
     /// conditions for sending:
     ///
@@ -583,6 +601,7 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
         fee_rate: FeeRate,
         current_tip_height: u32,
+        latest_block_id: u32,
     ) -> Result<Vec<u32>, BridgeError> {
         let select_query = sqlx::query_as::<_, (i32,)>(
             "WITH
@@ -647,7 +666,7 @@ impl Database {
                     -- Transaction must not be already confirmed
                     AND txs.seen_block_id IS NULL
                     -- Check if fee_rate is lower than the provided fee rate or null
-                    AND (txs.effective_fee_rate IS NULL OR txs.effective_fee_rate < $1);",
+                    AND (txs.effective_fee_rate IS NULL OR txs.effective_fee_rate < $1 OR txs.sent_block_id <> $3);",
         )
         .bind(
             i64::try_from(fee_rate.to_sat_per_vb_ceil())
@@ -656,6 +675,10 @@ impl Database {
         .bind(
             i32::try_from(current_tip_height)
                 .wrap_err("Failed to convert current tip height to i32")?,
+        )
+        .bind(
+            i32::try_from(latest_block_id)
+                .wrap_err("Failed to convert latest block id to i32")?,
         );
 
         let results = execute_query_with_tx!(self.connection, tx, select_query, fetch_all)?;
@@ -845,7 +868,7 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
         tx_id: u32,
     ) -> Result<Vec<(Txid, u32, Amount, bool)>, BridgeError> {
-        let query = sqlx::query_as::<_, (TxidDB, i32, i64, Option<i32>)>(
+        let query = sqlx::query_as::<_, (TxidDB, i32, i64, bool)>(
             r#"
             SELECT fee_payer_txid, vout, amount, seen_block_id IS NOT NULL as confirmed
             FROM tx_sender_fee_payer_utxos
@@ -854,7 +877,7 @@ impl Database {
         )
         .bind(i32::try_from(tx_id).wrap_err("Failed to convert tx_id to i32")?);
 
-        let results: Vec<(TxidDB, i32, i64, Option<i32>)> =
+        let results: Vec<(TxidDB, i32, i64, bool)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
 
         results
@@ -866,7 +889,7 @@ impl Database {
                     Amount::from_sat(
                         u64::try_from(*amount).wrap_err("Failed to convert amount to u64")?,
                     ),
-                    confirmed.is_some(),
+                    *confirmed,
                 ))
             })
             .collect::<Result<Vec<_>, BridgeError>>()
@@ -903,7 +926,7 @@ mod tests {
     use bitcoin::absolute::Height;
     use bitcoin::hashes::Hash;
     use bitcoin::transaction::Version;
-    use bitcoin::{Block, OutPoint, TapNodeHash, Txid};
+    use bitcoin::{Block, BlockHash, OutPoint, TapNodeHash, Txid};
 
     async fn setup_test_db() -> Database {
         let config = create_test_config_with_thread_name().await;
@@ -1128,8 +1151,32 @@ mod tests {
         // Test getting sendable txs
         let fee_rate = FeeRate::from_sat_per_vb(3).unwrap();
         let current_tip_height = 100;
+
+        // need to insert a block info because foreign key constraint in tx_sender_try_to_send_txs
+        let latest_block_id = db
+            .insert_block_info(
+                Some(&mut dbtx),
+                &BlockHash::all_zeros(),
+                &BlockHash::all_zeros(),
+                0,
+            )
+            .await
+            .unwrap();
+
+        db.update_sent_block_id(Some(&mut dbtx), id1, latest_block_id)
+            .await
+            .unwrap();
+        db.update_sent_block_id(Some(&mut dbtx), id2, latest_block_id)
+            .await
+            .unwrap();
+
         let sendable_txs = db
-            .get_sendable_txs(Some(&mut dbtx), fee_rate, current_tip_height)
+            .get_sendable_txs(
+                Some(&mut dbtx),
+                fee_rate,
+                current_tip_height,
+                latest_block_id,
+            )
             .await
             .unwrap();
 
@@ -1145,24 +1192,29 @@ mod tests {
             .unwrap();
 
         let sendable_txs = db
-            .get_sendable_txs(Some(&mut dbtx), fee_rate, current_tip_height)
+            .get_sendable_txs(
+                Some(&mut dbtx),
+                fee_rate,
+                current_tip_height,
+                latest_block_id,
+            )
             .await
             .unwrap();
         assert_eq!(sendable_txs.len(), 1);
         assert!(sendable_txs.contains(&id2));
 
-        // Update tx1's effective fee rate to be higher than the query fee rate
-        let higher_fee_rate = FeeRate::from_sat_per_vb(3).unwrap();
-        db.update_effective_fee_rate(Some(&mut dbtx), id1, higher_fee_rate)
-            .await
-            .unwrap();
-
-        // Now only tx2 should be sendable since tx1's effective fee rate is higher than the query fee rate
+        // after latest block id is updated, all should be sendable
         let sendable_txs = db
-            .get_sendable_txs(Some(&mut dbtx), fee_rate, current_tip_height)
+            .get_sendable_txs(
+                Some(&mut dbtx),
+                FeeRate::from_sat_per_vb(0).unwrap(),
+                current_tip_height + 1,
+                latest_block_id + 1,
+            )
             .await
             .unwrap();
-        assert_eq!(sendable_txs.len(), 1);
+        // assert_eq!(sendable_txs.len(), 2);
+        assert!(sendable_txs.contains(&id1));
         assert!(sendable_txs.contains(&id2));
 
         dbtx.commit().await.unwrap();

@@ -68,26 +68,25 @@ pub async fn payout_and_start_kickoff(
             Ok(_) => break,
             Err(e) => tracing::info!("Withdrawal error: {:?}", e),
         };
-        e2e.rpc.mine_blocks_while_synced(1, actors).await.unwrap();
+        e2e.rpc
+            .mine_blocks_while_synced(1, actors, Some(e2e))
+            .await
+            .unwrap();
     }
 
     let payout_txid = get_txid_where_utxo_is_spent_while_waiting_for_state_mngr_sync(
         e2e.rpc,
         *withdrawal_utxo,
         actors,
+        Some(e2e),
     )
     .await
     .unwrap();
 
     e2e.rpc
-        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH, actors)
+        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH, actors, Some(e2e))
         .await
         .unwrap();
-
-    tracing::info!(
-        "Waiting until getting first unhandled payout for operator {:?}",
-        operator_xonly_pk
-    );
 
     // wait until payout is handled
     tracing::info!("Waiting until payout is handled");
@@ -106,6 +105,12 @@ pub async fn payout_and_start_kickoff(
         .unwrap()
         .expect("Payout must be handled");
 
+    tracing::info!(
+        "Payout txid: {:?}, kickoff txid: {:?}",
+        payout_txid,
+        kickoff_txid
+    );
+
     let reimburse_connector = OutPoint {
         txid: kickoff_txid,
         vout: UtxoVout::ReimburseInKickoff.get_vout(),
@@ -117,9 +122,8 @@ pub async fn payout_and_start_kickoff(
             .unwrap();
 
     tracing::info!(
-        "Kickoff height: {:?}, txid: {:?} operator: {:?}",
+        "Kickoff height: {:?}, operator: {:?}",
         kickoff_block_height,
-        kickoff_txid,
         operator_xonly_pk
     );
 
@@ -170,6 +174,7 @@ pub async fn reimburse_with_optimistic_payout(
             vout: (UtxoVout::DepositInMove).get_vout(),
         },
         actors,
+        Some(e2e),
     )
     .await?;
 
@@ -250,9 +255,10 @@ pub async fn disprove_tests_common_setup(
     )
     .unwrap();
 
-    let (tx_sender, tx_sender_db) = create_tx_sender(&config, 0).await.unwrap();
+    let (tx_sender, _, _, tx_sender_db, _, _) = create_tx_sender(config, 0).await;
     let mut db_commit = tx_sender_db.begin_transaction().await.unwrap();
     tx_sender
+        .client()
         .insert_try_to_send(
             &mut db_commit,
             None,
@@ -269,7 +275,7 @@ pub async fn disprove_tests_common_setup(
     db_commit.commit().await.unwrap();
 
     e2e.rpc
-        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH, &actors)
+        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH, &actors, Some(e2e))
         .await
         .unwrap();
 
@@ -291,6 +297,7 @@ pub async fn disprove_tests_common_setup(
                 vout: UtxoVout::Assert(i).get_vout(),
             },
             &actors,
+            Some(e2e),
         )
         .await
         .unwrap();

@@ -131,7 +131,7 @@ impl TestCase for BridgeCircuitTestData {
 
         citrea::update_config_with_citrea_e2e_values(
             &mut config,
-            da,
+            da.get(0).expect("There is a bitcoin node"),
             sequencer,
             Some((
                 lc_prover.config.rollup.rpc.bind_host.as_str(),
@@ -162,7 +162,7 @@ impl TestCase for BridgeCircuitTestData {
             full_node,
             lc_prover,
             batch_prover,
-            da,
+            bitcoin_nodes: da,
             config: config.clone(),
             citrea_client: &citrea_client,
             rpc: &rpc,

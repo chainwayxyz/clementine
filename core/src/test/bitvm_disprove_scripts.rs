@@ -55,6 +55,7 @@ impl TestCase for DisproveTest {
             with_batch_prover: true,
             with_light_client_prover: true,
             with_full_node: true,
+            n_nodes: 2,
             docker: TestCaseDockerConfig {
                 bitcoin: true,
                 citrea: true,
@@ -108,7 +109,7 @@ impl TestCase for DisproveTest {
 
         citrea::update_config_with_citrea_e2e_values(
             &mut config,
-            da,
+            da.get(0).expect("There is a bitcoin node"),
             sequencer,
             Some((
                 lc_prover.config.rollup.rpc.bind_host.as_str(),
@@ -139,7 +140,7 @@ impl TestCase for DisproveTest {
             full_node,
             lc_prover,
             batch_prover,
-            da,
+            bitcoin_nodes: da,
             config: config.clone(),
             citrea_client: &citrea_client,
             rpc: &rpc,
@@ -165,6 +166,7 @@ impl TestCase for DisproveTest {
                     &rpc,
                     disprove_timeout_outpoint,
                     &actors,
+                    Some(&citrea_e2e_data),
                 )
                 .await
                 .unwrap();
@@ -202,6 +204,7 @@ impl TestCase for DisproveTest {
                     &rpc,
                     disprove_outpoint,
                     &actors,
+                    Some(&citrea_e2e_data),
                 )
                 .await
                 .unwrap();
