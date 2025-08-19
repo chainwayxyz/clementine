@@ -1166,20 +1166,20 @@
 
             <span class="kw">let </span>lc_image_id = paramset.get_lcp_image_id()<span class="question-mark">?</span>;
 
+            <span class="kw">let </span>proof_output: LightClientCircuitOutput = borsh::from_slice(<span class="kw-2">&amp;</span>receipt.journal.bytes)
+                .wrap_err(<span class="string">"Failed to deserialize light client circuit output"</span>)<span class="question-mark">?</span>;
+
             <span class="kw">if </span>!paramset.is_regtest() {
                 receipt
                     .verify(lc_image_id)
                     .map_err(|<span class="kw">_</span>| <span class="macro">eyre::eyre!</span>(<span class="string">"Light client proof verification failed"</span>))<span class="question-mark">?</span>;
-            }
 
-            <span class="kw">let </span>proof_output: LightClientCircuitOutput = borsh::from_slice(<span class="kw-2">&amp;</span>receipt.journal.bytes)
-                .wrap_err(<span class="string">"Failed to deserialize light client circuit output"</span>)<span class="question-mark">?</span>;
-
-            <span class="kw">if </span>!check_method_id(<span class="kw-2">&amp;</span>proof_output, lc_image_id) {
-                <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(
+                <span class="kw">if </span>!check_method_id(<span class="kw-2">&amp;</span>proof_output, lc_image_id) {
+                    <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(
                     <span class="string">"Current light client proof method ID does not match the expected LC image ID"
                 </span>)
-                .into());
+                    .into());
+                }
             }
 
             <span class="prelude-val">Some</span>((
