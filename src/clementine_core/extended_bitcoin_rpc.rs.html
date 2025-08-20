@@ -1623,7 +1623,10 @@
 <a href="#1622" id="1622">1622</a>
 <a href="#1623" id="1623">1623</a>
 <a href="#1624" id="1624">1624</a>
-<a href="#1625" id="1625">1625</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Bitcoin Extended RPC Interface
+<a href="#1625" id="1625">1625</a>
+<a href="#1626" id="1626">1626</a>
+<a href="#1627" id="1627">1627</a>
+<a href="#1628" id="1628">1628</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Bitcoin Extended RPC Interface
 //!
 //! Extended RPC interface communicates with the Bitcoin node. It features some
 //! common wrappers around typical RPC operations as well as direct
@@ -1911,7 +1914,7 @@
     /// # Parameters
     ///
     /// * `url` - The RPC server URL
-    /// * `user` - Username for RPC authentication  
+    /// * `user` - Username for RPC authentication
     /// * `password` - Password for RPC authentication
     /// * `retry_config` - Optional retry configuration. If None, uses default config.
     ///
@@ -2712,6 +2715,8 @@
 
 <span class="attr">#[cfg(test)]
 </span><span class="kw">mod </span>tests {
+    <span class="kw">use </span>std::collections::HashMap;
+
     <span class="kw">use </span><span class="kw">crate</span>::actor::Actor;
     <span class="kw">use </span><span class="kw">crate</span>::config::protocol::{ProtocolParamset, REGTEST_PARAMSET};
     <span class="kw">use </span><span class="kw">crate</span>::extended_bitcoin_rpc::ExtendedBitcoinRpc;
@@ -2724,6 +2729,7 @@
     <span class="kw">use </span>bitcoincore_rpc::RpcApi;
     <span class="kw">use </span>citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
     <span class="kw">use </span>citrea_e2e::config::{BitcoinConfig, TestCaseDockerConfig};
+    <span class="kw">use </span>citrea_e2e::node::NodeKind;
     <span class="kw">use </span>citrea_e2e::test_case::TestCaseRunner;
     <span class="kw">use </span>citrea_e2e::Result;
     <span class="kw">use </span>citrea_e2e::{config::TestCaseConfig, framework::TestFramework, test_case::TestCase};
@@ -2867,7 +2873,7 @@
             TestCaseConfig {
                 with_sequencer: <span class="bool-val">true</span>,
                 with_batch_prover: <span class="bool-val">false</span>,
-                n_nodes: <span class="number">2</span>,
+                n_nodes: HashMap::from([(NodeKind::Bitcoin, <span class="number">2</span>)]),
                 docker: TestCaseDockerConfig {
                     bitcoin: <span class="bool-val">true</span>,
                     citrea: <span class="bool-val">true</span>,
