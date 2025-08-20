@@ -502,20 +502,20 @@ impl CitreaClientT for CitreaClient {
 
             let lc_image_id = paramset.get_lcp_image_id()?;
 
+            let proof_output: LightClientCircuitOutput = borsh::from_slice(&receipt.journal.bytes)
+                .wrap_err("Failed to deserialize light client circuit output")?;
+
             if !paramset.is_regtest() {
                 receipt
                     .verify(lc_image_id)
                     .map_err(|_| eyre::eyre!("Light client proof verification failed"))?;
-            }
 
-            let proof_output: LightClientCircuitOutput = borsh::from_slice(&receipt.journal.bytes)
-                .wrap_err("Failed to deserialize light client circuit output")?;
-
-            if !check_method_id(&proof_output, lc_image_id) {
-                return Err(eyre::eyre!(
+                if !check_method_id(&proof_output, lc_image_id) {
+                    return Err(eyre::eyre!(
                     "Current light client proof method ID does not match the expected LC image ID"
                 )
-                .into());
+                    .into());
+                }
             }
 
             Some((
