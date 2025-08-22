@@ -660,3 +660,50 @@ type CitreaContract = BRIDGE_CONTRACT::BRIDGE_CONTRACTInstance<
         RootProvider,
     >,
 >;
+
+#[cfg(test)]
+mod test {
+    use crate::citrea::{CitreaClient, CitreaClientT};
+
+    #[tokio::test]
+    #[ignore = "Manual testing utility"]
+    async fn get_aggregated_key_from_citrea() {
+        let citrea = CitreaClient::new(
+            "https://rpc.testnet.citrea.xyz/".to_string(),
+            "https://rpc.testnet.citrea.xyz/".to_string(), // Doesn't matter
+            5115,
+            Some(
+                crate::test::common::citrea::SECRET_KEYS[0]
+                    .to_string()
+                    .parse()
+                    .unwrap(),
+            ),
+            None,
+        )
+        .await
+        .unwrap();
+        println!(
+            "Testnet4 aggregated public key: {}",
+            citrea.contract.getAggregatedKey().call().await.unwrap()._0
+        );
+
+        let citrea = CitreaClient::new(
+            "https://rpc.devnet.citrea.xyz/".to_string(),
+            "https://rpc.devnet.citrea.xyz/".to_string(), // Doesn't matter
+            62298,
+            Some(
+                crate::test::common::citrea::SECRET_KEYS[0]
+                    .to_string()
+                    .parse()
+                    .unwrap(),
+            ),
+            None,
+        )
+        .await
+        .unwrap();
+        println!(
+            "Devnet aggregated public key: {}",
+            citrea.contract.getAggregatedKey().call().await.unwrap()._0
+        );
+    }
+}
