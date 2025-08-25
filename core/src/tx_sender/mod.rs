@@ -322,16 +322,17 @@ impl TxSender {
     /// # Arguments
     /// * `new_fee_rate` - The current target fee rate based on network conditions.
     /// * `current_tip_height` - The current blockchain height, used for time-lock checks.
+    /// * `highest_block_id` - The block id of the highest block that the tx sender has seen.
     #[tracing::instrument(skip_all, fields(sender = self.btc_syncer_consumer_id, new_fee_rate, current_tip_height))]
     async fn try_to_send_unconfirmed_txs(
         &self,
         new_fee_rate: FeeRate,
         current_tip_height: u32,
-        latest_block_id: u32,
+        highest_block_id: u32,
     ) -> Result<()> {
         let txs = self
             .db
-            .get_sendable_txs(None, new_fee_rate, current_tip_height, latest_block_id)
+            .get_sendable_txs(None, new_fee_rate, current_tip_height, highest_block_id)
             .await
             .map_to_eyre()?;
 
@@ -343,7 +344,7 @@ impl TxSender {
         {
             if env::var("TXSENDER_DBG_INACTIVE_TXS").is_ok() {
                 self.db
-                    .debug_inactive_txs(new_fee_rate, current_tip_height, latest_block_id)
+                    .debug_inactive_txs(new_fee_rate, current_tip_height, highest_block_id)
                     .await;
             }
         }
@@ -402,7 +403,7 @@ impl TxSender {
             } else {
                 // update sent block id to latest block id
                 self.db
-                    .update_sent_block_id(None, id, latest_block_id)
+                    .update_sent_block_id(None, id, highest_block_id)
                     .await
                     .map_to_eyre()?;
             }

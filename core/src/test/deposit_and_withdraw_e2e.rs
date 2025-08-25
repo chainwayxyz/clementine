@@ -146,6 +146,15 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             )),
         );
 
+        tracing::warn!(
+            "config bitcoin rpc data: url: {}, user: {}, password: {}
+            citrea rpc url: {},",
+            config.bitcoin_rpc_url,
+            secrecy::ExposeSecret::expose_secret(&config.bitcoin_rpc_user),
+            secrecy::ExposeSecret::expose_secret(&config.bitcoin_rpc_password),
+            config.citrea_rpc_url,
+        );
+
         let rpc = ExtendedBitcoinRpc::connect(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
@@ -442,6 +451,8 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         )
         .await
         .is_err());
+
+        tokio::time::sleep(std::time::Duration::from_secs(1000000000)).await;
 
         Ok(())
     }

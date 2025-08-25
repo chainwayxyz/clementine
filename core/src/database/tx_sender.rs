@@ -584,7 +584,7 @@ impl Database {
     /// - Not in the cancelled list
     /// - Transaction itself is not already confirmed
     /// - Transaction and UTXO timelocks must be passed
-    /// - Fee rate is lower than the provided fee rate or null (deprecated)
+    /// - Fee rate is lower than the provided fee rate or null (deprecated) OR the the transaction was sent before, but a a new block was mined since then, and the transaction is still not confirmed
     ///
     /// # Parameters
     ///
@@ -592,6 +592,7 @@ impl Database {
     /// - `fee_rate`: Maximum fee rate for the transactions to be sendable
     /// - `current_tip_height`: The current tip height of the Bitcoin blockchain
     ///   for checking timelocks
+    /// - `highest_block_id`: The highest block id that the tx sender has seen.
     ///
     /// # Returns
     ///
@@ -601,7 +602,7 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
         fee_rate: FeeRate,
         current_tip_height: u32,
-        latest_block_id: u32,
+        highest_block_id: u32,
     ) -> Result<Vec<u32>, BridgeError> {
         let select_query = sqlx::query_as::<_, (i32,)>(
             "WITH
@@ -677,7 +678,7 @@ impl Database {
                 .wrap_err("Failed to convert current tip height to i32")?,
         )
         .bind(
-            i32::try_from(latest_block_id)
+            i32::try_from(highest_block_id)
                 .wrap_err("Failed to convert latest block id to i32")?,
         );
 
