@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use super::common::citrea::get_bridge_params;
 use crate::builder::transaction::input::UtxoVout;
 use crate::citrea::{CitreaClient, CitreaClientT};
@@ -16,6 +18,7 @@ use async_trait::async_trait;
 use bitcoin::OutPoint;
 use bitcoincore_rpc::RpcApi;
 use citrea_e2e::config::{BatchProverConfig, LightClientProverConfig};
+use citrea_e2e::node::NodeKind;
 use citrea_e2e::{
     config::{BitcoinConfig, SequencerConfig, TestCaseConfig, TestCaseDockerConfig},
     framework::TestFramework,
@@ -54,7 +57,7 @@ impl TestCase for AdditionalDisproveTest {
             with_batch_prover: true,
             with_light_client_prover: true,
             with_full_node: true,
-            n_nodes: 2,
+            n_nodes: HashMap::from([(NodeKind::Bitcoin, 2)]),
             docker: TestCaseDockerConfig {
                 bitcoin: true,
                 citrea: true,
