@@ -418,8 +418,8 @@ pub async fn register_replacement_deposit_to_citrea(
     let (replace_tx, block, block_height) =
         get_tx_information_for_citrea(e2e, replacement_move_txid).await?;
 
-    tracing::warn!("Replace transaction: {:?}", replace_tx);
-    tracing::warn!("Replace transaction block: {:?}", block);
+    tracing::info!("Replace transaction: {:?}", replace_tx);
+    tracing::info!("Replace transaction block: {:?}", block);
 
     // wait for light client to sync until replacement deposit tx
     e2e.lc_prover
@@ -440,12 +440,12 @@ pub async fn register_replacement_deposit_to_citrea(
     )
     .await?;
 
-    tracing::warn!("Replace transaction block height: {:?}", block_height);
-    tracing::warn!(
+    tracing::info!("Replace transaction block height: {:?}", block_height);
+    tracing::info!(
         "Current chain height: {:?}",
         e2e.rpc.get_current_chain_height().await.unwrap()
     );
-    tracing::warn!("Replace transaction tx proof : {:?}", tx_proof);
+    tracing::info!("Replace transaction tx proof : {:?}", tx_proof);
 
     let replace_deposit_tx = e2e
         .citrea_client
