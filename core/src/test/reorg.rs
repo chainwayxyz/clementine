@@ -26,9 +26,11 @@ use bitcoin::Txid;
 use bitcoincore_rpc::RpcApi;
 use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
 use citrea_e2e::config::{BitcoinConfig, TestCaseDockerConfig};
+use citrea_e2e::node::NodeKind;
 use citrea_e2e::test_case::TestCaseRunner;
 use citrea_e2e::Result;
 use citrea_e2e::{config::TestCaseConfig, framework::TestFramework, test_case::TestCase};
+use std::collections::HashMap;
 use std::thread::sleep;
 use std::time::Duration;
 use tonic::{async_trait, Request};
@@ -51,7 +53,7 @@ impl TestCase for TxSenderReorgBehavior {
         TestCaseConfig {
             with_sequencer: true,
             with_batch_prover: false,
-            n_nodes: 2,
+            n_nodes: HashMap::from([(NodeKind::Bitcoin, 2)]),
             docker: TestCaseDockerConfig {
                 bitcoin: true,
                 citrea: true,
@@ -328,7 +330,7 @@ impl TestCase for ReorgOnDeposit {
         TestCaseConfig {
             with_sequencer: true,
             with_batch_prover: false,
-            n_nodes: 2,
+            n_nodes: HashMap::from([(NodeKind::Bitcoin, 2)]),
             docker: TestCaseDockerConfig {
                 bitcoin: true,
                 citrea: true,

@@ -50,6 +50,7 @@ use bitcoin::{Address, Amount, OutPoint, Transaction, TxOut, Txid};
 use bitcoincore_rpc::RpcApi;
 use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
 use citrea_e2e::config::{BatchProverConfig, LightClientProverConfig};
+use citrea_e2e::node::NodeKind;
 use citrea_e2e::{
     config::{BitcoinConfig, SequencerConfig, TestCaseConfig, TestCaseDockerConfig},
     framework::TestFramework,
@@ -58,6 +59,7 @@ use citrea_e2e::{
 use eyre::Context;
 use futures::future::try_join_all;
 use secrecy::SecretString;
+use std::collections::HashMap;
 use std::str::FromStr;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -94,7 +96,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             with_batch_prover: true,
             with_light_client_prover: true,
             with_full_node: true,
-            n_nodes: 2,
+            n_nodes: HashMap::from([(NodeKind::Bitcoin, 2)]),
             docker: TestCaseDockerConfig {
                 bitcoin: true,
                 citrea: true,
