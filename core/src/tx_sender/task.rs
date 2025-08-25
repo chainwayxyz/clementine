@@ -30,6 +30,7 @@ const POLL_DELAY: Duration = if cfg!(test) {
 pub struct TxSenderTask {
     db: Database,
     current_tip_height: u32,
+    highest_block_id: Option<u32>,
     inner: TxSender,
 }
 
@@ -66,6 +67,7 @@ impl Task for TxSenderTask {
                         block_id = %block_id,
                         "Block mined, confirming transactions..."
                     );
+                    self.highest_block_id = Some(block_id);
 
                     self.db.confirm_transactions(&mut dbtx, block_id).await?;
 
@@ -100,14 +102,16 @@ impl Task for TxSenderTask {
             return Ok(true);
         }
 
-        tracing::info!("TXSENDER: Getting fee rate");
+        tracing::debug!("TXSENDER: Getting fee rate");
         let fee_rate_result = self.inner.get_fee_rate().await;
-        tracing::info!("TXSENDER: Fee rate result: {:?}", fee_rate_result);
+        tracing::debug!("TXSENDER: Fee rate result: {:?}", fee_rate_result);
         let fee_rate = fee_rate_result?;
 
-        self.inner
-            .try_to_send_unconfirmed_txs(fee_rate, self.current_tip_height)
-            .await?;
+        if let Some(highest_block_id) = self.highest_block_id {
+            self.inner
+                .try_to_send_unconfirmed_txs(fee_rate, self.current_tip_height, highest_block_id)
+                .await?;
+        }
 
         Ok(false)
     }
@@ -120,6 +124,7 @@ impl IntoTask for TxSender {
         TxSenderTask {
             db: self.db.clone(),
             current_tip_height: 0,
+            highest_block_id: None,
             inner: self,
         }
         .ignore_error()
