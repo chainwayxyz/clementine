@@ -148,7 +148,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             )),
         );
 
-        tracing::warn!(
+        tracing::info!(
             "config bitcoin rpc data: url: {}, user: {}, password: {}
             citrea rpc url: {},",
             config.bitcoin_rpc_url,
@@ -454,7 +454,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         .await
         .is_err());
 
-        tokio::time::sleep(std::time::Duration::from_secs(1000000000)).await;
+        //tokio::time::sleep(std::time::Duration::from_secs(1000000000)).await;
 
         Ok(())
     }
