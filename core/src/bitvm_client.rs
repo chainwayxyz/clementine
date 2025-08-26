@@ -317,23 +317,23 @@ impl ClementineBitVMPublicKeys {
         let deposit_constant = [255u8; 32];
 
         // Use the first element for payout_tx_blockhash_pk
-        let payout_tx_blockhash_pk = Self::vec_to_array::<44>(&flattened_wpks[0]);
+        let payout_tx_blockhash_pk = Self::vec_to_array::<43>(&flattened_wpks[0]);
 
         // Use the second element for latest_blockhash_pk
-        let latest_blockhash_pk = Self::vec_to_array::<44>(&flattened_wpks[1]);
+        let latest_blockhash_pk = Self::vec_to_array::<43>(&flattened_wpks[1]);
 
         // Use the third element for challenge_sending_watchtowers_pk
-        let challenge_sending_watchtowers_pk = Self::vec_to_array::<44>(&flattened_wpks[2]);
+        let challenge_sending_watchtowers_pk = Self::vec_to_array::<43>(&flattened_wpks[2]);
 
         // Create the nested arrays for bitvm_pks, starting from the fourth element
         let bitvm_pks_1 =
-            Self::vec_slice_to_nested_array::<68, NUM_PUBS>(&flattened_wpks[3..3 + NUM_PUBS]);
+            Self::vec_slice_to_nested_array::<67, NUM_PUBS>(&flattened_wpks[3..3 + NUM_PUBS]);
 
-        let bitvm_pks_2 = Self::vec_slice_to_nested_array::<68, NUM_U256>(
+        let bitvm_pks_2 = Self::vec_slice_to_nested_array::<67, NUM_U256>(
             &flattened_wpks[3 + NUM_PUBS..3 + NUM_PUBS + NUM_U256],
         );
 
-        let bitvm_pks_3 = Self::vec_slice_to_nested_array::<36, NUM_HASH>(
+        let bitvm_pks_3 = Self::vec_slice_to_nested_array::<35, NUM_HASH>(
             &flattened_wpks[3 + NUM_PUBS + NUM_U256..3 + NUM_PUBS + NUM_U256 + NUM_HASH],
         );
 

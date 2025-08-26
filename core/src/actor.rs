@@ -351,7 +351,7 @@ impl Actor {
         let pk_vec = self.derive_winternitz_pk(
             ClementineBitVMPublicKeys::get_latest_blockhash_derivation(deposit_outpoint, paramset),
         )?;
-        pks.latest_blockhash_pk = ClementineBitVMPublicKeys::vec_to_array::<44>(&pk_vec);
+        pks.latest_blockhash_pk = ClementineBitVMPublicKeys::vec_to_array::<43>(&pk_vec);
         let pk_vec = self.derive_winternitz_pk(
             ClementineBitVMPublicKeys::get_challenge_sending_watchtowers_derivation(
                 deposit_outpoint,
@@ -359,7 +359,7 @@ impl Actor {
             ),
         )?;
         pks.challenge_sending_watchtowers_pk =
-            ClementineBitVMPublicKeys::vec_to_array::<44>(&pk_vec);
+            ClementineBitVMPublicKeys::vec_to_array::<43>(&pk_vec);
         for i in 0..pks.bitvm_pks.0.len() {
             let pk_vec = self.derive_winternitz_pk(WinternitzDerivationPath::BitvmAssert(
                 64,
@@ -368,7 +368,7 @@ impl Actor {
                 deposit_outpoint,
                 paramset,
             ))?;
-            pks.bitvm_pks.0[i] = ClementineBitVMPublicKeys::vec_to_array::<68>(&pk_vec);
+            pks.bitvm_pks.0[i] = ClementineBitVMPublicKeys::vec_to_array::<67>(&pk_vec);
         }
         for i in 0..pks.bitvm_pks.1.len() {
             let pk_vec = self.derive_winternitz_pk(WinternitzDerivationPath::BitvmAssert(
@@ -378,7 +378,7 @@ impl Actor {
                 deposit_outpoint,
                 paramset,
             ))?;
-            pks.bitvm_pks.1[i] = ClementineBitVMPublicKeys::vec_to_array::<68>(&pk_vec);
+            pks.bitvm_pks.1[i] = ClementineBitVMPublicKeys::vec_to_array::<67>(&pk_vec);
         }
         for i in 0..pks.bitvm_pks.2.len() {
             let pk_vec = self.derive_winternitz_pk(WinternitzDerivationPath::BitvmAssert(
@@ -388,7 +388,7 @@ impl Actor {
                 deposit_outpoint,
                 paramset,
             ))?;
-            pks.bitvm_pks.2[i] = ClementineBitVMPublicKeys::vec_to_array::<36>(&pk_vec);
+            pks.bitvm_pks.2[i] = ClementineBitVMPublicKeys::vec_to_array::<35>(&pk_vec);
         }
 
         Ok(pks)
