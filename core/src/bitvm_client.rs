@@ -231,9 +231,9 @@ pub struct ClementineBitVMReplacementData {
     pub latest_blockhash_pk: [Vec<(usize, usize)>; 44],
     pub challenge_sending_watchtowers_pk: [Vec<(usize, usize)>; 44],
     pub bitvm_pks: (
-        [[Vec<(usize, usize)>; 68]; NUM_PUBS],
-        [[Vec<(usize, usize)>; 68]; NUM_U256],
-        [[Vec<(usize, usize)>; 36]; NUM_HASH],
+        [[Vec<(usize, usize)>; 67]; NUM_PUBS],
+        [[Vec<(usize, usize)>; 67]; NUM_U256],
+        [[Vec<(usize, usize)>; 35]; NUM_HASH],
     ),
 }
 
