@@ -100,9 +100,9 @@ impl Task for TxSenderTask {
             return Ok(true);
         }
 
-        tracing::info!("TXSENDER: Getting fee rate");
+        tracing::debug!("TXSENDER: Getting fee rate");
         let fee_rate_result = self.inner.get_fee_rate().await;
-        tracing::info!("TXSENDER: Fee rate result: {:?}", fee_rate_result);
+        tracing::debug!("TXSENDER: Fee rate result: {:?}", fee_rate_result);
         let fee_rate = fee_rate_result?;
 
         self.inner

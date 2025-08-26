@@ -70,6 +70,7 @@ use circuits_lib::bridge_circuit::transaction::CircuitTransaction;
 use circuits_lib::bridge_circuit::{
     deposit_constant, get_first_op_return_output, parse_op_return_data,
 };
+use circuits_lib::common::constants::MAX_NUMBER_OF_WATCHTOWERS;
 use eyre::{Context, ContextCompat, OptionExt, Result};
 use secp256k1::ffi::MUSIG_SECNONCE_LEN;
 use secp256k1::musig::{AggregatedNonce, PartialSignature, PublicNonce, SecretNonce};
@@ -542,6 +543,16 @@ where
             tracing::error!("{reason}");
             return Err(BridgeError::InvalidDeposit(reason));
         }
+        // check watchtower count
+        if deposit_data.get_num_watchtowers() > MAX_NUMBER_OF_WATCHTOWERS {
+            let reason = format!(
+                "Number of watchtowers in deposit is greater than the maximum allowed, maximum allowed: {}, got: {}",
+                MAX_NUMBER_OF_WATCHTOWERS,
+                deposit_data.get_num_watchtowers()
+            );
+            tracing::error!("{reason}");
+            return Err(BridgeError::InvalidDeposit(reason));
+        }
         let operators_in_deposit_data = deposit_data
             .get_operators()
             .iter()
@@ -564,16 +575,25 @@ where
                     self.config.protocol_paramset().total_num_rounds,
                 )
                 .await?;
-            let is_collateral_usable = self
+            let current_round = self
                 .rpc
-                .collateral_check(
+                .get_current_round(
                     &operator_data,
                     &kickoff_wpks,
                     self.config.protocol_paramset(),
                 )
                 .await?;
+            let can_operator_fulfill_withdrawals = match current_round {
+                // if current round is the last round, operator cannot fulfill new withdrawals anymore (because the reimburse utxo's are on the next
+                // round, and there are no next round)
+                Some(round_idx) => {
+                    round_idx
+                        != RoundIndex::Round(self.config.protocol_paramset().total_num_rounds - 1)
+                }
+                None => false,
+            };
             // if operator is not in deposit but its collateral is still on chain, return false
-            if !operators_in_deposit_data.contains(xonly_pk) && is_collateral_usable {
+            if !operators_in_deposit_data.contains(xonly_pk) && can_operator_fulfill_withdrawals {
                 let reason = format!(
                     "Operator {:?} is is still in protocol but not in the deposit data from aggregator",
                     xonly_pk
@@ -582,7 +602,7 @@ where
                 return Err(BridgeError::InvalidDeposit(reason));
             }
             // if operator is in deposit, but the collateral is not usable, return false
-            if operators_in_deposit_data.contains(xonly_pk) && !is_collateral_usable {
+            if operators_in_deposit_data.contains(xonly_pk) && !can_operator_fulfill_withdrawals {
                 let reason = format!(
                     "Operator {:?} is in the deposit data from aggregator but its collateral is spent, operator cannot fulfill withdrawals anymore",
                     xonly_pk
@@ -590,19 +610,86 @@ where
                 tracing::error!("{reason}");
                 return Err(BridgeError::InvalidDeposit(reason));
             }
+            // check if the start of round range is close to the current round of operator
+            if let Some(current_round) = current_round {
+                let op_data = deposit_data.get_operator_data(*xonly_pk)?;
+                // if current round of operator is greater than start round, allow at max 7 rounds difference
+                // why 7? Because DepositData is intended to be immutable, if we somehow fail a deposit after saving it to db,
+                // we have more time to retry if we allow 7 rounds difference.
+                if current_round > op_data.round_range.start_round()
+                    && current_round.to_index() - op_data.round_range.start_round().to_index() > 7
+                {
+                    let reason = format!(
+                        "Operator {:?} has a round range that is too far behind from the current round, current round: {:?}, start round: {:?}",
+                        xonly_pk, current_round, op_data.round_range.start_round()
+                    );
+                    tracing::error!("{reason}");
+                    return Err(BridgeError::InvalidDeposit(reason));
+                }
+                // if current round of operator is less than start round, allow at max 1 rounds difference
+                // why 1? We don't want to force operator to advance rounds without any kickoffs to not waste rounds.
+                else if current_round < op_data.round_range.start_round()
+                    && op_data.round_range.start_round().to_index() - current_round.to_index() > 1
+                {
+                    let reason = format!(
+                        "Operator {:?} has a round range in DepositData that is too far ahead from the current round, current round: {:?}, start round: {:?}",
+                        xonly_pk, current_round, op_data.round_range.start_round()
+                    );
+                    tracing::error!("{reason}");
+                    return Err(BridgeError::InvalidDeposit(reason));
+                }
+            }
         }
-        // check if there are any operators in the deposit that are not in the DB.
-        for operator_xonly_pk in operators_in_deposit_data {
+        for op_data in deposit_data.get_operators() {
+            // check if there are any operators in the deposit that are not in the DB.
             if !operators_in_db
                 .iter()
-                .any(|(xonly_pk, _, _)| xonly_pk == &operator_xonly_pk)
+                .any(|(xonly_pk, _, _)| xonly_pk == &op_data.xonly_pk)
             {
                 let reason = format!(
                     "Operator {:?} is in the deposit data from aggregator but not in the verifier's DB, cannot sign deposit",
-                    operator_xonly_pk
+                    op_data.xonly_pk
                 );
                 tracing::error!("{reason}");
                 return Err(BridgeError::InvalidDeposit(reason));
+            }
+            // check if the round range of the operator is valid
+            if op_data.round_range.end_round()
+                > RoundIndex::Round(self.config.protocol_paramset().total_num_rounds - 1)
+            {
+                let reason = format!(
+                    "Operator {:?} has an end round that is greater than the total number of rounds, total rounds: {}, end round: {:?}",
+                    op_data.xonly_pk, self.config.protocol_paramset().total_num_rounds,
+                    op_data.round_range.end_round()
+                );
+                tracing::error!("{reason}");
+                return Err(BridgeError::InvalidDeposit(reason));
+            }
+            let num_rounds = op_data.round_range.end_round().to_index()
+                - op_data.round_range.start_round().to_index();
+            match num_rounds.cmp(&self.config.protocol_paramset().num_signed_round_txs) {
+                std::cmp::Ordering::Less => {
+                    // if round range is less than num_signed_round_txs, end round should be the last round, otherwise the round range is invalid
+                    if op_data.round_range.end_round()
+                        != RoundIndex::Round(self.config.protocol_paramset().total_num_rounds - 1)
+                    {
+                        let reason = format!(
+                            "Operator {:?} has a round range that is less than the number of signed rounds, expected {}, got {}",
+                            op_data.xonly_pk, self.config.protocol_paramset().num_signed_round_txs, num_rounds
+                        );
+                        tracing::error!("{reason}");
+                        return Err(BridgeError::InvalidDeposit(reason));
+                    }
+                }
+                std::cmp::Ordering::Equal => {}
+                std::cmp::Ordering::Greater => {
+                    let reason = format!(
+                        "Operator {:?} has a round range that is greater than the total number of signed rounds, expected {}, got {}",
+                        op_data.xonly_pk, self.config.protocol_paramset().total_num_rounds, num_rounds
+                    );
+                    tracing::error!("{reason}");
+                    return Err(BridgeError::InvalidDeposit(reason));
+                }
             }
         }
         // check if deposit script in deposit_outpoint is valid
@@ -676,14 +763,15 @@ where
             self.config.protocol_paramset().total_num_rounds,
         )?;
 
-        if !self
+        if self
             .rpc
-            .collateral_check(
+            .get_current_round(
                 &operator_data,
                 &kickoff_wpks,
                 self.config.protocol_paramset(),
             )
             .await?
+            .is_none()
         {
             return Err(eyre::eyre!(
                 "Collateral utxo of operator {:?} does not exist or is not usable in bitcoin, cannot set operator",
@@ -1280,7 +1368,9 @@ where
                             Some(&mut dbtx),
                             deposit_data.get_deposit_outpoint(),
                             op_dep_data.xonly_pk,
-                            RoundIndex::from_index(round_idx),
+                            RoundIndex::from_index(
+                                round_idx + op_dep_data.round_range.start_round().to_index(),
+                            ),
                             *kickoff_idx,
                             kickoff_txid.expect("Kickoff txid must be Some"),
                             std::mem::take(&mut op_round_sigs[*kickoff_idx]),

@@ -114,21 +114,52 @@ impl DepositData {
         self.get_verifiers()
             .iter()
             .position(|pk| pk == public_key)
-            .ok_or_else(|| eyre::eyre!("Verifier with public key {} not found", public_key))
+            .ok_or_else(|| {
+                eyre::eyre!(
+                    "Verifier with public key {} not found in DepositData",
+                    public_key
+                )
+            })
     }
     /// Returns the index of a watchtower in the deposit, in the sorted order of watchtowers pk.
     pub fn get_watchtower_index(&self, xonly_pk: &XOnlyPublicKey) -> Result<usize, eyre::Report> {
         self.get_watchtowers()
             .iter()
             .position(|pk| pk == xonly_pk)
-            .ok_or_else(|| eyre::eyre!("Watchtower with xonly key {} not found", xonly_pk))
+            .ok_or_else(|| {
+                eyre::eyre!(
+                    "Watchtower with xonly key {} not found in DepositData",
+                    xonly_pk
+                )
+            })
     }
     /// Returns the index of an operator in the deposit, in the sorted order of operators pk.
     pub fn get_operator_index(&self, xonly_pk: XOnlyPublicKey) -> Result<usize, eyre::Report> {
         self.get_operators()
             .iter()
             .position(|op| op.xonly_pk == xonly_pk)
-            .ok_or_else(|| eyre::eyre!("Operator with xonly key {} not found", xonly_pk))
+            .ok_or_else(|| {
+                eyre::eyre!(
+                    "Operator with xonly key {} not found in DepositData",
+                    xonly_pk
+                )
+            })
+    }
+    /// Returns the operator data for a given xonly public key.
+    pub fn get_operator_data(
+        &self,
+        xonly_pk: XOnlyPublicKey,
+    ) -> Result<OperatorDepositData, eyre::Report> {
+        self.get_operators()
+            .iter()
+            .find(|op| op.xonly_pk == xonly_pk)
+            .copied()
+            .ok_or_else(|| {
+                eyre::eyre!(
+                    "Operator with xonly key {} not found in DepositData",
+                    xonly_pk
+                )
+            })
     }
     /// Returns sorted verifiers, they are sorted so that their order is deterministic.
     pub fn get_verifiers(&self) -> Vec<PublicKey> {

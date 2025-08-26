@@ -20,9 +20,10 @@ use crate::constants::{
     OPERATOR_SIGS_TIMEOUT, OVERALL_DEPOSIT_TIMEOUT, PARTIAL_SIG_STREAM_CREATION_TIMEOUT,
     PIPELINE_COMPLETION_TIMEOUT, SEND_OPERATOR_SIGS_TIMEOUT, WITHDRAWAL_TIMEOUT,
 };
-use crate::deposit::{Actors, DepositData, DepositInfo};
+use crate::deposit::{Actors, DepositData, DepositInfo, OperatorDepositData, RoundRange};
 use crate::errors::ResultExt;
 use crate::musig2::AggregateFromPublicKeys;
+use crate::operator::RoundIndex;
 use crate::rpc::clementine::{
     operator_withrawal_response, AggregatorWithdrawalInput, OperatorWithrawalResponse,
     VerifierDepositSignParams,
@@ -1168,8 +1169,32 @@ impl ClementineAggregator for AggregatorServer {
                 nofn_xonly_pk: None,
                 actors: Actors {
                     verifiers: self.fetch_verifier_keys().await?,
-                    watchtowers: vec![],
-                    operators: vec![], // self.fetch_operator_keys().await?, TODO
+                    watchtowers: vec![], // verifiers are automatically considered watchtowers, this field is only for additional watchtowers
+                    operators: {
+                        let op_keys = self.fetch_operator_keys().await?;
+                        let mut ops = Vec::new();
+                        // for each operator, find the round range we should sign for
+                        for op_xonly_pk in op_keys {
+                            let operator_data = self.db.get_operator(None, op_xonly_pk).await?.ok_or(eyre::eyre!("failed to get operator data for operator xonly_pk {:?}, run setup()", op_xonly_pk))?;
+                            let operator_wpks = self.db.get_all_operator_kickoff_winternitz_public_keys(None, 
+                                operator_data.xonly_pk, self.config.protocol_paramset().num_kickoffs_per_round, 
+                                self.config.protocol_paramset().total_num_rounds).await?;
+                            let mut current_round = self.rpc.get_current_round(&operator_data, &operator_wpks, 
+                                self.config.protocol_paramset()).await?.ok_or(eyre::eyre!("Operator xonly_pk {:?} not in protocol", op_xonly_pk))?;
+                            if current_round == RoundIndex::Collateral {
+                                // advance if current round is collateral, because start round cannot be the collateral round
+                                current_round = current_round.next_round();
+                            }
+                            ops.push(OperatorDepositData {
+                                xonly_pk: operator_data.xonly_pk,
+                                // end round is either current round + num_signed_round_txs or the last round
+                                round_range: RoundRange::new(current_round, 
+                                    std::cmp::min(RoundIndex::Round(self.config.protocol_paramset().total_num_rounds - 1), 
+                                    RoundIndex::from_index(current_round.to_index() + self.config.protocol_paramset().num_signed_round_txs)))?,
+                            });
+                        }
+                        ops
+                    },
                 },
                 security_council: self.config.security_council.clone(),
             };

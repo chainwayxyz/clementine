@@ -418,18 +418,19 @@ impl ExtendedBitcoinRpc {
     ///
     /// # Returns
     ///
-    /// - [`bool`]: `true` if the collateral is still usable, thus operator is still in protocol, `false` if the collateral is spent, thus operator is not in protocol anymore
+    /// - [`RoundIndex`]: The current round index
+    /// - [`None`]: If the collateral is not on chain or mempool, i.e. operator is not in protocol anymore
     ///
     /// # Errors
     ///
     /// - [`BridgeError`]: If there was an error retrieving transaction data, creating round transactions,
     ///   or checking UTXO status
-    pub async fn collateral_check(
+    pub async fn get_current_round(
         &self,
         operator_data: &OperatorData,
         kickoff_wpks: &KickoffWinternitzKeys,
         paramset: &'static ProtocolParamset,
-    ) -> std::result::Result<bool, BridgeError> {
+    ) -> std::result::Result<Option<RoundIndex>, BridgeError> {
         // first check if the collateral utxo is on chain or mempool
         let tx = self
             .get_tx_of_txid(&operator_data.collateral_funding_outpoint.txid)
@@ -449,7 +450,7 @@ impl ExtendedBitcoinRpc {
                     operator_data.collateral_funding_outpoint.vout,
                     operator_data.collateral_funding_outpoint.txid
                 );
-                return Ok(false);
+                return Ok(None);
             }
         };
 
@@ -460,7 +461,7 @@ impl ExtendedBitcoinRpc {
                 paramset.collateral_funding_amount,
                 collateral_outpoint.value
             );
-            return Ok(false);
+            return Ok(None);
         }
 
         let operator_tpr_address =
@@ -473,7 +474,7 @@ impl ExtendedBitcoinRpc {
                 operator_tpr_address.script_pubkey(),
                 collateral_outpoint.script_pubkey
             );
-            return Ok(false);
+            return Ok(None);
         }
 
         // we additionally check if collateral utxo is on chain (so not in mempool)
@@ -485,13 +486,14 @@ impl ExtendedBitcoinRpc {
             .await?;
         if !is_on_chain {
             return match paramset.network {
-                bitcoin::Network::Bitcoin => Ok(false),
-                _ => Ok(true),
+                bitcoin::Network::Bitcoin => Ok(None),
+                _ => Ok(Some(RoundIndex::Collateral)),
             };
         }
 
         let mut current_collateral_outpoint: OutPoint = operator_data.collateral_funding_outpoint;
         let mut prev_ready_to_reimburse: Option<TxHandler> = None;
+        let mut last_round_idx = RoundIndex::Collateral;
         // iterate over all rounds
         for round_idx in RoundIndex::iter_rounds(paramset.total_num_rounds) {
             // create round and ready to reimburse txs for the round
@@ -546,17 +548,13 @@ impl ExtendedBitcoinRpc {
                     block_height,
                     paramset.start_height
                 );
-                return Ok(false);
+                return Ok(None);
             }
             current_collateral_outpoint = OutPoint {
                 txid: round_txid,
                 vout: UtxoVout::CollateralInRound.get_vout(),
             };
-            if round_idx == RoundIndex::Round(paramset.num_signed_round_txs - 1) {
-                // for the last round, only check round tx, as if the operator sent the ready to reimburse tx of last round,
-                // it cannot create more kickoffs anymore
-                break;
-            }
+            last_round_idx = round_idx;
             let ready_to_reimburse_txhandler = ready_to_reimburse_txhandler_opt
                 .expect("Ready to reimburse txhandler should exist");
             let ready_to_reimburse_txid =
@@ -578,7 +576,14 @@ impl ExtendedBitcoinRpc {
         // if the collateral utxo we found latest in the round tx chain is spent, operators collateral is spent from Clementine
         // bridge protocol, thus it is unusable and operator cannot fulfill withdrawals anymore
         // if not spent, it should exist in chain, which is checked below
-        Ok(!self.is_utxo_spent(&current_collateral_outpoint).await?)
+        Ok(
+            if !self.is_utxo_spent(&current_collateral_outpoint).await? {
+                Some(last_round_idx)
+            } else {
+                // operator is not in protocol anymore, so we return None
+                None
+            },
+        )
     }
 
     /// Returns block hash of a transaction, if confirmed.

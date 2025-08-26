@@ -904,6 +904,13 @@ where
             self.end_round(dbtx).await?;
         }
 
+        tracing::info!(
+            "Handling finalized payout for deposit {:?}, round {:?}, kickoff {:?}",
+            deposit_outpoint,
+            round_idx,
+            kickoff_idx
+        );
+
         // get signed txs,
         let kickoff_data = KickoffData {
             operator_xonly_pk: self.signer.xonly_public_key,
