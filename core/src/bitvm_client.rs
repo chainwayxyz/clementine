@@ -412,19 +412,19 @@ impl ClementineBitVMPublicKeys {
             vec![
                 (self.challenge_sending_watchtowers_pk.to_vec(), 40),
                 (self.bitvm_pks.0[0].to_vec(), 64),
+                (self.bitvm_pks.1[NUM_U256 - 4].to_vec(), 64),
+                (self.bitvm_pks.1[NUM_U256 - 3].to_vec(), 64),
                 (self.bitvm_pks.1[NUM_U256 - 2].to_vec(), 64),
                 (self.bitvm_pks.1[NUM_U256 - 1].to_vec(), 64),
-                (self.bitvm_pks.2[NUM_HASH - 3].to_vec(), 32),
-                (self.bitvm_pks.2[NUM_HASH - 2].to_vec(), 32),
-                (self.bitvm_pks.2[NUM_HASH - 1].to_vec(), 32),
             ],
             xonly_public_key,
             4,
         ));
         scripts.push(first_script);
-        // iterate NUM_U256 6 by 6
-        for i in (0..NUM_U256 - 2).step_by(6) {
-            let last_idx = std::cmp::min(i + 6, NUM_U256);
+        // iterate NUM_U256 5 by 5
+        let k1 = 5;
+        for i in (0..NUM_U256 - 4).step_by(k1) {
+            let last_idx = std::cmp::min(i + k1, NUM_U256);
             let script: Arc<dyn SpendableScript> = Arc::new(WinternitzCommit::new(
                 self.bitvm_pks.1[i..last_idx]
                     .iter()
@@ -435,9 +435,10 @@ impl ClementineBitVMPublicKeys {
             ));
             scripts.push(script);
         }
-        // iterate NUM_HASH 12 by 12
-        for i in (0..NUM_HASH - 3).step_by(12) {
-            let last_idx = std::cmp::min(i + 12, NUM_HASH);
+        let k2 = 11;
+        // iterate NUM_HASH 11 by 11
+        for i in (0..NUM_HASH).step_by(k2) {
+            let last_idx = std::cmp::min(i + k2, NUM_HASH);
             let script: Arc<dyn SpendableScript> = Arc::new(WinternitzCommit::new(
                 self.bitvm_pks.2[i..last_idx]
                     .iter()
@@ -568,6 +569,7 @@ impl ClementineBitVMPublicKeys {
             derivations_vec
         }
     }
+
     pub fn get_assert_taproot_leaf_hashes(
         &self,
         xonly_public_key: XOnlyPublicKey,
@@ -735,6 +737,7 @@ mod tests {
 
     use super::*;
     use crate::{actor::Actor, test::common::create_test_config_with_thread_name};
+
     #[test]
     fn test_to_flattened_vec() {
         let bitvm_pks = ClementineBitVMPublicKeys::create_replacable();
