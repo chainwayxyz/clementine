@@ -65,6 +65,7 @@ use crate::{
     builder::transaction::input::SpendableTxInError,
     extended_bitcoin_rpc::BitcoinRPCError,
     header_chain_prover::HeaderChainProverError,
+    operator::RoundIndex,
     rpc::{aggregator::AggregatorError, ParserError},
 };
 #[cfg(feature = "automation")]
@@ -129,8 +130,8 @@ pub enum BridgeError {
     OperatorDataMismatch(XOnlyPublicKey),
     #[error("Deposit data mismatch. Data already stored in DB doesn't match the new data for deposit {0:?}")]
     DepositDataMismatch(OutPoint),
-    #[error("Operator winternitz public keys mismatch. Data already stored in DB doesn't match the new data for operator {0}")]
-    OperatorWinternitzPublicKeysMismatch(XOnlyPublicKey),
+    #[error("Operator winternitz public keys mismatch. Data already stored in DB doesn't match the new data for operator {0} and round {1:?}")]
+    OperatorWinternitzPublicKeysMismatch(XOnlyPublicKey, RoundIndex),
     #[error("BitVM setup data mismatch. Data already stored in DB doesn't match the new data for operator {0} and deposit {1:?}")]
     BitvmSetupDataMismatch(XOnlyPublicKey, OutPoint),
     #[error("BitVM replacement data will exhaust memory. The maximum number of operations is {0}")]

@@ -9,7 +9,7 @@ use super::{
     Database, DatabaseTransaction,
 };
 use crate::{
-    builder::transaction::create_move_to_vault_txhandler,
+    builder::transaction::{create_move_to_vault_txhandler, KickoffWinternitzKeys},
     config::protocol::ProtocolParamset,
     deposit::{DepositData, KickoffData, OperatorData},
     operator::RoundIndex,
@@ -218,35 +218,47 @@ impl Database {
     }
 
     /// Sets Winternitz public keys (only for kickoff blockhash commit) for an operator.
+    /// The set keys are always from round 0 to num_rounds (exclusive).
     /// On conflict, do not update the existing keys. This is very important, as otherwise the txids of
     /// operators round tx's will change.
     pub async fn insert_operator_kickoff_winternitz_public_keys_if_not_exist(
         &self,
         mut tx: Option<DatabaseTransaction<'_, '_>>,
         operator_xonly_pk: XOnlyPublicKey,
-        winternitz_public_key: Vec<WinternitzPublicKey>,
+        kickoff_wpks: &KickoffWinternitzKeys,
     ) -> Result<(), BridgeError> {
-        let wpk = borsh::to_vec(&winternitz_public_key).wrap_err(BridgeError::BorshError)?;
+        // iterate over all rounds
+        for round_idx in RoundIndex::iter_rounds(kickoff_wpks.num_rounds()) {
+            let wpk = borsh::to_vec(kickoff_wpks.get_keys_for_round(round_idx)?)
+                .wrap_err(BridgeError::BorshError)?;
 
-        let query = sqlx::query(
-            "INSERT INTO operator_winternitz_public_keys (xonly_pk, winternitz_public_keys)
-             VALUES ($1, $2)
-             ON CONFLICT (xonly_pk) DO NOTHING",
-        )
-        .bind(XOnlyPublicKeyDB(operator_xonly_pk))
-        .bind(wpk);
+            let query = sqlx::query(
+                "INSERT INTO operator_winternitz_public_keys (xonly_pk, round_idx, winternitz_public_keys)
+             VALUES ($1, $2, $3)
+             ON CONFLICT (xonly_pk, round_idx) DO NOTHING",
+            )
+            .bind(XOnlyPublicKeyDB(operator_xonly_pk))
+            .bind(i32::try_from(round_idx.to_index()).wrap_err("Failed to convert round index to i32")?)
+            .bind(wpk);
 
-        let result = execute_query_with_tx!(self.connection, tx.as_deref_mut(), query, execute)?;
+            let result =
+                execute_query_with_tx!(self.connection, tx.as_deref_mut(), query, execute)?;
 
-        // If no rows were affected, data already exists - check if it matches
-        if result.rows_affected() == 0 {
-            let existing = self
-                .get_operator_kickoff_winternitz_public_keys(tx, operator_xonly_pk)
-                .await?;
-            if existing != winternitz_public_key {
-                return Err(BridgeError::OperatorWinternitzPublicKeysMismatch(
-                    operator_xonly_pk,
-                ));
+            // If no rows were affected, data already exists - check if it matches
+            if result.rows_affected() == 0 {
+                let existing = self
+                    .get_operator_kickoff_winternitz_public_keys(
+                        tx.as_deref_mut(),
+                        operator_xonly_pk,
+                        round_idx,
+                    )
+                    .await?;
+                if existing != kickoff_wpks.get_keys_for_round(round_idx)? {
+                    return Err(BridgeError::OperatorWinternitzPublicKeysMismatch(
+                        operator_xonly_pk,
+                        round_idx,
+                    ));
+                }
             }
         }
 
@@ -259,11 +271,13 @@ impl Database {
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         op_xonly_pk: XOnlyPublicKey,
+        round_idx: RoundIndex,
     ) -> Result<Vec<winternitz::PublicKey>, BridgeError> {
         let query = sqlx::query_as(
-                "SELECT winternitz_public_keys FROM operator_winternitz_public_keys WHERE xonly_pk = $1;",
+                "SELECT winternitz_public_keys FROM operator_winternitz_public_keys WHERE xonly_pk = $1 AND round_idx = $2;",
             )
-            .bind(XOnlyPublicKeyDB(op_xonly_pk));
+            .bind(XOnlyPublicKeyDB(op_xonly_pk))
+            .bind(i32::try_from(round_idx.to_index()).wrap_err("Failed to convert round index to i32")?);
 
         let wpks: (Vec<u8>,) = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
 
@@ -271,6 +285,32 @@ impl Database {
             borsh::from_slice(&wpks.0).wrap_err(BridgeError::BorshError)?;
 
         Ok(operator_winternitz_pks)
+    }
+
+    /// Gets all Winternitz public keys for round 0 to num_rounds (exclusive) of an operator, flattened.
+    pub async fn get_all_operator_kickoff_winternitz_public_keys(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        op_xonly_pk: XOnlyPublicKey,
+        num_kickoffs_per_round: usize,
+        num_rounds: usize,
+    ) -> Result<KickoffWinternitzKeys, BridgeError> {
+        let query = sqlx::query_as(
+            "SELECT winternitz_public_keys FROM operator_winternitz_public_keys WHERE xonly_pk = $1 AND round_idx <= $2 ORDER BY round_idx ASC;",
+        )
+        .bind(XOnlyPublicKeyDB(op_xonly_pk))
+        .bind(i32::try_from(RoundIndex::Round(num_rounds).to_index()).wrap_err("Failed to convert number of rounds to i32")?);
+
+        let wpks: Vec<(Vec<u8>,)> = execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
+
+        let mut flattened_keys: Vec<winternitz::PublicKey> = Vec::new();
+        for (bytes,) in wpks.into_iter() {
+            let keys_for_round: Vec<winternitz::PublicKey> =
+                borsh::from_slice(&bytes).wrap_err(BridgeError::BorshError)?;
+            flattened_keys.extend(keys_for_round);
+        }
+
+        KickoffWinternitzKeys::new(flattened_keys, num_kickoffs_per_round, num_rounds)
     }
 
     /// Sets public hashes for a specific operator, sequential collateral tx and
@@ -942,6 +982,7 @@ mod tests {
     use bitcoin::hashes::Hash;
     use bitcoin::key::constants::SCHNORR_SIGNATURE_SIZE;
     use bitcoin::key::Keypair;
+    use bitcoin::secp256k1::SecretKey;
     use bitcoin::{Address, OutPoint, Txid, XOnlyPublicKey};
     use std::str::FromStr;
 
@@ -1334,58 +1375,75 @@ mod tests {
             .unwrap();
         let op_xonly_pk =
             XOnlyPublicKey::from_keypair(&Keypair::from_secret_key(&SECP, &config.secret_key)).0;
-        let deposit_outpoint = OutPoint {
-            txid: Txid::from_slice(&[0x45; 32]).unwrap(),
-            vout: 0x1F,
-        };
-        let wpks = operator
-            .generate_assert_winternitz_pubkeys(deposit_outpoint)
-            .unwrap();
+
+        let kickoff_wpks = operator.generate_kickoff_winternitz_pubkeys().unwrap();
 
         // Test inserting new data
         database
             .insert_operator_kickoff_winternitz_public_keys_if_not_exist(
                 None,
                 op_xonly_pk,
-                wpks.clone(),
+                &kickoff_wpks,
             )
             .await
             .unwrap();
 
         let result = database
-            .get_operator_kickoff_winternitz_public_keys(None, op_xonly_pk)
+            .get_operator_kickoff_winternitz_public_keys(None, op_xonly_pk, RoundIndex::Round(0))
             .await
             .unwrap();
-        assert_eq!(result, wpks);
+        assert_eq!(
+            result,
+            kickoff_wpks
+                .get_keys_for_round(RoundIndex::Round(0))
+                .unwrap()
+        );
+
+        let result = database
+            .get_operator_kickoff_winternitz_public_keys(None, op_xonly_pk, RoundIndex::Round(1))
+            .await
+            .unwrap();
+        assert_eq!(
+            result,
+            kickoff_wpks
+                .get_keys_for_round(RoundIndex::Round(1))
+                .unwrap()
+        );
 
         // Test that we can insert the same data without errors
         database
             .insert_operator_kickoff_winternitz_public_keys_if_not_exist(
                 None,
                 op_xonly_pk,
-                wpks.clone(),
+                &kickoff_wpks,
             )
             .await
             .unwrap();
 
         // Test that we can't update with different data
-        let different_wpks = operator
-            .generate_assert_winternitz_pubkeys(OutPoint {
-                txid: Txid::from_slice(&[0x46; 32]).unwrap(),
-                vout: 0x1F,
-            })
+        config.winternitz_secret_key = Some(
+            SecretKey::from_str("3333333333333333333333333333333333333333333333333333333333333333")
+                .expect("known valid input"),
+        );
+        let operator2 = Operator::<MockCitreaClient>::new(config.clone())
+            .await
             .unwrap();
+        let different_wpks = operator2.generate_kickoff_winternitz_pubkeys().unwrap();
         assert!(database
             .insert_operator_kickoff_winternitz_public_keys_if_not_exist(
                 None,
                 op_xonly_pk,
-                different_wpks
+                &different_wpks,
             )
             .await
             .is_err());
 
         let non_existent = database
-            .get_operator_kickoff_winternitz_public_keys(None, *UNSPENDABLE_XONLY_PUBKEY)
+            .get_operator_kickoff_winternitz_public_keys(
+                None,
+                *UNSPENDABLE_XONLY_PUBKEY,
+                RoundIndex::Round(0),
+            )
             .await;
         assert!(non_existent.is_err());
     }
@@ -1426,7 +1484,7 @@ mod tests {
         assert_eq!(result, wpks);
 
         let non_existent = database
-            .get_operator_kickoff_winternitz_public_keys(None, *UNSPENDABLE_XONLY_PUBKEY)
+            .get_operator_bitvm_keys(None, *UNSPENDABLE_XONLY_PUBKEY, deposit_outpoint)
             .await;
         assert!(non_existent.is_err());
     }

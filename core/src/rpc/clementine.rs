@@ -109,9 +109,18 @@ pub struct Actors {
     /// / NOTE: verifiers are automatically considered watchtowers. This field is only for additional watchtowers.
     #[prost(message, optional, tag = "2")]
     pub watchtowers: ::core::option::Option<XOnlyPublicKeys>,
-    /// / X-only public keys of operators that will participate in the deposit.
-    #[prost(message, optional, tag = "3")]
-    pub operators: ::core::option::Option<XOnlyPublicKeys>,
+    /// / X-only public keys of operators that will participate in the deposit, and the range of rounds they will sign for.
+    #[prost(message, repeated, tag = "3")]
+    pub operators: ::prost::alloc::vec::Vec<OperatorDepositParams>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct OperatorDepositParams {
+    #[prost(message, optional, tag = "1")]
+    pub xonly_pk: ::core::option::Option<XOnlyPublicKeyRpc>,
+    #[prost(uint32, tag = "2")]
+    pub start_round: u32,
+    #[prost(uint32, tag = "3")]
+    pub end_round: u32,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ReplacementDeposit {

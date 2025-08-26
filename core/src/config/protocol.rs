@@ -76,8 +76,8 @@ impl From<ProtocolParamsetName> for &'static ProtocolParamset {
 pub struct ProtocolParamset {
     /// Bitcoin network to work on (mainnet, testnet, regtest).
     pub network: Network,
-    /// Number of round transactions that the operator will create.
-    pub num_round_txs: usize,
+    /// Number of round transactions that will be signed per deposit.
+    pub num_signed_round_txs: usize,
     /// Number of kickoff UTXOs per round transaction.
     pub num_kickoffs_per_round: usize,
     /// Number of kickoffs that are signed per round and deposit.
@@ -129,6 +129,8 @@ pub struct ProtocolParamset {
     pub header_chain_proof_batch_size: u32,
     /// Denotes if the bridge is non-standard, i.e. uses 0 sat outputs for round tx (except collateral) and kickoff outputs
     pub bridge_nonstandard: bool,
+    /// Total number of rounds that each operator should have and share info during setup()
+    pub total_num_rounds: usize,
 }
 
 impl ProtocolParamset {
@@ -142,7 +144,7 @@ impl ProtocolParamset {
     pub fn from_env() -> Result<Self, BridgeError> {
         let config = ProtocolParamset {
             network: read_string_from_env_then_parse::<Network>("NETWORK")?,
-            num_round_txs: read_string_from_env_then_parse::<usize>("NUM_ROUND_TXS")?,
+            num_signed_round_txs: read_string_from_env_then_parse::<usize>("NUM_SIGNED_ROUND_TXS")?,
             num_kickoffs_per_round: read_string_from_env_then_parse::<usize>(
                 "NUM_KICKOFFS_PER_ROUND",
             )?,
@@ -201,6 +203,7 @@ impl ProtocolParamset {
                 "LATEST_BLOCKHASH_TIMEOUT_TIMELOCK",
             )?,
             bridge_nonstandard: read_string_from_env_then_parse::<bool>("BRIDGE_NONSTANDARD")?,
+            total_num_rounds: read_string_from_env_then_parse::<usize>("TOTAL_NUM_ROUNDS")?,
         };
 
         Ok(config)
@@ -276,7 +279,7 @@ impl Default for &'static ProtocolParamset {
 
 pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     network: Network::Regtest,
-    num_round_txs: 2,
+    num_signed_round_txs: 2,
     num_kickoffs_per_round: 10,
     num_signed_kickoffs: 2,
     bridge_amount: Amount::from_sat(1_000_000_000),
@@ -304,11 +307,12 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     ],
     header_chain_proof_batch_size: 100,
     bridge_nonstandard: true,
+    total_num_rounds: 8,
 };
 
 pub const TESTNET4_TEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     network: Network::Testnet4,
-    num_round_txs: 2,
+    num_signed_round_txs: 2,
     num_kickoffs_per_round: 10,
     num_signed_kickoffs: 2,
     bridge_amount: Amount::from_sat(1_000_000),
@@ -337,6 +341,7 @@ pub const TESTNET4_TEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     ],
     header_chain_proof_batch_size: 10000,
     bridge_nonstandard: true,
+    total_num_rounds: 8,
 };
 
 pub const REGTEST_TEST_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [

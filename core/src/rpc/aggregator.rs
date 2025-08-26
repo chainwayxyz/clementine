@@ -1169,7 +1169,7 @@ impl ClementineAggregator for AggregatorServer {
                 actors: Actors {
                     verifiers: self.fetch_verifier_keys().await?,
                     watchtowers: vec![],
-                    operators: self.fetch_operator_keys().await?,
+                    operators: vec![], // self.fetch_operator_keys().await?, TODO
                 },
                 security_council: self.config.security_council.clone(),
             };

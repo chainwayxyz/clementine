@@ -61,9 +61,10 @@ fn get_txhandler(
 }
 
 /// Helper struct to get specific kickoff winternitz keys for a sequential collateral tx
+/// It holds winternitz keys from round 0 to round num_rounds - 1
 #[derive(Debug, Clone)]
 pub struct KickoffWinternitzKeys {
-    pub keys: Vec<bitvm::signatures::winternitz::PublicKey>,
+    keys: Vec<bitvm::signatures::winternitz::PublicKey>,
     num_kickoffs_per_round: usize,
     num_rounds: usize,
 }
@@ -74,12 +75,21 @@ impl KickoffWinternitzKeys {
         keys: Vec<bitvm::signatures::winternitz::PublicKey>,
         num_kickoffs_per_round: usize,
         num_rounds: usize,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, BridgeError> {
+        if keys.len() != num_kickoffs_per_round * num_rounds {
+            return Err(eyre::eyre!(
+                "Number of keys ({}) does not match the number of kickoffs per round ({}) times the number of rounds ({})",
+                keys.len(),
+                num_kickoffs_per_round,
+                num_rounds
+            )
+            .into());
+        }
+        Ok(Self {
             keys,
             num_kickoffs_per_round,
             num_rounds,
-        }
+        })
     }
 
     /// Get the winternitz keys for a specific round tx.
@@ -96,7 +106,9 @@ impl KickoffWinternitzKeys {
         // 0th round is the collateral, there are no keys for the 0th round
         // Additionally there are no keys after num_rounds + 1, +1 is because we need additional round to generate
         // reimbursement connectors of previous round
-        if round_idx == RoundIndex::Collateral || round_idx.to_index() > self.num_rounds + 1 {
+        if round_idx == RoundIndex::Collateral
+            || round_idx.to_index() >= RoundIndex::Round(self.num_rounds).to_index()
+        {
             return Err(TxError::InvalidRoundIndex(round_idx));
         }
         let start_idx = (round_idx.to_index())
@@ -108,6 +120,19 @@ impl KickoffWinternitzKeys {
             .checked_add(self.num_kickoffs_per_round)
             .ok_or(TxError::IndexOverflow)?;
         Ok(&self.keys[start_idx..end_idx])
+    }
+
+    pub fn num_rounds(&self) -> usize {
+        self.num_rounds
+    }
+
+    pub fn num_keys(&self) -> usize {
+        self.keys.len()
+    }
+
+    /// Moves the keys vector
+    pub fn into_pubkey_vec(self) -> Vec<bitvm::signatures::winternitz::PublicKey> {
+        self.keys
     }
 }
 
@@ -257,17 +282,17 @@ impl<'a, 'b> ReimburseDbCache<'a, 'b> {
         match self.kickoff_winternitz_keys {
             Some(ref keys) => Ok(keys),
             None => {
-                self.kickoff_winternitz_keys = Some(KickoffWinternitzKeys::new(
+                self.kickoff_winternitz_keys = Some(
                     self.db
-                        .get_operator_kickoff_winternitz_public_keys(
+                        .get_all_operator_kickoff_winternitz_public_keys(
                             self.dbtx.as_deref_mut(),
                             self.operator_xonly_pk,
+                            self.paramset.num_kickoffs_per_round,
+                            self.paramset.total_num_rounds,
                         )
                         .await
                         .wrap_err("Failed to get kickoff winternitz keys from database")?,
-                    self.paramset.num_kickoffs_per_round,
-                    self.paramset.num_round_txs,
-                ));
+                );
                 Ok(self
                     .kickoff_winternitz_keys
                     .as_ref()
@@ -1148,7 +1173,7 @@ mod tests {
                 let tx = tx.clone();
                 let operator_xonly_pk = operator_xonly_pks[operator_idx];
                 async move {
-                    for round_idx in RoundIndex::iter_rounds(paramset.num_round_txs) {
+                    for round_idx in RoundIndex::iter_rounds(paramset.num_signed_round_txs) {
                         for &kickoff_idx in &utxo_idxs[operator_idx] {
                             let kickoff_data = KickoffData {
                                 operator_xonly_pk,
@@ -1235,7 +1260,7 @@ mod tests {
                 let operator_xonly_pks = operator_xonly_pks.clone();
                 async move {
                     for (operator_idx, utxo_idx) in utxo_idxs.iter().enumerate() {
-                        for round_idx in RoundIndex::iter_rounds(paramset.num_round_txs) {
+                        for round_idx in RoundIndex::iter_rounds(paramset.num_signed_round_txs) {
                             for &kickoff_idx in utxo_idx {
                                 let kickoff_data = KickoffData {
                                     operator_xonly_pk: operator_xonly_pks[operator_idx],

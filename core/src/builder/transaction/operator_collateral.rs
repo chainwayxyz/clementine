@@ -230,7 +230,7 @@ pub fn create_round_nth_txhandler(
     // reimbursement connectors of previous round
 
     if index == RoundIndex::Collateral
-        || index.to_index() > RoundIndex::Round(paramset.num_round_txs).to_index()
+        || index.to_index() > RoundIndex::Round(pubkeys.num_rounds()).to_index()
     {
         return Err(TxError::InvalidRoundIndex(index).into());
     }
@@ -251,7 +251,11 @@ pub fn create_round_nth_txhandler(
         RoundIndex::Round(idx) => idx,
     };
     // iterate starting from second round to the requested round
-    for round_idx in RoundIndex::iter_rounds_range(1, round_idx + 1) {
+    for round_idx in
+        RoundIndex::iter_rounds_range(RoundIndex::Round(1), RoundIndex::Round(round_idx + 1))
+    {
+        // get the first collateral utxo to use as the input
+
         round_txhandler = create_round_txhandler(
             operator_xonly_pk,
             RoundTxInput::Prevout(Box::new(
@@ -424,14 +428,15 @@ mod tests {
         let input_outpoint = OutPoint::new(bitcoin::Txid::all_zeros(), 0);
         let input_amount = Amount::from_sat(10000000000);
         let pubkeys = KickoffWinternitzKeys::new(
-            vec![vec![[0u8; 20]; 44]; paramset.num_round_txs * paramset.num_kickoffs_per_round],
-            paramset.num_round_txs,
+            vec![vec![[0u8; 20]; 44]; paramset.num_signed_round_txs * paramset.num_kickoffs_per_round],
             paramset.num_kickoffs_per_round,
-        );
+            paramset.num_signed_round_txs,
+        )
+        .unwrap();
 
         let mut round_tx_input = RoundTxInput::Collateral(input_outpoint, input_amount);
 
-        for i in 0..paramset.num_round_txs {
+        for i in 0..paramset.num_signed_round_txs {
             let (round_nth_txhandler, ready_to_reimburse_nth_txhandler) =
                 create_round_nth_txhandler(
                     op_xonly_pk,

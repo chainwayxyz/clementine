@@ -7,8 +7,8 @@ use crate::builder::transaction::sign::TransactionRequestData;
 use crate::builder::transaction::TransactionType;
 use crate::constants::{MAX_BYTES_PER_WINTERNITZ_KEY, MAX_WINTERNITZ_DIGITS_PER_KEY};
 use crate::deposit::{
-    Actors, BaseDepositData, DepositData, DepositInfo, DepositType, ReplacementDepositData,
-    SecurityCouncil,
+    Actors, BaseDepositData, DepositData, DepositInfo, DepositType, OperatorDepositData,
+    ReplacementDepositData, RoundRange, SecurityCouncil,
 };
 use crate::errors::BridgeError;
 use crate::operator::RoundIndex;
@@ -426,8 +426,9 @@ impl TryFrom<clementine::Actors> for Actors {
             .try_into()?;
         let operators = value
             .operators
-            .ok_or(Status::invalid_argument("No operators received"))?
-            .try_into()?;
+            .into_iter()
+            .map(|op| op.try_into())
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(Actors {
             verifiers,
@@ -442,7 +443,38 @@ impl From<Actors> for clementine::Actors {
         clementine::Actors {
             verifiers: Some(value.verifiers.into()),
             watchtowers: Some(value.watchtowers.into()),
-            operators: Some(value.operators.into()),
+            operators: value
+                .operators
+                .into_iter()
+                .map(|op| op.into())
+                .collect::<Vec<_>>(),
+        }
+    }
+}
+
+impl TryFrom<clementine::OperatorDepositParams> for OperatorDepositData {
+    type Error = Status;
+
+    fn try_from(value: clementine::OperatorDepositParams) -> Result<Self, Self::Error> {
+        Ok(OperatorDepositData {
+            xonly_pk: value
+                .xonly_pk
+                .ok_or(Status::invalid_argument("No xonly_pk received"))?
+                .try_into()?,
+            round_range: RoundRange::new(
+                RoundIndex::from_index(value.start_round as usize),
+                RoundIndex::from_index(value.end_round as usize),
+            )?,
+        })
+    }
+}
+
+impl From<OperatorDepositData> for clementine::OperatorDepositParams {
+    fn from(value: OperatorDepositData) -> Self {
+        clementine::OperatorDepositParams {
+            xonly_pk: Some(value.xonly_pk.into()),
+            start_round: value.round_range.start_round().to_index() as u32,
+            end_round: value.round_range.end_round().to_index() as u32,
         }
     }
 }

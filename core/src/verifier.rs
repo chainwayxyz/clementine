@@ -468,7 +468,9 @@ where
             reimburse_addr: wallet_reimburse_address.clone(),
         };
         let mut cur_sig_index = 0;
-        for round_idx in RoundIndex::iter_rounds(self.config.protocol_paramset().num_round_txs) {
+        for round_idx in
+            RoundIndex::iter_rounds(self.config.protocol_paramset().num_signed_round_txs)
+        {
             let txhandlers = create_round_txhandlers(
                 self.config.protocol_paramset(),
                 round_idx,
@@ -540,7 +542,11 @@ where
             tracing::error!("{reason}");
             return Err(BridgeError::InvalidDeposit(reason));
         }
-        let operators_in_deposit_data = deposit_data.get_operators();
+        let operators_in_deposit_data = deposit_data
+            .get_operators()
+            .iter()
+            .map(|op| op.xonly_pk)
+            .collect::<HashSet<_>>();
         // check if all operators that still have collateral are in the deposit
         let operators_in_db = self.db.get_operators(None).await?;
         for (xonly_pk, reimburse_addr, collateral_funding_outpoint) in operators_in_db.iter() {
@@ -549,15 +555,15 @@ where
                 collateral_funding_outpoint: *collateral_funding_outpoint,
                 reimburse_addr: reimburse_addr.clone(),
             };
-            let kickoff_winternitz_pks = self
+            let kickoff_wpks = self
                 .db
-                .get_operator_kickoff_winternitz_public_keys(None, *xonly_pk)
+                .get_all_operator_kickoff_winternitz_public_keys(
+                    None,
+                    *xonly_pk,
+                    self.config.protocol_paramset().num_kickoffs_per_round,
+                    self.config.protocol_paramset().total_num_rounds,
+                )
                 .await?;
-            let kickoff_wpks = KickoffWinternitzKeys::new(
-                kickoff_winternitz_pks,
-                self.config.protocol_paramset().num_kickoffs_per_round,
-                self.config.protocol_paramset().num_round_txs,
-            );
             let is_collateral_usable = self
                 .rpc
                 .collateral_check(
@@ -667,8 +673,8 @@ where
         let kickoff_wpks = KickoffWinternitzKeys::new(
             operator_winternitz_public_keys,
             self.config.protocol_paramset().num_kickoffs_per_round,
-            self.config.protocol_paramset().num_round_txs,
-        );
+            self.config.protocol_paramset().total_num_rounds,
+        )?;
 
         if !self
             .rpc
@@ -694,7 +700,6 @@ where
             &kickoff_wpks,
         )?;
 
-        let operator_winternitz_public_keys = kickoff_wpks.keys;
         let mut dbtx = self.db.begin_transaction().await?;
         // Save the operator details to the db
         self.db
@@ -710,12 +715,12 @@ where
             .insert_operator_kickoff_winternitz_public_keys_if_not_exist(
                 Some(&mut dbtx),
                 operator_xonly_pk,
-                operator_winternitz_public_keys,
+                &kickoff_wpks,
             )
             .await?;
 
         let sigs_per_round = self.config.get_num_unspent_kickoff_sigs()
-            / self.config.protocol_paramset().num_round_txs;
+            / self.config.protocol_paramset().total_num_rounds;
         let tagged_sigs_per_round: Vec<Vec<TaggedSignature>> = tagged_sigs
             .chunks(sigs_per_round)
             .map(|chunk| chunk.to_vec())
@@ -939,11 +944,12 @@ where
         let num_operators = deposit_data.get_num_operators();
 
         let ProtocolParamset {
-            num_round_txs,
+            num_signed_round_txs: num_round_txs,
             num_kickoffs_per_round,
             ..
         } = *self.config.protocol_paramset();
 
+        // can do HashMap<RoundIndex, Vec<Vec<TaggedSignature>>> later
         let mut verified_sigs = vec![
             vec![
                 vec![
@@ -952,16 +958,23 @@ where
                     );
                     num_kickoffs_per_round
                 ];
-                num_round_txs + 1
+                num_round_txs
             ];
             num_operators
         ];
 
-        let mut kickoff_txids = vec![vec![vec![]; num_round_txs + 1]; num_operators];
+        let mut kickoff_txids = vec![vec![vec![]; num_round_txs]; num_operators];
 
         // ------ N-of-N SIGNATURES VERIFICATION ------
 
         let mut nonce_idx: usize = 0;
+
+        // first rounds of all operators
+        let first_round_idxs = deposit_data
+            .get_operators()
+            .iter()
+            .map(|op| op.round_range.start_round().to_index())
+            .collect::<Vec<_>>();
 
         while let Some(sighash) = sighash_stream.next().await {
             let typed_sighash = sighash.wrap_err("Failed to read from sighash stream")?;
@@ -975,8 +988,19 @@ where
                 kickoff_txid,
             } = &typed_sighash.1;
 
+            // find the index of the round in the vector, its round index - first round index for the operator
+            let round_idx_in_vec = round_idx
+                .to_index()
+                .checked_sub(first_round_idxs[operator_idx])
+                .ok_or_eyre(format!(
+                    "Round index {} is less than first round index {} for operator {}",
+                    round_idx.to_index(),
+                    first_round_idxs[operator_idx],
+                    operator_idx
+                ))?;
+
             if signature_id == NormalSignatureKind::YieldKickoffTxid.into() {
-                kickoff_txids[operator_idx][round_idx.to_index()]
+                kickoff_txids[operator_idx][round_idx_in_vec]
                     .push((kickoff_txid, kickoff_utxo_idx));
                 continue;
             }
@@ -1007,7 +1031,7 @@ where
                 signature: sig.serialize().to_vec(),
                 signature_id: Some(signature_id),
             };
-            verified_sigs[operator_idx][round_idx.to_index()][kickoff_utxo_idx].push(tagged_sig);
+            verified_sigs[operator_idx][round_idx_in_vec][kickoff_utxo_idx].push(tagged_sig);
 
             tracing::debug!("Final Signature Verified");
 
@@ -1051,16 +1075,17 @@ where
         let operators_data = deposit_data.get_operators();
 
         // get signatures of operators and verify them
-        for (operator_idx, &op_xonly_pk) in operators_data.iter().enumerate() {
+        for (operator_idx, &op_dep_data) in operators_data.iter().enumerate() {
             let mut op_sig_count = 0;
             // generate the sighash stream for operator
             let mut sighash_stream = pin!(create_operator_sighash_stream(
                 self.db.clone(),
-                op_xonly_pk,
+                op_dep_data,
                 self.config.clone(),
                 deposit_data.clone(),
                 deposit_blockhash,
             ));
+            let first_round_idx = op_dep_data.round_range.start_round().to_index();
             while let Some(operator_sig) = operator_sig_receiver.recv().await {
                 let typed_sighash = sighash_stream
                     .next()
@@ -1083,10 +1108,20 @@ where
                     tweak_data,
                 } = &typed_sighash.1;
 
+                let round_idx_in_vec = round_idx
+                    .to_index()
+                    .checked_sub(first_round_idx)
+                    .ok_or_eyre(format!(
+                        "Round index {} is less than first round index {} for operator {}",
+                        round_idx.to_index(),
+                        first_round_idx,
+                        operator_idx
+                    ))?;
+
                 verify_schnorr(
                     &operator_sig,
                     &Message::from(typed_sighash.0),
-                    op_xonly_pk,
+                    op_dep_data.xonly_pk,
                     tweak_data,
                     Some(&mut tweak_cache),
                 )
@@ -1103,8 +1138,7 @@ where
                     signature: operator_sig.serialize().to_vec(),
                     signature_id: Some(signature_id),
                 };
-                verified_sigs[operator_idx][round_idx.to_index()][kickoff_utxo_idx]
-                    .push(tagged_sig);
+                verified_sigs[operator_idx][round_idx_in_vec][kickoff_utxo_idx].push(tagged_sig);
 
                 op_sig_count += 1;
                 total_op_sig_count += 1;
@@ -1208,30 +1242,25 @@ where
         // Save signatures to db
         let mut dbtx = self.db.begin_transaction().await?;
         // Deposit is not actually finalized here, its only finalized after the aggregator gets all the partial sigs and checks the aggregated sig
-        for (operator_idx, (operator_xonly_pk, operator_sigs)) in operator_xonly_pks
+        for (operator_idx, (op_dep_data, operator_sigs)) in operator_xonly_pks
             .into_iter()
             .zip(verified_sigs.into_iter())
             .enumerate()
         {
-            // skip indexes until round 0 (currently 0th index corresponds to collateral, which doesn't have any sigs)
-            for (round_idx, mut op_round_sigs) in operator_sigs
-                .into_iter()
-                .enumerate()
-                .skip(RoundIndex::Round(0).to_index())
-            {
+            for (round_idx, mut op_round_sigs) in operator_sigs.into_iter().enumerate() {
                 if kickoff_txids[operator_idx][round_idx].len()
                     != self.config.protocol_paramset().num_signed_kickoffs
                 {
                     return Err(eyre::eyre!(
                         "Number of signed kickoff utxos for operator: {}, round: {} is wrong. Expected: {}, got: {}",
-                                operator_xonly_pk, round_idx, self.config.protocol_paramset().num_signed_kickoffs, kickoff_txids[operator_idx][round_idx].len()
+                                op_dep_data.xonly_pk, round_idx, self.config.protocol_paramset().num_signed_kickoffs, kickoff_txids[operator_idx][round_idx].len()
                     ).into());
                 }
                 for (kickoff_txid, kickoff_idx) in &kickoff_txids[operator_idx][round_idx] {
                     if kickoff_txid.is_none() {
                         return Err(eyre::eyre!(
                             "Kickoff txid not found for {}, {}, {}",
-                            operator_xonly_pk,
+                            op_dep_data.xonly_pk,
                             round_idx, // rounds start from 1
                             kickoff_idx
                         )
@@ -1240,7 +1269,7 @@ where
 
                     tracing::trace!(
                         "Setting deposit signatures for {:?}, {:?}, {:?} {:?}",
-                        operator_xonly_pk,
+                        op_dep_data.xonly_pk,
                         round_idx, // rounds start from 1
                         kickoff_idx,
                         kickoff_txid
@@ -1250,7 +1279,7 @@ where
                         .insert_deposit_signatures_if_not_exist(
                             Some(&mut dbtx),
                             deposit_data.get_deposit_outpoint(),
-                            operator_xonly_pk,
+                            op_dep_data.xonly_pk,
                             RoundIndex::from_index(round_idx),
                             *kickoff_idx,
                             kickoff_txid.expect("Kickoff txid must be Some"),

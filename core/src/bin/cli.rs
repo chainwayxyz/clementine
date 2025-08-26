@@ -292,9 +292,7 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
                     watchtowers: Some(XOnlyPublicKeys {
                         xonly_public_keys: vec![],
                     }),
-                    operators: Some(XOnlyPublicKeys {
-                        xonly_public_keys: vec![],
-                    }),
+                    operators: vec![],
                 }),
             };
             let response = operator

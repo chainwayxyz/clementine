@@ -112,13 +112,16 @@ impl RoundIndex {
     /// Creates an iterator over rounds from 0 to num_rounds (exclusive)
     /// Only iterates actual rounds, collateral is not included.
     pub fn iter_rounds(num_rounds: usize) -> impl Iterator<Item = RoundIndex> {
-        Self::iter_rounds_range(0, num_rounds)
+        Self::iter_rounds_range(RoundIndex::Round(0), RoundIndex::Round(num_rounds))
     }
 
     /// Creates an iterator over rounds from start to end (exclusive)
     /// Only iterates actual rounds, collateral is not included.
-    pub fn iter_rounds_range(start: usize, end: usize) -> impl Iterator<Item = RoundIndex> {
-        (start..end).map(RoundIndex::Round)
+    pub fn iter_rounds_range(
+        start: RoundIndex,
+        end: RoundIndex,
+    ) -> impl Iterator<Item = RoundIndex> {
+        (start.to_index()..end.to_index()).map(RoundIndex::from_index)
     }
 }
 
@@ -435,18 +438,13 @@ where
     > {
         tracing::info!("Generating operator params");
         tracing::info!("Generating kickoff winternitz pubkeys");
-        let wpks = self.generate_kickoff_winternitz_pubkeys()?;
+        let kickoff_wpks = self.generate_kickoff_winternitz_pubkeys()?;
         tracing::info!("Kickoff winternitz pubkeys generated");
-        let (wpk_tx, wpk_rx) = mpsc::channel(wpks.len());
-        let kickoff_wpks = KickoffWinternitzKeys::new(
-            wpks,
-            self.config.protocol_paramset().num_kickoffs_per_round,
-            self.config.protocol_paramset().num_round_txs,
-        );
+        let (wpk_tx, wpk_rx) = mpsc::channel(kickoff_wpks.num_keys());
         tracing::info!("Starting to generate unspent kickoff signatures");
         let kickoff_sigs = self.generate_unspent_kickoff_sigs(&kickoff_wpks)?;
         tracing::info!("Unspent kickoff signatures generated");
-        let wpks = kickoff_wpks.keys;
+        let wpks = kickoff_wpks.into_pubkey_vec();
         let (sig_tx, sig_rx) = mpsc::channel(kickoff_sigs.len());
 
         tokio::spawn(async move {
@@ -486,9 +484,15 @@ where
             .get_blockhash_of_tx(&deposit_data.get_deposit_outpoint().txid)
             .await?;
 
+        let operator_dep_data = *deposit_data
+            .get_operators()
+            .iter()
+            .find(|op| op.xonly_pk == self.signer.xonly_public_key)
+            .ok_or(eyre::eyre!("Operator itself not found in deposit data"))?;
+
         let mut sighash_stream = Box::pin(create_operator_sighash_stream(
             self.db.clone(),
-            self.signer.xonly_public_key,
+            operator_dep_data,
             self.config.clone(),
             deposit_data,
             deposit_blockhash,
@@ -527,7 +531,7 @@ where
             .insert_operator_kickoff_winternitz_public_keys_if_not_exist(
                 Some(&mut dbtx),
                 self.signer.xonly_public_key,
-                self.generate_kickoff_winternitz_pubkeys()?,
+                &self.generate_kickoff_winternitz_pubkeys()?,
             )
             .await?;
 
@@ -742,13 +746,11 @@ where
     ///   `round_index` row and `kickoff_idx` column.
     pub fn generate_kickoff_winternitz_pubkeys(
         &self,
-    ) -> Result<Vec<winternitz::PublicKey>, BridgeError> {
+    ) -> Result<KickoffWinternitzKeys, BridgeError> {
         let mut winternitz_pubkeys =
             Vec::with_capacity(self.config.get_num_kickoff_winternitz_pks());
 
-        // we need num_round_txs + 1 because the last round includes reimburse generators of previous round
-        for round_idx in RoundIndex::iter_rounds(self.config.protocol_paramset().num_round_txs + 1)
-        {
+        for round_idx in RoundIndex::iter_rounds(self.config.protocol_paramset().total_num_rounds) {
             for kickoff_idx in 0..self.config.protocol_paramset().num_kickoffs_per_round {
                 let path = WinternitzDerivationPath::Kickoff(
                     round_idx,
@@ -768,7 +770,11 @@ where
             .into());
         }
 
-        Ok(winternitz_pubkeys)
+        KickoffWinternitzKeys::new(
+            winternitz_pubkeys,
+            self.config.protocol_paramset().num_kickoffs_per_round,
+            self.config.protocol_paramset().total_num_rounds,
+        )
     }
 
     pub fn generate_unspent_kickoff_sigs(
@@ -784,7 +790,7 @@ where
             collateral_funding_outpoint: self.collateral_funding_outpoint,
             reimburse_addr: self.reimburse_addr.clone(),
         };
-        for round_idx in RoundIndex::iter_rounds(self.config.protocol_paramset().num_round_txs) {
+        for round_idx in RoundIndex::iter_rounds(self.config.protocol_paramset().total_num_rounds) {
             let txhandlers = create_round_txhandlers(
                 self.config.protocol_paramset(),
                 round_idx,
@@ -1041,15 +1047,15 @@ where
 
         let mut activation_prerequisites = Vec::new();
 
-        let operator_winternitz_public_keys = self
+        let kickoff_wpks = self
             .db
-            .get_operator_kickoff_winternitz_public_keys(None, self.signer.xonly_public_key)
+            .get_all_operator_kickoff_winternitz_public_keys(
+                None,
+                self.signer.xonly_public_key,
+                self.config.protocol_paramset().num_kickoffs_per_round,
+                self.config.protocol_paramset().total_num_rounds,
+            )
             .await?;
-        let kickoff_wpks = KickoffWinternitzKeys::new(
-            operator_winternitz_public_keys,
-            self.config.protocol_paramset().num_kickoffs_per_round,
-            self.config.protocol_paramset().num_round_txs,
-        );
 
         // if we are at round 0, which is just the collateral, we need to start the first round
         if current_round_index == RoundIndex::Collateral {
@@ -2134,12 +2140,7 @@ where
             "There are unspent kickoff utxos {:?}, creating a tx that spends them",
             unspent_kickoff_utxos
         );
-        let operator_winternitz_public_keys = self.generate_kickoff_winternitz_pubkeys()?;
-        let kickoff_wpks = KickoffWinternitzKeys::new(
-            operator_winternitz_public_keys,
-            self.config.protocol_paramset().num_kickoffs_per_round,
-            self.config.protocol_paramset().num_round_txs,
-        );
+        let kickoff_wpks = self.generate_kickoff_winternitz_pubkeys()?;
         // if there are unspent kickoff utxos, create a tx that spends them
         let (round_txhandler, _ready_to_reimburse_txhandler) = create_round_nth_txhandler(
             self.signer.xonly_public_key,
@@ -2477,7 +2478,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             winternitz_public_key.len(),
-            config.protocol_paramset().num_round_txs
+            config.protocol_paramset().num_signed_round_txs
                 * config.protocol_paramset().num_kickoffs_per_round
         );
     }
@@ -2490,7 +2491,10 @@ mod tests {
         let operator = Operator::<MockCitreaClient>::new(config.clone())
             .await
             .unwrap();
-        let actual_wpks = operator.generate_kickoff_winternitz_pubkeys().unwrap();
+        let actual_wpks = operator
+            .generate_kickoff_winternitz_pubkeys()
+            .unwrap()
+            .into_pubkey_vec();
 
         let (mut wpk_rx, _) = operator.get_params().await.unwrap();
         let mut idx = 0;

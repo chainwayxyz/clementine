@@ -391,7 +391,7 @@ mod tests {
         let default_config = REGTEST_PARAMSET;
 
         std::env::set_var("NETWORK", default_config.network.to_string());
-        std::env::set_var("NUM_ROUND_TXS", default_config.num_round_txs.to_string());
+        std::env::set_var("NUM_ROUND_TXS", default_config.num_signed_round_txs.to_string());
         std::env::set_var(
             "NUM_KICKOFFS_PER_ROUND",
             default_config.num_kickoffs_per_round.to_string(),

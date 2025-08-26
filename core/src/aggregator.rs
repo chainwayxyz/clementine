@@ -398,7 +398,7 @@ impl Aggregator {
                 .into_iter()
                 .zip(operator_xonly_pks.into_iter())
                 .enumerate()
-                .map(move |(_idx, (mut operator_client, operator_xonly_pk))| {
+                .map(move |(_idx, (mut operator_client, op_data))| {
                     let deposit_params = deposit.clone();
                     let tx = operator_keys_tx.clone();
                     async move {
@@ -410,7 +410,7 @@ impl Aggregator {
                         let operator_keys = operator_client
                             .get_deposit_keys(deposit_params.clone())
                             .instrument(
-                                debug_span!("get_deposit_keys", id=%OperatorId(operator_xonly_pk)),
+                                debug_span!("get_deposit_keys", id=%OperatorId(op_data.xonly_pk)),
                             )
                             .await
                             .wrap_err(Status::internal("Operator key retrieval failed"))?
@@ -426,7 +426,7 @@ impl Aggregator {
                         let _ = tx.send(OperatorKeysWithDeposit {
                             deposit_params: Some(deposit_params),
                             operator_keys: Some(operator_keys),
-                            operator_xonly_pk: operator_xonly_pk.serialize().to_vec(),
+                            operator_xonly_pk: op_data.xonly_pk.serialize().to_vec(),
                         });
 
                         Ok(())
@@ -590,12 +590,17 @@ impl Aggregator {
 
         let operators = deposit_data.get_operators();
 
-        for operator_pk in operators {
-            if let Some(pos) = operator_keys.iter().position(|key| key == &operator_pk) {
-                participating_operators
-                    .push((self.operator_clients[pos].clone(), OperatorId(operator_pk)));
+        for op_data in operators {
+            if let Some(pos) = operator_keys
+                .iter()
+                .position(|key| key == &op_data.xonly_pk)
+            {
+                participating_operators.push((
+                    self.operator_clients[pos].clone(),
+                    OperatorId(op_data.xonly_pk),
+                ));
             } else {
-                return Err(BridgeError::OperatorNotFound(operator_pk));
+                return Err(BridgeError::OperatorNotFound(op_data.xonly_pk));
             }
         }
 

@@ -493,7 +493,7 @@ impl ExtendedBitcoinRpc {
         let mut current_collateral_outpoint: OutPoint = operator_data.collateral_funding_outpoint;
         let mut prev_ready_to_reimburse: Option<TxHandler> = None;
         // iterate over all rounds
-        for round_idx in RoundIndex::iter_rounds(paramset.num_round_txs) {
+        for round_idx in RoundIndex::iter_rounds(paramset.total_num_rounds) {
             // create round and ready to reimburse txs for the round
             let txhandlers = create_round_txhandlers(
                 paramset,
@@ -552,7 +552,7 @@ impl ExtendedBitcoinRpc {
                 txid: round_txid,
                 vout: UtxoVout::CollateralInRound.get_vout(),
             };
-            if round_idx == RoundIndex::Round(paramset.num_round_txs - 1) {
+            if round_idx == RoundIndex::Round(paramset.num_signed_round_txs - 1) {
                 // for the last round, only check round tx, as if the operator sent the ready to reimburse tx of last round,
                 // it cannot create more kickoffs anymore
                 break;

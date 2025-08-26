@@ -117,8 +117,14 @@ message Actors {
   /// X-only public keys of watchtowers that will participate in the deposit.
   /// NOTE: verifiers are automatically considered watchtowers. This field is only for additional watchtowers.
   XOnlyPublicKeys watchtowers = 2;
-  /// X-only public keys of operators that will participate in the deposit.
-  XOnlyPublicKeys operators = 3;
+  /// X-only public keys of operators that will participate in the deposit, and the range of rounds they will sign for.
+  repeated OperatorDepositParams operators = 3;
+}
+
+message OperatorDepositParams {
+  XOnlyPublicKeyRpc xonly_pk = 1;
+  uint32 start_round = 2;
+  uint32 end_round = 3;
 }
 
 message ReplacementDeposit {

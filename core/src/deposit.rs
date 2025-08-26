@@ -127,7 +127,7 @@ impl DepositData {
     pub fn get_operator_index(&self, xonly_pk: XOnlyPublicKey) -> Result<usize, eyre::Report> {
         self.get_operators()
             .iter()
-            .position(|pk| pk == &xonly_pk)
+            .position(|op| op.xonly_pk == xonly_pk)
             .ok_or_else(|| eyre::eyre!("Operator with xonly key {} not found", xonly_pk))
     }
     /// Returns sorted verifiers, they are sorted so that their order is deterministic.
@@ -152,9 +152,9 @@ impl DepositData {
         watchtowers
     }
     /// Returns sorted operators, they are sorted so that their order is deterministic.
-    pub fn get_operators(&self) -> Vec<XOnlyPublicKey> {
+    pub fn get_operators(&self) -> Vec<OperatorDepositData> {
         let mut operators = self.actors.operators.clone();
-        operators.sort();
+        operators.sort_by_key(|op| op.xonly_pk);
         operators
     }
     /// Returns the number of operators in the deposit.
@@ -209,6 +209,54 @@ impl DepositData {
     }
 }
 
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct OperatorDepositData {
+    pub xonly_pk: XOnlyPublicKey,
+    pub round_range: RoundRange,
+}
+
+/// Data structure to represent the range of rounds that should be signed for the deposit for an operator.
+/// end_round is exclusive.
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct RoundRange {
+    start_round: RoundIndex,
+    end_round: RoundIndex,
+}
+
+impl RoundRange {
+    pub fn new(start_round: RoundIndex, end_round: RoundIndex) -> Result<Self, BridgeError> {
+        // just do a simple check here, for backward compatibility (for example if NUM_ROUND_TXS is changed),
+        // the check that the number of signed rounds is exactly NUM_ROUND_TXS should be in is_deposit_valid()
+        if start_round.to_index() >= end_round.to_index() {
+            return Err(BridgeError::InvalidDeposit(
+                "Start round must be less than end round".to_string(),
+            ));
+        }
+        if start_round == RoundIndex::Collateral {
+            return Err(BridgeError::InvalidDeposit(
+                "Start round cannot be collateral".to_string(),
+            ));
+        }
+
+        Ok(Self {
+            start_round,
+            end_round,
+        })
+    }
+
+    pub fn start_round(&self) -> RoundIndex {
+        self.start_round
+    }
+    pub fn end_round(&self) -> RoundIndex {
+        self.end_round
+    }
+
+    /// Creates an iterator over rounds from start_round to end_round (exclusive)
+    pub fn iter_rounds(&self) -> impl Iterator<Item = RoundIndex> {
+        RoundIndex::iter_rounds_range(self.start_round, self.end_round)
+    }
+}
+
 /// Data structure to represent the actors public keys that participate in the deposit.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 pub struct Actors {
@@ -217,8 +265,8 @@ pub struct Actors {
     /// X-only public keys of watchtowers that will participate in the deposit.
     /// NOTE: verifiers are automatically considered watchtowers. This field is only for additional watchtowers.
     pub watchtowers: Vec<XOnlyPublicKey>,
-    /// X-only public keys of operators that will participate in the deposit.
-    pub operators: Vec<XOnlyPublicKey>,
+    /// X-only public keys of operators that will participate in the deposit, and the range of rounds they will sign for.
+    pub operators: Vec<OperatorDepositData>,
 }
 
 /// Data structure to represent the security council that can unlock the deposit using an m-of-n multisig to create a replacement deposit.

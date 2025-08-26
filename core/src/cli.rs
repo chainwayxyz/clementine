@@ -501,7 +501,7 @@ mod tests {
 
                         // Assert some protocol paramset values
                         assert_eq!(config.protocol_paramset.network.to_string(), "regtest");
-                        assert_eq!(config.protocol_paramset.num_round_txs, 2);
+                        assert_eq!(config.protocol_paramset.num_signed_round_txs, 2);
                         assert_eq!(config.protocol_paramset.winternitz_log_d, 4);
                     },
                 )
@@ -528,7 +528,7 @@ mod tests {
 
                 // Assert some protocol paramset values
                 assert_eq!(config.protocol_paramset.network.to_string(), "regtest");
-                assert_eq!(config.protocol_paramset.num_round_txs, 2);
+                assert_eq!(config.protocol_paramset.num_signed_round_txs, 2);
                 assert_eq!(config.protocol_paramset.winternitz_log_d, 4);
                 assert_eq!(config.protocol_paramset.start_height, 8148); // This should be from the environment variable
             });
