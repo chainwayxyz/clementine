@@ -2503,15 +2503,15 @@ where
             Ok(())
         };
 
-        let mut first_box = Box::new([[[0u8; 21]; 68]; 1]);
+        let mut first_box = Box::new([[[0u8; 21]; 67]; 1]);
         fill_from_commits(&g16_public_input_commit[0], &mut first_box[0])?;
 
-        let mut second_box = Box::new([[[0u8; 21]; 68]; 14]);
+        let mut second_box = Box::new([[[0u8; 21]; 67]; 14]);
         for i in 0..14 {
             fill_from_commits(&num_u256_commits[i], &mut second_box[i])?;
         }
 
-        let mut third_box = Box::new([[[0u8; 21]; 36]; 363]);
+        let mut third_box = Box::new([[[0u8; 21]; 35]; 363]);
         for i in 0..363 {
             fill_from_commits(&intermediate_value_commits[i], &mut third_box[i])?;
         }
