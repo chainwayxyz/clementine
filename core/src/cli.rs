@@ -386,7 +386,8 @@ mod tests {
     // Helper to set up all environment variables needed for protocol paramset
     fn setup_protocol_paramset_env_vars() {
         env::set_var("NETWORK", "regtest");
-        env::set_var("NUM_ROUND_TXS", "2");
+        env::set_var("NUM_SIGNED_ROUND_TXS", "2");
+        env::set_var("TOTAL_NUM_ROUNDS", "10");
         env::set_var("NUM_KICKOFFS_PER_ROUND", "10");
         env::set_var("NUM_SIGNED_KICKOFFS", "2");
         env::set_var("BRIDGE_AMOUNT", "1000000000");
@@ -448,7 +449,8 @@ mod tests {
     // Helper to clean up all protocol paramset environment variables
     fn cleanup_protocol_paramset_env_vars() {
         env::remove_var("NETWORK");
-        env::remove_var("NUM_ROUND_TXS");
+        env::remove_var("NUM_SIGNED_ROUND_TXS");
+        env::remove_var("TOTAL_NUM_ROUNDS");
         env::remove_var("NUM_KICKOFFS_PER_ROUND");
         env::remove_var("NUM_SIGNED_KICKOFFS");
         env::remove_var("BRIDGE_AMOUNT");

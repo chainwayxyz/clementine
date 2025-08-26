@@ -256,8 +256,8 @@ pub struct RoundRange {
 
 impl RoundRange {
     pub fn new(start_round: RoundIndex, end_round: RoundIndex) -> Result<Self, BridgeError> {
-        // just do a simple check here, for backward compatibility (for example if NUM_ROUND_TXS is changed),
-        // the check that the number of signed rounds is exactly NUM_ROUND_TXS should be in is_deposit_valid()
+        // just do a simple check here, for backward compatibility (for example if NUM_SIGNED_ROUND_TXS is changed),
+        // the check that the number of signed rounds is exactly NUM_SIGNED_ROUND_TXS should be in is_deposit_valid()
         if start_round.to_index() >= end_round.to_index() {
             return Err(BridgeError::InvalidDeposit(
                 "Start round must be less than end round".to_string(),

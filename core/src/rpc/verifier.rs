@@ -177,7 +177,6 @@ where
             })?;
 
         let mut operator_kickoff_winternitz_public_keys = Vec::new();
-        // we need num_round_txs + 1 because the last round includes reimburse generators of previous round
         for _ in 0..self.verifier.config.get_num_kickoff_winternitz_pks() {
             operator_kickoff_winternitz_public_keys
                 .push(parser::operator::parse_winternitz_public_keys(&mut in_stream).await?);

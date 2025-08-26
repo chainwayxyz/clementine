@@ -1032,7 +1032,7 @@ where
         let num_operators = deposit_data.get_num_operators();
 
         let ProtocolParamset {
-            num_signed_round_txs: num_round_txs,
+            num_signed_round_txs,
             num_kickoffs_per_round,
             ..
         } = *self.config.protocol_paramset();
@@ -1046,12 +1046,12 @@ where
                     );
                     num_kickoffs_per_round
                 ];
-                num_round_txs
+                num_signed_round_txs
             ];
             num_operators
         ];
 
-        let mut kickoff_txids = vec![vec![vec![]; num_round_txs]; num_operators];
+        let mut kickoff_txids = vec![vec![vec![]; num_signed_round_txs]; num_operators];
 
         // ------ N-of-N SIGNATURES VERIFICATION ------
 

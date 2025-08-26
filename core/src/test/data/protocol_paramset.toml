@@ -1,5 +1,6 @@
 network = "regtest" # "bitcoin", "testnet4", or "regtest"
-num_round_txs = 2
+num_signed_round_txs = 2
+total_num_rounds = 10
 num_kickoffs_per_round = 10
 num_signed_kickoffs = 2
 bridge_amount = 1000000000 # in satoshis

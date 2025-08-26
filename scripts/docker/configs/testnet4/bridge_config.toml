@@ -21,7 +21,8 @@ verifiers_public_keys = [
 
 # All of the operators x-only public keys.
 num_operators = 2
-num_round_txs = 2
+num_signed_round_txs = 2
+total_num_rounds=4
 num_kickoffs_per_round = 2
 operators_xonly_pks = [
     "4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa",
