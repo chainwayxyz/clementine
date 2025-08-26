@@ -418,7 +418,7 @@ impl ExtendedBitcoinRpc {
     ///
     /// # Returns
     ///
-    /// - [`RoundIndex`]: The current round index
+    /// - [`Some`][`RoundIndex`]: The current round index
     /// - [`None`]: If the collateral is not on chain or mempool, i.e. operator is not in protocol anymore
     ///
     /// # Errors
