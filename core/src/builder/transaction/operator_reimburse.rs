@@ -61,7 +61,7 @@ pub enum DisprovePath<'a> {
 /// 3. Reimburse connector (to be used in reimburse transaction)
 /// 4. Disprove output (Taproot, for BitVM disprove path)
 /// 5. Latest blockhash output (for latest blockhash assertion using winternitz signatures)
-/// 6. Multiple assert outputs (for BitVM assertions, currently 33)
+/// 6. Multiple assert outputs (for BitVM assertions, currently 36)
 /// 7. For each watchtower 2 outputs:
 ///     - Watchtower challenge output
 ///     - Operator challenge ack/nack output
