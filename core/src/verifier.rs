@@ -2390,6 +2390,7 @@ where
         deposit_data: &mut DepositData,
         operator_asserts: &HashMap<usize, Witness>,
     ) -> Result<Option<(usize, StructuredScript)>, BridgeError> {
+        use bitvm::chunk::api::{NUM_HASH, NUM_PUBS, NUM_U256};
         use bridge_circuit_host::utils::get_verifying_key;
 
         let bitvm_pks = self.signer.generate_bitvm_pks_for_deposit(
@@ -2403,9 +2404,9 @@ where
 
         // Pre-allocate commit vectors. Initializing with known sizes or empty vectors
         // is slightly more efficient as it can prevent reallocations.
-        let mut g16_public_input_commit: Vec<Vec<Vec<u8>>> = vec![vec![vec![]]; 1];
-        let mut num_u256_commits: Vec<Vec<Vec<u8>>> = vec![vec![vec![]]; 14];
-        let mut intermediate_value_commits: Vec<Vec<Vec<u8>>> = vec![vec![vec![]]; 363];
+        let mut g16_public_input_commit: Vec<Vec<Vec<u8>>> = vec![vec![vec![]]; NUM_PUBS];
+        let mut num_u256_commits: Vec<Vec<Vec<u8>>> = vec![vec![vec![]]; NUM_U256];
+        let mut intermediate_value_commits: Vec<Vec<Vec<u8>>> = vec![vec![vec![]]; NUM_HASH];
 
         tracing::info!("Number of operator asserts: {}", operator_asserts.len());
 
@@ -2443,24 +2444,23 @@ where
                     // Assign specific commits to their respective arrays by removing from the end.
                     // This is slightly more efficient than removing from arbitrary indices.
                     g16_public_input_commit[0] = commits.remove(len - 1);
-                    num_u256_commits[12] = commits.remove(len - 2);
-                    num_u256_commits[13] = commits.remove(len - 3);
-                    intermediate_value_commits[360] = commits.remove(len - 4);
-                    intermediate_value_commits[361] = commits.remove(len - 5);
-                    intermediate_value_commits[362] = commits.remove(len - 6);
+                    num_u256_commits[10] = commits.remove(len - 2);
+                    num_u256_commits[11] = commits.remove(len - 3);
+                    num_u256_commits[12] = commits.remove(len - 4);
+                    num_u256_commits[13] = commits.remove(len - 5);
                 }
                 1 | 2 => {
                     // Handles i = 1 and i = 2
-                    for j in 0..6 {
-                        num_u256_commits[6 * (i - 1) + j] = commits
+                    for j in 0..5 {
+                        num_u256_commits[5 * (i - 1) + j] = commits
                             .pop()
                             .expect("Should not panic: `num_u256_commits` index out of bounds");
                     }
                 }
                 3..=32 => {
                     // Handles i from 3 to 32
-                    for j in 0..12 {
-                        intermediate_value_commits[12 * (i - 3) + j] = commits.pop().expect(
+                    for j in 0..11 {
+                        intermediate_value_commits[11 * (i - 3) + j] = commits.pop().expect(
                             "Should not panic: `intermediate_value_commits` index out of bounds",
                         );
                     }
@@ -2503,15 +2503,15 @@ where
             Ok(())
         };
 
-        let mut first_box = Box::new([[[0u8; 21]; 67]; 1]);
+        let mut first_box = Box::new([[[0u8; 21]; 67]; NUM_PUBS]);
         fill_from_commits(&g16_public_input_commit[0], &mut first_box[0])?;
 
-        let mut second_box = Box::new([[[0u8; 21]; 67]; 14]);
+        let mut second_box = Box::new([[[0u8; 21]; 67]; NUM_U256]);
         for i in 0..14 {
             fill_from_commits(&num_u256_commits[i], &mut second_box[i])?;
         }
 
-        let mut third_box = Box::new([[[0u8; 21]; 35]; 363]);
+        let mut third_box = Box::new([[[0u8; 21]; 35]; NUM_HASH]);
         for i in 0..363 {
             fill_from_commits(&intermediate_value_commits[i], &mut third_box[i])?;
         }

@@ -227,9 +227,9 @@ pub struct ClementineBitVMPublicKeys {
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
 #[allow(clippy::type_complexity)]
 pub struct ClementineBitVMReplacementData {
-    pub payout_tx_blockhash_pk: [Vec<(usize, usize)>; 44],
-    pub latest_blockhash_pk: [Vec<(usize, usize)>; 44],
-    pub challenge_sending_watchtowers_pk: [Vec<(usize, usize)>; 44],
+    pub payout_tx_blockhash_pk: [Vec<(usize, usize)>; 43],
+    pub latest_blockhash_pk: [Vec<(usize, usize)>; 43],
+    pub challenge_sending_watchtowers_pk: [Vec<(usize, usize)>; 43],
     pub bitvm_pks: (
         [[Vec<(usize, usize)>; 67]; NUM_PUBS],
         [[Vec<(usize, usize)>; 67]; NUM_U256],
@@ -464,14 +464,14 @@ impl ClementineBitVMPublicKeys {
         commit_data.push(vec![
             challenge_sending_watchtowers.to_vec(),
             asserts.0[0].to_vec(),
+            asserts.1[NUM_U256 - 4].to_vec(),
+            asserts.1[NUM_U256 - 3].to_vec(),
             asserts.1[NUM_U256 - 2].to_vec(),
             asserts.1[NUM_U256 - 1].to_vec(),
-            asserts.2[NUM_HASH - 3].to_vec(),
-            asserts.2[NUM_HASH - 2].to_vec(),
-            asserts.2[NUM_HASH - 1].to_vec(),
         ]);
-        for i in (0..NUM_U256 - 2).step_by(6) {
-            let last_idx = std::cmp::min(i + 6, NUM_U256);
+        let k1 = 5;
+        for i in (0..NUM_U256 - 4).step_by(k1) {
+            let last_idx = std::cmp::min(i + k1, NUM_U256);
             commit_data.push(
                 asserts.1[i..last_idx]
                     .iter()
@@ -479,8 +479,9 @@ impl ClementineBitVMPublicKeys {
                     .collect::<Vec<_>>(),
             );
         }
-        for i in (0..NUM_HASH - 3).step_by(12) {
-            let last_idx = std::cmp::min(i + 12, NUM_HASH);
+        let k2 = 11;
+        for i in (0..NUM_HASH).step_by(k2) {
+            let last_idx = std::cmp::min(i + k2, NUM_HASH);
             commit_data.push(
                 asserts.2[i..last_idx]
                     .iter()
@@ -519,11 +520,34 @@ impl ClementineBitVMPublicKeys {
         vec![
             Self::get_challenge_sending_watchtowers_derivation(deposit_outpoint, paramset), // Will not go into BitVM disprove scripts
             WinternitzDerivationPath::BitvmAssert(32 * 2, 3, 0, deposit_outpoint, paramset), // This is the Groth16 public output
-            WinternitzDerivationPath::BitvmAssert(32 * 2, 4, 12, deposit_outpoint, paramset), // This is the extra 13th NUM_U256, after chunking by 6 for the first 2 asserts
-            WinternitzDerivationPath::BitvmAssert(32 * 2, 4, 13, deposit_outpoint, paramset), // This is the extra 14th NUM_U256, after chunking by 6 for the first 2 asserts
-            WinternitzDerivationPath::BitvmAssert(16 * 2, 5, 360, deposit_outpoint, paramset),
-            WinternitzDerivationPath::BitvmAssert(16 * 2, 5, 361, deposit_outpoint, paramset),
-            WinternitzDerivationPath::BitvmAssert(16 * 2, 5, 362, deposit_outpoint, paramset),
+            WinternitzDerivationPath::BitvmAssert(
+                32 * 2,
+                4,
+                (NUM_U256 - 4) as u32,
+                deposit_outpoint,
+                paramset,
+            ), // This is the extra 11th NUM_U256, after chunking by 6 for the first 2 asserts
+            WinternitzDerivationPath::BitvmAssert(
+                32 * 2,
+                4,
+                (NUM_U256 - 3) as u32,
+                deposit_outpoint,
+                paramset,
+            ), // This is the extra 12th NUM_U256, after chunking by 6 for the first 2 asserts
+            WinternitzDerivationPath::BitvmAssert(
+                32 * 2,
+                4,
+                (NUM_U256 - 2) as u32,
+                deposit_outpoint,
+                paramset,
+            ), // This is the extra 13th NUM_U256, after chunking by 6 for the first 2 asserts
+            WinternitzDerivationPath::BitvmAssert(
+                32 * 2,
+                4,
+                (NUM_U256 - 1) as u32,
+                deposit_outpoint,
+                paramset,
+            ), // This is the extra 14th NUM_U256, after chunking by 6 for the first 2 asserts
         ]
     }
 
@@ -537,11 +561,11 @@ impl ClementineBitVMPublicKeys {
         } else if (1..=2).contains(&mini_assert_idx) {
             // for 1, we will have 6 derivations index starting from 0 to 5
             // for 2, we will have 6 derivations index starting from 6 to 11
-            let derivations: u32 = (mini_assert_idx as u32 - 1) * 6;
+            let derivations: u32 = (mini_assert_idx as u32 - 1) * 5;
 
             let mut derivations_vec = vec![];
-            for i in 0..6 {
-                if derivations + i < NUM_U256 as u32 - 2 {
+            for i in 0..5 {
+                if derivations + i < NUM_U256 as u32 - 4 {
                     derivations_vec.push(WinternitzDerivationPath::BitvmAssert(
                         32 * 2,
                         4,
@@ -553,10 +577,10 @@ impl ClementineBitVMPublicKeys {
             }
             derivations_vec
         } else {
-            let derivations: u32 = (mini_assert_idx as u32 - 3) * 12;
+            let derivations: u32 = (mini_assert_idx as u32 - 3) * 11;
             let mut derivations_vec = vec![];
-            for i in 0..12 {
-                if derivations + i < NUM_HASH as u32 - 3 {
+            for i in 0..11 {
+                if derivations + i < NUM_HASH as u32 {
                     derivations_vec.push(WinternitzDerivationPath::BitvmAssert(
                         16 * 2,
                         5,
