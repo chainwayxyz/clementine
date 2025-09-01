@@ -2419,6 +2419,8 @@ where
             .into());
         }
 
+        const NUM_ASSERT_TXS: usize = ClementineBitVMPublicKeys::number_of_assert_txs();
+
         for i in 0..operator_asserts.len() {
             let witness = operator_asserts
                 .get(&i)
@@ -2457,8 +2459,8 @@ where
                             .expect("Should not panic: `num_u256_commits` index out of bounds");
                     }
                 }
-                3..=32 => {
-                    // Handles i from 3 to 32
+                3..NUM_ASSERT_TXS => {
+                    // Handles i from 3 to 35
                     for j in 0..11 {
                         intermediate_value_commits[11 * (i - 3) + j] = commits.pop().expect(
                             "Should not panic: `intermediate_value_commits` index out of bounds",
