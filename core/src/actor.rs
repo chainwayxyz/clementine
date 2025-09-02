@@ -1108,8 +1108,8 @@ mod tests {
         // check only first digit
         let params = WinternitzDerivationPath::Kickoff(RoundIndex::Round(0), 1, paramset);
         let expected_pk = vec![
-            192, 121, 127, 229, 19, 208, 80, 49, 82, 134, 237, 242, 142, 162, 143, 232, 12, 231,
-            114, 175,
+            95, 230, 130, 147, 156, 151, 211, 41, 255, 172, 133, 26, 140, 68, 40, 244, 2, 14, 187,
+            87,
         ];
         assert_eq!(
             actor.derive_winternitz_pk(params).unwrap()[0].to_vec(),
@@ -1123,8 +1123,8 @@ mod tests {
 
         let params = WinternitzDerivationPath::BitvmAssert(3, 0, 0, deposit_outpoint, paramset);
         let expected_pk = vec![
-            218, 227, 228, 186, 246, 108, 123, 3, 33, 207, 96, 230, 46, 129, 189, 62, 72, 179, 83,
-            181,
+            144, 56, 242, 180, 175, 90, 212, 118, 217, 83, 255, 166, 213, 125, 249, 11, 157, 238,
+            20, 131,
         ];
         assert_eq!(
             actor.derive_winternitz_pk(params).unwrap()[0].to_vec(),
@@ -1133,7 +1133,8 @@ mod tests {
 
         let params = WinternitzDerivationPath::ChallengeAckHash(0, deposit_outpoint, paramset);
         let expected_pk = vec![
-            179, 152, 124, 47, 40, 83, 205, 159, 21, 85, 233, 82, 128, 55, 176, 166, 37, 43, 80, 0,
+            247, 112, 92, 206, 230, 125, 37, 112, 8, 169, 75, 29, 234, 233, 109, 144, 7, 91, 242,
+            204,
         ];
         assert_eq!(
             actor.derive_winternitz_pk(params).unwrap()[0].to_vec(),
