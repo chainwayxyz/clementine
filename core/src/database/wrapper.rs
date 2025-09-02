@@ -14,6 +14,7 @@ use bitcoin::{
 };
 use eyre::eyre;
 use prost::Message as _;
+use risc0_zkvm::Receipt;
 use secp256k1::musig;
 use serde::{Deserialize, Serialize};
 use sqlx::{
@@ -131,6 +132,37 @@ macro_rules! impl_bytea_wrapper_custom {
     };
 }
 
+/// Same as `impl_bytea_wrapper_custom` but with an encode function that returns a Result
+macro_rules! impl_bytea_wrapper_custom_with_error {
+    ($wrapper:ident, $inner:ty, $encode:expr, $decode:expr) => {
+        #[derive(sqlx::FromRow, Debug, Clone)]
+        pub struct $wrapper(pub $inner);
+
+        impl sqlx::Type<sqlx::Postgres> for $wrapper {
+            fn type_info() -> sqlx::postgres::PgTypeInfo {
+                sqlx::postgres::PgTypeInfo::with_name("BYTEA")
+            }
+        }
+
+        impl Encode<'_, Postgres> for $wrapper {
+            fn encode_by_ref(
+                &self,
+                buf: &mut PgArgumentBuffer,
+            ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
+                let bytes = $encode(&self.0)?;
+                <&[u8] as Encode<Postgres>>::encode(bytes.as_ref(), buf)
+            }
+        }
+
+        impl<'r> Decode<'r, Postgres> for $wrapper {
+            fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
+                let bytes = <Vec<u8> as Decode<Postgres>>::decode(value)?;
+                Ok(Self($decode(&bytes)?))
+            }
+        }
+    };
+}
+
 /// Macro for implementing BYTEA-based SQL wrapper types using standard serialization
 ///
 /// This macro creates a wrapper type that uses the inner type's default serialization
@@ -210,6 +242,13 @@ impl_bytea_wrapper_custom!(
             .map_err(|_| eyre!("Expected 66 bytes for AggregatedNonce"))?;
         Ok(musig::AggregatedNonce::from_byte_array(arr)?)
     }
+);
+
+impl_bytea_wrapper_custom_with_error!(
+    ReceiptDB,
+    Receipt,
+    |lcp: &Receipt| -> Result<Vec<u8>, BoxDynError> { borsh::to_vec(lcp).map_err(Into::into) },
+    |x: &[u8]| -> Result<Receipt, BoxDynError> { borsh::from_slice(x).map_err(Into::into) }
 );
 
 impl_text_wrapper_custom!(
@@ -323,10 +362,7 @@ mod tests {
         secp256k1::{schnorr::Signature, SecretKey},
         Amount, BlockHash, CompactTarget, OutPoint, ScriptBuf, TxMerkleNode, TxOut, Txid,
     };
-    use secp256k1::{
-        musig::{AggregatedNonce, PublicNonce},
-        SECP256K1,
-    };
+    use secp256k1::{musig::AggregatedNonce, SECP256K1};
     use sqlx::{Executor, Type};
 
     macro_rules! test_encode_decode_invariant {
@@ -572,8 +608,7 @@ mod tests {
         );
 
         let kp = Keypair::from_secret_key(&SECP, &SecretKey::from_slice(&[1u8; 32]).unwrap());
-        let (_sec_nonce, pub_nonce) =
-            musig2::nonce_pair(&kp, &mut secp256k1::rand::thread_rng()).unwrap();
+        let (_sec_nonce, pub_nonce) = musig2::nonce_pair(&kp).unwrap();
         let public_nonce = MusigPubNonceDB(pub_nonce);
         test_encode_decode_invariant!(
             MusigPubNonceDB,
@@ -592,8 +627,7 @@ mod tests {
         );
 
         let kp = Keypair::from_secret_key(&SECP, &SecretKey::from_slice(&[1u8; 32]).unwrap());
-        let (_sec_nonce, pub_nonce) =
-            musig2::nonce_pair(&kp, &mut secp256k1::rand::thread_rng()).unwrap();
+        let (_sec_nonce, pub_nonce) = musig2::nonce_pair(&kp).unwrap();
         let aggregated_nonce = MusigAggNonceDB(AggregatedNonce::new(SECP256K1, &[&pub_nonce]));
         test_encode_decode_invariant!(
             MusigAggNonceDB,

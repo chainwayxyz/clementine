@@ -1,0 +1,30 @@
+[public_keys]
+sequencer_public_key = "036360e856310ce5d294e8be33fc807077dc56ac80d95d9cd4ddbd21325eff73f7"
+sequencer_da_pub_key = "02588d202afcc1ee4ab5254c7847ec25b9a135bbda0f2bc69ee1a714749fd77dc9"
+prover_da_pub_key = ""
+
+[da]
+# fill here
+node_url = "http://bitcoin_regtest:20443/wallet/batch-prover-wallet"
+# fill here
+node_username = "admin"
+# fill here
+node_password = "admin"
+tx_backup_dir = "resources/bitcoin/inscription_txs"
+da_private_key = "56D08C2DDE7F412F80EC99A0A328F76688C904BD4D1435281EFC9270EC8C8707"
+
+[storage]
+# The path to the rollup's data directory. Paths that do not begin with `/` are interpreted as relative paths.
+path = "resources/dbs/batch-prover-db"
+db_max_open_files = 5000
+
+[rpc]
+# the host and port to bind the rpc server for
+bind_host = "0.0.0.0"
+bind_port = 12348
+enable_subscriptions = false
+
+[runner]
+sequencer_client_url = "http://citrea_sequencer_regtest:12345"
+include_tx_body = false
+scan_l1_start_height = 1

@@ -1,15 +1,26 @@
-use eyre::eyre;
-use std::env;
+//! # Child Pays For Parent (CPFP) Support For Transaction Sender
+//!
+//! This module implements the Child Pays For Parent (CPFP) strategy for sending
+//! Bitcoin transactions with transaction sender.
+//!
+//! ## Child Transaction Details
+//!
+//! A child transaction is created to pay for the fees of a parent transaction.
+//! They must be submitted together as a package for Bitcoin nodes to accept
+//! them.
+//!
+//! ### Fee Payer Transactions/UTXOs
+//!
+//! Child transaction needs to spend an UTXO for the fees. But because of the
+//! TRUC rules (https://github.com/bitcoin/bips/blob/master/bip-0431.mediawiki#specification),
+//! a third transaction can't be put into the package. So, a so called "fee
+//! payer" transaction must be send and confirmed before the CPFP package is
+//! send.
 
-use bitcoin::{
-    transaction::Version, Address, Amount, FeeRate, OutPoint, Transaction, TxOut, Weight,
-};
-use bitcoincore_rpc::PackageSubmissionResult;
-use bitcoincore_rpc::{PackageTransactionResult, RpcApi};
-use eyre::Context;
-
+use super::{Result, SendTxError, TxMetadata, TxSender};
+use crate::constants::NON_STANDARD_V3;
 use crate::errors::{ErrorExt, ResultExt};
-use crate::extended_rpc::BitcoinRPCError;
+use crate::extended_bitcoin_rpc::BitcoinRPCError;
 use crate::utils::FeePayingType;
 use crate::{
     builder::{
@@ -23,11 +34,16 @@ use crate::{
     constants::MIN_TAPROOT_AMOUNT,
     rpc::clementine::NormalSignatureKind,
 };
-
-use super::{Result, SendTxError, TxMetadata, TxSender};
+use bitcoin::{Amount, FeeRate, OutPoint, Transaction, TxOut, Weight};
+use bitcoincore_rpc::PackageSubmissionResult;
+use bitcoincore_rpc::{PackageTransactionResult, RpcApi};
+use eyre::eyre;
+use eyre::Context;
+use std::env;
 
 impl TxSender {
-    /// Creates and broadcasts a new "fee payer" UTXO to be used for CPFP.
+    /// Creates and broadcasts a new "fee payer" UTXO to be used for CPFP
+    /// transactions.
     ///
     /// This function is called when a CPFP attempt fails due to insufficient funds
     /// in the existing confirmed fee payer UTXOs associated with a transaction (`bumped_id`).
@@ -110,19 +126,17 @@ impl TxSender {
     /// The remaining value (total input value - `required_fee`) is sent to the `change_address`.
     ///
     /// # Signing
-    /// Currently, it signs the input spending the P2A anchor and potentially the first fee payer UTXO.
-    /// TODO: Ensure *all* fee payer UTXO inputs are correctly signed if more than one is used.
+    /// We sign the input spending the P2A anchor and all fee payer UTXOs.
     ///
     /// # Returns
     /// The constructed and partially signed child transaction.
-    fn create_child_tx(
+    async fn create_child_tx(
         &self,
         p2a_anchor: OutPoint,
         anchor_sat: Amount,
         fee_payer_utxos: Vec<SpendableTxIn>,
         parent_tx_size: Weight,
         fee_rate: FeeRate,
-        change_address: Address,
     ) -> Result<Transaction> {
         tracing::debug!(
             "Creating child tx with {} fee payer utxos",
@@ -136,6 +150,12 @@ impl TxSender {
         )
         .map_err(|e| eyre!(e))?;
 
+        let change_address = self
+            .rpc
+            .get_new_wallet_address()
+            .await
+            .wrap_err("Failed to get new wallet address")?;
+
         let total_fee_payer_amount = fee_payer_utxos
             .iter()
             .map(|utxo| utxo.get_prevout().value)
@@ -147,7 +167,7 @@ impl TxSender {
         }
 
         let mut builder = TxHandlerBuilder::new(TransactionType::Dummy)
-            .with_version(Version::non_standard(3))
+            .with_version(NON_STANDARD_V3)
             .add_input(
                 NormalSignatureKind::OperatorSighashDefault,
                 SpendableTxIn::new_partial(
@@ -203,9 +223,10 @@ impl TxSender {
     /// the child transaction using `create_child_tx`.
     ///
     /// # Returns
-    /// A `Vec` containing the parent transaction followed by the child transaction,
-    /// ready for submission via the `submitpackage` RPC.
-    fn create_package(
+    ///
+    /// - [`Vec<Transaction>`]: Parent transaction followed by the child
+    ///   transaction ready for submission via the `submitpackage` RPC.
+    async fn create_package(
         &self,
         tx: Transaction,
         fee_rate: FeeRate,
@@ -234,8 +255,8 @@ impl TxSender {
                 fee_payer_utxos,
                 tx.weight(),
                 fee_rate,
-                self.signer.address.clone(),
             )
+            .await
             .wrap_err("Failed to create child tx")?;
 
         Ok(vec![tx, child_tx])
@@ -248,7 +269,9 @@ impl TxSender {
     /// spent by a CPFP child transaction.
     ///
     /// # Returns
-    /// A `Vec` of `SpendableTxIn`, ready to be included as inputs in the CPFP child tx.
+    ///
+    /// - [`Vec<SpendableTxIn>`]: [`SpendableTxIn`]s of the confirmed fee payer
+    ///   UTXOs that are ready to be included as inputs in the CPFP child tx.
     async fn get_confirmed_fee_payer_utxos(
         &self,
         try_to_send_id: u32,
@@ -290,10 +313,14 @@ impl TxSender {
     /// * `bumped_id` - The database ID of the parent transaction whose fee payer UTXOs need bumping.
     /// * `fee_rate` - The target fee rate for bumping the fee payer transactions.
     #[tracing::instrument(skip_all, fields(sender = self.btc_syncer_consumer_id, bumped_id, fee_rate))]
-    async fn bump_fees_of_fee_payer_txs(&self, bumped_id: u32, fee_rate: FeeRate) -> Result<()> {
+    async fn _bump_fees_of_unconfirmed_fee_payer_txs(
+        &self,
+        bumped_id: u32,
+        fee_rate: FeeRate,
+    ) -> Result<()> {
         let bumpable_fee_payer_txs = self
             .db
-            .get_bumpable_fee_payer_txs(None, bumped_id)
+            .get_unconfirmed_fee_payer_txs(None, bumped_id)
             .await
             .map_to_eyre()?;
 
@@ -316,6 +343,11 @@ impl TxSender {
                             .save_fee_payer_tx(None, bumped_id, new_txid, vout, amount, Some(id))
                             .await
                             .map_to_eyre()?;
+                    } else {
+                        tracing::warn!(
+                            "Fee payer tx {} has enough fee, no need to bump",
+                            fee_payer_txid
+                        );
                     }
                 }
                 Err(e) => {
@@ -353,7 +385,7 @@ impl TxSender {
     ///
     /// # Logic:
     /// 1.  **Check Unconfirmed Fee Payers:** Ensures no unconfirmed fee payer UTXOs exist
-    ///     for this `try_to_send_id`. If they do, returns `UnconfirmedFeePayerUTXOsLeft`
+    ///     for this `try_to_send_id`. If they do, returns [`SendTxError::UnconfirmedFeePayerUTXOsLeft`]
     ///     as they need to confirm before being spendable by the child.
     /// 2.  **Get Confirmed Fee Payers:** Retrieves the available confirmed fee payer UTXOs.
     /// 3.  **Create Package:** Calls `create_package` to build the `vec![parent_tx, child_tx]`.
@@ -381,7 +413,7 @@ impl TxSender {
     ) -> Result<()> {
         let unconfirmed_fee_payer_utxos = self
             .db
-            .get_bumpable_fee_payer_txs(None, try_to_send_id)
+            .get_unconfirmed_fee_payer_txs(None, try_to_send_id)
             .await
             .map_to_eyre()?;
 
@@ -424,6 +456,7 @@ impl TxSender {
 
         let package = self
             .create_package(tx.clone(), fee_rate, confirmed_fee_payers)
+            .await
             .wrap_err("Failed to create CPFP package");
 
         let package = match package {
@@ -485,17 +518,14 @@ impl TxSender {
 
         tracing::debug!(try_to_send_id, "Submitting package, size {}", package.len());
 
-        // TODO: this currently doesn't return valid results as TRUC is not fully supported.
         // let test_mempool_result = self
         //     .rpc
-        //     .client
         //     .test_mempool_accept(&package_refs)
         //     .await
         //     .wrap_err("Failed to test mempool accept")?;
 
         let submit_package_result: PackageSubmissionResult = self
             .rpc
-            .client
             .submit_package(&package_refs, Some(Amount::from_sat(0)), None)
             .await
             .wrap_err("Failed to submit package")?;
@@ -522,8 +552,6 @@ impl TxSender {
                         .map(|tx| hex::encode(bitcoin::consensus::serialize(tx)))
                         .collect::<Vec<_>>()
                 );
-
-                // TODO: implement txid checking so we can save the correct error.
 
                 early_exit = true;
             }

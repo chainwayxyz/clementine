@@ -11,6 +11,7 @@ use super::script::{
 use crate::bitvm_client::SECP;
 use crate::deposit::SecurityCouncil;
 use crate::errors::BridgeError;
+use crate::utils::ScriptBufExt;
 use crate::{bitvm_client, EVMAddress};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::{
@@ -23,7 +24,9 @@ use eyre::Context;
 
 /// A helper to construct a `TaprootBuilder` from a slice of script buffers, forming the script tree.
 /// Finds the needed depth the script tree needs to be to fit all the scripts and inserts the scripts.
-pub fn taproot_builder_with_scripts(scripts: &[ScriptBuf]) -> TaprootBuilder {
+pub fn taproot_builder_with_scripts(scripts: impl Into<Vec<ScriptBuf>>) -> TaprootBuilder {
+    // doesn't clone if its already an owned Vec
+    let mut scripts: Vec<ScriptBuf> = scripts.into();
     let builder = TaprootBuilder::new();
     let num_scripts = scripts.len();
 
@@ -32,7 +35,7 @@ pub fn taproot_builder_with_scripts(scripts: &[ScriptBuf]) -> TaprootBuilder {
         0 => return builder,
         1 => {
             return builder
-                .add_leaf(0, scripts[0].clone())
+                .add_leaf(0, scripts.remove(0))
                 .expect("one root leaf added on empty builder")
         }
         _ => {}
@@ -43,15 +46,18 @@ pub fn taproot_builder_with_scripts(scripts: &[ScriptBuf]) -> TaprootBuilder {
     let num_empty_nodes_in_final_depth = 2_usize.pow(deepest_layer_depth.into()) - num_scripts;
     let num_nodes_in_final_depth = num_scripts - num_empty_nodes_in_final_depth;
 
-    (0..num_scripts).fold(builder, |acc, i| {
-        let is_node_in_last_minus_one_depth = (i >= num_nodes_in_final_depth) as u8;
+    scripts
+        .into_iter()
+        .enumerate()
+        .fold(builder, |acc, (i, script)| {
+            let is_node_in_last_minus_one_depth = (i >= num_nodes_in_final_depth) as u8;
 
-        acc.add_leaf(
-            deepest_layer_depth - is_node_in_last_minus_one_depth,
-            scripts[i].clone(),
-        )
-        .expect("algorithm tested to be correct")
-    })
+            acc.add_leaf(
+                deepest_layer_depth - is_node_in_last_minus_one_depth,
+                script,
+            )
+            .expect("algorithm tested to be correct")
+        })
 }
 
 /// Calculates the depth of each leaf in a balanced Taproot tree structure.
@@ -110,21 +116,14 @@ pub fn create_taproot_address(
             .finalize(&SECP, *bitvm_client::UNSPENDABLE_XONLY_PUBKEY)
             .expect("builder return is finalizable"),
     };
+
     // Create the address
-    let taproot_address = match internal_key {
-        Some(xonly_pk) => Address::p2tr(&SECP, xonly_pk, tree_info.merkle_root(), network),
-        None => Address::p2tr(
-            &SECP,
-            *bitvm_client::UNSPENDABLE_XONLY_PUBKEY,
-            tree_info.merkle_root(),
-            network,
-        ),
-    };
+    let taproot_address: Address = Address::p2tr_tweaked(tree_info.output_key(), network);
 
     (taproot_address, tree_info)
 }
 
-/// Generates a deposit address for the user. Funds can be spend by N-of-N or
+/// Generates a deposit address for the user. Funds can be spent by N-of-N or
 /// user can take after specified time should the deposit fail.
 ///
 /// # Parameters
@@ -160,9 +159,9 @@ pub fn generate_deposit_address(
         .assume_checked()
         .script_pubkey();
 
-    let recovery_extracted_xonly_pk =
-        XOnlyPublicKey::from_slice(&recovery_script_pubkey.as_bytes()[2..34])
-            .wrap_err("Failed to extract xonly public key from recovery taproot address")?;
+    let recovery_extracted_xonly_pk = recovery_script_pubkey
+        .try_get_taproot_pk()
+        .wrap_err("Recovery taproot address is not a valid taproot address")?;
 
     let script_timelock =
         TimelockScript::new(Some(recovery_extracted_xonly_pk), user_takes_after).to_script_buf();
@@ -227,15 +226,13 @@ mod tests {
     use crate::{
         bitvm_client::{self, SECP},
         builder::{self, address::calculate_taproot_leaf_depths},
-        musig2::AggregateFromPublicKeys,
     };
     use bitcoin::secp256k1::rand;
     use bitcoin::{
         key::{Keypair, TapTweak},
-        secp256k1::{PublicKey, SecretKey},
-        Address, AddressType, ScriptBuf, XOnlyPublicKey,
+        secp256k1::SecretKey,
+        AddressType, ScriptBuf, XOnlyPublicKey,
     };
-    use std::str::FromStr;
 
     #[test]
     fn create_taproot_address() {
@@ -309,55 +306,12 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "TODO: Investigate this"]
-    fn generate_deposit_address_musig2_fixed_address() {
-        let verifier_pks_hex: Vec<&str> = vec![
-            "034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa",
-            "02466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27",
-            "023c72addb4fdf09af94f0c94d7fe92a386a7e70cf8a1d85916386bb2535c7b1b1",
-            "032c0b7cf95324a07d05398b240174dc0c2be444d96b159aa6c7f7b1e668680991",
-            "029ac20335eb38768d2052be1dbbc3c8f6178407458e51e6b4ad22f1d91758895b",
-            "035ab4689e400a4a160cf01cd44730845a54768df8547dcdf073d964f109f18c30",
-            "037962d45b38e8bcf82fa8efa8432a01f20c9a53e24c7d3f11df197cb8e70926da",
-        ];
-        let verifier_pks: Vec<PublicKey> = verifier_pks_hex
-            .iter()
-            .map(|pk| PublicKey::from_str(pk).unwrap())
-            .collect();
-        let nofn_xonly_pk = XOnlyPublicKey::from_musig2_pks(verifier_pks, None).unwrap();
-
-        let evm_address: [u8; 20] = hex::decode("1234567890123456789012345678901234567890")
-            .unwrap()
-            .try_into()
-            .unwrap();
-
-        let recovery_taproot_address =
-            Address::from_str("bcrt1p65yp9q9fxtf7dyvthyrx26xxm2czanvrnh9rtvphmlsjvhdt4k6qw4pkss")
-                .unwrap();
-
-        let deposit_address = builder::address::generate_deposit_address(
-            nofn_xonly_pk,
-            recovery_taproot_address.as_unchecked(),
-            crate::EVMAddress(evm_address),
-            bitcoin::Network::Regtest,
-            200,
-        )
-        .unwrap();
-
-        // Comparing it to the taproot address generated in bridge backend.
-        assert_eq!(
-            deposit_address.0.to_string(),
-            "bcrt1ptlz698wumzl7uyk6pgrvsx5ep29thtvngxftywnd4mwq24fuwkwsxasqf5" // TODO: check this later
-        )
-    }
-
-    #[test]
     pub fn test_taproot_builder_with_scripts() {
         for i in [0, 1, 10, 50, 100, 1000].into_iter() {
             let scripts = (0..i)
                 .map(|k| ScriptBuf::builder().push_int(k).into_script())
                 .collect::<Vec<_>>();
-            let builder = super::taproot_builder_with_scripts(&scripts);
+            let builder = super::taproot_builder_with_scripts(scripts);
             let tree_info = builder
                 .finalize(&SECP, *bitvm_client::UNSPENDABLE_XONLY_PUBKEY)
                 .unwrap();

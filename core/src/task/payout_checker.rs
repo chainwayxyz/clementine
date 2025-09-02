@@ -1,14 +1,15 @@
+use eyre::OptionExt;
 use tokio::time::Duration;
 use tonic::async_trait;
 
 use crate::{citrea::CitreaClientT, database::Database, errors::BridgeError, operator::Operator};
 
-use super::Task;
+use super::{Task, TaskVariant};
 
 pub const PAYOUT_CHECKER_POLL_DELAY: Duration = if cfg!(test) {
-    Duration::from_millis(200)
+    Duration::from_millis(250)
 } else {
-    Duration::from_secs(1)
+    Duration::from_secs(60)
 };
 
 #[derive(Debug, Clone)]
@@ -32,6 +33,7 @@ where
     C: CitreaClientT,
 {
     type Output = bool;
+    const VARIANT: TaskVariant = TaskVariant::PayoutChecker;
 
     async fn run_once(&mut self) -> Result<Self::Output, BridgeError> {
         let mut dbtx = self.db.begin_transaction().await?;
@@ -75,16 +77,35 @@ where
             )
             .await?;
 
-        // TODO: Remove this, for now, we can end round after handling a single payout
+        // fetch and save the LCP for if we get challenged and need to provide proof of payout later
+        let (_, payout_block_height) = self
+            .operator
+            .db
+            .get_block_info_from_hash(Some(&mut dbtx), payout_tx_blockhash)
+            .await?
+            .ok_or_eyre("Couldn't find payout blockhash in bitcoin sync")?;
+
+        let _ = self
+            .operator
+            .citrea_client
+            .fetch_validate_and_store_lcp(
+                payout_block_height as u64,
+                citrea_idx,
+                &self.operator.db,
+                Some(&mut dbtx),
+                self.operator.config.protocol_paramset(),
+            )
+            .await?;
+
         #[cfg(feature = "automation")]
         self.operator.end_round(&mut dbtx).await?;
 
         self.db
-            .set_payout_handled(Some(&mut dbtx), citrea_idx, kickoff_txid)
+            .mark_payout_handled(Some(&mut dbtx), citrea_idx, kickoff_txid)
             .await?;
 
         dbtx.commit().await?;
 
-        Ok(false)
+        Ok(true)
     }
 }

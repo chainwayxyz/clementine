@@ -12,15 +12,10 @@ use bitcoin::{
 use eyre::Context;
 use lazy_static::lazy_static;
 use secp256k1::{
-    ffi::{
-        MusigAggNonce, MusigKeyAggCache, MusigPartialSignature, MusigPubNonce, MusigSecNonce,
-        MusigSession,
-    },
     musig::{
-        new_nonce_pair, AggregatedNonce, AggregatedSignature, KeyAggCache, PartialSignature,
-        PublicNonce, SecretNonce, Session, SessionSecretRand,
+        new_nonce_pair, AggregatedNonce, KeyAggCache, PartialSignature, PublicNonce, SecretNonce,
+        Session, SessionSecretRand,
     },
-    rand::Rng,
     Scalar, SECP256K1,
 };
 use sha2::{Digest, Sha256};
@@ -85,6 +80,11 @@ fn create_key_agg_cache(
     mut public_keys: Vec<PublicKey>,
     mode: Option<Musig2Mode>,
 ) -> Result<KeyAggCache, BridgeError> {
+    if public_keys.is_empty() {
+        return Err(BridgeError::from(eyre::eyre!(
+            "MuSig2 Error: cannot create key aggregation cache (no public keys provided)"
+        )));
+    }
     public_keys.sort();
     let secp_pubkeys: Vec<secp256k1::PublicKey> =
         public_keys.iter().map(|pk| to_secp_pk(*pk)).collect();
@@ -156,8 +156,13 @@ impl AggregateFromPublicKeys for XOnlyPublicKey {
 }
 
 // Aggregates the public nonces into a single aggregated nonce.
-pub fn aggregate_nonces(pub_nonces: &[&PublicNonce]) -> AggregatedNonce {
-    AggregatedNonce::new(SECP256K1, pub_nonces)
+pub fn aggregate_nonces(pub_nonces: &[&PublicNonce]) -> Result<AggregatedNonce, BridgeError> {
+    if pub_nonces.is_empty() {
+        return Err(BridgeError::from(eyre::eyre!(
+            "MuSig2 Error: cannot aggregate nonces (no public nonces provided)"
+        )));
+    }
+    Ok(AggregatedNonce::new(SECP256K1, pub_nonces))
 }
 
 // Aggregates the partial signatures into a single aggregated signature.
@@ -184,19 +189,14 @@ pub fn aggregate_partial_signatures(
         )
         .wrap_err("Failed to verify schnorr signature")?;
 
-    Ok(from_secp_sig(
-        session.partial_sig_agg(&partial_sigs).assume_valid(),
-    ))
+    Ok(from_secp_sig(final_sig.assume_valid()))
 }
 
 /// Generates a pair of nonces, one secret and one public. Be careful,
 /// DO NOT REUSE the same pair of nonces for multiple transactions. It will cause
 /// you to leak your secret key. For more information. See:
 /// <https://medium.com/blockstream/musig-dn-schnorr-multisignatures-with-verifiably-deterministic-nonces-27424b5df9d6#e3b6>.
-pub fn nonce_pair(
-    keypair: &Keypair,
-    mut rng: &mut impl Rng,
-) -> Result<(SecretNonce, PublicNonce), BridgeError> {
+pub fn nonce_pair(keypair: &Keypair) -> Result<(SecretNonce, PublicNonce), BridgeError> {
     let musig_session_sec_rand = SessionSecretRand::new();
 
     Ok(new_nonce_pair(
@@ -273,7 +273,7 @@ mod tests {
 
         for _ in 0..num_signers {
             let key_pair = Keypair::new(&SECP, &mut bitcoin::secp256k1::rand::thread_rng());
-            let nonce_pair = nonce_pair(&key_pair, &mut secp256k1::rand::thread_rng()).unwrap();
+            let nonce_pair = nonce_pair(&key_pair).unwrap();
 
             key_pairs.push(key_pair);
             nonce_pairs.push(nonce_pair);
@@ -285,7 +285,7 @@ mod tests {
     #[test]
     fn musig2_raw_without_a_tweak() {
         let (key_pairs, nonce_pairs) = create_key_and_nonce_pairs(3);
-        let message = Message::from_digest(secp256k1::rand::thread_rng().gen());
+        let message = Message::from_digest(secp256k1::rand::rng().random());
 
         let public_keys = key_pairs
             .iter()
@@ -299,7 +299,8 @@ mod tests {
                 .map(|(_, musig_pub_nonce)| musig_pub_nonce)
                 .collect::<Vec<_>>()
                 .as_slice(),
-        );
+        )
+        .unwrap();
 
         let partial_sigs = key_pairs
             .into_iter()
@@ -336,18 +337,16 @@ mod tests {
         let kp_1 = Keypair::new(&SECP, &mut bitcoin::secp256k1::rand::thread_rng());
         let kp_2 = Keypair::new(&SECP, &mut bitcoin::secp256k1::rand::thread_rng());
 
-        let message = Message::from_digest(secp256k1::rand::thread_rng().gen());
+        let message = Message::from_digest(secp256k1::rand::rng().random());
 
         let pks = vec![kp_0.public_key(), kp_1.public_key(), kp_2.public_key()];
 
-        let (sec_nonce_0, pub_nonce_0) =
-            super::nonce_pair(&kp_0, &mut secp256k1::rand::thread_rng()).unwrap();
-        let (sec_nonce_1, pub_nonce_1) =
-            super::nonce_pair(&kp_1, &mut secp256k1::rand::thread_rng()).unwrap();
-        let (sec_nonce_2, pub_nonce_2) =
-            super::nonce_pair(&kp_2, &mut secp256k1::rand::thread_rng()).unwrap();
+        let (sec_nonce_0, pub_nonce_0) = super::nonce_pair(&kp_0).unwrap();
+        let (sec_nonce_1, pub_nonce_1) = super::nonce_pair(&kp_1).unwrap();
+        let (sec_nonce_2, pub_nonce_2) = super::nonce_pair(&kp_2).unwrap();
 
-        let agg_nonce = super::aggregate_nonces(&[&pub_nonce_0, &pub_nonce_1, &pub_nonce_2]);
+        let agg_nonce =
+            super::aggregate_nonces(&[&pub_nonce_0, &pub_nonce_1, &pub_nonce_2]).unwrap();
 
         let partial_sig_0 =
             super::partial_sign(pks.clone(), None, sec_nonce_0, agg_nonce, kp_0, message).unwrap();
@@ -376,8 +375,8 @@ mod tests {
     #[test]
     fn musig2_sig_with_tweak() {
         let (key_pairs, nonce_pairs) = create_key_and_nonce_pairs(3);
-        let message = Message::from_digest(secp256k1::rand::thread_rng().gen());
-        let tweak: [u8; 32] = secp256k1::rand::thread_rng().gen();
+        let message = Message::from_digest(secp256k1::rand::rng().random());
+        let tweak: [u8; 32] = secp256k1::rand::rng().random();
 
         let public_keys = key_pairs
             .iter()
@@ -397,7 +396,8 @@ mod tests {
                 .map(|(_, musig_pub_nonce)| musig_pub_nonce)
                 .collect::<Vec<_>>()
                 .as_slice(),
-        );
+        )
+        .unwrap();
 
         let partial_sigs = key_pairs
             .into_iter()
@@ -438,20 +438,18 @@ mod tests {
         let kp_1 = Keypair::new(&SECP, &mut bitcoin::secp256k1::rand::thread_rng());
         let kp_2 = Keypair::new(&SECP, &mut bitcoin::secp256k1::rand::thread_rng());
 
-        let message = Message::from_digest(secp256k1::rand::thread_rng().gen::<[u8; 32]>());
+        let message = Message::from_digest(secp256k1::rand::rng().random::<[u8; 32]>());
 
-        let tweak: [u8; 32] = secp256k1::rand::thread_rng().gen();
+        let tweak: [u8; 32] = secp256k1::rand::rng().random();
 
         let pks = vec![kp_0.public_key(), kp_1.public_key(), kp_2.public_key()];
 
-        let (sec_nonce_0, pub_nonce_0) =
-            super::nonce_pair(&kp_0, &mut secp256k1::rand::thread_rng()).unwrap();
-        let (sec_nonce_1, pub_nonce_1) =
-            super::nonce_pair(&kp_1, &mut secp256k1::rand::thread_rng()).unwrap();
-        let (sec_nonce_2, pub_nonce_2) =
-            super::nonce_pair(&kp_2, &mut secp256k1::rand::thread_rng()).unwrap();
+        let (sec_nonce_0, pub_nonce_0) = super::nonce_pair(&kp_0).unwrap();
+        let (sec_nonce_1, pub_nonce_1) = super::nonce_pair(&kp_1).unwrap();
+        let (sec_nonce_2, pub_nonce_2) = super::nonce_pair(&kp_2).unwrap();
 
-        let agg_nonce = super::aggregate_nonces(&[&pub_nonce_0, &pub_nonce_1, &pub_nonce_2]);
+        let agg_nonce =
+            super::aggregate_nonces(&[&pub_nonce_0, &pub_nonce_1, &pub_nonce_2]).unwrap();
 
         let partial_sig_0 = super::partial_sign(
             pks.clone(),
@@ -510,7 +508,8 @@ mod tests {
                 .map(|(_, musig_pub_nonce)| musig_pub_nonce)
                 .collect::<Vec<_>>()
                 .as_slice(),
-        );
+        )
+        .unwrap();
 
         let dummy_script = script::Builder::new().push_int(1).into_script();
         let scripts: Vec<Arc<dyn SpendableScript>> =
@@ -616,7 +615,8 @@ mod tests {
                 .map(|x| &x.1)
                 .collect::<Vec<_>>()
                 .as_slice(),
-        );
+        )
+        .unwrap();
         let musig_agg_xonly_pubkey_wrapped =
             XOnlyPublicKey::from_musig2_pks(public_keys.clone(), None).unwrap();
 
@@ -743,7 +743,7 @@ mod tests {
         let kp2 = Keypair::new(&SECP, &mut bitcoin::secp256k1::rand::thread_rng());
         let public_keys = vec![kp1.public_key(), kp2.public_key()];
 
-        let message = Message::from_digest(secp256k1::rand::thread_rng().gen());
+        let message = Message::from_digest(secp256k1::rand::rng().random());
         let key_spend_with_script_tweak =
             Musig2Mode::KeySpendWithScript(TapNodeHash::from_slice(&[0x45u8; 32]).unwrap());
 
@@ -751,11 +751,9 @@ mod tests {
             create_key_agg_cache(public_keys.clone(), Some(key_spend_with_script_tweak)).unwrap();
         let agg_pk_script_tweak = from_secp_xonly(key_agg_cache.agg_pk());
 
-        let (sec_nonce1, pub_nonce1) =
-            nonce_pair(&kp1, &mut secp256k1::rand::thread_rng()).unwrap();
-        let (sec_nonce2, pub_nonce2) =
-            nonce_pair(&kp2, &mut secp256k1::rand::thread_rng()).unwrap();
-        let agg_nonce = aggregate_nonces(&[&pub_nonce1, &pub_nonce2]);
+        let (sec_nonce1, pub_nonce1) = nonce_pair(&kp1).unwrap();
+        let (sec_nonce2, pub_nonce2) = nonce_pair(&kp2).unwrap();
+        let agg_nonce = aggregate_nonces(&[&pub_nonce1, &pub_nonce2]).unwrap();
 
         let partial_sig1 = partial_sign(
             public_keys.clone(),

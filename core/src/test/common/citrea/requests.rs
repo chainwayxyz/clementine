@@ -1,6 +1,6 @@
 use crate::citrea::LIGHT_CLIENT_ADDRESS;
 use crate::errors::BridgeError;
-use crate::extended_rpc::ExtendedRpc;
+use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 use crate::test::common::citrea::parameters::get_citrea_deposit_params;
 use crate::EVMAddress;
 use alloy::sol_types::SolValue;
@@ -56,7 +56,7 @@ pub async fn eth_get_balance(
 /// won't directly talk with EVM but with Citrea. So that authorization can be done (Citrea will
 /// block this call if it isn't an operator).
 pub async fn deposit(
-    rpc: &ExtendedRpc,
+    rpc: &ExtendedBitcoinRpc,
     client: HttpClient,
     block: Block,
     block_height: u32,

@@ -1,21 +1,46 @@
+//! Note to developer: Guard the new integration test files with the
+//! `#[cfg(feature = "integration-tests")]` attribute (see #testing-clementine
+//! in [`super`]).
+
 pub mod common;
-#[cfg(feature = "automation")]
+#[cfg(all(feature = "automation", feature = "integration-tests"))]
 mod deposit_and_withdraw_e2e;
-#[cfg(feature = "automation")]
+#[cfg(all(feature = "automation", feature = "integration-tests"))]
 mod full_flow;
+
+#[cfg(feature = "integration-tests")]
 mod musig2;
+
+#[cfg(not(feature = "automation"))]
+mod manual_reimbursement;
+
+#[cfg(feature = "integration-tests")]
 mod rpc_auth;
-#[cfg(feature = "automation")]
+#[cfg(all(feature = "automation", feature = "integration-tests"))]
 mod state_manager;
+
+#[cfg(feature = "integration-tests")]
 mod taproot;
+
+#[cfg(feature = "integration-tests")]
 mod withdraw;
 
-#[cfg(feature = "automation")]
+mod sign;
+
+#[cfg(all(feature = "automation", feature = "integration-tests"))]
 mod additional_disprove_scripts;
 
-#[cfg(feature = "automation")]
+#[cfg(all(feature = "automation", feature = "integration-tests"))]
 mod bitvm_disprove_scripts;
+
+#[cfg(all(feature = "automation", feature = "integration-tests"))]
+mod bridge_circuit_test_data;
+
+#[cfg(feature = "integration-tests")]
 mod bitvm_script;
+
+pub const CITREA_E2E_DOCKER_IMAGE: &str =
+    "chainwayxyz/citrea-test:9db5124dd87f612ad2453188151e717ab07154e6";
 
 use ctor::ctor;
 
