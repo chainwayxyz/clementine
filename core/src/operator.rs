@@ -1280,12 +1280,7 @@ where
         #[cfg(test)]
         self.config
             .test_params
-            .maybe_save_kickoff_and_wtc_txs(
-                kickoff_tx,
-                watchtower_challenges
-                    .get(&0)
-                    .expect("Watchtower challenge index 0 should exist for test"),
-            )
+            .maybe_save_kickoff_and_wtc_txs(kickoff_tx, &watchtower_challenges, 1, &self.rpc)
             .await?;
 
         let (payout_op_xonly_pk_opt, payout_block_hash, payout_txid, deposit_idx) = self

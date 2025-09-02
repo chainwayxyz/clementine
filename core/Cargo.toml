@@ -64,7 +64,7 @@ serde_with = { workspace = true }
 citrea-sov-rollup-interface = { workspace = true, features = ["native"] }
 rand_chacha = { workspace = true }
 log = { workspace = true }
-circuits-lib = { path = "../circuits-lib" }
+circuits-lib = { path = "../circuits-lib", features = ["test-utils"] }
 bridge-circuit-host = { path = "../bridge-circuit-host" }
 bincode = { workspace = true }
 ark-ff = { workspace = true }
