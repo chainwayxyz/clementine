@@ -7,6 +7,7 @@ use bitcoin::blockdata::block::BlockHash;
 use bitcoin::secp256k1::PublicKey;
 use bitcoin::secp256k1::SecretKey;
 use bitcoin::ScriptBuf;
+use bitcoin::Transaction;
 use bitcoin::TxOut;
 use bitvm::chunk::api::Assertions;
 use risc0_zkvm::Receipt;
@@ -82,6 +83,9 @@ pub struct TestParams {
 
     /// A flag to enable mining of 0-fee transactions. It's used so that we do not need to CPFP for no-automation to make tests easier.
     pub mine_0_fee_txs: bool,
+
+    /// A flag to enable generating and saving a kickoff and watchtower challenge transaction.
+    pub generate_kickoff_and_wtc_txs: bool,
 
     pub timeout_params: TimeoutTestParams,
 }
@@ -378,6 +382,38 @@ impl TestParams {
 
         Ok(())
     }
+
+    pub async fn maybe_save_kickoff_and_wtc_txs(
+        &self,
+        kickoff_tx: &Transaction,
+        wtc_tx: &Transaction,
+    ) -> eyre::Result<()> {
+        if self.generate_kickoff_and_wtc_txs {
+            let path = std::path::PathBuf::from("../circuits-lib/test_data");
+            std::fs::create_dir_all(&path)
+                .map_err(|e| eyre::eyre!("Failed to create directory for output file: {}", e))?;
+            std::fs::write(
+                path.join("kickoff_tx.bin"),
+                bitcoin::consensus::encode::serialize(&kickoff_tx),
+            )?;
+            std::fs::write(
+                path.join("wtc_tx.bin"),
+                bitcoin::consensus::encode::serialize(&wtc_tx),
+            )?;
+            // print watchtower challenge pubkey
+            let wtv_vout = wtc_tx.input[0].previous_output.vout;
+            tracing::warn!(
+                "Watchtower challenge pubkey: {:?}",
+                hex::encode(
+                    &wtc_tx.output[wtv_vout as usize]
+                        .script_pubkey
+                        .as_bytes()
+                        .to_vec()[2..34]
+                )
+            );
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -518,6 +554,7 @@ impl Default for TestParams {
             generate_varying_total_works_insufficient_total_work: false,
             generate_varying_total_works: false,
             generate_varying_total_works_first_two_valid: false,
+            generate_kickoff_and_wtc_txs: false,
             aggregator_verification_secret_key: Some(
                 alloy::signers::k256::ecdsa::SigningKey::from_slice(
                     &hex::decode(

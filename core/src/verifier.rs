@@ -2189,27 +2189,43 @@ where
             tracing::debug!(target: "ci", "Operator ack for idx {}", idx);
         }
 
-        let latest_blockhash: Vec<Vec<u8>> = latest_blockhash
-            .iter()
-            .skip(1)
-            .take(88)
-            .map(|x| x.to_vec())
-            .collect();
+        // take only winternitz signatures from the witness
+
+        let latest_blockhash = extract_winternitz_commits_with_sigs(
+            latest_blockhash.clone(),
+            &[ClementineBitVMPublicKeys::get_latest_blockhash_derivation(
+                deposit_outpoint,
+                paramset,
+            )],
+            self.config.protocol_paramset(),
+        )?;
+
+        let payout_blockhash = extract_winternitz_commits_with_sigs(
+            payout_blockhash.clone(),
+            &[
+                ClementineBitVMPublicKeys::get_payout_tx_blockhash_derivation(
+                    deposit_outpoint,
+                    paramset,
+                ),
+            ],
+            self.config.protocol_paramset(),
+        )?;
 
         let mut latest_blockhash_new = Witness::new();
-        for element in latest_blockhash {
+        for element in latest_blockhash
+            .into_iter()
+            .next()
+            .expect("Must have one element")
+        {
             latest_blockhash_new.push(element);
         }
 
-        let payout_blockhash: Vec<Vec<u8>> = payout_blockhash
-            .iter()
-            .skip(1)
-            .take(88)
-            .map(|x| x.to_vec())
-            .collect();
-
         let mut payout_blockhash_new = Witness::new();
-        for element in payout_blockhash {
+        for element in payout_blockhash
+            .into_iter()
+            .next()
+            .expect("Must have one element")
+        {
             payout_blockhash_new.push(element);
         }
 
@@ -2419,8 +2435,6 @@ where
             .into());
         }
 
-        const NUM_ASSERT_TXS: usize = ClementineBitVMPublicKeys::number_of_assert_txs();
-
         for i in 0..operator_asserts.len() {
             let witness = operator_asserts
                 .get(&i)
@@ -2459,7 +2473,7 @@ where
                             .expect("Should not panic: `num_u256_commits` index out of bounds");
                     }
                 }
-                3..NUM_ASSERT_TXS => {
+                _ if i >= 3 && i < ClementineBitVMPublicKeys::number_of_assert_txs() => {
                     // Handles i from 3 to 35
                     for j in 0..11 {
                         intermediate_value_commits[11 * (i - 3) + j] = commits.pop().expect(
