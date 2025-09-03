@@ -955,10 +955,7 @@ mod tests {
         .await;
         let mut tx = builder.finalize();
 
-        let signer = Actor::new(
-            kp.secret_key(),
-            bitcoin::Network::Regtest,
-        );
+        let signer = Actor::new(kp.secret_key(), bitcoin::Network::Regtest);
 
         signer
             .tx_sign_preimage(&mut tx, preimage)

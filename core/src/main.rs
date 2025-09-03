@@ -108,11 +108,7 @@ async fn main() {
                     }
                 }
             }
-            let address = Actor::new(
-                config.secret_key,
-                config.protocol_paramset.network,
-            )
-            .address;
+            let address = Actor::new(config.secret_key, config.protocol_paramset.network).address;
 
             println!("Configuration: {:#?}", config);
             println!("Bitcoin address: {}", address);
