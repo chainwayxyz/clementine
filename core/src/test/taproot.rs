@@ -68,10 +68,7 @@ async fn create_address_and_transaction_then_sign_transaction() {
     let mut tx_handler = builder.finalize();
 
     // Signer should be able to sign the new transaction.
-    let signer = Actor::new(
-        config.secret_key,
-        config.protocol_paramset().network,
-    );
+    let signer = Actor::new(config.secret_key, config.protocol_paramset().network);
 
     signer
         .tx_sign_and_fill_sigs(&mut tx_handler, &[], None)

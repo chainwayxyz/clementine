@@ -253,10 +253,7 @@ where
 {
     /// Creates a new `Operator`.
     pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
-        let signer = Actor::new(
-            config.secret_key,
-            config.protocol_paramset().network,
-        );
+        let signer = Actor::new(config.secret_key, config.protocol_paramset().network);
 
         let db = Database::new(&config).await?;
         let rpc = ExtendedBitcoinRpc::connect(
