@@ -289,11 +289,7 @@ pub async fn run_multiple_deposits<C: CitreaClientT>(
     let mut aggregator = actors.get_aggregator();
 
     let evm_address = EVMAddress([1u8; 20]);
-    let actor = Actor::new(
-        config.secret_key,
-        config.winternitz_secret_key,
-        config.protocol_paramset().network,
-    );
+    let actor = Actor::new(config.secret_key, config.protocol_paramset().network);
 
     let verifiers_public_keys: Vec<PublicKey> = aggregator
         .setup(Request::new(Empty {}))
@@ -397,11 +393,7 @@ pub async fn run_single_deposit<C: CitreaClientT>(
     };
 
     let evm_address = evm_address.unwrap_or(EVMAddress([1u8; 20]));
-    let actor = Actor::new(
-        config.secret_key,
-        config.winternitz_secret_key,
-        config.protocol_paramset().network,
-    );
+    let actor = Actor::new(config.secret_key, config.protocol_paramset().network);
 
     let setup_start = std::time::Instant::now();
     let mut aggregator = actors.get_aggregator();
@@ -688,7 +680,7 @@ fn sign_replacement_deposit_tx_with_sec_council(
         .enumerate()
         .map(|(idx, sk)| {
             if idx < security_council.threshold as usize {
-                let actor = Actor::new(*sk, None, config.protocol_paramset().network);
+                let actor = Actor::new(*sk, config.protocol_paramset().network);
                 let sig = actor
                     .sign_with_tweak_data(sighash, TapTweakData::ScriptPath, None)
                     .unwrap();

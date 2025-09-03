@@ -311,7 +311,6 @@ pub fn get_deposit_address(
 ) -> Result<(bitcoin::Address, bitcoin::taproot::TaprootSpendInfo), BridgeError> {
     let signer = Actor::new(
         config.secret_key,
-        config.winternitz_secret_key,
         config.protocol_paramset().network,
     );
 
@@ -344,7 +343,6 @@ pub async fn generate_withdrawal_transaction_and_signature(
 ) -> (UTXO, bitcoin::TxOut, schnorr::Signature) {
     let signer = Actor::new(
         config.secret_key,
-        config.winternitz_secret_key,
         config.protocol_paramset().network,
     );
 

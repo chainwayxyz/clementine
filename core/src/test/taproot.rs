@@ -70,7 +70,6 @@ async fn create_address_and_transaction_then_sign_transaction() {
     // Signer should be able to sign the new transaction.
     let signer = Actor::new(
         config.secret_key,
-        config.winternitz_secret_key,
         config.protocol_paramset().network,
     );
 

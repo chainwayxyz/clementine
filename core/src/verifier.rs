@@ -401,11 +401,7 @@ where
     C: CitreaClientT,
 {
     pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
-        let signer = Actor::new(
-            config.secret_key,
-            config.winternitz_secret_key,
-            config.protocol_paramset().network,
-        );
+        let signer = Actor::new(config.secret_key, config.protocol_paramset().network);
 
         let rpc = ExtendedBitcoinRpc::connect(
             config.bitcoin_rpc_url.clone(),
