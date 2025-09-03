@@ -775,7 +775,7 @@ mod tests {
         let config = create_test_config_with_thread_name().await;
 
         let sk = bitcoin::secp256k1::SecretKey::new(&mut thread_rng());
-        let signer = Actor::new(sk, Some(sk), config.protocol_paramset().network);
+        let signer = Actor::new(sk, config.protocol_paramset().network);
         let deposit_outpoint = bitcoin::OutPoint {
             txid: Txid::all_zeros(),
             vout: 0,

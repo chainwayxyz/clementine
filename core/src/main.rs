@@ -110,7 +110,6 @@ async fn main() {
             }
             let address = Actor::new(
                 config.secret_key,
-                config.winternitz_secret_key,
                 config.protocol_paramset.network,
             )
             .address;

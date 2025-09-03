@@ -1447,7 +1447,6 @@ async fn mock_citrea_run_malicious_after_exit() {
     // operator 0's signer
     let actor = Actor::new(
         config.secret_key,
-        config.winternitz_secret_key,
         config.protocol_paramset().network,
     );
 
@@ -1567,7 +1566,6 @@ pub async fn make_concurrent_deposits(
 ) -> eyre::Result<Vec<Txid>> {
     let actor = Actor::new(
         config.secret_key,
-        config.winternitz_secret_key,
         config.protocol_paramset().network,
     );
     let evm_address = EVMAddress([1; 20]);

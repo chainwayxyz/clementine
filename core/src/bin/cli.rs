@@ -919,7 +919,7 @@ async fn handle_print_addresses() {
         Err(_) => Network::Regtest,
     };
 
-    let actor = Actor::new(secret_key, None, network);
+    let actor = Actor::new(secret_key, network);
     let taproot_address = actor.address;
     println!("Actor's taproot address: {}", taproot_address);
 
