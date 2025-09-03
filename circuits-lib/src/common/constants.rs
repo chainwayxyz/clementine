@@ -8,7 +8,7 @@
 /// The number of kickoff outputs before the first assert utxo.
 pub const FIRST_FIVE_OUTPUTS: usize = 5;
 /// The number of assertion transactions that a challenged operator should send.
-pub const NUMBER_OF_ASSERT_TXS: usize = 33;
+pub const NUMBER_OF_ASSERT_TXS: usize = 36;
 /// The theoretical maximum number of watchtowers that can be used in the Clementine protocol.
 pub const MAX_NUMBER_OF_WATCHTOWERS: usize = 160;
 
