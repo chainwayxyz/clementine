@@ -2438,7 +2438,7 @@ where
         for i in 0..operator_asserts.len() {
             let witness = operator_asserts
                 .get(&i)
-                .expect("indexed from 0 to 32")
+                .ok_or_eyre(format!("Expected operator assert at index {}, got None", i))?
                 .clone();
 
             let mut commits = extract_winternitz_commits_with_sigs(
@@ -2483,7 +2483,11 @@ where
                 }
                 _ => {
                     // Catch-all for any other 'i' values
-                    panic!("Unexpected operator assert index: {}; expected 0 to 32.", i);
+                    panic!(
+                        "Unexpected operator assert index: {}; expected 0 to {}.",
+                        i,
+                        ClementineBitVMPublicKeys::number_of_assert_txs()
+                    );
                 }
             }
         }
