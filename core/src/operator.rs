@@ -1824,7 +1824,7 @@ where
                         .await?
                         .ok_or_eyre("Couldn't find payout blockhash in bitcoin sync")?;
 
-                    let move_txid = Txid::all_zeros();
+                    let move_txid = deposit_data.get_move_txid(self.config.protocol_paramset())?;
 
                     let (_, _, _, citrea_idx) = self
                         .db
