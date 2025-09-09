@@ -242,13 +242,11 @@ mod tests {
                 let (leaf, mmr_proof) = mmr_native.generate_proof(j).unwrap();
                 assert!(
                     mmr_native.verify_proof(leaf, &mmr_proof),
-                    "Failed to verify proof for leaf {} in native MMR",
-                    j
+                    "Failed to verify proof for leaf {j} in native MMR"
                 );
                 assert!(
                     mmr_guest.verify_proof(leaf, &mmr_proof),
-                    "Failed to verify proof for leaf {} in guest MMR",
-                    j
+                    "Failed to verify proof for leaf {j} in guest MMR",
                 );
             }
         }
