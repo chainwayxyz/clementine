@@ -13,9 +13,9 @@ use clementine_core::{
     deposit::SecurityCouncil,
     rpc::clementine::{
         self, clementine_aggregator_client::ClementineAggregatorClient, deposit::DepositData,
-        Actors, AggregatorWithdrawalInput, BaseDeposit, Deposit, Empty, GetEntityStatusesRequest,
-        Outpoint, ReplacementDeposit, SendMoveTxRequest, VerifierPublicKeys, XOnlyPublicKeyRpc,
-        XOnlyPublicKeys,
+        Actors, AggregatorWithdrawalInput, BaseDeposit, Deposit, Empty, EntityStatus,
+        GetEntityStatusesRequest, Outpoint, ReplacementDeposit, SendMoveTxRequest,
+        VerifierPublicKeys, XOnlyPublicKeyRpc, XOnlyPublicKeys,
     },
     EVMAddress,
 };
@@ -830,24 +830,45 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                         println!("Entity: {kind} - {id}");
                         match &entity_status.status_result {
                             Some(clementine_core::rpc::clementine::entity_status_with_id::StatusResult::Status(status)) => {
-                                let automation = status.automation;
+                                let EntityStatus {
+                                    automation,
+                                    wallet_balance,
+                                    tx_sender_synced_height,
+                                    finalized_synced_height,
+                                    hcp_last_proven_height,
+                                    rpc_tip_height,
+                                    bitcoin_syncer_synced_height,
+                                    state_manager_next_height,
+                                    stopped_tasks,
+                                } = &status;
                                 println!("  Automation: {automation}");
-                                let wallet_balance = status.wallet_balance.as_ref().map_or("N/A".to_string(), |s| s.clone());
+                                let wallet_balance = wallet_balance
+                                    .as_ref()
+                                    .map_or("N/A".to_string(), |s| s.clone());
                                 println!("  Wallet balance: {wallet_balance}");
-                                let tx_sender_height = status.tx_sender_synced_height.map_or("N/A".to_string(), |h| h.to_string());
+                                let tx_sender_height = tx_sender_synced_height
+                                    .map_or("N/A".to_string(), |h| h.to_string());
                                 println!("  TX sender synced height: {tx_sender_height}");
-                                let finalized_height = status.finalized_synced_height.map_or("N/A".to_string(), |h| h.to_string());
+                                let finalized_height = finalized_synced_height
+                                    .map_or("N/A".to_string(), |h| h.to_string());
                                 println!("  Finalized synced height: {finalized_height}");
-                                let hcp_height = status.hcp_last_proven_height.map_or("N/A".to_string(), |h| h.to_string());
+                                let hcp_height = hcp_last_proven_height
+                                    .map_or("N/A".to_string(), |h| h.to_string());
                                 println!("  HCP last proven height: {hcp_height}");
-                                let rpc_tip_height = status.rpc_tip_height.map_or("N/A".to_string(), |h| h.to_string());
+                                let rpc_tip_height = rpc_tip_height
+                                    .map_or("N/A".to_string(), |h| h.to_string());
                                 println!("  RPC tip height: {rpc_tip_height}");
-                                let bitcoin_syncer_height = status.bitcoin_syncer_synced_height.map_or("N/A".to_string(), |h| h.to_string());
+                                let bitcoin_syncer_height = bitcoin_syncer_synced_height
+                                    .map_or("N/A".to_string(), |h| h.to_string());
                                 println!("  Bitcoin syncer synced height: {bitcoin_syncer_height}");
-                                let state_manager_height = status.state_manager_next_height.map_or("N/A".to_string(), |h| h.to_string());
+                                let state_manager_height = state_manager_next_height
+                                    .map_or("N/A".to_string(), |h| h.to_string());
                                 println!("  State manager next height: {state_manager_height}");
-                                if !status.stopped_tasks.as_ref().is_none_or(|t| t.stopped_tasks.is_empty()) {
-                                    let stopped_tasks = &status.stopped_tasks.as_ref().expect("Stopped tasks are required").stopped_tasks;
+                                if !stopped_tasks.as_ref().is_none_or(|t| t.stopped_tasks.is_empty()) {
+                                    let stopped_tasks = &stopped_tasks
+                                        .as_ref()
+                                        .expect("Stopped tasks are required")
+                                        .stopped_tasks;
                                     println!("  Stopped tasks: {stopped_tasks:?}");
                                 }
                             }

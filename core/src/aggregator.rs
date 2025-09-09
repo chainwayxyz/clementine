@@ -323,11 +323,7 @@ impl Aggregator {
             |mut client| async move {
                 let mut request = Request::new(Empty {});
                 request.set_timeout(PUBLIC_KEY_COLLECTION_TIMEOUT);
-                let verifier_params = client
-                    .get_params(request)
-                    .await
-                    .map_err(|e| BridgeError::from(Box::new(e)))?
-                    .into_inner();
+                let verifier_params = client.get_params(request).await?.into_inner();
                 let public_key = PublicKey::from_slice(&verifier_params.public_key)
                     .map_err(|e| eyre::eyre!("Failed to parse verifier public key: {}", e))?;
                 Ok::<_, BridgeError>(public_key)
@@ -348,8 +344,7 @@ impl Aggregator {
                 request.set_timeout(PUBLIC_KEY_COLLECTION_TIMEOUT);
                 let operator_xonly_pk: XOnlyPublicKey = client
                     .get_x_only_public_key(request)
-                    .await
-                    .map_err(|e| BridgeError::from(Box::new(e)))?
+                    .await?
                     .into_inner()
                     .try_into()?;
                 Ok::<_, BridgeError>(operator_xonly_pk)
@@ -374,10 +369,7 @@ impl Aggregator {
 
         let start_time = std::time::Instant::now();
 
-        let deposit_data: DepositData = deposit_params
-            .clone()
-            .try_into()
-            .map_err(|e| BridgeError::from(Box::new(e)))?;
+        let deposit_data: DepositData = deposit_params.clone().try_into()?;
 
         // Create channels with larger capacity to prevent blocking
         let (operator_keys_tx, operator_keys_rx) =
@@ -718,8 +710,7 @@ impl Aggregator {
             futures::try_join!(
                 futures::future::try_join_all(operator_tasks),
                 futures::future::try_join_all(verifier_tasks)
-            )
-            .map_err(|e| BridgeError::from(Box::new(e)))?;
+            )?;
         }
         Ok(entity_statuses)
     }

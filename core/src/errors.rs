@@ -168,7 +168,7 @@ pub enum BridgeError {
     #[error("{0}")]
     CLIDisplayAndExit(StyledStr),
     #[error(transparent)]
-    RPC(#[from] Box<Status>),
+    RPCStatus(#[from] Box<Status>),
 
     #[error("Arithmetic overflow occurred: {0}")]
     ArithmeticOverflow(&'static str),
@@ -224,6 +224,12 @@ impl<U: Sized, T: Into<BridgeError>> ResultExt for Result<U, T> {
 
     fn map_to_status(self) -> Result<Self::Output, tonic::Status> {
         self.map_err(ErrorExt::into_status)
+    }
+}
+
+impl From<Status> for BridgeError {
+    fn from(status: Status) -> Self {
+        BridgeError::RPCStatus(Box::new(status))
     }
 }
 

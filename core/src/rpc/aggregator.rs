@@ -1002,7 +1002,7 @@ impl ClementineAggregator for AggregatorServer {
                         None,
                     )
                     .await
-                    .map_err(BridgeError::from)?;
+                    .map_to_status()?;
                 dbtx.commit().await.map_err(|e| {
                     Status::internal(format!(
                         "Failed to commit db transaction to send optimistic payout tx: {e}",
@@ -1049,7 +1049,7 @@ impl ClementineAggregator for AggregatorServer {
                     &[],
                 )
                 .await
-                .map_err(BridgeError::from)?;
+                .map_to_status()?;
             dbtx.commit()
                 .await
                 .map_err(|e| Status::internal(format!("Failed to commit db transaction: {e}")))?;
@@ -1157,7 +1157,7 @@ impl ClementineAggregator for AggregatorServer {
         request: Request<Deposit>,
     ) -> Result<Response<clementine::RawSignedTx>, Status> {
         timed_request(OVERALL_DEPOSIT_TIMEOUT, "Overall new deposit", async {
-            let deposit_info: DepositInfo = request.into_inner().try_into().map_err(|e| BridgeError::from(Box::new(e)))?;
+            let deposit_info: DepositInfo = request.into_inner().try_into()?;
 
             let deposit_data = DepositData {
                 deposit: deposit_info,
@@ -1230,7 +1230,7 @@ impl ClementineAggregator for AggregatorServer {
 
                         let stream = verifier_client
                             .deposit_sign(tokio_stream::wrappers::ReceiverStream::new(rx))
-                            .await.map_err(|e| BridgeError::from(Box::new(e)))?
+                            .await?
                             .into_inner();
 
                         tx.send(deposit_sign_param).await.map_err(|e| {
@@ -1260,7 +1260,7 @@ impl ClementineAggregator for AggregatorServer {
                                 .hook_timeout_deposit_finalize_verifier(_idx)
                                 .await;
 
-                            verifier.deposit_finalize(receiver_stream).await.map_err(|e| BridgeError::from(Box::new(e)))
+                            verifier.deposit_finalize(receiver_stream).await
                         });
 
                         Ok::<_, BridgeError>((deposit_finalize_future, tx))
@@ -1285,10 +1285,10 @@ impl ClementineAggregator for AggregatorServer {
                     async move {
                         tx.send(param).await
                         .map_err(|e| {
-                            Status::internal(format!(
+                            BridgeError::from(Status::internal(format!(
                                 "Failed to send deposit finalize first param: {e:?}"
-                            ))
-                        }).map_err(|e| BridgeError::from(Box::new(e)))
+                            )))
+                        })
                     }
                 })
             ).await?;
@@ -1298,7 +1298,7 @@ impl ClementineAggregator for AggregatorServer {
                 .rpc
                 .get_blockhash_of_tx(&deposit_data.get_deposit_outpoint().txid)
                 .await
-                .map_to_status().map_err(|e| BridgeError::from(Box::new(e)))?;
+                .map_to_status()?;
 
             let verifiers_public_keys = deposit_data.get_verifiers();
 
@@ -1454,7 +1454,7 @@ impl ClementineAggregator for AggregatorServer {
             tracing::debug!("Received move tx partial sigs: {:?}", move_to_vault_sigs);
 
             // Create the final move transaction and check the signatures
-            let (movetx_agg_nonce, emergency_stop_agg_nonce) = nonce_agg_handle.await.map_err(|e| BridgeError::from(Box::new(e)))?;
+            let (movetx_agg_nonce, emergency_stop_agg_nonce) = nonce_agg_handle.await?;
 
             // Verify emergency stop signatures
             self.verify_and_save_emergency_stop_sigs(
@@ -1466,7 +1466,7 @@ impl ClementineAggregator for AggregatorServer {
 
             let signed_movetx_handler = self
                 .create_movetx(move_to_vault_sigs, movetx_agg_nonce, deposit_params)
-                .await.map_err(|e| BridgeError::from(Box::new(e)))?;
+                .await?;
 
             let raw_signed_tx = RawSignedTx {
                 raw_tx: bitcoin::consensus::serialize(&signed_movetx_handler.get_cached_tx()),
@@ -1639,7 +1639,7 @@ impl ClementineAggregator for AggregatorServer {
                     &[],
                 )
                 .await
-                .map_err(BridgeError::from)?;
+                .map_to_status()?;
             dbtx.commit()
                 .await
                 .map_err(|e| Status::internal(format!("Failed to commit db transaction: {e}")))?;
