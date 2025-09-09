@@ -168,7 +168,7 @@ pub enum BridgeError {
     #[error("{0}")]
     CLIDisplayAndExit(StyledStr),
     #[error(transparent)]
-    RPC(#[from] Status),
+    RPC(#[from] Box<Status>),
 
     #[error("Arithmetic overflow occurred: {0}")]
     ArithmeticOverflow(&'static str),
@@ -199,6 +199,7 @@ pub trait ResultExt: Sized {
     type Output;
 
     fn map_to_eyre(self) -> Result<Self::Output, eyre::Report>;
+    #[allow(clippy::result_large_err)]
     fn map_to_status(self) -> Result<Self::Output, tonic::Status>;
 }
 

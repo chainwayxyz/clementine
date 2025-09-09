@@ -1454,13 +1454,10 @@ mod tests {
 
             let serialization_errors = [
                 bitcoincore_rpc::Error::BitcoinSerialization(EncodeError::Io(
-                    IoError::new(ErrorKind::Other, "test").into(),
+                    IoError::other("test").into(),
                 )),
                 // bitcoincore_rpc::Error::Hex(HexToBytesError::InvalidChar(InvalidCharError{invalid: 0})),
-                bitcoincore_rpc::Error::Json(serde_json::Error::io(IoError::new(
-                    ErrorKind::Other,
-                    "test",
-                ))),
+                bitcoincore_rpc::Error::Json(serde_json::Error::io(IoError::other("test"))),
             ];
 
             for error in serialization_errors {

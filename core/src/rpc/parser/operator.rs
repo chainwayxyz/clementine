@@ -158,6 +158,7 @@ pub async fn parse_schnorr_sig(
     }
 }
 
+#[allow(clippy::result_large_err)]
 pub fn parse_withdrawal_sig_params(
     params: WithdrawParams,
 ) -> Result<(u32, Signature, OutPoint, ScriptBuf, Amount), Status> {
