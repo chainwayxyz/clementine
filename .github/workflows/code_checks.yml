@@ -35,7 +35,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install cargo-clippy
-        run: rustup component add --toolchain 1.85-x86_64-unknown-linux-gnu clippy
+        run: rustup component add --toolchain 1.88-x86_64-unknown-linux-gnu clippy
       - name: Run Cargo clippy
         run: cargo clippy --no-deps --all-targets --all-features -- -Dwarnings
 

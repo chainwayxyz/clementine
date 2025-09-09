@@ -453,7 +453,6 @@ impl HeaderChainProver {
             Network::Testnet4 => *TESTNET4_IMAGE_ID,
             Network::Signet => *SIGNET_IMAGE_ID,
             Network::Regtest => *REGTEST_IMAGE_ID,
-            _ => Err(BridgeError::UnsupportedNetwork.into_eyre())?,
         };
         let header_chain_circuit_type = HeaderChainPrevProofType::GenesisBlock(genesis_chain_state);
         let input = HeaderChainCircuitInput {
@@ -491,7 +490,6 @@ impl HeaderChainProver {
             Network::Testnet4 => TESTNET4_HEADER_CHAIN_ELF,
             Network::Signet => SIGNET_HEADER_CHAIN_ELF,
             Network::Regtest => REGTEST_HEADER_CHAIN_ELF,
-            _ => Err(BridgeError::UnsupportedNetwork.into_eyre())?,
         };
 
         let receipt = prover.prove(env, elf).map_err(|e| eyre::eyre!(e))?.receipt;
