@@ -42,8 +42,7 @@ impl FromStr for ProtocolParamsetName {
         match s {
             "regtest" => Ok(ProtocolParamsetName::Regtest),
             _ => Err(BridgeError::ConfigError(format!(
-                "Unknown paramset name: {}",
-                s
+                "Unknown paramset name: {s}"
             ))),
         }
     }

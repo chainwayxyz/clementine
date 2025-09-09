@@ -184,7 +184,7 @@ where
                 .verification_signature
                 .map(|sig| {
                     PrimitiveSignature::from_str(&sig).map_err(|e| {
-                        Status::invalid_argument(format!("Invalid verification signature: {}", e))
+                        Status::invalid_argument(format!("Invalid verification signature: {e}"))
                     })
                 })
                 .transpose()?;
