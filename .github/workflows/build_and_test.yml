@@ -47,8 +47,10 @@ jobs:
 
   release_build:
     name: Release | No features | Compile
-    runs-on: ubicloud-standard-2
+    runs-on: ubicloud-standard-4
     if: ${{ !github.event.pull_request.draft }}
+    env:
+      INFO_LOG_FILE: ${{ github.workspace }}/test-logs/release/release-no-automation-test.log
 
     steps:
       - uses: catchpoint/workflow-telemetry-action@v2
@@ -56,9 +58,30 @@ jobs:
           comment_on_pr: false
 
       - uses: actions/checkout@v4
+      - uses: ./.github/actions/build-prerequisites
+      - uses: ./.github/actions/test-prerequisites
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create test log directories
+        run: mkdir -p test-logs/release
 
       - name: Compile in release mode
         run: cargo build $CARGOFLAGS --release
+
+      - name: Run no-automation tests # only one test for now
+        run: |
+          set -o pipefail
+          ./scripts/generate_certs.sh
+          cargo test --release mock_citrea_run_truthful_manual_reimbursement -- --nocapture
+
+      - name: Upload test logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-no-automation-test-logs
+          path: test-logs/release/
+          retention-days: 7
 
   # Full Tests -----------------------------------------------------------------
   debug_build_test_all_features:
