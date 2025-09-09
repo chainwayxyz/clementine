@@ -129,16 +129,14 @@ impl HeaderChainProver {
                 Hash::from_slice(&proof_output.chain_state.best_block_hash).map_to_eyre()?,
             );
             let block_header = rpc.get_block_header(&block_hash).await.wrap_err(format!(
-                "Failed to get block header with block hash {} (retrieved from assumption file)",
-                block_hash
+                "Failed to get block header with block hash {block_hash} (retrieved from assumption file)",
             ))?;
             let block_height = rpc
                 .get_block_info(&block_hash)
                 .await
                 .map(|info| info.height)
                 .wrap_err(format!(
-                    "Failed to get block info with block hash {} (retrieved from assumption file)",
-                    block_hash
+                    "Failed to get block info with block hash {block_hash} (retrieved from assumption file)"
                 ))?;
             tracing::info!(
                 "Adding proof assumption for a block with hash of {:?}, header of {:?} and height of {}",
@@ -248,11 +246,10 @@ impl HeaderChainProver {
         let block_hash = rpc
             .get_block_hash(height)
             .await
-            .wrap_err(format!("Failed to get block hash at height {}", height))?;
+            .wrap_err(format!("Failed to get block hash at height {height}"))?;
 
         let block_header = rpc.get_block_header(&block_hash).await.wrap_err(format!(
-            "Failed to get block header with block hash {}",
-            block_hash
+            "Failed to get block header with block hash {block_hash}"
         ))?;
 
         let mut last_11_block_timestamps: [u32; 11] = [0; 11];
@@ -263,8 +260,7 @@ impl HeaderChainProver {
                 .get_block_header(&last_block_hash)
                 .await
                 .wrap_err(format!(
-                    "Failed to get block header with block hash {}",
-                    last_block_hash
+                    "Failed to get block header with block hash {last_block_hash}"
                 ))?;
 
             last_11_block_timestamps[last_block_height as usize % 11] = block_header.time;
@@ -286,15 +282,13 @@ impl HeaderChainProver {
                 .get_block_hash(epoch_start_block_height)
                 .await
                 .wrap_err(format!(
-                    "Failed to get block hash at height {}",
-                    epoch_start_block_height
+                    "Failed to get block hash at height {epoch_start_block_height}"
                 ))?;
             let epoch_start_block_header = rpc
                 .get_block_header(&epoch_start_block_hash)
                 .await
                 .wrap_err(format!(
-                    "Failed to get block header with block hash {}",
-                    epoch_start_block_hash
+                    "Failed to get block header with block hash {epoch_start_block_hash}"
                 ))?;
             let bits = if network == Network::Testnet4 {
                 // Real difficulty will show up at epoch start block no matter what
@@ -307,8 +301,7 @@ impl HeaderChainProver {
         };
 
         let block_info = rpc.get_block_info(&block_hash).await.wrap_err(format!(
-            "Failed to get block info with block hash {}",
-            block_hash
+            "Failed to get block info with block hash {block_hash}"
         ))?;
 
         let total_work = block_info.chainwork;
@@ -772,8 +765,8 @@ mod tests {
 
         expected_chain_state.block_hashes_mmr = MMRGuest::new();
 
-        println!("Chain state: {:#?}", chain_state);
-        println!("Expected chain state: {:#?}", expected_chain_state);
+        println!("Chain state: {chain_state:#?}");
+        println!("Expected chain state: {expected_chain_state:#?}");
 
         assert_eq!(chain_state, expected_chain_state);
     }
@@ -822,8 +815,8 @@ mod tests {
 
         expected_chain_state.block_hashes_mmr = MMRGuest::new();
 
-        println!("Chain state: {:#?}", chain_state);
-        println!("Expected chain state: {:#?}", expected_chain_state);
+        println!("Chain state: {chain_state:#?}");
+        println!("Expected chain state: {expected_chain_state:#?}");
 
         assert_eq!(chain_state, expected_chain_state);
     }
@@ -971,7 +964,7 @@ mod tests {
             HeaderChainProver::prove_genesis_block(genesis_state, Network::Regtest).unwrap();
 
         let output: BlockHeaderCircuitOutput = borsh::from_slice(&receipt.journal.bytes).unwrap();
-        println!("Proof journal output: {:?}", output);
+        println!("Proof journal output: {output:?}");
 
         assert_eq!(output.chain_state.block_height, u32::MAX); // risc0-to-bitvm2 related
         assert_eq!(
@@ -1006,7 +999,7 @@ mod tests {
             .unwrap();
         let output: BlockHeaderCircuitOutput = borsh::from_slice(&receipt.journal.bytes).unwrap();
 
-        println!("Proof journal output: {:?}", output);
+        println!("Proof journal output: {output:?}");
 
         assert_eq!(output.chain_state.block_height, 1);
     }

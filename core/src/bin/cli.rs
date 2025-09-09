@@ -304,14 +304,14 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
                 .get_deposit_keys(Request::new(params))
                 .await
                 .expect("Failed to make a request to operator");
-            println!("Get deposit keys response: {:?}", response);
+            println!("Get deposit keys response: {response:?}");
         }
         OperatorCommands::GetParams => {
             let params = operator
                 .get_params(Empty {})
                 .await
                 .expect("Failed to make a request to operator");
-            println!("Operator params: {:?}", params);
+            println!("Operator params: {params:?}");
         }
         OperatorCommands::Withdraw {
             withdrawal_id,
@@ -321,7 +321,7 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
             output_script_pubkey,
             output_amount,
         } => {
-            println!("Processing withdrawal with id {}", withdrawal_id);
+            println!("Processing withdrawal with id {withdrawal_id}");
 
             let params = clementine_core::rpc::clementine::WithdrawParams {
                 withdrawal_id,
@@ -351,7 +351,8 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
                 .vergen(Request::new(params))
                 .await
                 .expect("Failed to make a request to operator");
-            println!("Vergen response:\n{}", response.into_inner().response);
+            let response_msg = response.into_inner().response;
+            println!("Vergen response:\n{response_msg}");
         }
         OperatorCommands::GetReimbursementTxs {
             deposit_outpoint_txid,
@@ -414,14 +415,14 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
                     _ => {}
                 }
                 let hex_tx = hex::encode(&signed_tx.raw_tx);
-                println!("Tx type: {:?}, Tx hex: {:?}", tx_type, hex_tx);
+                println!("Tx type: {tx_type:?}, Tx hex: {hex_tx:?}");
             }
         }
     }
 }
 
 async fn handle_verifier_call(url: String, command: VerifierCommands) {
-    println!("Connecting to verifier at {}", url);
+    println!("Connecting to verifier at {url}");
     let config = create_minimal_config();
     let mut verifier = clementine_core::rpc::get_clients(
         vec![url],
@@ -439,7 +440,7 @@ async fn handle_verifier_call(url: String, command: VerifierCommands) {
                 .get_params(Empty {})
                 .await
                 .expect("Failed to make a request");
-            println!("Verifier params: {:?}", params);
+            println!("Verifier params: {params:?}");
         }
         VerifierCommands::NonceGen { num_nonces } => {
             let params = clementine_core::rpc::clementine::NonceGenRequest { num_nonces };
@@ -447,7 +448,7 @@ async fn handle_verifier_call(url: String, command: VerifierCommands) {
                 .nonce_gen(Request::new(params))
                 .await
                 .expect("Failed to make a request");
-            println!("Noncegen response: {:?}", response);
+            println!("Noncegen response: {response:?}");
         }
         VerifierCommands::Vergen => {
             let params = Empty {};
@@ -461,7 +462,7 @@ async fn handle_verifier_call(url: String, command: VerifierCommands) {
 }
 
 async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
-    println!("Connecting to aggregator at {}", url);
+    println!("Connecting to aggregator at {url}");
     let config = create_minimal_config();
     let mut aggregator = clementine_core::rpc::get_clients(
         vec![url],
@@ -479,7 +480,7 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                 .setup(Empty {})
                 .await
                 .expect("Failed to make a request");
-            println!("{:?}", setup);
+            println!("{setup:?}");
         }
         AggregatorCommands::NewDeposit {
             deposit_outpoint_txid,
@@ -760,7 +761,7 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             verification_signature,
             operator_xonly_pks,
         } => {
-            println!("Processing withdrawal with id {}", withdrawal_id);
+            println!("Processing withdrawal with id {withdrawal_id}");
 
             let mut input_outpoint_txid_bytes =
                 hex::decode(input_outpoint_txid).expect("Failed to decode input outpoint txid");

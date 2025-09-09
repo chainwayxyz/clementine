@@ -147,7 +147,7 @@ fn generate_fresh_data() -> BitvmCache {
         while pos + 20 <= script.len() {
             // Check if this window matches our pattern (255u8 in the end)
             if script[pos + 4..pos + 20] == [255u8; 16] {
-                panic!("Dummy value found in script {}", script_idx);
+                panic!("Dummy value found in script {script_idx}");
             }
             pos += 1;
         }
@@ -198,7 +198,7 @@ fn generate_fresh_data() -> BitvmCache {
                             .push((script_idx, pos));
                     }
                     _ => {
-                        panic!("Invalid pk type index: {}", pk_type_idx);
+                        panic!("Invalid pk type index: {pk_type_idx}");
                     }
                 }
                 pos += 20;

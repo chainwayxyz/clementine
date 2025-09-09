@@ -35,8 +35,7 @@ pub struct KickoffData {
 /// - nofn_xonly_pk is cached to avoid recomputing it each time.
 /// - deposit includes the actual information about the deposit.
 /// - actors includes the public keys of the actors that will participate in the deposit.
-/// - security_council includes the public keys of the security council that can unlock the deposit to create a replacement deposit
-///     in case a bug is found in the bridge.
+/// - security_council includes the public keys of the security council that can unlock the deposit to create a replacement deposit in case a bug is found in the bridge.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Eq)]
 pub struct DepositData {
     /// Cached nofn xonly public key used for deposit.
@@ -302,7 +301,7 @@ impl std::fmt::Display for SecurityCouncil {
             .map(|pk| hex::encode(pk.serialize()))
             .collect::<Vec<_>>()
             .join(",");
-        write!(f, "{}", pks_str)
+        write!(f, "{pks_str}")
     }
 }
 
