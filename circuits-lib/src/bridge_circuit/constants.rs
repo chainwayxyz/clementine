@@ -55,10 +55,10 @@ pub static CLAIM_TAG: [u8; 32] =
 pub static OUTPUT_TAG: [u8; 32] =
     hex_literal::hex!("77eafeb366a78b47747de0d7bb176284085ff5564887009a5be63da32d3559d4"); // SHA256 hash of "risc0.Output"
 
-pub const A0_BIGINT: BigInt<4> = BigInt::new([162754123530195662, 1949396425256203034, 0, 0]);
+pub const A0_BIGINT: BigInt<4> = BigInt::new([2055224492124818853, 4733028617431930770, 0, 0]);
 pub const A0_ARK: ark_ff::Fp<ark_ff::MontBackend<ark_bn254::FrConfig, 4>, 4> = Fr::new(A0_BIGINT);
 
-pub const A1_BIGINT: BigInt<4> = BigInt::new([2457364108815709557, 2960371475104660934, 0, 0]);
+pub const A1_BIGINT: BigInt<4> = BigInt::new([4020834093867526107, 6205833401006706155, 0, 0]);
 pub const A1_ARK: ark_ff::Fp<ark_ff::MontBackend<ark_bn254::FrConfig, 4>, 4> = Fr::new(A1_BIGINT);
 
 pub const BN_254_CONTROL_ID_BIGINT: BigInt<4> = BigInt::new([
