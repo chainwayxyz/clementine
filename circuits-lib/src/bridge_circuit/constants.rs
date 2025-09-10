@@ -29,9 +29,8 @@ pub const DEVNET_LC_IMAGE_ID: [u8; 32] =
 pub const TESTNET_LC_IMAGE_ID: [u8; 32] =
     hex!("7eae7a3d628b6e383a23d1d3504b06b146c6a9d67a04515aba1dbbfdca7de6ca");
 
-// MAINNET LC_IMAGE_ID is not yet provided by CITREA, so we use a placeholder.
 pub const MAINNET_LC_IMAGE_ID: [u8; 32] =
-    hex!("0000000000000000000000000000000000000000000000000000000000000000");
+    hex!("bf5927548f4a03835b7dbcfd1844b2d4da84e824ac26d9fe46f3df01cf4f0e75");
 
 // Work-only circuit method IDs for different networks.
 pub static MAINNET_WORK_ONLY_METHOD_ID: [u8; 32] =
