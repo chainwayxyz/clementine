@@ -334,11 +334,28 @@ where
                     }
                     None => {
                         // create a new outpoint that has collateral funding amount
-                        rpc.send_to_address(
-                            &signer.address,
-                            config.protocol_paramset().collateral_funding_amount,
-                        )
-                        .await?
+                        let outpoint = rpc
+                            .send_to_address(
+                                &signer.address,
+                                config.protocol_paramset().collateral_funding_amount,
+                            )
+                            .await;
+                        if let Err(e) = outpoint {
+                            tracing::error!(
+                                "Failed to send collateral funding of {} to the address {:?}: {:?}",
+                                config.protocol_paramset().collateral_funding_amount,
+                                signer.address,
+                                e
+                            );
+                            return Err(eyre::eyre!(
+                                "Failed to send collateral funding of {} to the address {:?}: {:?}",
+                                config.protocol_paramset().collateral_funding_amount,
+                                signer.address,
+                                e
+                            )
+                            .into());
+                        }
+                        outpoint.unwrap()
                     }
                 };
                 (outpoint, reimburse_addr)
