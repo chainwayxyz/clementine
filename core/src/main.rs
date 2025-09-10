@@ -115,9 +115,9 @@ async fn main() {
             )
             .address;
 
-            println!("Configuration: {:#?}", config);
-            println!("Bitcoin address: {}", address);
-            println!("Bitcoin node addresses: {:?}", addresses);
+            println!("Configuration: {config:#?}");
+            println!("Bitcoin address: {address}");
+            println!("Bitcoin node addresses: {addresses:?}");
 
             println!("DB connection is successful.");
             println!("Bitcoin node connection is successful.");

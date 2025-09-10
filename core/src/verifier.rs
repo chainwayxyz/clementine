@@ -569,8 +569,7 @@ where
             // if operator is not in deposit but its collateral is still on chain, return false
             if !operators_in_deposit_data.contains(xonly_pk) && is_collateral_usable {
                 let reason = format!(
-                    "Operator {:?} is is still in protocol but not in the deposit data from aggregator",
-                    xonly_pk
+                    "Operator {xonly_pk:?} is is still in protocol but not in the deposit data from aggregator",
                 );
                 tracing::error!("{reason}");
                 return Err(BridgeError::InvalidDeposit(reason));
@@ -578,8 +577,7 @@ where
             // if operator is in deposit, but the collateral is not usable, return false
             if operators_in_deposit_data.contains(xonly_pk) && !is_collateral_usable {
                 let reason = format!(
-                    "Operator {:?} is in the deposit data from aggregator but its collateral is spent, operator cannot fulfill withdrawals anymore",
-                    xonly_pk
+                    "Operator {xonly_pk:?} is in the deposit data from aggregator but its collateral is spent, operator cannot fulfill withdrawals anymore",
                 );
                 tracing::error!("{reason}");
                 return Err(BridgeError::InvalidDeposit(reason));
@@ -592,8 +590,7 @@ where
                 .any(|(xonly_pk, _, _)| xonly_pk == &operator_xonly_pk)
             {
                 let reason = format!(
-                    "Operator {:?} is in the deposit data from aggregator but not in the verifier's DB, cannot sign deposit",
-                    operator_xonly_pk
+                    "Operator {operator_xonly_pk:?} is in the deposit data from aggregator but not in the verifier's DB, cannot sign deposit"
                 );
                 tracing::error!("{reason}");
                 return Err(BridgeError::InvalidDeposit(reason));
@@ -2467,7 +2464,7 @@ where
                 }
                 _ => {
                     // Catch-all for any other 'i' values
-                    panic!("Unexpected operator assert index: {}; expected 0 to 32.", i);
+                    panic!("Unexpected operator assert index: {i}; expected 0 to 32.");
                 }
             }
         }

@@ -39,17 +39,14 @@ impl AggregatorMetricPublisher {
             EntityType::Operator => {
                 let xonly_pk =
                     bitcoin::XOnlyPublicKey::from_str(&proto_entity_id.id).map_err(|e| {
-                        BridgeError::ConfigError(format!(
-                            "Invalid operator xonly public key: {}",
-                            e
-                        ))
+                        BridgeError::ConfigError(format!("Invalid operator xonly public key: {e}"))
                     })?;
                 Ok(EntityId::Operator(OperatorId(xonly_pk)))
             }
             EntityType::Verifier => {
                 let pk =
                     bitcoin::secp256k1::PublicKey::from_str(&proto_entity_id.id).map_err(|e| {
-                        BridgeError::ConfigError(format!("Invalid verifier public key: {}", e))
+                        BridgeError::ConfigError(format!("Invalid verifier public key: {e}"))
                     })?;
                 Ok(EntityId::Verifier(VerifierId(pk)))
             }
@@ -62,7 +59,7 @@ impl AggregatorMetricPublisher {
     /// Create or get metrics for an entity
     fn get_or_create_metrics(&mut self, entity_id: EntityId) -> &mut EntityL1SyncStatusMetrics {
         self.metrics.entry(entity_id).or_insert_with(|| {
-            let scope = format!("{}_l1_sync_status", entity_id);
+            let scope = format!("{entity_id}_l1_sync_status");
             EntityL1SyncStatusMetrics::describe(&scope);
             EntityL1SyncStatusMetrics::new(&scope)
         })

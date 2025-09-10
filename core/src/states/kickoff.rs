@@ -357,7 +357,7 @@ impl<T: Owner> KickoffStateMachine<T> {
     async fn unhandled_event(&mut self, context: &mut StateContext<T>, event: &KickoffEvent) {
         context
             .capture_error(async |_context| {
-                let event_str = format!("{:?}", event);
+                let event_str = format!("{event:?}");
                 Err(StateMachineError::UnhandledEvent(event_str))
                     .wrap_err(self.kickoff_meta("kickoff unhandled event"))
             })
