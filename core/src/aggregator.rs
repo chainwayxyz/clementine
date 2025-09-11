@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::ops::Deref;
 use std::sync::Arc;
 
@@ -38,6 +39,7 @@ use eyre::Context;
 use futures::future::join_all;
 use secp256k1::musig::{AggregatedNonce, PartialSignature};
 use std::future::Future;
+use std::hash::Hash as StdHash;
 use tokio::sync::RwLock;
 use tonic::{Request, Status};
 use tracing::{debug_span, Instrument};
@@ -238,7 +240,7 @@ impl Aggregator {
         key_type_name: &str,
     ) -> Result<Vec<T>, BridgeError>
     where
-        T: Clone + Send + Sync,
+        T: Clone + Send + Sync + Eq + StdHash + std::fmt::Debug,
         C: Clone + Send + Sync,
         F: Fn(C) -> Fut + Send + Sync,
         Fut: Future<Output = Result<T, BridgeError>> + Send,
@@ -292,6 +294,18 @@ impl Aggregator {
                         missing_keys.push(idx);
                     }
                 }
+            }
+
+            // if keys are not unique, return an error
+            let set: HashSet<_> = keys.iter().filter_map(|key| key.clone()).collect();
+
+            if set.len() != keys.iter().filter(|key| key.is_some()).count() {
+                let reason = format!("{} keys are not unique: {:?}", key_type_name, keys);
+                // reset all keys to None
+                for key in keys.iter_mut() {
+                    *key = None;
+                }
+                return Err(eyre::eyre!(reason).into());
             }
 
             // if not all keys were collected, return an error

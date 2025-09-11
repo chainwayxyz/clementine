@@ -22,8 +22,8 @@ use crate::citrea::CitreaClientT;
 use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
 use crate::constants::{
-    self, MAX_ALL_SESSIONS_BYTES, MAX_NUM_SESSIONS, NON_EPHEMERAL_ANCHOR_AMOUNT, NUM_NONCES_LIMIT,
-    TEN_MINUTES_IN_SECS,
+    self, MAX_ALL_SESSIONS_BYTES, MAX_EXTRA_WATCHTOWERS, MAX_NUM_SESSIONS,
+    NON_EPHEMERAL_ANCHOR_AMOUNT, NUM_NONCES_LIMIT, TEN_MINUTES_IN_SECS,
 };
 use crate::database::{Database, DatabaseTransaction};
 use crate::deposit::{DepositData, KickoffData, OperatorData};
@@ -70,6 +70,7 @@ use circuits_lib::bridge_circuit::transaction::CircuitTransaction;
 use circuits_lib::bridge_circuit::{
     deposit_constant, get_first_op_return_output, parse_op_return_data,
 };
+use circuits_lib::common::constants::MAX_NUMBER_OF_WATCHTOWERS;
 use eyre::{Context, ContextCompat, OptionExt, Result};
 use secp256k1::ffi::MUSIG_SECNONCE_LEN;
 use secp256k1::musig::{AggregatedNonce, PartialSignature, PublicNonce, SecretNonce};
@@ -540,6 +541,57 @@ where
             tracing::error!("{reason}");
             return Err(BridgeError::InvalidDeposit(reason));
         }
+        // check if extra watchtowers (non verifier watchtowers) are not greater than the maximum allowed
+        if deposit_data.actors.watchtowers.len() > MAX_EXTRA_WATCHTOWERS {
+            let reason = format!(
+                "Number of extra watchtowers in deposit is greater than the maximum allowed, expected at most {}, got {}",
+                MAX_EXTRA_WATCHTOWERS,
+                deposit_data.actors.watchtowers.len()
+            );
+            tracing::error!("{reason}");
+            return Err(BridgeError::InvalidDeposit(reason));
+        }
+        // check if total watchtowers are not greater than the maximum allowed
+        if deposit_data.get_num_watchtowers() > MAX_NUMBER_OF_WATCHTOWERS {
+            let reason = format!(
+                "Number of watchtowers in deposit is greater than the maximum allowed, expected at most {}, got {}",
+                MAX_NUMBER_OF_WATCHTOWERS,
+                deposit_data.get_num_watchtowers()
+            );
+            tracing::error!("{reason}");
+            return Err(BridgeError::InvalidDeposit(reason));
+        }
+
+        // check if all verifiers are unique
+        if !deposit_data.are_all_verifiers_unique() {
+            let reason = format!(
+                "Verifiers in deposit are not unique: {:?}",
+                deposit_data.actors.verifiers
+            );
+            tracing::error!("{reason}");
+            return Err(BridgeError::InvalidDeposit(reason));
+        }
+
+        // check if all watchtowers are unique
+        if !deposit_data.are_all_watchtowers_unique() {
+            let reason = format!(
+                "Watchtowers in deposit are not unique: {:?}",
+                deposit_data.actors.watchtowers
+            );
+            tracing::error!("{reason}");
+            return Err(BridgeError::InvalidDeposit(reason));
+        }
+
+        // check if all operators are unique
+        if !deposit_data.are_all_operators_unique() {
+            let reason = format!(
+                "Operators in deposit are not unique: {:?}",
+                deposit_data.actors.operators
+            );
+            tracing::error!("{reason}");
+            return Err(BridgeError::InvalidDeposit(reason));
+        }
+
         let operators_in_deposit_data = deposit_data.get_operators();
         // check if all operators that still have collateral are in the deposit
         let operators_in_db = self.db.get_operators(None).await?;
