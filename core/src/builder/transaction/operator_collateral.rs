@@ -21,7 +21,6 @@ use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::txhandler::TxHandler;
 use crate::builder::transaction::*;
 use crate::config::protocol::ProtocolParamset;
-use crate::constants::MIN_TAPROOT_AMOUNT;
 use crate::errors::BridgeError;
 use crate::rpc::clementine::NumberedSignatureKind;
 use bitcoin::Sequence;
@@ -389,19 +388,24 @@ pub fn create_burn_unused_kickoff_connectors_txhandler(
     let mut tx_handler_builder =
         TxHandlerBuilder::new(TransactionType::BurnUnusedKickoffConnectors)
             .with_version(NON_STANDARD_V3);
+    let mut input_amount = Amount::ZERO;
     for &idx in unused_kickoff_connectors_indices {
+        let txin = round_txhandler.get_spendable_output(UtxoVout::Kickoff(idx))?;
+        input_amount = input_amount.checked_add(txin.get_prevout().value).ok_or(
+            BridgeError::ArithmeticOverflow("Amount overflow in burn unused kickoff connectors tx"),
+        )?;
         tx_handler_builder = tx_handler_builder.add_input(
             NormalSignatureKind::OperatorSighashDefault,
-            round_txhandler.get_spendable_output(UtxoVout::Kickoff(idx))?,
+            txin,
             SpendPath::ScriptSpend(1),
             Sequence::from_height(1),
         );
     }
-    if !paramset.bridge_nonstandard {
+    if !paramset.bridge_nonstandard && input_amount >= paramset.anchor_amount() {
         // if we use standard tx's, kickoff utxo's will hold some sats so we can return the change to the change address
         // but if we use nonstandard tx's with 0 sat values then the change is 0 anyway, no need to add an output
         tx_handler_builder = tx_handler_builder.add_output(UnspentTxOut::from_partial(TxOut {
-            value: MIN_TAPROOT_AMOUNT,
+            value: input_amount - paramset.anchor_amount(),
             script_pubkey: change_address.script_pubkey(),
         }));
     }
