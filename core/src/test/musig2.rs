@@ -93,7 +93,7 @@ async fn key_spend() {
 
     let mut tx_details = TxHandlerBuilder::new(TransactionType::Dummy)
         .add_input(
-            NormalSignatureKind::NormalSignatureUnknown,
+            NormalSignatureKind::NotStored,
             SpendableTxIn::new(utxo, prevout, vec![], Some(from_address_spend_info.clone())),
             SpendPath::Unknown,
             Sequence::default(),
@@ -194,7 +194,7 @@ async fn key_spend_with_script() {
     let mut builder = TxHandlerBuilder::new(TransactionType::Dummy);
     builder = builder
         .add_input(
-            NormalSignatureKind::NormalSignatureUnknown,
+            NormalSignatureKind::NotStored,
             SpendableTxIn::new(
                 utxo,
                 prevout.clone(),
@@ -303,7 +303,7 @@ async fn script_spend() {
     let prevout = rpc.get_txout_from_outpoint(&utxo).await.unwrap();
     let mut tx_details = TxHandlerBuilder::new(TransactionType::Dummy)
         .add_input(
-            NormalSignatureKind::NormalSignatureUnknown,
+            NormalSignatureKind::NotStored,
             SpendableTxIn::new(
                 utxo,
                 prevout.clone(),
@@ -443,7 +443,7 @@ async fn key_and_script_spend() {
     // Test Transactions
     let mut test_txhandler_1 = TxHandlerBuilder::new(TransactionType::Dummy)
         .add_input(
-            NormalSignatureKind::NormalSignatureUnknown,
+            NormalSignatureKind::NotStored,
             SpendableTxIn::new(
                 utxo_1,
                 prevout_1,
@@ -461,7 +461,7 @@ async fn key_and_script_spend() {
 
     let mut test_txhandler_2 = TxHandlerBuilder::new(TransactionType::Dummy)
         .add_input(
-            NormalSignatureKind::NormalSignatureUnknown,
+            NormalSignatureKind::NotStored,
             SpendableTxIn::new(
                 utxo_2,
                 prevout_2,
