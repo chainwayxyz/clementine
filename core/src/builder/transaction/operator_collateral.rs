@@ -424,9 +424,12 @@ mod tests {
         let input_outpoint = OutPoint::new(bitcoin::Txid::all_zeros(), 0);
         let input_amount = Amount::from_sat(10000000000);
         let pubkeys = KickoffWinternitzKeys::new(
-            vec![vec![[0u8; 20]; 44]; paramset.num_round_txs * paramset.num_kickoffs_per_round],
-            paramset.num_round_txs,
+            vec![
+                vec![[0u8; 20]; 44];
+                (paramset.num_round_txs + 1) * paramset.num_kickoffs_per_round
+            ],
             paramset.num_kickoffs_per_round,
+            paramset.num_round_txs,
         )
         .unwrap();
 
