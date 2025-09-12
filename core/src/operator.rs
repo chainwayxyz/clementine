@@ -441,11 +441,11 @@ where
             wpks,
             self.config.protocol_paramset().num_kickoffs_per_round,
             self.config.protocol_paramset().num_round_txs,
-        );
+        )?;
         tracing::info!("Starting to generate unspent kickoff signatures");
         let kickoff_sigs = self.generate_unspent_kickoff_sigs(&kickoff_wpks)?;
         tracing::info!("Unspent kickoff signatures generated");
-        let wpks = kickoff_wpks.keys;
+        let wpks = kickoff_wpks.get_all_keys();
         let (sig_tx, sig_rx) = mpsc::channel(kickoff_sigs.len());
 
         tokio::spawn(async move {
@@ -1048,7 +1048,7 @@ where
             operator_winternitz_public_keys,
             self.config.protocol_paramset().num_kickoffs_per_round,
             self.config.protocol_paramset().num_round_txs,
-        );
+        )?;
 
         // if we are at round 0, which is just the collateral, we need to start the first round
         if current_round_index == RoundIndex::Collateral {
@@ -2131,7 +2131,7 @@ where
             operator_winternitz_public_keys,
             self.config.protocol_paramset().num_kickoffs_per_round,
             self.config.protocol_paramset().num_round_txs,
-        );
+        )?;
         // if there are unspent kickoff utxos, create a tx that spends them
         let (round_txhandler, _ready_to_reimburse_txhandler) = create_round_nth_txhandler(
             self.signer.xonly_public_key,

@@ -427,7 +427,8 @@ mod tests {
             vec![vec![[0u8; 20]; 44]; paramset.num_round_txs * paramset.num_kickoffs_per_round],
             paramset.num_round_txs,
             paramset.num_kickoffs_per_round,
-        );
+        )
+        .unwrap();
 
         let mut round_tx_input = RoundTxInput::Collateral(input_outpoint, input_amount);
 

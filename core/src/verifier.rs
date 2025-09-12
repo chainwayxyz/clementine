@@ -557,7 +557,7 @@ where
                 kickoff_winternitz_pks,
                 self.config.protocol_paramset().num_kickoffs_per_round,
                 self.config.protocol_paramset().num_round_txs,
-            );
+            )?;
             let is_collateral_usable = self
                 .rpc
                 .collateral_check(
@@ -668,7 +668,7 @@ where
             operator_winternitz_public_keys,
             self.config.protocol_paramset().num_kickoffs_per_round,
             self.config.protocol_paramset().num_round_txs,
-        );
+        )?;
 
         if !self
             .rpc
@@ -694,7 +694,7 @@ where
             &kickoff_wpks,
         )?;
 
-        let operator_winternitz_public_keys = kickoff_wpks.keys;
+        let operator_winternitz_public_keys = kickoff_wpks.get_all_keys();
         let mut dbtx = self.db.begin_transaction().await?;
         // Save the operator details to the db
         self.db
