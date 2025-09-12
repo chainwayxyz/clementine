@@ -10,7 +10,7 @@ This package contains the Risc0 guest programs and their entrypoints. You can fi
 - To build `header-chain`, use
 ```bash
 cd risc0-circuits/header-chain/
-REPR_GUEST_BUILD=1 BITCOIN_NETWORK=<NETWORK_TYPE> cargo build -p work-only --release
+REPR_GUEST_BUILD=1 BITCOIN_NETWORK=<NETWORK_TYPE> cargo build -p header-chain --release
 ```
 
 - To build `work-only`, use
