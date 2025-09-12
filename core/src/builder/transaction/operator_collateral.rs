@@ -300,7 +300,11 @@ pub fn create_ready_to_reimburse_txhandler(
             DEFAULT_SEQUENCE,
         )
         .add_output(UnspentTxOut::from_scripts(
-            prev_value - paramset.anchor_amount(),
+            prev_value.checked_sub(paramset.anchor_amount()).ok_or(
+                BridgeError::ArithmeticOverflow(
+                    "Insufficient funds while creating ready to reimburse tx",
+                ),
+            )?,
             vec![],
             Some(operator_xonly_pk),
             paramset.network,
