@@ -837,11 +837,11 @@ where
             ));
             let num_required_sigs = verifier.config.get_num_required_nofn_sigs(&deposit_data);
 
-            assert_eq!(
-                num_required_sigs + 2,
-                session.nonces.len(),
-                "Expected nonce count to be num_required_sigs + 2 (movetx & emergency stop)"
-            );
+            if num_required_sigs + 2 != session.nonces.len() {
+                return Err(eyre::eyre!(
+                    "Expected nonce count to be num_required_sigs + 2 (movetx & emergency stop)"
+                ));
+            }
 
             while let Some(agg_nonce) = agg_nonce_rx.recv().await {
                 let sighash = sighash_stream
@@ -885,13 +885,13 @@ where
                 return Err(eyre::eyre!(
                     "Expected 2 nonces remaining in session, one for move tx and one for emergency stop, got {}",
                     session.nonces.len()
-                ).into());
+                ));
             }
 
             let mut session_map = verifier.nonces.lock().await;
             session_map.add_new_session_with_id(session, session_id)?;
 
-            Ok::<(), BridgeError>(())
+            Ok::<(), eyre::Report>(())
         });
         monitor_standalone_task(handle, "Verifier deposit_sign");
 
