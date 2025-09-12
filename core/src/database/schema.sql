@@ -163,7 +163,6 @@ create table if not exists tx_sender_try_to_send_txs (
     txid bytea,
     -- txid of the tx if it is CPFP
     seen_block_id int references bitcoin_syncer(id),
-    sent_block_id int references bitcoin_syncer(id),
     latest_active_at timestamp,
     created_at timestamp not null default now(),
     rbf_signing_info text
