@@ -21,8 +21,8 @@
 pub use crate::builder::block_cache;
 use crate::config::protocol::ProtocolParamset;
 use crate::database::{Database, DatabaseTransaction};
-use crate::errors::BridgeError;
-use eyre::Context;
+use crate::errors::{BridgeError, ResultExt as _};
+use eyre::{Context, OptionExt as _};
 use futures::future::{join, join_all};
 use kickoff::KickoffEvent;
 use matcher::BlockMatcher;
@@ -30,6 +30,7 @@ use pgmq::PGMQueueExt;
 use round::RoundEvent;
 use statig::awaitable::{InitializedStateMachine, UninitializedStateMachine};
 use statig::prelude::*;
+use tokio::sync::Mutex;
 use std::cmp::max;
 use std::future::Future;
 use std::sync::Arc;
@@ -584,6 +585,32 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         self.round_machines = final_round_machines;
         self.kickoff_machines = final_kickoff_machines;
         self.next_height_to_process = max(block_height + 1, self.next_height_to_process);
+
+        Ok(())
+    }
+
+    async fn initiate_block_dbtx(&mut self) -> Result<(), BridgeError> {
+        self.context.dbtx = Some(Arc::new(Mutex::new(
+            self.db.begin_transaction().await.map_to_eyre()?,
+        )));
+        Ok(())
+    }
+
+    async fn commit_block_dbtx(&mut self) -> Result<(), BridgeError> {
+        let dbtx = self.context.dbtx.take();
+
+        match dbtx {
+            Some(dbtx) => {
+                Arc::into_inner(dbtx)
+                    .ok_or_eyre("Expected single reference to DB tx when committing")?
+                    .into_inner()
+                    .commit()
+                    .await?;
+            }
+            None => {
+                return Err(eyre::eyre!("").into());
+            }
+        }
 
         Ok(())
     }

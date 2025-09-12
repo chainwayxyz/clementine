@@ -95,7 +95,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
     pub async fn handle_event(
         &mut self,
         event: SystemEvent,
-        dbtx: DatabaseTransaction<'_, '_>,
+        dbtx: DatabaseTransaction<'_, 'static>,
     ) -> Result<(), BridgeError> {
         match event {
             // Received when a block is finalized in Bitcoin
@@ -121,8 +121,12 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                         None,
                     )
                     .await?;
-                // Process the block on all state machines
+
+                self.initiate_block_dbtx().await?;
+
                 self.process_block_parallel(height).await?;
+
+                self.commit_block_dbtx().await?;
             }
             // Received when a new operator is set in clementine
             SystemEvent::NewOperator { operator_data } => {
@@ -139,12 +143,15 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                     .uninitialized_state_machine()
                     .init_with_context(&mut self.context)
                     .await;
+
+                self.initiate_block_dbtx().await?;
                 self.process_and_add_new_states_from_height(
                     vec![operator_machine],
                     vec![],
                     self.paramset.start_height,
                 )
                 .await?;
+                self.commit_block_dbtx().await?;
             }
             // Received when a new kickoff is detected
             SystemEvent::NewKickoff {

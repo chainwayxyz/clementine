@@ -10,6 +10,7 @@ use bitcoin::Txid;
 use bitcoin::Witness;
 use bitcoin::XOnlyPublicKey;
 use statig::awaitable::InitializedStateMachine;
+use tokio::sync::{Mutex, MutexGuard};
 use tonic::async_trait;
 
 use std::collections::HashMap;
@@ -146,6 +147,7 @@ pub struct StateContext<T: Owner> {
     pub errors: Vec<Arc<eyre::Report>>,
     pub paramset: &'static ProtocolParamset,
     pub owner_type: String,
+    pub dbtx: Option<Arc<Mutex<sqlx::Transaction<'static, sqlx::Postgres>>>>,
 }
 
 impl<T: Owner> StateContext<T> {
@@ -167,11 +169,21 @@ impl<T: Owner> StateContext<T> {
             errors: Vec::new(),
             paramset,
             owner_type,
+            dbtx: None,
         }
     }
 
     pub async fn dispatch_duty(&self, duty: Duty) -> Result<DutyResult, BridgeError> {
         self.owner.handle_duty(duty).await
+    }
+
+    pub async fn dbtx_mut(
+        &self,
+    ) -> Option<MutexGuard<'_, sqlx::Transaction<'static, sqlx::Postgres>>> {
+        match &self.dbtx {
+            Some(dbtx) => Some(dbtx.lock().await),
+            None => None,
+        }
     }
 
     /// Run an async closure and capture any errors in execution.
