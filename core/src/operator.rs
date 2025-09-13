@@ -2192,11 +2192,17 @@ where
                     vout: UtxoVout::KickoffFinalizer.get_vout(),
                 };
                 if !self.rpc.is_tx_on_chain(&kickoff_txid).await? {
-                    return Err(eyre::eyre!("For round {:?} and kickoff utxo {:?}, the kickoff tx {:?} is not on chain, 
-                    reimburse the deposit {:?} corresponding to this kickoff first. "
-                    , round_idx, kickoff_idx, kickoff_txid, deposit_outpoint).into());
+                    return Err(eyre::eyre!(
+                        "For round {:?} and kickoff utxo {:?}, the kickoff tx {:?} is not on chain,
+                    reimburse the deposit {:?} corresponding to this kickoff first. ",
+                        round_idx,
+                        kickoff_idx,
+                        kickoff_txid,
+                        deposit_outpoint
+                    )
+                    .into());
                 } else if !self.rpc.is_utxo_spent(&kickoff_finalizer_utxo).await? {
-                    return Err(eyre::eyre!("For round {:?} and kickoff utxo {:?}, the kickoff finalizer {:?} is not spent, 
+                    return Err(eyre::eyre!("For round {:?} and kickoff utxo {:?}, the kickoff finalizer {:?} is not spent,
                     send the challenge timeout tx for the deposit {:?} first", round_idx, kickoff_idx, kickoff_txid, deposit_outpoint).into());
                 } else if !self
                     .db
@@ -2270,6 +2276,8 @@ where
 
 #[cfg(feature = "automation")]
 mod states {
+    use sqlx::Acquire;
+
     use super::*;
     use crate::builder::transaction::{
         create_txhandlers, ContractContext, ReimburseDbCache, TransactionType, TxHandler,
@@ -2285,7 +2293,11 @@ mod states {
     where
         C: CitreaClientT,
     {
-        async fn handle_duty(&self, duty: Duty) -> Result<DutyResult, BridgeError> {
+        async fn handle_duty(
+            &self,
+            dbtx: Option<DatabaseTransaction<'_, '_>>,
+            duty: Duty,
+        ) -> Result<DutyResult, BridgeError> {
             match duty {
                 Duty::NewReadyToReimburse {
                     round_idx,
@@ -2339,72 +2351,133 @@ mod states {
                         txid,
                         block_height,
                     );
-                    let kickoff_data = self
-                        .db
-                        .get_deposit_data_with_kickoff_txid(None, txid)
-                        .await?;
-                    if let Some((deposit_data, kickoff_data)) = kickoff_data {
-                        let mut dbtx = self.db.begin_transaction().await?;
-                        StateManager::<Self>::dispatch_new_kickoff_machine(
-                            self.db.clone(),
-                            &mut dbtx,
-                            kickoff_data,
-                            block_height,
-                            deposit_data.clone(),
-                            witness,
-                        )
-                        .await?;
 
-                        // send the relevant txs an operator should send during a kickoff to the txsender again
-                        // note: an operator only tracks itself, so only receives its own kickoffs here
-                        // the reason why is that if kickoff was sent during no-automation mode, these tx's were never added to the txsender
-                        let context = ContractContext::new_context_for_kickoff(
-                            kickoff_data,
-                            deposit_data.clone(),
-                            self.config.protocol_paramset(),
-                        );
-                        let signed_txs = create_and_sign_txs(
-                            self.db.clone(),
-                            &self.signer,
-                            self.config.clone(),
-                            context,
-                            // we don't need to send kickoff tx (it's already sent) so payout blockhash is irrelevant
-                            // blockhash doesn't change the kickoff txid (it's in the witness)
-                            Some([0u8; 20]),
-                            Some(&mut dbtx),
-                        )
-                        .await?;
-                        let tx_metadata = Some(TxMetadata {
-                            tx_type: TransactionType::Dummy, // will be replaced in add_tx_to_queue
-                            operator_xonly_pk: Some(self.signer.xonly_public_key),
-                            round_idx: Some(kickoff_data.round_idx),
-                            kickoff_idx: Some(kickoff_data.kickoff_idx),
-                            deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
-                        });
-                        // try to send them
-                        for (tx_type, signed_tx) in &signed_txs {
-                            match *tx_type {
-                                TransactionType::OperatorChallengeAck(_)
-                                | TransactionType::WatchtowerChallengeTimeout(_)
-                                | TransactionType::ChallengeTimeout
-                                | TransactionType::DisproveTimeout
-                                | TransactionType::Reimburse => {
-                                    self.tx_sender
-                                        .add_tx_to_queue(
-                                            &mut dbtx,
-                                            *tx_type,
-                                            signed_tx,
-                                            &signed_txs,
-                                            tx_metadata,
-                                            &self.config,
-                                            None,
-                                        )
-                                        .await?;
+                    match dbtx {
+                        Some(mut tx) => {
+                            let kickoff_data = self
+                                .db
+                                .get_deposit_data_with_kickoff_txid(Some(&mut tx), txid)
+                                .await?;
+                            if let Some((deposit_data, kickoff_data)) = kickoff_data {
+                                StateManager::<Self>::dispatch_new_kickoff_machine(
+                                    self.db.clone(),
+                                    &mut tx,
+                                    kickoff_data,
+                                    block_height,
+                                    deposit_data.clone(),
+                                    witness,
+                                )
+                                .await?;
+
+                                // resend relevant txs
+                                let context = ContractContext::new_context_for_kickoff(
+                                    kickoff_data,
+                                    deposit_data.clone(),
+                                    self.config.protocol_paramset(),
+                                );
+                                let signed_txs = create_and_sign_txs(
+                                    self.db.clone(),
+                                    &self.signer,
+                                    self.config.clone(),
+                                    context,
+                                    Some([0u8; 20]),
+                                    Some(&mut tx),
+                                )
+                                .await?;
+                                let tx_metadata = Some(TxMetadata {
+                                    tx_type: TransactionType::Dummy,
+                                    operator_xonly_pk: Some(self.signer.xonly_public_key),
+                                    round_idx: Some(kickoff_data.round_idx),
+                                    kickoff_idx: Some(kickoff_data.kickoff_idx),
+                                    deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
+                                });
+                                for (tx_type, signed_tx) in &signed_txs {
+                                    match *tx_type {
+                                        TransactionType::OperatorChallengeAck(_)
+                                        | TransactionType::WatchtowerChallengeTimeout(_)
+                                        | TransactionType::ChallengeTimeout
+                                        | TransactionType::DisproveTimeout
+                                        | TransactionType::Reimburse => {
+                                            self.tx_sender
+                                                .add_tx_to_queue(
+                                                    &mut tx,
+                                                    *tx_type,
+                                                    signed_tx,
+                                                    &signed_txs,
+                                                    tx_metadata,
+                                                    &self.config,
+                                                    None,
+                                                )
+                                                .await?;
+                                        }
+                                        _ => {}
+                                    }
                                 }
-                                _ => {}
                             }
                         }
-                        dbtx.commit().await?;
+                        None => {
+                            let mut local_dbtx = self.db.begin_transaction().await?;
+                            let kickoff_data = self
+                                .db
+                                .get_deposit_data_with_kickoff_txid(Some(&mut local_dbtx), txid)
+                                .await?;
+                            if let Some((deposit_data, kickoff_data)) = kickoff_data {
+                                StateManager::<Self>::dispatch_new_kickoff_machine(
+                                    self.db.clone(),
+                                    &mut local_dbtx,
+                                    kickoff_data,
+                                    block_height,
+                                    deposit_data.clone(),
+                                    witness,
+                                )
+                                .await?;
+
+                                let context = ContractContext::new_context_for_kickoff(
+                                    kickoff_data,
+                                    deposit_data.clone(),
+                                    self.config.protocol_paramset(),
+                                );
+                                let signed_txs = create_and_sign_txs(
+                                    self.db.clone(),
+                                    &self.signer,
+                                    self.config.clone(),
+                                    context,
+                                    Some([0u8; 20]),
+                                    Some(&mut local_dbtx),
+                                )
+                                .await?;
+                                let tx_metadata = Some(TxMetadata {
+                                    tx_type: TransactionType::Dummy,
+                                    operator_xonly_pk: Some(self.signer.xonly_public_key),
+                                    round_idx: Some(kickoff_data.round_idx),
+                                    kickoff_idx: Some(kickoff_data.kickoff_idx),
+                                    deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
+                                });
+                                for (tx_type, signed_tx) in &signed_txs {
+                                    match *tx_type {
+                                        TransactionType::OperatorChallengeAck(_)
+                                        | TransactionType::WatchtowerChallengeTimeout(_)
+                                        | TransactionType::ChallengeTimeout
+                                        | TransactionType::DisproveTimeout
+                                        | TransactionType::Reimburse => {
+                                            self.tx_sender
+                                                .add_tx_to_queue(
+                                                    &mut local_dbtx,
+                                                    *tx_type,
+                                                    signed_tx,
+                                                    &signed_txs,
+                                                    tx_metadata,
+                                                    &self.config,
+                                                    None,
+                                                )
+                                                .await?;
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                            }
+                            local_dbtx.commit().await?;
+                        }
                     }
                     Ok(DutyResult::Handled)
                 }
@@ -2413,11 +2486,12 @@ mod states {
 
         async fn create_txhandlers(
             &self,
+            dbtx: Option<DatabaseTransaction<'_, '_>>,
             tx_type: TransactionType,
             contract_context: ContractContext,
         ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
             let mut db_cache =
-                ReimburseDbCache::from_context(self.db.clone(), &contract_context, None);
+                ReimburseDbCache::from_context(self.db.clone(), &contract_context, dbtx);
             let txhandlers = create_txhandlers(
                 tx_type,
                 contract_context,

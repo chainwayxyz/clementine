@@ -83,7 +83,7 @@ async fn test_save_and_load_state() {
     assert!(result.is_ok(), "Failed to process block: {:?}", result);
 
     // Save state to DB
-    let result = state_manager.save_state_to_db(1, None).await;
+    let result = state_manager.save_state_to_db(1).await;
     assert!(result.is_ok(), "Failed to save state to DB: {:?}", result);
 
     // Create a new state manager to load from DB

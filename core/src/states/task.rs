@@ -3,9 +3,10 @@ use crate::{
     database::{Database, DatabaseTransaction},
     task::{BufferedErrors, IntoTask, TaskVariant, WithDelay},
 };
-use eyre::Context as _;
+use eyre::{Context as _, OptionExt};
 use pgmq::{Message, PGMQueueExt};
-use std::time::Duration;
+use tokio::sync::Mutex;
+use std::{sync::Arc, time::Duration};
 use tonic::async_trait;
 
 use crate::{
@@ -135,7 +136,11 @@ impl<T: Owner + std::fmt::Debug + 'static> Task for MessageConsumerTask<T> {
                 return Ok::<_, BridgeError>(false);
             };
 
-            self.inner.handle_event(message, &mut dbtx).await?;
+            let arc_dbtx = Arc::new(Mutex::new(dbtx));
+
+            self.inner.handle_event(message,  arc_dbtx.clone()).await?;
+
+            let mut dbtx = Arc::into_inner(arc_dbtx).ok_or_eyre("Expected single reference to DB tx when committing")?.into_inner();
 
             // Delete event from queue
             self.inner
@@ -145,6 +150,7 @@ impl<T: Owner + std::fmt::Debug + 'static> Task for MessageConsumerTask<T> {
                 .wrap_err("Deleting event from queue")?;
 
             dbtx.commit().await?;
+
             Ok(true)
         }
         .await?;
@@ -213,12 +219,17 @@ mod tests {
 
     #[async_trait]
     impl Owner for MockHandler {
-        async fn handle_duty(&self, _: Duty) -> Result<DutyResult, BridgeError> {
+        async fn handle_duty(
+            &self,
+            _dbtx: Option<DatabaseTransaction<'_, '_>>,
+            _: Duty,
+        ) -> Result<DutyResult, BridgeError> {
             Ok(DutyResult::Handled)
         }
 
         async fn create_txhandlers(
             &self,
+            _dbtx: Option<DatabaseTransaction<'_, '_>>,
             _: TransactionType,
             _: ContractContext,
         ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {

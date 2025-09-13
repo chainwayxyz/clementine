@@ -272,8 +272,7 @@ impl<T: Owner> KickoffStateMachine<T> {
                         && self.latest_blockhash != Witness::default()
                     {
                         context
-                            .owner
-                            .handle_duty(Duty::SendOperatorAsserts {
+                            .dispatch_duty(Duty::SendOperatorAsserts {
                                 kickoff_data: self.kickoff_data,
                                 deposit_data: self.deposit_data.clone(),
                                 watchtower_challenges: self.watchtower_challenges.clone(),
@@ -294,8 +293,7 @@ impl<T: Owner> KickoffStateMachine<T> {
             .capture_error(async |context| {
                 {
                     context
-                        .owner
-                        .handle_duty(Duty::WatchtowerChallenge {
+                        .dispatch_duty(Duty::WatchtowerChallenge {
                             kickoff_data: self.kickoff_data,
                             deposit_data: self.deposit_data.clone(),
                         })
@@ -312,8 +310,7 @@ impl<T: Owner> KickoffStateMachine<T> {
             .capture_error(async |context| {
                 {
                     context
-                        .owner
-                        .handle_duty(Duty::VerifierDisprove {
+                        .dispatch_duty(Duty::VerifierDisprove {
                             kickoff_data: self.kickoff_data,
                             deposit_data: self.deposit_data.clone(),
                             operator_asserts: self.operator_asserts.clone(),
@@ -334,8 +331,7 @@ impl<T: Owner> KickoffStateMachine<T> {
             .capture_error(async |context| {
                 {
                     context
-                        .owner
-                        .handle_duty(Duty::SendLatestBlockhash {
+                        .dispatch_duty(Duty::SendLatestBlockhash {
                             kickoff_data: self.kickoff_data,
                             deposit_data: self.deposit_data.clone(),
                             latest_blockhash: context
@@ -572,10 +568,22 @@ impl<T: Owner> KickoffStateMachine<T> {
             self.deposit_data.clone(),
             context.paramset,
         );
-        let mut txhandlers = context
-            .owner
-            .create_txhandlers(TransactionType::AllNeededForDeposit, contract_context)
-            .await?;
+        let mut txhandlers = if let Some(dbtx) = &context.dbtx {
+            let mut guard = dbtx.lock().await;
+            context
+                .owner
+                .create_txhandlers(
+                    Some(&mut *guard),
+                    TransactionType::AllNeededForDeposit,
+                    contract_context,
+                )
+                .await?
+        } else {
+            context
+                .owner
+                .create_txhandlers(None, TransactionType::AllNeededForDeposit, contract_context)
+                .await?
+        };
         let kickoff_txhandler =
             remove_txhandler_from_map(&mut txhandlers, TransactionType::Kickoff)?;
 

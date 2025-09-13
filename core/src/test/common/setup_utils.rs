@@ -444,13 +444,18 @@ mod states {
     // Implement the Owner trait for MockOwner
     #[async_trait]
     impl Owner for MockOwner {
-        async fn handle_duty(&self, duty: Duty) -> Result<DutyResult, BridgeError> {
+        async fn handle_duty(
+            &self,
+            _dbtx: Option<DatabaseTransaction<'_, '_>>,
+            duty: Duty,
+        ) -> Result<DutyResult, BridgeError> {
             self.cached_duties.lock().await.push(duty);
             Ok(DutyResult::Handled)
         }
 
         async fn create_txhandlers(
             &self,
+            _dbtx: Option<DatabaseTransaction<'_, '_>>,
             _tx_type: TransactionType,
             _contract_context: ContractContext,
         ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {

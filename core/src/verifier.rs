@@ -2763,7 +2763,11 @@ mod states {
     where
         C: CitreaClientT,
     {
-        async fn handle_duty(&self, duty: Duty) -> Result<DutyResult, BridgeError> {
+        async fn handle_duty(
+            &self,
+            dbtx: Option<DatabaseTransaction<'_, '_>>,
+            duty: Duty,
+        ) -> Result<DutyResult, BridgeError> {
             let verifier_xonly_pk = &self.signer.xonly_public_key;
             match duty {
                 Duty::NewReadyToReimburse {
@@ -2791,7 +2795,7 @@ mod states {
                     "Verifier {:?} called watchtower challenge with kickoff_data: {:?}, deposit_data: {:?}",
                     verifier_xonly_pk, kickoff_data, deposit_data
                 );
-                    self.send_watchtower_challenge(kickoff_data, deposit_data, None)
+                    self.send_watchtower_challenge(kickoff_data, deposit_data, dbtx)
                         .await?;
 
                     tracing::info!("Verifier sent watchtower challenge",);
@@ -2844,7 +2848,7 @@ mod states {
                             &operator_asserts,
                             &operator_acks,
                             &txhandlers,
-                            None,
+                            dbtx,
                         )
                         .await?
                     {
@@ -2950,6 +2954,7 @@ mod states {
 
         async fn create_txhandlers(
             &self,
+            _dbtx: Option<DatabaseTransaction<'_, '_>>,
             tx_type: TransactionType,
             contract_context: ContractContext,
         ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {

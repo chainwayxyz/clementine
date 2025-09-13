@@ -3,6 +3,7 @@ use std::sync::Arc;
 use bitcoin::Witness;
 use pgmq::PGMQueueExt;
 use statig::awaitable::IntoStateMachineExt;
+use tokio::sync::Mutex;
 
 use crate::{
     database::{Database, DatabaseTransaction},
@@ -95,8 +96,9 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
     pub async fn handle_event(
         &mut self,
         event: SystemEvent,
-        dbtx: DatabaseTransaction<'_, 'static>,
+        dbtx: Arc<Mutex<sqlx::Transaction<'static, sqlx::Postgres>>>,
     ) -> Result<(), BridgeError> {
+        self.context.dbtx = Some(dbtx);
         match event {
             // Received when a block is finalized in Bitcoin
             SystemEvent::NewFinalizedBlock {
@@ -114,7 +116,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 // Handle the finalized block on the owner (verifier or operator)
                 self.owner
                     .handle_finalized_block(
-                        dbtx,
+                        &mut *self.context.dbtx.as_ref().expect("just set").lock().await,
                         block_id,
                         height,
                         self.context.cache.clone(),
@@ -122,11 +124,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                     )
                     .await?;
 
-                self.initiate_block_dbtx().await?;
-
                 self.process_block_parallel(height).await?;
-
-                self.commit_block_dbtx().await?;
             }
             // Received when a new operator is set in clementine
             SystemEvent::NewOperator { operator_data } => {
@@ -144,14 +142,12 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                     .init_with_context(&mut self.context)
                     .await;
 
-                self.initiate_block_dbtx().await?;
                 self.process_and_add_new_states_from_height(
                     vec![operator_machine],
                     vec![],
                     self.paramset.start_height,
                 )
                 .await?;
-                self.commit_block_dbtx().await?;
             }
             // Received when a new kickoff is detected
             SystemEvent::NewKickoff {
@@ -173,6 +169,8 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                     }
                 }
 
+
+
                 let kickoff_machine = KickoffStateMachine::new(
                     kickoff_data,
                     kickoff_height,
@@ -182,17 +180,23 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 .uninitialized_state_machine()
                 .init_with_context(&mut self.context)
                 .await;
+
                 self.process_and_add_new_states_from_height(
                     vec![],
                     vec![kickoff_machine],
                     kickoff_height,
                 )
                 .await?;
+
+
             }
         }
+
+        self.context.dbtx = None;
+
         // Save the state machines to the database with the current block height
         // So that in case of a node restart the state machines can be restored
-        self.save_state_to_db(self.next_height_to_process, Some(dbtx))
+        self.save_state_to_db(self.next_height_to_process)
             .await?;
         Ok(())
     }

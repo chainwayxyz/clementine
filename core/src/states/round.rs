@@ -186,10 +186,26 @@ impl<T: Owner> RoundStateMachine<T> {
                         RoundIndex::Round(0),
                         context.paramset,
                     );
-                    let round_txhandlers = context
-                        .owner
-                        .create_txhandlers(TransactionType::Round, contract_context)
-                        .await?;
+                    let round_txhandlers = if let Some(dbtx) = &context.dbtx {
+                        let mut guard = dbtx.lock().await;
+                        context
+                            .owner
+                            .create_txhandlers(
+                                Some(&mut *guard),
+                                TransactionType::Round,
+                                contract_context,
+                            )
+                            .await?
+                    } else {
+                        context
+                            .owner
+                            .create_txhandlers(
+                                None,
+                                TransactionType::Round,
+                                contract_context,
+                            )
+                            .await?
+                    };
                     let round_txid = round_txhandlers
                         .get(&TransactionType::Round)
                         .ok_or(TxError::TxHandlerNotFound(TransactionType::Round))?
@@ -249,8 +265,7 @@ impl<T: Owner> RoundStateMachine<T> {
                     .capture_error(async |context| {
                         {
                             let duty_result = context
-                                .owner
-                                .handle_duty(Duty::CheckIfKickoff {
+                                .dispatch_duty(Duty::CheckIfKickoff {
                                     txid,
                                     block_height: context.cache.block_height,
                                     witness: context
@@ -325,8 +340,7 @@ impl<T: Owner> RoundStateMachine<T> {
             .capture_error(async |context| {
                 {
                     context
-                        .owner
-                        .handle_duty(Duty::NewReadyToReimburse {
+                        .dispatch_duty(Duty::NewReadyToReimburse {
                             round_idx: *round_idx,
                             used_kickoffs: used_kickoffs.clone(),
                             operator_xonly_pk: self.operator_data.xonly_pk,
@@ -370,10 +384,26 @@ impl<T: Owner> RoundStateMachine<T> {
                             *round_idx,
                             context.paramset,
                         );
-                        let mut txhandlers = context
-                            .owner
-                            .create_txhandlers(TransactionType::Round, contract_context)
-                            .await?;
+                        let mut txhandlers = if let Some(dbtx) = &context.dbtx {
+                            let mut guard = dbtx.lock().await;
+                            context
+                                .owner
+                                .create_txhandlers(
+                                    Some(&mut *guard),
+                                    TransactionType::Round,
+                                    contract_context,
+                                )
+                                .await?
+                        } else {
+                            context
+                                .owner
+                                .create_txhandlers(
+                                    None,
+                                    TransactionType::Round,
+                                    contract_context,
+                                )
+                                .await?
+                        };
                         let round_txhandler = txhandlers
                             .remove(&TransactionType::Round)
                             .ok_or(TxError::TxHandlerNotFound(TransactionType::Round))?;
@@ -461,10 +491,26 @@ impl<T: Owner> RoundStateMachine<T> {
                         round_idx.next_round(),
                         context.paramset,
                     );
-                    let next_round_txhandlers = context
-                        .owner
-                        .create_txhandlers(TransactionType::Round, next_round_context)
-                        .await?;
+                    let next_round_txhandlers = if let Some(dbtx) = &context.dbtx {
+                        let mut guard = dbtx.lock().await;
+                        context
+                            .owner
+                            .create_txhandlers(
+                                Some(&mut *guard),
+                                TransactionType::Round,
+                                next_round_context,
+                            )
+                            .await?
+                    } else {
+                        context
+                            .owner
+                            .create_txhandlers(
+                                None,
+                                TransactionType::Round,
+                                next_round_context,
+                            )
+                            .await?
+                    };
                     let next_round_txid = next_round_txhandlers
                         .get(&TransactionType::Round)
                         .ok_or(TxError::TxHandlerNotFound(TransactionType::Round))?
@@ -483,10 +529,26 @@ impl<T: Owner> RoundStateMachine<T> {
                         *round_idx,
                         context.paramset,
                     );
-                    let current_round_txhandlers = context
-                        .owner
-                        .create_txhandlers(TransactionType::Round, current_round_context)
-                        .await?;
+                    let current_round_txhandlers = if let Some(dbtx) = &context.dbtx {
+                        let mut guard = dbtx.lock().await;
+                        context
+                            .owner
+                            .create_txhandlers(
+                                Some(&mut *guard),
+                                TransactionType::Round,
+                                current_round_context,
+                            )
+                            .await?
+                    } else {
+                        context
+                            .owner
+                            .create_txhandlers(
+                                None,
+                                TransactionType::Round,
+                                current_round_context,
+                            )
+                            .await?
+                    };
                     let current_ready_to_reimburse_txid = current_round_txhandlers
                         .get(&TransactionType::ReadyToReimburse)
                         .ok_or(TxError::TxHandlerNotFound(
