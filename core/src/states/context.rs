@@ -117,14 +117,14 @@ pub trait Owner: Clone + NamedEntity {
     /// Handle a protocol-related duty
     async fn handle_duty(
         &self,
-        dbtx: Option<DatabaseTransaction<'_, '_>>,
+        dbtx: DatabaseTransaction<'_, '_>,
         duty: Duty,
     ) -> Result<DutyResult, BridgeError>;
 
     /// Create the transactions for an instance of the L1 contract
     async fn create_txhandlers(
         &self,
-        dbtx: Option<DatabaseTransaction<'_, '_>>,
+        dbtx: DatabaseTransaction<'_, '_>,
         tx_type: TransactionType,
         contract_context: ContractContext,
     ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError>;
@@ -181,9 +181,12 @@ impl<T: Owner> StateContext<T> {
     pub async fn dispatch_duty(&self, duty: Duty) -> Result<DutyResult, BridgeError> {
         if let Some(dbtx) = &self.dbtx {
             let mut guard = dbtx.lock().await;
-            self.owner.handle_duty(Some(&mut *guard), duty).await
+            self.owner.handle_duty(&mut guard, duty).await
         } else {
-            self.owner.handle_duty(None, duty).await
+            let mut dbtx = self.db.begin_transaction().await?;
+            let res = self.owner.handle_duty(&mut dbtx, duty).await?;
+            dbtx.commit().await?;
+            Ok(res)
         }
     }
 

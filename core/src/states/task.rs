@@ -221,7 +221,7 @@ mod tests {
     impl Owner for MockHandler {
         async fn handle_duty(
             &self,
-            _dbtx: Option<DatabaseTransaction<'_, '_>>,
+            _dbtx: DatabaseTransaction<'_, '_>,
             _: Duty,
         ) -> Result<DutyResult, BridgeError> {
             Ok(DutyResult::Handled)
@@ -229,7 +229,7 @@ mod tests {
 
         async fn create_txhandlers(
             &self,
-            _dbtx: Option<DatabaseTransaction<'_, '_>>,
+            _dbtx: DatabaseTransaction<'_, '_>,
             _: TransactionType,
             _: ContractContext,
         ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {

@@ -191,20 +191,23 @@ impl<T: Owner> RoundStateMachine<T> {
                         context
                             .owner
                             .create_txhandlers(
-                                Some(&mut *guard),
+                                &mut guard,
                                 TransactionType::Round,
                                 contract_context,
                             )
                             .await?
                     } else {
-                        context
+                        let mut dbtx = context.db.begin_transaction().await?;
+                        let txhandlers = context
                             .owner
                             .create_txhandlers(
-                                None,
+                                &mut dbtx,
                                 TransactionType::Round,
                                 contract_context,
                             )
-                            .await?
+                            .await?;
+                        dbtx.commit().await?;
+                        txhandlers
                     };
                     let round_txid = round_txhandlers
                         .get(&TransactionType::Round)
@@ -389,20 +392,23 @@ impl<T: Owner> RoundStateMachine<T> {
                             context
                                 .owner
                                 .create_txhandlers(
-                                    Some(&mut *guard),
+                                    &mut guard,
                                     TransactionType::Round,
                                     contract_context,
                                 )
                                 .await?
                         } else {
-                            context
+                            let mut dbtx = context.db.begin_transaction().await?;
+                            let txhandlers = context
                                 .owner
                                 .create_txhandlers(
-                                    None,
+                                    &mut dbtx,
                                     TransactionType::Round,
                                     contract_context,
                                 )
-                                .await?
+                                .await?;
+                            dbtx.commit().await?;
+                            txhandlers
                         };
                         let round_txhandler = txhandlers
                             .remove(&TransactionType::Round)
@@ -496,20 +502,23 @@ impl<T: Owner> RoundStateMachine<T> {
                         context
                             .owner
                             .create_txhandlers(
-                                Some(&mut *guard),
+                                &mut guard,
                                 TransactionType::Round,
                                 next_round_context,
                             )
                             .await?
                     } else {
-                        context
+                        let mut dbtx = context.db.begin_transaction().await?;
+                        let txhandlers = context
                             .owner
                             .create_txhandlers(
-                                None,
+                                &mut dbtx,
                                 TransactionType::Round,
                                 next_round_context,
                             )
-                            .await?
+                            .await?;
+                        dbtx.commit().await?;
+                        txhandlers
                     };
                     let next_round_txid = next_round_txhandlers
                         .get(&TransactionType::Round)
@@ -534,20 +543,23 @@ impl<T: Owner> RoundStateMachine<T> {
                         context
                             .owner
                             .create_txhandlers(
-                                Some(&mut *guard),
+                                &mut guard,
                                 TransactionType::Round,
                                 current_round_context,
                             )
                             .await?
                     } else {
-                        context
+                        let mut dbtx = context.db.begin_transaction().await?;
+                        let txhandlers = context
                             .owner
                             .create_txhandlers(
-                                None,
+                                &mut dbtx,
                                 TransactionType::Round,
                                 current_round_context,
                             )
-                            .await?
+                            .await?;
+                        dbtx.commit().await?;
+                        txhandlers
                     };
                     let current_ready_to_reimburse_txid = current_round_txhandlers
                         .get(&TransactionType::ReadyToReimburse)

@@ -2765,7 +2765,7 @@ mod states {
     {
         async fn handle_duty(
             &self,
-            dbtx: Option<DatabaseTransaction<'_, '_>>,
+            dbtx: DatabaseTransaction<'_, '_>,
             duty: Duty,
         ) -> Result<DutyResult, BridgeError> {
             let verifier_xonly_pk = &self.signer.xonly_public_key;
@@ -2795,7 +2795,7 @@ mod states {
                     "Verifier {:?} called watchtower challenge with kickoff_data: {:?}, deposit_data: {:?}",
                     verifier_xonly_pk, kickoff_data, deposit_data
                 );
-                    self.send_watchtower_challenge(kickoff_data, deposit_data, dbtx)
+                    self.send_watchtower_challenge(kickoff_data, deposit_data, Some(dbtx))
                         .await?;
 
                     tracing::info!("Verifier sent watchtower challenge",);
@@ -2848,7 +2848,7 @@ mod states {
                             &operator_asserts,
                             &operator_acks,
                             &txhandlers,
-                            dbtx,
+                            Some(dbtx),
                         )
                         .await?
                     {
@@ -2954,12 +2954,12 @@ mod states {
 
         async fn create_txhandlers(
             &self,
-            _dbtx: Option<DatabaseTransaction<'_, '_>>,
+            dbtx: DatabaseTransaction<'_, '_>,
             tx_type: TransactionType,
             contract_context: ContractContext,
         ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
             let mut db_cache =
-                ReimburseDbCache::from_context(self.db.clone(), &contract_context, None);
+                ReimburseDbCache::from_context(self.db.clone(), &contract_context, Some(dbtx));
             let txhandlers = create_txhandlers(
                 tx_type,
                 contract_context,

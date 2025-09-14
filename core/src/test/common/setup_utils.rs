@@ -446,7 +446,7 @@ mod states {
     impl Owner for MockOwner {
         async fn handle_duty(
             &self,
-            _dbtx: Option<DatabaseTransaction<'_, '_>>,
+            _dbtx: DatabaseTransaction<'_, '_>,
             duty: Duty,
         ) -> Result<DutyResult, BridgeError> {
             self.cached_duties.lock().await.push(duty);
@@ -455,7 +455,7 @@ mod states {
 
         async fn create_txhandlers(
             &self,
-            _dbtx: Option<DatabaseTransaction<'_, '_>>,
+            _dbtx: DatabaseTransaction<'_, '_>,
             _tx_type: TransactionType,
             _contract_context: ContractContext,
         ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {

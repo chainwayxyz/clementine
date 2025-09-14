@@ -573,16 +573,23 @@ impl<T: Owner> KickoffStateMachine<T> {
             context
                 .owner
                 .create_txhandlers(
-                    Some(&mut *guard),
+                    &mut guard,
                     TransactionType::AllNeededForDeposit,
                     contract_context,
                 )
                 .await?
         } else {
-            context
+            let mut dbtx = context.db.begin_transaction().await?;
+            let res = context
                 .owner
-                .create_txhandlers(None, TransactionType::AllNeededForDeposit, contract_context)
-                .await?
+                .create_txhandlers(
+                    &mut dbtx,
+                    TransactionType::AllNeededForDeposit,
+                    contract_context,
+                )
+                .await?;
+            dbtx.commit().await?;
+            res
         };
         let kickoff_txhandler =
             remove_txhandler_from_map(&mut txhandlers, TransactionType::Kickoff)?;
