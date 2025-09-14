@@ -190,21 +190,13 @@ impl<T: Owner> RoundStateMachine<T> {
                         let mut guard = dbtx.lock().await;
                         context
                             .owner
-                            .create_txhandlers(
-                                &mut guard,
-                                TransactionType::Round,
-                                contract_context,
-                            )
+                            .create_txhandlers(&mut guard, TransactionType::Round, contract_context)
                             .await?
                     } else {
                         let mut dbtx = context.db.begin_transaction().await?;
                         let txhandlers = context
                             .owner
-                            .create_txhandlers(
-                                &mut dbtx,
-                                TransactionType::Round,
-                                contract_context,
-                            )
+                            .create_txhandlers(&mut dbtx, TransactionType::Round, contract_context)
                             .await?;
                         dbtx.commit().await?;
                         txhandlers

@@ -1964,6 +1964,7 @@ where
 
     async fn send_unspent_kickoff_connectors(
         &self,
+        dbtx: DatabaseTransaction<'_, '_>,
         round_idx: RoundIndex,
         operator_xonly_pk: XOnlyPublicKey,
         used_kickoffs: HashSet<usize>,
@@ -1974,9 +1975,8 @@ where
         }
 
         let unspent_kickoff_txs = self
-            .create_and_sign_unspent_kickoff_connector_txs(round_idx, operator_xonly_pk, None)
+            .create_and_sign_unspent_kickoff_connector_txs(round_idx, operator_xonly_pk, Some(dbtx))
             .await?;
-        let mut dbtx = self.db.begin_transaction().await?;
         for (tx_type, tx) in unspent_kickoff_txs {
             if let TransactionType::UnspentKickoff(kickoff_idx) = tx_type {
                 if used_kickoffs.contains(&kickoff_idx) {
@@ -1985,7 +1985,7 @@ where
                 #[cfg(feature = "automation")]
                 self.tx_sender
                     .add_tx_to_queue(
-                        &mut dbtx,
+                        dbtx,
                         tx_type,
                         &tx,
                         &[],
@@ -2002,7 +2002,6 @@ where
                     .await?;
             }
         }
-        dbtx.commit().await?;
         Ok(())
     }
 
@@ -2282,6 +2281,7 @@ where
     #[cfg(feature = "automation")]
     async fn send_disprove_tx_additional(
         &self,
+        dbtx: DatabaseTransaction<'_, '_>,
         txhandlers: &BTreeMap<TransactionType, TxHandler>,
         kickoff_data: KickoffData,
         deposit_data: DepositData,
@@ -2308,7 +2308,7 @@ where
         let operators_sig = self
             .db
             .get_deposit_signatures(
-                None,
+                Some(dbtx),
                 deposit_data.get_deposit_outpoint(),
                 kickoff_data.operator_xonly_pk,
                 kickoff_data.round_idx,
@@ -2344,10 +2344,9 @@ where
             deposit_data
         );
 
-        let mut dbtx = self.db.begin_transaction().await?;
         self.tx_sender
             .add_tx_to_queue(
-                &mut dbtx,
+                dbtx,
                 TransactionType::Disprove,
                 &disprove_tx,
                 &[],
@@ -2362,7 +2361,6 @@ where
                 None,
             )
             .await?;
-        dbtx.commit().await?;
         Ok(())
     }
 
@@ -2565,6 +2563,7 @@ where
     #[cfg(feature = "automation")]
     async fn send_disprove_tx(
         &self,
+        dbtx: DatabaseTransaction<'_, '_>,
         txhandlers: &BTreeMap<TransactionType, TxHandler>,
         kickoff_data: KickoffData,
         deposit_data: DepositData,
@@ -2596,7 +2595,7 @@ where
         let operators_sig = self
             .db
             .get_deposit_signatures(
-                None,
+                Some(dbtx),
                 deposit_data.get_deposit_outpoint(),
                 kickoff_data.operator_xonly_pk,
                 kickoff_data.round_idx,
@@ -2632,10 +2631,9 @@ where
             deposit_data
         );
 
-        let mut dbtx = self.db.begin_transaction().await?;
         self.tx_sender
             .add_tx_to_queue(
-                &mut dbtx,
+                dbtx,
                 TransactionType::Disprove,
                 &disprove_tx,
                 &[],
@@ -2650,7 +2648,6 @@ where
                 None,
             )
             .await?;
-        dbtx.commit().await?;
         Ok(())
     }
 
@@ -2780,6 +2777,7 @@ mod states {
                     verifier_xonly_pk, round_idx, operator_xonly_pk, used_kickoffs
                 );
                     self.send_unspent_kickoff_connectors(
+                        dbtx,
                         round_idx,
                         operator_xonly_pk,
                         used_kickoffs,
@@ -2828,7 +2826,7 @@ mod states {
                         self.signer.clone(),
                     );
                     let mut db_cache =
-                        ReimburseDbCache::from_context(self.db.clone(), &context, None);
+                        ReimburseDbCache::from_context(self.db.clone(), &context, Some(dbtx));
 
                     let txhandlers = create_txhandlers(
                         TransactionType::Disprove,
@@ -2857,6 +2855,7 @@ mod states {
                             kickoff_data.operator_xonly_pk
                         );
                         self.send_disprove_tx_additional(
+                            dbtx,
                             &txhandlers,
                             kickoff_data,
                             deposit_data,
@@ -2881,6 +2880,7 @@ mod states {
                                 );
 
                                 self.send_disprove_tx(
+                                    dbtx,
                                     &txhandlers,
                                     kickoff_data,
                                     deposit_data,

@@ -5,8 +5,8 @@ use crate::{
 };
 use eyre::{Context as _, OptionExt};
 use pgmq::{Message, PGMQueueExt};
-use tokio::sync::Mutex;
 use std::{sync::Arc, time::Duration};
+use tokio::sync::Mutex;
 use tonic::async_trait;
 
 use crate::{
@@ -138,9 +138,11 @@ impl<T: Owner + std::fmt::Debug + 'static> Task for MessageConsumerTask<T> {
 
             let arc_dbtx = Arc::new(Mutex::new(dbtx));
 
-            self.inner.handle_event(message,  arc_dbtx.clone()).await?;
+            self.inner.handle_event(message, arc_dbtx.clone()).await?;
 
-            let mut dbtx = Arc::into_inner(arc_dbtx).ok_or_eyre("Expected single reference to DB tx when committing")?.into_inner();
+            let mut dbtx = Arc::into_inner(arc_dbtx)
+                .ok_or_eyre("Expected single reference to DB tx when committing")?
+                .into_inner();
 
             // Delete event from queue
             self.inner

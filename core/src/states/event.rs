@@ -169,8 +169,6 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                     }
                 }
 
-
-
                 let kickoff_machine = KickoffStateMachine::new(
                     kickoff_data,
                     kickoff_height,
@@ -187,17 +185,15 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                     kickoff_height,
                 )
                 .await?;
-
-
             }
         }
 
-        self.context.dbtx = None;
 
         // Save the state machines to the database with the current block height
         // So that in case of a node restart the state machines can be restored
-        self.save_state_to_db(self.next_height_to_process)
-            .await?;
+        self.save_state_to_db(self.next_height_to_process).await?;
+
+        self.context.dbtx = None;
         Ok(())
     }
 }

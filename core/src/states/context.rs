@@ -10,7 +10,7 @@ use bitcoin::Txid;
 use bitcoin::Witness;
 use bitcoin::XOnlyPublicKey;
 use statig::awaitable::InitializedStateMachine;
-use tokio::sync::{Mutex, MutexGuard};
+use tokio::sync::Mutex;
 use tonic::async_trait;
 
 use std::collections::HashMap;
@@ -183,19 +183,13 @@ impl<T: Owner> StateContext<T> {
             let mut guard = dbtx.lock().await;
             self.owner.handle_duty(&mut guard, duty).await
         } else {
+            tracing::warn!(
+                "Dispatching duty without a database transaction, this should not happen."
+            );
             let mut dbtx = self.db.begin_transaction().await?;
             let res = self.owner.handle_duty(&mut dbtx, duty).await?;
             dbtx.commit().await?;
             Ok(res)
-        }
-    }
-
-    pub async fn dbtx_mut(
-        &self,
-    ) -> Option<MutexGuard<'_, sqlx::Transaction<'static, sqlx::Postgres>>> {
-        match &self.dbtx {
-            Some(dbtx) => Some(dbtx.lock().await),
-            None => None,
         }
     }
 
