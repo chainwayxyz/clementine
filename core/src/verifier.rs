@@ -1667,7 +1667,12 @@ where
                 | TransactionType::AssertTimeout(_)
                 | TransactionType::KickoffNotFinalized
                 | TransactionType::LatestBlockhashTimeout
-                | TransactionType::OperatorChallengeNack(_) => {
+                | TransactionType::OperatorChallengeNack(_)
+                // Technically verifiers do not need to send watchtower challenge timeout tx, 
+                // but in state manager we attempt to disprove only if all watchtower challenges utxos are spent
+                // so if verifiers do not send timeouts, operators can abuse this (by not sending watchtower challenge timeouts)
+                // to not get disproven
+                | TransactionType::WatchtowerChallengeTimeout(_) => {
                     #[cfg(feature = "automation")]
                     self.tx_sender
                         .add_tx_to_queue(
