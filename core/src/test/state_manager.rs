@@ -1,4 +1,8 @@
+use std::sync::Arc;
+
 use bitcoin::{consensus, Block};
+
+use tokio::sync::Mutex;
 
 use super::common::{create_test_config_with_thread_name, initialize_database, MockOwner};
 use crate::{config::BridgeConfig, database::Database, states::StateManager};
@@ -39,10 +43,24 @@ async fn test_process_empty_block_with_no_machines() {
 
     let block = create_empty_block();
     let block_height = 1;
-
-    state_manager.update_block_cache(&block, block_height);
+    let dbtx = Arc::new(Mutex::new(
+        state_manager
+            .db
+            .begin_transaction()
+            .await
+            .expect("Failed to begin transaction"),
+    ));
+    let mut context = state_manager
+        .new_context(dbtx.clone(), &block, block_height)
+        .expect("Failed to create context");
     // Process an empty block with no state machines
-    let result = state_manager.process_block_parallel(block_height).await;
+    let result = state_manager.process_block_parallel(&mut context).await;
+    Arc::into_inner(dbtx)
+        .expect("Expected single reference to DB tx when committing")
+        .into_inner()
+        .commit()
+        .await
+        .expect("Failed to commit transaction");
 
     // Should succeed with no state changes
     assert!(
@@ -58,11 +76,18 @@ async fn test_process_block_parallel() {
 
     // Create a block
     let block = create_empty_block();
+    let dbtx = Arc::new(Mutex::new(
+        state_manager
+            .db
+            .begin_transaction()
+            .await
+            .expect("Failed to begin transaction"),
+    ));
 
     // Process the block multiple times to test the iteration logic
     for i in 1..=3 {
-        state_manager.update_block_cache(&block, i);
-        let result = state_manager.process_block_parallel(i).await;
+        let mut context = state_manager.new_context(dbtx.clone(), &block, i).unwrap();
+        let result = state_manager.process_block_parallel(&mut context).await;
         assert!(
             result.is_ok(),
             "Failed to process block on iteration {}: {:?}",
@@ -70,6 +95,13 @@ async fn test_process_block_parallel() {
             result
         );
     }
+
+    Arc::into_inner(dbtx)
+        .expect("Expected single reference to DB tx when committing")
+        .into_inner()
+        .commit()
+        .await
+        .expect("Failed to commit transaction");
 }
 
 #[tokio::test]
@@ -78,13 +110,29 @@ async fn test_save_and_load_state() {
 
     // Process a block to ensure the state is initialized
     let block = create_empty_block();
-    state_manager.update_block_cache(&block, 1);
-    let result = state_manager.process_block_parallel(1).await;
+    let dbtx = Arc::new(Mutex::new(
+        state_manager
+            .db
+            .begin_transaction()
+            .await
+            .expect("Failed to begin transaction"),
+    ));
+    let mut context = state_manager
+        .new_context(dbtx.clone(), &block, 1)
+        .expect("Failed to create context");
+    let result = state_manager.process_block_parallel(&mut context).await;
     assert!(result.is_ok(), "Failed to process block: {:?}", result);
 
     // Save state to DB
-    let result = state_manager.save_state_to_db(1).await;
+    let result = state_manager.save_state_to_db(&mut context).await;
     assert!(result.is_ok(), "Failed to save state to DB: {:?}", result);
+
+    Arc::into_inner(dbtx)
+        .expect("Expected single reference to DB tx when committing")
+        .into_inner()
+        .commit()
+        .await
+        .expect("Failed to commit transaction");
 
     // Create a new state manager to load from DB
     let (mut new_state_manager, _) = create_test_state_manager(&config).await;

@@ -568,8 +568,8 @@ impl<T: Owner> KickoffStateMachine<T> {
             self.deposit_data.clone(),
             context.paramset,
         );
-        let mut txhandlers = if let Some(dbtx) = &context.dbtx {
-            let mut guard = dbtx.lock().await;
+        let mut txhandlers = {
+            let mut guard = context.shared_dbtx.lock().await;
             context
                 .owner
                 .create_txhandlers(
@@ -578,18 +578,6 @@ impl<T: Owner> KickoffStateMachine<T> {
                     contract_context,
                 )
                 .await?
-        } else {
-            let mut dbtx = context.db.begin_transaction().await?;
-            let res = context
-                .owner
-                .create_txhandlers(
-                    &mut dbtx,
-                    TransactionType::AllNeededForDeposit,
-                    contract_context,
-                )
-                .await?;
-            dbtx.commit().await?;
-            res
         };
         let kickoff_txhandler =
             remove_txhandler_from_map(&mut txhandlers, TransactionType::Kickoff)?;

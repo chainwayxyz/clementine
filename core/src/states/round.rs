@@ -186,21 +186,13 @@ impl<T: Owner> RoundStateMachine<T> {
                         RoundIndex::Round(0),
                         context.paramset,
                     );
-                    let round_txhandlers = if let Some(dbtx) = &context.dbtx {
-                        let mut guard = dbtx.lock().await;
-                        context
-                            .owner
-                            .create_txhandlers(&mut guard, TransactionType::Round, contract_context)
-                            .await?
-                    } else {
-                        let mut dbtx = context.db.begin_transaction().await?;
-                        let txhandlers = context
-                            .owner
-                            .create_txhandlers(&mut dbtx, TransactionType::Round, contract_context)
-                            .await?;
-                        dbtx.commit().await?;
-                        txhandlers
-                    };
+
+                    let mut guard = context.shared_dbtx.lock().await;
+                    let round_txhandlers = context
+                        .owner
+                        .create_txhandlers(&mut guard, TransactionType::Round, contract_context)
+                        .await?;
+                    drop(guard);
                     let round_txid = round_txhandlers
                         .get(&TransactionType::Round)
                         .ok_or(TxError::TxHandlerNotFound(TransactionType::Round))?
@@ -379,29 +371,14 @@ impl<T: Owner> RoundStateMachine<T> {
                             *round_idx,
                             context.paramset,
                         );
-                        let mut txhandlers = if let Some(dbtx) = &context.dbtx {
-                            let mut guard = dbtx.lock().await;
-                            context
-                                .owner
-                                .create_txhandlers(
-                                    &mut guard,
-                                    TransactionType::Round,
-                                    contract_context,
-                                )
-                                .await?
-                        } else {
-                            let mut dbtx = context.db.begin_transaction().await?;
-                            let txhandlers = context
-                                .owner
-                                .create_txhandlers(
-                                    &mut dbtx,
-                                    TransactionType::Round,
-                                    contract_context,
-                                )
-                                .await?;
-                            dbtx.commit().await?;
-                            txhandlers
-                        };
+
+                        let mut guard = context.shared_dbtx.lock().await;
+                        let mut txhandlers = context
+                            .owner
+                            .create_txhandlers(&mut guard, TransactionType::Round, contract_context)
+                            .await?;
+                        drop(guard);
+
                         let round_txhandler = txhandlers
                             .remove(&TransactionType::Round)
                             .ok_or(TxError::TxHandlerNotFound(TransactionType::Round))?;
@@ -489,29 +466,14 @@ impl<T: Owner> RoundStateMachine<T> {
                         round_idx.next_round(),
                         context.paramset,
                     );
-                    let next_round_txhandlers = if let Some(dbtx) = &context.dbtx {
-                        let mut guard = dbtx.lock().await;
-                        context
-                            .owner
-                            .create_txhandlers(
-                                &mut guard,
-                                TransactionType::Round,
-                                next_round_context,
-                            )
-                            .await?
-                    } else {
-                        let mut dbtx = context.db.begin_transaction().await?;
-                        let txhandlers = context
-                            .owner
-                            .create_txhandlers(
-                                &mut dbtx,
-                                TransactionType::Round,
-                                next_round_context,
-                            )
-                            .await?;
-                        dbtx.commit().await?;
-                        txhandlers
-                    };
+
+                    let mut guard = context.shared_dbtx.lock().await;
+                    let next_round_txhandlers = context
+                        .owner
+                        .create_txhandlers(&mut guard, TransactionType::Round, next_round_context)
+                        .await?;
+                    drop(guard);
+
                     let next_round_txid = next_round_txhandlers
                         .get(&TransactionType::Round)
                         .ok_or(TxError::TxHandlerNotFound(TransactionType::Round))?
@@ -530,35 +492,25 @@ impl<T: Owner> RoundStateMachine<T> {
                         *round_idx,
                         context.paramset,
                     );
-                    let current_round_txhandlers = if let Some(dbtx) = &context.dbtx {
-                        let mut guard = dbtx.lock().await;
-                        context
-                            .owner
-                            .create_txhandlers(
-                                &mut guard,
-                                TransactionType::Round,
-                                current_round_context,
-                            )
-                            .await?
-                    } else {
-                        let mut dbtx = context.db.begin_transaction().await?;
-                        let txhandlers = context
-                            .owner
-                            .create_txhandlers(
-                                &mut dbtx,
-                                TransactionType::Round,
-                                current_round_context,
-                            )
-                            .await?;
-                        dbtx.commit().await?;
-                        txhandlers
-                    };
+
+                    let mut guard = context.shared_dbtx.lock().await;
+                    let current_round_txhandlers = context
+                        .owner
+                        .create_txhandlers(
+                            &mut guard,
+                            TransactionType::Round,
+                            current_round_context,
+                        )
+                        .await?;
+                    drop(guard);
+
                     let current_ready_to_reimburse_txid = current_round_txhandlers
                         .get(&TransactionType::ReadyToReimburse)
                         .ok_or(TxError::TxHandlerNotFound(
                             TransactionType::ReadyToReimburse,
                         ))?
                         .get_txid();
+
                     // To determine if operator exited the protocol, we check if collateral was not spent in the next round tx.
                     self.matchers.insert(
                         matcher::Matcher::SpentUtxoButNotTxid(

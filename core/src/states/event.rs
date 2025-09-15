@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use bitcoin::Witness;
+use eyre::OptionExt;
 use pgmq::PGMQueueExt;
 use statig::awaitable::IntoStateMachineExt;
 use tokio::sync::Mutex;
@@ -11,9 +12,7 @@ use crate::{
     errors::BridgeError,
 };
 
-use super::{
-    block_cache, kickoff::KickoffStateMachine, round::RoundStateMachine, Owner, StateManager,
-};
+use super::{kickoff::KickoffStateMachine, round::RoundStateMachine, Owner, StateManager};
 
 /// System events are events that are sent by other parts of clementine to the state machine
 /// They are used to update the state machine
@@ -84,21 +83,12 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         Ok(())
     }
 
-    /// Updates the block cache with the new block
-    /// Sets the block cache in the context
-    pub fn update_block_cache(&mut self, block: &bitcoin::Block, block_height: u32) {
-        let mut cache: block_cache::BlockCache = Default::default();
-        cache.update_with_block(block, block_height);
-        self.context.cache = Arc::new(cache);
-    }
-
     /// Handles the system events
     pub async fn handle_event(
         &mut self,
         event: SystemEvent,
         dbtx: Arc<Mutex<sqlx::Transaction<'static, sqlx::Postgres>>>,
     ) -> Result<(), BridgeError> {
-        self.context.dbtx = Some(dbtx);
         match event {
             // Received when a block is finalized in Bitcoin
             SystemEvent::NewFinalizedBlock {
@@ -111,20 +101,25 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                     return Ok(());
                 }
 
-                self.update_block_cache(&block, height);
+                let mut context = self.new_context(dbtx.clone(), &block, height)?;
 
                 // Handle the finalized block on the owner (verifier or operator)
-                self.owner
-                    .handle_finalized_block(
-                        &mut *self.context.dbtx.as_ref().expect("just set").lock().await,
-                        block_id,
-                        height,
-                        self.context.cache.clone(),
-                        None,
-                    )
-                    .await?;
+                {
+                    let mut guard = dbtx.lock().await;
+                    self.owner
+                        .handle_finalized_block(
+                            &mut guard,
+                            block_id,
+                            height,
+                            context.cache.clone(),
+                            None,
+                        )
+                        .await?;
+                }
 
-                self.process_block_parallel(height).await?;
+                self.process_block_parallel(&mut context).await?;
+
+                self.last_finalized_block = Some(block);
             }
             // Received when a new operator is set in clementine
             SystemEvent::NewOperator { operator_data } => {
@@ -137,9 +132,19 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                     }
                 }
 
+                let mut context = self.new_context(
+                    dbtx.clone(),
+                    &self
+                        .last_finalized_block
+                        .as_ref()
+                        .ok_or_eyre("Last finalized block is not set")?
+                        .clone(),
+                    self.next_height_to_process - 1,
+                )?;
+
                 let operator_machine = RoundStateMachine::new(operator_data)
                     .uninitialized_state_machine()
-                    .init_with_context(&mut self.context)
+                    .init_with_context(&mut context)
                     .await;
 
                 self.process_and_add_new_states_from_height(
@@ -156,6 +161,16 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 deposit_data,
                 payout_blockhash,
             } => {
+                let mut context = self.new_context(
+                    dbtx.clone(),
+                    &self
+                        .last_finalized_block
+                        .as_ref()
+                        .ok_or_eyre("Last finalized block is not set")?
+                        .clone(),
+                    self.next_height_to_process - 1,
+                )?;
+
                 // Check if the kickoff machine already exists. If so do not add a new one.
                 // This can happen if during block processing an error happens, reverting the state machines
                 // but a new kickoff state was already dispatched during block processing.
@@ -176,7 +191,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                     payout_blockhash,
                 )
                 .uninitialized_state_machine()
-                .init_with_context(&mut self.context)
+                .init_with_context(&mut context)
                 .await;
 
                 self.process_and_add_new_states_from_height(
@@ -188,11 +203,20 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             }
         }
 
+        let mut context = self.new_context(
+            dbtx,
+            &self
+                .last_finalized_block
+                .as_ref()
+                .ok_or_eyre("Last finalized block is not set")?
+                .clone(),
+            self.next_height_to_process - 1,
+        )?;
+
         // Save the state machines to the database with the current block height
         // So that in case of a node restart the state machines can be restored
-        self.save_state_to_db(self.next_height_to_process).await?;
+        self.save_state_to_db(&mut context).await?;
 
-        self.context.dbtx = None;
         Ok(())
     }
 }
