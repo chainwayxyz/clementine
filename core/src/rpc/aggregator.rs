@@ -1794,7 +1794,7 @@ mod tests {
         rpc.mine_blocks(1).await.unwrap();
         sleep(Duration::from_secs(3)).await;
 
-        let tx = poll_get(
+        poll_get(
             async || {
                 rpc.mine_blocks(1).await.unwrap();
 
@@ -1806,7 +1806,21 @@ mod tests {
                     })
                     .ok();
 
-                Ok(tx_result)
+                // check if tx is confirmed
+                match tx_result {
+                    Some(tx_result) => {
+                        if let Some(confirmations) = tx_result.confirmations {
+                            if confirmations > 0 {
+                                Ok(Some(tx_result))
+                            } else {
+                                Ok(None)
+                            }
+                        } else {
+                            Ok(None)
+                        }
+                    }
+                    None => Ok(None),
+                }
             },
             None,
             None,
@@ -1814,8 +1828,6 @@ mod tests {
         .await
         .wrap_err_with(|| eyre::eyre!("MoveTx did not land onchain"))
         .unwrap();
-
-        assert!(tx.confirmations.unwrap() > 0);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -1890,7 +1902,7 @@ mod tests {
         rpc.mine_blocks(1).await.unwrap();
         sleep(Duration::from_secs(3)).await;
 
-        let tx = poll_get(
+        poll_get(
             async || {
                 rpc.mine_blocks(1).await.unwrap();
 
@@ -1902,7 +1914,21 @@ mod tests {
                     })
                     .ok();
 
-                Ok(tx_result)
+                // check if tx is confirmed
+                match tx_result {
+                    Some(tx_result) => {
+                        if let Some(confirmations) = tx_result.confirmations {
+                            if confirmations > 0 {
+                                Ok(Some(tx_result))
+                            } else {
+                                Ok(None)
+                            }
+                        } else {
+                            Ok(None)
+                        }
+                    }
+                    None => Ok(None),
+                }
             },
             None,
             None,
@@ -1910,8 +1936,6 @@ mod tests {
         .await
         .wrap_err_with(|| eyre::eyre!("MoveTx did not land onchain"))
         .unwrap();
-
-        assert!(tx.confirmations.unwrap() > 0);
     }
 
     #[tokio::test]
