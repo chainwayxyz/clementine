@@ -535,7 +535,7 @@ async fn mock_citrea_run_truthful() {
         "Deposit starting block_height: {:?}",
         rpc.get_block_count().await.unwrap()
     );
-    let (actors, _deposit_params, move_txid, _deposit_blockhash, verifiers_public_keys) =
+    let (actors, _deposit_params, move_txid, _deposit_blockhash, _verifiers_public_keys) =
         run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None, None)
             .await
             .unwrap();
@@ -656,35 +656,18 @@ async fn mock_citrea_run_truthful() {
         config
     };
 
-    let op0_xonly_pk = verifiers_public_keys[0].x_only_public_key().0;
-
     let db = Database::new(&verifier_0_config)
         .await
         .expect("failed to create database");
-
-    // wait until payout part is not null
-    poll_until_condition(
-        async || {
-            Ok(db
-                .get_first_unhandled_payout_by_operator_xonly_pk(None, op0_xonly_pk)
-                .await?
-                .is_some())
-        },
-        Some(Duration::from_secs(20 * 60)),
-        Some(Duration::from_millis(200)),
-    )
-    .await
-    .wrap_err("Timed out while waiting for payout to be added to unhandled list")
-    .unwrap();
 
     tracing::info!("Waiting until payout is handled");
     // wait until payout is handled
     poll_until_condition(
         async || {
             Ok(db
-                .get_first_unhandled_payout_by_operator_xonly_pk(None, op0_xonly_pk)
+                .get_handled_payout_kickoff_txid(None, payout_txid)
                 .await?
-                .is_none())
+                .is_some())
         },
         Some(Duration::from_secs(20 * 60)),
         Some(Duration::from_millis(200)),
