@@ -1544,7 +1544,7 @@ where
         kickoff_witness: Witness,
         deposit_data: &mut DepositData,
         kickoff_data: KickoffData,
-        dbtx: Option<DatabaseTransaction<'_, '_>>,
+        dbtx: DatabaseTransaction<'_, '_>,
     ) -> Result<bool, BridgeError> {
         let move_txid =
             create_move_to_vault_txhandler(deposit_data, self.config.protocol_paramset())?
@@ -1552,7 +1552,7 @@ where
                 .compute_txid();
         let payout_info = self
             .db
-            .get_payout_info_from_move_txid(dbtx, move_txid)
+            .get_payout_info_from_move_txid(Some(dbtx), move_txid)
             .await;
         if let Err(e) = &payout_info {
             tracing::warn!(
@@ -1613,7 +1613,7 @@ where
         challenged_before: bool,
     ) -> Result<bool, BridgeError> {
         let is_malicious = self
-            .is_kickoff_malicious(kickoff_witness, &mut deposit_data, kickoff_data, Some(dbtx))
+            .is_kickoff_malicious(kickoff_witness, &mut deposit_data, kickoff_data, dbtx)
             .await?;
         if !is_malicious {
             return Ok(false);
@@ -1691,7 +1691,7 @@ where
         &self,
         kickoff_data: KickoffData,
         deposit_data: DepositData,
-        dbtx: Option<DatabaseTransaction<'_, '_>>,
+        dbtx: DatabaseTransaction<'_, '_>,
     ) -> Result<(), BridgeError> {
         let current_tip_hcp = self
             .header_chain_prover
@@ -1753,7 +1753,7 @@ where
         kickoff_data: KickoffData,
         deposit_data: DepositData,
         commit_data: Vec<u8>,
-        dbtx: Option<DatabaseTransaction<'_, '_>>,
+        dbtx: DatabaseTransaction<'_, '_>,
     ) -> Result<(), BridgeError> {
         let (tx_type, challenge_tx, rbf_info) = self
             .create_watchtower_challenge(
@@ -1762,27 +1762,24 @@ where
                     kickoff_data,
                 },
                 &commit_data,
-                dbtx,
+                Some(dbtx),
             )
             .await?;
 
         #[cfg(test)]
-        let mut challenge_tx = challenge_tx;
-
-        #[cfg(test)]
-        {
+        let challenge_tx = {
+            let mut challenge_tx = challenge_tx;
             if let Some(annex_bytes) = rbf_info.annex.clone() {
                 challenge_tx.input[0].witness.push(annex_bytes);
             }
-        }
+            challenge_tx
+        };
 
         #[cfg(feature = "automation")]
         {
-            let mut dbtx = self.db.begin_transaction().await?;
-
             self.tx_sender
                 .add_tx_to_queue(
-                    &mut dbtx,
+                    dbtx,
                     tx_type,
                     &challenge_tx,
                     &[],
@@ -1798,7 +1795,6 @@ where
                 )
                 .await?;
 
-            dbtx.commit().await?;
             tracing::info!(
                 "Committed watchtower challenge, commit data: {:?}",
                 commit_data
@@ -2036,7 +2032,7 @@ where
         operator_asserts: &HashMap<usize, Witness>,
         operator_acks: &HashMap<usize, Witness>,
         txhandlers: &BTreeMap<TransactionType, TxHandler>,
-        dbtx: Option<DatabaseTransaction<'_, '_>>,
+        dbtx: DatabaseTransaction<'_, '_>,
     ) -> Result<Option<bitcoin::Witness>, BridgeError> {
         use bitvm::clementine::additional_disprove::debug_assertions_for_additional_script;
 
@@ -2047,7 +2043,7 @@ where
             kickoff_data.operator_xonly_pk,
             deposit_data.get_deposit_outpoint(),
             self.config.protocol_paramset(),
-            dbtx,
+            Some(dbtx),
         );
 
         let nofn_key = deposit_data.get_nofn_xonly_pk().inspect_err(|e| {
@@ -2793,7 +2789,7 @@ mod states {
                     "Verifier {:?} called watchtower challenge with kickoff_data: {:?}, deposit_data: {:?}",
                     verifier_xonly_pk, kickoff_data, deposit_data
                 );
-                    self.send_watchtower_challenge(kickoff_data, deposit_data, Some(dbtx))
+                    self.send_watchtower_challenge(kickoff_data, deposit_data, dbtx)
                         .await?;
 
                     tracing::info!("Verifier sent watchtower challenge",);
@@ -2846,7 +2842,7 @@ mod states {
                             &operator_asserts,
                             &operator_acks,
                             &txhandlers,
-                            Some(dbtx),
+                            dbtx,
                         )
                         .await?
                     {
