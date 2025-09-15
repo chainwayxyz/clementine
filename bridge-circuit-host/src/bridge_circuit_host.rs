@@ -347,6 +347,16 @@ pub fn create_spv(
         ));
     }
 
+    if payment_block.txdata[payment_tx_index as usize] != payout_tx {
+        return Err(eyre!(
+            "Payment transaction ({}) does not match the transaction ({}) given in block {:?} at index {}",
+            payout_tx.compute_txid(),
+            payment_block.txdata[payment_tx_index as usize].compute_txid(),
+            payment_block.header.block_hash(),
+            payment_tx_index
+        ));
+    }
+
     let mut mmr_native = MMRNative::new();
     for block_hash in block_hash_bytes {
         mmr_native.append(*block_hash);
