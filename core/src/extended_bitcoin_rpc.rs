@@ -796,8 +796,8 @@ impl ExtendedBitcoinRpc {
                     .disconnect_nodes()
                     .await
                     .map_err(|e| eyre::eyre!("Failed to disconnect nodes: {}", e))?;
-                let reorg_blocks = thread_rng()
-                    .gen_range(0..=e2e.config.protocol_paramset().finality_depth as u64);
+                let reorg_blocks =
+                    thread_rng().gen_range(0..e2e.config.protocol_paramset().finality_depth as u64);
                 let da0 = e2e.bitcoin_nodes.get(0).expect("node 0 should exist");
                 let da1 = e2e.bitcoin_nodes.get(1).expect("node 1 should exist");
 
