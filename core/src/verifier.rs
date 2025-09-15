@@ -1323,9 +1323,7 @@ where
             return Err(eyre::eyre!(
                 "Output amount is greater than the bridge amount: {} > {}",
                 output_amount,
-                self.config.protocol_paramset().bridge_amount
-                    - self.config.protocol_paramset().anchor_amount()
-                    - NON_EPHEMERAL_ANCHOR_AMOUNT
+                self.config.protocol_paramset().bridge_amount - NON_EPHEMERAL_ANCHOR_AMOUNT
             )
             .into());
         }
