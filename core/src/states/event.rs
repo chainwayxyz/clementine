@@ -188,7 +188,6 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             }
         }
 
-
         // Save the state machines to the database with the current block height
         // So that in case of a node restart the state machines can be restored
         self.save_state_to_db(self.next_height_to_process).await?;
