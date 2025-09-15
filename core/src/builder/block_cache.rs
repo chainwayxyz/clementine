@@ -30,6 +30,8 @@ impl BlockCache {
     /// Creates HashMap's of txids and spent utxos for efficient lookups
     pub fn update_with_block(&mut self, block: &Block, block_height: u32) {
         self.block_height = block_height;
+        self.txids.clear();
+        self.spent_utxos.clear();
         for (idx, tx) in block.txdata.iter().enumerate() {
             self.txids.insert(tx.compute_txid(), idx);
 
@@ -42,7 +44,7 @@ impl BlockCache {
     }
 
     pub fn get_tx_with_index(&self, idx: usize) -> Option<&Transaction> {
-        self.block.as_ref().map(|block| &block.txdata[idx])
+        self.block.as_ref().and_then(|block| block.txdata.get(idx))
     }
 
     pub fn get_tx_of_utxo(&self, utxo: &OutPoint) -> Option<&Transaction> {
