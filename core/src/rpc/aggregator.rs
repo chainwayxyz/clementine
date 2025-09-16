@@ -1564,8 +1564,13 @@ impl ClementineAggregator for AggregatorServer {
     ) -> std::result::Result<tonic::Response<super::NofnResponse>, tonic::Status> {
         let verifier_keys = self.fetch_verifier_keys().await?;
         let num_verifiers = verifier_keys.len();
-        let nofn_xonly_pk = bitcoin::XOnlyPublicKey::from_musig2_pks(verifier_keys, None)
-            .expect("Failed to aggregate verifier public keys");
+        let nofn_xonly_pk = bitcoin::XOnlyPublicKey::from_musig2_pks(verifier_keys.clone(), None)
+            .map_err(|e| {
+            Status::internal(format!(
+                "Failed to aggregate verifier public keys, err: {}, pubkeys: {:?}",
+                e, verifier_keys
+            ))
+        })?;
         Ok(Response::new(super::NofnResponse {
             nofn_xonly_pk: nofn_xonly_pk.serialize().to_vec(),
             num_verifiers: num_verifiers as u32,
