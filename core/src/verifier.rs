@@ -114,6 +114,10 @@ impl AllSessions {
             return Err(eyre::eyre!("Empty session attempted to be added"));
         }
 
+        if self.sessions.contains_key(&id) {
+            return Err(eyre::eyre!("Nonce session with id {id} already exists"));
+        }
+
         let mut total_needed = Self::session_bytes(&new_nonce_session)?
             .checked_add(self.total_sessions_byte_size()?)
             .ok_or_else(|| eyre::eyre!("Session size calculation overflow in add_new_session"))?;
