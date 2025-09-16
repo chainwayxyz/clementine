@@ -67,6 +67,7 @@ async fn test_process_empty_block_with_no_machines() {
         .expect("Failed to create context");
     // Process an empty block with no state machines
     let result = state_manager.process_block_parallel(&mut context).await;
+    drop(context);
     Arc::into_inner(dbtx)
         .expect("Expected single reference to DB tx when committing")
         .into_inner()
@@ -140,6 +141,7 @@ async fn test_save_and_load_state() {
     // Save state to DB
     let result = state_manager.save_state_to_db(&mut context).await;
     assert!(result.is_ok(), "Failed to save state to DB: {:?}", result);
+    drop(context);
 
     Arc::into_inner(dbtx)
         .expect("Expected single reference to DB tx when committing")
