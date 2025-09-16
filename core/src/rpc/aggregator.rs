@@ -1794,33 +1794,13 @@ mod tests {
         rpc.mine_blocks(1).await.unwrap();
         sleep(Duration::from_secs(3)).await;
 
-        poll_get(
+        poll_until_condition(
             async || {
                 rpc.mine_blocks(1).await.unwrap();
-
-                let tx_result = rpc.get_raw_transaction_info(&movetx_one_txid, None).await;
-
-                let tx_result = tx_result
-                    .inspect_err(|e| {
-                        tracing::error!("Error getting transaction: {:?}", e);
-                    })
-                    .ok();
-
-                // check if tx is confirmed
-                match tx_result {
-                    Some(tx_result) => {
-                        if let Some(confirmations) = tx_result.confirmations {
-                            if confirmations > 0 {
-                                Ok(Some(tx_result))
-                            } else {
-                                Ok(None)
-                            }
-                        } else {
-                            Ok(None)
-                        }
-                    }
-                    None => Ok(None),
-                }
+                Ok(rpc
+                    .is_tx_on_chain(&movetx_one_txid)
+                    .await
+                    .unwrap_or_default())
             },
             None,
             None,
@@ -1902,33 +1882,10 @@ mod tests {
         rpc.mine_blocks(1).await.unwrap();
         sleep(Duration::from_secs(3)).await;
 
-        poll_get(
+        poll_until_condition(
             async || {
                 rpc.mine_blocks(1).await.unwrap();
-
-                let tx_result = rpc.get_raw_transaction_info(&movetx_txid, None).await;
-
-                let tx_result = tx_result
-                    .inspect_err(|e| {
-                        tracing::error!("Error getting transaction: {:?}", e);
-                    })
-                    .ok();
-
-                // check if tx is confirmed
-                match tx_result {
-                    Some(tx_result) => {
-                        if let Some(confirmations) = tx_result.confirmations {
-                            if confirmations > 0 {
-                                Ok(Some(tx_result))
-                            } else {
-                                Ok(None)
-                            }
-                        } else {
-                            Ok(None)
-                        }
-                    }
-                    None => Ok(None),
-                }
+                Ok(rpc.is_tx_on_chain(&movetx_txid).await.unwrap_or_default())
             },
             None,
             None,
@@ -2097,21 +2054,13 @@ mod tests {
         let emergency_stop_txid = emergency_stop_tx.compute_txid();
         rpc.mine_blocks(1).await.unwrap();
 
-        let _emergencty_tx = poll_get(
+        poll_until_condition(
             async || {
                 rpc.mine_blocks(1).await.unwrap();
-
-                let tx_result = rpc
-                    .get_raw_transaction_info(&emergency_stop_txid, None)
-                    .await;
-
-                let tx_result = tx_result
-                    .inspect_err(|e| {
-                        tracing::error!("Error getting transaction: {:?}", e);
-                    })
-                    .ok();
-
-                Ok(tx_result)
+                Ok(rpc
+                    .is_tx_on_chain(&emergency_stop_txid)
+                    .await
+                    .unwrap_or_default())
             },
             None,
             None,
