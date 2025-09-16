@@ -18,7 +18,6 @@ async fn create_test_state_manager(
         .await
         .expect("Failed to create database");
     let owner = Default::default();
-    let _cleanup = create_regtest_rpc(config).await;
     let rpc = ExtendedBitcoinRpc::connect(
         config.bitcoin_rpc_url.clone(),
         config.bitcoin_rpc_user.clone(),
@@ -27,6 +26,7 @@ async fn create_test_state_manager(
     )
     .await
     .expect("Failed to connect to Bitcoin RPC");
+
     let state_manager = StateManager::new(db, owner, rpc, config.protocol_paramset())
         .await
         .unwrap();
@@ -120,8 +120,20 @@ async fn test_process_block_parallel() {
 
 #[tokio::test]
 async fn test_save_and_load_state() {
-    let (mut state_manager, mut config) =
-        create_test_state_manager(&mut create_test_config().await).await;
+    let mut config = create_test_config().await;
+    let _cleanup = create_regtest_rpc(&mut config).await;
+    let rpc = ExtendedBitcoinRpc::connect(
+        config.bitcoin_rpc_url.clone(),
+        config.bitcoin_rpc_user.clone(),
+        config.bitcoin_rpc_password.clone(),
+        None,
+    )
+    .await
+    .expect("Failed to connect to Bitcoin RPC");
+    rpc.mine_blocks(config.protocol_paramset().start_height as u64 + 1)
+        .await
+        .expect("Failed to mine blocks");
+    let (mut state_manager, mut config) = create_test_state_manager(&mut config).await;
 
     // Process a block to ensure the state is initialized
     let block = create_empty_block();
