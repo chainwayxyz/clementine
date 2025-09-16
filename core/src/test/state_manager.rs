@@ -5,7 +5,10 @@ use bitcoin::{consensus, Block};
 use tokio::sync::Mutex;
 
 use super::common::{create_test_config_with_thread_name, initialize_database, MockOwner};
-use crate::{config::BridgeConfig, database::Database, states::StateManager};
+use crate::{
+    config::BridgeConfig, database::Database, extended_bitcoin_rpc::ExtendedBitcoinRpc,
+    states::StateManager,
+};
 
 // Helper function to create a test state manager
 async fn create_test_state_manager(
@@ -15,8 +18,14 @@ async fn create_test_state_manager(
         .await
         .expect("Failed to create database");
     let owner = Default::default();
-
-    let state_manager = StateManager::new(db, owner, config.protocol_paramset())
+    let rpc = ExtendedBitcoinRpc::connect(
+        config.bitcoin_rpc_url.clone(),
+        config.bitcoin_rpc_user.clone(),
+        config.bitcoin_rpc_password.clone(),
+        None,
+    )
+    .await?;
+    let state_manager = StateManager::new(db, owner, rpc, config.protocol_paramset())
         .await
         .unwrap();
 

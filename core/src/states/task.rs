@@ -200,6 +200,7 @@ mod tests {
         builder::transaction::{ContractContext, TransactionType, TxHandler},
         config::{protocol::ProtocolParamsetName, BridgeConfig},
         database::DatabaseTransaction,
+        extended_bitcoin_rpc::ExtendedBitcoinRpc,
         states::{block_cache, context::DutyResult, Duty},
         test::common::create_test_config_with_thread_name,
         utils::NamedEntity,
@@ -255,8 +256,17 @@ mod tests {
     ) -> (JoinHandle<Result<(), BridgeError>>, oneshot::Sender<()>) {
         let db = Database::new(config).await.unwrap();
 
+        let rpc = ExtendedBitcoinRpc::connect(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+            None,
+        )
+        .await
+        .expect("Failed to connect to Bitcoin RPC");
+
         let state_manager =
-            StateManager::new(db, MockHandler, ProtocolParamsetName::Regtest.into())
+            StateManager::new(db, MockHandler, rpc, ProtocolParamsetName::Regtest.into())
                 .await
                 .unwrap();
         let (t, shutdown) = state_manager.into_task().cancelable_loop();

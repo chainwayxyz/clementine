@@ -262,6 +262,7 @@ where
             let state_manager = StateManager::new(
                 self.verifier.db.clone(),
                 self.verifier.clone(),
+                self.verifier.rpc.clone(),
                 self.verifier.config.protocol_paramset(),
             )
             .await?;

@@ -162,9 +162,13 @@ where
         #[cfg(feature = "automation")]
         {
             let paramset = self.operator.config.protocol_paramset();
-            let state_manager =
-                StateManager::new(self.operator.db.clone(), self.operator.clone(), paramset)
-                    .await?;
+            let state_manager = StateManager::new(
+                self.operator.db.clone(),
+                self.operator.clone(),
+                self.operator.rpc.clone(),
+                paramset,
+            )
+            .await?;
 
             let should_run_state_mgr = {
                 #[cfg(test)]

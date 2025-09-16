@@ -22,6 +22,7 @@ pub use crate::builder::block_cache;
 use crate::config::protocol::ProtocolParamset;
 use crate::database::Database;
 use crate::errors::BridgeError;
+use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 use crate::states::block_cache::BlockCache;
 use eyre::{Context, OptionExt};
 use futures::future::{join, join_all};
@@ -125,6 +126,7 @@ pub struct StateManager<T: Owner> {
     kickoff_machines: Vec<InitializedStateMachine<kickoff::KickoffStateMachine<T>>>,
     paramset: &'static ProtocolParamset,
     next_height_to_process: u32,
+    rpc: ExtendedBitcoinRpc,
     // Set on the first finalized block event or the load_from_db method
     last_finalized_block: Option<bitcoin::Block>,
 }
@@ -152,6 +154,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
     pub async fn new(
         db: Database,
         owner: T,
+        rpc: ExtendedBitcoinRpc,
         paramset: &'static ProtocolParamset,
     ) -> eyre::Result<Self> {
         let queue = PGMQueueExt::new_with_pool(db.get_pool()).await;
@@ -169,10 +172,31 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             queue,
             next_height_to_process: paramset.start_height,
             last_finalized_block: None,
+            rpc,
         };
 
         mgr.load_from_db().await?;
         Ok(mgr)
+    }
+
+    async fn load_last_finalized_block(&mut self) -> Result<(), BridgeError> {
+        let last_finalized_height = if self.next_height_to_process == self.paramset.start_height {
+            self.paramset.start_height
+        } else {
+            self.next_height_to_process - 1
+        };
+
+        self.last_finalized_block =
+            match self.db.get_full_block(None, last_finalized_height).await? {
+                Some(block) => Some(block),
+                None => Some(
+                    self.rpc
+                        .get_block_by_height(last_finalized_height.into())
+                        .await?,
+                ),
+            };
+
+        Ok(())
     }
 
     /// Loads the state machines from the database.
@@ -190,6 +214,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         // If no state is saved, return early
         let Some(block_height) = status else {
             tracing::info!("No state machines found in the database");
+            self.load_last_finalized_block().await?;
             return Ok(());
         };
 
@@ -288,15 +313,9 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
 
         self.next_height_to_process =
             u32::try_from(block_height).wrap_err(BridgeError::IntConversionError)?;
-        self.last_finalized_block = Some(
-            self.db
-                .get_full_block(None, self.next_height_to_process - 1)
-                .await?
-                .ok_or(eyre::eyre!(
-                    "Block at height {} not found when loading from db",
-                    block_height
-                ))?,
-        );
+
+        self.load_last_finalized_block().await?;
+
         Ok(())
     }
     #[cfg(test)]
