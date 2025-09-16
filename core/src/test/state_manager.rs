@@ -24,7 +24,8 @@ async fn create_test_state_manager(
         config.bitcoin_rpc_password.clone(),
         None,
     )
-    .await?;
+    .await
+    .expect("Failed to connect to Bitcoin RPC");
     let state_manager = StateManager::new(db, owner, rpc, config.protocol_paramset())
         .await
         .unwrap();
