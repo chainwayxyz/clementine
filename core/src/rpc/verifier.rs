@@ -11,6 +11,7 @@ use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestD
 use crate::builder::transaction::ContractContext;
 use crate::citrea::CitreaClientT;
 use crate::constants::RESTART_BACKGROUND_TASKS_TIMEOUT;
+use crate::errors::ResultExt;
 use crate::rpc::clementine::VerifierDepositFinalizeResponse;
 use crate::utils::{get_vergen_response, monitor_standalone_task, timed_request};
 use crate::verifier::VerifierServer;
@@ -22,6 +23,7 @@ use crate::{
 use alloy::primitives::PrimitiveSignature;
 use bitcoin::Witness;
 use clementine::verifier_deposit_finalize_params::Params;
+use eyre::Context;
 use secp256k1::musig::AggregatedNonce;
 use tokio::sync::mpsc::{self, error::SendError};
 use tokio_stream::wrappers::ReceiverStream;
@@ -561,7 +563,10 @@ where
         } else {
             return Err(Status::not_found("Kickoff txid not found"));
         }
-        dbtx.commit().await.expect("Failed to commit transaction");
+        dbtx.commit()
+            .await
+            .wrap_err("Failed to commit transaction")
+            .map_to_status()?;
         Ok(Response::new(Empty {}))
     }
 
