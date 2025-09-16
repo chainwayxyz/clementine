@@ -92,6 +92,10 @@ pub struct NonceSession {
 pub struct AllSessions {
     sessions: HashMap<u128, NonceSession>,
     session_queue: VecDeque<u128>,
+    /// store all previously used ids to never use them again
+    /// reason is that we remove a session in deposit_sign and add it back later, we might
+    /// create a new one with the same id inbetween removal and addition
+    used_ids: HashSet<u128>,
 }
 
 impl AllSessions {
@@ -99,6 +103,7 @@ impl AllSessions {
         Self {
             sessions: HashMap::new(),
             session_queue: VecDeque::new(),
+            used_ids: HashSet::new(),
         }
     }
 
@@ -136,6 +141,7 @@ impl AllSessions {
         // save the session to the HashMap and the session id queue
         self.sessions.insert(id, new_nonce_session);
         self.session_queue.push_back(id);
+        self.used_ids.insert(id);
         Ok(())
     }
 
@@ -166,7 +172,7 @@ impl AllSessions {
     /// The important thing it that the id not easily predictable.
     fn get_new_unused_id(&mut self) -> u128 {
         let mut random_id = bitcoin::secp256k1::rand::thread_rng().gen_range(0..=u128::MAX);
-        while self.sessions.contains_key(&random_id) {
+        while self.used_ids.contains(&random_id) {
             random_id = bitcoin::secp256k1::rand::thread_rng().gen_range(0..=u128::MAX);
         }
         random_id
