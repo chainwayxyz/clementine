@@ -7,17 +7,18 @@ use tokio::sync::Mutex;
 use super::common::{create_test_config_with_thread_name, initialize_database, MockOwner};
 use crate::{
     config::BridgeConfig, database::Database, extended_bitcoin_rpc::ExtendedBitcoinRpc,
-    states::StateManager,
+    states::StateManager, test::common::create_regtest_rpc,
 };
 
 // Helper function to create a test state manager
 async fn create_test_state_manager(
-    config: &BridgeConfig,
+    config: &mut BridgeConfig,
 ) -> (StateManager<MockOwner>, BridgeConfig) {
     let db = Database::new(config)
         .await
         .expect("Failed to create database");
     let owner = Default::default();
+    let _cleanup = create_regtest_rpc(config).await;
     let rpc = ExtendedBitcoinRpc::connect(
         config.bitcoin_rpc_url.clone(),
         config.bitcoin_rpc_user.clone(),
@@ -49,7 +50,8 @@ fn create_empty_block() -> Block {
 
 #[tokio::test]
 async fn test_process_empty_block_with_no_machines() {
-    let (mut state_manager, _config) = create_test_state_manager(&create_test_config().await).await;
+    let (mut state_manager, _config) =
+        create_test_state_manager(&mut create_test_config().await).await;
 
     let block = create_empty_block();
     let block_height = 1;
@@ -82,7 +84,8 @@ async fn test_process_empty_block_with_no_machines() {
 
 #[tokio::test]
 async fn test_process_block_parallel() {
-    let (mut state_manager, _config) = create_test_state_manager(&create_test_config().await).await;
+    let (mut state_manager, _config) =
+        create_test_state_manager(&mut create_test_config().await).await;
 
     // Create a block
     let block = create_empty_block();
@@ -116,7 +119,8 @@ async fn test_process_block_parallel() {
 
 #[tokio::test]
 async fn test_save_and_load_state() {
-    let (mut state_manager, config) = create_test_state_manager(&create_test_config().await).await;
+    let (mut state_manager, mut config) =
+        create_test_state_manager(&mut create_test_config().await).await;
 
     // Process a block to ensure the state is initialized
     let block = create_empty_block();
@@ -145,7 +149,7 @@ async fn test_save_and_load_state() {
         .expect("Failed to commit transaction");
 
     // Create a new state manager to load from DB
-    let (mut new_state_manager, _) = create_test_state_manager(&config).await;
+    let (mut new_state_manager, _) = create_test_state_manager(&mut config).await;
 
     // Load state from DB
     let result = new_state_manager.load_from_db().await;
