@@ -343,15 +343,18 @@ where
             .payout_blockhash
             .clone()
             .try_into()
-            .expect("Failed to convert payout blockhash to [u8; 32]");
-        let deposit_outpoint = request
+            .map_err(|e| {
+                Status::invalid_argument(format!(
+                    "Failed to convert payout blockhash to [u8; 32]: {:?}",
+                    e
+                ))
+            })?;
+        let deposit_outpoint: OutPoint = request
             .get_ref()
             .deposit_outpoint
             .clone()
-            .expect("Failed to get deposit outpoint");
-        let deposit_outpoint: OutPoint = deposit_outpoint
-            .try_into()
-            .expect("Failed to convert deposit outpoint to OutPoint");
+            .ok_or(Status::invalid_argument("Failed to get deposit outpoint"))?
+            .try_into()?;
 
         let mut dbtx = self.operator.db.begin_transaction().await?;
         let kickoff_txid = self
