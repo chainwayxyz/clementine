@@ -202,7 +202,7 @@ mod tests {
         database::DatabaseTransaction,
         extended_bitcoin_rpc::ExtendedBitcoinRpc,
         states::{block_cache, context::DutyResult, Duty},
-        test::common::create_test_config_with_thread_name,
+        test::common::{create_regtest_rpc, create_test_config_with_thread_name},
         utils::NamedEntity,
     };
 
@@ -276,6 +276,12 @@ mod tests {
     #[tokio::test]
     async fn test_run_state_manager() {
         let mut config = create_test_config_with_thread_name().await;
+        let cleanup = create_regtest_rpc(&mut config).await;
+        cleanup
+            .rpc()
+            .mine_blocks(config.protocol_paramset.start_height as u64)
+            .await
+            .unwrap();
         let (handle, shutdown) = create_state_manager(&mut config).await;
 
         drop(shutdown);
@@ -290,6 +296,12 @@ mod tests {
     #[tokio::test]
     async fn test_state_mgr_does_not_shutdown() {
         let mut config = create_test_config_with_thread_name().await;
+        let cleanup = create_regtest_rpc(&mut config).await;
+        cleanup
+            .rpc()
+            .mine_blocks(config.protocol_paramset.start_height as u64)
+            .await
+            .unwrap();
         let (handle, shutdown) = create_state_manager(&mut config).await;
 
         timeout(Duration::from_secs(1), handle).await.expect_err(
