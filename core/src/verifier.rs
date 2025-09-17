@@ -94,7 +94,7 @@ pub struct AllSessions {
     session_queue: VecDeque<u128>,
     /// store all previously used ids to never use them again
     /// reason is that we remove a session in deposit_sign and add it back later, we might
-    /// create a new one with the same id inbetween removal and addition
+    /// create a new one with the same id in between removal and addition
     used_ids: HashSet<u128>,
 }
 
