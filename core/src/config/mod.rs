@@ -511,7 +511,7 @@ mod tests {
         println!("checks: {checks:?}");
         assert!(checks.is_ok());
 
-        // Illigal configs, no illegal env vars.
+        // Illegal configs, no illegal env vars.
         let incorrect_mainnet_config = BridgeConfig {
             client_verification: true,
             ..mainnet_config.clone()
@@ -520,7 +520,7 @@ mod tests {
         println!("checks: {checks:?}");
         assert!(checks.is_err());
 
-        // No illigal configs, illegal env vars.
+        // No illegal configs, illegal env vars.
         for var in env_vars.clone() {
             std::env::set_var(var, "1");
         }
@@ -528,7 +528,7 @@ mod tests {
         println!("checks: {checks:?}");
         assert!(checks.is_err());
 
-        // Illigal everything.
+        // Illegal everything.
         for var in env_vars.clone() {
             std::env::set_var(var, "1");
         }
