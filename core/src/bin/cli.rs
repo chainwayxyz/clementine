@@ -1007,6 +1007,7 @@ async fn handle_bitcoin_call(url: String, command: BitcoinCommands) {
 
             // Calculate package fee requirements
             let parent_weight = tx.weight();
+            // empirical - tx with 1 anchor, 1 taproot input + 1 change taproot output had 540 WU
             let estimated_child_weight = bitcoin::Weight::from_wu(540);
             let total_weight = parent_weight + estimated_child_weight;
             let required_fee_sats =
