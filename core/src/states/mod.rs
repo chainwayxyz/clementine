@@ -464,6 +464,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
     /// Then append the new states to the current state machines.
     pub async fn process_and_add_new_states_from_height(
         &mut self,
+        dbtx: Arc<Mutex<sqlx::Transaction<'static, sqlx::Postgres>>>,
         new_round_machines: Vec<InitializedStateMachine<round::RoundStateMachine<T>>>,
         new_kickoff_machines: Vec<InitializedStateMachine<kickoff::KickoffStateMachine<T>>>,
         start_height: u32,
@@ -473,7 +474,6 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         temporary_manager.round_machines = new_round_machines;
         temporary_manager.kickoff_machines = new_kickoff_machines;
 
-        let dbtx = Arc::new(Mutex::new(temporary_manager.db.begin_transaction().await?));
         for block_height in start_height..temporary_manager.next_height_to_process {
             let block = temporary_manager
                 .db
@@ -492,11 +492,6 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 ));
             }
         }
-        Arc::into_inner(dbtx)
-            .ok_or_eyre("Expected single reference to DB tx when committing")?
-            .into_inner()
-            .commit()
-            .await?;
 
         // append new states to the current state manager
         self.round_machines.extend(temporary_manager.round_machines);

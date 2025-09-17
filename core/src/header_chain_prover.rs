@@ -101,6 +101,7 @@ impl HeaderChainProver {
             .into());
         }
         db.fetch_and_save_missing_blocks(
+            None,
             &rpc,
             config.protocol_paramset().genesis_height,
             config.protocol_paramset().start_height,
@@ -857,6 +858,7 @@ mod tests {
         prover
             .db
             .fetch_and_save_missing_blocks(
+                None,
                 &rpc,
                 config.protocol_paramset().genesis_height,
                 current_height as u32 + 1,

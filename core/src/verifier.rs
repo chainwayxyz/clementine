@@ -1813,7 +1813,7 @@ where
         l2_height_end: u64,
         block_height: u32,
     ) -> Result<(), BridgeError> {
-        let last_deposit_idx = self.db.get_last_deposit_idx(None).await?;
+        let last_deposit_idx = self.db.get_last_deposit_idx(Some(dbtx)).await?;
         tracing::debug!("Last Citrea deposit idx: {:?}", last_deposit_idx);
 
         let last_withdrawal_idx = self.db.get_last_withdrawal_idx(None).await?;
@@ -2911,7 +2911,7 @@ mod states {
                     );
                     let db_kickoff_data = self
                         .db
-                        .get_deposit_data_with_kickoff_txid(None, txid)
+                        .get_deposit_data_with_kickoff_txid(Some(dbtx), txid)
                         .await?;
                     let mut challenged = false;
                     if let Some((deposit_data, kickoff_data)) = db_kickoff_data {

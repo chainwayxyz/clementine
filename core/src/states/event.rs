@@ -148,6 +148,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                     .await;
 
                 self.process_and_add_new_states_from_height(
+                    dbtx.clone(),
                     vec![operator_machine],
                     vec![],
                     self.paramset.start_height,
@@ -195,6 +196,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 .await;
 
                 self.process_and_add_new_states_from_height(
+                    dbtx.clone(),
                     vec![],
                     vec![kickoff_machine],
                     kickoff_height,
