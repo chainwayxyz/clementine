@@ -205,18 +205,17 @@ impl BridgeConfig {
 
         tracing::trace!("Using configuration file: {:?}", path);
 
-        let config = BridgeConfig::try_parse_from(contents)?;
-
-        config.check_mainnet_requirements()?;
-
-        Ok(config)
+        BridgeConfig::try_parse_from(contents)
     }
 
     /// Try to parse a `BridgeConfig` from given TOML formatted string and
     /// generate a `BridgeConfig`.
     pub fn try_parse_from(input: String) -> Result<Self, BridgeError> {
         match toml::from_str::<BridgeConfig>(&input) {
-            Ok(c) => Ok(c),
+            Ok(c) => {
+                c.check_mainnet_requirements()?;
+                Ok(c)
+            }
             Err(e) => Err(BridgeError::ConfigError(e.to_string())),
         }
     }
