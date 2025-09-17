@@ -1556,7 +1556,9 @@ where
             .await?;
 
         let Some((operator_xonly_pk_opt, payout_blockhash, _, _)) = payout_info else {
-            tracing::warn!("No payout info found in db for move txid {move_txid}, assuming malicious");
+            tracing::warn!(
+                "No payout info found in db for move txid {move_txid}, assuming malicious"
+            );
             return Ok(true);
         };
 
