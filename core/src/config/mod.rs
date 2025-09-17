@@ -234,15 +234,12 @@ impl BridgeConfig {
 
         /// Checks if an env var is set to a non 0 value.
         fn check_env_var(env_var: &str, misconfigs: &mut Vec<String>) {
-            match std::env::var(env_var) {
-                Ok(var) => {
-                    if var == "0" || var.to_ascii_lowercase() == "false" {
-                        return;
-                    }
-
-                    misconfigs.push(format!("{env_var}={var}"));
+            if let Ok(var) = std::env::var(env_var) {
+                if var == "0" || var.eq_ignore_ascii_case("false") {
+                    return;
                 }
-                Err(_) => (),
+
+                misconfigs.push(format!("{env_var}={var}"));
             }
         }
 
