@@ -222,18 +222,16 @@ async fn test_buffered_errors() {
 
     // Print the actual error message to understand its format
     let err = result.unwrap_err();
-    let err_str = format!("{:?}", err);
+    let err_str = format!("{err:?}");
 
     assert!(
         err_str.contains("Task error"),
-        "Error does not contain the expected task error message: '{}'",
-        err_str
+        "Error does not contain the expected task error message: '{err_str}'"
     );
 
     assert!(
         err_str.contains("3 consecutive errors"),
-        "Error does not contain '3 consecutive errors': '{}'",
-        err_str
+        "Error does not contain '3 consecutive errors': '{err_str}'"
     );
 }
 
@@ -263,18 +261,16 @@ async fn test_buffered_errors_without_consecutive_errors() {
 
     // Print the actual error message to understand its format
     let err = result.unwrap_err();
-    let err_str = format!("{:?}", err);
+    let err_str = format!("{err:?}");
 
     assert!(
         err_str.contains("Task error"),
-        "Error does not contain the expected task error message: '{}'",
-        err_str
+        "Error does not contain the expected task error message: '{err_str}'"
     );
 
     assert!(
         err_str.contains("3 consecutive errors"),
-        "Error does not contain '3 consecutive errors': '{}'",
-        err_str
+        "Error does not contain '3 consecutive errors': '{err_str}'"
     );
 }
 

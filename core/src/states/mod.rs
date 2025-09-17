@@ -306,11 +306,11 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             .filter(|machine| machine.dirty)
             .map(|machine| -> eyre::Result<_> {
                 let state_json = serde_json::to_string(&machine).wrap_err_with(|| {
-                    format!("Failed to serialize kickoff machine: {:?}", machine)
+                    format!("Failed to serialize kickoff machine: {machine:?}")
                 })?;
                 let kickoff_id =
                     serde_json::to_string(&machine.kickoff_data).wrap_err_with(|| {
-                        format!("Failed to serialize kickoff id for machine: {:?}", machine)
+                        format!("Failed to serialize kickoff id for machine: {machine:?}")
                     })?;
                 Ok((state_json, (kickoff_id)))
             })
@@ -323,9 +323,8 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             // Only serialize machines that are dirty
             .filter(|machine| machine.dirty)
             .map(|machine| -> eyre::Result<_> {
-                let state_json = serde_json::to_string(machine).wrap_err_with(|| {
-                    format!("Failed to serialize round machine: {:?}", machine)
-                })?;
+                let state_json = serde_json::to_string(machine)
+                    .wrap_err_with(|| format!("Failed to serialize round machine: {machine:?}"))?;
                 let operator_xonly_pk = machine.operator_data.xonly_pk;
 
                 // Use the machine's dirty flag to determine if it needs updating

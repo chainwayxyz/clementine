@@ -80,8 +80,8 @@ pub struct OperatorId(pub XOnlyPublicKey);
 impl std::fmt::Display for EntityId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            EntityId::Verifier(id) => write!(f, "{}", id),
-            EntityId::Operator(id) => write!(f, "{}", id),
+            EntityId::Verifier(id) => write!(f, "{id}"),
+            EntityId::Operator(id) => write!(f, "{id}"),
         }
     }
 }
@@ -487,15 +487,14 @@ impl Aggregator {
 
                             timed_request(
                                 VERIFIER_SEND_KEYS_TIMEOUT,
-                                &format!("Setting operator keys for {}", verifier_id),
+                                &format!("Setting operator keys for {verifier_id}"),
                                 async {
                                     Ok(verifier
                                         .set_operator_keys(operator_keys)
                                         .await
                                         .wrap_err_with(|| {
                                             Status::internal(format!(
-                                                "Failed to set operator keys for {}",
-                                                verifier_id
+                                                "Failed to set operator keys for {verifier_id}",
                                             ))
                                         }))
                                 },

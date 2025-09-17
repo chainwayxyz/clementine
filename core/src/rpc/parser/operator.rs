@@ -124,7 +124,7 @@ pub async fn parse_details(
 
     let wallet_reimburse_address = Address::from_str(&operator_config.wallet_reimburse_address)
         .map_err(|e| {
-            Status::invalid_argument(format!("Failed to parse wallet reimburse address: {:?}", e))
+            Status::invalid_argument(format!("Failed to parse wallet reimburse address: {e:?}"))
         })?;
 
     Ok((
@@ -158,6 +158,7 @@ pub async fn parse_schnorr_sig(
     }
 }
 
+#[allow(clippy::result_large_err)]
 pub fn parse_withdrawal_sig_params(
     params: WithdrawParams,
 ) -> Result<(u32, Signature, OutPoint, ScriptBuf, Amount), Status> {

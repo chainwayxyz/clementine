@@ -960,10 +960,8 @@ mod tests {
                 .assume_checked(),
         ];
         for i in 0..2 {
-            let txid_str = format!(
-                "16b3a5951cb816afeb9dab8a30d0ece7acd3a7b34437436734edd1b72b6bf0{:02x}",
-                i
-            );
+            let txid_str =
+                format!("16b3a5951cb816afeb9dab8a30d0ece7acd3a7b34437436734edd1b72b6bf0{i:02x}");
             let txid = Txid::from_str(&txid_str).unwrap();
             ops.push((
                 operator_xonly_pks[i],

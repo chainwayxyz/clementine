@@ -368,7 +368,8 @@ mod tests {
                     }
                 }
                 crate::rpc::clementine::entity_status_with_id::StatusResult::Err(error) => {
-                    panic!("Couldn't get entity status: {}", error.error);
+                    let error_msg = &error.error;
+                    panic!("Couldn't get entity status: {error_msg}");
                 }
             }
         }

@@ -4,7 +4,19 @@ use bitcoin::{opcodes, script::Instruction, Transaction};
 use risc0_circuit_recursion::control_id::BN254_IDENTITY_CONTROL_ID;
 use risc0_zkvm::{sha::Digestible, SuccinctReceiptVerifierParameters, SystemState};
 use sha2::{Digest, Sha256};
+use std::io::{Read, Write};
 use std::str::FromStr;
+
+use eyre::{eyre, Context, Result};
+use num_bigint::BigUint;
+use num_traits::Num;
+use risc0_core::field::baby_bear::BabyBearElem;
+use risc0_zkp::core::{
+    digest::{Digest as Risc0Digest, DIGEST_WORDS},
+    hash::poseidon_254::digest_to_fr,
+};
+
+use crate::seal_format::{IopType, K_SEAL_ELEMS, K_SEAL_TYPES, K_SEAL_WORDS};
 
 /// This is the test Verifying Key of the STARK-to-BitVM2 Groth16 proof Circom circuit.
 pub fn get_ark_verifying_key_prod() -> ark_groth16::VerifyingKey<Bn254> {
@@ -298,4 +310,63 @@ pub fn total_work_from_wt_tx(wt_tx: &Transaction) -> [u8; 16] {
         panic!("Expected OP_RETURN followed by data");
     }
     panic!("Expected OP_RETURN instruction in the transaction output script");
+}
+
+/// Convert a recursion VM seal (i.e. succinct receipt) into a JSON format compatible with the
+/// `stark_verify` witness generator. Taken from risc0-groth16 v2.3.2.
+pub fn to_json<R: Read, W: Write>(mut reader: R, mut writer: W) -> Result<()> {
+    let mut iop = vec![0u32; K_SEAL_WORDS];
+    reader
+        .read_exact(bytemuck::cast_slice_mut(&mut iop))
+        .context("Failed to read seal data from reader")?;
+
+    writeln!(writer, "{{\n  \"iop\" : [").context("Failed to write JSON header")?;
+
+    let mut pos = 0;
+    for (index, seal_type) in K_SEAL_TYPES.iter().take(K_SEAL_ELEMS).enumerate() {
+        if pos != 0 {
+            writeln!(writer, ",").context("Failed to write JSON separator")?;
+        }
+        match seal_type {
+            IopType::Fp => {
+                let value = BabyBearElem::new_raw(iop[pos]).as_u32();
+                pos += 1;
+                writeln!(writer, "    \"{value}\"")
+                    .with_context(|| format!("Failed to write Fp value at index {index}"))?;
+            }
+            _ => {
+                if pos + DIGEST_WORDS > iop.len() {
+                    return Err(eyre!(
+                        "Not enough data for digest at position {}: need {} words, have {} remaining",
+                        pos,
+                        DIGEST_WORDS,
+                        iop.len() - pos
+                    ));
+                }
+                let digest = Risc0Digest::try_from(&iop[pos..pos + DIGEST_WORDS])
+                    .with_context(|| format!("Failed to create digest at position {pos}"))?;
+                let value = digest_to_decimal(&digest).with_context(|| {
+                    format!("Failed to convert digest to decimal at index {index}")
+                })?;
+                pos += 8;
+                writeln!(writer, "    \"{value}\"")
+                    .with_context(|| format!("Failed to write digest value at index {index}",))?;
+            }
+        }
+    }
+    write!(writer, "  ]\n}}").context("Failed to write JSON footer")?;
+
+    Ok(())
+}
+
+fn digest_to_decimal(digest: &Risc0Digest) -> Result<String> {
+    to_decimal(&format!("{:?}", digest_to_fr(digest)))
+        .ok_or_else(|| eyre!("Failed to convert digest to decimal format"))
+}
+
+fn to_decimal(s: &str) -> Option<String> {
+    s.strip_prefix("Fr(0x")
+        .and_then(|s| s.strip_suffix(')'))
+        .and_then(|stripped| BigUint::from_str_radix(stripped, 16).ok())
+        .map(|n| n.to_str_radix(10))
 }

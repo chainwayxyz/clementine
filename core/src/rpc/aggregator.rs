@@ -773,7 +773,7 @@ impl Aggregator {
             .map_err(BridgeError::from)?;
         dbtx.commit()
             .await
-            .map_err(|e| Status::internal(format!("Failed to commit db transaction: {}", e)))?;
+            .map_err(|e| Status::internal(format!("Failed to commit db transaction: {e}")))?;
 
         Ok(tx)
     }
@@ -821,8 +821,7 @@ impl ClementineAggregator for AggregatorServer {
             .map_to_status()?
         {
             return Err(Status::invalid_argument(format!(
-                "Withdrawal utxo is already spent: {:?}",
-                input_outpoint
+                "Withdrawal utxo is already spent: {input_outpoint:?}",
             )));
         }
 
@@ -839,8 +838,7 @@ impl ClementineAggregator for AggregatorServer {
                 .await?;
             if withdrawal_utxo != input_outpoint {
                 return Err(Status::invalid_argument(format!(
-                    "Withdrawal utxo is not correct: {:?} != {:?}",
-                    withdrawal_utxo, input_outpoint
+                    "Withdrawal utxo is not correct: {withdrawal_utxo:?} != {input_outpoint:?}",
                 )));
             }
 
@@ -970,7 +968,7 @@ impl ClementineAggregator for AggregatorServer {
                     )
                 })
                 .collect::<Result<Vec<_>, _>>()
-                .map_err(|e| Status::internal(format!("Failed to parse partial sig: {:?}", e)))?;
+                .map_err(|e| Status::internal(format!("Failed to parse partial sig: {e:?}")))?;
 
             let final_sig = bitcoin::taproot::Signature {
                 signature: crate::musig2::aggregate_partial_signatures(
@@ -1004,11 +1002,10 @@ impl ClementineAggregator for AggregatorServer {
                         None,
                     )
                     .await
-                    .map_err(BridgeError::from)?;
+                    .map_to_status()?;
                 dbtx.commit().await.map_err(|e| {
                     Status::internal(format!(
-                        "Failed to commit db transaction to send optimistic payout tx: {}",
-                        e
+                        "Failed to commit db transaction to send optimistic payout tx: {e}",
                     ))
                 })?;
             }
@@ -1016,8 +1013,7 @@ impl ClementineAggregator for AggregatorServer {
             Ok(Response::new(RawSignedTx::from(opt_payout_tx)))
         } else {
             Err(Status::not_found(format!(
-                "Withdrawal with index {} not found.",
-                deposit_id
+                "Withdrawal with index {deposit_id} not found."
             )))
         }
     }
@@ -1053,10 +1049,10 @@ impl ClementineAggregator for AggregatorServer {
                     &[],
                 )
                 .await
-                .map_err(BridgeError::from)?;
+                .map_to_status()?;
             dbtx.commit()
                 .await
-                .map_err(|e| Status::internal(format!("Failed to commit db transaction: {}", e)))?;
+                .map_err(|e| Status::internal(format!("Failed to commit db transaction: {e}")))?;
             Ok(Response::new(Empty {}))
         }
     }
@@ -1238,7 +1234,7 @@ impl ClementineAggregator for AggregatorServer {
                             .into_inner();
 
                         tx.send(deposit_sign_param).await.map_err(|e| {
-                            Status::internal(format!("Failed to send deposit sign session: {:?}", e))
+                            BridgeError::from(Box::new(Status::internal(format!("Failed to send deposit sign session: {e:?}"))))
                         })?;
 
                         Ok::<_, BridgeError>((stream, tx))
@@ -1264,7 +1260,7 @@ impl ClementineAggregator for AggregatorServer {
                                 .hook_timeout_deposit_finalize_verifier(_idx)
                                 .await;
 
-                            verifier.deposit_finalize(receiver_stream).await.map_err(BridgeError::from)
+                            verifier.deposit_finalize(receiver_stream).await
                         });
 
                         Ok::<_, BridgeError>((deposit_finalize_future, tx))
@@ -1289,11 +1285,10 @@ impl ClementineAggregator for AggregatorServer {
                     async move {
                         tx.send(param).await
                         .map_err(|e| {
-                            Status::internal(format!(
-                                "Failed to send deposit finalize first param: {:?}",
-                                e
-                            ))
-                        }).map_err(Into::into)
+                            BridgeError::from(Status::internal(format!(
+                                "Failed to send deposit finalize first param: {e:?}"
+                            )))
+                        })
                     }
                 })
             ).await?;
@@ -1389,7 +1384,7 @@ impl ClementineAggregator for AggregatorServer {
             // 1st signature of all operators, then 2nd of all operators etc.
             let all_op_sigs = operator_sigs_fut
                 .await
-                .map_err(|_| Status::internal("panic when collecting operator signatures"))??;
+                .map_err(|_| BridgeError::from(Box::new(Status::internal("panic when collecting operator signatures"))))??;
 
             tracing::debug!("Got all operator signatures");
 
@@ -1444,7 +1439,7 @@ impl ClementineAggregator for AggregatorServer {
                     Some(verifiers.ids()),
                     deposit_finalize_futures.into_iter().map(|fut| async move {
                         let inner = fut.await
-                            .map_err(|_| BridgeError::from(Status::internal("panic finishing deposit_finalize")))??
+                            .map_err(|_| BridgeError::from(Box::new(Status::internal("panic finishing deposit_finalize"))))??
                             .into_inner();
 
                         Ok((inner.move_to_vault_partial_sig, inner.emergency_stop_partial_sig))
@@ -1499,7 +1494,7 @@ impl ClementineAggregator for AggregatorServer {
             .into_iter()
             .map(|xonly_pk| {
                 xonly_pk.try_into().map_err(|e| {
-                    Status::invalid_argument(format!("Failed to convert xonly public key: {}", e))
+                    Status::invalid_argument(format!("Failed to convert xonly public key: {e}"))
                 })
             })
             .collect::<Result<Vec<_>, Status>>()?;
@@ -1513,9 +1508,7 @@ impl ClementineAggregator for AggregatorServer {
             .collect::<Vec<_>>();
         if !invalid_operator_xonly_pks.is_empty() {
             return Err(Status::invalid_argument(format!(
-                "Given xonly public key doesn't belong to any current operator: invalid keys: {:?}, current operators: {:?}",
-                invalid_operator_xonly_pks,
-                current_operator_xonly_pks
+                "Given xonly public key doesn't belong to any current operator: invalid keys: {invalid_operator_xonly_pks:?}, current operators: {current_operator_xonly_pks:?}"
             )));
         }
 
@@ -1646,10 +1639,10 @@ impl ClementineAggregator for AggregatorServer {
                     &[],
                 )
                 .await
-                .map_err(BridgeError::from)?;
+                .map_to_status()?;
             dbtx.commit()
                 .await
-                .map_err(|e| Status::internal(format!("Failed to commit db transaction: {}", e)))?;
+                .map_err(|e| Status::internal(format!("Failed to commit db transaction: {e}")))?;
 
             Ok(Response::new(movetx.compute_txid().into()))
         }
@@ -2111,8 +2104,7 @@ mod tests {
         let err_string = res.unwrap_err().to_string();
         assert!(
             err_string.contains("Deposit finalization from verifiers"),
-            "Error string was: {}",
-            err_string
+            "Error string was: {err_string}"
         );
     }
 
@@ -2131,8 +2123,7 @@ mod tests {
         let err_string = res.unwrap_err().to_string();
         assert!(
             err_string.contains("Verifier key distribution (id:"),
-            "Error string was: {}",
-            err_string
+            "Error string was: {err_string}"
         );
     }
 
@@ -2151,8 +2142,7 @@ mod tests {
         let err_string = res.unwrap_err().to_string();
         assert!(
             err_string.contains("Operator key collection (id:"),
-            "Error string was: {}",
-            err_string
+            "Error string was: {err_string}"
         );
     }
 
@@ -2171,8 +2161,7 @@ mod tests {
         let err_string = res.unwrap_err().to_string();
         assert!(
             err_string.contains("Nonce stream creation (id:"),
-            "Error string was: {}",
-            err_string
+            "Error string was: {err_string}"
         );
     }
 
@@ -2191,8 +2180,7 @@ mod tests {
         let err_string = res.unwrap_err().to_string();
         assert!(
             err_string.contains("Partial signature stream creation (id:"),
-            "Error string was: {}",
-            err_string
+            "Error string was: {err_string}"
         );
     }
 
@@ -2211,8 +2199,7 @@ mod tests {
         let err_string = res.unwrap_err().to_string();
         assert!(
             err_string.contains("Operator signature stream creation (id:"),
-            "Error string was: {}",
-            err_string
+            "Error string was: {err_string}"
         );
     }
 

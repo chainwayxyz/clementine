@@ -168,7 +168,7 @@ pub enum BridgeError {
     #[error("{0}")]
     CLIDisplayAndExit(StyledStr),
     #[error(transparent)]
-    RPC(#[from] Status),
+    RPCStatus(#[from] Box<Status>),
 
     #[error("Arithmetic overflow occurred: {0}")]
     ArithmeticOverflow(&'static str),
@@ -199,6 +199,7 @@ pub trait ResultExt: Sized {
     type Output;
 
     fn map_to_eyre(self) -> Result<Self::Output, eyre::Report>;
+    #[allow(clippy::result_large_err)]
     fn map_to_status(self) -> Result<Self::Output, tonic::Status>;
 }
 
@@ -223,6 +224,12 @@ impl<U: Sized, T: Into<BridgeError>> ResultExt for Result<U, T> {
 
     fn map_to_status(self) -> Result<Self::Output, tonic::Status> {
         self.map_err(ErrorExt::into_status)
+    }
+}
+
+impl From<Status> for BridgeError {
+    fn from(status: Status) -> Self {
+        BridgeError::RPCStatus(Box::new(status))
     }
 }
 

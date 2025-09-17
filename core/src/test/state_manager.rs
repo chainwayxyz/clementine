@@ -45,11 +45,7 @@ async fn test_process_empty_block_with_no_machines() {
     let result = state_manager.process_block_parallel(block_height).await;
 
     // Should succeed with no state changes
-    assert!(
-        result.is_ok(),
-        "Failed to process empty block: {:?}",
-        result
-    );
+    assert!(result.is_ok(), "Failed to process empty block: {result:?}");
 }
 
 #[tokio::test]
@@ -65,9 +61,7 @@ async fn test_process_block_parallel() {
         let result = state_manager.process_block_parallel(i).await;
         assert!(
             result.is_ok(),
-            "Failed to process block on iteration {}: {:?}",
-            i,
-            result
+            "Failed to process block on iteration {i}: {result:?}",
         );
     }
 }
@@ -80,18 +74,18 @@ async fn test_save_and_load_state() {
     let block = create_empty_block();
     state_manager.update_block_cache(&block, 1);
     let result = state_manager.process_block_parallel(1).await;
-    assert!(result.is_ok(), "Failed to process block: {:?}", result);
+    assert!(result.is_ok(), "Failed to process block: {result:?}");
 
     // Save state to DB
     let result = state_manager.save_state_to_db(1, None).await;
-    assert!(result.is_ok(), "Failed to save state to DB: {:?}", result);
+    assert!(result.is_ok(), "Failed to save state to DB: {result:?}");
 
     // Create a new state manager to load from DB
     let (mut new_state_manager, _) = create_test_state_manager(&config).await;
 
     // Load state from DB
     let result = new_state_manager.load_from_db().await;
-    assert!(result.is_ok(), "Failed to load state from DB: {:?}", result);
+    assert!(result.is_ok(), "Failed to load state from DB: {result:?}");
 
     // Check that the state is the same
     let mut round_machines = new_state_manager.round_machines();

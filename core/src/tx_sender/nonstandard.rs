@@ -65,8 +65,7 @@ impl TxSender {
             .await
             .map_err(|e| {
                 SendTxError::NetworkError(format!(
-                    "Failed to get transaction history from mempool.space accelerator: {}",
-                    e
+                    "Failed to get transaction history from mempool.space accelerator: {e}"
                 ))
             })?;
         if response.status().is_success() {
@@ -103,8 +102,7 @@ impl TxSender {
             let status = response.status();
             let error_text = response.text().await.unwrap_or_default();
             return Err(SendTxError::NetworkError(format!(
-                "Accelerator returned HTTP {}: {}",
-                status, error_text
+                "Accelerator returned HTTP {status}: {error_text}"
             )));
         }
 
@@ -126,16 +124,16 @@ impl TxSender {
             .await
             .map_err(|e| {
                 SendTxError::NetworkError(format!(
-                    "Failed to submit transaction to mempool.space accelerator: {}",
-                    e
+                    "Failed to submit transaction to mempool.space accelerator: {e}"
                 ))
             })?;
 
         // Check if the request was successful
         if response.status().is_success() {
-            let response_text = response.text().await.map_err(|e| {
-                SendTxError::NetworkError(format!("Failed to read response: {}", e))
-            })?;
+            let response_text = response
+                .text()
+                .await
+                .map_err(|e| SendTxError::NetworkError(format!("Failed to read response: {e}")))?;
 
             tracing::info!(
                 "Successfully submitted nonstandard transaction {:?} to mempool.space testnet4 accelerator: {}",
@@ -178,8 +176,7 @@ impl TxSender {
                 .await;
 
             Err(SendTxError::NetworkError(format!(
-                "Failed to submit transaction to mempool.space. Status: {}, Error: {}",
-                status, error_text
+                "Failed to submit transaction to mempool.space. Status: {status}, Error: {error_text}"
             )))
         }
     }

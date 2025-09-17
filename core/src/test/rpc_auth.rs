@@ -35,7 +35,7 @@ async fn test_mtls_connection() -> Result<(), eyre::Report> {
         create_operator_grpc_server::<MockCitreaClient>(config.clone()).await?;
 
     // Connect to the server using mTLS
-    let endpoint = format!("https://{}:{}", host, port);
+    let endpoint = format!("https://{host}:{port}");
 
     let clients =
         crate::rpc::get_clients::<ClementineOperatorClient<tonic::transport::Channel>, _>(
@@ -54,7 +54,7 @@ async fn test_mtls_connection() -> Result<(), eyre::Report> {
     let response = client.get_x_only_public_key(Empty {}).await;
 
     // We just want to verify that the connection works with mTLS
-    println!("RPC response: {:?}", response);
+    println!("RPC response: {response:?}");
 
     Ok(())
 }
@@ -76,7 +76,7 @@ async fn test_auth_interceptor() -> Result<(), eyre::Report> {
         create_operator_grpc_server::<MockCitreaClient>(config.clone()).await?;
 
     // Connect to the server using mTLS
-    let endpoint = format!("https://{}:{}", host, port);
+    let endpoint = format!("https://{host}:{port}");
 
     let mut agg_config = config.clone();
     agg_config.client_cert_path = PathBuf::from("certs/aggregator/aggregator.pem");

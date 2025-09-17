@@ -62,7 +62,7 @@ where
                 .try_into()
                 .map_err(|_| Status::invalid_argument("agg_nonce must be exactly 66 bytes"))?,
         )
-        .map_err(|e| Status::invalid_argument(format!("Invalid musigagg nonce: {}", e)))?;
+        .map_err(|e| Status::invalid_argument(format!("Invalid musigagg nonce: {e}")))?;
         let nonce_session_id = params
             .nonce_gen
             .ok_or(Status::invalid_argument(
@@ -70,7 +70,7 @@ where
             ))?
             .id
             .parse::<u128>()
-            .map_err(|e| Status::invalid_argument(format!("Invalid nonce session id: {}", e)))?;
+            .map_err(|e| Status::invalid_argument(format!("Invalid nonce session id: {e}")))?;
 
         let opt_withdraw_params = params.opt_withdrawal.ok_or(Status::invalid_argument(
             "Withdrawal params not found for optimistic payout",
@@ -87,7 +87,7 @@ where
         let verification_signature = verification_signature_str
             .map(|sig| {
                 PrimitiveSignature::from_str(&sig).map_err(|e| {
-                    Status::invalid_argument(format!("Invalid verification signature: {}", e))
+                    Status::invalid_argument(format!("Invalid verification signature: {e}"))
                 })
             })
             .transpose()?;
@@ -412,8 +412,7 @@ where
             }
             if nonce_idx < num_required_nofn_sigs {
                 let err_msg = format!(
-                    "Insufficient N-of-N signatures received: got {}, expected {}",
-                    nonce_idx, num_required_nofn_sigs
+                    "Insufficient N-of-N signatures received: got {nonce_idx}, expected {num_required_nofn_sigs}",
                 );
                 tracing::error!(err_msg);
                 return Err(Status::invalid_argument(err_msg));
@@ -473,8 +472,7 @@ where
 
             if total_op_sig_count < num_required_total_op_sigs {
                 let err_msg = format!(
-                    "Insufficient operator signatures received: got {}, expected {}",
-                    total_op_sig_count, num_required_total_op_sigs
+                    "Insufficient operator signatures received: got {total_op_sig_count}, expected {num_required_total_op_sigs}",
                 );
                 tracing::error!(err_msg);
                 return Err(Status::invalid_argument(err_msg));
@@ -484,11 +482,11 @@ where
         });
 
         sig_handle.await.map_err(|e| {
-            Status::internal(format!("Deposit sign thread failed to finish: {}", e).as_str())
+            Status::internal(format!("Deposit sign thread failed to finish: {e}").as_str())
         })??;
 
         let partial_sig = deposit_finalize_handle.await.map_err(|e| {
-            Status::internal(format!("Deposit finalize thread failed to finish: {}", e).as_str())
+            Status::internal(format!("Deposit finalize thread failed to finish: {e}").as_str())
         })??;
 
         let response = VerifierDepositFinalizeResponse {
@@ -585,8 +583,7 @@ where
             match self.verifier.tx_sender.debug_tx(tx_id).await {
                 Ok(debug_info) => Ok(tonic::Response::new(debug_info)),
                 Err(e) => Err(tonic::Status::internal(format!(
-                    "Failed to debug TX {}: {}",
-                    tx_id, e
+                    "Failed to debug TX {tx_id}: {e}",
                 ))),
             }
         }

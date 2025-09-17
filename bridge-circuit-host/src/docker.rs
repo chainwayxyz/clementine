@@ -1,7 +1,7 @@
 use hex::ToHex;
 use num_bigint::BigUint;
 use num_traits::Num;
-use risc0_groth16::{to_json, ProofJson, Seal};
+use risc0_groth16::{ProofJson, Seal};
 use risc0_zkvm::sha::Digestible;
 use risc0_zkvm::{
     sha::Digest, ReceiptClaim, SuccinctReceipt, SuccinctReceiptVerifierParameters, SystemState,
@@ -18,6 +18,8 @@ use std::{
 use eyre::{eyre, ContextCompat, Result, WrapErr};
 use tempfile::tempdir;
 use tracing;
+
+use crate::utils::to_json;
 
 /// Convert a STARK proof to a SNARK proof. Taken from risc0-groth16 and modified slightly.
 pub fn stark_to_bitvm2_g16(
@@ -183,7 +185,7 @@ pub fn stark_to_bitvm2_g16(
     let output_content_hex = if output_content_hex.len() % 2 == 0 {
         output_content_hex
     } else {
-        format!("0{}", output_content_hex)
+        format!("0{output_content_hex}")
     };
 
     // Step 3: Decode the hexadecimal string to a byte vector
@@ -512,7 +514,7 @@ pub fn stark_to_bitvm2_g16_dev_mode(receipt: Receipt, journal: &[u8]) -> Result<
     let output_content_hex = if output_content_hex.len() % 2 == 0 {
         output_content_hex
     } else {
-        format!("0{}", output_content_hex)
+        format!("0{output_content_hex}")
     };
 
     // Step 3: Decode the hexadecimal string to a byte vector

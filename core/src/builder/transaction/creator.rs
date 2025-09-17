@@ -1172,8 +1172,7 @@ mod tests {
                                         .iter()
                                         .any(|signed_tx| signed_tx.transaction_type
                                             == Some((*tx_type).into())),
-                                    "Tx type: {:?} not found in signed txs for operator",
-                                    tx_type
+                                    "Tx type: {tx_type:?} not found in signed txs for operator"
                                 );
                             }
                             tracing::info!(
@@ -1259,8 +1258,7 @@ mod tests {
                                             .iter()
                                             .any(|signed_tx| signed_tx.transaction_type
                                                 == Some((*tx_type).into())),
-                                        "Tx type: {:?} not found in signed txs for verifier",
-                                        tx_type
+                                        "Tx type: {tx_type:?} not found in signed txs for verifier"
                                     );
                                 }
                                 tracing::info!(

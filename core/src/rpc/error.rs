@@ -15,7 +15,7 @@ pub(crate) fn input_ended_prematurely() -> Status {
 }
 
 pub(crate) fn output_stream_ended_prematurely<T>(e: SendError<T>) -> Status {
-    Status::internal(format!("Output stream ended prematurely: {}", e))
+    Status::internal(format!("Output stream ended prematurely: {e}"))
 }
 
 pub(crate) fn invalid_argument<'a, T: std::error::Error + Send + Sync + 'static + Display>(

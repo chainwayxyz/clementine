@@ -535,15 +535,12 @@ impl ExtendedBitcoinRpc {
                 .get_block_info(&block_hash)
                 .await
                 .wrap_err(format!(
-                    "Failed to get block info for block hash {}",
-                    block_hash
+                    "Failed to get block info for block hash {block_hash}"
                 ))?
                 .height;
             if block_height < paramset.start_height as usize {
                 tracing::warn!(
-                    "Collateral utxo of operator {:?} is spent in a block before paramset start height: {} < {}",
-                    operator_data,
-                    block_height,
+                    "Collateral utxo of operator {operator_data:?} is spent in a block before paramset start height: {block_height} < {0}",
                     paramset.start_height
                 );
                 return Ok(false);
@@ -622,12 +619,10 @@ impl ExtendedBitcoinRpc {
         height: u64,
     ) -> Result<(bitcoin::BlockHash, bitcoin::block::Header)> {
         let block_hash = self.get_block_hash(height).await.wrap_err(format!(
-            "Couldn't retrieve block hash from height {} from rpc",
-            height
+            "Couldn't retrieve block hash from height {height} from rpc"
         ))?;
         let block_header = self.get_block_header(&block_hash).await.wrap_err(format!(
-            "Couldn't retrieve block header with block hash {} from rpc",
-            block_hash
+            "Couldn't retrieve block header with block hash {block_hash} from rpc"
         ))?;
 
         Ok((block_hash, block_header))
@@ -1201,7 +1196,7 @@ mod tests {
             .inspect_err(|e| {
                 match e {
                     BitcoinRPCError::TransactionAlreadyInBlock(_) => {}
-                    _ => panic!("Unexpected error: {:?}", e),
+                    _ => panic!("Unexpected error: {e:?}"),
                 }
             })
             .is_err());
@@ -1385,8 +1380,7 @@ mod tests {
                 let rpc_error = bitcoincore_rpc::Error::Io(io_error);
                 assert!(
                     rpc_error.is_retryable(),
-                    "ErrorKind::{:?} should be retryable",
-                    kind
+                    "ErrorKind::{kind:?} should be retryable"
                 );
             }
         }
@@ -1405,8 +1399,7 @@ mod tests {
                 let rpc_error = bitcoincore_rpc::Error::Io(io_error);
                 assert!(
                     !rpc_error.is_retryable(),
-                    "ErrorKind::{:?} should not be retryable",
-                    kind
+                    "ErrorKind::{kind:?} should not be retryable"
                 );
             }
         }
@@ -1444,8 +1437,7 @@ mod tests {
                 let rpc_error = bitcoincore_rpc::Error::ReturnedError(msg.to_string());
                 assert!(
                     !rpc_error.is_retryable(),
-                    "Message '{}' should not be retryable",
-                    msg
+                    "Message '{msg}' should not be retryable"
                 );
             }
         }
@@ -1462,13 +1454,10 @@ mod tests {
 
             let serialization_errors = [
                 bitcoincore_rpc::Error::BitcoinSerialization(EncodeError::Io(
-                    IoError::new(ErrorKind::Other, "test").into(),
+                    IoError::other("test").into(),
                 )),
                 // bitcoincore_rpc::Error::Hex(HexToBytesError::InvalidChar(InvalidCharError{invalid: 0})),
-                bitcoincore_rpc::Error::Json(serde_json::Error::io(IoError::new(
-                    ErrorKind::Other,
-                    "test",
-                ))),
+                bitcoincore_rpc::Error::Json(serde_json::Error::io(IoError::other("test"))),
             ];
 
             for error in serialization_errors {

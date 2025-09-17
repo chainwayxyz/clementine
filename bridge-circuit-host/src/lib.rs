@@ -4,6 +4,7 @@ use risc0_zkvm::{InnerReceipt, Receipt};
 pub mod bridge_circuit_host;
 pub mod docker;
 pub mod mock_zkvm;
+mod seal_format;
 pub mod structs;
 pub mod utils;
 

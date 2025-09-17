@@ -20,11 +20,8 @@ pub enum Matcher {
     /// This matcher is used to determine that an outpoint was spent, but the txid of the tx that spent the outpoint
     /// is not equal to any of the txids in the vector.
     /// For many transactions in clementine, there are many utxos that can be spent in two ways:
-    /// 1. A nofn-presigned timeout transaction. These timeout transactions have fixed txid (because they are nofn signed)
-    ///     and can be sent after the utxo is not spent by operator before the timelock.
-    /// 2. A transaction that spends the utxo to reveal/inscribe something in Bitcoin. These transactions are not nofn presigned and
-    ///     can be spent by operators/verifiers in any way they want as long as the witness is valid so there are
-    ///     no fixed txids for these transactions. (Transactions like Watchtower Challenge, Operator Assert, etc.)
+    /// 1. A nofn-presigned timeout transaction. These timeout transactions have fixed txid (because they are nofn signed) and can be sent after the utxo is not spent by operator before the timelock.
+    /// 2. A transaction that spends the utxo to reveal/inscribe something in Bitcoin. These transactions are not nofn presigned and can be spent by operators/verifiers in any way they want as long as the witness is valid so there are no fixed txids for these transactions. (Transactions like Watchtower Challenge, Operator Assert, etc.)
     ///
     /// This matcher is used to detect the second case, and the Txid vector is used to check if utxo is instead spent by a timeout transaction.
     /// This matcher is used for detection of transactions like Watchtower Challenge, Operator Assert, etc.

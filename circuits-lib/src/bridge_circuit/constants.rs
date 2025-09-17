@@ -29,19 +29,18 @@ pub const DEVNET_LC_IMAGE_ID: [u8; 32] =
 pub const TESTNET_LC_IMAGE_ID: [u8; 32] =
     hex!("7eae7a3d628b6e383a23d1d3504b06b146c6a9d67a04515aba1dbbfdca7de6ca");
 
-// MAINNET LC_IMAGE_ID is not yet provided by CITREA, so we use a placeholder.
 pub const MAINNET_LC_IMAGE_ID: [u8; 32] =
-    hex!("0000000000000000000000000000000000000000000000000000000000000000");
+    hex!("bf5927548f4a03835b7dbcfd1844b2d4da84e824ac26d9fe46f3df01cf4f0e75");
 
 // Work-only circuit method IDs for different networks.
 pub static MAINNET_WORK_ONLY_METHOD_ID: [u8; 32] =
-    hex!("7a5e19c21ae060be36ddff77c8f07849d8fc8b0b240384e8801a66e328b2ee22");
+    hex!("275431cb02b7e088616056924c8892809506766e05e6287e93fdf3faf4dcb10a");
 pub static TESTNET4_WORK_ONLY_METHOD_ID: [u8; 32] =
-    hex!("8d6d75f630594a20ec0c55da0a9ba89a7cceffab9cb492eb9b3689d8c1e44c51");
+    hex!("15600135ff7502a0220447d13ddfe14f583be585b686cc0b9ef869ed9793b7f1");
 pub static REGTEST_WORK_ONLY_METHOD_ID: [u8; 32] =
-    hex!("ee89251fc3344efd8ab2f9ff3dbf7a4d509cb3223b374af70485efd1d3810edd");
+    hex!("d63e552d6e76992fac18fedd391eec3caa4fc7ef11a79c9f513b5716b013d432");
 pub static SIGNET_WORK_ONLY_METHOD_ID: [u8; 32] =
-    hex!("dc4600ac1fba430ff3d86e2776eb415a796c6b210a2c8e434b30a4f49727ac2d");
+    hex!("e55ff06493f3bc569ebe7e2e44eb0f57ed75fed5408e66dd8d8c2abcf93a8ec9");
 
 // GROTH16 RELATED CONSTANTS
 pub static POST_STATE: [u8; 32] =
@@ -55,10 +54,10 @@ pub static CLAIM_TAG: [u8; 32] =
 pub static OUTPUT_TAG: [u8; 32] =
     hex_literal::hex!("77eafeb366a78b47747de0d7bb176284085ff5564887009a5be63da32d3559d4"); // SHA256 hash of "risc0.Output"
 
-pub const A0_BIGINT: BigInt<4> = BigInt::new([162754123530195662, 1949396425256203034, 0, 0]);
+pub const A0_BIGINT: BigInt<4> = BigInt::new([2055224492124818853, 4733028617431930770, 0, 0]);
 pub const A0_ARK: ark_ff::Fp<ark_ff::MontBackend<ark_bn254::FrConfig, 4>, 4> = Fr::new(A0_BIGINT);
 
-pub const A1_BIGINT: BigInt<4> = BigInt::new([2457364108815709557, 2960371475104660934, 0, 0]);
+pub const A1_BIGINT: BigInt<4> = BigInt::new([4020834093867526107, 6205833401006706155, 0, 0]);
 pub const A1_ARK: ark_ff::Fp<ark_ff::MontBackend<ark_bn254::FrConfig, 4>, 4> = Fr::new(A1_BIGINT);
 
 pub const BN_254_CONTROL_ID_BIGINT: BigInt<4> = BigInt::new([

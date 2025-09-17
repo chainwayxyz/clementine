@@ -32,7 +32,7 @@ Before compiling Clementine:
    curl -L https://risczero.com/install | bash
    rzup install cargo-risczero 2.1.0 # Or v2.1.0
    rzup install r0vm 2.1.0
-   rzup install rust 1.85.0
+   rzup install rust 1.88.0
    ```
 
 3. If on Mac, install XCode and its app from AppStore (if `xcrun metal` gives an error):

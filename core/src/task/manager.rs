@@ -51,23 +51,23 @@ impl BackgroundTaskManager {
             let exit_reason = match handle.await {
                 Ok(Ok(_)) => {
                     // Task completed successfully
-                    tracing::debug!("Task {:?} completed successfully", task_variant);
+                    tracing::debug!("Task {task_variant:?} completed successfully");
                     "Completed successfully".to_owned()
                 }
                 Ok(Err(e)) => {
                     // Task returned an error
-                    tracing::error!("Task {:?} failed with error: {:?}", task_variant, e);
-                    format!("Failed due to error: {:?}", e)
+                    tracing::error!("Task {task_variant:?} failed with error: {e:?}");
+                    format!("Failed due to error: {e:?}")
                 }
                 Err(e) => {
                     if e.is_cancelled() {
                         // Task was cancelled, which is expected during cleanup
-                        tracing::debug!("Task {:?} was cancelled", task_variant);
+                        tracing::debug!("Task {task_variant:?} was cancelled");
                         "Cancelled".to_owned()
                     } else {
                         // Task panicked or was aborted
-                        tracing::error!("Task {:?} panicked: {:?}", task_variant, e);
-                        format!("Panicked due to {:?}", e)
+                        tracing::error!("Task {task_variant:?} panicked: {e:?}");
+                        format!("Panicked due to {e:?}")
                     }
                 }
             };
@@ -118,7 +118,7 @@ impl BackgroundTaskManager {
                 match status {
                     TaskStatus::Running => {}
                     TaskStatus::NotRunning(reason) => {
-                        stopped_tasks.push(format!("{:?}: {}", variant, reason));
+                        stopped_tasks.push(format!("{variant:?}: {reason}"));
                     }
                 }
             }

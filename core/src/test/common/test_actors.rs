@@ -88,7 +88,7 @@ impl<C: CitreaClientT> TestVerifier<C> {
         index: usize,
         secret_key: bitcoin::secp256k1::SecretKey,
     ) -> eyre::Result<Self> {
-        let socket_path = socket_dir.join(format!("verifier_{}.sock", index));
+        let socket_path = socket_dir.join(format!("verifier_{index}.sock"));
         let mut config_with_new_db = base_config.clone();
         config_with_new_db.db_name += &index.to_string();
         config_with_new_db.secret_key = secret_key;
@@ -157,7 +157,7 @@ impl<C: CitreaClientT> TestOperator<C> {
         verifier_index: usize,
         secret_key: bitcoin::secp256k1::SecretKey,
     ) -> eyre::Result<Self> {
-        let socket_path = socket_dir.join(format!("operator_{}.sock", index));
+        let socket_path = socket_dir.join(format!("operator_{index}.sock"));
         let mut operator_config = verifier_config.clone();
         operator_config.secret_key = secret_key;
 
@@ -206,7 +206,7 @@ impl TestAggregator {
         socket_suffix: Option<&str>,
     ) -> eyre::Result<Self> {
         let socket_name = match socket_suffix {
-            Some(suffix) => format!("aggregator_{}.sock", suffix),
+            Some(suffix) => format!("aggregator_{suffix}.sock"),
             None => "aggregator.sock".to_string(),
         };
         let aggregator_socket_path = socket_dir.join(socket_name);

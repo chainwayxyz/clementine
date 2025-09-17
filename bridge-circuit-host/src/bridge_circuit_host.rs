@@ -451,7 +451,7 @@ mod tests {
     #[test]
     fn test_header_chain_circuit() {
         let value = option_env!("BITCOIN_NETWORK");
-        println!("BITCOIN_NETWORK: {:?}", value);
+        println!("BITCOIN_NETWORK: {value:?}");
         let headers = TESTNET4_HEADERS
             .chunks(80)
             .map(|header| CircuitBlockHeader::try_from_slice(header).unwrap())
@@ -485,7 +485,7 @@ mod tests {
 
         let new_output = BlockHeaderCircuitOutput::try_from_slice(&new_proof.journal).unwrap();
 
-        println!("Output: {:?}", new_output);
+        println!("Output: {new_output:?}");
     }
 
     /// Please use RISC0_DDEV_MODE=1 to run the following tests.
@@ -603,8 +603,7 @@ mod tests {
             total_work_and_watchtower_flags(&bridge_circuit_input, &REGTEST_WORK_ONLY_METHOD_ID);
 
         println!(
-            "Total work: {:?}, Challenge sending watchtowers: {:?}",
-            total_work, challenge_sending_wts
+            "Total work: {total_work:?}, Challenge sending watchtowers: {challenge_sending_wts:?}"
         );
 
         total_works.sort();
@@ -662,7 +661,7 @@ mod tests {
         let header_chain_output =
             BlockHeaderCircuitOutput::try_from_slice(&header_chain_receipt.journal.bytes).unwrap();
 
-        println!("Output: {:?}", header_chain_output);
+        println!("Output: {header_chain_output:?}");
 
         let work_only_input = circuits_lib::bridge_circuit::structs::WorkOnlyCircuitInput {
             header_chain_circuit_output: header_chain_output.clone(),
@@ -696,10 +695,10 @@ mod tests {
         )
         .unwrap();
 
-        println!("Output: {:?}", work_only_output);
+        println!("Output: {work_only_output:?}");
 
         let circuit_g16_proof = CircuitGroth16Proof::from_seal(&seal);
-        println!("Circuit G16 proof: {:?}", circuit_g16_proof);
+        println!("Circuit G16 proof: {circuit_g16_proof:?}");
     }
 
     #[test]
@@ -713,9 +712,9 @@ mod tests {
         let (proof, public_output, bitvm_inputs) =
             prove_bridge_circuit(bridge_circuit_host_params, REGTEST_BRIDGE_CIRCUIT_ELF_TEST)
                 .unwrap();
-        println!("Proof: {:?}", proof);
-        println!("Public Output: {:?}", public_output);
-        println!("BitVM Inputs: {:?}", bitvm_inputs);
+        println!("Proof: {proof:?}");
+        println!("Public Output: {public_output:?}");
+        println!("BitVM Inputs: {bitvm_inputs:?}");
     }
 
     #[test]
@@ -751,9 +750,9 @@ mod tests {
         let (proof, public_output, bitvm_inputs) =
             prove_bridge_circuit(bridge_circuit_host_params, REGTEST_BRIDGE_CIRCUIT_ELF_TEST)
                 .unwrap();
-        println!("Proof: {:?}", proof);
-        println!("Public Output: {:?}", public_output);
-        println!("BitVM Inputs: {:?}", bitvm_inputs);
+        println!("Proof: {proof:?}");
+        println!("Public Output: {public_output:?}");
+        println!("BitVM Inputs: {bitvm_inputs:?}");
     }
 
     #[test]
@@ -767,8 +766,8 @@ mod tests {
         let (proof, public_output, bitvm_inputs) =
             prove_bridge_circuit(bridge_circuit_host_params, REGTEST_BRIDGE_CIRCUIT_ELF_TEST)
                 .unwrap();
-        println!("Proof: {:?}", proof);
-        println!("Public Output: {:?}", public_output);
-        println!("BitVM Inputs: {:?}", bitvm_inputs);
+        println!("Proof: {proof:?}");
+        println!("Public Output: {public_output:?}");
+        println!("BitVM Inputs: {bitvm_inputs:?}");
     }
 }

@@ -449,11 +449,9 @@ impl TxSender {
             }
             Err(e) => {
                 tracing::error!(
-                    "Failed to send no funding tx with try_to_send_id: {:?} and metadata: {:?}",
-                    try_to_send_id,
-                    tx_metadata
+                    "Failed to send no funding tx with try_to_send_id: {try_to_send_id:?} and metadata: {tx_metadata:?}"
                 );
-                let err_msg = format!("send_raw_transaction error for no funding tx: {}", e);
+                let err_msg = format!("send_raw_transaction error for no funding tx: {e}");
                 log_error_for_tx!(self.db, try_to_send_id, err_msg);
                 let _ = self
                     .db
@@ -487,20 +485,19 @@ async fn get_fee_rate_from_mempool_space(
     let url = match network {
         Network::Bitcoin => format!(
             // If the variables are not, return Error to fallback to Bitcoin Core RPC.
-            "{}{}",
-            rpc_url, rpc_endpoint
+            "{rpc_url}{rpc_endpoint}"
         ),
-        Network::Testnet4 => format!("{}testnet4/{}", rpc_url, rpc_endpoint),
+        Network::Testnet4 => format!("{rpc_url}testnet4/{rpc_endpoint}"),
         // Return early with error for unsupported networks
-        _ => return Err(eyre!("Unsupported network for mempool.space: {:?}", network).into()),
+        _ => return Err(eyre!("Unsupported network for mempool.space: {network:?}").into()),
     };
 
     let fee_sat_per_vb = reqwest::get(&url)
         .await
-        .wrap_err_with(|| format!("GET request to {} failed", url))?
+        .wrap_err_with(|| format!("GET request to {url} failed"))?
         .json::<serde_json::Value>()
         .await
-        .wrap_err_with(|| format!("Failed to parse JSON response from {}", url))?
+        .wrap_err_with(|| format!("Failed to parse JSON response from {url}"))?
         .get("fastestFee")
         .and_then(|fee| fee.as_u64())
         .ok_or_else(|| eyre!("'fastestFee' field not found or invalid in API response"))?;
