@@ -1816,7 +1816,7 @@ where
         let last_deposit_idx = self.db.get_last_deposit_idx(Some(dbtx)).await?;
         tracing::debug!("Last Citrea deposit idx: {:?}", last_deposit_idx);
 
-        let last_withdrawal_idx = self.db.get_last_withdrawal_idx(None).await?;
+        let last_withdrawal_idx = self.db.get_last_withdrawal_idx(Some(dbtx)).await?;
         tracing::debug!("Last Citrea withdrawal idx: {:?}", last_withdrawal_idx);
 
         let new_deposits = self
