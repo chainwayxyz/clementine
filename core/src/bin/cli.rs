@@ -618,7 +618,6 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                 .optimistic_payout(Request::new(withdraw_params_with_sig))
                 .await
                 .expect("Failed to make a request");
-            println!("New optimistic withdrawal response: {response:?}");
             println!("Tx: {}", hex::encode(response.get_ref().raw_tx));
         }
         AggregatorCommands::GetNofnAggregatedKey => {
