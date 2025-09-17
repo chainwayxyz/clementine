@@ -1553,17 +1553,10 @@ where
         let payout_info = self
             .db
             .get_payout_info_from_move_txid(dbtx, move_txid)
-            .await;
-        if let Err(e) = &payout_info {
-            tracing::warn!(
-                "Couldn't retrieve payout info from db {}, assuming malicious",
-                e
-            );
-            return Ok(true);
-        }
-        let payout_info = payout_info?;
+            .await?;
+
         let Some((operator_xonly_pk_opt, payout_blockhash, _, _)) = payout_info else {
-            tracing::warn!("No payout info found in db, assuming malicious");
+            tracing::warn!("No payout info found in db for move txid {move_txid}, assuming malicious");
             return Ok(true);
         };
 
