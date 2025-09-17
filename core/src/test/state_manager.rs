@@ -50,8 +50,9 @@ fn create_empty_block() -> Block {
 
 #[tokio::test]
 async fn test_process_empty_block_with_no_machines() {
-    let (mut state_manager, _config) =
-        create_test_state_manager(&mut create_test_config().await).await;
+    let mut config = create_test_config().await;
+    let _cleanup = create_regtest_rpc(&mut config).await;
+    let (mut state_manager, _config) = create_test_state_manager(&mut config).await;
 
     let block = create_empty_block();
     let block_height = 1;
@@ -85,8 +86,9 @@ async fn test_process_empty_block_with_no_machines() {
 
 #[tokio::test]
 async fn test_process_block_parallel() {
-    let (mut state_manager, _config) =
-        create_test_state_manager(&mut create_test_config().await).await;
+    let mut config = create_test_config().await;
+    let _cleanup = create_regtest_rpc(&mut config).await;
+    let (mut state_manager, _config) = create_test_state_manager(&mut config).await;
 
     // Create a block
     let block = create_empty_block();
