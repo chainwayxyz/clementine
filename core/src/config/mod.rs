@@ -15,7 +15,7 @@ use crate::deposit::SecurityCouncil;
 use crate::errors::BridgeError;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::secp256k1::SecretKey;
-use bitcoin::{Address, Amount, OutPoint, XOnlyPublicKey};
+use bitcoin::{Address, Amount, Network, OutPoint, XOnlyPublicKey};
 use protocol::ProtocolParamset;
 use secrecy::SecretString;
 use serde::Deserialize;
@@ -205,7 +205,11 @@ impl BridgeConfig {
 
         tracing::trace!("Using configuration file: {:?}", path);
 
-        BridgeConfig::try_parse_from(contents)
+        let config = BridgeConfig::try_parse_from(contents)?;
+
+        config.check_mainnet_requirements()?;
+
+        Ok(config)
     }
 
     /// Try to parse a `BridgeConfig` from given TOML formatted string and
@@ -215,6 +219,45 @@ impl BridgeConfig {
             Ok(c) => Ok(c),
             Err(e) => Err(BridgeError::ConfigError(e.to_string())),
         }
+    }
+
+    /// Checks various variables if they are correct for mainnet deployment.
+    fn check_mainnet_requirements(&self) -> Result<(), BridgeError> {
+        if self.protocol_paramset().network != Network::Bitcoin {
+            return Ok(());
+        }
+
+        let mut misconfigs = Vec::new();
+
+        if self.client_verification {
+            misconfigs.push("client_verification=true".to_string());
+        }
+
+        /// Checks if an env var is set to a non 0 value.
+        fn check_env_var(env_var: &str, misconfigs: &mut Vec<String>) {
+            match std::env::var(env_var) {
+                Ok(var) => {
+                    if var == "0" || var.to_ascii_lowercase() == "false" {
+                        return;
+                    }
+
+                    misconfigs.push(format!("{env_var}={var}"));
+                }
+                Err(_) => (),
+            }
+        }
+
+        check_env_var("DISABLE_NOFN_CHECK", &mut misconfigs);
+        check_env_var("RISC0_DEV_MODE", &mut misconfigs);
+
+        if !misconfigs.is_empty() {
+            return Err(BridgeError::ConfigError(format!(
+                "Mainnet doesn't support following configs: {:?}",
+                misconfigs
+            )));
+        }
+
+        Ok(())
     }
 }
 
@@ -378,6 +421,10 @@ impl TelemetryConfig {
 
 #[cfg(test)]
 mod tests {
+    use bitcoin::Network;
+
+    use crate::config::protocol::REGTEST_PARAMSET;
+
     use super::BridgeConfig;
     use std::{
         fs::{self, File},
@@ -436,5 +483,61 @@ mod tests {
     fn test_test_config_parseable() {
         let content = include_str!("../test/data/bridge_config.toml");
         BridgeConfig::try_parse_from(content.to_string()).unwrap();
+    }
+
+    pub const INVALID_PARAMSET: crate::config::ProtocolParamset = crate::config::ProtocolParamset {
+        network: Network::Bitcoin,
+        ..REGTEST_PARAMSET
+    };
+    #[serial_test::serial]
+    #[test]
+    fn check_mainnet_reqs() {
+        let env_vars = vec!["DISABLE_NOFN_CHECK", "RISC0_DEV_MODE"];
+
+        // Nothing illegal is set.
+        for var in env_vars.clone() {
+            std::env::remove_var(var);
+        }
+        let mainnet_config = BridgeConfig {
+            protocol_paramset: &INVALID_PARAMSET,
+            client_verification: false,
+            ..Default::default()
+        };
+        let checks = mainnet_config.check_mainnet_requirements();
+        println!("checks: {checks:?}");
+        assert!(checks.is_ok());
+
+        // Nothing illegal is set while illegal env vars set to 0 specifically.
+        for var in env_vars.clone() {
+            std::env::set_var(var, "0");
+        }
+        let checks = mainnet_config.check_mainnet_requirements();
+        println!("checks: {checks:?}");
+        assert!(checks.is_ok());
+
+        // Illigal configs, no illegal env vars.
+        let incorrect_mainnet_config = BridgeConfig {
+            client_verification: true,
+            ..mainnet_config.clone()
+        };
+        let checks = incorrect_mainnet_config.check_mainnet_requirements();
+        println!("checks: {checks:?}");
+        assert!(checks.is_err());
+
+        // No illigal configs, illegal env vars.
+        for var in env_vars.clone() {
+            std::env::set_var(var, "1");
+        }
+        let checks = mainnet_config.check_mainnet_requirements();
+        println!("checks: {checks:?}");
+        assert!(checks.is_err());
+
+        // Illigal everything.
+        for var in env_vars.clone() {
+            std::env::set_var(var, "1");
+        }
+        let checks = incorrect_mainnet_config.check_mainnet_requirements();
+        println!("checks: {checks:?}");
+        assert!(checks.is_err());
     }
 }
