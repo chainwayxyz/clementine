@@ -1615,9 +1615,6 @@ where
         let is_malicious = self
             .is_kickoff_malicious(kickoff_witness, &mut deposit_data, kickoff_data, Some(dbtx))
             .await?;
-        if !is_malicious {
-            return Ok(false);
-        }
 
         tracing::warn!(
             "Malicious kickoff {:?} for deposit {:?}",
@@ -1652,8 +1649,11 @@ where
 
         // try to send them
         for (tx_type, signed_tx) in &signed_txs {
-            if *tx_type == TransactionType::Challenge && challenged_before {
-                // do not send challenge tx operator was already challenged in the same round
+            // do not send challenge tx if not malicious
+            if *tx_type == TransactionType::Challenge && !is_malicious {
+                continue;
+            } else if *tx_type == TransactionType::Challenge && challenged_before {
+                // do not send challenge tx if malicious but operator was already challenged in the same round
                 tracing::warn!(
                     "Operator {:?} was already challenged in the same round, skipping challenge tx",
                     kickoff_data.operator_xonly_pk
@@ -1683,7 +1683,7 @@ where
             }
         }
 
-        Ok(true)
+        Ok(is_malicious)
     }
 
     #[cfg(feature = "automation")]
