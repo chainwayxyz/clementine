@@ -547,19 +547,19 @@ where
         bridge_amount_sats: Amount,
         operator_withdrawal_fee_sats: Amount,
     ) -> bool {
-        if input_amount > withdrawal_amount {
-            tracing::warn!(
-                "Some user gave more amount than the withdrawal amount as input for withdrawal"
-            );
-            return true;
-        }
         // Use checked_sub to safely handle potential underflow
         let withdrawal_diff = match withdrawal_amount
             .to_sat()
             .checked_sub(input_amount.to_sat())
         {
             Some(diff) => Amount::from_sat(diff),
-            None => return false, // If underflow occurs, it's not profitable
+            None => {
+                // input amount is greater than withdrawal amount, so it's profitable but doesn't make sense
+                tracing::warn!(
+                    "Some user gave more amount than the withdrawal amount as input for withdrawal"
+                );
+                return true;
+            }
         };
 
         if withdrawal_diff > bridge_amount_sats {
