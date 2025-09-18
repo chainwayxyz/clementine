@@ -258,7 +258,7 @@ impl<T: Owner> KickoffStateMachine<T> {
             // check if all operator acks are received, one ack for each watchtower challenge
             // to make sure we have all preimages required to disprove if operator didn't include 
             // the watchtower challenge in the BitVM proof
-            && self.operator_challenge_acks.len() == self.watchtower_challenges.len()
+            && self.watchtower_challenges.keys().all(|idx| self.operator_challenge_acks.contains_key(idx))
         {
             self.send_disprove(context).await;
         }
