@@ -45,7 +45,7 @@ jobs:
         run: cargo build $CARGOFLAGS_ALL_FEATURES --release
 
   release_build:
-    name: Release | No features | Compile
+    name: Release | No features | Compile and Test
     runs-on: ubicloud-standard-4
     if: ${{ !github.event.pull_request.draft }}
     env:
