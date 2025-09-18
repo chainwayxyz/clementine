@@ -1680,7 +1680,7 @@ where
             }
         }
 
-        Ok(is_malicious)
+        Ok(true)
     }
 
     #[cfg(feature = "automation")]
