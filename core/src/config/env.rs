@@ -220,8 +220,6 @@ impl BridgeConfig {
             test_params: super::TestParams::default(),
         };
 
-        config.check_mainnet_requirements()?;
-
         tracing::debug!("BridgeConfig from env: {:?}", config);
         Ok(config)
     }

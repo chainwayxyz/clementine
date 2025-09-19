@@ -10,6 +10,7 @@
 //! Configuration options can be read from a TOML file. File contents are
 //! described in `BridgeConfig` struct.
 
+use crate::cli;
 use crate::config::env::{read_string_from_env, read_string_from_env_then_parse};
 use crate::deposit::SecurityCouncil;
 use crate::errors::BridgeError;
@@ -212,16 +213,13 @@ impl BridgeConfig {
     /// generate a `BridgeConfig`.
     pub fn try_parse_from(input: String) -> Result<Self, BridgeError> {
         match toml::from_str::<BridgeConfig>(&input) {
-            Ok(c) => {
-                c.check_mainnet_requirements()?;
-                Ok(c)
-            }
+            Ok(c) => Ok(c),
             Err(e) => Err(BridgeError::ConfigError(e.to_string())),
         }
     }
 
     /// Checks various variables if they are correct for mainnet deployment.
-    fn check_mainnet_requirements(&self) -> Result<(), BridgeError> {
+    pub fn check_mainnet_requirements(&self, actor_type: cli::Actors) -> Result<(), BridgeError> {
         if self.protocol_paramset().network != Network::Bitcoin {
             return Ok(());
         }
@@ -422,7 +420,7 @@ impl TelemetryConfig {
 mod tests {
     use bitcoin::{hashes::Hash, Network, OutPoint, Txid};
 
-    use crate::config::protocol::REGTEST_PARAMSET;
+    use crate::{cli, config::protocol::REGTEST_PARAMSET};
 
     use super::BridgeConfig;
     use std::{
@@ -506,7 +504,7 @@ mod tests {
             }),
             ..Default::default()
         };
-        let checks = mainnet_config.check_mainnet_requirements();
+        let checks = mainnet_config.check_mainnet_requirements(cli::Actors::Operator);
         println!("checks: {checks:?}");
         assert!(checks.is_ok());
 
@@ -514,7 +512,7 @@ mod tests {
         for var in env_vars.clone() {
             std::env::set_var(var, "0");
         }
-        let checks = mainnet_config.check_mainnet_requirements();
+        let checks = mainnet_config.check_mainnet_requirements(cli::Actors::Operator);
         println!("checks: {checks:?}");
         assert!(checks.is_ok());
 
@@ -524,7 +522,7 @@ mod tests {
             operator_collateral_funding_outpoint: None,
             ..mainnet_config.clone()
         };
-        let checks = incorrect_mainnet_config.check_mainnet_requirements();
+        let checks = incorrect_mainnet_config.check_mainnet_requirements(cli::Actors::Operator);
         println!("checks: {checks:?}");
         assert!(checks.is_err());
 
@@ -532,7 +530,7 @@ mod tests {
         for var in env_vars.clone() {
             std::env::set_var(var, "1");
         }
-        let checks = mainnet_config.check_mainnet_requirements();
+        let checks = mainnet_config.check_mainnet_requirements(cli::Actors::Operator);
         println!("checks: {checks:?}");
         assert!(checks.is_err());
 
@@ -540,7 +538,7 @@ mod tests {
         for var in env_vars.clone() {
             std::env::set_var(var, "1");
         }
-        let checks = incorrect_mainnet_config.check_mainnet_requirements();
+        let checks = incorrect_mainnet_config.check_mainnet_requirements(cli::Actors::Operator);
         println!("checks: {checks:?}");
         assert!(checks.is_err());
     }
