@@ -92,6 +92,10 @@ pub struct NonceSession {
 pub struct AllSessions {
     sessions: HashMap<u128, NonceSession>,
     session_queue: VecDeque<u128>,
+    /// store all previously used ids to never use them again
+    /// reason is that we remove a session in deposit_sign and add it back later, we might
+    /// create a new one with the same id in between removal and addition
+    used_ids: HashSet<u128>,
 }
 
 impl AllSessions {
@@ -99,6 +103,7 @@ impl AllSessions {
         Self {
             sessions: HashMap::new(),
             session_queue: VecDeque::new(),
+            used_ids: HashSet::new(),
         }
     }
 
@@ -112,6 +117,10 @@ impl AllSessions {
         if new_nonce_session.nonces.is_empty() {
             // empty session, return error
             return Err(eyre::eyre!("Empty session attempted to be added"));
+        }
+
+        if self.sessions.contains_key(&id) {
+            return Err(eyre::eyre!("Nonce session with id {id} already exists"));
         }
 
         let mut total_needed = Self::session_bytes(&new_nonce_session)?
@@ -132,6 +141,7 @@ impl AllSessions {
         // save the session to the HashMap and the session id queue
         self.sessions.insert(id, new_nonce_session);
         self.session_queue.push_back(id);
+        self.used_ids.insert(id);
         Ok(())
     }
 
@@ -162,7 +172,7 @@ impl AllSessions {
     /// The important thing it that the id not easily predictable.
     fn get_new_unused_id(&mut self) -> u128 {
         let mut random_id = bitcoin::secp256k1::rand::thread_rng().gen_range(0..=u128::MAX);
-        while self.sessions.contains_key(&random_id) {
+        while self.used_ids.contains(&random_id) {
             random_id = bitcoin::secp256k1::rand::thread_rng().gen_range(0..=u128::MAX);
         }
         random_id
@@ -1553,17 +1563,12 @@ where
         let payout_info = self
             .db
             .get_payout_info_from_move_txid(dbtx, move_txid)
-            .await;
-        if let Err(e) = &payout_info {
-            tracing::warn!(
-                "Couldn't retrieve payout info from db {}, assuming malicious",
-                e
-            );
-            return Ok(true);
-        }
-        let payout_info = payout_info?;
+            .await?;
+
         let Some((operator_xonly_pk_opt, payout_blockhash, _, _)) = payout_info else {
-            tracing::warn!("No payout info found in db, assuming malicious");
+            tracing::warn!(
+                "No payout info found in db for move txid {move_txid}, assuming malicious"
+            );
             return Ok(true);
         };
 
@@ -1615,7 +1620,9 @@ where
         let is_malicious = self
             .is_kickoff_malicious(kickoff_witness, &mut deposit_data, kickoff_data, Some(dbtx))
             .await?;
+
         if !is_malicious {
+            // do not add anything to the txsender if its not considered malicious
             return Ok(false);
         }
 
@@ -1653,7 +1660,7 @@ where
         // try to send them
         for (tx_type, signed_tx) in &signed_txs {
             if *tx_type == TransactionType::Challenge && challenged_before {
-                // do not send challenge tx operator was already challenged in the same round
+                // do not send challenge tx if malicious but operator was already challenged in the same round
                 tracing::warn!(
                     "Operator {:?} was already challenged in the same round, skipping challenge tx",
                     kickoff_data.operator_xonly_pk
