@@ -1563,17 +1563,12 @@ where
         let payout_info = self
             .db
             .get_payout_info_from_move_txid(dbtx, move_txid)
-            .await;
-        if let Err(e) = &payout_info {
-            tracing::warn!(
-                "Couldn't retrieve payout info from db {}, assuming malicious",
-                e
-            );
-            return Ok(true);
-        }
-        let payout_info = payout_info?;
+            .await?;
+
         let Some((operator_xonly_pk_opt, payout_blockhash, _, _)) = payout_info else {
-            tracing::warn!("No payout info found in db, assuming malicious");
+            tracing::warn!(
+                "No payout info found in db for move txid {move_txid}, assuming malicious"
+            );
             return Ok(true);
         };
 
@@ -1625,7 +1620,9 @@ where
         let is_malicious = self
             .is_kickoff_malicious(kickoff_witness, &mut deposit_data, kickoff_data, Some(dbtx))
             .await?;
+
         if !is_malicious {
+            // do not add anything to the txsender if its not considered malicious
             return Ok(false);
         }
 
@@ -1663,7 +1660,7 @@ where
         // try to send them
         for (tx_type, signed_tx) in &signed_txs {
             if *tx_type == TransactionType::Challenge && challenged_before {
-                // do not send challenge tx operator was already challenged in the same round
+                // do not send challenge tx if malicious but operator was already challenged in the same round
                 tracing::warn!(
                     "Operator {:?} was already challenged in the same round, skipping challenge tx",
                     kickoff_data.operator_xonly_pk
