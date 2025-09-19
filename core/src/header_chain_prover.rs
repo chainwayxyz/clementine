@@ -91,12 +91,12 @@ impl HeaderChainProver {
         let db = Database::new(config).await.map_to_eyre()?;
         let tip_height = rpc.get_current_chain_height().await.map_to_eyre()?;
         if tip_height
-            < config.protocol_paramset().start_height + config.protocol_paramset().finality_depth
+            < config.protocol_paramset().start_height + config.protocol_paramset().finality_depth - 1
         {
             return Err(eyre::eyre!(
                 "Start height is not finalized, reduce start height: {} < {}",
                 tip_height,
-                config.protocol_paramset().start_height + config.protocol_paramset().finality_depth
+                config.protocol_paramset().start_height + config.protocol_paramset().finality_depth - 1
             )
             .into());
         }

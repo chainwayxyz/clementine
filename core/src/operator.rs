@@ -1117,7 +1117,7 @@ where
                             txid: kickoff_txid,
                             vout: UtxoVout::KickoffFinalizer.get_vout(), // Kickoff finalizer output index
                         },
-                        relative_block_height: self.config.protocol_paramset().finality_depth,
+                        relative_block_height: self.config.protocol_paramset().finality_depth - 1,
                     });
                 }
                 None => {
@@ -1136,7 +1136,7 @@ where
                         .await?;
                     activation_prerequisites.push(ActivatedWithOutpoint {
                         outpoint: unspent_kickoff_connector,
-                        relative_block_height: self.config.protocol_paramset().finality_depth,
+                        relative_block_height: self.config.protocol_paramset().finality_depth - 1,
                     });
                 }
             }
@@ -1380,7 +1380,7 @@ where
             .rpc
             .get_current_chain_height()
             .await?
-            .saturating_sub(self.config.protocol_paramset().finality_depth);
+            .saturating_sub(self.config.protocol_paramset().finality_depth - 1);
 
         // update headers in case the sync (state machine handle_finalized_block) is behind
         self.db

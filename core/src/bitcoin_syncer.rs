@@ -545,7 +545,7 @@ impl<H: BlockHandler> Task for FinalizedBlockFetcherTask<H> {
 
                 // Update states to catch up to finalized chain
                 while current_tip_height >= self.paramset.finality_depth
-                    && self.next_height <= current_tip_height - self.paramset.finality_depth
+                    && self.next_height <= current_tip_height - self.paramset.finality_depth + 1
                 {
                     new_tip = true;
 

@@ -235,7 +235,7 @@ impl<T: Owner> KickoffStateMachine<T> {
                         // create a matcher to send latest blockhash tx after finality depth blocks pass from current block height
                         self.matchers.insert(
                             Matcher::BlockHeight(
-                                context.cache.block_height + context.paramset.finality_depth,
+                                context.cache.block_height + context.paramset.finality_depth - 1,
                             ),
                             KickoffEvent::TimeToSendLatestBlockhash,
                         );
