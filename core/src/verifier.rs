@@ -1895,10 +1895,7 @@ where
             .get_payout_txs_for_withdrawal_utxos(Some(dbtx), block_id)
             .await?;
 
-        let block = block_cache
-            .block
-            .as_ref()
-            .ok_or(eyre::eyre!("Block not found"))?;
+        let block = &block_cache.block;
 
         let block_hash = block.block_hash();
 
@@ -3022,7 +3019,7 @@ mod tests {
             txdata: vec![], // empty transactions
         };
         let block_cache = Arc::new(block_cache::BlockCache::from_block(
-            &test_block,
+            test_block,
             block_height,
         ));
 
@@ -3090,7 +3087,7 @@ mod tests {
             },
             txdata: vec![], // empty transactions
         };
-        let block_cache = block_cache::BlockCache::from_block(&test_block, 100u32);
+        let block_cache = block_cache::BlockCache::from_block(test_block, 100u32);
 
         // First save
         let mut dbtx1 = verifier.db.begin_transaction().await.unwrap();

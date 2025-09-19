@@ -20,7 +20,7 @@
 
 pub use crate::builder::block_cache;
 use crate::config::protocol::ProtocolParamset;
-use crate::database::Database;
+use crate::database::{Database, DatabaseTransaction};
 use crate::errors::BridgeError;
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 use crate::states::block_cache::BlockCache;
@@ -128,7 +128,7 @@ pub struct StateManager<T: Owner> {
     next_height_to_process: u32,
     rpc: ExtendedBitcoinRpc,
     // Set on the first finalized block event or the load_from_db method
-    last_finalized_block: Option<bitcoin::Block>,
+    last_finalized_block: Arc<BlockCache>,
 }
 
 impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
@@ -137,6 +137,9 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         format!("{}_state_mgr_events", T::ENTITY_NAME)
     }
 
+    /// Warning: This is costly due to the calculation of the block_cache, use a
+    /// pre-existing `block_cache` with the `new_context_with_block_cache`
+    /// method if possible.
     pub fn new_context(
         &self,
         dbtx: Arc<Mutex<sqlx::Transaction<'static, sqlx::Postgres>>>,
@@ -146,7 +149,20 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         Ok(context::StateContext::new(
             dbtx,
             Arc::new(self.owner.clone()),
-            Arc::new(BlockCache::from_block(block, block_height)),
+            Arc::new(BlockCache::from_block(block.clone(), block_height)),
+            self.paramset,
+        ))
+    }
+
+    pub fn new_context_with_block_cache(
+        &self,
+        dbtx: Arc<Mutex<sqlx::Transaction<'static, sqlx::Postgres>>>,
+        block_cache: Arc<BlockCache>,
+    ) -> Result<context::StateContext<T>, BridgeError> {
+        Ok(context::StateContext::new(
+            dbtx,
+            Arc::new(self.owner.clone()),
+            block_cache,
             self.paramset,
         ))
     }
@@ -163,40 +179,55 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             format!("Error creating pqmq queue with name {}", Self::queue_name())
         })?;
 
+        // Get the owner type from the context
+        let owner_type = T::ENTITY_NAME;
+        // First, check if we have any state saved
+        let status = db.get_next_height_to_process(None, owner_type).await?;
+
+        // If no state is saved, return early
+        let next_height_to_process = match status {
+            Some(block_height) => {
+                u32::try_from(block_height).wrap_err(BridgeError::IntConversionError)?
+            }
+            None => {
+                tracing::info!("No state machines found in the database");
+                paramset.start_height
+            }
+        };
+
+        let last_height = next_height_to_process.saturating_sub(1);
+
         let mut mgr = Self {
+            last_finalized_block: Arc::new(BlockCache::from_block(
+                match db.get_full_block(None, last_height).await? {
+                    Some(block) => block,
+                    None => rpc.get_block_by_height(last_height.into()).await?,
+                },
+                last_height,
+            )),
             db,
             owner,
             paramset,
             round_machines: Vec::new(),
             kickoff_machines: Vec::new(),
             queue,
-            next_height_to_process: paramset.start_height,
-            last_finalized_block: None,
+            next_height_to_process,
             rpc,
         };
 
-        mgr.load_from_db().await?;
+        mgr.load_machines_from_db().await?;
         Ok(mgr)
     }
 
-    async fn load_last_finalized_block(&mut self) -> Result<(), BridgeError> {
-        let last_finalized_height = if self.next_height_to_process == self.paramset.start_height {
-            self.paramset.start_height
-        } else {
-            self.next_height_to_process - 1
-        };
-
-        self.last_finalized_block =
-            match self.db.get_full_block(None, last_finalized_height).await? {
-                Some(block) => Some(block),
-                None => Some(
-                    self.rpc
-                        .get_block_by_height(last_finalized_height.into())
-                        .await?,
-                ),
-            };
-
-        Ok(())
+    async fn get_block(
+        &self,
+        dbtx: Option<DatabaseTransaction<'_, '_>>,
+        height: u32,
+    ) -> Result<bitcoin::Block, BridgeError> {
+        match self.db.get_full_block(dbtx, height).await? {
+            Some(block) => Ok(block),
+            None => Ok(self.rpc.get_block_by_height(height.into()).await?),
+        }
     }
 
     /// Loads the state machines from the database.
@@ -204,21 +235,13 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
     ///
     /// # Errors
     /// Returns a `BridgeError` if the database operation fails
-    pub async fn load_from_db(&mut self) -> Result<(), BridgeError> {
-        // Get the owner type from the context
+    pub async fn load_machines_from_db(&mut self) -> Result<(), BridgeError> {
+        tracing::info!(
+            "Loading state machines from block height {}",
+            self.next_height_to_process.saturating_sub(1)
+        );
+
         let owner_type = T::ENTITY_NAME;
-
-        // First, check if we have any state saved
-        let status = self.db.get_next_height_to_process(None, owner_type).await?;
-
-        // If no state is saved, return early
-        let Some(block_height) = status else {
-            tracing::info!("No state machines found in the database");
-            self.load_last_finalized_block().await?;
-            return Ok(());
-        };
-
-        tracing::info!("Loading state machines from block height {}", block_height);
 
         // Load kickoff machines
         let kickoff_machines = self.db.load_kickoff_machines(None, owner_type).await?;
@@ -227,6 +250,10 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         let round_machines = self.db.load_round_machines(None, owner_type).await?;
 
         let init_dbtx = Arc::new(Mutex::new(self.db.begin_transaction().await?));
+
+        let mut ctx = self
+            .new_context_with_block_cache(init_dbtx.clone(), self.last_finalized_block.clone())?;
+
         // Process and recreate kickoff machines
         for (state_json, kickoff_id, saved_block_height) in &kickoff_machines {
             tracing::debug!(
@@ -241,14 +268,6 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
 
             match machine {
                 Ok(uninitialized) => {
-                    // Create a context for initialization
-                    let mut ctx = context::StateContext::new(
-                        init_dbtx.clone(),
-                        Arc::new(self.owner.clone()),
-                        Default::default(),
-                        self.paramset,
-                    );
-
                     // Initialize the machine with the context
                     let initialized = uninitialized.init_with_context(&mut ctx).await;
                     self.kickoff_machines.push(initialized);
@@ -277,14 +296,6 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
 
             match machine {
                 Ok(uninitialized) => {
-                    // Create a context for initialization
-                    let mut ctx = context::StateContext::new(
-                        init_dbtx.clone(),
-                        Arc::new(self.owner.clone()),
-                        Default::default(),
-                        self.paramset,
-                    );
-
                     // Initialize the machine with the context
                     let initialized = uninitialized.init_with_context(&mut ctx).await;
                     self.round_machines.push(initialized);
@@ -299,6 +310,14 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             }
         }
 
+        if !ctx.errors.is_empty() {
+            return Err(eyre::eyre!(
+                "Multiple errors occurred during state processing: {:?}",
+                ctx.errors
+            )
+            .into());
+        }
+
         tracing::info!(
             "Loaded {} kickoff machines and {} round machines from the database",
             kickoff_machines.len(),
@@ -310,11 +329,6 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             .into_inner()
             .commit()
             .await?;
-
-        self.next_height_to_process =
-            u32::try_from(block_height).wrap_err(BridgeError::IntConversionError)?;
-
-        self.load_last_finalized_block().await?;
 
         Ok(())
     }
@@ -476,21 +490,19 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
 
         for block_height in start_height..temporary_manager.next_height_to_process {
             let block = temporary_manager
-                .db
-                .get_full_block(Some(&mut *dbtx.lock().await), block_height)
+                .get_block(Some(&mut *dbtx.lock().await), block_height)
+                .await
+                .wrap_err_with(|| {
+                    format!(
+                        "Block at height {} not found in process_and_add_new_states_from_height",
+                        block_height
+                    )
+                })?;
+
+            let mut context = temporary_manager.new_context(dbtx.clone(), &block, block_height)?;
+            temporary_manager
+                .process_block_parallel(&mut context)
                 .await?;
-            if let Some(block) = block {
-                let mut context =
-                    temporary_manager.new_context(dbtx.clone(), &block, block_height)?;
-                temporary_manager
-                    .process_block_parallel(&mut context)
-                    .await?;
-            } else {
-                return Err(eyre::eyre!(
-                    "Block at height {} not found in process_and_add_new_states_from_height",
-                    block_height
-                ));
-            }
         }
 
         // append new states to the current state manager

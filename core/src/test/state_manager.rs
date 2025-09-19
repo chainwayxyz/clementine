@@ -168,7 +168,7 @@ async fn test_save_and_load_state() {
     let (mut new_state_manager, _) = create_test_state_manager(&mut config).await;
 
     // Load state from DB
-    let result = new_state_manager.load_from_db().await;
+    let result = new_state_manager.load_machines_from_db().await;
     assert!(result.is_ok(), "Failed to load state from DB: {:?}", result);
 
     // Check that the state is the same

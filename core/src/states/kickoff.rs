@@ -337,8 +337,6 @@ impl<T: Owner> KickoffStateMachine<T> {
                             latest_blockhash: context
                                 .cache
                                 .block
-                                .as_ref()
-                                .ok_or(eyre::eyre!("Block object not found in block cache"))?
                                 .header
                                 .block_hash(),
                         })

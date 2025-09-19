@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use bitcoin::Witness;
-use eyre::OptionExt;
 use pgmq::PGMQueueExt;
 use statig::awaitable::IntoStateMachineExt;
 use tokio::sync::Mutex;
@@ -97,7 +96,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 height,
             } => {
                 if self.next_height_to_process != height {
-                    tracing::warn!("Finalized block arrived to state manager out of order. Ignoring block. This can happen for some blocks during restarts. Otherwise it might be due to an error. Expected: {}, Got: {}", self.next_height_to_process, height);
+                    tracing::warn!("Finalized block arrived to state manager out of order. Ignoring block. This can happen for some blocks during restarts. Otherwise it might be due to an error. Expected: block at height {}, Got: block at height {}", self.next_height_to_process, height);
                     return Ok(());
                 }
 
@@ -119,7 +118,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
 
                 self.process_block_parallel(&mut context).await?;
 
-                self.last_finalized_block = Some(block);
+                self.last_finalized_block = context.cache.clone();
             }
             // Received when a new operator is set in clementine
             SystemEvent::NewOperator { operator_data } => {
@@ -132,20 +131,28 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                     }
                 }
 
-                let mut context = self.new_context(
-                    dbtx.clone(),
-                    &self
-                        .last_finalized_block
-                        .as_ref()
-                        .ok_or_eyre("Last finalized block is not set")?
-                        .clone(),
-                    self.next_height_to_process - 1,
-                )?;
+                // Initialize context using the block just before the start height
+                // so subsequent processing can begin from start_height
+                let prev_height = self.paramset.start_height.saturating_sub(1);
+                let init_block = {
+                    let mut guard = dbtx.lock().await;
+                    self.get_block(Some(&mut *guard), prev_height).await?
+                };
+
+                let mut context = self.new_context(dbtx.clone(), &init_block, prev_height)?;
 
                 let operator_machine = RoundStateMachine::new(operator_data)
                     .uninitialized_state_machine()
                     .init_with_context(&mut context)
                     .await;
+
+                if !context.errors.is_empty() {
+                    return Err(eyre::eyre!(
+                        "Multiple errors occurred during RoundStateMachine initialization: {:?}",
+                        context.errors
+                    )
+                    .into());
+                }
 
                 self.process_and_add_new_states_from_height(
                     dbtx.clone(),
@@ -162,15 +169,15 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 deposit_data,
                 payout_blockhash,
             } => {
-                let mut context = self.new_context(
-                    dbtx.clone(),
-                    &self
-                        .last_finalized_block
-                        .as_ref()
-                        .ok_or_eyre("Last finalized block is not set")?
-                        .clone(),
-                    self.next_height_to_process - 1,
-                )?;
+                // Initialize context using the block just before the kickoff height
+                // so subsequent processing can begin from kickoff_height
+                let prev_height = kickoff_height.saturating_sub(1);
+                let init_block = {
+                    let mut guard = dbtx.lock().await;
+                    self.get_block(Some(&mut *guard), prev_height).await?
+                };
+
+                let mut context = self.new_context(dbtx.clone(), &init_block, prev_height)?;
 
                 // Check if the kickoff machine already exists. If so do not add a new one.
                 // This can happen if during block processing an error happens, reverting the state machines
@@ -195,6 +202,14 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 .init_with_context(&mut context)
                 .await;
 
+                if !context.errors.is_empty() {
+                    return Err(eyre::eyre!(
+                        "Multiple errors occurred during KickoffStateMachine initialization: {:?}",
+                        context.errors
+                    )
+                    .into());
+                }
+
                 self.process_and_add_new_states_from_height(
                     dbtx.clone(),
                     vec![],
@@ -205,15 +220,8 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             }
         }
 
-        let mut context = self.new_context(
-            dbtx,
-            &self
-                .last_finalized_block
-                .as_ref()
-                .ok_or_eyre("Last finalized block is not set")?
-                .clone(),
-            self.next_height_to_process - 1,
-        )?;
+        let mut context =
+            self.new_context_with_block_cache(dbtx, self.last_finalized_block.clone())?;
 
         // Save the state machines to the database with the current block height
         // So that in case of a node restart the state machines can be restored

@@ -591,14 +591,10 @@ impl HeaderChainProver {
     ) -> Result<(), BridgeError> {
         let block_hash = block_cache
             .block
-            .as_ref()
-            .ok_or(eyre::eyre!("Block not found"))?
             .block_hash();
 
         let block_header = block_cache
             .block
-            .as_ref()
-            .ok_or(eyre::eyre!("Block not found"))?
             .header;
 
         self.db
