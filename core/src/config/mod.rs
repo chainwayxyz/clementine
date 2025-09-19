@@ -227,7 +227,7 @@ impl BridgeConfig {
         let mut misconfigs = Vec::new();
 
         if actor_type == cli::Actors::Operator {
-            if self.client_verification {
+            if !self.client_verification {
                 misconfigs.push("client_verification=true".to_string());
             }
             if self.operator_collateral_funding_outpoint.is_none() {
@@ -235,8 +235,8 @@ impl BridgeConfig {
             }
         }
 
-        if actor_type == cli::Actors::Verifier && self.client_verification {
-            misconfigs.push("client_verification=true".to_string());
+        if actor_type == cli::Actors::Verifier && !self.client_verification {
+            misconfigs.push("client_verification=false".to_string());
         }
 
         /// Checks if an env var is set to a non 0 value.
@@ -424,11 +424,9 @@ impl TelemetryConfig {
 
 #[cfg(test)]
 mod tests {
-    use bitcoin::{hashes::Hash, Network, OutPoint, Txid};
-
-    use crate::{cli, config::protocol::REGTEST_PARAMSET};
-
     use super::BridgeConfig;
+    use crate::{cli, config::protocol::REGTEST_PARAMSET};
+    use bitcoin::{hashes::Hash, Network, OutPoint, Txid};
     use std::{
         fs::{self, File},
         io::Write,
@@ -503,7 +501,7 @@ mod tests {
         }
         let mainnet_config = BridgeConfig {
             protocol_paramset: &INVALID_PARAMSET,
-            client_verification: false,
+            client_verification: true,
             operator_collateral_funding_outpoint: Some(OutPoint {
                 txid: Txid::all_zeros(),
                 vout: 0,
@@ -524,7 +522,7 @@ mod tests {
 
         // Illegal configs, no illegal env vars.
         let incorrect_mainnet_config = BridgeConfig {
-            client_verification: true,
+            client_verification: false,
             operator_collateral_funding_outpoint: None,
             ..mainnet_config.clone()
         };
