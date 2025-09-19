@@ -231,6 +231,9 @@ impl BridgeConfig {
         if self.client_verification {
             misconfigs.push("client_verification=true".to_string());
         }
+        if let None = self.operator_collateral_funding_outpoint {
+            misconfigs.push("operator_collateral_funding_outpoint is not set".to_string());
+        }
 
         /// Checks if an env var is set to a non 0 value.
         fn check_env_var(env_var: &str, misconfigs: &mut Vec<String>) {
@@ -417,7 +420,7 @@ impl TelemetryConfig {
 
 #[cfg(test)]
 mod tests {
-    use bitcoin::Network;
+    use bitcoin::{hashes::Hash, Network, OutPoint, Txid};
 
     use crate::config::protocol::REGTEST_PARAMSET;
 
@@ -497,6 +500,10 @@ mod tests {
         let mainnet_config = BridgeConfig {
             protocol_paramset: &INVALID_PARAMSET,
             client_verification: false,
+            operator_collateral_funding_outpoint: Some(OutPoint {
+                txid: Txid::all_zeros(),
+                vout: 0,
+            }),
             ..Default::default()
         };
         let checks = mainnet_config.check_mainnet_requirements();
@@ -514,6 +521,7 @@ mod tests {
         // Illegal configs, no illegal env vars.
         let incorrect_mainnet_config = BridgeConfig {
             client_verification: true,
+            operator_collateral_funding_outpoint: None,
             ..mainnet_config.clone()
         };
         let checks = incorrect_mainnet_config.check_mainnet_requirements();
