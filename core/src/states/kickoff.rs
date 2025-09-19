@@ -255,6 +255,10 @@ impl<T: Owner> KickoffStateMachine<T> {
         if self.operator_asserts.len() == ClementineBitVMPublicKeys::number_of_assert_txs()
             && self.latest_blockhash != Witness::default()
             && self.spent_watchtower_utxos.len() == self.deposit_data.get_num_watchtowers()
+            // check if all operator acks are received, one ack for each watchtower challenge
+            // to make sure we have all preimages required to disprove if operator didn't include 
+            // the watchtower challenge in the BitVM proof
+            && self.watchtower_challenges.keys().all(|idx| self.operator_challenge_acks.contains_key(idx))
         {
             self.send_disprove(context).await;
         }

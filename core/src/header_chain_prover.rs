@@ -450,7 +450,6 @@ impl HeaderChainProver {
     ) -> Result<Receipt, HeaderChainProverError> {
         let image_id = match network {
             Network::Bitcoin => *MAINNET_IMAGE_ID,
-            Network::Testnet => *TESTNET4_IMAGE_ID,
             Network::Testnet4 => *TESTNET4_IMAGE_ID,
             Network::Signet => *SIGNET_IMAGE_ID,
             Network::Regtest => *REGTEST_IMAGE_ID,
@@ -488,7 +487,6 @@ impl HeaderChainProver {
 
         let elf = match network {
             Network::Bitcoin => MAINNET_HEADER_CHAIN_ELF,
-            Network::Testnet => TESTNET4_HEADER_CHAIN_ELF,
             Network::Testnet4 => TESTNET4_HEADER_CHAIN_ELF,
             Network::Signet => SIGNET_HEADER_CHAIN_ELF,
             Network::Regtest => REGTEST_HEADER_CHAIN_ELF,
