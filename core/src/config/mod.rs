@@ -226,11 +226,17 @@ impl BridgeConfig {
 
         let mut misconfigs = Vec::new();
 
-        if self.client_verification {
-            misconfigs.push("client_verification=true".to_string());
+        if actor_type == cli::Actors::Operator {
+            if self.client_verification {
+                misconfigs.push("client_verification=true".to_string());
+            }
+            if self.operator_collateral_funding_outpoint.is_none() {
+                misconfigs.push("operator_collateral_funding_outpoint is not set".to_string());
+            }
         }
-        if let None = self.operator_collateral_funding_outpoint {
-            misconfigs.push("operator_collateral_funding_outpoint is not set".to_string());
+
+        if actor_type == cli::Actors::Verifier && self.client_verification {
+            misconfigs.push("client_verification=true".to_string());
         }
 
         /// Checks if an env var is set to a non 0 value.
