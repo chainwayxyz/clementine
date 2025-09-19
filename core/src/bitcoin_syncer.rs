@@ -252,6 +252,7 @@ async fn fetch_new_blocks(
     db: &Database,
     rpc: &ExtendedBitcoinRpc,
     current_height: u32,
+    finality_depth: u32,
 ) -> Result<Option<Vec<BlockInfo>>, BridgeError> {
     let next_height = current_height + 1;
 
@@ -295,10 +296,14 @@ async fn fetch_new_blocks(
             height: new_height,
         });
 
-        if new_blocks.len() >= 100 {
+        // new blocks includes the new one (block with height our previous tip + 1),
+        // so new_blocks_len() = 5 -> 4 reorged blocks,
+        if new_blocks.len() as u32 > finality_depth {
             return Err(eyre::eyre!(
-                "Bitcoin syncer can't synchronize database with active blockchain: Too deep to continue (last saved block was at height {})",
-                new_height as u64
+                "Number of reorged blocks {} is greater than finality depth {}, reorged blocks: {:?}. If true, increase finality depth and resync the chain",
+                new_blocks.len() - 1,
+                finality_depth,
+                new_blocks
             )
             .into());
         }
@@ -362,6 +367,8 @@ pub struct BitcoinSyncerTask {
     rpc: ExtendedBitcoinRpc,
     /// The current block height that has been synced
     current_height: u32,
+    /// The finality depth
+    finality_depth: u32,
 }
 
 #[derive(Debug)]
@@ -372,6 +379,8 @@ pub struct BitcoinSyncer {
     rpc: ExtendedBitcoinRpc,
     /// The current block height that has been synced
     current_height: u32,
+    /// The finality depth
+    finality_depth: u32,
 }
 
 impl BitcoinSyncer {
@@ -396,6 +405,7 @@ impl BitcoinSyncer {
             db,
             rpc,
             current_height,
+            finality_depth: paramset.finality_depth,
         })
     }
 }
@@ -407,6 +417,7 @@ impl IntoTask for BitcoinSyncer {
             db: self.db,
             rpc: self.rpc,
             current_height: self.current_height,
+            finality_depth: self.finality_depth,
         }
         .with_delay(BTC_SYNCER_POLL_DELAY)
     }
@@ -419,7 +430,14 @@ impl Task for BitcoinSyncerTask {
 
     #[tracing::instrument(skip(self))]
     async fn run_once(&mut self) -> Result<Self::Output, BridgeError> {
-        let new_blocks = match fetch_new_blocks(&self.db, &self.rpc, self.current_height).await? {
+        let new_blocks = match fetch_new_blocks(
+            &self.db,
+            &self.rpc,
+            self.current_height,
+            self.finality_depth,
+        )
+        .await?
+        {
             Some(blocks) if !blocks.is_empty() => {
                 tracing::debug!(
                     "{} new blocks found after current height {}",
@@ -759,15 +777,19 @@ mod tests {
             .unwrap();
         dbtx.commit().await.unwrap();
 
-        let new_blocks = super::fetch_new_blocks(&db, &rpc, height).await.unwrap();
+        let new_blocks =
+            super::fetch_new_blocks(&db, &rpc, height, config.protocol_paramset().finality_depth)
+                .await
+                .unwrap();
         assert!(new_blocks.is_none());
 
         let new_block_hashes = rpc.mine_blocks(1).await.unwrap();
         let new_height = u32::try_from(rpc.get_block_count().await.unwrap()).unwrap();
-        let new_blocks = super::fetch_new_blocks(&db, &rpc, height)
-            .await
-            .unwrap()
-            .unwrap();
+        let new_blocks =
+            super::fetch_new_blocks(&db, &rpc, height, config.protocol_paramset().finality_depth)
+                .await
+                .unwrap()
+                .unwrap();
         assert_eq!(new_blocks.len(), 1);
         assert_eq!(new_blocks.first().unwrap().height, new_height);
         assert_eq!(
@@ -796,7 +818,10 @@ mod tests {
             .unwrap();
         dbtx.commit().await.unwrap();
 
-        let new_blocks = super::fetch_new_blocks(&db, &rpc, height).await.unwrap();
+        let new_blocks =
+            super::fetch_new_blocks(&db, &rpc, height, config.protocol_paramset().finality_depth)
+                .await
+                .unwrap();
         assert!(new_blocks.is_none());
 
         // Mine new blocks without saving them.
@@ -804,10 +829,15 @@ mod tests {
         let new_block_hashes = rpc.mine_blocks(mine_count as u64).await.unwrap();
         let new_height = u32::try_from(rpc.get_block_count().await.unwrap()).unwrap();
 
-        let new_blocks = super::fetch_new_blocks(&db, &rpc, new_height - 1)
-            .await
-            .unwrap()
-            .unwrap();
+        let new_blocks = super::fetch_new_blocks(
+            &db,
+            &rpc,
+            new_height - 1,
+            config.protocol_paramset().finality_depth,
+        )
+        .await
+        .unwrap()
+        .unwrap();
         assert_eq!(new_blocks.len(), mine_count as usize);
         for (index, block) in new_blocks.iter().enumerate() {
             assert_eq!(block.height, new_height - mine_count + index as u32 + 1);
@@ -819,9 +849,14 @@ mod tests {
         rpc.mine_blocks(mine_count as u64).await.unwrap();
         let new_height = u32::try_from(rpc.get_block_count().await.unwrap()).unwrap();
 
-        assert!(super::fetch_new_blocks(&db, &rpc, new_height - 1)
-            .await
-            .is_err());
+        assert!(super::fetch_new_blocks(
+            &db,
+            &rpc,
+            new_height - 1,
+            config.protocol_paramset().finality_depth
+        )
+        .await
+        .is_err());
     }
     #[ignore]
     #[tokio::test]
