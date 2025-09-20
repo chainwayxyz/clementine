@@ -2726,7 +2726,7 @@ where
             dbtx,
             block_id,
             height,
-            Arc::new(block_cache::BlockCache::from_block(&block, height)),
+            Arc::new(block_cache::BlockCache::from_block(block, height)),
             None,
         )
         .await
