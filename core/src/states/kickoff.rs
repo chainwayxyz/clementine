@@ -338,11 +338,7 @@ impl<T: Owner> KickoffStateMachine<T> {
                         .dispatch_duty(Duty::SendLatestBlockhash {
                             kickoff_data: self.kickoff_data,
                             deposit_data: self.deposit_data.clone(),
-                            latest_blockhash: context
-                                .cache
-                                .block
-                                .header
-                                .block_hash(),
+                            latest_blockhash: context.cache.block.header.block_hash(),
                         })
                         .await?;
                     Ok::<(), BridgeError>(())

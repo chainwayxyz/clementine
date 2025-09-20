@@ -587,13 +587,9 @@ impl HeaderChainProver {
         dbtx: Option<DatabaseTransaction<'_, '_>>,
         block_cache: &BlockCache,
     ) -> Result<(), BridgeError> {
-        let block_hash = block_cache
-            .block
-            .block_hash();
+        let block_hash = block_cache.block.block_hash();
 
-        let block_header = block_cache
-            .block
-            .header;
+        let block_header = block_cache.block.header;
 
         self.db
             .save_unproven_finalized_block(

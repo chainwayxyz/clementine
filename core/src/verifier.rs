@@ -1561,11 +1561,12 @@ where
             create_move_to_vault_txhandler(deposit_data, self.config.protocol_paramset())?
                 .get_cached_tx()
                 .compute_txid();
+
         let payout_info = self
             .db
-            .get_payout_info_from_move_txid(dbtx, move_txid)
-            .await;
-        if let Err(e) = &payout_info {
+            .get_payout_info_from_move_txid(Some(dbtx), move_txid)
+            .await?;
+        let Some((operator_xonly_pk_opt, payout_blockhash, _, _)) = payout_info else {
             tracing::warn!(
                 "No payout info found in db for move txid {move_txid}, assuming malicious"
             );
