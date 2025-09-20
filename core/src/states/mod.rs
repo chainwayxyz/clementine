@@ -318,6 +318,8 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             .into());
         }
 
+        drop(ctx);
+
         tracing::info!(
             "Loaded {} kickoff machines and {} round machines from the database",
             kickoff_machines.len(),
@@ -394,18 +396,19 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             })
             .collect();
 
-        let mut locked_dbtx = context.shared_dbtx.lock().await;
-        // Use the database function to save the state machines
-        self.db
-            .save_state_machines(
-                &mut locked_dbtx,
-                kickoff_machines?,
-                round_machines?,
-                context.cache.block_height as i32 + 1,
-                owner_type,
-            )
-            .await?;
-        drop(locked_dbtx);
+        {
+            let mut dbtx = context.shared_dbtx.lock().await;
+            // Use the database function to save the state machines
+            self.db
+                .save_state_machines(
+                    &mut dbtx,
+                    kickoff_machines?,
+                    round_machines?,
+                    context.cache.block_height as i32 + 1,
+                    owner_type,
+                )
+                .await?;
+        }
 
         // Reset the dirty flag for all machines after successful save
         for machine in &mut self.kickoff_machines {
