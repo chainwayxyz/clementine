@@ -81,8 +81,6 @@ pub enum BridgeCircuitHostParamsError {
     MissingKickoffOutputs,
     #[error("Invalid deposit storage proof")]
     InvalidDepositStorageProof,
-    #[error("Round transaction ID mismatch")]
-    RoundTxidMismatch,
     #[error("Failed to verify bridge circuit proof")]
     ProofVerificationFailed,
 }
@@ -496,15 +494,6 @@ fn host_deposit_constant(
         .previous_output
         .txid
         .to_byte_array();
-
-    if input.kickoff_tx.input[0]
-        .previous_output
-        .txid
-        .to_byte_array()
-        != round_txid
-    {
-        return Err(BridgeCircuitHostParamsError::RoundTxidMismatch);
-    }
 
     let kickoff_round_vout = input.kickoff_tx.input[0].previous_output.vout;
 
