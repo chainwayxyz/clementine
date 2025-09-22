@@ -1612,8 +1612,16 @@ impl ClementineAggregator for AggregatorServer {
 
         #[cfg(feature = "automation")]
         {
+            use std::sync::Arc;
+
+            use crate::builder::{
+                address::create_taproot_address,
+                script::{CheckSig, Multisig, SpendableScript},
+                transaction::anchor_output,
+            };
+
             let request = request.into_inner();
-            let movetx = bitcoin::consensus::deserialize(
+            let movetx: bitcoin::Transaction = bitcoin::consensus::deserialize(
                 &request
                     .raw_tx
                     .ok_or_eyre("raw_tx is required")
@@ -1622,6 +1630,61 @@ impl ClementineAggregator for AggregatorServer {
             )
             .wrap_err("Failed to deserialize movetx")
             .map_to_status()?;
+
+            // check if transaction is a movetx
+            if movetx.input.len() != 1 && movetx.output.len() != 2 {
+                return Err(Status::invalid_argument(
+                    "Transaction is not a movetx, input or output lengths are not correct",
+                ));
+            }
+            // check output values
+            if !(movetx.output[0].value
+                == self.config.protocol_paramset().bridge_amount
+                    - self.config.protocol_paramset().anchor_amount()
+                && movetx.output[1].value == self.config.protocol_paramset().anchor_amount())
+            {
+                return Err(Status::invalid_argument(
+                    "Transaction is not a movetx, output sat values are not correct",
+                ));
+            }
+            // check output scriptpubkeys
+            let verifier_keys = self.fetch_verifier_keys().await?;
+            let nofn_xonly_pk =
+                bitcoin::XOnlyPublicKey::from_musig2_pks(verifier_keys.clone(), None).map_err(
+                    |e| {
+                        Status::internal(format!(
+                            "Failed to aggregate verifier public keys, err: {}, pubkeys: {:?}",
+                            e, verifier_keys
+                        ))
+                    },
+                )?;
+            let nofn_script = Arc::new(CheckSig::new(nofn_xonly_pk));
+            let security_council_script = Arc::new(Multisig::from_security_council(
+                self.config.security_council.clone(),
+            ));
+
+            let (addr, _) = create_taproot_address(
+                &[
+                    nofn_script.to_script_buf(),
+                    security_council_script.to_script_buf(),
+                ],
+                None,
+                self.config.protocol_paramset().network,
+            );
+            let bridge_script_pubkey = addr.script_pubkey();
+
+            if !(movetx.output[1].script_pubkey
+                == anchor_output(self.config.protocol_paramset().anchor_amount()).script_pubkey
+                && movetx.output[0].script_pubkey == bridge_script_pubkey)
+            {
+                return Err(Status::invalid_argument(
+                    format!("Transaction is not a movetx, output scriptpubkeys are not correct, expected: (vault: {:?}, anchor: {:?}), got: (vault: {:?}, anchor: {:?})",
+                    bridge_script_pubkey,
+                    anchor_output(self.config.protocol_paramset().anchor_amount()).script_pubkey,
+                    movetx.output[0].script_pubkey,
+                    movetx.output[1].script_pubkey,
+                )));
+            }
 
             let mut dbtx = self.db.begin_transaction().await?;
             self.tx_sender
