@@ -378,13 +378,19 @@ pub fn create_unspent_kickoff_txhandlers(
 /// * `change_address` - The address to send the change to.
 ///
 /// # Returns
-/// A [`TxHandler`] for burning unused kickoff connectors, or a [`BridgeError`] if construction fails.
+/// A [`TxHandler`] for burning unused kickoff connectors, or a [`BridgeError`] if construction fails or no unused kickoff connectors are provided.
 pub fn create_burn_unused_kickoff_connectors_txhandler(
     round_txhandler: &TxHandler,
     unused_kickoff_connectors_indices: &[usize],
     change_address: &Address,
     paramset: &'static ProtocolParamset,
 ) -> Result<TxHandler, BridgeError> {
+    if unused_kickoff_connectors_indices.is_empty() {
+        return Err(eyre::eyre!(
+            "create_burn_unused_kickoff_connectors_txhandler called with no unused kickoff connectors"
+        )
+        .into());
+    }
     let mut tx_handler_builder =
         TxHandlerBuilder::new(TransactionType::BurnUnusedKickoffConnectors)
             .with_version(NON_STANDARD_V3);
