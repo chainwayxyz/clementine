@@ -255,6 +255,10 @@ impl<T: Owner> KickoffStateMachine<T> {
         if self.operator_asserts.len() == ClementineBitVMPublicKeys::number_of_assert_txs()
             && self.latest_blockhash != Witness::default()
             && self.spent_watchtower_utxos.len() == self.deposit_data.get_num_watchtowers()
+            // check if all operator acks are received, one ack for each watchtower challenge
+            // to make sure we have all preimages required to disprove if operator didn't include 
+            // the watchtower challenge in the BitVM proof
+            && self.watchtower_challenges.keys().all(|idx| self.operator_challenge_acks.contains_key(idx))
         {
             self.send_disprove(context).await;
         }
@@ -272,8 +276,7 @@ impl<T: Owner> KickoffStateMachine<T> {
                         && self.latest_blockhash != Witness::default()
                     {
                         context
-                            .owner
-                            .handle_duty(Duty::SendOperatorAsserts {
+                            .dispatch_duty(Duty::SendOperatorAsserts {
                                 kickoff_data: self.kickoff_data,
                                 deposit_data: self.deposit_data.clone(),
                                 watchtower_challenges: self.watchtower_challenges.clone(),
@@ -294,8 +297,7 @@ impl<T: Owner> KickoffStateMachine<T> {
             .capture_error(async |context| {
                 {
                     context
-                        .owner
-                        .handle_duty(Duty::WatchtowerChallenge {
+                        .dispatch_duty(Duty::WatchtowerChallenge {
                             kickoff_data: self.kickoff_data,
                             deposit_data: self.deposit_data.clone(),
                         })
@@ -312,8 +314,7 @@ impl<T: Owner> KickoffStateMachine<T> {
             .capture_error(async |context| {
                 {
                     context
-                        .owner
-                        .handle_duty(Duty::VerifierDisprove {
+                        .dispatch_duty(Duty::VerifierDisprove {
                             kickoff_data: self.kickoff_data,
                             deposit_data: self.deposit_data.clone(),
                             operator_asserts: self.operator_asserts.clone(),
@@ -334,17 +335,10 @@ impl<T: Owner> KickoffStateMachine<T> {
             .capture_error(async |context| {
                 {
                     context
-                        .owner
-                        .handle_duty(Duty::SendLatestBlockhash {
+                        .dispatch_duty(Duty::SendLatestBlockhash {
                             kickoff_data: self.kickoff_data,
                             deposit_data: self.deposit_data.clone(),
-                            latest_blockhash: context
-                                .cache
-                                .block
-                                .as_ref()
-                                .ok_or(eyre::eyre!("Block object not found in block cache"))?
-                                .header
-                                .block_hash(),
+                            latest_blockhash: context.cache.block.header.block_hash(),
                         })
                         .await?;
                     Ok::<(), BridgeError>(())
@@ -572,10 +566,17 @@ impl<T: Owner> KickoffStateMachine<T> {
             self.deposit_data.clone(),
             context.paramset,
         );
-        let mut txhandlers = context
-            .owner
-            .create_txhandlers(TransactionType::AllNeededForDeposit, contract_context)
-            .await?;
+        let mut txhandlers = {
+            let mut guard = context.shared_dbtx.lock().await;
+            context
+                .owner
+                .create_txhandlers(
+                    &mut guard,
+                    TransactionType::AllNeededForDeposit,
+                    contract_context,
+                )
+                .await?
+        };
         let kickoff_txhandler =
             remove_txhandler_from_map(&mut txhandlers, TransactionType::Kickoff)?;
 

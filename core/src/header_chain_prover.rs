@@ -101,6 +101,7 @@ impl HeaderChainProver {
             .into());
         }
         db.fetch_and_save_missing_blocks(
+            None,
             &rpc,
             config.protocol_paramset().genesis_height,
             config.protocol_paramset().start_height,
@@ -586,17 +587,9 @@ impl HeaderChainProver {
         dbtx: Option<DatabaseTransaction<'_, '_>>,
         block_cache: &BlockCache,
     ) -> Result<(), BridgeError> {
-        let block_hash = block_cache
-            .block
-            .as_ref()
-            .ok_or(eyre::eyre!("Block not found"))?
-            .block_hash();
+        let block_hash = block_cache.block.block_hash();
 
-        let block_header = block_cache
-            .block
-            .as_ref()
-            .ok_or(eyre::eyre!("Block not found"))?
-            .header;
+        let block_header = block_cache.block.header;
 
         self.db
             .save_unproven_finalized_block(
@@ -855,6 +848,7 @@ mod tests {
         prover
             .db
             .fetch_and_save_missing_blocks(
+                None,
                 &rpc,
                 config.protocol_paramset().genesis_height,
                 current_height as u32 + 1,

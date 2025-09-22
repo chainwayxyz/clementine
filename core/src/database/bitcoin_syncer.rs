@@ -456,8 +456,8 @@ impl Database {
              FROM bitcoin_syncer_events bse
              INNER JOIN bitcoin_syncer bs ON bse.block_id = bs.id
              WHERE bse.id <= (
-                 SELECT last_processed_event_id 
-                 FROM bitcoin_syncer_event_handlers 
+                 SELECT last_processed_event_id
+                 FROM bitcoin_syncer_event_handlers
                  WHERE consumer_handle = $1
              )"#,
         )
