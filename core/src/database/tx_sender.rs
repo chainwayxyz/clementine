@@ -595,7 +595,7 @@ impl Database {
                         bitcoin_syncer AS syncer ON activate_txid.seen_block_id = syncer.id
                     WHERE
                         activate_txid.seen_block_id IS NULL
-                        OR (syncer.height + activate_txid.timelock >= $2)
+                        OR (syncer.height + activate_txid.timelock > $2)
 
                     UNION
 
@@ -608,7 +608,7 @@ impl Database {
                         bitcoin_syncer AS syncer ON activate_outpoint.seen_block_id = syncer.id
                     WHERE
                         activate_outpoint.seen_block_id IS NULL
-                        OR (syncer.height + activate_outpoint.timelock >= $2)
+                        OR (syncer.height + activate_outpoint.timelock > $2)
                 ),
 
                 -- Transactions with cancelled conditions
