@@ -238,7 +238,7 @@ pub async fn set_initial_block_info_if_not_exists(
 }
 
 /// Fetches the next block from Bitcoin, if it exists. Will also fetch previous
-/// blocks if the parent is missing, up to 100 blocks.
+/// blocks if the parent is missing, and give an error if the number of reorged blocks is greater than the finality depth.
 ///
 /// # Parameters
 ///
@@ -248,6 +248,7 @@ pub async fn set_initial_block_info_if_not_exists(
 ///
 /// - [`None`] - If no new block is available.
 /// - [`Vec<BlockInfo>`] - If new blocks are found.
+/// - [`BridgeError`] - If the number of reorged blocks is greater than the finality depth or db/rpc errors.
 async fn fetch_new_blocks(
     db: &Database,
     rpc: &ExtendedBitcoinRpc,
@@ -825,7 +826,7 @@ mod tests {
         assert!(new_blocks.is_none());
 
         // Mine new blocks without saving them.
-        let mine_count: u32 = 12;
+        let mine_count: u32 = config.protocol_paramset().finality_depth - 1;
         let new_block_hashes = rpc.mine_blocks(mine_count as u64).await.unwrap();
         let new_height = u32::try_from(rpc.get_block_count().await.unwrap()).unwrap();
 
@@ -845,7 +846,7 @@ mod tests {
         }
 
         // Mine too many blocks.
-        let mine_count: u32 = 101;
+        let mine_count: u32 = config.protocol_paramset().finality_depth;
         rpc.mine_blocks(mine_count as u64).await.unwrap();
         let new_height = u32::try_from(rpc.get_block_count().await.unwrap()).unwrap();
 
