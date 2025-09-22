@@ -329,7 +329,7 @@ where
         &self,
         round_idx: RoundIndex,
         operator_xonly_pk: XOnlyPublicKey,
-        dbtx: Option<DatabaseTransaction<'_, '_>>,
+        mut dbtx: Option<DatabaseTransaction<'_, '_>>,
     ) -> Result<Vec<(TransactionType, Transaction)>, BridgeError> {
         let context = ContractContext::new_context_for_round(
             operator_xonly_pk,
@@ -345,7 +345,7 @@ where
                 self.db.clone(),
                 operator_xonly_pk,
                 self.config.protocol_paramset(),
-                dbtx,
+                dbtx.as_deref_mut(),
             ),
         )
         .await?;
@@ -353,7 +353,7 @@ where
         // signatures saved during setup
         let unspent_kickoff_sigs = self
             .db
-            .get_unspent_kickoff_sigs(None, operator_xonly_pk, round_idx)
+            .get_unspent_kickoff_sigs(dbtx, operator_xonly_pk, round_idx)
             .await?
             .ok_or(eyre::eyre!(
                 "No unspent kickoff signatures found for operator {:?} and round {:?}",
