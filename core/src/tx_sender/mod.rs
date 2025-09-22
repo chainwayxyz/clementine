@@ -467,23 +467,24 @@ impl TxSender {
     }
 }
 
-/// Fetches the current recommended fee rate from RPC provider. Currently only supports
+/// Fetches the current recommended fee rate from provider. Currently only supports
 /// Mempool Space API.
 /// This function is used to get the fee rate in sat/vkb (satoshis per kilovbyte).
 /// See [Mempool Space API](https://mempool.space/docs/api/rest#get-recommended-fees) for more details.
 #[allow(dead_code)]
 async fn get_fee_rate_from_mempool_space(
-    rpc_url: &Option<String>,
-    rpc_endpoint: &Option<String>,
+    url: &Option<String>,
+    endpoint: &Option<String>,
     network: Network,
 ) -> Result<Amount> {
-    let rpc_url = rpc_url
+    let rpc_url = url
         .as_ref()
         .ok_or_else(|| eyre!("Fee rate API host is not configured"))?;
 
-    let rpc_endpoint = rpc_endpoint
+    let rpc_endpoint = endpoint
         .as_ref()
         .ok_or_else(|| eyre!("Fee rate API endpoint is not configured"))?;
+
     let url = match network {
         Network::Bitcoin => format!(
             // If the variables are not, return Error to fallback to Bitcoin Core RPC.
