@@ -630,7 +630,7 @@ impl HeaderChainProver {
             non_proven_block.2,
             self.batch_size
         );
-        if tip_height - non_proven_block.2 >= self.batch_size {
+        if tip_height - non_proven_block.2 + 1 >= self.batch_size {
             return Ok(true);
         }
         tracing::debug!(
