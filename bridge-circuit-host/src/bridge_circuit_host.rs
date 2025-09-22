@@ -7,7 +7,7 @@ use ark_bn254::Bn254;
 use bitcoin::Transaction;
 use borsh;
 use circuits_lib::bridge_circuit::constants::{
-    DEVNET_LC_IMAGE_ID, MAINNET_LC_IMAGE_ID, REGTEST_LC_IMAGE_ID, TESTNET_LC_IMAGE_ID,
+    DEVNET_LC_IMAGE_ID, MAINNET_LC_IMAGE_ID, REGTEST_LC_IMAGE_ID, TESTNET4_LC_IMAGE_ID,
 };
 use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
 use circuits_lib::bridge_circuit::merkle_tree::BitcoinMerkleTree;
@@ -121,7 +121,7 @@ pub fn prove_bridge_circuit(
 
     let lc_image_id = match bridge_circuit_host_params.network.0 {
         bitcoin::Network::Bitcoin => MAINNET_LC_IMAGE_ID,
-        bitcoin::Network::Testnet4 => TESTNET_LC_IMAGE_ID,
+        bitcoin::Network::Testnet4 => TESTNET4_LC_IMAGE_ID,
         bitcoin::Network::Signet => DEVNET_LC_IMAGE_ID,
         bitcoin::Network::Regtest => REGTEST_LC_IMAGE_ID,
         _ => return Err(eyre!("Unsupported network")),

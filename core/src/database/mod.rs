@@ -176,7 +176,7 @@ impl Database {
     /// database will rollback every operation done after that call.
     pub async fn begin_transaction(
         &self,
-    ) -> Result<sqlx::Transaction<'_, sqlx::Postgres>, BridgeError> {
+    ) -> Result<sqlx::Transaction<'static, sqlx::Postgres>, BridgeError> {
         Ok(self.connection.begin().await?)
     }
 }

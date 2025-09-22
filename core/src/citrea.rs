@@ -458,8 +458,13 @@ impl CitreaClientT for CitreaClient {
                 .block(BlockId::Number(BlockNumberOrTag::Number(to_height)))
                 .call()
                 .await;
-            if withdrawal_utxo.is_err() {
-                break;
+            match withdrawal_utxo {
+                Err(e) if e.to_string().contains("execution reverted") => {
+                    tracing::trace!("Withdrawal utxo not found for index, error: {:?}", e);
+                    break;
+                }
+                Err(e) => return Err(e.into()),
+                Ok(_) => {}
             }
             let withdrawal_utxo = withdrawal_utxo.expect("Failed to get withdrawal UTXO");
             let txid = withdrawal_utxo.txId.0;

@@ -1794,19 +1794,13 @@ mod tests {
         rpc.mine_blocks(1).await.unwrap();
         sleep(Duration::from_secs(3)).await;
 
-        let tx = poll_get(
+        poll_until_condition(
             async || {
                 rpc.mine_blocks(1).await.unwrap();
-
-                let tx_result = rpc.get_raw_transaction_info(&movetx_one_txid, None).await;
-
-                let tx_result = tx_result
-                    .inspect_err(|e| {
-                        tracing::error!("Error getting transaction: {:?}", e);
-                    })
-                    .ok();
-
-                Ok(tx_result)
+                Ok(rpc
+                    .is_tx_on_chain(&movetx_one_txid)
+                    .await
+                    .unwrap_or_default())
             },
             None,
             None,
@@ -1814,8 +1808,6 @@ mod tests {
         .await
         .wrap_err_with(|| eyre::eyre!("MoveTx did not land onchain"))
         .unwrap();
-
-        assert!(tx.confirmations.unwrap() > 0);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -1890,19 +1882,10 @@ mod tests {
         rpc.mine_blocks(1).await.unwrap();
         sleep(Duration::from_secs(3)).await;
 
-        let tx = poll_get(
+        poll_until_condition(
             async || {
                 rpc.mine_blocks(1).await.unwrap();
-
-                let tx_result = rpc.get_raw_transaction_info(&movetx_txid, None).await;
-
-                let tx_result = tx_result
-                    .inspect_err(|e| {
-                        tracing::error!("Error getting transaction: {:?}", e);
-                    })
-                    .ok();
-
-                Ok(tx_result)
+                Ok(rpc.is_tx_on_chain(&movetx_txid).await.unwrap_or_default())
             },
             None,
             None,
@@ -1910,8 +1893,6 @@ mod tests {
         .await
         .wrap_err_with(|| eyre::eyre!("MoveTx did not land onchain"))
         .unwrap();
-
-        assert!(tx.confirmations.unwrap() > 0);
     }
 
     #[tokio::test]
@@ -2073,21 +2054,13 @@ mod tests {
         let emergency_stop_txid = emergency_stop_tx.compute_txid();
         rpc.mine_blocks(1).await.unwrap();
 
-        let _emergencty_tx = poll_get(
+        poll_until_condition(
             async || {
                 rpc.mine_blocks(1).await.unwrap();
-
-                let tx_result = rpc
-                    .get_raw_transaction_info(&emergency_stop_txid, None)
-                    .await;
-
-                let tx_result = tx_result
-                    .inspect_err(|e| {
-                        tracing::error!("Error getting transaction: {:?}", e);
-                    })
-                    .ok();
-
-                Ok(tx_result)
+                Ok(rpc
+                    .is_tx_on_chain(&emergency_stop_txid)
+                    .await
+                    .unwrap_or_default())
             },
             None,
             None,

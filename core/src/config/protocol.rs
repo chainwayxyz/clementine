@@ -4,7 +4,7 @@ use crate::errors::BridgeError;
 use bitcoin::{Amount, Network};
 use bridge_circuit_host::utils::is_dev_mode;
 use circuits_lib::bridge_circuit::constants::{
-    DEVNET_LC_IMAGE_ID, MAINNET_LC_IMAGE_ID, REGTEST_LC_IMAGE_ID, TESTNET_LC_IMAGE_ID,
+    DEVNET_LC_IMAGE_ID, MAINNET_LC_IMAGE_ID, REGTEST_LC_IMAGE_ID, TESTNET4_LC_IMAGE_ID,
 };
 use eyre::Context;
 use serde::{Deserialize, Serialize};
@@ -242,7 +242,7 @@ impl ProtocolParamset {
     pub fn get_lcp_image_id(&self) -> Result<[u8; 32], BridgeError> {
         Ok(match self.network {
             bitcoin::Network::Bitcoin => MAINNET_LC_IMAGE_ID,
-            bitcoin::Network::Testnet4 => TESTNET_LC_IMAGE_ID,
+            bitcoin::Network::Testnet4 => TESTNET4_LC_IMAGE_ID,
             bitcoin::Network::Signet => DEVNET_LC_IMAGE_ID,
             bitcoin::Network::Regtest => REGTEST_LC_IMAGE_ID,
             _ => return Err(eyre::eyre!("Unsupported Bitcoin network").into()),

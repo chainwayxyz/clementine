@@ -4,7 +4,7 @@
 
 use super::{
     constants::{
-        DEVNET_LC_IMAGE_ID, MAINNET_LC_IMAGE_ID, REGTEST_LC_IMAGE_ID, TESTNET_LC_IMAGE_ID,
+        DEVNET_LC_IMAGE_ID, MAINNET_LC_IMAGE_ID, REGTEST_LC_IMAGE_ID, TESTNET4_LC_IMAGE_ID,
     },
     structs::LightClientProof,
 };
@@ -15,7 +15,7 @@ pub const LC_IMAGE_ID: [u8; 32] = {
     match option_env!("BITCOIN_NETWORK") {
         Some(network) if matches!(network.as_bytes(), b"regtest") => REGTEST_LC_IMAGE_ID,
         Some(network) if matches!(network.as_bytes(), b"signet") => DEVNET_LC_IMAGE_ID,
-        Some(network) if matches!(network.as_bytes(), b"testnet4") => TESTNET_LC_IMAGE_ID,
+        Some(network) if matches!(network.as_bytes(), b"testnet4") => TESTNET4_LC_IMAGE_ID,
         Some(network) if matches!(network.as_bytes(), b"mainnet") => MAINNET_LC_IMAGE_ID,
         None => MAINNET_LC_IMAGE_ID,
         _ => panic!("Unsupported BITCOIN_NETWORK environment variable"),
