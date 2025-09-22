@@ -115,6 +115,8 @@ pub struct KickoffStateMachine<T: Owner> {
     pub(crate) kickoff_height: u32,
     /// The witness for the kickoff transactions input which is a winternitz signature that commits the payout blockhash.
     pub(crate) payout_blockhash: Witness,
+    /// Marker to indicate if the state machine is in the challenged state.
+    challenged: bool,
     /// Set of indices of watchtower UTXOs that have already been spent.
     spent_watchtower_utxos: HashSet<usize>,
     /// The witness taken from the transaction spending the latest blockhash utxo.
@@ -168,6 +170,7 @@ impl<T: Owner> KickoffStateMachine<T> {
             latest_blockhash: Witness::default(),
             matchers: HashMap::new(),
             dirty: true,
+            challenged: false,
             phantom: std::marker::PhantomData,
             watchtower_challenges: HashMap::new(),
             operator_asserts: HashMap::new(),
@@ -376,6 +379,7 @@ impl<T: Owner> KickoffStateMachine<T> {
     /// which changes the state to "Closed".
     #[action]
     pub(crate) async fn on_challenged_entry(&mut self, context: &mut StateContext<T>) {
+        self.challenged = true;
         context
             .capture_error(async |context| {
                 {
@@ -392,6 +396,8 @@ impl<T: Owner> KickoffStateMachine<T> {
                 .wrap_err(self.kickoff_meta("on_kickoff_started_entry"))
             })
             .await;
+        // check if any action from the operator is ready to be started as it could already be ready before a challenge arrives
+        self.check_if_actions_ready(context).await;
     }
 
     /// State that is entered when the kickoff is challenged
@@ -412,16 +418,16 @@ impl<T: Owner> KickoffStateMachine<T> {
             | KickoffEvent::WatchtowerChallengeTimeoutSent { .. }
             | KickoffEvent::LatestBlockHashSent { .. }
             | KickoffEvent::TimeToSendLatestBlockhash
-            | KickoffEvent::SavedToDb => Super,
+            | KickoffEvent::SavedToDb => return Super,
             KickoffEvent::TimeToSendWatchtowerChallenge => {
                 self.send_watchtower_challenge(context).await;
-                Handled
             }
             _ => {
                 self.unhandled_event(context, event).await;
-                Handled
             }
         }
+        self.check_if_actions_ready(context).await;
+        Handled
     }
 
     #[superstate]
@@ -447,10 +453,6 @@ impl<T: Owner> KickoffStateMachine<T> {
                 // save challenge witness
                 self.watchtower_challenges
                     .insert(*watchtower_idx, tx.clone());
-                self.create_matcher_for_latest_blockhash_if_ready(context)
-                    .await;
-                self.disprove_if_ready(context).await;
-                Handled
             }
             // When an operator assert is detected in Bitcoin,
             // save the assert witness (which is the BitVM winternitz commit)
@@ -465,8 +467,6 @@ impl<T: Owner> KickoffStateMachine<T> {
                     .expect("Assert outpoint that got matched should be in block");
                 // save assert witness
                 self.operator_asserts.insert(*assert_idx, witness);
-                self.disprove_if_ready(context).await;
-                Handled
             }
             // When an operator challenge ack is detected in Bitcoin,
             // save the ack witness as the witness includes the revealed preimage that
@@ -483,11 +483,10 @@ impl<T: Owner> KickoffStateMachine<T> {
                 // save challenge ack witness
                 self.operator_challenge_acks
                     .insert(*watchtower_idx, witness);
-                Handled
             }
             // When the kickoff finalizer is spent in Bitcoin,
             // the kickoff process is finished and the state machine will transition to the "Closed" state
-            KickoffEvent::KickoffFinalizerSpent => Transition(State::closed()),
+            KickoffEvent::KickoffFinalizerSpent => return Transition(State::closed()),
             // When the burn connector of the operator is spent in Bitcoin, it means the operator cannot continue with any more kickoffs
             // (unless burn connector is spent by ready to reimburse tx), so the state machine will transition to the "Closed" state
             KickoffEvent::BurnConnectorSpent => {
@@ -495,15 +494,12 @@ impl<T: Owner> KickoffStateMachine<T> {
                     "Burn connector spent before kickoff was finalized for kickoff {:?}",
                     self.kickoff_data
                 );
-                Transition(State::closed())
+                return Transition(State::closed());
             }
             // When a watchtower challenge timeout is detected in Bitcoin,
             // set the watchtower utxo as spent and check if the latest blockhash can be committed
             KickoffEvent::WatchtowerChallengeTimeoutSent { watchtower_idx } => {
                 self.spent_watchtower_utxos.insert(*watchtower_idx);
-                self.create_matcher_for_latest_blockhash_if_ready(context)
-                    .await;
-                Handled
             }
             // When the latest blockhash is detected in Bitcoin,
             // save the witness which includes the blockhash and check if the operator asserts and
@@ -517,21 +513,30 @@ impl<T: Owner> KickoffStateMachine<T> {
                     .expect("Latest blockhash outpoint that got matched should be in block");
                 // save latest blockhash witness
                 self.latest_blockhash = witness;
-                // can start sending asserts as latest blockhash is committed and finalized
-                self.send_operator_asserts_if_ready(context).await;
-                self.disprove_if_ready(context).await;
-                Handled
             }
             KickoffEvent::TimeToSendLatestBlockhash => {
                 // tell owner to send latest blockhash tx
                 self.send_latest_blockhash(context).await;
-                Handled
             }
-            KickoffEvent::SavedToDb => Handled,
+            KickoffEvent::SavedToDb => {}
             _ => {
                 self.unhandled_event(context, event).await;
-                Handled
             }
+        };
+        self.check_if_actions_ready(context).await;
+        Handled
+    }
+
+    /// Checks if any action is ready to be started after an event is dispatched while the kickoff is challenged.
+    #[action]
+    pub(crate) async fn check_if_actions_ready(&mut self, context: &mut StateContext<T>) {
+        // without the check for if kickoff is challenged, operator can be forced to send asserts before it can send challenge timeout.
+        // if all watchtowers send challenges
+        if self.challenged {
+            self.create_matcher_for_latest_blockhash_if_ready(context)
+                .await;
+            self.send_operator_asserts_if_ready(context).await;
+            self.disprove_if_ready(context).await;
         }
     }
 
