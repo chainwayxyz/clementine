@@ -233,7 +233,9 @@ impl<T: Owner> KickoffStateMachine<T> {
             .capture_error(async |context| {
                 {
                     // if all watchtower challenge utxos are spent, its safe to send latest blockhash commit tx
-                    if self.spent_watchtower_utxos.len() == self.deposit_data.get_num_watchtowers()
+                    if self.challenged
+                        && self.spent_watchtower_utxos.len()
+                            == self.deposit_data.get_num_watchtowers()
                     {
                         // create a matcher to send latest blockhash tx after finality depth blocks pass from current block height
                         self.matchers.insert(
@@ -255,7 +257,7 @@ impl<T: Owner> KickoffStateMachine<T> {
     /// latest blockhash is committed and all watchtower challenge utxos are spent
     /// If the check is successful, the disprove is sent on Bitcoin
     async fn disprove_if_ready(&mut self, context: &mut StateContext<T>) {
-        if self.operator_asserts.len() == ClementineBitVMPublicKeys::number_of_assert_txs()
+        if self.challenged && self.operator_asserts.len() == ClementineBitVMPublicKeys::number_of_assert_txs()
             && self.latest_blockhash != Witness::default()
             && self.spent_watchtower_utxos.len() == self.deposit_data.get_num_watchtowers()
             // check if all operator acks are received, one ack for each watchtower challenge
@@ -275,7 +277,9 @@ impl<T: Owner> KickoffStateMachine<T> {
             .capture_error(async |context| {
                 {
                     // if all watchtower challenge utxos are spent and latest blockhash is committed, its safe to send asserts
-                    if self.spent_watchtower_utxos.len() == self.deposit_data.get_num_verifiers()
+                    if self.challenged
+                        && self.spent_watchtower_utxos.len()
+                            == self.deposit_data.get_num_verifiers()
                         && self.latest_blockhash != Witness::default()
                     {
                         context
@@ -396,8 +400,12 @@ impl<T: Owner> KickoffStateMachine<T> {
                 .wrap_err(self.kickoff_meta("on_kickoff_started_entry"))
             })
             .await;
-        // check if any action from the operator is ready to be started as it could already be ready before a challenge arrives
-        self.check_if_actions_ready(context).await;
+        // check if any action is ready to be started as it could already be ready before a challenge arrives
+        // but we want to make sure kickoff is actually challenged before we start sending actions
+        self.create_matcher_for_latest_blockhash_if_ready(context)
+            .await;
+        self.send_operator_asserts_if_ready(context).await;
+        self.disprove_if_ready(context).await;
     }
 
     /// State that is entered when the kickoff is challenged
@@ -418,16 +426,16 @@ impl<T: Owner> KickoffStateMachine<T> {
             | KickoffEvent::WatchtowerChallengeTimeoutSent { .. }
             | KickoffEvent::LatestBlockHashSent { .. }
             | KickoffEvent::TimeToSendLatestBlockhash
-            | KickoffEvent::SavedToDb => return Super,
+            | KickoffEvent::SavedToDb => Super,
             KickoffEvent::TimeToSendWatchtowerChallenge => {
                 self.send_watchtower_challenge(context).await;
+                Handled
             }
             _ => {
                 self.unhandled_event(context, event).await;
+                Handled
             }
         }
-        self.check_if_actions_ready(context).await;
-        Handled
     }
 
     #[superstate]
@@ -453,6 +461,10 @@ impl<T: Owner> KickoffStateMachine<T> {
                 // save challenge witness
                 self.watchtower_challenges
                     .insert(*watchtower_idx, tx.clone());
+                self.create_matcher_for_latest_blockhash_if_ready(context)
+                    .await;
+                self.send_operator_asserts_if_ready(context).await;
+                Handled
             }
             // When an operator assert is detected in Bitcoin,
             // save the assert witness (which is the BitVM winternitz commit)
@@ -467,6 +479,8 @@ impl<T: Owner> KickoffStateMachine<T> {
                     .expect("Assert outpoint that got matched should be in block");
                 // save assert witness
                 self.operator_asserts.insert(*assert_idx, witness);
+                self.disprove_if_ready(context).await;
+                Handled
             }
             // When an operator challenge ack is detected in Bitcoin,
             // save the ack witness as the witness includes the revealed preimage that
@@ -483,10 +497,12 @@ impl<T: Owner> KickoffStateMachine<T> {
                 // save challenge ack witness
                 self.operator_challenge_acks
                     .insert(*watchtower_idx, witness);
+                self.disprove_if_ready(context).await;
+                Handled
             }
             // When the kickoff finalizer is spent in Bitcoin,
             // the kickoff process is finished and the state machine will transition to the "Closed" state
-            KickoffEvent::KickoffFinalizerSpent => return Transition(State::closed()),
+            KickoffEvent::KickoffFinalizerSpent => Transition(State::closed()),
             // When the burn connector of the operator is spent in Bitcoin, it means the operator cannot continue with any more kickoffs
             // (unless burn connector is spent by ready to reimburse tx), so the state machine will transition to the "Closed" state
             KickoffEvent::BurnConnectorSpent => {
@@ -494,12 +510,17 @@ impl<T: Owner> KickoffStateMachine<T> {
                     "Burn connector spent before kickoff was finalized for kickoff {:?}",
                     self.kickoff_data
                 );
-                return Transition(State::closed());
+                Transition(State::closed())
             }
             // When a watchtower challenge timeout is detected in Bitcoin,
             // set the watchtower utxo as spent and check if the latest blockhash can be committed
             KickoffEvent::WatchtowerChallengeTimeoutSent { watchtower_idx } => {
                 self.spent_watchtower_utxos.insert(*watchtower_idx);
+                self.create_matcher_for_latest_blockhash_if_ready(context)
+                    .await;
+                self.send_operator_asserts_if_ready(context).await;
+                self.disprove_if_ready(context).await;
+                Handled
             }
             // When the latest blockhash is detected in Bitcoin,
             // save the witness which includes the blockhash and check if the operator asserts and
@@ -513,30 +534,21 @@ impl<T: Owner> KickoffStateMachine<T> {
                     .expect("Latest blockhash outpoint that got matched should be in block");
                 // save latest blockhash witness
                 self.latest_blockhash = witness;
+                // can start sending asserts as latest blockhash is committed and finalized
+                self.send_operator_asserts_if_ready(context).await;
+                self.disprove_if_ready(context).await;
+                Handled
             }
             KickoffEvent::TimeToSendLatestBlockhash => {
                 // tell owner to send latest blockhash tx
                 self.send_latest_blockhash(context).await;
+                Handled
             }
-            KickoffEvent::SavedToDb => {}
+            KickoffEvent::SavedToDb => Handled,
             _ => {
                 self.unhandled_event(context, event).await;
+                Handled
             }
-        };
-        self.check_if_actions_ready(context).await;
-        Handled
-    }
-
-    /// Checks if any action is ready to be started after an event is dispatched while the kickoff is challenged.
-    #[action]
-    pub(crate) async fn check_if_actions_ready(&mut self, context: &mut StateContext<T>) {
-        // without the check for if kickoff is challenged, operator can be forced to send asserts before it can send challenge timeout.
-        // if all watchtowers send challenges
-        if self.challenged {
-            self.create_matcher_for_latest_blockhash_if_ready(context)
-                .await;
-            self.send_operator_asserts_if_ready(context).await;
-            self.disprove_if_ready(context).await;
         }
     }
 
