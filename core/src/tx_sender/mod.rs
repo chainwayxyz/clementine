@@ -33,6 +33,8 @@ use eyre::eyre;
 use eyre::ContextCompat;
 use eyre::OptionExt;
 use eyre::WrapErr;
+use tokio_retry::strategy::{jitter, ExponentialBackoff};
+use tokio_retry::Retry;
 
 #[cfg(test)]
 use std::env;
@@ -496,15 +498,24 @@ async fn get_fee_rate_from_mempool_space(
         _ => return Err(eyre!("Unsupported network for mempool.space: {:?}", network).into()),
     };
 
-    let fee_sat_per_vb = reqwest::get(&url)
-        .await
-        .wrap_err_with(|| format!("GET request to {} failed", url))?
-        .json::<serde_json::Value>()
-        .await
-        .wrap_err_with(|| format!("Failed to parse JSON response from {}", url))?
-        .get("fastestFee")
-        .and_then(|fee| fee.as_u64())
-        .ok_or_else(|| eyre!("'fastestFee' field not found or invalid in API response"))?;
+    let retry_strategy = ExponentialBackoff::from_millis(250)
+        .max_delay(std::time::Duration::from_secs(5))
+        .take(6)
+        .map(jitter);
+
+    let fee_sat_per_vb = Retry::spawn(retry_strategy, || async {
+        let resp = reqwest::get(&url)
+            .await
+            .wrap_err_with(|| format!("GET request to {} failed", url))?;
+        let json: serde_json::Value = resp
+            .json()
+            .await
+            .wrap_err_with(|| format!("Failed to parse JSON response from {}", url))?;
+        json.get("fastestFee")
+            .and_then(|fee| fee.as_u64())
+            .ok_or_else(|| eyre!("'fastestFee' field not found or invalid in API response"))
+    })
+    .await?;
 
     // The API returns the fee rate in sat/vB. We multiply by 1000 to get sat/kvB.
     let fee_rate = Amount::from_sat(fee_sat_per_vb * 1000);
