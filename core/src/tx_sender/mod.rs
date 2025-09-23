@@ -179,8 +179,9 @@ impl TxSender {
                     .await
                     .wrap_err("Failed to estimate smart fee using Bitcoin Core RPC")
                     .and_then(|estimate| {
-                        estimate.fee_rate
-                            .ok_or_else(|| eyre!("Failed to extract fee rate from Bitcoin Core RPC response"))
+                        estimate.fee_rate.ok_or_else(|| {
+                            eyre!("Failed to extract fee rate from Bitcoin Core RPC response")
+                        })
                     });
 
                 // Use the minimum of both fee sources, with fallback logic
@@ -196,11 +197,17 @@ impl TxSender {
                         min_fee
                     }
                     (Ok(mempool_amt), Err(rpc_err)) => {
-                        tracing::warn!("RPC fee estimation failed, using mempool.space: {:#}", rpc_err);
+                        tracing::warn!(
+                            "RPC fee estimation failed, using mempool.space: {:#}",
+                            rpc_err
+                        );
                         mempool_amt
                     }
                     (Err(mempool_err), Ok(rpc_amt)) => {
-                        tracing::warn!("Mempool.space fee fetch failed, using Bitcoin Core RPC: {:#}", mempool_err);
+                        tracing::warn!(
+                            "Mempool.space fee fetch failed, using Bitcoin Core RPC: {:#}",
+                            mempool_err
+                        );
                         rpc_amt
                     }
                     (Err(mempool_err), Err(rpc_err)) => {
@@ -214,7 +221,7 @@ impl TxSender {
 
                 // Convert sat/kvB to sat/vB and apply hard cap
                 let mut fee_sat_vb = selected_fee_amount.to_sat() / 1000;
-                
+
                 // Apply hard cap from config
                 if fee_sat_vb > self.config.tx_sender_fee_rate_hard_cap {
                     tracing::warn!(
