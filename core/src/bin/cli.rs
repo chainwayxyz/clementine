@@ -8,13 +8,13 @@ use bitcoincore_rpc::{json::SignRawTransactionInput, Auth, Client, RpcApi};
 use clap::{Parser, Subcommand};
 use clementine_core::{
     actor::Actor,
-    builder::transaction::TransactionType,
+    builder::{script::{Multisig, ReplacementDepositScript, SpendableScript}, transaction::TransactionType},
     config::BridgeConfig,
     deposit::SecurityCouncil,
     rpc::clementine::{
         self, clementine_aggregator_client::ClementineAggregatorClient, deposit::DepositData,
         Actors, AggregatorWithdrawalInput, BaseDeposit, Deposit, Empty, EntityStatus,
-        GetEntityStatusesRequest, OptimisticWithdrawParams, Outpoint, ReplacementDeposit,
+        GetEntityStatusesRequest, Outpoint, ReplacementDeposit,
         SendMoveTxRequest, VerifierPublicKeys, XOnlyPublicKeyRpc, XOnlyPublicKeys,
     },
     EVMAddress,
@@ -160,6 +160,8 @@ enum AggregatorCommands {
         network: Option<String>,
         #[arg(long)]
         security_council: Option<SecurityCouncil>,
+        #[arg(long)]
+        nofn_xonly_pk: Option<String>,
     },
     /// Process a new withdrawal
     NewWithdrawal {
@@ -722,6 +724,7 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             move_txid,
             network,
             security_council,
+            nofn_xonly_pk,
         } => {
             let mut move_txid = hex::decode(move_txid).expect("Failed to decode txid");
             move_txid.reverse();
@@ -730,15 +733,20 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                     .try_into()
                     .expect("Failed to convert txid to array"),
             );
+            let nofn_xonly_pk = match nofn_xonly_pk {
+                Some(pk) => {
+                    bitcoin::XOnlyPublicKey::from_str(&pk).expect("Failed to parse xonly_pk")
+                }
+                None => {
+                    let response = aggregator
+                        .get_nofn_aggregated_xonly_pk(Request::new(Empty {}))
+                        .await
+                        .expect("Failed to make a request");
 
-            let response = aggregator
-                .get_nofn_aggregated_xonly_pk(Request::new(Empty {}))
-                .await
-                .expect("Failed to make a request");
-
-            let nofn_xonly_pk =
-                bitcoin::XOnlyPublicKey::from_slice(&response.get_ref().nofn_xonly_pk)
-                    .expect("Failed to parse xonly_pk");
+                    bitcoin::XOnlyPublicKey::from_slice(&response.get_ref().nofn_xonly_pk)
+                        .expect("Failed to parse xonly_pk")
+                }
+            };
 
             let network = match network {
                 Some(network) => {
@@ -747,16 +755,26 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                 None => bitcoin::Network::Regtest,
             };
 
+            let security_council = security_council.expect("Security council is required");
+
             let (replacement_deposit_address, _) =
                 clementine_core::builder::address::generate_replacement_deposit_address(
                     move_txid,
                     nofn_xonly_pk,
                     network,
-                    security_council.expect("Security council is required"),
+                    security_council.clone(),
                 )
                 .expect("Failed to generate replacement deposit address");
 
+            let deposit_script =
+                ReplacementDepositScript::new(nofn_xonly_pk, move_txid).to_script_buf();
+
+            let security_council_script =
+                Multisig::from_security_council(security_council.clone()).to_script_buf();
+
             println!("Replacement deposit address: {replacement_deposit_address}");
+            println!("Deposit script: {}", hex::encode(deposit_script));
+            println!("Security council script: {}", hex::encode(security_council_script));
         }
         AggregatorCommands::NewReplacementDeposit {
             deposit_outpoint_txid,
