@@ -134,7 +134,7 @@ pub fn initialize_telemetry(config: &TelemetryConfig) -> Result<(), BridgeError>
                 config.host,
                 config.port
             );
-            SocketAddr::from((Ipv4Addr::new(0, 0, 0, 0), 8081))
+            SocketAddr::from((Ipv4Addr::new(127, 0, 0, 1), 8081))
         });
 
     tracing::debug!("Initializing telemetry at {}", telemetry_addr);
@@ -492,7 +492,7 @@ where
 /// A trait for entities that have a name, operator, verifier, etc.
 /// Used to distinguish between state machines with different owners in the database,
 /// and to provide a human-readable name for the entity for task names.
-pub trait NamedEntity: Sync + Send + 'static {
+pub trait NamedEntity:  Sync + Send + 'static {
     /// A string identifier for this owner type used to distinguish between
     /// state machines with different owners in the database.
     ///
