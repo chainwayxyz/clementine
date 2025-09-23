@@ -788,7 +788,7 @@ impl Aggregator {
     async fn create_movetx(
         &self,
         partial_sigs: Vec<Vec<u8>>,
-        movetx_agg_nonce: (AggregatedNonce, Vec<PublicNonce>),
+        movetx_agg_and_pub_nonces: (AggregatedNonce, Vec<PublicNonce>),
         deposit_params: DepositParams,
     ) -> Result<TxHandler<Signed>, Status> {
         let mut deposit_data: DepositData = deposit_params.try_into()?;
@@ -806,7 +806,7 @@ impl Aggregator {
 
         let musig_sigs_and_nonces = musig_partial_sigs
             .into_iter()
-            .zip(movetx_agg_nonce.1)
+            .zip(movetx_agg_and_pub_nonces.1)
             .collect::<Vec<_>>();
 
         // aggregate partial signatures
@@ -814,7 +814,7 @@ impl Aggregator {
         let final_sig = crate::musig2::aggregate_partial_signatures(
             verifiers_public_keys,
             None,
-            movetx_agg_nonce.0,
+            movetx_agg_and_pub_nonces.0,
             &musig_sigs_and_nonces,
             Message::from_digest(sighash.to_byte_array()),
         )?;
@@ -828,7 +828,7 @@ impl Aggregator {
     async fn verify_and_save_emergency_stop_sigs(
         &self,
         emergency_stop_sigs: Vec<Vec<u8>>,
-        emergency_stop_agg_nonce: (AggregatedNonce, Vec<PublicNonce>),
+        emergency_stop_agg_and_pub_nonces: (AggregatedNonce, Vec<PublicNonce>),
         deposit_params: DepositParams,
     ) -> Result<(), BridgeError> {
         let mut deposit_data: DepositData = deposit_params
@@ -857,13 +857,13 @@ impl Aggregator {
 
         let musig_sigs_and_nonces = musig_partial_sigs
             .into_iter()
-            .zip(emergency_stop_agg_nonce.1)
+            .zip(emergency_stop_agg_and_pub_nonces.1)
             .collect::<Vec<_>>();
 
         let final_sig = crate::musig2::aggregate_partial_signatures(
             verifiers_public_keys,
             None,
-            emergency_stop_agg_nonce.0,
+            emergency_stop_agg_and_pub_nonces.0,
             &musig_sigs_and_nonces,
             Message::from_digest(sighash.to_byte_array()),
         )
@@ -2064,11 +2064,14 @@ mod tests {
         };
 
         // Generate and broadcast the move-to-vault transaction
+        let start_time = std::time::Instant::now();
         let raw_move_tx = aggregator
             .new_deposit(clementine::Deposit::from(deposit_info))
             .await
             .unwrap()
             .into_inner();
+        let end_time = std::time::Instant::now();
+        println!("New deposit time: {:?}", end_time - start_time);
 
         let movetx_txid = aggregator
             .send_move_to_vault_tx(SendMoveTxRequest {
