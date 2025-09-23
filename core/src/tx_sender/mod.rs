@@ -15,7 +15,7 @@
 //! There are several database tables that saves the transaction states. Please
 //! look for [`core/src/database/tx_sender.rs`] for more information.
 
-use crate::config::protocol::ProtocolParamset;
+use crate::config::BridgeConfig;
 use crate::errors::{FeeErr, ResultExt};
 use crate::utils::FeePayingType;
 use crate::{
@@ -82,7 +82,7 @@ pub struct TxSender {
     pub rpc: ExtendedBitcoinRpc,
     pub db: Database,
     pub btc_syncer_consumer_id: String,
-    paramset: &'static ProtocolParamset,
+    pub config: BridgeConfig,
     cached_spendinfo: TaprootSpendInfo,
     http_client: reqwest::Client,
     pub mempool_api_host: Option<String>,
@@ -126,49 +126,50 @@ impl TxSender {
         rpc: ExtendedBitcoinRpc,
         db: Database,
         btc_syncer_consumer_id: String,
-        paramset: &'static ProtocolParamset,
-        mempool_api_host: Option<String>,
-        mempool_api_endpoint: Option<String>,
+        config: BridgeConfig,
     ) -> Self {
         Self {
             cached_spendinfo: builder::address::create_taproot_address(
                 &[],
                 Some(signer.xonly_public_key),
-                paramset.network,
+                config.protocol_paramset.network,
             )
             .1,
             signer,
             rpc,
             db,
             btc_syncer_consumer_id,
-            paramset,
+            config: config.clone(),
             http_client: reqwest::Client::new(),
-            mempool_api_host,
-            mempool_api_endpoint,
+            mempool_api_host: config.mempool_api_host,
+            mempool_api_endpoint: config.mempool_api_endpoint,
         }
     }
 
     /// Gets the current recommended fee rate in sat/vb from Mempool Space or Bitcoin Core.
     async fn get_fee_rate(&self) -> Result<FeeRate> {
-        match self.paramset.network {
+        match self.config.protocol_paramset.network {
             // Regtest and Signet use a fixed, low fee rate.
             Network::Regtest | Network::Signet => {
                 tracing::debug!(
                     "Using fixed fee rate of 1 sat/vB for {} network",
-                    self.paramset.network
+                    self.config.protocol_paramset.network
                 );
                 Ok(FeeRate::from_sat_per_vb_unchecked(1))
             }
 
             // Mainnet and Testnet4 fetch fees from Mempool Space or Bitcoin Core RPC.
             Network::Bitcoin | Network::Testnet4 => {
-                tracing::debug!("Fetching fee rate for {} network...", self.paramset.network);
+                tracing::debug!(
+                    "Fetching fee rate for {} network...",
+                    self.config.protocol_paramset.network
+                );
 
                 // Fetch fee from RPC provider with a fallback to the RPC node.
                 let mempool_fee = get_fee_rate_from_mempool_space(
                     &self.mempool_api_host,
                     &self.mempool_api_endpoint,
-                    self.paramset.network,
+                    self.config.protocol_paramset.network,
                 )
                 .await;
 
@@ -215,7 +216,7 @@ impl TxSender {
             // All other network types are unsupported.
             _ => Err(eyre!(
                 "Fee rate estimation is not supported for network: {:?}",
-                self.paramset.network
+                self.config.protocol_paramset.network
             )
             .into()),
         }
@@ -286,7 +287,8 @@ impl TxSender {
 
     fn is_p2a_anchor(&self, output: &TxOut) -> bool {
         output.script_pubkey
-            == builder::transaction::anchor_output(self.paramset.anchor_amount()).script_pubkey
+            == builder::transaction::anchor_output(self.config.protocol_paramset.anchor_amount())
+                .script_pubkey
     }
 
     fn find_p2a_vout(&self, tx: &Transaction) -> Result<usize> {
@@ -388,7 +390,7 @@ impl TxSender {
             let result = match fee_paying_type {
                 // Send nonstandard transactions to testnet4 using the mempool.space accelerator.
                 // As mempool uses out of band payment, we don't need to do cpfp or rbf.
-                _ if self.paramset.network == bitcoin::Network::Testnet4
+                _ if self.config.protocol_paramset.network == bitcoin::Network::Testnet4
                     && self.is_bridge_tx_nonstandard(&tx) =>
                 {
                     self.send_testnet4_nonstandard_tx(&tx, id).await
@@ -545,12 +547,6 @@ async fn get_fee_rate_from_mempool_space(
     .map_err(|e| eyre::eyre!(e))
     .wrap_err_with(|| format!("Failed to fetch/parse fees from {}", url))?;
 
-    // Used https://mempool.space/api/v1/mining/blocks/fee-rates/3y to determine this value.
-    // It's greater than the 50th percentile of fees over the last 3 years.
-    let hard_cap = 1300; // sat/vB
-
-    let fee_sat_per_vb = fee_sat_per_vb.min(hard_cap);
-
     // The API returns the fee rate in sat/vB. We multiply by 1000 to get sat/kvB.
     let fee_rate = Amount::from_sat(fee_sat_per_vb * 1000);
 
@@ -613,14 +609,12 @@ mod tests {
             rpc.clone(),
             db.clone(),
             "tx_sender".into(),
-            config.protocol_paramset(),
-            config.mempool_api_host.clone(),
-            config.mempool_api_endpoint.clone(),
+            config.clone(),
         );
 
         (
             tx_sender,
-            BitcoinSyncer::new(db.clone(), rpc.clone(), config.protocol_paramset())
+            BitcoinSyncer::new(db.clone(), rpc.clone(), config.protocol_paramset)
                 .await
                 .unwrap(),
             rpc,
@@ -828,9 +822,7 @@ mod tests {
             rpc.clone(),
             db,
             "tx_sender".into(),
-            config.protocol_paramset(),
-            config.mempool_api_host.clone(),
-            config.mempool_api_endpoint.clone(),
+            config.clone(),
         );
 
         let scripts: Vec<Arc<dyn SpendableScript>> =

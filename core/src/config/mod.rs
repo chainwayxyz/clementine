@@ -154,6 +154,9 @@ pub struct BridgeConfig {
     /// gRPC client/server limits
     #[serde(default = "default_grpc_limits")]
     pub grpc: GrpcLimits,
+
+    /// Hard cap on tx sender fee rate (sat/vB).
+    pub tx_sender_fee_rate_hard_cap: u64,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq)]
@@ -349,6 +352,7 @@ impl Default for BridgeConfig {
 
             // New hardening parameters, optional so they don't break existing configs.
             grpc: default_grpc_limits(),
+            tx_sender_fee_rate_hard_cap: 100,
         }
     }
 }

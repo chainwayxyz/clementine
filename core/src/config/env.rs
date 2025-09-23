@@ -218,6 +218,9 @@ impl BridgeConfig {
 
             #[cfg(test)]
             test_params: super::TestParams::default(),
+            tx_sender_fee_rate_hard_cap: read_string_from_env_then_parse::<u64>(
+                "TX_SENDER_FEE_RATE_HARD_CAP",
+            )?,
         };
 
         tracing::debug!("BridgeConfig from env: {:?}", config);
