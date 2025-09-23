@@ -126,7 +126,7 @@ impl MMRNative {
     pub fn verify_proof(&self, leaf: [u8; 32], mmr_proof: &MMRInclusionProof) -> bool {
         let subroot = mmr_proof.get_subroot(leaf);
         let subroots = self.get_subroots();
-        subroots[mmr_proof.subroot_idx] == subroot
+        subroots.get(mmr_proof.subroot_idx) == Some(&subroot)
     }
 
     pub fn to_guest_mmr(&self) -> crate::header_chain::mmr_guest::MMRGuest {
