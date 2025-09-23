@@ -182,20 +182,34 @@ pub fn aggregate_partial_signatures(
         partial_sigs.iter().collect();
     let partial_sigs: Vec<&PartialSignature> =
         partial_sigs_and_nonces.iter().map(|(sig, _)| sig).collect();
-    for ((partial_sig, pub_nonce), pub_key) in
-        partial_sigs_and_nonces.into_iter().zip(pks.into_iter())
-    {
-        if !session.partial_verify(
-            SECP256K1,
-            &musig_key_agg_cache,
-            *partial_sig,
-            *pub_nonce,
-            to_secp_pk(pub_key),
-        ) {
-            return Err(BridgeError::from(eyre::eyre!(
-                "MuSig2 Error: partial signature verification failed for pub key: {}",
-                pub_key
-            )));
+    // enable partial signature verification with an environment variable to see which verifier is giving bad partial signatures
+    // this is an env var so that we can turn it off for better performance
+    let enable_partial_sig_verification = std::env::var("PARTIAL_SIG_VERIFICATION")
+        .ok()
+        .map(|value| {
+            matches!(
+                value.to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "y" | "on"
+            )
+        })
+        .unwrap_or(false);
+
+    if enable_partial_sig_verification {
+        for ((partial_sig, pub_nonce), pub_key) in
+            partial_sigs_and_nonces.into_iter().zip(pks.into_iter())
+        {
+            if !session.partial_verify(
+                SECP256K1,
+                &musig_key_agg_cache,
+                *partial_sig,
+                *pub_nonce,
+                to_secp_pk(pub_key),
+            ) {
+                return Err(BridgeError::from(eyre::eyre!(
+                    "MuSig2 Error: partial signature verification failed for pub key: {}",
+                    pub_key
+                )));
+            }
         }
     }
     let final_sig = session.partial_sig_agg(&partial_sigs);
