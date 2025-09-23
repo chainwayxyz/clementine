@@ -479,7 +479,6 @@ async fn get_fee_rate_from_mempool_space(
     endpoint: &Option<String>,
     network: Network,
 ) -> Result<Amount> {
-
     let url = url
         .as_ref()
         .ok_or_else(|| eyre!("Fee rate API host is not configured"))?;
@@ -508,7 +507,7 @@ async fn get_fee_rate_from_mempool_space(
         let resp = reqwest::get(&url)
             .await
             .wrap_err_with(|| format!("GET request to {} failed", url))?;
-        if !resp.status().is_success(){
+        if !resp.status().is_success() {
             return Err(eyre!("Non-success status code {} from {}", resp.status(), url).into());
         }
         let json: serde_json::Value = resp
@@ -521,9 +520,9 @@ async fn get_fee_rate_from_mempool_space(
     })
     .await?;
 
-    // Used https://mempool.space/api/v1/mining/blocks/fee-rates/3y to determine this value. 
+    // Used https://mempool.space/api/v1/mining/blocks/fee-rates/3y to determine this value.
     // It's greater than the 50th percentile of fees over the last 3 years.
-    let hard_cap = 1300; // sat/vB 
+    let hard_cap = 1300; // sat/vB
 
     let fee_sat_per_vb = fee_sat_per_vb.min(hard_cap);
 
