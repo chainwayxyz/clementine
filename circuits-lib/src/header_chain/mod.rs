@@ -685,7 +685,11 @@ fn check_hash_valid(hash: &[u8; 32], target_bytes: &[u8; 32]) {
 ///
 /// Bitcoin measures cumulative proof-of-work as the sum of work done by all blocks.
 /// The work for a single block is inversely proportional to its target:
-/// work = max_target / (target + 1)
+/// work = 2 ** 256 / (target + 1)
+///
+/// This calculation uses the mathematical identity:
+/// 2**256 / (x + 1) == ~x / (x + 1) + 1
+/// (Equation shamelessly stolen from bitcoind)
 ///
 /// This allows comparing the total work between different chains to determine
 /// which has the most accumulated proof-of-work.
@@ -698,9 +702,25 @@ fn check_hash_valid(hash: &[u8; 32], target_bytes: &[u8; 32]) {
 ///
 /// * `U256` - The amount of work represented by this target
 fn calculate_work(target: &[u8; 32]) -> U256 {
+    // We should never have a target/work of zero so this doesn't matter
+    // that much but we define the inverse of 0 as max.
     let target = U256::from_be_slice(target);
-    let target_plus_one = target.saturating_add(&U256::ONE);
-    U256::MAX.wrapping_div(&target_plus_one)
+    if target == U256::ZERO {
+        return U256::MAX;
+    }
+    // We define the inverse of 1 as max.
+    if target == U256::ONE {
+        return U256::MAX;
+    }
+    // We define the inverse of max as 1.
+    if target == U256::MAX {
+        return U256::ONE;
+    }
+
+    let comp = !target;
+
+    let ret = comp.wrapping_div(&target.wrapping_add(&U256::ONE));
+    ret.wrapping_add(&U256::ONE)
 }
 
 /// Circuit output containing the updated chain state and metadata.
