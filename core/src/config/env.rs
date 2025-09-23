@@ -348,6 +348,11 @@ mod tests {
         );
 
         std::env::set_var(
+            "TX_SENDER_FEE_RATE_HARD_CAP",
+            default_config.tx_sender_fee_rate_hard_cap.to_string(),
+        );
+
+        std::env::set_var(
             "GRPC_MAX_MESSAGE_SIZE",
             default_config.grpc.max_message_size.to_string(),
         );
