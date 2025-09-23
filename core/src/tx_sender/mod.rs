@@ -479,11 +479,11 @@ async fn get_fee_rate_from_mempool_space(
     endpoint: &Option<String>,
     network: Network,
 ) -> Result<Amount> {
-    let rpc_url = url
+    let url = url
         .as_ref()
         .ok_or_else(|| eyre!("Fee rate API host is not configured"))?;
 
-    let rpc_endpoint = endpoint
+    let endpoint = endpoint
         .as_ref()
         .ok_or_else(|| eyre!("Fee rate API endpoint is not configured"))?;
 
@@ -491,9 +491,9 @@ async fn get_fee_rate_from_mempool_space(
         Network::Bitcoin => format!(
             // If the variables are not, return Error to fallback to Bitcoin Core RPC.
             "{}{}",
-            rpc_url, rpc_endpoint
+            url, endpoint
         ),
-        Network::Testnet4 => format!("{}testnet4/{}", rpc_url, rpc_endpoint),
+        Network::Testnet4 => format!("{}testnet4/{}", url, endpoint),
         // Return early with error for unsupported networks
         _ => return Err(eyre!("Unsupported network for mempool.space: {:?}", network).into()),
     };
