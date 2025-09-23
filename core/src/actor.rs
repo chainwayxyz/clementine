@@ -22,7 +22,7 @@ use bitcoin::{
     secp256k1::{schnorr, Keypair, Message, SecretKey, XOnlyPublicKey},
     Address, ScriptBuf, TapSighash, TapTweakHash,
 };
-use bitcoin::{OutPoint, TapNodeHash, TapSighashType, Witness};
+use bitcoin::{Network, OutPoint, TapNodeHash, TapSighashType, Witness};
 use bitvm::signatures::winternitz::{self, BinarysearchVerifier, ToBytesConverter, Winternitz};
 use eyre::{Context, OptionExt};
 use hkdf::Hkdf;
@@ -59,9 +59,25 @@ impl WinternitzDerivationPath {
         }
     }
 
+    fn get_network_prefix(&self) -> u8 {
+        let paramset = match self {
+            WinternitzDerivationPath::Kickoff(.., paramset) => paramset,
+            WinternitzDerivationPath::BitvmAssert(.., paramset) => paramset,
+            WinternitzDerivationPath::ChallengeAckHash(.., paramset) => paramset,
+        };
+        match paramset.network {
+            Network::Regtest => 0u8,
+            Network::Testnet4 => 1u8,
+            Network::Testnet => 1u8,
+            Network::Signet => 2u8,
+            Network::Bitcoin => 3u8,
+            _ => panic!("Unsupported network {:?}", paramset.network),
+        }
+    }
+
     fn to_bytes(&self) -> Vec<u8> {
         let type_id = self.get_type_id();
-        let mut bytes = vec![type_id];
+        let mut bytes = vec![type_id, self.get_network_prefix()];
 
         match self {
             WinternitzDerivationPath::Kickoff(round_idx, kickoff_idx, _) => {
