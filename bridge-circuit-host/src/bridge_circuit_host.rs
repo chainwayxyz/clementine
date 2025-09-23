@@ -366,12 +366,21 @@ pub fn create_spv(
 
     let payout_tx_proof = block_mt.generate_proof(payment_tx_index);
 
-    Ok(SPV {
-        transaction: CircuitTransaction(payout_tx),
-        block_inclusion_proof: payout_tx_proof,
-        block_header: payment_block.header.into(),
-        mmr_inclusion_proof: mmr_inclusion_proof.1,
-    })
+    let spv = SPV::new(
+        CircuitTransaction(payout_tx.clone()),
+        payout_tx_proof.clone(),
+        payment_block.header.clone().into(),
+        mmr_inclusion_proof.1.clone(),
+    );
+
+    let mmr_guest = mmr_native.to_guest_mmr();
+
+    // Verify the SPV proof to ensure correctness
+    if !spv.verify(mmr_guest) {
+        return Err(eyre!("SPV verification failed"));
+    }
+
+    Ok(spv)
 }
 
 /// Generates a Groth16 proof of a bitcoin header chain proof where it only outputs the total work.

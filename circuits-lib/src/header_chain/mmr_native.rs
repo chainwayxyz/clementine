@@ -128,6 +128,13 @@ impl MMRNative {
         let subroots = self.get_subroots();
         subroots[mmr_proof.subroot_idx] == subroot
     }
+
+    pub fn to_guest_mmr(&self) -> crate::header_chain::mmr_guest::MMRGuest {
+        crate::header_chain::mmr_guest::MMRGuest {
+            subroots: self.get_subroots(),
+            size: self.nodes[0].len() as u32,
+        }
+    }
 }
 
 /// Proof of inclusion for an element in the MMR.
