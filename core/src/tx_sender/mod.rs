@@ -16,7 +16,7 @@
 //! look for [`core/src/database/tx_sender.rs`] for more information.
 
 use crate::config::protocol::ProtocolParamset;
-use crate::errors::ResultExt;
+use crate::errors::{FeeErr, ResultExt};
 use crate::utils::FeePayingType;
 use crate::{
     actor::Actor,
@@ -33,11 +33,14 @@ use eyre::eyre;
 use eyre::ContextCompat;
 use eyre::OptionExt;
 use eyre::WrapErr;
+use http::StatusCode;
+use tokio::time::timeout;
 use tokio_retry::strategy::{jitter, ExponentialBackoff};
-use tokio_retry::Retry;
+use tokio_retry::RetryIf;
 
 #[cfg(test)]
 use std::env;
+use std::time::Duration;
 
 mod client;
 mod cpfp;
@@ -469,7 +472,7 @@ impl TxSender {
     }
 }
 
-/// Fetches the current recommended fee rate from provider. Currently only supports
+/// Fetches the current recommended fee rate from the provider. Currently only supports
 /// Mempool Space API.
 /// This function is used to get the fee rate in sat/vkb (satoshis per kilovbyte).
 /// See [Mempool Space API](https://mempool.space/docs/api/rest#get-recommended-fees) for more details.
@@ -499,26 +502,48 @@ async fn get_fee_rate_from_mempool_space(
     };
 
     let retry_strategy = ExponentialBackoff::from_millis(250)
-        .max_delay(std::time::Duration::from_secs(5))
+        .max_delay(Duration::from_secs(5))
         .take(6)
         .map(jitter);
 
-    let fee_sat_per_vb = Retry::spawn(retry_strategy, || async {
-        let resp = reqwest::get(&url)
-            .await
-            .wrap_err_with(|| format!("GET request to {} failed", url))?;
-        if !resp.status().is_success() {
-            return Err(eyre!("Non-success status code {} from {}", resp.status(), url).into());
-        }
-        let json: serde_json::Value = resp
-            .json()
-            .await
-            .wrap_err_with(|| format!("Failed to parse JSON response from {}", url))?;
-        json.get("fastestFee")
-            .and_then(|fee| fee.as_u64())
-            .ok_or_else(|| eyre!("'fastestFee' field not found or invalid in API response"))
-    })
-    .await?;
+    // Retry predicate: only retry on timeouts, connect errors, and 5xx/429 statuses.
+    let should_retry = |e: &FeeErr| match e {
+        FeeErr::Timeout => true,
+        FeeErr::Transport(req_err) => req_err.is_timeout() || req_err.is_connect(),
+        FeeErr::Status(code) => code.is_server_error() || *code == StatusCode::TOO_MANY_REQUESTS,
+        FeeErr::JsonDecode(_) | FeeErr::MissingField => false,
+    };
+
+    let fee_sat_per_vb: u64 = RetryIf::spawn(
+        retry_strategy,
+        || {
+            let url = url.clone();
+            async move {
+                let resp = timeout(Duration::from_secs(8), reqwest::get(&url))
+                    .await
+                    .map_err(|_| FeeErr::Timeout)?
+                    .map_err(FeeErr::Transport)?;
+
+                let status = resp.status();
+                if !status.is_success() {
+                    return Err(FeeErr::Status(status));
+                }
+
+                let json: serde_json::Value = timeout(Duration::from_secs(5), resp.json())
+                    .await
+                    .map_err(|_| FeeErr::Timeout)?
+                    .map_err(FeeErr::JsonDecode)?;
+
+                json.get("fastestFee")
+                    .and_then(|fee| fee.as_u64())
+                    .ok_or(FeeErr::MissingField)
+            }
+        },
+        should_retry,
+    )
+    .await
+    .map_err(|e| eyre::eyre!(e))
+    .wrap_err_with(|| format!("Failed to fetch/parse fees from {}", url))?;
 
     // Used https://mempool.space/api/v1/mining/blocks/fee-rates/3y to determine this value.
     // It's greater than the 50th percentile of fees over the last 3 years.
