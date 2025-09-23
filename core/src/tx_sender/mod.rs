@@ -158,14 +158,14 @@ impl TxSender {
                 Ok(FeeRate::from_sat_per_vb_unchecked(1))
             }
 
-            // Mainnet and Testnet4 fetch fees from Mempool Space or Bitcoin Core RPC.
+            // Mainnet and Testnet4 fetch fees from Mempool Space and Bitcoin Core RPC.
             Network::Bitcoin | Network::Testnet4 => {
                 tracing::debug!(
                     "Fetching fee rate for {} network...",
                     self.config.protocol_paramset.network
                 );
 
-                // Fetch fee from RPC provider with a fallback to the RPC node.
+                // Fetch fees from both mempool.space and Bitcoin Core RPC
                 let mempool_fee = get_fee_rate_from_mempool_space(
                     &self.mempool_api_host,
                     &self.mempool_api_endpoint,
@@ -173,42 +173,59 @@ impl TxSender {
                 )
                 .await;
 
-                let smart_fee_result: Result<Amount> = if let Ok(fee_rate) = mempool_fee {
-                    Ok(fee_rate)
-                } else {
-                    if let Err(e) = &mempool_fee {
-                        tracing::warn!(
-                        "Mempool.space fee fetch failed, falling back to Bitcoin Core RPC: {:#}",
-                        e
-                    );
+                let rpc_fee = self
+                    .rpc
+                    .estimate_smart_fee(1, None)
+                    .await
+                    .wrap_err("Failed to estimate smart fee using Bitcoin Core RPC")
+                    .and_then(|estimate| {
+                        estimate.fee_rate
+                            .ok_or_else(|| eyre!("Failed to extract fee rate from Bitcoin Core RPC response"))
+                    });
+
+                // Use the minimum of both fee sources, with fallback logic
+                let selected_fee_amount = match (mempool_fee, rpc_fee) {
+                    (Ok(mempool_amt), Ok(rpc_amt)) => {
+                        let min_fee = mempool_amt.min(rpc_amt);
+                        tracing::info!(
+                            "Using minimum fee rate: {} sat/kvB (mempool: {}, rpc: {})",
+                            min_fee.to_sat(),
+                            mempool_amt.to_sat(),
+                            rpc_amt.to_sat()
+                        );
+                        min_fee
                     }
-
-                    let fee_estimate = self
-                        .rpc
-                        .estimate_smart_fee(1, None)
-                        .await
-                        .wrap_err("Failed to estimate smart fee using Bitcoin Core RPC")?;
-
-                    Ok(fee_estimate
-                        .fee_rate
-                        .wrap_err("Failed to extract fee rate from Bitcoin Core RPC response")?)
+                    (Ok(mempool_amt), Err(rpc_err)) => {
+                        tracing::warn!("RPC fee estimation failed, using mempool.space: {:#}", rpc_err);
+                        mempool_amt
+                    }
+                    (Err(mempool_err), Ok(rpc_amt)) => {
+                        tracing::warn!("Mempool.space fee fetch failed, using Bitcoin Core RPC: {:#}", mempool_err);
+                        rpc_amt
+                    }
+                    (Err(mempool_err), Err(rpc_err)) => {
+                        tracing::warn!(
+                            "Both fee sources failed (mempool: {:#}, rpc: {:#}), using default of 1 sat/vB",
+                            mempool_err, rpc_err
+                        );
+                        Amount::from_sat(1000) // 1 sat/vB * 1000 = 1000 sat/kvB
+                    }
                 };
 
-                let sat_vkb = smart_fee_result.map_or_else(
-                    |err| {
-                        tracing::warn!(
-                            "Smart fee estimation failed, using default of 1 sat/vB. Error: {:#}",
-                            err
-                        );
-                        1000
-                    },
-                    |rate| rate.to_sat(),
-                );
+                // Convert sat/kvB to sat/vB and apply hard cap
+                let mut fee_sat_vb = selected_fee_amount.to_sat() / 1000;
+                
+                // Apply hard cap from config
+                if fee_sat_vb > self.config.tx_sender_fee_rate_hard_cap {
+                    tracing::warn!(
+                        "Fee rate {} sat/vB exceeds hard cap {} sat/vB, using hard cap",
+                        fee_sat_vb,
+                        self.config.tx_sender_fee_rate_hard_cap
+                    );
+                    fee_sat_vb = self.config.tx_sender_fee_rate_hard_cap;
+                }
 
-                // Convert sat/kvB to sat/vB.
-                let fee_sat_vb = sat_vkb / 1000;
-
-                tracing::info!("Using fee rate: {} sat/vb", fee_sat_vb);
+                tracing::info!("Final fee rate: {} sat/vb", fee_sat_vb);
                 Ok(FeeRate::from_sat_per_vb(fee_sat_vb)
                     .wrap_err("Failed to create FeeRate from calculated sat/vb")?)
             }
