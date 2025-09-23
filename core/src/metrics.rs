@@ -353,7 +353,7 @@ mod tests {
             .await;
 
         // expect result to be Ok(_)
-        assert!(matches!(res, Ok(_)), "Expected Ok(_) but got {:?}", res);
+        assert!(res.is_ok(), "Expected Ok(_) but got {:?}", res);
 
         // expect the balance to be None because the wallet was unloaded
         assert_eq!(res.unwrap().into_inner().wallet_balance, None);
