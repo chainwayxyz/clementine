@@ -492,7 +492,7 @@ where
 /// A trait for entities that have a name, operator, verifier, etc.
 /// Used to distinguish between state machines with different owners in the database,
 /// and to provide a human-readable name for the entity for task names.
-pub trait NamedEntity:  Sync + Send + 'static {
+pub trait NamedEntity: Sync + Send + 'static {
     /// A string identifier for this owner type used to distinguish between
     /// state machines with different owners in the database.
     ///
