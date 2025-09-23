@@ -699,20 +699,50 @@ where
             .wrap_err("Failed to fund raw transaction")?
             .hex;
 
-        let signed_tx: Transaction = bitcoin::consensus::deserialize(
-            &self
-                .rpc
-                .sign_raw_transaction_with_wallet(&funded_tx, None, None)
-                .await
-                .wrap_err("Failed to sign funded tx through bitcoin RPC")?
-                .hex,
-        )
-        .wrap_err("Failed to deserialize signed tx")?;
+        let tx: Transaction = bitcoin::consensus::deserialize(&funded_tx)
+            .wrap_err("Can't deserialize funded transaction")?;
+        let unspent_utxos = tx
+            .input
+            .iter()
+            .map(|input| input.previous_output)
+            .collect::<Vec<_>>();
 
-        self.rpc
-            .send_raw_transaction(&signed_tx)
+        let signed_tx = match self
+            .rpc
+            .sign_raw_transaction_with_wallet(&funded_tx, None, None)
             .await
-            .wrap_err("Failed to send transaction to signed tx")?;
+        {
+            Ok(res) => res.hex,
+            Err(e) => {
+                self.rpc
+                    .unlock_unspent(&unspent_utxos)
+                    .await
+                    .wrap_err("Can't unlock unspents")?;
+
+                return Err(eyre::eyre!("Failed to sign tx: {e}").into());
+            }
+        };
+
+        let signed_tx: Transaction = match bitcoin::consensus::deserialize(&signed_tx) {
+            Ok(tx) => tx,
+            Err(e) => {
+                self.rpc
+                    .unlock_unspent(&unspent_utxos)
+                    .await
+                    .wrap_err("Can't unlock unspents")?;
+
+                return Err(eyre::eyre!("Failed to deserialize signed tx: {e}").into());
+            }
+        };
+
+        if let Err(e) = self.rpc.send_raw_transaction(&signed_tx).await {
+            self.rpc
+                .unlock_unspent(&unspent_utxos)
+                .await
+                .wrap_err("Can't unlock unspents")?;
+
+            return Err(eyre::eyre!("Failed to send signed tx: {e}").into());
+        };
 
         Ok(signed_tx)
     }
