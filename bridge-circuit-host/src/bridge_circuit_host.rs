@@ -369,7 +369,7 @@ pub fn create_spv(
     let spv = SPV::new(
         CircuitTransaction(payout_tx.clone()),
         payout_tx_proof.clone(),
-        payment_block.header.clone().into(),
+        payment_block.header.into(),
         mmr_inclusion_proof.1.clone(),
     );
 
