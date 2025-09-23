@@ -1550,8 +1550,12 @@ where
             .test_params
             .maybe_dump_bridge_circuit_params_to_file(&bridge_circuit_host_params)?;
 
-        let (g16_proof, g16_output, public_inputs) =
-            prove_bridge_circuit(bridge_circuit_host_params, bridge_circuit_elf)?;
+        let (g16_proof, g16_output, public_inputs) = tokio::task::spawn_blocking(move || {
+            prove_bridge_circuit(bridge_circuit_host_params, bridge_circuit_elf)
+        })
+        .await
+        .wrap_err("Failed to join the prove_bridge_circuit task")?
+        .wrap_err("Failed to prove bridge circuit")?;
 
         tracing::info!("Proved bridge circuit in send_asserts");
         let public_input_scalar = ark_bn254::Fr::from_be_bytes_mod_order(&g16_output);
