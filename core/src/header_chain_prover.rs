@@ -128,12 +128,12 @@ impl HeaderChainProver {
 
             let network = config.protocol_paramset().network;
 
-            if proof_output.method_id != get_method_id(network)? {
+            if proof_output.method_id != get_hcp_method_id(network)? {
                 return Err(eyre::eyre!(
                     "Header chain proof assumption file Method ID mismatch for our current network ({:?}): got {:?}, expected {:?}",
                     network,
                     proof_output.method_id,
-                    get_method_id(network)?
+                    get_hcp_method_id(network)?
                 )
                 .into());
             }
@@ -469,7 +469,7 @@ impl HeaderChainProver {
         genesis_chain_state: ChainState,
         network: Network,
     ) -> Result<Receipt, HeaderChainProverError> {
-        let image_id = get_method_id(network)?;
+        let image_id = get_hcp_method_id(network)?;
         let header_chain_circuit_type = HeaderChainPrevProofType::GenesisBlock(genesis_chain_state);
         let input = HeaderChainCircuitInput {
             method_id: image_id,
@@ -701,7 +701,7 @@ impl HeaderChainProver {
     }
 }
 
-fn get_method_id(network: Network) -> Result<[u32; 8], HeaderChainProverError> {
+fn get_hcp_method_id(network: Network) -> Result<[u32; 8], HeaderChainProverError> {
     match network {
         Network::Bitcoin => Ok(*MAINNET_HCP_METHOD_ID),
         Network::Testnet4 => Ok(*TESTNET4_HCP_METHOD_ID),
