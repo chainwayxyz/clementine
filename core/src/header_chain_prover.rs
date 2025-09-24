@@ -39,22 +39,22 @@ use std::{
 use thiserror::Error;
 
 lazy_static! {
-    static ref MAINNET_IMAGE_ID: [u32; 8] = compute_image_id(MAINNET_HEADER_CHAIN_ELF)
+    static ref MAINNET_HCP_METHOD_ID: [u32; 8] = compute_image_id(MAINNET_HEADER_CHAIN_ELF)
         .expect("hardcoded ELF is valid")
         .as_words()
         .try_into()
         .expect("hardcoded ELF is valid");
-    static ref TESTNET4_IMAGE_ID: [u32; 8] = compute_image_id(TESTNET4_HEADER_CHAIN_ELF)
+    static ref TESTNET4_HCP_METHOD_ID: [u32; 8] = compute_image_id(TESTNET4_HEADER_CHAIN_ELF)
         .expect("hardcoded ELF is valid")
         .as_words()
         .try_into()
         .expect("hardcoded ELF is valid");
-    static ref SIGNET_IMAGE_ID: [u32; 8] = compute_image_id(SIGNET_HEADER_CHAIN_ELF)
+    static ref SIGNET_HCP_METHOD_ID: [u32; 8] = compute_image_id(SIGNET_HEADER_CHAIN_ELF)
         .expect("hardcoded ELF is valid")
         .as_words()
         .try_into()
         .expect("hardcoded ELF is valid");
-    static ref REGTEST_IMAGE_ID: [u32; 8] = compute_image_id(REGTEST_HEADER_CHAIN_ELF)
+    static ref REGTEST_HCP_METHOD_ID: [u32; 8] = compute_image_id(REGTEST_HEADER_CHAIN_ELF)
         .expect("hardcoded ELF is valid")
         .as_words()
         .try_into()
@@ -69,6 +69,8 @@ pub enum HeaderChainProverError {
     BatchNotReady,
     #[error("Header chain prover not initialized due to config")]
     HeaderChainProverNotInitialized,
+    #[error("Unsupported network")]
+    UnsupportedNetwork,
 
     #[error(transparent)]
     Other(#[from] eyre::Report),
@@ -124,6 +126,26 @@ impl HeaderChainProver {
                 .wrap_err(HeaderChainProverError::ProverDeSerializationError)?;
             let proof_output: BlockHeaderCircuitOutput = borsh::from_slice(&proof.journal.bytes)
                 .wrap_err(HeaderChainProverError::ProverDeSerializationError)?;
+
+            let network = config.protocol_paramset().network;
+
+            if proof_output.method_id != get_hcp_method_id(network)? {
+                return Err(eyre::eyre!(
+                    "Header chain proof assumption file Method ID mismatch for our current network ({:?}): got {:?}, expected {:?}",
+                    network,
+                    proof_output.method_id,
+                    get_hcp_method_id(network)?
+                )
+                .into());
+            }
+
+            if proof.verify(proof_output.method_id).is_err() {
+                return Err(eyre::eyre!(
+                    "Header chain proof assumption file verification failed for our current network ({:?})",
+                    network
+                )
+                .into());
+            }
 
             // Create block entry, if not exists.
             let block_hash = BlockHash::from_raw_hash(
@@ -448,13 +470,7 @@ impl HeaderChainProver {
         genesis_chain_state: ChainState,
         network: Network,
     ) -> Result<Receipt, HeaderChainProverError> {
-        let image_id = match network {
-            Network::Bitcoin => *MAINNET_IMAGE_ID,
-            Network::Testnet4 => *TESTNET4_IMAGE_ID,
-            Network::Signet => *SIGNET_IMAGE_ID,
-            Network::Regtest => *REGTEST_IMAGE_ID,
-            _ => Err(BridgeError::UnsupportedNetwork.into_eyre())?,
-        };
+        let image_id = get_hcp_method_id(network)?;
         let header_chain_circuit_type = HeaderChainPrevProofType::GenesisBlock(genesis_chain_state);
         let input = HeaderChainCircuitInput {
             method_id: image_id,
@@ -675,6 +691,16 @@ impl HeaderChainProver {
         );
 
         Ok(Some(receipt))
+    }
+}
+
+fn get_hcp_method_id(network: Network) -> Result<[u32; 8], HeaderChainProverError> {
+    match network {
+        Network::Bitcoin => Ok(*MAINNET_HCP_METHOD_ID),
+        Network::Testnet4 => Ok(*TESTNET4_HCP_METHOD_ID),
+        Network::Signet => Ok(*SIGNET_HCP_METHOD_ID),
+        Network::Regtest => Ok(*REGTEST_HCP_METHOD_ID),
+        _ => Err(HeaderChainProverError::UnsupportedNetwork),
     }
 }
 
