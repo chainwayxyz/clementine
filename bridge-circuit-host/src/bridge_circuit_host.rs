@@ -377,7 +377,9 @@ pub fn create_spv(
 
     // Verify the SPV proof to ensure correctness
     if !spv.verify(mmr_guest) {
-        return Err(eyre!("SPV verification failed during creation, please check inputs"));
+        return Err(eyre!(
+            "SPV verification failed during creation, please check inputs"
+        ));
     }
 
     Ok(spv)
