@@ -17,6 +17,7 @@
 
 use crate::config::BridgeConfig;
 use crate::errors::{FeeErr, ResultExt};
+use crate::extended_bitcoin_rpc::RetryConfig;
 use crate::utils::FeePayingType;
 use crate::{
     actor::Actor,
@@ -35,7 +36,6 @@ use eyre::OptionExt;
 use eyre::WrapErr;
 use http::StatusCode;
 use tokio::time::timeout;
-use tokio_retry::strategy::{jitter, ExponentialBackoff};
 use tokio_retry::RetryIf;
 
 #[cfg(test)]
@@ -85,8 +85,6 @@ pub struct TxSender {
     pub config: BridgeConfig,
     cached_spendinfo: TaprootSpendInfo,
     http_client: reqwest::Client,
-    pub mempool_api_host: Option<String>,
-    pub mempool_api_endpoint: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
@@ -141,8 +139,6 @@ impl TxSender {
             btc_syncer_consumer_id,
             config: config.clone(),
             http_client: reqwest::Client::new(),
-            mempool_api_host: config.mempool_api_host,
-            mempool_api_endpoint: config.mempool_api_endpoint,
         }
     }
 
@@ -167,8 +163,8 @@ impl TxSender {
 
                 // Fetch fees from both mempool.space and Bitcoin Core RPC
                 let mempool_fee = get_fee_rate_from_mempool_space(
-                    &self.mempool_api_host,
-                    &self.mempool_api_endpoint,
+                    &self.config.mempool_api_host,
+                    &self.config.mempool_api_endpoint,
                     self.config.protocol_paramset.network,
                 )
                 .await;
@@ -527,10 +523,15 @@ async fn get_fee_rate_from_mempool_space(
         _ => return Err(eyre!("Unsupported network for mempool.space: {:?}", network).into()),
     };
 
-    let retry_strategy = ExponentialBackoff::from_millis(250)
-        .max_delay(Duration::from_secs(5))
-        .take(6)
-        .map(jitter);
+    let retry_config = RetryConfig::new(
+        Duration::from_millis(250),
+        Duration::from_secs(5),
+        6,
+        2,
+        true,
+    );
+
+    let retry_strategy = retry_config.get_strategy();
 
     // Retry predicate: only retry on timeouts, connect errors, and 5xx/429 statuses.
     let should_retry = |e: &FeeErr| match e {
