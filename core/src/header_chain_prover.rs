@@ -1028,7 +1028,7 @@ mod tests {
             .map(|header| CircuitBlockHeader::from(*header))
             .collect::<Vec<_>>();
         let receipt = HeaderChainProver::prove_block_headers(
-            Network::Regtest,
+            prover.network,
             receipt,
             block_headers[0..2].to_vec(),
         )
