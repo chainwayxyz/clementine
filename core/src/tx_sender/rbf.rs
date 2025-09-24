@@ -155,6 +155,7 @@ impl TxSender {
             estimate_mode: None,
         };
 
+        let mut omitted = 0usize;
         let outputs: Vec<WalletCreateFundedPsbtOutput> = tx
             .output
             .iter()
@@ -176,12 +177,21 @@ impl TxSender {
                         out.value,
                     )),
                     Err(err) => {
-                        tracing::warn!("Failed to create address from script: {}", err);
+                        tracing::error!(
+                            "Failed to get address from scriptfor output of tx with txid {} for script: {}",
+                            tx.compute_txid(),
+                            err
+                        );
+                        omitted += 1;
                         None
                     }
                 }
             })
             .collect::<Vec<_>>();
+
+        if omitted > 0 {
+            return Err(eyre::eyre!(format!("Failed to get address for outputs of tx with txid {} for {} outputs in create_funded_psbt", tx.compute_txid(), omitted)).into());
+        }
 
         let outputs = WalletCreateFundedPsbtOutputs(outputs);
 
