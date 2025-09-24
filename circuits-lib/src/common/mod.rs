@@ -22,7 +22,7 @@ pub const NETWORK_TYPE: &str = {
             Some(network) if matches!(network.as_bytes(), b"testnet4") => "testnet4",
             Some(network) if matches!(network.as_bytes(), b"signet") => "signet",
             Some(network) if matches!(network.as_bytes(), b"regtest") => "regtest",
-            None => "testnet4",
+            None => "mainnet",
             _ => panic!("Invalid network type"),
         }
     }
