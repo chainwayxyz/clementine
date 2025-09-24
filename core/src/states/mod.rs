@@ -606,6 +606,9 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             //
             // Something like max(2 * num_kickoffs_per_round, number of utxos in a kickoff * 2) is possibly a safe value
             if iterations > 100000 {
+                // revert state machines to the previous state first before returning an error
+                self.kickoff_machines = kickoff_machines_checkpoint;
+                self.round_machines = round_machines_checkpoint;
                 return Err(eyre::eyre!(
                     r#"{}/{} kickoff and {}/{} round state machines did not stabilize after 100000 iterations, debug repr of changed machines:
                         ---- Kickoff machines ----
