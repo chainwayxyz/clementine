@@ -165,7 +165,7 @@ pub fn aggregate_nonces(pub_nonces: &[&PublicNonce]) -> Result<AggregatedNonce, 
     Ok(AggregatedNonce::new(SECP256K1, pub_nonces))
 }
 
-// Aggregates the partial signatures into a single aggregated signature.
+/// Aggregates the partial signatures into a single aggregated signature and verifies the aggregated signature. If PARTIAL_SIG_VERIFICATION is set to true, each partial signature will also be verified.
 pub fn aggregate_partial_signatures(
     pks: Vec<PublicKey>,
     tweak: Option<Musig2Mode>,
