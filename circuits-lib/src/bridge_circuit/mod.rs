@@ -49,7 +49,7 @@ pub mod structs;
 pub mod transaction;
 
 use crate::{
-    bridge_circuit::transaction::CircuitTransaction,
+    bridge_circuit::{constants::get_prepared_vk, transaction::CircuitTransaction},
     common::{
         constants::{
             MAINNET_HEADER_CHAIN_METHOD_ID, MAX_NUMBER_OF_WATCHTOWERS,
@@ -59,6 +59,9 @@ use crate::{
         zkvm::ZkvmGuest,
     },
 };
+use ark_bn254::Bn254;
+use ark_groth16::PreparedVerifyingKey;
+use ark_serialize::CanonicalDeserialize;
 use bitcoin::{
     consensus::Encodable,
     hashes::{sha256, Hash},
@@ -272,6 +275,7 @@ fn convert_to_groth16_and_verify(
     total_work: [u8; 16],
     image_id: &[u8; 32],
     genesis_state_hash: [u8; 32],
+    prepared_vk: &PreparedVerifyingKey<Bn254>,
 ) -> bool {
     let seal = match CircuitGroth16Proof::from_compressed(compressed_proof) {
         Ok(seal) => seal,
@@ -280,7 +284,7 @@ fn convert_to_groth16_and_verify(
 
     let groth16_proof = CircuitGroth16WithTotalWork::new(seal, total_work, genesis_state_hash);
 
-    groth16_proof.verify(image_id)
+    groth16_proof.verify(image_id, prepared_vk)
 }
 
 /// Verifies watchtower challenge transactions and collects their outputs.
@@ -586,12 +590,18 @@ pub fn total_work_and_watchtower_flags(
 
     let mut total_work_result = [0u8; 16];
 
+    let prepared_vk: &[u8] = get_prepared_vk();
+
+    let prepared_vk: PreparedVerifyingKey<ark_ec::bn::Bn<ark_bn254::Config>> =
+        CanonicalDeserialize::deserialize_uncompressed(prepared_vk).unwrap();
+
     for commitment in valid_watchtower_challenge_commitments {
         if convert_to_groth16_and_verify(
             &commitment.compressed_g16_proof,
             commitment.total_work,
             work_only_image_id,
             circuit_input.hcp.genesis_state_hash,
+            &prepared_vk,
         ) {
             total_work_result = commitment.total_work;
             break;

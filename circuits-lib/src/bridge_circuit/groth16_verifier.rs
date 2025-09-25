@@ -102,13 +102,8 @@ impl CircuitGroth16WithTotalWork {
 
     /// Given the `pre_state` (which is actually the `method ID` of the work-only circuit),
     /// verifies the Groth16 proof against the prepared Verifying Key (VK) and the public inputs.
-    pub fn verify(&self, pre_state: &[u8; 32]) -> bool {
+    pub fn verify(&self, pre_state: &[u8; 32], prepared_vk: &PreparedVerifyingKey<Bn254>) -> bool {
         let ark_proof: Proof<Bn254> = self.groth16_seal.into();
-
-        let prepared_vk: &[u8] = get_prepared_vk();
-
-        let prepared_vk: PreparedVerifyingKey<ark_ec::bn::Bn<ark_bn254::Config>> =
-            CanonicalDeserialize::deserialize_uncompressed(prepared_vk).unwrap();
 
         let output_digest = create_output_digest(&WorkOnlyCircuitOutput {
             work_u128: self.total_work,
@@ -129,7 +124,7 @@ impl CircuitGroth16WithTotalWork {
 
         let public_inputs = vec![A0_ARK, A1_ARK, c0, c1, BN_254_CONTROL_ID_ARK];
 
-        ark_groth16::Groth16::<Bn254>::verify_proof(&prepared_vk, &ark_proof, &public_inputs)
+        ark_groth16::Groth16::<Bn254>::verify_proof(prepared_vk, &ark_proof, &public_inputs)
             .unwrap()
     }
 }
