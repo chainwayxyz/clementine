@@ -178,7 +178,7 @@ impl TxSender {
                     )),
                     Err(err) => {
                         tracing::error!(
-                            "Failed to get address from scriptfor output of tx with txid {} for script: {}",
+                            "Failed to get address from script for output of tx with txid {} for script: {}",
                             tx.compute_txid(),
                             err
                         );
