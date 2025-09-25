@@ -556,21 +556,28 @@ where
             .to_sat()
             .checked_sub(input_amount.to_sat())
         {
-            Some(diff) => diff,
-            None => return false, // If underflow occurs, it's not profitable
+            Some(diff) => Amount::from_sat(diff),
+            None => {
+                // input amount is greater than withdrawal amount, so it's profitable but doesn't make sense
+                tracing::warn!(
+                    "Some user gave more amount than the withdrawal amount as input for withdrawal"
+                );
+                return true;
+            }
         };
 
-        if withdrawal_diff > bridge_amount_sats.to_sat() {
+        if withdrawal_diff > bridge_amount_sats {
             return false;
         }
 
         // Calculate net profit after the withdrawal using checked_sub to prevent panic
-        let net_profit = match bridge_amount_sats.checked_sub(withdrawal_amount) {
+        let net_profit = match bridge_amount_sats.checked_sub(withdrawal_diff) {
             Some(profit) => profit,
             None => return false, // If underflow occurs, it's not profitable
         };
 
         // Net profit must be bigger than withdrawal fee.
+        // net profit doesn't take into account the fees, but operator_withdrawal_fee_sats should
         net_profit >= operator_withdrawal_fee_sats
     }
 
