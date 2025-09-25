@@ -156,4 +156,26 @@ mod tests {
         assert_eq!(to_decimal("1ff"), Some("511".to_string()));
         assert_eq!(to_decimal("citrea"), None);
     }
+
+    #[test]
+    fn test_bytes_to_hex_string() {
+        let mut bytes: [u8; 32] = [0u8; 32];
+        let hex: String = bytes.encode_hex();
+        assert_eq!(
+            hex,
+            "0000000000000000000000000000000000000000000000000000000000000000"
+        );
+        bytes[31] = 1;
+        let hex: String = bytes.encode_hex();
+        assert_eq!(
+            hex,
+            "0000000000000000000000000000000000000000000000000000000000000001"
+        );
+        bytes[0] = 1;
+        let hex: String = bytes.encode_hex();
+        assert_eq!(
+            hex,
+            "0100000000000000000000000000000000000000000000000000000000000001"
+        );
+    }
 }

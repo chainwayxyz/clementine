@@ -88,9 +88,10 @@ pub fn get_prepared_vk() -> &'static [u8] {
 mod tests {
     use ark_bn254::Fr;
     use ark_ff::PrimeField;
+    use hex::ToHex;
     use risc0_zkvm::Digest;
 
-    use crate::bridge_circuit::constants::{A0_BIGINT, A1_BIGINT};
+    use crate::bridge_circuit::{constants::{A0_BIGINT, A1_BIGINT}, groth16_verifier::to_decimal};
 
     // This test checks that the A0 and A1 constants match the expected values derived from the control root
     // of the Groth16 verifier parameters. If they do not match, it indicates that the constants need to be updated
@@ -134,5 +135,31 @@ mod tests {
         let start = core::cmp::max(32, input.len()) - core::cmp::min(32, input.len());
         fixed_array[start..].copy_from_slice(&input[input.len().saturating_sub(32)..]);
         fixed_array
+    }
+    
+    #[test]
+    fn test_c0_c1_compat() {
+        use std::str::FromStr;
+        let rand_bytes: [u8; 32] = [48, 201, 154, 141, 22, 124, 12, 101, 175, 39, 231, 89, 106, 87, 10, 193,
+            136, 36, 28, 174, 217, 102, 193, 152, 117, 216, 159, 188, 248, 183, 210, 201];
+        let claim_digest_hex: String = rand_bytes.encode_hex();
+        let c0_str = &claim_digest_hex[32..64];
+        let c1_str = &claim_digest_hex[0..32];
+
+        let c0_dec = to_decimal(c0_str).unwrap();
+        let c1_dec = to_decimal(c1_str).unwrap();
+
+        let c0 = Fr::from_str(&c0_dec).unwrap();
+        let c1 = Fr::from_str(&c1_dec).unwrap();
+
+        let rand_bytes_reversed: Vec<u8> = rand_bytes.iter().rev().cloned().collect();
+
+        let (c0_r, c1_r) = split_digest(Digest::from_bytes(rand_bytes_reversed.try_into().unwrap()));
+
+        println!("c0: {:?}, c1: {:?}", c0, c1);
+        println!("c0_r: {:?}, c1_r: {:?}", c0_r, c1_r);
+
+        assert_eq!(c0, c0_r);
+        assert_eq!(c1, c1_r);
     }
 }
