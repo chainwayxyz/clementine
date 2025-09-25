@@ -68,9 +68,9 @@ impl WinternitzDerivationPath {
         match paramset.network {
             Network::Regtest => 0u8,
             Network::Testnet4 => 1u8,
-            Network::Testnet => 1u8,
             Network::Signet => 2u8,
             Network::Bitcoin => 3u8,
+            // currently only testnet is unsupported
             _ => panic!("Unsupported network {:?}", paramset.network),
         }
     }
