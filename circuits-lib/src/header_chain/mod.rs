@@ -573,6 +573,7 @@ pub fn bits_to_target(bits: u32) -> [u8; 32] {
 
     // Mantissa is signed in Bitcoin core, if the sign bit is set, the target is set to 0.
     // https://github.com/bitcoin/bitcoin/blob/ee42d59d4de970769ebabf77b89ff4269498f61e/src/arith_uint256.cpp#L175
+    // https://github.com/rust-bitcoin/rust-bitcoin/blob/eb17995e49b68831114cbc8bda14cbe72811c4b7/bitcoin/src/pow.rs#L171
     if mantissa > 0x7F_FFFF {
         return [0; 32];
     }
