@@ -685,7 +685,7 @@ pub async fn create_txhandlers(
         .to_byte_array();
 
     let vout = UtxoVout::Kickoff(kickoff_data.kickoff_idx as usize).get_vout();
-    let watchtower_challenge_start_idx = UtxoVout::WatchtowerChallenge(0).get_vout() as u16;
+    let watchtower_challenge_start_idx = UtxoVout::WatchtowerChallenge(0).get_vout();
     let secp = Secp256k1::verification_only();
 
     let nofn_key: XOnlyPublicKey = deposit_data.get_nofn_xonly_pk()?;

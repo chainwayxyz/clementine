@@ -146,8 +146,8 @@ pub struct StorageProof {
 
 #[derive(Clone, Debug, BorshDeserialize, BorshSerialize)]
 pub struct WatchtowerInput {
-    pub watchtower_idx: u16,                           // Which watchtower this is
-    pub watchtower_challenge_input_idx: u16, // Which input index this challenge connector txout goes to
+    pub watchtower_idx: u32,                           // Which watchtower this is
+    pub watchtower_challenge_input_idx: u32, // Which input index this challenge connector txout goes to
     pub watchtower_challenge_utxos: Vec<CircuitTxOut>, // BridgeCircuitUTXO TxOut serialized and all the prevouts for watchtower challenge tx, Vec<TxOut>
     pub watchtower_challenge_tx: CircuitTransaction, // BridgeCircuitTransaction challenge tx itself for each watchtower
     pub watchtower_challenge_witness: CircuitWitness, // Witness
@@ -156,8 +156,8 @@ pub struct WatchtowerInput {
 
 impl WatchtowerInput {
     pub fn new(
-        watchtower_idx: u16,
-        watchtower_challenge_input_idx: u16,
+        watchtower_idx: u32,
+        watchtower_challenge_input_idx: u32,
         watchtower_challenge_utxos: Vec<TxOut>,
         watchtower_challenge_tx: Transaction,
         watchtower_challenge_witness: Witness,
@@ -222,13 +222,13 @@ impl WatchtowerInput {
         kickoff_tx_id: Txid,
         watchtower_tx: Transaction,
         prevout_txs: &[Transaction],
-        watchtower_challenge_connector_start_idx: u16,
+        watchtower_challenge_connector_start_idx: u32,
     ) -> Result<Self, &'static str> {
         let watchtower_challenge_input_idx = watchtower_tx
             .input
             .iter()
             .position(|input| input.previous_output.txid == kickoff_tx_id)
-            .map(|ind| ind as u16)
+            .map(|ind| ind as u32)
             .ok_or("Kickoff txid not found in watchtower inputs")?;
 
         let output_index = watchtower_tx.input[watchtower_challenge_input_idx as usize]
@@ -245,7 +245,7 @@ impl WatchtowerInput {
         }
 
         let watchtower_idx =
-            u16::try_from(watchtower_index).expect("Cannot fail, already checked bounds");
+            u32::try_from(watchtower_index).expect("Cannot fail, already checked bounds");
 
         let watchtower_challenge_utxos: Vec<CircuitTxOut> = watchtower_tx
             .input
@@ -353,10 +353,10 @@ pub struct BridgeCircuitInput {
     pub watchtower_inputs: Vec<WatchtowerInput>,
     pub hcp: BlockHeaderCircuitOutput,
     pub payout_spv: SPV,
-    pub payout_input_index: u16,
+    pub payout_input_index: u32,
     pub lcp: LightClientProof,
     pub sp: StorageProof,
-    pub watchtower_challenge_connector_start_idx: u16,
+    pub watchtower_challenge_connector_start_idx: u32,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -367,10 +367,10 @@ impl BridgeCircuitInput {
         all_tweaked_watchtower_pubkeys: Vec<[u8; 32]>,
         hcp: BlockHeaderCircuitOutput,
         payout_spv: SPV,
-        payout_input_index: u16,
+        payout_input_index: u32,
         lcp: LightClientProof,
         sp: StorageProof,
-        watchtower_challenge_connector_start_idx: u16,
+        watchtower_challenge_connector_start_idx: u32,
     ) -> Self {
         Self {
             kickoff_tx: CircuitTransaction::from(kickoff_tx),
