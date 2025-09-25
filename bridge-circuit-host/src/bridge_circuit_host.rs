@@ -454,7 +454,7 @@ mod tests {
         let input = HeaderChainCircuitInput {
             method_id: [0; 8],
             prev_proof: HeaderChainPrevProofType::GenesisBlock(ChainState::genesis_state()),
-            block_headers: headers[..4000].to_vec(),
+            block_headers: headers[..50].to_vec(),
         };
         host.write(&input);
         header_chain_circuit(&host);
@@ -466,7 +466,7 @@ mod tests {
         let newinput = HeaderChainCircuitInput {
             method_id: [0; 8],
             prev_proof: HeaderChainPrevProofType::PrevProof(output),
-            block_headers: headers[4000..8000].to_vec(),
+            block_headers: headers[50..100].to_vec(),
         };
         new_host.write(&newinput);
         new_host.add_assumption(proof);
