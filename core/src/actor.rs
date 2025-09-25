@@ -717,24 +717,6 @@ impl Actor {
         txhandler.sign_txins(signer)?;
         Ok(())
     }
-
-    /// Generates an auth token using the hash of the public key
-    /// and a verifiable signature of the hash.
-    pub fn get_auth_token(&self) -> String {
-        let pk_hash = bitcoin::hashes::sha256::Hash::hash(&self.xonly_public_key.serialize());
-        // sign pk_hash
-        let sig = SECP.sign_schnorr(
-            &Message::from_digest(pk_hash.to_byte_array()),
-            &self.keypair,
-        );
-
-        // encode sig and sk_hash
-        let mut all_bytes = Vec::new();
-        all_bytes.extend(pk_hash.to_byte_array());
-        all_bytes.extend(sig.serialize());
-
-        hex::encode(all_bytes)
-    }
 }
 
 #[cfg(test)]
