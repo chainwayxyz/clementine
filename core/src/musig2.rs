@@ -205,6 +205,10 @@ pub fn aggregate_partial_signatures(
                 *pub_nonce,
                 to_secp_pk(pub_key),
             ) {
+                tracing::error!(
+                    "MuSig2 Error: partial signature verification failed for pub key: {}",
+                    pub_key
+                );
                 return Err(BridgeError::from(eyre::eyre!(
                     "MuSig2 Error: partial signature verification failed for pub key: {}",
                     pub_key
