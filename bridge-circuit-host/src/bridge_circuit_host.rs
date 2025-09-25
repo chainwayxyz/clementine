@@ -440,12 +440,11 @@ mod tests {
     use risc0_zkvm::default_executor;
 
     const TESTNET4_HEADERS: &[u8] = include_bytes!("../bin-files/testnet4-headers.bin");
+    const MAINNET_HEADERS: &[u8] = include_bytes!("../bin-files/mainnet-headers.bin");
 
     #[test]
     fn test_header_chain_circuit() {
-        let value = option_env!("BITCOIN_NETWORK");
-        println!("BITCOIN_NETWORK: {:?}", value);
-        let headers = TESTNET4_HEADERS
+        let headers = MAINNET_HEADERS
             .chunks(80)
             .map(|header| CircuitBlockHeader::try_from_slice(header).unwrap())
             .collect::<Vec<CircuitBlockHeader>>();
