@@ -260,9 +260,8 @@ pub async fn create_test_config_with_thread_name() -> BridgeConfig {
 ///
 /// - `config`: Configuration options in `BridgeConfig` type.
 pub async fn initialize_database(config: &BridgeConfig) {
-    let url = Database::get_postgresql_url(config);
-    let conn = sqlx::PgPool::connect(url.as_str()).await.unwrap_or_else(|_| panic!("Failed to connect to database, please make sure a test Postgres DB is running at {}",
-        url));
+    let db = Database::new(config).await.unwrap();
+    let conn = db.get_pool();
 
     sqlx::query(&format!("DROP DATABASE IF EXISTS {}", &config.db_name))
         .execute(&conn)
