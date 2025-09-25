@@ -260,7 +260,10 @@ pub async fn create_test_config_with_thread_name() -> BridgeConfig {
 ///
 /// - `config`: Configuration options in `BridgeConfig` type.
 pub async fn initialize_database(config: &BridgeConfig) {
-    let db = Database::new(config).await.unwrap();
+    // use a temporary config to connect to postgres maintenance db to drop and create the database
+    let mut temp_config = config.clone();
+    temp_config.db_name = "postgres".to_string();
+    let db = Database::new(&temp_config).await.unwrap();
     let conn = db.get_pool();
 
     sqlx::query(&format!("DROP DATABASE IF EXISTS {}", &config.db_name))
