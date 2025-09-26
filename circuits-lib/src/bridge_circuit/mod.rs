@@ -365,10 +365,12 @@ pub fn verify_watchtower_challenges(circuit_input: &BridgeCircuitInput) -> Watch
                         sighash_type,
                         signature[0..64].try_into().expect("Cannot fail"),
                     ),
-                    Err(_) => (
-                        TapSighashType::Default,
-                        signature[0..64].try_into().expect("Cannot fail"),
-                    ),
+                    Err(_) => {
+                        panic!(
+                            "Invalid sighash type, watchtower index: {}",
+                            watchtower_input.watchtower_idx
+                        );
+                    }
                 }
             } else {
                 panic!(
