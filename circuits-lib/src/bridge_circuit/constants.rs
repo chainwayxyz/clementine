@@ -85,11 +85,7 @@ pub fn get_prepared_vk() -> &'static [u8] {
 }
 
 pub fn is_test_vk() -> bool {
-    if cfg!(feature = "use-test-vk") {
-        true
-    } else {
-        false
-    }
+    cfg!(feature = "use-test-vk")
 }
 
 #[cfg(test)]
