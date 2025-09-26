@@ -129,8 +129,11 @@ impl CircuitGroth16WithTotalWork {
 
         let public_inputs = vec![A0_ARK, A1_ARK, c0, c1, BN_254_CONTROL_ID_ARK];
 
-        ark_groth16::Groth16::<Bn254>::verify_proof(&prepared_vk, &ark_proof, &public_inputs)
-            .unwrap()
+        match ark_groth16::Groth16::<Bn254>::verify_proof(&prepared_vk, &ark_proof, &public_inputs)
+        {
+            Ok(result) => result,
+            Err(_) => false,
+        }
     }
 }
 
