@@ -1066,6 +1066,7 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "Invalid signature for watchtower challenge")]
     fn test_total_work_and_watchtower_flags_incorrect_witness() {
         let (mut input, _) = total_work_and_watchtower_flags_setup();
 
@@ -1092,6 +1093,7 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "Invalid signature for watchtower challenge")]
     fn test_total_work_and_watchtower_flags_incorrect_tx() {
         let (mut input, kickoff_txid) = total_work_and_watchtower_flags_setup();
 
