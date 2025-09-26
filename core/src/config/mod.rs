@@ -500,7 +500,7 @@ mod tests {
         network: Network::Bitcoin,
         ..REGTEST_PARAMSET
     };
-    #[ignore = "Fails if bridge-circuit-host has use-test-vk feature! Which it will has if --all-features is used at Cargo invocation."]
+    #[ignore = "Fails if bridge-circuit-host has use-test-vk feature! Which it will, if --all-features is specified at Cargo invocation."]
     #[serial_test::serial]
     #[test]
     fn check_mainnet_reqs() {
