@@ -232,7 +232,6 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
         input.hcp.genesis_state_hash,
     );
 
-    // In the future this will be fetched from the LC proof
     let latest_blockhash: LatestBlockhash = input.hcp.chain_state.best_block_hash[12..32]
         .try_into()
         .unwrap();
