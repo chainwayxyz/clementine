@@ -659,7 +659,7 @@ pub async fn create_txhandlers(
         round_idx,
         kickoff_idx: context.kickoff_idx.ok_or(TxError::InsufficientContext)?,
     };
-    
+
     if let Some(deposit_outpoint) = db_cache.deposit_outpoint {
         if deposit_outpoint != deposit_data.get_deposit_outpoint() {
             return Err(eyre::eyre!(
