@@ -23,7 +23,7 @@ impl Database {
     /// Returns a `BridgeError` if the database operation fails
     pub async fn save_state_machines(
         &self,
-        mut tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: DatabaseTransaction<'_, '_>,
         kickoff_machines: Vec<(String, String)>,
         round_machines: Vec<(String, XOnlyPublicKey)>,
         block_height: i32,
@@ -53,7 +53,7 @@ impl Database {
             .bind(owner_type)
             .bind(block_height);
 
-            execute_query_with_tx!(self.connection, tx.as_deref_mut(), query, execute)?;
+            query.execute(&mut **tx).await?;
         }
 
         // Save round machines that are dirty
@@ -80,7 +80,7 @@ impl Database {
             .bind(owner_type)
             .bind(block_height);
 
-            execute_query_with_tx!(self.connection, tx.as_deref_mut(), query, execute)?;
+            query.execute(&mut **tx).await?;
         }
 
         // Update state manager status
@@ -98,7 +98,7 @@ impl Database {
         .bind(owner_type)
         .bind(block_height);
 
-        execute_query_with_tx!(self.connection, tx, query, execute)?;
+        query.execute(&mut **tx).await?;
 
         Ok(())
     }
@@ -220,9 +220,10 @@ mod tests {
             ("round_state_2".to_string(), xonly_pk2),
         ];
 
+        let mut dbtx = db.begin_transaction().await.unwrap();
         // Save state machines
         db.save_state_machines(
-            None,
+            &mut dbtx,
             kickoff_machines.clone(),
             round_machines.clone(),
             123,
@@ -230,6 +231,7 @@ mod tests {
         )
         .await
         .unwrap();
+        dbtx.commit().await.unwrap();
 
         // Check last processed block height
         let block_height = db

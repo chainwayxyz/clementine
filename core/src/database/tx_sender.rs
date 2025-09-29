@@ -147,8 +147,7 @@ impl Database {
                 "{}
             SELECT txs.id, txs.txid
             FROM tx_sender_try_to_send_txs AS txs
-            WHERE txs.txid IN (SELECT txid FROM relevant_txs)
-            AND txs.seen_block_id IS NULL",
+            WHERE txs.txid IN (SELECT txid FROM relevant_txs)",
                 common_ctes
             ))
             .bind(block_id)
@@ -164,8 +163,7 @@ impl Database {
                 "{}
             SELECT txs.id
             FROM tx_sender_try_to_send_txs AS txs
-            WHERE txs.id IN (SELECT id FROM confirmed_rbf_ids)
-            AND txs.seen_block_id IS NULL",
+            WHERE txs.id IN (SELECT id FROM confirmed_rbf_ids)",
                 common_ctes
             ))
             .bind(block_id)
