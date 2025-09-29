@@ -156,7 +156,7 @@ impl TxSender {
         };
 
         let mut omitted = 0usize;
-        let outputs: Vec<WalletCreateFundedPsbtOutput> = tx
+        let filtered_outputs: Vec<WalletCreateFundedPsbtOutput> = tx
             .output
             .iter()
             .filter_map(|out| {
@@ -190,10 +190,10 @@ impl TxSender {
             .collect::<Vec<_>>();
 
         if omitted > 0 {
-            return Err(eyre::eyre!(format!("Failed to get address for outputs of tx with txid {} for {} outputs in create_funded_psbt", tx.compute_txid(), omitted)).into());
+            return Err(eyre::eyre!("Failed to get address for outputs of tx with txid {} for {} outputs in create_funded_psbt", tx.compute_txid(), omitted).into());
         }
 
-        let outputs = WalletCreateFundedPsbtOutputs(outputs);
+        let outputs = WalletCreateFundedPsbtOutputs(filtered_outputs);
 
         self.rpc
             .wallet_create_funded_psbt(
