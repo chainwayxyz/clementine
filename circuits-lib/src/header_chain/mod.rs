@@ -989,16 +989,10 @@ mod tests {
 
     #[test]
     fn test_calculate_work() {
-        let target: [u8; 32] = [
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0,
-        ];
+        let mut target: [u8; 32] = [0u8; 32];
         let work = calculate_work(&target);
         assert_eq!(work, U256::MAX);
-        let target: [u8; 32] = [
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 1,
-        ];
+        target[31] = 1;
         let work = calculate_work(&target);
         assert_eq!(work, U256::MAX);
         let target: [u8; 32] = [0xFF; 32];
