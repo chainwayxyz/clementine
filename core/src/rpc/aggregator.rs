@@ -1907,7 +1907,7 @@ mod tests {
             .unwrap()
             .into_inner();
         let end_time = std::time::Instant::now();
-        println!("New deposit time: {:?}", end_time - start_time);
+        tracing::info!("New deposit time: {:?}", end_time - start_time);
 
         let movetx_txid = aggregator
             .send_move_to_vault_tx(SendMoveTxRequest {
