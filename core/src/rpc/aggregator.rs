@@ -204,7 +204,7 @@ async fn nonce_aggregator(
     ))
 }
 
-/// Reroutes aggregated nonces and public nonces for each aggregatedd nonce to the signature aggregator.
+/// Reroutes aggregated nonces and public nonces for each aggregated nonce to the signature aggregator.
 async fn nonce_distributor(
     mut agg_nonce_receiver: Receiver<(AggNonceQueueItem, Vec<PublicNonce>)>,
     partial_sig_streams: Vec<(
