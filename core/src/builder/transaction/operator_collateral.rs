@@ -411,6 +411,7 @@ pub fn create_burn_unused_kickoff_connectors_txhandler(
         // if we use standard tx's, kickoff utxo's will hold some sats so we can return the change to the change address
         // but if we use nonstandard tx's with 0 sat values then the change is 0 anyway, no need to add an output
         tx_handler_builder = tx_handler_builder.add_output(UnspentTxOut::from_partial(TxOut {
+            // In a standard bridge, a kickoff UTXO will hold on the order of 10^4 sats, so this UTXO will not be considered dust
             value: input_amount - paramset.anchor_amount(),
             script_pubkey: change_address.script_pubkey(),
         }));
