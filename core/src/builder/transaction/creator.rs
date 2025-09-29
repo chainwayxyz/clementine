@@ -63,7 +63,7 @@ fn get_txhandler(
 /// Helper struct to get specific kickoff winternitz keys for a sequential collateral tx
 #[derive(Debug, Clone)]
 pub struct KickoffWinternitzKeys {
-    pub keys: Vec<bitvm::signatures::winternitz::PublicKey>,
+    keys: Vec<bitvm::signatures::winternitz::PublicKey>,
     num_kickoffs_per_round: usize,
     num_rounds: usize,
 }
@@ -74,12 +74,15 @@ impl KickoffWinternitzKeys {
         keys: Vec<bitvm::signatures::winternitz::PublicKey>,
         num_kickoffs_per_round: usize,
         num_rounds: usize,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, TxError> {
+        if keys.len() != num_kickoffs_per_round * (num_rounds + 1) {
+            return Err(TxError::KickoffWinternitzKeysDBInconsistency);
+        }
+        Ok(Self {
             keys,
             num_kickoffs_per_round,
             num_rounds,
-        }
+        })
     }
 
     /// Get the winternitz keys for a specific round tx.
@@ -93,14 +96,14 @@ impl KickoffWinternitzKeys {
         &self,
         round_idx: RoundIndex,
     ) -> Result<&[bitvm::signatures::winternitz::PublicKey], TxError> {
-        // 0th round is the collateral, there are no keys for the 0th round
         // Additionally there are no keys after num_rounds + 1, +1 is because we need additional round to generate
         // reimbursement connectors of previous round
         if round_idx == RoundIndex::Collateral || round_idx.to_index() > self.num_rounds + 1 {
             return Err(TxError::InvalidRoundIndex(round_idx));
         }
         let start_idx = (round_idx.to_index())
-            .checked_sub(1) // 0th round is the collateral, there are no keys for the 0th round
+            // 0th round is the collateral, there are no keys for the 0th round so we subtract 1
+            .checked_sub(1)
             .ok_or(TxError::IndexOverflow)?
             .checked_mul(self.num_kickoffs_per_round)
             .ok_or(TxError::IndexOverflow)?;
@@ -108,6 +111,11 @@ impl KickoffWinternitzKeys {
             .checked_add(self.num_kickoffs_per_round)
             .ok_or(TxError::IndexOverflow)?;
         Ok(&self.keys[start_idx..end_idx])
+    }
+
+    /// Returns keys Vec and consumes self
+    pub fn get_all_keys(self) -> Vec<bitvm::signatures::winternitz::PublicKey> {
+        self.keys
     }
 }
 
@@ -267,7 +275,7 @@ impl<'a, 'b> ReimburseDbCache<'a, 'b> {
                         .wrap_err("Failed to get kickoff winternitz keys from database")?,
                     self.paramset.num_kickoffs_per_round,
                     self.paramset.num_round_txs,
-                ));
+                )?);
                 Ok(self
                     .kickoff_winternitz_keys
                     .as_ref()
