@@ -162,9 +162,13 @@ where
         #[cfg(feature = "automation")]
         {
             let paramset = self.operator.config.protocol_paramset();
-            let state_manager =
-                StateManager::new(self.operator.db.clone(), self.operator.clone(), paramset)
-                    .await?;
+            let state_manager = StateManager::new(
+                self.operator.db.clone(),
+                self.operator.clone(),
+                self.operator.rpc.clone(),
+                paramset,
+            )
+            .await?;
 
             let should_run_state_mgr = {
                 #[cfg(test)]
@@ -441,11 +445,11 @@ where
             wpks,
             self.config.protocol_paramset().num_kickoffs_per_round,
             self.config.protocol_paramset().num_round_txs,
-        );
+        )?;
         tracing::info!("Starting to generate unspent kickoff signatures");
         let kickoff_sigs = self.generate_unspent_kickoff_sigs(&kickoff_wpks)?;
         tracing::info!("Unspent kickoff signatures generated");
-        let wpks = kickoff_wpks.keys;
+        let wpks = kickoff_wpks.get_all_keys();
         let (sig_tx, sig_rx) = mpsc::channel(kickoff_sigs.len());
 
         tokio::spawn(async move {
@@ -552,21 +556,28 @@ where
             .to_sat()
             .checked_sub(input_amount.to_sat())
         {
-            Some(diff) => diff,
-            None => return false, // If underflow occurs, it's not profitable
+            Some(diff) => Amount::from_sat(diff),
+            None => {
+                // input amount is greater than withdrawal amount, so it's profitable but doesn't make sense
+                tracing::warn!(
+                    "Some user gave more amount than the withdrawal amount as input for withdrawal"
+                );
+                return true;
+            }
         };
 
-        if withdrawal_diff > bridge_amount_sats.to_sat() {
+        if withdrawal_diff > bridge_amount_sats {
             return false;
         }
 
         // Calculate net profit after the withdrawal using checked_sub to prevent panic
-        let net_profit = match bridge_amount_sats.checked_sub(withdrawal_amount) {
+        let net_profit = match bridge_amount_sats.checked_sub(withdrawal_diff) {
             Some(profit) => profit,
             None => return false, // If underflow occurs, it's not profitable
         };
 
         // Net profit must be bigger than withdrawal fee.
+        // net profit doesn't take into account the fees, but operator_withdrawal_fee_sats should
         net_profit >= operator_withdrawal_fee_sats
     }
 
@@ -1048,7 +1059,7 @@ where
             operator_winternitz_public_keys,
             self.config.protocol_paramset().num_kickoffs_per_round,
             self.config.protocol_paramset().num_round_txs,
-        );
+        )?;
 
         // if we are at round 0, which is just the collateral, we need to start the first round
         if current_round_index == RoundIndex::Collateral {
@@ -1238,6 +1249,7 @@ where
     #[cfg(feature = "automation")]
     async fn send_asserts(
         &self,
+        dbtx: DatabaseTransaction<'_, '_>,
         kickoff_data: KickoffData,
         deposit_data: DepositData,
         watchtower_challenges: HashMap<usize, Transaction>,
@@ -1255,7 +1267,7 @@ where
         let mut db_cache = crate::builder::transaction::ReimburseDbCache::from_context(
             self.db.clone(),
             &context,
-            None,
+            Some(dbtx),
         );
         let txhandlers = builder::transaction::create_txhandlers(
             TransactionType::Kickoff,
@@ -1278,7 +1290,7 @@ where
 
         let (payout_op_xonly_pk_opt, payout_block_hash, payout_txid, deposit_idx) = self
             .db
-            .get_payout_info_from_move_txid(None, move_txid)
+            .get_payout_info_from_move_txid(Some(dbtx), move_txid)
             .await
             .wrap_err("Failed to get payout info from db during sending asserts.")?
             .ok_or_eyre(format!(
@@ -1302,7 +1314,7 @@ where
 
         let (payout_block_height, payout_block) = self
             .db
-            .get_full_block_from_hash(None, payout_block_hash)
+            .get_full_block_from_hash(Some(dbtx), payout_block_hash)
             .await?
             .ok_or_eyre(format!(
                 "Payout block {:?} {:?} not found in db",
@@ -1326,7 +1338,7 @@ where
                 payout_block_height as u64,
                 deposit_idx as u32,
                 &self.db,
-                None,
+                Some(dbtx),
                 self.config.protocol_paramset(),
             )
             .await?;
@@ -1385,6 +1397,7 @@ where
         // update headers in case the sync (state machine handle_finalized_block) is behind
         self.db
             .fetch_and_save_missing_blocks(
+                Some(dbtx),
                 &self.rpc,
                 self.config.protocol_paramset().genesis_height,
                 rpc_current_finalized_height + 1,
@@ -1393,14 +1406,14 @@ where
 
         let current_height = self
             .db
-            .get_latest_finalized_block_height(None)
+            .get_latest_finalized_block_height(Some(dbtx))
             .await?
             .ok_or_eyre("Failed to get current finalized block height")?;
 
         let block_hashes = self
             .db
             .get_block_info_from_range(
-                None,
+                Some(dbtx),
                 self.config.protocol_paramset().genesis_height as u64,
                 current_height,
             )
@@ -1544,8 +1557,12 @@ where
             .test_params
             .maybe_dump_bridge_circuit_params_to_file(&bridge_circuit_host_params)?;
 
-        let (g16_proof, g16_output, public_inputs) =
-            prove_bridge_circuit(bridge_circuit_host_params, bridge_circuit_elf)?;
+        let (g16_proof, g16_output, public_inputs) = tokio::task::spawn_blocking(move || {
+            prove_bridge_circuit(bridge_circuit_host_params, bridge_circuit_elf)
+        })
+        .await
+        .wrap_err("Failed to join the prove_bridge_circuit task")?
+        .wrap_err("Failed to prove bridge circuit")?;
 
         tracing::info!("Proved bridge circuit in send_asserts");
         let public_input_scalar = ark_bn254::Fr::from_be_bytes_mod_order(&g16_output);
@@ -1603,15 +1620,14 @@ where
                     asserts,
                     &public_inputs.challenge_sending_watchtowers,
                 ),
-                None,
+                Some(dbtx),
             )
             .await?;
 
-        let mut dbtx = self.db.begin_transaction().await?;
         for (tx_type, tx) in assert_txs {
             self.tx_sender
                 .add_tx_to_queue(
-                    &mut dbtx,
+                    dbtx,
                     tx_type,
                     &tx,
                     &[],
@@ -1627,7 +1643,6 @@ where
                 )
                 .await?;
         }
-        dbtx.commit().await?;
         Ok(())
     }
 
@@ -1643,6 +1658,7 @@ where
     #[cfg(feature = "automation")]
     async fn send_latest_blockhash(
         &self,
+        dbtx: DatabaseTransaction<'_, '_>,
         kickoff_data: KickoffData,
         deposit_data: DepositData,
         latest_blockhash: BlockHash,
@@ -1656,16 +1672,15 @@ where
                     kickoff_data,
                 },
                 latest_blockhash,
-                None,
+                Some(dbtx),
             )
             .await?;
         if tx_type != TransactionType::LatestBlockhash {
             return Err(eyre::eyre!("Latest blockhash tx type is not LatestBlockhash").into());
         }
-        let mut dbtx = self.db.begin_transaction().await?;
         self.tx_sender
             .add_tx_to_queue(
-                &mut dbtx,
+                dbtx,
                 tx_type,
                 &tx,
                 &[],
@@ -1680,7 +1695,6 @@ where
                 None,
             )
             .await?;
-        dbtx.commit().await?;
         Ok(())
     }
 
@@ -1816,7 +1830,7 @@ where
                         .await?
                         .ok_or_eyre("Couldn't find payout blockhash in bitcoin sync")?;
 
-                    let move_txid = Txid::all_zeros();
+                    let move_txid = deposit_data.get_move_txid(self.config.protocol_paramset())?;
 
                     let (_, _, _, citrea_idx) = self
                         .db
@@ -2131,7 +2145,7 @@ where
             operator_winternitz_public_keys,
             self.config.protocol_paramset().num_kickoffs_per_round,
             self.config.protocol_paramset().num_round_txs,
-        );
+        )?;
         // if there are unspent kickoff utxos, create a tx that spends them
         let (round_txhandler, _ready_to_reimburse_txhandler) = create_round_nth_txhandler(
             self.signer.xonly_public_key,
@@ -2192,11 +2206,17 @@ where
                     vout: UtxoVout::KickoffFinalizer.get_vout(),
                 };
                 if !self.rpc.is_tx_on_chain(&kickoff_txid).await? {
-                    return Err(eyre::eyre!("For round {:?} and kickoff utxo {:?}, the kickoff tx {:?} is not on chain, 
-                    reimburse the deposit {:?} corresponding to this kickoff first. "
-                    , round_idx, kickoff_idx, kickoff_txid, deposit_outpoint).into());
+                    return Err(eyre::eyre!(
+                        "For round {:?} and kickoff utxo {:?}, the kickoff tx {:?} is not on chain,
+                    reimburse the deposit {:?} corresponding to this kickoff first. ",
+                        round_idx,
+                        kickoff_idx,
+                        kickoff_txid,
+                        deposit_outpoint
+                    )
+                    .into());
                 } else if !self.rpc.is_utxo_spent(&kickoff_finalizer_utxo).await? {
-                    return Err(eyre::eyre!("For round {:?} and kickoff utxo {:?}, the kickoff finalizer {:?} is not spent, 
+                    return Err(eyre::eyre!("For round {:?} and kickoff utxo {:?}, the kickoff finalizer {:?} is not spent,
                     send the challenge timeout tx for the deposit {:?} first", round_idx, kickoff_idx, kickoff_txid, deposit_outpoint).into());
                 } else if !self
                     .db
@@ -2270,6 +2290,7 @@ where
 
 #[cfg(feature = "automation")]
 mod states {
+
     use super::*;
     use crate::builder::transaction::{
         create_txhandlers, ContractContext, ReimburseDbCache, TransactionType, TxHandler,
@@ -2285,7 +2306,11 @@ mod states {
     where
         C: CitreaClientT,
     {
-        async fn handle_duty(&self, duty: Duty) -> Result<DutyResult, BridgeError> {
+        async fn handle_duty(
+            &self,
+            dbtx: DatabaseTransaction<'_, '_>,
+            duty: Duty,
+        ) -> Result<DutyResult, BridgeError> {
             match duty {
                 Duty::NewReadyToReimburse {
                     round_idx,
@@ -2307,6 +2332,7 @@ mod states {
                     tracing::warn!("Operator {:?} called send operator asserts with kickoff_data: {:?}, deposit_data: {:?}, watchtower_challenges: {:?}",
                     self.signer.xonly_public_key, kickoff_data, deposit_data, watchtower_challenges.len());
                     self.send_asserts(
+                        dbtx,
                         kickoff_data,
                         deposit_data,
                         watchtower_challenges,
@@ -2323,7 +2349,7 @@ mod states {
                     latest_blockhash,
                 } => {
                     tracing::warn!("Operator {:?} called send latest blockhash with kickoff_id: {:?}, deposit_data: {:?}, latest_blockhash: {:?}", self.signer.xonly_public_key, kickoff_data, deposit_data, latest_blockhash);
-                    self.send_latest_blockhash(kickoff_data, deposit_data, latest_blockhash)
+                    self.send_latest_blockhash(dbtx, kickoff_data, deposit_data, latest_blockhash)
                         .await?;
                     Ok(DutyResult::Handled)
                 }
@@ -2339,15 +2365,15 @@ mod states {
                         txid,
                         block_height,
                     );
+
                     let kickoff_data = self
                         .db
-                        .get_deposit_data_with_kickoff_txid(None, txid)
+                        .get_deposit_data_with_kickoff_txid(Some(dbtx), txid)
                         .await?;
                     if let Some((deposit_data, kickoff_data)) = kickoff_data {
-                        let mut dbtx = self.db.begin_transaction().await?;
                         StateManager::<Self>::dispatch_new_kickoff_machine(
                             self.db.clone(),
-                            &mut dbtx,
+                            dbtx,
                             kickoff_data,
                             block_height,
                             deposit_data.clone(),
@@ -2355,9 +2381,7 @@ mod states {
                         )
                         .await?;
 
-                        // send the relevant txs an operator should send during a kickoff to the txsender again
-                        // note: an operator only tracks itself, so only receives its own kickoffs here
-                        // the reason why is that if kickoff was sent during no-automation mode, these tx's were never added to the txsender
+                        // resend relevant txs
                         let context = ContractContext::new_context_for_kickoff(
                             kickoff_data,
                             deposit_data.clone(),
@@ -2368,20 +2392,17 @@ mod states {
                             &self.signer,
                             self.config.clone(),
                             context,
-                            // we don't need to send kickoff tx (it's already sent) so payout blockhash is irrelevant
-                            // blockhash doesn't change the kickoff txid (it's in the witness)
                             Some([0u8; 20]),
-                            Some(&mut dbtx),
+                            Some(dbtx),
                         )
                         .await?;
                         let tx_metadata = Some(TxMetadata {
-                            tx_type: TransactionType::Dummy, // will be replaced in add_tx_to_queue
+                            tx_type: TransactionType::Dummy,
                             operator_xonly_pk: Some(self.signer.xonly_public_key),
                             round_idx: Some(kickoff_data.round_idx),
                             kickoff_idx: Some(kickoff_data.kickoff_idx),
                             deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
                         });
-                        // try to send them
                         for (tx_type, signed_tx) in &signed_txs {
                             match *tx_type {
                                 TransactionType::OperatorChallengeAck(_)
@@ -2391,7 +2412,7 @@ mod states {
                                 | TransactionType::Reimburse => {
                                     self.tx_sender
                                         .add_tx_to_queue(
-                                            &mut dbtx,
+                                            dbtx,
                                             *tx_type,
                                             signed_tx,
                                             &signed_txs,
@@ -2404,8 +2425,8 @@ mod states {
                                 _ => {}
                             }
                         }
-                        dbtx.commit().await?;
                     }
+
                     Ok(DutyResult::Handled)
                 }
             }
@@ -2413,11 +2434,12 @@ mod states {
 
         async fn create_txhandlers(
             &self,
+            dbtx: DatabaseTransaction<'_, '_>,
             tx_type: TransactionType,
             contract_context: ContractContext,
         ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
             let mut db_cache =
-                ReimburseDbCache::from_context(self.db.clone(), &contract_context, None);
+                ReimburseDbCache::from_context(self.db.clone(), &contract_context, Some(dbtx));
             let txhandlers = create_txhandlers(
                 tx_type,
                 contract_context,

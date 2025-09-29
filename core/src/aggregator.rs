@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use crate::constants::{
     ENTITY_STATUS_POLL_TIMEOUT, OPERATOR_GET_KEYS_TIMEOUT, PUBLIC_KEY_COLLECTION_TIMEOUT,
-    VERIFIER_SEND_KEYS_TIMEOUT,
+    RESTART_BACKGROUND_TASKS_TIMEOUT, VERIFIER_SEND_KEYS_TIMEOUT,
 };
 use crate::deposit::DepositData;
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
@@ -702,30 +702,63 @@ impl Aggregator {
         let mut entity_statuses = operator_status;
         entity_statuses.extend(verifier_status);
 
-        // try to restart background tasks if needed
+        // try to restart background tasks if needed, with a timeout
         if restart_tasks {
-            let operator_tasks = operator_clients.iter().map(|client| {
-                let mut client = client.clone();
-                async move {
-                    client
-                        .restart_background_tasks(Request::new(Empty {}))
-                        .await
-                }
-            });
+            let operator_tasks = operator_clients
+                .iter()
+                .zip(operator_keys.iter())
+                .filter_map(|(client, key)| key.map(|key| (client, key)))
+                .map(|(client, key)| {
+                    let mut client = client.clone();
+                    async move {
+                        let mut request = Request::new(Empty {});
+                        request.set_timeout(RESTART_BACKGROUND_TASKS_TIMEOUT);
+                        client
+                            .restart_background_tasks(Request::new(Empty {}))
+                            .await
+                            .wrap_err_with(|| {
+                                Status::internal(format!(
+                                    "Failed to restart background tasks for operator {}",
+                                    key
+                                ))
+                            })
+                    }
+                });
 
-            let verifier_tasks = verifier_clients.iter().map(|client| {
-                let mut client = client.clone();
-                async move {
-                    client
-                        .restart_background_tasks(Request::new(Empty {}))
-                        .await
-                }
-            });
+            let verifier_tasks = verifier_clients
+                .iter()
+                .zip(verifier_keys.iter())
+                .filter_map(|(client, key)| key.map(|key| (client, key)))
+                .map(|(client, key)| {
+                    let mut client = client.clone();
+                    async move {
+                        let mut request = Request::new(Empty {});
+                        request.set_timeout(RESTART_BACKGROUND_TASKS_TIMEOUT);
+                        client
+                            .restart_background_tasks(Request::new(Empty {}))
+                            .await
+                            .wrap_err_with(|| {
+                                Status::internal(format!(
+                                    "Failed to restart background tasks for verifier {}",
+                                    key
+                                ))
+                            })
+                    }
+                });
 
-            futures::try_join!(
-                futures::future::try_join_all(operator_tasks),
-                futures::future::try_join_all(verifier_tasks)
-            )?;
+            let (operator_results, verifier_results) = futures::join!(
+                futures::future::join_all(operator_tasks),
+                futures::future::join_all(verifier_tasks)
+            );
+            // Log any errors from restart_background_tasks rpc call
+            for result in operator_results
+                .into_iter()
+                .chain(verifier_results.into_iter())
+            {
+                if let Err(e) = result {
+                    tracing::error!("{e:?}");
+                }
+            }
         }
         Ok(entity_statuses)
     }
