@@ -616,13 +616,33 @@ impl Actor {
                         sighash_type,
                     });
 
+                    let script_path_verify_sig = |sig: schnorr::Signature,
+                                                  xonly_public_key: XOnlyPublicKey|
+                     -> Result<(), BridgeError> {
+                        verify_schnorr(
+                            &sig,
+                            &Message::from(calc_sighash(sighash_type)?),
+                            xonly_public_key,
+                            TapTweakData::ScriptPath,
+                            None,
+                        )
+                        .wrap_err(format!(
+                            "Failed to verify signature from DB for signature {:?}",
+                            spt.get_signature_id()
+                        ))
+                        .map_err(Into::into)
+                    };
+
                     use crate::builder::script::ScriptKind as Kind;
 
                     // Set the script inputs of the witness
                     let mut witness: Witness = match script.kind() {
                         Kind::BaseDepositScript(script) => {
                             match (sig, script.0 == self.xonly_public_key) {
-                                (Some(sig), _) => script.generate_script_inputs(&sig),
+                                (Some(sig), _) => {
+                                    script_path_verify_sig(sig.signature, script.0)?;
+                                    script.generate_script_inputs(&sig)
+                                }
                                 (None, true) => {
                                     script.generate_script_inputs(&taproot::Signature {
                                         signature: self.sign(calc_sighash(sighash_type)?),
@@ -636,7 +656,10 @@ impl Actor {
                         }
                         Kind::ReplacementDepositScript(script) => {
                             match (sig, script.0 == self.xonly_public_key) {
-                                (Some(sig), _) => script.generate_script_inputs(&sig),
+                                (Some(sig), _) => {
+                                    script_path_verify_sig(sig.signature, script.0)?;
+                                    script.generate_script_inputs(&sig)
+                                }
                                 (None, true) => {
                                     script.generate_script_inputs(&taproot::Signature {
                                         signature: self.sign(calc_sighash(sighash_type)?),
@@ -649,7 +672,10 @@ impl Actor {
                             }
                         }
                         Kind::TimelockScript(script) => match (sig, script.0) {
-                            (Some(sig), Some(_)) => script.generate_script_inputs(Some(&sig)),
+                            (Some(sig), Some(xonly_pk)) => {
+                                script_path_verify_sig(sig.signature, xonly_pk)?;
+                                script.generate_script_inputs(Some(&sig))
+                            }
                             (None, Some(xonly_key)) if xonly_key == self.xonly_public_key => script
                                 .generate_script_inputs(Some(&taproot::Signature {
                                     signature: self.sign(calc_sighash(sighash_type)?),
@@ -661,7 +687,10 @@ impl Actor {
                             (_, None) => Witness::new(),
                         },
                         Kind::CheckSig(script) => match (sig, script.0 == self.xonly_public_key) {
-                            (Some(sig), _) => script.generate_script_inputs(&sig),
+                            (Some(sig), _) => {
+                                script_path_verify_sig(sig.signature, script.0)?;
+                                script.generate_script_inputs(&sig)
+                            }
 
                             (None, true) => script.generate_script_inputs(&taproot::Signature {
                                 signature: self.sign(calc_sighash(sighash_type)?),
@@ -689,10 +718,23 @@ impl Actor {
                     let sighash = calc_sighash(sighash_type)?;
                     let sig = Self::get_saved_signature(spt.get_signature_id(), signatures);
                     let sig = match sig {
-                        Some(sig) => taproot::Signature {
-                            signature: sig,
-                            sighash_type,
-                        },
+                        Some(sig) => {
+                            verify_schnorr(
+                                &sig,
+                                &Message::from(sighash),
+                                xonly_public_key,
+                                TapTweakData::KeyPath(spendinfo.merkle_root()),
+                                None,
+                            )
+                            .wrap_err(format!(
+                                "Failed to verify signature from DB for signature {:?}",
+                                spt.get_signature_id()
+                            ))?;
+                            taproot::Signature {
+                                signature: sig,
+                                sighash_type,
+                            }
+                        }
                         None => {
                             if xonly_public_key == self.xonly_public_key {
                                 taproot::Signature {
