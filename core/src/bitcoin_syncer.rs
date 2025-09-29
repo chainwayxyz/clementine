@@ -298,7 +298,7 @@ async fn fetch_new_blocks(
         });
 
         // new blocks includes the new one (block with height our previous tip + 1),
-        // so new_blocks_len() = 5 -> 4 reorged blocks,
+        // so new_blocks.len() = 5 -> 4 reorged blocks,
         if new_blocks.len() as u32 > finality_depth {
             return Err(eyre::eyre!(
                 "Number of reorged blocks {} is greater than finality depth {}, reorged blocks: {:?}. If true, increase finality depth and resync the chain",
