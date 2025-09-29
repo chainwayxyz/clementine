@@ -1061,6 +1061,28 @@ impl ExtendedBitcoinRpc {
             cached_mining_address: self.cached_mining_address.clone(),
         })
     }
+
+    /// Retrieves the block for a given height.
+    ///
+    /// # Arguments
+    ///
+    /// * `height` - The target block height.
+    ///
+    /// # Returns
+    ///
+    /// - [`bitcoin::Block`]: The block at the specified height.
+    pub async fn get_block_by_height(&self, height: u64) -> Result<bitcoin::Block> {
+        let hash = self
+            .get_block_info_by_height(height)
+            .await
+            .wrap_err("Failed to get block info by height")?
+            .0;
+
+        Ok(self
+            .get_block(&hash)
+            .await
+            .wrap_err("Failed to get block by height")?)
+    }
 }
 
 #[async_trait]
