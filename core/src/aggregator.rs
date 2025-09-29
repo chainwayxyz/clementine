@@ -302,7 +302,7 @@ impl Aggregator {
 
             if unique_keys.len() != non_none_keys.len() {
                 let reason = format!("{} keys are not unique: {:?}", key_type_name, keys);
-                // reset all keys to None
+                // reset all keys to None so that faulty keys are not used
                 for key in keys.iter_mut() {
                     *key = None;
                 }
