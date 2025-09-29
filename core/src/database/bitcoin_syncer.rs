@@ -488,10 +488,9 @@ impl Database {
             .await?;
 
         let max_processed_finalized_block_height = match max_processed_block_height {
-            Some(max_processed_block_height) => match paramset.finality_depth {
-                0 | 1 => Some(max_processed_block_height),
-                _ => max_processed_block_height.checked_sub(paramset.finality_depth - 1),
-            },
+            Some(max_processed_block_height) => {
+                max_processed_block_height.checked_sub(paramset.finality_depth - 1)
+            }
             None => None,
         };
 
