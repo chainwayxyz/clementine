@@ -296,10 +296,11 @@ impl Aggregator {
                 }
             }
 
-            // if keys are not unique, return an error
-            let set: HashSet<_> = keys.iter().filter_map(|key| key.clone()).collect();
+            // if keys are not unique, return an error if so
+            let non_none_keys: Vec<_> = keys.iter().filter_map(|key| key.as_ref()).collect();
+            let unique_keys: HashSet<_> = non_none_keys.iter().cloned().collect();
 
-            if set.len() != keys.iter().filter(|key| key.is_some()).count() {
+            if unique_keys.len() != non_none_keys.len() {
                 let reason = format!("{} keys are not unique: {:?}", key_type_name, keys);
                 // reset all keys to None
                 for key in keys.iter_mut() {
