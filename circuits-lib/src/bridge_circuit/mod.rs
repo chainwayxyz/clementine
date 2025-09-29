@@ -69,7 +69,6 @@ use bitcoin::{
     Script, TapLeafHash, TapSighash, TapSighashType, Transaction, TxOut,
 };
 
-use core::panic;
 use groth16::CircuitGroth16Proof;
 use groth16_verifier::CircuitGroth16WithTotalWork;
 use k256::{
@@ -215,6 +214,7 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
         .previous_output
         .txid
         .to_byte_array();
+
     let kickoff_round_vout = input.kickoff_tx.input[0].previous_output.vout;
 
     let operator_xonlypk: [u8; 32] = parse_op_return_data(&first_op_return_output.script_pubkey)
