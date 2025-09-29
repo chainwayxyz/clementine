@@ -1632,7 +1632,7 @@ impl ClementineAggregator for AggregatorServer {
             .map_to_status()?;
 
             // check if transaction is a movetx
-            if movetx.input.len() != 1 && movetx.output.len() != 2 {
+            if movetx.input.len() != 1 || movetx.output.len() != 2 {
                 return Err(Status::invalid_argument(
                     "Transaction is not a movetx, input or output lengths are not correct",
                 ));
