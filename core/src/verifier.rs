@@ -839,7 +839,9 @@ where
 
             if num_required_sigs + 2 != session.nonces.len() {
                 return Err(eyre::eyre!(
-                    "Expected nonce count to be num_required_sigs + 2 (movetx & emergency stop)"
+                    "Expected nonce count to be {} (num_required_sigs + 2, for movetx & emergency stop), got {}",
+                    num_required_sigs + 2,
+                    session.nonces.len()
                 ));
             }
 
