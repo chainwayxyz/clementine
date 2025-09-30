@@ -794,7 +794,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(non_canonical_blocks.len(), 3);
-        assert_eq!(non_canonical_blocks, vec![3, 4, 5]);
+        assert_eq!(non_canonical_blocks, vec![5, 4, 3]);
 
         // Verify blocks above height 2 are not returned
         for height in heights {
