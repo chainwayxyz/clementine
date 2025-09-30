@@ -495,7 +495,7 @@ fn host_deposit_constant(
         .txid
         .to_byte_array();
 
-    let kickff_round_vout = input.kickoff_tx.input[0].previous_output.vout;
+    let kickoff_round_vout = input.kickoff_tx.input[0].previous_output.vout;
 
     let operator_xonlypk: [u8; 32] = parse_op_return_data(&first_op_return_output.script_pubkey)
         .ok_or(BridgeCircuitHostParamsError::InvalidOperatorPubkey)?
@@ -510,7 +510,7 @@ fn host_deposit_constant(
         &input.all_tweaked_watchtower_pubkeys,
         deposit_value_bytes,
         round_txid,
-        kickff_round_vout,
+        kickoff_round_vout,
         input.hcp.genesis_state_hash,
     ))
 }
