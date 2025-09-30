@@ -571,6 +571,13 @@ pub fn bits_to_target(bits: u32) -> [u8; 32] {
     let size = (bits >> 24) as usize;
     let mantissa = bits & 0x00ffffff;
 
+    // Mantissa is signed in Bitcoin core, if the sign bit is set, the target is set to 0.
+    // https://github.com/bitcoin/bitcoin/blob/ee42d59d4de970769ebabf77b89ff4269498f61e/src/arith_uint256.cpp#L175
+    // https://github.com/rust-bitcoin/rust-bitcoin/blob/eb17995e49b68831114cbc8bda14cbe72811c4b7/bitcoin/src/pow.rs#L171
+    if mantissa > 0x7F_FFFF {
+        return [0; 32];
+    }
+
     let target = if size <= 3 {
         U256::from(mantissa >> (8 * (3 - size)))
     } else {
@@ -679,7 +686,12 @@ fn check_hash_valid(hash: &[u8; 32], target_bytes: &[u8; 32]) {
 ///
 /// Bitcoin measures cumulative proof-of-work as the sum of work done by all blocks.
 /// The work for a single block is inversely proportional to its target:
-/// work = max_target / (target + 1)
+/// work = 2 ** 256 / (target + 1)
+/// The following implementation follows Rust-Bitcoin's approach:
+/// https://github.com/rust-bitcoin/rust-bitcoin/blob/eb17995e49b68831114cbc8bda14cbe72811c4b7/bitcoin/src/pow.rs#L533
+/// This calculation uses the mathematical identity:
+/// 2**256 / (x + 1) == ~x / (x + 1) + 1
+/// (Equation shamelessly stolen from bitcoind)
 ///
 /// This allows comparing the total work between different chains to determine
 /// which has the most accumulated proof-of-work.
@@ -692,9 +704,25 @@ fn check_hash_valid(hash: &[u8; 32], target_bytes: &[u8; 32]) {
 ///
 /// * `U256` - The amount of work represented by this target
 fn calculate_work(target: &[u8; 32]) -> U256 {
+    // We should never have a target/work of zero so this doesn't matter
+    // that much but we define the inverse of 0 as max.
     let target = U256::from_be_slice(target);
-    let target_plus_one = target.saturating_add(&U256::ONE);
-    U256::MAX.wrapping_div(&target_plus_one)
+    if target == U256::ZERO {
+        return U256::MAX;
+    }
+    // We define the inverse of 1 as max.
+    if target == U256::ONE {
+        return U256::MAX;
+    }
+    // We define the inverse of max as 1.
+    if target == U256::MAX {
+        return U256::ONE;
+    }
+
+    let comp = !target;
+
+    let ret = comp.wrapping_div(&target.wrapping_add(&U256::ONE));
+    ret.wrapping_add(&U256::ONE)
 }
 
 /// Circuit output containing the updated chain state and metadata.
