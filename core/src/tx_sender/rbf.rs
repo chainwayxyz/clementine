@@ -53,6 +53,11 @@ impl TxSender {
         let original_tx_vsize = original_tx_weight.to_vbytes_floor();
         let original_feerate = original_tx_fee.to_sat() as f64 / original_tx_vsize as f64;
 
+        // If original feerate is already higher than target, avoid bumping
+        if original_feerate >= new_feerate.to_sat_per_vb_ceil() as f64 {
+            return Ok(None);
+        }
+
         // Get minimum fee increment rate from node for BIP125 compliance. Returned value is in BTC/kvB
         let incremental_fee_rate = self
             .rpc
@@ -68,11 +73,6 @@ impl TxSender {
             new_feerate.to_sat_per_vb_ceil(),
             min_bump_feerate.ceil() as u64,
         );
-
-        // If original feerate is already higher than target, avoid bumping
-        if original_feerate >= new_feerate.to_sat_per_vb_ceil() as f64 {
-            return Ok(None);
-        }
 
         Ok(Some(Amount::from_sat(effective_feerate_sat_per_vb)))
     }
