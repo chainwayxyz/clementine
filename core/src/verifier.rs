@@ -1294,6 +1294,20 @@ where
                 eyre::eyre!("Withdrawal utxo {:?} is already spent", input_outpoint).into(),
             );
         }
+
+        // check for some standard script pubkeys
+        if !(output_script_pubkey.is_p2tr()
+            || output_script_pubkey.is_p2pkh()
+            || output_script_pubkey.is_p2sh()
+            || output_script_pubkey.is_p2wpkh()
+            || output_script_pubkey.is_p2wsh())
+        {
+            return Err(eyre::eyre!(format!(
+                "Output script pubkey is not a valid script pubkey: {}, must be p2tr, p2pkh, p2sh, p2wpkh, or p2wsh",
+                output_script_pubkey
+            )).into());
+        }
+
         // if verification address is set in config, check if verification signature is valid
         if let Some(address_in_config) = self.config.aggregator_verification_address {
             // check if verification signature is provided by aggregator
