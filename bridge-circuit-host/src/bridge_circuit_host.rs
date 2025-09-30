@@ -451,8 +451,6 @@ mod tests {
 
     #[test]
     fn test_header_chain_circuit() {
-        let value = option_env!("BITCOIN_NETWORK");
-        println!("BITCOIN_NETWORK: {:?}", value);
         let headers = MAINNET_HEADERS
             .chunks(80)
             .map(|header| CircuitBlockHeader::try_from_slice(header).unwrap())
