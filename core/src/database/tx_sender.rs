@@ -337,7 +337,7 @@ impl Database {
     }
 
     /// Returns all unconfirmed fee payer transactions for a try-to-send tx.
-    /// Replaced (bumped) fee payers are not included.
+    /// Transactions whose replacements are confirmed are not included. But if none of the replacements are confirmed, all replacements are returned.
     ///
     /// # Parameters
     ///
@@ -388,7 +388,7 @@ impl Database {
     }
 
     /// Returns all unconfirmed fee payer transactions for a try-to-send tx.
-    /// Replaced (bumped) fee payers are not included.
+    /// Transactions whose replacements are confirmed are not included. But if none of the replacements are confirmed, all replacements are returned.
     ///
     /// # Parameters
     ///
