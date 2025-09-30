@@ -427,7 +427,13 @@ impl HeaderChainProver {
         );
 
         let headers: Vec<CircuitBlockHeader> = block_headers.into_iter().map(Into::into).collect();
-        let receipt = self.prove_block_headers(previous_proof, headers)?;
+        let network = self.network;
+        let receipt = tokio::task::spawn_blocking(move || {
+            Self::prove_block_headers(network, previous_proof, headers)
+        })
+        .await
+        .wrap_err("Failed to join the prove_block_headers task")?
+        .wrap_err("Failed to prove block headers")?;
 
         self.db
             .set_block_proof(None, current_block_hash, receipt.clone())
@@ -447,7 +453,7 @@ impl HeaderChainProver {
     ///
     /// - [`Receipt`]: Proved block headers' proof receipt.
     fn prove_block_headers(
-        &self,
+        network: Network,
         prev_receipt: Receipt,
         block_headers: Vec<CircuitBlockHeader>,
     ) -> Result<Receipt, HeaderChainProverError> {
@@ -463,7 +469,7 @@ impl HeaderChainProver {
             prev_proof,
             block_headers,
         };
-        Self::prove_with_input(input, Some(prev_receipt), self.network)
+        Self::prove_with_input(input, Some(prev_receipt), network)
     }
 
     pub fn prove_genesis_block(
@@ -1021,9 +1027,12 @@ mod tests {
             .iter()
             .map(|header| CircuitBlockHeader::from(*header))
             .collect::<Vec<_>>();
-        let receipt = prover
-            .prove_block_headers(receipt, block_headers[0..2].to_vec())
-            .unwrap();
+        let receipt = HeaderChainProver::prove_block_headers(
+            prover.network,
+            receipt,
+            block_headers[0..2].to_vec(),
+        )
+        .unwrap();
         let output: BlockHeaderCircuitOutput = borsh::from_slice(&receipt.journal.bytes).unwrap();
 
         println!("Proof journal output: {:?}", output);
