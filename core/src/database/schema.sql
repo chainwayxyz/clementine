@@ -94,7 +94,6 @@ create table if not exists operators_challenge_ack_hashes (
     created_at timestamp not null default now(),
     primary key (xonly_pk, deposit_id)
 );
-
 /*******************************************************************************
  *                               BITCOIN SYNCER
  ******************************************************************************/
@@ -124,7 +123,6 @@ create table if not exists bitcoin_blocks (
     block_data bytea not null,
     created_at timestamp not null default now()
 );
-
 -- enum for bitcoin_syncer_events
 DO $$ BEGIN IF NOT EXISTS (
     SELECT 1
@@ -145,7 +143,6 @@ create table if not exists bitcoin_syncer_event_handlers (
     created_at timestamp not null default now(),
     primary key (consumer_handle)
 );
-
 /*******************************************************************************
  *                                 TX SENDER
  ******************************************************************************/
@@ -156,7 +153,6 @@ DO $$ BEGIN IF NOT EXISTS (
 ) THEN CREATE TYPE fee_paying_type AS ENUM ('cpfp', 'rbf', 'nofunding');
 END IF;
 END $$;
-
 -- Transactions that are needed to be fee bumped
 create table if not exists tx_sender_try_to_send_txs (
     id serial primary key,
@@ -164,7 +160,8 @@ create table if not exists tx_sender_try_to_send_txs (
     tx_metadata text,
     fee_paying_type fee_paying_type not null,
     effective_fee_rate bigint,
-    txid bytea, -- txid of the tx if it is CPFP
+    txid bytea,
+    -- txid of the tx if it is CPFP
     seen_block_id int references bitcoin_syncer(id),
     latest_active_at timestamp,
     created_at timestamp not null default now(),
@@ -179,7 +176,8 @@ create table if not exists tx_sender_rbf_txids (
 );
 create table if not exists tx_sender_fee_payer_utxos (
     id serial primary key,
-    replacement_of_id int references tx_sender_fee_payer_utxos(id),
+    -- shows itself for first created tx, then the first created tx for all replacements
+    replacement_of_id int not null references tx_sender_fee_payer_utxos(id),
     bumped_id int not null references tx_sender_try_to_send_txs(id),
     fee_payer_txid bytea not null,
     vout int not null,
@@ -187,7 +185,6 @@ create table if not exists tx_sender_fee_payer_utxos (
     seen_block_id int references bitcoin_syncer(id),
     created_at timestamp not null default now()
 );
-
 create table if not exists tx_sender_cancel_try_to_send_outpoints (
     cancelled_id int not null references tx_sender_try_to_send_txs(id),
     txid bytea not null,
@@ -203,7 +200,6 @@ create table if not exists tx_sender_cancel_try_to_send_txids (
     created_at timestamp not null default now(),
     primary key (cancelled_id, txid)
 );
-
 create table if not exists tx_sender_activate_try_to_send_txids (
     activated_id int not null references tx_sender_try_to_send_txs(id),
     txid bytea not null,
@@ -221,7 +217,6 @@ create table if not exists tx_sender_activate_try_to_send_outpoints (
     created_at timestamp not null default now(),
     primary key (activated_id, txid, vout)
 );
-
 -- Triggers that sets the seen_block_id to the block id of the canonical block
 -- when a row inserted to the tx_sender_*_try_to_send_* tables.
 CREATE OR REPLACE FUNCTION update_cancel_txids_seen_block_id() RETURNS TRIGGER AS $$ BEGIN
@@ -241,7 +236,6 @@ DROP TRIGGER IF EXISTS trigger_update_cancel_txids_seen_block_id ON tx_sender_ca
 CREATE TRIGGER trigger_update_cancel_txids_seen_block_id
 AFTER
 INSERT ON tx_sender_cancel_try_to_send_txids FOR EACH ROW EXECUTE FUNCTION update_cancel_txids_seen_block_id();
-
 CREATE OR REPLACE FUNCTION update_cancel_outpoints_seen_block_id() RETURNS TRIGGER AS $$ BEGIN
 UPDATE tx_sender_cancel_try_to_send_outpoints
 SET seen_block_id = bs.id
@@ -261,7 +255,6 @@ DROP TRIGGER IF EXISTS trigger_update_cancel_outpoints_seen_block_id ON tx_sende
 CREATE TRIGGER trigger_update_cancel_outpoints_seen_block_id
 AFTER
 INSERT ON tx_sender_cancel_try_to_send_outpoints FOR EACH ROW EXECUTE FUNCTION update_cancel_outpoints_seen_block_id();
-
 CREATE OR REPLACE FUNCTION update_activate_txids_seen_block_id() RETURNS TRIGGER AS $$ BEGIN
 UPDATE tx_sender_activate_try_to_send_txids
 SET seen_block_id = bs.id
@@ -279,7 +272,6 @@ DROP TRIGGER IF EXISTS trigger_update_activate_txids_seen_block_id ON tx_sender_
 CREATE TRIGGER trigger_update_activate_txids_seen_block_id
 AFTER
 INSERT ON tx_sender_activate_try_to_send_txids FOR EACH ROW EXECUTE FUNCTION update_activate_txids_seen_block_id();
-
 CREATE OR REPLACE FUNCTION update_activate_outpoints_seen_block_id() RETURNS TRIGGER AS $$ BEGIN
 UPDATE tx_sender_activate_try_to_send_outpoints
 SET seen_block_id = bs.id
@@ -299,7 +291,6 @@ DROP TRIGGER IF EXISTS trigger_update_activate_outpoints_seen_block_id ON tx_sen
 CREATE TRIGGER trigger_update_activate_outpoints_seen_block_id
 AFTER
 INSERT ON tx_sender_activate_try_to_send_outpoints FOR EACH ROW EXECUTE FUNCTION update_activate_outpoints_seen_block_id();
-
 /*******************************************************************************
  *           FINALIZED BLOCK SYNCER, CITREA DEPOSITS AND WITHDRAWALS
  ******************************************************************************/
@@ -351,7 +342,6 @@ CREATE INDEX IF NOT EXISTS state_machines_operator_xonly_pk_idx ON state_machine
 WHERE operator_xonly_pk IS NOT NULL;
 CREATE INDEX IF NOT EXISTS state_machines_owner_type_idx ON state_machines(owner_type);
 COMMIT;
-
 /*******************************************************************************
  *                           ROUND MANAGEMENT FOR OPERATOR
  ******************************************************************************/

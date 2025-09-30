@@ -266,9 +266,7 @@ impl TxSender {
         // For CPFP, miners consider the effective fee rate over the combined *vbytes* of parent + child.
         // For RBF, miners consider the fee rate of the single replacement transaction's weight.
         let total_weight = match fee_paying_type {
-            FeePayingType::CPFP => Weight::from_vb_unchecked(
-                child_tx_weight.to_vbytes_ceil() + parent_tx_weight.to_vbytes_ceil(),
-            ),
+            FeePayingType::CPFP => child_tx_weight + parent_tx_weight,
             FeePayingType::RBF => child_tx_weight + parent_tx_weight, // Should likely just be the RBF tx weight? Check RBF rules.
             FeePayingType::NoFunding => parent_tx_weight,
         };
@@ -333,6 +331,10 @@ impl TxSender {
             .get_sendable_txs(None, new_fee_rate, current_tip_height)
             .await
             .map_to_eyre()?;
+
+        // bump fees of fee payer transactions that are unconfirmed
+        self.bump_fees_of_unconfirmed_fee_payer_txs(new_fee_rate)
+            .await?;
 
         if !txs.is_empty() {
             tracing::debug!("Trying to send {} sendable txs ", txs.len());
