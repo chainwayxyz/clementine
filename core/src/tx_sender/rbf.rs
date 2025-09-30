@@ -35,7 +35,7 @@ impl TxSender {
     /// * `Ok(Some(Amount))` - The effective fee rate (in satoshis per vbyte) to use for the replacement
     /// * `Ok(None)` - If the original transaction already has a higher fee rate than requested
     /// * `Err(...)` - If there was an error retrieving or analyzing the original transaction
-    pub async fn calculate_bump_feerate(
+    pub async fn calculate_bump_feerate_if_needed(
         &self,
         txid: &Txid,
         new_feerate: FeeRate,
@@ -45,7 +45,7 @@ impl TxSender {
         // Calculate original tx fee
         let original_tx_fee = self.get_tx_fee(&original_tx).await.map_err(|e| eyre!(e))?;
 
-        //println!("original_tx_fee: {}", original_tx_fee);
+        //tracing::debug!("original_tx_fee: {}", original_tx_fee);
 
         let original_tx_weight = original_tx.weight();
 
@@ -53,8 +53,16 @@ impl TxSender {
         let original_tx_vsize = original_tx_weight.to_vbytes_floor();
         let original_feerate = original_tx_fee.to_sat() as f64 / original_tx_vsize as f64;
 
-        // Use max of target fee rate and original + incremental rate
-        let min_bump_feerate = original_feerate + (222f64 / original_tx_vsize as f64);
+        // Get minimum fee increment rate from node for BIP125 compliance. Returned value is in BTC/kB
+        let incremental_fee_rate = self
+            .rpc
+            .get_network_info()
+            .await
+            .map_err(|e| eyre!(e))?
+            .relay_fee;
+
+        // Use max of target fee rate and original + minimum fee increment rate.
+        let min_bump_feerate = original_feerate + (incremental_fee_rate.to_sat() as f64 / 1000.0);
 
         let effective_feerate_sat_per_vb = std::cmp::max(
             new_feerate.to_sat_per_vb_ceil(),
@@ -425,7 +433,7 @@ impl TxSender {
             );
 
             let effective_feerate = self
-                .calculate_bump_feerate(&last_rbf_txid, fee_rate)
+                .calculate_bump_feerate_if_needed(&last_rbf_txid, fee_rate)
                 .await?;
 
             let Some(effective_feerate) = effective_feerate else {
