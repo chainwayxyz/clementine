@@ -84,6 +84,10 @@ pub fn get_prepared_vk() -> &'static [u8] {
     PREPARED_VK
 }
 
+pub fn is_test_vk() -> bool {
+    cfg!(feature = "use-test-vk")
+}
+
 #[cfg(test)]
 mod tests {
     use ark_bn254::Fr;

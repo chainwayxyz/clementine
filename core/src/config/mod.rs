@@ -18,6 +18,7 @@ use bitcoin::address::NetworkUnchecked;
 use bitcoin::secp256k1::SecretKey;
 use bitcoin::{Address, Amount, Network, OutPoint, XOnlyPublicKey};
 use bridge_circuit_host::utils::is_dev_mode;
+use circuits_lib::bridge_circuit::constants::is_test_vk;
 use protocol::ProtocolParamset;
 use secrecy::SecretString;
 use serde::Deserialize;
@@ -257,11 +258,7 @@ impl BridgeConfig {
             misconfigs.push("Risc0 dev mode is enabled".to_string());
         }
 
-        // Compare addresses instead of values.
-        if std::ptr::eq(
-            circuits_lib::bridge_circuit::constants::get_prepared_vk(),
-            circuits_lib::bridge_circuit::constants::TEST_PREPARED_VK,
-        ) {
+        if is_test_vk() {
             misconfigs.push("use-test-vk feature is enabled".to_string());
         }
 
