@@ -53,7 +53,7 @@ impl TxSender {
         let original_tx_vsize = original_tx_weight.to_vbytes_floor();
         let original_feerate = original_tx_fee.to_sat() as f64 / original_tx_vsize as f64;
 
-        // Get minimum fee increment rate from node for BIP125 compliance. Returned value is in BTC/kB
+        // Get minimum fee increment rate from node for BIP125 compliance. Returned value is in BTC/kvB
         let incremental_fee_rate = self
             .rpc
             .get_network_info()
