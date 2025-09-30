@@ -466,14 +466,19 @@ pub fn verify_watchtower_challenges(circuit_input: &BridgeCircuitInput) -> Watch
             );
         };
 
-        if verifying_key
+        match verifying_key
             .verify_prehash(sighash.as_byte_array(), &signature)
-            .is_ok()
         {
-            challenge_sending_watchtowers[(watchtower_input.watchtower_idx as usize) / 8] |=
-                1 << (watchtower_input.watchtower_idx % 8);
-            watchtower_challenges_outputs
-                .push(watchtower_input.watchtower_challenge_tx.output.clone());
+            Ok(_) => {
+                challenge_sending_watchtowers[(watchtower_input.watchtower_idx as usize) / 8] |=
+                    1 << (watchtower_input.watchtower_idx % 8);
+                watchtower_challenges_outputs
+                    .push(watchtower_input.watchtower_challenge_tx.output.clone());
+            }
+            Err(_) => panic!(
+                "Invalid signature for watchtower challenge with watchtower index: {}, should not happen",
+                watchtower_input.watchtower_idx
+            ),
         }
     }
 
@@ -1062,6 +1067,7 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "Invalid signature for watchtower challenge")]
     fn test_total_work_and_watchtower_flags_incorrect_witness() {
         let (mut input, _) = total_work_and_watchtower_flags_setup();
 
@@ -1088,6 +1094,7 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "Invalid signature for watchtower challenge")]
     fn test_total_work_and_watchtower_flags_incorrect_tx() {
         let (mut input, kickoff_txid) = total_work_and_watchtower_flags_setup();
 
