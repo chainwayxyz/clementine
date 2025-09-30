@@ -59,7 +59,7 @@ impl TxSender {
             .get_network_info()
             .await
             .map_err(|e| eyre!(e))?
-            .relay_fee;
+            .incremental_fee;
 
         // Use max of target fee rate and original + minimum fee increment rate.
         let min_bump_feerate = original_feerate + (incremental_fee_rate.to_sat() as f64 / 1000.0);
