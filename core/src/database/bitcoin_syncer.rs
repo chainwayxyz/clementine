@@ -196,7 +196,7 @@ impl Database {
     /// # Returns
     ///
     /// - [`Vec<u32>`]: List of block ids that were marked as non-canonical in
-    ///   ascending order.
+    ///   descending order.
     pub async fn update_non_canonical_block_hashes(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
@@ -208,7 +208,7 @@ impl Database {
                 SET is_canonical = false
                 WHERE height > $1
                 RETURNING id
-            ) SELECT id FROM deleted",
+            ) SELECT id FROM deleted ORDER BY id DESC",
         )
         .bind(i32::try_from(height).wrap_err(BridgeError::IntConversionError)?);
 
@@ -794,7 +794,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(non_canonical_blocks.len(), 3);
-        assert_eq!(non_canonical_blocks, vec![3, 4, 5]);
+        assert_eq!(non_canonical_blocks, vec![5, 4, 3]);
 
         // Verify blocks above height 2 are not returned
         for height in heights {
