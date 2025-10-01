@@ -79,8 +79,24 @@ impl TxSender {
             FeePayingType::CPFP,
         )?;
 
-        // Aggressively add 3x required fee to the total amount to account for sudden spikes
-        let new_fee_payer_amount = required_fee * 2 + MIN_TAPROOT_AMOUNT - total_fee_payer_amount;
+        // Aggressively add 2x required fee to the total amount to account for sudden spikes
+        let new_total_fee_needed = required_fee
+            .checked_mul(2)
+            .and_then(|fee| fee.checked_add(MIN_TAPROOT_AMOUNT));
+        if new_total_fee_needed.is_none() {
+            return Err(eyre!("Total fee needed is too large, required fee: {}, total fee payer amount: {}, fee rate: {}", required_fee, total_fee_payer_amount, fee_rate).into());
+        }
+        let new_fee_payer_amount =
+            new_total_fee_needed.and_then(|fee| fee.checked_sub(total_fee_payer_amount));
+
+        let new_fee_payer_amount = match new_fee_payer_amount {
+            Some(fee) => fee,
+            // if underflow, no new fee payer utxo is needed, log it anyway in case its a bug
+            None => {
+                tracing::warn!("create_fee_payer_utxo was called but no new fee payer utxo is needed for tx: {:?}, required fee: {}, total fee payer amount: {}, current fee rate: {}", tx, required_fee, total_fee_payer_amount, fee_rate);
+                return Ok(());
+            }
+        };
 
         tracing::debug!(
             "Creating fee payer UTXO with amount {} ({} sat/vb)",
@@ -417,7 +433,7 @@ impl TxSender {
                         fee_payer_txid,
                         e
                     );
-                    // TODO: is this the best way, and if not in mempool we should somehow ignore
+                    // TODO: is this the best way, and if not in mempool we should ignore
                     // give an error if the error is not "Transaction not in mempool"
                     if !e.to_string().contains("Transaction not in mempool") {
                         return Err(eyre::eyre!(
