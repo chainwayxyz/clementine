@@ -134,7 +134,6 @@ pub struct WatchTowerChallengeTxCommitment {
 #[derive(Debug, Clone, Eq, PartialEq, BorshDeserialize, BorshSerialize, Default)]
 pub struct LightClientProof {
     pub lc_journal: Vec<u8>,
-    pub l2_height: String,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, BorshDeserialize, BorshSerialize, Default)]
