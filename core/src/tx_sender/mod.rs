@@ -31,7 +31,6 @@ use bitcoin::taproot::TaprootSpendInfo;
 use bitcoin::{Amount, FeeRate, Network, OutPoint, Transaction, TxOut, Txid, Weight};
 use bitcoincore_rpc::RpcApi;
 use eyre::eyre;
-use eyre::ContextCompat;
 use eyre::OptionExt;
 use eyre::WrapErr;
 use http::StatusCode;
@@ -497,7 +496,6 @@ impl TxSender {
 /// Mempool Space API.
 /// This function is used to get the fee rate in sat/vkb (satoshis per kilovbyte).
 /// See [Mempool Space API](https://mempool.space/docs/api/rest#get-recommended-fees) for more details.
-#[allow(dead_code)]
 async fn get_fee_rate_from_mempool_space(
     url: &Option<String>,
     endpoint: &Option<String>,
@@ -525,7 +523,7 @@ async fn get_fee_rate_from_mempool_space(
     let retry_config = RetryConfig::new(
         Duration::from_millis(250),
         Duration::from_secs(5),
-        6,
+        3,
         2,
         true,
     );
@@ -545,7 +543,7 @@ async fn get_fee_rate_from_mempool_space(
         || {
             let url = url.clone();
             async move {
-                let resp = timeout(Duration::from_secs(8), reqwest::get(&url))
+                let resp = timeout(Duration::from_secs(5), reqwest::get(&url))
                     .await
                     .map_err(|_| FeeErr::Timeout)?
                     .map_err(FeeErr::Transport)?;
