@@ -886,7 +886,7 @@ mod tests {
         pair.0.into_bg();
 
         // Create a transaction that doesn't need funding
-        let tx = rbf::tests::create_rbf_tx(&rpc, &signer, network, false).await?;
+        let tx = rbf::tests::create_rbf_tx(&rpc, &signer, network, false, None).await?;
 
         // Insert the transaction into the database
         let mut dbtx = db.begin_transaction().await?;
