@@ -97,19 +97,51 @@ impl TxSender {
                 script_pubkey: self.signer.address.script_pubkey(),
             }],
         };
+        let fee_payer_hex = bitcoin::consensus::encode::serialize_hex(&fee_payer_tx);
+        println!("Fee payer tx hex: {:?}", fee_payer_hex);
+
+        // Manually serialize in legacy format for 0-input transactions
+        // Because fund_raw_transaction RPC gives deserialization error for 0-input transactions with segwit flag
+        // but in the end fund_raw_transaction returns a segwit transaction after adding inputs
+        let fee_payer_bytes = if fee_payer_tx.input.is_empty() {
+            use bitcoin::consensus::Encodable;
+            let mut buf = Vec::new();
+            // Serialize version
+            fee_payer_tx
+                .version
+                .consensus_encode(&mut buf)
+                .expect("Failed to serialize version");
+            fee_payer_tx
+                .input
+                .consensus_encode(&mut buf)
+                .expect("Failed to serialize inputs");
+            fee_payer_tx
+                .output
+                .consensus_encode(&mut buf)
+                .expect("Failed to serialize outputs");
+            // Serialize locktime
+            fee_payer_tx
+                .lock_time
+                .consensus_encode(&mut buf)
+                .expect("Failed to serialize locktime");
+
+            buf
+        } else {
+            bitcoin::consensus::encode::serialize(&fee_payer_tx)
+        };
 
         let funded_fee_payer_tx = self
             .rpc
             .fund_raw_transaction(
-                &fee_payer_tx,
+                &fee_payer_bytes,
                 Some(&bitcoincore_rpc::json::FundRawTransactionOptions {
                     add_inputs: Some(true),
                     change_address: None,
-                    change_position: Some(1),
+                    change_position: None,
                     change_type: None,
                     include_watching: None,
                     lock_unspents: None,
-                    fee_rate: Some(Amount::from_sat(fee_rate.to_sat_per_vb_ceil())),
+                    fee_rate: Some(Amount::from_sat(fee_rate.to_sat_per_vb_ceil() * 1000)),
                     subtract_fee_from_outputs: None,
                     replaceable: Some(true),
                     conf_target: None,
@@ -118,20 +150,35 @@ impl TxSender {
                 None,
             )
             .await
-            .wrap_err("Failed to fund cpfp fee payer tx")?;
-        let tx: Transaction = bitcoin::consensus::deserialize(&funded_fee_payer_tx.hex)
-            .wrap_err("Failed to deserialize funded cpfp fee payer tx")?;
-        let outpoint_vout = tx
+            .wrap_err("Failed to fund cpfp fee payer tx")?
+            .hex;
+
+        let signed_fee_payer_tx: Transaction = bitcoin::consensus::deserialize(
+            &self
+                .rpc
+                .sign_raw_transaction_with_wallet(&funded_fee_payer_tx, None, None)
+                .await
+                .wrap_err("Failed to sign funded tx through bitcoin RPC")?
+                .hex,
+        )
+        .wrap_err("Failed to deserialize signed tx")?;
+
+        let outpoint_vout = signed_fee_payer_tx
             .output
             .iter()
             .position(|o| o.value == new_fee_payer_amount)
             .ok_or(eyre!("Failed to find outpoint vout"))?;
 
+        self.rpc
+            .send_raw_transaction(&signed_fee_payer_tx)
+            .await
+            .wrap_err("Failed to send  signed fee payer tx")?;
+
         self.db
             .save_fee_payer_tx(
                 None,
                 bumped_id,
-                tx.compute_txid(),
+                signed_fee_payer_tx.compute_txid(),
                 outpoint_vout as u32,
                 new_fee_payer_amount,
                 None,
@@ -352,7 +399,9 @@ impl TxSender {
             .await
             .map_to_eyre()?;
 
-        for (id, try_to_send_id, fee_payer_txid, vout, amount) in bumpable_fee_payer_txs {
+        for (id, try_to_send_id, fee_payer_txid, vout, amount, replacement_of_id) in
+            bumpable_fee_payer_txs
+        {
             tracing::debug!(
                 "Bumping fee for fee payer tx {} for try to send id {} for fee rate {}",
                 fee_payer_txid,
@@ -368,7 +417,7 @@ impl TxSender {
                         fee_payer_txid,
                         e
                     );
-                    // TODO: is this the best way
+                    // TODO: is this the best way, and if not in mempool we should somehow ignore
                     // give an error if the error is not "Transaction not in mempool"
                     if !e.to_string().contains("Transaction not in mempool") {
                         return Err(eyre::eyre!(
@@ -407,7 +456,10 @@ impl TxSender {
                                 new_txid,
                                 vout,
                                 amount,
-                                Some(id),
+                                match replacement_of_id {
+                                    Some(replacement_of_id) => Some(replacement_of_id),
+                                    None => Some(id),
+                                },
                             )
                             .await
                             .map_to_eyre()?;

@@ -176,8 +176,8 @@ create table if not exists tx_sender_rbf_txids (
 );
 create table if not exists tx_sender_fee_payer_utxos (
     id serial primary key,
-    -- shows itself for first created tx, then the first created tx for all replacements
-    replacement_of_id int not null references tx_sender_fee_payer_utxos(id),
+    -- null for first created tx, then the id of first created tx for all replacements
+    replacement_of_id int references tx_sender_fee_payer_utxos(id),
     bumped_id int not null references tx_sender_try_to_send_txs(id),
     fee_payer_txid bytea not null,
     vout int not null,
