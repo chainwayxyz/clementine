@@ -216,21 +216,20 @@ impl TxSender {
                 };
 
                 // Convert sat/kvB to sat/vB and apply hard cap
-                let mut fee_sat_vb = selected_fee_amount.to_sat() / 1000;
+                let mut fee_sat_kvb = selected_fee_amount.to_sat();
 
                 // Apply hard cap from config
-                if fee_sat_vb > self.config.tx_sender_fee_rate_hard_cap {
+                if fee_sat_kvb > self.config.tx_sender_fee_rate_hard_cap * 1000 {
                     tracing::warn!(
-                        "Fee rate {} sat/vB exceeds hard cap {} sat/vB, using hard cap",
-                        fee_sat_vb,
+                        "Fee rate {} sat/kvb exceeds hard cap {} sat/kvb, using hard cap",
+                        fee_sat_kvb,
                         self.config.tx_sender_fee_rate_hard_cap
                     );
-                    fee_sat_vb = self.config.tx_sender_fee_rate_hard_cap;
+                    fee_sat_kvb = self.config.tx_sender_fee_rate_hard_cap * 1000;
                 }
 
-                tracing::info!("Final fee rate: {} sat/vb", fee_sat_vb);
-                Ok(FeeRate::from_sat_per_vb(fee_sat_vb)
-                    .wrap_err("Failed to create FeeRate from calculated sat/vb")?)
+                tracing::info!("Final fee rate: {} sat/kvb", fee_sat_kvb);
+                Ok(FeeRate::from_sat_per_kwu(fee_sat_kvb.div_ceil(4)))
             }
 
             // All other network types are unsupported.
