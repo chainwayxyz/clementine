@@ -39,6 +39,7 @@ use bitcoincore_rpc::PackageSubmissionResult;
 use bitcoincore_rpc::{PackageTransactionResult, RpcApi};
 use eyre::eyre;
 use eyre::Context;
+use std::collections::HashSet;
 use std::env;
 
 impl TxSender {
@@ -415,6 +416,9 @@ impl TxSender {
             .await
             .map_to_eyre()?;
 
+        let mut not_evicted_ids = HashSet::new();
+        let mut all_parent_ids = HashSet::new();
+
         for (id, try_to_send_id, fee_payer_txid, vout, amount, replacement_of_id) in
             bumpable_fee_payer_txs
         {
@@ -424,9 +428,18 @@ impl TxSender {
                 try_to_send_id,
                 fee_rate
             );
+            // parent id is the id of the first created tx for all replacements
+            let parent_id = match replacement_of_id {
+                Some(replacement_of_id) => replacement_of_id,
+                None => id,
+            };
+            all_parent_ids.insert(parent_id);
             let mempool_info = self.rpc.get_mempool_entry(&fee_payer_txid).await;
             let mempool_info = match mempool_info {
-                Ok(mempool_info) => mempool_info,
+                Ok(mempool_info) => {
+                    not_evicted_ids.insert(parent_id);
+                    mempool_info
+                }
                 Err(e) => {
                     tracing::warn!(
                         "Failed to get mempool entry for fee payer tx {}: {}",
@@ -442,6 +455,13 @@ impl TxSender {
                             e
                         )
                         .into());
+                    }
+                    // check here if the tx is already in block, if so do not mark it as evicted
+                    let tx_info = self.rpc.get_transaction(&fee_payer_txid, None).await;
+                    if let Ok(tx_info) = tx_info {
+                        if tx_info.info.blockhash.is_some() && tx_info.info.confirmations > 0 {
+                            not_evicted_ids.insert(parent_id);
+                        }
                     }
                     continue;
                 }
@@ -514,6 +534,20 @@ impl TxSender {
                         }
                     }
                 }
+            }
+        }
+
+        // if all fee payer utxos are not in mempool
+        // in very rare cases, (if tx was mined, but before we called gettransaction it was reorged)
+        // it can be marked as evicted accidentally, but this is very rare and if it was mined once but reorged,
+        // it will likely enter the chain without any bumping anyway, but an extra fee payer utxo can be created by txsender
+        // because it is considered to be evicted
+        for parent_id in all_parent_ids {
+            if !not_evicted_ids.contains(&parent_id) {
+                self.db
+                    .mark_fee_payer_utxo_as_evicted(None, parent_id)
+                    .await
+                    .map_to_eyre()?;
             }
         }
 

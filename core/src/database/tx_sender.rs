@@ -359,6 +359,7 @@ impl Database {
             SELECT fpu.id, fpu.bumped_id, fpu.fee_payer_txid, fpu.vout, fpu.amount, fpu.replacement_of_id
             FROM tx_sender_fee_payer_utxos fpu
             WHERE fpu.seen_block_id IS NULL
+              AND fpu.is_evicted = false
               AND NOT EXISTS (
                   SELECT 1
                   FROM tx_sender_fee_payer_utxos x
@@ -419,6 +420,7 @@ impl Database {
             FROM tx_sender_fee_payer_utxos fpu
             WHERE fpu.bumped_id = $1
               AND fpu.seen_block_id IS NULL
+              AND fpu.is_evicted = false
               AND NOT EXISTS (
                   SELECT 1
                   FROM tx_sender_fee_payer_utxos x
@@ -444,6 +446,25 @@ impl Database {
                 ))
             })
             .collect::<Result<Vec<_>, BridgeError>>()
+    }
+
+    /// Marks a fee payer utxo and all its replacements as evicted.
+    /// If it is marked as evicted, it will not be tried to be bumped again. (Because wallet can use same utxos for other txs)
+    pub async fn mark_fee_payer_utxo_as_evicted(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        id: u32,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query(
+            "UPDATE tx_sender_fee_payer_utxos 
+                SET is_evicted = true 
+                WHERE id = $1 
+                OR replacement_of_id = $1",
+        )
+        .bind(i32::try_from(id).wrap_err("Failed to convert id to i32")?);
+
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
+        Ok(())
     }
 
     pub async fn get_confirmed_fee_payer_utxos(

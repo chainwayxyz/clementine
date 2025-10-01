@@ -183,7 +183,9 @@ create table if not exists tx_sender_fee_payer_utxos (
     vout int not null,
     amount bigint not null,
     seen_block_id int references bitcoin_syncer(id),
-    created_at timestamp not null default now()
+    created_at timestamp not null default now(),
+    -- if set to false, all replacements of this fee payer utxo are evicted
+    is_evicted boolean not null default false
 );
 create table if not exists tx_sender_cancel_try_to_send_outpoints (
     cancelled_id int not null references tx_sender_try_to_send_txs(id),
