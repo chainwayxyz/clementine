@@ -482,13 +482,14 @@ where
     pub async fn deposit_sign(
         &self,
         mut deposit_data: DepositData,
-    ) -> Result<mpsc::Receiver<schnorr::Signature>, BridgeError> {
+    ) -> Result<mpsc::Receiver<Result<schnorr::Signature, BridgeError>>, BridgeError> {
         self.citrea_client
             .check_nofn_correctness(deposit_data.get_nofn_xonly_pk()?)
             .await?;
 
         let mut tweak_cache = TweakCache::default();
         let (sig_tx, sig_rx) = mpsc::channel(constants::DEFAULT_CHANNEL_SIZE);
+        let monitor_err_sender = sig_tx.clone();
 
         let deposit_blockhash = self
             .rpc
@@ -514,14 +515,15 @@ where
                     Some(&mut tweak_cache),
                 )?;
 
-                if sig_tx.send(sig).await.is_err() {
-                    break;
-                }
+                sig_tx
+                    .send(Ok(sig))
+                    .await
+                    .wrap_err("Failed to send signature in operator deposit sign")?;
             }
 
             Ok::<(), BridgeError>(())
         });
-        monitor_standalone_task(handle, "Operator deposit sign");
+        monitor_standalone_task(handle, "Operator deposit sign", monitor_err_sender);
 
         Ok(sig_rx)
     }
