@@ -109,6 +109,7 @@ async fn nonce_aggregator(
         + Send
         + 'static,
     agg_nonce_sender: Sender<(AggNonceQueueItem, Vec<PublicNonce>)>,
+    needed_nofn_sigs: usize,
 ) -> Result<
     (
         (AggregatedNonce, Vec<PublicNonce>),
@@ -152,8 +153,13 @@ async fn nonce_aggregator(
         );
     }
 
-    if total_sigs == 0 {
-        tracing::warn!("Sighash stream returned 0 signatures");
+    if total_sigs != needed_nofn_sigs {
+        let err_msg = format!(
+            "Expected {} nofn signatures, got {} from sighash stream",
+            needed_nofn_sigs, total_sigs
+        );
+        tracing::error!(err_msg);
+        return Err(eyre::eyre!(err_msg).into());
     }
     // aggregate nonces for the movetx signature
     let movetx_pub_nonces = try_join_all(nonce_streams.iter_mut().map(|s| async {
@@ -213,6 +219,7 @@ async fn nonce_distributor(
     )>,
     partial_sig_sender: Sender<(Vec<(PartialSignature, PublicNonce)>, AggNonceQueueItem)>,
 ) -> Result<(), BridgeError> {
+    let mut nonce_count = 0;
     let mut sig_count = 0;
     let (mut partial_sig_rx, mut partial_sig_tx): (Vec<_>, Vec<_>) =
         partial_sig_streams.into_iter().unzip();
@@ -221,11 +228,11 @@ async fn nonce_distributor(
 
     let handle_1 = tokio::spawn(async move {
         while let Some((queue_item, pub_nonces)) = agg_nonce_receiver.recv().await {
-            sig_count += 1;
+            nonce_count += 1;
 
-            tracing::trace!(
+            tracing::warn!(
                 "Received aggregated nonce {} in nonce_distributor",
-                sig_count
+                nonce_count
             );
 
             let agg_nonce_wrapped = clementine::VerifierDepositSignParams {
@@ -255,7 +262,7 @@ async fn nonce_distributor(
 
             tracing::trace!(
                 "Sent aggregated nonce {} to verifiers in nonce_distributor",
-                sig_count
+                nonce_count
             );
         }
 
@@ -290,7 +297,9 @@ async fn nonce_distributor(
             ))
             .await?;
 
-            tracing::trace!(
+            sig_count += 1;
+
+            tracing::warn!(
                 "Received partial signature {} from verifiers in nonce_distributor",
                 sig_count
             );
@@ -304,11 +313,12 @@ async fn nonce_distributor(
                     })
                 })?;
 
-            tracing::trace!(
+            tracing::warn!(
                 "Sent partial signature {} to signature_aggregator in nonce_distributor",
                 sig_count
             );
         }
+        tracing::warn!("Finished tasks in nonce_distributor handle 2");
         Ok::<(), BridgeError>(())
     });
 
@@ -320,6 +330,8 @@ async fn nonce_distributor(
     result_2
         .wrap_err("Task crashed while receiving partial sigs")?
         .wrap_err("Error while receiving partial sigs")?;
+
+    tracing::warn!("Finished tasks in nonce_distributor");
 
     Ok(())
 }
@@ -1361,6 +1373,8 @@ impl ClementineAggregator for AggregatorServer {
 
             let verifiers_public_keys = deposit_data.get_verifiers();
 
+            let needed_nofn_sigs = self.config.get_num_required_nofn_sigs(&deposit_data);
+
             // Create sighash stream for transaction signing
             let sighash_stream = Box::pin(create_nofn_sighash_stream(
                 self.db.clone(),
@@ -1380,6 +1394,7 @@ impl ClementineAggregator for AggregatorServer {
                 nonce_streams,
                 sighash_stream,
                 agg_nonce_sender,
+                needed_nofn_sigs,
             ));
 
             // Start the nonce distribution pipe.
@@ -1457,34 +1472,39 @@ impl ClementineAggregator for AggregatorServer {
             .await?;
 
             tracing::debug!("Pipeline tasks completed");
-
+            let verifiers_ids = verifiers.ids();
 
             // send operators sigs to verifiers after all verifiers have signed
-            timed_request(
+            let deposit_finalize_futures = timed_request(
                 SEND_OPERATOR_SIGS_TIMEOUT,
                 "Sending operator signatures to verifiers",
                 async {
                     let send_operator_sigs: Vec<_> = deposit_finalize_sender
                         .iter()
-                        .map(|tx| async {
+                        .zip(verifiers_ids.iter())
+                        .zip(deposit_finalize_futures.into_iter())
+                        .map(|((tx, id), dep_fin_fut)| async {
                             for one_op_sigs in all_op_sigs.iter() {
                                 for sig in one_op_sigs.iter() {
                                     let deposit_finalize_param: VerifierDepositFinalizeParams =
                                         sig.into();
 
-                                    tx.send(deposit_finalize_param).await.wrap_err_with(|| {
-                                        eyre::eyre!(AggregatorError::OutputStreamEndedEarly {
-                                            stream_name: "deposit_finalize_sender".into(),
-                                        })
-                                    })?;
+                                    let send = tx.send(deposit_finalize_param).await;
+                                    match send {
+                                        Ok(()) => (),
+                                        Err(e) => {
+                                            // check exact error by awaiting the future
+                                            dep_fin_fut.await.wrap_err(format!("{} deposit finalize tokio task on aggregator returned error", id.clone()))?.wrap_err(format!("{} deposit finalize rpc call returned error", id.clone()))?;
+                                            return Err(BridgeError::from(eyre::eyre!(format!("Verifier {} deposit finalize stream sending returned error: {:?}", id.clone(), e))));
+                                        }
+                                    }
                                 }
                             }
 
-                            Ok::<(), BridgeError>(())
+                            Ok::<_, BridgeError>(dep_fin_fut)
                         })
                         .collect();
-                    try_join_all(send_operator_sigs).await?;
-                    Ok(())
+                    try_join_all(send_operator_sigs).await
                 },
             )
             .await?;

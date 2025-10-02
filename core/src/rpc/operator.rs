@@ -69,6 +69,7 @@ where
         let operator = self.operator.clone();
         let (tx, rx) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
         let out_stream: Self::GetParamsStream = ReceiverStream::new(rx);
+        let monitor_err_sender = tx.clone();
 
         let (mut wpk_receiver, mut signature_receiver) = operator.get_params().await?;
 
@@ -94,7 +95,7 @@ where
 
             Ok::<(), Status>(())
         });
-        monitor_standalone_task(handle, "Operator get_params");
+        monitor_standalone_task(handle, "Operator get_params", monitor_err_sender);
 
         Ok(Response::new(out_stream))
     }
@@ -120,12 +121,12 @@ where
         tokio::spawn(async move {
             let mut sent_sigs = 0;
             while let Some(sig) = deposit_signatures_rx.recv().await {
+                let sig = sig?;
                 let operator_burn_sig = SchnorrSig {
                     schnorr_sig: sig.serialize().to_vec(),
                 };
 
-                if tx
-                    .send(Ok(operator_burn_sig))
+                tx.send(Ok(operator_burn_sig))
                     .inspect_ok(|_| {
                         sent_sigs += 1;
                         tracing::debug!(
@@ -135,11 +136,10 @@ where
                         );
                     })
                     .await
-                    .is_err()
-                {
-                    break;
-                }
+                    .wrap_err("Failed to send signature in operator rpc deposit sign")
+                    .map_to_status()?;
             }
+            Ok::<(), Status>(())
         });
 
         Ok(Response::new(ReceiverStream::new(rx)))
