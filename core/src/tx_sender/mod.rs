@@ -168,11 +168,12 @@ impl TxSender {
                 )
                 .await;
 
-                let rpc_fee = self
+                let rpc_fee = timeout(Duration::from_secs(30), self
                     .rpc
-                    .estimate_smart_fee(1, None)
+                    .estimate_smart_fee(1, None))
                     .await
-                    .wrap_err("Failed to estimate smart fee using Bitcoin Core RPC")
+                    .map_err(|_| eyre!("RPC estimate_smart_fee timed out after 30 seconds"))
+                    .and_then(|result| result.wrap_err("Failed to estimate smart fee using Bitcoin Core RPC"))
                     .and_then(|estimate| {
                         estimate.fee_rate.ok_or_else(|| {
                             eyre!("Failed to extract fee rate from Bitcoin Core RPC response")
@@ -523,7 +524,7 @@ async fn get_fee_rate_from_mempool_space(
     let retry_config = RetryConfig::new(
         Duration::from_millis(250),
         Duration::from_secs(5),
-        3,
+        4,
         2,
         true,
     );
@@ -585,6 +586,7 @@ mod tests {
     use crate::builder::transaction::input::SpendableTxIn;
     use crate::builder::transaction::output::UnspentTxOut;
     use crate::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE};
+    use crate::config::protocol::ProtocolParamset;
     use crate::constants::{MIN_TAPROOT_AMOUNT, NON_EPHEMERAL_ANCHOR_AMOUNT, NON_STANDARD_V3};
     use crate::errors::BridgeError;
     use crate::rpc::clementine::tagged_signature::SignatureId;
@@ -596,9 +598,13 @@ mod tests {
     use bitcoin::secp256k1::SecretKey;
     use bitcoin::transaction::Version;
     use std::result::Result;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
     use std::time::Duration;
     use tokio::sync::oneshot;
+    use wiremock::matchers::{body_partial_json, method, path};
+    use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
+    use serde_json::json;
 
     impl TxSenderClient {
         pub async fn test_dbtx(
@@ -1043,5 +1049,562 @@ mod tests {
         )
         .await
         .unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_get_fee_rate_mempool_higher_than_rpc_uses_rpc() {
+        let mock_rpc_server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .and(body_partial_json(json!({
+                "method": "estimatesmartfee"
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {
+                    "feerate": 0.00002,
+                    "blocks": 1
+                }
+            })))
+            .mount(&mock_rpc_server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .and(body_partial_json(json!({
+                "method": "ping"
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": null
+            })))
+            .mount(&mock_rpc_server)
+            .await;
+
+        let mock_mempool_server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/api/v1/fees/recommended"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "fastestFee": 3,
+                "halfHourFee": 2,
+                "hourFee": 1
+            })))
+            .mount(&mock_mempool_server)
+            .await;
+
+        let mock_rpc = ExtendedBitcoinRpc::connect(
+            mock_rpc_server.uri(),
+            secrecy::SecretString::new("test_user".into()),
+            secrecy::SecretString::new("test_password".into()),
+            None,
+        )
+        .await
+        .unwrap();
+
+        let mut config = create_test_config_with_thread_name().await;
+        let network = bitcoin::Network::Bitcoin;
+        let paramset = ProtocolParamset {
+            network,
+            ..ProtocolParamset::default()
+        };
+
+        let mempool_space_uri = mock_mempool_server.uri() + "/";
+
+        config.protocol_paramset = Box::leak(Box::new(paramset));
+        config.mempool_api_host = Some(mempool_space_uri);
+        config.mempool_api_endpoint = Some("api/v1/fees/recommended".into());
+
+        let db = Database::new(&config).await.unwrap();
+        let signer = Actor::new(config.secret_key, None, config.protocol_paramset.network);
+
+        let tx_sender = TxSender::new(signer, mock_rpc, db, "test_tx_sender".into(), config);
+
+        let fee_rate = tx_sender.get_fee_rate().await.unwrap();
+        assert_eq!(fee_rate, FeeRate::from_sat_per_kwu(500));
+    }
+
+    #[tokio::test]
+    async fn test_get_fee_rate_rpc_higher_than_mempool() {
+        let mock_rpc_server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .and(body_partial_json(json!({
+                "method": "estimatesmartfee"
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {
+                    "feerate": 0.00005,
+                    "blocks": 1
+                }
+            })))
+            .mount(&mock_rpc_server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .and(body_partial_json(json!({
+                "method": "ping"
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": null
+            })))
+            .mount(&mock_rpc_server)
+            .await;
+
+        let mock_mempool_server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/api/v1/fees/recommended"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "fastestFee": 4,
+                "halfHourFee": 3,
+                "hourFee": 2
+            })))
+            .mount(&mock_mempool_server)
+            .await;
+
+        let mock_rpc = ExtendedBitcoinRpc::connect(
+            mock_rpc_server.uri(),
+            secrecy::SecretString::new("test_user".into()),
+            secrecy::SecretString::new("test_password".into()),
+            None,
+        )
+        .await
+        .unwrap();
+
+        let mut config = create_test_config_with_thread_name().await;
+        let network = bitcoin::Network::Bitcoin;
+        let paramset = ProtocolParamset {
+            network,
+            ..ProtocolParamset::default()
+        };
+
+        let mempool_space_uri = mock_mempool_server.uri() + "/";
+
+        config.protocol_paramset = Box::leak(Box::new(paramset));
+        config.mempool_api_host = Some(mempool_space_uri);
+        config.mempool_api_endpoint = Some("api/v1/fees/recommended".into());
+
+        let db = Database::new(&config).await.unwrap();
+        let signer = Actor::new(config.secret_key, None, config.protocol_paramset.network);
+
+        let tx_sender = TxSender::new(signer, mock_rpc, db, "test_tx_sender".into(), config);
+
+        let fee_rate = tx_sender.get_fee_rate().await.unwrap();
+        assert_eq!(fee_rate, FeeRate::from_sat_per_kwu(1000));
+    }
+
+    #[tokio::test]
+    async fn test_get_fee_rate_rpc_failure_mempool_fallback() {
+        let mock_rpc_server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .and(body_partial_json(json!({
+                "method": "estimatesmartfee"
+            })))
+            .respond_with(ResponseTemplate::new(500).set_body_json(json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "error": {
+                    "code": -32603,
+                    "message": "Internal error"
+                }
+            })))
+            .mount(&mock_rpc_server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .and(body_partial_json(json!({
+                "method": "ping"
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": null
+            })))
+            .mount(&mock_rpc_server)
+            .await;
+
+        let mock_mempool_server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/api/v1/fees/recommended"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "fastestFee": 10,
+                "halfHourFee": 9,
+                "hourFee": 8
+            })))
+            .mount(&mock_mempool_server)
+            .await;
+
+        let mock_rpc = ExtendedBitcoinRpc::connect(
+            mock_rpc_server.uri(),
+            secrecy::SecretString::new("test_user".into()),
+            secrecy::SecretString::new("test_password".into()),
+            None,
+        )
+        .await
+        .unwrap();
+
+        let mut config = create_test_config_with_thread_name().await;
+        let network = bitcoin::Network::Bitcoin;
+        let paramset = ProtocolParamset {
+            network,
+            ..ProtocolParamset::default()
+        };
+
+        let mempool_space_uri = mock_mempool_server.uri() + "/";
+
+        config.protocol_paramset = Box::leak(Box::new(paramset));
+        config.mempool_api_host = Some(mempool_space_uri);
+        config.mempool_api_endpoint = Some("api/v1/fees/recommended".into());
+
+        let db = Database::new(&config).await.unwrap();
+        let signer = Actor::new(config.secret_key, None, config.protocol_paramset.network);
+
+        let tx_sender = TxSender::new(signer, mock_rpc, db, "test_tx_sender".into(), config);
+
+        let fee_rate = tx_sender.get_fee_rate().await.unwrap();
+        assert_eq!(fee_rate, FeeRate::from_sat_per_kwu(2500));
+    }
+
+    #[tokio::test]
+    async fn test_get_fee_rate_mempool_space_timeout() {
+        let mock_rpc_server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .and(body_partial_json(json!({
+                "method": "estimatesmartfee"
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {
+                    "feerate": 0.00008,
+                    "blocks": 1
+                }
+            })))
+            .mount(&mock_rpc_server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .and(body_partial_json(json!({
+                "method": "ping"
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": null
+            })))
+            .mount(&mock_rpc_server)
+            .await;
+
+        let mock_mempool_server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/api/v1/fees/recommended"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_delay(Duration::from_secs(10))
+                    .set_body_json(json!({
+                        "fastestFee": 2,
+                        "halfHourFee": 1,
+                        "hourFee": 1
+                    })),
+            )
+            .mount(&mock_mempool_server)
+            .await;
+
+        let mock_rpc = ExtendedBitcoinRpc::connect(
+            mock_rpc_server.uri(),
+            secrecy::SecretString::new("test_user".into()),
+            secrecy::SecretString::new("test_password".into()),
+            None,
+        )
+        .await
+        .unwrap();
+
+        let mut config = create_test_config_with_thread_name().await;
+        let network = bitcoin::Network::Bitcoin;
+        let paramset = ProtocolParamset {
+            network,
+            ..ProtocolParamset::default()
+        };
+
+        let mempool_space_uri = mock_mempool_server.uri() + "/";
+
+        config.protocol_paramset = Box::leak(Box::new(paramset));
+        config.mempool_api_host = Some(mempool_space_uri);
+        config.mempool_api_endpoint = Some("api/v1/fees/recommended".into());
+
+        let db = Database::new(&config).await.unwrap();
+        let signer = Actor::new(config.secret_key, None, config.protocol_paramset.network);
+
+        let tx_sender = TxSender::new(signer, mock_rpc, db, "test_tx_sender".into(), config);
+
+        let fee_rate = tx_sender.get_fee_rate().await.unwrap();
+        assert_eq!(fee_rate, FeeRate::from_sat_per_kwu(2000));
+    }
+
+
+    #[tokio::test]
+    async fn test_get_fee_rate_rpc_timeout() {
+
+        let mock_rpc_server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .and(body_partial_json(json!({
+                "method": "estimatesmartfee"
+            })))
+            .respond_with(ResponseTemplate::new(200)
+            .set_delay(Duration::from_secs(31))
+            .set_body_json(json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {
+                    "feerate": 0.00002,
+                    "blocks": 1
+                }
+            })))
+            .mount(&mock_rpc_server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .and(body_partial_json(json!({
+                "method": "ping"
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": null
+            })))
+            .mount(&mock_rpc_server)
+            .await;
+
+        let mock_mempool_server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/api/v1/fees/recommended"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(json!({
+                        "fastestFee": 8,
+                        "halfHourFee": 1,
+                        "hourFee": 1
+                    })),
+            )
+            .mount(&mock_mempool_server)
+            .await;
+
+        let mock_rpc = ExtendedBitcoinRpc::connect(
+            mock_rpc_server.uri(),
+            secrecy::SecretString::new("test_user".into()),
+            secrecy::SecretString::new("test_password".into()),
+            None,
+        )
+        .await
+        .unwrap();
+
+        let mut config = create_test_config_with_thread_name().await;
+        let network = bitcoin::Network::Bitcoin;
+        let paramset = ProtocolParamset {
+            network,
+            ..ProtocolParamset::default()
+        };
+
+        let mempool_space_uri = mock_mempool_server.uri() + "/";
+
+        config.protocol_paramset = Box::leak(Box::new(paramset));
+        config.mempool_api_host = Some(mempool_space_uri);
+        config.mempool_api_endpoint = Some("api/v1/fees/recommended".into());
+
+        let db = Database::new(&config).await.unwrap();
+        let signer = Actor::new(config.secret_key, None, config.protocol_paramset.network);
+
+        let tx_sender = TxSender::new(signer, mock_rpc, db, "test_tx_sender".into(), config);
+
+        let fee_rate = tx_sender.get_fee_rate().await.unwrap();
+        assert_eq!(fee_rate, FeeRate::from_sat_per_kwu(2000));
+    }
+
+    #[tokio::test]
+    async fn test_rpc_retry_after_failures() {
+        struct RpcSeqResponder {
+            n: Arc<AtomicUsize>,
+        }
+        impl Respond for RpcSeqResponder {
+            fn respond(&self, _req: &Request) -> ResponseTemplate {
+                let i = self.n.fetch_add(1, Ordering::SeqCst);
+                match i {
+                    0 => ResponseTemplate::new(500).set_body_json(json!({
+                        "jsonrpc":"2.0","id":1,"error":{"code":-1,"message":"Connection error 1"}
+                    })),
+                    1 => ResponseTemplate::new(500).set_body_json(json!({
+                        "jsonrpc":"2.0","id":1,"error":{"code":-1,"message":"Connection error 2"}
+                    })),
+                    _ => ResponseTemplate::new(200).set_body_json(json!({
+                        "jsonrpc":"2.0","id":1,"result":{"feerate":0.00003,"blocks":1}
+                    })),
+                }
+            }
+        }
+
+        let mock_rpc_server = MockServer::start().await;
+        let counter = Arc::new(AtomicUsize::new(0));
+
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .and(body_partial_json(json!({
+                "method": "estimatesmartfee"
+            })))
+            .respond_with(RpcSeqResponder { n: counter.clone() })
+            .mount(&mock_rpc_server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .and(body_partial_json(json!({"method": "ping"})))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": null
+            })))
+            .mount(&mock_rpc_server)
+            .await;
+
+        let mock_mempool_server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/api/v1/fees/recommended"))
+            .respond_with(ResponseTemplate::new(500))
+            .mount(&mock_mempool_server)
+            .await;
+
+        let mock_rpc = ExtendedBitcoinRpc::connect(
+            mock_rpc_server.uri(),
+            secrecy::SecretString::new("test_user".into()),
+            secrecy::SecretString::new("test_password".into()),
+            None,
+        )
+        .await
+        .unwrap();
+
+        let mut config = create_test_config_with_thread_name().await;
+        let network = bitcoin::Network::Bitcoin;
+        let paramset = ProtocolParamset {
+            network,
+            ..ProtocolParamset::default()
+        };
+
+        let mempool_space_uri = mock_mempool_server.uri() + "/";
+        config.protocol_paramset = Box::leak(Box::new(paramset));
+        config.mempool_api_host = Some(mempool_space_uri);
+        config.mempool_api_endpoint = Some("api/v1/fees/recommended".into());
+
+        let db = Database::new(&config).await.unwrap();
+        let signer = Actor::new(config.secret_key, None, config.protocol_paramset.network);
+
+        let tx_sender = TxSender::new(signer, mock_rpc, db, "test_tx_sender".into(), config);
+
+        let fee_rate = tx_sender.get_fee_rate().await.unwrap();
+        assert_eq!(fee_rate, FeeRate::from_sat_per_kwu(750));
+    }
+
+    #[tokio::test]
+    async fn test_mempool_retry_after_failures() {
+        let mock_rpc_server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .and(body_partial_json(json!({"method": "estimatesmartfee"})))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {
+                    "feerate": 0.00009,
+                    "blocks": 1
+                }
+            })))
+            .expect(1)
+            .mount(&mock_rpc_server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .and(body_partial_json(json!({"method": "ping"})))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": null
+            })))
+            .mount(&mock_rpc_server)
+            .await;
+
+        struct SeqResponder {
+            n: Arc<AtomicUsize>,
+        }
+
+        impl Respond for SeqResponder {
+            fn respond(&self, _req: &Request) -> ResponseTemplate {
+                let i = self.n.fetch_add(1, Ordering::SeqCst);
+                match i {
+                    0 => ResponseTemplate::new(500),
+                    1 => ResponseTemplate::new(503),
+                    2 => ResponseTemplate::new(500),
+                    _ => ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                        "fastestFee": 6,
+                        "halfHourFee": 4,
+                        "hourFee": 3
+                    })),
+                }
+            }
+        }
+
+        let mock_mempool_server = MockServer::start().await;
+
+        let counter = Arc::new(AtomicUsize::new(0));
+        Mock::given(method("GET"))
+            .and(path("/api/v1/fees/recommended"))
+            .respond_with(SeqResponder { n: counter.clone() })
+            .mount(&mock_mempool_server)
+            .await;
+
+        let mock_rpc = ExtendedBitcoinRpc::connect(
+            mock_rpc_server.uri(),
+            secrecy::SecretString::new("test_user".into()),
+            secrecy::SecretString::new("test_password".into()),
+            None,
+        )
+        .await
+        .unwrap();
+
+        let mut config = create_test_config_with_thread_name().await;
+        let network = bitcoin::Network::Bitcoin;
+        let paramset = ProtocolParamset {
+            network,
+            ..ProtocolParamset::default()
+        };
+
+        let mempool_space_uri = mock_mempool_server.uri() + "/";
+        config.protocol_paramset = Box::leak(Box::new(paramset));
+        config.mempool_api_host = Some(mempool_space_uri);
+        config.mempool_api_endpoint = Some("api/v1/fees/recommended".into());
+
+        let db = Database::new(&config).await.unwrap();
+        let signer = Actor::new(config.secret_key, None, config.protocol_paramset.network);
+
+        let tx_sender = TxSender::new(signer, mock_rpc, db, "test_tx_sender".into(), config);
+
+        let fee_rate = tx_sender.get_fee_rate().await.unwrap();
+        assert_eq!(fee_rate, FeeRate::from_sat_per_kwu(1500));
     }
 }
