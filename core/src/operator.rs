@@ -20,7 +20,7 @@ use crate::errors::BridgeError;
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 
 use crate::metrics::L1SyncStatusProvider;
-use crate::rpc::clementine::EntityStatus;
+use crate::rpc::clementine::{EntityStatus, StoppedTasks};
 use crate::task::entity_metric_publisher::{
     EntityMetricPublisher, ENTITY_METRIC_PUBLISHER_INTERVAL,
 };
@@ -219,7 +219,16 @@ where
     }
 
     pub async fn get_current_status(&self) -> Result<EntityStatus, BridgeError> {
-        let stopped_tasks = self.background_tasks.get_stopped_tasks().await?;
+        let stopped_tasks = match self.background_tasks.get_stopped_tasks().await {
+            Ok(stopped_tasks) => stopped_tasks,
+            Err(e) => {
+                tracing::error!("Failed to get stopped tasks: {:?}", e);
+                StoppedTasks {
+                    stopped_tasks: vec![format!("Stopped tasks fetch failed {:?}", e)],
+                }
+            }
+        };
+
         // Determine if automation is enabled
         let automation_enabled = cfg!(feature = "automation");
 
