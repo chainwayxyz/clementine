@@ -786,7 +786,7 @@ where
         mut deposit_data: DepositData,
         session_id: u128,
         mut agg_nonce_rx: mpsc::Receiver<AggregatedNonce>,
-    ) -> Result<mpsc::Receiver<PartialSignature>, BridgeError> {
+    ) -> Result<mpsc::Receiver<Result<PartialSignature, BridgeError>>, BridgeError> {
         self.citrea_client
             .check_nofn_correctness(deposit_data.get_nofn_xonly_pk()?)
             .await?;
@@ -807,6 +807,7 @@ where
         let (partial_sig_tx, partial_sig_rx) = mpsc::channel(constants::DEFAULT_CHANNEL_SIZE);
         let verifier_index = deposit_data.get_verifier_index(&self.signer.public_key)?;
         let verifiers_public_keys = deposit_data.get_verifiers();
+        let monitor_sender = partial_sig_tx.clone();
 
         let deposit_blockhash = self
             .rpc
@@ -861,7 +862,7 @@ where
                 )?;
 
                 partial_sig_tx
-                    .send(partial_sig)
+                    .send(Ok(partial_sig))
                     .await
                     .wrap_err("Failed to send partial signature")?;
 
@@ -879,7 +880,7 @@ where
 
             if session.nonces.len() != 2 {
                 return Err(eyre::eyre!(
-                    "Expected 2 nonces remaining in session, one for move tx and one for emergency stop, got {}",
+                    "Expected 2 nonces remaining in session, one for move tx and one for emergency stop, got {}, indicating aggregated nonce stream ended prematurely",
                     session.nonces.len()
                 ).into());
             }
@@ -889,7 +890,7 @@ where
 
             Ok::<(), BridgeError>(())
         });
-        monitor_standalone_task(handle, "Verifier deposit_sign");
+        monitor_standalone_task(handle, "Verifier deposit_sign", monitor_sender);
 
         Ok(partial_sig_rx)
     }
