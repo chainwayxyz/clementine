@@ -119,7 +119,7 @@ async fn nonce_aggregator(
 > {
     let mut total_sigs = 0;
 
-    tracing::info!("Starting nonce aggregation");
+    tracing::info!("Starting nonce aggregation (expecting {needed_nofn_sigs} nonces)");
 
     // We assume the sighash stream returns the correct number of items.
     while let Some(msg) = sighash_stream.next().await {
@@ -152,6 +152,7 @@ async fn nonce_aggregator(
             siginfo.signature_id
         );
     }
+    tracing::trace!(tmp_debug = 1, "Sent {total_sigs} to agg_nonce stream");
 
     if total_sigs != needed_nofn_sigs {
         let err_msg = format!(
@@ -230,7 +231,7 @@ async fn nonce_distributor(
         while let Some((queue_item, pub_nonces)) = agg_nonce_receiver.recv().await {
             nonce_count += 1;
 
-            tracing::warn!(
+            tracing::trace!(
                 "Received aggregated nonce {} in nonce_distributor",
                 nonce_count
             );
@@ -266,6 +267,10 @@ async fn nonce_distributor(
             );
         }
 
+        tracing::trace!(
+            tmp_debug = 1,
+            "Broadcasted {nonce_count} agg_nonces to verifiers and to the queue"
+        );
         Ok::<(), BridgeError>(())
     });
 
@@ -299,7 +304,7 @@ async fn nonce_distributor(
 
             sig_count += 1;
 
-            tracing::warn!(
+            tracing::trace!(
                 "Received partial signature {} from verifiers in nonce_distributor",
                 sig_count
             );
@@ -313,23 +318,29 @@ async fn nonce_distributor(
                     })
                 })?;
 
-            tracing::warn!(
+            tracing::trace!(
                 "Sent partial signature {} to signature_aggregator in nonce_distributor",
                 sig_count
             );
         }
-        tracing::warn!("Finished tasks in nonce_distributor handle 2");
+        tracing::trace!(
+            tmp_debug = 1,
+            "Sent {sig_count} partial sig bundles to partial_sigs stream"
+        );
+
+        tracing::trace!("Finished tasks in nonce_distributor handle 2");
         Ok::<(), BridgeError>(())
     });
 
     let (result_1, result_2) = tokio::join!(handle_1, handle_2);
+
 
     result_1
         .wrap_err("Task crashed while distributing aggnonces")?
         .wrap_err("Error while distributing aggnonces")?;
     result_2
         .wrap_err("Task crashed while receiving partial sigs")?
-        .wrap_err("Error while receiving partial sigs")?;
+        .wrap_err("Error while receiving partial sigs").inspect_err(|e| tracing::error!("Failed to finish partial aggregation {e:?}"))?;
 
     tracing::warn!("Finished tasks in nonce_distributor");
 
@@ -374,6 +385,11 @@ async fn signature_aggregator(
             sig_count
         );
     }
+
+    tracing::trace!(
+        tmp_debug = 1,
+        "Sent {sig_count} aggregated signatures to final_sig stream"
+    );
 
     Ok(())
 }
@@ -420,6 +436,10 @@ async fn signature_distributor(
             sig_count
         );
     }
+    tracing::trace!(
+        tmp_debug = 1,
+        "Sent {sig_count} signatures to verifiers in deposit_finalize"
+    );
 
     let (movetx_agg_nonce, emergency_stop_agg_nonce) = agg_nonce
         .await

@@ -11,8 +11,7 @@ use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestD
 use crate::builder::transaction::ContractContext;
 use crate::citrea::CitreaClientT;
 use crate::constants::RESTART_BACKGROUND_TASKS_TIMEOUT;
-use crate::errors::ResultExt;
-use crate::errors::ErrorExt;
+use crate::errors::{ErrorExt, ResultExt as _};
 use crate::rpc::clementine::VerifierDepositFinalizeResponse;
 use crate::utils::{get_vergen_response, monitor_standalone_task, timed_request};
 use crate::verifier::VerifierServer;
@@ -24,7 +23,7 @@ use crate::{
 use alloy::primitives::PrimitiveSignature;
 use bitcoin::Witness;
 use clementine::verifier_deposit_finalize_params::Params;
-use eyre::Context;
+use eyre::Context as _;
 use secp256k1::musig::AggregatedNonce;
 use tokio::sync::mpsc::{self};
 use tokio_stream::wrappers::ReceiverStream;
@@ -430,7 +429,8 @@ where
             let mut nonce_idx = 0;
             while let Some(sig) =
                 parser::verifier::parse_next_deposit_finalize_param_schnorr_sig(&mut in_stream)
-                    .await?
+                    .await
+                    .wrap_err_with(|| format!("While waiting for {nonce_idx} + 1th sig out of {num_required_nofn_sigs} ")).map_to_status()?
             {
                 tracing::trace!(
                     "Received full nofn sig {} in deposit_finalize()",
