@@ -10,12 +10,15 @@
 //! Configuration options can be read from a TOML file. File contents are
 //! described in `BridgeConfig` struct.
 
+use crate::cli;
 use crate::config::env::{read_string_from_env, read_string_from_env_then_parse};
 use crate::deposit::SecurityCouncil;
 use crate::errors::BridgeError;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::secp256k1::SecretKey;
-use bitcoin::{Address, Amount, OutPoint, XOnlyPublicKey};
+use bitcoin::{Address, Amount, Network, OutPoint, XOnlyPublicKey};
+use bridge_circuit_host::utils::is_dev_mode;
+use circuits_lib::bridge_circuit::constants::is_test_vk;
 use protocol::ProtocolParamset;
 use secrecy::SecretString;
 use serde::Deserialize;
@@ -216,6 +219,58 @@ impl BridgeConfig {
             Err(e) => Err(BridgeError::ConfigError(e.to_string())),
         }
     }
+
+    /// Checks various variables if they are correct for mainnet deployment.
+    pub fn check_mainnet_requirements(&self, actor_type: cli::Actors) -> Result<(), BridgeError> {
+        if self.protocol_paramset().network != Network::Bitcoin {
+            return Ok(());
+        }
+
+        let mut misconfigs = Vec::new();
+
+        if actor_type == cli::Actors::Operator {
+            if !self.client_verification {
+                misconfigs.push("client_verification=false".to_string());
+            }
+            if self.operator_collateral_funding_outpoint.is_none() {
+                misconfigs.push("operator_collateral_funding_outpoint is not set".to_string());
+            }
+        }
+
+        if actor_type == cli::Actors::Verifier && !self.client_verification {
+            misconfigs.push("client_verification=false".to_string());
+        }
+
+        /// Checks if an env var is set to a non 0 value.
+        fn check_env_var(env_var: &str, misconfigs: &mut Vec<String>) {
+            if let Ok(var) = std::env::var(env_var) {
+                if var == "0" || var.eq_ignore_ascii_case("false") {
+                    return;
+                }
+
+                misconfigs.push(format!("{env_var}={var}"));
+            }
+        }
+
+        check_env_var("DISABLE_NOFN_CHECK", &mut misconfigs);
+
+        if is_dev_mode() {
+            misconfigs.push("Risc0 dev mode is enabled".to_string());
+        }
+
+        if is_test_vk() {
+            misconfigs.push("use-test-vk feature is enabled".to_string());
+        }
+
+        if !misconfigs.is_empty() {
+            return Err(BridgeError::ConfigError(format!(
+                "Following configs can't be used on Mainnet: {:?}",
+                misconfigs
+            )));
+        }
+
+        Ok(())
+    }
 }
 
 // only needed for one test
@@ -379,6 +434,8 @@ impl TelemetryConfig {
 #[cfg(test)]
 mod tests {
     use super::BridgeConfig;
+    use crate::{cli, config::protocol::REGTEST_PARAMSET};
+    use bitcoin::{hashes::Hash, Network, OutPoint, Txid};
     use std::{
         fs::{self, File},
         io::Write,
@@ -436,5 +493,67 @@ mod tests {
     fn test_test_config_parseable() {
         let content = include_str!("../test/data/bridge_config.toml");
         BridgeConfig::try_parse_from(content.to_string()).unwrap();
+    }
+
+    pub const INVALID_PARAMSET: crate::config::ProtocolParamset = crate::config::ProtocolParamset {
+        network: Network::Bitcoin,
+        ..REGTEST_PARAMSET
+    };
+    #[ignore = "Fails if bridge-circuit-host has use-test-vk feature! Which it will, if --all-features is specified at Cargo invocation."]
+    #[serial_test::serial]
+    #[test]
+    fn check_mainnet_reqs() {
+        let env_vars = vec!["DISABLE_NOFN_CHECK", "RISC0_DEV_MODE"];
+
+        // Nothing illegal is set.
+        for var in env_vars.clone() {
+            std::env::remove_var(var);
+        }
+        let mainnet_config = BridgeConfig {
+            protocol_paramset: &INVALID_PARAMSET,
+            client_verification: true,
+            operator_collateral_funding_outpoint: Some(OutPoint {
+                txid: Txid::all_zeros(),
+                vout: 0,
+            }),
+            ..Default::default()
+        };
+        let checks = mainnet_config.check_mainnet_requirements(cli::Actors::Operator);
+        println!("checks: {checks:?}");
+        assert!(checks.is_ok());
+
+        // Nothing illegal is set while illegal env vars set to 0 specifically.
+        for var in env_vars.clone() {
+            std::env::set_var(var, "0");
+        }
+        let checks = mainnet_config.check_mainnet_requirements(cli::Actors::Operator);
+        println!("checks: {checks:?}");
+        assert!(checks.is_ok());
+
+        // Illegal configs, no illegal env vars.
+        let incorrect_mainnet_config = BridgeConfig {
+            client_verification: false,
+            operator_collateral_funding_outpoint: None,
+            ..mainnet_config.clone()
+        };
+        let checks = incorrect_mainnet_config.check_mainnet_requirements(cli::Actors::Operator);
+        println!("checks: {checks:?}");
+        assert!(checks.is_err());
+
+        // No illegal configs, illegal env vars.
+        for var in env_vars.clone() {
+            std::env::set_var(var, "1");
+        }
+        let checks = mainnet_config.check_mainnet_requirements(cli::Actors::Operator);
+        println!("checks: {checks:?}");
+        assert!(checks.is_err());
+
+        // Illegal everything.
+        for var in env_vars.clone() {
+            std::env::set_var(var, "1");
+        }
+        let checks = incorrect_mainnet_config.check_mainnet_requirements(cli::Actors::Operator);
+        println!("checks: {checks:?}");
+        assert!(checks.is_err());
     }
 }
