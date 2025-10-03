@@ -609,7 +609,7 @@ pub async fn create_txhandlers(
 
     if context.operator_xonly_pk != operator_data.xonly_pk {
         return Err(eyre::eyre!(
-            "Operator xonly pk mismatch between ContraxtContext and ReimburseDbCache: {:?} != {:?}",
+            "Operator xonly pk mismatch between ContractContext and ReimburseDbCache: {:?} != {:?}",
             context.operator_xonly_pk,
             operator_data.xonly_pk
         )
