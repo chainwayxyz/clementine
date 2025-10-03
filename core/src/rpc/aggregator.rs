@@ -639,6 +639,9 @@ impl Aggregator {
                     sigs.push(Signature::from_slice(&sig.schnorr_sig).wrap_err_with(|| {
                         format!("Failed to parse Schnorr signature from operator {idx}")
                     })?);
+                    if sigs.len() == needed_sigs {
+                        break;
+                    }
                 }
                 Ok::<_, BridgeError>(sigs)
             },
