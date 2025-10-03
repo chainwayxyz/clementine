@@ -1550,7 +1550,8 @@ impl ClementineAggregator for AggregatorServer {
             // Wait for all pipeline tasks to complete
             // join_all should be enough here as if one fails other tasks should fail too as they are connected through streams
             // one should not hang if any other task fails, the others should finish
-            // not sure if this is needed instead of try_join_all, I am not sure if try_join_all will definitely return the error of the first task that fails
+            // this is needed because try_join_all can potentially not return the error of the first task that failed, just the one it polled first
+            // that returned an error
             let task_outputs =  timed_request(
                 PIPELINE_COMPLETION_TIMEOUT,
                 "MuSig2 signing pipeline",
