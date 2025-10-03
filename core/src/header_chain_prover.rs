@@ -39,22 +39,22 @@ use std::{
 use thiserror::Error;
 
 lazy_static! {
-    static ref MAINNET_IMAGE_ID: [u32; 8] = compute_image_id(MAINNET_HEADER_CHAIN_ELF)
+    static ref MAINNET_HCP_METHOD_ID: [u32; 8] = compute_image_id(MAINNET_HEADER_CHAIN_ELF)
         .expect("hardcoded ELF is valid")
         .as_words()
         .try_into()
         .expect("hardcoded ELF is valid");
-    static ref TESTNET4_IMAGE_ID: [u32; 8] = compute_image_id(TESTNET4_HEADER_CHAIN_ELF)
+    static ref TESTNET4_HCP_METHOD_ID: [u32; 8] = compute_image_id(TESTNET4_HEADER_CHAIN_ELF)
         .expect("hardcoded ELF is valid")
         .as_words()
         .try_into()
         .expect("hardcoded ELF is valid");
-    static ref SIGNET_IMAGE_ID: [u32; 8] = compute_image_id(SIGNET_HEADER_CHAIN_ELF)
+    static ref SIGNET_HCP_METHOD_ID: [u32; 8] = compute_image_id(SIGNET_HEADER_CHAIN_ELF)
         .expect("hardcoded ELF is valid")
         .as_words()
         .try_into()
         .expect("hardcoded ELF is valid");
-    static ref REGTEST_IMAGE_ID: [u32; 8] = compute_image_id(REGTEST_HEADER_CHAIN_ELF)
+    static ref REGTEST_HCP_METHOD_ID: [u32; 8] = compute_image_id(REGTEST_HEADER_CHAIN_ELF)
         .expect("hardcoded ELF is valid")
         .as_words()
         .try_into()
@@ -69,6 +69,8 @@ pub enum HeaderChainProverError {
     BatchNotReady,
     #[error("Header chain prover not initialized due to config")]
     HeaderChainProverNotInitialized,
+    #[error("Unsupported network")]
+    UnsupportedNetwork,
 
     #[error(transparent)]
     Other(#[from] eyre::Report),
@@ -103,6 +105,7 @@ impl HeaderChainProver {
             .into());
         }
         db.fetch_and_save_missing_blocks(
+            None,
             &rpc,
             config.protocol_paramset().genesis_height,
             config.protocol_paramset().start_height,
@@ -125,6 +128,26 @@ impl HeaderChainProver {
                 .wrap_err(HeaderChainProverError::ProverDeSerializationError)?;
             let proof_output: BlockHeaderCircuitOutput = borsh::from_slice(&proof.journal.bytes)
                 .wrap_err(HeaderChainProverError::ProverDeSerializationError)?;
+
+            let network = config.protocol_paramset().network;
+
+            if proof_output.method_id != get_hcp_method_id(network)? {
+                return Err(eyre::eyre!(
+                    "Header chain proof assumption file Method ID mismatch for our current network ({:?}): got {:?}, expected {:?}",
+                    network,
+                    proof_output.method_id,
+                    get_hcp_method_id(network)?
+                )
+                .into());
+            }
+
+            if proof.verify(proof_output.method_id).is_err() {
+                return Err(eyre::eyre!(
+                    "Header chain proof assumption file verification failed for our current network ({:?})",
+                    network
+                )
+                .into());
+            }
 
             // Create block entry, if not exists.
             let block_hash = BlockHash::from_raw_hash(
@@ -406,7 +429,13 @@ impl HeaderChainProver {
         );
 
         let headers: Vec<CircuitBlockHeader> = block_headers.into_iter().map(Into::into).collect();
-        let receipt = self.prove_block_headers(previous_proof, headers)?;
+        let network = self.network;
+        let receipt = tokio::task::spawn_blocking(move || {
+            Self::prove_block_headers(network, previous_proof, headers)
+        })
+        .await
+        .wrap_err("Failed to join the prove_block_headers task")?
+        .wrap_err("Failed to prove block headers")?;
 
         self.db
             .set_block_proof(None, current_block_hash, receipt.clone())
@@ -426,7 +455,7 @@ impl HeaderChainProver {
     ///
     /// - [`Receipt`]: Proved block headers' proof receipt.
     fn prove_block_headers(
-        &self,
+        network: Network,
         prev_receipt: Receipt,
         block_headers: Vec<CircuitBlockHeader>,
     ) -> Result<Receipt, HeaderChainProverError> {
@@ -442,20 +471,14 @@ impl HeaderChainProver {
             prev_proof,
             block_headers,
         };
-        Self::prove_with_input(input, Some(prev_receipt), self.network)
+        Self::prove_with_input(input, Some(prev_receipt), network)
     }
 
     pub fn prove_genesis_block(
         genesis_chain_state: ChainState,
         network: Network,
     ) -> Result<Receipt, HeaderChainProverError> {
-        let image_id = match network {
-            Network::Bitcoin => *MAINNET_IMAGE_ID,
-            Network::Testnet4 => *TESTNET4_IMAGE_ID,
-            Network::Signet => *SIGNET_IMAGE_ID,
-            Network::Regtest => *REGTEST_IMAGE_ID,
-            _ => Err(BridgeError::UnsupportedNetwork.into_eyre())?,
-        };
+        let image_id = get_hcp_method_id(network)?;
         let header_chain_circuit_type = HeaderChainPrevProofType::GenesisBlock(genesis_chain_state);
         let input = HeaderChainCircuitInput {
             method_id: image_id,
@@ -588,17 +611,9 @@ impl HeaderChainProver {
         dbtx: Option<DatabaseTransaction<'_, '_>>,
         block_cache: &BlockCache,
     ) -> Result<(), BridgeError> {
-        let block_hash = block_cache
-            .block
-            .as_ref()
-            .ok_or(eyre::eyre!("Block not found"))?
-            .block_hash();
+        let block_hash = block_cache.block.block_hash();
 
-        let block_header = block_cache
-            .block
-            .as_ref()
-            .ok_or(eyre::eyre!("Block not found"))?
-            .header;
+        let block_header = block_cache.block.header;
 
         self.db
             .save_unproven_finalized_block(
@@ -632,7 +647,7 @@ impl HeaderChainProver {
             non_proven_block.2,
             self.batch_size
         );
-        if tip_height - non_proven_block.2 >= self.batch_size {
+        if tip_height - non_proven_block.2 + 1 >= self.batch_size {
             return Ok(true);
         }
         tracing::debug!(
@@ -684,6 +699,16 @@ impl HeaderChainProver {
         );
 
         Ok(Some(receipt))
+    }
+}
+
+fn get_hcp_method_id(network: Network) -> Result<[u32; 8], HeaderChainProverError> {
+    match network {
+        Network::Bitcoin => Ok(*MAINNET_HCP_METHOD_ID),
+        Network::Testnet4 => Ok(*TESTNET4_HCP_METHOD_ID),
+        Network::Signet => Ok(*SIGNET_HCP_METHOD_ID),
+        Network::Regtest => Ok(*REGTEST_HCP_METHOD_ID),
+        _ => Err(HeaderChainProverError::UnsupportedNetwork),
     }
 }
 
@@ -857,6 +882,7 @@ mod tests {
         prover
             .db
             .fetch_and_save_missing_blocks(
+                None,
                 &rpc,
                 config.protocol_paramset().genesis_height,
                 current_height as u32 + 1,
@@ -1003,9 +1029,12 @@ mod tests {
             .iter()
             .map(|header| CircuitBlockHeader::from(*header))
             .collect::<Vec<_>>();
-        let receipt = prover
-            .prove_block_headers(receipt, block_headers[0..2].to_vec())
-            .unwrap();
+        let receipt = HeaderChainProver::prove_block_headers(
+            prover.network,
+            receipt,
+            block_headers[0..2].to_vec(),
+        )
+        .unwrap();
         let output: BlockHeaderCircuitOutput = borsh::from_slice(&receipt.journal.bytes).unwrap();
 
         println!("Proof journal output: {:?}", output);

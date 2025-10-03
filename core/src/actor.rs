@@ -22,7 +22,7 @@ use bitcoin::{
     secp256k1::{schnorr, Keypair, Message, SecretKey, XOnlyPublicKey},
     Address, ScriptBuf, TapSighash, TapTweakHash,
 };
-use bitcoin::{OutPoint, TapNodeHash, TapSighashType, Witness};
+use bitcoin::{Network, OutPoint, TapNodeHash, TapSighashType, Witness};
 use bitvm::signatures::winternitz::{self, BinarysearchVerifier, ToBytesConverter, Winternitz};
 use eyre::{Context, OptionExt};
 use hkdf::Hkdf;
@@ -59,9 +59,25 @@ impl WinternitzDerivationPath {
         }
     }
 
+    fn get_network_prefix(&self) -> u8 {
+        let paramset = match self {
+            WinternitzDerivationPath::Kickoff(.., paramset) => paramset,
+            WinternitzDerivationPath::BitvmAssert(.., paramset) => paramset,
+            WinternitzDerivationPath::ChallengeAckHash(.., paramset) => paramset,
+        };
+        match paramset.network {
+            Network::Regtest => 0u8,
+            Network::Testnet4 => 1u8,
+            Network::Signet => 2u8,
+            Network::Bitcoin => 3u8,
+            // currently only testnet is unsupported
+            _ => panic!("Unsupported network {:?}", paramset.network),
+        }
+    }
+
     fn to_bytes(&self) -> Vec<u8> {
         let type_id = self.get_type_id();
-        let mut bytes = vec![type_id];
+        let mut bytes = vec![type_id, self.get_network_prefix()];
 
         match self {
             WinternitzDerivationPath::Kickoff(round_idx, kickoff_idx, _) => {
@@ -1108,8 +1124,7 @@ mod tests {
         // check only first digit
         let params = WinternitzDerivationPath::Kickoff(RoundIndex::Round(0), 1, paramset);
         let expected_pk = vec![
-            192, 121, 127, 229, 19, 208, 80, 49, 82, 134, 237, 242, 142, 162, 143, 232, 12, 231,
-            114, 175,
+            73, 53, 43, 45, 238, 155, 231, 105, 47, 74, 113, 101, 251, 132, 43, 7, 175, 51, 68, 145,
         ];
         assert_eq!(
             actor.derive_winternitz_pk(params).unwrap()[0].to_vec(),
@@ -1123,8 +1138,8 @@ mod tests {
 
         let params = WinternitzDerivationPath::BitvmAssert(3, 0, 0, deposit_outpoint, paramset);
         let expected_pk = vec![
-            218, 227, 228, 186, 246, 108, 123, 3, 33, 207, 96, 230, 46, 129, 189, 62, 72, 179, 83,
-            181,
+            8, 75, 251, 125, 222, 137, 90, 239, 56, 44, 57, 182, 103, 241, 45, 102, 102, 255, 36,
+            65,
         ];
         assert_eq!(
             actor.derive_winternitz_pk(params).unwrap()[0].to_vec(),
@@ -1133,7 +1148,8 @@ mod tests {
 
         let params = WinternitzDerivationPath::ChallengeAckHash(0, deposit_outpoint, paramset);
         let expected_pk = vec![
-            179, 152, 124, 47, 40, 83, 205, 159, 21, 85, 233, 82, 128, 55, 176, 166, 37, 43, 80, 0,
+            14, 33, 117, 176, 169, 8, 223, 186, 169, 194, 66, 220, 100, 85, 160, 85, 250, 16, 167,
+            162,
         ];
         assert_eq!(
             actor.derive_winternitz_pk(params).unwrap()[0].to_vec(),
