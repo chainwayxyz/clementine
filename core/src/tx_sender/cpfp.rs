@@ -82,7 +82,7 @@ impl TxSender {
 
         // Aggressively add 2x required fee to the total amount to account for sudden spikes
         // We won't actually use 2x fees, but the fee payer utxo will hold that much amount so that while fee payer utxo gets mined
-        // if fees increas the utxo should still be sufficient to fund the tx with high probability
+        // if fees increase the utxo should still be sufficient to fund the tx with high probability
         // leftover fees will get sent back to wallet with a change output in fn create_child_tx
         let new_total_fee_needed = required_fee
             .checked_mul(2)
