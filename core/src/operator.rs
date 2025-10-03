@@ -686,7 +686,7 @@ where
                     change_position: Some(1),
                     change_type: None,
                     include_watching: None,
-                    lock_unspents: Some(true),
+                    lock_unspents: Some(false),
                     fee_rate: None,
                     subtract_fee_from_outputs: None,
                     replaceable: None,
@@ -699,50 +699,20 @@ where
             .wrap_err("Failed to fund raw transaction")?
             .hex;
 
-        let tx: Transaction = bitcoin::consensus::deserialize(&funded_tx)
-            .wrap_err("Can't deserialize funded transaction")?;
-        let unspent_utxos = tx
-            .input
-            .iter()
-            .map(|input| input.previous_output)
-            .collect::<Vec<_>>();
-
-        let signed_tx = match self
+        let signed_tx = self
             .rpc
             .sign_raw_transaction_with_wallet(&funded_tx, None, None)
             .await
-        {
-            Ok(res) => res.hex,
-            Err(e) => {
-                self.rpc
-                    .unlock_unspent(&unspent_utxos)
-                    .await
-                    .wrap_err("Can't unlock unspents")?;
+            .wrap_err("Failed to sign withdrawal transaction")?
+            .hex;
 
-                return Err(eyre::eyre!("Failed to sign tx: {e}").into());
-            }
-        };
+        let signed_tx: Transaction = bitcoin::consensus::deserialize(&signed_tx)
+            .wrap_err("Failed to deserialize signed withdrawal transaction")?;
 
-        let signed_tx: Transaction = match bitcoin::consensus::deserialize(&signed_tx) {
-            Ok(tx) => tx,
-            Err(e) => {
-                self.rpc
-                    .unlock_unspent(&unspent_utxos)
-                    .await
-                    .wrap_err("Can't unlock unspents")?;
-
-                return Err(eyre::eyre!("Failed to deserialize signed tx: {e}").into());
-            }
-        };
-
-        if let Err(e) = self.rpc.send_raw_transaction(&signed_tx).await {
-            self.rpc
-                .unlock_unspent(&unspent_utxos)
-                .await
-                .wrap_err("Can't unlock unspents")?;
-
-            return Err(eyre::eyre!("Failed to send signed tx: {e}").into());
-        };
+        self.rpc
+            .send_raw_transaction(&signed_tx)
+            .await
+            .wrap_err("Failed to send withdrawal transaction")?;
 
         Ok(signed_tx)
     }

@@ -1760,43 +1760,71 @@ async fn concurrent_deposits_and_withdrawals() {
 
     let withdrawal_input_outpoints = withdrawal_utxos.clone();
     let actors_ref = &actors;
+    let rpc_ref = &rpc;
 
     poll_get(
         async move || {
             let mut operator0s = (0..count)
-                .map(|_| actors_ref.get_operator_client_by_index(0))
+                .map(|_| {
+                    (
+                        actors_ref.get_operator_client_by_index(0),
+                        actors_ref.get_operator_client_by_index(1),
+                    )
+                })
                 .collect::<Vec<_>>();
-            let mut withdrawal_requests = Vec::new();
+            let mut tries = 0;
+            loop {
+                let mut withdrawal_requests = Vec::new();
+                let mut spent_withdrawals = 0;
+                for (i, (operator0, operator1)) in operator0s.iter_mut().enumerate() {
+                    // if already spent, skip
+                    if rpc_ref.is_utxo_spent(&withdrawal_utxos[i]).await.unwrap() {
+                        spent_withdrawals += 1;
+                        continue;
+                    }
+                    let withdraw_params = WithdrawParams {
+                        withdrawal_id: i as u32,
+                        input_signature: sigs[i].serialize().to_vec(),
+                        input_outpoint: Some(withdrawal_utxos[i].into()),
+                        output_script_pubkey: payout_txouts[i].script_pubkey.to_bytes(),
+                        output_amount: payout_txouts[i].value.to_sat(),
+                    };
+                    let verification_signature = sign_withdrawal_verification_signature::<
+                        OperatorWithdrawalMessage,
+                    >(
+                        &config, withdraw_params.clone()
+                    );
 
-            for (i, operator) in operator0s.iter_mut().enumerate() {
-                let withdraw_params = WithdrawParams {
-                    withdrawal_id: i as u32,
-                    input_signature: sigs[i].serialize().to_vec(),
-                    input_outpoint: Some(withdrawal_utxos[i].into()),
-                    output_script_pubkey: payout_txouts[i].script_pubkey.to_bytes(),
-                    output_amount: payout_txouts[i].value.to_sat(),
-                };
-                let verification_signature = sign_withdrawal_verification_signature::<
-                    OperatorWithdrawalMessage,
-                >(&config, withdraw_params.clone());
+                    let verification_signature_str = verification_signature.to_string();
 
-                let verification_signature_str = verification_signature.to_string();
+                    withdrawal_requests.push(operator0.withdraw(WithdrawParamsWithSig {
+                        withdrawal: Some(withdraw_params.clone()),
+                        verification_signature: Some(verification_signature_str.clone()),
+                    }));
 
-                withdrawal_requests.push(operator.withdraw(WithdrawParamsWithSig {
-                    withdrawal: Some(withdraw_params.clone()),
-                    verification_signature: Some(verification_signature_str.clone()),
-                }));
-            }
-
-            let withdrawal_txids = match try_join_all(withdrawal_requests).await {
-                Ok(txids) => txids,
-                Err(e) => {
-                    tracing::error!("Error while processing withdrawals: {:?}", e);
-                    return Err(eyre::eyre!("Error while processing withdrawals: {:?}", e));
+                    withdrawal_requests.push(operator1.withdraw(WithdrawParamsWithSig {
+                        withdrawal: Some(withdraw_params.clone()),
+                        verification_signature: Some(verification_signature_str.clone()),
+                    }));
                 }
-            };
-
-            Ok(Some(withdrawal_txids))
+                if withdrawal_requests.is_empty() {
+                    return Ok(Some(()));
+                }
+                tracing::warn!(
+                    "Withdrawal req replies: {:?}",
+                    futures::future::join_all(withdrawal_requests).await
+                );
+                rpc_ref.mine_blocks(1).await.unwrap();
+                tries += 1;
+                tracing::warn!(
+                    "Tries: {:?}, spent_withdrawals: {:?}",
+                    tries,
+                    spent_withdrawals
+                );
+                if tries > count + 1 {
+                    return Err(eyre::eyre!("Failed to process withdrawals concurrently"));
+                }
+            }
         },
         Some(Duration::from_secs(240)),
         None,
