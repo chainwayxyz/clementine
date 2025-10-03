@@ -991,6 +991,7 @@ impl ExtendedBitcoinRpc {
             .wrap_err("Failed to get network info")?;
         // incremental fee is in BTC/kvB
         let incremental_fee = network_info.incremental_fee;
+        // Convert from sat/kvB to sat/kwu by dividing by 4.0, since 1 kvB = 4 kwu.
         let incremental_fee_rate_sat_kwu = incremental_fee.to_sat() as f64 / 4.0;
 
         // Calculate new fee rate by adding incremental fee to current fee rate, or use the target fee rate if it's higher

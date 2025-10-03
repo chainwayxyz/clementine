@@ -117,8 +117,6 @@ impl TxSender {
                 script_pubkey: self.signer.address.script_pubkey(),
             }],
         };
-        let fee_payer_hex = bitcoin::consensus::encode::serialize_hex(&fee_payer_tx);
-        println!("Fee payer tx hex: {:?}", fee_payer_hex);
 
         // Manually serialize in legacy format for 0-input transactions
         // Because fund_raw_transaction RPC gives deserialization error for 0-input transactions with segwit flag
@@ -195,7 +193,7 @@ impl TxSender {
         self.rpc
             .send_raw_transaction(&signed_fee_payer_tx)
             .await
-            .wrap_err("Failed to send  signed fee payer tx")?;
+            .wrap_err("Failed to send signed fee payer tx")?;
 
         self.db
             .save_fee_payer_tx(
