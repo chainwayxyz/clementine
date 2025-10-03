@@ -145,7 +145,7 @@ impl TxSender {
     /// For Regtest and Signet, it uses a fixed fee rate of 1 sat/vB.
     /// # Logic
     /// *   **Regtest:** Uses a fixed fee rate of 1 sat/vB for simplicity.
-    /// *   **Mainnet and Testnet4 and Signet:** Fetches fee rates from both Mempool Space API and Bitcoin Core RPC and takes the minimum.
+    /// *   **Mainnet, Testnet4 and Signet:** Fetches fee rates from both Mempool Space API and Bitcoin Core RPC and takes the minimum.
     /// *   **Hard Cap:** Applies a hard cap from configuration to prevent excessive fees.
     /// # Fallbacks
     /// *   If one source fails, it uses the other.
