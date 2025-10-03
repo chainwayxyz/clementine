@@ -22,8 +22,8 @@ use crate::citrea::CitreaClientT;
 use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
 use crate::constants::{
-    self, MAX_ALL_SESSIONS_BYTES, MAX_NUM_SESSIONS, NON_EPHEMERAL_ANCHOR_AMOUNT, NUM_NONCES_LIMIT,
-    TEN_MINUTES_IN_SECS,
+    self, MAX_ALL_SESSIONS_BYTES, MAX_EXTRA_WATCHTOWERS, MAX_NUM_SESSIONS,
+    NON_EPHEMERAL_ANCHOR_AMOUNT, NUM_NONCES_LIMIT, TEN_MINUTES_IN_SECS,
 };
 use crate::database::{Database, DatabaseTransaction};
 use crate::deposit::{DepositData, KickoffData, OperatorData};
@@ -45,6 +45,8 @@ use crate::task::manager::BackgroundTaskManager;
 use crate::task::{IntoTask, TaskExt};
 #[cfg(feature = "automation")]
 use crate::tx_sender::{TxSender, TxSenderClient};
+#[cfg(feature = "automation")]
+use crate::utils::FeePayingType;
 use crate::utils::TxMetadata;
 use crate::utils::{monitor_standalone_task, NamedEntity};
 use crate::{musig2, UTXO};
@@ -56,7 +58,7 @@ use bitcoin::script::Instruction;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::Message;
 use bitcoin::taproot::TaprootBuilder;
-use bitcoin::{Address, Amount, ScriptBuf, Witness, XOnlyPublicKey};
+use bitcoin::{Address, Amount, ScriptBuf, Txid, Witness, XOnlyPublicKey};
 use bitcoin::{OutPoint, TxOut};
 use bitcoin_script::builder::StructuredScript;
 use bitvm::chunk::api::validate_assertions;
@@ -70,6 +72,7 @@ use circuits_lib::bridge_circuit::transaction::CircuitTransaction;
 use circuits_lib::bridge_circuit::{
     deposit_constant, get_first_op_return_output, parse_op_return_data,
 };
+use circuits_lib::common::constants::MAX_NUMBER_OF_WATCHTOWERS;
 use eyre::{Context, ContextCompat, OptionExt, Result};
 use secp256k1::ffi::MUSIG_SECNONCE_LEN;
 use secp256k1::musig::{AggregatedNonce, PartialSignature, PublicNonce, SecretNonce};
@@ -272,6 +275,7 @@ where
             let state_manager = StateManager::new(
                 self.verifier.db.clone(),
                 self.verifier.clone(),
+                self.verifier.rpc.clone(),
                 self.verifier.config.protocol_paramset(),
             )
             .await?;
@@ -550,6 +554,57 @@ where
             tracing::error!("{reason}");
             return Err(BridgeError::InvalidDeposit(reason));
         }
+        // check if extra watchtowers (non verifier watchtowers) are not greater than the maximum allowed
+        if deposit_data.actors.watchtowers.len() > MAX_EXTRA_WATCHTOWERS {
+            let reason = format!(
+                "Number of extra watchtowers in deposit is greater than the maximum allowed, expected at most {}, got {}",
+                MAX_EXTRA_WATCHTOWERS,
+                deposit_data.actors.watchtowers.len()
+            );
+            tracing::error!("{reason}");
+            return Err(BridgeError::InvalidDeposit(reason));
+        }
+        // check if total watchtowers are not greater than the maximum allowed
+        if deposit_data.get_num_watchtowers() > MAX_NUMBER_OF_WATCHTOWERS {
+            let reason = format!(
+                "Number of watchtowers in deposit is greater than the maximum allowed, expected at most {}, got {}",
+                MAX_NUMBER_OF_WATCHTOWERS,
+                deposit_data.get_num_watchtowers()
+            );
+            tracing::error!("{reason}");
+            return Err(BridgeError::InvalidDeposit(reason));
+        }
+
+        // check if all verifiers are unique
+        if !deposit_data.are_all_verifiers_unique() {
+            let reason = format!(
+                "Verifiers in deposit are not unique: {:?}",
+                deposit_data.actors.verifiers
+            );
+            tracing::error!("{reason}");
+            return Err(BridgeError::InvalidDeposit(reason));
+        }
+
+        // check if all watchtowers are unique
+        if !deposit_data.are_all_watchtowers_unique() {
+            let reason = format!(
+                "Watchtowers in deposit are not unique: {:?}",
+                deposit_data.actors.watchtowers
+            );
+            tracing::error!("{reason}");
+            return Err(BridgeError::InvalidDeposit(reason));
+        }
+
+        // check if all operators are unique
+        if !deposit_data.are_all_operators_unique() {
+            let reason = format!(
+                "Operators in deposit are not unique: {:?}",
+                deposit_data.actors.operators
+            );
+            tracing::error!("{reason}");
+            return Err(BridgeError::InvalidDeposit(reason));
+        }
+
         let operators_in_deposit_data = deposit_data.get_operators();
         // check if all operators that still have collateral are in the deposit
         let operators_in_db = self.db.get_operators(None).await?;
@@ -567,7 +622,7 @@ where
                 kickoff_winternitz_pks,
                 self.config.protocol_paramset().num_kickoffs_per_round,
                 self.config.protocol_paramset().num_round_txs,
-            );
+            )?;
             let is_collateral_usable = self
                 .rpc
                 .collateral_check(
@@ -678,7 +733,7 @@ where
             operator_winternitz_public_keys,
             self.config.protocol_paramset().num_kickoffs_per_round,
             self.config.protocol_paramset().num_round_txs,
-        );
+        )?;
 
         if !self
             .rpc
@@ -704,7 +759,7 @@ where
             &kickoff_wpks,
         )?;
 
-        let operator_winternitz_public_keys = kickoff_wpks.keys;
+        let operator_winternitz_public_keys = kickoff_wpks.get_all_keys();
         let mut dbtx = self.db.begin_transaction().await?;
         // Save the operator details to the db
         self.db
@@ -847,11 +902,13 @@ where
             ));
             let num_required_sigs = verifier.config.get_num_required_nofn_sigs(&deposit_data);
 
-            assert_eq!(
-                num_required_sigs + 2,
-                session.nonces.len(),
-                "Expected nonce count to be num_required_sigs + 2 (movetx & emergency stop)"
-            );
+            if num_required_sigs + 2 != session.nonces.len() {
+                return Err(eyre::eyre!(
+                    "Expected nonce count to be {} (num_required_sigs + 2, for movetx & emergency stop), got {}",
+                    num_required_sigs + 2,
+                    session.nonces.len()
+                ));
+            }
 
             while let Some(agg_nonce) = agg_nonce_rx.recv().await {
                 let sighash = sighash_stream
@@ -895,13 +952,13 @@ where
                 return Err(eyre::eyre!(
                     "Expected 2 nonces remaining in session, one for move tx and one for emergency stop, got {}",
                     session.nonces.len()
-                ).into());
+                ));
             }
 
             let mut session_map = verifier.nonces.lock().await;
             session_map.add_new_session_with_id(session, session_id)?;
 
-            Ok::<(), BridgeError>(())
+            Ok::<(), eyre::Report>(())
         });
         monitor_standalone_task(handle, "Verifier deposit_sign");
 
@@ -1293,6 +1350,20 @@ where
                 eyre::eyre!("Withdrawal utxo {:?} is already spent", input_outpoint).into(),
             );
         }
+
+        // check for some standard script pubkeys
+        if !(output_script_pubkey.is_p2tr()
+            || output_script_pubkey.is_p2pkh()
+            || output_script_pubkey.is_p2sh()
+            || output_script_pubkey.is_p2wpkh()
+            || output_script_pubkey.is_p2wsh())
+        {
+            return Err(eyre::eyre!(format!(
+                "Output script pubkey is not a valid script pubkey: {}, must be p2tr, p2pkh, p2sh, p2wpkh, or p2wsh",
+                output_script_pubkey
+            )).into());
+        }
+
         // if verification address is set in config, check if verification signature is valid
         if let Some(address_in_config) = self.config.aggregator_verification_address {
             // check if verification signature is provided by aggregator
@@ -1554,17 +1625,17 @@ where
         kickoff_witness: Witness,
         deposit_data: &mut DepositData,
         kickoff_data: KickoffData,
-        dbtx: Option<DatabaseTransaction<'_, '_>>,
+        dbtx: DatabaseTransaction<'_, '_>,
     ) -> Result<bool, BridgeError> {
         let move_txid =
             create_move_to_vault_txhandler(deposit_data, self.config.protocol_paramset())?
                 .get_cached_tx()
                 .compute_txid();
+
         let payout_info = self
             .db
-            .get_payout_info_from_move_txid(dbtx, move_txid)
+            .get_payout_info_from_move_txid(Some(dbtx), move_txid)
             .await?;
-
         let Some((operator_xonly_pk_opt, payout_blockhash, _, _)) = payout_info else {
             tracing::warn!(
                 "No payout info found in db for move txid {move_txid}, assuming malicious"
@@ -1616,9 +1687,10 @@ where
         mut deposit_data: DepositData,
         kickoff_data: KickoffData,
         challenged_before: bool,
+        kickoff_txid: Txid,
     ) -> Result<bool, BridgeError> {
         let is_malicious = self
-            .is_kickoff_malicious(kickoff_witness, &mut deposit_data, kickoff_data, Some(dbtx))
+            .is_kickoff_malicious(kickoff_witness, &mut deposit_data, kickoff_data, dbtx)
             .await?;
 
         if !is_malicious {
@@ -1643,19 +1715,19 @@ where
             self.db.clone(),
             &self.signer,
             self.config.clone(),
-            context,
+            context.clone(),
             None, // No need, verifier will not send kickoff tx
             Some(dbtx),
         )
         .await?;
 
-        let tx_metadata = Some(TxMetadata {
+        let tx_metadata = TxMetadata {
             tx_type: TransactionType::Dummy, // will be replaced in add_tx_to_queue
             operator_xonly_pk: Some(kickoff_data.operator_xonly_pk),
             round_idx: Some(kickoff_data.round_idx),
             kickoff_idx: Some(kickoff_data.kickoff_idx),
             deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
-        });
+        };
 
         // try to send them
         for (tx_type, signed_tx) in &signed_txs {
@@ -1680,9 +1752,35 @@ where
                             *tx_type,
                             signed_tx,
                             &signed_txs,
-                            tx_metadata,
+                            Some(tx_metadata),
                             &self.config,
                             None,
+                        )
+                        .await?;
+                }
+                // Technically verifiers do not need to send watchtower challenge timeout tx,
+                // but in state manager we attempt to disprove only if all watchtower challenges utxos are spent
+                // so if verifiers do not send timeouts, operators can abuse this (by not sending watchtower challenge timeouts)
+                // to not get disproven
+                TransactionType::WatchtowerChallengeTimeout(idx) => {
+                    #[cfg(feature = "automation")]
+                    self.tx_sender
+                        .insert_try_to_send(
+                            dbtx,
+                            Some(TxMetadata {
+                                tx_type: TransactionType::WatchtowerChallengeTimeout(idx),
+                                ..tx_metadata
+                            }),
+                            signed_tx,
+                            FeePayingType::CPFP,
+                            None,
+                            &[OutPoint {
+                                txid: kickoff_txid,
+                                vout: UtxoVout::KickoffFinalizer.get_vout(),
+                            }],
+                            &[],
+                            &[],
+                            &[],
                         )
                         .await?;
                 }
@@ -1698,7 +1796,7 @@ where
         &self,
         kickoff_data: KickoffData,
         deposit_data: DepositData,
-        dbtx: Option<DatabaseTransaction<'_, '_>>,
+        dbtx: DatabaseTransaction<'_, '_>,
     ) -> Result<(), BridgeError> {
         let current_tip_hcp = self
             .header_chain_prover
@@ -1760,7 +1858,7 @@ where
         kickoff_data: KickoffData,
         deposit_data: DepositData,
         commit_data: Vec<u8>,
-        dbtx: Option<DatabaseTransaction<'_, '_>>,
+        dbtx: DatabaseTransaction<'_, '_>,
     ) -> Result<(), BridgeError> {
         let (tx_type, challenge_tx, rbf_info) = self
             .create_watchtower_challenge(
@@ -1769,27 +1867,24 @@ where
                     kickoff_data,
                 },
                 &commit_data,
-                dbtx,
+                Some(dbtx),
             )
             .await?;
 
         #[cfg(test)]
-        let mut challenge_tx = challenge_tx;
-
-        #[cfg(test)]
-        {
+        let challenge_tx = {
+            let mut challenge_tx = challenge_tx;
             if let Some(annex_bytes) = rbf_info.annex.clone() {
                 challenge_tx.input[0].witness.push(annex_bytes);
             }
-        }
+            challenge_tx
+        };
 
         #[cfg(feature = "automation")]
         {
-            let mut dbtx = self.db.begin_transaction().await?;
-
             self.tx_sender
                 .add_tx_to_queue(
-                    &mut dbtx,
+                    dbtx,
                     tx_type,
                     &challenge_tx,
                     &[],
@@ -1805,7 +1900,6 @@ where
                 )
                 .await?;
 
-            dbtx.commit().await?;
             tracing::info!(
                 "Committed watchtower challenge, commit data: {:?}",
                 commit_data
@@ -1823,10 +1917,10 @@ where
         l2_height_end: u64,
         block_height: u32,
     ) -> Result<(), BridgeError> {
-        let last_deposit_idx = self.db.get_last_deposit_idx(None).await?;
+        let last_deposit_idx = self.db.get_last_deposit_idx(Some(dbtx)).await?;
         tracing::debug!("Last Citrea deposit idx: {:?}", last_deposit_idx);
 
-        let last_withdrawal_idx = self.db.get_last_withdrawal_idx(None).await?;
+        let last_withdrawal_idx = self.db.get_last_withdrawal_idx(Some(dbtx)).await?;
         tracing::debug!("Last Citrea withdrawal idx: {:?}", last_withdrawal_idx);
 
         let new_deposits = self
@@ -1905,10 +1999,7 @@ where
             .get_payout_txs_for_withdrawal_utxos(Some(dbtx), block_id)
             .await?;
 
-        let block = block_cache
-            .block
-            .as_ref()
-            .ok_or(eyre::eyre!("Block not found"))?;
+        let block = &block_cache.block;
 
         let block_hash = block.block_hash();
 
@@ -1971,6 +2062,7 @@ where
 
     async fn send_unspent_kickoff_connectors(
         &self,
+        dbtx: DatabaseTransaction<'_, '_>,
         round_idx: RoundIndex,
         operator_xonly_pk: XOnlyPublicKey,
         used_kickoffs: HashSet<usize>,
@@ -1981,9 +2073,8 @@ where
         }
 
         let unspent_kickoff_txs = self
-            .create_and_sign_unspent_kickoff_connector_txs(round_idx, operator_xonly_pk, None)
+            .create_and_sign_unspent_kickoff_connector_txs(round_idx, operator_xonly_pk, Some(dbtx))
             .await?;
-        let mut dbtx = self.db.begin_transaction().await?;
         for (tx_type, tx) in unspent_kickoff_txs {
             if let TransactionType::UnspentKickoff(kickoff_idx) = tx_type {
                 if used_kickoffs.contains(&kickoff_idx) {
@@ -1992,7 +2083,7 @@ where
                 #[cfg(feature = "automation")]
                 self.tx_sender
                     .add_tx_to_queue(
-                        &mut dbtx,
+                        dbtx,
                         tx_type,
                         &tx,
                         &[],
@@ -2009,7 +2100,6 @@ where
                     .await?;
             }
         }
-        dbtx.commit().await?;
         Ok(())
     }
 
@@ -2044,7 +2134,7 @@ where
         operator_asserts: &HashMap<usize, Witness>,
         operator_acks: &HashMap<usize, Witness>,
         txhandlers: &BTreeMap<TransactionType, TxHandler>,
-        dbtx: Option<DatabaseTransaction<'_, '_>>,
+        dbtx: DatabaseTransaction<'_, '_>,
     ) -> Result<Option<bitcoin::Witness>, BridgeError> {
         use bitvm::clementine::additional_disprove::debug_assertions_for_additional_script;
 
@@ -2055,7 +2145,7 @@ where
             kickoff_data.operator_xonly_pk,
             deposit_data.get_deposit_outpoint(),
             self.config.protocol_paramset(),
-            dbtx,
+            Some(dbtx),
         );
 
         let nofn_key = deposit_data.get_nofn_xonly_pk().inspect_err(|e| {
@@ -2289,6 +2379,7 @@ where
     #[cfg(feature = "automation")]
     async fn send_disprove_tx_additional(
         &self,
+        dbtx: DatabaseTransaction<'_, '_>,
         txhandlers: &BTreeMap<TransactionType, TxHandler>,
         kickoff_data: KickoffData,
         deposit_data: DepositData,
@@ -2315,7 +2406,7 @@ where
         let operators_sig = self
             .db
             .get_deposit_signatures(
-                None,
+                Some(dbtx),
                 deposit_data.get_deposit_outpoint(),
                 kickoff_data.operator_xonly_pk,
                 kickoff_data.round_idx,
@@ -2351,10 +2442,9 @@ where
             deposit_data
         );
 
-        let mut dbtx = self.db.begin_transaction().await?;
         self.tx_sender
             .add_tx_to_queue(
-                &mut dbtx,
+                dbtx,
                 TransactionType::Disprove,
                 &disprove_tx,
                 &[],
@@ -2369,7 +2459,6 @@ where
                 None,
             )
             .await?;
-        dbtx.commit().await?;
         Ok(())
     }
 
@@ -2572,6 +2661,7 @@ where
     #[cfg(feature = "automation")]
     async fn send_disprove_tx(
         &self,
+        dbtx: DatabaseTransaction<'_, '_>,
         txhandlers: &BTreeMap<TransactionType, TxHandler>,
         kickoff_data: KickoffData,
         deposit_data: DepositData,
@@ -2603,7 +2693,7 @@ where
         let operators_sig = self
             .db
             .get_deposit_signatures(
-                None,
+                Some(dbtx),
                 deposit_data.get_deposit_outpoint(),
                 kickoff_data.operator_xonly_pk,
                 kickoff_data.round_idx,
@@ -2639,10 +2729,9 @@ where
             deposit_data
         );
 
-        let mut dbtx = self.db.begin_transaction().await?;
         self.tx_sender
             .add_tx_to_queue(
-                &mut dbtx,
+                dbtx,
                 TransactionType::Disprove,
                 &disprove_tx,
                 &[],
@@ -2657,7 +2746,6 @@ where
                 None,
             )
             .await?;
-        dbtx.commit().await?;
         Ok(())
     }
 
@@ -2735,7 +2823,7 @@ where
             dbtx,
             block_id,
             height,
-            Arc::new(block_cache::BlockCache::from_block(&block, height)),
+            Arc::new(block_cache::BlockCache::from_block(block, height)),
             None,
         )
         .await
@@ -2770,7 +2858,11 @@ mod states {
     where
         C: CitreaClientT,
     {
-        async fn handle_duty(&self, duty: Duty) -> Result<DutyResult, BridgeError> {
+        async fn handle_duty(
+            &self,
+            dbtx: DatabaseTransaction<'_, '_>,
+            duty: Duty,
+        ) -> Result<DutyResult, BridgeError> {
             let verifier_xonly_pk = &self.signer.xonly_public_key;
             match duty {
                 Duty::NewReadyToReimburse {
@@ -2783,6 +2875,7 @@ mod states {
                     verifier_xonly_pk, round_idx, operator_xonly_pk, used_kickoffs
                 );
                     self.send_unspent_kickoff_connectors(
+                        dbtx,
                         round_idx,
                         operator_xonly_pk,
                         used_kickoffs,
@@ -2798,7 +2891,7 @@ mod states {
                     "Verifier {:?} called watchtower challenge with kickoff_data: {:?}, deposit_data: {:?}",
                     verifier_xonly_pk, kickoff_data, deposit_data
                 );
-                    self.send_watchtower_challenge(kickoff_data, deposit_data, None)
+                    self.send_watchtower_challenge(kickoff_data, deposit_data, dbtx)
                         .await?;
 
                     tracing::info!("Verifier sent watchtower challenge",);
@@ -2831,7 +2924,7 @@ mod states {
                         self.signer.clone(),
                     );
                     let mut db_cache =
-                        ReimburseDbCache::from_context(self.db.clone(), &context, None);
+                        ReimburseDbCache::from_context(self.db.clone(), &context, Some(dbtx));
 
                     let txhandlers = create_txhandlers(
                         TransactionType::Disprove,
@@ -2851,7 +2944,7 @@ mod states {
                             &operator_asserts,
                             &operator_acks,
                             &txhandlers,
-                            None,
+                            dbtx,
                         )
                         .await?
                     {
@@ -2860,6 +2953,7 @@ mod states {
                             kickoff_data.operator_xonly_pk
                         );
                         self.send_disprove_tx_additional(
+                            dbtx,
                             &txhandlers,
                             kickoff_data,
                             deposit_data,
@@ -2884,6 +2978,7 @@ mod states {
                                 );
 
                                 self.send_disprove_tx(
+                                    dbtx,
                                     &txhandlers,
                                     kickoff_data,
                                     deposit_data,
@@ -2917,7 +3012,7 @@ mod states {
                     );
                     let db_kickoff_data = self
                         .db
-                        .get_deposit_data_with_kickoff_txid(None, txid)
+                        .get_deposit_data_with_kickoff_txid(Some(dbtx), txid)
                         .await?;
                     let mut challenged = false;
                     if let Some((deposit_data, kickoff_data)) = db_kickoff_data {
@@ -2946,6 +3041,7 @@ mod states {
                                 deposit_data,
                                 kickoff_data,
                                 challenged_before,
+                                txid,
                             )
                             .await?;
                         dbtx.commit().await?;
@@ -2957,11 +3053,12 @@ mod states {
 
         async fn create_txhandlers(
             &self,
+            dbtx: DatabaseTransaction<'_, '_>,
             tx_type: TransactionType,
             contract_context: ContractContext,
         ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
             let mut db_cache =
-                ReimburseDbCache::from_context(self.db.clone(), &contract_context, None);
+                ReimburseDbCache::from_context(self.db.clone(), &contract_context, Some(dbtx));
             let txhandlers = create_txhandlers(
                 tx_type,
                 contract_context,
@@ -3027,7 +3124,7 @@ mod tests {
             txdata: vec![], // empty transactions
         };
         let block_cache = Arc::new(block_cache::BlockCache::from_block(
-            &test_block,
+            test_block,
             block_height,
         ));
 
@@ -3095,7 +3192,7 @@ mod tests {
             },
             txdata: vec![], // empty transactions
         };
-        let block_cache = block_cache::BlockCache::from_block(&test_block, 100u32);
+        let block_cache = block_cache::BlockCache::from_block(test_block, 100u32);
 
         // First save
         let mut dbtx1 = verifier.db.begin_transaction().await.unwrap();

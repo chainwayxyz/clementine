@@ -39,6 +39,7 @@ impl Database {
     /// Collect block info from rpc and save it to hcp table.
     async fn save_block_infos_within_range(
         &self,
+        mut dbtx: Option<DatabaseTransaction<'_, '_>>,
         rpc: &ExtendedBitcoinRpc,
         height_start: u32,
         height_end: u32,
@@ -57,17 +58,22 @@ impl Database {
             }
 
             // Save all blocks in this batch
-            let mut db_tx = self.begin_transaction().await?;
+            let mut db_tx = match dbtx {
+                Some(_) => None, // no nested transaction
+                None => Some(self.begin_transaction().await?),
+            };
             for (block_hash, block_header, height) in block_infos {
                 self.save_unproven_finalized_block(
-                    Some(&mut db_tx),
+                    db_tx.as_mut().or(dbtx.as_deref_mut()),
                     block_hash,
                     block_header,
                     height as u64,
                 )
                 .await?;
             }
-            db_tx.commit().await?;
+            if let Some(db_tx) = db_tx {
+                db_tx.commit().await?;
+            }
         }
         Ok(())
     }
@@ -77,6 +83,7 @@ impl Database {
     /// as they are needed for spv and hcp proofs.
     pub async fn fetch_and_save_missing_blocks(
         &self,
+        mut dbtx: Option<DatabaseTransaction<'_, '_>>,
         rpc: &ExtendedBitcoinRpc,
         genesis_height: u32,
         until_height: u32,
@@ -84,15 +91,22 @@ impl Database {
         if until_height == 0 {
             return Ok(());
         }
-        let max_height = self.get_latest_finalized_block_height(None).await?;
+        let max_height = self
+            .get_latest_finalized_block_height(dbtx.as_deref_mut())
+            .await?;
         if let Some(max_height) = max_height {
             if max_height < until_height as u64 {
-                self.save_block_infos_within_range(rpc, max_height as u32 + 1, until_height - 1)
-                    .await?;
+                self.save_block_infos_within_range(
+                    dbtx.as_deref_mut(),
+                    rpc,
+                    max_height as u32 + 1,
+                    until_height - 1,
+                )
+                .await?;
             }
         } else {
             tracing::debug!("Saving blocks from start until {}", until_height);
-            self.save_block_infos_within_range(rpc, genesis_height, until_height - 1)
+            self.save_block_infos_within_range(dbtx, rpc, genesis_height, until_height - 1)
                 .await?;
         }
         Ok(())
