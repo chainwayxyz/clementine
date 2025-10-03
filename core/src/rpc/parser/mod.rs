@@ -105,11 +105,7 @@ macro_rules! fetch_next_message_from_stream {
 #[macro_export]
 macro_rules! fetch_next_optional_message_from_stream {
     ($stream:expr, $field:ident) => {
-        $stream
-            .message()
-            .await?
-            .ok_or($crate::rpc::error::input_ended_prematurely())?
-            .$field
+        $stream.message().await?.and_then(|msg| msg.$field)
     };
 }
 
