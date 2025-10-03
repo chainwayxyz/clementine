@@ -19,11 +19,9 @@ use crate::task::TaskExt;
 use crate::tx_sender::TxSenderClient;
 use crate::utils::{timed_request, timed_try_join_all};
 use crate::{
-    builder::{self},
     config::BridgeConfig,
     database::Database,
     errors::BridgeError,
-    musig2::aggregate_partial_signatures,
     rpc::{
         self,
         clementine::{
@@ -32,12 +30,10 @@ use crate::{
         },
     },
 };
-use bitcoin::hashes::Hash;
-use bitcoin::secp256k1::{schnorr, Message, PublicKey};
+use bitcoin::secp256k1::PublicKey;
 use bitcoin::XOnlyPublicKey;
 use eyre::Context;
 use futures::future::join_all;
-use secp256k1::musig::{AggregatedNonce, PartialSignature};
 use std::future::Future;
 use std::hash::Hash as StdHash;
 use tokio::sync::RwLock;
@@ -536,36 +532,6 @@ impl Aggregator {
         );
 
         Ok(())
-    }
-
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    async fn _aggregate_move_partial_sigs(
-        &self,
-        deposit_data: &mut DepositData,
-        agg_nonce: &AggregatedNonce,
-        partial_sigs: Vec<PartialSignature>,
-    ) -> Result<schnorr::Signature, BridgeError> {
-        let tx = builder::transaction::create_move_to_vault_txhandler(
-            deposit_data,
-            self.config.protocol_paramset(),
-        )?;
-
-        let message = Message::from_digest(
-            tx.calculate_script_spend_sighash_indexed(0, 0, bitcoin::TapSighashType::Default)?
-                .to_byte_array(),
-        );
-
-        let verifiers_public_keys = deposit_data.get_verifiers();
-
-        let final_sig = aggregate_partial_signatures(
-            verifiers_public_keys,
-            None,
-            *agg_nonce,
-            &partial_sigs,
-            message,
-        )?;
-
-        Ok(final_sig)
     }
 
     /// Returns a list of verifier clients that are participating in the deposit.
