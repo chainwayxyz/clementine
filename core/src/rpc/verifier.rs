@@ -493,7 +493,7 @@ where
                     parser::verifier::parse_next_deposit_finalize_param_schnorr_sig(&mut in_stream)
                         .await?
                 {
-                    tracing::warn!(
+                    tracing::trace!(
                         "Received full operator sig {} in deposit_finalize()",
                         op_sig_count + 1
                     );
@@ -501,7 +501,7 @@ where
                         .send(operator_sig)
                         .await
                         .map_err(error::output_stream_ended_prematurely)?;
-                    tracing::debug!(
+                    tracing::trace!(
                         "Sent full operator sig {} to src/verifier in deposit_finalize()",
                         op_sig_count + 1
                     );
