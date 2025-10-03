@@ -73,10 +73,12 @@ impl RetryConfig {
         is_jitter: bool,
     ) -> Self {
         // Create the base strategy once
-        let base_strategy = Arc::new(ExponentialBackoff::from_millis(backoff_multiplier)
+        let base_strategy = Arc::new(
+            ExponentialBackoff::from_millis(backoff_multiplier)
                 .max_delay(max_delay)
                 .factor(initial_delay)
-                .take(max_attempts));
+                .take(max_attempts),
+        );
 
         Self {
             initial_delay,
@@ -101,10 +103,7 @@ impl RetryConfig {
             self.backoff_multiplier,
             self.is_jitter
         );
-        tracing::debug!(
-            "Base retry delays (without jitter): {:?}",
-            base_delays
-        );
+        tracing::debug!("Base retry delays (without jitter): {:?}", base_delays);
 
         if self.is_jitter {
             Box::new(base_strategy.map(jitter).inspect(|d| {
@@ -120,13 +119,7 @@ impl RetryConfig {
 
 impl Default for RetryConfig {
     fn default() -> Self {
-        Self::new(
-            100,
-            Duration::from_secs(30),
-            5,
-            2,
-            false,
-        )
+        Self::new(100, Duration::from_secs(30), 5, 2, false)
     }
 }
 
