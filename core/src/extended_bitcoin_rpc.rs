@@ -55,7 +55,7 @@ type Result<T> = std::result::Result<T, BitcoinRPCError>;
 
 #[derive(Clone)]
 pub struct RetryConfig {
-    pub initial_delay: Duration,
+    pub initial_delay: u64,
     pub max_delay: Duration,
     pub max_attempts: usize,
     pub backoff_multiplier: u64,
@@ -66,19 +66,17 @@ pub struct RetryConfig {
 
 impl RetryConfig {
     pub fn new(
-        initial_delay: Duration,
+        initial_delay: u64,
         max_delay: Duration,
         max_attempts: usize,
         backoff_multiplier: u64,
         is_jitter: bool,
     ) -> Self {
         // Create the base strategy once
-        let base_strategy = Arc::new(
-            ExponentialBackoff::from_millis(initial_delay.as_millis() as u64)
+        let base_strategy = Arc::new(ExponentialBackoff::from_millis(backoff_multiplier)
                 .max_delay(max_delay)
-                .factor(backoff_multiplier)
-                .take(max_attempts),
-        );
+                .factor(initial_delay)
+                .take(max_attempts));
 
         Self {
             initial_delay,
@@ -92,12 +90,30 @@ impl RetryConfig {
 
     pub fn get_strategy(&self) -> Box<dyn Iterator<Item = Duration> + Send> {
         // Clone the base strategy to get a fresh iterator with the same initial state
-        let strategy = (*self.base_strategy).clone();
+        let base_strategy = (*self.base_strategy).clone();
+        let base_delays = base_strategy.clone().collect::<Vec<_>>();
+
+        tracing::debug!(
+            "Created base retry strategy with initial_delay: {}, max_delay: {:?}, max_attempts: {}, backoff_multiplier: {}, is_jitter: {}",
+            self.initial_delay,
+            self.max_delay,
+            self.max_attempts,
+            self.backoff_multiplier,
+            self.is_jitter
+        );
+        tracing::debug!(
+            "Base retry delays (without jitter): {:?}",
+            base_delays
+        );
 
         if self.is_jitter {
-            Box::new(strategy.map(jitter))
+            Box::new(base_strategy.map(jitter).inspect(|d| {
+                tracing::debug!("Retry delay (with jitter): {:?}", d);
+            }))
         } else {
-            Box::new(strategy)
+            Box::new(base_strategy.inspect(|d| {
+                tracing::debug!("Retry delay: {:?}", d);
+            }))
         }
     }
 }
@@ -105,7 +121,7 @@ impl RetryConfig {
 impl Default for RetryConfig {
     fn default() -> Self {
         Self::new(
-            Duration::from_millis(100),
+            100,
             Duration::from_secs(30),
             5,
             2,
@@ -133,12 +149,14 @@ pub trait RetryableError {
 
 impl RetryableError for bitcoincore_rpc::Error {
     fn is_retryable(&self) -> bool {
-        match self {
+        tracing::debug!("Checking if error is retryable: {:?}", self);
+        let result = match self {
             // JSON-RPC errors - check specific error patterns
             bitcoincore_rpc::Error::JsonRpc(jsonrpc_error) => {
                 let error_str = jsonrpc_error.to_string().to_lowercase();
+                tracing::debug!("JsonRpc error string (lowercase): {}", error_str);
                 // Retry on connection issues, timeouts, temporary failures
-                error_str.contains("timeout")
+                let is_retryable = error_str.contains("timeout")
                     || error_str.contains("connection")
                     || error_str.contains("temporary")
                     || error_str.contains("busy")
@@ -147,7 +165,9 @@ impl RetryableError for bitcoincore_rpc::Error {
                     || error_str.contains("broken pipe")
                     || error_str.contains("connection reset")
                     || error_str.contains("connection refused")
-                    || error_str.contains("host unreachable")
+                    || error_str.contains("host unreachable");
+                tracing::debug!("JsonRpc error is_retryable: {}", is_retryable);
+                is_retryable
             }
 
             // I/O errors are typically network-related and retryable
@@ -213,7 +233,9 @@ impl RetryableError for bitcoincore_rpc::Error {
             bitcoincore_rpc::Error::Json(_) => false,
             bitcoincore_rpc::Error::Secp256k1(_) => false,
             bitcoincore_rpc::Error::InvalidAmount(_) => false,
-        }
+        };
+        tracing::debug!("Final is_retryable result: {}", result);
+        result
     }
 }
 
@@ -321,11 +343,20 @@ impl ExtendedBitcoinRpc {
 
                 let retry_config = retry_config.clone().unwrap_or_default();
 
+                tracing::debug!(
+                    "Attempting to connect to Bitcoin RPC at {} with retry config: {:?}",
+                    &url_clone,
+                    &retry_config
+                );
                 let rpc = Client::new(&url_clone, auth)
                     .await
                     .wrap_err("Failed to connect to Bitcoin RPC")?;
 
                 // Since this is a lazy connection, we should ping it to ensure it works
+                tracing::debug!(
+                    "Pinging Bitcoin RPC at {} to make sure it's alive",
+                    &url_clone
+                );
                 rpc.ping()
                     .await
                     .map_err(|e| eyre::eyre!("Failed to ping Bitcoin RPC: {}", e))?;
@@ -1072,6 +1103,7 @@ impl RpcApi for ExtendedBitcoinRpc {
         cmd: &str,
         args: &[serde_json::Value],
     ) -> std::result::Result<T, bitcoincore_rpc::Error> {
+        tracing::debug!("Calling Bitcoin RPC command: {}", cmd);
         let strategy = self.retry_config.get_strategy();
 
         let condition = |error: &bitcoincore_rpc::Error| error.is_retryable();
@@ -1336,7 +1368,7 @@ mod tests {
         #[test]
         fn test_retry_config_default() {
             let config = RetryConfig::default();
-            assert_eq!(config.initial_delay, Duration::from_millis(100));
+            assert_eq!(config.initial_delay, 100);
             assert_eq!(config.max_delay, Duration::from_secs(30));
             assert_eq!(config.max_attempts, 5);
             assert_eq!(config.backoff_multiplier, 2);
@@ -1345,7 +1377,7 @@ mod tests {
 
         #[test]
         fn test_retry_config_custom() {
-            let initial = Duration::from_millis(200);
+            let initial = 200;
             let max = Duration::from_secs(10);
             let attempts = 7;
             let backoff_multiplier = 3;
