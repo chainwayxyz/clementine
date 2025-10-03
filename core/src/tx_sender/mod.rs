@@ -144,16 +144,16 @@ impl TxSender {
     /// Gets the current recommended fee rate in sat/vb from Mempool Space and Bitcoin Core and selects the minimum.
     /// For Regtest and Signet, it uses a fixed fee rate of 1 sat/vB.
     /// # Logic
-    /// *   **Regtest and Signet:** Uses a fixed fee rate of 1 sat/vB for simplicity.
-    /// *   **Mainnet and Testnet4:** Fetches fee rates from both Mempool Space API and Bitcoin Core RPC and takes the minimum.
+    /// *   **Regtest:** Uses a fixed fee rate of 1 sat/vB for simplicity.
+    /// *   **Mainnet and Testnet4 and Signet:** Fetches fee rates from both Mempool Space API and Bitcoin Core RPC and takes the minimum.
     /// *   **Hard Cap:** Applies a hard cap from configuration to prevent excessive fees.
     /// # Fallbacks
     /// *   If one source fails, it uses the other.
     /// *   If both fail, it falls back to a default of 1 sat/vB.
     async fn get_fee_rate(&self) -> Result<FeeRate> {
         match self.config.protocol_paramset.network {
-            // Regtest and Signet use a fixed, low fee rate.
-            Network::Regtest | Network::Signet => {
+            // Regtest use a fixed, low fee rate.
+            Network::Regtest => {
                 tracing::debug!(
                     "Using fixed fee rate of 1 sat/vB for {} network",
                     self.config.protocol_paramset.network
@@ -162,7 +162,7 @@ impl TxSender {
             }
 
             // Mainnet and Testnet4 fetch fees from Mempool Space and Bitcoin Core RPC.
-            Network::Bitcoin | Network::Testnet4 => {
+            Network::Bitcoin | Network::Testnet4 | Network::Signet => {
                 tracing::debug!(
                     "Fetching fee rate for {} network...",
                     self.config.protocol_paramset.network
@@ -529,6 +529,10 @@ async fn get_fee_rate_from_mempool_space(
         ),
         Network::Testnet4 => format!("{}testnet4/{}", url, endpoint),
         // Return early with error for unsupported networks
+        Network::Signet => {
+            tracing::warn!("You should use Citrea signet url for mempool.space");
+            format!("{}{}", url, endpoint)
+        }
         _ => return Err(eyre!("Unsupported network for mempool.space: {:?}", network).into()),
     };
 
@@ -1461,6 +1465,9 @@ mod tests {
                     1 => ResponseTemplate::new(500).set_body_json(json!({
                         "jsonrpc":"2.0","id":1,"error":{"code":-1,"message":"Connection error 2"}
                     })),
+                    2 => ResponseTemplate::new(500).set_body_json(json!({
+                        "jsonrpc":"2.0","id":1,"error":{"code":-1,"message":"Connection error 3"}
+                    })),
                     _ => ResponseTemplate::new(200).set_body_json(json!({
                         "jsonrpc":"2.0","id":1,"result":{"feerate":0.00003,"blocks":1}
                     })),
@@ -1620,7 +1627,6 @@ mod tests {
     #[tokio::test]
     async fn test_hard_cap() {
         let mock_rpc_server = MockServer::start().await;
-
         Mock::given(method("POST"))
             .and(path("/"))
             .and(body_partial_json(json!({
