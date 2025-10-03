@@ -1810,17 +1810,18 @@ async fn concurrent_deposits_and_withdrawals() {
                 if withdrawal_requests.is_empty() {
                     return Ok(Some(()));
                 }
-                tracing::warn!(
+                tracing::info!(
                     "Withdrawal req replies: {:?}",
                     futures::future::join_all(withdrawal_requests).await
                 );
                 rpc_ref.mine_blocks(1).await.unwrap();
                 tries += 1;
-                tracing::warn!(
+                tracing::info!(
                     "Tries: {:?}, spent_withdrawals: {:?}",
                     tries,
                     spent_withdrawals
                 );
+                // count number of tries shouldd work at worst case (only 1 withdrawal mined for each try)
                 if tries > count + 1 {
                     return Err(eyre::eyre!("Failed to process withdrawals concurrently"));
                 }
