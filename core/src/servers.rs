@@ -293,7 +293,7 @@ pub async fn create_operator_grpc_server<C: CitreaClientT>(
 }
 
 pub async fn create_aggregator_grpc_server(
-    mut config: BridgeConfig,
+    config: BridgeConfig,
 ) -> Result<(std::net::SocketAddr, oneshot::Sender<()>), BridgeError> {
     let addr: std::net::SocketAddr = format!("{}:{}", config.host, config.port)
         .parse()
@@ -306,12 +306,7 @@ pub async fn create_aggregator_grpc_server(
         .max_decoding_message_size(config.grpc.max_message_size);
 
     if config.client_verification {
-        tracing::warn!(
-                "Client verification is enabled, even though Aggregator gRPC server should have client certificate verification DISABLED. Overriding to false...",
-
-            );
-
-        config.client_verification = false;
+        tracing::warn!("Client verification is enabled on aggregator gRPC server",);
     }
 
     let (server_addr, shutdown_tx) =
