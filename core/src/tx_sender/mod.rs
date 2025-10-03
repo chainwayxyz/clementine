@@ -141,7 +141,15 @@ impl TxSender {
         }
     }
 
-    /// Gets the current recommended fee rate in sat/vb from Mempool Space or Bitcoin Core.
+    /// Gets the current recommended fee rate in sat/vb from Mempool Space and Bitcoin Core and selects the minimum.
+    /// For Regtest and Signet, it uses a fixed fee rate of 1 sat/vB.
+    /// # Logic
+    /// *   **Regtest and Signet:** Uses a fixed fee rate of 1 sat/vB for simplicity.
+    /// *   **Mainnet and Testnet4:** Fetches fee rates from both Mempool Space API and Bitcoin Core RPC and takes the minimum.
+    /// *   **Hard Cap:** Applies a hard cap from configuration to prevent excessive fees.
+    /// # Fallbacks
+    /// *   If one source fails, it uses the other.
+    /// *   If both fail, it falls back to a default of 1 sat/vB.
     async fn get_fee_rate(&self) -> Result<FeeRate> {
         match self.config.protocol_paramset.network {
             // Regtest and Signet use a fixed, low fee rate.
@@ -168,17 +176,20 @@ impl TxSender {
                 )
                 .await;
 
-                let rpc_fee = timeout(Duration::from_secs(30), self
-                    .rpc
-                    .estimate_smart_fee(1, None))
-                    .await
-                    .map_err(|_| eyre!("RPC estimate_smart_fee timed out after 30 seconds"))
-                    .and_then(|result| result.wrap_err("Failed to estimate smart fee using Bitcoin Core RPC"))
-                    .and_then(|estimate| {
-                        estimate.fee_rate.ok_or_else(|| {
-                            eyre!("Failed to extract fee rate from Bitcoin Core RPC response")
-                        })
-                    });
+                let rpc_fee = timeout(
+                    Duration::from_secs(30),
+                    self.rpc.estimate_smart_fee(1, None),
+                )
+                .await
+                .map_err(|_| eyre!("RPC estimate_smart_fee timed out after 30 seconds"))
+                .and_then(|result| {
+                    result.wrap_err("Failed to estimate smart fee using Bitcoin Core RPC")
+                })
+                .and_then(|estimate| {
+                    estimate.fee_rate.ok_or_else(|| {
+                        eyre!("Failed to extract fee rate from Bitcoin Core RPC response")
+                    })
+                });
 
                 // Use the minimum of both fee sources, with fallback logic
                 let selected_fee_amount = match (mempool_fee, rpc_fee) {
@@ -597,6 +608,8 @@ mod tests {
     use bitcoin::secp256k1::rand;
     use bitcoin::secp256k1::SecretKey;
     use bitcoin::transaction::Version;
+    use serde_json::json;
+    use std::ops::Mul;
     use std::result::Result;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
@@ -604,7 +617,6 @@ mod tests {
     use tokio::sync::oneshot;
     use wiremock::matchers::{body_partial_json, method, path};
     use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
-    use serde_json::json;
 
     impl TxSenderClient {
         pub async fn test_dbtx(
@@ -1355,10 +1367,8 @@ mod tests {
         assert_eq!(fee_rate, FeeRate::from_sat_per_kwu(2000));
     }
 
-
     #[tokio::test]
     async fn test_get_fee_rate_rpc_timeout() {
-
         let mock_rpc_server = MockServer::start().await;
 
         Mock::given(method("POST"))
@@ -1366,16 +1376,18 @@ mod tests {
             .and(body_partial_json(json!({
                 "method": "estimatesmartfee"
             })))
-            .respond_with(ResponseTemplate::new(200)
-            .set_delay(Duration::from_secs(31))
-            .set_body_json(json!({
-                "jsonrpc": "2.0",
-                "id": 1,
-                "result": {
-                    "feerate": 0.00002,
-                    "blocks": 1
-                }
-            })))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_delay(Duration::from_secs(31))
+                    .set_body_json(json!({
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "result": {
+                            "feerate": 0.00002,
+                            "blocks": 1
+                        }
+                    })),
+            )
             .mount(&mock_rpc_server)
             .await;
 
@@ -1395,14 +1407,11 @@ mod tests {
         let mock_mempool_server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/api/v1/fees/recommended"))
-            .respond_with(
-                ResponseTemplate::new(200)
-                    .set_body_json(json!({
-                        "fastestFee": 8,
-                        "halfHourFee": 1,
-                        "hourFee": 1
-                    })),
-            )
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "fastestFee": 8,
+                "halfHourFee": 1,
+                "hourFee": 1
+            })))
             .mount(&mock_mempool_server)
             .await;
 
@@ -1606,5 +1615,89 @@ mod tests {
 
         let fee_rate = tx_sender.get_fee_rate().await.unwrap();
         assert_eq!(fee_rate, FeeRate::from_sat_per_kwu(1500));
+    }
+
+    #[tokio::test]
+    async fn test_hard_cap() {
+        let mock_rpc_server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .and(body_partial_json(json!({
+                "method": "estimatesmartfee"
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {
+                    "feerate": 0.00500,
+                    "blocks": 1
+                }
+            })))
+            .mount(&mock_rpc_server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .and(body_partial_json(json!({
+                "method": "ping"
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": null
+            })))
+            .mount(&mock_rpc_server)
+            .await;
+
+        let mock_mempool_server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/api/v1/fees/recommended"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "fastestFee": 500,
+                "halfHourFee": 499,
+                "hourFee": 498
+            })))
+            .mount(&mock_mempool_server)
+            .await;
+
+        let mock_rpc = ExtendedBitcoinRpc::connect(
+            mock_rpc_server.uri(),
+            secrecy::SecretString::new("test_user".into()),
+            secrecy::SecretString::new("test_password".into()),
+            None,
+        )
+        .await
+        .unwrap();
+
+        let mut config = create_test_config_with_thread_name().await;
+        let network = bitcoin::Network::Bitcoin;
+        let paramset = ProtocolParamset {
+            network,
+            ..ProtocolParamset::default()
+        };
+
+        let mempool_space_uri = mock_mempool_server.uri() + "/";
+
+        config.protocol_paramset = Box::leak(Box::new(paramset));
+        config.mempool_api_host = Some(mempool_space_uri);
+        config.mempool_api_endpoint = Some("api/v1/fees/recommended".into());
+
+        let db = Database::new(&config).await.unwrap();
+        let signer = Actor::new(config.secret_key, None, config.protocol_paramset.network);
+
+        let tx_sender = TxSender::new(
+            signer,
+            mock_rpc,
+            db,
+            "test_tx_sender".into(),
+            config.clone(),
+        );
+
+        let fee_rate = tx_sender.get_fee_rate().await.unwrap();
+        assert_eq!(
+            fee_rate,
+            FeeRate::from_sat_per_kwu(config.tx_sender_fee_rate_hard_cap.mul(1000).div_ceil(4))
+        );
     }
 }
