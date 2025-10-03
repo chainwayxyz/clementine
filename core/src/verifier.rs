@@ -45,6 +45,8 @@ use crate::task::manager::BackgroundTaskManager;
 use crate::task::{IntoTask, TaskExt};
 #[cfg(feature = "automation")]
 use crate::tx_sender::{TxSender, TxSenderClient};
+#[cfg(feature = "automation")]
+use crate::utils::FeePayingType;
 use crate::utils::TxMetadata;
 use crate::utils::{monitor_standalone_task, NamedEntity};
 use crate::{musig2, UTXO};
@@ -56,7 +58,7 @@ use bitcoin::script::Instruction;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::Message;
 use bitcoin::taproot::TaprootBuilder;
-use bitcoin::{Address, Amount, ScriptBuf, Witness, XOnlyPublicKey};
+use bitcoin::{Address, Amount, ScriptBuf, Txid, Witness, XOnlyPublicKey};
 use bitcoin::{OutPoint, TxOut};
 use bitcoin_script::builder::StructuredScript;
 use bitvm::chunk::api::validate_assertions;
@@ -1685,6 +1687,7 @@ where
         mut deposit_data: DepositData,
         kickoff_data: KickoffData,
         challenged_before: bool,
+        kickoff_txid: Txid,
     ) -> Result<bool, BridgeError> {
         let is_malicious = self
             .is_kickoff_malicious(kickoff_witness, &mut deposit_data, kickoff_data, dbtx)
@@ -1712,19 +1715,19 @@ where
             self.db.clone(),
             &self.signer,
             self.config.clone(),
-            context,
+            context.clone(),
             None, // No need, verifier will not send kickoff tx
             Some(dbtx),
         )
         .await?;
 
-        let tx_metadata = Some(TxMetadata {
+        let tx_metadata = TxMetadata {
             tx_type: TransactionType::Dummy, // will be replaced in add_tx_to_queue
             operator_xonly_pk: Some(kickoff_data.operator_xonly_pk),
             round_idx: Some(kickoff_data.round_idx),
             kickoff_idx: Some(kickoff_data.kickoff_idx),
             deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
-        });
+        };
 
         // try to send them
         for (tx_type, signed_tx) in &signed_txs {
@@ -1749,9 +1752,35 @@ where
                             *tx_type,
                             signed_tx,
                             &signed_txs,
-                            tx_metadata,
+                            Some(tx_metadata),
                             &self.config,
                             None,
+                        )
+                        .await?;
+                }
+                // Technically verifiers do not need to send watchtower challenge timeout tx,
+                // but in state manager we attempt to disprove only if all watchtower challenges utxos are spent
+                // so if verifiers do not send timeouts, operators can abuse this (by not sending watchtower challenge timeouts)
+                // to not get disproven
+                TransactionType::WatchtowerChallengeTimeout(idx) => {
+                    #[cfg(feature = "automation")]
+                    self.tx_sender
+                        .insert_try_to_send(
+                            dbtx,
+                            Some(TxMetadata {
+                                tx_type: TransactionType::WatchtowerChallengeTimeout(idx),
+                                ..tx_metadata
+                            }),
+                            signed_tx,
+                            FeePayingType::CPFP,
+                            None,
+                            &[OutPoint {
+                                txid: kickoff_txid,
+                                vout: UtxoVout::KickoffFinalizer.get_vout(),
+                            }],
+                            &[],
+                            &[],
+                            &[],
                         )
                         .await?;
                 }
@@ -3012,6 +3041,7 @@ mod states {
                                 deposit_data,
                                 kickoff_data,
                                 challenged_before,
+                                txid,
                             )
                             .await?;
                         dbtx.commit().await?;

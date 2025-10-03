@@ -272,7 +272,7 @@ impl<T: Owner> KickoffStateMachine<T> {
             .capture_error(async |context| {
                 {
                     // if all watchtower challenge utxos are spent and latest blockhash is committed, its safe to send asserts
-                    if self.spent_watchtower_utxos.len() == self.deposit_data.get_num_verifiers()
+                    if self.spent_watchtower_utxos.len() == self.deposit_data.get_num_watchtowers()
                         && self.latest_blockhash != Witness::default()
                     {
                         context
