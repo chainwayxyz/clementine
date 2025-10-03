@@ -1764,7 +1764,7 @@ async fn concurrent_deposits_and_withdrawals() {
 
     poll_get(
         async move || {
-            let mut operator0s = (0..count)
+            let mut operators = (0..count)
                 .map(|_| {
                     (
                         actors_ref.get_operator_client_by_index(0),
@@ -1776,7 +1776,7 @@ async fn concurrent_deposits_and_withdrawals() {
             loop {
                 let mut withdrawal_requests = Vec::new();
                 let mut spent_withdrawals = 0;
-                for (i, (operator0, operator1)) in operator0s.iter_mut().enumerate() {
+                for (i, (operator0, operator1)) in operators.iter_mut().enumerate() {
                     // if already spent, skip
                     if rpc_ref.is_utxo_spent(&withdrawal_utxos[i]).await.unwrap() {
                         spent_withdrawals += 1;
