@@ -334,13 +334,13 @@ async fn nonce_distributor(
 
     let (result_1, result_2) = tokio::join!(handle_1, handle_2);
 
-
     result_1
         .wrap_err("Task crashed while distributing aggnonces")?
         .wrap_err("Error while distributing aggnonces")?;
     result_2
         .wrap_err("Task crashed while receiving partial sigs")?
-        .wrap_err("Error while receiving partial sigs").inspect_err(|e| tracing::error!("Failed to finish partial aggregation {e:?}"))?;
+        .wrap_err("Error while receiving partial sigs")
+        .inspect_err(|e| tracing::error!("Failed to finish partial aggregation {e:?}"))?;
 
     tracing::warn!("Finished tasks in nonce_distributor");
 

@@ -424,7 +424,10 @@ impl Aggregator {
                                 debug_span!("get_deposit_keys", id=%OperatorId(operator_xonly_pk)),
                             )
                             .await
-                            .wrap_err(Status::internal(format!("Operator {} key retrieval failed", operator_xonly_pk)))?
+                            .wrap_err(Status::internal(format!(
+                                "Operator {} key retrieval failed",
+                                operator_xonly_pk
+                            )))?
                             .into_inner();
 
                         // A send error means that all receivers are closed,
