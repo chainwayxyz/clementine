@@ -94,11 +94,13 @@ impl HeaderChainProver {
         let tip_height = rpc.get_current_chain_height().await.map_to_eyre()?;
         if tip_height
             < config.protocol_paramset().start_height + config.protocol_paramset().finality_depth
+                - 1
         {
             return Err(eyre::eyre!(
                 "Start height is not finalized, reduce start height: {} < {}",
                 tip_height,
                 config.protocol_paramset().start_height + config.protocol_paramset().finality_depth
+                    - 1
             )
             .into());
         }
@@ -645,7 +647,7 @@ impl HeaderChainProver {
             non_proven_block.2,
             self.batch_size
         );
-        if tip_height - non_proven_block.2 >= self.batch_size {
+        if tip_height - non_proven_block.2 + 1 >= self.batch_size {
             return Ok(true);
         }
         tracing::debug!(
