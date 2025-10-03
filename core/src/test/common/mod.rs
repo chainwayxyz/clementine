@@ -191,7 +191,7 @@ pub async fn are_all_state_managers_synced<C: CitreaClientT>(
     let current_chain_height = rpc.get_current_chain_height().await?;
     let finality_depth = actors.aggregator.config.protocol_paramset().finality_depth;
     // get the current finalized chain height
-    let current_finalized_chain_height = current_chain_height.saturating_sub(finality_depth);
+    let current_finalized_chain_height = current_chain_height.saturating_sub(finality_depth - 1);
     // assume synced if state manager is not running
     let state_manager_running = actors
         .aggregator
