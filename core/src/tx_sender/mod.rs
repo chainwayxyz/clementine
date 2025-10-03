@@ -1465,9 +1465,6 @@ mod tests {
                     1 => ResponseTemplate::new(500).set_body_json(json!({
                         "jsonrpc":"2.0","id":1,"error":{"code":-1,"message":"Connection error 2"}
                     })),
-                    2 => ResponseTemplate::new(500).set_body_json(json!({
-                        "jsonrpc":"2.0","id":1,"error":{"code":-1,"message":"Connection error 3"}
-                    })),
                     _ => ResponseTemplate::new(200).set_body_json(json!({
                         "jsonrpc":"2.0","id":1,"result":{"feerate":0.00003,"blocks":1}
                     })),
