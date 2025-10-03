@@ -118,6 +118,8 @@ pub struct ProtocolParamset {
     /// Time to wait after a kickoff to send a watchtower challenge
     pub time_to_send_watchtower_challenge: u16,
     /// Amount of depth a block should have from the current head to be considered finalized
+    /// Also means finality_confirmations, how many confirmations are needed for a block to be considered finalized
+    /// The chain tip has 1 confirmation. Minimum value should be 1.
     pub finality_depth: u32,
     /// start height to sync the chain from, i.e. the height bridge was deployed
     pub start_height: u32,
@@ -136,6 +138,11 @@ impl ProtocolParamset {
         let contents = fs::read_to_string(path).wrap_err("Failed to read config file")?;
 
         let paramset: Self = toml::from_str(&contents).wrap_err("Failed to parse TOML")?;
+        if paramset.finality_depth < 1 {
+            return Err(BridgeError::ConfigError(
+                "Finality depth must be at least 1".to_string(),
+            ));
+        }
 
         Ok(paramset)
     }
@@ -202,6 +209,12 @@ impl ProtocolParamset {
             )?,
             bridge_nonstandard: read_string_from_env_then_parse::<bool>("BRIDGE_NONSTANDARD")?,
         };
+
+        if config.finality_depth < 1 {
+            return Err(BridgeError::ConfigError(
+                "Finality depth must be at least 1".to_string(),
+            ));
+        }
 
         Ok(config)
     }

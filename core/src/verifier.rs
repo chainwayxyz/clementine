@@ -22,8 +22,8 @@ use crate::citrea::CitreaClientT;
 use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
 use crate::constants::{
-    self, MAX_ALL_SESSIONS_BYTES, MAX_NUM_SESSIONS, NON_EPHEMERAL_ANCHOR_AMOUNT, NUM_NONCES_LIMIT,
-    TEN_MINUTES_IN_SECS,
+    self, MAX_ALL_SESSIONS_BYTES, MAX_EXTRA_WATCHTOWERS, MAX_NUM_SESSIONS,
+    NON_EPHEMERAL_ANCHOR_AMOUNT, NUM_NONCES_LIMIT, TEN_MINUTES_IN_SECS,
 };
 use crate::database::{Database, DatabaseTransaction};
 use crate::deposit::{DepositData, KickoffData, OperatorData};
@@ -45,6 +45,8 @@ use crate::task::manager::BackgroundTaskManager;
 use crate::task::{IntoTask, TaskExt};
 #[cfg(feature = "automation")]
 use crate::tx_sender::{TxSender, TxSenderClient};
+#[cfg(feature = "automation")]
+use crate::utils::FeePayingType;
 use crate::utils::TxMetadata;
 use crate::utils::{monitor_standalone_task, NamedEntity};
 use crate::{musig2, UTXO};
@@ -56,7 +58,7 @@ use bitcoin::script::Instruction;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::Message;
 use bitcoin::taproot::TaprootBuilder;
-use bitcoin::{Address, Amount, ScriptBuf, Witness, XOnlyPublicKey};
+use bitcoin::{Address, Amount, ScriptBuf, Txid, Witness, XOnlyPublicKey};
 use bitcoin::{OutPoint, TxOut};
 use bitcoin_script::builder::StructuredScript;
 use bitvm::chunk::api::validate_assertions;
@@ -70,6 +72,7 @@ use circuits_lib::bridge_circuit::transaction::CircuitTransaction;
 use circuits_lib::bridge_circuit::{
     deposit_constant, get_first_op_return_output, parse_op_return_data,
 };
+use circuits_lib::common::constants::MAX_NUMBER_OF_WATCHTOWERS;
 use eyre::{Context, ContextCompat, OptionExt, Result};
 use secp256k1::ffi::MUSIG_SECNONCE_LEN;
 use secp256k1::musig::{AggregatedNonce, PartialSignature, PublicNonce, SecretNonce};
@@ -549,6 +552,57 @@ where
             tracing::error!("{reason}");
             return Err(BridgeError::InvalidDeposit(reason));
         }
+        // check if extra watchtowers (non verifier watchtowers) are not greater than the maximum allowed
+        if deposit_data.actors.watchtowers.len() > MAX_EXTRA_WATCHTOWERS {
+            let reason = format!(
+                "Number of extra watchtowers in deposit is greater than the maximum allowed, expected at most {}, got {}",
+                MAX_EXTRA_WATCHTOWERS,
+                deposit_data.actors.watchtowers.len()
+            );
+            tracing::error!("{reason}");
+            return Err(BridgeError::InvalidDeposit(reason));
+        }
+        // check if total watchtowers are not greater than the maximum allowed
+        if deposit_data.get_num_watchtowers() > MAX_NUMBER_OF_WATCHTOWERS {
+            let reason = format!(
+                "Number of watchtowers in deposit is greater than the maximum allowed, expected at most {}, got {}",
+                MAX_NUMBER_OF_WATCHTOWERS,
+                deposit_data.get_num_watchtowers()
+            );
+            tracing::error!("{reason}");
+            return Err(BridgeError::InvalidDeposit(reason));
+        }
+
+        // check if all verifiers are unique
+        if !deposit_data.are_all_verifiers_unique() {
+            let reason = format!(
+                "Verifiers in deposit are not unique: {:?}",
+                deposit_data.actors.verifiers
+            );
+            tracing::error!("{reason}");
+            return Err(BridgeError::InvalidDeposit(reason));
+        }
+
+        // check if all watchtowers are unique
+        if !deposit_data.are_all_watchtowers_unique() {
+            let reason = format!(
+                "Watchtowers in deposit are not unique: {:?}",
+                deposit_data.actors.watchtowers
+            );
+            tracing::error!("{reason}");
+            return Err(BridgeError::InvalidDeposit(reason));
+        }
+
+        // check if all operators are unique
+        if !deposit_data.are_all_operators_unique() {
+            let reason = format!(
+                "Operators in deposit are not unique: {:?}",
+                deposit_data.actors.operators
+            );
+            tracing::error!("{reason}");
+            return Err(BridgeError::InvalidDeposit(reason));
+        }
+
         let operators_in_deposit_data = deposit_data.get_operators();
         // check if all operators that still have collateral are in the deposit
         let operators_in_db = self.db.get_operators(None).await?;
@@ -846,11 +900,13 @@ where
             ));
             let num_required_sigs = verifier.config.get_num_required_nofn_sigs(&deposit_data);
 
-            assert_eq!(
-                num_required_sigs + 2,
-                session.nonces.len(),
-                "Expected nonce count to be num_required_sigs + 2 (movetx & emergency stop)"
-            );
+            if num_required_sigs + 2 != session.nonces.len() {
+                return Err(eyre::eyre!(
+                    "Expected nonce count to be {} (num_required_sigs + 2, for movetx & emergency stop), got {}",
+                    num_required_sigs + 2,
+                    session.nonces.len()
+                ));
+            }
 
             while let Some(agg_nonce) = agg_nonce_rx.recv().await {
                 let sighash = sighash_stream
@@ -894,13 +950,13 @@ where
                 return Err(eyre::eyre!(
                     "Expected 2 nonces remaining in session, one for move tx and one for emergency stop, got {}",
                     session.nonces.len()
-                ).into());
+                ));
             }
 
             let mut session_map = verifier.nonces.lock().await;
             session_map.add_new_session_with_id(session, session_id)?;
 
-            Ok::<(), BridgeError>(())
+            Ok::<(), eyre::Report>(())
         });
         monitor_standalone_task(handle, "Verifier deposit_sign");
 
@@ -1292,6 +1348,20 @@ where
                 eyre::eyre!("Withdrawal utxo {:?} is already spent", input_outpoint).into(),
             );
         }
+
+        // check for some standard script pubkeys
+        if !(output_script_pubkey.is_p2tr()
+            || output_script_pubkey.is_p2pkh()
+            || output_script_pubkey.is_p2sh()
+            || output_script_pubkey.is_p2wpkh()
+            || output_script_pubkey.is_p2wsh())
+        {
+            return Err(eyre::eyre!(format!(
+                "Output script pubkey is not a valid script pubkey: {}, must be p2tr, p2pkh, p2sh, p2wpkh, or p2wsh",
+                output_script_pubkey
+            )).into());
+        }
+
         // if verification address is set in config, check if verification signature is valid
         if let Some(address_in_config) = self.config.aggregator_verification_address {
             // check if verification signature is provided by aggregator
@@ -1615,6 +1685,7 @@ where
         mut deposit_data: DepositData,
         kickoff_data: KickoffData,
         challenged_before: bool,
+        kickoff_txid: Txid,
     ) -> Result<bool, BridgeError> {
         let is_malicious = self
             .is_kickoff_malicious(kickoff_witness, &mut deposit_data, kickoff_data, dbtx)
@@ -1642,19 +1713,19 @@ where
             self.db.clone(),
             &self.signer,
             self.config.clone(),
-            context,
+            context.clone(),
             None, // No need, verifier will not send kickoff tx
             Some(dbtx),
         )
         .await?;
 
-        let tx_metadata = Some(TxMetadata {
+        let tx_metadata = TxMetadata {
             tx_type: TransactionType::Dummy, // will be replaced in add_tx_to_queue
             operator_xonly_pk: Some(kickoff_data.operator_xonly_pk),
             round_idx: Some(kickoff_data.round_idx),
             kickoff_idx: Some(kickoff_data.kickoff_idx),
             deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
-        });
+        };
 
         // try to send them
         for (tx_type, signed_tx) in &signed_txs {
@@ -1679,9 +1750,35 @@ where
                             *tx_type,
                             signed_tx,
                             &signed_txs,
-                            tx_metadata,
+                            Some(tx_metadata),
                             &self.config,
                             None,
+                        )
+                        .await?;
+                }
+                // Technically verifiers do not need to send watchtower challenge timeout tx,
+                // but in state manager we attempt to disprove only if all watchtower challenges utxos are spent
+                // so if verifiers do not send timeouts, operators can abuse this (by not sending watchtower challenge timeouts)
+                // to not get disproven
+                TransactionType::WatchtowerChallengeTimeout(idx) => {
+                    #[cfg(feature = "automation")]
+                    self.tx_sender
+                        .insert_try_to_send(
+                            dbtx,
+                            Some(TxMetadata {
+                                tx_type: TransactionType::WatchtowerChallengeTimeout(idx),
+                                ..tx_metadata
+                            }),
+                            signed_tx,
+                            FeePayingType::CPFP,
+                            None,
+                            &[OutPoint {
+                                txid: kickoff_txid,
+                                vout: UtxoVout::KickoffFinalizer.get_vout(),
+                            }],
+                            &[],
+                            &[],
+                            &[],
                         )
                         .await?;
                 }
@@ -2942,6 +3039,7 @@ mod states {
                                 deposit_data,
                                 kickoff_data,
                                 challenged_before,
+                                txid,
                             )
                             .await?;
                         dbtx.commit().await?;

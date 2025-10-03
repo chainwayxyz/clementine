@@ -556,21 +556,28 @@ where
             .to_sat()
             .checked_sub(input_amount.to_sat())
         {
-            Some(diff) => diff,
-            None => return false, // If underflow occurs, it's not profitable
+            Some(diff) => Amount::from_sat(diff),
+            None => {
+                // input amount is greater than withdrawal amount, so it's profitable but doesn't make sense
+                tracing::warn!(
+                    "Some user gave more amount than the withdrawal amount as input for withdrawal"
+                );
+                return true;
+            }
         };
 
-        if withdrawal_diff > bridge_amount_sats.to_sat() {
+        if withdrawal_diff > bridge_amount_sats {
             return false;
         }
 
         // Calculate net profit after the withdrawal using checked_sub to prevent panic
-        let net_profit = match bridge_amount_sats.checked_sub(withdrawal_amount) {
+        let net_profit = match bridge_amount_sats.checked_sub(withdrawal_diff) {
             Some(profit) => profit,
             None => return false, // If underflow occurs, it's not profitable
         };
 
         // Net profit must be bigger than withdrawal fee.
+        // net profit doesn't take into account the fees, but operator_withdrawal_fee_sats should
         net_profit >= operator_withdrawal_fee_sats
     }
 
@@ -1121,7 +1128,7 @@ where
                             txid: kickoff_txid,
                             vout: UtxoVout::KickoffFinalizer.get_vout(), // Kickoff finalizer output index
                         },
-                        relative_block_height: self.config.protocol_paramset().finality_depth,
+                        relative_block_height: self.config.protocol_paramset().finality_depth - 1,
                     });
                 }
                 None => {
@@ -1140,7 +1147,7 @@ where
                         .await?;
                     activation_prerequisites.push(ActivatedWithOutpoint {
                         outpoint: unspent_kickoff_connector,
-                        relative_block_height: self.config.protocol_paramset().finality_depth,
+                        relative_block_height: self.config.protocol_paramset().finality_depth - 1,
                     });
                 }
             }
@@ -1385,7 +1392,7 @@ where
             .rpc
             .get_current_chain_height()
             .await?
-            .saturating_sub(self.config.protocol_paramset().finality_depth);
+            .saturating_sub(self.config.protocol_paramset().finality_depth - 1);
 
         // update headers in case the sync (state machine handle_finalized_block) is behind
         self.db
@@ -1550,8 +1557,12 @@ where
             .test_params
             .maybe_dump_bridge_circuit_params_to_file(&bridge_circuit_host_params)?;
 
-        let (g16_proof, g16_output, public_inputs) =
-            prove_bridge_circuit(bridge_circuit_host_params, bridge_circuit_elf)?;
+        let (g16_proof, g16_output, public_inputs) = tokio::task::spawn_blocking(move || {
+            prove_bridge_circuit(bridge_circuit_host_params, bridge_circuit_elf)
+        })
+        .await
+        .wrap_err("Failed to join the prove_bridge_circuit task")?
+        .wrap_err("Failed to prove bridge circuit")?;
 
         tracing::info!("Proved bridge circuit in send_asserts");
         let public_input_scalar = ark_bn254::Fr::from_be_bytes_mod_order(&g16_output);

@@ -12,7 +12,6 @@ use circuits_lib::bridge_circuit::constants::{
 use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
 use circuits_lib::bridge_circuit::merkle_tree::BitcoinMerkleTree;
 use circuits_lib::bridge_circuit::spv::SPV;
-use circuits_lib::bridge_circuit::structs::WorkOnlyCircuitInput;
 use circuits_lib::bridge_circuit::transaction::CircuitTransaction;
 use citrea_sov_rollup_interface::zk::light_client_proof::output::LightClientCircuitOutput;
 use eyre::{eyre, Result, WrapErr};
@@ -22,7 +21,7 @@ use circuits_lib::common::constants::{
     TESTNET4_HEADER_CHAIN_METHOD_ID,
 };
 use circuits_lib::header_chain::mmr_native::MMRNative;
-use risc0_zkvm::{compute_image_id, default_prover, ExecutorEnv, ProverOpts, Receipt};
+use risc0_zkvm::{compute_image_id, default_prover, ExecutorEnv, ProverOpts};
 
 pub const REGTEST_BRIDGE_CIRCUIT_ELF: &[u8] =
     include_bytes!("../../risc0-circuits/elfs/regtest-bridge-circuit-guest.bin");
@@ -366,52 +365,23 @@ pub fn create_spv(
 
     let payout_tx_proof = block_mt.generate_proof(payment_tx_index);
 
-    Ok(SPV {
-        transaction: CircuitTransaction(payout_tx),
-        block_inclusion_proof: payout_tx_proof,
-        block_header: payment_block.header.into(),
-        mmr_inclusion_proof: mmr_inclusion_proof.1,
-    })
-}
+    let spv = SPV::new(
+        CircuitTransaction(payout_tx.clone()),
+        payout_tx_proof.clone(),
+        payment_block.header.into(),
+        mmr_inclusion_proof.1.clone(),
+    );
 
-/// Generates a Groth16 proof of a bitcoin header chain proof where it only outputs the total work.
-///
-/// This function constructs an execution environment, serializes the provided
-/// input using Borsh, and utilizes a default prover to generate a proof using
-/// the Groth16 proving system.
-///
-/// # Arguments
-///
-/// * `receipt` - A header-chain `Receipt` that serves as an assumption for the proof.
-/// * `input` - A reference to `WorkOnlyCircuitInput` containing the necessary
-///   header chain output data.
-///
-/// # Returns
-///
-/// Returns a Result containing a new `Receipt` with the Groth16 proof result.
-///
-/// # Errors
-///
-/// This function will return an error if:
-/// - Input serialization fails.
-/// - Execution environment building fails.
-/// - Proof generation fails.
-///
-pub fn prove_work_only_header_chain_proof(
-    receipt: Receipt,
-    input: &WorkOnlyCircuitInput,
-) -> Result<Receipt> {
-    let env = ExecutorEnv::builder()
-        .add_assumption(receipt)
-        .write_slice(&borsh::to_vec(&input).wrap_err("Failed to serialize input")?)
-        .build()
-        .map_err(|e| eyre!("Failed to build execution environment: {}", e))?;
-    let prover = default_prover();
+    let mmr_guest = mmr_native.to_guest_mmr();
 
-    Ok(prover
-        .prove_with_opts(env, TESTNET4_WORK_ONLY_ELF, &ProverOpts::groth16())
-        .map_err(|e| eyre!("Failed to generate work only header chain proof: {}", e))?
-        .receipt)
+    // Verify the SPV proof to ensure correctness
+    if !spv.verify(mmr_guest) {
+        return Err(eyre!(
+            "SPV verification failed during creation, please check inputs"
+        ));
+    }
+
+    Ok(spv)
 }
 
 #[cfg(test)]
