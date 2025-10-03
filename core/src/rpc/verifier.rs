@@ -253,6 +253,7 @@ where
 
         let (param_tx, mut param_rx) = mpsc::channel(1);
         let (agg_nonce_tx, agg_nonce_rx) = mpsc::channel(constants::DEFAULT_CHANNEL_SIZE);
+        let config = self.verifier.config.clone();
 
         // Send incoming data to deposit sign job.
         let handle = tokio::spawn(async move {
@@ -266,6 +267,10 @@ where
                 )?,
                 _ => return Err(Status::invalid_argument("Expected DepositOutpoint")),
             };
+
+            let mut received_agg_nonces = 0;
+            let needed_agg_nonces = config.get_num_required_nofn_sigs(&deposit_data);
+
             param_tx
                 .send((deposit_data, session_id))
                 .await
@@ -290,6 +295,11 @@ where
                     .send(agg_nonce)
                     .await
                     .map_err(error::output_stream_ended_prematurely)?;
+
+                received_agg_nonces += 1;
+                if received_agg_nonces == needed_agg_nonces {
+                    break;
+                }
             }
             Ok(())
         });
