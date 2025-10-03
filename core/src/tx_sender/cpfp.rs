@@ -94,7 +94,7 @@ impl TxSender {
             Some(fee) => fee,
             // if underflow, no new fee payer utxo is needed, log it anyway in case its a bug
             None => {
-                tracing::warn!("create_fee_payer_utxo was called but no new fee payer utxo is needed for tx: {:?}, required fee: {}, total fee payer amount: {}, current fee rate: {}", tx, required_fee, total_fee_payer_amount, fee_rate);
+                tracing::debug!("create_fee_payer_utxo was called but no new fee payer utxo is needed for tx: {:?}, required fee: {}, total fee payer amount: {}, current fee rate: {}", tx, required_fee, total_fee_payer_amount, fee_rate);
                 return Ok(());
             }
         };
@@ -183,7 +183,10 @@ impl TxSender {
         let outpoint_vout = signed_fee_payer_tx
             .output
             .iter()
-            .position(|o| o.value == new_fee_payer_amount)
+            .position(|o| {
+                o.value == new_fee_payer_amount
+                    && o.script_pubkey == self.signer.address.script_pubkey()
+            })
             .ok_or(eyre!("Failed to find outpoint vout"))?;
 
         self.rpc
