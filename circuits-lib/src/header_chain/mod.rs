@@ -687,7 +687,8 @@ fn check_hash_valid(hash: &[u8; 32], target_bytes: &[u8; 32]) {
 /// Bitcoin measures cumulative proof-of-work as the sum of work done by all blocks.
 /// The work for a single block is inversely proportional to its target:
 /// work = 2 ** 256 / (target + 1)
-///
+/// The following implementation follows Rust-Bitcoin's approach:
+/// https://github.com/rust-bitcoin/rust-bitcoin/blob/eb17995e49b68831114cbc8bda14cbe72811c4b7/bitcoin/src/pow.rs#L533
 /// This calculation uses the mathematical identity:
 /// 2**256 / (x + 1) == ~x / (x + 1) + 1
 /// (Equation shamelessly stolen from bitcoind)

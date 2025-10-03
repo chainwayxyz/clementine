@@ -66,7 +66,7 @@ mod timeout {
     pub const SEND_OPERATOR_SIGS_TIMEOUT: Duration = Duration::from_secs(600); // 10 minutes
     pub const DEPOSIT_FINALIZATION_TIMEOUT: Duration = Duration::from_secs(2400); // 40 minutes
 
-    pub const RESTART_BACKGROUND_TASKS_TIMEOUT: Duration = Duration::from_secs(60);
+    pub const RESTART_BACKGROUND_TASKS_TIMEOUT: Duration = Duration::from_secs(120);
 
     pub const ENTITY_STATUS_POLL_TIMEOUT: Duration = Duration::from_secs(120);
 
