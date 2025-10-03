@@ -531,7 +531,7 @@ impl TxHandlerBuilder {
         witness: Witness,
     ) -> Self {
         self.txins.push(SpentTxIn::from_spendable(
-            NormalSignatureKind::NormalSignatureUnknown.into(),
+            NormalSignatureKind::NotStored.into(),
             spendable,
             SpendPath::Unknown,
             sequence,
