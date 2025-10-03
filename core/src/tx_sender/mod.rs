@@ -234,7 +234,7 @@ impl TxSender {
                     tracing::warn!(
                         "Fee rate {} sat/kvb exceeds hard cap {} sat/kvb, using hard cap",
                         fee_sat_kvb,
-                        self.config.tx_sender_fee_rate_hard_cap
+                        self.config.tx_sender_fee_rate_hard_cap * 1000
                     );
                     fee_sat_kvb = self.config.tx_sender_fee_rate_hard_cap * 1000;
                 }
