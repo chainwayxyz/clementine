@@ -417,10 +417,14 @@ where
                 num_required_nofn_sigs
             );
             let mut nonce_idx = 0;
-            while let Some(sig) =
-                parser::verifier::parse_next_deposit_finalize_param_schnorr_sig(&mut in_stream)
-                    .await
-                    .wrap_err_with(|| format!("While waiting for {nonce_idx} + 1th sig out of {num_required_nofn_sigs} ")).map_to_status()?
+            while let Some(sig) = parser::verifier::parse_next_deposit_finalize_param_schnorr_sig(
+                &mut in_stream,
+            )
+            .await
+            .wrap_err_with(|| {
+                format!("While waiting for {nonce_idx} + 1th sig out of {num_required_nofn_sigs} ")
+            })
+            .map_to_status()?
             {
                 tracing::trace!(
                     "Received full nofn sig {} in deposit_finalize()",
