@@ -81,6 +81,9 @@ impl TxSender {
         )?;
 
         // Aggressively add 2x required fee to the total amount to account for sudden spikes
+        // We won't actually use 2x fees, but the fee payer utxo will hold that much amount so that while fee payer utxo gets mined
+        // if fees increas the utxo should still be sufficient to fund the tx with high probability
+        // leftover fees will get sent back to wallet with a change output in fn create_child_tx
         let new_total_fee_needed = required_fee
             .checked_mul(2)
             .and_then(|fee| fee.checked_add(MIN_TAPROOT_AMOUNT));
@@ -444,12 +447,7 @@ impl TxSender {
                     mempool_info
                 }
                 Err(e) => {
-                    tracing::warn!(
-                        "Failed to get mempool entry for fee payer tx {}: {}",
-                        fee_payer_txid,
-                        e
-                    );
-                    // TODO: is this the best way, and if not in mempool we should ignore
+                    // If not in mempool we should ignore
                     // give an error if the error is not "Transaction not in mempool"
                     if !e.to_string().contains("Transaction not in mempool") {
                         return Err(eyre::eyre!(
