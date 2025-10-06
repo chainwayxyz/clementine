@@ -20,7 +20,7 @@ use crate::errors::BridgeError;
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 
 use crate::metrics::L1SyncStatusProvider;
-use crate::rpc::clementine::EntityStatus;
+use crate::rpc::clementine::{EntityStatus, StoppedTasks};
 use crate::task::entity_metric_publisher::{
     EntityMetricPublisher, ENTITY_METRIC_PUBLISHER_INTERVAL,
 };
@@ -58,8 +58,7 @@ use {
         bridge_circuit_host::{
             create_spv, prove_bridge_circuit, MAINNET_BRIDGE_CIRCUIT_ELF,
             REGTEST_BRIDGE_CIRCUIT_ELF, REGTEST_BRIDGE_CIRCUIT_ELF_TEST, SIGNET_BRIDGE_CIRCUIT_ELF,
-            SIGNET_BRIDGE_CIRCUIT_ELF_TEST, TESTNET4_BRIDGE_CIRCUIT_ELF,
-            TESTNET4_BRIDGE_CIRCUIT_ELF_TEST,
+            TESTNET4_BRIDGE_CIRCUIT_ELF,
         },
         structs::{BridgeCircuitHostParams, WatchtowerContext},
     },
@@ -220,7 +219,16 @@ where
     }
 
     pub async fn get_current_status(&self) -> Result<EntityStatus, BridgeError> {
-        let stopped_tasks = self.background_tasks.get_stopped_tasks().await?;
+        let stopped_tasks = match self.background_tasks.get_stopped_tasks().await {
+            Ok(stopped_tasks) => stopped_tasks,
+            Err(e) => {
+                tracing::error!("Failed to get stopped tasks: {:?}", e);
+                StoppedTasks {
+                    stopped_tasks: vec![format!("Stopped tasks fetch failed {:?}", e)],
+                }
+            }
+        };
+
         // Determine if automation is enabled
         let automation_enabled = cfg!(feature = "automation");
 
@@ -473,13 +481,14 @@ where
     pub async fn deposit_sign(
         &self,
         mut deposit_data: DepositData,
-    ) -> Result<mpsc::Receiver<schnorr::Signature>, BridgeError> {
+    ) -> Result<mpsc::Receiver<Result<schnorr::Signature, BridgeError>>, BridgeError> {
         self.citrea_client
             .check_nofn_correctness(deposit_data.get_nofn_xonly_pk()?)
             .await?;
 
         let mut tweak_cache = TweakCache::default();
         let (sig_tx, sig_rx) = mpsc::channel(constants::DEFAULT_CHANNEL_SIZE);
+        let monitor_err_sender = sig_tx.clone();
 
         let deposit_blockhash = self
             .rpc
@@ -505,14 +514,15 @@ where
                     Some(&mut tweak_cache),
                 )?;
 
-                if sig_tx.send(sig).await.is_err() {
-                    break;
-                }
+                sig_tx
+                    .send(Ok(sig))
+                    .await
+                    .wrap_err("Failed to send signature in operator deposit sign")?;
             }
 
             Ok::<(), BridgeError>(())
         });
-        monitor_standalone_task(handle, "Operator deposit sign");
+        monitor_standalone_task(handle, "Operator deposit sign", monitor_err_sender);
 
         Ok(sig_rx)
     }
@@ -1516,20 +1526,8 @@ where
 
         let bridge_circuit_elf = match self.config.protocol_paramset().network {
             bitcoin::Network::Bitcoin => MAINNET_BRIDGE_CIRCUIT_ELF,
-            bitcoin::Network::Testnet4 => {
-                if is_dev_mode() {
-                    TESTNET4_BRIDGE_CIRCUIT_ELF_TEST
-                } else {
-                    TESTNET4_BRIDGE_CIRCUIT_ELF
-                }
-            }
-            bitcoin::Network::Signet => {
-                if is_dev_mode() {
-                    SIGNET_BRIDGE_CIRCUIT_ELF_TEST
-                } else {
-                    SIGNET_BRIDGE_CIRCUIT_ELF
-                }
-            }
+            bitcoin::Network::Testnet4 => TESTNET4_BRIDGE_CIRCUIT_ELF,
+            bitcoin::Network::Signet => SIGNET_BRIDGE_CIRCUIT_ELF,
             bitcoin::Network::Regtest => {
                 if is_dev_mode() {
                     REGTEST_BRIDGE_CIRCUIT_ELF_TEST
@@ -1546,6 +1544,11 @@ where
             }
         };
         tracing::info!("Starting proving bridge circuit to send asserts");
+
+        #[cfg(test)]
+        self.config
+            .test_params
+            .maybe_dump_bridge_circuit_params_to_file(&bridge_circuit_host_params)?;
 
         #[cfg(test)]
         self.config

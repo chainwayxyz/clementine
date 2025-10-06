@@ -505,10 +505,11 @@ impl CitreaClientT for CitreaClient {
             let proof_output: LightClientCircuitOutput = borsh::from_slice(&receipt.journal.bytes)
                 .wrap_err("Failed to deserialize light client circuit output")?;
 
-            if !paramset.is_regtest() {
+            if paramset.network != bitcoin::Network::Regtest {
                 receipt
                     .verify(lc_image_id)
                     .map_err(|_| eyre::eyre!("Light client proof verification failed"))?;
+
 
                 if !check_method_id(&proof_output, lc_image_id) {
                     return Err(eyre::eyre!(

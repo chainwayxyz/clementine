@@ -22,31 +22,18 @@ pub const LC_IMAGE_ID: [u8; 32] = {
     }
 };
 
-#[inline]
-fn is_regtest() -> bool {
-    option_env!("BITCOIN_NETWORK") == Some("regtest")
-}
-
-/// Deserializes the light client circuit output from journal bytes.
-fn deserialize_circuit_output(journal: &[u8]) -> LightClientCircuitOutput {
-    borsh::from_slice(journal).expect("Failed to deserialize light client circuit output")
-}
-
 /// Verifies the light client proof and returns the light client circuit output.
 pub fn lc_proof_verifier(light_client_proof: LightClientProof) -> LightClientCircuitOutput {
-    if !is_regtest() {
-        env::verify(LC_IMAGE_ID, &light_client_proof.lc_journal)
-            .expect("Failed to verify light client proof");
-    }
+    env::verify(LC_IMAGE_ID, &light_client_proof.lc_journal).unwrap();
 
-    let light_client_circuit_output = deserialize_circuit_output(&light_client_proof.lc_journal);
+    let light_client_circuit_output: LightClientCircuitOutput =
+        borsh::from_slice(light_client_proof.lc_journal.as_slice())
+            .expect("Failed to deserialize light client circuit output");
 
-    if !is_regtest() {
-        assert!(
-            check_method_id(&light_client_circuit_output, LC_IMAGE_ID),
-            "Light client proof method ID does not match the expected LC image ID"
-        );
-    }
+    assert!(
+        check_method_id(&light_client_circuit_output, LC_IMAGE_ID),
+        "Light client proof method ID does not match the expected LC image ID"
+    );
 
     light_client_circuit_output
 }
