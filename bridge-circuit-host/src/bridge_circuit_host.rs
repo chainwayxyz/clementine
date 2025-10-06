@@ -534,6 +534,7 @@ mod tests {
 
         executor.execute(env, bridge_circuit_elf).unwrap();
     }
+
     #[cfg(feature = "use-test-vk")]
     #[test]
     #[allow(clippy::print_literal)]
