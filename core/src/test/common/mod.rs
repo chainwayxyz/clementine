@@ -155,8 +155,9 @@ pub async fn get_next_sync_heights(entity_statuses: EntityStatuses) -> eyre::Res
                 }
             } else {
                 Err(eyre::eyre!(
-                    "Couldn't retrieve sync status from entity {:?}",
-                    entity.entity_id
+                    "Couldn't retrieve sync status from entity {:?}, status result: {:?}",
+                    entity.entity_id,
+                    entity.status_result
                 ))
             }
         })

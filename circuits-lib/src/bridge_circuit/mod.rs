@@ -69,7 +69,6 @@ use bitcoin::{
     Script, TapLeafHash, TapSighash, TapSighashType, Transaction, TxOut,
 };
 
-use core::panic;
 use groth16::CircuitGroth16Proof;
 use groth16_verifier::CircuitGroth16WithTotalWork;
 use k256::{
@@ -215,6 +214,7 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
         .previous_output
         .txid
         .to_byte_array();
+
     let kickoff_round_vout = input.kickoff_tx.input[0].previous_output.vout;
 
     let operator_xonlypk: [u8; 32] = parse_op_return_data(&first_op_return_output.script_pubkey)
@@ -442,7 +442,6 @@ pub fn verify_watchtower_challenges(circuit_input: &BridgeCircuitInput) -> Watch
             .watchtower_idx
             .checked_mul(2)
             .and_then(|x| x.checked_add(circuit_input.watchtower_challenge_connector_start_idx))
-            .map(u32::from)
             .expect("Overflow occurred while calculating vout");
 
         if vout != input.previous_output.vout {
@@ -638,7 +637,7 @@ pub fn parse_op_return_data(script: &Script) -> Option<&[u8]> {
 /// A `DepositConstant` containing a 32-byte SHA-256 hash of the concatenated input components.
 pub fn deposit_constant(
     operator_xonlypk: [u8; 32],
-    watchtower_challenge_connector_start_idx: u16,
+    watchtower_challenge_connector_start_idx: u32,
     watchtower_pubkeys: &[[u8; 32]],
     move_txid: [u8; 32],
     round_txid: [u8; 32],
@@ -997,15 +996,15 @@ mod tests {
 
         let mut watchtower_pubkeys = vec![[0u8; 32]; 160];
 
-        let operator_idx: u16 = 6;
+        let operator_idx: u32 = 6;
 
         let pubkey = hex::decode(pubkey_hex).unwrap();
 
         watchtower_pubkeys[operator_idx as usize] =
             pubkey.try_into().expect("Pubkey must be 32 bytes");
 
-        let watchtower_challenge_connector_start_idx: u16 =
-            (FIRST_FIVE_OUTPUTS + NUMBER_OF_ASSERT_TXS) as u16;
+        let watchtower_challenge_connector_start_idx: u32 =
+            (FIRST_FIVE_OUTPUTS + NUMBER_OF_ASSERT_TXS) as u32;
 
         let input = BridgeCircuitInput {
             kickoff_tx: CircuitTransaction(kickoff_tx),
