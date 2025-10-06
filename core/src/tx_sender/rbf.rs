@@ -32,41 +32,55 @@ impl TxSender {
     /// * `new_feerate` - The target fee rate requested for the replacement transaction
     ///
     /// # Returns
-    /// * `Ok(Some(Amount))` - The effective fee rate (in satoshis per vbyte) to use for the replacement
+    /// * `Ok(Some(FeeRate))` - The effective fee rate (in satoshis per kilo-wu) to use for the replacement
     /// * `Ok(None)` - If the original transaction already has a higher fee rate than requested
     /// * `Err(...)` - If there was an error retrieving or analyzing the original transaction
-    pub async fn calculate_bump_feerate(
+    pub async fn calculate_bump_feerate_if_needed(
         &self,
         txid: &Txid,
         new_feerate: FeeRate,
-    ) -> Result<Option<Amount>> {
+    ) -> Result<Option<FeeRate>> {
         let original_tx = self.rpc.get_tx_of_txid(txid).await.map_err(|e| eyre!(e))?;
 
         // Calculate original tx fee
         let original_tx_fee = self.get_tx_fee(&original_tx).await.map_err(|e| eyre!(e))?;
 
-        //println!("original_tx_fee: {}", original_tx_fee);
+        //tracing::debug!("original_tx_fee: {}", original_tx_fee);
 
         let original_tx_weight = original_tx.weight();
 
-        // Conservative vsize calculation
-        let original_tx_vsize = original_tx_weight.to_vbytes_floor();
-        let original_feerate = original_tx_fee.to_sat() as f64 / original_tx_vsize as f64;
-
-        // Use max of target fee rate and original + incremental rate
-        let min_bump_feerate = original_feerate + (222f64 / original_tx_vsize as f64);
-
-        let effective_feerate_sat_per_vb = std::cmp::max(
-            new_feerate.to_sat_per_vb_ceil(),
-            min_bump_feerate.ceil() as u64,
+        // Original fee rate calculation according to Bitcoin Core
+        // In Rust Bitcoin, the calculations are done in sat/kwu
+        // so some precision is lost. https://github.com/bitcoin/bitcoin/blob/a33bd767a37dccf39a094d03c2f62ea81633410f/src/policy/feerate.cpp#L11
+        let original_feerate_sat_per_kwu = FeeRate::from_sat_per_kwu(
+            (original_tx_fee.to_sat() * 1000) / (original_tx_weight.to_vbytes_ceil() * 4),
         );
 
         // If original feerate is already higher than target, avoid bumping
-        if original_feerate >= new_feerate.to_sat_per_vb_ceil() as f64 {
+        if original_feerate_sat_per_kwu >= new_feerate {
             return Ok(None);
         }
 
-        Ok(Some(Amount::from_sat(effective_feerate_sat_per_vb)))
+        // Get minimum fee increment rate from node for BIP125 compliance. Returned value is in BTC/kvB
+        let incremental_fee_rate = self
+            .rpc
+            .get_network_info()
+            .await
+            .map_err(|e| eyre!(e))?
+            .incremental_fee;
+        let incremental_fee_rate_sat_per_kvb = incremental_fee_rate.to_sat();
+        let incremental_fee_rate = FeeRate::from_sat_per_kwu(incremental_fee_rate_sat_per_kvb / 4);
+
+        // Use max of target fee rate and original + minimum fee increment rate.
+        let min_bump_feerate =
+            original_feerate_sat_per_kwu.to_sat_per_kwu() + incremental_fee_rate.to_sat_per_kwu();
+
+        let effective_feerate_sat_per_kwu =
+            std::cmp::max(new_feerate.to_sat_per_kwu(), min_bump_feerate);
+
+        Ok(Some(FeeRate::from_sat_per_kwu(
+            effective_feerate_sat_per_kwu,
+        )))
     }
 
     pub async fn fill_in_utxo_info(&self, psbt: &mut String) -> Result<()> {
@@ -435,7 +449,7 @@ impl TxSender {
             );
 
             let effective_feerate = self
-                .calculate_bump_feerate(&last_rbf_txid, fee_rate)
+                .calculate_bump_feerate_if_needed(&last_rbf_txid, fee_rate)
                 .await?;
 
             let Some(effective_feerate) = effective_feerate else {
@@ -449,7 +463,9 @@ impl TxSender {
 
             let psbt_bump_opts = BumpFeeOptions {
                 conf_target: None, // Use fee_rate instead
-                fee_rate: Some(bitcoincore_rpc::json::FeeRate::per_vbyte(effective_feerate)),
+                fee_rate: Some(bitcoincore_rpc::json::FeeRate::per_vbyte(Amount::from_sat(
+                    effective_feerate.to_sat_per_vb_ceil(),
+                ))),
                 replaceable: Some(true), // Ensure the bumped tx is also replaceable
                 estimate_mode: None,
             };
