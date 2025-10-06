@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::ops::Deref;
 use std::sync::Arc;
 
@@ -34,6 +35,7 @@ use bitcoin::XOnlyPublicKey;
 use eyre::Context;
 use futures::future::join_all;
 use std::future::Future;
+use std::hash::Hash as StdHash;
 use tokio::sync::RwLock;
 use tonic::{Request, Status};
 use tracing::{debug_span, Instrument};
@@ -234,7 +236,7 @@ impl Aggregator {
         key_type_name: &str,
     ) -> Result<Vec<T>, BridgeError>
     where
-        T: Clone + Send + Sync,
+        T: Clone + Send + Sync + Eq + StdHash + std::fmt::Debug,
         C: Clone + Send + Sync,
         F: Fn(C) -> Fut + Send + Sync,
         Fut: Future<Output = Result<T, BridgeError>> + Send,
@@ -288,6 +290,19 @@ impl Aggregator {
                         missing_keys.push(idx);
                     }
                 }
+            }
+
+            // if keys are not unique, return an error if so
+            let non_none_keys: Vec<_> = keys.iter().filter_map(|key| key.as_ref()).collect();
+            let unique_keys: HashSet<_> = non_none_keys.iter().cloned().collect();
+
+            if unique_keys.len() != non_none_keys.len() {
+                let reason = format!("{} keys are not unique: {:?}", key_type_name, keys);
+                // reset all keys to None so that faulty keys are not used
+                for key in keys.iter_mut() {
+                    *key = None;
+                }
+                return Err(eyre::eyre!(reason).into());
             }
 
             // if not all keys were collected, return an error
