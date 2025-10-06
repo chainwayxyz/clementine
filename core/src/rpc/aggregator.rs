@@ -1453,7 +1453,7 @@ impl ClementineAggregator for AggregatorServer {
                 agg_nonce_receiver,
                 partial_sig_streams,
                 partial_sig_sender,
-                needed_nofn_sigs + 2, // +2 for the movetx and emergency stop signatures
+                needed_nofn_sigs,
             ));
 
             // Start the signature aggregation pipe.
@@ -1461,7 +1461,7 @@ impl ClementineAggregator for AggregatorServer {
                 partial_sig_receiver,
                 verifiers_public_keys,
                 final_sig_sender,
-                needed_nofn_sigs + 2, // +2 for the movetx and emergency stop signatures
+                needed_nofn_sigs,
             ));
 
             tracing::debug!("Getting signatures from operators");
