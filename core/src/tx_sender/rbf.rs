@@ -49,9 +49,11 @@ impl TxSender {
 
         let original_tx_weight = original_tx.weight();
 
-        // Conservative vsize calculation
+        // Original fee rate calculation according to Bitcoin Core
+        // In Rust Bitcoin, the calculations are done in sat/kwu
+        // so some precision is lost. 
         let original_feerate_sat_per_kwu = FeeRate::from_sat_per_kwu(
-            (original_tx_fee.to_sat() * 1000) / original_tx_weight.to_wu(),
+            (original_tx_fee.to_sat() * 1000) / (original_tx_weight.to_vbytes_ceil() * 4),
         );
 
         // If original feerate is already higher than target, avoid bumping
