@@ -155,7 +155,8 @@ impl TxSender {
             estimate_mode: None,
         };
 
-        let outputs: Vec<WalletCreateFundedPsbtOutput> = tx
+        let mut omitted = 0usize;
+        let filtered_outputs: Vec<WalletCreateFundedPsbtOutput> = tx
             .output
             .iter()
             .filter_map(|out| {
@@ -176,14 +177,23 @@ impl TxSender {
                         out.value,
                     )),
                     Err(err) => {
-                        tracing::warn!("Failed to create address from script: {}", err);
+                        tracing::error!(
+                            "Failed to get address from script for output of tx with txid {} for script: {}",
+                            tx.compute_txid(),
+                            err
+                        );
+                        omitted += 1;
                         None
                     }
                 }
             })
             .collect::<Vec<_>>();
 
-        let outputs = WalletCreateFundedPsbtOutputs(outputs);
+        if omitted > 0 {
+            return Err(eyre::eyre!("Failed to get address for outputs of tx with txid {} for {} outputs in create_funded_psbt", tx.compute_txid(), omitted).into());
+        }
+
+        let outputs = WalletCreateFundedPsbtOutputs(filtered_outputs);
 
         self.rpc
             .wallet_create_funded_psbt(

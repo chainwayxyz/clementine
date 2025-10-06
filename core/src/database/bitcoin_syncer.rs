@@ -328,7 +328,7 @@ impl Database {
         match spending_tx_height {
             Some(spending_tx_height) => {
                 if spending_tx_height > current_chain_height
-                    || current_chain_height - spending_tx_height < finality_depth
+                    || current_chain_height - spending_tx_height < finality_depth - 1
                 {
                     return Ok(false);
                 }
@@ -489,7 +489,7 @@ impl Database {
 
         let max_processed_finalized_block_height = match max_processed_block_height {
             Some(max_processed_block_height) => {
-                max_processed_block_height.checked_sub(paramset.finality_depth)
+                max_processed_block_height.checked_sub(paramset.finality_depth - 1)
             }
             None => None,
         };
