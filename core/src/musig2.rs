@@ -195,8 +195,11 @@ pub fn aggregate_partial_signatures(
         .unwrap_or(false);
 
     if enable_partial_sig_verification {
-        for ((partial_sig, pub_nonce), pub_key) in
-            partial_sigs_and_nonces.into_iter().zip(pks.into_iter())
+        let mut partial_sig_verification_errors = Vec::new();
+        for (idx, ((partial_sig, pub_nonce), pub_key)) in partial_sigs_and_nonces
+            .into_iter()
+            .zip(pks.into_iter())
+            .enumerate()
         {
             if !session.partial_verify(
                 SECP256K1,
@@ -205,15 +208,17 @@ pub fn aggregate_partial_signatures(
                 *pub_nonce,
                 to_secp_pk(pub_key),
             ) {
-                tracing::error!(
-                    "MuSig2 Error: partial signature verification failed for pub key: {}",
-                    pub_key
-                );
-                return Err(BridgeError::from(eyre::eyre!(
-                    "MuSig2 Error: partial signature verification failed for pub key: {}",
-                    pub_key
-                )));
+                let error_msg = format!("(index: {idx}, pub key: {pub_key})");
+                partial_sig_verification_errors.push(error_msg);
             }
+        }
+        if !partial_sig_verification_errors.is_empty() {
+            let error_msg = format!(
+                "MuSig2 Error: partial signature verification failed for verifiers: {}",
+                partial_sig_verification_errors.join(", ")
+            );
+            tracing::error!(error_msg);
+            return Err(BridgeError::from(eyre::eyre!(error_msg)));
         }
     }
     let final_sig = session.partial_sig_agg(&partial_sigs);
