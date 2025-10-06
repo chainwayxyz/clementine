@@ -283,7 +283,7 @@ async fn nonce_distributor(
                         .message()
                         .await
                         .wrap_err_with(|| AggregatorError::RequestFailed {
-                            request_name: format!("Partial sig {sig_count} from verifier {idx} error"),
+                            request_name: format!("Partial sig {sig_count} from verifier {idx}"),
                         })
                         .inspect_err(|e| {
                             tracing::error!(
@@ -354,15 +354,39 @@ async fn nonce_distributor(
 
     let (result_1, result_2) = tokio::join!(handle_1, handle_2);
 
-    result_1
-        .wrap_err("Task crashed while distributing aggnonces")?
-        .wrap_err("Error while distributing aggnonces")?;
-    result_2
-        .wrap_err("Task crashed while receiving partial sigs")?
-        .wrap_err("Error while receiving partial sigs")
-        .inspect_err(|e| tracing::error!("Failed to finish partial aggregation {e:?}"))?;
+    let mut task_errors = Vec::new();
 
-    tracing::warn!("Finished tasks in nonce_distributor");
+    match result_1 {
+        Ok(inner_result) => {
+            if let Err(e) = inner_result {
+                task_errors.push(format!("Task crashed while distributing aggnonces: {e:#?}"));
+            }
+        }
+        Err(e) => {
+            task_errors.push(format!("Failed to distribute aggnonces: {e:#?}"));
+        }
+    }
+
+    match result_2 {
+        Ok(inner_result) => {
+            if let Err(e) = inner_result {
+                task_errors.push(format!("Task crashed while receiving partial sigs: {e:#?}"));
+            }
+        }
+        Err(e) => {
+            task_errors.push(format!("Failed to receive partial sigs: {e:#?}"));
+        }
+    }
+
+    if !task_errors.is_empty() {
+        return Err(eyre::eyre!(format!(
+            "nonce_distributor failed with errors: {:#?}",
+            task_errors
+        ))
+        .into());
+    }
+
+    tracing::debug!("Finished tasks in nonce_distributor");
 
     Ok(())
 }
@@ -1510,14 +1534,23 @@ impl ClementineAggregator for AggregatorServer {
             let mut task_errors = Vec::new();
 
             for (task_name, task_output) in ["Nonce distribution", "Signature aggregation", "Signature distribution"].into_iter().zip(task_outputs.into_iter()) {
-                if let Err(e) = task_output { 
-                    tracing::error!("{} failed with error: {:?}", task_name, e); 
-                    task_errors.push(e);
+                match task_output {
+                    Ok(inner_result) => {
+                        if let Err(e) = inner_result {
+                            let err_msg = format!("{} failed with error: {:#?}", task_name, e);
+                            task_errors.push(err_msg);
+                        }
+                    },
+                    Err(e) => {
+                        let err_msg = format!("{} failed with error: {:#?}", task_name, e);
+                        task_errors.push(err_msg);
+                    }
                 }
             }
 
             if !task_errors.is_empty() {
-                return Err(eyre::eyre!(format!("Pipeline tasks failed with errors: {:?}", task_errors)).into());
+                tracing::error!("Pipeline tasks failed with errors: {:#?}", task_errors);
+                return Err(eyre::eyre!(format!("Pipeline tasks failed with errors: {:#?}", task_errors)).into());
             }
 
             tracing::debug!("Pipeline tasks completed");
