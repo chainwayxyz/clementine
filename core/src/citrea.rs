@@ -510,6 +510,7 @@ impl CitreaClientT for CitreaClient {
                     .verify(lc_image_id)
                     .map_err(|_| eyre::eyre!("Light client proof verification failed"))?;
 
+
                 if !check_method_id(&proof_output, lc_image_id) {
                     return Err(eyre::eyre!(
                     "Current light client proof method ID does not match the expected LC image ID"

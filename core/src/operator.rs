@@ -58,8 +58,7 @@ use {
         bridge_circuit_host::{
             create_spv, prove_bridge_circuit, MAINNET_BRIDGE_CIRCUIT_ELF,
             REGTEST_BRIDGE_CIRCUIT_ELF, REGTEST_BRIDGE_CIRCUIT_ELF_TEST, SIGNET_BRIDGE_CIRCUIT_ELF,
-            SIGNET_BRIDGE_CIRCUIT_ELF_TEST, TESTNET4_BRIDGE_CIRCUIT_ELF,
-            TESTNET4_BRIDGE_CIRCUIT_ELF_TEST,
+            TESTNET4_BRIDGE_CIRCUIT_ELF,
         },
         structs::{BridgeCircuitHostParams, WatchtowerContext},
     },
@@ -1527,20 +1526,8 @@ where
 
         let bridge_circuit_elf = match self.config.protocol_paramset().network {
             bitcoin::Network::Bitcoin => MAINNET_BRIDGE_CIRCUIT_ELF,
-            bitcoin::Network::Testnet4 => {
-                if is_dev_mode() {
-                    TESTNET4_BRIDGE_CIRCUIT_ELF_TEST
-                } else {
-                    TESTNET4_BRIDGE_CIRCUIT_ELF
-                }
-            }
-            bitcoin::Network::Signet => {
-                if is_dev_mode() {
-                    SIGNET_BRIDGE_CIRCUIT_ELF_TEST
-                } else {
-                    SIGNET_BRIDGE_CIRCUIT_ELF
-                }
-            }
+            bitcoin::Network::Testnet4 => TESTNET4_BRIDGE_CIRCUIT_ELF,
+            bitcoin::Network::Signet => SIGNET_BRIDGE_CIRCUIT_ELF,
             bitcoin::Network::Regtest => {
                 if is_dev_mode() {
                     REGTEST_BRIDGE_CIRCUIT_ELF_TEST
@@ -1557,6 +1544,11 @@ where
             }
         };
         tracing::info!("Starting proving bridge circuit to send asserts");
+
+        #[cfg(test)]
+        self.config
+            .test_params
+            .maybe_dump_bridge_circuit_params_to_file(&bridge_circuit_host_params)?;
 
         #[cfg(test)]
         self.config
