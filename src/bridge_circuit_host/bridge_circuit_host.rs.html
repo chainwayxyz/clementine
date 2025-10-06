@@ -771,8 +771,7 @@
 <a href="#770" id="770">770</a>
 <a href="#771" id="771">771</a>
 <a href="#772" id="772">772</a>
-<a href="#773" id="773">773</a>
-<a href="#774" id="774">774</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::docker::{stark_to_bitvm2_g16, stark_to_bitvm2_g16_dev_mode};
+<a href="#773" id="773">773</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::docker::{stark_to_bitvm2_g16, stark_to_bitvm2_g16_dev_mode};
 <span class="kw">use </span><span class="kw">crate</span>::structs::{
     BridgeCircuitBitvmInputs, BridgeCircuitHostParams, SuccinctBridgeCircuitPublicInputs,
 };
@@ -1221,12 +1220,11 @@
     <span class="kw">use </span>risc0_zkvm::default_executor;
 
     <span class="kw">const </span>TESTNET4_HEADERS: <span class="kw-2">&amp;</span>[u8] = <span class="macro">include_bytes!</span>(<span class="string">"../bin-files/testnet4-headers.bin"</span>);
+    <span class="kw">const </span>MAINNET_HEADERS: <span class="kw-2">&amp;</span>[u8] = <span class="macro">include_bytes!</span>(<span class="string">"../bin-files/mainnet-headers.bin"</span>);
 
     <span class="attr">#[test]
     </span><span class="kw">fn </span>test_header_chain_circuit() {
-        <span class="kw">let </span>value = <span class="macro">option_env!</span>(<span class="string">"BITCOIN_NETWORK"</span>);
-        <span class="macro">println!</span>(<span class="string">"BITCOIN_NETWORK: {:?}"</span>, value);
-        <span class="kw">let </span>headers = TESTNET4_HEADERS
+        <span class="kw">let </span>headers = MAINNET_HEADERS
             .chunks(<span class="number">80</span>)
             .map(|header| CircuitBlockHeader::try_from_slice(header).unwrap())
             .collect::&lt;Vec&lt;CircuitBlockHeader&gt;&gt;();
@@ -1236,7 +1234,7 @@
         <span class="kw">let </span>input = HeaderChainCircuitInput {
             method_id: [<span class="number">0</span>; <span class="number">8</span>],
             prev_proof: HeaderChainPrevProofType::GenesisBlock(ChainState::genesis_state()),
-            block_headers: headers[..<span class="number">4000</span>].to_vec(),
+            block_headers: headers[..<span class="number">50</span>].to_vec(),
         };
         host.write(<span class="kw-2">&amp;</span>input);
         header_chain_circuit(<span class="kw-2">&amp;</span>host);
@@ -1248,7 +1246,7 @@
         <span class="kw">let </span>newinput = HeaderChainCircuitInput {
             method_id: [<span class="number">0</span>; <span class="number">8</span>],
             prev_proof: HeaderChainPrevProofType::PrevProof(output),
-            block_headers: headers[<span class="number">4000</span>..<span class="number">8000</span>].to_vec(),
+            block_headers: headers[<span class="number">50</span>..<span class="number">100</span>].to_vec(),
         };
         new_host.write(<span class="kw-2">&amp;</span>newinput);
         new_host.add_assumption(proof);

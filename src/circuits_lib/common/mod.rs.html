@@ -55,7 +55,7 @@
             <span class="prelude-val">Some</span>(network) <span class="kw">if </span><span class="macro">matches!</span>(network.as_bytes(), <span class="string">b"testnet4"</span>) =&gt; <span class="string">"testnet4"</span>,
             <span class="prelude-val">Some</span>(network) <span class="kw">if </span><span class="macro">matches!</span>(network.as_bytes(), <span class="string">b"signet"</span>) =&gt; <span class="string">"signet"</span>,
             <span class="prelude-val">Some</span>(network) <span class="kw">if </span><span class="macro">matches!</span>(network.as_bytes(), <span class="string">b"regtest"</span>) =&gt; <span class="string">"regtest"</span>,
-            <span class="prelude-val">None </span>=&gt; <span class="string">"testnet4"</span>,
+            <span class="prelude-val">None </span>=&gt; <span class="string">"mainnet"</span>,
             <span class="kw">_ </span>=&gt; <span class="macro">panic!</span>(<span class="string">"Invalid network type"</span>),
         }
     }
