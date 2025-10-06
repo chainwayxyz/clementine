@@ -1345,10 +1345,8 @@ where
         let proof_output: LightClientCircuitOutput = borsh::from_slice(&lcp_receipt.journal.bytes)
             .wrap_err("Failed to deserialize light client circuit output")?;
         let l2_height = proof_output.last_l2_height;
-        let hex_l2_str = format!("0x{:x}", l2_height);
         let light_client_proof = LightClientProof {
             lc_journal: lcp_receipt.journal.bytes.clone(),
-            l2_height: hex_l2_str,
         };
 
         tracing::info!("Got light client proof in send_asserts");
