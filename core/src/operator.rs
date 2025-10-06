@@ -1509,7 +1509,7 @@ where
         }
 
         let watchtower_challenge_connector_start_idx =
-            (FIRST_FIVE_OUTPUTS + NUMBER_OF_ASSERT_TXS) as u16;
+            (FIRST_FIVE_OUTPUTS + NUMBER_OF_ASSERT_TXS) as u32;
 
         let bridge_circuit_host_params = BridgeCircuitHostParams::new_with_wt_tx(
             kickoff_tx.clone(),
