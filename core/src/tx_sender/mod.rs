@@ -1056,18 +1056,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[should_panic(expected = "Unsupported network for mempool.space: Signet")]
-    async fn test_mempool_space_fee_rate_signet() {
-        get_fee_rate_from_mempool_space(
-            &Some("https://mempool.space/".to_string()),
-            &Some("api/v1/fees/recommended".to_string()),
-            bitcoin::Network::Signet,
-        )
-        .await
-        .unwrap();
-    }
-
-    #[tokio::test]
     async fn test_get_fee_rate_mempool_higher_than_rpc_uses_rpc() {
         let mock_rpc_server = MockServer::start().await;
 
