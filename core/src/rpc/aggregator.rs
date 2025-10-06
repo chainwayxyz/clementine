@@ -86,7 +86,8 @@ async fn get_next_pub_nonces(
             .map(|(i, s)| async move {
                 s.next()
                     .await
-                    .transpose()? // Return the inner error if it exists
+                    .transpose()
+                    .wrap_err(format!("Failed to get nonce from verifier {i}"))? // Return the inner error if it exists
                     .ok_or_else(|| -> eyre::Report {
                         AggregatorError::InputStreamEndedEarlyUnknownSize {
                             // Return an early end error if the stream is empty
@@ -157,18 +158,24 @@ async fn nonce_aggregator(
         return Err(eyre::eyre!(err_msg).into());
     }
     // aggregate nonces for the movetx signature
-    let pub_nonces = try_join_all(nonce_streams.iter_mut().map(|s| async {
-        s.next()
-            .await
-            .transpose()? // Return the inner error if it exists
-            .ok_or_else(|| -> eyre::Report {
-                AggregatorError::InputStreamEndedEarlyUnknownSize {
-                    // Return an early end error if the stream is empty
-                    stream_name: "Nonce stream".to_string(),
-                }
-                .into()
-            })
-    }))
+    let pub_nonces = try_join_all(
+        nonce_streams
+            .iter_mut()
+            .enumerate()
+            .map(|(i, s)| async move {
+                s.next()
+                    .await
+                    .transpose()
+                    .wrap_err(format!("Failed to get movetx nonce from verifier {i}",))? // Return the inner error if it exists
+                    .ok_or_else(|| -> eyre::Report {
+                        AggregatorError::InputStreamEndedEarlyUnknownSize {
+                            // Return an early end error if the stream is empty
+                            stream_name: format!("Movetx nonce stream for verifier {i}"),
+                        }
+                        .into()
+                    })
+            }),
+    )
     .await
     .wrap_err("Failed to aggregate nonces for the move tx")?;
 
@@ -176,18 +183,26 @@ async fn nonce_aggregator(
 
     let move_tx_agg_nonce = aggregate_nonces(pub_nonces.iter().collect::<Vec<_>>().as_slice())?;
 
-    let pub_nonces = try_join_all(nonce_streams.iter_mut().map(|s| async {
-        s.next()
-            .await
-            .transpose()? // Return the inner error if it exists
-            .ok_or_else(|| -> eyre::Report {
-                AggregatorError::InputStreamEndedEarlyUnknownSize {
-                    // Return an early end error if the stream is empty
-                    stream_name: "Nonce stream".to_string(),
-                }
-                .into()
-            })
-    }))
+    let pub_nonces = try_join_all(
+        nonce_streams
+            .iter_mut()
+            .enumerate()
+            .map(|(i, s)| async move {
+                s.next()
+                    .await
+                    .transpose()
+                    .wrap_err(format!(
+                        "Failed to get emergency stop nonce from verifier {i}"
+                    ))? // Return the inner error if it exists
+                    .ok_or_else(|| -> eyre::Report {
+                        AggregatorError::InputStreamEndedEarlyUnknownSize {
+                            // Return an early end error if the stream is empty
+                            stream_name: format!("Emergency stop nonce stream for verifier {i}"),
+                        }
+                        .into()
+                    })
+            }),
+    )
     .await
     .wrap_err("Failed to aggregate nonces for the emergency stop tx")?;
 
