@@ -693,7 +693,7 @@ where
                     change_position: Some(1),
                     change_type: None,
                     include_watching: None,
-                    lock_unspents: Some(true),
+                    lock_unspents: Some(false),
                     fee_rate: None,
                     subtract_fee_from_outputs: None,
                     replaceable: None,
@@ -706,20 +706,20 @@ where
             .wrap_err("Failed to fund raw transaction")?
             .hex;
 
-        let signed_tx: Transaction = bitcoin::consensus::deserialize(
-            &self
-                .rpc
-                .sign_raw_transaction_with_wallet(&funded_tx, None, None)
-                .await
-                .wrap_err("Failed to sign funded tx through bitcoin RPC")?
-                .hex,
-        )
-        .wrap_err("Failed to deserialize signed tx")?;
+        let signed_tx = self
+            .rpc
+            .sign_raw_transaction_with_wallet(&funded_tx, None, None)
+            .await
+            .wrap_err("Failed to sign withdrawal transaction")?
+            .hex;
+
+        let signed_tx: Transaction = bitcoin::consensus::deserialize(&signed_tx)
+            .wrap_err("Failed to deserialize signed withdrawal transaction")?;
 
         self.rpc
             .send_raw_transaction(&signed_tx)
             .await
-            .wrap_err("Failed to send transaction to signed tx")?;
+            .wrap_err("Failed to send withdrawal transaction")?;
 
         Ok(signed_tx)
     }
