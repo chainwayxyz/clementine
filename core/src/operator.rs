@@ -1011,7 +1011,8 @@ where
         )?;
 
         self.signer
-            .tx_sign_and_fill_sigs(&mut first_round_tx, &[], None)?;
+            .tx_sign_and_fill_sigs(&mut first_round_tx, &[], None)
+            .wrap_err("Failed to sign first round tx")?;
 
         self.tx_sender
             .insert_try_to_send(
@@ -1088,18 +1089,18 @@ where
         let mut tweak_cache = TweakCache::default();
 
         // sign ready to reimburse tx
-        self.signer.tx_sign_and_fill_sigs(
-            &mut ready_to_reimburse_txhandler,
-            &[],
-            Some(&mut tweak_cache),
-        )?;
+        self.signer
+            .tx_sign_and_fill_sigs(
+                &mut ready_to_reimburse_txhandler,
+                &[],
+                Some(&mut tweak_cache),
+            )
+            .wrap_err("Failed to sign ready to reimburse tx")?;
 
         // sign next round tx
-        self.signer.tx_sign_and_fill_sigs(
-            &mut next_round_txhandler,
-            &[],
-            Some(&mut tweak_cache),
-        )?;
+        self.signer
+            .tx_sign_and_fill_sigs(&mut next_round_txhandler, &[], Some(&mut tweak_cache))
+            .wrap_err("Failed to sign next round tx")?;
 
         let current_round_txid = current_round_txhandler.get_cached_tx().compute_txid();
         let ready_to_reimburse_tx = ready_to_reimburse_txhandler.get_cached_tx();
@@ -1163,11 +1164,13 @@ where
             )?;
 
         // sign burn unused kickoff connectors tx
-        self.signer.tx_sign_and_fill_sigs(
-            &mut burn_unspent_kickoff_connectors_tx,
-            &[],
-            Some(&mut tweak_cache),
-        )?;
+        self.signer
+            .tx_sign_and_fill_sigs(
+                &mut burn_unspent_kickoff_connectors_tx,
+                &[],
+                Some(&mut tweak_cache),
+            )
+            .wrap_err("Failed to sign burn unused kickoff connectors tx")?;
 
         self.tx_sender
             .insert_try_to_send(
@@ -2164,11 +2167,10 @@ where
             )?;
 
         // sign burn unused kickoff connectors tx
-        self.signer.tx_sign_and_fill_sigs(
-            &mut burn_unused_kickoff_connectors_txhandler,
-            &[],
-            None,
-        )?;
+        self.signer
+            .tx_sign_and_fill_sigs(&mut burn_unused_kickoff_connectors_txhandler, &[], None)
+            .wrap_err("Failed to sign burn unused kickoff connectors tx")?;
+
         let burn_unused_kickoff_connectors_txhandler =
             burn_unused_kickoff_connectors_txhandler.promote()?;
         Ok(vec![(
