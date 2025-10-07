@@ -217,7 +217,7 @@ pub fn aggregate_partial_signatures(
                 "MuSig2 Error: partial signature verification failed for verifiers: {}",
                 partial_sig_verification_errors.join(", ")
             );
-            tracing::error!(error_msg);
+            tracing::error!("{error_msg}");
             return Err(BridgeError::from(eyre::eyre!(error_msg)));
         }
     }
