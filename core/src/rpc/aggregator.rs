@@ -1673,6 +1673,8 @@ impl ClementineAggregator for AggregatorServer {
         {
             use std::sync::Arc;
 
+            use bitcoin::Amount;
+
             use crate::builder::{
                 address::create_taproot_address,
                 script::{CheckSig, Multisig, SpendableScript},
@@ -1697,14 +1699,16 @@ impl ClementineAggregator for AggregatorServer {
                 ));
             }
             // check output values
-            if !(movetx.output[0].value
-                == self.config.protocol_paramset().bridge_amount
-                    - self.config.protocol_paramset().anchor_amount()
-                && movetx.output[1].value == self.config.protocol_paramset().anchor_amount())
+            // movetx always has 0 sat anchor output
+            if !(movetx.output[0].value == self.config.protocol_paramset().bridge_amount
+                && movetx.output[1].value == Amount::from_sat(0))
             {
-                return Err(Status::invalid_argument(
-                    "Transaction is not a movetx, output sat values are not correct",
-                ));
+                return Err(Status::invalid_argument(format!(
+                    "Transaction is not a movetx, output sat values are not correct, should be ({}, 0), got ({}, {})",
+                    self.config.protocol_paramset().bridge_amount,
+                    movetx.output[0].value,
+                    movetx.output[1].value,
+                )));
             }
             // check output scriptpubkeys
             let verifier_keys = self.fetch_verifier_keys().await?;
