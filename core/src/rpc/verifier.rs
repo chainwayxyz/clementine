@@ -620,7 +620,7 @@ where
         #[cfg(feature = "automation")]
         {
             let tx_id = request.into_inner().tx_id;
-            tracing::info!("Called debug_tx for tx sender try to sen id: {:?}", tx_id);
+            tracing::info!("Called debug_tx for tx sender try to send id: {:?}", tx_id);
             match self.verifier.tx_sender.debug_tx(tx_id).await {
                 Ok(debug_info) => Ok(tonic::Response::new(debug_info)),
                 Err(e) => Err(tonic::Status::internal(format!(
