@@ -503,7 +503,6 @@ impl CitreaClientT for CitreaClient {
 
             let l2_height = u64::try_from(proof_result.light_client_proof_output.last_l2_height)
                 .wrap_err("Failed to convert l2 height to u64")?;
-            let hex_l2_str = format!("0x{:x}", l2_height);
 
             let lc_image_id = paramset.get_lcp_image_id()?;
 
@@ -524,7 +523,6 @@ impl CitreaClientT for CitreaClient {
             Some((
                 LightClientProof {
                     lc_journal: receipt.journal.bytes.clone(),
-                    l2_height: hex_l2_str,
                 },
                 receipt,
                 l2_height,
