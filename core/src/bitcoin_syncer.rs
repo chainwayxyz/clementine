@@ -513,51 +513,53 @@ impl<H: BlockHandler> Task for FinalizedBlockFetcherTask<H> {
             dbtx.commit().await?;
             return Ok(false);
         };
+        let mut new_next_height = self.next_height;
 
         // Process the event
         let did_find_new_block = match event {
             BitcoinSyncerEvent::NewBlock(block_id) => {
-                let current_tip_height = self
+                let new_block_height = self
                     .db
                     .get_block_info_from_id(Some(&mut dbtx), block_id)
                     .await?
                     .ok_or(eyre::eyre!("Block not found in BlockFetcherTask",))?
                     .1;
+
                 let mut new_tip = false;
 
                 // Update states to catch up to finalized chain
-                while current_tip_height >= self.paramset.finality_depth
-                    && self.next_height <= current_tip_height - self.paramset.finality_depth
+                while new_block_height >= self.paramset.finality_depth
+                    && new_next_height <= new_block_height - self.paramset.finality_depth
                 {
                     new_tip = true;
 
                     let block = self
                         .db
-                        .get_full_block(Some(&mut dbtx), self.next_height)
+                        .get_full_block(Some(&mut dbtx), new_next_height)
                         .await?
                         .ok_or(eyre::eyre!(
                             "Block at height {} not found in BlockFetcherTask, current tip height is {}",
-                            self.next_height, current_tip_height
+                            new_next_height, new_block_height
                         ))?;
 
                     let new_block_id = self
                         .db
-                        .get_canonical_block_id_from_height(Some(&mut dbtx), self.next_height)
+                        .get_canonical_block_id_from_height(Some(&mut dbtx), new_next_height)
                         .await?;
 
                     let Some(new_block_id) = new_block_id else {
-                        tracing::error!("Block at height {} not found in BlockFetcherTask, current tip height is {}", self.next_height, current_tip_height);
+                        tracing::error!("Block at height {} not found in BlockFetcherTask, current tip height is {}", new_next_height, new_block_height);
                         return Err(eyre::eyre!(
                             "Block at height {} not found in BlockFetcherTask, current tip height is {}",
-                            self.next_height, current_tip_height
+                            new_next_height, new_block_height
                         ).into());
                     };
 
                     self.handler
-                        .handle_new_block(&mut dbtx, new_block_id, block, self.next_height)
+                        .handle_new_block(&mut dbtx, new_block_id, block, new_next_height)
                         .await?;
 
-                    self.next_height += 1;
+                    new_next_height += 1;
                 }
 
                 new_tip
@@ -566,6 +568,8 @@ impl<H: BlockHandler> Task for FinalizedBlockFetcherTask<H> {
         };
 
         dbtx.commit().await?;
+        // update next height only after db commit is successful so next_height is consistent with state in DB
+        self.next_height = new_next_height;
         // Return whether we found new blocks
         Ok(did_find_new_block)
     }

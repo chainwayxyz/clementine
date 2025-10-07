@@ -55,7 +55,7 @@ impl Task for TxSenderTask {
             tracing::debug!("TXSENDER: Event: {:?}", event);
             Ok::<_, BridgeError>(match event {
                 BitcoinSyncerEvent::NewBlock(block_id) => {
-                    self.current_tip_height = self
+                    let block_height = self
                         .db
                         .get_block_info_from_id(Some(&mut dbtx), block_id)
                         .await?
@@ -70,6 +70,8 @@ impl Task for TxSenderTask {
                     self.db.confirm_transactions(&mut dbtx, block_id).await?;
 
                     dbtx.commit().await?;
+                    // update after db commit
+                    self.current_tip_height = block_height;
                     true
                 }
                 BitcoinSyncerEvent::ReorgedBlock(block_id) => {

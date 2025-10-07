@@ -135,7 +135,7 @@ impl<T: Owner + std::fmt::Debug + 'static> Task for MessageConsumerTask<T> {
                 return Ok::<_, BridgeError>(false);
             };
 
-            self.inner.handle_event(message, &mut dbtx).await?;
+            let next_height_to_process = self.inner.handle_event(message, &mut dbtx).await?;
 
             // Delete event from queue
             self.inner
@@ -145,6 +145,8 @@ impl<T: Owner + std::fmt::Debug + 'static> Task for MessageConsumerTask<T> {
                 .wrap_err("Deleting event from queue")?;
 
             dbtx.commit().await?;
+            // after db commit, update the next height to process on memory
+            self.inner.next_height_to_process = next_height_to_process;
             Ok(true)
         }
         .await?;

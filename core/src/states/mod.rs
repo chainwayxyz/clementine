@@ -455,9 +455,11 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
     /// The state machines are updated until all of them stabilize in their state (ie.
     /// the block does not generate any new events)
     ///
+    /// Returns the next height to process after processing the block.
+    ///
     /// # Errors
     /// If the state machines do not stabilize after some iterations, we return an error.
-    pub async fn process_block_parallel(&mut self, block_height: u32) -> Result<(), eyre::Report> {
+    pub async fn process_block_parallel(&mut self, block_height: u32) -> Result<u32, eyre::Report> {
         eyre::ensure!(
             self.context.cache.block_height == block_height,
             "Block cache is not updated"
@@ -583,8 +585,10 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         // Set back the original machines
         self.round_machines = final_round_machines;
         self.kickoff_machines = final_kickoff_machines;
-        self.next_height_to_process = max(block_height + 1, self.next_height_to_process);
 
-        Ok(())
+        // Return what the next height to process should be
+        // Do not edit the next height to process here as the block processing can still fail afterwards
+        // (for example if db transaction commit fails)
+        Ok(max(block_height + 1, self.next_height_to_process))
     }
 }
