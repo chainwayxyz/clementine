@@ -1642,7 +1642,7 @@ impl ClementineAggregator for AggregatorServer {
             // check output values
             // movetx always has 0 sat anchor output
             if !(movetx.output[0].value == self.config.protocol_paramset().bridge_amount
-                && movetx.output[1].value != Amount::from_sat(0))
+                && movetx.output[1].value == Amount::from_sat(0))
             {
                 return Err(Status::invalid_argument(format!(
                     "Transaction is not a movetx, output sat values are not correct, should be ({}, 0), got ({}, {})",
