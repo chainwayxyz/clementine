@@ -115,6 +115,8 @@ pub struct KickoffStateMachine<T: Owner> {
     pub(crate) kickoff_height: u32,
     /// The witness for the kickoff transactions input which is a winternitz signature that commits the payout blockhash.
     pub(crate) payout_blockhash: Witness,
+    /// Marker to indicate if the state machine is in the challenged state.
+    challenged: bool,
     /// Set of indices of watchtower UTXOs that have already been spent.
     spent_watchtower_utxos: HashSet<usize>,
     /// The witness taken from the transaction spending the latest blockhash utxo.
@@ -168,6 +170,7 @@ impl<T: Owner> KickoffStateMachine<T> {
             latest_blockhash: Witness::default(),
             matchers: HashMap::new(),
             dirty: true,
+            challenged: false,
             phantom: std::marker::PhantomData,
             watchtower_challenges: HashMap::new(),
             operator_asserts: HashMap::new(),
@@ -230,7 +233,9 @@ impl<T: Owner> KickoffStateMachine<T> {
             .capture_error(async |context| {
                 {
                     // if all watchtower challenge utxos are spent, its safe to send latest blockhash commit tx
-                    if self.spent_watchtower_utxos.len() == self.deposit_data.get_num_watchtowers()
+                    if self.challenged
+                        && self.spent_watchtower_utxos.len()
+                            == self.deposit_data.get_num_watchtowers()
                     {
                         // create a matcher to send latest blockhash tx after finality depth blocks pass from current block height
                         self.matchers.insert(
@@ -252,7 +257,7 @@ impl<T: Owner> KickoffStateMachine<T> {
     /// latest blockhash is committed and all watchtower challenge utxos are spent
     /// If the check is successful, the disprove is sent on Bitcoin
     async fn disprove_if_ready(&mut self, context: &mut StateContext<T>) {
-        if self.operator_asserts.len() == ClementineBitVMPublicKeys::number_of_assert_txs()
+        if self.challenged && self.operator_asserts.len() == ClementineBitVMPublicKeys::number_of_assert_txs()
             && self.latest_blockhash != Witness::default()
             && self.spent_watchtower_utxos.len() == self.deposit_data.get_num_watchtowers()
             // check if all operator acks are received, one ack for each watchtower challenge
@@ -272,7 +277,9 @@ impl<T: Owner> KickoffStateMachine<T> {
             .capture_error(async |context| {
                 {
                     // if all watchtower challenge utxos are spent and latest blockhash is committed, its safe to send asserts
-                    if self.spent_watchtower_utxos.len() == self.deposit_data.get_num_watchtowers()
+                    if self.challenged
+                        && self.spent_watchtower_utxos.len()
+                            == self.deposit_data.get_num_watchtowers()
                         && self.latest_blockhash != Witness::default()
                     {
                         context
@@ -366,6 +373,7 @@ impl<T: Owner> KickoffStateMachine<T> {
     /// which changes the state to "Closed".
     #[action]
     pub(crate) async fn on_challenged_entry(&mut self, context: &mut StateContext<T>) {
+        self.challenged = true;
         context
             .capture_error(async |context| {
                 {
@@ -382,6 +390,12 @@ impl<T: Owner> KickoffStateMachine<T> {
                 .wrap_err(self.kickoff_meta("on_kickoff_started_entry"))
             })
             .await;
+        // check if any action is ready to be started as it could already be ready before a challenge arrives
+        // but we want to make sure kickoff is actually challenged before we start sending actions
+        self.create_matcher_for_latest_blockhash_if_ready(context)
+            .await;
+        self.send_operator_asserts_if_ready(context).await;
+        self.disprove_if_ready(context).await;
     }
 
     /// State that is entered when the kickoff is challenged
@@ -439,7 +453,7 @@ impl<T: Owner> KickoffStateMachine<T> {
                     .insert(*watchtower_idx, tx.clone());
                 self.create_matcher_for_latest_blockhash_if_ready(context)
                     .await;
-                self.disprove_if_ready(context).await;
+                self.send_operator_asserts_if_ready(context).await;
                 Handled
             }
             // When an operator assert is detected in Bitcoin,
@@ -473,6 +487,7 @@ impl<T: Owner> KickoffStateMachine<T> {
                 // save challenge ack witness
                 self.operator_challenge_acks
                     .insert(*watchtower_idx, witness);
+                self.disprove_if_ready(context).await;
                 Handled
             }
             // When the kickoff finalizer is spent in Bitcoin,
@@ -493,6 +508,8 @@ impl<T: Owner> KickoffStateMachine<T> {
                 self.spent_watchtower_utxos.insert(*watchtower_idx);
                 self.create_matcher_for_latest_blockhash_if_ready(context)
                     .await;
+                self.send_operator_asserts_if_ready(context).await;
+                self.disprove_if_ready(context).await;
                 Handled
             }
             // When the latest blockhash is detected in Bitcoin,

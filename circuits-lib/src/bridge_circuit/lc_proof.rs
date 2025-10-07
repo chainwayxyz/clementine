@@ -65,7 +65,6 @@ mod tests {
         let lcp_receipt: Receipt = borsh::from_slice(lcp_receipt_bytes).unwrap();
 
         let light_client_proof: LightClientProof = LightClientProof {
-            l2_height: "0x0".to_string(),
             lc_journal: lcp_receipt.journal.bytes.to_vec(),
         };
 
@@ -83,7 +82,6 @@ mod tests {
         lcp_receipt.verify(REGTEST_LC_IMAGE_ID).unwrap();
 
         let light_client_proof: LightClientProof = LightClientProof {
-            l2_height: "0x0".to_string(),
             lc_journal: lcp_receipt.journal.bytes.to_vec(),
         };
 

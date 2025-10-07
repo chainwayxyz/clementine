@@ -2166,9 +2166,7 @@ where
 
         let vout = UtxoVout::Kickoff(kickoff_data.kickoff_idx as usize).get_vout();
 
-        let watchtower_challenge_start_idx =
-            u16::try_from(UtxoVout::WatchtowerChallenge(0).get_vout())
-                .wrap_err("Watchtower challenge start index overflow")?;
+        let watchtower_challenge_start_idx = UtxoVout::WatchtowerChallenge(0).get_vout();
 
         let secp = Secp256k1::verification_only();
 

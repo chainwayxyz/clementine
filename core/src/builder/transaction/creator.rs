@@ -607,6 +607,15 @@ pub async fn create_txhandlers(
         ..
     } = context;
 
+    if context.operator_xonly_pk != operator_data.xonly_pk {
+        return Err(eyre::eyre!(
+            "Operator xonly pk mismatch between ContractContext and ReimburseDbCache: {:?} != {:?}",
+            context.operator_xonly_pk,
+            operator_data.xonly_pk
+        )
+        .into());
+    }
+
     let mut txhandlers = txhandler_cache.get_cached_txs();
     if !txhandlers.contains_key(&TransactionType::Round) {
         // create round tx, ready to reimburse tx, and unspent kickoff txs if not in cache
@@ -651,6 +660,23 @@ pub async fn create_txhandlers(
         kickoff_idx: context.kickoff_idx.ok_or(TxError::InsufficientContext)?,
     };
 
+    if let Some(deposit_outpoint) = db_cache.deposit_outpoint {
+        if deposit_outpoint != deposit_data.get_deposit_outpoint() {
+            return Err(eyre::eyre!(
+                "Deposit outpoint mismatch between ReimburseDbCache and ContractContext: {:?} != {:?}",
+                deposit_outpoint,
+                deposit_data.get_deposit_outpoint()
+            )
+            .into());
+        }
+    } else {
+        return Err(eyre::eyre!(
+            "Deposit outpoint is not set in ReimburseDbCache, but is set in ContractContext: {:?}",
+            deposit_data.get_deposit_outpoint()
+        )
+        .into());
+    }
+
     if !txhandlers.contains_key(&TransactionType::MoveToVault) {
         // if not cached create move_txhandler
         let move_txhandler =
@@ -685,7 +711,7 @@ pub async fn create_txhandlers(
         .to_byte_array();
 
     let vout = UtxoVout::Kickoff(kickoff_data.kickoff_idx as usize).get_vout();
-    let watchtower_challenge_start_idx = UtxoVout::WatchtowerChallenge(0).get_vout() as u16;
+    let watchtower_challenge_start_idx = UtxoVout::WatchtowerChallenge(0).get_vout();
     let secp = Secp256k1::verification_only();
 
     let nofn_key: XOnlyPublicKey = deposit_data.get_nofn_xonly_pk()?;
