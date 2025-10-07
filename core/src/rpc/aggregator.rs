@@ -160,7 +160,7 @@ async fn nonce_aggregator(
             "Expected {} nofn signatures, got {} from sighash stream",
             needed_nofn_sigs, total_sigs
         );
-        tracing::error!(err_msg);
+        tracing::error!("{err_msg}");
         return Err(eyre::eyre!(err_msg).into());
     }
     // aggregate nonces for the movetx signature
@@ -287,7 +287,7 @@ async fn nonce_distributor(
         }
         if nonce_count != needed_nofn_sigs {
             let err_msg = format!("Expected {needed_nofn_sigs} aggregated nonces in nonce_distributor, got {nonce_count}",);
-            tracing::error!(err_msg);
+            tracing::error!("{err_msg}");
             return Err(eyre::eyre!(err_msg).into());
         }
 
@@ -363,7 +363,7 @@ async fn nonce_distributor(
             let err_msg = format!(
                 "Expected {needed_nofn_sigs} partial signatures in nonce_distributor, got {sig_count}",
             );
-            tracing::error!(err_msg);
+            tracing::error!("{err_msg}");
             return Err(eyre::eyre!(err_msg).into());
         }
         tracing::trace!(
@@ -461,7 +461,7 @@ async fn signature_aggregator(
         let err_msg = format!(
             "Expected {needed_nofn_sigs} aggregated signatures in signature_aggregator, got {sig_count}",
         );
-        tracing::error!(err_msg);
+        tracing::error!("{err_msg}");
         return Err(eyre::eyre!(err_msg).into());
     }
 
@@ -525,7 +525,7 @@ async fn signature_distributor(
         let err_msg = format!(
             "Expected {needed_nofn_sigs} signatures in signature_distributor, got {sig_count}",
         );
-        tracing::error!(err_msg);
+        tracing::error!("{err_msg}");
         return Err(eyre::eyre!(err_msg).into());
     }
 
