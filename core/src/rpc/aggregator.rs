@@ -1297,7 +1297,7 @@ impl ClementineAggregator for AggregatorServer {
                     },
                 ).collect::<Result<Vec<_>, BridgeError>>()?;
 
-            tracing::info!("Sending deposit finalize streams to verifiers");
+            tracing::info!("Sending deposit finalize streams to verifiers for deposit {:?}", deposit_info);
 
             let (deposit_finalize_futures, deposit_finalize_sender): (Vec<_>, Vec<_>) =
                 deposit_finalize_streams.into_iter().unzip();
