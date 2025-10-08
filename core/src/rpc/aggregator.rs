@@ -639,6 +639,9 @@ impl Aggregator {
                     sigs.push(Signature::from_slice(&sig.schnorr_sig).wrap_err_with(|| {
                         format!("Failed to parse Schnorr signature from operator {idx}")
                     })?);
+                    if sigs.len() == needed_sigs {
+                        break;
+                    }
                 }
                 Ok::<_, BridgeError>(sigs)
             },
@@ -1668,6 +1671,7 @@ impl ClementineAggregator for AggregatorServer {
 
         #[cfg(feature = "automation")]
         {
+            use bitcoin::Amount;
             use std::sync::Arc;
 
             use crate::builder::{
@@ -1694,14 +1698,16 @@ impl ClementineAggregator for AggregatorServer {
                 ));
             }
             // check output values
-            if !(movetx.output[0].value
-                == self.config.protocol_paramset().bridge_amount
-                    - self.config.protocol_paramset().anchor_amount()
-                && movetx.output[1].value == self.config.protocol_paramset().anchor_amount())
+            // movetx always has 0 sat anchor output
+            if !(movetx.output[0].value == self.config.protocol_paramset().bridge_amount
+                && movetx.output[1].value == Amount::from_sat(0))
             {
-                return Err(Status::invalid_argument(
-                    "Transaction is not a movetx, output sat values are not correct",
-                ));
+                return Err(Status::invalid_argument(format!(
+                    "Transaction is not a movetx, output sat values are not correct, should be ({}, 0), got ({}, {})",
+                    self.config.protocol_paramset().bridge_amount,
+                    movetx.output[0].value,
+                    movetx.output[1].value,
+                )));
             }
             // check output scriptpubkeys
             let verifier_keys = self.fetch_verifier_keys().await?;
