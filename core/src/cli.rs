@@ -381,6 +381,7 @@ mod tests {
 
         env::set_var("TELEMETRY_HOST", "0.0.0.0");
         env::set_var("TELEMETRY_PORT", "8081");
+        env::set_var("TX_SENDER_FEE_RATE_HARD_CAP", "100");
     }
 
     // Helper to set up all environment variables needed for protocol paramset
