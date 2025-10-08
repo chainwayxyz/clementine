@@ -466,7 +466,7 @@ impl TxSender {
                 }
             };
             // only try to bump if tx has no descendants and 1 hour passed since tx was created
-            if mempool_info.descendant_count > 0
+            if mempool_info.descendant_count > 1
                 || std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .wrap_err("Failed to get unix timestamp")?
