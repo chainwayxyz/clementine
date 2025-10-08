@@ -1,7 +1,10 @@
 [package]
 name = "bridge-circuit-host"
-version = "0.1.0"
-edition = "2021"
+version = { workspace = true }
+authors = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
 
 [dependencies]
 risc0-zkvm = { workspace = true, features = ["metal", "bonsai", "client", "prove"] }

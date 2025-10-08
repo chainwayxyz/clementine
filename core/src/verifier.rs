@@ -2828,9 +2828,9 @@ mod states {
                     let mut db_cache =
                         ReimburseDbCache::from_context(self.db.clone(), &context, None);
 
-                    let txhandlers = create_txhandlers(
-                        TransactionType::Disprove,
-                        context,
+                    let mut txhandlers = create_txhandlers(
+                        TransactionType::AllNeededForDeposit,
+                        context.clone(),
                         &mut TxHandlerCache::new(),
                         &mut db_cache,
                     )
@@ -2878,8 +2878,20 @@ mod states {
                                     kickoff_data.operator_xonly_pk
                                 );
 
+                                let mut tx_handler_cache = TxHandlerCache::new();
+                                tx_handler_cache.store_for_next_kickoff(&mut txhandlers)?;
+
+                                // Only this one creates a tx handler in which scripts exists, other txhandlers only include scripts as hidden nodes.
+                                let txhandlers_with_disprove = create_txhandlers(
+                                    TransactionType::Disprove,
+                                    context,
+                                    &mut tx_handler_cache,
+                                    &mut db_cache,
+                                )
+                                .await?;
+
                                 self.send_disprove_tx(
-                                    &txhandlers,
+                                    &txhandlers_with_disprove,
                                     kickoff_data,
                                     deposit_data,
                                     (index, disprove_script),
