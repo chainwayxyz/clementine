@@ -54,7 +54,7 @@ pub struct Unsigned;
 impl State for Unsigned {}
 impl State for Signed {}
 pub type SighashCalculator<'a> =
-    Box<dyn FnOnce(TapSighashType) -> Result<TapSighash, BridgeError> + 'a>;
+    Box<dyn Fn(TapSighashType) -> Result<TapSighash, BridgeError> + 'a>;
 
 impl<T: State> TxHandler<T> {
     /// Returns a spendable input for the specified output index in this transaction.
@@ -142,7 +142,7 @@ impl<T: State> TxHandler<T> {
     fn get_sighash_calculator(
         &self,
         idx: usize,
-    ) -> impl FnOnce(TapSighashType) -> Result<TapSighash, BridgeError> + '_ {
+    ) -> impl Fn(TapSighashType) -> Result<TapSighash, BridgeError> + '_ {
         move |sighash_type: TapSighashType| -> Result<TapSighash, BridgeError> {
             match self.txins[idx].get_spend_path() {
                 SpendPath::KeySpend => self.calculate_pubkey_spend_sighash(idx, sighash_type),

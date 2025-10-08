@@ -2425,7 +2425,8 @@ where
                     verifier_xonly_pk,
                     e
                 );
-            })?;
+            })
+            .wrap_err("Failed to sign disprove tx")?;
 
         let disprove_tx = disprove_txhandler.get_cached_tx().clone();
 
@@ -2712,7 +2713,8 @@ where
                     verifier_xonly_pk,
                     e
                 );
-            })?;
+            })
+            .wrap_err("Failed to sign disprove tx")?;
 
         let disprove_tx = disprove_txhandler.get_cached_tx().clone();
 
