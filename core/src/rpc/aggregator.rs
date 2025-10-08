@@ -1671,9 +1671,8 @@ impl ClementineAggregator for AggregatorServer {
 
         #[cfg(feature = "automation")]
         {
-            use std::sync::Arc;
-
             use bitcoin::Amount;
+            use std::sync::Arc;
 
             use crate::builder::{
                 address::create_taproot_address,
