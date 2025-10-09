@@ -85,6 +85,8 @@ pub struct BridgeConfig {
     pub bridge_contract_address: String,
     // Initial header chain proof receipt's file path.
     pub header_chain_proof_path: Option<PathBuf>,
+    /// Batch size of the header chain proofs
+    pub header_chain_proof_batch_size: u32,
 
     /// Security council.
     pub security_council: SecurityCouncil,
@@ -297,6 +299,7 @@ impl Default for BridgeConfig {
             citrea_request_timeout: None,
 
             header_chain_proof_path: None,
+            header_chain_proof_batch_size: 100,
 
             operator_reimbursement_address: None,
             operator_collateral_funding_outpoint: None,

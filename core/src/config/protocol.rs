@@ -125,8 +125,6 @@ pub struct ProtocolParamset {
     pub genesis_height: u32,
     /// Genesis chain state hash
     pub genesis_chain_state_hash: [u8; 32],
-    /// Batch size of the header chain proofs
-    pub header_chain_proof_batch_size: u32,
     /// Denotes if the bridge is non-standard, i.e. uses 0 sat outputs for round tx (except collateral) and kickoff outputs
     pub bridge_nonstandard: bool,
 }
@@ -193,9 +191,6 @@ impl ProtocolParamset {
             genesis_height: read_string_from_env_then_parse::<u32>("GENESIS_HEIGHT")?,
             genesis_chain_state_hash: convert_hex_string_to_bytes(
                 &read_string_from_env_then_parse::<String>("GENESIS_CHAIN_STATE_HASH")?,
-            )?,
-            header_chain_proof_batch_size: read_string_from_env_then_parse::<u32>(
-                "HEADER_CHAIN_PROOF_BATCH_SIZE",
             )?,
             latest_blockhash_timeout_timelock: read_string_from_env_then_parse::<u16>(
                 "LATEST_BLOCKHASH_TIMEOUT_TIMELOCK",
@@ -302,7 +297,6 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
         95, 115, 2, 173, 22, 200, 189, 158, 242, 243, 190, 0, 200, 25, 154, 134, 249, 224, 186,
         134, 20, 132, 171, 180, 175, 95, 126, 69, 127, 140, 34, 22,
     ],
-    header_chain_proof_batch_size: 100,
     bridge_nonstandard: true,
 };
 
@@ -335,7 +329,6 @@ pub const TESTNET4_TEST_PARAMSET: ProtocolParamset = ProtocolParamset {
         0x50, 0xab, 0x35, 0x1b, 0xde, 0xf9, 0x4f, 0xc2, 0x78, 0xe8, 0x5c, 0x13, 0x11, 0xe2, 0x72,
         0xfe, 0x6a,
     ],
-    header_chain_proof_batch_size: 10000,
     bridge_nonstandard: true,
 };
 

@@ -190,6 +190,9 @@ impl BridgeConfig {
             citrea_chain_id: read_string_from_env_then_parse::<u32>("CITREA_CHAIN_ID")?,
             citrea_request_timeout,
             bridge_contract_address: read_string_from_env("BRIDGE_CONTRACT_ADDRESS")?,
+            header_chain_proof_batch_size: read_string_from_env_then_parse::<u32>(
+                "HEADER_CHAIN_PROOF_BATCH_SIZE",
+            )?,
             header_chain_proof_path,
             verifier_endpoints,
             operator_endpoints,
@@ -382,6 +385,11 @@ mod tests {
             );
         }
 
+        std::env::set_var(
+            "HEADER_CHAIN_PROOF_BATCH_SIZE",
+            default_config.header_chain_proof_batch_size.to_string(),
+        );
+
         assert_eq!(super::BridgeConfig::from_env().unwrap(), default_config);
     }
 
@@ -480,10 +488,6 @@ mod tests {
         std::env::set_var(
             "LATEST_BLOCKHASH_TIMEOUT_TIMELOCK",
             default_config.latest_blockhash_timeout_timelock.to_string(),
-        );
-        std::env::set_var(
-            "HEADER_CHAIN_PROOF_BATCH_SIZE",
-            default_config.header_chain_proof_batch_size.to_string(),
         );
 
         std::env::set_var(

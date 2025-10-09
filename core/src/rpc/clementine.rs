@@ -313,6 +313,20 @@ pub mod entity_status_with_id {
         Err(super::EntityError),
     }
 }
+/// Everthing related to protocol params that can affect the transactions in the contract, syncing with citrea and version number
+/// for checking compatibility. This must not include any sensitive information.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CompatibilityParamsRpc {
+    /// Protocol paramset in JSON format
+    #[prost(string, tag = "1")]
+    pub protocol_paramset: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub security_council: ::prost::alloc::string::String,
+    #[prost(uint32, tag = "3")]
+    pub citrea_chain_id: u32,
+    #[prost(string, tag = "4")]
+    pub clementine_version: ::prost::alloc::string::String,
+}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct EntityStatuses {
     #[prost(message, repeated, tag = "1")]
@@ -1068,6 +1082,37 @@ pub mod clementine_operator_client {
                 );
             self.inner.unary(req, path, codec).await
         }
+        /// Returns the protocol params that can affect the transactions in the contract, syncing with citrea and version number
+        /// for checking compatibility
+        pub async fn get_compatibility_params(
+            &mut self,
+            request: impl tonic::IntoRequest<super::Empty>,
+        ) -> std::result::Result<
+            tonic::Response<super::CompatibilityParamsRpc>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/clementine.ClementineOperator/GetCompatibilityParams",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "clementine.ClementineOperator",
+                        "GetCompatibilityParams",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
         /// Returns an operator's parameters. It will be called once, by the
         /// aggregator, to set all the public keys.
         ///
@@ -1570,6 +1615,37 @@ pub mod clementine_verifier_client {
                 .insert(GrpcMethod::new("clementine.ClementineVerifier", "GetParams"));
             self.inner.unary(req, path, codec).await
         }
+        /// Returns the protocol params that can affect the transactions in the contract, syncing with citrea and version number
+        /// for checking compatibility
+        pub async fn get_compatibility_params(
+            &mut self,
+            request: impl tonic::IntoRequest<super::Empty>,
+        ) -> std::result::Result<
+            tonic::Response<super::CompatibilityParamsRpc>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/clementine.ClementineVerifier/GetCompatibilityParams",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "clementine.ClementineVerifier",
+                        "GetCompatibilityParams",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
         /// Saves an operator.
         ///
         /// Used by aggregator inside setup to let all verifiers know all other operator pks
@@ -2051,6 +2127,37 @@ pub mod clementine_aggregator_client {
                 );
             self.inner.unary(req, path, codec).await
         }
+        /// Returns the protocol params that can affect the transactions in the contract, syncing with citrea and version number
+        /// for checking compatibility
+        pub async fn get_compatibility_params(
+            &mut self,
+            request: impl tonic::IntoRequest<super::Empty>,
+        ) -> std::result::Result<
+            tonic::Response<super::CompatibilityParamsRpc>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/clementine.ClementineAggregator/GetCompatibilityParams",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "clementine.ClementineAggregator",
+                        "GetCompatibilityParams",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
         /// Sets up the system of verifiers, watchtowers and operators by:
         ///
         /// 1. Collects verifier keys from each verifier
@@ -2325,6 +2432,15 @@ pub mod clementine_operator_server {
             tonic::Response<super::XOnlyPublicKeyRpc>,
             tonic::Status,
         >;
+        /// Returns the protocol params that can affect the transactions in the contract, syncing with citrea and version number
+        /// for checking compatibility
+        async fn get_compatibility_params(
+            &self,
+            request: tonic::Request<super::Empty>,
+        ) -> std::result::Result<
+            tonic::Response<super::CompatibilityParamsRpc>,
+            tonic::Status,
+        >;
         /// Server streaming response type for the GetParams method.
         type GetParamsStream: tonic::codegen::tokio_stream::Stream<
                 Item = std::result::Result<super::OperatorParams, tonic::Status>,
@@ -2578,6 +2694,53 @@ pub mod clementine_operator_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = GetXOnlyPublicKeySvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/clementine.ClementineOperator/GetCompatibilityParams" => {
+                    #[allow(non_camel_case_types)]
+                    struct GetCompatibilityParamsSvc<T: ClementineOperator>(pub Arc<T>);
+                    impl<T: ClementineOperator> tonic::server::UnaryService<super::Empty>
+                    for GetCompatibilityParamsSvc<T> {
+                        type Response = super::CompatibilityParamsRpc;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::Empty>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as ClementineOperator>::get_compatibility_params(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = GetCompatibilityParamsSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
@@ -3266,6 +3429,15 @@ pub mod clementine_verifier_server {
             &self,
             request: tonic::Request<super::Empty>,
         ) -> std::result::Result<tonic::Response<super::VerifierParams>, tonic::Status>;
+        /// Returns the protocol params that can affect the transactions in the contract, syncing with citrea and version number
+        /// for checking compatibility
+        async fn get_compatibility_params(
+            &self,
+            request: tonic::Request<super::Empty>,
+        ) -> std::result::Result<
+            tonic::Response<super::CompatibilityParamsRpc>,
+            tonic::Status,
+        >;
         /// Saves an operator.
         ///
         /// Used by aggregator inside setup to let all verifiers know all other operator pks
@@ -3488,6 +3660,53 @@ pub mod clementine_verifier_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = GetParamsSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/clementine.ClementineVerifier/GetCompatibilityParams" => {
+                    #[allow(non_camel_case_types)]
+                    struct GetCompatibilityParamsSvc<T: ClementineVerifier>(pub Arc<T>);
+                    impl<T: ClementineVerifier> tonic::server::UnaryService<super::Empty>
+                    for GetCompatibilityParamsSvc<T> {
+                        type Response = super::CompatibilityParamsRpc;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::Empty>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as ClementineVerifier>::get_compatibility_params(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = GetCompatibilityParamsSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
@@ -4177,6 +4396,15 @@ pub mod clementine_aggregator_server {
             &self,
             request: tonic::Request<super::Empty>,
         ) -> std::result::Result<tonic::Response<super::NofnResponse>, tonic::Status>;
+        /// Returns the protocol params that can affect the transactions in the contract, syncing with citrea and version number
+        /// for checking compatibility
+        async fn get_compatibility_params(
+            &self,
+            request: tonic::Request<super::Empty>,
+        ) -> std::result::Result<
+            tonic::Response<super::CompatibilityParamsRpc>,
+            tonic::Status,
+        >;
         /// Sets up the system of verifiers, watchtowers and operators by:
         ///
         /// 1. Collects verifier keys from each verifier
@@ -4363,6 +4591,57 @@ pub mod clementine_aggregator_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = GetNofnAggregatedXonlyPkSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/clementine.ClementineAggregator/GetCompatibilityParams" => {
+                    #[allow(non_camel_case_types)]
+                    struct GetCompatibilityParamsSvc<T: ClementineAggregator>(
+                        pub Arc<T>,
+                    );
+                    impl<
+                        T: ClementineAggregator,
+                    > tonic::server::UnaryService<super::Empty>
+                    for GetCompatibilityParamsSvc<T> {
+                        type Response = super::CompatibilityParamsRpc;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::Empty>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as ClementineAggregator>::get_compatibility_params(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = GetCompatibilityParamsSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

@@ -303,6 +303,16 @@ message EntityStatusWithId {
   }
 }
 
+// Everthing related to protocol params that can affect the transactions in the contract, syncing with citrea and version number
+// for checking compatibility. This must not include any sensitive information.
+message CompatibilityParamsRPC {
+  // Protocol paramset in JSON format
+  string protocol_paramset = 1;
+  string security_council = 2;
+  uint32 citrea_chain_id = 3;
+  string clementine_version = 4;
+}
+
 message EntityStatuses {
   repeated EntityStatusWithId entity_statuses = 1;
 }
@@ -316,6 +326,10 @@ service ClementineOperator {
   //
   // Used by aggregator inside setup
   rpc GetXOnlyPublicKey(Empty) returns (XOnlyPublicKeyRpc) {}
+
+  // Returns the protocol params that can affect the transactions in the contract, syncing with citrea and version number
+  // for checking compatibility
+  rpc GetCompatibilityParams(Empty) returns (CompatibilityParamsRPC) {}
 
   // Returns an operator's parameters. It will be called once, by the
   // aggregator, to set all the public keys.
@@ -553,6 +567,10 @@ service ClementineVerifier {
   // Used by aggregator inside setup to let all verifiers know all other verifier pks
   rpc GetParams(Empty) returns (VerifierParams) {}
 
+  // Returns the protocol params that can affect the transactions in the contract, syncing with citrea and version number
+  // for checking compatibility
+  rpc GetCompatibilityParams(Empty) returns (CompatibilityParamsRPC) {}
+
   // Saves an operator.
   //
   // Used by aggregator inside setup to let all verifiers know all other operator pks
@@ -687,6 +705,10 @@ message GetEntityStatusesRequest {
 
 service ClementineAggregator {
   rpc GetNofnAggregatedXonlyPk(Empty) returns (NofnResponse) {}
+
+  // Returns the protocol params that can affect the transactions in the contract, syncing with citrea and version number
+  // for checking compatibility
+  rpc GetCompatibilityParams(Empty) returns (CompatibilityParamsRPC) {}
 
   // Sets up the system of verifiers, watchtowers and operators by:
   //
