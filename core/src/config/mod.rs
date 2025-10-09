@@ -159,6 +159,7 @@ pub struct BridgeConfig {
     pub grpc: GrpcLimits,
 
     /// Hard cap on tx sender fee rate (sat/vB).
+    #[serde(default = "default_tx_sender_limits")]
     pub tx_sender_limits: TxSenderLimits,
 }
 

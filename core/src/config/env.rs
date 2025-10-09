@@ -237,10 +237,10 @@ impl BridgeConfig {
 
             telemetry: TelemetryConfig::from_env().ok(),
             grpc: GrpcLimits::from_env()?,
+            tx_sender_limits: TxSenderLimits::from_env()?,
 
             #[cfg(test)]
             test_params: super::TestParams::default(),
-            tx_sender_limits: TxSenderLimits::from_env()?,
         };
 
         tracing::debug!("BridgeConfig from env: {:?}", config);

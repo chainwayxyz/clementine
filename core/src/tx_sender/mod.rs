@@ -206,7 +206,7 @@ impl TxSender {
 
                         let threshold = Amount::from_sat(threshold_sat);
 
-                        let selected_fee_amount = if mempool_amt <= threshold {
+                        if mempool_amt <= threshold {
                             tracing::info!(
                                 "Selected mempool.space fee rate: {} sat/kvB (mempool: {}, rpc: {}, threshold: {})",
                                 mempool_amt.to_sat(),
@@ -224,8 +224,7 @@ impl TxSender {
                                 threshold
                             );
                             rpc_amt
-                        };
-                        selected_fee_amount
+                        }
                     }
                     (Ok(mempool_amt), Err(rpc_err)) => {
                         tracing::warn!(
