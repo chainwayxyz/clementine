@@ -159,7 +159,7 @@ pub struct BridgeConfig {
     pub grpc: GrpcLimits,
 
     /// Hard cap on tx sender fee rate (sat/vB).
-    pub tx_sender_fee_rate_hard_cap: u64,
+    pub tx_sender_limits: TxSenderLimits,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq)]
@@ -180,6 +180,21 @@ fn default_grpc_limits() -> GrpcLimits {
         req_concurrency_limit: 300, // 100 deposits at the same time
         ratelimit_req_count: 1000,
         ratelimit_req_interval_secs: 60,
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct TxSenderLimits {
+    pub fee_rate_hard_cap: u64,
+    pub mempool_fee_rate_multiplier: u64,
+    pub mempool_fee_rate_offset_sat_kvb: u64,
+}
+
+fn default_tx_sender_limits() -> TxSenderLimits {
+    TxSenderLimits {
+        fee_rate_hard_cap: 100,
+        mempool_fee_rate_multiplier: 1,
+        mempool_fee_rate_offset_sat_kvb: 0,
     }
 }
 
@@ -407,7 +422,7 @@ impl Default for BridgeConfig {
 
             // New hardening parameters, optional so they don't break existing configs.
             grpc: default_grpc_limits(),
-            tx_sender_fee_rate_hard_cap: 100,
+            tx_sender_limits: default_tx_sender_limits(),
         }
     }
 }
