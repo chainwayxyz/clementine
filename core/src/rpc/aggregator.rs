@@ -1488,12 +1488,19 @@ impl ClementineAggregator for AggregatorServer {
         request: Request<AggregatorWithdrawalInput>,
     ) -> Result<Response<AggregatorWithdrawResponse>, Status> {
         let request = request.into_inner();
-        let (withdraw_params, operator_xonly_pks) = (
+        let (withdraw_params_with_sig, operator_xonly_pks) = (
             request.withdrawal.ok_or(Status::invalid_argument(
                 "withdrawalParamsWithSig is missing",
             ))?,
             request.operator_xonly_pks,
         );
+        let withdraw_params = withdraw_params_with_sig
+            .clone()
+            .withdrawal
+            .ok_or(Status::invalid_argument("withdrawalParams is missing"))?;
+        // parse_withdrawal_sig_params is called to check if the inputs can be parsed correctly
+        // and check if input sighash typpe is SinglePlusAnyoneCanPay
+        parser::operator::parse_withdrawal_sig_params(withdraw_params)?;
         // convert rpc xonly pks to bitcoin xonly pks
         let operator_xonly_pks_from_rpc: Vec<XOnlyPublicKey> = operator_xonly_pks
             .into_iter()
@@ -1531,7 +1538,7 @@ impl ClementineAggregator for AggregatorServer {
             })
             .map(|(operator, operator_xonly_pk)| {
                 let mut operator = operator.clone();
-                let params = withdraw_params.clone();
+                let params = withdraw_params_with_sig.clone();
                 let mut request = Request::new(params);
                 request.set_timeout(WITHDRAWAL_TIMEOUT);
                 async move { (operator.withdraw(request).await, operator_xonly_pk) }
