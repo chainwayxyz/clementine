@@ -26,7 +26,7 @@ use crate::errors::ResultExt;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::rpc::clementine::{
     operator_withrawal_response, AggregatorWithdrawalInput, CompatibilityParamsRpc,
-    OperatorWithrawalResponse, VerifierDepositSignParams,
+    EntitiesCompatibilityData, OperatorWithrawalResponse, VerifierDepositSignParams,
 };
 use crate::rpc::parser;
 use crate::utils::{get_vergen_response, timed_request, timed_try_join_all, ScriptBufExt};
@@ -788,6 +788,19 @@ impl ClementineAggregator for AggregatorServer {
     ) -> Result<Response<CompatibilityParamsRpc>, Status> {
         let params = self.aggregator.get_compatibility_params();
         Ok(Response::new(params.try_into().map_to_status()?))
+    }
+
+    async fn get_compatibility_data_from_entities(
+        &self,
+        _request: Request<Empty>,
+    ) -> Result<Response<EntitiesCompatibilityData>, Status> {
+        let data = self
+            .aggregator
+            .get_compatibility_data_from_entities()
+            .await?;
+        Ok(Response::new(EntitiesCompatibilityData {
+            entities_compatibility_data: data,
+        }))
     }
 
     async fn vergen(&self, _request: Request<Empty>) -> Result<Response<VergenResponse>, Status> {

@@ -328,6 +328,28 @@ pub struct CompatibilityParamsRpc {
     pub clementine_version: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct EntityDataWithId {
+    #[prost(message, optional, tag = "1")]
+    pub entity_id: ::core::option::Option<EntityId>,
+    #[prost(oneof = "entity_data_with_id::DataResult", tags = "2, 3")]
+    pub data_result: ::core::option::Option<entity_data_with_id::DataResult>,
+}
+/// Nested message and enum types in `EntityDataWithId`.
+pub mod entity_data_with_id {
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum DataResult {
+        #[prost(message, tag = "2")]
+        Data(super::CompatibilityParamsRpc),
+        #[prost(string, tag = "3")]
+        Error(::prost::alloc::string::String),
+    }
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct EntitiesCompatibilityData {
+    #[prost(message, repeated, tag = "1")]
+    pub entities_compatibility_data: ::prost::alloc::vec::Vec<EntityDataWithId>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct EntityStatuses {
     #[prost(message, repeated, tag = "1")]
     pub entity_statuses: ::prost::alloc::vec::Vec<EntityStatusWithId>,
@@ -935,6 +957,7 @@ pub enum EntityType {
     EntityUnknown = 0,
     Operator = 1,
     Verifier = 2,
+    Aggregator = 3,
 }
 impl EntityType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -946,6 +969,7 @@ impl EntityType {
             Self::EntityUnknown => "ENTITY_UNKNOWN",
             Self::Operator => "OPERATOR",
             Self::Verifier => "VERIFIER",
+            Self::Aggregator => "AGGREGATOR",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -954,6 +978,7 @@ impl EntityType {
             "ENTITY_UNKNOWN" => Some(Self::EntityUnknown),
             "OPERATOR" => Some(Self::Operator),
             "VERIFIER" => Some(Self::Verifier),
+            "AGGREGATOR" => Some(Self::Aggregator),
             _ => None,
         }
     }
@@ -2123,6 +2148,36 @@ pub mod clementine_aggregator_client {
                     GrpcMethod::new(
                         "clementine.ClementineAggregator",
                         "GetNofnAggregatedXonlyPk",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
+        /// Returns the compatibility data from all entities
+        pub async fn get_compatibility_data_from_entities(
+            &mut self,
+            request: impl tonic::IntoRequest<super::Empty>,
+        ) -> std::result::Result<
+            tonic::Response<super::EntitiesCompatibilityData>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/clementine.ClementineAggregator/GetCompatibilityDataFromEntities",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "clementine.ClementineAggregator",
+                        "GetCompatibilityDataFromEntities",
                     ),
                 );
             self.inner.unary(req, path, codec).await
@@ -4396,6 +4451,14 @@ pub mod clementine_aggregator_server {
             &self,
             request: tonic::Request<super::Empty>,
         ) -> std::result::Result<tonic::Response<super::NofnResponse>, tonic::Status>;
+        /// Returns the compatibility data from all entities
+        async fn get_compatibility_data_from_entities(
+            &self,
+            request: tonic::Request<super::Empty>,
+        ) -> std::result::Result<
+            tonic::Response<super::EntitiesCompatibilityData>,
+            tonic::Status,
+        >;
         /// Returns the protocol params that can affect the transactions in the contract, syncing with citrea and version number
         /// for checking compatibility
         async fn get_compatibility_params(
@@ -4591,6 +4654,57 @@ pub mod clementine_aggregator_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = GetNofnAggregatedXonlyPkSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/clementine.ClementineAggregator/GetCompatibilityDataFromEntities" => {
+                    #[allow(non_camel_case_types)]
+                    struct GetCompatibilityDataFromEntitiesSvc<T: ClementineAggregator>(
+                        pub Arc<T>,
+                    );
+                    impl<
+                        T: ClementineAggregator,
+                    > tonic::server::UnaryService<super::Empty>
+                    for GetCompatibilityDataFromEntitiesSvc<T> {
+                        type Response = super::EntitiesCompatibilityData;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::Empty>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as ClementineAggregator>::get_compatibility_data_from_entities(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = GetCompatibilityDataFromEntitiesSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

@@ -53,6 +53,7 @@ impl AggregatorMetricPublisher {
                     })?;
                 Ok(EntityId::Verifier(VerifierId(pk)))
             }
+            EntityType::Aggregator => Ok(EntityId::Aggregator),
             EntityType::EntityUnknown => {
                 Err(BridgeError::ConfigError("Unknown entity type".into()))
             }

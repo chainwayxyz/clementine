@@ -70,6 +70,8 @@ mod timeout {
 
     pub const ENTITY_STATUS_POLL_TIMEOUT: Duration = Duration::from_secs(120);
 
+    pub const ENTITY_DATA_POLL_TIMEOUT: Duration = Duration::from_secs(60); // 1 minute
+
     pub const PUBLIC_KEY_COLLECTION_TIMEOUT: Duration = Duration::from_secs(30);
 
     pub const WITHDRAWAL_TIMEOUT: Duration = Duration::from_secs(120); // 2 minutes

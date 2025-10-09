@@ -3,16 +3,17 @@ use std::sync::Arc;
 
 use crate::compatibility::{ActorWithConfig, CompatibilityParams};
 use crate::constants::{
-    ENTITY_STATUS_POLL_TIMEOUT, OPERATOR_GET_KEYS_TIMEOUT, PUBLIC_KEY_COLLECTION_TIMEOUT,
-    VERIFIER_SEND_KEYS_TIMEOUT,
+    ENTITY_DATA_POLL_TIMEOUT, ENTITY_STATUS_POLL_TIMEOUT, OPERATOR_GET_KEYS_TIMEOUT,
+    PUBLIC_KEY_COLLECTION_TIMEOUT, VERIFIER_SEND_KEYS_TIMEOUT,
 };
 use crate::deposit::DepositData;
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
+use crate::rpc::clementine::entity_data_with_id::DataResult;
 use crate::rpc::clementine::entity_status_with_id::StatusResult;
-use crate::rpc::clementine::EntityId as RPCEntityId;
 use crate::rpc::clementine::{
     self, DepositParams, Empty, EntityStatusWithId, EntityType, OperatorKeysWithDeposit,
 };
+use crate::rpc::clementine::{EntityDataWithId, EntityId as RPCEntityId};
 use crate::task::aggregator_metric_publisher::AGGREGATOR_METRIC_PUBLISHER_POLL_DELAY;
 use crate::task::TaskExt;
 #[cfg(feature = "automation")]
@@ -68,6 +69,7 @@ pub struct Aggregator {
 pub enum EntityId {
     Verifier(VerifierId),
     Operator(OperatorId),
+    Aggregator,
 }
 
 /// Wrapper struct that renders the verifier id in the logs.
@@ -83,6 +85,7 @@ impl std::fmt::Display for EntityId {
         match self {
             EntityId::Verifier(id) => write!(f, "{}", id),
             EntityId::Operator(id) => write!(f, "{}", id),
+            EntityId::Aggregator => write!(f, "Aggregator"),
         }
     }
 }
@@ -742,6 +745,112 @@ impl Aggregator {
             }
         }
         Ok(entity_statuses)
+    }
+
+    pub async fn get_compatibility_data_from_entities(
+        &self,
+    ) -> Result<Vec<EntityDataWithId>, BridgeError> {
+        let operator_clients = self.get_operator_clients();
+        let verifier_clients = self.get_verifier_clients();
+
+        // try to reach all operators and verifiers to collect keys, but do not return err if some of them can't be reached
+        let _ = self.fetch_operator_keys().await;
+        let _ = self.fetch_verifier_keys().await;
+
+        let operator_keys = self.operator_keys.read().await.clone();
+        let verifier_keys = self.verifier_keys.read().await.clone();
+
+        // we will only ask status of entities that we could collect keys for, others are unreachable
+
+        let operator_comp_data = join_all(
+            operator_clients
+                .iter()
+                .zip(operator_keys.iter())
+                // filter out operators that have None as key
+                .filter_map(|(client, key)| key.map(|key| (client, key)))
+                .map(|(client, key)| {
+                    let mut client = client.clone();
+                    async move {
+                        tracing::debug!("Getting operator compatibility data for {:?}", key);
+                        let mut request = Request::new(Empty {});
+                        request.set_timeout(ENTITY_DATA_POLL_TIMEOUT);
+                        let response = client.get_compatibility_params(request).await;
+
+                        EntityDataWithId {
+                            entity_id: Some(RPCEntityId {
+                                kind: EntityType::Operator as i32,
+                                id: key.to_string(),
+                            }),
+                            data_result: match response {
+                                Ok(response) => Some(DataResult::Data(response.into_inner())),
+                                Err(e) => Some(DataResult::Error(e.to_string())),
+                            },
+                        }
+                    }
+                }),
+        )
+        .await;
+
+        let verifier_comp_data = join_all(
+            verifier_clients
+                .iter()
+                .zip(verifier_keys.iter())
+                .filter_map(|(client, key)| key.map(|key| (client, key)))
+                .map(|(client, key)| {
+                    let mut client = client.clone();
+                    async move {
+                        tracing::debug!("Getting verifier compatibility data for {:?}", key);
+                        let mut request = Request::new(Empty {});
+                        request.set_timeout(ENTITY_DATA_POLL_TIMEOUT);
+                        let response = client.get_compatibility_params(request).await;
+
+                        EntityDataWithId {
+                            entity_id: Some(RPCEntityId {
+                                kind: EntityType::Verifier as i32,
+                                id: key.to_string(),
+                            }),
+                            data_result: match response {
+                                Ok(response) => Some(DataResult::Data(response.into_inner())),
+                                Err(e) => Some(DataResult::Error(e.to_string())),
+                            },
+                        }
+                    }
+                }),
+        )
+        .await;
+
+        // Combine operator and verifier status into a single vector
+        let mut entities_comp_data = operator_comp_data;
+        entities_comp_data.extend(verifier_comp_data);
+
+        // also add a message for entities that we could not collect keys for
+        for (index, key) in operator_keys.iter().enumerate() {
+            if key.is_none() {
+                entities_comp_data.push(EntityDataWithId {
+                    entity_id: Some(RPCEntityId {
+                        kind: EntityType::Operator as i32,
+                        id: format!("Index {} in config (0-based)", index),
+                    }),
+                    data_result: Some(DataResult::Error(
+                        "Operator key was not able to be collected".to_string(),
+                    )),
+                });
+            }
+        }
+        for (index, key) in verifier_keys.iter().enumerate() {
+            if key.is_none() {
+                entities_comp_data.push(EntityDataWithId {
+                    entity_id: Some(RPCEntityId {
+                        kind: EntityType::Verifier as i32,
+                        id: format!("Index {} in config (0-based)", index),
+                    }),
+                    data_result: Some(DataResult::Error(
+                        "Verifier key was not able to be collected".to_string(),
+                    )),
+                });
+            }
+        }
+        Ok(entities_comp_data)
     }
 
     /// Checks compatibility with other actors.

@@ -288,6 +288,7 @@ enum EntityType {
   ENTITY_UNKNOWN = 0;
   OPERATOR = 1;
   VERIFIER = 2;
+  AGGREGATOR = 3;
 }
 
 message EntityId {
@@ -311,6 +312,18 @@ message CompatibilityParamsRPC {
   string security_council = 2;
   uint32 citrea_chain_id = 3;
   string clementine_version = 4;
+}
+
+message EntityDataWithId {
+  EntityId entity_id = 1;
+  oneof data_result {
+    CompatibilityParamsRPC data = 2;
+    string error = 3;
+  }
+}
+
+message EntitiesCompatibilityData {
+  repeated EntityDataWithId entities_compatibility_data = 1;
 }
 
 message EntityStatuses {
@@ -705,6 +718,9 @@ message GetEntityStatusesRequest {
 
 service ClementineAggregator {
   rpc GetNofnAggregatedXonlyPk(Empty) returns (NofnResponse) {}
+
+  // Returns the compatibility data from all entities
+  rpc GetCompatibilityDataFromEntities(Empty) returns (EntitiesCompatibilityData) {}
 
   // Returns the protocol params that can affect the transactions in the contract, syncing with citrea and version number
   // for checking compatibility
