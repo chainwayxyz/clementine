@@ -143,9 +143,45 @@ impl ActorWithConfig for Aggregator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::protocol::{REGTEST_PARAMSET, TESTNET4_TEST_PARAMSET};
+    use crate::{
+        config::protocol::{REGTEST_PARAMSET, TESTNET4_TEST_PARAMSET},
+        rpc::clementine::{entity_data_with_id::DataResult, Empty},
+        test::common::{
+            citrea::MockCitreaClient, create_actors, create_regtest_rpc,
+            create_test_config_with_thread_name,
+        },
+    };
     use bitcoin::XOnlyPublicKey;
     use std::str::FromStr;
+
+    #[tokio::test]
+    async fn test_get_compatibility_data_from_entities() {
+        let mut config = create_test_config_with_thread_name().await;
+        let _regtest = create_regtest_rpc(&mut config).await;
+        let actors = create_actors::<MockCitreaClient>(&config).await;
+        let mut aggregator = actors.get_aggregator();
+        let entity_comp_data = aggregator
+            .get_compatibility_data_from_entities(Empty {})
+            .await
+            .unwrap()
+            .into_inner();
+
+        tracing::info!("Entity compatibility data: {:?}", entity_comp_data);
+
+        for entity in entity_comp_data.entities_compatibility_data {
+            let data = entity.data_result.unwrap();
+            match data {
+                DataResult::Data(_) => {}
+                DataResult::Error(err) => {
+                    panic!(
+                        "Entity {} returned an error: {}",
+                        entity.entity_id.unwrap().id,
+                        err
+                    );
+                }
+            }
+        }
+    }
 
     fn create_test_protocol_paramset() -> ProtocolParamset {
         REGTEST_PARAMSET
