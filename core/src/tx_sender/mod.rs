@@ -371,6 +371,10 @@ impl TxSender {
             .await
             .map_to_eyre()?;
 
+        // bump fees of fee payer transactions that are unconfirmed
+        self.bump_fees_of_unconfirmed_fee_payer_txs(new_fee_rate)
+            .await?;
+
         if !txs.is_empty() {
             tracing::debug!("Trying to send {} sendable txs ", txs.len());
         }

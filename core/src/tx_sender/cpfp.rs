@@ -39,7 +39,12 @@ use bitcoincore_rpc::PackageSubmissionResult;
 use bitcoincore_rpc::{PackageTransactionResult, RpcApi};
 use eyre::eyre;
 use eyre::Context;
+use std::collections::HashSet;
 use std::env;
+
+/// The time to wait before bumping the fee of a fee payer UTXO
+/// We wait a bit because after bumping the fee, the unconfirmed change utxo that is in the bumped tx will not be able to be spent (so won't be used to create new fee payer utxos) until that fee payer tx confirms.
+const CPFP_FEE_PAYER_BUMP_FEE_WAIT_TIME: u64 = 60 * 60; // 1 hour
 
 impl TxSender {
     /// Creates and broadcasts a new "fee payer" UTXO to be used for CPFP
@@ -48,7 +53,7 @@ impl TxSender {
     /// This function is called when a CPFP attempt fails due to insufficient funds
     /// in the existing confirmed fee payer UTXOs associated with a transaction (`bumped_id`).
     /// It calculates the required fee based on the parent transaction (`tx`) and the current
-    /// `fee_rate`, adding a buffer (3x required fee + dust limit) to handle potential fee spikes.
+    /// `fee_rate`, adding a buffer (2x required fee + dust limit) to handle potential fee spikes.
     /// It then sends funds to the `TxSender`'s own signer address using the RPC's
     /// `send_to_address` and saves the resulting UTXO information (`outpoint`, `amount`)
     /// to the database, linking it to the `bumped_id`.
@@ -79,12 +84,27 @@ impl TxSender {
             FeePayingType::CPFP,
         )?;
 
-        // Aggressively add 3x required fee to the total amount to account for sudden spikes
-        let new_fee_payer_amount = (required_fee - total_fee_payer_amount)
-            + required_fee
-            + required_fee
-            + required_fee
-            + MIN_TAPROOT_AMOUNT;
+        // Aggressively add 2x required fee to the total amount to account for sudden spikes
+        // We won't actually use 2x fees, but the fee payer utxo will hold that much amount so that while fee payer utxo gets mined
+        // if fees increase the utxo should still be sufficient to fund the tx with high probability
+        // leftover fees will get sent back to wallet with a change output in fn create_child_tx
+        let new_total_fee_needed = required_fee
+            .checked_mul(2)
+            .and_then(|fee| fee.checked_add(MIN_TAPROOT_AMOUNT));
+        if new_total_fee_needed.is_none() {
+            return Err(eyre!("Total fee needed is too large, required fee: {}, total fee payer amount: {}, fee rate: {}", required_fee, total_fee_payer_amount, fee_rate).into());
+        }
+        let new_fee_payer_amount =
+            new_total_fee_needed.and_then(|fee| fee.checked_sub(total_fee_payer_amount));
+
+        let new_fee_payer_amount = match new_fee_payer_amount {
+            Some(fee) => fee,
+            // if underflow, no new fee payer utxo is needed, log it anyway in case its a bug
+            None => {
+                tracing::debug!("create_fee_payer_utxo was called but no new fee payer utxo is needed for tx: {:?}, required fee: {}, total fee payer amount: {}, current fee rate: {}", tx, required_fee, total_fee_payer_amount, fee_rate);
+                return Ok(());
+            }
+        };
 
         tracing::debug!(
             "Creating fee payer UTXO with amount {} ({} sat/vb)",
@@ -92,18 +112,99 @@ impl TxSender {
             fee_rate
         );
 
-        let outpoint = self
+        let fee_payer_tx = Transaction {
+            version: bitcoin::transaction::Version::TWO,
+            lock_time: bitcoin::absolute::LockTime::ZERO,
+            input: vec![],
+            output: vec![TxOut {
+                value: new_fee_payer_amount,
+                script_pubkey: self.signer.address.script_pubkey(),
+            }],
+        };
+
+        // Manually serialize in legacy format for 0-input transactions
+        // Because fund_raw_transaction RPC gives deserialization error for 0-input transactions with segwit flag
+        // but in the end fund_raw_transaction returns a segwit transaction after adding inputs
+        let fee_payer_bytes = if fee_payer_tx.input.is_empty() {
+            use bitcoin::consensus::Encodable;
+            let mut buf = Vec::new();
+            // Serialize version
+            fee_payer_tx
+                .version
+                .consensus_encode(&mut buf)
+                .expect("Failed to serialize version");
+            fee_payer_tx
+                .input
+                .consensus_encode(&mut buf)
+                .expect("Failed to serialize inputs");
+            fee_payer_tx
+                .output
+                .consensus_encode(&mut buf)
+                .expect("Failed to serialize outputs");
+            // Serialize locktime
+            fee_payer_tx
+                .lock_time
+                .consensus_encode(&mut buf)
+                .expect("Failed to serialize locktime");
+
+            buf
+        } else {
+            bitcoin::consensus::encode::serialize(&fee_payer_tx)
+        };
+
+        let funded_fee_payer_tx = self
             .rpc
-            .send_to_address(&self.signer.address, new_fee_payer_amount)
+            .fund_raw_transaction(
+                &fee_payer_bytes,
+                Some(&bitcoincore_rpc::json::FundRawTransactionOptions {
+                    add_inputs: Some(true),
+                    change_address: None,
+                    change_position: None,
+                    change_type: None,
+                    include_watching: None,
+                    lock_unspents: None,
+                    fee_rate: Some(Amount::from_sat(fee_rate.to_sat_per_vb_ceil() * 1000)),
+                    subtract_fee_from_outputs: None,
+                    replaceable: Some(true),
+                    conf_target: None,
+                    estimate_mode: None,
+                }),
+                None,
+            )
             .await
-            .map_to_eyre()?;
+            .wrap_err("Failed to fund cpfp fee payer tx")?
+            .hex;
+
+        let signed_fee_payer_tx: Transaction = bitcoin::consensus::deserialize(
+            &self
+                .rpc
+                .sign_raw_transaction_with_wallet(&funded_fee_payer_tx, None, None)
+                .await
+                .wrap_err("Failed to sign funded tx through bitcoin RPC")?
+                .hex,
+        )
+        .wrap_err("Failed to deserialize signed tx")?;
+
+        let outpoint_vout = signed_fee_payer_tx
+            .output
+            .iter()
+            .position(|o| {
+                o.value == new_fee_payer_amount
+                    && o.script_pubkey == self.signer.address.script_pubkey()
+            })
+            .ok_or(eyre!("Failed to find outpoint vout"))?;
+
+        self.rpc
+            .send_raw_transaction(&signed_fee_payer_tx)
+            .await
+            .wrap_err("Failed to send signed fee payer tx")?;
 
         self.db
             .save_fee_payer_tx(
                 None,
                 bumped_id,
-                outpoint.txid,
-                outpoint.vout,
+                signed_fee_payer_tx.compute_txid(),
+                outpoint_vout as u32,
                 new_fee_payer_amount,
                 None,
             )
@@ -312,39 +413,97 @@ impl TxSender {
     /// # Arguments
     /// * `bumped_id` - The database ID of the parent transaction whose fee payer UTXOs need bumping.
     /// * `fee_rate` - The target fee rate for bumping the fee payer transactions.
-    #[tracing::instrument(skip_all, fields(sender = self.btc_syncer_consumer_id, bumped_id, fee_rate))]
-    async fn _bump_fees_of_unconfirmed_fee_payer_txs(
+    #[tracing::instrument(skip_all, fields(sender = self.btc_syncer_consumer_id, fee_rate))]
+    pub(crate) async fn bump_fees_of_unconfirmed_fee_payer_txs(
         &self,
-        bumped_id: u32,
         fee_rate: FeeRate,
     ) -> Result<()> {
         let bumpable_fee_payer_txs = self
             .db
-            .get_unconfirmed_fee_payer_txs(None, bumped_id)
+            .get_all_unconfirmed_fee_payer_txs(None)
             .await
             .map_to_eyre()?;
 
-        for (id, fee_payer_txid, vout, amount) in bumpable_fee_payer_txs {
+        let mut not_evicted_ids = HashSet::new();
+        let mut all_parent_ids = HashSet::new();
+
+        for (id, try_to_send_id, fee_payer_txid, vout, amount, replacement_of_id) in
+            bumpable_fee_payer_txs
+        {
             tracing::debug!(
-                "Bumping fee for fee payer tx {} with bumped tx {} for fee rate {}",
+                "Bumping fee for fee payer tx {} for try to send id {} for fee rate {}",
                 fee_payer_txid,
-                bumped_id,
+                try_to_send_id,
                 fee_rate
             );
-            let new_txi_result = self
+            // parent id is the id of the first created tx for all replacements
+            let parent_id = match replacement_of_id {
+                Some(replacement_of_id) => replacement_of_id,
+                None => id,
+            };
+            all_parent_ids.insert(parent_id);
+            let mempool_info = self.rpc.get_mempool_entry(&fee_payer_txid).await;
+            let mempool_info = match mempool_info {
+                Ok(mempool_info) => {
+                    not_evicted_ids.insert(parent_id);
+                    mempool_info
+                }
+                Err(e) => {
+                    // If not in mempool we should ignore
+                    // give an error if the error is not "Transaction not in mempool"
+                    if !e.to_string().contains("Transaction not in mempool") {
+                        return Err(eyre::eyre!(
+                            "Failed to get mempool entry for fee payer tx {}: {}",
+                            fee_payer_txid,
+                            e
+                        )
+                        .into());
+                    }
+                    // check here if the tx is already in block, if so do not mark it as evicted
+                    let tx_info = self.rpc.get_transaction(&fee_payer_txid, None).await;
+                    if let Ok(tx_info) = tx_info {
+                        if tx_info.info.blockhash.is_some() && tx_info.info.confirmations > 0 {
+                            not_evicted_ids.insert(parent_id);
+                        }
+                    }
+                    continue;
+                }
+            };
+            // only try to bump if tx has no descendants and 1 hour passed since tx was created
+            if mempool_info.descendant_count > 1
+                || std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .wrap_err("Failed to get unix timestamp")?
+                    .as_secs()
+                    - mempool_info.time
+                    < CPFP_FEE_PAYER_BUMP_FEE_WAIT_TIME
+            {
+                continue;
+            }
+            let new_txid_result = self
                 .rpc
                 .bump_fee_with_fee_rate(fee_payer_txid, fee_rate)
                 .await;
 
-            match new_txi_result {
+            match new_txid_result {
                 Ok(new_txid) => {
                     if new_txid != fee_payer_txid {
                         self.db
-                            .save_fee_payer_tx(None, bumped_id, new_txid, vout, amount, Some(id))
+                            .save_fee_payer_tx(
+                                None,
+                                try_to_send_id,
+                                new_txid,
+                                vout,
+                                amount,
+                                match replacement_of_id {
+                                    Some(replacement_of_id) => Some(replacement_of_id),
+                                    None => Some(id),
+                                },
+                            )
                             .await
                             .map_to_eyre()?;
                     } else {
-                        tracing::warn!(
+                        tracing::trace!(
                             "Fee payer tx {} has enough fee, no need to bump",
                             fee_payer_txid
                         );
@@ -370,11 +529,28 @@ impl TxSender {
                             continue;
                         }
                         _ => {
-                            tracing::warn!("Failed to bump fee the fee payer tx {} of bumped tx {} with error {e}, skipping", fee_payer_txid, bumped_id);
+                            tracing::warn!(
+                                "Failed to bump fee the fee payer tx {} with error {e}, skipping",
+                                fee_payer_txid
+                            );
                             continue;
                         }
                     }
                 }
+            }
+        }
+
+        // if all fee payer utxos are not in mempool
+        // in very rare cases, (if tx was mined, but before we called gettransaction it was reorged)
+        // it can be marked as evicted accidentally, but this is very rare and if it was mined once but reorged,
+        // it will likely enter the chain without any bumping anyway, but an extra fee payer utxo can be created by txsender
+        // because it is considered to be evicted
+        for parent_id in all_parent_ids {
+            if !not_evicted_ids.contains(&parent_id) {
+                self.db
+                    .mark_fee_payer_utxo_as_evicted(None, parent_id)
+                    .await
+                    .map_to_eyre()?;
             }
         }
 
