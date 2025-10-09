@@ -906,7 +906,7 @@ where
                     "Expected nonce count to be {} (num_required_sigs + 2, for movetx & emergency stop), got {}",
                     num_required_sigs + 2,
                     session.nonces.len()
-                ));
+                ).into());
             }
 
             while let Some(agg_nonce) = agg_nonce_rx.recv().await {
@@ -951,13 +951,13 @@ where
                 return Err(eyre::eyre!(
                     "Expected 2 nonces remaining in session, one for move tx and one for emergency stop, got {}, indicating aggregated nonce stream ended prematurely",
                     session.nonces.len()
-                ));
+                ).into());
             }
 
             let mut session_map = verifier.nonces.lock().await;
             session_map.add_new_session_with_id(session, session_id)?;
 
-            Ok::<(), eyre::Report>(())
+            Ok::<(), BridgeError>(())
         });
         monitor_standalone_task(handle, "Verifier deposit_sign", monitor_sender);
 

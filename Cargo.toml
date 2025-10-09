@@ -51,7 +51,7 @@ citrea-e2e = { git = "https://github.com/chainwayxyz/citrea-e2e", rev = "859cddf
 citrea-sov-rollup-interface = { git = "https://github.com/chainwayxyz/citrea", tag = "v0.7.3-rc.5", package = "sov-rollup-interface" }
 
 # bitcoin
-bitcoin = { version = "0.32.5", features = ["serde", "base64"] }
+bitcoin = { version = "0.32.7", features = ["serde", "base64"] }
 bitcoincore-rpc = "0.18.0"
 secp256k1 = { version = "0.31.0", features = [
   "serde",
