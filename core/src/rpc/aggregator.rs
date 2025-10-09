@@ -1499,7 +1499,7 @@ impl ClementineAggregator for AggregatorServer {
             .withdrawal
             .ok_or(Status::invalid_argument("withdrawalParams is missing"))?;
         // parse_withdrawal_sig_params is called to check if the inputs can be parsed correctly
-        // and check if input sighash typpe is SinglePlusAnyoneCanPay
+        // and check if input sighash type is SinglePlusAnyoneCanPay
         parser::operator::parse_withdrawal_sig_params(withdraw_params)?;
         // convert rpc xonly pks to bitcoin xonly pks
         let operator_xonly_pks_from_rpc: Vec<XOnlyPublicKey> = operator_xonly_pks
