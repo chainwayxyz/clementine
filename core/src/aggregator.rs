@@ -714,6 +714,33 @@ impl Aggregator {
                 futures::future::try_join_all(verifier_tasks)
             )?;
         }
+        // also add a message for entities that we could not collect keys for
+        for (index, key) in operator_keys.iter().enumerate() {
+            if key.is_none() {
+                entity_statuses.push(EntityStatusWithId {
+                    entity_id: Some(RPCEntityId {
+                        kind: EntityType::Operator as i32,
+                        id: format!("Index {} in config (0-based)", index),
+                    }),
+                    status_result: Some(StatusResult::Err(clementine::EntityError {
+                        error: "Operator key was not able to be collected".to_string(),
+                    })),
+                });
+            }
+        }
+        for (index, key) in verifier_keys.iter().enumerate() {
+            if key.is_none() {
+                entity_statuses.push(EntityStatusWithId {
+                    entity_id: Some(RPCEntityId {
+                        kind: EntityType::Verifier as i32,
+                        id: format!("Index {} in config (0-based)", index),
+                    }),
+                    status_result: Some(StatusResult::Err(clementine::EntityError {
+                        error: "Verifier key was not able to be collected".to_string(),
+                    })),
+                });
+            }
+        }
         Ok(entity_statuses)
     }
 
