@@ -43,6 +43,7 @@ impl CompatibilityParams {
         let other_version = semver::Version::parse(&other.clementine_version)
             .wrap_err("Failed to parse other Clementine version {other.clementine_version}")?;
         // allow different patch versions, but not different major or minor versions
+        // can do something different here
         if own_version.major != other_version.major || own_version.minor != other_version.minor {
             reasons.push("Clementine version mismatch");
         }

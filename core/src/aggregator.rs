@@ -11,7 +11,8 @@ use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 use crate::rpc::clementine::entity_data_with_id::DataResult;
 use crate::rpc::clementine::entity_status_with_id::StatusResult;
 use crate::rpc::clementine::{
-    self, DepositParams, Empty, EntityStatusWithId, EntityType, OperatorKeysWithDeposit,
+    self, CompatibilityParamsRpc, DepositParams, Empty, EntityStatusWithId, EntityType,
+    OperatorKeysWithDeposit,
 };
 use crate::rpc::clementine::{EntityDataWithId, EntityId as RPCEntityId};
 use crate::task::aggregator_metric_publisher::AGGREGATOR_METRIC_PUBLISHER_POLL_DELAY;
@@ -846,6 +847,24 @@ impl Aggregator {
         // Combine results
         let mut entities_comp_data = operator_comp_data;
         entities_comp_data.extend(verifier_comp_data);
+
+        // add aggregators own data
+        let aggregator_comp_data = EntityDataWithId {
+            entity_id: Some(RPCEntityId {
+                kind: EntityType::Aggregator as i32,
+                id: "Aggregator".to_string(),
+            }),
+            data_result: {
+                let compatibility_params: Result<CompatibilityParamsRpc, eyre::Report> =
+                    self.get_compatibility_params().try_into();
+                match compatibility_params {
+                    Ok(compatibility_params) => Some(DataResult::Data(compatibility_params)),
+                    Err(e) => Some(DataResult::Error(e.to_string())),
+                }
+            },
+        };
+
+        entities_comp_data.push(aggregator_comp_data);
 
         // Add error entries for unreachable entities
         Self::add_unreachable_entity_errors(
