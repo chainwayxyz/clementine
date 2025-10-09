@@ -13,6 +13,7 @@ use crate::builder::transaction::{
     create_emergency_stop_txhandler, create_move_to_vault_txhandler,
     create_optimistic_payout_txhandler, Signed, TransactionType, TxHandler,
 };
+use crate::compatibility::ActorWithConfig;
 use crate::config::BridgeConfig;
 use crate::constants::{
     DEPOSIT_FINALIZATION_TIMEOUT, DEPOSIT_FINALIZE_STREAM_CREATION_TIMEOUT,
@@ -24,8 +25,7 @@ use crate::deposit::{Actors, DepositData, DepositInfo};
 use crate::errors::ResultExt;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::rpc::clementine::{
-    operator_withrawal_response, AggregatorWithdrawalInput, OperatorWithrawalResponse,
-    VerifierDepositSignParams,
+    operator_withrawal_response, AggregatorWithdrawalInput, CompatibilityParamsRpc, OperatorWithrawalResponse, VerifierDepositSignParams
 };
 use crate::rpc::parser;
 use crate::utils::{get_vergen_response, timed_request, timed_try_join_all, ScriptBufExt};
@@ -781,6 +781,14 @@ impl Aggregator {
 
 #[async_trait]
 impl ClementineAggregator for AggregatorServer {
+    async fn get_compatibility_params(
+        &self,
+        _request: Request<Empty>,
+    ) -> Result<Response<CompatibilityParamsRpc>, Status> {
+        let params = self.aggregator.get_compatibility_params();
+        Ok(Response::new(params.try_into().map_to_status()?))
+    }
+
     async fn vergen(&self, _request: Request<Empty>) -> Result<Response<VergenResponse>, Status> {
         Ok(Response::new(get_vergen_response()))
     }

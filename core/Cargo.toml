@@ -80,6 +80,7 @@ reqwest = { workspace = true }
 x25519-dalek = { workspace = true, features = ["static_secrets"] }
 chacha20poly1305 = { workspace = true, features = ["stream"] }
 hkdf = { workspace = true }
+semver = { workspace = true }
 
 # UNCOMMENT TO DEBUG TOKIO TASKS
 

@@ -9,12 +9,13 @@ use crate::bitvm_client::ClementineBitVMPublicKeys;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::builder::transaction::ContractContext;
 use crate::citrea::CitreaClientT;
+use crate::compatibility::ActorWithConfig;
 use crate::constants::DEFAULT_CHANNEL_SIZE;
 use crate::deposit::DepositData;
 use crate::errors::BridgeError;
 use crate::errors::ResultExt;
 use crate::operator::OperatorServer;
-use crate::rpc::clementine::{RawSignedTx, WithdrawParamsWithSig};
+use crate::rpc::clementine::{CompatibilityParamsRpc, RawSignedTx, WithdrawParamsWithSig};
 use crate::rpc::ecdsa_verification_sig::{
     recover_address_from_ecdsa_signature, OperatorWithdrawalMessage,
 };
@@ -37,6 +38,14 @@ where
 {
     type DepositSignStream = ReceiverStream<Result<SchnorrSig, Status>>;
     type GetParamsStream = ReceiverStream<Result<OperatorParams, Status>>;
+
+    async fn get_compatibility_params(
+        &self,
+        _request: Request<Empty>,
+    ) -> Result<Response<CompatibilityParamsRpc>, Status> {
+        let params = self.operator.get_compatibility_params();
+        Ok(Response::new(params.try_into().map_to_status()?))
+    }
 
     async fn vergen(&self, _request: Request<Empty>) -> Result<Response<VergenResponse>, Status> {
         Ok(Response::new(get_vergen_response()))

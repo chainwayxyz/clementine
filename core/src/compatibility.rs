@@ -22,6 +22,37 @@ pub struct CompatibilityParams {
     pub clementine_version: String,
 }
 
+impl CompatibilityParams {
+    // Returns an error with reason if not compatible, otherwise returns Ok(())
+    // For Protocol paramset, security council and citrea chain ID, we only check if they are different.
+    // For Clementine version, we allow different patch versions, but not different major or minor versions.
+    pub fn is_compatible(&self, other: &CompatibilityParams) -> Result<(), BridgeError> {
+        let mut reasons = Vec::new();
+        if self.protocol_paramset != other.protocol_paramset {
+            reasons.push("Protocol paramset mismatch");
+        }
+        if self.security_council != other.security_council {
+            reasons.push("Security council mismatch");
+        }
+        if self.citrea_chain_id != other.citrea_chain_id {
+            reasons.push("Citrea chain ID mismatch");
+        }
+        let own_version = semver::Version::parse(&self.clementine_version)
+            .wrap_err("Failed to parse own Clementine version {self.clementine_version}")?;
+        let other_version = semver::Version::parse(&other.clementine_version)
+            .wrap_err("Failed to parse other Clementine version {other.clementine_version}")?;
+        // allow different patch versions, but not different major or minor versions
+        if own_version.major != other_version.major || own_version.minor != other_version.minor {
+            reasons.push("Clementine version mismatch");
+        }
+        if reasons.is_empty() {
+            Ok(())
+        } else {
+            Err(BridgeError::ClementineNotCompatible(reasons.join(", ")))
+        }
+    }
+}
+
 impl TryFrom<CompatibilityParams> for CompatibilityParamsRpc {
     type Error = eyre::Report;
 
@@ -56,13 +87,29 @@ impl TryFrom<CompatibilityParamsRpc> for CompatibilityParams {
 pub trait ActorWithConfig {
     fn get_config(&self) -> &BridgeConfig;
 
-    fn get_protocol_params(&self) -> CompatibilityParams {
+    fn get_compatibility_params(&self) -> CompatibilityParams {
         let config = self.get_config();
         CompatibilityParams {
             protocol_paramset: config.protocol_paramset.clone(),
             security_council: config.security_council.clone(),
             citrea_chain_id: config.citrea_chain_id,
             clementine_version: env!("CARGO_PKG_VERSION").to_string(),
+        }
+    }
+
+    /// Returns an error with reason if not compatible, otherwise returns Ok(())
+    fn is_compatible(&self, others: Vec<(String, CompatibilityParams)>) -> Result<(), BridgeError> {
+        let own_params = self.get_compatibility_params();
+        let mut reasons = Vec::new();
+        for (id, params) in others {
+            if let Err(e) = own_params.is_compatible(&params) {
+                reasons.push(format!("{}: {}", id, e));
+            }
+        }
+        if reasons.is_empty() {
+            Ok(())
+        } else {
+            Err(BridgeError::ClementineNotCompatible(reasons.join(", ")))
         }
     }
 }
