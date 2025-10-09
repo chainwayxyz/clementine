@@ -606,6 +606,48 @@ impl Aggregator {
         Ok(ParticipatingOperators::new(participating_operators))
     }
 
+    /// Helper function to fetch keys for both operators and verifiers.
+    /// Returns (operator_keys, verifier_keys) without failing if some entities are unreachable.
+    async fn fetch_all_entity_keys(&self) -> (Vec<Option<XOnlyPublicKey>>, Vec<Option<PublicKey>>) {
+        // Try to reach all operators and verifiers to collect keys, but do not return err if some can't be reached
+        let _ = self.fetch_operator_keys().await;
+        let _ = self.fetch_verifier_keys().await;
+
+        let operator_keys = self.operator_keys.read().await.clone();
+        let verifier_keys = self.verifier_keys.read().await.clone();
+
+        (operator_keys, verifier_keys)
+    }
+
+    /// Helper function to add error entries for entities where keys couldn't be collected.
+    fn add_unreachable_entity_errors<T, F>(
+        results: &mut Vec<T>,
+        operator_keys: &[Option<XOnlyPublicKey>],
+        verifier_keys: &[Option<PublicKey>],
+        error_constructor: F,
+    ) where
+        F: Fn(EntityType, String, String) -> T,
+    {
+        for (index, key) in operator_keys.iter().enumerate() {
+            if key.is_none() {
+                results.push(error_constructor(
+                    EntityType::Operator,
+                    format!("Index {} in config (0-based)", index),
+                    "Operator key was not able to be collected".to_string(),
+                ));
+            }
+        }
+        for (index, key) in verifier_keys.iter().enumerate() {
+            if key.is_none() {
+                results.push(error_constructor(
+                    EntityType::Verifier,
+                    format!("Index {} in config (0-based)", index),
+                    "Verifier key was not able to be collected".to_string(),
+                ));
+            }
+        }
+    }
+
     /// Retrieves the status of all entities (operators and verifiers) and restarts background tasks if needed.
     /// Returns a vector of EntityStatusWithId. Only returns an error if restarting tasks fails when requested.
     pub async fn get_entity_statuses(
@@ -618,23 +660,17 @@ impl Aggregator {
         let verifier_clients = self.get_verifier_clients();
         tracing::debug!("Operator clients: {:?}", operator_clients.len());
 
-        // try to reach all operators and verifiers to collect keys, but do not return err if some of them can't be reached
-        let _ = self.fetch_operator_keys().await;
-        let _ = self.fetch_verifier_keys().await;
+        let (operator_keys, verifier_keys) = self.fetch_all_entity_keys().await;
 
-        let operator_keys = self.operator_keys.read().await.clone();
-        let verifier_keys = self.verifier_keys.read().await.clone();
-
-        // we will only ask status of entities that we could collect keys for, others are unreachable
-
+        // Query operators for status
         let operator_status = join_all(
             operator_clients
                 .iter()
                 .zip(operator_keys.iter())
-                // filter out operators that have None as key
-                .filter_map(|(client, key)| key.map(|key| (client, key)))
+                .filter_map(|(client, key)| key.as_ref().map(|k| (client, k)))
                 .map(|(client, key)| {
                     let mut client = client.clone();
+                    let key = *key;
                     async move {
                         tracing::debug!("Getting operator status for {:?}", key);
                         let mut request = Request::new(Empty {});
@@ -658,13 +694,15 @@ impl Aggregator {
         )
         .await;
 
+        // Query verifiers for status
         let verifier_status = join_all(
             verifier_clients
                 .iter()
                 .zip(verifier_keys.iter())
-                .filter_map(|(client, key)| key.map(|key| (client, key)))
+                .filter_map(|(client, key)| key.as_ref().map(|k| (client, k)))
                 .map(|(client, key)| {
                     let mut client = client.clone();
+                    let key = *key;
                     async move {
                         tracing::debug!("Getting verifier status for {:?}", key);
                         let mut request = Request::new(Empty {});
@@ -688,11 +726,11 @@ impl Aggregator {
         )
         .await;
 
-        // Combine operator and verifier status into a single vector
+        // Combine results
         let mut entity_statuses = operator_status;
         entity_statuses.extend(verifier_status);
 
-        // try to restart background tasks if needed
+        // Restart background tasks if requested
         if restart_tasks {
             let operator_tasks = operator_clients.iter().map(|client| {
                 let mut client = client.clone();
@@ -717,33 +755,23 @@ impl Aggregator {
                 futures::future::try_join_all(verifier_tasks)
             )?;
         }
-        // also add a message for entities that we could not collect keys for
-        for (index, key) in operator_keys.iter().enumerate() {
-            if key.is_none() {
-                entity_statuses.push(EntityStatusWithId {
-                    entity_id: Some(RPCEntityId {
-                        kind: EntityType::Operator as i32,
-                        id: format!("Index {} in config (0-based)", index),
-                    }),
-                    status_result: Some(StatusResult::Err(clementine::EntityError {
-                        error: "Operator key was not able to be collected".to_string(),
-                    })),
-                });
-            }
-        }
-        for (index, key) in verifier_keys.iter().enumerate() {
-            if key.is_none() {
-                entity_statuses.push(EntityStatusWithId {
-                    entity_id: Some(RPCEntityId {
-                        kind: EntityType::Verifier as i32,
-                        id: format!("Index {} in config (0-based)", index),
-                    }),
-                    status_result: Some(StatusResult::Err(clementine::EntityError {
-                        error: "Verifier key was not able to be collected".to_string(),
-                    })),
-                });
-            }
-        }
+
+        // Add error entries for unreachable entities
+        Self::add_unreachable_entity_errors(
+            &mut entity_statuses,
+            &operator_keys,
+            &verifier_keys,
+            |entity_type, id, error_msg| EntityStatusWithId {
+                entity_id: Some(RPCEntityId {
+                    kind: entity_type as i32,
+                    id,
+                }),
+                status_result: Some(StatusResult::Err(clementine::EntityError {
+                    error: error_msg,
+                })),
+            },
+        );
+
         Ok(entity_statuses)
     }
 
@@ -753,23 +781,17 @@ impl Aggregator {
         let operator_clients = self.get_operator_clients();
         let verifier_clients = self.get_verifier_clients();
 
-        // try to reach all operators and verifiers to collect keys, but do not return err if some of them can't be reached
-        let _ = self.fetch_operator_keys().await;
-        let _ = self.fetch_verifier_keys().await;
+        let (operator_keys, verifier_keys) = self.fetch_all_entity_keys().await;
 
-        let operator_keys = self.operator_keys.read().await.clone();
-        let verifier_keys = self.verifier_keys.read().await.clone();
-
-        // we will only ask status of entities that we could collect keys for, others are unreachable
-
+        // Query operators for compatibility data
         let operator_comp_data = join_all(
             operator_clients
                 .iter()
                 .zip(operator_keys.iter())
-                // filter out operators that have None as key
-                .filter_map(|(client, key)| key.map(|key| (client, key)))
+                .filter_map(|(client, key)| key.as_ref().map(|k| (client, k)))
                 .map(|(client, key)| {
                     let mut client = client.clone();
+                    let key = *key;
                     async move {
                         tracing::debug!("Getting operator compatibility data for {:?}", key);
                         let mut request = Request::new(Empty {});
@@ -791,13 +813,15 @@ impl Aggregator {
         )
         .await;
 
+        // Query verifiers for compatibility data
         let verifier_comp_data = join_all(
             verifier_clients
                 .iter()
                 .zip(verifier_keys.iter())
-                .filter_map(|(client, key)| key.map(|key| (client, key)))
+                .filter_map(|(client, key)| key.as_ref().map(|k| (client, k)))
                 .map(|(client, key)| {
                     let mut client = client.clone();
+                    let key = *key;
                     async move {
                         tracing::debug!("Getting verifier compatibility data for {:?}", key);
                         let mut request = Request::new(Empty {});
@@ -819,37 +843,24 @@ impl Aggregator {
         )
         .await;
 
-        // Combine operator and verifier status into a single vector
+        // Combine results
         let mut entities_comp_data = operator_comp_data;
         entities_comp_data.extend(verifier_comp_data);
 
-        // also add a message for entities that we could not collect keys for
-        for (index, key) in operator_keys.iter().enumerate() {
-            if key.is_none() {
-                entities_comp_data.push(EntityDataWithId {
-                    entity_id: Some(RPCEntityId {
-                        kind: EntityType::Operator as i32,
-                        id: format!("Index {} in config (0-based)", index),
-                    }),
-                    data_result: Some(DataResult::Error(
-                        "Operator key was not able to be collected".to_string(),
-                    )),
-                });
-            }
-        }
-        for (index, key) in verifier_keys.iter().enumerate() {
-            if key.is_none() {
-                entities_comp_data.push(EntityDataWithId {
-                    entity_id: Some(RPCEntityId {
-                        kind: EntityType::Verifier as i32,
-                        id: format!("Index {} in config (0-based)", index),
-                    }),
-                    data_result: Some(DataResult::Error(
-                        "Verifier key was not able to be collected".to_string(),
-                    )),
-                });
-            }
-        }
+        // Add error entries for unreachable entities
+        Self::add_unreachable_entity_errors(
+            &mut entities_comp_data,
+            &operator_keys,
+            &verifier_keys,
+            |entity_type, id, error_msg| EntityDataWithId {
+                entity_id: Some(RPCEntityId {
+                    kind: entity_type as i32,
+                    id,
+                }),
+                data_result: Some(DataResult::Error(error_msg)),
+            },
+        );
+
         Ok(entities_comp_data)
     }
 
