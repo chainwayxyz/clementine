@@ -19,6 +19,9 @@ jobs:
     name: Build and publish Docker image
     runs-on: ubicloud-standard-2
     timeout-minutes: 120
+    env:
+      # needed for vergen
+      BUILDKIT_CONTEXT_KEEP_GIT_DIR: 1
 
     steps:
       - uses: actions/checkout@v4
@@ -43,6 +46,9 @@ jobs:
     name: Build and publish Docker image with automation flag
     runs-on: ubicloud-standard-2
     timeout-minutes: 120
+    env:
+      # needed for vergen
+      BUILDKIT_CONTEXT_KEEP_GIT_DIR: 1
 
     steps:
       - uses: actions/checkout@v4
