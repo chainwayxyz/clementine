@@ -414,8 +414,8 @@ async fn nonce_distributor(
     Ok(())
 }
 
-/// Collects partial signatures and corresponding public nonces from given stream and aggregates them.
-/// Each partial signature will also be verified if PARTIAL_SIG_VERIFICATION is set to true.
+/// Collects partial signatures and the corresponding public nonces from given stream and aggregates them.
+/// When PARTIAL_SIG_VERIFICATION is set to true, each partial signature will also be verified during aggregation.  
 async fn signature_aggregator(
     mut partial_sig_receiver: Receiver<(Vec<(PartialSignature, PublicNonce)>, AggNonceQueueItem)>,
     verifiers_public_keys: Vec<PublicKey>,
