@@ -25,7 +25,8 @@ use crate::deposit::{Actors, DepositData, DepositInfo};
 use crate::errors::ResultExt;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::rpc::clementine::{
-    operator_withrawal_response, AggregatorWithdrawalInput, CompatibilityParamsRpc, OperatorWithrawalResponse, VerifierDepositSignParams
+    operator_withrawal_response, AggregatorWithdrawalInput, CompatibilityParamsRpc,
+    OperatorWithrawalResponse, VerifierDepositSignParams,
 };
 use crate::rpc::parser;
 use crate::utils::{get_vergen_response, timed_request, timed_try_join_all, ScriptBufExt};
@@ -821,6 +822,9 @@ impl ClementineAggregator for AggregatorServer {
         let (deposit_id, input_signature, input_outpoint, output_script_pubkey, output_amount) =
             parser::operator::parse_withdrawal_sig_params(withdraw_params)?;
 
+        // check compatibility with verifiers only
+        self.check_compatibility_with_actors(true, false).await?;
+
         // if the withdrawal utxo is spent, no reason to sign optimistic payout
         if self
             .rpc
@@ -1074,6 +1078,7 @@ impl ClementineAggregator for AggregatorServer {
         &self,
         _request: Request<Empty>,
     ) -> Result<Response<VerifierPublicKeys>, Status> {
+        self.check_compatibility_with_actors(true, true).await?;
         // Propagate Operators configurations to all verifier clients
         const CHANNEL_CAPACITY: usize = 1024 * 16;
         let (operator_params_tx, operator_params_rx) =
@@ -1168,6 +1173,8 @@ impl ClementineAggregator for AggregatorServer {
         &self,
         request: Request<Deposit>,
     ) -> Result<Response<clementine::RawSignedTx>, Status> {
+        self.check_compatibility_with_actors(true, true).await?;
+
         timed_request(OVERALL_DEPOSIT_TIMEOUT, "Overall new deposit", async {
             let deposit_info: DepositInfo = request.into_inner().try_into()?;
 
@@ -1502,6 +1509,9 @@ impl ClementineAggregator for AggregatorServer {
             ))?,
             request.operator_xonly_pks,
         );
+        // check compatibility with operators only
+        self.check_compatibility_with_actors(false, true).await?;
+
         // convert rpc xonly pks to bitcoin xonly pks
         let operator_xonly_pks_from_rpc: Vec<XOnlyPublicKey> = operator_xonly_pks
             .into_iter()

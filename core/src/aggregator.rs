@@ -1,6 +1,7 @@
 use std::ops::Deref;
 use std::sync::Arc;
 
+use crate::compatibility::{ActorWithConfig, CompatibilityParams};
 use crate::constants::{
     ENTITY_STATUS_POLL_TIMEOUT, OPERATOR_GET_KEYS_TIMEOUT, PUBLIC_KEY_COLLECTION_TIMEOUT,
     VERIFIER_SEND_KEYS_TIMEOUT,
@@ -714,6 +715,95 @@ impl Aggregator {
             )?;
         }
         Ok(entity_statuses)
+    }
+
+    /// Checks compatibility with other actors.
+    /// Returns an error if aggregator is not compatible with any of the other actors, or any other actor returns an error.
+    pub async fn check_compatibility_with_actors(
+        &self,
+        verifiers_included: bool,
+        operators_included: bool,
+    ) -> Result<(), BridgeError> {
+        let operator_keys = self.fetch_operator_keys().await?;
+        let verifier_keys = self.fetch_verifier_keys().await?;
+
+        let mut other_errors = Vec::new();
+        let mut actors_compat_params = Vec::new();
+
+        if operators_included {
+            for (operator_id, operator_client) in operator_keys
+                .into_iter()
+                .map(OperatorId)
+                .zip(self.operator_clients.iter())
+            {
+                let mut operator_client = operator_client.clone();
+
+                let res = {
+                    let compatibility_params: CompatibilityParams = operator_client
+                        .get_compatibility_params(Empty {})
+                        .await?
+                        .into_inner()
+                        .try_into()?;
+                    actors_compat_params.push((operator_id.to_string(), compatibility_params));
+                    Ok::<_, BridgeError>(())
+                };
+                if let Err(e) = res {
+                    other_errors.push(format!(
+                        "{} error while retrieving compatibility params: {}",
+                        operator_id, e
+                    ));
+                }
+            }
+        }
+
+        if verifiers_included {
+            for (verifier_id, verifier_client) in verifier_keys
+                .into_iter()
+                .map(VerifierId)
+                .zip(self.verifier_clients.iter())
+            {
+                let mut verifier_client = verifier_client.clone();
+
+                let res = {
+                    let compatibility_params: CompatibilityParams = verifier_client
+                        .get_compatibility_params(Empty {})
+                        .await?
+                        .into_inner()
+                        .try_into()?;
+                    actors_compat_params.push((verifier_id.to_string(), compatibility_params));
+                    Ok::<_, BridgeError>(())
+                };
+                if let Err(e) = res {
+                    other_errors.push(format!(
+                        "{} error while retrieving compatibility params: {}",
+                        verifier_id, e
+                    ));
+                }
+            }
+        }
+
+        // return both compatibility error and other errors (ex: connection)
+        let is_compatible = self.is_compatible(actors_compat_params);
+        if let Err(e) = is_compatible {
+            if other_errors.is_empty() {
+                return Err(e);
+            } else {
+                return Err(eyre::eyre!(
+                    "Clementine not compatible with some actors: {}. Actors returned errors while retrieving compatibility params: {}",
+                    e,
+                    other_errors.join(", ")
+                ).into());
+            }
+        }
+        if !other_errors.is_empty() {
+            return Err(eyre::eyre!(
+                "Actors returned errors while retrieving compatibility params: {}",
+                other_errors.join(", ")
+            )
+            .into());
+        }
+
+        Ok(())
     }
 }
 
