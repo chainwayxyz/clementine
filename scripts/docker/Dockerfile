@@ -2,7 +2,8 @@
 FROM rust:1.85.0
 WORKDIR /clementine
 COPY . .
-RUN cargo +1.85.0 build --release --bin clementine-core
+# TODO: REMOVE CACHE MOUNT FOR SAFETY BEFORE MERGE
+RUN --mount=type=cache,target=/clementine/target cargo +1.85.0 build --release --bin clementine-core
 
 FROM debian:bookworm-slim
 RUN \
@@ -13,7 +14,7 @@ RUN \
   && update-ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 
-COPY --from=0 /target/release/clementine-core /clementine-core
+COPY --from=0 /clementine/target/release/clementine-core /clementine-core
 
 # Set up Clementine
 ENTRYPOINT [ "/clementine-core" ]
