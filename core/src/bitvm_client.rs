@@ -623,7 +623,9 @@ pub fn replace_disprove_scripts(
     let start = Instant::now();
     tracing::info!("Starting script replacement");
 
-    let cache = &BITVM_CACHE.get_or_init(load_or_generate_bitvm_cache).bitvm_cache;
+    let cache = &BITVM_CACHE
+        .get_or_init(load_or_generate_bitvm_cache)
+        .bitvm_cache;
     let replacement_places = &cache.replacement_places;
 
     // Calculate estimated operations to prevent DoS attacks
