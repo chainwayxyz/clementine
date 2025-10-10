@@ -76,6 +76,8 @@ client_verification = true
 # socket_path = "/"
 
 tx_sender_fee_rate_hard_cap = 100
+tx_sender_mempool_fee_rate_multiplier = 1
+tx_sender_mempool_fee_rate_offset_sat_kvb = 0
 
 [telemetry]
 host = "0.0.0.0"

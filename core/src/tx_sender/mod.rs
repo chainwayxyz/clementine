@@ -191,17 +191,40 @@ impl TxSender {
                     })
                 });
 
-                // Use the minimum of both fee sources, with fallback logic
+                // Use the minimum of both fee sources, with fallback logic, carefully avoiding overflow
                 let selected_fee_amount = match (mempool_fee, rpc_fee) {
                     (Ok(mempool_amt), Ok(rpc_amt)) => {
-                        let min_fee = mempool_amt.min(rpc_amt);
-                        tracing::info!(
-                            "Using minimum fee rate: {} sat/kvB (mempool: {}, rpc: {})",
-                            min_fee.to_sat(),
-                            mempool_amt.to_sat(),
-                            rpc_amt.to_sat()
-                        );
-                        min_fee
+                        // Use checked arithmetic to avoid overflow
+                        let multiplier = self.config.tx_sender_limits.mempool_fee_rate_multiplier;
+                        let offset = self.config.tx_sender_limits.mempool_fee_rate_offset_sat_kvb;
+                        let rpc_amt_sat = rpc_amt.to_sat();
+
+                        let threshold_sat = multiplier
+                            .checked_mul(rpc_amt_sat)
+                            .and_then(|v| v.checked_add(offset))
+                            .unwrap_or(u64::MAX);
+
+                        let threshold = Amount::from_sat(threshold_sat);
+
+                        if mempool_amt <= threshold {
+                            tracing::debug!(
+                                "Selected mempool.space fee rate: {} sat/kvB (mempool: {}, rpc: {}, threshold: {})",
+                                mempool_amt.to_sat(),
+                                mempool_amt.to_sat(),
+                                rpc_amt.to_sat(),
+                                threshold
+                            );
+                            mempool_amt
+                        } else {
+                            tracing::debug!(
+                                "Selected Bitcoin Core RPC fee rate: {} sat/kvB (mempool: {}, rpc: {}, threshold: {})",
+                                rpc_amt.to_sat(),
+                                mempool_amt.to_sat(),
+                                rpc_amt.to_sat(),
+                                threshold
+                            );
+                            rpc_amt
+                        }
                     }
                     (Ok(mempool_amt), Err(rpc_err)) => {
                         tracing::warn!(
@@ -230,16 +253,16 @@ impl TxSender {
                 let mut fee_sat_kvb = selected_fee_amount.to_sat();
 
                 // Apply hard cap from config
-                if fee_sat_kvb > self.config.tx_sender_fee_rate_hard_cap * 1000 {
+                if fee_sat_kvb > self.config.tx_sender_limits.fee_rate_hard_cap * 1000 {
                     tracing::warn!(
                         "Fee rate {} sat/kvb exceeds hard cap {} sat/kvb, using hard cap",
                         fee_sat_kvb,
-                        self.config.tx_sender_fee_rate_hard_cap * 1000
+                        self.config.tx_sender_limits.fee_rate_hard_cap * 1000
                     );
-                    fee_sat_kvb = self.config.tx_sender_fee_rate_hard_cap * 1000;
+                    fee_sat_kvb = self.config.tx_sender_limits.fee_rate_hard_cap * 1000;
                 }
 
-                tracing::info!("Final fee rate: {} sat/kvb", fee_sat_kvb);
+                tracing::debug!("Final fee rate: {} sat/kvb", fee_sat_kvb);
                 Ok(FeeRate::from_sat_per_kwu(fee_sat_kvb.div_ceil(4)))
             }
 
@@ -1692,7 +1715,13 @@ mod tests {
         let fee_rate = tx_sender.get_fee_rate().await.unwrap();
         assert_eq!(
             fee_rate,
-            FeeRate::from_sat_per_kwu(config.tx_sender_fee_rate_hard_cap.mul(1000).div_ceil(4))
+            FeeRate::from_sat_per_kwu(
+                config
+                    .tx_sender_limits
+                    .fee_rate_hard_cap
+                    .mul(1000)
+                    .div_ceil(4)
+            )
         );
     }
 }
