@@ -1,7 +1,7 @@
 # Compile Clementine
 FROM rust:1.85.0
-COPY . .
 WORKDIR /clementine
+COPY . .
 RUN cargo +1.85.0 build --release --bin clementine-core
 
 FROM debian:bookworm-slim

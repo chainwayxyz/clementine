@@ -2,6 +2,8 @@ use std::{env, path::Path, process::Command};
 
 use vergen_git2::{BuildBuilder, CargoBuilder, Emitter, Git2Builder, RustcBuilder, SysinfoBuilder};
 
+use std::path::PathBuf;
+
 fn trim_ascii_end(s: &str) -> &str {
     let trimmed_len = s
         .as_bytes()
@@ -64,7 +66,11 @@ fn main() {
     compile_protobuf();
     let build = BuildBuilder::all_build().expect("Failed to build build instructions");
     let cargo = CargoBuilder::all_cargo().expect("Failed to build cargo instructions");
-    let git2 = Git2Builder::all_git().expect("Failed to build git instructions");
+    let git2 = Git2Builder::default()
+        .all()
+        .repo_path(PathBuf::from("..").into()) // .git folder is in the workspace folder
+        .build()
+        .expect("Failed to build git2 instructions");
     let rustc = RustcBuilder::all_rustc().expect("Failed to build rustc instructions");
     let si = SysinfoBuilder::all_sysinfo().expect("Failed to build sysinfo instructions");
 
