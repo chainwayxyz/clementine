@@ -77,7 +77,7 @@ impl TryFrom<CompatibilityParams> for CompatibilityParamsRpc {
                 .wrap_err("Failed to serialize protocol paramset")?,
             security_council: params.security_council.to_string(),
             citrea_chain_id: params.citrea_chain_id,
-            clementine_version: env!("CARGO_PKG_VERSION").to_string(),
+            clementine_version: params.clementine_version,
             bridge_circuit_constant: params.protocol_paramset.bridge_circuit_constant()?.to_vec(),
             sha256_bitvm_cache: params.sha256_bitvm_cache.to_vec(),
         })
@@ -250,8 +250,11 @@ mod tests {
     }
 
     fn create_test_compatibility_params(version: &str) -> CompatibilityParams {
+        let protocol_paramset = create_test_protocol_paramset();
         CompatibilityParams {
-            protocol_paramset: create_test_protocol_paramset(),
+            bridge_circuit_constant: *protocol_paramset.bridge_circuit_constant().unwrap(),
+            sha256_bitvm_cache: [0u8; 32],
+            protocol_paramset,
             security_council: create_test_security_council(),
             citrea_chain_id: 1234,
             clementine_version: version.to_string(),
@@ -334,6 +337,30 @@ mod tests {
     }
 
     #[test]
+    fn test_incompatible_different_bridge_circuit_constant() {
+        let params1 = create_test_compatibility_params("1.2.3");
+        let mut params2 = create_test_compatibility_params("1.2.3");
+        params2.bridge_circuit_constant = [1u8; 32];
+
+        let result = params1.is_compatible(&params2);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("Bridge circuit constant mismatch"));
+    }
+
+    #[test]
+    fn test_incompatible_different_sha256_bitvm_cache() {
+        let params1 = create_test_compatibility_params("1.2.3");
+        let mut params2 = create_test_compatibility_params("1.2.3");
+        params2.sha256_bitvm_cache = [2u8; 32];
+
+        let result = params1.is_compatible(&params2);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("BitVM cache SHA256 mismatch"));
+    }
+
+    #[test]
     fn test_incompatible_multiple_reasons() {
         let params1 = create_test_compatibility_params("1.2.3");
         let mut params2 = create_test_compatibility_params("2.0.0");
@@ -391,13 +418,21 @@ mod tests {
         let rpc_params: CompatibilityParamsRpc = params.clone().try_into().unwrap();
 
         assert_eq!(rpc_params.citrea_chain_id, 1234);
-        assert_eq!(rpc_params.clementine_version, env!("CARGO_PKG_VERSION"));
+        assert_eq!(rpc_params.clementine_version, params.clementine_version);
         assert!(!rpc_params.protocol_paramset.is_empty());
         assert!(!rpc_params.security_council.is_empty());
+        assert_eq!(
+            rpc_params.bridge_circuit_constant,
+            params.bridge_circuit_constant.to_vec()
+        );
+        assert_eq!(
+            rpc_params.sha256_bitvm_cache,
+            params.sha256_bitvm_cache.to_vec()
+        );
     }
 
     #[test]
-    fn test_compatibility_params_rpc_roundtrip() {
+    fn test_compatibility_params_rpc_parsing() {
         let params = create_test_compatibility_params("1.2.3");
 
         let rpc_params: CompatibilityParamsRpc = params.clone().try_into().unwrap();
@@ -406,11 +441,16 @@ mod tests {
         assert_eq!(params.protocol_paramset, params_back.protocol_paramset);
         assert_eq!(params.security_council, params_back.security_council);
         assert_eq!(params.citrea_chain_id, params_back.citrea_chain_id);
-        // Note: clementine_version will be different due to env!("CARGO_PKG_VERSION") in TryFrom
+        assert_eq!(
+            params.bridge_circuit_constant,
+            params_back.bridge_circuit_constant
+        );
+        assert_eq!(params.sha256_bitvm_cache, params_back.sha256_bitvm_cache);
+        assert_eq!(params.clementine_version, params_back.clementine_version);
     }
 
     #[test]
-    fn test_security_council_string_roundtrip() {
+    fn test_security_council_string_parsing() {
         let council = create_test_security_council();
         let council_str = council.to_string();
         let council_back: SecurityCouncil = council_str.parse().unwrap();
