@@ -194,18 +194,22 @@ mod tests {
 
         tracing::info!("Entity compatibility data: {:?}", entity_comp_data);
 
+        let mut errors = Vec::new();
         for entity in entity_comp_data.entities_compatibility_data {
             let data = entity.data_result.unwrap();
             match data {
                 DataResult::Data(_) => {}
                 DataResult::Error(err) => {
-                    panic!(
-                        "Entity {} returned an error: {}",
-                        entity.entity_id.unwrap().id,
+                    errors.push(format!(
+                        "Entity {:?} returned an error: {:?}",
+                        entity.entity_id.unwrap(),
                         err
-                    );
+                    ));
                 }
             }
+        }
+        if !errors.is_empty() {
+            panic!("Errors: {}", errors.join(", "));
         }
     }
 
