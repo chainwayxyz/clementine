@@ -78,7 +78,7 @@ impl TryFrom<CompatibilityParams> for CompatibilityParamsRpc {
             security_council: params.security_council.to_string(),
             citrea_chain_id: params.citrea_chain_id,
             clementine_version: params.clementine_version,
-            bridge_circuit_constant: params.protocol_paramset.bridge_circuit_constant()?.to_vec(),
+            bridge_circuit_constant: params.bridge_circuit_constant.to_vec(),
             sha256_bitvm_cache: params.sha256_bitvm_cache.to_vec(),
         })
     }
