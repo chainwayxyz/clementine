@@ -384,7 +384,7 @@ mod tests {
         env::set_var("TX_SENDER_FEE_RATE_HARD_CAP", "100");
         env::set_var("TX_SENDER_MEMPOOL_FEE_RATE_MULTIPLIER", "1");
         env::set_var("TX_SENDER_MEMPOOL_FEE_RATE_OFFSET_SAT_KVB", "0");
-        env::set_var("TX_SENDER_CPFP_FEE_PAYER_BUMP_FEE_WAIT_TIME", "3600");
+        env::set_var("TX_SENDER_CPFP_FEE_PAYER_BUMP_WAIT_TIME_SECONDS", "3600");
     }
 
     // Helper to set up all environment variables needed for protocol paramset

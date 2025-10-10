@@ -475,7 +475,7 @@ impl TxSender {
                     < self
                         .config
                         .tx_sender_limits
-                        .cpfp_fee_payer_bump_fee_wait_time
+                        .cpfp_fee_payer_bump_wait_time_seconds
             {
                 continue;
             }

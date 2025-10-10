@@ -191,7 +191,7 @@ pub struct TxSenderLimits {
     pub mempool_fee_rate_offset_sat_kvb: u64,
     /// The time to wait before bumping the fee of a fee payer UTXO
     /// We wait a bit because after bumping the fee, the unconfirmed change utxo that is in the bumped tx will not be able to be spent (so won't be used to create new fee payer utxos) until that fee payer tx confirms
-    pub cpfp_fee_payer_bump_fee_wait_time: u64,
+    pub cpfp_fee_payer_bump_wait_time_seconds: u64,
 }
 
 fn default_tx_sender_limits() -> TxSenderLimits {
@@ -199,7 +199,7 @@ fn default_tx_sender_limits() -> TxSenderLimits {
         fee_rate_hard_cap: 100,
         mempool_fee_rate_multiplier: 1,
         mempool_fee_rate_offset_sat_kvb: 0,
-        cpfp_fee_payer_bump_fee_wait_time: 60 * 60, // 1 hour in seconds
+        cpfp_fee_payer_bump_wait_time_seconds: 60 * 60, // 1 hour in seconds
     }
 }
 
