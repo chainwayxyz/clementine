@@ -121,7 +121,7 @@ pub trait ActorWithConfig {
             bridge_circuit_constant: *config.protocol_paramset.bridge_circuit_constant()?,
             sha256_bitvm_cache: BITVM_CACHE
                 .get_or_init(load_or_generate_bitvm_cache)
-                .sha256_disprove_scripts,
+                .sha256_bitvm_cache,
         })
     }
 

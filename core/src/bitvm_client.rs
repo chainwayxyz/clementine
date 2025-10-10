@@ -55,9 +55,14 @@ lazy_static::lazy_static! {
 /// # Usage
 /// Use with `BITVM_CACHE.get_or_init(load_or_generate_bitvm_cache)` to get the cache or optionally load it.
 /// The cache will be initialized from a file, and if that fails, the fresh data will be generated.
-pub static BITVM_CACHE: OnceLock<BitvmCache> = OnceLock::new();
+pub static BITVM_CACHE: OnceLock<BitvmCacheWithMetadata> = OnceLock::new();
 
-pub fn load_or_generate_bitvm_cache() -> BitvmCache {
+pub struct BitvmCacheWithMetadata {
+    pub bitvm_cache: BitvmCache,
+    pub sha256_bitvm_cache: [u8; 32],
+}
+
+pub fn load_or_generate_bitvm_cache() -> BitvmCacheWithMetadata {
     let start = Instant::now();
 
     let cache_path = std::env::var("BITVM_CACHE_PATH").unwrap_or_else(|_| {
@@ -94,13 +99,29 @@ pub fn load_or_generate_bitvm_cache() -> BitvmCache {
     };
 
     tracing::debug!("BitVM initialization took: {:?}", start.elapsed());
-    bitvm_cache
+
+    // calculate sha256 of disprove scripts, to be used in compatibility checks
+    let mut hasher = Sha256::new();
+    for script in bitvm_cache.disprove_scripts.iter() {
+        hasher.update(script);
+    }
+    hasher.update(
+        // expect is fine here because BitVM cache is generated on main() and shouldn't fail
+        borsh::to_vec(&bitvm_cache.replacement_places)
+            .expect("Failed to serialize replacement places while generating fresh data")
+            .as_slice(),
+    );
+    let sha256_bitvm_cache: [u8; 32] = hasher.finalize().into();
+
+    BitvmCacheWithMetadata {
+        bitvm_cache,
+        sha256_bitvm_cache,
+    }
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug)]
 pub struct BitvmCache {
     pub disprove_scripts: Vec<Vec<u8>>,
-    pub sha256_disprove_scripts: [u8; 32],
     pub replacement_places: Box<ClementineBitVMReplacementData>,
 }
 
@@ -210,22 +231,8 @@ fn generate_fresh_data() -> BitvmCache {
         }
     }
 
-    // calculate sha256 of disprove scripts, to be used in compatibility checks
-    let mut hasher = Sha256::new();
-    for script in scripts.iter() {
-        hasher.update(script);
-    }
-    hasher.update(
-        // expect is fine here because BitVM cache is generated on main() and shouldn't fail
-        borsh::to_vec(&replacement_places)
-            .expect("Failed to serialize replacement places while generating fresh data")
-            .as_slice(),
-    );
-    let sha256_disprove_scripts: [u8; 32] = hasher.finalize().into();
-
     BitvmCache {
         disprove_scripts: scripts,
-        sha256_disprove_scripts,
         replacement_places: Box::new(replacement_places),
     }
 }
@@ -616,7 +623,7 @@ pub fn replace_disprove_scripts(
     let start = Instant::now();
     tracing::info!("Starting script replacement");
 
-    let cache = BITVM_CACHE.get_or_init(load_or_generate_bitvm_cache);
+    let cache = &BITVM_CACHE.get_or_init(load_or_generate_bitvm_cache).bitvm_cache;
     let replacement_places = &cache.replacement_places;
 
     // Calculate estimated operations to prevent DoS attacks
