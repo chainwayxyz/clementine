@@ -10,6 +10,7 @@ use alloy::primitives::U256;
 use bitcoin::consensus::Encodable;
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::{PublicKey, SecretKey};
+use bitcoin::taproot;
 use bitcoin::{Address, Amount, Block, OutPoint, Transaction, TxOut, Txid, VarInt, XOnlyPublicKey};
 use bitcoincore_rpc::RpcApi;
 use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
@@ -236,7 +237,7 @@ pub async fn get_new_withdrawal_utxo_and_register_to_citrea(
     move_txid: Txid,
     e2e: &CitreaE2EData<'_>,
     actors: &TestActors<CitreaClient>,
-) -> (OutPoint, TxOut, bitcoin::secp256k1::schnorr::Signature) {
+) -> (OutPoint, TxOut, taproot::Signature) {
     e2e.rpc
         .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH + 2, actors)
         .await

@@ -39,7 +39,7 @@ use crate::{
     rpc::clementine::{self, DepositSignSession},
 };
 use bitcoin::hashes::Hash;
-use bitcoin::secp256k1::schnorr::{self, Signature};
+use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::{Message, PublicKey};
 use bitcoin::{TapSighash, TxOut, Txid, XOnlyPublicKey};
 use eyre::{Context, OptionExt};
@@ -891,19 +891,12 @@ impl ClementineAggregator for AggregatorServer {
                 self.config.protocol_paramset(),
             )?;
 
-            let sighash = opt_payout_txhandler.calculate_pubkey_spend_sighash(
-                0,
-                bitcoin::TapSighashType::SinglePlusAnyoneCanPay,
-            )?;
+            let sighash = opt_payout_txhandler
+                .calculate_pubkey_spend_sighash(0, input_signature.sighash_type)?;
 
             let message = Message::from_digest(sighash.to_byte_array());
 
-            let sig =
-                schnorr::Signature::from_slice(&input_signature.serialize()).map_err(|_| {
-                    Status::internal("Failed to parse signature from optimistic payout tx witness")
-                })?;
-
-            SECP.verify_schnorr(&sig, &message, &user_xonly_pk)
+            SECP.verify_schnorr(&input_signature.signature, &message, &user_xonly_pk)
                 .map_err(|_| Status::internal("Invalid signature for optimistic payout tx"))?;
 
             // get which verifiers participated in the deposit to collect the optimistic payout tx signature
