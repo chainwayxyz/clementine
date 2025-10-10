@@ -32,10 +32,3 @@ cargo doc --no-deps
 
 Documentation will be available at `target/doc/clementine_core/index.html` after
 that.
-
-## License
-
-**(C) 2025 Chainway Limited** `clementine` was developed by Chainway Limited.
-While we plan to adopt an open source license, we have not yet selected one. As
-such, all rights are reserved for the time being. Please reach out to us if you
-have thoughts on licensing.
