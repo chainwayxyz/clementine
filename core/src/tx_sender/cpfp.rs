@@ -42,10 +42,6 @@ use eyre::Context;
 use std::collections::HashSet;
 use std::env;
 
-/// The time to wait before bumping the fee of a fee payer UTXO
-/// We wait a bit because after bumping the fee, the unconfirmed change utxo that is in the bumped tx will not be able to be spent (so won't be used to create new fee payer utxos) until that fee payer tx confirms.
-const CPFP_FEE_PAYER_BUMP_FEE_WAIT_TIME: u64 = 60 * 60; // 1 hour
-
 impl TxSender {
     /// Creates and broadcasts a new "fee payer" UTXO to be used for CPFP
     /// transactions.
@@ -469,14 +465,17 @@ impl TxSender {
                     continue;
                 }
             };
-            // only try to bump if tx has no descendants and 1 hour passed since tx was created
+            // only try to bump if tx has no descendants and some time has passed since tx was created
             if mempool_info.descendant_count > 1
                 || std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .wrap_err("Failed to get unix timestamp")?
                     .as_secs()
                     - mempool_info.time
-                    < CPFP_FEE_PAYER_BUMP_FEE_WAIT_TIME
+                    < self
+                        .config
+                        .tx_sender_limits
+                        .cpfp_fee_payer_bump_fee_wait_time
             {
                 continue;
             }

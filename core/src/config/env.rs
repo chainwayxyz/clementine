@@ -69,6 +69,10 @@ impl TxSenderLimits {
                 "TX_SENDER_MEMPOOL_FEE_RATE_OFFSET_SAT_KVB",
             )
             .unwrap_or(defaults.mempool_fee_rate_offset_sat_kvb),
+            cpfp_fee_payer_bump_fee_wait_time: read_string_from_env_then_parse::<u64>(
+                "TX_SENDER_CPFP_FEE_PAYER_BUMP_FEE_WAIT_TIME",
+            )
+            .unwrap_or(defaults.cpfp_fee_payer_bump_fee_wait_time),
         })
     }
 }
@@ -387,6 +391,13 @@ mod tests {
             default_config
                 .tx_sender_limits
                 .mempool_fee_rate_offset_sat_kvb
+                .to_string(),
+        );
+        std::env::set_var(
+            "TX_SENDER_CPFP_FEE_PAYER_BUMP_FEE_WAIT_TIME",
+            default_config
+                .tx_sender_limits
+                .cpfp_fee_payer_bump_fee_wait_time
                 .to_string(),
         );
         std::env::set_var(
