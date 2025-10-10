@@ -959,7 +959,7 @@ impl ExtendedBitcoinRpc {
         let tx = transaction_info
             .transaction()
             .wrap_err("Failed to get transaction")?;
-        let tx_size = tx.weight().to_vbytes_ceil();
+        let tx_weight = tx.weight().to_wu();
         let current_fee_sat = u64::try_from(
             transaction_info
                 .fee
@@ -969,28 +969,39 @@ impl ExtendedBitcoinRpc {
         )
         .wrap_err("Failed to convert fee to sat")?;
 
-        let current_fee_rate = FeeRate::from_sat_per_kwu(1000 * current_fee_sat / tx_size);
+        let current_fee_rate_sat_kwu = current_fee_sat as f64 / tx_weight as f64 * 1000.0;
+
+        tracing::trace!(
+            "Bump fee with fee rate txid: {txid} - Current fee sat: {current_fee_sat} - current fee rate: {current_fee_rate_sat_kwu}"
+        );
 
         // If current fee rate is already sufficient, return original txid
-        if current_fee_rate >= fee_rate {
+        if current_fee_rate_sat_kwu >= fee_rate.to_sat_per_kwu() as f64 {
             return Ok(txid);
         }
+
+        tracing::trace!(
+            "Bump fee with fee rate txid: {txid} - Current fee rate: {current_fee_rate_sat_kwu} sat/kwu, target fee rate: {fee_rate} sat/kwu"
+        );
 
         // Get node's incremental fee to determine how much to increase
         let network_info = self
             .get_network_info()
             .await
             .wrap_err("Failed to get network info")?;
+        // incremental fee is in BTC/kvB
         let incremental_fee = network_info.incremental_fee;
-        let incremental_fee_rate: FeeRate = FeeRate::from_sat_per_kwu(incremental_fee.to_sat());
+        // Convert from sat/kvB to sat/kwu by dividing by 4.0, since 1 kvB = 4 kwu.
+        let incremental_fee_rate_sat_kwu = incremental_fee.to_sat() as f64 / 4.0;
 
-        // Calculate new fee rate by adding incremental fee to current fee rate
-        let new_fee_rate = FeeRate::from_sat_per_kwu(
-            current_fee_rate.to_sat_per_kwu() + incremental_fee_rate.to_sat_per_kwu(),
-        );
+        // Calculate new fee rate by adding incremental fee to current fee rate, or use the target fee rate if it's higher
+        let new_fee_rate = FeeRate::from_sat_per_kwu(std::cmp::max(
+            (current_fee_rate_sat_kwu + incremental_fee_rate_sat_kwu).ceil() as u64,
+            fee_rate.to_sat_per_kwu(),
+        ));
 
         tracing::debug!(
-            "Bumping fee for txid: {txid} from {current_fee_rate} to {new_fee_rate} with incremental fee {incremental_fee_rate} - Final fee rate: {new_fee_rate}"
+            "Bumping fee for txid: {txid} from {current_fee_rate_sat_kwu} to {new_fee_rate} with incremental fee {incremental_fee_rate_sat_kwu} - Final fee rate: {new_fee_rate}, current chain fee rate: {fee_rate}"
         );
 
         // Call Bitcoin Core's bumpfee RPC
