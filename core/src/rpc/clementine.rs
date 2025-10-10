@@ -326,6 +326,10 @@ pub struct CompatibilityParamsRpc {
     pub citrea_chain_id: u32,
     #[prost(string, tag = "4")]
     pub clementine_version: ::prost::alloc::string::String,
+    #[prost(bytes = "vec", tag = "5")]
+    pub bridge_circuit_constant: ::prost::alloc::vec::Vec<u8>,
+    #[prost(bytes = "vec", tag = "6")]
+    pub sha256_bitvm_cache: ::prost::alloc::vec::Vec<u8>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct EntityDataWithId {

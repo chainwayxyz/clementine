@@ -312,6 +312,8 @@ message CompatibilityParamsRPC {
   string security_council = 2;
   uint32 citrea_chain_id = 3;
   string clementine_version = 4;
+  bytes bridge_circuit_constant = 5;
+  bytes sha256_bitvm_cache = 6;
 }
 
 message EntityDataWithId {

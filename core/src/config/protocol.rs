@@ -227,8 +227,20 @@ impl ProtocolParamset {
                 }
             }
             Network::Bitcoin => Ok(&MAINNET_BRIDGE_CIRCUIT_CONSTANT),
-            Network::Testnet4 => Ok(&TESTNET4_BRIDGE_CIRCUIT_CONSTANT),
-            Network::Signet => Ok(&SIGNET_BRIDGE_CIRCUIT_CONSTANT),
+            Network::Testnet4 => {
+                if is_dev_mode() {
+                    Ok(&TESTNET4_TEST_BRIDGE_CIRCUIT_CONSTANT)
+                } else {
+                    Ok(&TESTNET4_BRIDGE_CIRCUIT_CONSTANT)
+                }
+            }
+            Network::Signet => {
+                if is_dev_mode() {
+                    Ok(&SIGNET_TEST_BRIDGE_CIRCUIT_CONSTANT)
+                } else {
+                    Ok(&SIGNET_BRIDGE_CIRCUIT_CONSTANT)
+                }
+            }
             _ => Err(BridgeError::UnsupportedNetwork),
         }
     }

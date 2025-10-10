@@ -38,7 +38,7 @@ where
         &self,
         _request: Request<Empty>,
     ) -> Result<Response<CompatibilityParamsRpc>, Status> {
-        let params = self.verifier.get_compatibility_params();
+        let params = self.verifier.get_compatibility_params()?;
         Ok(Response::new(params.try_into().map_to_status()?))
     }
 

@@ -4,6 +4,7 @@
 use eyre::Context;
 
 use crate::aggregator::Aggregator;
+use crate::bitvm_client::{load_or_generate_bitvm_cache, BITVM_CACHE};
 use crate::citrea::CitreaClientT;
 use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
@@ -21,6 +22,8 @@ pub struct CompatibilityParams {
     pub security_council: SecurityCouncil,
     pub citrea_chain_id: u32,
     pub clementine_version: String,
+    pub bridge_circuit_constant: [u8; 32],
+    pub sha256_bitvm_cache: [u8; 32],
 }
 
 impl CompatibilityParams {
@@ -37,6 +40,12 @@ impl CompatibilityParams {
         }
         if self.citrea_chain_id != other.citrea_chain_id {
             reasons.push("Citrea chain ID mismatch");
+        }
+        if self.bridge_circuit_constant != other.bridge_circuit_constant {
+            reasons.push("Bridge circuit constant mismatch");
+        }
+        if self.sha256_bitvm_cache != other.sha256_bitvm_cache {
+            reasons.push("BitVM cache SHA256 mismatch");
         }
         let own_version = semver::Version::parse(&self.clementine_version).wrap_err(format!(
             "Failed to parse own Clementine version {}",
@@ -69,6 +78,8 @@ impl TryFrom<CompatibilityParams> for CompatibilityParamsRpc {
             security_council: params.security_council.to_string(),
             citrea_chain_id: params.citrea_chain_id,
             clementine_version: env!("CARGO_PKG_VERSION").to_string(),
+            bridge_circuit_constant: params.protocol_paramset.bridge_circuit_constant()?.to_vec(),
+            sha256_bitvm_cache: params.sha256_bitvm_cache.to_vec(),
         })
     }
 }
@@ -86,6 +97,13 @@ impl TryFrom<CompatibilityParamsRpc> for CompatibilityParams {
                 .wrap_err("Failed to deserialize security council")?,
             citrea_chain_id: params.citrea_chain_id,
             clementine_version: params.clementine_version,
+            bridge_circuit_constant: params.bridge_circuit_constant.try_into().map_err(|_| {
+                eyre::eyre!("Failed to convert bridge circuit constant to [u8; 32]")
+            })?,
+            sha256_bitvm_cache: params
+                .sha256_bitvm_cache
+                .try_into()
+                .map_err(|_| eyre::eyre!("Failed to convert sha256 bitvm cache to [u8; 32]"))?,
         })
     }
 }
@@ -93,19 +111,23 @@ impl TryFrom<CompatibilityParamsRpc> for CompatibilityParams {
 pub trait ActorWithConfig {
     fn get_config(&self) -> &BridgeConfig;
 
-    fn get_compatibility_params(&self) -> CompatibilityParams {
+    fn get_compatibility_params(&self) -> Result<CompatibilityParams, BridgeError> {
         let config = self.get_config();
-        CompatibilityParams {
+        Ok(CompatibilityParams {
             protocol_paramset: config.protocol_paramset.clone(),
             security_council: config.security_council.clone(),
             citrea_chain_id: config.citrea_chain_id,
             clementine_version: env!("CARGO_PKG_VERSION").to_string(),
-        }
+            bridge_circuit_constant: *config.protocol_paramset.bridge_circuit_constant()?,
+            sha256_bitvm_cache: BITVM_CACHE
+                .get_or_init(load_or_generate_bitvm_cache)
+                .sha256_disprove_scripts,
+        })
     }
 
     /// Returns an error with reason if not compatible, otherwise returns Ok(())
     fn is_compatible(&self, others: Vec<(String, CompatibilityParams)>) -> Result<(), BridgeError> {
-        let own_params = self.get_compatibility_params();
+        let own_params = self.get_compatibility_params()?;
         let mut reasons = Vec::new();
         for (id, params) in others {
             if let Err(e) = own_params.is_compatible(&params) {

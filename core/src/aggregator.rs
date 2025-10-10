@@ -856,7 +856,7 @@ impl Aggregator {
             }),
             data_result: {
                 let compatibility_params: Result<CompatibilityParamsRpc, eyre::Report> =
-                    self.get_compatibility_params().try_into();
+                    self.get_compatibility_params()?.try_into();
                 match compatibility_params {
                     Ok(compatibility_params) => Some(DataResult::Data(compatibility_params)),
                     Err(e) => Some(DataResult::Error(e.to_string())),
@@ -890,13 +890,11 @@ impl Aggregator {
         verifiers_included: bool,
         operators_included: bool,
     ) -> Result<(), BridgeError> {
-        let operator_keys = self.fetch_operator_keys().await?;
-        let verifier_keys = self.fetch_verifier_keys().await?;
-
         let mut other_errors = Vec::new();
         let mut actors_compat_params = Vec::new();
 
         if operators_included {
+            let operator_keys = self.fetch_operator_keys().await?;
             for (operator_id, operator_client) in operator_keys
                 .into_iter()
                 .map(OperatorId)
@@ -923,6 +921,7 @@ impl Aggregator {
         }
 
         if verifiers_included {
+            let verifier_keys = self.fetch_verifier_keys().await?;
             for (verifier_id, verifier_client) in verifier_keys
                 .into_iter()
                 .map(VerifierId)

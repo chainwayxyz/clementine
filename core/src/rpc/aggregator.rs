@@ -786,7 +786,7 @@ impl ClementineAggregator for AggregatorServer {
         &self,
         _request: Request<Empty>,
     ) -> Result<Response<CompatibilityParamsRpc>, Status> {
-        let params = self.aggregator.get_compatibility_params();
+        let params = self.aggregator.get_compatibility_params()?;
         Ok(Response::new(params.try_into().map_to_status()?))
     }
 

@@ -16,6 +16,7 @@ use bitvm::chunk::api::{
 use bitvm::signatures::{Wots, Wots20};
 use borsh::{BorshDeserialize, BorshSerialize};
 use bridge_circuit_host::utils::{get_verifying_key, is_dev_mode};
+use sha2::{Digest, Sha256};
 use std::fs;
 use tokio::sync::Mutex;
 
@@ -99,6 +100,7 @@ pub fn load_or_generate_bitvm_cache() -> BitvmCache {
 #[derive(BorshSerialize, BorshDeserialize, Debug)]
 pub struct BitvmCache {
     pub disprove_scripts: Vec<Vec<u8>>,
+    pub sha256_disprove_scripts: [u8; 32],
     pub replacement_places: Box<ClementineBitVMReplacementData>,
 }
 
@@ -208,8 +210,16 @@ fn generate_fresh_data() -> BitvmCache {
         }
     }
 
+    // calculate sha256 of disprove scripts, to be used in compatibility checks
+    let mut hasher = Sha256::new();
+    for script in scripts.iter() {
+        hasher.update(script);
+    }
+    let sha256_disprove_scripts: [u8; 32] = hasher.finalize().into();
+
     BitvmCache {
         disprove_scripts: scripts,
+        sha256_disprove_scripts,
         replacement_places: Box::new(replacement_places),
     }
 }
