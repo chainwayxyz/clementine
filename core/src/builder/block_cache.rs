@@ -2,47 +2,37 @@ use bitcoin::{Block, OutPoint, Transaction, Txid, Witness};
 use std::collections::HashMap;
 
 /// Block cache to optimize Txid and UTXO lookups for a block
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct BlockCache {
     pub(crate) txids: HashMap<Txid, usize>,
     pub(crate) spent_utxos: HashMap<OutPoint, usize>,
     pub(crate) block_height: u32,
-    pub(crate) block: Option<Block>,
+    pub(crate) block: Block,
 }
 
 impl BlockCache {
-    pub fn new() -> Self {
-        Self {
-            txids: HashMap::new(),
-            spent_utxos: HashMap::new(),
-            block_height: 0,
-            block: None,
-        }
-    }
-
-    pub fn from_block(block: &Block, block_height: u32) -> Self {
-        let mut block_cache = Self::new();
-        block_cache.update_with_block(block, block_height);
-        block_cache
-    }
-
-    /// Updates the block cache with the new block
-    /// Creates HashMap's of txids and spent utxos for efficient lookups
-    pub fn update_with_block(&mut self, block: &Block, block_height: u32) {
-        self.block_height = block_height;
+    pub fn from_block(block: Block, block_height: u32) -> Self {
+        let mut txids = HashMap::new();
+        let mut spent_utxos = HashMap::new();
         for (idx, tx) in block.txdata.iter().enumerate() {
-            self.txids.insert(tx.compute_txid(), idx);
+            txids.insert(tx.compute_txid(), idx);
 
             // Mark UTXOs as spent
             for input in &tx.input {
-                self.spent_utxos.insert(input.previous_output, idx);
+                spent_utxos.insert(input.previous_output, idx);
             }
         }
-        self.block = Some(block.clone());
+
+        Self {
+            txids,
+            spent_utxos,
+            block_height,
+            block,
+        }
     }
 
     pub fn get_tx_with_index(&self, idx: usize) -> Option<&Transaction> {
-        self.block.as_ref().map(|block| &block.txdata[idx])
+        self.block.txdata.get(idx)
     }
 
     pub fn get_tx_of_utxo(&self, utxo: &OutPoint) -> Option<&Transaction> {

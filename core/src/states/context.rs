@@ -10,12 +10,11 @@ use bitcoin::Txid;
 use bitcoin::Witness;
 use bitcoin::XOnlyPublicKey;
 use statig::awaitable::InitializedStateMachine;
+use tokio::sync::Mutex;
 use tonic::async_trait;
 
 use std::collections::HashMap;
 use std::sync::Arc;
-
-use crate::database::Database;
 
 use crate::builder::transaction::TxHandler;
 
@@ -114,11 +113,16 @@ pub enum DutyResult {
 #[async_trait]
 pub trait Owner: Clone + NamedEntity {
     /// Handle a protocol-related duty
-    async fn handle_duty(&self, duty: Duty) -> Result<DutyResult, BridgeError>;
+    async fn handle_duty(
+        &self,
+        dbtx: DatabaseTransaction<'_, '_>,
+        duty: Duty,
+    ) -> Result<DutyResult, BridgeError>;
 
     /// Create the transactions for an instance of the L1 contract
     async fn create_txhandlers(
         &self,
+        dbtx: DatabaseTransaction<'_, '_>,
         tx_type: TransactionType,
         contract_context: ContractContext,
     ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError>;
@@ -138,7 +142,6 @@ pub trait Owner: Clone + NamedEntity {
 /// Every state can access the context
 #[derive(Debug, Clone)]
 pub struct StateContext<T: Owner> {
-    pub db: Database,
     pub owner: Arc<T>,
     pub cache: Arc<block_cache::BlockCache>,
     pub new_round_machines: Vec<InitializedStateMachine<round::RoundStateMachine<T>>>,
@@ -146,11 +149,12 @@ pub struct StateContext<T: Owner> {
     pub errors: Vec<Arc<eyre::Report>>,
     pub paramset: &'static ProtocolParamset,
     pub owner_type: String,
+    pub shared_dbtx: Arc<Mutex<sqlx::Transaction<'static, sqlx::Postgres>>>,
 }
 
 impl<T: Owner> StateContext<T> {
     pub fn new(
-        db: Database,
+        shared_dbtx: Arc<Mutex<sqlx::Transaction<'static, sqlx::Postgres>>>,
         owner: Arc<T>,
         cache: Arc<block_cache::BlockCache>,
         paramset: &'static ProtocolParamset,
@@ -159,7 +163,7 @@ impl<T: Owner> StateContext<T> {
         let owner_type = T::ENTITY_NAME.to_string();
 
         Self {
-            db,
+            shared_dbtx,
             owner,
             cache,
             new_round_machines: Vec::new(),
@@ -171,7 +175,8 @@ impl<T: Owner> StateContext<T> {
     }
 
     pub async fn dispatch_duty(&self, duty: Duty) -> Result<DutyResult, BridgeError> {
-        self.owner.handle_duty(duty).await
+        let mut guard = self.shared_dbtx.lock().await;
+        self.owner.handle_duty(&mut guard, duty).await
     }
 
     /// Run an async closure and capture any errors in execution.

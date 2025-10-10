@@ -4,6 +4,7 @@
 //! and security council configurations. The module also provides functionality for managing different types
 //! of deposits (base and replacement) and deriving the necessary scripts these deposits must have.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use crate::builder::script::{
@@ -206,6 +207,24 @@ impl DepositData {
                 Ok(vec![deposit_script, security_council_script])
             }
         }
+    }
+
+    /// Checks if all verifiers are unique.
+    pub fn are_all_verifiers_unique(&self) -> bool {
+        let set: HashSet<_> = self.actors.verifiers.iter().collect();
+        set.len() == self.actors.verifiers.len()
+    }
+
+    /// Checks if all watchtowers are unique.
+    pub fn are_all_watchtowers_unique(&self) -> bool {
+        let set: HashSet<_> = self.actors.watchtowers.iter().collect();
+        set.len() == self.actors.watchtowers.len()
+    }
+
+    /// Checks if all operators are unique.
+    pub fn are_all_operators_unique(&self) -> bool {
+        let set: HashSet<_> = self.actors.operators.iter().collect();
+        set.len() == self.actors.operators.len()
     }
 }
 

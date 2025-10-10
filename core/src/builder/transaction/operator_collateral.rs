@@ -21,7 +21,6 @@ use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::txhandler::TxHandler;
 use crate::builder::transaction::*;
 use crate::config::protocol::ProtocolParamset;
-use crate::constants::MIN_TAPROOT_AMOUNT;
 use crate::errors::BridgeError;
 use crate::rpc::clementine::NumberedSignatureKind;
 use bitcoin::Sequence;
@@ -300,7 +299,11 @@ pub fn create_ready_to_reimburse_txhandler(
             DEFAULT_SEQUENCE,
         )
         .add_output(UnspentTxOut::from_scripts(
-            prev_value - paramset.anchor_amount(),
+            prev_value.checked_sub(paramset.anchor_amount()).ok_or(
+                BridgeError::ArithmeticOverflow(
+                    "Insufficient funds while creating ready to reimburse tx",
+                ),
+            )?,
             vec![],
             Some(operator_xonly_pk),
             paramset.network,
@@ -375,29 +378,41 @@ pub fn create_unspent_kickoff_txhandlers(
 /// * `change_address` - The address to send the change to.
 ///
 /// # Returns
-/// A [`TxHandler`] for burning unused kickoff connectors, or a [`BridgeError`] if construction fails.
+/// A [`TxHandler`] for burning unused kickoff connectors, or a [`BridgeError`] if construction fails or no unused kickoff connectors are provided.
 pub fn create_burn_unused_kickoff_connectors_txhandler(
     round_txhandler: &TxHandler,
     unused_kickoff_connectors_indices: &[usize],
     change_address: &Address,
     paramset: &'static ProtocolParamset,
 ) -> Result<TxHandler, BridgeError> {
+    if unused_kickoff_connectors_indices.is_empty() {
+        return Err(eyre::eyre!(
+            "create_burn_unused_kickoff_connectors_txhandler called with no unused kickoff connectors"
+        )
+        .into());
+    }
     let mut tx_handler_builder =
         TxHandlerBuilder::new(TransactionType::BurnUnusedKickoffConnectors)
             .with_version(NON_STANDARD_V3);
+    let mut input_amount = Amount::ZERO;
     for &idx in unused_kickoff_connectors_indices {
+        let txin = round_txhandler.get_spendable_output(UtxoVout::Kickoff(idx))?;
+        input_amount = input_amount.checked_add(txin.get_prevout().value).ok_or(
+            BridgeError::ArithmeticOverflow("Amount overflow in burn unused kickoff connectors tx"),
+        )?;
         tx_handler_builder = tx_handler_builder.add_input(
             NormalSignatureKind::OperatorSighashDefault,
-            round_txhandler.get_spendable_output(UtxoVout::Kickoff(idx))?,
+            txin,
             SpendPath::ScriptSpend(1),
             Sequence::from_height(1),
         );
     }
-    if !paramset.bridge_nonstandard {
+    if !paramset.bridge_nonstandard && input_amount >= paramset.anchor_amount() {
         // if we use standard tx's, kickoff utxo's will hold some sats so we can return the change to the change address
         // but if we use nonstandard tx's with 0 sat values then the change is 0 anyway, no need to add an output
         tx_handler_builder = tx_handler_builder.add_output(UnspentTxOut::from_partial(TxOut {
-            value: MIN_TAPROOT_AMOUNT,
+            // In a standard bridge, a kickoff UTXO will hold on the order of 10^4 sats, so this UTXO will not be considered dust
+            value: input_amount - paramset.anchor_amount(),
             script_pubkey: change_address.script_pubkey(),
         }));
     }
@@ -424,10 +439,14 @@ mod tests {
         let input_outpoint = OutPoint::new(bitcoin::Txid::all_zeros(), 0);
         let input_amount = Amount::from_sat(10000000000);
         let pubkeys = KickoffWinternitzKeys::new(
-            vec![vec![[0u8; 20]; 44]; paramset.num_round_txs * paramset.num_kickoffs_per_round],
-            paramset.num_round_txs,
+            vec![
+                vec![[0u8; 20]; 44];
+                (paramset.num_round_txs + 1) * paramset.num_kickoffs_per_round
+            ],
             paramset.num_kickoffs_per_round,
-        );
+            paramset.num_round_txs,
+        )
+        .unwrap();
 
         let mut round_tx_input = RoundTxInput::Collateral(input_outpoint, input_amount);
 

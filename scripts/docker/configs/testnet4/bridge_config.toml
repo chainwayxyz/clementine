@@ -80,6 +80,8 @@ winternitz_secret_key = "2222222222222222222222222222222222222222222222222222222
 
 socket_path = "/"
 
+tx_sender_fee_rate_hard_cap = 100
+
 [telemetry]
 host = "0.0.0.0"
 port = 8081

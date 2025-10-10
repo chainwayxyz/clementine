@@ -3,9 +3,10 @@ use crate::{
     database::{Database, DatabaseTransaction},
     task::{BufferedErrors, IntoTask, TaskVariant, WithDelay},
 };
-use eyre::Context as _;
+use eyre::{Context as _, OptionExt};
 use pgmq::{Message, PGMQueueExt};
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
+use tokio::sync::Mutex;
 use tonic::async_trait;
 
 use crate::{
@@ -135,7 +136,13 @@ impl<T: Owner + std::fmt::Debug + 'static> Task for MessageConsumerTask<T> {
                 return Ok::<_, BridgeError>(false);
             };
 
-            self.inner.handle_event(message, &mut dbtx).await?;
+            let arc_dbtx = Arc::new(Mutex::new(dbtx));
+
+            self.inner.handle_event(message, arc_dbtx.clone()).await?;
+
+            let mut dbtx = Arc::into_inner(arc_dbtx)
+                .ok_or_eyre("Expected single reference to DB tx when committing")?
+                .into_inner();
 
             // Delete event from queue
             self.inner
@@ -145,6 +152,7 @@ impl<T: Owner + std::fmt::Debug + 'static> Task for MessageConsumerTask<T> {
                 .wrap_err("Deleting event from queue")?;
 
             dbtx.commit().await?;
+
             Ok(true)
         }
         .await?;
@@ -192,8 +200,9 @@ mod tests {
         builder::transaction::{ContractContext, TransactionType, TxHandler},
         config::{protocol::ProtocolParamsetName, BridgeConfig},
         database::DatabaseTransaction,
+        extended_bitcoin_rpc::ExtendedBitcoinRpc,
         states::{block_cache, context::DutyResult, Duty},
-        test::common::create_test_config_with_thread_name,
+        test::common::{create_regtest_rpc, create_test_config_with_thread_name},
         utils::NamedEntity,
     };
 
@@ -213,12 +222,17 @@ mod tests {
 
     #[async_trait]
     impl Owner for MockHandler {
-        async fn handle_duty(&self, _: Duty) -> Result<DutyResult, BridgeError> {
+        async fn handle_duty(
+            &self,
+            _dbtx: DatabaseTransaction<'_, '_>,
+            _: Duty,
+        ) -> Result<DutyResult, BridgeError> {
             Ok(DutyResult::Handled)
         }
 
         async fn create_txhandlers(
             &self,
+            _dbtx: DatabaseTransaction<'_, '_>,
             _: TransactionType,
             _: ContractContext,
         ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
@@ -242,8 +256,17 @@ mod tests {
     ) -> (JoinHandle<Result<(), BridgeError>>, oneshot::Sender<()>) {
         let db = Database::new(config).await.unwrap();
 
+        let rpc = ExtendedBitcoinRpc::connect(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+            None,
+        )
+        .await
+        .expect("Failed to connect to Bitcoin RPC");
+
         let state_manager =
-            StateManager::new(db, MockHandler, ProtocolParamsetName::Regtest.into())
+            StateManager::new(db, MockHandler, rpc, ProtocolParamsetName::Regtest.into())
                 .await
                 .unwrap();
         let (t, shutdown) = state_manager.into_task().cancelable_loop();
@@ -253,6 +276,12 @@ mod tests {
     #[tokio::test]
     async fn test_run_state_manager() {
         let mut config = create_test_config_with_thread_name().await;
+        let cleanup = create_regtest_rpc(&mut config).await;
+        cleanup
+            .rpc()
+            .mine_blocks(config.protocol_paramset.start_height as u64)
+            .await
+            .unwrap();
         let (handle, shutdown) = create_state_manager(&mut config).await;
 
         drop(shutdown);
@@ -267,6 +296,12 @@ mod tests {
     #[tokio::test]
     async fn test_state_mgr_does_not_shutdown() {
         let mut config = create_test_config_with_thread_name().await;
+        let cleanup = create_regtest_rpc(&mut config).await;
+        cleanup
+            .rpc()
+            .mine_blocks(config.protocol_paramset.start_height as u64)
+            .await
+            .unwrap();
         let (handle, shutdown) = create_state_manager(&mut config).await;
 
         timeout(Duration::from_secs(1), handle).await.expect_err(
