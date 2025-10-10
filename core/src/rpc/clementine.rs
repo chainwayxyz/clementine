@@ -313,7 +313,7 @@ pub mod entity_status_with_id {
         Err(super::EntityError),
     }
 }
-/// Everthing related to protocol params that can affect the transactions in the contract, syncing with citrea and version number
+/// Everything related to protocol params that can affect the transactions in the contract, syncing with citrea and version number
 /// for checking compatibility. This must not include any sensitive information.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CompatibilityParamsRpc {

@@ -13,7 +13,7 @@ use crate::operator::Operator;
 use crate::rpc::clementine::CompatibilityParamsRpc;
 use crate::verifier::Verifier;
 
-// Everthing related to protocol params that can affect the transactions in the contract, syncing with citrea and version number
+// Everything related to protocol params that can affect the transactions in the contract, syncing with citrea and version number
 // for checking compatibility. This must not include any sensitive information.
 #[derive(Clone, Debug)]
 pub struct CompatibilityParams {
@@ -38,10 +38,14 @@ impl CompatibilityParams {
         if self.citrea_chain_id != other.citrea_chain_id {
             reasons.push("Citrea chain ID mismatch");
         }
-        let own_version = semver::Version::parse(&self.clementine_version)
-            .wrap_err("Failed to parse own Clementine version {self.clementine_version}")?;
-        let other_version = semver::Version::parse(&other.clementine_version)
-            .wrap_err("Failed to parse other Clementine version {other.clementine_version}")?;
+        let own_version = semver::Version::parse(&self.clementine_version).wrap_err(format!(
+            "Failed to parse own Clementine version {}",
+            self.clementine_version
+        ))?;
+        let other_version = semver::Version::parse(&other.clementine_version).wrap_err(format!(
+            "Failed to parse other Clementine version {}",
+            other.clementine_version
+        ))?;
         // allow different patch versions, but not different major or minor versions
         // can do something different here
         if own_version.major != other_version.major || own_version.minor != other_version.minor {

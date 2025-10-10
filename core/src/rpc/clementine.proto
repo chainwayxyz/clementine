@@ -304,7 +304,7 @@ message EntityStatusWithId {
   }
 }
 
-// Everthing related to protocol params that can affect the transactions in the contract, syncing with citrea and version number
+// Everything related to protocol params that can affect the transactions in the contract, syncing with citrea and version number
 // for checking compatibility. This must not include any sensitive information.
 message CompatibilityParamsRPC {
   // Protocol paramset in JSON format
