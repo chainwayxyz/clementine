@@ -215,6 +215,12 @@ fn generate_fresh_data() -> BitvmCache {
     for script in scripts.iter() {
         hasher.update(script);
     }
+    hasher.update(
+        // expect is fine here because BitVM cache is generated on main() and shouldn't fail
+        borsh::to_vec(&replacement_places)
+            .expect("Failed to serialize replacement places while generating fresh data")
+            .as_slice(),
+    );
     let sha256_disprove_scripts: [u8; 32] = hasher.finalize().into();
 
     BitvmCache {
