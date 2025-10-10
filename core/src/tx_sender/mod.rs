@@ -207,7 +207,7 @@ impl TxSender {
                         let threshold = Amount::from_sat(threshold_sat);
 
                         if mempool_amt <= threshold {
-                            tracing::info!(
+                            tracing::debug!(
                                 "Selected mempool.space fee rate: {} sat/kvB (mempool: {}, rpc: {}, threshold: {})",
                                 mempool_amt.to_sat(),
                                 mempool_amt.to_sat(),
@@ -216,7 +216,7 @@ impl TxSender {
                             );
                             mempool_amt
                         } else {
-                            tracing::info!(
+                            tracing::debug!(
                                 "Selected Bitcoin Core RPC fee rate: {} sat/kvB (mempool: {}, rpc: {}, threshold: {})",
                                 rpc_amt.to_sat(),
                                 mempool_amt.to_sat(),
@@ -262,7 +262,7 @@ impl TxSender {
                     fee_sat_kvb = self.config.tx_sender_limits.fee_rate_hard_cap * 1000;
                 }
 
-                tracing::info!("Final fee rate: {} sat/kvb", fee_sat_kvb);
+                tracing::debug!("Final fee rate: {} sat/kvb", fee_sat_kvb);
                 Ok(FeeRate::from_sat_per_kwu(fee_sat_kvb.div_ceil(4)))
             }
 
