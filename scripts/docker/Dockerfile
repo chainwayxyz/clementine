@@ -2,8 +2,7 @@
 FROM rust:1.85.0
 WORKDIR /clementine
 COPY . .
-# TODO: REMOVE CACHE MOUNT FOR SAFETY BEFORE MERGE
-RUN --mount=type=cache,target=/clementine/target cargo +1.85.0 build --release --bin clementine-core
+RUN cargo +1.85.0 build --release --bin clementine-core
 
 FROM debian:bookworm-slim
 RUN \
