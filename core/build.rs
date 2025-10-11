@@ -1,8 +1,10 @@
-use std::{env, path::Path, process::Command};
+use std::{
+    env,
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 use vergen_git2::{BuildBuilder, CargoBuilder, Emitter, Git2Builder, RustcBuilder, SysinfoBuilder};
-
-use std::path::PathBuf;
 
 fn trim_ascii_end(s: &str) -> &str {
     let trimmed_len = s
