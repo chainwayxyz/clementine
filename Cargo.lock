@@ -1833,7 +1833,7 @@ dependencies = [
 
 [[package]]
 name = "bridge-circuit-host"
-version = "0.1.0"
+version = "0.4.2"
 dependencies = [
  "alloy-rpc-types",
  "ark-bn254",
@@ -2055,7 +2055,7 @@ dependencies = [
 
 [[package]]
 name = "circuits-lib"
-version = "0.1.0"
+version = "0.4.2"
 dependencies = [
  "alloy-primitives",
  "alloy-rpc-types",
@@ -2171,7 +2171,7 @@ checksum = "b94f61472cee1439c0b966b47e3aca9ae07e45d070759512cd390ea2bebc6675"
 
 [[package]]
 name = "clementine-core"
-version = "0.4.0"
+version = "0.4.2"
 dependencies = [
  "alloy",
  "alloy-sol-types",
