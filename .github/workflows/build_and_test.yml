@@ -19,6 +19,7 @@ env:
   RUST_MIN_STACK: 33554432
   PARTIAL_SIG_VERIFICATION: 1
 
+  BITVM_CACHE_PATH: bitvm_cache_dev.bin
   CARGOFLAGS: --workspace --all-targets
   CARGOFLAGS_ALL_FEATURES: --workspace --all-targets --all-features
 

@@ -3,10 +3,11 @@
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use bitcoin::{hashes::Hash, ScriptBuf, Txid, XOnlyPublicKey};
-use bitcoincore_rpc::json::SignRawTransactionInput;
+use bitcoin::{hashes::Hash, secp256k1::SecretKey, Network, ScriptBuf, Txid, XOnlyPublicKey};
+use bitcoincore_rpc::{json::SignRawTransactionInput, Auth, Client, RpcApi};
 use clap::{Parser, Subcommand};
 use clementine_core::{
+    actor::Actor,
     builder::transaction::TransactionType,
     config::BridgeConfig,
     deposit::SecurityCouncil,
@@ -54,6 +55,8 @@ enum Commands {
         #[command(subcommand)]
         command: BitcoinCommands,
     },
+    /// Print actor's taproot address and bitcoin wallet's new address
+    PrintAddresses,
 }
 
 #[derive(Subcommand)]
@@ -873,6 +876,76 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
     }
 }
 
+async fn handle_print_addresses() {
+    // Get secret key from environment
+    let secret_key = match std::env::var("SECRET_KEY") {
+        Ok(key) => SecretKey::from_str(&key).expect("Failed to parse secret key"),
+        Err(_) => {
+            println!("Error: SECRET_KEY environment variable not set");
+            return;
+        }
+    };
+
+    // Get Bitcoin RPC credentials from environment
+    let bitcoin_rpc_url = match std::env::var("BITCOIN_RPC_URL") {
+        Ok(url) => url,
+        Err(_) => {
+            println!("Error: BITCOIN_RPC_URL environment variable not set");
+            return;
+        }
+    };
+    let bitcoin_rpc_user = match std::env::var("BITCOIN_RPC_USER") {
+        Ok(user) => user,
+        Err(_) => {
+            println!("Error: BITCOIN_RPC_USER environment variable not set");
+            return;
+        }
+    };
+    let bitcoin_rpc_password = match std::env::var("BITCOIN_RPC_PASSWORD") {
+        Ok(password) => password,
+        Err(_) => {
+            println!("Error: BITCOIN_RPC_PASSWORD environment variable not set");
+            return;
+        }
+    };
+
+    println!("Bitcoin RPC URL: {}", bitcoin_rpc_url);
+    println!("Bitcoin RPC user: {}", bitcoin_rpc_user);
+    println!("Bitcoin RPC password: {}", bitcoin_rpc_password);
+
+    // Get network from environment or default to regtest
+    let network = match std::env::var("NETWORK") {
+        Ok(network) => Network::from_str(&network).unwrap_or(Network::Regtest),
+        Err(_) => Network::Regtest,
+    };
+
+    let actor = Actor::new(secret_key, None, network);
+    let taproot_address = actor.address;
+    println!("Actor's taproot address: {}", taproot_address);
+
+    // Connect to Bitcoin RPC and get new address
+    let rpc = match Client::new(
+        &bitcoin_rpc_url,
+        Auth::UserPass(bitcoin_rpc_user, bitcoin_rpc_password),
+    )
+    .await
+    {
+        Ok(client) => client,
+        Err(e) => {
+            println!("Error connecting to Bitcoin RPC: {}", e);
+            return;
+        }
+    };
+
+    match rpc
+        .get_new_address(None, Some(bitcoincore_rpc::json::AddressType::Bech32m))
+        .await
+    {
+        Ok(address) => println!("Bitcoin wallet's new address: {}", address.assume_checked()),
+        Err(e) => println!("Error getting new address from Bitcoin wallet: {}", e),
+    }
+}
+
 async fn handle_bitcoin_call(url: String, command: BitcoinCommands) {
     match command {
         BitcoinCommands::SendTxWithCpfp {
@@ -1097,6 +1170,9 @@ async fn main() {
         }
         Commands::Bitcoin { command } => {
             handle_bitcoin_call(cli.node_url, command).await;
+        }
+        Commands::PrintAddresses => {
+            handle_print_addresses().await;
         }
     }
 }

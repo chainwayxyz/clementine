@@ -8,6 +8,15 @@ members = [
   "bridge-circuit-host",
 ] # Add "risc0-circuits/operator", "risc0-circuits/watchtower" later
 
+[workspace.package]
+version = "0.4.2"
+edition = "2021"
+license = "GPL-3.0"
+authors = ["Chainway Labs <info@chainway.xyz>"]
+homepage = "https://citrea.xyz"
+publish = false
+repository = "https://github.com/chainwayxyz/clementine"
+
 [workspace.dependencies]
 color-eyre = "0.6.5"
 ctor = "0.4.2"
@@ -46,7 +55,7 @@ chacha20poly1305 = { version = "0.10", features = ["stream"] }
 
 
 # Citrea dependencies
-citrea-e2e = { git = "https://github.com/chainwayxyz/citrea-e2e", rev = "859cddf" }
+citrea-e2e = { git = "https://github.com/chainwayxyz/citrea-e2e", rev = "b194a303d89354577adfbf7935c0c1c652004227" }
 
 citrea-sov-rollup-interface = { git = "https://github.com/chainwayxyz/citrea", tag = "v0.7.3-rc.5", package = "sov-rollup-interface" }
 

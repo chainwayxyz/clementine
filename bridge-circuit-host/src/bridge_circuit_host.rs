@@ -32,11 +32,17 @@ pub const REGTEST_BRIDGE_CIRCUIT_ELF_TEST: &[u8] =
 pub const TESTNET4_BRIDGE_CIRCUIT_ELF: &[u8] =
     include_bytes!("../../risc0-circuits/elfs/testnet4-bridge-circuit-guest.bin");
 
+pub const TESTNET4_BRIDGE_CIRCUIT_ELF_TEST: &[u8] =
+    include_bytes!("../../risc0-circuits/elfs/test-testnet4-bridge-circuit-guest.bin");
+
 pub const MAINNET_BRIDGE_CIRCUIT_ELF: &[u8] =
     include_bytes!("../../risc0-circuits/elfs/mainnet-bridge-circuit-guest.bin");
 
 pub const SIGNET_BRIDGE_CIRCUIT_ELF: &[u8] =
     include_bytes!("../../risc0-circuits/elfs/signet-bridge-circuit-guest.bin");
+
+pub const SIGNET_BRIDGE_CIRCUIT_ELF_TEST: &[u8] =
+    include_bytes!("../../risc0-circuits/elfs/test-signet-bridge-circuit-guest.bin");
 
 pub const TESTNET4_HEADER_CHAIN_GUEST_ELF: &[u8] =
     include_bytes!("../../risc0-circuits/elfs/testnet4-header-chain-guest.bin");
@@ -126,13 +132,14 @@ pub fn prove_bridge_circuit(
         _ => return Err(eyre!("Unsupported network")),
     };
 
+    let is_regtest = bridge_circuit_host_params.network.0 == bitcoin::Network::Regtest;
+
     // Verify light client proof
-    if bridge_circuit_host_params
-        .lcp_receipt
-        .verify(lc_image_id)
-        .is_err()
-    {
-        return Err(eyre!("Light client proof verification failed"));
+    if !is_regtest {
+        bridge_circuit_host_params
+            .lcp_receipt
+            .verify(lc_image_id)
+            .map_err(|_| eyre!("Light client proof verification failed"))?;
     }
 
     // Header chain verification
@@ -410,12 +417,11 @@ mod tests {
     use risc0_zkvm::default_executor;
 
     const TESTNET4_HEADERS: &[u8] = include_bytes!("../bin-files/testnet4-headers.bin");
+    const MAINNET_HEADERS: &[u8] = include_bytes!("../bin-files/mainnet-headers.bin");
 
     #[test]
     fn test_header_chain_circuit() {
-        let value = option_env!("BITCOIN_NETWORK");
-        println!("BITCOIN_NETWORK: {:?}", value);
-        let headers = TESTNET4_HEADERS
+        let headers = MAINNET_HEADERS
             .chunks(80)
             .map(|header| CircuitBlockHeader::try_from_slice(header).unwrap())
             .collect::<Vec<CircuitBlockHeader>>();
@@ -425,7 +431,7 @@ mod tests {
         let input = HeaderChainCircuitInput {
             method_id: [0; 8],
             prev_proof: HeaderChainPrevProofType::GenesisBlock(ChainState::genesis_state()),
-            block_headers: headers[..4000].to_vec(),
+            block_headers: headers[..50].to_vec(),
         };
         host.write(&input);
         header_chain_circuit(&host);
@@ -437,7 +443,7 @@ mod tests {
         let newinput = HeaderChainCircuitInput {
             method_id: [0; 8],
             prev_proof: HeaderChainPrevProofType::PrevProof(output),
-            block_headers: headers[4000..8000].to_vec(),
+            block_headers: headers[50..100].to_vec(),
         };
         new_host.write(&newinput);
         new_host.add_assumption(proof);

@@ -1,7 +1,10 @@
 [package]
 name = "circuits-lib"
-version = "0.1.0"
-edition = "2021"
+version = { workspace = true }
+authors = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
 
 [dependencies]
 sha2 = { workspace = true, default-features = false }

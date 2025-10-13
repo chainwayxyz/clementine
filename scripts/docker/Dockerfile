@@ -4,8 +4,15 @@ COPY . .
 WORKDIR /clementine
 RUN cargo +1.85.0 build --release --bin clementine-core
 
-# Copy only the compiled binary to a new image
-FROM ubuntu:22.04
+FROM debian:bookworm-slim
+RUN \
+  apt-get update \
+  && apt -y install gettext-base libssl-dev wget \
+  && apt clean \
+  && apt install -y --no-install-recommends ca-certificates \
+  && update-ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
 COPY --from=0 /target/release/clementine-core /clementine-core
 
 # Set up Clementine

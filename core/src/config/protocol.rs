@@ -261,6 +261,10 @@ impl ProtocolParamset {
             _ => return Err(eyre::eyre!("Unsupported Bitcoin network").into()),
         })
     }
+
+    pub fn is_regtest(&self) -> bool {
+        self.network == Network::Regtest
+    }
 }
 
 fn convert_hex_string_to_bytes(hex: &str) -> Result<[u8; 32], BridgeError> {
@@ -362,6 +366,12 @@ pub const SIGNET_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [
     222, 12, 61, 6, 71, 164, 243, 211, 75, 211, 0, 157, 114, 85, 128, 126, 123, 192, 179, 199, 208,
     98, 137, 150, 148, 220, 105, 82, 34, 164, 111, 162,
 ];
+
+pub const SIGNET_TEST_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [
+    161, 5, 208, 175, 145, 88, 143, 113, 232, 44, 244, 98, 225, 234, 167, 27, 128, 55, 235, 108,
+    248, 134, 247, 15, 224, 235, 219, 189, 87, 55, 155, 246,
+];
+
 pub const MAINNET_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [
     110, 173, 228, 92, 173, 119, 95, 116, 124, 28, 217, 96, 212, 35, 102, 192, 31, 3, 71, 221, 146,
     51, 176, 107, 239, 165, 214, 56, 76, 227, 152, 1,
@@ -371,12 +381,18 @@ pub const TESTNET4_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [
     232, 26, 23, 54, 107, 129, 227, 33, 216, 123, 190, 146,
 ];
 
+pub const TESTNET4_TEST_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [
+    158, 94, 163, 220, 11, 9, 39, 209, 41, 59, 108, 28, 138, 110, 233, 66, 119, 134, 246, 193, 203,
+    86, 158, 75, 130, 151, 163, 236, 131, 206, 94, 233,
+];
+
 #[cfg(test)]
 mod tests {
     use bridge_circuit_host::{
         bridge_circuit_host::{
             MAINNET_BRIDGE_CIRCUIT_ELF, REGTEST_BRIDGE_CIRCUIT_ELF, SIGNET_BRIDGE_CIRCUIT_ELF,
-            TESTNET4_BRIDGE_CIRCUIT_ELF,
+            SIGNET_BRIDGE_CIRCUIT_ELF_TEST, TESTNET4_BRIDGE_CIRCUIT_ELF,
+            TESTNET4_BRIDGE_CIRCUIT_ELF_TEST,
         },
         utils::calculate_succinct_output_prefix,
     };
@@ -474,6 +490,24 @@ mod tests {
     }
 
     #[test]
+    fn test_testnet4_test_bridge_circuit_constant() {
+        let testnet4_bridge_elf = TESTNET4_BRIDGE_CIRCUIT_ELF_TEST;
+        let testnet4_bridge_circuit_method_id =
+            compute_image_id(testnet4_bridge_elf).expect("should compute image id");
+        let calculated_testnet4_bridge_circuit_constant =
+            calculate_succinct_output_prefix(testnet4_bridge_circuit_method_id.as_bytes());
+
+        let testnet4_bridge_circuit_constant = TESTNET4_TEST_BRIDGE_CIRCUIT_CONSTANT;
+        assert_eq!(
+            calculated_testnet4_bridge_circuit_constant,
+            testnet4_bridge_circuit_constant,
+            "You forgot to update testnet4-test bridge_circuit_constant with the new method id. Please change it in these places: core/src/config/protocol.rs. The expected value is: {:?}, hex format: {:?}",
+            calculated_testnet4_bridge_circuit_constant,
+            hex::encode(calculated_testnet4_bridge_circuit_constant)
+        );
+    }
+
+    #[test]
     fn test_signet_bridge_circuit_constant() {
         let signet_bridge_elf = SIGNET_BRIDGE_CIRCUIT_ELF;
         let signet_bridge_circuit_method_id =
@@ -486,6 +520,24 @@ mod tests {
             calculated_signet_bridge_circuit_constant,
             signet_bridge_circuit_constant,
             "You forgot to update signet bridge_circuit_constant with the new method id. Please change it in these places: core/src/config/protocol.rs. The expected value is: {:?}, hex format: {:?}",
+            calculated_signet_bridge_circuit_constant,
+            hex::encode(calculated_signet_bridge_circuit_constant)
+        );
+    }
+
+    #[test]
+    fn test_signet_test_bridge_circuit_constant() {
+        let signet_bridge_elf = SIGNET_BRIDGE_CIRCUIT_ELF_TEST;
+        let signet_bridge_circuit_method_id =
+            compute_image_id(signet_bridge_elf).expect("should compute image id");
+        let calculated_signet_bridge_circuit_constant =
+            calculate_succinct_output_prefix(signet_bridge_circuit_method_id.as_bytes());
+
+        let signet_bridge_circuit_constant = SIGNET_TEST_BRIDGE_CIRCUIT_CONSTANT;
+        assert_eq!(
+            calculated_signet_bridge_circuit_constant,
+            signet_bridge_circuit_constant,
+            "You forgot to update signet-test bridge_circuit_constant with the new method id. Please change it in these places: core/src/config/protocol.rs. The expected value is: {:?}, hex format: {:?}",
             calculated_signet_bridge_circuit_constant,
             hex::encode(calculated_signet_bridge_circuit_constant)
         );
