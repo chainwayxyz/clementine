@@ -667,7 +667,7 @@ impl Database {
                     -- Transaction must not be already confirmed
                     AND txs.seen_block_id IS NULL
                     -- Check if fee_rate is lower than the provided fee rate or null
-                    AND (txs.effective_fee_rate IS NULL OR txs.effective_fee_rate < $1 OR txs.sent_block_id <> $3);",
+                    AND (txs.effective_fee_rate IS NULL OR txs.effective_fee_rate < $1 OR txs.sent_block_id != $3 OR txs.sent_block_id IS NULL);",
         )
         .bind(
             i64::try_from(fee_rate.to_sat_per_vb_ceil())

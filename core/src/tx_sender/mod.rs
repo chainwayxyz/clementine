@@ -401,7 +401,10 @@ impl TxSender {
             if let Err(e) = result {
                 log_error_for_tx!(self.db, id, format!("Failed to send tx: {:?}", e));
             } else {
-                // update sent block id to latest block id
+                // Update sent_block_id to the latest block id after sending the transaction.
+                // Note: This does NOT guarantee the transaction will be included in this block.
+                // Actual confirmation is handled separately (see seen_block_id above).
+                // sent_block_id stores the tip while the tx was sent to the bitcoin rpc
                 self.db
                     .update_sent_block_id(None, id, highest_block_id)
                     .await
