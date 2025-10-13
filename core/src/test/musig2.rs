@@ -20,7 +20,7 @@ use bitcoin::secp256k1::{Message, PublicKey};
 use bitcoin::{hashes::Hash, script, Amount, TapSighashType};
 use bitcoin::{taproot, Sequence, TxOut, XOnlyPublicKey};
 use bitcoincore_rpc::RpcApi;
-use secp256k1::musig::{AggregatedNonce, PartialSignature};
+use secp256k1::musig::AggregatedNonce;
 use std::sync::Arc;
 
 #[cfg(test)]
@@ -117,21 +117,24 @@ async fn key_spend() {
     let merkle_root = from_address_spend_info.merkle_root();
     assert!(merkle_root.is_none());
 
-    let partial_sigs: Vec<PartialSignature> = verifiers_secret_public_keys
+    let partial_sigs = verifiers_secret_public_keys
         .into_iter()
         .zip(nonce_pairs)
         .map(|(kp, nonce_pair)| {
-            partial_sign(
-                verifier_public_keys.clone(),
-                Some(Musig2Mode::OnlyKeySpend),
-                nonce_pair.0,
-                agg_nonce,
-                kp,
-                message,
+            (
+                partial_sign(
+                    verifier_public_keys.clone(),
+                    Some(Musig2Mode::OnlyKeySpend),
+                    nonce_pair.0,
+                    agg_nonce,
+                    kp,
+                    message,
+                )
+                .unwrap(),
+                nonce_pair.1,
             )
-            .unwrap()
         })
-        .collect();
+        .collect::<Vec<_>>();
 
     let final_signature = aggregate_partial_signatures(
         verifier_public_keys.clone(),
@@ -218,21 +221,24 @@ async fn key_spend_with_script() {
     );
     let merkle_root = from_address_spend_info.merkle_root().unwrap();
 
-    let partial_sigs: Vec<PartialSignature> = verifiers_secret_public_keys
+    let partial_sigs = verifiers_secret_public_keys
         .into_iter()
         .zip(nonce_pairs)
         .map(|(kp, nonce_pair)| {
-            partial_sign(
-                verifier_public_keys.clone(),
-                Some(Musig2Mode::KeySpendWithScript(merkle_root)),
-                nonce_pair.0,
-                agg_nonce,
-                kp,
-                message,
+            (
+                partial_sign(
+                    verifier_public_keys.clone(),
+                    Some(Musig2Mode::KeySpendWithScript(merkle_root)),
+                    nonce_pair.0,
+                    agg_nonce,
+                    kp,
+                    message,
+                )
+                .unwrap(),
+                nonce_pair.1,
             )
-            .unwrap()
         })
-        .collect();
+        .collect::<Vec<_>>();
 
     let final_signature = aggregate_partial_signatures(
         verifier_public_keys.clone(),
@@ -325,21 +331,24 @@ async fn script_spend() {
             .to_byte_array(),
     );
 
-    let partial_sigs: Vec<PartialSignature> = verifiers_secret_public_keys
+    let partial_sigs = verifiers_secret_public_keys
         .into_iter()
         .zip(nonce_pairs)
         .map(|(kp, nonce_pair)| {
-            partial_sign(
-                verifier_public_keys.clone(),
-                None,
-                nonce_pair.0,
-                agg_nonce,
-                kp,
-                message,
+            (
+                partial_sign(
+                    verifier_public_keys.clone(),
+                    None,
+                    nonce_pair.0,
+                    agg_nonce,
+                    kp,
+                    message,
+                )
+                .unwrap(),
+                nonce_pair.1,
             )
-            .unwrap()
         })
-        .collect();
+        .collect::<Vec<_>>();
     let final_signature = aggregate_partial_signatures(
         verifier_public_keys,
         None,
@@ -495,21 +504,24 @@ async fn key_and_script_spend() {
     // Musig2 Partial Signatures
     // Script Spend
     let final_signature_1 = {
-        let partial_sigs: Vec<PartialSignature> = verifiers_secret_public_keys
+        let partial_sigs = verifiers_secret_public_keys
             .iter()
             .zip(nonce_pairs)
             .map(|(kp, nonce_pair)| {
-                partial_sign(
-                    verifier_public_keys.clone(),
-                    None,
-                    nonce_pair.0,
-                    agg_nonce,
-                    *kp,
-                    sighash_1,
+                (
+                    partial_sign(
+                        verifier_public_keys.clone(),
+                        None,
+                        nonce_pair.0,
+                        agg_nonce,
+                        *kp,
+                        sighash_1,
+                    )
+                    .unwrap(),
+                    nonce_pair.1,
                 )
-                .unwrap()
             })
-            .collect();
+            .collect::<Vec<_>>();
 
         // Musig2 Aggregate
         aggregate_partial_signatures(
@@ -524,21 +536,24 @@ async fn key_and_script_spend() {
 
     // Key spend
     let final_signature_2 = {
-        let partial_sigs: Vec<PartialSignature> = verifiers_secret_public_keys
+        let partial_sigs = verifiers_secret_public_keys
             .iter()
             .zip(nonce_pairs_2)
             .map(|(kp, nonce_pair)| {
-                partial_sign(
-                    verifier_public_keys.clone(),
-                    Some(Musig2Mode::KeySpendWithScript(merkle_root)),
-                    nonce_pair.0,
-                    agg_nonce_2,
-                    *kp,
-                    sighash_2,
+                (
+                    partial_sign(
+                        verifier_public_keys.clone(),
+                        Some(Musig2Mode::KeySpendWithScript(merkle_root)),
+                        nonce_pair.0,
+                        agg_nonce_2,
+                        *kp,
+                        sighash_2,
+                    )
+                    .unwrap(),
+                    nonce_pair.1,
                 )
-                .unwrap()
             })
-            .collect();
+            .collect::<Vec<_>>();
 
         aggregate_partial_signatures(
             verifier_public_keys,

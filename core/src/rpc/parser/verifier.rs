@@ -204,7 +204,12 @@ pub async fn parse_next_deposit_finalize_param_schnorr_sig(
             schnorr::Signature::from_slice(&final_sig)
                 .map_err(invalid_argument("FinalSig", "Invalid signature length"))?
         }
-        _ => return Err(Status::internal("Expected FinalSig 1")),
+        _ => {
+            return Err(Status::internal(format!(
+                "Expected SchnorrSig, got {:?}",
+                sig
+            )));
+        }
     };
 
     Ok(Some(final_sig))
@@ -225,7 +230,10 @@ pub async fn parse_deposit_finalize_param_move_tx_agg_nonce(
             Ok(AggregatedNonce::from_byte_array(&arr)
                 .map_err(invalid_argument("AggregatedNonce", "failed to parse"))?)
         }
-        _ => Err(Status::internal("Expected FinalSig 2")),
+        _ => Err(Status::internal(format!(
+            "Expected MoveTxAggNonce, got {:?}",
+            sig
+        ))),
     }
 }
 
@@ -244,7 +252,10 @@ pub async fn parse_deposit_finalize_param_emergency_stop_agg_nonce(
             )
             .map_err(invalid_argument("AggregatedNonce", "failed to parse"))?)
         }
-        _ => Err(Status::internal("Expected FinalSig 2")),
+        _ => Err(Status::internal(format!(
+            "Expected EmergencyStopAggNonce, got {:?}",
+            sig
+        ))),
     }
 }
 
