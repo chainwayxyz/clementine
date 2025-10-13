@@ -84,6 +84,14 @@ pub fn initialize_logger(default_level: Option<LevelFilter>) -> Result<(), Bridg
                 "<core::",
                 "<alloc::",
                 "start_thread",
+                "<tonic::",
+                "<futures::",
+                "<tower::",
+                "<hyper",
+                "hyper",
+                "__rust_try",
+                "<axum::",
+                "<F as ",
                 "clone",
             ];
 

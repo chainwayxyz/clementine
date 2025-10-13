@@ -2189,27 +2189,43 @@ where
             tracing::debug!(target: "ci", "Operator ack for idx {}", idx);
         }
 
-        let latest_blockhash: Vec<Vec<u8>> = latest_blockhash
-            .iter()
-            .skip(1)
-            .take(88)
-            .map(|x| x.to_vec())
-            .collect();
+        // take only winternitz signatures from the witness
+
+        let latest_blockhash = extract_winternitz_commits_with_sigs(
+            latest_blockhash.clone(),
+            &[ClementineBitVMPublicKeys::get_latest_blockhash_derivation(
+                deposit_outpoint,
+                paramset,
+            )],
+            self.config.protocol_paramset(),
+        )?;
+
+        let payout_blockhash = extract_winternitz_commits_with_sigs(
+            payout_blockhash.clone(),
+            &[
+                ClementineBitVMPublicKeys::get_payout_tx_blockhash_derivation(
+                    deposit_outpoint,
+                    paramset,
+                ),
+            ],
+            self.config.protocol_paramset(),
+        )?;
 
         let mut latest_blockhash_new = Witness::new();
-        for element in latest_blockhash {
+        for element in latest_blockhash
+            .into_iter()
+            .next()
+            .expect("Must have one element")
+        {
             latest_blockhash_new.push(element);
         }
 
-        let payout_blockhash: Vec<Vec<u8>> = payout_blockhash
-            .iter()
-            .skip(1)
-            .take(88)
-            .map(|x| x.to_vec())
-            .collect();
-
         let mut payout_blockhash_new = Witness::new();
-        for element in payout_blockhash {
+        for element in payout_blockhash
+            .into_iter()
+            .next()
+            .expect("Must have one element")
+        {
             payout_blockhash_new.push(element);
         }
 
@@ -2390,6 +2406,7 @@ where
         deposit_data: &mut DepositData,
         operator_asserts: &HashMap<usize, Witness>,
     ) -> Result<Option<(usize, StructuredScript)>, BridgeError> {
+        use bitvm::chunk::api::{NUM_HASH, NUM_PUBS, NUM_U256};
         use bridge_circuit_host::utils::get_verifying_key;
 
         let bitvm_pks = self.signer.generate_bitvm_pks_for_deposit(
@@ -2403,9 +2420,9 @@ where
 
         // Pre-allocate commit vectors. Initializing with known sizes or empty vectors
         // is slightly more efficient as it can prevent reallocations.
-        let mut g16_public_input_commit: Vec<Vec<Vec<u8>>> = vec![vec![vec![]]; 1];
-        let mut num_u256_commits: Vec<Vec<Vec<u8>>> = vec![vec![vec![]]; 14];
-        let mut intermediate_value_commits: Vec<Vec<Vec<u8>>> = vec![vec![vec![]]; 363];
+        let mut g16_public_input_commit: Vec<Vec<Vec<u8>>> = vec![vec![vec![]]; NUM_PUBS];
+        let mut num_u256_commits: Vec<Vec<Vec<u8>>> = vec![vec![vec![]]; NUM_U256];
+        let mut intermediate_value_commits: Vec<Vec<Vec<u8>>> = vec![vec![vec![]]; NUM_HASH];
 
         tracing::info!("Number of operator asserts: {}", operator_asserts.len());
 
@@ -2421,7 +2438,7 @@ where
         for i in 0..operator_asserts.len() {
             let witness = operator_asserts
                 .get(&i)
-                .expect("indexed from 0 to 32")
+                .ok_or_eyre(format!("Expected operator assert at index {}, got None", i))?
                 .clone();
 
             let mut commits = extract_winternitz_commits_with_sigs(
@@ -2443,31 +2460,34 @@ where
                     // Assign specific commits to their respective arrays by removing from the end.
                     // This is slightly more efficient than removing from arbitrary indices.
                     g16_public_input_commit[0] = commits.remove(len - 1);
-                    num_u256_commits[12] = commits.remove(len - 2);
-                    num_u256_commits[13] = commits.remove(len - 3);
-                    intermediate_value_commits[360] = commits.remove(len - 4);
-                    intermediate_value_commits[361] = commits.remove(len - 5);
-                    intermediate_value_commits[362] = commits.remove(len - 6);
+                    num_u256_commits[10] = commits.remove(len - 2);
+                    num_u256_commits[11] = commits.remove(len - 3);
+                    num_u256_commits[12] = commits.remove(len - 4);
+                    num_u256_commits[13] = commits.remove(len - 5);
                 }
                 1 | 2 => {
                     // Handles i = 1 and i = 2
-                    for j in 0..6 {
-                        num_u256_commits[6 * (i - 1) + j] = commits
+                    for j in 0..5 {
+                        num_u256_commits[5 * (i - 1) + j] = commits
                             .pop()
                             .expect("Should not panic: `num_u256_commits` index out of bounds");
                     }
                 }
-                3..=32 => {
-                    // Handles i from 3 to 32
-                    for j in 0..12 {
-                        intermediate_value_commits[12 * (i - 3) + j] = commits.pop().expect(
+                _ if i >= 3 && i < ClementineBitVMPublicKeys::number_of_assert_txs() => {
+                    // Handles i from 3 to 35
+                    for j in 0..11 {
+                        intermediate_value_commits[11 * (i - 3) + j] = commits.pop().expect(
                             "Should not panic: `intermediate_value_commits` index out of bounds",
                         );
                     }
                 }
                 _ => {
                     // Catch-all for any other 'i' values
-                    panic!("Unexpected operator assert index: {}; expected 0 to 32.", i);
+                    panic!(
+                        "Unexpected operator assert index: {}; expected 0 to {}.",
+                        i,
+                        ClementineBitVMPublicKeys::number_of_assert_txs()
+                    );
                 }
             }
         }
@@ -2503,15 +2523,15 @@ where
             Ok(())
         };
 
-        let mut first_box = Box::new([[[0u8; 21]; 68]; 1]);
+        let mut first_box = Box::new([[[0u8; 21]; 67]; NUM_PUBS]);
         fill_from_commits(&g16_public_input_commit[0], &mut first_box[0])?;
 
-        let mut second_box = Box::new([[[0u8; 21]; 68]; 14]);
+        let mut second_box = Box::new([[[0u8; 21]; 67]; NUM_U256]);
         for i in 0..14 {
             fill_from_commits(&num_u256_commits[i], &mut second_box[i])?;
         }
 
-        let mut third_box = Box::new([[[0u8; 21]; 36]; 363]);
+        let mut third_box = Box::new([[[0u8; 21]; 35]; NUM_HASH]);
         for i in 0..363 {
             fill_from_commits(&intermediate_value_commits[i], &mut third_box[i])?;
         }
