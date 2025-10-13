@@ -67,11 +67,12 @@ impl Task for TxSenderTask {
                         block_id = %block_id,
                         "Block mined, confirming transactions..."
                     );
-                    self.highest_block_id = Some(block_id);
 
                     self.db.confirm_transactions(&mut dbtx, block_id).await?;
 
                     dbtx.commit().await?;
+
+                    self.highest_block_id = Some(block_id);
                     true
                 }
                 BitcoinSyncerEvent::ReorgedBlock(block_id) => {
