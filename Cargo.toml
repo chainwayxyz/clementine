@@ -22,8 +22,8 @@ color-eyre = "0.6.5"
 ctor = "0.4.2"
 hex = "0.4.3"
 lazy_static = { version = "1.5.0", default-features = false }
-serde = { version = "1.0", default-features = false, features = ["derive"] }
-serde_json = "1.0.128"
+serde = { version = "=1.0.218", default-features = false, features = ["derive"] }
+serde_json = "=1.0.139"
 thiserror = "1.0.64"
 metrics = { version = "0.23.0" }
 metrics-derive = { version = "0.1.0" }
@@ -41,7 +41,7 @@ serial_test = "3.2.0"
 tempfile = "3.8"
 eyre = { version = "0.6.12" }
 tokio-retry = { version = "0.3" }
-alloy = { version = "0.11.1", features = ["full"] }
+alloy = { version = "0.13", features = ["full"] }
 statig = { version = "0.3.0", features = ["async", "serde"] }
 pgmq = "0.30.0"
 serde_with = "3.12.0"
@@ -118,10 +118,10 @@ ark-std = "0.5.0"
 ark-crypto-primitives = "0.5.0"
 ark-relations = "0.5.0"
 
-alloy-rpc-types = "0.11.1"
+alloy-rpc-types = "0.13"
 alloy-primitives = "0.8.25"
-alloy-rpc-types-eth = "0.11.1"
-alloy-rpc-client = "0.11.1"
+alloy-rpc-types-eth = "0.13"
+alloy-rpc-client = "0.13"
 alloy-sol-types = { version = "0.8.25", default-features = false, features = ["json"] }
 
 
