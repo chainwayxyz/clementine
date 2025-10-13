@@ -1,6 +1,6 @@
 -- Adds sent_block_id column to tx_sender_try_to_send_txs table
 ALTER TABLE tx_sender_try_to_send_txs
-ADD COLUMN IF NOT EXISTS sent_block_id INT;
+ADD COLUMN IF NOT EXISTS sent_block_id INT DEFAULT NULL;
 -- Add foreign key constraint separately
 DO $$ BEGIN IF NOT EXISTS (
     SELECT 1
