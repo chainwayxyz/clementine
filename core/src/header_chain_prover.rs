@@ -507,6 +507,7 @@ impl HeaderChainProver {
             Network::Testnet4 => TESTNET4_HEADER_CHAIN_ELF,
             Network::Signet => SIGNET_HEADER_CHAIN_ELF,
             Network::Regtest => REGTEST_HEADER_CHAIN_ELF,
+            _ => Err(BridgeError::UnsupportedNetwork.into_eyre())?,
         };
 
         let receipt = prover.prove(env, elf).map_err(|e| eyre::eyre!(e))?.receipt;

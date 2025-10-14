@@ -155,8 +155,7 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
     // If total work is less than the max total work of watchtowers, panic
     if total_work < max_total_work {
         panic!(
-            "Insufficient total work: Total Work {:?} - Max Total Work: {:?}",
-            total_work, max_total_work
+            "Insufficient total work: Total Work {total_work:?} - Max Total Work: {max_total_work:?}",
         );
     }
 
@@ -177,10 +176,7 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
     let spv_l1_block_hash = input.payout_spv.block_header.compute_block_hash();
 
     if lc_l1_block_hash != spv_l1_block_hash {
-        panic!(
-            "L1 block hash mismatch: expected {:?}, got {:?}",
-            lc_l1_block_hash, spv_l1_block_hash
-        );
+        panic!("L1 block hash mismatch: expected {lc_l1_block_hash:?}, got {spv_l1_block_hash:?}");
     }
 
     // Storage proof verification for deposit tx index and withdrawal outpoint

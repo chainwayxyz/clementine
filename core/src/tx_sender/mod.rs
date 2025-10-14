@@ -1143,7 +1143,7 @@ mod tests {
         config.mempool_api_endpoint = Some("api/v1/fees/recommended".into());
 
         let db = Database::new(&config).await.unwrap();
-        let signer = Actor::new(config.secret_key, None, config.protocol_paramset.network);
+        let signer = Actor::new(config.secret_key, config.protocol_paramset.network);
 
         let tx_sender = TxSender::new(signer, mock_rpc, db, "test_tx_sender".into(), config);
 
@@ -1218,7 +1218,7 @@ mod tests {
         config.mempool_api_endpoint = Some("api/v1/fees/recommended".into());
 
         let db = Database::new(&config).await.unwrap();
-        let signer = Actor::new(config.secret_key, None, config.protocol_paramset.network);
+        let signer = Actor::new(config.secret_key, config.protocol_paramset.network);
 
         let tx_sender = TxSender::new(signer, mock_rpc, db, "test_tx_sender".into(), config);
 
@@ -1293,7 +1293,7 @@ mod tests {
         config.mempool_api_endpoint = Some("api/v1/fees/recommended".into());
 
         let db = Database::new(&config).await.unwrap();
-        let signer = Actor::new(config.secret_key, None, config.protocol_paramset.network);
+        let signer = Actor::new(config.secret_key, config.protocol_paramset.network);
 
         let tx_sender = TxSender::new(signer, mock_rpc, db, "test_tx_sender".into(), config);
 
@@ -1372,7 +1372,7 @@ mod tests {
         config.mempool_api_endpoint = Some("api/v1/fees/recommended".into());
 
         let db = Database::new(&config).await.unwrap();
-        let signer = Actor::new(config.secret_key, None, config.protocol_paramset.network);
+        let signer = Actor::new(config.secret_key, config.protocol_paramset.network);
 
         let tx_sender = TxSender::new(signer, mock_rpc, db, "test_tx_sender".into(), config);
 
@@ -1451,7 +1451,7 @@ mod tests {
         config.mempool_api_endpoint = Some("api/v1/fees/recommended".into());
 
         let db = Database::new(&config).await.unwrap();
-        let signer = Actor::new(config.secret_key, None, config.protocol_paramset.network);
+        let signer = Actor::new(config.secret_key, config.protocol_paramset.network);
 
         let tx_sender = TxSender::new(signer, mock_rpc, db, "test_tx_sender".into(), config);
 
@@ -1533,7 +1533,7 @@ mod tests {
         config.mempool_api_endpoint = Some("api/v1/fees/recommended".into());
 
         let db = Database::new(&config).await.unwrap();
-        let signer = Actor::new(config.secret_key, None, config.protocol_paramset.network);
+        let signer = Actor::new(config.secret_key, config.protocol_paramset.network);
 
         let tx_sender = TxSender::new(signer, mock_rpc, db, "test_tx_sender".into(), config);
 
@@ -1622,7 +1622,7 @@ mod tests {
         config.mempool_api_endpoint = Some("api/v1/fees/recommended".into());
 
         let db = Database::new(&config).await.unwrap();
-        let signer = Actor::new(config.secret_key, None, config.protocol_paramset.network);
+        let signer = Actor::new(config.secret_key, config.protocol_paramset.network);
 
         let tx_sender = TxSender::new(signer, mock_rpc, db, "test_tx_sender".into(), config);
 
@@ -1696,7 +1696,7 @@ mod tests {
         config.mempool_api_endpoint = Some("api/v1/fees/recommended".into());
 
         let db = Database::new(&config).await.unwrap();
-        let signer = Actor::new(config.secret_key, None, config.protocol_paramset.network);
+        let signer = Actor::new(config.secret_key, config.protocol_paramset.network);
 
         let tx_sender = TxSender::new(
             signer,
