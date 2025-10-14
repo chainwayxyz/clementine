@@ -897,7 +897,7 @@ impl ClementineAggregator for AggregatorServer {
             let message = Message::from_digest(sighash.to_byte_array());
 
             SECP.verify_schnorr(&input_signature.signature, &message, &user_xonly_pk)
-                .map_err(|_| Status::internal("Invalid signature for optimistic payout tx"))?;
+                .map_err(|_| Status::internal("Invalid signature for optimistic payout tx. It is possible a non sighash SinglePlusAnyoneCanPay signature was given (as a 64 bytes signature)"))?;
 
             // get which verifiers participated in the deposit to collect the optimistic payout tx signature
             let participating_verifiers = self.get_participating_verifiers(&deposit_data).await?;
