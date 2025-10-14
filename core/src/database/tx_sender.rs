@@ -584,7 +584,7 @@ impl Database {
     /// - Not in the cancelled list
     /// - Transaction itself is not already confirmed
     /// - Transaction and UTXO timelocks must be passed
-    /// - Fee rate is lower than the provided fee rate or null (deprecated) OR the the transaction was sent before, but a a new block was mined since then, and the transaction is still not confirmed
+    /// - Fee rate is lower than the provided fee rate or null (deprecated) OR the transaction was sent before, but a new block was mined since then, and the transaction is still not confirmed
     ///
     /// # Parameters
     ///
