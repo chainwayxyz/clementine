@@ -191,9 +191,6 @@ pub trait ErrorExt: Sized {
     /// returns the first [`tonic::Status`] error. If it can't find one, it will
     /// return an Status::internal with the Display representation of the error.
     fn into_status(self) -> tonic::Status;
-    /// Converts the error into a tonic::Status::internal with the Display representation of the error.
-    /// Always returns the full error chain as the message.
-    fn into_full_internal_status(self) -> tonic::Status;
 }
 
 /// Extension traits for results to easily convert them to eyre::Report and
@@ -203,7 +200,6 @@ pub trait ResultExt: Sized {
 
     fn map_to_eyre(self) -> Result<Self::Output, eyre::Report>;
     fn map_to_status(self) -> Result<Self::Output, tonic::Status>;
-    fn map_to_full_internal_status(self) -> Result<Self::Output, tonic::Status>;
 }
 
 impl<T: Into<BridgeError>> ErrorExt for T {
@@ -215,9 +211,6 @@ impl<T: Into<BridgeError>> ErrorExt for T {
     }
     fn into_status(self) -> tonic::Status {
         self.into().into()
-    }
-    fn into_full_internal_status(self) -> tonic::Status {
-        self.into().into_full_internal_status()
     }
 }
 
@@ -231,45 +224,19 @@ impl<U: Sized, T: Into<BridgeError>> ResultExt for Result<U, T> {
     fn map_to_status(self) -> Result<Self::Output, tonic::Status> {
         self.map_err(ErrorExt::into_status)
     }
-
-    fn map_to_full_internal_status(self) -> Result<Self::Output, tonic::Status> {
-        self.map_err(ErrorExt::into_full_internal_status)
-    }
-}
-
-impl BridgeError {
-    fn into_full_internal_status(self) -> tonic::Status {
-        tonic::Status::internal(match self {
-            BridgeError::Eyre(report) => report
-                .chain()
-                .map(|e| e.to_string())
-                .collect::<Vec<String>>()
-                .join(" | "),
-            _ => self.to_string(),
-        })
-    }
 }
 
 impl From<BridgeError> for tonic::Status {
     fn from(val: BridgeError) -> Self {
-        val.into_full_internal_status()
-        // TODO: maybe uncomment later, first check how this works out
-        // let eyre_report = val.into_eyre();
-
-        // // eyre::Report can cast any error in the chain to a Status, so we use its downcast method to get the first Status.
-        // eyre_report.downcast::<Status>().unwrap_or_else(|report| {
-        //     // We don't want this case to happen, all casts to Status should contain a Status that contains a user-facing error message.
-        //     tracing::error!(
-        //         "Returning internal error on RPC call, full error: {:?}",
-        //         report
-        //     );
-
-        //     let mut status = tonic::Status::internal(report.to_string());
-        //     status.set_source(Into::into(
-        //         Into::<Box<dyn std::error::Error + Send + Sync>>::into(report),
-        //     ));
-        //     status
-        // })
+        let err = format!("{:#}", val);
+        // delete escape characters
+        let flattened = err
+            .replace("\\n", " ") // remove escaped newlines
+            .replace("\n", " ") // remove real newlines
+            .replace("\"", "") // delete quotes
+            .replace("\\", ""); // remove any remaining backslashes
+        let whitespace_removed = flattened.split_whitespace().collect::<Vec<_>>().join(" ");
+        tonic::Status::internal(whitespace_removed)
     }
 }
 

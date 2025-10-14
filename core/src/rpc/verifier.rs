@@ -11,7 +11,7 @@ use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestD
 use crate::builder::transaction::ContractContext;
 use crate::citrea::CitreaClientT;
 use crate::constants::RESTART_BACKGROUND_TASKS_TIMEOUT;
-use crate::errors::{ErrorExt, ResultExt as _};
+use crate::errors::ResultExt as _;
 use crate::rpc::clementine::VerifierDepositFinalizeResponse;
 use crate::utils::{get_vergen_response, monitor_standalone_task, timed_request};
 use crate::verifier::VerifierServer;
@@ -329,7 +329,7 @@ where
                     }
                     Err(e) => {
                         tx
-                            .send(Err(e.into_full_internal_status()))
+                            .send(Err(e.into()))
                             .await
                             .map_err(|send_err| {
                                 Status::aborted(format!(

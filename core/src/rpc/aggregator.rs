@@ -1584,12 +1584,12 @@ impl ClementineAggregator for AggregatorServer {
                 match task_output {
                     Ok(inner_result) => {
                         if let Err(e) = inner_result {
-                            let err_msg = format!("{} failed with error: {:#?}", task_name, e);
+                            let err_msg = format!("{} failed with error: {:#}", task_name, e);
                             task_errors.push(err_msg);
                         }
                     },
                     Err(e) => {
-                        let err_msg = format!("{} failed with error: {:#?}", task_name, e);
+                        let err_msg = format!("{} failed with error: {:#}", task_name, e);
                         task_errors.push(err_msg);
                     }
                 }
@@ -1624,7 +1624,7 @@ impl ClementineAggregator for AggregatorServer {
                                         Err(e) => {
                                             // check exact error by awaiting the future
                                             dep_fin_fut.await.wrap_err(format!("{} deposit finalize tokio task on aggregator returned error", id.clone()))?.wrap_err(format!("{} deposit finalize rpc call returned error", id.clone()))?;
-                                            return Err(BridgeError::from(eyre::eyre!(format!("Verifier {} deposit finalize stream sending returned error: {:?}", id.clone(), e))));
+                                            return Err(BridgeError::from(eyre::eyre!(format!("{} deposit finalize stream sending returned error: {:?}", id.clone(), e))));
                                         }
                                     }
                                 }
