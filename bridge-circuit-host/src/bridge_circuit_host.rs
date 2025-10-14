@@ -447,12 +447,11 @@ mod tests {
     use risc0_zkvm::default_executor;
 
     const TESTNET4_HEADERS: &[u8] = include_bytes!("../bin-files/testnet4-headers.bin");
+    const MAINNET_HEADERS: &[u8] = include_bytes!("../bin-files/mainnet-headers.bin");
 
     #[test]
     fn test_header_chain_circuit() {
-        let value = option_env!("BITCOIN_NETWORK");
-        println!("BITCOIN_NETWORK: {:?}", value);
-        let headers = TESTNET4_HEADERS
+        let headers = MAINNET_HEADERS
             .chunks(80)
             .map(|header| CircuitBlockHeader::try_from_slice(header).unwrap())
             .collect::<Vec<CircuitBlockHeader>>();
@@ -462,7 +461,7 @@ mod tests {
         let input = HeaderChainCircuitInput {
             method_id: [0; 8],
             prev_proof: HeaderChainPrevProofType::GenesisBlock(ChainState::genesis_state()),
-            block_headers: headers[..4000].to_vec(),
+            block_headers: headers[..50].to_vec(),
         };
         host.write(&input);
         header_chain_circuit(&host);
@@ -474,7 +473,7 @@ mod tests {
         let newinput = HeaderChainCircuitInput {
             method_id: [0; 8],
             prev_proof: HeaderChainPrevProofType::PrevProof(output),
-            block_headers: headers[4000..8000].to_vec(),
+            block_headers: headers[50..100].to_vec(),
         };
         new_host.write(&newinput);
         new_host.add_assumption(proof);
