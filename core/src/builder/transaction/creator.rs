@@ -749,9 +749,17 @@ pub async fn create_txhandlers(
     let latest_blockhash_root_hash = *db_cache.get_latest_blockhash_root_hash().await?;
 
     let disprove_path = if transaction_type == TransactionType::Disprove {
-        let actor = context.signer.clone().ok_or(TxError::InsufficientContext)?;
-        let bitvm_pks =
-            actor.generate_bitvm_pks_for_deposit(deposit_data.get_deposit_outpoint(), paramset)?;
+        // no need to use db cache here, this is only called once when creating the disprove tx
+        let bitvm_pks = ClementineBitVMPublicKeys::from_flattened_vec(
+            &db_cache
+                .db
+                .get_operator_bitvm_keys(
+                    None,
+                    operator_xonly_pk,
+                    deposit_data.get_deposit_outpoint(),
+                )
+                .await?,
+        );
         let disprove_scripts = bitvm_pks.get_g16_verifier_disprove_scripts()?;
         DisprovePath::Scripts(disprove_scripts)
     } else {

@@ -401,11 +401,7 @@ where
     C: CitreaClientT,
 {
     pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
-        let signer = Actor::new(
-            config.secret_key,
-            config.winternitz_secret_key,
-            config.protocol_paramset().network,
-        );
+        let signer = Actor::new(config.secret_key, config.protocol_paramset().network);
 
         let rpc = ExtendedBitcoinRpc::connect(
             config.bitcoin_rpc_url.clone(),
@@ -2390,14 +2386,21 @@ where
     async fn verify_disprove_conditions(
         &self,
         deposit_data: &mut DepositData,
+        operator_xonly_pk: XOnlyPublicKey,
         operator_asserts: &HashMap<usize, Witness>,
     ) -> Result<Option<(usize, StructuredScript)>, BridgeError> {
         use bridge_circuit_host::utils::get_verifying_key;
 
-        let bitvm_pks = self.signer.generate_bitvm_pks_for_deposit(
-            deposit_data.get_deposit_outpoint(),
-            self.config.protocol_paramset,
-        )?;
+        let bitvm_pks = ClementineBitVMPublicKeys::from_flattened_vec(
+            &self
+                .db
+                .get_operator_bitvm_keys(
+                    None,
+                    operator_xonly_pk,
+                    deposit_data.get_deposit_outpoint(),
+                )
+                .await?,
+        );
         let disprove_scripts = bitvm_pks.get_g16_verifier_disprove_scripts()?;
 
         let deposit_outpoint = deposit_data.get_deposit_outpoint();
@@ -2871,7 +2874,11 @@ mod states {
 
                         // If no additional witness, try to find a standard disprove witness
                         match self
-                            .verify_disprove_conditions(&mut deposit_data, &operator_asserts)
+                            .verify_disprove_conditions(
+                                &mut deposit_data,
+                                kickoff_data.operator_xonly_pk,
+                                &operator_asserts,
+                            )
                             .await?
                         {
                             Some((index, disprove_script)) => {

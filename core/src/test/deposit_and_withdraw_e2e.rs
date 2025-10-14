@@ -1445,11 +1445,7 @@ async fn mock_citrea_run_malicious_after_exit() {
         .unwrap();
 
     // operator 0's signer
-    let actor = Actor::new(
-        config.secret_key,
-        config.winternitz_secret_key,
-        config.protocol_paramset().network,
-    );
+    let actor = Actor::new(config.secret_key, config.protocol_paramset().network);
 
     let mut operator0 = actors.get_operator_client_by_index(0);
     let first_round_txs = operator0
@@ -1565,11 +1561,7 @@ pub async fn make_concurrent_deposits(
     aggregator: &mut ClementineAggregatorClient<Channel>,
     citrea_client: MockCitreaClient,
 ) -> eyre::Result<Vec<Txid>> {
-    let actor = Actor::new(
-        config.secret_key,
-        config.winternitz_secret_key,
-        config.protocol_paramset().network,
-    );
+    let actor = Actor::new(config.secret_key, config.protocol_paramset().network);
     let evm_address = EVMAddress([1; 20]);
 
     // Create move txs.

@@ -309,11 +309,7 @@ pub fn get_deposit_address(
     evm_address: EVMAddress,
     verifiers_public_keys: Vec<bitcoin::secp256k1::PublicKey>,
 ) -> Result<(bitcoin::Address, bitcoin::taproot::TaprootSpendInfo), BridgeError> {
-    let signer = Actor::new(
-        config.secret_key,
-        config.winternitz_secret_key,
-        config.protocol_paramset().network,
-    );
+    let signer = Actor::new(config.secret_key, config.protocol_paramset().network);
 
     let nofn_xonly_pk = bitcoin::XOnlyPublicKey::from_musig2_pks(verifiers_public_keys, None)
         .expect("Failed to create xonly pk");
@@ -342,11 +338,7 @@ pub async fn generate_withdrawal_transaction_and_signature(
     withdrawal_address: &bitcoin::Address,
     withdrawal_amount: bitcoin::Amount,
 ) -> (UTXO, bitcoin::TxOut, schnorr::Signature) {
-    let signer = Actor::new(
-        config.secret_key,
-        config.winternitz_secret_key,
-        config.protocol_paramset().network,
-    );
+    let signer = Actor::new(config.secret_key, config.protocol_paramset().network);
 
     const WITHDRAWAL_EMPTY_UTXO_SATS: bitcoin::Amount = bitcoin::Amount::from_sat(550);
 
