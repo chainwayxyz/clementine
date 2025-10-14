@@ -2,7 +2,7 @@
 //!
 //! Helper functions for the MuSig2 signature scheme.
 
-use crate::{bitvm_client::SECP, errors::BridgeError};
+use crate::{aggregator::VerifierId, bitvm_client::SECP, errors::BridgeError};
 use bitcoin::{
     hashes::Hash,
     key::Keypair,
@@ -196,10 +196,8 @@ pub fn aggregate_partial_signatures(
 
     if enable_partial_sig_verification {
         let mut partial_sig_verification_errors = Vec::new();
-        for (idx, ((partial_sig, pub_nonce), pub_key)) in partial_sigs_and_nonces
-            .into_iter()
-            .zip(pks.into_iter())
-            .enumerate()
+        for ((partial_sig, pub_nonce), pub_key) in
+            partial_sigs_and_nonces.into_iter().zip(pks.into_iter())
         {
             if !session.partial_verify(
                 SECP256K1,
@@ -208,8 +206,8 @@ pub fn aggregate_partial_signatures(
                 *pub_nonce,
                 to_secp_pk(pub_key),
             ) {
-                let error_msg = format!("(index: {idx}, pub key: {pub_key})");
-                partial_sig_verification_errors.push(error_msg);
+                let verifier_id = VerifierId(pub_key);
+                partial_sig_verification_errors.push(format!("{verifier_id}"));
             }
         }
         if !partial_sig_verification_errors.is_empty() {

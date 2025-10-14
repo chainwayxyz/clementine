@@ -6,7 +6,9 @@ use super::clementine::{
     AggregatorWithdrawResponse, Deposit, EntityStatuses, GetEntityStatusesRequest,
     OptimisticPayoutParams, RawSignedTx, VergenResponse, VerifierPublicKeys,
 };
-use crate::aggregator::{AggregatorServer, ParticipatingOperators, ParticipatingVerifiers};
+use crate::aggregator::{
+    AggregatorServer, ParticipatingOperators, ParticipatingVerifiers, VerifierId,
+};
 use crate::bitvm_client::SECP;
 use crate::builder::sighash::SignatureInfo;
 use crate::builder::transaction::{
@@ -78,20 +80,21 @@ async fn get_next_pub_nonces(
               + Unpin
               + Send
               + 'static],
+    verifiers_ids: &[VerifierId],
 ) -> Result<Vec<PublicNonce>, BridgeError> {
     Ok(try_join_all(
         nonce_streams
             .iter_mut()
-            .enumerate()
-            .map(|(i, s)| async move {
+            .zip(verifiers_ids)
+            .map(|(s, id)| async move {
                 s.next()
                     .await
                     .transpose()
-                    .wrap_err(format!("Failed to get nonce from verifier {i}"))? // Return the inner error if it exists
+                    .wrap_err(format!("Failed to get nonce from {id}"))? // Return the inner error if it exists
                     .ok_or_else(|| -> eyre::Report {
                         AggregatorError::InputStreamEndedEarlyUnknownSize {
                             // Return an early end error if the stream is empty
-                            stream_name: format!("Nonce stream {i}"),
+                            stream_name: format!("Nonce stream {id}"),
                         }
                         .into()
                     })
@@ -111,6 +114,7 @@ async fn nonce_aggregator(
         + 'static,
     agg_nonce_sender: Sender<(AggNonceQueueItem, Vec<PublicNonce>)>,
     needed_nofn_sigs: usize,
+    verifiers_ids: Vec<VerifierId>,
 ) -> Result<
     (
         (AggregatedNonce, Vec<PublicNonce>),
@@ -122,13 +126,20 @@ async fn nonce_aggregator(
 
     tracing::info!("Starting nonce aggregation (expecting {needed_nofn_sigs} nonces)");
 
+    // sanity check
+    if verifiers_ids.len() != nonce_streams.len() {
+        return Err(
+            eyre::eyre!("Number of verifiers ids and nonce streams must be the same").into(),
+        );
+    }
+
     // We assume the sighash stream returns the correct number of items.
     while let Some(msg) = sighash_stream.next().await {
         let (sighash, siginfo) = msg.wrap_err("Sighash stream failed")?;
 
         total_sigs += 1;
 
-        let pub_nonces = get_next_pub_nonces(&mut nonce_streams)
+        let pub_nonces = get_next_pub_nonces(&mut nonce_streams, &verifiers_ids)
             .await
             .wrap_err_with(|| {
                 format!("Failed to aggregate nonces for sighash with info: {siginfo:?}")
@@ -164,16 +175,16 @@ async fn nonce_aggregator(
         return Err(eyre::eyre!(err_msg).into());
     }
     // aggregate nonces for the movetx signature
-    let movetx_pub_nonces = try_join_all(nonce_streams.iter_mut().enumerate().map(
-        |(i, s)| async move {
+    let movetx_pub_nonces = try_join_all(nonce_streams.iter_mut().zip(verifiers_ids.iter()).map(
+        |(s, id)| async move {
             s.next()
                 .await
                 .transpose()
-                .wrap_err(format!("Failed to get movetx nonce from verifier {i}",))? // Return the inner error if it exists
+                .wrap_err(format!("Failed to get movetx nonce from {id}",))? // Return the inner error if it exists
                 .ok_or_else(|| -> eyre::Report {
                     AggregatorError::InputStreamEndedEarlyUnknownSize {
                         // Return an early end error if the stream is empty
-                        stream_name: format!("Movetx nonce stream for verifier {i}"),
+                        stream_name: format!("Movetx nonce stream for verifier {id}"),
                     }
                     .into()
                 })
@@ -187,25 +198,26 @@ async fn nonce_aggregator(
     let move_tx_agg_nonce =
         aggregate_nonces(movetx_pub_nonces.iter().collect::<Vec<_>>().as_slice())?;
 
-    let emergency_stop_pub_nonces = try_join_all(nonce_streams.iter_mut().enumerate().map(
-        |(i, s)| async move {
-            s.next()
-                .await
-                .transpose()
-                .wrap_err(format!(
-                    "Failed to get emergency stop nonce from verifier {i}"
-                ))? // Return the inner error if it exists
-                .ok_or_else(|| -> eyre::Report {
-                    AggregatorError::InputStreamEndedEarlyUnknownSize {
-                        // Return an early end error if the stream is empty
-                        stream_name: format!("Emergency stop nonce stream for verifier {i}"),
-                    }
-                    .into()
-                })
-        },
-    ))
-    .await
-    .wrap_err("Failed to aggregate nonces for the emergency stop tx")?;
+    let emergency_stop_pub_nonces =
+        try_join_all(nonce_streams.iter_mut().zip(verifiers_ids.iter()).map(
+            |(s, id)| async move {
+                s.next()
+                    .await
+                    .transpose()
+                    .wrap_err(format!(
+                        "Failed to get emergency stop nonce from verifier {id}"
+                    ))? // Return the inner error if it exists
+                    .ok_or_else(|| -> eyre::Report {
+                        AggregatorError::InputStreamEndedEarlyUnknownSize {
+                            // Return an early end error if the stream is empty
+                            stream_name: format!("Emergency stop nonce stream for verifier {id}"),
+                        }
+                        .into()
+                    })
+            },
+        ))
+        .await
+        .wrap_err("Failed to aggregate nonces for the emergency stop tx")?;
 
     let emergency_stop_agg_nonce = aggregate_nonces(
         emergency_stop_pub_nonces
@@ -229,6 +241,7 @@ async fn nonce_distributor(
     )>,
     partial_sig_sender: Sender<(Vec<(PartialSignature, PublicNonce)>, AggNonceQueueItem)>,
     needed_nofn_sigs: usize,
+    verifiers_ids: Vec<VerifierId>,
 ) -> Result<(), BridgeError> {
     let mut nonce_count = 0;
     let mut sig_count = 0;
@@ -237,6 +250,14 @@ async fn nonce_distributor(
 
     let (queue_tx, mut queue_rx) = channel(crate::constants::DEFAULT_CHANNEL_SIZE);
 
+    // sanity check
+    if verifiers_ids.len() != partial_sig_rx.len() {
+        return Err(eyre::eyre!(
+            "Number of verifiers ids and partial sig streams must be the same"
+        )
+        .into());
+    }
+    let verifiers_ids_clone = verifiers_ids.clone();
     let handle_1 = tokio::spawn(async move {
         while let Some((queue_item, pub_nonces)) = agg_nonce_receiver.recv().await {
             nonce_count += 1;
@@ -253,22 +274,27 @@ async fn nonce_distributor(
             };
 
             // Broadcast aggregated nonce to all streams
-            try_join_all(partial_sig_tx.iter_mut().enumerate().map(|(idx, tx)| {
-                let agg_nonce_wrapped = agg_nonce_wrapped.clone();
-                async move {
-                    tx.send(agg_nonce_wrapped)
-                        .await
-                        .wrap_err_with(|| AggregatorError::OutputStreamEndedEarly {
-                            stream_name: format!("Partial sig {idx}"),
-                        })
-                        .inspect_err(|e| {
-                            tracing::error!(
-                                "Failed to send aggregated nonce to verifier {idx}: {:?}",
-                                e
-                            );
-                        })
-                }
-            }))
+            try_join_all(
+                partial_sig_tx
+                    .iter_mut()
+                    .zip(verifiers_ids_clone.iter())
+                    .map(|(tx, id)| {
+                        let agg_nonce_wrapped = agg_nonce_wrapped.clone();
+                        async move {
+                            tx.send(agg_nonce_wrapped)
+                                .await
+                                .wrap_err_with(|| AggregatorError::OutputStreamEndedEarly {
+                                    stream_name: format!("Partial sig {id}"),
+                                })
+                                .inspect_err(|e| {
+                                    tracing::error!(
+                                        "Failed to send aggregated nonce to {id}: {:?}",
+                                        e
+                                    );
+                                })
+                        }
+                    }),
+            )
             .await
             .wrap_err("Failed to send aggregated nonces to verifiers")?;
 
@@ -301,25 +327,25 @@ async fn nonce_distributor(
     let handle_2 = tokio::spawn(async move {
         while let Some((queue_item, pub_nonces)) = queue_rx.recv().await {
             let pub_nonces_ref = pub_nonces.as_slice();
-            let partial_sigs = try_join_all(partial_sig_rx.iter_mut().enumerate().map(
-                |(idx, stream)| async move {
+            let partial_sigs = try_join_all(partial_sig_rx.iter_mut().zip(pub_nonces_ref.iter()).zip(verifiers_ids.iter()).map(
+                |((stream, pub_nonce), id)| async move {
                     let partial_sig = stream
                         .message()
                         .await
                         .wrap_err_with(|| AggregatorError::RequestFailed {
-                            request_name: format!("Partial sig {sig_count} from verifier {idx}"),
+                            request_name: format!("Partial sig {sig_count} from {id}"),
                         })
                         .inspect_err(|e| {
                             tracing::error!(
-                                "Failed to receive partial signature {sig_count} from verifier {idx}, an error was sent: {:?}",
+                                "Failed to receive partial signature {sig_count} from {id}, an error was sent: {:?}",
                                 e
                             );
                         })?
                         .ok_or_eyre(AggregatorError::InputStreamEndedEarlyUnknownSize {
-                            stream_name: format!("Partial sig {sig_count} from verifier {idx} closed"),
+                            stream_name: format!("Partial sig {sig_count} from {id} closed"),
                         }).inspect_err(|e| {
                             tracing::error!(
-                                "Failed to receive partial signature {sig_count} from verifier {idx}, the stream was closed: {:?}",
+                                "Failed to receive partial signature {sig_count} from {id}, the stream was closed: {:?}",
                                 e
                             );
                         })?;
@@ -332,7 +358,7 @@ async fn nonce_distributor(
                     )
                     .wrap_err("Failed to parse partial signature")?;
 
-                    Ok::<_, BridgeError>((partial_sig, pub_nonces_ref[idx]))
+                    Ok::<_, BridgeError>((partial_sig, *pub_nonce))
                 },
             ))
             .await?;
@@ -489,6 +515,7 @@ async fn signature_distributor(
         >,
     >,
     needed_nofn_sigs: usize,
+    verifiers_ids: Vec<VerifierId>,
 ) -> Result<(), BridgeError> {
     use verifier_deposit_finalize_params::Params;
     let mut sig_count = 0;
@@ -499,12 +526,12 @@ async fn signature_distributor(
             params: Some(Params::SchnorrSig(queue_item.final_sig)),
         };
 
-        try_join_all(deposit_finalize_sender.iter().map(|tx| {
+        try_join_all(deposit_finalize_sender.iter().zip(verifiers_ids.iter()).map(|(tx, id)| {
             let final_params = final_params.clone();
             async move {
                 tx.send(final_params).await.wrap_err_with(|| {
                     AggregatorError::OutputStreamEndedEarly {
-                        stream_name: "Deposit finalize sender".to_string(),
+                        stream_name: format!("Deposit finalize sender for {id}"),
                     }
                 })
             }
@@ -1067,6 +1094,7 @@ impl ClementineAggregator for AggregatorServer {
 
             // get which verifiers participated in the deposit to collect the optimistic payout tx signature
             let participating_verifiers = self.get_participating_verifiers(&deposit_data).await?;
+            let verifiers_ids = participating_verifiers.ids();
             let (first_responses, mut nonce_streams) = {
                 create_nonce_streams(
                     participating_verifiers.clone(),
@@ -1077,7 +1105,7 @@ impl ClementineAggregator for AggregatorServer {
                 .await?
             };
             // collect nonces
-            let pub_nonces = get_next_pub_nonces(&mut nonce_streams)
+            let pub_nonces = get_next_pub_nonces(&mut nonce_streams, &verifiers_ids)
                 .await
                 .wrap_err("Failed to aggregate nonces for optimistic payout")
                 .map_to_status()?;
@@ -1351,6 +1379,7 @@ impl ClementineAggregator for AggregatorServer {
             tracing::info!("Collected and distributed keys in {:?}", start.elapsed());
 
             let verifiers = self.get_participating_verifiers(&deposit_data).await?;
+            let verifiers_ids = verifiers.ids();
 
             // Generate nonce streams for all verifiers.
             let num_required_sigs = self.config.get_num_required_nofn_sigs(&deposit_data);
@@ -1492,7 +1521,8 @@ impl ClementineAggregator for AggregatorServer {
                 nonce_streams,
                 sighash_stream,
                 agg_nonce_sender,
-                needed_nofn_sigs, // nonce_aggregator handles movetx and emergency stop signatures differently so no +2 needed here
+                needed_nofn_sigs, 
+                verifiers_ids.clone(),
             ));
 
             // Start the nonce distribution pipe.
@@ -1501,6 +1531,7 @@ impl ClementineAggregator for AggregatorServer {
                 partial_sig_streams,
                 partial_sig_sender,
                 needed_nofn_sigs,
+                verifiers_ids.clone(),
             ));
 
             // Start the signature aggregation pipe.
@@ -1548,6 +1579,7 @@ impl ClementineAggregator for AggregatorServer {
                 deposit_finalize_sender.clone(),
                 nonce_agg_handle.clone(),
                 needed_nofn_sigs,
+                verifiers_ids.clone(),
             ));
 
             tracing::debug!(
