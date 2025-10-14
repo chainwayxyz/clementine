@@ -103,7 +103,9 @@ async fn get_next_pub_nonces(
     .await?)
 }
 
-/// For each expected sighash, we collect a batch of public nonces from all verifiers. We aggregate and send aggregated nonce and all public nonces (needed for partial signature verification) to the agg_nonce_sender. Then repeat for the next sighash.
+/// For each expected sighash, we collect a batch of public nonces from all verifiers.
+/// We aggregate and send the aggregated nonce and all public nonces (needed for partial
+/// signature verification) to the agg_nonce_sender. Then repeat for the next sighash.
 async fn nonce_aggregator(
     mut nonce_streams: Vec<
         impl Stream<Item = Result<PublicNonce, BridgeError>> + Unpin + Send + 'static,
