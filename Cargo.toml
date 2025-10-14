@@ -22,8 +22,8 @@ color-eyre = "0.6.5"
 ctor = "0.4.2"
 hex = "0.4.3"
 lazy_static = { version = "1.5.0", default-features = false }
-serde = { version = "1.0", default-features = false, features = ["derive"] }
-serde_json = "1.0.128"
+serde = { version = "=1.0.218", default-features = false, features = ["derive"] }
+serde_json = "1"
 thiserror = "1.0.64"
 metrics = { version = "0.23.0" }
 metrics-derive = { version = "0.1.0" }
