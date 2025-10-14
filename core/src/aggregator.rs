@@ -297,7 +297,7 @@ impl Aggregator {
             let unique_keys: HashSet<_> = non_none_keys.iter().cloned().collect();
 
             if unique_keys.len() != non_none_keys.len() {
-                let reason = format!("{} keys are not unique: {:?}", key_type_name, keys);
+                let reason = format!("{key_type_name} keys are not unique: {keys:?}");
                 // reset all keys to None so that faulty keys are not used
                 for key in keys.iter_mut() {
                     *key = None;
@@ -684,8 +684,7 @@ impl Aggregator {
                             .await
                             .wrap_err_with(|| {
                                 Status::internal(format!(
-                                    "Failed to restart background tasks for operator {}",
-                                    key
+                                    "Failed to restart background tasks for operator {key}"
                                 ))
                             })
                     }
@@ -705,8 +704,7 @@ impl Aggregator {
                             .await
                             .wrap_err_with(|| {
                                 Status::internal(format!(
-                                    "Failed to restart background tasks for verifier {}",
-                                    key
+                                    "Failed to restart background tasks for verifier {key}"
                                 ))
                             })
                     }

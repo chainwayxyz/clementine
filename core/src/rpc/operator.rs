@@ -345,8 +345,7 @@ where
             .try_into()
             .map_err(|e| {
                 Status::invalid_argument(format!(
-                    "Failed to convert payout blockhash to [u8; 32]: {:?}",
-                    e
+                    "Failed to convert payout blockhash to [u8; 32]: {e:?}"
                 ))
             })?;
         let deposit_outpoint: OutPoint = request

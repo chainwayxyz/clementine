@@ -549,14 +549,13 @@ async fn get_fee_rate_from_mempool_space(
     let url = match network {
         Network::Bitcoin => format!(
             // If the variables are not, return Error to fallback to Bitcoin Core RPC.
-            "{}{}",
-            url, endpoint
+            "{url}{endpoint}"
         ),
-        Network::Testnet4 => format!("{}testnet4/{}", url, endpoint),
+        Network::Testnet4 => format!("{url}testnet4/{endpoint}"),
         // Return early with error for unsupported networks
         Network::Signet => {
             tracing::warn!("You should use Citrea signet url for mempool.space");
-            format!("{}{}", url, endpoint)
+            format!("{url}{endpoint}")
         }
         _ => return Err(eyre!("Unsupported network for mempool.space: {:?}", network).into()),
     };
@@ -608,7 +607,7 @@ async fn get_fee_rate_from_mempool_space(
     )
     .await
     .map_err(|e| eyre::eyre!(e))
-    .wrap_err_with(|| format!("Failed to fetch/parse fees from {}", url))?;
+    .wrap_err_with(|| format!("Failed to fetch/parse fees from {url}"))?;
 
     // The API returns the fee rate in sat/vB. We multiply by 1000 to get sat/kvB.
     let fee_rate = Amount::from_sat(fee_sat_per_vb * 1000);

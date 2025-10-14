@@ -285,8 +285,7 @@ impl BridgeConfig {
 
         if !misconfigs.is_empty() {
             return Err(BridgeError::ConfigError(format!(
-                "Following configs can't be used on Mainnet: {:?}",
-                misconfigs
+                "Following configs can't be used on Mainnet: {misconfigs:?}",
             )));
         }
 

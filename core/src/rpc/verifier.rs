@@ -558,7 +558,7 @@ where
     ) -> Result<Response<Empty>, Status> {
         let txid = request.into_inner();
         let txid = bitcoin::Txid::try_from(txid).map_err(|e| {
-            Status::invalid_argument(format!("Failed to convert txid to bitcoin::Txid: {}", e))
+            Status::invalid_argument(format!("Failed to convert txid to bitcoin::Txid: {e}"))
         })?;
         let mut dbtx = self.verifier.db.begin_transaction().await?;
         let kickoff_data = self

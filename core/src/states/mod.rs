@@ -496,8 +496,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 .await
                 .wrap_err_with(|| {
                     format!(
-                        "Block at height {} not found in process_and_add_new_states_from_height",
-                        block_height
+                        "Block at height {block_height} not found in process_and_add_new_states_from_height"
                     )
                 })?;
 

@@ -161,8 +161,7 @@ pub async fn create_and_sign_txs(
         let _ = signer
             .tx_sign_and_fill_sigs(&mut txhandler, &signatures, Some(&mut tweak_cache))
             .wrap_err(format!(
-                "Couldn't sign transaction {:?} in create_and_sign_txs for context {:?}",
-                tx_type, context,
+                "Couldn't sign transaction {tx_type:?} in create_and_sign_txs for context {context:?}"
             ));
 
         if let TransactionType::OperatorChallengeAck(watchtower_idx) = tx_type {
@@ -382,11 +381,8 @@ where
                     Some(&mut tweak_cache),
                 )
                 .wrap_err(format!(
-                "Couldn't sign transaction {:?} in create_and_sign_unspent_kickoff_connector_txs for round {:?} and operator {}",
-                tx_type,
-                round_idx,
-                operator_xonly_pk,
-            ));
+                    "Couldn't sign transaction {tx_type:?} in create_and_sign_unspent_kickoff_connector_txs for round {round_idx:?} and operator {operator_xonly_pk:?}",
+                ));
 
             let checked_txhandler = txhandler.promote();
 

@@ -869,8 +869,7 @@ impl ClementineAggregator for AggregatorServer {
             || output_script_pubkey.is_p2wsh())
         {
             return Err(Status::invalid_argument(format!(
-                "Output script pubkey is not a valid script pubkey: {}, must be p2tr, p2pkh, p2sh, p2wpkh, or p2wsh",
-                output_script_pubkey
+                "Output script pubkey is not a valid script pubkey: {output_script_pubkey}, must be p2tr, p2pkh, p2sh, p2wpkh, or p2wsh"
             )));
         }
 
@@ -1021,7 +1020,7 @@ impl ClementineAggregator for AggregatorServer {
 
             let musig_sigs_and_nonces = musig_partial_sigs
                 .into_iter()
-                .zip(pub_nonces.into_iter())
+                .zip(pub_nonces)
                 .collect::<Vec<_>>();
 
             let final_sig = bitcoin::taproot::Signature {
@@ -1614,8 +1613,7 @@ impl ClementineAggregator for AggregatorServer {
         let nofn_xonly_pk = bitcoin::XOnlyPublicKey::from_musig2_pks(verifier_keys.clone(), None)
             .map_err(|e| {
             Status::internal(format!(
-                "Failed to aggregate verifier public keys, err: {}, pubkeys: {:?}",
-                e, verifier_keys
+                "Failed to aggregate verifier public keys, err: {e}, pubkeys: {verifier_keys:?}"
             ))
         })?;
         Ok(Response::new(super::NofnResponse {
@@ -1708,8 +1706,7 @@ impl ClementineAggregator for AggregatorServer {
                 bitcoin::XOnlyPublicKey::from_musig2_pks(verifier_keys.clone(), None).map_err(
                     |e| {
                         Status::internal(format!(
-                            "Failed to aggregate verifier public keys, err: {}, pubkeys: {:?}",
-                            e, verifier_keys
+                            "Failed to aggregate verifier public keys, err: {e}, pubkeys: {verifier_keys:?}"
                         ))
                     },
                 )?;

@@ -144,11 +144,11 @@ async fn test_save_and_load_state() {
         .new_context(dbtx.clone(), &block, 1)
         .expect("Failed to create context");
     let result = state_manager.process_block_parallel(&mut context).await;
-    assert!(result.is_ok(), "Failed to process block: {:?}", result);
+    assert!(result.is_ok(), "Failed to process block: {result:?}");
 
     // Save state to DB
     let result = state_manager.save_state_to_db(&mut context).await;
-    assert!(result.is_ok(), "Failed to save state to DB: {:?}", result);
+    assert!(result.is_ok(), "Failed to save state to DB: {result:?}");
     drop(context);
 
     Arc::into_inner(dbtx)
@@ -163,7 +163,7 @@ async fn test_save_and_load_state() {
 
     // Load state from DB
     let result = new_state_manager.load_machines_from_db().await;
-    assert!(result.is_ok(), "Failed to load state from DB: {:?}", result);
+    assert!(result.is_ok(), "Failed to load state from DB: {result:?}");
 
     // Check that the state is the same
     let mut round_machines = new_state_manager.round_machines();
