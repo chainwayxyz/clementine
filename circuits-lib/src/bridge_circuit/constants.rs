@@ -26,7 +26,7 @@ pub const REGTEST_LC_IMAGE_ID: [u8; 32] =
 pub const DEVNET_LC_IMAGE_ID: [u8; 32] =
     hex!("868e65191b05cdc0b1138983b3e0fd65326448fdba00092c4ddfbea58b081944");
 
-pub const TESTNET_LC_IMAGE_ID: [u8; 32] =
+pub const TESTNET4_LC_IMAGE_ID: [u8; 32] =
     hex!("7eae7a3d628b6e383a23d1d3504b06b146c6a9d67a04515aba1dbbfdca7de6ca");
 
 // MAINNET LC_IMAGE_ID is not yet provided by CITREA, so we use a placeholder.
@@ -70,9 +70,9 @@ pub const BN_254_CONTROL_ID_BIGINT: BigInt<4> = BigInt::new([
 pub const BN_254_CONTROL_ID_ARK: ark_ff::Fp<ark_ff::MontBackend<ark_bn254::FrConfig, 4>, 4> =
     Fr::new(BN_254_CONTROL_ID_BIGINT);
 
-pub const PREPARED_VK: &[u8] = include_bytes!("bin/prepared_vk.bin");
+pub static PREPARED_VK: &[u8] = include_bytes!("bin/prepared_vk.bin");
 
-pub const TEST_PREPARED_VK: &[u8] = include_bytes!("bin/test_prepared_vk.bin");
+pub static TEST_PREPARED_VK: &[u8] = include_bytes!("bin/test_prepared_vk.bin");
 
 #[cfg(feature = "use-test-vk")]
 pub fn get_prepared_vk() -> &'static [u8] {
@@ -82,6 +82,10 @@ pub fn get_prepared_vk() -> &'static [u8] {
 #[cfg(not(feature = "use-test-vk"))]
 pub fn get_prepared_vk() -> &'static [u8] {
     PREPARED_VK
+}
+
+pub fn is_test_vk() -> bool {
+    cfg!(feature = "use-test-vk")
 }
 
 #[cfg(test)]

@@ -303,14 +303,6 @@ impl ClementineBitVMPublicKeys {
         }
     }
 
-    pub fn get_number_of_32_bytes_wpks() -> usize {
-        NUM_PUBS + NUM_U256
-    }
-
-    pub fn get_number_of_160_bytes_wpks() -> usize {
-        NUM_HASH + 2
-    }
-
     pub fn from_flattened_vec(flattened_wpks: &[Vec<[u8; 20]>]) -> Self {
         // These are dummy since they are coming from another source
         let combined_method_id_constant = [255u8; 32];
