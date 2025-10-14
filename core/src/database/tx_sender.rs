@@ -1214,7 +1214,7 @@ mod tests {
             )
             .await
             .unwrap();
-        // assert_eq!(sendable_txs.len(), 2);
+        assert_eq!(sendable_txs.len(), 2);
         assert!(sendable_txs.contains(&id1));
         assert!(sendable_txs.contains(&id2));
 
