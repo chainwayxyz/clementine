@@ -419,8 +419,6 @@ mod tests {
         let final_signature: Result<schnorr::Signature, BridgeError> =
             super::aggregate_partial_signatures(pks, None, agg_nonce, &partial_sigs, message);
 
-        println!("final_signature: {:?}", final_signature);
-
         assert!(final_signature.is_err());
     }
 

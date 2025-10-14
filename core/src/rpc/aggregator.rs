@@ -7,7 +7,7 @@ use super::clementine::{
     OptimisticPayoutParams, RawSignedTx, VergenResponse, VerifierPublicKeys,
 };
 use crate::aggregator::{
-    AggregatorServer, OperatorId, ParticipatingOperators, ParticipatingVerifiers, VerifierId
+    AggregatorServer, OperatorId, ParticipatingOperators, ParticipatingVerifiers, VerifierId,
 };
 use crate::bitvm_client::SECP;
 use crate::builder::sighash::SignatureInfo;
@@ -17,7 +17,11 @@ use crate::builder::transaction::{
 };
 use crate::config::BridgeConfig;
 use crate::constants::{
-    DEPOSIT_FINALIZATION_TIMEOUT, DEPOSIT_FINALIZE_STREAM_CREATION_TIMEOUT, KEY_DISTRIBUTION_TIMEOUT, NONCE_STREAM_CREATION_TIMEOUT, OPERATOR_SIGS_STREAM_CREATION_TIMEOUT, OPERATOR_SIGS_TIMEOUT, OVERALL_DEPOSIT_TIMEOUT, PARTIAL_SIG_STREAM_CREATION_TIMEOUT, PIPELINE_COMPLETION_TIMEOUT, SEND_OPERATOR_SIGS_TIMEOUT, SETUP_COMPLETION_TIMEOUT, WITHDRAWAL_TIMEOUT
+    DEPOSIT_FINALIZATION_TIMEOUT, DEPOSIT_FINALIZE_STREAM_CREATION_TIMEOUT,
+    KEY_DISTRIBUTION_TIMEOUT, NONCE_STREAM_CREATION_TIMEOUT, OPERATOR_SIGS_STREAM_CREATION_TIMEOUT,
+    OPERATOR_SIGS_TIMEOUT, OVERALL_DEPOSIT_TIMEOUT, PARTIAL_SIG_STREAM_CREATION_TIMEOUT,
+    PIPELINE_COMPLETION_TIMEOUT, SEND_OPERATOR_SIGS_TIMEOUT, SETUP_COMPLETION_TIMEOUT,
+    WITHDRAWAL_TIMEOUT,
 };
 use crate::deposit::{Actors, DepositData, DepositInfo};
 use crate::errors::ResultExt;
@@ -525,16 +529,21 @@ async fn signature_distributor(
             params: Some(Params::SchnorrSig(queue_item.final_sig)),
         };
 
-        try_join_all(deposit_finalize_sender.iter().zip(verifiers_ids.iter()).map(|(tx, id)| {
-            let final_params = final_params.clone();
-            async move {
-                tx.send(final_params).await.wrap_err_with(|| {
-                    AggregatorError::OutputStreamEndedEarly {
-                        stream_name: format!("Deposit finalize sender for {id}"),
+        try_join_all(
+            deposit_finalize_sender
+                .iter()
+                .zip(verifiers_ids.iter())
+                .map(|(tx, id)| {
+                    let final_params = final_params.clone();
+                    async move {
+                        tx.send(final_params).await.wrap_err_with(|| {
+                            AggregatorError::OutputStreamEndedEarly {
+                                stream_name: format!("Deposit finalize sender for {id}"),
+                            }
+                        })
                     }
-                })
-            }
-        }))
+                }),
+        )
         .await
         .wrap_err("Failed to send final signatures to verifiers")?;
 
@@ -1267,77 +1276,98 @@ impl ClementineAggregator for AggregatorServer {
 
         let operators = self.get_operator_clients().to_vec();
         let operator_pks = self.fetch_operator_keys().await?;
-        let operator_ids = operator_pks.iter().map(|key| OperatorId(*key)).collect::<Vec<_>>();
+        let operator_ids = operator_pks
+            .iter()
+            .map(|key| OperatorId(*key))
+            .collect::<Vec<_>>();
         let get_operator_params_chunked_handle = tokio::spawn(async move {
             tracing::info!(clients = operators.len(), "Collecting operator details...");
-            try_join_all(operators.iter().zip(operator_ids.iter()).map(|(operator, id)| {
-                let mut operator = operator.clone();
-                let tx = operator_params_tx.clone();
-                async move {
-                    let stream = operator
-                        .get_params(Request::new(Empty {}))
-                        .await.wrap_err_with(|| AggregatorError::RequestFailed {
-                            request_name: format!("Operator get params for {id}"),
-                        })
-                        .map_err(BridgeError::from)?
-                        .into_inner();
-                    tx.send(stream.try_collect::<Vec<_>>().await?)
-                        .map_err(|e| {
-                            BridgeError::from(eyre::eyre!("Failed to read operator params for {id}: {e}"))
-                        })?;
-                    Ok::<_, Status>(())
-                }
-            }))
+            try_join_all(
+                operators
+                    .iter()
+                    .zip(operator_ids.iter())
+                    .map(|(operator, id)| {
+                        let mut operator = operator.clone();
+                        let tx = operator_params_tx.clone();
+                        async move {
+                            let stream = operator
+                                .get_params(Request::new(Empty {}))
+                                .await
+                                .wrap_err_with(|| AggregatorError::RequestFailed {
+                                    request_name: format!("Operator get params for {id}"),
+                                })
+                                .map_err(BridgeError::from)?
+                                .into_inner();
+                            tx.send(stream.try_collect::<Vec<_>>().await?)
+                                .map_err(|e| {
+                                    BridgeError::from(eyre::eyre!(
+                                        "Failed to read operator params for {id}: {e}"
+                                    ))
+                                })?;
+                            Ok::<_, Status>(())
+                        }
+                    }),
+            )
             .await?;
             Ok::<_, Status>(())
         });
 
         let verifiers = self.get_verifier_clients().to_vec();
         let verifier_pks = self.fetch_verifier_keys().await?;
-        let verifier_ids = verifier_pks.iter().map(|key| VerifierId(*key)).collect::<Vec<_>>();
+        let verifier_ids = verifier_pks
+            .iter()
+            .map(|key| VerifierId(*key))
+            .collect::<Vec<_>>();
         let set_operator_params_handle = tokio::spawn(async move {
             tracing::info!("Informing verifiers of existing operators...");
-            try_join_all(verifiers.iter().zip(verifier_ids.iter()).zip(operator_params_rx_handles).map(
-                |((verifier, id), mut rx)| {
-                    let verifier = verifier.clone();
-                    async move {
-                        collect_and_call(&mut rx, |params| {
-                            let mut verifier = verifier.clone();
-                            async move {
-                                verifier.set_operator(futures::stream::iter(params)).await.wrap_err_with(|| AggregatorError::RequestFailed {
-                                    request_name: format!("Verifier set_operator for {id}"),
-                                })
-                                .map_err(BridgeError::from)?;
-                                Ok::<_, Status>(())
-                            }
-                        })
-                        .await?;
-                        Ok::<_, Status>(())
-                    }
-                },
-            ))
+            try_join_all(
+                verifiers
+                    .iter()
+                    .zip(verifier_ids.iter())
+                    .zip(operator_params_rx_handles)
+                    .map(|((verifier, id), mut rx)| {
+                        let verifier = verifier.clone();
+                        async move {
+                            collect_and_call(&mut rx, |params| {
+                                let mut verifier = verifier.clone();
+                                async move {
+                                    verifier
+                                        .set_operator(futures::stream::iter(params))
+                                        .await
+                                        .wrap_err_with(|| AggregatorError::RequestFailed {
+                                            request_name: format!("Verifier set_operator for {id}"),
+                                        })
+                                        .map_err(BridgeError::from)?;
+                                    Ok::<_, Status>(())
+                                }
+                            })
+                            .await?;
+                            Ok::<_, Status>(())
+                        }
+                    }),
+            )
             .await?;
             Ok::<_, Status>(())
         });
 
-
-        let task_outputs =  timed_request(
+        let task_outputs = timed_request(
             SETUP_COMPLETION_TIMEOUT,
             "Aggregator setup pipeline",
             async move {
-                Ok::<_, BridgeError>(futures::future::join_all([get_operator_params_chunked_handle, set_operator_params_handle]).await)
+                Ok::<_, BridgeError>(
+                    futures::future::join_all([
+                        get_operator_params_chunked_handle,
+                        set_operator_params_handle,
+                    ])
+                    .await,
+                )
             },
         )
         .await?;
 
-        check_task_results(
-            ["Get operator params", "Set operator params"],
-            task_outputs,
-        )?;
+        check_task_results(["Get operator params", "Set operator params"], task_outputs)?;
 
-        Ok(Response::new(VerifierPublicKeys::from(
-            verifier_pks,
-        )))
+        Ok(Response::new(VerifierPublicKeys::from(verifier_pks)))
     }
 
     /// Handles a new deposit request from a user. This function coordinates the signing process
@@ -1533,7 +1563,7 @@ impl ClementineAggregator for AggregatorServer {
                 nonce_streams,
                 sighash_stream,
                 agg_nonce_sender,
-                needed_nofn_sigs, 
+                needed_nofn_sigs,
                 verifiers_ids.clone(),
             ));
 
@@ -1887,13 +1917,10 @@ impl ClementineAggregator for AggregatorServer {
 }
 
 /// Checks task results and returns an error if any task failed.
-/// 
+///
 /// Takes separate iterators for task names and task results where each result is a nested Result.
 /// Collects all errors (both outer and inner) and returns an error if any task failed.
-fn check_task_results<T, E1, E2, S, N, R>(
-    task_names: N,
-    task_results: R,
-) -> Result<(), BridgeError>
+fn check_task_results<T, E1, E2, S, N, R>(task_names: N, task_results: R) -> Result<(), BridgeError>
 where
     N: IntoIterator<Item = S>,
     R: IntoIterator<Item = Result<Result<T, E1>, E2>>,
@@ -1902,16 +1929,14 @@ where
     E2: std::fmt::Display,
 {
     let mut task_errors = Vec::new();
-    
+
     let names: Vec<_> = task_names.into_iter().collect();
     let results: Vec<_> = task_results.into_iter().collect();
-    
+
     // show an error if the number of task names does not match the number of task results, for development
     if names.len() != results.len() {
         let err_msg = if names.len() > results.len() {
-            let missing_names: Vec<_> = names[results.len()..].iter()
-                .map(|n| n.as_ref())
-                .collect();
+            let missing_names: Vec<_> = names[results.len()..].iter().map(|n| n.as_ref()).collect();
             format!(
                 "Task names count ({}) does not match task results count ({}). Missing results for tasks: {:?}",
                 names.len(),
@@ -1928,7 +1953,7 @@ where
         };
         task_errors.push(err_msg);
     }
-    
+
     for (task_name, task_output) in names.into_iter().zip(results.into_iter()) {
         match task_output {
             Ok(inner_result) => {
@@ -1936,19 +1961,23 @@ where
                     let err_msg = format!("{} failed with error: {:#}", task_name.as_ref(), e);
                     task_errors.push(err_msg);
                 }
-            },
+            }
             Err(e) => {
-                let err_msg = format!("{} task thread failed with error: {:#}", task_name.as_ref(), e);
+                let err_msg = format!(
+                    "{} task thread failed with error: {:#}",
+                    task_name.as_ref(),
+                    e
+                );
                 task_errors.push(err_msg);
             }
         }
     }
-    
+
     if !task_errors.is_empty() {
         tracing::error!("Tasks failed with errors: {:#?}", task_errors);
         return Err(eyre::eyre!(format!("Tasks failed with errors: {:#?}", task_errors)).into());
     }
-    
+
     Ok(())
 }
 
