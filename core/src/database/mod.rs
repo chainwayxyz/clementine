@@ -32,6 +32,10 @@ mod wrapper;
 #[cfg(test)]
 pub use wrapper::*;
 
+/// Assuming total of 100 max connections as default, the verifier and operator
+/// can share 50 each.
+pub const MAX_CONNECTIONS_FOR_POOL: u32 = 50;
+
 /// PostgreSQL database connection details.
 #[derive(Clone, Debug)]
 pub struct Database {
@@ -75,7 +79,9 @@ impl Database {
         // But in the future if we fix slow statements (if they are actually a problem?), we can revert this.
         opt = opt.log_slow_statements(log::LevelFilter::Debug, Duration::from_secs(3));
 
-        let opts = sqlx::postgres::PgPoolOptions::new().acquire_slow_level(log::LevelFilter::Debug);
+        let opts = sqlx::postgres::PgPoolOptions::new()
+            .acquire_slow_level(log::LevelFilter::Debug)
+            .max_connections(MAX_CONNECTIONS_FOR_POOL);
 
         #[cfg(test)]
         let opts = if config.test_params.timeout_params.any_timeout() {
