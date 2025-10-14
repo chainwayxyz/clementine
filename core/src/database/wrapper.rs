@@ -525,11 +525,11 @@ mod tests {
             signatures: vec![
                 TaggedSignature {
                     signature: vec![0x1Fu8; 64],
-                    signature_id: Some(NormalSignatureKind::NormalSignatureUnknown.into()),
+                    signature_id: Some(NormalSignatureKind::NotStored.into()),
                 },
                 TaggedSignature {
                     signature: vec![0x45u8; 64],
-                    signature_id: Some((NumberedSignatureKind::NumberedSignatureUnknown, 1).into()),
+                    signature_id: Some((NumberedSignatureKind::NumberedNotStored, 1).into()),
                 },
             ],
         };

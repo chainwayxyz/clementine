@@ -126,16 +126,16 @@ pub fn initialize_logger(default_level: Option<LevelFilter>) -> Result<(), Bridg
 }
 
 pub fn initialize_telemetry(config: &TelemetryConfig) -> Result<(), BridgeError> {
-    let host = &config.host;
-    let port = config.port;
-    let telemetry_addr: SocketAddr = format!("{host}:{port}").parse().unwrap_or_else(|_| {
-        tracing::warn!(
-            "Invalid telemetry address: {}:{}, using default address: 127.0.0.1:8081",
-            host,
-            port
-        );
-        SocketAddr::from((Ipv4Addr::new(0, 0, 0, 0), 8081))
-    });
+    let telemetry_addr: SocketAddr = format!("{}:{}", config.host, config.port)
+        .parse()
+        .unwrap_or_else(|_| {
+            tracing::warn!(
+                "Invalid telemetry address: {}:{}, using default address: 127.0.0.1:8081",
+                config.host,
+                config.port
+            );
+            SocketAddr::from((Ipv4Addr::new(127, 0, 0, 1), 8081))
+        });
 
     tracing::debug!("Initializing telemetry at {}", telemetry_addr);
 
@@ -362,8 +362,8 @@ pub fn get_vergen_response() -> VergenResponse {
     if let Some(cpu_frequency) = option_env!("VERGEN_SYSINFO_CPU_FREQUENCY") {
         vergen_response.push_str(&format!("cpu frequency: {cpu_frequency} MHz\n"));
     }
-    if let Some(memory) = option_env!("VERGEN_SYSINFO_MEMORY") {
-        vergen_response.push_str(&format!("total memory: {memory} KB\n"));
+    if let Some(memory) = option_env!("VERGEN_SYSINFO_TOTAL_MEMORY") {
+        vergen_response.push_str(&format!("total memory: {memory}\n"));
     }
     if let Some(name) = option_env!("VERGEN_SYSINFO_NAME") {
         vergen_response.push_str(&format!("system name: {name}\n"));

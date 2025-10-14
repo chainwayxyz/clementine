@@ -947,7 +947,7 @@ async fn handle_print_addresses() {
         Err(_) => Network::Regtest,
     };
 
-    let actor = Actor::new(secret_key, None, network);
+    let actor = Actor::new(secret_key, network);
     let taproot_address = actor.address;
     println!("Actor's taproot address: {taproot_address}");
 
@@ -1040,7 +1040,8 @@ async fn handle_bitcoin_call(url: String, command: BitcoinCommands) {
 
             // Calculate package fee requirements
             let parent_weight = tx.weight();
-            let estimated_child_weight = bitcoin::Weight::from_wu(500);
+            // empirical - tx with 1 anchor, 1 taproot input + 1 change taproot output had 540 WU
+            let estimated_child_weight = bitcoin::Weight::from_wu(540);
             let total_weight = parent_weight + estimated_child_weight;
             let required_fee_sats =
                 (total_weight.to_wu() as f64 * fee_rate_sat_vb as f64 / 4.0) as u64;
@@ -1110,7 +1111,7 @@ async fn handle_bitcoin_call(url: String, command: BitcoinCommands) {
                 witness: bitcoin::Witness::new(),
             };
 
-            let total_input_value = bitcoin::Amount::from_sat(240) + fee_payer_utxo.amount;
+            let total_input_value = p2a_txout.value + fee_payer_utxo.amount;
             let change_amount = total_input_value
                 .checked_sub(required_fee)
                 .expect("Insufficient funds for required fee");

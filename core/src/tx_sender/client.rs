@@ -333,7 +333,7 @@ impl TxSenderClient {
                             txid: kickoff_txid,
                             vout: UtxoVout::WatchtowerChallenge(watchtower_idx).get_vout(),
                         },
-                        relative_block_height: config.protocol_paramset().finality_depth,
+                        relative_block_height: config.protocol_paramset().finality_depth - 1,
                     }],
                 )
                 .await

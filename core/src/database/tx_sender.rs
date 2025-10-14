@@ -140,8 +140,8 @@ impl Database {
                 "{common_ctes}
             SELECT txs.id, txs.txid
             FROM tx_sender_try_to_send_txs AS txs
-            WHERE txs.txid IN (SELECT txid FROM relevant_txs)
-            AND txs.seen_block_id IS NULL"
+            WHERE txs.txid IN (SELECT txid FROM relevant_txs)",
+                common_ctes
             ))
             .bind(block_id)
             .fetch_all(&bg_db.connection)
@@ -156,8 +156,8 @@ impl Database {
                 "{common_ctes}
             SELECT txs.id
             FROM tx_sender_try_to_send_txs AS txs
-            WHERE txs.id IN (SELECT id FROM confirmed_rbf_ids)
-            AND txs.seen_block_id IS NULL"
+            WHERE txs.id IN (SELECT id FROM confirmed_rbf_ids)",
+                common_ctes
             ))
             .bind(block_id)
             .fetch_all(&bg_db.connection)
@@ -330,7 +330,65 @@ impl Database {
     }
 
     /// Returns all unconfirmed fee payer transactions for a try-to-send tx.
-    /// Replaced (bumped) fee payers are not included.
+    /// Transactions whose replacements are confirmed are not included. But if none of the replacements are confirmed, all replacements are returned.
+    ///
+    /// # Parameters
+    ///
+    /// # Returns
+    ///
+    /// A vector of unconfirmed fee payer transaction details, including:
+    ///
+    /// - [`u32`]: Id of the fee payer transaction.
+    /// - [`u32`]: Id of the bumped transaction.
+    /// - [`Txid`]: Txid of the fee payer transaction.
+    /// - [`u32`]: Output index of the UTXO.
+    /// - [`Amount`]: Amount in satoshis.
+    pub async fn get_all_unconfirmed_fee_payer_txs(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+    ) -> Result<Vec<(u32, u32, Txid, u32, Amount, Option<u32>)>, BridgeError> {
+        let query = sqlx::query_as::<_, (i32, i32, TxidDB, i32, i64, Option<i32>)>(
+            "
+            SELECT fpu.id, fpu.bumped_id, fpu.fee_payer_txid, fpu.vout, fpu.amount, fpu.replacement_of_id
+            FROM tx_sender_fee_payer_utxos fpu
+            WHERE fpu.seen_block_id IS NULL
+              AND fpu.is_evicted = false
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM tx_sender_fee_payer_utxos x
+                  WHERE (x.replacement_of_id = fpu.replacement_of_id OR x.id = fpu.replacement_of_id)
+                    AND x.seen_block_id IS NOT NULL
+              )
+            ",
+        );
+
+        let results: Vec<(i32, i32, TxidDB, i32, i64, Option<i32>)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
+
+        results
+            .iter()
+            .map(
+                |(id, bumped_id, fee_payer_txid, vout, amount, replacement_of_id)| {
+                    Ok((
+                        u32::try_from(*id).wrap_err("Failed to convert id to u32")?,
+                        u32::try_from(*bumped_id).wrap_err("Failed to convert bumped id to u32")?,
+                        fee_payer_txid.0,
+                        u32::try_from(*vout).wrap_err("Failed to convert vout to u32")?,
+                        Amount::from_sat(
+                            u64::try_from(*amount).wrap_err("Failed to convert amount to u64")?,
+                        ),
+                        replacement_of_id
+                            .map(u32::try_from)
+                            .transpose()
+                            .wrap_err("Failed to convert replacement of id to u32")?,
+                    ))
+                },
+            )
+            .collect::<Result<Vec<_>, BridgeError>>()
+    }
+
+    /// Returns all unconfirmed fee payer transactions for a try-to-send tx.
+    /// Transactions whose replacements are confirmed are not included. But if none of the replacements are confirmed, all replacements are returned.
     ///
     /// # Parameters
     ///
@@ -355,15 +413,16 @@ impl Database {
             FROM tx_sender_fee_payer_utxos fpu
             WHERE fpu.bumped_id = $1
               AND fpu.seen_block_id IS NULL
+              AND fpu.is_evicted = false
               AND NOT EXISTS (
                   SELECT 1
-                  FROM tx_sender_fee_payer_utxos replacement
-                  WHERE replacement.replacement_of_id = fpu.id
+                  FROM tx_sender_fee_payer_utxos x
+                  WHERE (x.replacement_of_id = fpu.replacement_of_id OR x.id = fpu.replacement_of_id)
+                    AND x.seen_block_id IS NOT NULL
               )
             ",
         )
         .bind(i32::try_from(bumped_id).wrap_err("Failed to convert bumped id to i32")?);
-
         let results: Vec<(i32, TxidDB, i32, i64)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
 
@@ -380,6 +439,25 @@ impl Database {
                 ))
             })
             .collect::<Result<Vec<_>, BridgeError>>()
+    }
+
+    /// Marks a fee payer utxo and all its replacements as evicted.
+    /// If it is marked as evicted, it will not be tried to be bumped again. (Because wallet can use same utxos for other txs)
+    pub async fn mark_fee_payer_utxo_as_evicted(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        id: u32,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query(
+            "UPDATE tx_sender_fee_payer_utxos 
+                SET is_evicted = true 
+                WHERE id = $1 
+                OR replacement_of_id = $1",
+        )
+        .bind(i32::try_from(id).wrap_err("Failed to convert id to i32")?);
+
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
+        Ok(())
     }
 
     pub async fn get_confirmed_fee_payer_utxos(

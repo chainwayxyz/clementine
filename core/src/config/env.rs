@@ -2,7 +2,9 @@
 
 use super::BridgeConfig;
 use crate::{
-    config::{default_grpc_limits, GrpcLimits, TelemetryConfig},
+    config::{
+        default_grpc_limits, default_tx_sender_limits, GrpcLimits, TelemetryConfig, TxSenderLimits,
+    },
     deposit::SecurityCouncil,
     errors::BridgeError,
 };
@@ -51,6 +53,30 @@ impl GrpcLimits {
     }
 }
 
+impl TxSenderLimits {
+    pub fn from_env() -> Result<Self, BridgeError> {
+        let defaults = default_tx_sender_limits();
+        Ok(TxSenderLimits {
+            fee_rate_hard_cap: read_string_from_env_then_parse::<u64>(
+                "TX_SENDER_FEE_RATE_HARD_CAP",
+            )
+            .unwrap_or(defaults.fee_rate_hard_cap),
+            mempool_fee_rate_multiplier: read_string_from_env_then_parse::<u64>(
+                "TX_SENDER_MEMPOOL_FEE_RATE_MULTIPLIER",
+            )
+            .unwrap_or(defaults.mempool_fee_rate_multiplier),
+            mempool_fee_rate_offset_sat_kvb: read_string_from_env_then_parse::<u64>(
+                "TX_SENDER_MEMPOOL_FEE_RATE_OFFSET_SAT_KVB",
+            )
+            .unwrap_or(defaults.mempool_fee_rate_offset_sat_kvb),
+            cpfp_fee_payer_bump_wait_time_seconds: read_string_from_env_then_parse::<u64>(
+                "TX_SENDER_CPFP_FEE_PAYER_BUMP_WAIT_TIME_SECONDS",
+            )
+            .unwrap_or(defaults.cpfp_fee_payer_bump_wait_time_seconds),
+        })
+    }
+}
+
 impl BridgeConfig {
     pub fn from_env() -> Result<Self, BridgeError> {
         let verifier_endpoints =
@@ -75,14 +101,6 @@ impl BridgeConfig {
                         .map(|x| x.to_string())
                         .collect::<Vec<String>>()
                 });
-
-        let winternitz_secret_key = if let Ok(sk) = std::env::var("WINTERNITZ_SECRET_KEY") {
-            Some(sk.parse::<SecretKey>().map_err(|e| {
-                BridgeError::EnvVarMalformed("WINTERNITZ_SECRET_KEY", e.to_string())
-            })?)
-        } else {
-            None
-        };
 
         let operator_withdrawal_fee_sats = if let Ok(operator_withdrawal_fee_sats) =
             std::env::var("OPERATOR_WITHDRAWAL_FEE_SATS")
@@ -171,7 +189,6 @@ impl BridgeConfig {
             host: read_string_from_env("HOST")?,
             port: read_string_from_env_then_parse::<u16>("PORT")?,
             secret_key: read_string_from_env_then_parse::<SecretKey>("SECRET_KEY")?,
-            winternitz_secret_key,
             operator_withdrawal_fee_sats,
             operator_reimbursement_address,
             operator_collateral_funding_outpoint,
@@ -215,6 +232,7 @@ impl BridgeConfig {
 
             telemetry: TelemetryConfig::from_env().ok(),
             grpc: GrpcLimits::from_env()?,
+            tx_sender_limits: TxSenderLimits::from_env()?,
 
             #[cfg(test)]
             test_params: super::TestParams::default(),
@@ -245,12 +263,6 @@ mod tests {
             "SECRET_KEY",
             default_config.secret_key.display_secret().to_string(),
         );
-        if let Some(ref winternitz_secret_key) = default_config.winternitz_secret_key {
-            std::env::set_var(
-                "WINTERNITZ_SECRET_KEY",
-                winternitz_secret_key.display_secret().to_string(),
-            );
-        }
         if let Some(ref operator_withdrawal_fee_sats) = default_config.operator_withdrawal_fee_sats
         {
             std::env::set_var(
@@ -344,6 +356,35 @@ mod tests {
             default_config.telemetry.as_ref().unwrap().port.to_string(),
         );
 
+        std::env::set_var(
+            "TX_SENDER_FEE_RATE_HARD_CAP",
+            default_config
+                .tx_sender_limits
+                .fee_rate_hard_cap
+                .to_string(),
+        );
+
+        std::env::set_var(
+            "TX_SENDER_MEMPOOL_FEE_RATE_MULTIPLIER",
+            default_config
+                .tx_sender_limits
+                .mempool_fee_rate_multiplier
+                .to_string(),
+        );
+        std::env::set_var(
+            "TX_SENDER_MEMPOOL_FEE_RATE_OFFSET_SAT_KVB",
+            default_config
+                .tx_sender_limits
+                .mempool_fee_rate_offset_sat_kvb
+                .to_string(),
+        );
+        std::env::set_var(
+            "TX_SENDER_CPFP_FEE_PAYER_BUMP_WAIT_TIME_SECONDS",
+            default_config
+                .tx_sender_limits
+                .cpfp_fee_payer_bump_wait_time_seconds
+                .to_string(),
+        );
         std::env::set_var(
             "GRPC_MAX_MESSAGE_SIZE",
             default_config.grpc.max_message_size.to_string(),

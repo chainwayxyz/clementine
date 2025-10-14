@@ -303,14 +303,6 @@ impl ClementineBitVMPublicKeys {
         }
     }
 
-    pub fn get_number_of_32_bytes_wpks() -> usize {
-        NUM_PUBS + NUM_U256
-    }
-
-    pub fn get_number_of_160_bytes_wpks() -> usize {
-        NUM_HASH + 2
-    }
-
     pub fn from_flattened_vec(flattened_wpks: &[Vec<[u8; 20]>]) -> Self {
         // These are dummy since they are coming from another source
         let combined_method_id_constant = [255u8; 32];
@@ -748,7 +740,7 @@ mod tests {
         let config = create_test_config_with_thread_name().await;
 
         let sk = bitcoin::secp256k1::SecretKey::new(&mut thread_rng());
-        let signer = Actor::new(sk, Some(sk), config.protocol_paramset().network);
+        let signer = Actor::new(sk, config.protocol_paramset().network);
         let deposit_outpoint = bitcoin::OutPoint {
             txid: Txid::all_zeros(),
             vout: 0,

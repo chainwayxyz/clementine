@@ -804,11 +804,7 @@ mod tests {
         let mut tx = builder.finalize();
 
         // Should be able to sign with the key
-        let signer = Actor::new(
-            kp.secret_key(),
-            Some(bitcoin::secp256k1::SecretKey::new(&mut rand::thread_rng())),
-            bitcoin::Network::Regtest,
-        );
+        let signer = Actor::new(kp.secret_key(), bitcoin::Network::Regtest);
 
         signer
             .tx_sign_and_fill_sigs(&mut tx, &[], None)
@@ -852,11 +848,7 @@ mod tests {
             ProtocolParamsetName::Regtest.into(),
         );
 
-        let signer = Actor::new(
-            kp.secret_key(),
-            Some(kp.secret_key()),
-            bitcoin::Network::Regtest,
-        );
+        let signer = Actor::new(kp.secret_key(), bitcoin::Network::Regtest);
 
         let script: Arc<dyn SpendableScript> = Arc::new(WinternitzCommit::new(
             vec![
@@ -927,11 +919,7 @@ mod tests {
 
         let mut tx = builder.finalize();
 
-        let signer = Actor::new(
-            kp.secret_key(),
-            Some(bitcoin::secp256k1::SecretKey::new(&mut rand::thread_rng())),
-            bitcoin::Network::Regtest,
-        );
+        let signer = Actor::new(kp.secret_key(), bitcoin::Network::Regtest);
 
         signer
             .tx_sign_and_fill_sigs(&mut tx, &[], None)
@@ -970,11 +958,7 @@ mod tests {
         .await;
         let mut tx = builder.finalize();
 
-        let signer = Actor::new(
-            kp.secret_key(),
-            Some(bitcoin::secp256k1::SecretKey::new(&mut rand::thread_rng())),
-            bitcoin::Network::Regtest,
-        );
+        let signer = Actor::new(kp.secret_key(), bitcoin::Network::Regtest);
 
         signer
             .tx_sign_preimage(&mut tx, preimage)
@@ -1010,11 +994,7 @@ mod tests {
         .await;
         let mut tx = builder.finalize();
 
-        let signer = Actor::new(
-            kp.secret_key(),
-            Some(bitcoin::secp256k1::SecretKey::new(&mut rand::thread_rng())),
-            bitcoin::Network::Regtest,
-        );
+        let signer = Actor::new(kp.secret_key(), bitcoin::Network::Regtest);
 
         signer
             .tx_sign_and_fill_sigs(&mut tx, &[], None)
@@ -1046,11 +1026,7 @@ mod tests {
         .await;
         let mut tx = builder.finalize();
 
-        let signer = Actor::new(
-            kp.secret_key(),
-            Some(bitcoin::secp256k1::SecretKey::new(&mut rand::thread_rng())),
-            bitcoin::Network::Regtest,
-        );
+        let signer = Actor::new(kp.secret_key(), bitcoin::Network::Regtest);
 
         signer
             .tx_sign_and_fill_sigs(&mut tx, &[], None)
@@ -1066,11 +1042,7 @@ mod tests {
         let config = create_test_config_with_thread_name().await;
         let kp = bitcoin::secp256k1::Keypair::new(&SECP, &mut rand::thread_rng());
 
-        let signer = Actor::new(
-            kp.secret_key(),
-            Some(kp.secret_key()),
-            bitcoin::Network::Regtest,
-        );
+        let signer = Actor::new(kp.secret_key(), bitcoin::Network::Regtest);
 
         let kickoff =
             WinternitzDerivationPath::Kickoff(RoundIndex::Round(0), 0, config.protocol_paramset());

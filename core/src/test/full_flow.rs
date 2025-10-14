@@ -67,7 +67,6 @@ async fn base_setup(
             .first()
             .cloned()
             .unwrap(),
-        config.winternitz_secret_key,
         config.protocol_paramset().network,
     )
     .xonly_public_key;

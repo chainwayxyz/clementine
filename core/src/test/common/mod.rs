@@ -155,8 +155,9 @@ pub async fn get_next_sync_heights(entity_statuses: EntityStatuses) -> eyre::Res
                 }
             } else {
                 Err(eyre::eyre!(
-                    "Couldn't retrieve sync status from entity {:?}",
-                    entity.entity_id
+                    "Couldn't retrieve sync status from entity {:?}, status result: {:?}",
+                    entity.entity_id,
+                    entity.status_result
                 ))
             }
         })
@@ -191,7 +192,7 @@ pub async fn are_all_state_managers_synced<C: CitreaClientT>(
     let current_chain_height = rpc.get_current_chain_height().await?;
     let finality_depth = actors.aggregator.config.protocol_paramset().finality_depth;
     // get the current finalized chain height
-    let current_finalized_chain_height = current_chain_height.saturating_sub(finality_depth);
+    let current_finalized_chain_height = current_chain_height.saturating_sub(finality_depth - 1);
     // assume synced if state manager is not running
     let state_manager_running = actors
         .aggregator
@@ -289,11 +290,7 @@ pub async fn run_multiple_deposits<C: CitreaClientT>(
     let mut aggregator = actors.get_aggregator();
 
     let evm_address = EVMAddress([1u8; 20]);
-    let actor = Actor::new(
-        config.secret_key,
-        config.winternitz_secret_key,
-        config.protocol_paramset().network,
-    );
+    let actor = Actor::new(config.secret_key, config.protocol_paramset().network);
 
     let verifiers_public_keys: Vec<PublicKey> = aggregator
         .setup(Request::new(Empty {}))
@@ -397,11 +394,7 @@ pub async fn run_single_deposit<C: CitreaClientT>(
     };
 
     let evm_address = evm_address.unwrap_or(EVMAddress([1u8; 20]));
-    let actor = Actor::new(
-        config.secret_key,
-        config.winternitz_secret_key,
-        config.protocol_paramset().network,
-    );
+    let actor = Actor::new(config.secret_key, config.protocol_paramset().network);
 
     let setup_start = std::time::Instant::now();
     let mut aggregator = actors.get_aggregator();
@@ -688,7 +681,7 @@ fn sign_replacement_deposit_tx_with_sec_council(
         .enumerate()
         .map(|(idx, sk)| {
             if idx < security_council.threshold as usize {
-                let actor = Actor::new(*sk, None, config.protocol_paramset().network);
+                let actor = Actor::new(*sk, config.protocol_paramset().network);
                 let sig = actor
                     .sign_with_tweak_data(sighash, TapTweakData::ScriptPath, None)
                     .unwrap();

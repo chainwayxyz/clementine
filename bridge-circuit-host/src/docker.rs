@@ -149,7 +149,7 @@ pub fn stark_to_bitvm2_g16(
         .arg("--platform=linux/amd64") // Force linux/amd64 platform
         .arg("-v")
         .arg(format!("{}:/mnt", work_dir.to_string_lossy()))
-        .arg("ozancw/risc0-to-bitvm2-groth16-prover:latest")
+        .arg("ozancw/risc0-to-bitvm2-groth16-prover@sha256:840b833190a86c87eb71473cd72bcaa3e3b90cefa9bf4ae785ab2de61bc9d262")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
@@ -326,7 +326,7 @@ pub fn dev_stark_to_risc0_g16(receipt: Receipt, journal: &[u8]) -> Result<Receip
         .arg("--platform=linux/amd64") // Force linux/amd64 platform
         .arg("-v")
         .arg(format!("{}:/mnt", work_dir.to_string_lossy()))
-        .arg("ozancw/dev-risc0-groth16-prover-const-digest-len")
+        .arg("ozancw/dev-risc0-groth16-prover-const-digest-len@sha256:4e5c409998085a0edf37ebe4405be45178e8a7e78ea859d12c3d453e90d409cb")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
@@ -476,7 +476,7 @@ pub fn stark_to_bitvm2_g16_dev_mode(receipt: Receipt, journal: &[u8]) -> Result<
         .arg("--platform=linux/amd64") // Force linux/amd64 platform
         .arg("-v")
         .arg(format!("{}:/mnt", work_dir.to_string_lossy()))
-        .arg("ozancw/dev-risc0-to-bitvm2-groth16-prover:latest")
+        .arg("ozancw/dev-risc0-to-bitvm2-groth16-prover@sha256:9f1d8515b9c44a1280979bbcab327ec36041fae6dd0c4923997f084605f9f9e7")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()

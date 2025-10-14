@@ -11,6 +11,7 @@ use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestD
 use crate::builder::transaction::ContractContext;
 use crate::citrea::CitreaClientT;
 use crate::constants::RESTART_BACKGROUND_TASKS_TIMEOUT;
+use crate::errors::ResultExt;
 use crate::rpc::clementine::VerifierDepositFinalizeResponse;
 use crate::utils::{get_vergen_response, monitor_standalone_task, timed_request};
 use crate::verifier::VerifierServer;
@@ -22,6 +23,7 @@ use crate::{
 use alloy::primitives::PrimitiveSignature;
 use bitcoin::Witness;
 use clementine::verifier_deposit_finalize_params::Params;
+use eyre::Context;
 use secp256k1::musig::AggregatedNonce;
 use tokio::sync::mpsc::{self, error::SendError};
 use tokio_stream::wrappers::ReceiverStream;
@@ -251,6 +253,7 @@ where
 
         let (param_tx, mut param_rx) = mpsc::channel(1);
         let (agg_nonce_tx, agg_nonce_rx) = mpsc::channel(constants::DEFAULT_CHANNEL_SIZE);
+        let config = self.verifier.config.clone();
 
         // Send incoming data to deposit sign job.
         let handle = tokio::spawn(async move {
@@ -264,6 +267,10 @@ where
                 )?,
                 _ => return Err(Status::invalid_argument("Expected DepositOutpoint")),
             };
+
+            let mut received_agg_nonces = 0;
+            let needed_agg_nonces = config.get_num_required_nofn_sigs(&deposit_data);
+
             param_tx
                 .send((deposit_data, session_id))
                 .await
@@ -288,6 +295,11 @@ where
                     .send(agg_nonce)
                     .await
                     .map_err(error::output_stream_ended_prematurely)?;
+
+                received_agg_nonces += 1;
+                if received_agg_nonces == needed_agg_nonces {
+                    break;
+                }
             }
             Ok(())
         });
@@ -545,7 +557,9 @@ where
         request: Request<clementine::Txid>,
     ) -> Result<Response<Empty>, Status> {
         let txid = request.into_inner();
-        let txid = bitcoin::Txid::try_from(txid).expect("Should be able to convert");
+        let txid = bitcoin::Txid::try_from(txid).map_err(|e| {
+            Status::invalid_argument(format!("Failed to convert txid to bitcoin::Txid: {}", e))
+        })?;
         let mut dbtx = self.verifier.db.begin_transaction().await?;
         let kickoff_data = self
             .verifier
@@ -554,12 +568,22 @@ where
             .await?;
         if let Some((deposit_data, kickoff_id)) = kickoff_data {
             self.verifier
-                .handle_kickoff(&mut dbtx, Witness::new(), deposit_data, kickoff_id, false)
+                .handle_kickoff(
+                    &mut dbtx,
+                    Witness::new(),
+                    deposit_data,
+                    kickoff_id,
+                    false,
+                    txid,
+                )
                 .await?;
         } else {
             return Err(Status::not_found("Kickoff txid not found"));
         }
-        dbtx.commit().await.expect("Failed to commit transaction");
+        dbtx.commit()
+            .await
+            .wrap_err("Failed to commit transaction")
+            .map_to_status()?;
         Ok(Response::new(Empty {}))
     }
 

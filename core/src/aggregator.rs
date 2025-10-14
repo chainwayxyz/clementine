@@ -1,9 +1,10 @@
+use std::collections::HashSet;
 use std::ops::Deref;
 use std::sync::Arc;
 
 use crate::constants::{
     ENTITY_STATUS_POLL_TIMEOUT, OPERATOR_GET_KEYS_TIMEOUT, PUBLIC_KEY_COLLECTION_TIMEOUT,
-    VERIFIER_SEND_KEYS_TIMEOUT,
+    RESTART_BACKGROUND_TASKS_TIMEOUT, VERIFIER_SEND_KEYS_TIMEOUT,
 };
 use crate::deposit::DepositData;
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
@@ -18,11 +19,9 @@ use crate::task::TaskExt;
 use crate::tx_sender::TxSenderClient;
 use crate::utils::{timed_request, timed_try_join_all};
 use crate::{
-    builder::{self},
     config::BridgeConfig,
     database::Database,
     errors::BridgeError,
-    musig2::aggregate_partial_signatures,
     rpc::{
         self,
         clementine::{
@@ -31,13 +30,12 @@ use crate::{
         },
     },
 };
-use bitcoin::hashes::Hash;
-use bitcoin::secp256k1::{schnorr, Message, PublicKey};
+use bitcoin::secp256k1::PublicKey;
 use bitcoin::XOnlyPublicKey;
 use eyre::Context;
 use futures::future::join_all;
-use secp256k1::musig::{AggregatedNonce, PartialSignature};
 use std::future::Future;
+use std::hash::Hash as StdHash;
 use tokio::sync::RwLock;
 use tonic::{Request, Status};
 use tracing::{debug_span, Instrument};
@@ -238,7 +236,7 @@ impl Aggregator {
         key_type_name: &str,
     ) -> Result<Vec<T>, BridgeError>
     where
-        T: Clone + Send + Sync,
+        T: Clone + Send + Sync + Eq + StdHash + std::fmt::Debug,
         C: Clone + Send + Sync,
         F: Fn(C) -> Fut + Send + Sync,
         Fut: Future<Output = Result<T, BridgeError>> + Send,
@@ -292,6 +290,19 @@ impl Aggregator {
                         missing_keys.push(idx);
                     }
                 }
+            }
+
+            // if keys are not unique, return an error if so
+            let non_none_keys: Vec<_> = keys.iter().filter_map(|key| key.as_ref()).collect();
+            let unique_keys: HashSet<_> = non_none_keys.iter().cloned().collect();
+
+            if unique_keys.len() != non_none_keys.len() {
+                let reason = format!("{} keys are not unique: {:?}", key_type_name, keys);
+                // reset all keys to None so that faulty keys are not used
+                for key in keys.iter_mut() {
+                    *key = None;
+                }
+                return Err(eyre::eyre!(reason).into());
             }
 
             // if not all keys were collected, return an error
@@ -522,36 +533,6 @@ impl Aggregator {
         Ok(())
     }
 
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    async fn _aggregate_move_partial_sigs(
-        &self,
-        deposit_data: &mut DepositData,
-        agg_nonce: &AggregatedNonce,
-        partial_sigs: Vec<PartialSignature>,
-    ) -> Result<schnorr::Signature, BridgeError> {
-        let tx = builder::transaction::create_move_to_vault_txhandler(
-            deposit_data,
-            self.config.protocol_paramset(),
-        )?;
-
-        let message = Message::from_digest(
-            tx.calculate_script_spend_sighash_indexed(0, 0, bitcoin::TapSighashType::Default)?
-                .to_byte_array(),
-        );
-
-        let verifiers_public_keys = deposit_data.get_verifiers();
-
-        let final_sig = aggregate_partial_signatures(
-            verifiers_public_keys,
-            None,
-            *agg_nonce,
-            &partial_sigs,
-            message,
-        )?;
-
-        Ok(final_sig)
-    }
-
     /// Returns a list of verifier clients that are participating in the deposit.
     pub async fn get_participating_verifiers(
         &self,
@@ -687,30 +668,63 @@ impl Aggregator {
         let mut entity_statuses = operator_status;
         entity_statuses.extend(verifier_status);
 
-        // try to restart background tasks if needed
+        // try to restart background tasks if needed, with a timeout
         if restart_tasks {
-            let operator_tasks = operator_clients.iter().map(|client| {
-                let mut client = client.clone();
-                async move {
-                    client
-                        .restart_background_tasks(Request::new(Empty {}))
-                        .await
-                }
-            });
+            let operator_tasks = operator_clients
+                .iter()
+                .zip(operator_keys.iter())
+                .filter_map(|(client, key)| key.map(|key| (client, key)))
+                .map(|(client, key)| {
+                    let mut client = client.clone();
+                    async move {
+                        let mut request = Request::new(Empty {});
+                        request.set_timeout(RESTART_BACKGROUND_TASKS_TIMEOUT);
+                        client
+                            .restart_background_tasks(Request::new(Empty {}))
+                            .await
+                            .wrap_err_with(|| {
+                                Status::internal(format!(
+                                    "Failed to restart background tasks for operator {}",
+                                    key
+                                ))
+                            })
+                    }
+                });
 
-            let verifier_tasks = verifier_clients.iter().map(|client| {
-                let mut client = client.clone();
-                async move {
-                    client
-                        .restart_background_tasks(Request::new(Empty {}))
-                        .await
-                }
-            });
+            let verifier_tasks = verifier_clients
+                .iter()
+                .zip(verifier_keys.iter())
+                .filter_map(|(client, key)| key.map(|key| (client, key)))
+                .map(|(client, key)| {
+                    let mut client = client.clone();
+                    async move {
+                        let mut request = Request::new(Empty {});
+                        request.set_timeout(RESTART_BACKGROUND_TASKS_TIMEOUT);
+                        client
+                            .restart_background_tasks(Request::new(Empty {}))
+                            .await
+                            .wrap_err_with(|| {
+                                Status::internal(format!(
+                                    "Failed to restart background tasks for verifier {}",
+                                    key
+                                ))
+                            })
+                    }
+                });
 
-            futures::try_join!(
-                futures::future::try_join_all(operator_tasks),
-                futures::future::try_join_all(verifier_tasks)
-            )?;
+            let (operator_results, verifier_results) = futures::join!(
+                futures::future::join_all(operator_tasks),
+                futures::future::join_all(verifier_tasks)
+            );
+            // Log any errors from restart_background_tasks rpc call
+            for result in operator_results
+                .into_iter()
+                .chain(verifier_results.into_iter())
+            {
+                if let Err(e) = result {
+                    tracing::error!("{e:?}");
+                }
+            }
         }
         Ok(entity_statuses)
     }

@@ -126,6 +126,8 @@ pub enum TxError {
     InvalidRoundIndex(RoundIndex),
     #[error("Index overflow")]
     IndexOverflow,
+    #[error("Kickoff winternitz keys in DB has wrong size compared to paramset")]
+    KickoffWinternitzKeysDBInconsistency,
 
     #[error(transparent)]
     Other(#[from] eyre::Report),
