@@ -1405,6 +1405,7 @@ where
         keys: OperatorKeys,
         operator_xonly_pk: XOnlyPublicKey,
     ) -> Result<(), BridgeError> {
+        let mut dbtx = self.db.begin_transaction().await?;
         self.citrea_client
             .check_nofn_correctness(deposit_data.get_nofn_xonly_pk()?)
             .await?;
@@ -1413,7 +1414,7 @@ where
 
         self.db
             .insert_deposit_data_if_not_exists(
-                None,
+                Some(&mut dbtx),
                 &mut deposit_data,
                 self.config.protocol_paramset(),
             )
@@ -1440,13 +1441,13 @@ where
 
         let operator_data = self
             .db
-            .get_operator(None, operator_xonly_pk)
+            .get_operator(Some(&mut dbtx), operator_xonly_pk)
             .await?
             .ok_or(BridgeError::OperatorNotFound(operator_xonly_pk))?;
 
         self.db
             .insert_operator_challenge_ack_hashes_if_not_exist(
-                None,
+                Some(&mut dbtx),
                 operator_xonly_pk,
                 deposit_data.get_deposit_outpoint(),
                 &hashes,
@@ -1518,7 +1519,7 @@ where
 
         self.db
             .insert_operator_bitvm_keys_if_not_exist(
-                None,
+                Some(&mut dbtx),
                 operator_xonly_pk,
                 deposit_data.get_deposit_outpoint(),
                 bitvm_pks.to_flattened_vec(),
@@ -1527,7 +1528,7 @@ where
         // Save the public input wots to db along with the root hash
         self.db
             .insert_bitvm_setup_if_not_exists(
-                None,
+                Some(&mut dbtx),
                 operator_xonly_pk,
                 deposit_data.get_deposit_outpoint(),
                 &assert_tx_addrs,
@@ -1536,6 +1537,7 @@ where
             )
             .await?;
 
+        dbtx.commit().await?;
         Ok(())
     }
 
