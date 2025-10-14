@@ -307,7 +307,6 @@ impl TestCase for TxSenderReorgBehavior {
 }
 
 #[tokio::test]
-// #[ignore = "CPFP fails on reorgs"]
 async fn reorg_on_cpfp_tx() -> Result<()> {
     TestCaseRunner::new(TxSenderReorgBehavior).run().await
 }
