@@ -669,7 +669,7 @@ where
             &Message::from_digest(*sighash.as_byte_array()),
             user_xonly_pk,
         )
-        .wrap_err("Failed to verify signature received from user for payout txin. It is possible a non sighash SinglePlusAnyoneCanPay signature was given (as a 64 bytes signature)")?;
+        .wrap_err("Failed to verify signature received from user for payout txin. Ensure the signature uses SinglePlusAnyoneCanPay sighash type.")?;
 
         // send payout tx using RBF
         let funded_tx = self
