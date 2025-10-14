@@ -161,9 +161,18 @@ pub async fn parse_schnorr_sig(
 pub fn parse_withdrawal_sig_params(
     params: WithdrawParams,
 ) -> Result<(u32, taproot::Signature, OutPoint, ScriptBuf, Amount), Status> {
-    let input_signature = taproot::Signature::from_slice(&params.input_signature).map_err(|e| {
-        Status::invalid_argument(format!("Can't convert input to taproot Signature - {}", e))
-    })?;
+    let mut input_signature =
+        taproot::Signature::from_slice(&params.input_signature).map_err(|e| {
+            Status::invalid_argument(format!("Can't convert input to taproot Signature - {}", e))
+        })?;
+
+    // if sighash is type default (meaning sighash is not specified, 64 byte sig given), set it to SinglePlusAnyoneCanPay
+    if input_signature.sighash_type == TapSighashType::Default {
+        tracing::warn!(
+            "Input signature for withdrawal {} has sighash type default, setting to SinglePlusAnyoneCanPay", params.withdrawal_id,
+        );
+        input_signature.sighash_type = TapSighashType::SinglePlusAnyoneCanPay;
+    }
 
     // enforce sighash type here
     if input_signature.sighash_type != TapSighashType::SinglePlusAnyoneCanPay {
