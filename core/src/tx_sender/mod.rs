@@ -556,7 +556,7 @@ mod tests {
     ) {
         let sk = SecretKey::new(&mut rand::thread_rng());
         let network = bitcoin::Network::Regtest;
-        let actor = Actor::new(sk, None, network);
+        let actor = Actor::new(sk, network);
 
         let config = create_test_config_with_thread_name().await;
 
@@ -770,11 +770,7 @@ mod tests {
         let db = Database::new(&config).await.unwrap();
 
         let amount = Amount::from_sat(100_000);
-        let signer = Actor::new(
-            config.secret_key,
-            config.winternitz_secret_key,
-            config.protocol_paramset().network,
-        );
+        let signer = Actor::new(config.secret_key, config.protocol_paramset().network);
         let (xonly_pk, _) = config.secret_key.public_key(&SECP).x_only_public_key();
 
         let tx_sender = TxSender::new(

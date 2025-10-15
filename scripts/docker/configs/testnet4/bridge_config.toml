@@ -77,8 +77,6 @@ aggregator_cert_path = "/certs/aggregator/aggregator.pem"
 client_verification = true
 security_council = "1:50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0"
 
-winternitz_secret_key = "2222222222222222222222222222222222222222222222222222222222222222"
-
 socket_path = "/"
 
 [telemetry]

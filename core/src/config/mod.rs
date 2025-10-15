@@ -48,8 +48,6 @@ pub struct BridgeConfig {
     pub port: u16,
     /// Secret key for the operator or the verifier.
     pub secret_key: SecretKey,
-    /// Additional secret key that will be used for creating Winternitz one time signature.
-    pub winternitz_secret_key: Option<SecretKey>,
     /// Operator's fee for withdrawal, in satoshis.
     pub operator_withdrawal_fee_sats: Option<Amount>,
     /// Bitcoin remote procedure call URL.
@@ -230,7 +228,6 @@ impl PartialEq for BridgeConfig {
             && self.host == other.host
             && self.port == other.port
             && self.secret_key == other.secret_key
-            && self.winternitz_secret_key == other.winternitz_secret_key
             && self.operator_withdrawal_fee_sats == other.operator_withdrawal_fee_sats
             && self.bitcoin_rpc_url == other.bitcoin_rpc_url
             && self.bitcoin_rpc_user.expose_secret() == other.bitcoin_rpc_user.expose_secret()
@@ -318,12 +315,6 @@ impl Default for BridgeConfig {
                 threshold: 1,
             },
 
-            winternitz_secret_key: Some(
-                SecretKey::from_str(
-                    "2222222222222222222222222222222222222222222222222222222222222222",
-                )
-                .expect("known valid input"),
-            ),
             verifier_endpoints: None,
             operator_endpoints: None,
 

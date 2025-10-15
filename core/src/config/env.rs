@@ -76,14 +76,6 @@ impl BridgeConfig {
                         .collect::<Vec<String>>()
                 });
 
-        let winternitz_secret_key = if let Ok(sk) = std::env::var("WINTERNITZ_SECRET_KEY") {
-            Some(sk.parse::<SecretKey>().map_err(|e| {
-                BridgeError::EnvVarMalformed("WINTERNITZ_SECRET_KEY", e.to_string())
-            })?)
-        } else {
-            None
-        };
-
         let operator_withdrawal_fee_sats = if let Ok(operator_withdrawal_fee_sats) =
             std::env::var("OPERATOR_WITHDRAWAL_FEE_SATS")
         {
@@ -171,7 +163,6 @@ impl BridgeConfig {
             host: read_string_from_env("HOST")?,
             port: read_string_from_env_then_parse::<u16>("PORT")?,
             secret_key: read_string_from_env_then_parse::<SecretKey>("SECRET_KEY")?,
-            winternitz_secret_key,
             operator_withdrawal_fee_sats,
             operator_reimbursement_address,
             operator_collateral_funding_outpoint,
@@ -248,12 +239,6 @@ mod tests {
             "SECRET_KEY",
             default_config.secret_key.display_secret().to_string(),
         );
-        if let Some(ref winternitz_secret_key) = default_config.winternitz_secret_key {
-            std::env::set_var(
-                "WINTERNITZ_SECRET_KEY",
-                winternitz_secret_key.display_secret().to_string(),
-            );
-        }
         if let Some(ref operator_withdrawal_fee_sats) = default_config.operator_withdrawal_fee_sats
         {
             std::env::set_var(

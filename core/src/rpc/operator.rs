@@ -10,7 +10,7 @@ use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestD
 use crate::builder::transaction::ContractContext;
 use crate::citrea::CitreaClientT;
 use crate::compatibility::ActorWithConfig;
-use crate::constants::DEFAULT_CHANNEL_SIZE;
+use crate::constants::{DEFAULT_CHANNEL_SIZE, RESTART_BACKGROUND_TASKS_TIMEOUT};
 use crate::deposit::DepositData;
 use crate::errors::BridgeError;
 use crate::errors::ResultExt;
@@ -20,7 +20,7 @@ use crate::rpc::ecdsa_verification_sig::{
     recover_address_from_ecdsa_signature, OperatorWithdrawalMessage,
 };
 use crate::rpc::parser;
-use crate::utils::{get_vergen_response, monitor_standalone_task};
+use crate::utils::{get_vergen_response, monitor_standalone_task, timed_request};
 use alloy::primitives::PrimitiveSignature;
 use bitcoin::hashes::Hash;
 use bitcoin::{BlockHash, OutPoint};
@@ -48,6 +48,7 @@ where
     }
 
     async fn vergen(&self, _request: Request<Empty>) -> Result<Response<VergenResponse>, Status> {
+        tracing::info!("Vergen rpc called");
         Ok(Response::new(get_vergen_response()))
     }
 
@@ -55,18 +56,15 @@ where
         &self,
         _request: tonic::Request<super::Empty>,
     ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status> {
-        let result = tokio::time::timeout(
-            std::time::Duration::from_secs(60),
+        tracing::info!("Restarting background tasks rpc called");
+        timed_request(
+            RESTART_BACKGROUND_TASKS_TIMEOUT,
+            "Restarting background tasks",
             self.start_background_tasks(),
         )
-        .await;
-        match result {
-            Ok(Ok(_)) => Ok(tonic::Response::new(super::Empty {})),
-            Ok(Err(e)) => Err(e.into()),
-            Err(_) => Err(tonic::Status::deadline_exceeded(
-                "Timed out while restarting background tasks. Recommended to restart the operator manually.",
-            )),
-        }
+        .await?;
+        tracing::info!("Restarting background tasks rpc completed");
+        Ok(Response::new(Empty {}))
     }
 
     #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
@@ -74,6 +72,7 @@ where
         &self,
         _request: Request<Empty>,
     ) -> Result<Response<Self::GetParamsStream>, Status> {
+        tracing::info!("Get params rpc called");
         let operator = self.operator.clone();
         let (tx, rx) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
         let out_stream: Self::GetParamsStream = ReceiverStream::new(rx);
@@ -112,11 +111,16 @@ where
         &self,
         request: Request<DepositSignSession>,
     ) -> Result<Response<Self::DepositSignStream>, Status> {
+        tracing::info!("Deposit sign rpc called");
         let (tx, rx) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
 
         let deposit_sign_session = request.into_inner();
         let deposit_params: DepositParams = deposit_sign_session.try_into()?;
         let deposit_data: DepositData = deposit_params.try_into()?;
+        tracing::info!(
+            "Parsed deposit sign rpc params, deposit data: {:?}",
+            deposit_data
+        );
 
         let expected_sigs = self
             .operator
@@ -161,6 +165,8 @@ where
         let (withdrawal_id, input_signature, input_outpoint, output_script_pubkey, output_amount) =
             parser::operator::parse_withdrawal_sig_params(request.into_inner())?;
 
+        tracing::warn!("Called internal_withdraw with withdrawal id: {:?}, input signature: {:?}, input outpoint: {:?}, output script pubkey: {:?}, output amount: {:?}", withdrawal_id, input_signature, input_outpoint, output_script_pubkey, output_amount);
+
         let payout_tx = self
             .operator
             .withdraw(
@@ -180,12 +186,17 @@ where
         &self,
         request: Request<WithdrawParamsWithSig>,
     ) -> Result<Response<RawSignedTx>, Status> {
+        tracing::info!("Withdraw rpc called");
         let params = request.into_inner();
         let withdraw_params = params.withdrawal.ok_or(Status::invalid_argument(
             "Withdrawal params not found for withdrawal",
         ))?;
         let (withdrawal_id, input_signature, input_outpoint, output_script_pubkey, output_amount) =
             parser::operator::parse_withdrawal_sig_params(withdraw_params)?;
+
+        tracing::warn!(
+            "Parsed withdraw rpc params, withdrawal id: {:?}, input signature: {:?}, input outpoint: {:?}, output script pubkey: {:?}, output amount: {:?}, verification signature: {:?}", withdrawal_id, input_signature, input_outpoint, output_script_pubkey, output_amount, params.verification_signature
+        );
 
         // if verification address is set in config, check if verification signature is valid
         if let Some(address_in_config) = self.operator.config.aggregator_verification_address {
@@ -230,6 +241,11 @@ where
             )
             .await?;
 
+        tracing::info!(
+            "Withdraw rpc completed successfully for withdrawal id: {:?}",
+            withdrawal_id
+        );
+
         Ok(Response::new(RawSignedTx::from(&payout_tx)))
     }
 
@@ -240,7 +256,10 @@ where
     ) -> std::result::Result<tonic::Response<super::SignedTxsWithType>, tonic::Status> {
         let tx_req = request.into_inner();
         let tx_req_data: TransactionRequestData = tx_req.try_into()?;
-
+        tracing::warn!(
+            "Called internal_create_assert_commitment_txs with transaction request data: {:?}",
+            tx_req_data
+        );
         let raw_txs = self
             .operator
             .create_assert_commitment_txs(
@@ -276,7 +295,10 @@ where
         let start = std::time::Instant::now();
         let deposit_params = request.into_inner();
         let deposit_data: DepositData = deposit_params.try_into()?;
-
+        tracing::warn!(
+            "Called get_deposit_keys with deposit data: {:?}",
+            deposit_data
+        );
         let winternitz_keys = self
             .operator
             .generate_assert_winternitz_pubkeys(deposit_data.get_deposit_outpoint())?;
@@ -303,6 +325,10 @@ where
     ) -> std::result::Result<tonic::Response<super::SignedTxsWithType>, tonic::Status> {
         let transaction_request = request.into_inner();
         let transaction_data: TransactionRequestData = transaction_request.try_into()?;
+        tracing::warn!(
+            "Called internal_create_signed_txs with transaction request data: {:?}",
+            transaction_data
+        );
         let (_, deposit_data) = self
             .operator
             .db
@@ -346,6 +372,11 @@ where
             ));
         }
 
+        tracing::info!(
+            "Internal finalized payout rpc called with finalized payout params: {:?}",
+            request.get_ref()
+        );
+
         let payout_blockhash: [u8; 32] = request
             .get_ref()
             .payout_blockhash
@@ -380,6 +411,7 @@ where
         &self,
         _request: Request<Empty>,
     ) -> Result<Response<Empty>, Status> {
+        tracing::warn!("Internal end round rpc called");
         #[cfg(feature = "automation")]
         {
             let mut dbtx = self.operator.db.begin_transaction().await?;
@@ -401,6 +433,7 @@ where
         &self,
         _request: Request<Empty>,
     ) -> Result<Response<XOnlyPublicKeyRpc>, Status> {
+        tracing::info!("Get xonly public key rpc called");
         let xonly_pk = self.operator.signer.xonly_public_key.serialize();
         Ok(Response::new(XOnlyPublicKeyRpc {
             xonly_public_key: xonly_pk.to_vec(),
@@ -411,7 +444,9 @@ where
         &self,
         _request: Request<Empty>,
     ) -> Result<Response<clementine::EntityStatus>, Status> {
+        tracing::info!("Get current status rpc called");
         let status = self.get_current_status().await?;
+        tracing::info!("Get current status rpc completed successfully");
         Ok(Response::new(status))
     }
 
@@ -420,6 +455,10 @@ where
         request: Request<clementine::Outpoint>,
     ) -> Result<Response<SignedTxsWithType>, Status> {
         let deposit_outpoint: OutPoint = request.into_inner().try_into()?;
+        tracing::warn!(
+            "Get reimbursement txs rpc called with deposit outpoint: {:?}",
+            deposit_outpoint
+        );
         let txs = self
             .operator
             .get_reimbursement_txs(deposit_outpoint)
