@@ -331,7 +331,7 @@ impl TxSender {
         is_tip_height_increased: bool,
     ) -> Result<()> {
         // get_sendable_txs doesnt return txs that we already sent in the past with >= fee rate to the current fee rate
-        // but if we have a new block eheight, but the tx is still not confirmed, we want to send it again anyway in case
+        // but if we have a new block height, but the tx is still not confirmed, we want to send it again anyway in case
         // some error occured on our bitcoin rpc/our tx got evicted from mempool somehow (for ex: if a fee payer of cpfp tx was reorged,
         // cpfp tx will get evicted as v3 cpfp cannot have unconfirmed ancestors)
         // if block height is increased, we use a dummy high fee rate to get all sendable txs
