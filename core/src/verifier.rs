@@ -2476,6 +2476,7 @@ where
         deposit_data: &mut DepositData,
         operator_xonly_pk: XOnlyPublicKey,
         operator_asserts: &HashMap<usize, Witness>,
+        dbtx: DatabaseTransaction<'_, '_>,
     ) -> Result<Option<(usize, StructuredScript)>, BridgeError> {
         use bridge_circuit_host::utils::get_verifying_key;
 
@@ -2483,7 +2484,7 @@ where
             &self
                 .db
                 .get_operator_bitvm_keys(
-                    None,
+                    Some(dbtx),
                     operator_xonly_pk,
                     deposit_data.get_deposit_outpoint(),
                 )
@@ -2972,6 +2973,7 @@ mod states {
                                 &mut deposit_data,
                                 kickoff_data.operator_xonly_pk,
                                 &operator_asserts,
+                                dbtx,
                             )
                             .await?
                         {
