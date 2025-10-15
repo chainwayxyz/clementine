@@ -70,8 +70,8 @@ impl CompatibilityParams {
             "Failed to parse other Clementine version {}",
             other.clementine_version
         ))?;
-        // allow different patch versions, but not different major or minor versions
-        // can do something different here
+        // allow different patch versions, but require major and minor versions to match for compatibility
+        // This ensures that only compatible protocol changes are accepted, while allowing bugfixes.
         if own_version.major != other_version.major || own_version.minor != other_version.minor {
             reasons.push("Clementine version mismatch");
         }
