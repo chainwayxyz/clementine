@@ -1777,11 +1777,7 @@ mod tests {
         let mut aggregator = actors.get_aggregator();
 
         let evm_address = EVMAddress([1u8; 20]);
-        let signer = Actor::new(
-            config.secret_key,
-            config.winternitz_secret_key,
-            config.protocol_paramset().network,
-        );
+        let signer = Actor::new(config.secret_key, config.protocol_paramset().network);
 
         let verifiers_public_keys: Vec<bitcoin::secp256k1::PublicKey> = aggregator
             .setup(tonic::Request::new(clementine::Empty {}))
@@ -1887,11 +1883,7 @@ mod tests {
         let mut aggregator = actors.get_aggregator();
 
         let evm_address = EVMAddress([1u8; 20]);
-        let signer = Actor::new(
-            config.secret_key,
-            config.winternitz_secret_key,
-            config.protocol_paramset().network,
-        );
+        let signer = Actor::new(config.secret_key, config.protocol_paramset().network);
 
         let verifiers_public_keys: Vec<bitcoin::secp256k1::PublicKey> = aggregator
             .setup(tonic::Request::new(clementine::Empty {}))
@@ -1983,11 +1975,7 @@ mod tests {
         let mut aggregator = actors.get_aggregator();
 
         let evm_address = EVMAddress([1u8; 20]);
-        let signer = Actor::new(
-            config.secret_key,
-            config.winternitz_secret_key,
-            config.protocol_paramset().network,
-        );
+        let signer = Actor::new(config.secret_key, config.protocol_paramset().network);
 
         let verifiers_public_keys: Vec<bitcoin::secp256k1::PublicKey> = aggregator
             .setup(tonic::Request::new(clementine::Empty {}))

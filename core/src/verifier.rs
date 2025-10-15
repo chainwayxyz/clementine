@@ -401,11 +401,7 @@ where
     C: CitreaClientT,
 {
     pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
-        let signer = Actor::new(
-            config.secret_key,
-            config.winternitz_secret_key,
-            config.protocol_paramset().network,
-        );
+        let signer = Actor::new(config.secret_key, config.protocol_paramset().network);
 
         let rpc = ExtendedBitcoinRpc::connect(
             config.bitcoin_rpc_url.clone(),
@@ -1405,6 +1401,7 @@ where
         keys: OperatorKeys,
         operator_xonly_pk: XOnlyPublicKey,
     ) -> Result<(), BridgeError> {
+        let mut dbtx = self.db.begin_transaction().await?;
         self.citrea_client
             .check_nofn_correctness(deposit_data.get_nofn_xonly_pk()?)
             .await?;
@@ -1413,7 +1410,7 @@ where
 
         self.db
             .insert_deposit_data_if_not_exists(
-                None,
+                Some(&mut dbtx),
                 &mut deposit_data,
                 self.config.protocol_paramset(),
             )
@@ -1440,13 +1437,13 @@ where
 
         let operator_data = self
             .db
-            .get_operator(None, operator_xonly_pk)
+            .get_operator(Some(&mut dbtx), operator_xonly_pk)
             .await?
             .ok_or(BridgeError::OperatorNotFound(operator_xonly_pk))?;
 
         self.db
             .insert_operator_challenge_ack_hashes_if_not_exist(
-                None,
+                Some(&mut dbtx),
                 operator_xonly_pk,
                 deposit_data.get_deposit_outpoint(),
                 &hashes,
@@ -1518,7 +1515,7 @@ where
 
         self.db
             .insert_operator_bitvm_keys_if_not_exist(
-                None,
+                Some(&mut dbtx),
                 operator_xonly_pk,
                 deposit_data.get_deposit_outpoint(),
                 bitvm_pks.to_flattened_vec(),
@@ -1527,7 +1524,7 @@ where
         // Save the public input wots to db along with the root hash
         self.db
             .insert_bitvm_setup_if_not_exists(
-                None,
+                Some(&mut dbtx),
                 operator_xonly_pk,
                 deposit_data.get_deposit_outpoint(),
                 &assert_tx_addrs,
@@ -1536,6 +1533,7 @@ where
             )
             .await?;
 
+        dbtx.commit().await?;
         Ok(())
     }
 
@@ -2388,14 +2386,21 @@ where
     async fn verify_disprove_conditions(
         &self,
         deposit_data: &mut DepositData,
+        operator_xonly_pk: XOnlyPublicKey,
         operator_asserts: &HashMap<usize, Witness>,
     ) -> Result<Option<(usize, StructuredScript)>, BridgeError> {
         use bridge_circuit_host::utils::get_verifying_key;
 
-        let bitvm_pks = self.signer.generate_bitvm_pks_for_deposit(
-            deposit_data.get_deposit_outpoint(),
-            self.config.protocol_paramset,
-        )?;
+        let bitvm_pks = ClementineBitVMPublicKeys::from_flattened_vec(
+            &self
+                .db
+                .get_operator_bitvm_keys(
+                    None,
+                    operator_xonly_pk,
+                    deposit_data.get_deposit_outpoint(),
+                )
+                .await?,
+        );
         let disprove_scripts = bitvm_pks.get_g16_verifier_disprove_scripts()?;
 
         let deposit_outpoint = deposit_data.get_deposit_outpoint();
@@ -2869,7 +2874,11 @@ mod states {
 
                         // If no additional witness, try to find a standard disprove witness
                         match self
-                            .verify_disprove_conditions(&mut deposit_data, &operator_asserts)
+                            .verify_disprove_conditions(
+                                &mut deposit_data,
+                                kickoff_data.operator_xonly_pk,
+                                &operator_asserts,
+                            )
                             .await?
                         {
                             Some((index, disprove_script)) => {

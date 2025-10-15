@@ -195,7 +195,6 @@ pub fn verify_schnorr(
 #[derive(Debug, Clone)]
 pub struct Actor {
     pub keypair: Keypair,
-    winternitz_secret_key: Option<SecretKey>,
     pub xonly_public_key: XOnlyPublicKey,
     pub public_key: PublicKey,
     pub address: Address,
@@ -203,18 +202,13 @@ pub struct Actor {
 
 impl Actor {
     #[tracing::instrument(ret(level = tracing::Level::TRACE))]
-    pub fn new(
-        sk: SecretKey,
-        winternitz_secret_key: Option<SecretKey>,
-        network: bitcoin::Network,
-    ) -> Self {
+    pub fn new(sk: SecretKey, network: bitcoin::Network) -> Self {
         let keypair = Keypair::from_secret_key(&SECP, &sk);
         let (xonly, _parity) = XOnlyPublicKey::from_keypair(&keypair);
         let address = Address::p2tr(&SECP, xonly, None, network);
 
         Actor {
             keypair,
-            winternitz_secret_key,
             xonly_public_key: xonly,
             public_key: keypair.public_key(),
             address,
@@ -279,11 +273,7 @@ impl Actor {
         &self,
         path: WinternitzDerivationPath,
     ) -> Result<winternitz::SecretKey, BridgeError> {
-        let wsk = self
-            .winternitz_secret_key
-            .ok_or_eyre("Root Winternitz secret key is not provided in configuration file")?;
-
-        let hk = Hkdf::<Sha256>::new(None, wsk.as_ref());
+        let hk = Hkdf::<Sha256>::new(None, self.keypair.secret_key().as_ref());
         let path_bytes = path.to_bytes();
         let mut derived_key = vec![0u8; 32];
         hk.expand(&path_bytes, &mut derived_key)
@@ -886,7 +876,7 @@ mod tests {
     #[test]
     fn test_actor_key_spend_verification() {
         let sk = SecretKey::new(&mut thread_rng());
-        let actor = Actor::new(sk, None, Network::Regtest);
+        let actor = Actor::new(sk, Network::Regtest);
         let (utxo, mut txhandler) = create_key_spend_tx_handler(&actor);
 
         // Actor signs the key spend input.
@@ -904,7 +894,7 @@ mod tests {
     #[test]
     fn test_actor_script_spend_tx_valid() {
         let sk = SecretKey::new(&mut thread_rng());
-        let actor = Actor::new(sk, None, Network::Regtest);
+        let actor = Actor::new(sk, Network::Regtest);
         let (prevutxo, mut txhandler) = create_script_spend_tx_handler(&actor);
 
         // Actor performs a partial sign for script spend.
@@ -924,7 +914,7 @@ mod tests {
     #[test]
     fn test_actor_script_spend_sig_valid() {
         let sk = SecretKey::new(&mut thread_rng());
-        let actor = Actor::new(sk, None, Network::Regtest);
+        let actor = Actor::new(sk, Network::Regtest);
         let (_, mut txhandler) = create_script_spend_tx_handler(&actor);
 
         // Actor performs a partial sign for script spend.
@@ -959,7 +949,7 @@ mod tests {
         let sk = SecretKey::new(&mut rand::thread_rng());
         let network = Network::Regtest;
 
-        let actor = Actor::new(sk, None, network);
+        let actor = Actor::new(sk, network);
 
         assert_eq!(sk.public_key(&SECP), actor.public_key);
         assert_eq!(sk.x_only_public_key(&SECP).0, actor.xonly_public_key);
@@ -969,7 +959,7 @@ mod tests {
     fn sign_taproot_pubkey_spend() {
         let sk = SecretKey::new(&mut rand::thread_rng());
         let network = Network::Regtest;
-        let actor = Actor::new(sk, None, network);
+        let actor = Actor::new(sk, network);
 
         // This transaction is matching with prevouts. Therefore signing will
         // be successful.
@@ -989,7 +979,7 @@ mod tests {
     fn sign_taproot_pubkey_spend_tx_with_sighash() {
         let sk = SecretKey::new(&mut rand::thread_rng());
         let network = Network::Regtest;
-        let actor = Actor::new(sk, None, network);
+        let actor = Actor::new(sk, network);
 
         // This transaction is matching with prevouts. Therefore signing will
         // be successful.
@@ -1004,11 +994,7 @@ mod tests {
     async fn derive_winternitz_pk_uniqueness() {
         let paramset: &'static ProtocolParamset = ProtocolParamsetName::Regtest.into();
         let config = create_test_config_with_thread_name().await;
-        let actor = Actor::new(
-            config.secret_key,
-            config.winternitz_secret_key,
-            Network::Regtest,
-        );
+        let actor = Actor::new(config.secret_key, Network::Regtest);
 
         let mut params = WinternitzDerivationPath::Kickoff(RoundIndex::Round(0), 0, paramset);
         let pk0 = actor.derive_winternitz_pk(params.clone()).unwrap();
@@ -1092,16 +1078,10 @@ mod tests {
 
     #[tokio::test]
     async fn derive_winternitz_pk_fixed_pk() {
-        let config = create_test_config_with_thread_name().await;
         let paramset: &'static ProtocolParamset = ProtocolParamsetName::Regtest.into();
         let actor = Actor::new(
-            config.secret_key,
-            Some(
-                SecretKey::from_str(
-                    "451F451F451F451F451F451F451F451F451F451F451F451F451F451F451F451F",
-                )
+            SecretKey::from_str("451F451F451F451F451F451F451F451F451F451F451F451F451F451F451F451F")
                 .unwrap(),
-            ),
             Network::Regtest,
         );
         // Test so that same path always returns the same public key (to not change it accidentally)
@@ -1144,16 +1124,7 @@ mod tests {
     #[tokio::test]
     async fn sign_winternitz_signature() {
         let config = create_test_config_with_thread_name().await;
-        let actor = Actor::new(
-            config.secret_key,
-            Some(
-                SecretKey::from_str(
-                    "451F451F451F451F451F451F451F451F451F451F451F451F451F451F451F451F",
-                )
-                .unwrap(),
-            ),
-            Network::Regtest,
-        );
+        let actor = Actor::new(config.secret_key, Network::Regtest);
 
         let data = "iwantporscheasagiftpls".as_bytes().to_vec();
         let message_len = data.len() as u32 * 2;
@@ -1199,7 +1170,7 @@ mod tests {
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc();
         let sk = SecretKey::new(&mut thread_rng());
-        let actor = Actor::new(sk, None, Network::Regtest);
+        let actor = Actor::new(sk, Network::Regtest);
 
         // Create a UTXO controlled by the actor's key spend path
         let (tap_addr, spend_info) =
@@ -1298,7 +1269,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_auth_token() {
-        let actor = Actor::new(SecretKey::new(&mut thread_rng()), None, Network::Regtest);
+        let actor = Actor::new(SecretKey::new(&mut thread_rng()), Network::Regtest);
         let token = actor.get_auth_token();
         assert!(actor
             .verify_auth_token(&token, &actor.xonly_public_key)
