@@ -13,6 +13,8 @@ use crate::builder::sighash::{
 use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::input::UtxoVout;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
+#[cfg(feature = "automation")]
+use crate::builder::transaction::ReimburseDbCache;
 use crate::builder::transaction::{
     create_emergency_stop_txhandler, create_move_to_vault_txhandler,
     create_optimistic_payout_txhandler, ContractContext, TransactionType, TxHandler,
@@ -2127,19 +2129,9 @@ where
         operator_asserts: &HashMap<usize, Witness>,
         operator_acks: &HashMap<usize, Witness>,
         txhandlers: &BTreeMap<TransactionType, TxHandler>,
-        dbtx: DatabaseTransaction<'_, '_>,
+        db_cache: &mut ReimburseDbCache<'_, '_>,
     ) -> Result<Option<bitcoin::Witness>, BridgeError> {
         use bitvm::clementine::additional_disprove::debug_assertions_for_additional_script;
-
-        use crate::builder::transaction::ReimburseDbCache;
-
-        let mut reimburse_db_cache = ReimburseDbCache::new_for_deposit(
-            self.db.clone(),
-            kickoff_data.operator_xonly_pk,
-            deposit_data.get_deposit_outpoint(),
-            self.config.protocol_paramset(),
-            Some(dbtx),
-        );
 
         let nofn_key = deposit_data.get_nofn_xonly_pk().inspect_err(|e| {
             tracing::error!("Error getting nofn xonly pk: {:?}", e);
@@ -2198,10 +2190,7 @@ where
 
         tracing::debug!("Deposit constant: {:?}", deposit_constant);
 
-        let kickoff_winternitz_keys = reimburse_db_cache
-            .get_kickoff_winternitz_keys()
-            .await?
-            .clone();
+        let kickoff_winternitz_keys = db_cache.get_kickoff_winternitz_keys().await?.clone();
 
         let payout_tx_blockhash_pk = kickoff_winternitz_keys
             .get_keys_for_round(kickoff_data.round_idx)?
@@ -2209,7 +2198,7 @@ where
             .ok_or(TxError::IndexOverflow)?
             .clone();
 
-        let replaceable_additional_disprove_script = reimburse_db_cache
+        let replaceable_additional_disprove_script = db_cache
             .get_replaceable_additional_disprove_script()
             .await?;
 
@@ -2474,22 +2463,12 @@ where
     async fn verify_disprove_conditions(
         &self,
         deposit_data: &mut DepositData,
-        operator_xonly_pk: XOnlyPublicKey,
         operator_asserts: &HashMap<usize, Witness>,
-        dbtx: DatabaseTransaction<'_, '_>,
+        db_cache: &mut ReimburseDbCache<'_, '_>,
     ) -> Result<Option<(usize, StructuredScript)>, BridgeError> {
         use bridge_circuit_host::utils::get_verifying_key;
 
-        let bitvm_pks = ClementineBitVMPublicKeys::from_flattened_vec(
-            &self
-                .db
-                .get_operator_bitvm_keys(
-                    Some(dbtx),
-                    operator_xonly_pk,
-                    deposit_data.get_deposit_outpoint(),
-                )
-                .await?,
-        );
+        let bitvm_pks = db_cache.get_operator_bitvm_keys().await?.clone();
         let disprove_scripts = bitvm_pks.get_g16_verifier_disprove_scripts()?;
 
         let deposit_outpoint = deposit_data.get_deposit_outpoint();
@@ -2924,6 +2903,7 @@ mod states {
                         self.config.protocol_paramset(),
                         self.signer.clone(),
                     );
+
                     let mut db_cache =
                         ReimburseDbCache::from_context(self.db.clone(), &context, Some(dbtx));
 
@@ -2945,7 +2925,7 @@ mod states {
                             &operator_asserts,
                             &operator_acks,
                             &txhandlers,
-                            dbtx,
+                            &mut db_cache,
                         )
                         .await?
                     {
@@ -2971,9 +2951,8 @@ mod states {
                         match self
                             .verify_disprove_conditions(
                                 &mut deposit_data,
-                                kickoff_data.operator_xonly_pk,
                                 &operator_asserts,
-                                dbtx,
+                                &mut db_cache,
                             )
                             .await?
                         {
