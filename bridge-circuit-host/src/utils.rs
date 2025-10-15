@@ -314,6 +314,7 @@ pub fn total_work_from_wt_tx(wt_tx: &Transaction) -> [u8; 16] {
 
 /// Convert a recursion VM seal (i.e. succinct receipt) into a JSON format compatible with the
 /// `stark_verify` witness generator. Taken from risc0-groth16 v2.3.2.
+/// This function will be removed once Risc Zero publishes a new version that exposes this function publicly.
 pub fn to_json<R: Read, W: Write>(mut reader: R, mut writer: W) -> Result<()> {
     let mut iop = vec![0u32; K_SEAL_WORDS];
     reader
